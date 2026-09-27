@@ -1,0 +1,15 @@
+[package]
+name = "caditor-kernel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+caditor-geometry.workspace = true
+
+spade.workspace = true
+thiserror.workspace = true

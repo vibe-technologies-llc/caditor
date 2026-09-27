@@ -32,15 +32,20 @@ The Cargo workspace is `crates/*`. Dependencies point in one direction only:
 caditor-expression  ←──────────────────┐
        ↑                               │
 caditor-geometry  ←  caditor-sketch  ←  caditor-document  ←  caditor-file  ←  caditor (bin)
-       ↑                                                                          │
-       └──────────────  caditor-render  ←─────────────────────────────────────────┘
+   ↑   ↑                                                                          │
+   │   └──────────────  caditor-render  ←─────────────────────────────────────────┘
+   └──  caditor-kernel
 ```
 
 `caditor-expression` has no workspace dependencies; the sketch, document, file and app crates all
 use it. `caditor-file` and the app also use the geometry and sketch crates directly.
+`caditor-kernel` depends only on `caditor-geometry`, never on the sketch or document crates; no
+crate uses it yet.
 
 - **caditor-geometry**: the math vocabulary, as f64 `glam` aliases (`Point3`, `Rotation3`, …)
-  plus `Plane` (origin, normal and in-plane x axis), `Ray` and `Aabb`. The world is Z-up and
+  plus `Plane` (origin, normal and in-plane x axis, also used as the frame of every circle and
+  rotational surface), `Ray`, `Aabb`, `Aabb2` and the rigid transforms `RigidTransform` and
+  `RigidTransform2`. The world is Z-up and
   model data is f64 throughout; conversion to f32 happens only at the GPU boundary in the
   renderer.
 - **caditor-expression**: units and expressions. A `Quantity` is an f64 in base units
@@ -70,6 +75,160 @@ use it. `caditor-file` and the app also use the geometry and sketch crates direc
     is reported as redundant, naming what it duplicates. When a part does not converge, a
     deletion filter finds a minimal set of conflicting constraints, which recompute reports as
     the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
+- **caditor-kernel**: caditor's own B-rep geometry kernel (no truck, no OpenCascade), the base of
+  solid modelling.
+  - Tolerances live in `tolerance.rs`: `LINEAR_RESOLUTION` is 1e-6 mm and `ANGULAR_RESOLUTION`
+    is the angle that moves a point at `MODEL_EXTENT` (10 m) by it. `SamplingTolerance` (chord
+    and angle) drives every sampling, and `Solid::default_tolerance` derives one from the size.
+    Constructors reject non-finite and degenerate input, every iteration has a fixed bound, and
+    failures are errors, never panics.
+  - `Curve` (line, circle, ellipse, B-spline, intersection) and `Curve2` (line, circle, B-spline)
+    share one `BSpline<P>` (clamped, optionally rational, degree up to 9) and generic sampling,
+    length and closest-point code. Lines run by arc length along a unit direction, circles and
+    ellipses by angle in a `Plane` frame (period 2π), splines over their knot range. Reversal maps
+    t to `reversal_pivot() - t`. Closest points are analytic for lines and circles, otherwise
+    seeded by sampling and refined by bracketed Newton.
+  - `Curve::Intersection(IntersectionCurve)` lies on two surfaces it carries: nodes refined onto
+    both (point, unit tangent, uv on each) joined by cubic Hermite segments in approximate arc
+    length, subdivided until the midpoint of every segment is within `INTERSECTION_TOLERANCE`
+    (a quarter of `LINEAR_RESOLUTION`) of the true intersection, so edges built on it validate.
+    A closed one is periodic over its length. `uv_at` and `refined_point` re-project onto both
+    surfaces; `trimmed` returns a sub-range as a new curve with the same parameters and shape.
+  - `Surface`: plane, cylinder, cone, sphere, torus, extrusion and revolution. u is the angle
+    around the axis (the frame normal) on every rotational surface; the cone's v is slant
+    distance from its reference circle, the sphere's v latitude, the torus's v the tube angle,
+    and a revolution's v the profile parameter. An extrusion is (profile parameter, distance).
+    du × dv points outward on every elementary surface. Singularities are always `Pole`s: v
+    isolines where du vanishes (sphere poles, cone apex, a revolution profile ending on its
+    axis). `project` returns the periodic representative nearest a hint, else the principal one
+    in [0, period); on spline profiles it keeps the closest point near the hint when no other is
+    closer by more than the resolution, so self-crossing profiles project consistently.
+    `same_surface` gives the `Sense` between the normals of two coincident surfaces whatever
+    their frames and seams: analytic for elementary pairs, and by mutual sampled projection when
+    an extrusion or revolution is involved.
+  - Topology: a `Solid` arena of vertices, edges, coedges, loops, faces and shells behind typed
+    ids and accessors, built through `SolidBuilder`, whose `build` validates. An edge is a
+    curve, an interval and two vertices (one for a closed edge). A coedge has a sense and a
+    pcurve: a uv polyline carrying the edge parameter of each sample, with exact end points,
+    refined until its chords stay within `PCURVE_TOLERANCE` in space, continuous across
+    periodic seams. A face's first loop is its outer one, and loops run counter-clockwise about
+    the face normal, so in uv the outer loop is counter-clockwise when the face sense is `Same`.
+    A face that wraps around a periodic surface has a seam edge used twice in its loop with
+    opposite senses, one period apart in uv; `add_loop` fits pcurves by chaining projection
+    hints and moves the second copy of a seam by a period when the chain put both on one side.
+    Poles have no degenerate edges: the pole is a vertex, and the uv loop is closed along the
+    pole line between the two coedges that meet there, a gap that validation and tessellation
+    both accept. Faces carry a `FaceName` and an optional `FaceOrigin`, edges an `EdgeName`.
+  - `Solid::validate` checks a closed, oriented 2-manifold whose geometry agrees with its
+    topology (edge uses and senses, loop chaining in space and in uv, vertices on curve ends,
+    edges on both surfaces, pcurves on their edges, loop winding and nesting, shell
+    connectivity, Euler–Poincaré per shell, positive volume for lumps and voids inside a lump)
+    and returns the first `ValidationError`, with ids. The volume checks run on a coarse mesh and
+    retry finer before reporting a void outside its lump.
+  - Tessellation samples each edge once and shares its positions between both faces. Each face
+    is a constrained Delaunay triangulation (spade) of its loops in (u, v), scaled by the mean
+    surface speeds, plus a uniform grid of interior points spaced by curvature and kept clear of
+    the boundary; triangles are kept by the parity of constraint crossings from outside.
+    Pole-line points share the pole's position and the triangles that collapse there are
+    dropped, so the mesh stays watertight. `Mesh` holds shared positions, per-face vertices with
+    exact surface normals, triangles, each face's triangle range and each edge's polyline, and
+    computes volume, area and centroid by the divergence theorem. When a face boundary crosses
+    itself at the requested tolerance (loops closer than the sampling error), tessellation retries
+    with halved chord and angle a few times before failing.
+  - Naming (`naming/`): `FaceName`, `EdgeName` and `VertexName` are 128-bit FNV-1a digests over a
+    canonical little-endian encoding with a tag byte per constructor; they are stored in files, so
+    the encoding and the pinned digests in `naming/tests.rs` never change. Faces: `side(feature,
+    PieceId)`, `start_cap` and `end_cap(feature, RegionKey)`. Edges: `between` (unordered face
+    pair), `seam(face)` for the profile seam of a full revolution, and, when several edges share
+    a name, `between_at(left, right, from, to)` with the vertex names (sets of faces around each
+    end) and the faces oriented by the edge, then `occurrence` ordered by position as a last
+    resort. `FaceOrigin` (side of an entity, start or end cap, with the raw feature and entity
+    ids) says in words what a face came from. Later generators (a fillet face named by the edge it
+    replaced, boolean fragments that keep their name) are new constructors with new tags.
+  - Profiles (`profile/`): `Profile::new` takes `ProfileCurve`s (lines, circles, counter-clockwise
+    arcs, clamped B-splines with an explicit knot vector) tagged with the sketch entity id as a
+    plain u64, and builds the planar arrangement with tolerance 1e-7 of the profile size (at
+    least `LINEAR_RESOLUTION`): analytic line and circle intersections, subdivision on monotone
+    spans plus damped Newton for splines (self-crossings included), endpoints landing on curves,
+    clustering of nearby points into vertices, merging of overlapping collinear or co-circular
+    pieces (the lowest entity id is kept), pruning of dangling pieces and bridges, and faces
+    traced by angle at each vertex (ties between tangent curves decided by the position a short
+    way along). A `Region` has a CCW outer `ProfileLoop` and CW holes of `Piece`s (entity, 2D
+    curve, parameter range, reversed), with the region on the left of every piece. A `PieceId` is
+    the entity plus what bounds each end: its own start or end, or the sorted ids of the curves
+    that cut it there with an occurrence counted along the curve. A `RegionKey` digests the set of
+    (entity, side) pairs of its boundary; regions sharing a key are told apart by their piece
+    ids. Depth counts nesting of connected components inside faces of others. `select` with
+    `Selection::EvenDepth` (the default) or explicit keys returns the union of the chosen regions
+    as new regions keyed the same way, so adjacent regions sweep as one lump. Errors name the
+    entity ids.
+  - Intersections (`intersect/`) take a `SurfacePatch` (a surface and a finite uv box; periodic
+    boxes wrap, poles accept any u) so booleans intersect face patches, and restrict curves to a
+    parameter interval. Coincidence within tolerance is detected, never guessed: a curve lying
+    in a surface or on another curve is an overlap interval, and coincident surfaces return
+    `SurfaceIntersection::Coincident(Sense)` from `same_surface`. Points within
+    `LINEAR_RESOLUTION` are one point; one at a range end takes the exact end parameter, and a
+    closed curve's wrap point is reported once. `tangent` flags touches (no sign change, or
+    parallel tangent within 1e-7), and clusters of roots closer than the resolution collapse to
+    one tangent point.
+    - `intersect_curve_surface` (points with curve parameter and uv, overlaps): analytic for a
+      line against plane, cylinder, cone (its own nappe) and sphere, the torus quartic isolated
+      through its derivatives' roots, circles and ellipses against planes, circles against
+      spheres and coaxial cylinders, cones and tori, and an intersection curve on its own
+      surfaces. Otherwise the curve is subdivided on piece boxes (within one spline span, the
+      samples widened by a second-derivative sagitta, since span hulls do not shrink) pruned by
+      the surface's Lipschitz distance until flat relative
+      to both curvatures, then each leaf brackets sign changes of the signed distance (roots
+      verified by true distance) and minimises it for touches. Swept surfaces project locally
+      from the previous foot point inside a leaf.
+    - `intersect_curves` and `intersect_curves2` (parameters on both, overlaps): analytic for
+      lines and 2D circles, else paired subdivision to flat pieces and Newton on the squared
+      distance from several starts per leaf.
+    - `intersect_surfaces` returns `IntersectionBranch`es (curve, increasing range inside both
+      boxes, closed flag, end uv on both sides, tangent flag) and isolated `IntersectionPoint`s.
+      Analytic: plane/plane, plane/cylinder (circle, ellipse, two lines, tangent line), plane/cone
+      (circle, ellipse, rulings through the apex or a tangent ruling, the apex alone), plane
+      through a torus axis (two circles), plane/extrusion (lines when parallel to the direction,
+      else the profile's exact affine image: B-spline, line, conic), parallel cylinders (lines or
+      a tangent line), equal cylinders with crossing axes (two ellipses and the two tangent
+      points), and every coaxial pair of rotational surfaces (plane normal to the axis, sphere
+      centred on it, cylinder, cone, torus, revolution with a planar profile), whose meridians are
+      intersected in (r, z) as 2D curves: each point is a circle, tangent points give tangent
+      circles, points on the axis give isolated points. Everything else is marched: seeds come
+      from paired subdivision of both patches (sub-patches cached with their boxes, pruned by box
+      overlap and Lipschitz distance) down to leaves of half a curvature radius, each solved by
+      minimal-norm Gauss–Newton, then a sign scan of the distance for tiny loops; a leaf already
+      holding a transversal seed is skipped. Branches march both ways from each seed not already
+      on a branch, with steps limited by the turn of the tangent, stop exactly on the box boundary
+      (a parameter-constrained solve), close loops through the seed and end where the normals
+      become parallel (reported as tangent points). Near poles the contact is solved with one
+      surface as carrier and the other's signed distance. A marched branch that is a line, circle
+      or ellipse within half the resolution is returned as that curve.
+  - Point classification (`topology/classify.rs`, `SolidClassifier` to reuse per solid):
+    `classify_point` gives `Inside`, `Outside` or `OnBoundary(face)` exactly: a point on a face's
+    surface and inside its boundary is on it, otherwise rays from a fixed list of directions are
+    intersected with each face's surface through `intersect_curve_surface`, and the nearest
+    crossing's outward normal decides; a ray that grazes, is tangent, lies in a face or meets an
+    edge or vertex is discarded for the next direction. `point_in_face(face, uv)` (`Inside`,
+    `Outside`, `OnBoundary`) uses the pcurve polygons by parity over periodic shifts (poles probed
+    just off the pole line), and near the boundary (within a few `PCURVE_TOLERANCE`) the exact
+    edge: the side of the nearest non-seam coedge, or of both coedges at a vertex (convex corners
+    need both). `classify_boundary_point(point, normal)` adds `Coincident { face, sense }` for a
+    point on a face whose normal is parallel, and `Touching(face)` otherwise.
+  - Builders (`build/`): `extrude(plane, regions, LinearExtent, feature)` and `revolve(plane,
+    regions, Axis2, AngularExtent, feature)` plan vertices, edges and faces, merge coincident
+    vertices within a shell (pinched regions), name every face and edge, group faces into shells by
+    shared edges and emit through `SolidBuilder`, so a result is valid or an error (`SweepError`).
+    Extrusion sides are planes, cylinders or extrusion surfaces; revolution sides are planes,
+    cylinders, cones, spheres, tori or revolution surfaces (splines, and arcs whose circle reaches
+    the axis, converted to rational splines). Faces on extrusion and revolution surfaces get exact
+    straight pcurves; the rest are fitted. The start cap is the one at the extent's start (the
+    sketch plane for `one_side`), whichever way the sweep runs, so flipping the direction keeps
+    every name. A profile on the right of the revolution axis is revolved about the reversed axis;
+    lines on the axis become shared cap edges or nothing, endpoints on it poles, and a full turn has
+    no caps (holes become void shells). The document is expected to convert a solved sketch to
+    `ProfileCurve`s, keep the chosen `RegionKey`s in the feature, and call these with the feature
+    id.
 - **caditor-document**: the parametric model: parameters, the ordered feature tree and
   everything that changes or recomputes it.
   - Every mutation is a `Transaction` of `Edit`s passed to `Document::apply`, the only public

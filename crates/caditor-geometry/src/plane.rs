@@ -1,4 +1,4 @@
-use crate::{Point2, Point3, Vector3};
+use crate::{Point2, Point3, RigidTransform, Vector3};
 
 const FRAME_TOLERANCE: f64 = 1e-9;
 
@@ -86,6 +86,24 @@ impl Plane {
     pub fn signed_distance(&self, point: Point3) -> f64 {
         (point - self.origin).dot(self.normal)
     }
+
+    #[must_use]
+    pub fn flipped(&self) -> Self {
+        Self {
+            origin: self.origin,
+            normal: -self.normal,
+            x_axis: self.x_axis,
+        }
+    }
+
+    #[must_use]
+    pub fn transformed(&self, transform: &RigidTransform) -> Self {
+        Self {
+            origin: transform.apply_point(self.origin),
+            normal: transform.apply_vector(self.normal),
+            x_axis: transform.apply_vector(self.x_axis),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -141,5 +159,25 @@ mod tests {
 
         assert!(plane.signed_distance(world).abs() < 1e-12);
         assert!(plane.to_local(world).distance(local) < 1e-12);
+    }
+
+    #[test]
+    fn flipping_keeps_the_x_axis_and_mirrors_the_y_axis() {
+        let flipped = Plane::XY.flipped();
+        assert_eq!(flipped.normal(), Vector3::NEG_Z);
+        assert_eq!(flipped.x_axis(), Vector3::X);
+        assert_eq!(flipped.y_axis(), Vector3::NEG_Y);
+    }
+
+    #[test]
+    fn transforming_moves_the_whole_frame() {
+        let turn =
+            RigidTransform::rotation_about(Point3::ZERO, Vector3::X, std::f64::consts::FRAC_PI_2)
+                .unwrap()
+                .then(&RigidTransform::translation(Vector3::new(0.0, 0.0, 5.0)).unwrap());
+        let moved = Plane::XY.transformed(&turn);
+        assert!(moved.origin().distance(Point3::new(0.0, 0.0, 5.0)) < 1e-12);
+        assert!(moved.normal().distance(Vector3::NEG_Y) < 1e-12);
+        assert!(moved.x_axis().distance(Vector3::X) < 1e-12);
     }
 }

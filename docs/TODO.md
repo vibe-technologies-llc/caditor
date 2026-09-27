@@ -21,16 +21,25 @@ Git history is the record of what was done.
 
 These need an answer before the milestone that depends on them starts.
 
-- [ ] **Geometry kernel** (blocks M5): a native Rust B-rep kernel (own, `truck`, or
-      Fornjot's), or bindings to OpenCascade. Bindings conflict with the forbid-unsafe policy
-      and bring in OCC's own failure modes.
 - [ ] **Distribution** (blocks M8): Flatpak, AUR and/or plain release binaries.
 
 ## M5: Solid modelling
 
-- [ ] Kernel integration, per the open decision above
-- [ ] Extrude, revolve and pocket or cut from sketches
-- [ ] Persistent naming for generated faces and edges, so that edits upstream do not rewire
+`caditor-kernel` already has the geometry, topology, validation, tessellation, planar profiles,
+the extrude and revolve builders, frozen face and edge names, intersections and point
+classification. Nothing outside the kernel uses it yet.
+
+- [ ] Booleans in the kernel: union, difference and intersection, including coincident faces
+      (a pocket sketched on a face) and the merging of co-surface fragments afterwards; a result
+      that fails validation is an error, never a bad solid
+- [ ] Solid features in the document and file format: extrude, revolve and pocket or cut from
+      a sketch's regions, with new body, add, remove and intersect operations and the body
+      state chained through the tree, a failed feature skipped rather than blocking the rest
+- [ ] Solid rendering in `caditor-render`: shaded triangle meshes with pickable faces and edges
+- [ ] Solid modelling in the app: extrude and revolve tools, region choice, a property panel
+      for each feature, and face and edge selection
+- [ ] References to generated faces and edges that resolve through their names, choosing among
+      the fragments of a split face by its neighbours, so that edits upstream do not rewire
       downstream features
 - [ ] Fillet, chamfer and shell
 - [ ] Sketch on a face and datum planes and axes

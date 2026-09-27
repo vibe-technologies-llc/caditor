@@ -1,0 +1,148 @@
+use std::collections::BTreeSet;
+
+use crate::profile::{
+    Piece, ProfileLoop, Region, RegionKey,
+    arrangement::{Arrangement, piece_of},
+};
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Draft {
+    outer: Vec<Piece>,
+    holes: Vec<Vec<Piece>>,
+    depth: usize,
+    faces: BTreeSet<usize>,
+}
+
+fn piece(arrangement: &Arrangement, half_edge: usize) -> Option<Piece> {
+    let (index, forward) = piece_of(half_edge);
+    let graph = arrangement.pieces.get(index)?;
+    Some(Piece {
+        id: graph.id.clone(),
+        curve: graph.curve.clone(),
+        range: graph.range,
+        reversed: !forward,
+    })
+}
+
+pub(super) fn lumps(arrangement: &Arrangement, chosen: &BTreeSet<usize>) -> Vec<Draft> {
+    let kept: Vec<Option<usize>> = arrangement
+        .sides
+        .iter()
+        .enumerate()
+        .map(|(index, [left, right])| {
+            let on_left = left.is_some_and(|face| chosen.contains(&face));
+            let on_right = right.is_some_and(|face| chosen.contains(&face));
+            match (on_left, on_right) {
+                (true, false) => Some(index * 2),
+                (false, true) => Some(index * 2 + 1),
+                _ => None,
+            }
+        })
+        .collect();
+    let is_kept = |half_edge: usize| kept.get(half_edge / 2).copied().flatten() == Some(half_edge);
+    let Ok(cycles) = arrangement.cycles(is_kept) else {
+        return Vec::new();
+    };
+    let area = |cycle: &[usize]| -> f64 {
+        cycle
+            .iter()
+            .map(|half_edge| arrangement.half_edge_area(*half_edge))
+            .sum()
+    };
+    let (outers, holes): (Vec<&Vec<usize>>, Vec<&Vec<usize>>) =
+        cycles.iter().partition(|cycle| area(cycle) > 0.0);
+    let mut assigned: Vec<Vec<&Vec<usize>>> = vec![Vec::new(); outers.len()];
+    for hole in holes {
+        let Some(probe) = hole
+            .first()
+            .and_then(|half_edge| arrangement.origin(*half_edge).ok())
+            .and_then(|vertex| arrangement.vertices.get(vertex).copied())
+        else {
+            continue;
+        };
+        let container = outers
+            .iter()
+            .enumerate()
+            .filter(|(_, outer)| arrangement.contains(outer, probe))
+            .min_by(|a, b| area(a.1).total_cmp(&area(b.1)))
+            .map(|(index, _)| index);
+        if let Some(list) = container.and_then(|index| assigned.get_mut(index)) {
+            list.push(hole);
+        }
+    }
+    outers
+        .into_iter()
+        .zip(assigned)
+        .map(|(outer, holes)| {
+            let faces: BTreeSet<usize> = std::iter::once(outer)
+                .chain(holes.iter().copied())
+                .flatten()
+                .filter_map(|half_edge| {
+                    let (index, forward) = piece_of(*half_edge);
+                    let [left, right] = arrangement.sides.get(index)?;
+                    if forward { *left } else { *right }
+                })
+                .collect();
+            let depth = faces
+                .iter()
+                .filter_map(|face| arrangement.faces.get(*face))
+                .map(|face| face.depth)
+                .min()
+                .unwrap_or(0);
+            let pieces = |cycle: &Vec<usize>| -> Vec<Piece> {
+                cycle
+                    .iter()
+                    .filter_map(|half_edge| piece(arrangement, *half_edge))
+                    .collect()
+            };
+            Draft {
+                outer: pieces(outer),
+                holes: holes.into_iter().map(pieces).collect(),
+                depth,
+                faces,
+            }
+        })
+        .collect()
+}
+
+pub(super) fn with_keys(drafts: Vec<Draft>) -> Vec<(Region, BTreeSet<usize>)> {
+    let all_pieces = |draft: &Draft| -> Vec<Piece> {
+        draft
+            .outer
+            .iter()
+            .chain(draft.holes.iter().flatten())
+            .cloned()
+            .collect()
+    };
+    let bases: Vec<RegionKey> = drafts
+        .iter()
+        .map(|draft| RegionKey::of_sides(&all_pieces(draft).iter().collect::<Vec<_>>()))
+        .collect();
+    let mut keyed: Vec<(Region, BTreeSet<usize>)> = drafts
+        .into_iter()
+        .zip(&bases)
+        .map(|(draft, base)| {
+            let shared = bases.iter().filter(|other| *other == base).count() > 1;
+            let key = if shared {
+                base.tiebroken(&all_pieces(&draft).iter().collect::<Vec<_>>())
+            } else {
+                *base
+            };
+            let region = Region {
+                key,
+                depth: draft.depth,
+                outer: ProfileLoop {
+                    pieces: draft.outer,
+                },
+                holes: draft
+                    .holes
+                    .into_iter()
+                    .map(|pieces| ProfileLoop { pieces })
+                    .collect(),
+            };
+            (region, draft.faces)
+        })
+        .collect();
+    keyed.sort_by_key(|(region, _)| region.key);
+    keyed
+}
