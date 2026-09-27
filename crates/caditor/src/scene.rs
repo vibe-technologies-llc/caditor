@@ -1,13 +1,22 @@
+use std::{borrow::Cow, collections::BTreeSet};
+
 use caditor_document::{
     Document, Evaluation, Feature, FeatureId, FeatureKind, FeatureResult, FeatureState,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3};
 use caditor_render::{Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene};
-use caditor_sketch::{Entity, EntityId, Sketch};
+use caditor_sketch::{
+    Constraint, ConstraintId, Entity, EntityId, EntityState, Reference, Sketch, SketchSolution,
+};
 
-use crate::selection::{Axis, Pickable, PrincipalPlane, Selection};
+use crate::{
+    drawing::Preview,
+    selection::{Axis, Pickable, PrincipalPlane, Selection},
+};
 
 const MIN_REFERENCE_SIZE: f64 = 20.0;
+const EMPTY_SKETCH_HALF_SIZE: f64 = 50.0;
+const CURVE_SEGMENT_ANGLE: f64 = std::f64::consts::PI / 60.0;
 const REFERENCE_MARGIN: f64 = 1.2;
 
 const GRID: Color = Color::from_rgba8(210, 215, 225, 90);
@@ -15,6 +24,16 @@ const SKETCH_CURVE: Color = Color::from_rgb8(222, 224, 230);
 const SKETCH_POINT: Color = Color::from_rgb8(245, 245, 248);
 const FAILED_SKETCH_CURVE: Color = Color::from_rgb8(214, 120, 110);
 const FAILED_SKETCH_POINT: Color = Color::from_rgb8(232, 146, 136);
+const FULLY_CONSTRAINED_CURVE: Color = Color::from_rgb8(104, 204, 120);
+const FULLY_CONSTRAINED_POINT: Color = Color::from_rgb8(146, 226, 158);
+const CONFLICTING_CURVE: Color = Color::from_rgb8(238, 78, 70);
+const CONFLICTING_POINT: Color = Color::from_rgb8(250, 108, 100);
+const REDUNDANT_CURVE: Color = Color::from_rgb8(236, 132, 40);
+const REDUNDANT_POINT: Color = Color::from_rgb8(246, 158, 78);
+const BACKGROUND_SKETCH_CURVE: Color = Color::from_rgb8(104, 108, 118);
+const BACKGROUND_SKETCH_POINT: Color = Color::from_rgb8(118, 122, 132);
+const SKETCH_HORIZONTAL_AXIS: Color = Color::from_rgb8(226, 84, 84);
+const SKETCH_VERTICAL_AXIS: Color = Color::from_rgb8(112, 196, 88);
 const ORIGIN: Color = Color::from_rgb8(235, 235, 235);
 const PLANE_FILL: Color = Color::from_rgba8(120, 150, 200, 22);
 const PLANE_EDGE: Color = Color::from_rgba8(140, 170, 215, 150);
@@ -22,14 +41,50 @@ const HOVERED: Color = Color::from_rgb8(255, 196, 84);
 const SELECTED: Color = Color::from_rgb8(86, 170, 255);
 const HOVERED_SELECTED: Color = Color::from_rgb8(150, 205, 255);
 const HIGHLIGHT_FILL_ALPHA: f32 = 0.22;
+const PREVIEW_CURVE: Color = Color::from_rgb8(190, 150, 255);
+const PREVIEW_POINT: Color = Color::from_rgb8(214, 190, 255);
+const SNAP_MARKER: Color = Color::from_rgb8(80, 226, 236);
 
 const CURVE_WIDTH: f32 = 2.0;
 const AXIS_WIDTH: f32 = 2.0;
+const SKETCH_AXIS_WIDTH: f32 = 1.5;
 const PLANE_EDGE_WIDTH: f32 = 1.25;
 const HIGHLIGHT_EXTRA_WIDTH: f32 = 1.5;
 const POINT_DIAMETER: f32 = 7.0;
 const ORIGIN_DIAMETER: f32 = 8.0;
 const HIGHLIGHT_EXTRA_DIAMETER: f32 = 3.0;
+const SNAP_MARKER_DIAMETER: f32 = 13.0;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Palette {
+    curve: Color,
+    point: Color,
+}
+
+const UNDER_CONSTRAINED: Palette = Palette {
+    curve: SKETCH_CURVE,
+    point: SKETCH_POINT,
+};
+const FULLY_CONSTRAINED: Palette = Palette {
+    curve: FULLY_CONSTRAINED_CURVE,
+    point: FULLY_CONSTRAINED_POINT,
+};
+const CONFLICTING: Palette = Palette {
+    curve: CONFLICTING_CURVE,
+    point: CONFLICTING_POINT,
+};
+const REDUNDANT: Palette = Palette {
+    curve: REDUNDANT_CURVE,
+    point: REDUNDANT_POINT,
+};
+const FAILED: Palette = Palette {
+    curve: FAILED_SKETCH_CURVE,
+    point: FAILED_SKETCH_POINT,
+};
+const BACKGROUND: Palette = Palette {
+    curve: BACKGROUND_SKETCH_CURVE,
+    point: BACKGROUND_SKETCH_POINT,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PickPriority {
@@ -79,12 +134,16 @@ impl PickTable {
 
 pub struct Highlight<'a> {
     pub selection: &'a Selection,
-    pub hovered: Option<Pickable>,
+    pub hovered: &'a [Pickable],
 }
 
 impl Highlight<'_> {
+    fn is_hovered(&self, pickable: Pickable) -> bool {
+        self.hovered.contains(&pickable)
+    }
+
     fn color(&self, pickable: Pickable, base: Color) -> Color {
-        let hovered = self.hovered == Some(pickable);
+        let hovered = self.is_hovered(pickable);
         match (self.selection.contains(pickable), hovered) {
             (true, true) => HOVERED_SELECTED,
             (true, false) => SELECTED,
@@ -103,7 +162,7 @@ impl Highlight<'_> {
     }
 
     fn emphasis(&self, pickable: Pickable) -> f32 {
-        if self.hovered == Some(pickable) || self.selection.contains(pickable) {
+        if self.is_hovered(pickable) || self.selection.contains(pickable) {
             1.0
         } else {
             0.0
@@ -111,10 +170,18 @@ impl Highlight<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EditedSketch {
+    pub feature: FeatureId,
+    pub plane: Plane,
+    pub bounds: Aabb,
+}
+
 pub struct BuiltScene {
     pub scene: Scene,
     pub picks: PickTable,
     pub everything: Aabb,
+    pub edited: Option<EditedSketch>,
     reference_size: f64,
 }
 
@@ -129,19 +196,30 @@ impl BuiltScene {
             pickable_points(document, evaluation, pickable, self.reference_size)
         }))
     }
+
+    pub fn fit_all(&self) -> Aabb {
+        self.edited.map_or(self.everything, |edited| edited.bounds)
+    }
 }
 
 pub fn build(
     document: &Document,
     evaluation: &Evaluation,
     highlight: &Highlight<'_>,
+    editing: Option<FeatureId>,
 ) -> BuiltScene {
     let model = model_bounds(document, evaluation);
     let reference_size = reference_size(model);
+    let edited = editing
+        .and_then(|id| document.feature(id))
+        .map(|feature| (feature, displayed_sketch(evaluation, feature)));
+    let grid_plane = edited
+        .as_ref()
+        .map_or(Plane::XY, |(_, displayed)| displayed.plane());
     let mut builder = Builder {
         scene: Scene {
             grid: Some(Grid {
-                plane: Plane::XY,
+                plane: grid_plane,
                 color: GRID,
             }),
             ..Scene::default()
@@ -150,16 +228,29 @@ pub fn build(
         highlight,
     };
 
-    for plane in PrincipalPlane::ALL {
-        builder.principal_plane(plane, reference_size);
+    match &edited {
+        Some((feature, displayed)) => {
+            builder.sketch_references(feature.id(), displayed.plane(), reference_size);
+        }
+        None => {
+            for plane in PrincipalPlane::ALL {
+                builder.principal_plane(plane, reference_size);
+            }
+            for axis in Axis::ALL {
+                builder.axis(axis, reference_size);
+            }
+            builder.origin();
+        }
     }
-    for axis in Axis::ALL {
-        builder.axis(axis, reference_size);
-    }
-    builder.origin();
     for feature in document.features() {
-        let shown = Shown::of(evaluation, feature);
-        builder.sketch(feature.id(), shown.sketch, shown.failed);
+        let presence = match editing {
+            None => Presence::Normal,
+            Some(edited) if edited == feature.id() => Presence::Edited,
+            Some(_) => Presence::Background,
+        };
+        let displayed = displayed_sketch(evaluation, feature);
+        let states = ConstraintStates::of(evaluation, feature);
+        builder.sketch(feature.id(), &displayed, &states, presence);
     }
 
     let reference = Aabb::from_points(plane_corners(Plane::XY, reference_size))
@@ -174,8 +265,90 @@ pub fn build(
         scene: builder.scene,
         picks: builder.picks,
         everything,
+        edited: edited.map(|(feature, displayed)| EditedSketch {
+            feature: feature.id(),
+            plane: displayed.plane(),
+            bounds: sketch_bounds(&displayed),
+        }),
         reference_size,
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Presence {
+    Normal,
+    Edited,
+    Background,
+}
+
+struct ConstraintStates<'a> {
+    solution: Option<&'a SketchSolution>,
+    conflicting: BTreeSet<EntityId>,
+    redundant: BTreeSet<EntityId>,
+    failed: bool,
+}
+
+impl<'a> ConstraintStates<'a> {
+    fn of(evaluation: &'a Evaluation, feature: &Feature) -> Self {
+        let FeatureKind::Sketch(definition) = &feature.kind;
+        let mut states = Self {
+            solution: None,
+            conflicting: BTreeSet::new(),
+            redundant: BTreeSet::new(),
+            failed: false,
+        };
+        let Some(status) = evaluation.feature(feature.id()) else {
+            return states;
+        };
+        match &status.state {
+            FeatureState::Failed(error) if !error.constraints.is_empty() => {
+                states.conflicting = entities_of(definition, &error.constraints);
+            }
+            FeatureState::Failed(_) | FeatureState::Outdated => states.failed = true,
+            FeatureState::UpToDate => {
+                states.solution = status.result.as_deref().map(|result| match result {
+                    FeatureResult::Sketch(result) => &result.solution,
+                });
+                let redundant: Vec<ConstraintId> = states
+                    .solution
+                    .into_iter()
+                    .flat_map(SketchSolution::redundancies)
+                    .flat_map(|redundancy| {
+                        std::iter::once(redundancy.constraint)
+                            .chain(redundancy.duplicates.iter().copied())
+                    })
+                    .collect();
+                states.redundant = entities_of(definition, &redundant);
+            }
+        }
+        states
+    }
+
+    fn palette(&self, entity: EntityId) -> Palette {
+        if self.conflicting.contains(&entity) {
+            CONFLICTING
+        } else if self.failed {
+            FAILED
+        } else if self.redundant.contains(&entity) {
+            REDUNDANT
+        } else if self
+            .solution
+            .and_then(|solution| solution.entity_state(entity))
+            == Some(EntityState::FullyConstrained)
+        {
+            FULLY_CONSTRAINED
+        } else {
+            UNDER_CONSTRAINED
+        }
+    }
+}
+
+fn entities_of(sketch: &Sketch, constraints: &[ConstraintId]) -> BTreeSet<EntityId> {
+    constraints
+        .iter()
+        .filter_map(|constraint| sketch.constraint(*constraint))
+        .flat_map(Constraint::entities)
+        .collect()
 }
 
 struct Builder<'a> {
@@ -237,80 +410,206 @@ impl Builder<'_> {
         });
     }
 
-    fn sketch(&mut self, feature: FeatureId, sketch: &Sketch, failed: bool) {
-        let (curve, point) = if failed {
-            (FAILED_SKETCH_CURVE, FAILED_SKETCH_POINT)
-        } else {
-            (SKETCH_CURVE, SKETCH_POINT)
+    fn sketch_references(&mut self, feature: FeatureId, plane: Plane, size: f64) {
+        for (reference, color) in [
+            (Reference::HorizontalAxis, SKETCH_HORIZONTAL_AXIS),
+            (Reference::VerticalAxis, SKETCH_VERTICAL_AXIS),
+        ] {
+            let pickable = Pickable::SketchEntity {
+                feature,
+                entity: reference.id(),
+            };
+            let [start, end] = reference_points(plane, reference, size);
+            self.scene.lines.push(Line {
+                start,
+                end,
+                color: self.highlight.color(pickable, color),
+                width: SKETCH_AXIS_WIDTH
+                    + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
+                layer: Layer::Reference,
+                pick: self.picks.register(pickable, PickPriority::Curve),
+            });
+        }
+        let pickable = Pickable::SketchEntity {
+            feature,
+            entity: EntityId::ORIGIN,
         };
+        self.scene.markers.push(Marker {
+            position: plane.origin(),
+            color: self.highlight.color(pickable, ORIGIN),
+            diameter: ORIGIN_DIAMETER
+                + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
+            layer: Layer::Reference,
+            pick: self.picks.register(pickable, PickPriority::Point),
+        });
+    }
+
+    fn sketch(
+        &mut self,
+        feature: FeatureId,
+        sketch: &Sketch,
+        states: &ConstraintStates<'_>,
+        presence: Presence,
+    ) {
         let plane = sketch.plane();
         for (entity, kind) in sketch.entities() {
             let pickable = Pickable::SketchEntity { feature, entity };
-            let emphasis = self.highlight.emphasis(pickable);
+            let (palette, emphasis, pickable) = match presence {
+                Presence::Background => (BACKGROUND, 0.0, None),
+                Presence::Normal | Presence::Edited => (
+                    states.palette(entity),
+                    self.highlight.emphasis(pickable),
+                    Some(pickable),
+                ),
+            };
+            let color = |base: Color| match pickable {
+                Some(pickable) => self.highlight.color(pickable, base),
+                None => base,
+            };
             match kind {
-                Entity::Point(position) => self.scene.markers.push(Marker {
-                    position: plane.to_world(*position),
-                    color: self.highlight.color(pickable, point),
-                    diameter: POINT_DIAMETER + emphasis * HIGHLIGHT_EXTRA_DIAMETER,
-                    layer: Layer::Model,
-                    pick: self.picks.register(pickable, PickPriority::Point),
-                }),
-                Entity::Line { .. } => {
-                    let Some((start, end)) = sketch.line_endpoints(entity) else {
+                Entity::Point(position) => {
+                    let color = color(palette.point);
+                    self.scene.markers.push(Marker {
+                        position: plane.to_world(*position),
+                        color,
+                        diameter: POINT_DIAMETER + emphasis * HIGHLIGHT_EXTRA_DIAMETER,
+                        layer: Layer::Model,
+                        pick: pickable.and_then(|pickable| {
+                            self.picks.register(pickable, PickPriority::Point)
+                        }),
+                    });
+                }
+                Entity::Line { .. }
+                | Entity::Circle { .. }
+                | Entity::Arc { .. }
+                | Entity::Spline { .. } => {
+                    let Some(points) = sketch.polyline(entity, CURVE_SEGMENT_ANGLE) else {
                         continue;
                     };
-                    self.scene.lines.push(Line {
-                        start: plane.to_world(start),
-                        end: plane.to_world(end),
-                        color: self.highlight.color(pickable, curve),
-                        width: CURVE_WIDTH + emphasis * HIGHLIGHT_EXTRA_WIDTH,
-                        layer: Layer::Model,
-                        pick: self.picks.register(pickable, PickPriority::Curve),
+                    let color = color(palette.curve);
+                    let width = CURVE_WIDTH + emphasis * HIGHLIGHT_EXTRA_WIDTH;
+                    let pick = pickable
+                        .and_then(|pickable| self.picks.register(pickable, PickPriority::Curve));
+                    let segments = points.windows(2).filter_map(|pair| match pair {
+                        [start, end] => Some(Line {
+                            start: plane.to_world(*start),
+                            end: plane.to_world(*end),
+                            color,
+                            width,
+                            layer: Layer::Model,
+                            pick,
+                        }),
+                        _ => None,
                     });
+                    self.scene.lines.extend(segments);
                 }
             }
         }
     }
 }
 
-fn sketch_entity_points(sketch: &Sketch, entity: EntityId) -> Vec<Point3> {
+pub fn add_preview(scene: &mut Scene, plane: Plane, preview: &Preview) {
+    for curve in &preview.curves {
+        let segments = curve.windows(2).filter_map(|pair| match pair {
+            [start, end] => Some(Line {
+                start: plane.to_world(*start),
+                end: plane.to_world(*end),
+                color: PREVIEW_CURVE,
+                width: CURVE_WIDTH,
+                layer: Layer::Model,
+                pick: None,
+            }),
+            _ => None,
+        });
+        scene.lines.extend(segments);
+    }
+    let snap = preview.snap.map(|position| Marker {
+        position: plane.to_world(position),
+        color: SNAP_MARKER,
+        diameter: SNAP_MARKER_DIAMETER,
+        layer: Layer::Model,
+        pick: None,
+    });
+    let points = preview.points.iter().map(|position| Marker {
+        position: plane.to_world(*position),
+        color: PREVIEW_POINT,
+        diameter: POINT_DIAMETER,
+        layer: Layer::Model,
+        pick: None,
+    });
+    scene.markers.extend(snap.into_iter().chain(points));
+}
+
+fn reference_points(plane: Plane, reference: Reference, size: f64) -> [Point3; 2] {
+    let (start, end) = match reference {
+        Reference::Origin => (Point2::ZERO, Point2::ZERO),
+        Reference::HorizontalAxis => (Point2::new(-size, 0.0), Point2::new(size, 0.0)),
+        Reference::VerticalAxis => (Point2::new(0.0, -size), Point2::new(0.0, size)),
+    };
+    [plane.to_world(start), plane.to_world(end)]
+}
+
+fn sketch_entity_points(sketch: &Sketch, entity: EntityId, reference_size: f64) -> Vec<Point3> {
     let plane = sketch.plane();
+    if let Some(reference) = entity.reference() {
+        return reference_points(plane, reference, reference_size).to_vec();
+    }
     match sketch.entity(entity) {
         Some(Entity::Point(position)) => vec![plane.to_world(*position)],
-        Some(Entity::Line { .. }) => sketch
-            .line_endpoints(entity)
-            .map(|(start, end)| vec![plane.to_world(start), plane.to_world(end)])
-            .unwrap_or_default(),
+        Some(_) => sketch
+            .polyline(entity, CURVE_SEGMENT_ANGLE)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|point| plane.to_world(point))
+            .collect(),
         None => Vec::new(),
     }
 }
 
-struct Shown<'a> {
-    sketch: &'a Sketch,
-    failed: bool,
+fn sketch_bounds(sketch: &Sketch) -> Aabb {
+    let plane = sketch.plane();
+    Aabb::from_points(
+        sketch
+            .entities()
+            .flat_map(|(entity, _)| sketch_entity_points(sketch, entity, 0.0)),
+    )
+    .or_else(|| Aabb::from_points(plane_corners(plane, EMPTY_SKETCH_HALF_SIZE)))
+    .unwrap_or_else(|| Aabb::from_point(plane.origin()))
 }
 
-impl<'a> Shown<'a> {
-    fn of(evaluation: &'a Evaluation, feature: &'a Feature) -> Self {
-        let status = evaluation.feature(feature.id());
-        let last_good =
-            status
-                .and_then(|status| status.result.as_deref())
-                .map(|result| match result {
-                    FeatureResult::Sketch(result) => &result.geometry,
-                });
-        let FeatureKind::Sketch(definition) = &feature.kind;
-        let failed = status.is_some_and(|status| {
-            matches!(
-                status.state,
-                FeatureState::Failed(_) | FeatureState::Outdated
-            )
+pub fn displayed_sketch<'a>(evaluation: &'a Evaluation, feature: &'a Feature) -> Cow<'a, Sketch> {
+    let FeatureKind::Sketch(definition) = &feature.kind;
+    let last_good = evaluation
+        .feature(feature.id())
+        .and_then(|status| status.result.as_deref())
+        .map(|result| match result {
+            FeatureResult::Sketch(result) => &result.geometry,
         });
-        Self {
-            sketch: last_good.unwrap_or(definition),
-            failed,
+    match last_good {
+        Some(solved) => with_solved_positions(definition, solved),
+        None => Cow::Borrowed(definition),
+    }
+}
+
+fn with_solved_positions<'a>(definition: &'a Sketch, solved: &'a Sketch) -> Cow<'a, Sketch> {
+    let same_entities =
+        definition.entities().len() == solved.entities().len()
+            && definition.entities().zip(solved.entities()).all(
+                |((id, defined), (other, settled))| id == other && defined.same_structure(settled),
+            );
+    if same_entities && definition.plane() == solved.plane() {
+        return Cow::Borrowed(solved);
+    }
+    let mut merged = definition.clone();
+    for (id, settled) in solved.entities() {
+        let fits = definition
+            .entity(id)
+            .is_some_and(|defined| defined.same_structure(settled));
+        if fits && let Err(error) = merged.replace_entity(id, settled.clone()) {
+            log::debug!("showing the drawn position of entity {id}: {error}");
         }
     }
+    Cow::Owned(merged)
 }
 
 fn pickable_points(
@@ -325,17 +624,27 @@ fn pickable_points(
         Pickable::Plane(plane) => plane_corners(plane.plane(), reference_size).to_vec(),
         Pickable::SketchEntity { feature, entity } => document
             .feature(feature)
-            .map(|owner| sketch_entity_points(Shown::of(evaluation, owner).sketch, entity))
+            .map(|owner| {
+                sketch_entity_points(&displayed_sketch(evaluation, owner), entity, reference_size)
+            })
             .unwrap_or_default(),
+        Pickable::SketchConstraint { .. } => pickable
+            .constrained_entities(document)
+            .into_iter()
+            .filter(|entity| {
+                !matches!(entity, Pickable::SketchEntity { entity, .. } if entity.is_reference())
+            })
+            .flat_map(|entity| pickable_points(document, evaluation, entity, reference_size))
+            .collect(),
     }
 }
 
 fn model_bounds(document: &Document, evaluation: &Evaluation) -> Option<Aabb> {
     Aabb::from_points(document.features().flat_map(|feature| {
-        let sketch = Shown::of(evaluation, feature).sketch;
+        let sketch = displayed_sketch(evaluation, feature);
         sketch
             .entities()
-            .flat_map(|(entity, _)| sketch_entity_points(sketch, entity))
+            .flat_map(|(entity, _)| sketch_entity_points(&sketch, entity, 0.0))
             .collect::<Vec<_>>()
     }))
 }
@@ -357,6 +666,8 @@ fn plane_corners(plane: Plane, size: f64) -> [Point3; 4] {
 
 #[cfg(test)]
 mod tests {
+    use caditor_document::{CancelToken, ModelEvaluator, Recompute};
+    use caditor_expression::{Expression, Unit};
     use caditor_geometry::Plane;
 
     use super::*;
@@ -388,8 +699,9 @@ mod tests {
             &Evaluation::default(),
             &Highlight {
                 selection: &selection,
-                hovered: None,
+                hovered: &[],
             },
+            None,
         );
 
         assert_eq!(built.picks.entries.len(), 3 + 3 + 1 + 3);
@@ -413,6 +725,154 @@ mod tests {
             .unwrap();
         assert_eq!(drawn.end, Point3::new(40.0, 0.0, 0.0));
         assert_eq!(built.everything.max().x, 48.0);
+    }
+
+    fn evaluate(document: &Document) -> Evaluation {
+        Recompute::default().run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
+    }
+
+    fn picks_of(built: &BuiltScene) -> Vec<Pickable> {
+        built
+            .picks
+            .entries
+            .iter()
+            .map(|(pickable, _)| *pickable)
+            .collect()
+    }
+
+    fn line_color(built: &BuiltScene, pickable: Pickable) -> Color {
+        let pick = built
+            .picks
+            .entries
+            .iter()
+            .position(|(candidate, _)| *candidate == pickable)
+            .and_then(PickId::from_index);
+        built
+            .scene
+            .lines
+            .iter()
+            .find(|line| line.pick == pick)
+            .unwrap()
+            .color
+    }
+
+    #[test]
+    fn editing_shows_only_the_edited_sketch_and_its_references_as_pickable() {
+        let (mut document, base, line) = document();
+        let mut transaction = document.transaction("Add sketch");
+        let mut other = Sketch::new(Plane::XZ);
+        other.add_line(Point2::ZERO, Point2::new(0.0, 10.0));
+        let side = transaction.add_feature("Side", FeatureKind::Sketch(other));
+        document.apply(transaction.finish()).unwrap();
+        let selection = Selection::default();
+        let highlight = Highlight {
+            selection: &selection,
+            hovered: &[],
+        };
+
+        let built = build(&document, &Evaluation::default(), &highlight, Some(side));
+
+        let references: Vec<Pickable> = [
+            EntityId::HORIZONTAL_AXIS,
+            EntityId::VERTICAL_AXIS,
+            EntityId::ORIGIN,
+        ]
+        .into_iter()
+        .map(|entity| Pickable::SketchEntity {
+            feature: side,
+            entity,
+        })
+        .collect();
+        let picks = picks_of(&built);
+        assert_eq!(picks.len(), 3 + 3);
+        assert_eq!(picks[..3], references[..]);
+        assert!(picks.iter().all(|pickable| matches!(
+            pickable,
+            Pickable::SketchEntity { feature, .. } if *feature == side
+        )));
+        assert_eq!(built.scene.fills.len(), 0);
+        assert_eq!(built.scene.grid.as_ref().unwrap().plane, Plane::XZ);
+        let background = built
+            .scene
+            .lines
+            .iter()
+            .find(|drawn| drawn.end == Point3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        assert_eq!(background.pick, None);
+        assert_eq!(background.color, BACKGROUND_SKETCH_CURVE);
+        let edited = built.edited.unwrap();
+        assert_eq!(edited.feature, side);
+        assert_eq!(edited.bounds.max(), Point3::new(0.0, 0.0, 10.0));
+        assert_eq!(built.fit_all(), edited.bounds);
+        assert!(
+            built
+                .bounds_of(&document, &Evaluation::default(), [references[0]])
+                .is_some_and(|bounds| bounds.max().x > 0.0 && bounds.min().x < 0.0)
+        );
+        assert!(!picks.contains(&Pickable::SketchEntity {
+            feature: base,
+            entity: line
+        }));
+    }
+
+    #[test]
+    fn sketch_geometry_is_colored_by_its_constraint_state() {
+        let mut document = Document::default();
+        let mut sketch = Sketch::new(Plane::XY);
+        let fixed = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+        let Some(&Entity::Line { start, end }) = sketch.entity(fixed) else {
+            panic!("expected a line");
+        };
+        sketch
+            .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
+            .unwrap();
+        sketch
+            .add_constraint(Constraint::Horizontal(fixed))
+            .unwrap();
+        sketch
+            .add_constraint(Constraint::Distance {
+                from: start,
+                to: end,
+                value: Expression::Measure(40.0, Unit::Millimetre),
+            })
+            .unwrap();
+        let free = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(5.0, 20.0));
+        let doubled = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(5.0, -10.0));
+        sketch
+            .add_constraint(Constraint::Horizontal(doubled))
+            .unwrap();
+        sketch
+            .add_constraint(Constraint::Horizontal(doubled))
+            .unwrap();
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("States", FeatureKind::Sketch(sketch));
+        document.apply(transaction.finish()).unwrap();
+        let selection = Selection::default();
+        let highlight = Highlight {
+            selection: &selection,
+            hovered: &[],
+        };
+        let entity = |entity| Pickable::SketchEntity { feature, entity };
+
+        let built = build(&document, &evaluate(&document), &highlight, Some(feature));
+        assert_eq!(line_color(&built, entity(fixed)), FULLY_CONSTRAINED_CURVE);
+        assert_eq!(line_color(&built, entity(free)), SKETCH_CURVE);
+        assert_eq!(line_color(&built, entity(doubled)), REDUNDANT_CURVE);
+
+        let mut transaction = document.transaction("Conflict");
+        transaction.add_sketch_constraint(feature, Constraint::Vertical(fixed));
+        document.apply(transaction.finish()).unwrap();
+        let built = build(&document, &evaluate(&document), &highlight, Some(feature));
+        assert_eq!(line_color(&built, entity(fixed)), CONFLICTING_CURVE);
+        assert_eq!(line_color(&built, entity(free)), SKETCH_CURVE);
+
+        let selection = Selection::default();
+        let hovered = Highlight {
+            selection: &selection,
+            hovered: &[entity(fixed)],
+        };
+        let built = build(&document, &evaluate(&document), &hovered, Some(feature));
+        assert_eq!(line_color(&built, entity(fixed)), HOVERED);
     }
 
     #[test]
@@ -454,7 +914,7 @@ mod tests {
         selection.replace_with(Pickable::Origin);
         let highlight = Highlight {
             selection: &selection,
-            hovered: Some(Pickable::Origin),
+            hovered: &[Pickable::Origin],
         };
         assert_eq!(highlight.color(Pickable::Origin, ORIGIN), HOVERED_SELECTED);
         assert_eq!(highlight.color(Pickable::Axis(Axis::Z), ORIGIN), ORIGIN);
@@ -469,8 +929,9 @@ mod tests {
             &Evaluation::default(),
             &Highlight {
                 selection: &selection,
-                hovered: None,
+                hovered: &[],
             },
+            None,
         );
         let bounds = built
             .bounds_of(
@@ -484,5 +945,64 @@ mod tests {
             .unwrap();
         assert_eq!(bounds.min(), Point3::ZERO);
         assert_eq!(bounds.max(), Point3::new(40.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn curves_are_drawn_as_polylines_that_share_one_pick() {
+        let mut document = Document::default();
+        let mut sketch = Sketch::new(Plane::XY);
+        let circle = sketch.add_circle(Point2::new(10.0, 0.0), 30.0);
+        let arc = sketch.add_arc(Point2::ZERO, Point2::new(5.0, 0.0), Point2::new(0.0, 5.0));
+        let spline =
+            sketch.add_spline(&[Point2::ZERO, Point2::new(3.0, 6.0), Point2::new(8.0, 1.0)]);
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Curves", FeatureKind::Sketch(sketch));
+        document.apply(transaction.finish()).unwrap();
+        let selection = Selection::default();
+        let built = build(
+            &document,
+            &Evaluation::default(),
+            &Highlight {
+                selection: &selection,
+                hovered: &[],
+            },
+            None,
+        );
+
+        for entity in [circle, arc, spline] {
+            let pickable = Pickable::SketchEntity { feature, entity };
+            let registered: Vec<_> = built
+                .picks
+                .entries
+                .iter()
+                .enumerate()
+                .filter(|(_, (candidate, _))| *candidate == pickable)
+                .collect();
+            assert_eq!(registered.len(), 1);
+            let (index, (_, priority)) = registered[0];
+            assert_eq!(*priority, PickPriority::Curve);
+            let pick = PickId::from_index(index);
+            let segments = built
+                .scene
+                .lines
+                .iter()
+                .filter(|line| line.pick == pick)
+                .count();
+            assert!(segments > 4, "only {segments} segments");
+        }
+        assert_eq!(built.everything.max().x, 48.0);
+        assert_eq!(built.everything.min().x, -48.0);
+        let bounds = built
+            .bounds_of(
+                &document,
+                &Evaluation::default(),
+                [Pickable::SketchEntity {
+                    feature,
+                    entity: circle,
+                }],
+            )
+            .unwrap();
+        assert!((bounds.max().x - 40.0).abs() < 1e-9);
+        assert!((bounds.min().y + 30.0).abs() < 1e-9);
     }
 }

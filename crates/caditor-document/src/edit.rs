@@ -1,7 +1,9 @@
-use std::sync::Arc;
+mod sketch;
+
+use std::{collections::BTreeMap, sync::Arc};
 
 use caditor_expression::{Expression, NameError, ParameterId, ParseError, check_name};
-use caditor_sketch::{ConstraintId, SketchError};
+use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
 
 use crate::document::{Document, Feature, FeatureId, FeatureKind, Parameter, list_names};
 
@@ -41,6 +43,29 @@ pub enum Edit {
         feature: FeatureId,
         constraint: ConstraintId,
         value: Expression,
+    },
+    AddSketchEntity {
+        feature: FeatureId,
+        id: EntityId,
+        entity: Entity,
+    },
+    RemoveSketchEntity {
+        feature: FeatureId,
+        id: EntityId,
+    },
+    SetSketchEntity {
+        feature: FeatureId,
+        id: EntityId,
+        entity: Entity,
+    },
+    AddSketchConstraint {
+        feature: FeatureId,
+        id: ConstraintId,
+        constraint: Constraint,
+    },
+    RemoveSketchConstraint {
+        feature: FeatureId,
+        id: ConstraintId,
     },
 }
 
@@ -103,6 +128,14 @@ pub enum EditError {
     BelowDependent { name: String, other: String },
     #[error("{name}: {error}")]
     Sketch { name: String, error: SketchError },
+    #[error("{0} is not a sketch")]
+    NotASketch(String),
+    #[error("In {feature}, {name} is used by {users}. Remove those first.")]
+    EntityInUse {
+        feature: String,
+        name: String,
+        users: String,
+    },
 }
 
 pub struct TransactionBuilder<'a> {
@@ -114,6 +147,7 @@ pub struct TransactionBuilder<'a> {
     next_feature_id: u64,
     parameter_count: usize,
     feature_count: usize,
+    next_sketch_ids: BTreeMap<FeatureId, u64>,
 }
 
 impl TransactionBuilder<'_> {
@@ -176,6 +210,7 @@ impl Document {
             next_feature_id: self.next_feature_id,
             parameter_count: self.parameters.len(),
             feature_count: self.features.len(),
+            next_sketch_ids: BTreeMap::new(),
         }
     }
 
@@ -216,6 +251,25 @@ impl Document {
                 constraint,
                 value,
             } => self.set_dimension(feature, constraint, value),
+            Edit::AddSketchEntity {
+                feature,
+                id,
+                entity,
+            } => self.add_sketch_entity(feature, id, entity),
+            Edit::RemoveSketchEntity { feature, id } => self.remove_sketch_entity(feature, id),
+            Edit::SetSketchEntity {
+                feature,
+                id,
+                entity,
+            } => self.set_sketch_entity(feature, id, entity),
+            Edit::AddSketchConstraint {
+                feature,
+                id,
+                constraint,
+            } => self.add_sketch_constraint(feature, id, constraint),
+            Edit::RemoveSketchConstraint { feature, id } => {
+                self.remove_sketch_constraint(feature, id)
+            }
         }
     }
 
@@ -418,27 +472,6 @@ impl Document {
         let feature = self.features.remove(from);
         self.features.insert(index, feature);
         Ok(Edit::MoveFeature { id, index: from })
-    }
-
-    fn set_dimension(
-        &mut self,
-        id: FeatureId,
-        constraint: ConstraintId,
-        value: Expression,
-    ) -> Result<Edit, EditError> {
-        self.check_references(&value)?;
-        let feature = self.feature_mut(id)?;
-        let name = feature.name.clone();
-        let previous = match &mut feature.kind {
-            FeatureKind::Sketch(sketch) => sketch
-                .set_dimension(constraint, value)
-                .map_err(|error| EditError::Sketch { name, error })?,
-        };
-        Ok(Edit::SetDimension {
-            feature: id,
-            constraint,
-            value: previous,
-        })
     }
 
     fn feature_name(&self, id: FeatureId) -> String {

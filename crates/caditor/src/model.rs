@@ -5,15 +5,16 @@ use std::{
 };
 
 use caditor_document::{
-    Document, Editor, Evaluation, ModelEvaluator, Outcome, ParameterValues, Progress, Recomputer,
-    Transaction,
+    Document, Editor, Evaluation, FeatureId, FeatureResult, FeatureState, ModelEvaluator, Outcome,
+    ParameterValues, Progress, Recomputer, Transaction,
 };
 use caditor_file::{
     Closing, Flusher, JournalEntry, Recovered, Report, SaveRequest, Start, Storage, StorageConfig,
 };
+use caditor_sketch::Sketch;
 use parking_lot::Mutex;
 
-use crate::files::FileCommand;
+use crate::{editing::EditingCommand, files::FileCommand};
 
 pub type Waker = Box<dyn Fn() + Send>;
 pub type WakerFactory = Box<dyn Fn() -> Waker>;
@@ -29,7 +30,9 @@ pub enum Action {
     Recompute,
     CancelRecompute,
     DismissNotice,
+    Inform(Notice),
     File(FileCommand),
+    Editing(EditingCommand),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,6 +179,23 @@ impl Model {
         self.revision_offset + self.editor.revision()
     }
 
+    pub fn session(&self) -> u64 {
+        self.revision_offset
+    }
+
+    pub fn settled_sketch(&self, feature: FeatureId) -> Option<&Sketch> {
+        if self.status != RecomputeStatus::UpToDate {
+            return None;
+        }
+        let status = self.evaluation.feature(feature)?;
+        if status.state != FeatureState::UpToDate {
+            return None;
+        }
+        match status.result.as_deref()? {
+            FeatureResult::Sketch(result) => Some(&result.geometry),
+        }
+    }
+
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
     }
@@ -235,8 +255,16 @@ impl Model {
                 self.notice = None;
                 Ok(None)
             }
+            Action::Inform(notice) => {
+                self.set_notice(notice);
+                Ok(None)
+            }
             Action::File(command) => {
                 log::warn!("{command:?} reached the model instead of the file workflow");
+                Ok(None)
+            }
+            Action::Editing(command) => {
+                log::warn!("{command:?} reached the model instead of the sketch editor");
                 Ok(None)
             }
         };

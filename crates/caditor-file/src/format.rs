@@ -7,7 +7,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 pub(crate) const FORMAT_NAME: &str = "caditor";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -85,7 +85,12 @@ pub(crate) struct EntityRecord {
 pub(crate) enum EntityKindRecord {
     Point([f64; 2]),
     Line { start: u64, end: u64 },
+    Circle { center: u64, radius: f64 },
+    Arc { center: u64, start: u64, end: u64 },
+    Spline { control_points: Vec<u64> },
 }
+
+const ENTITY_KINDS: [&str; 5] = ["point", "line", "circle", "arc", "spline"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ConstraintRecord {
@@ -100,8 +105,27 @@ pub(crate) enum ConstraintKindRecord {
     Coincident([u64; 2]),
     Horizontal(u64),
     Vertical(u64),
+    Parallel([u64; 2]),
+    Perpendicular([u64; 2]),
+    Tangent([u64; 2]),
+    Equal([u64; 2]),
     Distance { from: u64, to: u64, value: String },
+    Angle { from: u64, to: u64, value: String },
+    Radius { entity: u64, value: String },
 }
+
+const CONSTRAINT_KINDS: [&str; 10] = [
+    "coincident",
+    "horizontal",
+    "vertical",
+    "parallel",
+    "perpendicular",
+    "tangent",
+    "equal",
+    "distance",
+    "angle",
+    "radius",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub(crate) struct NextIdsRecord {
@@ -152,6 +176,26 @@ pub(crate) enum EditRecord {
         feature: u64,
         constraint: u64,
         value: String,
+    },
+    AddSketchEntity {
+        feature: u64,
+        entity: EntityRecord,
+    },
+    RemoveSketchEntity {
+        feature: u64,
+        id: u64,
+    },
+    SetSketchEntity {
+        feature: u64,
+        entity: EntityRecord,
+    },
+    AddSketchConstraint {
+        feature: u64,
+        constraint: ConstraintRecord,
+    },
+    RemoveSketchConstraint {
+        feature: u64,
+        id: u64,
     },
 }
 
@@ -251,40 +295,74 @@ fn sketch_record(sketch: &Sketch) -> SketchRecord {
         },
         entities: sketch
             .entities()
-            .map(|(id, entity)| {
-                Lenient::Read(EntityRecord {
-                    id: id.raw(),
-                    kind: match *entity {
-                        Entity::Point(position) => EntityKindRecord::Point(position.to_array()),
-                        Entity::Line { start, end } => EntityKindRecord::Line {
-                            start: start.raw(),
-                            end: end.raw(),
-                        },
-                    },
-                })
-            })
+            .map(|(id, entity)| Lenient::Read(entity_record(id, entity)))
             .collect(),
         constraints: sketch
             .constraints()
-            .map(|(id, constraint)| {
-                Lenient::Read(ConstraintRecord {
-                    id: id.raw(),
-                    kind: constraint_kind_record(constraint),
-                })
-            })
+            .map(|(id, constraint)| Lenient::Read(constraint_record(id, constraint)))
             .collect(),
         next_id: sketch.next_id(),
     }
 }
 
+fn entity_record(id: EntityId, entity: &Entity) -> EntityRecord {
+    EntityRecord {
+        id: id.raw(),
+        kind: entity_kind_record(entity),
+    }
+}
+
+fn constraint_record(id: ConstraintId, constraint: &Constraint) -> ConstraintRecord {
+    ConstraintRecord {
+        id: id.raw(),
+        kind: constraint_kind_record(constraint),
+    }
+}
+
+fn entity_kind_record(entity: &Entity) -> EntityKindRecord {
+    match entity {
+        Entity::Point(position) => EntityKindRecord::Point(position.to_array()),
+        Entity::Line { start, end } => EntityKindRecord::Line {
+            start: start.raw(),
+            end: end.raw(),
+        },
+        Entity::Circle { center, radius } => EntityKindRecord::Circle {
+            center: center.raw(),
+            radius: *radius,
+        },
+        Entity::Arc { center, start, end } => EntityKindRecord::Arc {
+            center: center.raw(),
+            start: start.raw(),
+            end: end.raw(),
+        },
+        Entity::Spline { control_points } => EntityKindRecord::Spline {
+            control_points: control_points.iter().map(|point| point.raw()).collect(),
+        },
+    }
+}
+
 fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
+    let pair = |a: &EntityId, b: &EntityId| [a.raw(), b.raw()];
     match constraint {
-        Constraint::Coincident(a, b) => ConstraintKindRecord::Coincident([a.raw(), b.raw()]),
+        Constraint::Coincident(a, b) => ConstraintKindRecord::Coincident(pair(a, b)),
         Constraint::Horizontal(entity) => ConstraintKindRecord::Horizontal(entity.raw()),
         Constraint::Vertical(entity) => ConstraintKindRecord::Vertical(entity.raw()),
+        Constraint::Parallel(a, b) => ConstraintKindRecord::Parallel(pair(a, b)),
+        Constraint::Perpendicular(a, b) => ConstraintKindRecord::Perpendicular(pair(a, b)),
+        Constraint::Tangent(a, b) => ConstraintKindRecord::Tangent(pair(a, b)),
+        Constraint::Equal(a, b) => ConstraintKindRecord::Equal(pair(a, b)),
         Constraint::Distance { from, to, value } => ConstraintKindRecord::Distance {
             from: from.raw(),
             to: to.raw(),
+            value: value.to_stored_text(),
+        },
+        Constraint::Angle { from, to, value } => ConstraintKindRecord::Angle {
+            from: from.raw(),
+            to: to.raw(),
+            value: value.to_stored_text(),
+        },
+        Constraint::Radius { entity, value } => ConstraintKindRecord::Radius {
+            entity: entity.raw(),
             value: value.to_stored_text(),
         },
     }
@@ -340,6 +418,38 @@ fn edit_record(edit: &Edit) -> EditRecord {
             feature: feature.raw(),
             constraint: constraint.raw(),
             value: value.to_stored_text(),
+        },
+        Edit::AddSketchEntity {
+            feature,
+            id,
+            entity,
+        } => EditRecord::AddSketchEntity {
+            feature: feature.raw(),
+            entity: entity_record(*id, entity),
+        },
+        Edit::RemoveSketchEntity { feature, id } => EditRecord::RemoveSketchEntity {
+            feature: feature.raw(),
+            id: id.raw(),
+        },
+        Edit::SetSketchEntity {
+            feature,
+            id,
+            entity,
+        } => EditRecord::SetSketchEntity {
+            feature: feature.raw(),
+            entity: entity_record(*id, entity),
+        },
+        Edit::AddSketchConstraint {
+            feature,
+            id,
+            constraint,
+        } => EditRecord::AddSketchConstraint {
+            feature: feature.raw(),
+            constraint: constraint_record(*id, constraint),
+        },
+        Edit::RemoveSketchConstraint { feature, id } => EditRecord::RemoveSketchConstraint {
+            feature: feature.raw(),
+            id: id.raw(),
         },
     }
 }
@@ -406,6 +516,32 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             constraint: ConstraintId::from_raw(constraint),
             value: parse(&value)?,
         },
+        EditRecord::AddSketchEntity { feature, entity } => Edit::AddSketchEntity {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(entity.id),
+            entity: restore_entity(&entity.kind),
+        },
+        EditRecord::RemoveSketchEntity { feature, id } => Edit::RemoveSketchEntity {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+        },
+        EditRecord::SetSketchEntity { feature, entity } => Edit::SetSketchEntity {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(entity.id),
+            entity: restore_entity(&entity.kind),
+        },
+        EditRecord::AddSketchConstraint {
+            feature,
+            constraint,
+        } => Edit::AddSketchConstraint {
+            feature: FeatureId::from_raw(feature),
+            id: ConstraintId::from_raw(constraint.id),
+            constraint: constraint_from_record(&constraint.kind, |text, _| parse(text))?,
+        },
+        EditRecord::RemoveSketchConstraint { feature, id } => Edit::RemoveSketchConstraint {
+            feature: FeatureId::from_raw(feature),
+            id: ConstraintId::from_raw(id),
+        },
     })
 }
 
@@ -441,25 +577,16 @@ fn restore_sketch(record: &SketchRecord, feature: &str, issues: &mut Vec<String>
     for entity in &record.entities {
         match entity {
             Lenient::Read(entity) => readable.push(entity),
-            Lenient::Unreadable(value) => issues.push(unreadable_item(
-                feature,
-                value,
-                &["point", "line"],
-                "an entity",
-            )),
+            Lenient::Unreadable(value) => {
+                issues.push(unreadable_item(feature, value, &ENTITY_KINDS, "an entity"))
+            }
         }
     }
     let (points, others): (Vec<_>, Vec<_>) = readable
         .into_iter()
         .partition(|entity| matches!(entity.kind, EntityKindRecord::Point(_)));
     for record in points.into_iter().chain(others) {
-        let entity = match record.kind {
-            EntityKindRecord::Point([x, y]) => Entity::Point(Point2::new(x, y)),
-            EntityKindRecord::Line { start, end } => Entity::Line {
-                start: EntityId::from_raw(start),
-                end: EntityId::from_raw(end),
-            },
-        };
+        let entity = restore_entity(&record.kind);
         let label = format!("{} {}", entity.kind_name(), record.id);
         if let Err(error) = sketch.insert_entity(EntityId::from_raw(record.id), entity) {
             issues.push(format!(
@@ -474,13 +601,36 @@ fn restore_sketch(record: &SketchRecord, feature: &str, issues: &mut Vec<String>
             Lenient::Unreadable(value) => issues.push(unreadable_item(
                 feature,
                 value,
-                &["coincident", "horizontal", "vertical", "distance"],
+                &CONSTRAINT_KINDS,
                 "a constraint",
             )),
         }
     }
     sketch.reserve_ids_below(record.next_id);
     sketch
+}
+
+fn restore_entity(record: &EntityKindRecord) -> Entity {
+    let entity = EntityId::from_raw;
+    match record {
+        EntityKindRecord::Point([x, y]) => Entity::Point(Point2::new(*x, *y)),
+        EntityKindRecord::Line { start, end } => Entity::Line {
+            start: entity(*start),
+            end: entity(*end),
+        },
+        EntityKindRecord::Circle { center, radius } => Entity::Circle {
+            center: entity(*center),
+            radius: *radius,
+        },
+        EntityKindRecord::Arc { center, start, end } => Entity::Arc {
+            center: entity(*center),
+            start: entity(*start),
+            end: entity(*end),
+        },
+        EntityKindRecord::Spline { control_points } => Entity::Spline {
+            control_points: control_points.iter().copied().map(entity).collect(),
+        },
+    }
 }
 
 fn restore_plane(record: PlaneRecord) -> Option<Plane> {
@@ -497,43 +647,169 @@ fn restore_constraint(
     feature: &str,
     issues: &mut Vec<String>,
 ) {
-    let id = ConstraintId::from_raw(record.id);
-    let entity = EntityId::from_raw;
-    let constraint = match &record.kind {
-        ConstraintKindRecord::Coincident([a, b]) => Constraint::Coincident(entity(*a), entity(*b)),
-        ConstraintKindRecord::Horizontal(line) => Constraint::Horizontal(entity(*line)),
-        ConstraintKindRecord::Vertical(line) => Constraint::Vertical(entity(*line)),
-        ConstraintKindRecord::Distance { from, to, value } => {
-            let (from, to) = (entity(*from), entity(*to));
-            let value = match Expression::parse_stored(value) {
-                Ok(value) => value,
-                Err(_) => {
-                    let Some(length) = sketch
-                        .point(from)
-                        .zip(sketch.point(to))
-                        .map(|(a, b)| a.distance(b))
-                    else {
-                        issues.push(format!(
-                            "In “{feature}”, a distance could not be read and was left out."
-                        ));
-                        return;
-                    };
-                    issues.push(format!(
-                        "In “{feature}”, the value of a distance could not be read, so it was \
-                         set to its drawn length, {}.",
-                        Quantity::length(length)
-                    ));
-                    Expression::Measure(length, Unit::Millimetre)
-                }
-            };
-            Constraint::Distance { from, to, value }
-        }
+    let constraint = constraint_from_record(&record.kind, |text, kind| {
+        restore_dimension(sketch, text, kind, feature, issues)
+    });
+    let Some(constraint) = constraint else {
+        return;
     };
-    if let Err(error) = sketch.insert_constraint(id, constraint) {
+    if let Err(error) = sketch.insert_constraint(ConstraintId::from_raw(record.id), constraint) {
         issues.push(format!(
             "In “{feature}”, a constraint was left out because {error}."
         ));
     }
+}
+
+fn constraint_from_record(
+    record: &ConstraintKindRecord,
+    mut value: impl FnMut(&str, DrawnValue) -> Option<Expression>,
+) -> Option<Constraint> {
+    let entity = EntityId::from_raw;
+    let pair = |[a, b]: [u64; 2]| (entity(a), entity(b));
+    Some(match record {
+        ConstraintKindRecord::Coincident(ids) => {
+            let (a, b) = pair(*ids);
+            Constraint::Coincident(a, b)
+        }
+        ConstraintKindRecord::Horizontal(line) => Constraint::Horizontal(entity(*line)),
+        ConstraintKindRecord::Vertical(line) => Constraint::Vertical(entity(*line)),
+        ConstraintKindRecord::Parallel(ids) => {
+            let (a, b) = pair(*ids);
+            Constraint::Parallel(a, b)
+        }
+        ConstraintKindRecord::Perpendicular(ids) => {
+            let (a, b) = pair(*ids);
+            Constraint::Perpendicular(a, b)
+        }
+        ConstraintKindRecord::Tangent(ids) => {
+            let (a, b) = pair(*ids);
+            Constraint::Tangent(a, b)
+        }
+        ConstraintKindRecord::Equal(ids) => {
+            let (a, b) = pair(*ids);
+            Constraint::Equal(a, b)
+        }
+        ConstraintKindRecord::Distance {
+            from,
+            to,
+            value: text,
+        } => {
+            let (from, to) = (entity(*from), entity(*to));
+            let value = value(text, DrawnValue::Distance { from, to })?;
+            Constraint::Distance { from, to, value }
+        }
+        ConstraintKindRecord::Angle {
+            from,
+            to,
+            value: text,
+        } => {
+            let (from, to) = (entity(*from), entity(*to));
+            let value = value(text, DrawnValue::Angle { from, to })?;
+            Constraint::Angle { from, to, value }
+        }
+        ConstraintKindRecord::Radius {
+            entity: curve,
+            value: text,
+        } => {
+            let curve = entity(*curve);
+            let value = value(text, DrawnValue::Radius(curve))?;
+            Constraint::Radius {
+                entity: curve,
+                value,
+            }
+        }
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DrawnValue {
+    Distance { from: EntityId, to: EntityId },
+    Angle { from: EntityId, to: EntityId },
+    Radius(EntityId),
+}
+
+impl DrawnValue {
+    fn noun(self) -> &'static str {
+        match self {
+            Self::Distance { .. } => "a distance",
+            Self::Angle { .. } => "an angle",
+            Self::Radius(_) => "a radius",
+        }
+    }
+
+    fn drawn_name(self) -> &'static str {
+        match self {
+            Self::Distance { .. } => "drawn length",
+            Self::Angle { .. } => "drawn angle",
+            Self::Radius(_) => "drawn radius",
+        }
+    }
+
+    fn measure(self, sketch: &Sketch) -> Option<Quantity> {
+        match self {
+            Self::Distance { from, to } => {
+                let point_distance = sketch
+                    .point(from)
+                    .zip(sketch.point(to))
+                    .map(|(a, b)| a.distance(b));
+                point_distance
+                    .or_else(|| line_distance(sketch, from, to))
+                    .or_else(|| line_distance(sketch, to, from))
+                    .map(Quantity::length)
+            }
+            Self::Angle { from, to } => {
+                let (from, to) = (sketch.line_direction(from)?, sketch.line_direction(to)?);
+                let radians = from.perp_dot(to).atan2(from.dot(to));
+                Some(Quantity::angle(radians.to_degrees()))
+            }
+            Self::Radius(curve) => sketch
+                .circle(curve)
+                .map(|(_, radius)| radius)
+                .filter(|radius| *radius > 0.0)
+                .map(Quantity::length),
+        }
+        .filter(|quantity| quantity.value.is_finite())
+    }
+}
+
+fn line_distance(sketch: &Sketch, point: EntityId, line: EntityId) -> Option<f64> {
+    let position = sketch.point(point)?;
+    let direction = sketch.line_direction(line)?.try_normalize()?;
+    let anchor = match sketch.line_endpoints(line) {
+        Some((start, _)) => start,
+        None => Point2::ZERO,
+    };
+    Some(direction.perp_dot(position - anchor).abs())
+}
+
+fn restore_dimension(
+    sketch: &Sketch,
+    text: &str,
+    kind: DrawnValue,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Option<Expression> {
+    if let Ok(value) = Expression::parse_stored(text) {
+        return Some(value);
+    }
+    let noun = kind.noun();
+    let Some(drawn) = kind.measure(sketch) else {
+        issues.push(format!(
+            "In “{feature}”, {noun} could not be read and was left out."
+        ));
+        return None;
+    };
+    issues.push(format!(
+        "In “{feature}”, the value of {noun} could not be read, so it was set to its {}, \
+         {drawn}.",
+        kind.drawn_name()
+    ));
+    let unit = if matches!(kind, DrawnValue::Angle { .. }) {
+        Unit::Degree
+    } else {
+        Unit::Millimetre
+    };
+    Some(Expression::Measure(drawn.value, unit))
 }
 
 fn unreadable_item(feature: &str, item: &Value, known: &[&str], noun: &str) -> String {

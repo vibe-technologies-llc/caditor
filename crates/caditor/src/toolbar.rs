@@ -1,11 +1,14 @@
 use std::time::Duration;
 
-use egui::{Button, Key, KeyboardShortcut, Modifiers, Ui};
+use egui::{Button, Color32, Key, KeyboardShortcut, Modifiers, Ui};
 
 use crate::{
+    editing::{EditingCommand, SketchEditing},
     feature_tree::count,
     files::{self, Files},
     model::{Action, Model, NoticeKind, RecomputeStatus},
+    selection::{Pickable, Selection},
+    viewport::CHOOSE_PLANE_PROMPT,
 };
 
 const SHOW_PROGRESS_AFTER: Duration = Duration::from_millis(150);
@@ -14,13 +17,24 @@ const UNDO: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Z)
 const REDO: KeyboardShortcut =
     KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::Z);
 const REDO_ALTERNATIVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Y);
+const PROMPT_COLOR: Color32 = Color32::from_rgb(255, 214, 120);
+const NEW_SKETCH_LABEL: &str = "New sketch";
 
-pub fn show(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>) {
+pub struct ToolbarContext<'a> {
+    pub files: &'a Files,
+    pub selection: &'a Selection,
+    pub editing: &'a SketchEditing,
+}
+
+pub fn show(ui: &mut Ui, model: &Model, context: &ToolbarContext<'_>, actions: &mut Vec<Action>) {
+    let files = context.files;
     egui::Panel::top("toolbar").show(ui, |ui| {
         ui.horizontal(|ui| {
             files::menu(ui, model, files, actions);
             ui.separator();
             history_buttons(ui, model, actions);
+            ui.separator();
+            sketch_buttons(ui, context.selection, context.editing, actions);
             ui.separator();
             recompute_status(ui, model, actions);
             if let Some(notice) = model.notice() {
@@ -30,7 +44,7 @@ pub fn show(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>
                     NoticeKind::Error => ui.visuals().error_fg_color,
                 };
                 ui.colored_label(color, &notice.text);
-                if ui.small_button("✕").on_hover_text("Dismiss").clicked() {
+                if ui.small_button("🗙").on_hover_text("Dismiss").clicked() {
                     actions.push(Action::DismissNotice);
                 }
             }
@@ -38,6 +52,39 @@ pub fn show(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>
     });
     if !files.is_blocking() {
         shortcuts(ui, actions);
+    }
+}
+
+fn sketch_buttons(
+    ui: &mut Ui,
+    selection: &Selection,
+    editing: &SketchEditing,
+    actions: &mut Vec<Action>,
+) {
+    if editing.is_choosing_plane() {
+        ui.colored_label(PROMPT_COLOR, CHOOSE_PLANE_PROMPT);
+        if ui
+            .button("Cancel")
+            .on_hover_text("Stop choosing a plane (Esc)")
+            .clicked()
+        {
+            actions.push(Action::Editing(EditingCommand::CancelNewSketch));
+        }
+        return;
+    }
+    let plane = selection.iter().find_map(|pickable| match pickable {
+        Pickable::Plane(plane) => Some(plane),
+        Pickable::Origin
+        | Pickable::Axis(_)
+        | Pickable::SketchEntity { .. }
+        | Pickable::SketchConstraint { .. } => None,
+    });
+    let hover = match plane {
+        Some(plane) => format!("Start a sketch on the selected {}", plane.name()),
+        None => "Start a sketch on the plane you click next".to_owned(),
+    };
+    if ui.button(NEW_SKETCH_LABEL).on_hover_text(hover).clicked() {
+        actions.push(Action::Editing(EditingCommand::NewSketch(plane)));
     }
 }
 
@@ -122,12 +169,12 @@ fn recompute_status(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>) {
 fn summary(ui: &mut Ui, model: &Model) {
     match model.evaluation().failed_count() {
         0 => {
-            ui.weak("✔ Up to date");
+            ui.weak("Up to date");
         }
         failed => {
             ui.colored_label(
                 ui.visuals().error_fg_color,
-                format!("⚠ {} failed", count(failed, "feature", "features")),
+                format!("⚑ {} failed", count(failed, "feature", "features")),
             );
         }
     }

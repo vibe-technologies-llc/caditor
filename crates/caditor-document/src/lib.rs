@@ -18,7 +18,14 @@ pub use crate::{
 };
 
 #[cfg(test)]
+mod sketch_tests;
+#[cfg(test)]
 mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
     use caditor_expression::{EvalError, Expression, ParameterId, Quantity};
     use caditor_geometry::{Plane, Point2};
     use caditor_sketch::{Constraint, ConstraintId, Entity, Sketch};
@@ -41,12 +48,14 @@ mod tests {
         let Some(Entity::Line { start, end }) = sketch.entity(line).cloned() else {
             panic!("expected a line");
         };
-        sketch.add_constraint(Constraint::Horizontal(line));
-        let distance = sketch.add_constraint(Constraint::Distance {
-            from: start,
-            to: end,
-            value,
-        });
+        sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+        let distance = sketch
+            .add_constraint(Constraint::Distance {
+                from: start,
+                to: end,
+                value,
+            })
+            .unwrap();
         (sketch, distance)
     }
 
@@ -446,5 +455,95 @@ mod tests {
             values.evaluate_expression(&document.parse("width + gap").unwrap()),
             Ok(Quantity::length(45.0))
         );
+    }
+
+    #[test]
+    fn a_solved_sketch_follows_its_dimension() {
+        let (mut document, ids) = sample();
+        document
+            .apply(set_expression(&document, ids.width, "55 mm"))
+            .unwrap();
+        let evaluation = recompute(&mut Recompute::default(), &document);
+        let Some(FeatureResult::Sketch(result)) = evaluation
+            .feature(ids.base)
+            .and_then(|status| status.result.as_deref())
+        else {
+            panic!("the base sketch should have a result");
+        };
+        let line = result
+            .geometry
+            .entities()
+            .find_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id))
+            .unwrap();
+        let (start, end) = result.geometry.line_endpoints(line).unwrap();
+        assert!((start.distance(end) - 55.0).abs() < 1e-9);
+        assert_eq!(result.solution.degrees_of_freedom(), 2);
+    }
+
+    #[test]
+    fn conflicting_constraints_are_named_and_the_fix_points_at_the_newest() {
+        let (mut sketch, distance) = line_with_distance(Plane::XY, 40.0, Expression::Number(40.0));
+        let line = sketch
+            .entities()
+            .find_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id))
+            .unwrap();
+        let vertical = sketch.add_constraint(Constraint::Vertical(line)).unwrap();
+        let horizontal = sketch
+            .constraints()
+            .find_map(|(id, constraint)| {
+                matches!(constraint, Constraint::Horizontal(_)).then_some(id)
+            })
+            .unwrap();
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add sketches");
+        let replaced = transaction.add_feature("Base sketch", FeatureKind::Sketch(sketch));
+        let (fine, _) = line_with_distance(Plane::XZ, 20.0, Expression::Number(20.0));
+        let side = transaction.add_feature("Side sketch", FeatureKind::Sketch(fine));
+        document.apply(transaction.finish()).unwrap();
+
+        let evaluation = recompute(&mut Recompute::default(), &document);
+
+        let error = failure(&evaluation, replaced);
+        assert_eq!(
+            error.reason,
+            "Vertical Line 2 conflicts with Horizontal Line 2 and Distance between Point 0 and \
+             Point 1."
+        );
+        assert_eq!(
+            error.remedy,
+            "Delete or change one of these constraints, or undo the last change."
+        );
+        assert_eq!(
+            error.fix,
+            Some(FixTarget::Constraint {
+                feature: replaced,
+                constraint: vertical
+            })
+        );
+        assert_eq!(error.constraints, [horizontal, distance, vertical]);
+        assert_eq!(
+            evaluation.feature(side).unwrap().state,
+            FeatureState::UpToDate
+        );
+    }
+
+    #[test]
+    fn a_cancelled_solve_leaves_the_feature_outdated() {
+        let (mut document, ids) = sample();
+        document
+            .apply(set_expression(&document, ids.width, "50 mm"))
+            .unwrap();
+        let checks = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&checks);
+        let cancel = CancelToken::new(move || counter.fetch_add(1, Ordering::SeqCst) >= 1);
+
+        let evaluation = Recompute::default().run(&document, &ModelEvaluator, &cancel, &|_, _| {});
+
+        assert_eq!(
+            evaluation.feature(ids.base).unwrap().state,
+            FeatureState::Outdated
+        );
+        assert!(checks.load(Ordering::SeqCst) >= 2);
+        assert!(!evaluation.is_complete());
     }
 }

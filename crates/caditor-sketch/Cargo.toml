@@ -12,4 +12,5 @@ workspace = true
 caditor-expression.workspace = true
 caditor-geometry.workspace = true
 
+nalgebra.workspace = true
 thiserror.workspace = true

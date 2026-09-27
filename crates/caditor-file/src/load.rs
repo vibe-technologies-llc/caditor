@@ -92,7 +92,10 @@ pub fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
         Some(HeaderState::Read) => {}
         Some(HeaderState::Damaged { .. }) if records_read > 0 => issues.insert(
             0,
-            "The start of the file is damaged; the rest was read as a version 1 model.".to_owned(),
+            format!(
+                "The start of the file is damaged; the rest was read as a version \
+                 {FORMAT_VERSION} model."
+            ),
         ),
         Some(HeaderState::Damaged { .. }) => return Err(LoadError::NotAModel),
         None => return Err(LoadError::Empty),

@@ -108,7 +108,7 @@ fn row(
             ui.weak(value.to_string());
         }
         Some(Err(error)) => {
-            ui.label(RichText::new("⚠ error").color(ui.visuals().error_fg_color))
+            ui.label(RichText::new("⚑ error").color(ui.visuals().error_fg_color))
                 .on_hover_text(format!(
                     "{} cannot be evaluated: {error}. Edit its expression.",
                     parameter.name

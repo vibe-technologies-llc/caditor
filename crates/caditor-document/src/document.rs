@@ -53,6 +53,18 @@ pub enum FeatureKind {
 }
 
 impl FeatureKind {
+    pub fn sketch(&self) -> Option<&Sketch> {
+        match self {
+            Self::Sketch(sketch) => Some(sketch),
+        }
+    }
+
+    pub fn sketch_mut(&mut self) -> Option<&mut Sketch> {
+        match self {
+            Self::Sketch(sketch) => Some(sketch),
+        }
+    }
+
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
         match self {
             Self::Sketch(sketch) => sketch.parameters(),

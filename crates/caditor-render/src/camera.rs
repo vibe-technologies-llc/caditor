@@ -1,6 +1,6 @@
 use std::{f64::consts::PI, time::Duration};
 
-use caditor_geometry::{Aabb, Point3, Ray, Rotation3, Vector3};
+use caditor_geometry::{Aabb, Plane, Point3, Ray, Rotation3, Vector3};
 use glam::{DMat3, DMat4, DVec2, DVec3, dcamera::rh::proj::directx};
 
 const FIELD_OF_VIEW_Y: f64 = 30.0 * PI / 180.0;
@@ -37,6 +37,20 @@ impl Viewpoint {
             orientation,
             distance: distance.clamp(MIN_DISTANCE, MAX_DISTANCE),
         })
+    }
+
+    pub fn facing(plane: &Plane, target: Point3, distance: f64) -> Self {
+        let orientation = Rotation3::from_mat3(&DMat3::from_cols(
+            plane.x_axis(),
+            plane.y_axis(),
+            plane.normal(),
+        ))
+        .normalize();
+        Self {
+            target,
+            orientation,
+            distance: distance.clamp(MIN_DISTANCE, MAX_DISTANCE),
+        }
     }
 
     pub fn forward(&self) -> Vector3 {
@@ -319,6 +333,34 @@ mod tests {
         let bottom = Viewpoint::looking_from(Vector3::NEG_Z, Point3::ZERO, 10.0).unwrap();
         assert_close(bottom.up(), Vector3::NEG_Y, 1e-12);
         assert_close(bottom.right(), Vector3::X, 1e-12);
+    }
+
+    #[test]
+    fn facing_a_plane_looks_along_its_normal_with_its_axes_on_screen() {
+        let tilted = Plane::with_x_axis(
+            Point3::new(4.0, -2.0, 7.0),
+            Vector3::new(1.0, 1.0, 2.0),
+            Vector3::new(1.0, -1.0, 0.0),
+        )
+        .unwrap();
+        for plane in [Plane::XY, Plane::XZ, Plane::YZ, tilted] {
+            let viewpoint = Viewpoint::facing(&plane, plane.origin(), 50.0);
+            assert_close(viewpoint.forward(), -plane.normal(), 1e-12);
+            assert_close(viewpoint.right(), plane.x_axis(), 1e-12);
+            assert_close(viewpoint.up(), plane.y_axis(), 1e-12);
+            assert_close(
+                viewpoint.eye(),
+                plane.origin() + plane.normal() * 50.0,
+                1e-9,
+            );
+
+            let view = View::new(viewpoint, WIDTH, HEIGHT);
+            let center = view.project(plane.origin()).unwrap();
+            let along_x = view.project(plane.to_world(DVec2::new(1.0, 0.0))).unwrap();
+            let along_y = view.project(plane.to_world(DVec2::new(0.0, 1.0))).unwrap();
+            assert!(along_x.x > center.x && (along_x.y - center.y).abs() < 1e-9);
+            assert!(along_y.y < center.y && (along_y.x - center.x).abs() < 1e-9);
+        }
     }
 
     #[test]

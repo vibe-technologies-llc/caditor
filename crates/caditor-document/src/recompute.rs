@@ -5,11 +5,11 @@ use std::{
     sync::Arc,
 };
 
-use caditor_expression::{EvalError, ParameterId, Quantity};
-use caditor_sketch::{ConstraintId, DimensionError, Sketch, SketchError, SketchSolution};
+use caditor_expression::{Dimension, EvalError, ParameterId, Quantity};
+use caditor_sketch::{ConstraintId, DimensionError, Sketch, SketchError, SketchSolution, Solved};
 
 use crate::{
-    document::{Document, Feature, FeatureId, FeatureKind},
+    document::{Document, Feature, FeatureId, FeatureKind, list_names},
     values::ParameterValues,
 };
 
@@ -38,6 +38,10 @@ pub enum FixTarget {
         constraint: ConstraintId,
     },
     Feature(FeatureId),
+    Constraint {
+        feature: FeatureId,
+        constraint: ConstraintId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +49,7 @@ pub struct FeatureError {
     pub reason: String,
     pub remedy: String,
     pub fix: Option<FixTarget>,
+    pub constraints: Vec<ConstraintId>,
 }
 
 pub enum Failure {
@@ -287,12 +292,14 @@ fn missing_upstream(
             reason: "It uses a feature that no longer exists.".to_owned(),
             remedy: "Edit it so it no longer uses the missing feature.".to_owned(),
             fix: None,
+            constraints: Vec::new(),
         });
     };
     Some(FeatureError {
         reason: format!("It uses {name}, which has an error."),
         remedy: format!("Fix {name} first."),
         fix: Some(FixTarget::Feature(*missing)),
+        constraints: Vec::new(),
     })
 }
 
@@ -317,6 +324,7 @@ fn evaluate_contained(
                 "Your model is unchanged. Undo the last change, and please report this problem."
                     .to_owned(),
             fix: None,
+            constraints: Vec::new(),
         }))
     })
 }
@@ -337,33 +345,96 @@ impl Evaluator for ModelEvaluator {
         &self,
         feature: &Feature,
         inputs: &Inputs<'_>,
-        _cancel: &CancelToken,
+        cancel: &CancelToken,
     ) -> Result<FeatureResult, Failure> {
         match &feature.kind {
-            FeatureKind::Sketch(sketch) => sketch
-                .evaluate(&|id| inputs.parameters.value(id))
-                .map(|solution| {
-                    FeatureResult::Sketch(SketchResult {
-                        geometry: sketch.clone(),
-                        solution,
-                    })
-                })
-                .map_err(|error| Failure::Error(sketch_error(feature.id(), sketch, &error))),
+            FeatureKind::Sketch(sketch) => {
+                let solved =
+                    sketch.solve(&|id| inputs.parameters.value(id), &|| cancel.is_cancelled());
+                match solved {
+                    Ok(Solved { geometry, solution }) => {
+                        Ok(FeatureResult::Sketch(SketchResult { geometry, solution }))
+                    }
+                    Err(SketchError::Cancelled) => Err(Failure::Cancelled),
+                    Err(error) => Err(Failure::Error(sketch_error(feature.id(), sketch, &error))),
+                }
+            }
         }
     }
 }
 
 fn sketch_error(feature: FeatureId, sketch: &Sketch, error: &SketchError) -> FeatureError {
-    let SketchError::Dimension { constraint, reason } = error else {
-        return FeatureError {
+    match error {
+        SketchError::Dimension { constraint, reason } => {
+            dimension_error(feature, sketch, *constraint, reason)
+        }
+        SketchError::Conflict { constraints } => conflict_error(feature, sketch, constraints),
+        SketchError::Unsolvable => FeatureError {
+            reason: "The sketch could not be solved from its current shape.".to_owned(),
+            remedy: "Undo the last change, or remove constraints until the sketch solves."
+                .to_owned(),
+            fix: None,
+            constraints: Vec::new(),
+        },
+        _ => FeatureError {
             reason: format!("The sketch could not be evaluated: {error}."),
             remedy: "Undo the last change.".to_owned(),
             fix: None,
-        };
+            constraints: Vec::new(),
+        },
+    }
+}
+
+fn conflict_error(
+    feature: FeatureId,
+    sketch: &Sketch,
+    constraints: &[ConstraintId],
+) -> FeatureError {
+    let Some((newest, older)) = constraints.split_last() else {
+        return sketch_error(feature, sketch, &SketchError::Unsolvable);
     };
+    let newest_label = sketch.describe_constraint(*newest);
+    let reason = if older.is_empty() {
+        format!("{newest_label} cannot be satisfied.")
+    } else {
+        let older: Vec<String> = older
+            .iter()
+            .map(|constraint| sketch.describe_constraint(*constraint))
+            .collect();
+        format!("{newest_label} conflicts with {}.", list_names(&older))
+    };
+    let remedy = if older.is_empty() {
+        "Delete or change this constraint, or undo the last change."
+    } else {
+        "Delete or change one of these constraints, or undo the last change."
+    };
+    FeatureError {
+        reason,
+        remedy: remedy.to_owned(),
+        fix: Some(FixTarget::Constraint {
+            feature,
+            constraint: *newest,
+        }),
+        constraints: constraints.to_vec(),
+    }
+}
+
+fn dimension_error(
+    feature: FeatureId,
+    sketch: &Sketch,
+    constraint: ConstraintId,
+    reason: &DimensionError,
+) -> FeatureError {
     let dimension = FixTarget::Dimension {
         feature,
-        constraint: *constraint,
+        constraint,
+    };
+    let example = match sketch
+        .constraint(constraint)
+        .and_then(|definition| definition.dimension_kind())
+    {
+        Some(kind) if kind == Dimension::ANGLE => "an angle, such as 30 deg",
+        _ => "a length, such as 10 mm",
     };
     let (remedy, fix) = match reason {
         DimensionError::Evaluation(EvalError::ParameterFailed { id, name }) => (
@@ -371,14 +442,18 @@ fn sketch_error(feature: FeatureId, sketch: &Sketch, error: &SketchError) -> Fea
             FixTarget::Parameter(*id),
         ),
         DimensionError::Evaluation(EvalError::WrongKind { .. }) => (
-            "Edit the dimension so it gives a length, such as 10 mm.".to_owned(),
+            format!("Edit the dimension so it gives {example}."),
             dimension,
         ),
         DimensionError::Negative => (
             "Edit the dimension so it gives zero or more.".to_owned(),
             dimension,
         ),
-        DimensionError::Evaluation(_) => (
+        DimensionError::NotPositive => (
+            "Edit the dimension so it gives more than zero.".to_owned(),
+            dimension,
+        ),
+        DimensionError::Evaluation(_) | DimensionError::NotFinite => (
             "Edit the dimension or the parameters it uses.".to_owned(),
             dimension,
         ),
@@ -386,9 +461,10 @@ fn sketch_error(feature: FeatureId, sketch: &Sketch, error: &SketchError) -> Fea
     FeatureError {
         reason: format!(
             "{} cannot be evaluated: {reason}.",
-            sketch.describe_constraint(*constraint)
+            sketch.describe_constraint(constraint)
         ),
         remedy,
         fix: Some(fix),
+        constraints: Vec::new(),
     }
 }

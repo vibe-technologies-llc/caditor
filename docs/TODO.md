@@ -24,20 +24,7 @@ These need an answer before the milestone that depends on them starts.
 - [ ] **Geometry kernel** (blocks M5): a native Rust B-rep kernel (own, `truck`, or
       Fornjot's), or bindings to OpenCascade. Bindings conflict with the forbid-unsafe policy
       and bring in OCC's own failure modes.
-- [ ] **Constraint solver** (blocks M4): our own solver in `caditor-sketch`, or an existing one.
-      Whatever is chosen must be able to report degrees of freedom and point to the constraints
-      in conflict.
 - [ ] **Distribution** (blocks M8): Flatpak, AUR and/or plain release binaries.
-
-## M4: Sketcher
-
-- [ ] Entities: point, line, arc, circle, then splines
-- [ ] Constraints: coincident, horizontal and vertical, parallel and perpendicular, tangent,
-      equal, distance, angle and radius
-- [ ] Solver with live degree-of-freedom count and colouring by constraint state
-- [ ] Diagnosis of conflicting and redundant constraints that names the entities involved
-- [ ] Drawing tools with snapping and inferred constraints; editable on-canvas dimensions that
-      accept expressions
 
 ## M5: Solid modelling
 

@@ -11,11 +11,13 @@ use winit::{
 };
 
 use crate::{
+    editing::SketchEditing,
     files::{self, FileCommand, Files},
     model::{Action, Model, WakerFactory},
     overlay::Overlay,
     panels::{self, PanelState},
-    toolbar,
+    sketch_toolbar::{self, SketchInput},
+    toolbar::{self, ToolbarContext},
     viewport::ViewportState,
 };
 
@@ -42,13 +44,85 @@ pub fn window_title(model: &Model) -> String {
     format!("{marker}{} — {APPLICATION_NAME}", model.display_name())
 }
 
-pub fn perform(actions: Vec<Action>, model: &mut Model, files: &mut Files) {
+pub struct Workspace {
+    pub viewport: ViewportState,
+    pub panels: PanelState,
+    pub editing: SketchEditing,
+    keyboard_was_taken: bool,
+}
+
+impl Workspace {
+    pub fn new() -> Self {
+        Self {
+            viewport: ViewportState::new(),
+            panels: PanelState::default(),
+            editing: SketchEditing::default(),
+            keyboard_was_taken: false,
+        }
+    }
+}
+
+pub fn show(
+    ui: &mut egui::Ui,
+    model: &Model,
+    files: &Files,
+    workspace: &mut Workspace,
+    actions: &mut Vec<Action>,
+) {
+    let keyboard_taken = ui.ctx().egui_wants_keyboard_input() || workspace.keyboard_was_taken;
+    let keys_free = !keyboard_taken && !files.is_blocking();
+    let Workspace {
+        viewport,
+        panels,
+        editing,
+        keyboard_was_taken,
+    } = workspace;
+    let toolbar = ToolbarContext {
+        files,
+        selection: viewport.selection(),
+        editing,
+    };
+    toolbar::show(ui, model, &toolbar, actions);
+    let input = SketchInput {
+        selection: viewport.selection(),
+        keys_free,
+        drawing: viewport.is_drawing(),
+    };
+    sketch_toolbar::show(ui, model, editing, &input, panels, actions);
+    route_dimension_focus(panels, editing, viewport);
+    panels::show(ui, model, viewport.selection(), editing, panels, actions);
+    route_dimension_focus(panels, editing, viewport);
+    viewport.show(ui, model, editing, keys_free, actions);
+    files::show(ui, model, files, actions);
+    *keyboard_was_taken = ui.ctx().egui_wants_keyboard_input();
+}
+
+fn route_dimension_focus(
+    panels: &mut PanelState,
+    editing: &SketchEditing,
+    viewport: &mut ViewportState,
+) {
+    if let Some(feature) = editing.feature()
+        && let Some(constraint) = panels.take_dimension_focus(feature)
+    {
+        viewport.edit_dimension(feature, constraint);
+    }
+}
+
+pub fn perform(
+    actions: Vec<Action>,
+    model: &mut Model,
+    files: &mut Files,
+    editing: &mut SketchEditing,
+) {
     for action in actions {
         match action {
             Action::File(command) => files.perform(command, model),
+            Action::Editing(command) => editing.perform(command, model),
             other => model.perform(other),
         }
     }
+    editing.sync(model);
 }
 
 pub struct App {
@@ -149,8 +223,7 @@ struct Session {
     window: Arc<Window>,
     renderer: Renderer,
     overlay: Overlay,
-    viewport: ViewportState,
-    panels: PanelState,
+    workspace: Workspace,
     last_redraw: Option<Instant>,
     next_repaint: Option<Instant>,
     title: String,
@@ -173,8 +246,7 @@ impl Session {
             window,
             renderer,
             overlay,
-            viewport: ViewportState::new(),
-            panels: PanelState::default(),
+            workspace: Workspace::new(),
             last_redraw: None,
             next_repaint: None,
             title: title.to_owned(),
@@ -190,40 +262,34 @@ impl Session {
             .unwrap_or_default();
         model.poll();
         files.poll(model);
+        self.workspace.editing.sync(model);
         if let Some(result) = self.renderer.poll_pick() {
-            self.viewport.apply_pick(&result);
+            self.workspace.viewport.apply_pick(&result);
         }
-        self.viewport.advance(elapsed);
+        self.workspace.viewport.advance(elapsed);
 
         let mut actions = Vec::new();
-        let viewport = &mut self.viewport;
-        let panel_state = &mut self.panels;
+        let workspace = &mut self.workspace;
         let view_model: &Model = model;
         let view_files: &Files = files;
         let ui = self.overlay.run(&self.window, |ui| {
-            toolbar::show(ui, view_model, view_files, &mut actions);
-            panels::show(
-                ui,
-                view_model,
-                viewport.selection(),
-                panel_state,
-                &mut actions,
-            );
-            viewport.show(ui, view_model.document());
-            files::show(ui, view_model, view_files, &mut actions);
+            show(ui, view_model, view_files, workspace, &mut actions);
         });
         let changed = !actions.is_empty();
-        perform(actions, model, files);
+        perform(actions, model, files, &mut self.workspace.editing);
         let title = window_title(model);
         if title != self.title {
             self.window.set_title(&title);
             self.title = title;
         }
 
-        let built = self
-            .viewport
-            .build_scene(model.document(), model.evaluation());
-        let request = self
+        let workspace = &mut self.workspace;
+        let built = workspace.viewport.build_scene(
+            model.document(),
+            model.evaluation(),
+            &workspace.editing,
+        );
+        let request = workspace
             .viewport
             .request(&built, !self.renderer.is_pick_pending());
         let pick_requested = request
@@ -253,12 +319,13 @@ impl Session {
             }
         }
         if pick_requested && !self.renderer.is_pick_pending() {
-            self.viewport.pick_was_not_issued();
+            self.workspace.viewport.pick_was_not_issued();
         }
 
         let repaint_now = changed || repaint_after.is_some_and(|delay| delay.is_zero());
         self.next_repaint = None;
-        if repaint_now || self.viewport.is_animating() || self.renderer.is_pick_pending() {
+        if repaint_now || self.workspace.viewport.is_animating() || self.renderer.is_pick_pending()
+        {
             self.window.request_redraw();
         } else {
             self.last_redraw = None;

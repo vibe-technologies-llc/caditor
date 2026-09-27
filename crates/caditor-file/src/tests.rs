@@ -5,10 +5,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use caditor_document::{Document, Edit, Editor, FeatureKind, Transaction};
-use caditor_expression::Expression;
+use caditor_document::{Document, Edit, Editor, FeatureId, FeatureKind, Transaction};
+use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
-use caditor_sketch::{Constraint, Entity, Sketch};
+use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use tempfile::TempDir;
 
 use super::*;
@@ -21,12 +21,14 @@ fn dimensioned_line(plane: Plane, length: f64, value: Expression) -> Sketch {
     let Some(Entity::Line { start, end }) = sketch.entity(line).cloned() else {
         panic!("expected a line");
     };
-    sketch.add_constraint(Constraint::Horizontal(line));
-    sketch.add_constraint(Constraint::Distance {
-        from: start,
-        to: end,
-        value,
-    });
+    sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+    sketch
+        .add_constraint(Constraint::Distance {
+            from: start,
+            to: end,
+            value,
+        })
+        .unwrap();
     sketch
 }
 
@@ -165,7 +167,7 @@ fn a_saved_model_loads_back_exactly() {
     assert_eq!(loaded.document.next_parameter_id(), 3);
     assert_eq!(loaded.document.next_feature_id(), 3);
     let text = fs::read_to_string(&path).unwrap();
-    assert!(text.starts_with("{\"format\":\"caditor\",\"version\":1}\n"));
+    assert!(text.starts_with("{\"format\":\"caditor\",\"version\":2}\n"));
     assert!(text.contains("\"expression\":\"$0 / 2 + 0.1 mm\""));
     assert_eq!(text.lines().count(), 1 + 2 + 2 + 1);
     assert_eq!(files_in(dir.path()), ["model.caditor"]);
@@ -268,7 +270,7 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
         .unwrap();
     lines[base] = lines[base].replacen(
         "\"entities\":[",
-        "\"entities\":[{\"id\":90,\"arc\":{\"center\":0}},",
+        "\"entities\":[{\"id\":90,\"ellipse\":{\"center\":0}},",
         1,
     );
     let side = lines
@@ -290,8 +292,8 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
              was left out. It may come from a newer version.",
             "Line 7 holds something this version of caditor does not know (assembly), so it was \
              left out. It may come from a newer version.",
-            "In “Base sketch”, an entity of a kind this version of caditor does not know (arc) \
-             was left out. It may come from a newer version.",
+            "In “Base sketch”, an entity of a kind this version of caditor does not know \
+             (ellipse) was left out. It may come from a newer version.",
         ]
     );
     let base_sketch = loaded.document.features().next().unwrap();
@@ -361,7 +363,7 @@ fn a_damaged_header_still_recovers_the_records() {
     let loaded = decode_lines(&lines);
     assert_eq!(
         loaded.issues,
-        ["The start of the file is damaged; the rest was read as a version 1 model."]
+        ["The start of the file is damaged; the rest was read as a version 2 model."]
     );
     assert_eq!(loaded.document, sample());
 }
@@ -579,4 +581,387 @@ fn recent_files_are_deduplicated_limited_and_persisted() {
         RecentFiles::load(&dir.path().join("missing")),
         RecentFiles::default()
     );
+}
+
+fn version_one_sample() -> Document {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Sample");
+    let width = transaction.add_parameter("width", transaction.parse("40 mm").unwrap());
+    transaction.add_feature(
+        "Base sketch",
+        FeatureKind::Sketch(dimensioned_line(
+            Plane::XY,
+            40.0,
+            Expression::Parameter(width),
+        )),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+#[test]
+fn a_version_1_file_still_loads_exactly() {
+    let text = r#"{"format":"caditor","version":1}
+{"parameter":{"id":0,"name":"width","expression":"40 mm"}}
+{"feature":{"id":0,"name":"Base sketch","sketch":{"plane":{"origin":[0.0,0.0,0.0],"normal":[0.0,0.0,1.0],"x_axis":[1.0,0.0,0.0]},"entities":[{"id":0,"point":[0.0,0.0]},{"id":1,"point":[40.0,0.0]},{"id":2,"line":{"start":0,"end":1}}],"constraints":[{"id":3,"horizontal":2},{"id":4,"distance":{"from":0,"to":1,"value":"$0"}}],"next_id":5}}}
+{"next_ids":{"parameter":1,"feature":1}}
+"#;
+    let loaded = decode(text.as_bytes()).unwrap();
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, version_one_sample());
+}
+
+struct EveryKind {
+    document: Document,
+    angle: ConstraintId,
+    radius: ConstraintId,
+}
+
+fn every_kind() -> EveryKind {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Every kind");
+    let width = transaction.add_parameter("width", transaction.parse("4 mm").unwrap());
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
+    let Some(Entity::Line { start, end }) = sketch.entity(line).cloned() else {
+        panic!("expected a line");
+    };
+    let other = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(30.0, 25.0));
+    let circle = sketch.add_circle(Point2::new(50.0, 5.0), 5.0);
+    let arc = sketch.add_arc(
+        Point2::new(80.0, 0.0),
+        Point2::new(90.0, 0.0),
+        Point2::new(80.0, 10.0),
+    );
+    sketch.add_spline(&[
+        Point2::new(0.0, -10.0),
+        Point2::new(10.0, -20.0),
+        Point2::new(20.0, -5.0),
+        Point2::new(35.5, -12.25),
+    ]);
+    let Some(Entity::Circle { center, .. }) = sketch.entity(circle).cloned() else {
+        panic!("expected a circle");
+    };
+    let mut add = |constraint| sketch.add_constraint(constraint).unwrap();
+    add(Constraint::Coincident(start, EntityId::ORIGIN));
+    add(Constraint::Coincident(end, other));
+    add(Constraint::Horizontal(line));
+    add(Constraint::Vertical(other));
+    add(Constraint::Parallel(other, EntityId::HORIZONTAL_AXIS));
+    add(Constraint::Perpendicular(line, EntityId::VERTICAL_AXIS));
+    add(Constraint::Tangent(other, circle));
+    add(Constraint::Equal(circle, arc));
+    add(Constraint::Distance {
+        from: EntityId::VERTICAL_AXIS,
+        to: center,
+        value: Expression::Measure(40.0, Unit::Millimetre),
+    });
+    let angle = add(Constraint::Angle {
+        from: EntityId::HORIZONTAL_AXIS,
+        to: other,
+        value: Expression::Measure(30.0, Unit::Degree),
+    });
+    let radius = add(Constraint::Radius {
+        entity: arc,
+        value: Expression::Parameter(width),
+    });
+    transaction.add_feature("Everything", FeatureKind::Sketch(sketch));
+    document.apply(transaction.finish()).unwrap();
+    EveryKind {
+        document,
+        angle,
+        radius,
+    }
+}
+
+#[test]
+fn every_entity_and_constraint_kind_round_trips() {
+    let EveryKind { document, .. } = every_kind();
+    let text = encode(&document).unwrap();
+    for record in [
+        "\"circle\":{\"center\":",
+        "\"arc\":{\"center\":",
+        "\"spline\":{\"control_points\":[",
+        "\"parallel\":[",
+        "\"perpendicular\":[",
+        "\"tangent\":[",
+        "\"equal\":[",
+        "\"angle\":{\"from\":18446744073709551614,",
+        "\"radius\":{\"entity\":",
+        "\"coincident\":[0,18446744073709551615]",
+        "\"value\":\"30 deg\"",
+    ] {
+        assert!(text.contains(record), "{record} is missing from {text}");
+    }
+
+    let loaded = decode(text.as_bytes()).unwrap();
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn unreadable_angles_and_radii_take_their_drawn_values() {
+    let EveryKind {
+        document,
+        angle,
+        radius,
+    } = every_kind();
+    let text = encode(&document)
+        .unwrap()
+        .replace("\"value\":\"30 deg\"", "\"value\":\"30 ((\"")
+        .replace("\"value\":\"$0\"", "\"value\":\"$$\"");
+
+    let loaded = decode(text.as_bytes()).unwrap();
+
+    assert_eq!(
+        loaded.issues,
+        [
+            "In “Everything”, the value of an angle could not be read, so it was set to its drawn \
+         angle, 26.565051°.",
+            "In “Everything”, the value of a radius could not be read, so it was set to its drawn \
+         radius, 10 mm.",
+        ]
+    );
+    let FeatureKind::Sketch(sketch) = &loaded.document.features().next().unwrap().kind;
+    assert!(matches!(
+        sketch.constraint(angle).and_then(Constraint::dimension),
+        Some(Expression::Measure(degrees, Unit::Degree)) if (degrees - 26.565_051_177_078).abs() < 1e-9
+    ));
+    assert_eq!(
+        sketch.constraint(radius).and_then(Constraint::dimension),
+        Some(&Expression::Measure(10.0, Unit::Millimetre))
+    );
+}
+
+struct SketchSession {
+    base: Document,
+    plate: FeatureId,
+}
+
+fn sketch_session() -> SketchSession {
+    let mut base = sample();
+    let mut transaction = base.transaction("New sketch");
+    let plate = transaction.add_feature("Plate", FeatureKind::Sketch(Sketch::new(Plane::XY)));
+    base.apply(transaction.finish()).unwrap();
+    SketchSession { base, plate }
+}
+
+fn every_sketch_edit(document: &Document, plate: FeatureId) -> Transaction {
+    let width = document.parameter_named("width").unwrap().id();
+    let mut transaction = document.transaction("Every sketch edit");
+    let center = transaction.add_sketch_entity(plate, Entity::Point(Point2::new(1.0 / 3.0, -2.5)));
+    let circle = transaction.add_sketch_entity(
+        plate,
+        Entity::Circle {
+            center,
+            radius: 0.1,
+        },
+    );
+    let radius = transaction.add_sketch_constraint(
+        plate,
+        Constraint::Radius {
+            entity: circle,
+            value: transaction.parse("width / 3").unwrap(),
+        },
+    );
+    transaction.edit(Edit::SetSketchEntity {
+        feature: plate,
+        id: center,
+        entity: Entity::Point(Point2::new(f64::MIN_POSITIVE, 1e300)),
+    });
+    transaction.edit(Edit::SetDimension {
+        feature: plate,
+        constraint: radius,
+        value: Expression::Parameter(width),
+    });
+    transaction.edit(Edit::RemoveSketchConstraint {
+        feature: plate,
+        id: radius,
+    });
+    transaction.edit(Edit::RemoveSketchEntity {
+        feature: plate,
+        id: circle,
+    });
+    transaction.finish()
+}
+
+#[test]
+fn every_sketch_edit_record_round_trips() {
+    let SketchSession { base, plate } = sketch_session();
+    let transaction = every_sketch_edit(&base, plate);
+    assert!(base.check(&transaction).is_ok());
+
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    for record in [
+        "{\"add_sketch_entity\":{\"feature\":3,\"entity\":{\"id\":0,\"point\":[0.3333333333333333,-2.5]}}}",
+        "{\"add_sketch_entity\":{\"feature\":3,\"entity\":{\"id\":1,\"circle\":{\"center\":0,\"radius\":0.1}}}}",
+        "{\"add_sketch_constraint\":{\"feature\":3,\"constraint\":{\"id\":2,\"radius\":{\"entity\":1,\"value\":\"$0 / 3\"}}}}",
+        "{\"set_sketch_entity\":{\"feature\":3,\"entity\":{\"id\":0,\"point\":[2.2250738585072014e-308,1e+300]}}}",
+        "{\"remove_sketch_constraint\":{\"feature\":3,\"id\":2}}",
+        "{\"remove_sketch_entity\":{\"feature\":3,\"id\":1}}",
+    ] {
+        assert!(text.contains(record), "{record} is missing from {text}");
+    }
+
+    let record: format::TransactionRecord = serde_json::from_str(&text).unwrap();
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+
+    let damaged: format::TransactionRecord =
+        serde_json::from_str(&text.replace("\"$0 / 3\"", "\"$0 //\"")).unwrap();
+    assert_eq!(format::restore_transaction(damaged), None);
+}
+
+fn record(storage: &Storage, entry: JournalEntry) {
+    storage.record(entry).unwrap();
+}
+
+fn apply_and_record(storage: &Storage, editor: &mut Editor, transaction: Transaction) {
+    editor.apply(transaction.clone()).unwrap();
+    record(storage, JournalEntry::Apply(transaction));
+}
+
+fn undo_and_record(storage: &Storage, editor: &mut Editor) {
+    let undone = editor.next_undo().cloned().unwrap();
+    editor.undo().unwrap();
+    record(storage, JournalEntry::Undo(undone));
+}
+
+fn redo_and_record(storage: &Storage, editor: &mut Editor) {
+    let redone = editor.next_redo().cloned().unwrap();
+    editor.redo().unwrap();
+    record(storage, JournalEntry::Redo(redone));
+}
+
+fn history(editor: &Editor) -> Vec<(Document, Option<Transaction>, Option<Transaction>)> {
+    let mut walker = editor.clone();
+    while walker.undo().unwrap().is_some() {}
+    let mut states = Vec::new();
+    loop {
+        states.push((
+            walker.document().clone(),
+            walker.next_undo().cloned(),
+            walker.next_redo().cloned(),
+        ));
+        if walker.redo().unwrap().is_none() {
+            return states;
+        }
+    }
+}
+
+fn plate_sketch(document: &Document, plate: FeatureId) -> &Sketch {
+    document.feature(plate).unwrap().kind.sketch().unwrap()
+}
+
+#[test]
+fn a_crashed_sketching_session_is_recovered_with_its_undo_history() {
+    let dir = TempDir::new().unwrap();
+    let SketchSession { base, plate } = sketch_session();
+    let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
+    let mut editor = Editor::new(base.clone());
+
+    let mut transaction = editor.document().transaction("Draw line");
+    let start = transaction.add_sketch_entity(plate, Entity::Point(Point2::new(0.5, 0.25)));
+    let end = transaction.add_sketch_entity(plate, Entity::Point(Point2::new(38.0, 1.0)));
+    let line = transaction.add_sketch_entity(plate, Entity::Line { start, end });
+    let transaction = transaction.finish();
+    apply_and_record(&storage, &mut editor, transaction);
+
+    let mut transaction = editor.document().transaction("Add constraints");
+    transaction.add_sketch_constraint(plate, Constraint::Horizontal(line));
+    let distance = transaction.add_sketch_constraint(
+        plate,
+        Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::Measure(35.0, Unit::Millimetre),
+        },
+    );
+    let transaction = transaction.finish();
+    apply_and_record(&storage, &mut editor, transaction);
+
+    let width = editor.document().parse("width * 2").unwrap();
+    apply_and_record(
+        &storage,
+        &mut editor,
+        Transaction::single(
+            "Edit distance",
+            Edit::SetDimension {
+                feature: plate,
+                constraint: distance,
+                value: width,
+            },
+        ),
+    );
+    apply_and_record(
+        &storage,
+        &mut editor,
+        Transaction::single(
+            "Move point",
+            Edit::SetSketchEntity {
+                feature: plate,
+                id: end,
+                entity: Entity::Point(Point2::new(80.0, -3.0)),
+            },
+        ),
+    );
+    let mut transaction = editor.document().transaction("Delete point");
+    transaction.remove_sketch_items(plate, [start], []);
+    let transaction = transaction.finish();
+    apply_and_record(&storage, &mut editor, transaction);
+    assert_eq!(plate_sketch(editor.document(), plate).entities().len(), 1);
+
+    undo_and_record(&storage, &mut editor);
+    undo_and_record(&storage, &mut editor);
+    redo_and_record(&storage, &mut editor);
+    assert!(storage.flusher().flush(WAIT));
+    crash(storage);
+
+    let recovery = dir.path().join("recovery");
+    let recovered = scan(Some(&recovery), &[]);
+
+    assert_eq!(recovered.len(), 1);
+    let recovered = &recovered[0];
+    assert_eq!(recovered.changes(), 8);
+    assert!(recovered.issues.is_empty(), "{:?}", recovered.issues);
+    assert_eq!(recovered.base, base);
+    assert_eq!(recovered.editor.document(), editor.document());
+    assert_eq!(recovered.editor.undo_label(), Some("Move point"));
+    assert_eq!(recovered.editor.redo_label(), Some("Delete point"));
+    assert_eq!(history(&recovered.editor), history(&editor));
+    assert_eq!(
+        plate_sketch(recovered.editor.document(), plate).point(end),
+        Some(Point2::new(80.0, -3.0))
+    );
+}
+
+#[test]
+fn an_edit_kind_this_version_does_not_know_stops_replay_at_its_line() {
+    let dir = TempDir::new().unwrap();
+    let storage = Storage::spawn(config(&dir), untitled(&sample()), || {}).unwrap();
+    let mut editor = Editor::new(sample());
+    record_session(&storage, &mut editor);
+    crash(storage);
+    let journal = fs::read_dir(dir.path().join("recovery"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let original = fs::read_to_string(&journal).unwrap();
+
+    let mut lines: Vec<String> = original.lines().map(str::to_owned).collect();
+    let (_, entry) = lines[3].split_once(",\"entry\":").unwrap();
+    let entry = entry
+        .strip_suffix('}')
+        .unwrap()
+        .replace("set_parameter_expression", "bend_sheet");
+    let crc = crc32fast::hash(entry.as_bytes());
+    lines[3] = format!("{{\"crc\":\"{crc:08x}\",\"entry\":{entry}}}");
+    fs::write(&journal, lines.join("\n")).unwrap();
+
+    let Inspection::Recoverable(recovered) = inspect(&journal).unwrap() else {
+        panic!("the journal should still be recoverable");
+    };
+    assert_eq!(recovered.changes(), 1);
+    assert_eq!(recovered.issues.len(), 1);
 }

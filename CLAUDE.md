@@ -50,9 +50,26 @@ use it. `caditor-file` and the app also use the geometry and sketch crates direc
   parameters by `ParameterId`, never by name, so renaming a parameter rewrites every
   expression's text. Parsing limits length and nesting so that hostile input cannot overflow the
   stack, and errors are plain-language clauses.
-- **caditor-sketch**: 2D sketches on a `Plane`: entities, constraints with stable
-  `ConstraintId`s, dimensions whose values are expressions, `evaluate` (later the solver).
-  `insert_entity` and `insert_constraint` take explicit IDs and check references, for loading.
+- **caditor-sketch**: 2D sketches on a `Plane` and caditor's own constraint solver.
+  - Entities are points, lines, circles (centre point and radius), arcs (centre, start and end
+    points, counter-clockwise) and clamped B-splines through control points. Every sketch also
+    has a fixed origin and two axes under reserved IDs (`EntityId::ORIGIN`, `HORIZONTAL_AXIS`,
+    `VERTICAL_AXIS`) that the counter never reaches; stored IDs stay below 2^63.
+  - Constraints have stable `ConstraintId`s: coincident (point–point or point on a curve),
+    horizontal, vertical, parallel, perpendicular, tangent, equal, and the dimensions distance,
+    angle and radius, whose values are expressions. `check_constraint` refuses constraints that
+    do not fit the entity kinds, so the UI can ask before offering one. `insert_entity` and
+    `insert_constraint` take explicit IDs and check references, for loading.
+  - `solve` evaluates the dimensions, then runs damped Gauss–Newton with minimal-norm steps
+    (SVD from `nalgebra`) on each independent part of the system, so geometry that already
+    satisfies its constraints does not move and under-constrained geometry moves as little as
+    possible. Every equation has an analytic gradient; two-branch equations (tangent side,
+    signed distance) take their branch from the starting geometry, so a solve never flips.
+    Degrees of freedom and each entity's constraint state come from the rank and null space
+    of the Jacobian at the solution; a constraint whose equations add no rank over older ones
+    is reported as redundant, naming what it duplicates. When a part does not converge, a
+    deletion filter finds a minimal set of conflicting constraints, which recompute reports as
+    the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
 - **caditor-document**: the parametric model: parameters, the ordered feature tree and
   everything that changes or recomputes it.
   - Every mutation is a `Transaction` of `Edit`s passed to `Document::apply`, the only public
@@ -63,6 +80,12 @@ use it. `caditor-file` and the app also use the geometry and sketch crates direc
     deleting something still in use, or moving a feature past one it depends on.
     `Document::check` runs a transaction on a clone so the UI can report the error before
     committing.
+  - Sketch content changes only through sketch edits (add, remove or set an entity, add or
+    remove a constraint, set a dimension). Removing an entity that something still uses is
+    refused rather than cascaded; `TransactionBuilder::remove_sketch_items` expands a user's
+    deletion into constraints first, then curves, then points. Setting an entity changes only
+    its value, never its kind or the points it uses. `settle_sketch` moves the definition to a
+    solved shape so the next solve starts from what the user sees.
   - Recompute: `ParameterValues` evaluates parameters in dependency order and reports cycles
     rather than following them. `Recompute` walks the features in tree order and reuses a
     cached result when the feature definition (an `Arc`, compared by pointer first), the values
@@ -94,10 +117,12 @@ use it. `caditor-file` and the app also use the geometry and sketch crates direc
     saved state, then one entry per change (`apply`, `undo` or `redo` with the transaction that
     was applied), each line carrying a CRC32 of its entry. Replay stops at the first bad line,
     so a torn tail loses only the changes after it, and replaying through an `Editor` restores
-    the undo history. The journal lives next to the file as `.<name>.journal`, falling back to
-    `$XDG_STATE_HOME/caditor/recovery/`, where untitled documents keep theirs. Its owner holds
-    an exclusive lock on it, which is how the startup scan and other instances tell a live
-    journal from an orphan.
+    the undo history. New edit kinds do not bump the journal version: an older reader stops at
+    the first entry it cannot read and keeps everything before it, whereas a newer version
+    number would make it refuse the whole journal. The journal lives next to the file as
+    `.<name>.journal`, falling back to `$XDG_STATE_HOME/caditor/recovery/`, where untitled
+    documents keep theirs. Its owner holds an exclusive lock on it, which is how the startup
+    scan and other instances tell a live journal from an orphan.
   - `Storage` is one worker thread per open document. It owns the journal and performs saves,
     so appends, saves and the rebase of the journal onto the saved snapshot stay in order, and
     it fsyncs after each batch of entries. A `Flusher` lets the panic hook wait for pending
@@ -140,8 +165,64 @@ use it. `caditor-file` and the app also use the geometry and sketch crates direc
     panic hook that flushes the journal.
   - Every numeric input is a `field::commit_field`: it commits on Enter or loss of focus,
     reverts on Escape, and keeps invalid text with its error inline instead of discarding it.
-    Expression fields parse, evaluate and check the dimension before building a transaction.
-  - `ui_tests.rs` drives the real panels through a headless egui context with synthetic input.
+    Expression fields parse, evaluate and check the dimension before building a transaction;
+    sketch dimensions go through `field::dimension_transaction`, which also applies the
+    constraint's own rule (a radius above zero). Viewport and toolbar shortcuts run only when
+    no widget held keyboard focus at the start of the frame or the end of the previous one, so
+    Escape or Enter in a field never reaches the viewport.
+  - Sketch editing is a context, not a mode: `editing.rs` holds which sketch is edited and the
+    active `Tool`, changed by `Action::Editing` commands that `app::perform` routes after the UI
+    pass; it ends by itself when the sketch disappears or another document is opened. The
+    viewport watches it: entering turns the camera to face the sketch plane and fits it, the
+    grid moves to that plane, the sketch's origin and axes become pickable references, other
+    features are dimmed and unpickable, and the selection keeps only that sketch. Clicks go to
+    selection unless the tool `draws`. Escape backs out one step at a time: plane choice, shape
+    in progress, tool, selection, then editing.
+  - Drawing tools (`drawing.rs`: point, line, rectangle, circle, arc, spline) keep their clicked
+    points, hover and arc sweep as viewport UI state and build one transaction per finished
+    shape (`Draw line`, …), settled first like any sketch transaction. Lines chain, each new
+    line joined to the last end by `Coincident`, until Escape or a click on the last point;
+    splines finish on Enter or a click on the last control point. An arc runs the way the
+    pointer swept around its centre, and its end is projected onto the circle through its
+    start. Every inferred constraint is checked with `Sketch::check_constraint` on a shadow of
+    the sketch and skipped if refused.
+  - Snapping (`snap.rs`) runs on the UI thread against the displayed sketch, in screen space
+    through the view: the shape's own pending point first, then existing points and the origin
+    within 8 logical pixels, then lines, circles, arcs and the axes within 6, projecting onto
+    the curve. A snapped point gets a `Coincident` with its target. A line end that snapped to
+    nothing becomes exactly horizontal or vertical within 3° or 6 pixels and gets that
+    constraint. The preview, snap marker and snap label are drawn from this state, and the
+    snap target replaces the GPU hover while a drawing tool is active.
+  - `sketch_tools.rs` turns the selection into candidate constraints checked by
+    `Sketch::check_constraint`; `sketch_toolbar.rs` offers them as buttons and Shift+letter
+    shortcuts, disabled with what to select, and the drawing tools on plain letters (P, L, R,
+    C, A, S). Dimensions start at the value measured on the
+    displayed geometry. Every sketch transaction first settles the sketch to the last result,
+    but only when that result is up to date (`Model::settled_sketch`). The UI never solves; it
+    reads constraint states, degrees of freedom and redundancies from the last evaluation
+    (`sketch_status.rs`, colouring in `scene.rs`). `scene::displayed_sketch` is the definition
+    with solved positions wherever the last result has the same entity.
+  - The edited sketch is annotated over the viewport with the egui painter (`annotations.rs`,
+    placement in `annotation_layout.rs`), from the displayed geometry projected through the
+    current view, with offsets and sizes in screen points and no stored positions. Distances
+    between points are parallel dimension lines with extension lines, point–line distances are
+    perpendicular, angles are arcs at the lines' intersection (between their closest ends when
+    nearly parallel), radii are leaders with an `R` prefix; dimensions sit away from the
+    sketch's centre. Other constraints are glyphs stacked beside each constrained entity on the
+    opposite side, painted as shapes or as letters the default fonts carry. Labels show the
+    expression in the document's naming, followed by its value when it is not a literal.
+    Conflicting and redundant constraints take the error and warning colours.
+  - Labels and glyphs are `Pickable::SketchConstraint`: hovering highlights the constrained
+    entities, clicking selects (Shift or Ctrl toggles), and Delete removes selected constraints
+    and entities in one transaction. They are painted but not interactive while a drawing tool
+    is active. Double-clicking a label opens an inline `commit_field` on the canvas with the
+    value selected; so does a new dimension from the constraint tools and any
+    `Focus::Dimension` of the edited sketch, which the app takes from the panels and hands to
+    the viewport, waiting until the dimension can be drawn.
+  - `ui_tests.rs` drives the real toolbars, panels and viewport through a headless egui context
+    with synthetic input; picking needs the GPU, so tests set the viewport selection directly,
+    while drawing tests click sketch positions mapped to the screen through the view and
+    annotation tests click the painted labels and glyphs.
 
 Entities, constraints, parameters and features are referred to by stable IDs (`EntityId`,
 `ConstraintId`, `ParameterId`, `FeatureId`). IDs come from a per-container counter and are never

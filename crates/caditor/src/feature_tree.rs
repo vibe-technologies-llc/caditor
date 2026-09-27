@@ -2,19 +2,37 @@ use caditor_document::{
     Document, Edit, Feature, FeatureError, FeatureKind, FeatureState, FeatureStatus, FixTarget,
     Transaction,
 };
-use caditor_sketch::Sketch;
-use egui::{Align, Button, CollapsingHeader, Id, RichText, Ui};
+use caditor_sketch::{ConstraintId, Redundancy, Sketch};
+use egui::{
+    Align, Button, Id, Label, Response, RichText, Sense, Ui, collapsing_header::CollapsingState,
+};
 
 use crate::{
-    field::{self, Expected},
+    editing::{EditingCommand, SketchEditing},
+    field::{self, DimensionTarget},
     model::{Action, Model},
     panels::{Focus, PanelState, Renaming},
+    sketch_status::{self, SketchSummary},
+    sketch_tools,
 };
 
 const NAME_FIELD_WIDTH: f32 = 180.0;
 const DIMENSION_FIELD_WIDTH: f32 = 140.0;
+const EDIT_SKETCH_LABEL: &str = "Edit sketch";
+const FINISH_SKETCH_LABEL: &str = "Finish sketch";
+const EDIT_ICON: &str = "🖊";
+const DELETE_ICON: &str = "🗙";
 
-pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
+pub fn show(
+    ui: &mut Ui,
+    model: &Model,
+    editing: &SketchEditing,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+) {
+    if editing.feature().is_none() {
+        state.opened_for_editing = None;
+    }
     ui.heading("Features");
     let document = model.document();
     if document.features().len() == 0 {
@@ -22,9 +40,13 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
     }
     let count = document.features().len();
     for (index, feature) in document.features().enumerate() {
-        let position = Position { index, count };
+        let row = Row {
+            feature,
+            position: Position { index, count },
+            edited: editing.feature() == Some(feature.id()),
+        };
         ui.push_id(("feature", feature.id()), |ui| {
-            feature_row(ui, model, state, actions, feature, position);
+            feature_row(ui, model, state, actions, &row);
         });
     }
 }
@@ -35,15 +57,21 @@ struct Position {
     count: usize,
 }
 
+struct Row<'a> {
+    feature: &'a Feature,
+    position: Position,
+    edited: bool,
+}
+
 fn feature_row(
     ui: &mut Ui,
     model: &Model,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
-    feature: &Feature,
-    position: Position,
+    row: &Row<'_>,
 ) {
     let document = model.document();
+    let feature = row.feature;
     let id = feature.id();
     let status = model.evaluation().feature(id);
 
@@ -52,13 +80,33 @@ fn feature_row(
         return;
     }
 
-    let header = CollapsingHeader::new(header_text(ui, feature, status))
-        .id_salt(("feature-header", id))
-        .open(state.focus_inside(id).then_some(true))
-        .show(ui, |ui| match &feature.kind {
-            FeatureKind::Sketch(sketch) => sketch_body(ui, model, state, actions, feature, sketch),
-        });
-    let mut header = header.header_response;
+    let mut collapsing = CollapsingState::load_with_default_open(
+        ui.ctx(),
+        ui.make_persistent_id(("feature-header", id)),
+        false,
+    );
+    let editing_started = row.edited && state.opened_for_editing != Some(id);
+    if editing_started {
+        state.opened_for_editing = Some(id);
+    }
+    if state.focus_inside(id) || editing_started {
+        collapsing.set_open(true);
+    }
+    let text = header_text(ui, feature, status);
+    let mut toggle = false;
+    let mut header = collapsing.show_header(ui, |ui| {
+        let label = ui.add(Label::new(text).selectable(false).sense(Sense::click()));
+        toggle = label.clicked();
+        edit_button(ui, row, actions);
+        label
+    });
+    if toggle {
+        header.toggle();
+    }
+    let (_, header, _) = header.body(|ui| match &feature.kind {
+        FeatureKind::Sketch(sketch) => sketch_body(ui, model, state, actions, feature, sketch),
+    });
+    let mut header = header.inner;
     if state.take_focus(Focus::Feature(id)) {
         header.scroll_to_me(Some(Align::Center));
         header = header.highlight();
@@ -66,7 +114,7 @@ fn feature_row(
     if header.double_clicked() {
         start_renaming(state, feature);
     }
-    header.context_menu(|ui| context_menu(ui, document, state, actions, feature, position));
+    header.context_menu(|ui| context_menu(ui, document, state, actions, row));
 
     match status.map(|status| &status.state) {
         Some(FeatureState::Failed(error)) => failure(ui, document, state, error),
@@ -85,13 +133,31 @@ fn feature_row(
 fn header_text(ui: &Ui, feature: &Feature, status: Option<&FeatureStatus>) -> RichText {
     match status.map(|status| &status.state) {
         Some(FeatureState::Failed(_)) => {
-            RichText::new(format!("⚠ {}", feature.name)).color(ui.visuals().error_fg_color)
+            RichText::new(format!("⚑ {}", feature.name)).color(ui.visuals().error_fg_color)
         }
         Some(FeatureState::Outdated) => {
             RichText::new(format!("⏸ {}", feature.name)).color(ui.visuals().warn_fg_color)
         }
         Some(FeatureState::UpToDate) => RichText::new(&feature.name),
         None => RichText::new(format!("… {}", feature.name)).weak(),
+    }
+}
+
+fn edit_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
+    let (hover, command) = edit_command(row);
+    let response = ui
+        .add(Button::selectable(row.edited, EDIT_ICON).small())
+        .on_hover_text(hover);
+    if response.clicked() {
+        actions.push(Action::Editing(command));
+    }
+}
+
+fn edit_command(row: &Row<'_>) -> (&'static str, EditingCommand) {
+    if row.edited {
+        (FINISH_SKETCH_LABEL, EditingCommand::Finish)
+    } else {
+        (EDIT_SKETCH_LABEL, EditingCommand::Enter(row.feature.id()))
     }
 }
 
@@ -151,11 +217,18 @@ fn context_menu(
     document: &Document,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
-    feature: &Feature,
-    position: Position,
+    row: &Row<'_>,
 ) {
+    let feature = row.feature;
+    let position = row.position;
     let id = feature.id();
     let name = &feature.name;
+    let (label, command) = edit_command(row);
+    if ui.button(label).clicked() {
+        actions.push(Action::Editing(command));
+        ui.close();
+    }
+    ui.separator();
     if ui.button("Rename").clicked() {
         start_renaming(state, feature);
         ui.close();
@@ -224,6 +297,15 @@ fn failure(ui: &mut Ui, document: &Document, state: &mut PanelState, error: &Fea
                     .feature(id)
                     .map_or("the feature", |feature| feature.name.as_str())
             ),
+            FixTarget::Constraint {
+                feature,
+                constraint,
+            } => match document.feature(feature).map(|owner| &owner.kind) {
+                Some(FeatureKind::Sketch(sketch)) => {
+                    format!("Go to {}", sketch.describe_constraint(constraint))
+                }
+                None => "Go to the constraint".to_owned(),
+            },
         };
         if ui.button(label).clicked() {
             state.request_focus(target.into());
@@ -240,25 +322,80 @@ fn sketch_body(
     sketch: &Sketch,
 ) {
     let document = model.document();
+    let summary = SketchSummary::of(model.evaluation(), feature.id());
+    ui.horizontal_wrapped(|ui| {
+        if let Some(focus) = sketch_status::show(ui, &summary) {
+            state.request_focus(focus);
+        }
+    });
     ui.weak(format!(
         "{}, {}",
         count(sketch.entities().len(), "entity", "entities"),
         count(sketch.constraints().len(), "constraint", "constraints")
     ));
+    let involved = involved_constraints(model, feature);
+    let solution = sketch_status::up_to_date_solution(model.evaluation(), feature.id());
     for (constraint, definition) in sketch.constraints() {
         let description = sketch.describe_constraint(constraint);
+        let redundancy = solution.and_then(|solution| solution.redundancy(constraint));
+        let text = if involved.contains(&constraint) {
+            RichText::new(&description).color(ui.visuals().error_fg_color)
+        } else if redundancy.is_some() {
+            RichText::new(&description).color(ui.visuals().warn_fg_color)
+        } else {
+            RichText::new(&description)
+        };
+        let delete = || {
+            Action::Apply(sketch_tools::remove_items(
+                model,
+                feature.id(),
+                format!("Delete {description}"),
+                Vec::new(),
+                vec![constraint],
+            ))
+        };
+        let row = ui
+            .horizontal(|ui| {
+                let row = ui.add(Label::new(text).selectable(false).sense(Sense::click()));
+                row.context_menu(|ui| {
+                    if ui.button("Delete").clicked() {
+                        actions.push(delete());
+                        ui.close();
+                    }
+                });
+                let button = ui
+                    .small_button(DELETE_ICON)
+                    .on_hover_text("Delete this constraint");
+                if button.clicked() {
+                    actions.push(delete());
+                }
+                row
+            })
+            .inner;
+        if let Some(redundancy) = redundancy {
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                redundancy_text(sketch, redundancy),
+            );
+        }
+        reveal_if_focused(
+            state,
+            row,
+            Focus::Constraint {
+                feature: feature.id(),
+                constraint,
+            },
+        );
         let Some(expression) = definition.dimension() else {
-            ui.label(description);
             continue;
         };
-        ui.label(&description);
         let focus = Focus::Dimension {
             feature: feature.id(),
             constraint,
         };
-        let expected = Expected {
-            dimension: definition.dimension_kind(),
-            non_negative: true,
+        let target = DimensionTarget {
+            feature: feature.id(),
+            constraint,
         };
         let mut error = None;
         ui.horizontal(|ui| {
@@ -268,21 +405,7 @@ fn sketch_body(
                 &document.expression_text(expression),
                 DIMENSION_FIELD_WIDTH,
                 state.wants_focus(focus),
-                |text| {
-                    let value =
-                        field::parse_expression(document, model.parameters(), text, expected)?;
-                    field::checked(
-                        document,
-                        Transaction::single(
-                            format!("Edit dimension in {}", feature.name),
-                            Edit::SetDimension {
-                                feature: feature.id(),
-                                constraint,
-                                value,
-                            },
-                        ),
-                    )
-                },
+                |text| field::dimension_transaction(document, model.parameters(), target, text),
             );
             state.focus_reached(focus, field.response.has_focus());
             if let Some(transaction) = field.committed {
@@ -298,6 +421,40 @@ fn sketch_body(
         if let Some(error) = error {
             ui.colored_label(ui.visuals().error_fg_color, error);
         }
+    }
+}
+
+fn redundancy_text(sketch: &Sketch, redundancy: &Redundancy) -> String {
+    let duplicates: Vec<String> = redundancy
+        .duplicates
+        .iter()
+        .map(|duplicate| sketch.describe_constraint(*duplicate))
+        .collect();
+    match duplicates.as_slice() {
+        [] => "Redundant: other constraints already do this. Delete it.".to_owned(),
+        [only] => format!("Redundant: {only} already does this. Delete one of them."),
+        [rest @ .., last] => format!(
+            "Redundant: {} and {last} already do this. Delete one of them.",
+            rest.join(", ")
+        ),
+    }
+}
+
+fn involved_constraints(model: &Model, feature: &Feature) -> Vec<ConstraintId> {
+    match model
+        .evaluation()
+        .feature(feature.id())
+        .map(|status| &status.state)
+    {
+        Some(FeatureState::Failed(error)) => error.constraints.clone(),
+        Some(FeatureState::UpToDate | FeatureState::Outdated) | None => Vec::new(),
+    }
+}
+
+fn reveal_if_focused(state: &mut PanelState, row: Response, focus: Focus) {
+    if state.take_focus(focus) {
+        row.scroll_to_me(Some(Align::Center));
+        row.highlight();
     }
 }
 

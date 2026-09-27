@@ -1,4 +1,8 @@
+mod annotation_layout;
+mod annotations;
 mod app;
+mod drawing;
+mod editing;
 mod feature_tree;
 mod field;
 mod files;
@@ -8,6 +12,10 @@ mod panels;
 mod parameter_table;
 mod scene;
 mod selection;
+mod sketch_status;
+mod sketch_toolbar;
+mod sketch_tools;
+mod snap;
 mod toolbar;
 #[cfg(test)]
 mod ui_tests;
@@ -96,14 +104,14 @@ fn sample_document() -> Result<Document> {
         Point2::new(40.0, 0.0),
         Constraint::Horizontal,
         transaction.parse("width")?,
-    );
+    )?;
     transaction.add_feature("Base sketch", FeatureKind::Sketch(base));
     let side = dimensioned_line(
         Plane::XZ,
         Point2::new(0.0, 20.0),
         Constraint::Vertical,
         transaction.parse("height")?,
-    );
+    )?;
     transaction.add_feature("Side sketch", FeatureKind::Sketch(side));
 
     document.apply(transaction.finish())?;
@@ -115,19 +123,19 @@ fn dimensioned_line(
     end: Point2,
     direction: fn(EntityId) -> Constraint,
     value: Expression,
-) -> Sketch {
+) -> Result<Sketch> {
     let mut sketch = Sketch::new(plane);
     let line = sketch.add_line(Point2::ZERO, end);
-    sketch.add_constraint(direction(line));
+    sketch.add_constraint(direction(line))?;
     if let Some((from, to)) = endpoints(&sketch, line) {
-        sketch.add_constraint(Constraint::Distance { from, to, value });
+        sketch.add_constraint(Constraint::Distance { from, to, value })?;
     }
-    sketch
+    Ok(sketch)
 }
 
 fn endpoints(sketch: &Sketch, line: EntityId) -> Option<(EntityId, EntityId)> {
     match sketch.entity(line)? {
         Entity::Line { start, end } => Some((*start, *end)),
-        Entity::Point(_) => None,
+        _ => None,
     }
 }

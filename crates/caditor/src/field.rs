@@ -1,5 +1,6 @@
-use caditor_document::{Document, ParameterValues, Transaction};
+use caditor_document::{Document, Edit, FeatureId, ParameterValues, Transaction};
 use caditor_expression::{Dimension, EvalError, Expression};
+use caditor_sketch::{Constraint, ConstraintId};
 use egui::{Align, Id, Key, Response, Stroke, StrokeKind, TextEdit, Ui, vec2};
 
 const ERROR_OUTLINE_WIDTH: f32 = 1.5;
@@ -128,6 +129,50 @@ pub fn parse_expression(
     Ok(expression)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DimensionTarget {
+    pub feature: FeatureId,
+    pub constraint: ConstraintId,
+}
+
+pub fn dimension_transaction(
+    document: &Document,
+    parameters: &ParameterValues,
+    target: DimensionTarget,
+    text: &str,
+) -> Result<Transaction, String> {
+    let owner = document
+        .feature(target.feature)
+        .ok_or_else(|| "The sketch no longer exists".to_owned())?;
+    let definition = owner
+        .kind
+        .sketch()
+        .and_then(|sketch| sketch.constraint(target.constraint))
+        .ok_or_else(|| "The dimension no longer exists".to_owned())?;
+    let expected = Expected {
+        dimension: definition.dimension_kind(),
+        non_negative: !matches!(definition, Constraint::Angle { .. }),
+    };
+    let value = parse_expression(document, parameters, text, expected)?;
+    let quantity = parameters
+        .evaluate_expression(&value)
+        .map_err(|error| sentence(&error.to_string()))?;
+    definition
+        .check_dimension_value(quantity.value)
+        .map_err(|error| sentence(&error.to_string()))?;
+    checked(
+        document,
+        Transaction::single(
+            format!("Edit dimension in {}", owner.name),
+            Edit::SetDimension {
+                feature: target.feature,
+                constraint: target.constraint,
+                value,
+            },
+        ),
+    )
+}
+
 pub fn checked(document: &Document, transaction: Transaction) -> Result<Transaction, String> {
     document
         .check(&transaction)
@@ -200,6 +245,43 @@ mod tests {
             Err("There is no parameter named 'wdth'".to_owned())
         );
         assert!(parse("-width * width", Expected::ANYTHING).is_ok());
+    }
+
+    #[test]
+    fn a_dimension_value_must_suit_its_constraint() {
+        let mut document = document();
+        let mut sketch = caditor_sketch::Sketch::new(caditor_geometry::Plane::XY);
+        let circle = sketch.add_circle(caditor_geometry::Point2::ZERO, 5.0);
+        let radius = sketch
+            .add_constraint(Constraint::Radius {
+                entity: circle,
+                value: Expression::Measure(5.0, Unit::Millimetre),
+            })
+            .unwrap();
+        let mut transaction = document.transaction("Sketch");
+        let feature =
+            transaction.add_feature("Holes", caditor_document::FeatureKind::Sketch(sketch));
+        document.apply(transaction.finish()).unwrap();
+        let parameters = ParameterValues::evaluate(&document);
+        let target = DimensionTarget {
+            feature,
+            constraint: radius,
+        };
+        let edit = |text| dimension_transaction(&document, &parameters, target, text);
+
+        assert_eq!(
+            edit("width - 40 mm").err(),
+            Some("A radius must be greater than zero".to_owned())
+        );
+        assert_eq!(
+            edit("-2 mm").err(),
+            Some("The value cannot be negative".to_owned())
+        );
+        assert_eq!(
+            edit("5 deg").err(),
+            Some("It gives an angle, but a length is needed".to_owned())
+        );
+        assert!(edit("width / 8").is_ok());
     }
 
     #[test]

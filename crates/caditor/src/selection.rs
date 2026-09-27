@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use caditor_document::{Document, FeatureId, FeatureKind};
 use caditor_geometry::{Plane, Vector3};
-use caditor_sketch::EntityId;
+use caditor_sketch::{ConstraintId, EntityId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Axis {
@@ -83,6 +83,10 @@ pub enum Pickable {
         feature: FeatureId,
         entity: EntityId,
     },
+    SketchConstraint {
+        feature: FeatureId,
+        constraint: ConstraintId,
+    },
 }
 
 impl Pickable {
@@ -98,6 +102,72 @@ impl Pickable {
                 let FeatureKind::Sketch(sketch) = &owner.kind;
                 format!("{} › {}", owner.name, sketch.entity_label(entity))
             }
+            Self::SketchConstraint {
+                feature,
+                constraint,
+            } => {
+                let Some(owner) = document.feature(feature) else {
+                    return format!("Missing constraint {constraint}");
+                };
+                let FeatureKind::Sketch(sketch) = &owner.kind;
+                format!(
+                    "{} › {}",
+                    owner.name,
+                    sketch.describe_constraint(constraint)
+                )
+            }
+        }
+    }
+
+    pub fn constrained_entities(self, document: &Document) -> Vec<Self> {
+        let Self::SketchConstraint {
+            feature,
+            constraint,
+        } = self
+        else {
+            return Vec::new();
+        };
+        document
+            .feature(feature)
+            .and_then(|owner| owner.kind.sketch())
+            .and_then(|sketch| sketch.constraint(constraint))
+            .map(|constraint| {
+                constraint
+                    .entities()
+                    .into_iter()
+                    .map(|entity| Self::SketchEntity { feature, entity })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn is_available(self, document: &Document, editing: Option<FeatureId>) -> bool {
+        match self {
+            Self::SketchEntity { feature, entity } => {
+                let in_context = editing.is_none_or(|edited| edited == feature);
+                let exists = document
+                    .feature(feature)
+                    .and_then(|owner| owner.kind.sketch())
+                    .is_some_and(|sketch| {
+                        if entity.is_reference() {
+                            editing == Some(feature)
+                        } else {
+                            sketch.entity(entity).is_some()
+                        }
+                    });
+                in_context && exists
+            }
+            Self::SketchConstraint {
+                feature,
+                constraint,
+            } => {
+                editing == Some(feature)
+                    && document
+                        .feature(feature)
+                        .and_then(|owner| owner.kind.sketch())
+                        .is_some_and(|sketch| sketch.constraint(constraint).is_some())
+            }
+            Self::Origin | Self::Axis(_) | Self::Plane(_) => editing.is_none(),
         }
     }
 }
@@ -135,17 +205,9 @@ impl Selection {
         }
     }
 
-    pub fn retain_existing(&mut self, document: &Document) {
-        self.items.retain(|pickable| match *pickable {
-            Pickable::SketchEntity { feature, entity } => {
-                document
-                    .feature(feature)
-                    .is_some_and(|owner| match &owner.kind {
-                        FeatureKind::Sketch(sketch) => sketch.entity(entity).is_some(),
-                    })
-            }
-            Pickable::Origin | Pickable::Axis(_) | Pickable::Plane(_) => true,
-        });
+    pub fn retain_available(&mut self, document: &Document, editing: Option<FeatureId>) {
+        self.items
+            .retain(|pickable| pickable.is_available(document, editing));
     }
 }
 
