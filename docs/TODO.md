@@ -12,8 +12,10 @@ anything else:
 2. **Never losing work.** Crashes and data loss are catastrophic failures. The concrete
    requirements are in `.claude/rules/reliability.md`.
 
-Features are added only once they meet both bars; an unpolished feature is not shipped. Each
-milestone below is done when its items work end to end in the app, not when the APIs exist.
+Features are added only once they meet both bars; an unpolished feature is not shipped. An item
+is implemented when it works end to end in the app, not when the APIs exist. Implemented items
+and resolved decisions are removed from this file, and a milestone disappears once it is empty.
+Git history is the record of what was done.
 
 ## Open decisions
 
@@ -31,10 +33,6 @@ These need an answer before the milestone that depends on them starts.
 
 ## M0: Foundation
 
-- [x] `crates/*` workspace with layered geometry, sketch, document, render and app crates
-- [x] winit window, wgpu viewport and egui overlay
-- [x] Stable, never-reused `EntityId` and `FeatureId`
-- [x] Workspace lints: forbid unsafe code, deny panicking calls, `ahash` and `parking_lot` only
 - [ ] CI running build, clippy, tests and `rust-formatter --check`
 
 ## M1: Viewport

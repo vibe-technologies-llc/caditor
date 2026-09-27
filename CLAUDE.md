@@ -54,8 +54,9 @@ positional naming is the root of FreeCAD's topological naming failures.
 ## Roadmap
 
 `docs/TODO.md` holds the roadmap, the open design decisions and the project's direction. Check
-it before starting new work, and tick items off or amend them in the same change that delivers
-them.
+it before starting new work. It lists only what remains: the change that implements an item
+deletes it (never ticks it), and a resolved decision is removed once it is recorded where it
+belongs, such as the Architecture section or a rules file.
 
 ## Rules
 
