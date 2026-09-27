@@ -4,7 +4,8 @@ use egui::{Button, Key, KeyboardShortcut, Modifiers, Ui};
 
 use crate::{
     feature_tree::count,
-    model::{Action, Model, RecomputeStatus},
+    files::{self, Files},
+    model::{Action, Model, NoticeKind, RecomputeStatus},
 };
 
 const SHOW_PROGRESS_AFTER: Duration = Duration::from_millis(150);
@@ -14,22 +15,30 @@ const REDO: KeyboardShortcut =
     KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::Z);
 const REDO_ALTERNATIVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Y);
 
-pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>) {
+pub fn show(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>) {
     egui::Panel::top("toolbar").show(ui, |ui| {
         ui.horizontal(|ui| {
+            files::menu(ui, model, files, actions);
+            ui.separator();
             history_buttons(ui, model, actions);
             ui.separator();
             recompute_status(ui, model, actions);
             if let Some(notice) = model.notice() {
                 ui.separator();
-                ui.colored_label(ui.visuals().error_fg_color, notice);
+                let color = match notice.kind {
+                    NoticeKind::Info => ui.visuals().text_color(),
+                    NoticeKind::Error => ui.visuals().error_fg_color,
+                };
+                ui.colored_label(color, &notice.text);
                 if ui.small_button("✕").on_hover_text("Dismiss").clicked() {
                     actions.push(Action::DismissNotice);
                 }
             }
         });
     });
-    shortcuts(ui, actions);
+    if !files.is_blocking() {
+        shortcuts(ui, actions);
+    }
 }
 
 fn history_buttons(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>) {
@@ -128,6 +137,7 @@ fn shortcuts(ui: &mut Ui, actions: &mut Vec<Action>) {
     if ui.ctx().egui_wants_keyboard_input() {
         return;
     }
+    files::shortcuts(ui, actions);
     let (redo, undo) = ui.input_mut(|input| {
         let redo = input.consume_shortcut(&REDO) || input.consume_shortcut(&REDO_ALTERNATIVE);
         (redo, input.consume_shortcut(&UNDO))

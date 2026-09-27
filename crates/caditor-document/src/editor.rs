@@ -35,6 +35,14 @@ impl Editor {
         self.redo.last().map(Transaction::label)
     }
 
+    pub fn next_undo(&self) -> Option<&Transaction> {
+        self.undo.last()
+    }
+
+    pub fn next_redo(&self) -> Option<&Transaction> {
+        self.redo.last()
+    }
+
     pub fn apply(&mut self, transaction: Transaction) -> Result<(), EditError> {
         if transaction.is_empty() {
             return Ok(());

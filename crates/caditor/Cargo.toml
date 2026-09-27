@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 caditor-document.workspace = true
 caditor-expression.workspace = true
+caditor-file.workspace = true
 caditor-geometry.workspace = true
 caditor-render.workspace = true
 caditor-sketch.workspace = true
@@ -21,6 +22,11 @@ egui-wgpu.workspace = true
 egui-winit.workspace = true
 env_logger.workspace = true
 log.workspace = true
+parking_lot.workspace = true
 pollster.workspace = true
+rfd = { workspace = true, features = ["xdg-portal"] }
 wgpu.workspace = true
 winit.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

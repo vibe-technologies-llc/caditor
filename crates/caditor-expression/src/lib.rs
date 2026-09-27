@@ -36,6 +36,10 @@ impl Expression {
     ) -> Result<Self, ParseError> {
         parse::parse(text, resolve)
     }
+
+    pub fn parse_stored(text: &str) -> Result<Self, ParseError> {
+        parse::parse_stored(text)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -310,6 +314,47 @@ mod tests {
             assert_eq!(text, printed);
             assert_eq!(parse(&text).unwrap(), expression, "{input}");
         }
+    }
+
+    #[test]
+    fn stored_text_refers_by_id_and_round_trips_exactly() {
+        let cases = [
+            "width + 2 * height",
+            "-(width - gap) / 3",
+            "0.1 + 1e-7 * 12345678901234567 mm",
+            "max(width, 2 in) ^ 2 / sqrt(height * height)",
+            "30 deg + atan2(height, gap) - pi",
+        ];
+        for input in cases {
+            let expression = parse(input).unwrap();
+            let stored = expression.to_stored_text();
+            assert!(!stored.contains("width"), "{stored}");
+            assert_eq!(
+                Expression::parse_stored(&stored).unwrap(),
+                expression,
+                "{stored}"
+            );
+        }
+        assert_eq!(parse("width / 2").unwrap().to_stored_text(), "$0 / 2");
+        assert_eq!(Expression::Number(1e-300).to_stored_text(), "1e-300");
+        assert_eq!(Expression::Number(0.25).to_stored_text(), "0.25");
+    }
+
+    #[test]
+    fn stored_text_rejects_names_and_malformed_references() {
+        let kind = |text: &str| Expression::parse_stored(text).unwrap_err().kind;
+        assert_eq!(
+            kind("width"),
+            ParseErrorKind::UnknownParameter("width".to_owned())
+        );
+        assert_eq!(kind("$"), ParseErrorKind::InvalidReference("$".to_owned()));
+        assert_eq!(
+            kind("$99999999999999999999999"),
+            ParseErrorKind::InvalidReference("$99999999999999999999999".to_owned())
+        );
+        assert_eq!(error_kind("$0"), ParseErrorKind::UnexpectedCharacter('$'));
+        let deep = vec!["$0"; MAX_LENGTH + 2].join("+");
+        assert_eq!(kind(&deep), ParseErrorKind::TooDeep);
     }
 
     #[test]

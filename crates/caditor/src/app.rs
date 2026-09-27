@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::{path::PathBuf, sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
 use caditor_render::{Renderer, SurfaceSize, ViewportFrame, WindowTarget};
@@ -11,39 +11,59 @@ use winit::{
 };
 
 use crate::{
-    model::{Model, WakerFactory},
+    files::{self, FileCommand, Files},
+    model::{Action, Model, WakerFactory},
     overlay::Overlay,
     panels::{self, PanelState},
     toolbar,
     viewport::ViewportState,
 };
 
+const APPLICATION_NAME: &str = "caditor";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppEvent {
-    Recomputed,
+    Wake,
 }
 
 pub fn waker_factory(proxy: EventLoopProxy<AppEvent>) -> WakerFactory {
     Box::new(move || {
         let proxy = proxy.clone();
         Box::new(move || {
-            if proxy.send_event(AppEvent::Recomputed).is_err() {
-                log::debug!("the event loop closed before a recompute finished");
+            if proxy.send_event(AppEvent::Wake).is_err() {
+                log::debug!("the event loop closed before background work finished");
             }
         })
     })
 }
 
+pub fn window_title(model: &Model) -> String {
+    let marker = if model.is_dirty() { "*" } else { "" };
+    format!("{marker}{} — {APPLICATION_NAME}", model.display_name())
+}
+
+pub fn perform(actions: Vec<Action>, model: &mut Model, files: &mut Files) {
+    for action in actions {
+        match action {
+            Action::File(command) => files.perform(command, model),
+            other => model.perform(other),
+        }
+    }
+}
+
 pub struct App {
     model: Model,
+    files: Files,
     session: Option<Session>,
     startup_error: Option<anyhow::Error>,
 }
 
 impl App {
-    pub fn new(model: Model) -> Self {
+    pub fn new(mut model: Model, mut files: Files, open: Option<PathBuf>) -> Self {
+        files.start(open, &mut model);
         Self {
             model,
+            files,
             session: None,
             startup_error: None,
         }
@@ -65,7 +85,7 @@ impl ApplicationHandler<AppEvent> for App {
         if self.session.is_some() {
             return;
         }
-        match Session::open(event_loop) {
+        match Session::open(event_loop, &window_title(&self.model)) {
             Ok(session) => self.session = Some(session),
             Err(error) => {
                 self.startup_error = Some(error);
@@ -76,7 +96,7 @@ impl ApplicationHandler<AppEvent> for App {
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
         match event {
-            AppEvent::Recomputed => {
+            AppEvent::Wake => {
                 if let Some(session) = &self.session {
                     session.window.request_redraw();
                 }
@@ -99,13 +119,19 @@ impl ApplicationHandler<AppEvent> for App {
         }
 
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                self.files.perform(FileCommand::Quit, &mut self.model);
+                session.window.request_redraw();
+            }
             WindowEvent::Resized(size) => {
                 session.renderer.resize(surface_size(size));
                 session.window.request_redraw();
             }
-            WindowEvent::RedrawRequested => session.redraw(&mut self.model),
+            WindowEvent::RedrawRequested => session.redraw(&mut self.model, &mut self.files),
             _ => {}
+        }
+        if self.files.should_quit() {
+            event_loop.exit();
         }
     }
 
@@ -127,13 +153,14 @@ struct Session {
     panels: PanelState,
     last_redraw: Option<Instant>,
     next_repaint: Option<Instant>,
+    title: String,
 }
 
 impl Session {
-    fn open(event_loop: &ActiveEventLoop) -> Result<Self> {
+    fn open(event_loop: &ActiveEventLoop, title: &str) -> Result<Self> {
         let window = Arc::new(
             event_loop
-                .create_window(Window::default_attributes().with_title("caditor"))
+                .create_window(Window::default_attributes().with_title(title))
                 .context("could not open the main window")?,
         );
         let renderer = pollster::block_on(Renderer::new(
@@ -150,10 +177,11 @@ impl Session {
             panels: PanelState::default(),
             last_redraw: None,
             next_repaint: None,
+            title: title.to_owned(),
         })
     }
 
-    fn redraw(&mut self, model: &mut Model) {
+    fn redraw(&mut self, model: &mut Model, files: &mut Files) {
         let now = Instant::now();
         let elapsed = self
             .last_redraw
@@ -161,6 +189,7 @@ impl Session {
             .map(|previous| now.saturating_duration_since(previous))
             .unwrap_or_default();
         model.poll();
+        files.poll(model);
         if let Some(result) = self.renderer.poll_pick() {
             self.viewport.apply_pick(&result);
         }
@@ -170,8 +199,9 @@ impl Session {
         let viewport = &mut self.viewport;
         let panel_state = &mut self.panels;
         let view_model: &Model = model;
+        let view_files: &Files = files;
         let ui = self.overlay.run(&self.window, |ui| {
-            toolbar::show(ui, view_model, &mut actions);
+            toolbar::show(ui, view_model, view_files, &mut actions);
             panels::show(
                 ui,
                 view_model,
@@ -180,10 +210,14 @@ impl Session {
                 &mut actions,
             );
             viewport.show(ui, view_model.document());
+            files::show(ui, view_model, view_files, &mut actions);
         });
         let changed = !actions.is_empty();
-        for action in actions {
-            model.perform(action);
+        perform(actions, model, files);
+        let title = window_title(model);
+        if title != self.title {
+            self.window.set_title(&title);
+            self.title = title;
         }
 
         let built = self

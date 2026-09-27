@@ -2,11 +2,13 @@ use std::ops::Range;
 
 use crate::{
     ParameterId,
-    expression::{Arity, BinaryOperator, Constant, Expression, Function},
+    expression::{Arity, BinaryOperator, Constant, Expression, Function, STORED_REFERENCE},
     quantity::Unit,
 };
 
 pub const MAX_LENGTH: usize = 1000;
+const MAX_STORED_LENGTH: usize = 64 * MAX_LENGTH;
+const MAX_STORED_TREE_DEPTH: usize = MAX_LENGTH;
 const MAX_DEPTH: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -39,6 +41,8 @@ pub enum ParseErrorKind {
     UnclosedParenthesis,
     #[error("There is no parameter named '{0}'")]
     UnknownParameter(String),
+    #[error("'{0}' is not a valid parameter reference")]
+    InvalidReference(String),
     #[error("'{0}' is not a function")]
     UnknownFunction(String),
     #[error("{0} needs its values in parentheses, as in {0}(x)")]
@@ -58,6 +62,7 @@ const SEPARATOR: &str = "',' or ')'";
 enum TokenKind {
     Number(f64),
     Name(String),
+    Reference(ParameterId),
     Plus,
     Minus,
     Star,
@@ -74,17 +79,43 @@ struct Token {
     span: Range<usize>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum References {
+    ByName,
+    Stored,
+}
+
 pub fn parse(
     text: &str,
     resolve: &dyn Fn(&str) -> Option<ParameterId>,
 ) -> Result<Expression, ParseError> {
-    if text.chars().count() > MAX_LENGTH {
+    parse_with(text, MAX_LENGTH, References::ByName, resolve)
+}
+
+pub fn parse_stored(text: &str) -> Result<Expression, ParseError> {
+    let expression = parse_with(text, MAX_STORED_LENGTH, References::Stored, &|_| None)?;
+    if expression.depth() > MAX_STORED_TREE_DEPTH {
+        return Err(ParseError {
+            kind: ParseErrorKind::TooDeep,
+            span: 0..text.len(),
+        });
+    }
+    Ok(expression)
+}
+
+fn parse_with(
+    text: &str,
+    max_length: usize,
+    references: References,
+    resolve: &dyn Fn(&str) -> Option<ParameterId>,
+) -> Result<Expression, ParseError> {
+    if text.chars().count() > max_length {
         return Err(ParseError {
             kind: ParseErrorKind::TooLong,
             span: 0..text.len(),
         });
     }
-    let tokens = lex(text)?;
+    let tokens = lex(text, references)?;
     if tokens.is_empty() {
         return Err(ParseError {
             kind: ParseErrorKind::Empty,
@@ -105,7 +136,7 @@ pub fn parse(
     }
 }
 
-fn lex(text: &str) -> Result<Vec<Token>, ParseError> {
+fn lex(text: &str, references: References) -> Result<Vec<Token>, ParseError> {
     let mut tokens = Vec::new();
     let mut position = 0;
     while let Some(character) = text.get(position..).and_then(|rest| rest.chars().next()) {
@@ -121,6 +152,17 @@ fn lex(text: &str) -> Result<Vec<Token>, ParseError> {
                 span: start..position,
             })?;
             TokenKind::Number(value)
+        } else if character == STORED_REFERENCE && references == References::Stored {
+            position = reference_end(text, start);
+            let literal = text.get(start..position).unwrap_or_default();
+            let id = literal
+                .get(STORED_REFERENCE.len_utf8()..)
+                .and_then(|digits| digits.parse::<u64>().ok())
+                .ok_or_else(|| ParseError {
+                    kind: ParseErrorKind::InvalidReference(literal.to_owned()),
+                    span: start..position,
+                })?;
+            TokenKind::Reference(ParameterId::from_raw(id))
         } else if character.is_alphabetic() || character == '_' || character == '°' {
             position = name_end(text, start, character);
             TokenKind::Name(text.get(start..position).unwrap_or_default().to_owned())
@@ -149,6 +191,17 @@ fn lex(text: &str) -> Result<Vec<Token>, ParseError> {
         });
     }
     Ok(tokens)
+}
+
+fn reference_end(text: &str, start: usize) -> usize {
+    let digits_start = start + STORED_REFERENCE.len_utf8();
+    text.get(digits_start..)
+        .and_then(|rest| {
+            rest.char_indices()
+                .find(|(_, character)| !character.is_ascii_digit())
+                .map(|(offset, _)| digits_start + offset)
+        })
+        .unwrap_or(text.len())
 }
 
 fn number_end(text: &str, start: usize) -> usize {
@@ -320,6 +373,7 @@ impl Parser<'_> {
         match token.kind {
             TokenKind::Number(value) => Ok(self.unit_after(value)),
             TokenKind::Name(ref name) => self.name(name, token.span.clone()),
+            TokenKind::Reference(id) => Ok(Expression::Parameter(id)),
             TokenKind::Open => {
                 let inner = self.nested(token.span.clone(), Self::expression)?;
                 match self.advance() {

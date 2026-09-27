@@ -27,18 +27,7 @@ These need an answer before the milestone that depends on them starts.
 - [ ] **Constraint solver** (blocks M4): our own solver in `caditor-sketch`, or an existing one.
       Whatever is chosen must be able to report degrees of freedom and point to the constraints
       in conflict.
-- [ ] **File format** (blocks M3): the serialisation format and container. It has to support
-      versioning, an append-only recovery journal and partial loading.
 - [ ] **Distribution** (blocks M8): Flatpak, AUR and/or plain release binaries.
-
-## M3: Persistence
-
-- [ ] Versioned file format with atomic save (temporary file, fsync, rename, fsync of the
-      directory)
-- [ ] Crash-recovery journal, with an offer to restore on startup
-- [ ] Panic hook that flushes the journal
-- [ ] Partial load of damaged files, with a report of what could not be recovered
-- [ ] Recent files and a warning about unsaved changes on close
 
 ## M4: Sketcher
 

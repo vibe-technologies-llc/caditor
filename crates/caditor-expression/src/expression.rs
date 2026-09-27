@@ -6,6 +6,7 @@ use crate::{
 };
 
 const MISSING_PARAMETER: &str = "⟨missing⟩";
+pub(crate) const STORED_REFERENCE: char = '$';
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOperator {
@@ -360,8 +361,47 @@ impl Expression {
 
     pub fn to_text<'a>(&self, name_of: &dyn Fn(ParameterId) -> Option<&'a str>) -> String {
         let mut text = String::new();
-        self.write(&mut text, name_of);
+        let style = Style {
+            reference: &|id, text: &mut String| {
+                text.push_str(name_of(id).unwrap_or(MISSING_PARAMETER));
+            },
+            number: display_number,
+        };
+        self.write(&mut text, &style);
         text
+    }
+
+    pub fn to_stored_text(&self) -> String {
+        let mut text = String::new();
+        let style = Style {
+            reference: &|id, text: &mut String| {
+                text.push(STORED_REFERENCE);
+                text.push_str(&id.raw().to_string());
+            },
+            number: exact_number,
+        };
+        self.write(&mut text, &style);
+        text
+    }
+
+    pub(crate) fn depth(&self) -> usize {
+        let mut deepest = 0;
+        let mut pending = vec![(self, 1)];
+        while let Some((expression, depth)) = pending.pop() {
+            deepest = deepest.max(depth);
+            match expression {
+                Self::Negate(inner) => pending.push((inner, depth + 1)),
+                Self::Binary(_, left, right) => {
+                    pending.push((left, depth + 1));
+                    pending.push((right, depth + 1));
+                }
+                Self::Call(_, arguments) => {
+                    pending.extend(arguments.iter().map(|argument| (argument, depth + 1)));
+                }
+                Self::Number(_) | Self::Measure(..) | Self::Constant(_) | Self::Parameter(_) => {}
+            }
+        }
+        deepest
     }
 
     fn precedence(&self) -> Precedence {
@@ -379,19 +419,19 @@ impl Expression {
         }
     }
 
-    fn write<'a>(&self, text: &mut String, name_of: &dyn Fn(ParameterId) -> Option<&'a str>) {
+    fn write(&self, text: &mut String, style: &Style<'_>) {
         match self {
-            Self::Number(value) => text.push_str(&value.to_string()),
+            Self::Number(value) => text.push_str(&(style.number)(*value)),
             Self::Measure(value, unit) => {
-                text.push_str(&value.to_string());
+                text.push_str(&(style.number)(*value));
                 text.push(' ');
                 text.push_str(unit.symbol());
             }
             Self::Constant(constant) => text.push_str(constant.name()),
-            Self::Parameter(id) => text.push_str(name_of(*id).unwrap_or(MISSING_PARAMETER)),
+            Self::Parameter(id) => (style.reference)(*id, text),
             Self::Negate(inner) => {
                 text.push('-');
-                inner.write_wrapped(text, name_of, inner.precedence() < Precedence::Negation);
+                inner.write_wrapped(text, style, inner.precedence() < Precedence::Negation);
             }
             Self::Binary(operator, left, right) => {
                 let own = operator.precedence();
@@ -407,9 +447,9 @@ impl Expression {
                         (left.precedence() < own, right.precedence() <= own)
                     }
                 };
-                left.write_wrapped(text, name_of, left_parens);
+                left.write_wrapped(text, style, left_parens);
                 text.push_str(operator.symbol());
-                right.write_wrapped(text, name_of, right_parens);
+                right.write_wrapped(text, style, right_parens);
             }
             Self::Call(function, arguments) => {
                 text.push_str(function.name());
@@ -418,26 +458,40 @@ impl Expression {
                     if index > 0 {
                         text.push_str(", ");
                     }
-                    argument.write(text, name_of);
+                    argument.write(text, style);
                 }
                 text.push(')');
             }
         }
     }
 
-    fn write_wrapped<'a>(
-        &self,
-        text: &mut String,
-        name_of: &dyn Fn(ParameterId) -> Option<&'a str>,
-        parenthesize: bool,
-    ) {
+    fn write_wrapped(&self, text: &mut String, style: &Style<'_>, parenthesize: bool) {
         if parenthesize {
             text.push('(');
-            self.write(text, name_of);
+            self.write(text, style);
             text.push(')');
         } else {
-            self.write(text, name_of);
+            self.write(text, style);
         }
+    }
+}
+
+struct Style<'a> {
+    reference: &'a dyn Fn(ParameterId, &mut String),
+    number: fn(f64) -> String,
+}
+
+fn display_number(value: f64) -> String {
+    value.to_string()
+}
+
+fn exact_number(value: f64) -> String {
+    let positional = value.to_string();
+    let scientific = format!("{value:e}");
+    if scientific.len() < positional.len() {
+        scientific
+    } else {
+        positional
     }
 }
 

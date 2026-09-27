@@ -11,11 +11,11 @@ use caditor_sketch::Sketch;
 pub struct FeatureId(u64);
 
 impl FeatureId {
-    pub(crate) const fn from_raw(raw: u64) -> Self {
+    pub const fn from_raw(raw: u64) -> Self {
         Self(raw)
     }
 
-    pub(crate) const fn raw(self) -> u64 {
+    pub const fn raw(self) -> u64 {
         self.0
     }
 }
@@ -34,7 +34,7 @@ pub struct Parameter {
 }
 
 impl Parameter {
-    pub(crate) fn new(id: ParameterId, name: String, expression: Expression) -> Self {
+    pub fn new(id: ParameterId, name: String, expression: Expression) -> Self {
         Self {
             id,
             name,
@@ -80,7 +80,7 @@ pub struct Feature {
 }
 
 impl Feature {
-    pub(crate) fn new(id: FeatureId, name: String, kind: FeatureKind) -> Self {
+    pub fn new(id: FeatureId, name: String, kind: FeatureKind) -> Self {
         Self { id, name, kind }
     }
 
@@ -133,6 +133,19 @@ impl Document {
 
     pub fn feature_index(&self, id: FeatureId) -> Option<usize> {
         self.features.iter().position(|feature| feature.id == id)
+    }
+
+    pub fn next_parameter_id(&self) -> u64 {
+        self.next_parameter_id
+    }
+
+    pub fn next_feature_id(&self) -> u64 {
+        self.next_feature_id
+    }
+
+    pub fn reserve_ids_below(&mut self, next_parameter_id: u64, next_feature_id: u64) {
+        self.next_parameter_id = self.next_parameter_id.max(next_parameter_id);
+        self.next_feature_id = self.next_feature_id.max(next_feature_id);
     }
 
     pub fn parse(&self, text: &str) -> Result<Expression, ParseError> {

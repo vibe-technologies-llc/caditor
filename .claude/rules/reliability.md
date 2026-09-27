@@ -22,7 +22,7 @@ tests only.
 
 ## Persistence
 
-These apply as soon as saving exists:
+`caditor-file` implements these; they hold for anything that writes the user's data:
 
 - Write files atomically: write to a temporary file in the same directory, fsync it, rename it
   over the target, then fsync the directory. Never truncate a user file in place.

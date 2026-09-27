@@ -1,5 +1,7 @@
 use crate::{Point2, Point3, Vector3};
 
+const FRAME_TOLERANCE: f64 = 1e-9;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Plane {
     origin: Point3,
@@ -38,6 +40,22 @@ impl Plane {
             normal,
             x_axis,
         })
+    }
+
+    pub fn from_frame(origin: Point3, normal: Vector3, x_axis: Vector3) -> Option<Self> {
+        let finite = origin.is_finite() && normal.is_finite() && x_axis.is_finite();
+        let orthonormal = (normal.length() - 1.0).abs() <= FRAME_TOLERANCE
+            && (x_axis.length() - 1.0).abs() <= FRAME_TOLERANCE
+            && normal.dot(x_axis).abs() <= FRAME_TOLERANCE;
+        match (finite, orthonormal) {
+            (false, _) => None,
+            (true, true) => Some(Self {
+                origin,
+                normal,
+                x_axis,
+            }),
+            (true, false) => Self::with_x_axis(origin, normal, x_axis),
+        }
     }
 
     pub fn origin(&self) -> Point3 {
@@ -94,6 +112,25 @@ mod tests {
         assert!(plane.x_axis().dot(plane.normal()).abs() < 1e-12);
         assert!(Plane::new(Point3::ONE, Vector3::ZERO).is_none());
         assert!(Plane::with_x_axis(Point3::ONE, Vector3::Z, Vector3::Z).is_none());
+    }
+
+    #[test]
+    fn from_frame_keeps_an_orthonormal_frame_exactly_and_repairs_others() {
+        let tilted = Plane::new(Point3::ONE, Vector3::new(1.0, 2.0, 3.0)).unwrap();
+        let restored = Plane::from_frame(tilted.origin(), tilted.normal(), tilted.x_axis());
+        assert_eq!(restored, Some(tilted));
+
+        let repaired =
+            Plane::from_frame(Point3::ZERO, Vector3::Z * 2.0, Vector3::new(1.0, 0.0, 1.0));
+        assert_eq!(repaired, Some(Plane::XY));
+        assert_eq!(
+            Plane::from_frame(Point3::ZERO, Vector3::Z, Vector3::Z),
+            None
+        );
+        assert_eq!(
+            Plane::from_frame(Point3::new(f64::NAN, 0.0, 0.0), Vector3::Z, Vector3::X),
+            None
+        );
     }
 
     #[test]

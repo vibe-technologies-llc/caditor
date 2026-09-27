@@ -9,6 +9,16 @@ use caditor_geometry::{Plane, Point2};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EntityId(u64);
 
+impl EntityId {
+    pub const fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+}
+
 impl fmt::Display for EntityId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}", self.0)
@@ -17,6 +27,16 @@ impl fmt::Display for EntityId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConstraintId(u64);
+
+impl ConstraintId {
+    pub const fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+}
 
 impl fmt::Display for ConstraintId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -39,9 +59,13 @@ impl Entity {
     }
 
     fn references(&self, id: EntityId) -> bool {
+        self.points().contains(&id)
+    }
+
+    pub fn points(&self) -> Vec<EntityId> {
         match *self {
-            Self::Point(_) => false,
-            Self::Line { start, end } => start == id || end == id,
+            Self::Point(_) => Vec::new(),
+            Self::Line { start, end } => vec![start, end],
         }
     }
 }
@@ -104,6 +128,14 @@ pub enum DimensionError {
 pub enum SketchError {
     #[error("the constraint no longer exists")]
     MissingConstraint(ConstraintId),
+    #[error("it uses an entity that does not exist")]
+    MissingEntity(EntityId),
+    #[error("it needs a point, but entity {0} is not one")]
+    NotAPoint(EntityId),
+    #[error("the ID {0} is already in use")]
+    DuplicateId(u64),
+    #[error("a point must have finite coordinates")]
+    NotFinite,
     #[error("the constraint has no value to set")]
     NotADimension(ConstraintId),
     #[error("{reason}")]
@@ -213,6 +245,56 @@ impl Sketch {
             .values()
             .filter_map(Constraint::dimension)
             .any(|expression| expression.uses(parameter))
+    }
+
+    pub fn next_id(&self) -> u64 {
+        self.next_id
+    }
+
+    pub fn reserve_ids_below(&mut self, next_id: u64) {
+        self.next_id = self.next_id.max(next_id);
+    }
+
+    pub fn insert_entity(&mut self, id: EntityId, entity: Entity) -> Result<(), SketchError> {
+        if self.entities.contains_key(&id) || self.constraints.contains_key(&ConstraintId(id.0)) {
+            return Err(SketchError::DuplicateId(id.0));
+        }
+        match entity {
+            Entity::Point(position) if !position.is_finite() => return Err(SketchError::NotFinite),
+            Entity::Point(_) => {}
+            Entity::Line { .. } => {
+                for point in entity.points() {
+                    match self.entities.get(&point) {
+                        Some(Entity::Point(_)) => {}
+                        Some(_) => return Err(SketchError::NotAPoint(point)),
+                        None => return Err(SketchError::MissingEntity(point)),
+                    }
+                }
+            }
+        }
+        self.entities.insert(id, entity);
+        self.reserve_ids_below(id.0.saturating_add(1));
+        Ok(())
+    }
+
+    pub fn insert_constraint(
+        &mut self,
+        id: ConstraintId,
+        constraint: Constraint,
+    ) -> Result<(), SketchError> {
+        if self.constraints.contains_key(&id) || self.entities.contains_key(&EntityId(id.0)) {
+            return Err(SketchError::DuplicateId(id.0));
+        }
+        if let Some(missing) = constraint
+            .entities()
+            .into_iter()
+            .find(|entity| !self.entities.contains_key(entity))
+        {
+            return Err(SketchError::MissingEntity(missing));
+        }
+        self.constraints.insert(id, constraint);
+        self.reserve_ids_below(id.0.saturating_add(1));
+        Ok(())
     }
 
     pub fn add_point(&mut self, position: Point2) -> EntityId {
@@ -370,6 +452,60 @@ mod tests {
         assert_eq!(sketch.entity(line), None);
         assert!(sketch.entity(end).is_some());
         assert_eq!(sketch.constraints().len(), 0);
+    }
+
+    #[test]
+    fn inserting_with_explicit_ids_checks_references_and_keeps_ids_unique() {
+        let mut original = Sketch::new(Plane::XY);
+        let line = original.add_line(Point2::ZERO, Point2::X);
+        let horizontal = original.add_constraint(Constraint::Horizontal(line));
+        original.reserve_ids_below(10);
+
+        let mut rebuilt = Sketch::new(Plane::XY);
+        let mut entities: Vec<_> = original
+            .entities()
+            .map(|(id, entity)| (id, entity.clone()))
+            .collect();
+        entities.reverse();
+        let (lines, points): (Vec<_>, Vec<_>) = entities
+            .into_iter()
+            .partition(|(_, entity)| matches!(entity, Entity::Line { .. }));
+        assert_eq!(
+            rebuilt.insert_entity(lines[0].0, lines[0].1.clone()),
+            Err(SketchError::MissingEntity(EntityId(0)))
+        );
+        for (id, entity) in points.into_iter().chain(lines) {
+            rebuilt.insert_entity(id, entity).unwrap();
+        }
+        assert_eq!(
+            rebuilt.insert_constraint(ConstraintId(line.0), Constraint::Vertical(line)),
+            Err(SketchError::DuplicateId(line.0))
+        );
+        assert_eq!(
+            rebuilt.insert_constraint(ConstraintId(8), Constraint::Vertical(EntityId(7))),
+            Err(SketchError::MissingEntity(EntityId(7)))
+        );
+        rebuilt
+            .insert_constraint(horizontal, Constraint::Horizontal(line))
+            .unwrap();
+        rebuilt.reserve_ids_below(original.next_id());
+
+        assert_eq!(rebuilt, original);
+        assert_eq!(
+            rebuilt.insert_entity(
+                EntityId(5),
+                Entity::Line {
+                    start: line,
+                    end: EntityId(0)
+                }
+            ),
+            Err(SketchError::NotAPoint(line))
+        );
+        assert_eq!(
+            rebuilt.insert_entity(EntityId(6), Entity::Point(Point2::new(f64::INFINITY, 0.0))),
+            Err(SketchError::NotFinite)
+        );
+        assert_eq!(rebuilt.add_point(Point2::Y), EntityId(10));
     }
 
     #[test]
