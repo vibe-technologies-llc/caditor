@@ -1,0 +1,214 @@
+use caditor_document::{Document, ParameterValues, Transaction};
+use caditor_expression::{Dimension, EvalError, Expression};
+use egui::{Align, Id, Key, Response, Stroke, StrokeKind, TextEdit, Ui, vec2};
+
+const ERROR_OUTLINE_WIDTH: f32 = 1.5;
+const ERROR_OUTLINE_RADIUS: f32 = 2.0;
+
+#[derive(Debug, Clone, Default)]
+struct Draft {
+    text: String,
+    error: Option<String>,
+}
+
+pub struct FieldResponse<T> {
+    pub committed: Option<T>,
+    pub error: Option<String>,
+    pub response: Response,
+}
+
+pub fn commit_field<T>(
+    ui: &mut Ui,
+    id: Id,
+    stored: &str,
+    width: f32,
+    focus: bool,
+    validate: impl FnOnce(&str) -> Result<T, String>,
+) -> FieldResponse<T> {
+    let mut draft = ui.data(|data| data.get_temp::<Draft>(id));
+    let mut text = draft
+        .as_ref()
+        .map_or_else(|| stored.to_owned(), |draft| draft.text.clone());
+    let response = ui.add(
+        TextEdit::singleline(&mut text)
+            .id(id)
+            .desired_width(width)
+            .min_size(vec2(width, 0.0)),
+    );
+    if focus {
+        response.request_focus();
+        response.scroll_to_me(Some(Align::Center));
+    }
+    if response.changed() {
+        draft = Some(Draft {
+            text: text.clone(),
+            error: None,
+        });
+    }
+
+    let mut committed = None;
+    if response.lost_focus() {
+        let reverted = ui.input(|input| input.key_pressed(Key::Escape));
+        if reverted || text.trim() == stored {
+            draft = None;
+        } else {
+            match validate(text.trim()) {
+                Ok(value) => {
+                    committed = Some(value);
+                    draft = None;
+                }
+                Err(message) => {
+                    draft = Some(Draft {
+                        text,
+                        error: Some(message),
+                    });
+                }
+            }
+        }
+    }
+
+    let error = draft.as_ref().and_then(|draft| draft.error.clone());
+    if error.is_some() {
+        ui.painter().rect_stroke(
+            response.rect,
+            ERROR_OUTLINE_RADIUS,
+            Stroke::new(ERROR_OUTLINE_WIDTH, ui.visuals().error_fg_color),
+            StrokeKind::Outside,
+        );
+    }
+    ui.data_mut(|data| match draft {
+        Some(draft) => {
+            data.insert_temp(id, draft);
+        }
+        None => data.remove::<Draft>(id),
+    });
+    FieldResponse {
+        committed,
+        error,
+        response,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Expected {
+    pub dimension: Option<Dimension>,
+    pub non_negative: bool,
+}
+
+impl Expected {
+    pub const ANYTHING: Self = Self {
+        dimension: None,
+        non_negative: false,
+    };
+}
+
+pub fn parse_expression(
+    document: &Document,
+    parameters: &ParameterValues,
+    text: &str,
+    expected: Expected,
+) -> Result<Expression, String> {
+    let expression = document.parse(text).map_err(|error| error.to_string())?;
+    let value = parameters
+        .evaluate_expression(&expression)
+        .map_err(|error| sentence(&error.to_string()))?;
+    if let Some(dimension) = expected.dimension
+        && value.dimension != dimension
+        && !value.dimension.is_plain()
+    {
+        let mismatch = EvalError::WrongKind {
+            expected: dimension,
+            found: value.dimension,
+        };
+        return Err(sentence(&mismatch.to_string()));
+    }
+    if expected.non_negative && value.value < 0.0 {
+        return Err("The value cannot be negative".to_owned());
+    }
+    Ok(expression)
+}
+
+pub fn checked(document: &Document, transaction: Transaction) -> Result<Transaction, String> {
+    document
+        .check(&transaction)
+        .map(|()| transaction)
+        .map_err(|error| error.to_string())
+}
+
+pub fn value_preview(parameters: &ParameterValues, expression: &Expression) -> Option<String> {
+    if expression.is_literal() {
+        return None;
+    }
+    parameters
+        .evaluate_expression(expression)
+        .ok()
+        .map(|value| format!("= {value}"))
+}
+
+pub fn sentence(clause: &str) -> String {
+    let mut characters = clause.chars();
+    characters
+        .next()
+        .map(|first| first.to_uppercase().chain(characters).collect())
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use caditor_expression::Unit;
+
+    use super::*;
+
+    fn document() -> Document {
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Parameters");
+        transaction.add_parameter("width", Expression::Measure(40.0, Unit::Millimetre));
+        transaction.add_parameter("zero", Expression::Number(0.0));
+        document.apply(transaction.finish()).unwrap();
+        document
+    }
+
+    fn parse(text: &str, expected: Expected) -> Result<Expression, String> {
+        let document = document();
+        let parameters = ParameterValues::evaluate(&document);
+        parse_expression(&document, &parameters, text, expected)
+    }
+
+    const LENGTH: Expected = Expected {
+        dimension: Some(Dimension::LENGTH),
+        non_negative: true,
+    };
+
+    #[test]
+    fn field_input_is_parsed_evaluated_and_checked() {
+        assert!(parse("width / 2", LENGTH).is_ok());
+        assert!(parse("12", LENGTH).is_ok());
+        assert_eq!(
+            parse("width * width", LENGTH),
+            Err("It gives an area, but a length is needed".to_owned())
+        );
+        assert_eq!(
+            parse("-width", LENGTH),
+            Err("The value cannot be negative".to_owned())
+        );
+        assert_eq!(
+            parse("width / zero", Expected::ANYTHING),
+            Err("It divides by zero".to_owned())
+        );
+        assert_eq!(
+            parse("wdth", Expected::ANYTHING),
+            Err("There is no parameter named 'wdth'".to_owned())
+        );
+        assert!(parse("-width * width", Expected::ANYTHING).is_ok());
+    }
+
+    #[test]
+    fn previews_show_computed_values_only_for_non_literals() {
+        let document = document();
+        let parameters = ParameterValues::evaluate(&document);
+        let preview = |text: &str| value_preview(&parameters, &document.parse(text).unwrap());
+        assert_eq!(preview("width / 4"), Some("= 10 mm".to_owned()));
+        assert_eq!(preview("2 in"), None);
+        assert_eq!(preview("width / zero"), None);
+    }
+}

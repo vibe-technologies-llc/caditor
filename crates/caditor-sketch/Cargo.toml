@@ -9,4 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+caditor-expression.workspace = true
 caditor-geometry.workspace = true
+
+thiserror.workspace = true

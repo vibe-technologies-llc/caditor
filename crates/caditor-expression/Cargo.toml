@@ -1,5 +1,5 @@
 [package]
-name = "caditor-document"
+name = "caditor-expression"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,10 +9,4 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-caditor-expression.workspace = true
-caditor-geometry.workspace = true
-caditor-sketch.workspace = true
-
-log.workspace = true
-parking_lot.workspace = true
 thiserror.workspace = true

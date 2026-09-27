@@ -1,28 +1,49 @@
 use std::{sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
-use caditor_document::Document;
 use caditor_render::{Renderer, SurfaceSize, ViewportFrame, WindowTarget};
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
-    event::WindowEvent,
-    event_loop::ActiveEventLoop,
+    event::{StartCause, WindowEvent},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy},
     window::{Window, WindowId},
 };
 
-use crate::{overlay::Overlay, panels, viewport::ViewportState};
+use crate::{
+    model::{Model, WakerFactory},
+    overlay::Overlay,
+    panels::{self, PanelState},
+    toolbar,
+    viewport::ViewportState,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppEvent {
+    Recomputed,
+}
+
+pub fn waker_factory(proxy: EventLoopProxy<AppEvent>) -> WakerFactory {
+    Box::new(move || {
+        let proxy = proxy.clone();
+        Box::new(move || {
+            if proxy.send_event(AppEvent::Recomputed).is_err() {
+                log::debug!("the event loop closed before a recompute finished");
+            }
+        })
+    })
+}
 
 pub struct App {
-    document: Document,
+    model: Model,
     session: Option<Session>,
     startup_error: Option<anyhow::Error>,
 }
 
 impl App {
-    pub fn new(document: Document) -> Self {
+    pub fn new(model: Model) -> Self {
         Self {
-            document,
+            model,
             session: None,
             startup_error: None,
         }
@@ -33,7 +54,13 @@ impl App {
     }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler<AppEvent> for App {
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
+        if let (StartCause::ResumeTimeReached { .. }, Some(session)) = (cause, &self.session) {
+            session.window.request_redraw();
+        }
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.session.is_some() {
             return;
@@ -43,6 +70,16 @@ impl ApplicationHandler for App {
             Err(error) => {
                 self.startup_error = Some(error);
                 event_loop.exit();
+            }
+        }
+    }
+
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
+        match event {
+            AppEvent::Recomputed => {
+                if let Some(session) = &self.session {
+                    session.window.request_redraw();
+                }
             }
         }
     }
@@ -67,9 +104,18 @@ impl ApplicationHandler for App {
                 session.renderer.resize(surface_size(size));
                 session.window.request_redraw();
             }
-            WindowEvent::RedrawRequested => session.redraw(&self.document),
+            WindowEvent::RedrawRequested => session.redraw(&mut self.model),
             _ => {}
         }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let flow = self
+            .session
+            .as_ref()
+            .and_then(|session| session.next_repaint)
+            .map_or(ControlFlow::Wait, ControlFlow::WaitUntil);
+        event_loop.set_control_flow(flow);
     }
 }
 
@@ -78,7 +124,9 @@ struct Session {
     renderer: Renderer,
     overlay: Overlay,
     viewport: ViewportState,
+    panels: PanelState,
     last_redraw: Option<Instant>,
+    next_repaint: Option<Instant>,
 }
 
 impl Session {
@@ -99,29 +147,48 @@ impl Session {
             renderer,
             overlay,
             viewport: ViewportState::new(),
+            panels: PanelState::default(),
             last_redraw: None,
+            next_repaint: None,
         })
     }
 
-    fn redraw(&mut self, document: &Document) {
+    fn redraw(&mut self, model: &mut Model) {
         let now = Instant::now();
         let elapsed = self
             .last_redraw
             .replace(now)
             .map(|previous| now.saturating_duration_since(previous))
             .unwrap_or_default();
+        model.poll();
         if let Some(result) = self.renderer.poll_pick() {
             self.viewport.apply_pick(&result);
         }
         self.viewport.advance(elapsed);
 
+        let mut actions = Vec::new();
         let viewport = &mut self.viewport;
+        let panel_state = &mut self.panels;
+        let view_model: &Model = model;
         let ui = self.overlay.run(&self.window, |ui| {
-            panels::show(ui, document, viewport.selection());
-            viewport.show(ui, document);
+            toolbar::show(ui, view_model, &mut actions);
+            panels::show(
+                ui,
+                view_model,
+                viewport.selection(),
+                panel_state,
+                &mut actions,
+            );
+            viewport.show(ui, view_model.document());
         });
+        let changed = !actions.is_empty();
+        for action in actions {
+            model.perform(action);
+        }
 
-        let built = self.viewport.build_scene(document);
+        let built = self
+            .viewport
+            .build_scene(model.document(), model.evaluation());
         let request = self
             .viewport
             .request(&built, !self.renderer.is_pick_pending());
@@ -135,7 +202,7 @@ impl Session {
             pick_at: request.pick_at,
         });
 
-        let repaint_now = ui.repaint_now;
+        let repaint_after = ui.repaint_after;
         match self.renderer.begin_frame(viewport_frame.as_ref()) {
             Ok(Some(mut frame)) => {
                 let command_buffers = self.overlay.paint(&self.renderer, Some(&mut frame), ui);
@@ -155,10 +222,13 @@ impl Session {
             self.viewport.pick_was_not_issued();
         }
 
+        let repaint_now = changed || repaint_after.is_some_and(|delay| delay.is_zero());
+        self.next_repaint = None;
         if repaint_now || self.viewport.is_animating() || self.renderer.is_pick_pending() {
             self.window.request_redraw();
         } else {
             self.last_redraw = None;
+            self.next_repaint = repaint_after.and_then(|delay| now.checked_add(delay));
         }
     }
 }

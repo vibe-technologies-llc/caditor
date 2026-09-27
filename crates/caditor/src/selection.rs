@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use caditor_document::{Document, FeatureId, FeatureKind};
 use caditor_geometry::{Plane, Vector3};
-use caditor_sketch::{Entity, EntityId};
+use caditor_sketch::EntityId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Axis {
@@ -96,12 +96,7 @@ impl Pickable {
                     return format!("Missing entity {entity}");
                 };
                 let FeatureKind::Sketch(sketch) = &owner.kind;
-                let kind = match sketch.entity(entity) {
-                    Some(Entity::Point(_)) => "Point",
-                    Some(Entity::Line { .. }) => "Line",
-                    None => "Missing entity",
-                };
-                format!("{} › {kind} {entity}", owner.name)
+                format!("{} › {}", owner.name, sketch.entity_label(entity))
             }
         }
     }

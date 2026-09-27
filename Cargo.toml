@@ -23,6 +23,7 @@ unwrap_used = "deny"
 
 [workspace.dependencies]
 caditor-document.path = "crates/caditor-document"
+caditor-expression.path = "crates/caditor-expression"
 caditor-geometry.path = "crates/caditor-geometry"
 caditor-render.path = "crates/caditor-render"
 caditor-sketch.path = "crates/caditor-sketch"

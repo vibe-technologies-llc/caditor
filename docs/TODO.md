@@ -31,15 +31,6 @@ These need an answer before the milestone that depends on them starts.
       versioning, an append-only recovery journal and partial loading.
 - [ ] **Distribution** (blocks M8): Flatpak, AUR and/or plain release binaries.
 
-## M2: Document core
-
-- [ ] Every document mutation goes through commands, with full undo and redo and no exceptions
-- [ ] Parameter expressions with units that any numeric field accepts
-- [ ] Dependency graph between features, with incremental recompute
-- [ ] Recompute on a background worker; the UI never blocks and long work can be cancelled
-- [ ] Per-feature failure isolation: a failing feature keeps its last good result and gives a
-      plain-language reason
-
 ## M3: Persistence
 
 - [ ] Versioned file format with atomic save (temporary file, fsync, rename, fsync of the

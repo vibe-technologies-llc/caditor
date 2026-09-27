@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 caditor-document.workspace = true
+caditor-expression.workspace = true
 caditor-geometry.workspace = true
 caditor-render.workspace = true
 caditor-sketch.workspace = true

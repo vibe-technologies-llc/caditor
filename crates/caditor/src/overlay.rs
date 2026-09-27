@@ -1,12 +1,16 @@
+use std::time::Duration;
+
 use caditor_render::{Frame, Renderer};
 use egui_wgpu::ScreenDescriptor;
 use winit::window::Window;
+
+const LONGEST_SCHEDULED_REPAINT: Duration = Duration::from_secs(3600);
 
 pub struct UiFrame {
     primitives: Vec<egui::ClippedPrimitive>,
     textures: egui::TexturesDelta,
     pixels_per_point: f32,
-    pub repaint_now: bool,
+    pub repaint_after: Option<Duration>,
 }
 
 pub struct Overlay {
@@ -48,17 +52,18 @@ impl Overlay {
         self.state
             .handle_platform_output(window, output.platform_output);
 
-        let repaint_now = output
+        let repaint_after = output
             .viewport_output
             .get(&egui::ViewportId::ROOT)
-            .is_some_and(|viewport| viewport.repaint_delay.is_zero());
+            .map(|viewport| viewport.repaint_delay)
+            .filter(|delay| *delay < LONGEST_SCHEDULED_REPAINT);
         UiFrame {
             primitives: self
                 .context
                 .tessellate(output.shapes, output.pixels_per_point),
             textures: output.textures_delta,
             pixels_per_point: output.pixels_per_point,
-            repaint_now,
+            repaint_after,
         }
     }
 

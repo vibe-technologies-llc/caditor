@@ -299,6 +299,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "caditor-document",
+ "caditor-expression",
  "caditor-geometry",
  "caditor-render",
  "caditor-sketch",
@@ -316,8 +317,19 @@ dependencies = [
 name = "caditor-document"
 version = "0.1.0"
 dependencies = [
+ "caditor-expression",
  "caditor-geometry",
  "caditor-sketch",
+ "log",
+ "parking_lot",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "caditor-expression"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -346,7 +358,9 @@ dependencies = [
 name = "caditor-sketch"
 version = "0.1.0"
 dependencies = [
+ "caditor-expression",
  "caditor-geometry",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

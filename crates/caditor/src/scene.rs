@@ -1,4 +1,6 @@
-use caditor_document::{Document, FeatureId, FeatureKind};
+use caditor_document::{
+    Document, Evaluation, Feature, FeatureId, FeatureKind, FeatureResult, FeatureState,
+};
 use caditor_geometry::{Aabb, Plane, Point2, Point3};
 use caditor_render::{Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene};
 use caditor_sketch::{Entity, EntityId, Sketch};
@@ -11,6 +13,8 @@ const REFERENCE_MARGIN: f64 = 1.2;
 const GRID: Color = Color::from_rgba8(210, 215, 225, 90);
 const SKETCH_CURVE: Color = Color::from_rgb8(222, 224, 230);
 const SKETCH_POINT: Color = Color::from_rgb8(245, 245, 248);
+const FAILED_SKETCH_CURVE: Color = Color::from_rgb8(214, 120, 110);
+const FAILED_SKETCH_POINT: Color = Color::from_rgb8(232, 146, 136);
 const ORIGIN: Color = Color::from_rgb8(235, 235, 235);
 const PLANE_FILL: Color = Color::from_rgba8(120, 150, 200, 22);
 const PLANE_EDGE: Color = Color::from_rgba8(140, 170, 215, 150);
@@ -118,18 +122,21 @@ impl BuiltScene {
     pub fn bounds_of<'a>(
         &self,
         document: &Document,
+        evaluation: &Evaluation,
         pickables: impl IntoIterator<Item = Pickable> + 'a,
     ) -> Option<Aabb> {
-        Aabb::from_points(
-            pickables
-                .into_iter()
-                .flat_map(|pickable| pickable_points(document, pickable, self.reference_size)),
-        )
+        Aabb::from_points(pickables.into_iter().flat_map(|pickable| {
+            pickable_points(document, evaluation, pickable, self.reference_size)
+        }))
     }
 }
 
-pub fn build(document: &Document, highlight: &Highlight<'_>) -> BuiltScene {
-    let model = model_bounds(document);
+pub fn build(
+    document: &Document,
+    evaluation: &Evaluation,
+    highlight: &Highlight<'_>,
+) -> BuiltScene {
+    let model = model_bounds(document, evaluation);
     let reference_size = reference_size(model);
     let mut builder = Builder {
         scene: Scene {
@@ -151,9 +158,8 @@ pub fn build(document: &Document, highlight: &Highlight<'_>) -> BuiltScene {
     }
     builder.origin();
     for feature in document.features() {
-        match &feature.kind {
-            FeatureKind::Sketch(sketch) => builder.sketch(feature.id(), sketch),
-        }
+        let shown = Shown::of(evaluation, feature);
+        builder.sketch(feature.id(), shown.sketch, shown.failed);
     }
 
     let reference = Aabb::from_points(plane_corners(Plane::XY, reference_size))
@@ -231,7 +237,12 @@ impl Builder<'_> {
         });
     }
 
-    fn sketch(&mut self, feature: FeatureId, sketch: &Sketch) {
+    fn sketch(&mut self, feature: FeatureId, sketch: &Sketch, failed: bool) {
+        let (curve, point) = if failed {
+            (FAILED_SKETCH_CURVE, FAILED_SKETCH_POINT)
+        } else {
+            (SKETCH_CURVE, SKETCH_POINT)
+        };
         let plane = sketch.plane();
         for (entity, kind) in sketch.entities() {
             let pickable = Pickable::SketchEntity { feature, entity };
@@ -239,7 +250,7 @@ impl Builder<'_> {
             match kind {
                 Entity::Point(position) => self.scene.markers.push(Marker {
                     position: plane.to_world(*position),
-                    color: self.highlight.color(pickable, SKETCH_POINT),
+                    color: self.highlight.color(pickable, point),
                     diameter: POINT_DIAMETER + emphasis * HIGHLIGHT_EXTRA_DIAMETER,
                     layer: Layer::Model,
                     pick: self.picks.register(pickable, PickPriority::Point),
@@ -251,7 +262,7 @@ impl Builder<'_> {
                     self.scene.lines.push(Line {
                         start: plane.to_world(start),
                         end: plane.to_world(end),
-                        color: self.highlight.color(pickable, SKETCH_CURVE),
+                        color: self.highlight.color(pickable, curve),
                         width: CURVE_WIDTH + emphasis * HIGHLIGHT_EXTRA_WIDTH,
                         layer: Layer::Model,
                         pick: self.picks.register(pickable, PickPriority::Curve),
@@ -274,28 +285,58 @@ fn sketch_entity_points(sketch: &Sketch, entity: EntityId) -> Vec<Point3> {
     }
 }
 
-fn pickable_points(document: &Document, pickable: Pickable, reference_size: f64) -> Vec<Point3> {
+struct Shown<'a> {
+    sketch: &'a Sketch,
+    failed: bool,
+}
+
+impl<'a> Shown<'a> {
+    fn of(evaluation: &'a Evaluation, feature: &'a Feature) -> Self {
+        let status = evaluation.feature(feature.id());
+        let last_good =
+            status
+                .and_then(|status| status.result.as_deref())
+                .map(|result| match result {
+                    FeatureResult::Sketch(result) => &result.geometry,
+                });
+        let FeatureKind::Sketch(definition) = &feature.kind;
+        let failed = status.is_some_and(|status| {
+            matches!(
+                status.state,
+                FeatureState::Failed(_) | FeatureState::Outdated
+            )
+        });
+        Self {
+            sketch: last_good.unwrap_or(definition),
+            failed,
+        }
+    }
+}
+
+fn pickable_points(
+    document: &Document,
+    evaluation: &Evaluation,
+    pickable: Pickable,
+    reference_size: f64,
+) -> Vec<Point3> {
     match pickable {
         Pickable::Origin => vec![Point3::ZERO],
         Pickable::Axis(axis) => vec![Point3::ZERO, axis.direction() * reference_size],
         Pickable::Plane(plane) => plane_corners(plane.plane(), reference_size).to_vec(),
         Pickable::SketchEntity { feature, entity } => document
             .feature(feature)
-            .map(|owner| match &owner.kind {
-                FeatureKind::Sketch(sketch) => sketch_entity_points(sketch, entity),
-            })
+            .map(|owner| sketch_entity_points(Shown::of(evaluation, owner).sketch, entity))
             .unwrap_or_default(),
     }
 }
 
-fn model_bounds(document: &Document) -> Option<Aabb> {
-    Aabb::from_points(document.features().iter().flat_map(|feature| {
-        match &feature.kind {
-            FeatureKind::Sketch(sketch) => sketch
-                .entities()
-                .flat_map(|(entity, _)| sketch_entity_points(sketch, entity))
-                .collect::<Vec<_>>(),
-        }
+fn model_bounds(document: &Document, evaluation: &Evaluation) -> Option<Aabb> {
+    Aabb::from_points(document.features().flat_map(|feature| {
+        let sketch = Shown::of(evaluation, feature).sketch;
+        sketch
+            .entities()
+            .flat_map(|(entity, _)| sketch_entity_points(sketch, entity))
+            .collect::<Vec<_>>()
     }))
 }
 
@@ -324,7 +365,9 @@ mod tests {
         let mut document = Document::default();
         let mut sketch = Sketch::new(Plane::XY);
         let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
-        let feature = document.add_feature("Base sketch", FeatureKind::Sketch(sketch));
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Base sketch", FeatureKind::Sketch(sketch));
+        document.apply(transaction.finish()).unwrap();
         (document, feature, line)
     }
 
@@ -342,6 +385,7 @@ mod tests {
         let selection = Selection::default();
         let built = build(
             &document,
+            &Evaluation::default(),
             &Highlight {
                 selection: &selection,
                 hovered: None,
@@ -422,6 +466,7 @@ mod tests {
         let selection = Selection::default();
         let built = build(
             &document,
+            &Evaluation::default(),
             &Highlight {
                 selection: &selection,
                 hovered: None,
@@ -430,6 +475,7 @@ mod tests {
         let bounds = built
             .bounds_of(
                 &document,
+                &Evaluation::default(),
                 [Pickable::SketchEntity {
                     feature,
                     entity: line,

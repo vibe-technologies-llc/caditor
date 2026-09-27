@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use caditor_document::Document;
+use caditor_document::{Document, Evaluation};
 use caditor_geometry::{Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{Camera, PickResult, Scene, View, Viewpoint, ViewportRect};
 use egui::{Align2, Color32, FontId, Key, PointerButton, Rect, Response, Sense, vec2};
@@ -124,10 +124,11 @@ impl ViewportState {
         });
     }
 
-    pub fn build_scene(&mut self, document: &Document) -> BuiltScene {
+    pub fn build_scene(&mut self, document: &Document, evaluation: &Evaluation) -> BuiltScene {
         self.selection.retain_existing(document);
         let built = scene::build(
             document,
+            evaluation,
             &Highlight {
                 selection: &self.selection,
                 hovered: self.hovered,
@@ -144,7 +145,7 @@ impl ViewportState {
                 built.everything
             } else {
                 built
-                    .bounds_of(document, self.selection.iter())
+                    .bounds_of(document, evaluation, self.selection.iter())
                     .unwrap_or(built.everything)
             };
             self.camera.animate_to(view.fitted(bounds));
@@ -352,7 +353,7 @@ mod tests {
     fn picks_once_per_unchanged_state_and_retries_when_not_issued() {
         let document = Document::default();
         let mut state = state_with_cursor();
-        let built = state.build_scene(&document);
+        let built = state.build_scene(&document, &Evaluation::default());
 
         let first = state.request(&built, true).unwrap();
         assert_eq!(first.pick_at, Some(Vector2::new(120.0, 80.0)));
@@ -368,7 +369,7 @@ mod tests {
     fn a_pick_result_sets_the_hovered_item_and_the_hit_under_the_cursor() {
         let document = Document::default();
         let mut state = state_with_cursor();
-        let built = state.build_scene(&document);
+        let built = state.build_scene(&document, &Evaluation::default());
         state.request(&built, true);
 
         let cursor = Vector2::new(120.0, 80.0);
@@ -391,7 +392,7 @@ mod tests {
         let document = Document::default();
         let mut state = state_with_cursor();
         let initial = state.camera.viewpoint();
-        state.build_scene(&document);
+        state.build_scene(&document, &Evaluation::default());
         assert_ne!(state.camera.viewpoint(), initial);
         assert!(!state.is_animating());
 
@@ -399,7 +400,7 @@ mod tests {
         state
             .selection
             .replace_with(Pickable::Axis(crate::selection::Axis::X));
-        state.build_scene(&document);
+        state.build_scene(&document, &Evaluation::default());
         assert!(state.is_animating());
         assert!(!state.fit_requested);
     }
