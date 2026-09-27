@@ -51,6 +51,12 @@ per-container counter and are never reused, never positional, and survive the re
 anything else. Anything that references model geometry must keep this property, because
 positional naming is the root of FreeCAD's topological naming failures.
 
+## Roadmap
+
+`docs/TODO.md` holds the roadmap, the open design decisions and the project's direction. Check
+it before starting new work, and tick items off or amend them in the same change that delivers
+them.
+
 ## Rules
 
 - `.claude/rules/ux.md`: UX requirements and the FreeCAD failure modes to avoid.
