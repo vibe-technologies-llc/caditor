@@ -1,9 +1,15 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 use caditor_geometry::{Plane, Point2};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EntityId(u64);
+
+impl fmt::Display for EntityId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}", self.0)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Entity {
@@ -67,6 +73,20 @@ impl Sketch {
         self.entities.get(&id)
     }
 
+    pub fn point(&self, id: EntityId) -> Option<Point2> {
+        match self.entities.get(&id)? {
+            Entity::Point(position) => Some(*position),
+            Entity::Line { .. } => None,
+        }
+    }
+
+    pub fn line_endpoints(&self, id: EntityId) -> Option<(Point2, Point2)> {
+        match self.entities.get(&id)? {
+            Entity::Line { start, end } => Some((self.point(*start)?, self.point(*end)?)),
+            Entity::Point(_) => None,
+        }
+    }
+
     pub fn constraints(&self) -> &[Constraint] {
         &self.constraints
     }
@@ -125,6 +145,10 @@ mod tests {
         };
         assert_eq!(sketch.entity(*start), Some(&Entity::Point(Point2::ZERO)));
         assert_eq!(sketch.entity(*end), Some(&Entity::Point(Point2::X)));
+        assert_eq!(sketch.line_endpoints(line), Some((Point2::ZERO, Point2::X)));
+        assert_eq!(sketch.point(*end), Some(Point2::X));
+        assert_eq!(sketch.point(line), None);
+        assert_eq!(sketch.line_endpoints(*start), None);
     }
 
     #[test]

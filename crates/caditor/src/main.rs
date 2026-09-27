@@ -1,6 +1,10 @@
 mod app;
 mod overlay;
 mod panels;
+mod scene;
+mod selection;
+mod view_cube;
+mod viewport;
 
 use anyhow::Result;
 use caditor_document::{Document, FeatureKind};

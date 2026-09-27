@@ -1,12 +1,11 @@
-use caditor_document::Document;
 use caditor_render::{Frame, Renderer};
 use egui_wgpu::ScreenDescriptor;
 use winit::window::Window;
 
-use crate::panels;
-
-pub struct Paint {
-    pub command_buffers: Vec<wgpu::CommandBuffer>,
+pub struct UiFrame {
+    primitives: Vec<egui::ClippedPrimitive>,
+    textures: egui::TexturesDelta,
+    pixels_per_point: f32,
     pub repaint_now: bool,
 }
 
@@ -43,72 +42,76 @@ impl Overlay {
         self.state.on_window_event(window, event).repaint
     }
 
-    pub fn paint(
-        &mut self,
-        window: &Window,
-        renderer: &Renderer,
-        frame: &mut Frame,
-        document: &Document,
-    ) -> Paint {
+    pub fn run(&mut self, window: &Window, run_ui: impl FnMut(&mut egui::Ui)) -> UiFrame {
         let input = self.state.take_egui_input(window);
-        let mut output = self.context.run_ui(input, |ui| panels::show(ui, document));
+        let output = self.context.run_ui(input, run_ui);
         self.state
             .handle_platform_output(window, output.platform_output);
-
-        let primitives = self
-            .context
-            .tessellate(output.shapes, output.pixels_per_point);
-        let size = renderer.size();
-        let screen = ScreenDescriptor {
-            size_in_pixels: [size.width, size.height],
-            pixels_per_point: output.pixels_per_point,
-        };
-
-        for (id, deltas) in output.textures_delta.set.drain() {
-            for delta in deltas {
-                self.renderer
-                    .update_texture(renderer.device(), renderer.queue(), id, &delta);
-            }
-        }
-        let command_buffers = self.renderer.update_buffers(
-            renderer.device(),
-            renderer.queue(),
-            &mut frame.encoder,
-            &primitives,
-            &screen,
-        );
-
-        let mut pass = frame
-            .encoder
-            .begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("egui"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &frame.view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            })
-            .forget_lifetime();
-        self.renderer.render(&mut pass, &primitives, &screen);
-        drop(pass);
-
-        for id in output.textures_delta.free.drain() {
-            self.renderer.free_texture(&id);
-        }
 
         let repaint_now = output
             .viewport_output
             .get(&egui::ViewportId::ROOT)
             .is_some_and(|viewport| viewport.repaint_delay.is_zero());
-
-        Paint {
-            command_buffers,
+        UiFrame {
+            primitives: self
+                .context
+                .tessellate(output.shapes, output.pixels_per_point),
+            textures: output.textures_delta,
+            pixels_per_point: output.pixels_per_point,
             repaint_now,
         }
+    }
+
+    pub fn paint(
+        &mut self,
+        renderer: &Renderer,
+        frame: Option<&mut Frame>,
+        mut ui: UiFrame,
+    ) -> Vec<wgpu::CommandBuffer> {
+        for (id, deltas) in ui.textures.set.drain() {
+            for delta in deltas {
+                self.renderer
+                    .update_texture(renderer.device(), renderer.queue(), id, &delta);
+            }
+        }
+
+        let mut command_buffers = Vec::new();
+        if let Some(frame) = frame {
+            let size = renderer.size();
+            let screen = ScreenDescriptor {
+                size_in_pixels: [size.width, size.height],
+                pixels_per_point: ui.pixels_per_point,
+            };
+            command_buffers = self.renderer.update_buffers(
+                renderer.device(),
+                renderer.queue(),
+                &mut frame.encoder,
+                &ui.primitives,
+                &screen,
+            );
+
+            let mut pass = frame
+                .encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("egui"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &frame.view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    ..Default::default()
+                })
+                .forget_lifetime();
+            self.renderer.render(&mut pass, &ui.primitives, &screen);
+        }
+
+        for id in ui.textures.free.drain() {
+            self.renderer.free_texture(&id);
+        }
+        command_buffers
     }
 }

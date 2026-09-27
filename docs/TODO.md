@@ -31,14 +31,6 @@ These need an answer before the milestone that depends on them starts.
       versioning, an append-only recovery journal and partial loading.
 - [ ] **Distribution** (blocks M8): Flatpak, AUR and/or plain release binaries.
 
-## M1: Viewport
-
-- [ ] Camera with one navigation model (orbit, pan, zoom to cursor) and smooth transitions
-- [ ] Depth buffer and MSAA; f64 model to f32 GPU conversion that stays precise at large coordinates
-- [ ] Grid, origin axes and principal planes
-- [ ] GPU picking; hover highlight and selection
-- [ ] View cube or equivalent orientation widget; fit to selection or to everything
-
 ## M2: Document core
 
 - [ ] Every document mutation goes through commands, with full undo and redo and no exceptions

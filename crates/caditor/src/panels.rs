@@ -1,6 +1,8 @@
 use caditor_document::{Document, Feature, FeatureKind};
 
-pub fn show(ui: &mut egui::Ui, document: &Document) {
+use crate::selection::Selection;
+
+pub fn show(ui: &mut egui::Ui, document: &Document, selection: &Selection) {
     egui::Panel::left("model")
         .resizable(true)
         .default_size(240.0)
@@ -19,6 +21,15 @@ pub fn show(ui: &mut egui::Ui, document: &Document) {
                     ui.end_row();
                 }
             });
+
+            ui.separator();
+            ui.heading("Selection");
+            if selection.is_empty() {
+                ui.weak("Nothing selected. Click geometry in the view to select it.");
+            }
+            for pickable in selection.iter() {
+                ui.label(pickable.describe(document));
+            }
         });
 }
 

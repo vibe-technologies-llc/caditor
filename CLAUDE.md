@@ -30,21 +30,38 @@ The Cargo workspace is `crates/*`. Dependencies point in one direction only:
 
 ```
 caditor-geometry  ←  caditor-sketch  ←  caditor-document  ←  caditor (bin)
-                                          caditor-render  ←  caditor (bin)
+       ↑                                                          │
+       └──────────────  caditor-render  ←─────────────────────────┘
 ```
 
-- **caditor-geometry**: the math vocabulary, as f64 `glam` aliases (`Point2`, `Point3`, …)
-  plus `Plane`. Model data is f64 throughout; conversion to f32 happens only at the GPU
-  boundary in the renderer.
+- **caditor-geometry**: the math vocabulary, as f64 `glam` aliases (`Point3`, `Rotation3`, …)
+  plus `Plane` (origin, normal and in-plane x axis), `Ray` and `Aabb`. The world is Z-up and
+  model data is f64 throughout; conversion to f32 happens only at the GPU boundary in the
+  renderer.
 - **caditor-sketch**: 2D sketches on a `Plane`: entities, constraints and, later, the solver.
 - **caditor-document**: the parametric model, meaning named parameters and the ordered feature
   tree.
-- **caditor-render**: wgpu device and surface ownership and frame lifecycle. It does not depend
-  on winit: it takes any `Arc<dyn WindowTarget>`. `begin_frame` clears the viewport and hands
-  back a `Frame` whose encoder the app draws into; `submit` presents it.
+- **caditor-render**: wgpu device and surface ownership, the camera and the viewport. It does
+  not depend on winit or on the document: it takes any `Arc<dyn WindowTarget>` and draws a
+  `Scene` of lines, markers, convex fills and a grid built by the app. `begin_frame` draws the
+  3D viewport into its rect and hands back a `Frame` whose encoder the app draws the UI into;
+  `submit` presents it.
+  - Precision: every position is converted relative to the eye in f64 before the cast to f32,
+    and the view matrix is rotation only, so geometry far from the origin stays exact.
+  - Depth is reverse-Z with an infinite far plane and `Depth32Float`, with 4x MSAA when the
+    adapter supports it. Model geometry draws over reference geometry (datum planes, axes)
+    through a per-`Layer` depth bias.
+  - Picking renders a small window around the cursor into ID and depth targets and reads it
+    back asynchronously, so hover never blocks the UI thread. Hits carry their world position,
+    which navigation uses as the orbit pivot, pan grab point and zoom anchor.
+  - Navigation has a single model: right-drag orbits (turntable around world Z), middle-drag or
+    Shift+right-drag pans, the wheel and pinch zoom toward the point under the cursor, and
+    view changes from the view cube or fit animate.
 - **caditor**: the winit `ApplicationHandler` (`app.rs`), the egui integration drawn over the
-  viewport (`overlay.rs`) and the panels (`panels.rs`). The app owns the `Document` and gives the
-  UI read-only access to it.
+  viewport (`overlay.rs`), the panels (`panels.rs`), the viewport widget with navigation,
+  hover and selection (`viewport.rs`), the view cube (`view_cube.rs`) and the document to
+  `Scene` conversion (`scene.rs`). Selectable things are `Pickable` values built from stable
+  IDs. The app owns the `Document` and gives the UI read-only access to it.
 
 Entities and features are referred to by stable IDs (`EntityId`, `FeatureId`). IDs come from a
 per-container counter and are never reused, never positional, and survive the removal of

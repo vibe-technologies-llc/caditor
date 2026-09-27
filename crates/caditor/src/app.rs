@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
 use caditor_document::Document;
-use caditor_render::{Renderer, SurfaceSize, WindowTarget};
+use caditor_render::{Renderer, SurfaceSize, ViewportFrame, WindowTarget};
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -11,7 +11,7 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::overlay::Overlay;
+use crate::{overlay::Overlay, panels, viewport::ViewportState};
 
 pub struct App {
     document: Document,
@@ -77,6 +77,8 @@ struct Session {
     window: Arc<Window>,
     renderer: Renderer,
     overlay: Overlay,
+    viewport: ViewportState,
+    last_redraw: Option<Instant>,
 }
 
 impl Session {
@@ -96,29 +98,67 @@ impl Session {
             window,
             renderer,
             overlay,
+            viewport: ViewportState::new(),
+            last_redraw: None,
         })
     }
 
     fn redraw(&mut self, document: &Document) {
-        let mut frame = match self.renderer.begin_frame() {
-            Ok(Some(frame)) => frame,
+        let now = Instant::now();
+        let elapsed = self
+            .last_redraw
+            .replace(now)
+            .map(|previous| now.saturating_duration_since(previous))
+            .unwrap_or_default();
+        if let Some(result) = self.renderer.poll_pick() {
+            self.viewport.apply_pick(&result);
+        }
+        self.viewport.advance(elapsed);
+
+        let viewport = &mut self.viewport;
+        let ui = self.overlay.run(&self.window, |ui| {
+            panels::show(ui, document, viewport.selection());
+            viewport.show(ui, document);
+        });
+
+        let built = self.viewport.build_scene(document);
+        let request = self
+            .viewport
+            .request(&built, !self.renderer.is_pick_pending());
+        let pick_requested = request
+            .as_ref()
+            .is_some_and(|request| request.pick_at.is_some());
+        let viewport_frame = request.as_ref().map(|request| ViewportFrame {
+            rect: request.rect,
+            view: &request.view,
+            scene: &built.scene,
+            pick_at: request.pick_at,
+        });
+
+        let repaint_now = ui.repaint_now;
+        match self.renderer.begin_frame(viewport_frame.as_ref()) {
+            Ok(Some(mut frame)) => {
+                let command_buffers = self.overlay.paint(&self.renderer, Some(&mut frame), ui);
+                self.renderer.submit(frame, command_buffers);
+            }
             Ok(None) => {
+                self.overlay.paint(&self.renderer, None, ui);
                 self.window.request_redraw();
-                return;
             }
             Err(error) => {
                 log::error!("skipping frame: {error}");
+                self.overlay.paint(&self.renderer, None, ui);
                 self.window.request_redraw();
-                return;
             }
-        };
+        }
+        if pick_requested && !self.renderer.is_pick_pending() {
+            self.viewport.pick_was_not_issued();
+        }
 
-        let paint = self
-            .overlay
-            .paint(&self.window, &self.renderer, &mut frame, document);
-        self.renderer.submit(frame, paint.command_buffers);
-        if paint.repaint_now {
+        if repaint_now || self.viewport.is_animating() || self.renderer.is_pick_pending() {
             self.window.request_redraw();
+        } else {
+            self.last_redraw = None;
         }
     }
 }

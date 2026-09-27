@@ -1,12 +1,22 @@
+mod camera;
+mod gpu;
+#[cfg(test)]
+mod offscreen_tests;
+mod picking;
+mod scene;
+mod viewport;
+
 use std::{fmt::Debug, sync::Arc};
 
 use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 
-const VIEWPORT_BACKGROUND: wgpu::Color = wgpu::Color {
-    r: 0.105,
-    g: 0.11,
-    b: 0.12,
-    a: 1.0,
+use crate::viewport::{DEPTH_FORMAT, SurfaceTarget, ViewportRenderer};
+pub use crate::{
+    camera::{Camera, View, Viewpoint},
+    scene::{
+        Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene, ViewportRect,
+    },
+    viewport::ViewportFrame,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -51,6 +61,7 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     needs_reconfigure: bool,
+    viewport: ViewportRenderer,
 }
 
 impl Renderer {
@@ -78,6 +89,9 @@ impl Renderer {
                 ..Default::default()
             })
             .await?;
+        device.on_uncaptured_error(Arc::new(|error| {
+            log::error!("the graphics device reported an error: {error}");
+        }));
 
         let size = clamp_size(size);
         let mut config = surface
@@ -88,6 +102,9 @@ impl Renderer {
             config.format = *format;
         }
         surface.configure(&device, &config);
+        let sample_count = supported_sample_count(&adapter, config.format);
+        log::info!("drawing the viewport with {sample_count}x multisampling");
+        let viewport = ViewportRenderer::new(&device, config.format, sample_count);
 
         Ok(Self {
             window,
@@ -98,6 +115,7 @@ impl Renderer {
             queue,
             config,
             needs_reconfigure: false,
+            viewport,
         })
     }
 
@@ -128,7 +146,10 @@ impl Renderer {
         self.needs_reconfigure = false;
     }
 
-    pub fn begin_frame(&mut self) -> Result<Option<Frame>, RenderError> {
+    pub fn begin_frame(
+        &mut self,
+        viewport: Option<&ViewportFrame<'_>>,
+    ) -> Result<Option<Frame>, RenderError> {
         if self.needs_reconfigure {
             self.resize(self.size());
         }
@@ -163,19 +184,17 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("frame"),
             });
-        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("viewport background"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+        self.viewport.draw(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &SurfaceTarget {
                 view: &view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(VIEWPORT_BACKGROUND),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            ..Default::default()
-        });
+                width: surface_texture.texture.width(),
+                height: surface_texture.texture.height(),
+            },
+            viewport,
+        );
 
         Ok(Some(Frame {
             surface_texture,
@@ -184,10 +203,23 @@ impl Renderer {
         }))
     }
 
-    pub fn submit(&self, frame: Frame, preceding: impl IntoIterator<Item = wgpu::CommandBuffer>) {
+    pub fn submit(
+        &mut self,
+        frame: Frame,
+        preceding: impl IntoIterator<Item = wgpu::CommandBuffer>,
+    ) {
         self.queue
             .submit(preceding.into_iter().chain([frame.encoder.finish()]));
         self.queue.present(frame.surface_texture);
+        self.viewport.picking().after_submit();
+    }
+
+    pub fn poll_pick(&mut self) -> Option<PickResult> {
+        self.viewport.picking().poll(&self.device)
+    }
+
+    pub fn is_pick_pending(&self) -> bool {
+        self.viewport.is_pick_pending()
     }
 
     fn recreate_surface(&mut self) -> Result<(), RenderError> {
@@ -196,7 +228,7 @@ impl Renderer {
         if !surface
             .get_capabilities(&self.adapter)
             .formats
-            .contains(&self.config.format)
+            .contains(&self.viewport.format())
         {
             return Err(RenderError::UnsupportedSurface);
         }
@@ -204,6 +236,19 @@ impl Renderer {
         self.resize(self.size());
         Ok(())
     }
+}
+
+fn supported_sample_count(adapter: &wgpu::Adapter, format: wgpu::TextureFormat) -> u32 {
+    let color = adapter.get_texture_format_features(format).flags;
+    let depth = adapter.get_texture_format_features(DEPTH_FORMAT).flags;
+    [4, 2]
+        .into_iter()
+        .find(|&count| {
+            color.sample_count_supported(count)
+                && depth.sample_count_supported(count)
+                && color.contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE)
+        })
+        .unwrap_or(1)
 }
 
 fn clamp_size(size: SurfaceSize) -> SurfaceSize {
