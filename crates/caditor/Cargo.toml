@@ -1,0 +1,25 @@
+[package]
+name = "caditor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+caditor-document.workspace = true
+caditor-geometry.workspace = true
+caditor-render.workspace = true
+caditor-sketch.workspace = true
+
+anyhow.workspace = true
+egui.workspace = true
+egui-wgpu.workspace = true
+egui-winit.workspace = true
+env_logger.workspace = true
+log.workspace = true
+pollster.workspace = true
+wgpu.workspace = true
+winit.workspace = true

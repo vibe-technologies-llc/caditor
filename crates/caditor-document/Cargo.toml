@@ -1,0 +1,13 @@
+[package]
+name = "caditor-document"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+caditor-geometry.workspace = true
+caditor-sketch.workspace = true

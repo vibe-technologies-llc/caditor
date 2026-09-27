@@ -19,14 +19,24 @@ paths:
 - Group imports as `std`, then external crates, then internal ones (`crate::`, `super::` and
   workspace crates), with a blank line between the groups.
 - Use one `use` statement per crate, merging its paths into a single tree:
-  `use std::{collections::HashMap, sync::Arc};`.
+  `use std::{fmt::Debug, sync::Arc};`.
 - `rust-formatter` applies both rules (`StdExternalCrate` grouping, `Crate` granularity), so
   write imports in this shape and let the formatter settle the order.
 
+## Collections and locks
+
+- Pick the collection by the access pattern. `BTreeMap` and `BTreeSet` stay the right choice
+  when ordered or deterministic iteration matters, as with ID-keyed model data.
+- When a hash map or set is the right structure, use `ahash::AHashMap` and `ahash::AHashSet`,
+  never the `std` versions.
+- Use `parking_lot::{Mutex, RwLock, Condvar}` rather than their `std::sync` counterparts.
+- `clippy.toml` enforces both rules through `disallowed-types`.
+
 ## Unsafe
 
-- Every crate forbids unsafe code. Once a workspace exists, set this through
-  `[workspace.lints.rust] unsafe_code = "forbid"` and `[lints] workspace = true` in each member.
+- Every crate forbids unsafe code through `[workspace.lints.rust] unsafe_code = "forbid"` in the
+  root `Cargo.toml`. Each member opts in with `[lints] workspace = true`, and new crates must do
+  the same.
 - Prefer a safe API even when it costs a little, for example `wgpu::Instance::create_surface`
   with an owned or `Arc` window handle rather than `create_surface_unsafe`.
 - If `unsafe` truly cannot be avoided, confine it to the smallest possible crate or module,

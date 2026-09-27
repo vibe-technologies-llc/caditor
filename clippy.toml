@@ -1,0 +1,12 @@
+allow-expect-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-panic-in-tests = true
+allow-unwrap-in-tests = true
+
+disallowed-types = [
+    { path = "std::collections::HashMap", reason = "use ahash::AHashMap" },
+    { path = "std::collections::HashSet", reason = "use ahash::AHashSet" },
+    { path = "std::sync::Mutex", reason = "use parking_lot::Mutex" },
+    { path = "std::sync::RwLock", reason = "use parking_lot::RwLock" },
+    { path = "std::sync::Condvar", reason = "use parking_lot::Condvar" },
+]

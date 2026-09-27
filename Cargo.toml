@@ -1,0 +1,42 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+disallowed_types = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+unwrap_used = "deny"
+
+[workspace.dependencies]
+caditor-document.path = "crates/caditor-document"
+caditor-geometry.path = "crates/caditor-geometry"
+caditor-render.path = "crates/caditor-render"
+caditor-sketch.path = "crates/caditor-sketch"
+
+ahash = "0.8.12"
+anyhow = "1.0.104"
+egui = "0.36.2"
+egui-wgpu = "0.36.2"
+egui-winit = "0.36.2"
+env_logger = "0.11.11"
+glam = "0.33.11"
+log = "0.4.34"
+parking_lot = "0.12.5"
+pollster = "1.0.1"
+thiserror = "2.0.21"
+wgpu = "30.0.1"
+winit = "0.30.13"
