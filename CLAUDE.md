@@ -62,5 +62,6 @@ belongs, such as the Architecture section or a rules file.
 
 - `.claude/rules/ux.md`: UX requirements and the FreeCAD failure modes to avoid.
 - `.claude/rules/reliability.md`: crash and data-loss policy, panic lints.
-- `.claude/rules/rust-style.md`: formatting, imports, collections and locks, `unsafe`, edition.
+- `.claude/rules/rust-style.md`: formatting, imports, comments, collections and locks, `unsafe`,
+  edition.
 - `.claude/rules/dependencies.md`: how dependencies are declared and versioned.

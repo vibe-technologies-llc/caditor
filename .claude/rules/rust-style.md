@@ -23,6 +23,16 @@ paths:
 - `rust-formatter` applies both rules (`StdExternalCrate` grouping, `Crate` granularity), so
   write imports in this shape and let the formatter settle the order.
 
+## Comments
+
+- Avoid comments whenever possible. That covers `//`, `///`, `//!` and `/* */`, and `#`
+  comments in TOML.
+- Put what a comment would have said into the code: a name for a value, a type for a constraint,
+  an extracted function for a step.
+- Rationale that belongs to the wider design goes in `CLAUDE.md`, a rules file or `docs/`, not
+  beside the code.
+- When editing code that has comments, remove the ones in the code you touch.
+
 ## Collections and locks
 
 - Pick the collection by the access pattern. `BTreeMap` and `BTreeSet` stay the right choice
