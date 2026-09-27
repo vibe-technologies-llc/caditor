@@ -31,10 +31,6 @@ These need an answer before the milestone that depends on them starts.
       versioning, an append-only recovery journal and partial loading.
 - [ ] **Distribution** (blocks M8): Flatpak, AUR and/or plain release binaries.
 
-## M0: Foundation
-
-- [ ] CI running build, clippy, tests and `rust-formatter --check`
-
 ## M1: Viewport
 
 - [ ] Camera with one navigation model (orbit, pan, zoom to cursor) and smooth transitions
