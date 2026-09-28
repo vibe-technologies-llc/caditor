@@ -132,7 +132,16 @@ mod tests {
     fn numbers_take_units_and_convert_to_base_units() {
         assert_eq!(evaluate("10"), Ok(Quantity::plain(10.0)));
         assert_eq!(evaluate("10 mm"), Ok(Quantity::length(10.0)));
-        assert_eq!(evaluate("2in"), Ok(Quantity::length(50.8)));
+        assert_eq!(
+            Expression::parse_stored("2 in")
+                .unwrap()
+                .evaluate(&value_of),
+            Ok(Quantity::length(50.8))
+        );
+        assert!(matches!(
+            error_kind("2in"),
+            ParseErrorKind::ImperialUnit { .. }
+        ));
         assert_eq!(evaluate("1.5e1 cm"), Ok(Quantity::length(150.0)));
         assert_eq!(evaluate("30°"), Ok(Quantity::angle(30.0)));
         assert_eq!(evaluate(".5 m"), Ok(Quantity::length(500.0)));
@@ -304,7 +313,17 @@ mod tests {
             ("10mm", "10 mm"),
             ("30°", "30 deg"),
             ("--width", "--width"),
-            ("max( width ,2 in )", "max(width, 2 in)"),
+            ("max( width ,2 cm )", "max(width, 2 cm)"),
+            ("(2+3) mm", "(2 + 3) mm"),
+            ("width mm", "width mm"),
+            ("-2 mm", "-2 mm"),
+            ("(-2) mm", "(-2) mm"),
+            ("2 mm²", "2 mm²"),
+            ("width < 2 mm", "width < 2 mm"),
+            (
+                "if(width >= height, width, height)",
+                "if(width >= height, width, height)",
+            ),
             ("π/2", "pi / 2"),
             ("1 / (2 * width)", "1 / (2 * width)"),
         ];
@@ -322,7 +341,9 @@ mod tests {
             "width + 2 * height",
             "-(width - gap) / 3",
             "0.1 + 1e-7 * 12345678901234567 mm",
-            "max(width, 2 in) ^ 2 / sqrt(height * height)",
+            "max(width, 2 cm) ^ 2 / sqrt(height * height)",
+            "(width + 1) mm² / 3 mm",
+            "if(width != gap, round(width, 5 mm), 0 mm)",
             "30 deg + atan2(height, gap) - pi",
         ];
         for input in cases {
@@ -395,5 +416,113 @@ mod tests {
             Err(NameError::Function("sin".to_owned()))
         );
         assert_eq!(check_name("pi"), Err(NameError::Constant("pi".to_owned())));
+    }
+
+    #[test]
+    fn units_follow_any_primary_and_areas_can_be_typed() {
+        assert_eq!(evaluate("(2 + 3) mm"), Ok(Quantity::length(5.0)));
+        assert_eq!(evaluate("(10 / 2) cm"), Ok(Quantity::length(50.0)));
+        assert_eq!(evaluate("width / 20 mm"), Ok(Quantity::plain(2.0)));
+        assert_eq!(evaluate("3 cm²"), Ok(Quantity::new(300.0, Dimension::AREA)));
+        assert_eq!(evaluate("2 mm³"), Ok(Quantity::new(2.0, Dimension::VOLUME)));
+        assert_eq!(evaluate("pi rad"), Ok(Quantity::angle(180.0)));
+        assert_eq!(evaluate("mod(-1, 360) deg"), Ok(Quantity::angle(359.0)));
+    }
+
+    #[test]
+    fn misspelled_and_imperial_units_say_which_units_exist() {
+        let hint = |text: &str| parse(text).unwrap_err().to_string();
+        assert_eq!(
+            hint("10 MM"),
+            "'MM' is not a unit; write mm, as units are um, mm, cm, m, deg and rad, and mm² or \
+             mm³ for areas and volumes"
+        );
+        assert!(hint("10 degrees").starts_with("'degrees' is not a unit; write deg"));
+        assert!(hint("10 millimeters").starts_with("'millimeters' is not a unit; write mm"));
+        assert_eq!(
+            hint("3 ft"),
+            "caditor works in SI units; write mm, cm or m instead of ft"
+        );
+        assert!(matches!(
+            error_kind("10 height"),
+            ParseErrorKind::Unexpected { .. }
+        ));
+    }
+
+    #[test]
+    fn rounding_takes_a_step_in_any_unit() {
+        assert_eq!(evaluate("round(1.26 cm, 1 cm)"), Ok(Quantity::length(10.0)));
+        assert_eq!(evaluate("floor(width, 15 mm)"), Ok(Quantity::length(30.0)));
+        assert_eq!(evaluate("ceil(41 mm, 0.5 cm)"), Ok(Quantity::length(45.0)));
+        assert_eq!(evaluate("round(1.26 cm)"), Ok(Quantity::length(13.0)));
+        assert_eq!(
+            evaluate("round(width, 0 mm)"),
+            Err(EvalError::InvalidStep {
+                function: Function::Round
+            })
+        );
+    }
+
+    #[test]
+    fn intermediate_values_must_stay_real() {
+        assert_eq!(evaluate("(-4)^0.5"), Err(EvalError::NegativeBase));
+        assert_eq!(
+            evaluate("max((-8)^(1/3), 5 mm)"),
+            Err(EvalError::NegativeBase)
+        );
+        assert_eq!(evaluate("exp(1000) * 0 + 1"), Err(EvalError::NotFinite));
+    }
+
+    #[test]
+    fn comparisons_conditions_and_more_functions() {
+        assert_eq!(evaluate("width > height"), Ok(Quantity::plain(1.0)));
+        assert_eq!(evaluate("width <= height"), Ok(Quantity::plain(0.0)));
+        assert_eq!(evaluate("0.1 + 0.2 == 0.3"), Ok(Quantity::plain(1.0)));
+        assert_eq!(
+            evaluate("if(gap > 0 mm, width / gap, 3 mm)"),
+            Ok(Quantity::length(3.0))
+        );
+        assert_eq!(evaluate("hypot(30 mm, 40 mm)"), Ok(Quantity::length(50.0)));
+        assert_eq!(evaluate("mod(width, 15 mm)"), Ok(Quantity::length(10.0)));
+        assert_eq!(evaluate("sign(-gap - 1 mm)"), Ok(Quantity::plain(-1.0)));
+        assert_eq!(
+            evaluate("clamp(width, 0 mm, 25 mm)"),
+            Ok(Quantity::length(25.0))
+        );
+        assert_eq!(
+            evaluate("clamp(width, 5 mm, 1 mm)"),
+            Err(EvalError::InvertedLimits)
+        );
+        assert!((evaluate("ln(e)").unwrap().value - 1.0).abs() < 1e-12);
+        assert!((evaluate("exp(0) + tau / pi").unwrap().value - 3.0).abs() < 1e-12);
+        assert_eq!(
+            evaluate("ln(0)"),
+            Err(EvalError::NotPositive {
+                function: Function::Ln
+            })
+        );
+        assert!(matches!(
+            evaluate("width < 3 deg"),
+            Err(EvalError::Mismatch { .. })
+        ));
+        assert!(check_name("tau").is_err() && check_name("e").is_err());
+    }
+
+    #[test]
+    fn a_computed_plain_number_is_not_taken_for_an_angle() {
+        let angle = |text: &str| {
+            parse(text)
+                .unwrap()
+                .evaluate_as(Dimension::ANGLE, &value_of)
+        };
+        assert_eq!(angle("90"), Ok(90.0));
+        assert!((angle("(pi / 2) rad").unwrap() - 90.0).abs() < 1e-12);
+        assert!((angle("pi rad / 2").unwrap() - 90.0).abs() < 1e-12);
+        assert_eq!(angle("pi / 2"), Err(EvalError::PlainAngle));
+        assert_eq!(angle("width / height"), Err(EvalError::PlainAngle));
+        let length = parse("width / height")
+            .unwrap()
+            .evaluate_as(Dimension::LENGTH, &value_of);
+        assert_eq!(length, Ok(2.0));
     }
 }

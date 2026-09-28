@@ -51,6 +51,52 @@ pub enum ParseErrorKind {
     WrongArgumentCount { function: Function, expected: Arity },
     #[error("A unit must follow a number, as in 10 {0}")]
     UnitWithoutNumber(&'static str),
+    #[error("caditor works in SI units; write {suggestion} instead of {found}")]
+    ImperialUnit {
+        found: String,
+        suggestion: &'static str,
+    },
+    #[error("'{found}' is not a unit; {hint}")]
+    UnknownUnit { found: String, hint: String },
+}
+
+const PLURAL_LENGTH: usize = 3;
+const UNIT_LIST: &str =
+    "units are um, mm, cm, m, deg and rad, and mm² or mm³ for areas and volumes";
+
+fn spelled_unit(name: &str) -> Option<Unit> {
+    let lower = name.to_lowercase();
+    let trimmed = if lower.chars().count() >= PLURAL_LENGTH {
+        lower.trim_end_matches('s')
+    } else {
+        lower.as_str()
+    };
+    if let Some(unit) = Unit::from_symbol(&lower).or_else(|| Unit::from_symbol(trimmed)) {
+        return Some(unit);
+    }
+    Some(match trimmed {
+        "micrometre" | "micrometer" | "micron" => Unit::Micrometre,
+        "millimetre" | "millimeter" => Unit::Millimetre,
+        "centimetre" | "centimeter" => Unit::Centimetre,
+        "metre" | "meter" => Unit::Metre,
+        "degree" => Unit::Degree,
+        "radian" => Unit::Radian,
+        "inche" | "inch" => Unit::Inch,
+        "foot" | "feet" => Unit::Foot,
+        _ => return None,
+    })
+}
+
+fn unit_with_power(name: &str) -> Option<(Unit, i8)> {
+    let (stem, exponent) = match name.strip_suffix('²') {
+        Some(stem) => (stem, 2),
+        None => match name.strip_suffix('³') {
+            Some(stem) => (stem, 3),
+            None => (name, 1),
+        },
+    };
+    let unit = Unit::from_symbol(stem)?;
+    (exponent == 1 || unit.dimension() == crate::Dimension::LENGTH).then_some((unit, exponent))
 }
 
 const OPERAND: &str = "a number, name or '('";
@@ -71,6 +117,7 @@ enum TokenKind {
     Open,
     Close,
     Comma,
+    Compare(BinaryOperator),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -121,6 +168,7 @@ fn parse_with(
         position: 0,
         depth: 0,
         resolve,
+        references,
     };
     let expression = parser.expression()?;
     match parser.peek() {
@@ -159,6 +207,9 @@ fn lex(text: &str, references: References) -> Result<Vec<Token>, ParseError> {
         } else if character.is_alphabetic() || character == '_' || character == '°' {
             position = name_end(text, start, character);
             TokenKind::Name(text.get(start..position).unwrap_or_default().to_owned())
+        } else if let Some((operator, width)) = comparison_at(text, start) {
+            position += width;
+            TokenKind::Compare(operator)
         } else {
             position += character.len_utf8();
             match character {
@@ -184,6 +235,24 @@ fn lex(text: &str, references: References) -> Result<Vec<Token>, ParseError> {
         });
     }
     Ok(tokens)
+}
+
+fn comparison_at(text: &str, start: usize) -> Option<(BinaryOperator, usize)> {
+    let rest = text.get(start..)?;
+    [
+        ("<=", BinaryOperator::LessOrEqual),
+        (">=", BinaryOperator::GreaterOrEqual),
+        ("==", BinaryOperator::Equal),
+        ("!=", BinaryOperator::NotEqual),
+        ("≤", BinaryOperator::LessOrEqual),
+        ("≥", BinaryOperator::GreaterOrEqual),
+        ("≠", BinaryOperator::NotEqual),
+        ("<", BinaryOperator::Less),
+        (">", BinaryOperator::Greater),
+    ]
+    .into_iter()
+    .find(|(symbol, _)| rest.starts_with(symbol))
+    .map(|(symbol, operator)| (operator, symbol.len()))
 }
 
 fn reference_end(text: &str, start: usize) -> usize {
@@ -255,6 +324,7 @@ struct Parser<'a> {
     position: usize,
     depth: usize,
     resolve: &'a dyn Fn(&str) -> Option<ParameterId>,
+    references: References,
 }
 
 impl Parser<'_> {
@@ -313,6 +383,21 @@ impl Parser<'_> {
     }
 
     fn expression(&mut self) -> Result<Expression, ParseError> {
+        let left = self.sum()?;
+        let Some(Token {
+            kind: TokenKind::Compare(operator),
+            span,
+        }) = self.peek().cloned()
+        else {
+            return Ok(left);
+        };
+        self.advance();
+        let right = self.sum()?;
+        deepened(left.depth(), &right, span)?;
+        Ok(Expression::binary(operator, left, right))
+    }
+
+    fn sum(&mut self) -> Result<Expression, ParseError> {
         let mut left = self.term()?;
         let mut depth = left.depth();
         loop {
@@ -377,11 +462,16 @@ impl Parser<'_> {
     }
 
     fn primary(&mut self) -> Result<Expression, ParseError> {
+        let atom = self.atom()?;
+        self.unit_after(atom)
+    }
+
+    fn atom(&mut self) -> Result<Expression, ParseError> {
         let Some(token) = self.advance() else {
             return Err(self.ended(OPERAND));
         };
         match token.kind {
-            TokenKind::Number(value) => Ok(self.unit_after(value)),
+            TokenKind::Number(value) => Ok(Expression::Number(value)),
             TokenKind::Name(ref name) => self.name(name, token.span.clone()),
             TokenKind::Reference(id) => Ok(Expression::Parameter(id)),
             TokenKind::Open => {
@@ -404,22 +494,48 @@ impl Parser<'_> {
             | TokenKind::Slash
             | TokenKind::Caret
             | TokenKind::Close
-            | TokenKind::Comma => Err(self.unexpected(token, OPERAND)),
+            | TokenKind::Comma
+            | TokenKind::Compare(_) => Err(self.unexpected(token, OPERAND)),
         }
     }
 
-    fn unit_after(&mut self, value: f64) -> Expression {
-        let unit = match self.peek_kind() {
-            Some(TokenKind::Name(name)) => Unit::from_symbol(name),
-            _ => None,
+    fn unit_after(&mut self, atom: Expression) -> Result<Expression, ParseError> {
+        let Some(Token {
+            kind: TokenKind::Name(name),
+            span,
+        }) = self.peek().cloned()
+        else {
+            return Ok(atom);
         };
-        match unit {
-            Some(unit) => {
-                self.advance();
-                Expression::Measure(value, unit)
-            }
-            None => Expression::Number(value),
+        let Some((unit, exponent)) = unit_with_power(&name) else {
+            let known = Function::from_name(&name).is_some()
+                || Constant::from_name(&name).is_some()
+                || (self.resolve)(&name).is_some();
+            return match spelled_unit(&name) {
+                Some(unit) if !known => Err(ParseError {
+                    kind: ParseErrorKind::UnknownUnit {
+                        found: name,
+                        hint: format!("write {}, as {UNIT_LIST}", unit.symbol()),
+                    },
+                    span,
+                }),
+                _ => Ok(atom),
+            };
+        };
+        if self.references == References::ByName && matches!(unit, Unit::Inch | Unit::Foot) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ImperialUnit {
+                    found: name,
+                    suggestion: "mm, cm or m",
+                },
+                span,
+            });
         }
+        self.advance();
+        Ok(match atom {
+            Expression::Number(value) if exponent == 1 => Expression::Measure(value, unit),
+            other => Expression::WithUnit(Box::new(other), unit, exponent),
+        })
     }
 
     fn name(&mut self, name: &str, span: Range<usize>) -> Result<Expression, ParseError> {
@@ -435,7 +551,7 @@ impl Parser<'_> {
         if let Some(constant) = Constant::from_name(name) {
             return Ok(Expression::Constant(constant));
         }
-        if let Some(unit) = Unit::from_symbol(name) {
+        if let Some((unit, _)) = unit_with_power(name) {
             return Err(error(ParseErrorKind::UnitWithoutNumber(unit.symbol())));
         }
         if let Some(function) = Function::from_name(name) {

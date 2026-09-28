@@ -6,6 +6,7 @@ use crate::{
 };
 
 const MISSING_PARAMETER: &str = "⟨missing⟩";
+const EQUALITY_TOLERANCE: f64 = 1e-9;
 pub(crate) const STORED_REFERENCE: char = '$';
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -15,6 +16,12 @@ pub enum BinaryOperator {
     Multiply,
     Divide,
     Power,
+    Less,
+    LessOrEqual,
+    Greater,
+    GreaterOrEqual,
+    Equal,
+    NotEqual,
 }
 
 impl BinaryOperator {
@@ -25,6 +32,12 @@ impl BinaryOperator {
             Self::Multiply => " * ",
             Self::Divide => " / ",
             Self::Power => "^",
+            Self::Less => " < ",
+            Self::LessOrEqual => " <= ",
+            Self::Greater => " > ",
+            Self::GreaterOrEqual => " >= ",
+            Self::Equal => " == ",
+            Self::NotEqual => " != ",
         }
     }
 
@@ -33,12 +46,19 @@ impl BinaryOperator {
             Self::Add | Self::Subtract => Precedence::Sum,
             Self::Multiply | Self::Divide => Precedence::Product,
             Self::Power => Precedence::Power,
+            Self::Less
+            | Self::LessOrEqual
+            | Self::Greater
+            | Self::GreaterOrEqual
+            | Self::Equal
+            | Self::NotEqual => Precedence::Comparison,
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Precedence {
+    Comparison,
     Sum,
     Product,
     Negation,
@@ -50,6 +70,7 @@ enum Precedence {
 pub enum Arity {
     Exactly(usize),
     AtLeast(usize),
+    Between(usize, usize),
 }
 
 impl Arity {
@@ -57,6 +78,7 @@ impl Arity {
         match self {
             Self::Exactly(expected) => count == expected,
             Self::AtLeast(minimum) => count >= minimum,
+            Self::Between(minimum, maximum) => (minimum..=maximum).contains(&count),
         }
     }
 }
@@ -67,6 +89,7 @@ impl fmt::Display for Arity {
             Self::Exactly(1) => formatter.write_str("1 value"),
             Self::Exactly(count) => write!(formatter, "{count} values"),
             Self::AtLeast(count) => write!(formatter, "{count} or more values"),
+            Self::Between(minimum, maximum) => write!(formatter, "{minimum} or {maximum} values"),
         }
     }
 }
@@ -87,10 +110,17 @@ pub enum Function {
     Acos,
     Atan,
     Atan2,
+    Mod,
+    Hypot,
+    Exp,
+    Ln,
+    Sign,
+    Clamp,
+    If,
 }
 
 impl Function {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 21] = [
         Self::Sqrt,
         Self::Abs,
         Self::Floor,
@@ -105,6 +135,13 @@ impl Function {
         Self::Acos,
         Self::Atan,
         Self::Atan2,
+        Self::Mod,
+        Self::Hypot,
+        Self::Exp,
+        Self::Ln,
+        Self::Sign,
+        Self::Clamp,
+        Self::If,
     ];
 
     pub fn name(self) -> &'static str {
@@ -123,6 +160,13 @@ impl Function {
             Self::Acos => "acos",
             Self::Atan => "atan",
             Self::Atan2 => "atan2",
+            Self::Mod => "mod",
+            Self::Hypot => "hypot",
+            Self::Exp => "exp",
+            Self::Ln => "ln",
+            Self::Sign => "sign",
+            Self::Clamp => "clamp",
+            Self::If => "if",
         }
     }
 
@@ -135,12 +179,14 @@ impl Function {
     pub fn arity(self) -> Arity {
         match self {
             Self::Min | Self::Max => Arity::AtLeast(1),
-            Self::Atan2 => Arity::Exactly(2),
+            Self::Floor | Self::Ceil | Self::Round => Arity::Between(1, 2),
+            Self::Atan2 | Self::Mod | Self::Hypot => Arity::Exactly(2),
+            Self::Clamp | Self::If => Arity::Exactly(3),
             Self::Sqrt
             | Self::Abs
-            | Self::Floor
-            | Self::Ceil
-            | Self::Round
+            | Self::Exp
+            | Self::Ln
+            | Self::Sign
             | Self::Sin
             | Self::Cos
             | Self::Tan
@@ -160,18 +206,24 @@ impl fmt::Display for Function {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Constant {
     Pi,
+    Tau,
+    E,
 }
 
 impl Constant {
     pub fn name(self) -> &'static str {
         match self {
             Self::Pi => "pi",
+            Self::Tau => "tau",
+            Self::E => "e",
         }
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "pi" | "π" => Some(Self::Pi),
+            "tau" | "τ" => Some(Self::Tau),
+            "e" => Some(Self::E),
             _ => None,
         }
     }
@@ -179,6 +231,8 @@ impl Constant {
     pub fn value(self) -> Quantity {
         match self {
             Self::Pi => Quantity::plain(std::f64::consts::PI),
+            Self::Tau => Quantity::plain(std::f64::consts::TAU),
+            Self::E => Quantity::plain(std::f64::consts::E),
         }
     }
 }
@@ -212,6 +266,19 @@ pub enum EvalError {
     },
     #[error("{function} needs a value between -1 and 1")]
     OutOfDomain { function: Function },
+    #[error("{function} needs a value above zero")]
+    NotPositive { function: Function },
+    #[error("it raises a negative number to a fractional power")]
+    NegativeBase,
+    #[error("clamp needs its lower limit below its upper one")]
+    InvertedLimits,
+    #[error("the step of {function} must be above zero")]
+    InvalidStep { function: Function },
+    #[error(
+        "it gives a plain number, so it is unclear whether it means degrees or radians; add deg \
+         or rad, as in (pi / 2) rad"
+    )]
+    PlainAngle,
     #[error("{function} was given the wrong number of values")]
     WrongArgumentCount { function: Function },
     #[error("an exponent must be a plain number, not {found}")]
@@ -254,6 +321,7 @@ pub enum Expression {
     Negate(Box<Expression>),
     Binary(BinaryOperator, Box<Expression>, Box<Expression>),
     Call(Function, Vec<Expression>),
+    WithUnit(Box<Expression>, Unit, i8),
 }
 
 impl Expression {
@@ -265,6 +333,7 @@ impl Expression {
         match self {
             Self::Number(_) | Self::Measure(..) => true,
             Self::Negate(inner) => inner.is_literal(),
+            Self::WithUnit(inner, ..) => matches!(**inner, Self::Number(_)),
             Self::Constant(_) | Self::Parameter(_) | Self::Binary(..) | Self::Call(..) => false,
         }
     }
@@ -278,7 +347,7 @@ impl Expression {
     pub fn uses(&self, parameter: ParameterId) -> bool {
         match self {
             Self::Parameter(id) => *id == parameter,
-            Self::Negate(inner) => inner.uses(parameter),
+            Self::Negate(inner) | Self::WithUnit(inner, ..) => inner.uses(parameter),
             Self::Binary(_, left, right) => left.uses(parameter) || right.uses(parameter),
             Self::Call(_, arguments) => arguments.iter().any(|argument| argument.uses(parameter)),
             Self::Number(_) | Self::Measure(..) | Self::Constant(_) => false,
@@ -290,7 +359,7 @@ impl Expression {
             Self::Parameter(id) => {
                 found.insert(*id);
             }
-            Self::Negate(inner) => inner.collect_parameters(found),
+            Self::Negate(inner) | Self::WithUnit(inner, ..) => inner.collect_parameters(found),
             Self::Binary(_, left, right) => {
                 left.collect_parameters(found);
                 right.collect_parameters(found);
@@ -321,6 +390,9 @@ impl Expression {
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
         let result = self.evaluate(value_of)?;
+        if expected == Dimension::ANGLE && result.dimension.is_plain() && !self.is_literal() {
+            return Err(EvalError::PlainAngle);
+        }
         if result.dimension == expected || result.dimension.is_plain() {
             Ok(result.value)
         } else {
@@ -332,6 +404,18 @@ impl Expression {
     }
 
     fn evaluate_unchecked<F>(&self, value_of: &F) -> Result<Quantity, EvalError>
+    where
+        F: Fn(ParameterId) -> Result<Quantity, EvalError>,
+    {
+        let result = self.evaluate_step(value_of)?;
+        if result.value.is_finite() {
+            Ok(result)
+        } else {
+            Err(EvalError::NotFinite)
+        }
+    }
+
+    fn evaluate_step<F>(&self, value_of: &F) -> Result<Quantity, EvalError>
     where
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
@@ -349,12 +433,31 @@ impl Expression {
                 left.evaluate_unchecked(value_of)?,
                 right.evaluate_unchecked(value_of)?,
             ),
+            Self::Call(Function::If, arguments) => {
+                let [condition, chosen, otherwise] = arguments.as_slice() else {
+                    return Err(EvalError::WrongArgumentCount {
+                        function: Function::If,
+                    });
+                };
+                let condition = condition.evaluate_unchecked(value_of)?;
+                let holds = plain_number(Function::If, condition)? != 0.0;
+                if holds {
+                    chosen.evaluate_unchecked(value_of)
+                } else {
+                    otherwise.evaluate_unchecked(value_of)
+                }
+            }
             Self::Call(function, arguments) => {
                 let values = arguments
                     .iter()
                     .map(|argument| argument.evaluate_unchecked(value_of))
                     .collect::<Result<Vec<_>, _>>()?;
                 call(*function, &values)
+            }
+            Self::WithUnit(inner, unit, exponent) => {
+                let value = inner.evaluate_unchecked(value_of)?;
+                let unit = power(unit.quantity(1.0), Quantity::plain(f64::from(*exponent)))?;
+                binary(BinaryOperator::Multiply, value, unit)
             }
         }
     }
@@ -390,7 +493,7 @@ impl Expression {
         while let Some((expression, depth)) = pending.pop() {
             deepest = deepest.max(depth);
             match expression {
-                Self::Negate(inner) => pending.push((inner, depth + 1)),
+                Self::Negate(inner) | Self::WithUnit(inner, ..) => pending.push((inner, depth + 1)),
                 Self::Binary(_, left, right) => {
                     pending.push((left, depth + 1));
                     pending.push((right, depth + 1));
@@ -413,7 +516,8 @@ impl Expression {
             | Self::Measure(..)
             | Self::Constant(_)
             | Self::Parameter(_)
-            | Self::Call(..) => Precedence::Atom,
+            | Self::Call(..)
+            | Self::WithUnit(..) => Precedence::Atom,
             Self::Negate(_) => Precedence::Negation,
             Self::Binary(operator, ..) => operator.precedence(),
         }
@@ -429,6 +533,24 @@ impl Expression {
             }
             Self::Constant(constant) => text.push_str(constant.name()),
             Self::Parameter(id) => (style.reference)(*id, text),
+            Self::WithUnit(inner, unit, exponent) => {
+                let bare = matches!(
+                    **inner,
+                    Self::Parameter(_) | Self::Constant(_) | Self::Call(..)
+                ) || matches!(**inner, Self::Number(value) if !value.is_sign_negative());
+                inner.write_wrapped(text, style, !bare);
+                text.push(' ');
+                text.push_str(unit.symbol());
+                match exponent {
+                    1 => {}
+                    2 => text.push('²'),
+                    3 => text.push('³'),
+                    other => {
+                        text.push('^');
+                        text.push_str(&other.to_string());
+                    }
+                }
+            }
             Self::Negate(inner) => {
                 text.push('-');
                 inner.write_wrapped(text, style, inner.precedence() < Precedence::Negation);
@@ -445,6 +567,14 @@ impl Expression {
                     | BinaryOperator::Multiply
                     | BinaryOperator::Divide => {
                         (left.precedence() < own, right.precedence() <= own)
+                    }
+                    BinaryOperator::Less
+                    | BinaryOperator::LessOrEqual
+                    | BinaryOperator::Greater
+                    | BinaryOperator::GreaterOrEqual
+                    | BinaryOperator::Equal
+                    | BinaryOperator::NotEqual => {
+                        (left.precedence() <= own, right.precedence() <= own)
                     }
                 };
                 left.write_wrapped(text, style, left_parens);
@@ -541,6 +671,25 @@ fn binary(
             ))
         }
         BinaryOperator::Power => power(left, right),
+        BinaryOperator::Less
+        | BinaryOperator::LessOrEqual
+        | BinaryOperator::Greater
+        | BinaryOperator::GreaterOrEqual
+        | BinaryOperator::Equal
+        | BinaryOperator::NotEqual => {
+            unify(Operation::Compare, left, right)?;
+            let (a, b) = (left.value, right.value);
+            let equal = (a - b).abs() <= EQUALITY_TOLERANCE * a.abs().max(b.abs()).max(1.0);
+            let holds = match operator {
+                BinaryOperator::Less => a < b && !equal,
+                BinaryOperator::LessOrEqual => a < b || equal,
+                BinaryOperator::Greater => a > b && !equal,
+                BinaryOperator::GreaterOrEqual => a > b || equal,
+                BinaryOperator::Equal => equal,
+                _ => !equal,
+            };
+            Ok(Quantity::plain(if holds { 1.0 } else { 0.0 }))
+        }
     }
 }
 
@@ -551,6 +700,9 @@ fn power(base: Quantity, exponent: Quantity) -> Result<Quantity, EvalError> {
         });
     }
     if base.dimension.is_plain() {
+        if base.value < 0.0 && exponent.value.fract() != 0.0 {
+            return Err(EvalError::NegativeBase);
+        }
         return Ok(Quantity::plain(base.value.powf(exponent.value)));
     }
     let whole = exponent.value.fract() == 0.0
@@ -592,9 +744,74 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
             Ok(Quantity::new(first.value.sqrt(), dimension))
         }
         Function::Abs => keep_dimension(first.value.abs()),
-        Function::Floor => keep_dimension(first.value.floor()),
-        Function::Ceil => keep_dimension(first.value.ceil()),
-        Function::Round => keep_dimension(first.value.round()),
+        Function::Floor | Function::Ceil | Function::Round => {
+            let round = |value: f64| match function {
+                Function::Floor => value.floor(),
+                Function::Ceil => value.ceil(),
+                _ => value.round(),
+            };
+            match arguments.get(1) {
+                Some(step) => {
+                    let dimension = unify(Operation::Compare, first, *step)?;
+                    if step.value <= 0.0 {
+                        return Err(EvalError::InvalidStep { function });
+                    }
+                    Ok(Quantity::new(
+                        round(first.value / step.value) * step.value,
+                        dimension,
+                    ))
+                }
+                None => keep_dimension(round(first.value)),
+            }
+        }
+        Function::Mod => {
+            let divisor = *arguments
+                .get(1)
+                .ok_or(EvalError::WrongArgumentCount { function })?;
+            let dimension = unify(Operation::Compare, first, divisor)?;
+            if divisor.value == 0.0 {
+                return Err(EvalError::DivisionByZero);
+            }
+            let remainder = first.value - divisor.value * (first.value / divisor.value).floor();
+            Ok(Quantity::new(remainder, dimension))
+        }
+        Function::Hypot => {
+            let other = *arguments
+                .get(1)
+                .ok_or(EvalError::WrongArgumentCount { function })?;
+            let dimension = unify(Operation::Compare, first, other)?;
+            Ok(Quantity::new(first.value.hypot(other.value), dimension))
+        }
+        Function::Exp => Ok(Quantity::plain(plain_number(function, first)?.exp())),
+        Function::Ln => {
+            let value = plain_number(function, first)?;
+            if value <= 0.0 {
+                return Err(EvalError::NotPositive { function });
+            }
+            Ok(Quantity::plain(value.ln()))
+        }
+        Function::Sign => Ok(Quantity::plain(if first.value > 0.0 {
+            1.0
+        } else if first.value < 0.0 {
+            -1.0
+        } else {
+            0.0
+        })),
+        Function::Clamp => {
+            let (Some(low), Some(high)) = (arguments.get(1), arguments.get(2)) else {
+                return Err(EvalError::WrongArgumentCount { function });
+            };
+            let dimension = unify(Operation::Compare, first, *low)?;
+            let dimension = unify(Operation::Compare, Quantity::new(0.0, dimension), *high)?;
+            if low.value > high.value {
+                return Err(EvalError::InvertedLimits);
+            }
+            Ok(Quantity::new(
+                first.value.clamp(low.value, high.value),
+                dimension,
+            ))
+        }
+        Function::If => Err(EvalError::WrongArgumentCount { function }),
         Function::Min | Function::Max => extreme(function, first, arguments),
         Function::Sin => Ok(Quantity::plain(radians(function, first)?.sin())),
         Function::Cos => Ok(Quantity::plain(radians(function, first)?.cos())),

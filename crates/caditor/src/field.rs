@@ -1,5 +1,5 @@
 use caditor_document::{Document, Edit, FeatureId, ParameterValues, Transaction};
-use caditor_expression::{Dimension, EvalError, Expression};
+use caditor_expression::{Dimension, Expression};
 use caditor_sketch::{Constraint, ConstraintId};
 use egui::{Align, Id, Key, Response, Stroke, StrokeKind, TextEdit, Ui, vec2};
 
@@ -116,15 +116,10 @@ pub fn parse_expression(
     let value = parameters
         .evaluate_expression(&expression)
         .map_err(|error| sentence(&error.to_string()))?;
-    if let Some(dimension) = expected.dimension
-        && value.dimension != dimension
-        && !value.dimension.is_plain()
-    {
-        let mismatch = EvalError::WrongKind {
-            expected: dimension,
-            found: value.dimension,
-        };
-        return Err(sentence(&mismatch.to_string()));
+    if let Some(dimension) = expected.dimension {
+        expression
+            .evaluate_as(dimension, &|id| parameters.value(id))
+            .map_err(|error| sentence(&error.to_string()))?;
     }
     if expected.non_negative && value.value < 0.0 {
         return Err("The value cannot be negative".to_owned());
@@ -314,7 +309,7 @@ mod tests {
             )
         };
         assert_eq!(preview("width / 4"), Some("= 10 mm".to_owned()));
-        assert_eq!(preview("2 in"), None);
+        assert_eq!(preview("2 cm"), None);
         assert_eq!(preview("width / zero"), None);
     }
 }

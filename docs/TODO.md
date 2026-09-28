@@ -31,24 +31,6 @@ within a category run from most to least important.
   parts an edit touches, which dragging in the viewport will need at interactive rates.
 - Untested: branch keeping under perturbation.
 
-## Expressions and units
-
-- A plain number in an angle field is degrees, while trigonometry reads plain numbers as
-  radians, so `pi/2` in a revolve angle is 1.57°. Read plain angle results as radians, or refuse
-  non-literal plain results with a hint to add `deg` or `rad`.
-- Units bind only to the literal before them, so `10/2 mm` fails as mm⁻¹ and `(2+3) mm` fails
-  to parse (`parse.rs` `unit_after`). Allow a unit after any primary.
-- `round`, `floor` and `ceil` work in base units, so `round(1.26 cm)` is 13 mm. Add a step
-  argument.
-- Non-finite intermediate values are checked only at the end, so `max((-8)^(1/3), 5 mm)` hides
-  a NaN and `(-4)^0.5` reports "too large" instead of a negative root.
-- `in` and `ft` are still accepted and reserved (`quantity.rs`), against the SI-only rule. Keep
-  them readable in stored text but stop accepting them in fields.
-- Unit spelling is exact: `10 MM` and `10 degrees` fail with "Expected an operator", and the
-  displayed `mm²` cannot be typed back. Say which units exist.
-- Missing: conditionals and comparisons, `mod`, `hypot`, `exp`, `ln`, `sign`, `clamp`, and the
-  constants `e` and `tau`.
-
 ## Kernel correctness
 
 - Mixed convex and concave blends silently drop convex edges whose references are lost in the

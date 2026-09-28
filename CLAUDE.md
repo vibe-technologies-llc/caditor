@@ -114,7 +114,15 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
 - **caditor-expression**: units and expressions. A `Quantity` is an f64 in base units
   (millimetres and degrees) with a `Dimension` of length and angle powers. A plain number takes
   the dimension of whatever it is added to, and a field that expects a length takes a plain
-  result as millimetres. Trigonometry reads a plain number as radians. An `Expression` refers to
+  result as millimetres. Trigonometry reads a plain number as radians, so an angle field takes
+  a plain literal as degrees but refuses a computed plain result (`PlainAngle`), asking for deg
+  or rad. A unit binds to the primary before it (a number, a parenthesised group, a name or a
+  call, `Expression::WithUnit`), and `mm²` and `mm³` name areas and volumes. Typed text accepts
+  SI units only (`in` and `ft` stay readable in stored text) and names the units that exist
+  when one is misspelled. Every intermediate value must be finite and real. Besides the
+  arithmetic and trigonometry there are comparisons (plain 1 or 0, equality within 1e-9) with
+  a lazy `if`, `mod`, `hypot`, `exp`, `ln`, `sign`, `clamp`, `round`, `floor` and `ceil` with
+  an optional step, and the constants `pi`, `tau` and `e`. An `Expression` refers to
   parameters by `ParameterId`, never by name, so renaming a parameter rewrites every
   expression's text. Parsing limits length, nesting and the depth of the tree it builds (checked
   as each operator is added, so long chains stop at the limit) so that hostile input cannot

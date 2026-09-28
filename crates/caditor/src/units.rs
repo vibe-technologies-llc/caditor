@@ -1,4 +1,4 @@
-use caditor_expression::{BinaryOperator, Dimension, Expression, Quantity, Unit, format_number};
+use caditor_expression::{Dimension, Expression, Quantity, Unit, format_number};
 
 use crate::sketch_tools::rounded_for_display;
 
@@ -97,11 +97,7 @@ impl LengthUnit {
             Expression::Negate(inner) if matches!(*inner, Expression::Number(_)) => {
                 Expression::Negate(Box::new(self.attach(*inner)))
             }
-            other => Expression::binary(
-                BinaryOperator::Multiply,
-                other,
-                Expression::Measure(1.0, self.unit()),
-            ),
+            other => Expression::WithUnit(Box::new(other), self.unit(), 1),
         }
     }
 
@@ -160,18 +156,14 @@ mod tests {
             Expression::Measure(2.0, Unit::Centimetre)
         );
         let sum = Expression::binary(
-            BinaryOperator::Add,
+            caditor_expression::BinaryOperator::Add,
             Expression::Number(1.0),
             Expression::Number(2.0),
         );
         let attached = LengthUnit::Metre.attach(sum.clone());
         assert_eq!(
             attached,
-            Expression::binary(
-                BinaryOperator::Multiply,
-                sum,
-                Expression::Measure(1.0, Unit::Metre)
-            )
+            Expression::WithUnit(Box::new(sum), Unit::Metre, 1)
         );
         assert!(LengthUnit::Metre.applies_to(Some(Dimension::LENGTH), Dimension::NONE));
         assert!(!LengthUnit::Millimetre.applies_to(Some(Dimension::LENGTH), Dimension::NONE));
