@@ -180,50 +180,51 @@ impl Surface {
     }
 
     pub fn poles(&self) -> Vec<Pole> {
+        self.pole_slots().into_iter().flatten().collect()
+    }
+
+    fn pole_slots(&self) -> [Option<Pole>; 2] {
         match self {
-            Self::Sphere(sphere) => vec![
-                Pole {
+            Self::Sphere(sphere) => [
+                Some(Pole {
                     v: LATITUDE.start(),
                     point: sphere.center() - sphere.frame().normal() * sphere.radius(),
-                },
-                Pole {
+                }),
+                Some(Pole {
                     v: LATITUDE.end(),
                     point: sphere.center() + sphere.frame().normal() * sphere.radius(),
-                },
+                }),
             ],
-            Self::Cone(cone) => vec![Pole {
-                v: cone.apex_parameter(),
-                point: cone.apex(),
-            }],
-            Self::Revolution(revolution) if revolution.profile().period().is_none() => revolution
-                .profile()
-                .domain()
-                .bounded()
-                .map(|range| {
-                    [range.start(), range.end()]
-                        .into_iter()
-                        .map(|v| (v, revolution.profile().point(v)))
-                        .filter(|(_, point)| {
-                            revolution.distance_from_axis(*point) <= LINEAR_RESOLUTION
-                        })
-                        .map(|(v, point)| Pole {
-                            v,
-                            point: revolution.axis_point(point),
-                        })
-                        .collect()
+            Self::Cone(cone) => [
+                Some(Pole {
+                    v: cone.apex_parameter(),
+                    point: cone.apex(),
+                }),
+                None,
+            ],
+            Self::Revolution(revolution) if revolution.profile().period().is_none() => {
+                let Some(range) = revolution.profile().domain().bounded() else {
+                    return [None; 2];
+                };
+                [range.start(), range.end()].map(|v| {
+                    let point = revolution.profile().point(v);
+                    (revolution.distance_from_axis(point) <= LINEAR_RESOLUTION).then(|| Pole {
+                        v,
+                        point: revolution.axis_point(point),
+                    })
                 })
-                .unwrap_or_default(),
-            Self::BSpline(spline) => spline.poles(),
+            }
+            Self::BSpline(spline) => spline.pole_slots(),
             Self::Plane(_)
             | Self::Cylinder(_)
             | Self::Torus(_)
             | Self::Extrusion(_)
-            | Self::Revolution(_) => Vec::new(),
+            | Self::Revolution(_) => [None; 2],
         }
     }
 
     pub fn pole_at(&self, uv: Point2) -> Option<Pole> {
-        self.poles().into_iter().find(|pole| {
+        self.pole_slots().into_iter().flatten().find(|pole| {
             (uv.y - pole.v).abs() <= POLE_PARAMETER_TOLERANCE * (1.0 + pole.v.abs())
                 && self.point_at(uv).distance(pole.point) <= LINEAR_RESOLUTION
         })

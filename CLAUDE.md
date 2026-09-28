@@ -227,9 +227,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     flip the face. It evaluates second derivatives exactly (rational by the quotient rule), bounds a
     uv box by its own control net, cut out of the spans by knot insertion (in homogeneous
     coordinates, so the hull holds for rational surfaces; the spans' net when the box wraps a closed
-    direction), so sub-patches shrink as they are divided, and projects from a precomputed sample
-    grid plus the hint, refined by Newton, keeping the hint's foot only when it is as close as the
-    best. u is the angle around the axis (the frame normal) on every rotational surface; the cone's
+    direction), so sub-patches shrink as they are divided, and projects from the three nearest
+    samples of a precomputed grid (searched by blocks of 8×8 with their boxes) plus the hint,
+    refined by Newton, keeping the hint's foot only when it is as close as the best. Its poles are
+    found once, when it is built. u is the angle around the axis (the frame normal) on every rotational surface; the cone's
     v is slant distance from its reference circle, the sphere's v latitude, the torus's v the tube
     angle, and a revolution's v the profile parameter. An extrusion is (profile parameter,
     distance). du × dv points outward on every elementary surface. Singularities are always `Pole`s:

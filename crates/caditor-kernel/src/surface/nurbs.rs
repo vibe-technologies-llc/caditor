@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
 use caditor_geometry::{Aabb, Point2, Point3, RigidTransform, Vector3};
 
@@ -13,6 +13,7 @@ use crate::{
 const SAMPLES_PER_SPAN: usize = 3;
 const MAX_GRID_SAMPLES: usize = 48;
 const PROJECTION_SEEDS: usize = 3;
+const BLOCK_SIZE: usize = 8;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BSplineSurface {
@@ -28,7 +29,124 @@ pub struct BSplineSurface {
     v_domain: Interval,
     u_closed: bool,
     v_closed: bool,
-    grid: Arc<[(Point2, Point3)]>,
+    grid: Arc<SampleGrid>,
+    poles: [Option<Pole>; 2],
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct GridBlock {
+    bounds: Aabb,
+    rows: Range<usize>,
+    columns: Range<usize>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct SampleGrid {
+    width: usize,
+    samples: Vec<(Point2, Point3)>,
+    blocks: Vec<GridBlock>,
+}
+
+impl SampleGrid {
+    fn new(width: usize, samples: Vec<(Point2, Point3)>) -> Self {
+        let height = samples.len().checked_div(width).unwrap_or(0);
+        let starts = |count: usize| (0..count).step_by(BLOCK_SIZE);
+        let mut blocks = Vec::new();
+        for row in starts(height) {
+            for column in starts(width) {
+                blocks.push(GridBlock {
+                    bounds: Aabb::from_point(Point3::ZERO),
+                    rows: row..(row + BLOCK_SIZE).min(height),
+                    columns: column..(column + BLOCK_SIZE).min(width),
+                });
+            }
+        }
+        let mut grid = Self {
+            width,
+            samples,
+            blocks,
+        };
+        grid.bound_blocks();
+        grid
+    }
+
+    fn members(&self, block: &GridBlock) -> impl Iterator<Item = usize> {
+        let width = self.width;
+        let columns = block.columns.clone();
+        block
+            .rows
+            .clone()
+            .flat_map(move |row| columns.clone().map(move |column| row * width + column))
+    }
+
+    fn bound_blocks(&mut self) {
+        let bounds: Vec<Option<Aabb>> = self
+            .blocks
+            .iter()
+            .map(|block| {
+                Aabb::from_points(
+                    self.members(block)
+                        .filter_map(|index| self.samples.get(index))
+                        .map(|(_, point)| *point),
+                )
+            })
+            .collect();
+        for (block, found) in self.blocks.iter_mut().zip(bounds) {
+            if let Some(found) = found {
+                block.bounds = found;
+            }
+        }
+    }
+
+    fn transformed(&self, transform: &RigidTransform) -> Self {
+        let mut moved = Self {
+            width: self.width,
+            samples: self
+                .samples
+                .iter()
+                .map(|(uv, point)| (*uv, transform.apply_point(*point)))
+                .collect(),
+            blocks: self.blocks.clone(),
+        };
+        moved.bound_blocks();
+        moved
+    }
+
+    fn nearest(&self, point: Point3, count: usize) -> Vec<Point2> {
+        let mut blocks: Vec<(f64, &GridBlock)> = self
+            .blocks
+            .iter()
+            .map(|block| {
+                let clamped = point.clamp(block.bounds.min(), block.bounds.max());
+                (clamped.distance_squared(point), block)
+            })
+            .collect();
+        blocks.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut nearest: Vec<(f64, usize)> = Vec::with_capacity(count + 1);
+        for (lower, block) in blocks {
+            let full = nearest.len() >= count;
+            if full && nearest.last().is_some_and(|(worst, _)| lower > *worst) {
+                break;
+            }
+            for index in self.members(block) {
+                let Some((_, sample)) = self.samples.get(index) else {
+                    continue;
+                };
+                let candidate = (sample.distance_squared(point), index);
+                let full = nearest.len() >= count;
+                if full && nearest.last().is_some_and(|worst| candidate >= *worst) {
+                    continue;
+                }
+                let at = nearest.partition_point(|known| *known <= candidate);
+                nearest.insert(at, candidate);
+                nearest.truncate(count);
+            }
+        }
+        nearest
+            .into_iter()
+            .filter_map(|(_, index)| self.samples.get(index).map(|(uv, _)| *uv))
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -107,13 +225,16 @@ impl BSplineSurface {
             v_domain,
             u_closed: false,
             v_closed: false,
-            grid: Arc::from(Vec::new()),
+            grid: Arc::default(),
+            poles: [None; 2],
         };
         surface.u_closed = surface.boundaries_meet(true);
         surface.v_closed = surface.boundaries_meet(false);
-        surface.grid = surface.sample_grid().into();
+        surface.grid = Arc::new(surface.sample_grid());
+        surface.poles = surface.find_poles();
         if surface
             .grid
+            .samples
             .iter()
             .all(|(uv, _)| surface.evaluate(uv.x, uv.y).normal().is_none())
         {
@@ -213,9 +334,11 @@ impl BSplineSurface {
             v_domain: self.u_domain,
             u_closed: self.v_closed,
             v_closed: self.u_closed,
-            grid: Arc::from(Vec::new()),
+            grid: Arc::default(),
+            poles: [None; 2],
         };
-        transposed.grid = transposed.sample_grid().into();
+        transposed.grid = Arc::new(transposed.sample_grid());
+        transposed.poles = transposed.find_poles();
         transposed
     }
 
@@ -232,12 +355,8 @@ impl BSplineSurface {
             control_points: points.into(),
             ..self.clone()
         };
-        moved.grid = moved
-            .grid
-            .iter()
-            .map(|(uv, point)| (*uv, transform.apply_point(*point)))
-            .collect::<Vec<_>>()
-            .into();
+        moved.grid = Arc::new(self.grid.transformed(transform));
+        moved.poles = moved.find_poles();
         Ok(moved)
     }
 
@@ -259,20 +378,26 @@ impl BSplineSurface {
             .all(|pair| matches!(pair, [a, b] if a.distance(*b) <= LINEAR_RESOLUTION))
     }
 
+    pub(crate) fn pole_slots(&self) -> [Option<Pole>; 2] {
+        self.poles
+    }
+
+    #[cfg(test)]
     pub(crate) fn poles(&self) -> Vec<Pole> {
+        self.poles.into_iter().flatten().collect()
+    }
+
+    fn find_poles(&self) -> [Option<Pole>; 2] {
         [
             (0, self.v_domain.start()),
             (self.rows.saturating_sub(1), self.v_domain.end()),
         ]
-        .into_iter()
-        .filter(|(row, _)| self.degenerate_row(*row))
-        .filter_map(|(row, v)| {
-            Some(Pole {
-                v,
-                point: self.control_point(0, row)?,
-            })
+        .map(|(row, v)| {
+            self.degenerate_row(row)
+                .then(|| self.control_point(0, row))
+                .flatten()
+                .map(|point| Pole { v, point })
         })
-        .collect()
     }
 
     fn boundaries_meet(&self, along_u: bool) -> bool {
@@ -398,18 +523,7 @@ impl BSplineSurface {
     }
 
     pub(crate) fn project_seed(&self, point: Point3, hint: Option<Point2>) -> Vec<Point2> {
-        let mut nearest: Vec<(f64, Point2)> = Vec::with_capacity(PROJECTION_SEEDS + 1);
-        for (uv, sample) in self.grid.iter() {
-            let distance = sample.distance_squared(point);
-            let full = nearest.len() >= PROJECTION_SEEDS;
-            if full && nearest.last().is_some_and(|(worst, _)| distance >= *worst) {
-                continue;
-            }
-            let at = nearest.partition_point(|(known, _)| *known <= distance);
-            nearest.insert(at, (distance, *uv));
-            nearest.truncate(PROJECTION_SEEDS);
-        }
-        let mut chosen: Vec<Point2> = nearest.into_iter().map(|(_, uv)| uv).collect();
+        let mut chosen = self.grid.nearest(point, PROJECTION_SEEDS);
         if let Some(hint) = hint.filter(|hint| hint.is_finite()) {
             let (u, v) = self.wrap(hint.x, hint.y);
             chosen.insert(0, Point2::new(u, v));
@@ -546,7 +660,7 @@ impl BSplineSurface {
         Some(net)
     }
 
-    fn sample_grid(&self) -> Vec<(Point2, Point3)> {
+    fn sample_grid(&self) -> SampleGrid {
         let steps = |knots: &[f64], domain: Interval| {
             let mut breaks: Vec<f64> = knots
                 .iter()
@@ -569,7 +683,7 @@ impl BSplineSurface {
                 grid.push((Point2::new(u, v), self.evaluate(u, v).point));
             }
         }
-        grid
+        SampleGrid::new(columns + 1, grid)
     }
 }
 
@@ -882,6 +996,30 @@ mod tests {
         let foot = wrapped.point_at(uv);
         assert!(foot.distance(Point3::new(5.0 * FRAC_1_SQRT_2, 5.0 * FRAC_1_SQRT_2, 3.0)) < 1e-9);
         assert!((wrapped.distance(point) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_nearest_grid_samples_match_a_full_scan() {
+        let surface = wavy();
+        let grid = &surface.grid;
+        assert!(grid.blocks.len() > 1);
+        let mut random = crate::test_support::Random::new(7);
+        for _ in 0..200 {
+            let point = random.point(15.0) + Vector3::new(5.0, 6.0, 0.0);
+            let mut scanned: Vec<(f64, usize)> = grid
+                .samples
+                .iter()
+                .enumerate()
+                .map(|(index, (_, sample))| (sample.distance_squared(point), index))
+                .collect();
+            scanned.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            let expected: Vec<Point2> = scanned
+                .iter()
+                .take(PROJECTION_SEEDS)
+                .map(|(_, index)| grid.samples[*index].0)
+                .collect();
+            assert_eq!(grid.nearest(point, PROJECTION_SEEDS), expected);
+        }
     }
 
     #[test]
