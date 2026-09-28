@@ -286,7 +286,7 @@ fn coedge_geometry(solid: &Solid) -> Checked<()> {
     Ok(())
 }
 
-fn continues(surface: &Surface, end: Point2, start: Point2) -> bool {
+pub(crate) fn continues(surface: &Surface, end: Point2, start: Point2) -> bool {
     let derivatives = surface.evaluate(end.x, end.y);
     let gap = start - end;
     let spatial = gap.x.abs() * derivatives.du.length() + gap.y.abs() * derivatives.dv.length();
@@ -319,7 +319,7 @@ fn loop_polygon(solid: &Solid, loop_id: LoopId) -> Checked<Vec<Point2>> {
     Ok(polygon)
 }
 
-fn signed_area(polygon: &[Point2]) -> f64 {
+pub(crate) fn signed_area(polygon: &[Point2]) -> f64 {
     let count = polygon.len();
     0.5 * polygon
         .iter()
@@ -332,7 +332,7 @@ fn signed_area(polygon: &[Point2]) -> f64 {
         .sum::<f64>()
 }
 
-fn inside_polygon(polygon: &[Point2], point: Point2) -> bool {
+pub(crate) fn inside_polygon(polygon: &[Point2], point: Point2) -> bool {
     let count = polygon.len();
     let mut inside = false;
     for (index, a) in polygon.iter().enumerate() {

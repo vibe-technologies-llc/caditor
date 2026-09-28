@@ -15,6 +15,10 @@ pub use self::{
     pcurve::{Pcurve, PcurveError, PcurveSample},
     validate::ValidationError,
 };
+pub(crate) use self::{
+    pcurve::fit as fit_pcurve,
+    validate::{continues, inside_polygon, signed_area},
+};
 use crate::{
     curve::Curve,
     error::GeometryError,

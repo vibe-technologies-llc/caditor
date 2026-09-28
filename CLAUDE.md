@@ -118,7 +118,8 @@ crate uses it yet.
     hints and moves the second copy of a seam by a period when the chain put both on one side.
     Poles have no degenerate edges: the pole is a vertex, and the uv loop is closed along the
     pole line between the two coedges that meet there, a gap that validation and tessellation
-    both accept. Faces carry a `FaceName` and an optional `FaceOrigin`, edges an `EdgeName`.
+    both accept; a fitted pcurve end at a pole takes the pole's v exactly. Faces carry a
+    `FaceName` and an optional `FaceOrigin`, edges an `EdgeName`.
   - `Solid::validate` checks a closed, oriented 2-manifold whose geometry agrees with its
     topology (edge uses and senses, loop chaining in space and in uv, vertices on curve ends,
     edges on both surfaces, pcurves on their edges, loop winding and nesting, shell
@@ -128,13 +129,15 @@ crate uses it yet.
   - Tessellation samples each edge once and shares its positions between both faces. Each face
     is a constrained Delaunay triangulation (spade) of its loops in (u, v), scaled by the mean
     surface speeds, plus a uniform grid of interior points spaced by curvature and kept clear of
-    the boundary; triangles are kept by the parity of constraint crossings from outside.
-    Pole-line points share the pole's position and the triangles that collapse there are
-    dropped, so the mesh stays watertight. `Mesh` holds shared positions, per-face vertices with
-    exact surface normals, triangles, each face's triangle range and each edge's polyline, and
-    computes volume, area and centroid by the divergence theorem. When a face boundary crosses
-    itself at the requested tolerance (loops closer than the sampling error), tessellation retries
-    with halved chord and angle a few times before failing.
+    the boundary (a direction without curvature gets cells at most four times longer than the
+    curved one's, so no triangle spans far across a curved direction); triangles are kept by the
+    parity of constraint crossings from outside. Pole-line points share the pole's position and
+    the triangles that collapse there are dropped, so the mesh stays watertight. `Mesh` holds
+    shared positions, per-face vertices with exact surface normals, triangles, each face's
+    triangle range and each edge's polyline, and computes volume, area and centroid by the
+    divergence theorem. When a face boundary crosses itself at the requested tolerance (loops
+    closer than the sampling error), tessellation retries with halved chord and angle a few times
+    before failing.
   - Naming (`naming/`): `FaceName`, `EdgeName` and `VertexName` are 128-bit FNV-1a digests over a
     canonical little-endian encoding with a tag byte per constructor; they are stored in files, so
     the encoding and the pinned digests in `naming/tests.rs` never change. Faces: `side(feature,
@@ -228,7 +231,36 @@ crate uses it yet.
     lines on the axis become shared cap edges or nothing, endpoints on it poles, and a full turn has
     no caps (holes become void shells). The document is expected to convert a solved sketch to
     `ProfileCurve`s, keep the chosen `RegionKey`s in the feature, and call these with the feature
-    id.
+    id. `build::plan::Plan` is also how booleans emit their result, with explicit pcurves.
+  - Booleans (`boolean/`): `boolean(first, second, BooleanOperation)` for union, difference and
+    intersection, valid or an error (`BooleanError`), never a bad solid.
+    - Imprinting pools vertices within `LINEAR_RESOLUTION`: those of both solids, edge–face hits
+      inside or on the face, the ends of an edge lying in a face's surface and its crossings with
+      that face's edges, and the tangent points of face pairs. Each edge is split at the pooled
+      vertices of the other solid lying on it and each face–face branch at every pooled vertex on
+      it; a branch piece is kept where its midpoint is strictly inside both faces, and an edge piece
+      lying in the surface of a face of the other solid and inside it is a cut in that face. Pieces
+      with the same end vertices and geometry are one edge, so an intersection along an existing
+      edge and coincident faces need no special case.
+    - Each face is traced into loops from its boundary pieces (hinted by the original pcurves) and
+      its cuts (both ways, dangling ones pruned): at each vertex the next edge is the first one
+      clockwise from the arriving one about the outward normal, with ties and cusps decided by
+      chords at a common distance. Loops are fitted in the face's chart; a run of cuts leaving a
+      pole is shifted by whole periods to meet the next boundary edge, pcurve ends are snapped to
+      their vertices, and a hole goes to the smallest outer loop containing a point of it that is
+      not on that loop.
+    - Each fragment is classified against the other solid at up to three interior points (inside
+      or outside wins over coincident or touching; inside and outside together is `Ambiguous`) and
+      kept by the operation. Of coincident faces only the first solid's fragment can stay: with
+      the same orientation for union and intersection, the opposite one for difference. A
+      difference reverses the second solid's fragments it keeps. Every edge of the result then has
+      one use each way, else `Open`, or `NonManifold` when solids would meet only along an edge.
+    - Adjacent faces on the same surface with the same orientation are merged by retracing them
+      without the edges between them (left apart when that fails, as for a ring around a periodic
+      surface), and two edges meeting at a vertex between the same faces are joined when they are
+      pieces of one curve, collinear lines or arcs of one circle. Faces keep their names and
+      origins (fragments of a split face share its name), pieces keep their edge's name and new
+      edges are named `between` their two faces, before the plan disambiguates duplicates.
 - **caditor-document**: the parametric model: parameters, the ordered feature tree and
   everything that changes or recomputes it.
   - Every mutation is a `Transaction` of `Edit`s passed to `Document::apply`, the only public

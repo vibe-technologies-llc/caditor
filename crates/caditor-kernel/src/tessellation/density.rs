@@ -6,6 +6,7 @@ const LATTICE: usize = 8;
 const MAX_SEGMENTS: usize = 1024;
 const MAX_GRID_POINTS: f64 = (1 << 19) as f64;
 const FLAT_CURVATURE: f64 = 1e-12;
+const FLAT_ASPECT: f64 = 4.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Density {
@@ -45,27 +46,36 @@ pub(crate) fn density(surface: &Surface, bounds: Aabb2, tolerance: &SamplingTole
             }
         }
     }
+    let (u_scale, v_scale) = (scale(u_speeds, count), scale(v_speeds, count));
     let mut u_segments = segments(u_density * size.x);
     let mut v_segments = segments(v_density * size.y);
+    let (u_length, v_length) = (size.x * u_scale, size.y * v_scale);
+    if u_density == 0.0 && v_segments > 1 {
+        u_segments = segments(u_length * v_segments as f64 / (v_length * FLAT_ASPECT)).max(2);
+    }
+    if v_density == 0.0 && u_segments > 1 {
+        v_segments = segments(v_length * u_segments as f64 / (u_length * FLAT_ASPECT)).max(2);
+    }
     let total = u_segments as f64 * v_segments as f64;
     if total > MAX_GRID_POINTS {
         let shrink = (MAX_GRID_POINTS / total).sqrt();
         u_segments = segments(u_segments as f64 * shrink);
         v_segments = segments(v_segments as f64 * shrink);
     }
-    let scale = |sum: f64| {
-        let mean = if count > 0.0 { sum / count } else { 0.0 };
-        if mean.is_finite() && mean > 0.0 {
-            mean
-        } else {
-            1.0
-        }
-    };
     Density {
         u_segments,
         v_segments,
-        u_scale: scale(u_speeds),
-        v_scale: scale(v_speeds),
+        u_scale,
+        v_scale,
+    }
+}
+
+fn scale(sum: f64, count: f64) -> f64 {
+    let mean = if count > 0.0 { sum / count } else { 0.0 };
+    if mean.is_finite() && mean > 0.0 {
+        mean
+    } else {
+        1.0
     }
 }
 

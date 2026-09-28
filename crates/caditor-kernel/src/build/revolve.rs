@@ -168,19 +168,19 @@ pub fn revolve(
                 surface: PlaneSurface::new(low_plane)?.into(),
                 sense: Sense::Same,
                 name: caps.low.0,
-                origin: caps.low.1,
+                origin: Some(caps.low.1),
                 loops: low_loops,
             });
             plan.face(PlanFace {
                 surface: PlaneSurface::new(high_plane)?.into(),
                 sense: Sense::Same,
                 name: caps.high.0,
-                origin: caps.high.1,
+                origin: Some(caps.high.1),
                 loops: high_loops,
             });
         }
     }
-    plan.build()
+    Ok(plan.build()?)
 }
 
 fn side_of_axis(
@@ -491,7 +491,7 @@ fn revolve_loop(
                 surface,
                 sense,
                 name,
-                origin,
+                origin: Some(origin),
                 loops,
             });
             continue;
@@ -568,7 +568,7 @@ fn revolve_loop(
             surface,
             sense,
             name,
-            origin,
+            origin: Some(origin),
             loops: vec![coedges],
         });
     }

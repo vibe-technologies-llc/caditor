@@ -1,20 +1,48 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_geometry::{Point2, Point3, Vector3};
+use thiserror::Error;
 
 use crate::{
     build::SweepError,
     curve::{Curve, Line},
+    error::GeometryError,
     interval::Interval,
     naming::{EdgeName, FaceName, FaceOrigin, VertexName},
     sense::Sense,
     surface::Surface,
     tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE},
-    topology::{BuildError, EdgeId, Pcurve, PcurveSample, Solid, SolidBuilder},
+    topology::{
+        BuildError, EdgeId, FaceId, Pcurve, PcurveError, PcurveSample, Solid, SolidBuilder,
+        fit_pcurve,
+    },
 };
 
+#[derive(Debug, Clone, PartialEq, Error)]
+pub(crate) enum PlanError {
+    #[error("the planned solid refers to a vertex, edge or face it does not contain")]
+    Unassembled,
+    #[error(transparent)]
+    Build(#[from] BuildError),
+}
+
+impl From<GeometryError> for PlanError {
+    fn from(error: GeometryError) -> Self {
+        Self::Build(BuildError::Geometry(error))
+    }
+}
+
+impl From<PlanError> for SweepError {
+    fn from(error: PlanError) -> Self {
+        match error {
+            PlanError::Unassembled => Self::Unassembled,
+            PlanError::Build(error) => Self::Invalid(error),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct PlanEdge {
+pub(crate) struct PlanEdge {
     pub curve: Curve,
     pub interval: Interval,
     pub start: usize,
@@ -22,11 +50,18 @@ pub(super) struct PlanEdge {
     pub name: EdgeName,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct PlanCoedge {
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PlanPcurve {
+    Fitted,
+    Straight(Point2, Point2),
+    Given(Pcurve),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PlanCoedge {
     pub edge: usize,
     pub sense: Sense,
-    pub uv: Option<(Point2, Point2)>,
+    pub pcurve: PlanPcurve,
 }
 
 impl PlanCoedge {
@@ -34,7 +69,7 @@ impl PlanCoedge {
         Self {
             edge,
             sense,
-            uv: None,
+            pcurve: PlanPcurve::Fitted,
         }
     }
 
@@ -42,22 +77,30 @@ impl PlanCoedge {
         Self {
             edge,
             sense,
-            uv: Some((at_start, at_end)),
+            pcurve: PlanPcurve::Straight(at_start, at_end),
+        }
+    }
+
+    pub fn given(edge: usize, sense: Sense, pcurve: Pcurve) -> Self {
+        Self {
+            edge,
+            sense,
+            pcurve: PlanPcurve::Given(pcurve),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct PlanFace {
+pub(crate) struct PlanFace {
     pub surface: Surface,
     pub sense: Sense,
     pub name: FaceName,
-    pub origin: FaceOrigin,
+    pub origin: Option<FaceOrigin>,
     pub loops: Vec<Vec<PlanCoedge>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub(super) struct Plan {
+pub(crate) struct Plan {
     vertices: Vec<Point3>,
     edges: Vec<PlanEdge>,
     faces: Vec<PlanFace>,
@@ -253,7 +296,7 @@ impl Plan {
         }
     }
 
-    pub fn build(mut self) -> Result<Solid, SweepError> {
+    pub fn build(mut self) -> Result<Solid, PlanError> {
         self.merge_coincident_vertices();
         self.disambiguate();
         let mut builder = SolidBuilder::new();
@@ -268,10 +311,10 @@ impl Plan {
                 .vertices
                 .get(index)
                 .copied()
-                .ok_or(SweepError::Unassembled)?;
+                .ok_or(PlanError::Unassembled)?;
             vertices.insert(index, builder.vertex(point)?);
         }
-        let vertex = |index: usize| vertices.get(&index).copied().ok_or(SweepError::Unassembled);
+        let vertex = |index: usize| vertices.get(&index).copied().ok_or(PlanError::Unassembled);
         let mut edges: Vec<EdgeId> = Vec::with_capacity(self.edges.len());
         for edge in &self.edges {
             let id = builder.edge(
@@ -291,41 +334,71 @@ impl Plan {
                 };
                 let id = builder.face(shell, face.surface.clone(), face.sense)?;
                 builder.set_face_name(id, face.name)?;
-                builder.set_face_origin(id, face.origin)?;
+                if let Some(origin) = face.origin {
+                    builder.set_face_origin(id, origin)?;
+                }
                 for coedges in &face.loops {
-                    let resolved = coedges
-                        .iter()
-                        .map(|coedge| {
-                            edges
-                                .get(coedge.edge)
-                                .copied()
-                                .map(|id| (id, coedge))
-                                .ok_or(SweepError::Unassembled)
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                    if resolved.iter().all(|(_, coedge)| coedge.uv.is_some()) {
-                        let with_pcurves = resolved
-                            .iter()
-                            .map(|(id, coedge)| {
-                                let edge =
-                                    self.edges.get(coedge.edge).ok_or(SweepError::Unassembled)?;
-                                let pcurve = mapped_pcurve(edge.interval, coedge)
-                                    .map_err(|error| BuildError::Pcurve { edge: *id, error })?;
-                                Ok((*id, coedge.sense, pcurve))
-                            })
-                            .collect::<Result<Vec<_>, SweepError>>()?;
-                        builder.add_loop_with_pcurves(id, with_pcurves)?;
-                    } else {
-                        let plain: Vec<(EdgeId, Sense)> = resolved
-                            .iter()
-                            .map(|(id, coedge)| (*id, coedge.sense))
-                            .collect();
-                        builder.add_loop(id, &plain)?;
-                    }
+                    self.add_loop(&mut builder, id, face, coedges, &edges)?;
                 }
             }
         }
         Ok(builder.build()?)
+    }
+
+    fn add_loop(
+        &self,
+        builder: &mut SolidBuilder,
+        face_id: FaceId,
+        face: &PlanFace,
+        coedges: &[PlanCoedge],
+        edges: &[EdgeId],
+    ) -> Result<(), PlanError> {
+        let resolved = coedges
+            .iter()
+            .map(|coedge| {
+                edges
+                    .get(coedge.edge)
+                    .copied()
+                    .map(|id| (id, coedge))
+                    .ok_or(PlanError::Unassembled)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let given = resolved
+            .iter()
+            .any(|(_, coedge)| matches!(coedge.pcurve, PlanPcurve::Given(_)));
+        let straight = resolved
+            .iter()
+            .all(|(_, coedge)| matches!(coedge.pcurve, PlanPcurve::Straight(..)));
+        if !given && !straight {
+            let plain: Vec<(EdgeId, Sense)> = resolved
+                .iter()
+                .map(|(id, coedge)| (*id, coedge.sense))
+                .collect();
+            builder.add_loop(face_id, &plain)?;
+            return Ok(());
+        }
+        let mut with_pcurves: Vec<(EdgeId, Sense, Pcurve)> = Vec::with_capacity(resolved.len());
+        for (id, coedge) in resolved {
+            let edge = self.edges.get(coedge.edge).ok_or(PlanError::Unassembled)?;
+            let hint = with_pcurves.last().map(|(_, _, pcurve)| pcurve.end());
+            let pcurve = match &coedge.pcurve {
+                PlanPcurve::Given(pcurve) => Ok(pcurve.clone()),
+                PlanPcurve::Straight(at_start, at_end) => {
+                    straight_pcurve(edge.interval, coedge.sense, *at_start, *at_end)
+                }
+                PlanPcurve::Fitted => fit_pcurve(
+                    &face.surface,
+                    &edge.curve,
+                    edge.interval,
+                    coedge.sense,
+                    hint,
+                ),
+            }
+            .map_err(|error| BuildError::Pcurve { edge: id, error })?;
+            with_pcurves.push((id, coedge.sense, pcurve));
+        }
+        builder.add_loop_with_pcurves(face_id, with_pcurves)?;
+        Ok(())
     }
 }
 
@@ -340,11 +413,12 @@ pub(super) fn outward_sense(
     Sense::from_sign(normal.dot(outward))
 }
 
-fn mapped_pcurve(
+fn straight_pcurve(
     interval: Interval,
-    coedge: &PlanCoedge,
-) -> Result<Pcurve, crate::topology::PcurveError> {
-    let (at_start, at_end) = coedge.uv.unwrap_or_default();
+    sense: Sense,
+    at_start: Point2,
+    at_end: Point2,
+) -> Result<Pcurve, PcurveError> {
     let first = PcurveSample {
         parameter: interval.start(),
         uv: at_start,
@@ -353,7 +427,7 @@ fn mapped_pcurve(
         parameter: interval.end(),
         uv: at_end,
     };
-    let samples = if coedge.sense.is_same() {
+    let samples = if sense.is_same() {
         vec![first, last]
     } else {
         vec![last, first]

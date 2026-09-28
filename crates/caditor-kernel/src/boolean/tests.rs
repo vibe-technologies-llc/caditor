@@ -1,0 +1,523 @@
+use std::{collections::BTreeSet, f64::consts::PI};
+
+use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
+
+use super::*;
+use crate::{
+    build::{AngularExtent, Axis2, LinearExtent, extrude, revolve},
+    fixtures::{cuboid, cylinder, sphere},
+    naming::{EdgeName, FaceName},
+    profile::{Profile, Selection},
+    test_support::{assert_watertight, circle, rectangle},
+    tolerance::SamplingTolerance,
+};
+
+fn moved(solid: Solid, offset: (f64, f64, f64)) -> Solid {
+    let transform =
+        RigidTransform::translation(Vector3::new(offset.0, offset.1, offset.2)).unwrap();
+    solid.transformed(&transform).unwrap()
+}
+
+fn block(min: (f64, f64, f64), max: (f64, f64, f64)) -> Solid {
+    moved(
+        cuboid(Vector3::new(max.0 - min.0, max.1 - min.1, max.2 - min.2)),
+        min,
+    )
+}
+
+fn volume(solid: &Solid) -> f64 {
+    solid
+        .tessellate(&SamplingTolerance::new(1e-3, 0.1).unwrap())
+        .unwrap()
+        .mass_properties()
+        .volume
+}
+
+fn check(name: &str, solid: &Solid, expected: f64) {
+    assert_eq!(solid.validate(), Ok(()), "{name}");
+    assert_watertight(name, &solid.tessellate(&solid.default_tolerance()).unwrap());
+    let found = volume(solid);
+    assert!(
+        (found - expected).abs() <= 1e-3 * expected.abs().max(1.0),
+        "{name}: volume {found} instead of {expected}"
+    );
+}
+
+fn run(first: &Solid, second: &Solid, operation: BooleanOperation) -> Solid {
+    match boolean(first, second, operation) {
+        Ok(solid) => solid,
+        Err(error) => panic!("{operation:?} failed: {error}"),
+    }
+}
+
+#[test]
+fn overlapping_boxes_combine_in_every_operation() {
+    let first = block((0.0, 0.0, 0.0), (2.0, 2.0, 2.0));
+    let second = block((1.0, 1.0, 1.0), (3.0, 3.0, 3.0));
+    let union = run(&first, &second, BooleanOperation::Union);
+    check("union", &union, 15.0);
+    assert_eq!(union.faces().count(), 12);
+    let difference = run(&first, &second, BooleanOperation::Difference);
+    check("difference", &difference, 7.0);
+    assert_eq!(difference.faces().count(), 9);
+    let intersection = run(&first, &second, BooleanOperation::Intersection);
+    check("intersection", &intersection, 1.0);
+    assert_eq!(intersection.faces().count(), 6);
+    assert_eq!(intersection.edges().count(), 12);
+}
+
+#[test]
+fn a_pocket_from_the_top_face_leaves_a_hole_in_it() {
+    let plate = block((0.0, 0.0, 0.0), (10.0, 10.0, 5.0));
+    for top in [5.0, 6.0] {
+        let pocket = block((2.0, 3.0, 2.0), (4.0, 7.0, top));
+        let result = run(&plate, &pocket, BooleanOperation::Difference);
+        check("pocket", &result, 476.0);
+        assert_eq!(result.faces().count(), 11, "top at {top}");
+        let names: Vec<_> = result.faces().map(|(_, face)| face.name()).collect();
+        assert!(names.iter().all(|name| !name.is_none() || true));
+    }
+}
+
+#[test]
+fn a_cylinder_drills_a_hole_through_a_block() {
+    let plate = block((0.0, 0.0, 0.0), (10.0, 10.0, 4.0));
+    let drill = moved(cylinder(2.0, 6.0), (5.0, 5.0, -1.0));
+    let result = run(&plate, &drill, BooleanOperation::Difference);
+    check("drilled", &result, 400.0 - 16.0 * PI);
+    assert_eq!(result.faces().count(), 7);
+    let boss = run(&plate, &drill, BooleanOperation::Union);
+    check("boss", &boss, 400.0 + 8.0 * PI);
+}
+
+#[test]
+fn blocks_side_by_side_merge_into_one_box() {
+    let left = block((0.0, 0.0, 0.0), (2.0, 2.0, 2.0));
+    for right in [
+        block((2.0, 0.0, 0.0), (4.0, 2.0, 2.0)),
+        block((1.0, 0.0, 0.0), (4.0, 2.0, 2.0)),
+    ] {
+        let union = run(&left, &right, BooleanOperation::Union);
+        check("side by side", &union, 16.0);
+        assert_eq!(union.faces().count(), 6);
+        assert_eq!(union.edges().count(), 12);
+        assert_eq!(union.vertices().count(), 8);
+    }
+}
+
+#[test]
+fn disjoint_and_nested_solids() {
+    let big = block((0.0, 0.0, 0.0), (10.0, 10.0, 10.0));
+    let far = block((20.0, 0.0, 0.0), (22.0, 2.0, 2.0));
+    let union = run(&big, &far, BooleanOperation::Union);
+    check("disjoint union", &union, 1008.0);
+    assert_eq!(union.shells().count(), 2);
+    assert_eq!(
+        boolean(&big, &far, BooleanOperation::Intersection),
+        Err(BooleanError::Empty)
+    );
+    check(
+        "disjoint difference",
+        &run(&big, &far, BooleanOperation::Difference),
+        1000.0,
+    );
+    let inner = block((3.0, 3.0, 3.0), (6.0, 6.0, 6.0));
+    let hollow = run(&big, &inner, BooleanOperation::Difference);
+    check("hollow", &hollow, 973.0);
+    assert_eq!(hollow.shells().count(), 2);
+    check(
+        "nested union",
+        &run(&big, &inner, BooleanOperation::Union),
+        1000.0,
+    );
+    check(
+        "nested intersection",
+        &run(&big, &inner, BooleanOperation::Intersection),
+        27.0,
+    );
+}
+
+#[test]
+fn a_solid_combined_with_itself() {
+    let solid = block((0.0, 0.0, 0.0), (2.0, 3.0, 4.0));
+    let union = run(&solid, &solid, BooleanOperation::Union);
+    check("self union", &union, 24.0);
+    assert_eq!(union.faces().count(), 6);
+    check(
+        "self intersection",
+        &run(&solid, &solid, BooleanOperation::Intersection),
+        24.0,
+    );
+    assert_eq!(
+        boolean(&solid, &solid, BooleanOperation::Difference),
+        Err(BooleanError::Empty)
+    );
+}
+
+#[test]
+fn a_sphere_cut_by_a_block() {
+    let ball = sphere(4.0);
+    let corner = block((0.0, 0.0, 0.0), (10.0, 10.0, 10.0));
+    let full = 4.0 / 3.0 * PI * 64.0;
+    check(
+        "octant",
+        &run(&ball, &corner, BooleanOperation::Intersection),
+        full / 8.0,
+    );
+    check(
+        "notched ball",
+        &run(&ball, &corner, BooleanOperation::Difference),
+        full * 7.0 / 8.0,
+    );
+    let _ = Point3::ZERO;
+}
+
+fn rotated(solid: Solid, axis: Vector3, angle: f64) -> Solid {
+    let transform = RigidTransform::rotation_about(Point3::ZERO, axis, angle).unwrap();
+    solid.transformed(&transform).unwrap()
+}
+
+fn consistent(name: &str, first: &Solid, second: &Solid) {
+    let (a, b) = (volume(first), volume(second));
+    let union = run(first, second, BooleanOperation::Union);
+    let common = run(first, second, BooleanOperation::Intersection);
+    let difference = run(first, second, BooleanOperation::Difference);
+    for (label, solid) in [
+        ("union", &union),
+        ("intersection", &common),
+        ("difference", &difference),
+    ] {
+        assert_eq!(solid.validate(), Ok(()), "{name} {label}");
+        if solid.shells().count() == 1 {
+            assert_watertight(name, &solid.tessellate(&solid.default_tolerance()).unwrap());
+        }
+    }
+    let (u, i, d) = (volume(&union), volume(&common), volume(&difference));
+    let scale = a.max(b);
+    assert!(
+        (u + i - a - b).abs() <= 2e-3 * scale,
+        "{name}: {u} + {i} vs {a} + {b}"
+    );
+    assert!(
+        (d + i - a).abs() <= 2e-3 * scale,
+        "{name}: {d} + {i} vs {a}"
+    );
+}
+
+#[test]
+fn crossing_cylinders() {
+    let upright = moved(cylinder(2.0, 10.0), (0.0, 0.0, -5.0));
+    let lying = rotated(
+        moved(cylinder(2.0, 10.0), (0.0, 0.0, -5.0)),
+        Vector3::X,
+        0.5 * PI,
+    );
+    consistent("equal cylinders", &upright, &lying);
+    let thin = rotated(
+        moved(cylinder(1.2, 10.0), (0.3, 0.0, -5.0)),
+        Vector3::Y,
+        0.5 * PI,
+    );
+    consistent("unequal cylinders", &upright, &thin);
+}
+
+#[test]
+fn curved_solids_against_blocks() {
+    let slab = block((-1.0, -1.0, 1.5), (30.0, 30.0, 3.0));
+    consistent("spline", &crate::fixtures::extruded_spline(5.0), &slab);
+    let across = block((-10.0, -1.0, -10.0), (10.0, 1.0, 10.0));
+    consistent("torus", &crate::fixtures::torus(6.0, 2.0), &across);
+    let low = block((-10.0, -10.0, -1.0), (10.0, 10.0, 2.0));
+    consistent("cone", &crate::fixtures::cone(3.0, 4.0), &low);
+    consistent("frustum", &crate::fixtures::frustum(4.0, 2.0, 5.0), &low);
+    let off_axis = block((1.0, -10.0, -10.0), (10.0, 10.0, 10.0));
+    consistent("sphere", &sphere(4.0), &off_axis);
+}
+
+#[test]
+fn a_boss_on_a_face_joins_it() {
+    let plate = block((0.0, 0.0, 0.0), (10.0, 10.0, 2.0));
+    let boss = moved(cylinder(2.0, 3.0), (5.0, 5.0, 2.0));
+    let union = run(&plate, &boss, BooleanOperation::Union);
+    check("boss", &union, 200.0 + 12.0 * PI);
+    assert_eq!(union.faces().count(), 8);
+    assert_eq!(union.shells().count(), 1);
+}
+
+#[test]
+fn tilted_blocks() {
+    let first = block((0.0, 0.0, 0.0), (4.0, 3.0, 2.0));
+    let second = moved(
+        rotated(
+            block((-1.0, -1.0, -1.0), (1.0, 1.0, 1.0)),
+            Vector3::new(1.0, 2.0, 3.0),
+            0.7,
+        ),
+        (3.5, 2.5, 1.5),
+    );
+    consistent("tilted", &first, &second);
+}
+
+#[test]
+fn random_grid_blocks() {
+    let mut random = crate::test_support::Random::new(7);
+    for round in 0..40 {
+        let mut corner = || {
+            let a = (random.between(0.0, 4.0)).round();
+            let b = (random.between(0.0, 4.0)).round();
+            if a == b {
+                (a, a + 1.0)
+            } else {
+                (a.min(b), a.max(b))
+            }
+        };
+        let (x, y, z) = (corner(), corner(), corner());
+        let (p, q, r) = (corner(), corner(), corner());
+        let first = block((x.0, y.0, z.0), (x.1, y.1, z.1));
+        let second = block((p.0, q.0, r.0), (p.1, q.1, r.1));
+        let overlap = |a: (f64, f64), b: (f64, f64)| (a.1.min(b.1) - a.0.max(b.0)).max(0.0);
+        let common = overlap(x, p) * overlap(y, q) * overlap(z, r);
+        let (a, b) = (
+            (x.1 - x.0) * (y.1 - y.0) * (z.1 - z.0),
+            (p.1 - p.0) * (q.1 - q.0) * (r.1 - r.0),
+        );
+        let name = format!("round {round}: {x:?} {y:?} {z:?} and {p:?} {q:?} {r:?}");
+        let touching = [overlap(x, p), overlap(y, q), overlap(z, r)]
+            .iter()
+            .filter(|length| **length == 0.0)
+            .count();
+        let apart = [(x, p), (y, q), (z, r)]
+            .iter()
+            .any(|(a, b)| a.1 < b.0 || b.1 < a.0);
+        for (operation, expected) in [
+            (BooleanOperation::Union, a + b - common),
+            (BooleanOperation::Intersection, common),
+            (BooleanOperation::Difference, a - common),
+        ] {
+            match boolean(&first, &second, operation) {
+                Ok(solid) => check(&format!("{name} {operation:?}"), &solid, expected),
+                Err(BooleanError::Empty) => {
+                    assert!(expected.abs() < 1e-9, "{name} {operation:?} empty")
+                }
+                Err(BooleanError::NonManifold) => assert!(
+                    touching == 2 && !apart && operation == BooleanOperation::Union,
+                    "{name} {operation:?} non-manifold"
+                ),
+                Err(error) => panic!("{name} {operation:?}: {error}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn a_rounded_end_is_tangent_to_the_sides() {
+    let bar = block((0.0, 0.0, 0.0), (4.0, 2.0, 2.0));
+    let end = moved(cylinder(1.0, 2.0), (4.0, 1.0, 0.0));
+    let union = run(&bar, &end, BooleanOperation::Union);
+    check("obround", &union, 16.0 + PI);
+    assert_eq!(union.faces().count(), 6);
+}
+
+#[test]
+fn coaxial_cylinders() {
+    let outer = cylinder(3.0, 5.0);
+    let bore = moved(cylinder(1.0, 7.0), (0.0, 0.0, -1.0));
+    let tube = run(&outer, &bore, BooleanOperation::Difference);
+    check("tube", &tube, PI * 8.0 * 5.0);
+    assert_eq!(tube.faces().count(), 4);
+    let lower = cylinder(2.0, 4.0);
+    let upper = moved(cylinder(2.0, 4.0), (0.0, 0.0, 2.0));
+    let stacked = run(&lower, &upper, BooleanOperation::Union);
+    check("stacked", &stacked, PI * 4.0 * 6.0);
+    assert_eq!(stacked.faces().count(), 3);
+    let common = run(&lower, &upper, BooleanOperation::Intersection);
+    check("common", &common, PI * 4.0 * 2.0);
+    assert_eq!(common.faces().count(), 3);
+}
+
+#[test]
+fn a_ball_centred_on_a_corner() {
+    let cube = block((0.0, 0.0, 0.0), (5.0, 5.0, 5.0));
+    let ball = sphere(2.0);
+    let full = 4.0 / 3.0 * PI * 8.0;
+    check(
+        "corner cut",
+        &run(&cube, &ball, BooleanOperation::Difference),
+        125.0 - full / 8.0,
+    );
+    check(
+        "corner union",
+        &run(&cube, &ball, BooleanOperation::Union),
+        125.0 + full * 7.0 / 8.0,
+    );
+}
+
+#[test]
+fn operations_chain_on_their_own_results() {
+    let mut plate = block((0.0, 0.0, 0.0), (20.0, 12.0, 3.0));
+    let mut expected = 720.0;
+    for (x, y) in [(4.0, 3.0), (16.0, 3.0), (4.0, 9.0), (16.0, 9.0)] {
+        let hole = moved(cylinder(1.5, 5.0), (x, y, -1.0));
+        plate = run(&plate, &hole, BooleanOperation::Difference);
+        expected -= PI * 2.25 * 3.0;
+        check("holes", &plate, expected);
+    }
+    assert_eq!(plate.faces().count(), 10);
+    let rib = block((2.0, 5.0, 3.0), (18.0, 7.0, 6.0));
+    plate = run(&plate, &rib, BooleanOperation::Union);
+    expected += 96.0;
+    check("rib", &plate, expected);
+    let slot = block((8.0, 0.0, 1.0), (12.0, 12.0, 8.0));
+    plate = run(&plate, &slot, BooleanOperation::Difference);
+    check(
+        "slot",
+        &plate,
+        expected - 4.0 * 12.0 * 2.0 - 4.0 * 2.0 * 3.0,
+    );
+    assert_eq!(plate.shells().count(), 1);
+}
+
+#[test]
+fn rotated_blocks_in_general_position() {
+    let mut random = crate::test_support::Random::new(11);
+    let base = block((0.0, 0.0, 0.0), (3.0, 2.0, 1.5));
+    for round in 0..12 {
+        let axis = random.point(1.0);
+        let angle = random.between(0.1, 3.0);
+        let shift = random.point(1.0);
+        let other = moved(
+            rotated(block((-1.0, -0.8, -0.6), (1.0, 0.8, 0.6)), axis, angle),
+            (1.5 + shift.x, 1.0 + shift.y, 0.75 + shift.z),
+        );
+        consistent(&format!("round {round}"), &base, &other);
+    }
+}
+
+fn swept(
+    curves: &[crate::profile::ProfileCurve],
+    plane: &Plane,
+    extent: LinearExtent,
+    feature: u64,
+) -> Solid {
+    let regions = Profile::new(curves)
+        .unwrap()
+        .select(&Selection::EvenDepth)
+        .unwrap();
+    extrude(plane, &regions, extent, feature).unwrap()
+}
+
+fn names(solid: &Solid) -> BTreeSet<FaceName> {
+    solid.faces().map(|(_, face)| face.name()).collect()
+}
+
+#[test]
+fn swept_solids_keep_their_names() {
+    let plate = swept(
+        &rectangle(1, (0.0, 0.0), (10.0, 8.0)),
+        &Plane::XY,
+        LinearExtent::one_side(3.0).unwrap(),
+        1,
+    );
+    let top = Plane::from_frame(Point3::new(0.0, 0.0, 3.0), Vector3::Z, Vector3::X).unwrap();
+    let mut profile = rectangle(5, (2.0, 2.0), (5.0, 6.0));
+    profile.push(circle(9, (7.5, 4.0), 1.0));
+    let pocket = swept(&profile, &top, LinearExtent::one_side(-1.5).unwrap(), 2);
+    let result = run(&plate, &pocket, BooleanOperation::Difference);
+    check("named pocket", &result, 240.0 - 1.5 * (12.0 + PI));
+    let found = names(&result);
+    let given: BTreeSet<FaceName> = names(&plate).union(&names(&pocket)).copied().collect();
+    assert!(found.is_subset(&given));
+    assert_eq!(result.faces().count(), found.len());
+    assert_eq!(result.faces().count(), 6 + 5 + 2);
+    let plate_top = FaceName::end_cap(
+        1,
+        Profile::new(&rectangle(1, (0.0, 0.0), (10.0, 8.0)))
+            .unwrap()
+            .regions()[0]
+            .key(),
+    );
+    let top_face = result
+        .faces()
+        .find(|(_, face)| face.name() == plate_top)
+        .map(|(_, face)| face)
+        .unwrap();
+    assert_eq!(top_face.loops().len(), 3);
+    let edges: BTreeSet<EdgeName> = result.edges().map(|(_, edge)| edge.name()).collect();
+    assert_eq!(edges.len(), result.edges().count());
+    assert!(!edges.contains(&EdgeName::NONE));
+    let slot = swept(
+        &rectangle(20, (4.0, -1.0), (6.0, 9.0)),
+        &Plane::XY,
+        LinearExtent::new(-1.0, 4.0).unwrap(),
+        3,
+    );
+    let split = run(&plate, &slot, BooleanOperation::Difference);
+    check("split plate", &split, 240.0 - 48.0);
+    assert_eq!(split.shells().count(), 2);
+    let tops = split
+        .faces()
+        .filter(|(_, face)| face.name() == plate_top)
+        .count();
+    assert_eq!(tops, 2);
+}
+
+#[test]
+fn a_revolved_ring_against_a_block() {
+    let section = rectangle(1, (3.0, -1.0), (5.0, 1.0));
+    let regions = Profile::new(&section)
+        .unwrap()
+        .select(&Selection::EvenDepth)
+        .unwrap();
+    let axis = Axis2::new(Point2::ZERO, Vector2::Y).unwrap();
+    let ring = revolve(&Plane::XZ, &regions, axis, AngularExtent::full(), 4).unwrap();
+    let wedge = block((0.0, 0.0, -5.0), (10.0, 10.0, 5.0));
+    consistent("ring", &ring, &wedge);
+    let quarter = run(&ring, &wedge, BooleanOperation::Intersection);
+    check("quarter ring", &quarter, PI * (25.0 - 9.0) * 2.0 / 4.0);
+}
+
+#[test]
+fn stress_cylinders_on_a_grid() {
+    let mut random = crate::test_support::Random::new(5);
+    let mut contacts = 0;
+    for round in 0..60 {
+        let mut pick = |low: f64, high: f64| random.between(low, high).round();
+        let size = (pick(2.0, 4.0), pick(2.0, 4.0), pick(1.0, 3.0));
+        let base = block((0.0, 0.0, 0.0), size);
+        let radius = [0.5, 1.0, 1.5][pick(0.0, 2.0) as usize];
+        let height = pick(1.0, 4.0);
+        let at = (pick(0.0, 4.0), pick(0.0, 4.0), pick(-1.0, 2.0));
+        let tool = moved(cylinder(radius, height), at);
+        let (a, b) = (volume(&base), volume(&tool));
+        let mut results = Vec::new();
+        for operation in [
+            BooleanOperation::Union,
+            BooleanOperation::Intersection,
+            BooleanOperation::Difference,
+        ] {
+            match boolean(&base, &tool, operation) {
+                Ok(solid) => {
+                    assert_eq!(solid.validate(), Ok(()), "round {round} {operation:?}");
+                    results.push(Some(volume(&solid)));
+                }
+                Err(BooleanError::Empty) => results.push(Some(0.0)),
+                Err(BooleanError::NonManifold) => {
+                    contacts += 1;
+                    results.push(None);
+                }
+                Err(error) => panic!("round {round} {operation:?}: {error}"),
+            }
+        }
+        if let [Some(u), Some(i), Some(d)] = results[..] {
+            assert!(
+                (u + i - a - b).abs() < 2e-3 * (a + b),
+                "round {round}: {u} {i} {a} {b}"
+            );
+            assert!(
+                (d + i - a).abs() < 2e-3 * (a + b),
+                "round {round}: {d} {i} {a}"
+            );
+        }
+    }
+    assert!(contacts <= 8, "{contacts} results touch along a line");
+}

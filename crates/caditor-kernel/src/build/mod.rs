@@ -1,5 +1,5 @@
 mod extrude;
-mod plan;
+pub(crate) mod plan;
 mod revolve;
 #[cfg(test)]
 mod tests;

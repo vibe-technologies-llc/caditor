@@ -83,18 +83,18 @@ pub fn extrude(
             surface: PlaneSurface::new(bottom.flipped())?.into(),
             sense: Sense::Same,
             name: caps.low.0,
-            origin: caps.low.1,
+            origin: Some(caps.low.1),
             loops: bottom_loops,
         });
         plan.face(PlanFace {
             surface: PlaneSurface::new(top)?.into(),
             sense: Sense::Same,
             name: caps.high.0,
-            origin: caps.high.1,
+            origin: Some(caps.high.1),
             loops: top_loops,
         });
     }
-    plan.build()
+    Ok(plan.build()?)
 }
 
 fn extrude_loop(
@@ -210,10 +210,10 @@ fn extrude_loop(
             surface,
             sense,
             name: side,
-            origin: FaceOrigin::Side {
+            origin: Some(FaceOrigin::Side {
                 feature,
                 entity: piece.entity(),
-            },
+            }),
             loops: vec![loop_coedges],
         });
         bottom_loop.push(PlanCoedge::new(bottom_edge, travel.reversed()));

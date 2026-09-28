@@ -26,12 +26,9 @@ These need an answer before the milestone that depends on them starts.
 ## M5: Solid modelling
 
 `caditor-kernel` already has the geometry, topology, validation, tessellation, planar profiles,
-the extrude and revolve builders, frozen face and edge names, intersections and point
-classification. Nothing outside the kernel uses it yet.
+the extrude and revolve builders, frozen face and edge names, intersections, point
+classification and booleans. Nothing outside the kernel uses it yet.
 
-- [ ] Booleans in the kernel: union, difference and intersection, including coincident faces
-      (a pocket sketched on a face) and the merging of co-surface fragments afterwards; a result
-      that fails validation is an error, never a bad solid
 - [ ] Solid features in the document and file format: extrude, revolve and pocket or cut from
       a sketch's regions, with new body, add, remove and intersect operations and the body
       state chained through the tree, a failed feature skipped rather than blocking the rest

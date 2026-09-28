@@ -1,3 +1,4 @@
+mod boolean;
 mod bspline;
 mod build;
 mod checks;
@@ -22,6 +23,7 @@ mod tolerance;
 mod topology;
 
 pub use crate::{
+    boolean::{BooleanError, BooleanOperation, boolean},
     bspline::{BSpline, MAX_SPLINE_DEGREE},
     build::{AngularExtent, Axis2, LinearExtent, SweepError, extrude, revolve},
     coordinates::Coordinates,

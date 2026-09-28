@@ -108,6 +108,29 @@ impl Pcurve {
     }
 
     #[must_use]
+    pub(crate) fn with_ends(&self, start: Point2, end: Point2) -> Self {
+        let mut samples = self.samples.clone();
+        if let Some(first) = samples.first_mut() {
+            first.uv = start;
+        }
+        if let Some(last) = samples.last_mut() {
+            last.uv = end;
+        }
+        Self {
+            samples,
+            tolerance: self.tolerance,
+        }
+    }
+
+    #[must_use]
+    pub fn reversed(&self) -> Self {
+        Self {
+            samples: self.samples.iter().rev().copied().collect(),
+            tolerance: self.tolerance,
+        }
+    }
+
+    #[must_use]
     pub fn shifted(&self, offset: Vector2) -> Self {
         Self {
             samples: self
@@ -155,9 +178,9 @@ fn settle_pole_ends(surface: &Surface, samples: &mut [PcurveSample]) {
             continue;
         };
         if let Some(sample) = samples.get_mut(end)
-            && surface.pole_at(sample.uv).is_some()
+            && let Some(pole) = surface.pole_at(sample.uv)
         {
-            sample.uv.x = next_u;
+            sample.uv = Point2::new(next_u, pole.v);
         }
     }
 }
