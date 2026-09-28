@@ -66,20 +66,19 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   item. Contexts are owned by guards that free them on drop, frames must record their content
   size, and decompression refuses a frame larger than the caller's limit or one that decodes to
   a different size than it records.
-- **caditor-step**: STEP (ISO 10303-21, AP214 `AUTOMOTIVE_DESIGN`). `write_step` writes named
-  kernel solids as one product whose `ADVANCED_BREP_SHAPE_REPRESENTATION` holds one
-  `MANIFOLD_SOLID_BREP` per lump, or a `BREP_WITH_VOIDS` whose voids are
-  `ORIENTED_CLOSED_SHELL`s of inverted faces; shells are told apart by the sign of their meshed
-  volume (only bodies with several shells are meshed, and one whose shells cannot be sorted is
-  refused as `WriteError::Shells`). Millimetres and radians, uncertainty `LINEAR_RESOLUTION`, no author or organisation.
-  Every kernel surface and curve has an exact STEP form: planes, cylinders, spheres and tori as
-  they are, cones with a negative half angle on a flipped axis, extrusions and revolutions as
-  `SURFACE_OF_LINEAR_EXTRUSION` and `SURFACE_OF_REVOLUTION`, B-splines with knot runs (rational
-  ones as the complex entity), and intersection curves as the cubic B-spline of their Hermite
-  segments over the edge. Face `same_sense` is the face sense, since the kernel's normals are
-  STEP's. Reals print as the shortest round-tripping decimal with a point, and text escapes
-  quotes, backslashes and non-ASCII (`\X2\`). The output was checked against OpenCascade
-  (valid, closed, same volume) for every kind of face.
+- **caditor-step**: STEP (ISO 10303-21, AP214 `AUTOMOTIVE_DESIGN`). `write_step` writes named kernel
+  solids as one product whose `ADVANCED_BREP_SHAPE_REPRESENTATION` holds one `MANIFOLD_SOLID_BREP`
+  per lump, or a `BREP_WITH_VOIDS` whose voids are `ORIENTED_CLOSED_SHELL`s of inverted faces;
+  shells are told apart by the sign of their meshed volume (only bodies with several shells are
+  meshed, and one whose shells cannot be sorted is refused as `WriteError::Shells`). Millimetres and
+  radians, uncertainty `LINEAR_RESOLUTION`, no author or organisation. Every kernel surface and
+  curve has an exact STEP form: planes, cylinders, spheres and tori as they are, cones with a
+  negative half angle on a flipped axis, extrusions and revolutions as `SURFACE_OF_LINEAR_EXTRUSION`
+  and `SURFACE_OF_REVOLUTION`, B-splines with knot runs (rational ones as the complex entity), and
+  intersection curves as the cubic B-spline of their Hermite segments over the edge. Face
+  `same_sense` is the face sense, since the kernel's normals are STEP's. Reals print as the shortest
+  round-tripping decimal with a point, and text escapes quotes, backslashes and non-ASCII (`\X2\`).
+  The output was checked against OpenCascade (valid, closed, same volume) for every kind of face.
   - Reading (`part21.rs`, `read/`): a Part 21 parser (header, data sections, complex instances
     sorted by name, typed values, comments, the `\X\`, `\X2\`, `\X4\` and `\S\` encodings,
     nesting limit) feeds `read_step`, which returns every `MANIFOLD_SOLID_BREP` and
@@ -245,45 +244,45 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     and returns the first `ValidationError`, with ids. The volume checks run on a coarse mesh and
     retry finer before reporting a void outside its lump. `bounding_box` covers the edges and,
     for doubly curved faces, a grid of points inside each face plus a sphere's axis extremes.
-  - Tessellation samples each edge once and shares its positions between both faces. Each face
-    is a constrained Delaunay triangulation (spade) of its loops in (u, v), scaled by the mean
-    surface speeds, plus a uniform grid of interior points spaced by curvature (normal curvature
-    and twist, sampled on a lattice that also covers every knot span; spline, revolution and
-    extrusion faces are then refined until the grid's cells stay within the chord tolerance)
-    and kept clear of the boundary (a direction without curvature gets cells at most four times longer than the
-    curved one's, so no triangle spans far across a curved direction); triangles are kept by the
-    parity of constraint crossings from outside. Consecutive boundary points at the same vertex
-    whose parameters differ by a spatially negligible gap (an edge ending within the resolution
-    of its vertex) are merged, so such joints do not become spikes. Pole-line points share the
-    pole's position and
-    the triangles that collapse there are dropped, so the mesh stays watertight. `Mesh` holds
-    shared positions, per-face vertices with exact surface normals, triangles, each face's
+  - Tessellation samples each edge once and shares its positions between both faces. Each face is a
+    constrained Delaunay triangulation (spade) of its loops in (u, v), scaled by the mean surface
+    speeds, plus a uniform grid of interior points spaced by curvature (normal curvature and twist,
+    sampled on a lattice that also covers every knot span; spline, revolution and extrusion faces
+    are then refined until the grid's cells stay within the chord tolerance) and kept clear of the
+    boundary (a direction without curvature gets cells at most four times longer than the curved
+    one's, so no triangle spans far across a curved direction); triangles are kept by the parity of
+    constraint crossings from outside. Consecutive boundary points at the same vertex whose
+    parameters differ by a spatially negligible gap (an edge ending within the resolution of its
+    vertex) are merged, so such joints do not become spikes. Pole-line points share the pole's
+    position and the triangles that collapse there are dropped, so the mesh stays watertight. `Mesh`
+    holds shared positions, per-face vertices with exact surface normals, triangles, each face's
     triangle range and each edge's polyline, and computes volume, area and centroid by the
-    divergence theorem. When a face boundary crosses itself at the requested tolerance (loops
-    closer than the sampling error), tessellation retries with halved chord and angle a few times
-    before failing.
+    divergence theorem. When a face boundary crosses itself at the requested tolerance (loops closer
+    than the sampling error), tessellation retries with halved chord and angle a few times before
+    failing.
   - Naming (`naming/`): `FaceName`, `EdgeName` and `VertexName` are 128-bit FNV-1a digests over a
     canonical little-endian encoding with a tag byte per constructor; they are stored in files, so
     the encoding and the pinned digests in `naming/tests.rs` never change. Faces: `side(feature,
     PieceId)`, `start_cap` and `end_cap(feature, RegionKey)`. Edges: `between` (unordered face
-    pair), `seam(face)` for the profile seam of a full revolution, and, when several edges share
-    a name, `between_at(left, right, from, to)` with the vertex names (sets of faces around each
-    end) and the faces oriented by the edge, then `occurrence` ordered by position (midpoints on
-    a grid of a hundred resolutions, so rounding noise cannot swap them) as a last resort. `FaceOrigin` (side of an entity, start or end cap, with the raw feature and entity
-    ids) says in words what a face came from. Later generators (a fillet face named by the edge it
-    replaced, boolean fragments that keep their name) are new constructors with new tags.
-    `Solid::imported(feature)` names an imported solid: `FaceName::imported(feature, index)` by
-    the face's position in the solid (its order in the stored STEP text, which never changes),
-    `FaceOrigin::Imported`, and edges `between` their faces, disambiguated like sweeps.
-  - References (`naming/reference.rs`) are how later features keep hold of generated topology.
-    A `FaceReference` is a face's name, origin and the set of its neighbours' names. It resolves
-    to the one face with that name when it still shares a neighbour (or none were recorded); among fragments of a split face, to the one whose neighbours
-    match best (most shared, then fewest differences); and when the name is gone (its region
-    key or piece id changed), to the face of the same origin sharing at least one neighbour.
-    An `EdgeReference` is an edge's name, its two face names and its end vertex names, resolved
-    by name, else among the edges between the same faces by matching ends. A tie is
-    `ReferenceError::Ambiguous` with the candidates and no match is `Missing`: resolution never
-    guesses between equals.
+    pair), `seam(face)` for the profile seam of a full revolution, and, when several edges share a
+    name, `between_at(left, right, from, to)` with the vertex names (sets of faces around each end)
+    and the faces oriented by the edge, then `occurrence` ordered by position (midpoints on a grid
+    of a hundred resolutions, so rounding noise cannot swap them) as a last resort. `FaceOrigin`
+    (side of an entity, start or end cap, with the raw feature and entity ids) says in words what a
+    face came from. Later generators (a fillet face named by the edge it replaced, boolean fragments
+    that keep their name) are new constructors with new tags. `Solid::imported(feature)` names an
+    imported solid: `FaceName::imported(feature, index)` by the face's position in the solid (its
+    order in the stored STEP text, which never changes), `FaceOrigin::Imported`, and edges `between`
+    their faces, disambiguated like sweeps.
+  - References (`naming/reference.rs`) are how later features keep hold of generated topology. A
+    `FaceReference` is a face's name, origin and the set of its neighbours' names. It resolves to
+    the one face with that name when it still shares a neighbour (or none were recorded); among
+    fragments of a split face, to the one whose neighbours match best (most shared, then fewest
+    differences); and when the name is gone (its region key or piece id changed), to the face of the
+    same origin sharing at least one neighbour. An `EdgeReference` is an edge's name, its two face
+    names and its end vertex names, resolved by name, else among the edges between the same faces by
+    matching ends. A tie is `ReferenceError::Ambiguous` with the candidates and no match is
+    `Missing`: resolution never guesses between equals.
   - Profiles (`profile/`): `Profile::new` takes `ProfileCurve`s (lines, circles, counter-clockwise
     arcs, clamped B-splines with an explicit knot vector) tagged with the sketch entity id as a
     plain u64, and builds the planar arrangement with tolerance 1e-7 of the profile size (at
@@ -358,10 +357,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     crossing's outward normal decides; a ray that grazes, is tangent, lies in a face or meets an
     edge or vertex is discarded for the next direction. `point_in_face(face, uv)` (`Inside`,
     `Outside`, `OnBoundary`) uses the pcurve polygons by parity over periodic shifts (poles probed
-    just off the pole line, inwards from whichever end of the domain is nearer), and near the boundary (within a few `PCURVE_TOLERANCE`) the exact
-    edge: the side of the nearest non-seam coedge, or of both coedges at a vertex (convex corners
-    need both). `classify_boundary_point(point, normal)` adds `Coincident { face, sense }` for a
-    point on a face whose normal is parallel, and `Touching(face)` otherwise.
+    just off the pole line, inwards from whichever end of the domain is nearer), and near the
+    boundary (within a few `PCURVE_TOLERANCE`) the exact edge: the side of the nearest non-seam
+    coedge, or of both coedges at a vertex (convex corners need both).
+    `classify_boundary_point(point, normal)` adds `Coincident { face, sense }` for a point on a face
+    whose normal is parallel, and `Touching(face)` otherwise.
   - Builders (`build/`): `extrude(plane, regions, LinearExtent, feature)` and `revolve(plane,
     regions, Axis2, AngularExtent, feature)` plan vertices, edges and faces, merge coincident
     vertices within a shell (pinched regions), name every face and edge, group faces into shells by
@@ -389,9 +389,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
       edge and coincident faces need no special case.
     - Each face is traced into loops from its boundary pieces (hinted by the original pcurves) and
       its cuts (both ways, dangling ones pruned): at each vertex the next edge is the first one
-      clockwise from the arriving one about the outward normal (at a pole, the mean normal of a
-      ring around it, so rulings through a cone apex are ordered by azimuth), with ties and cusps
-      decided by chords at a common distance. Loops are fitted in the face's chart; a run of cuts leaving a
+      clockwise from the arriving one about the outward normal (at a pole, the mean normal of a ring
+      around it, so rulings through a cone apex are ordered by azimuth), with ties and cusps decided
+      by chords at a common distance. Loops are fitted in the face's chart; a run of cuts leaving a
       pole is shifted by whole periods to meet the next boundary edge, pcurve ends are snapped to
       their vertices, and a hole goes to the smallest outer loop containing a point of it that is
       not on that loop.
@@ -410,19 +410,19 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Blends (`blend/`): `blend(solid, edges, BlendShape, feature)` rounds (`Fillet`) or bevels
     (`Chamfer`) edges by sweeping a tool and one boolean per tool, valid or a `BlendError` that
     names the edge. Chosen edges first grow along tangent-continuous chains (`blend_chain`) and
-    smooth edges are dropped. Supported edges are straight ones whose faces run along them
-    (planes, parallel cylinders), swept by extrusion, and circles whose faces share their axis
-    (planes, cylinders, cones, spheres, tori), swept by revolution; the blend must fit on both
-    faces at a quarter, half and three quarters of the edge, and the cross-section is solved
-    in 2D (`section.rs`: fillet circle from the offset curves, chamfer points at equal
-    distance). Convex tools are lifted clear of the faces they cut and subtracted; concave ones
-    are flush and added, all concave edges first, then the convex ones re-found by reference in
-    the filled solid (one that cannot be found fails as `Lost`, and errors about edges of the
-    filled solid that are not chosen ones come back as `AfterFill` without an id). Ends continuing into another chosen edge stop flush, ends on a face
-    perpendicular to the edge stop there, ends on a slanted face extend past it when the
-    extension lies where the operation changes nothing, else are clipped by the face's plane.
-    Three convex straight edges filleted at a vertex of three planes get a spherical corner
-    (`corner.rs`: a hexahedron minus the rolling ball, built through `Plan`); other corners
+    smooth edges are dropped. Supported edges are straight ones whose faces run along them (planes,
+    parallel cylinders), swept by extrusion, and circles whose faces share their axis (planes,
+    cylinders, cones, spheres, tori), swept by revolution; the blend must fit on both faces at a
+    quarter, half and three quarters of the edge, and the cross-section is solved in 2D
+    (`section.rs`: fillet circle from the offset curves, chamfer points at equal distance). Convex
+    tools are lifted clear of the faces they cut and subtracted; concave ones are flush and added,
+    all concave edges first, then the convex ones re-found by reference in the filled solid (one
+    that cannot be found fails as `Lost`, and errors about edges of the filled solid that are not
+    chosen ones come back as `AfterFill` without an id). Ends continuing into another chosen edge
+    stop flush, ends on a face perpendicular to the edge stop there, ends on a slanted face extend
+    past it when the extension lies where the operation changes nothing, else are clipped by the
+    face's plane. Three convex straight edges filleted at a vertex of three planes get a spherical
+    corner (`corner.rs`: a hexahedron minus the rolling ball, built through `Plan`); other corners
     mitre. Faces are named `FaceName::blend(feature, edge)` and `corner(feature, vertex)` with
     `FaceOrigin::Fillet` or `Chamfer`.
   - Shell (`shell/`): `shell(solid, open, thickness, feature)` offsets every face by the
@@ -438,20 +438,20 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
 - **caditor-document**: the parametric model: parameters, the ordered feature tree and
   everything that changes or recomputes it.
   - Every mutation is a `Transaction` of `Edit`s passed to `Document::apply`, the only public
-    mutator of content (`reserve_ids_below` only raises the ID counters, for loading). `apply`
-    is atomic and returns the inverse transaction, and `Editor` keeps undo and redo as stacks of
-    these inverses. Edits carry their IDs, so redo restores the same IDs, and ID counters never
-    move backwards. Edits refuse to break invariants: unknown references, parameter cycles,
-    deleting something still in use, moving a feature past one it depends on, or two features
-    sharing a name (loading renames the second with a report). `same_content` compares
-    documents without their ID counters, which is what decides whether a model is unsaved.
-    `Document::check` runs a transaction on a clone so the UI can report the error before
-    committing; `can_remove_parameter` and `can_remove_feature` answer the common case without
-    one. Parameter dependencies are built once per `apply`, and evaluation orders parameters
-    topologically before looking for cycles, so both stay near linear in the parameter count. `Document::transaction_to` (which keeps every sketch's ID counter at least
-    where it is, so restoring never reuses IDs) builds the transaction that turns one document
-    into another (every feature and parameter removed, then the target's inserted with their
-    IDs), which is how an earlier version is restored as one undoable change.
+    mutator of content (`reserve_ids_below` only raises the ID counters, for loading). `apply` is
+    atomic and returns the inverse transaction, and `Editor` keeps undo and redo as stacks of these
+    inverses. Edits carry their IDs, so redo restores the same IDs, and ID counters never move
+    backwards. Edits refuse to break invariants: unknown references, parameter cycles, deleting
+    something still in use, moving a feature past one it depends on, or two features sharing a name
+    (loading renames the second with a report). `same_content` compares documents without their ID
+    counters, which is what decides whether a model is unsaved. `Document::check` runs a transaction
+    on a clone so the UI can report the error before committing; `can_remove_parameter` and
+    `can_remove_feature` answer the common case without one. Parameter dependencies are built once
+    per `apply`, and evaluation orders parameters topologically before looking for cycles, so both
+    stay near linear in the parameter count. `Document::transaction_to` (which keeps every sketch's
+    ID counter at least where it is, so restoring never reuses IDs) builds the transaction that
+    turns one document into another (every feature and parameter removed, then the target's inserted
+    with their IDs), which is how an earlier version is restored as one undoable change.
   - Sketch content changes only through sketch edits (add, remove or set an entity, add or
     remove a constraint, set a dimension). Removing an entity that something still uses is
     refused rather than cascaded; `TransactionBuilder::remove_sketch_items` expands a user's
@@ -511,26 +511,25 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     datum plane (`NotAPlane`) or an axis reference to something that is not a datum axis
     (`NotAnAxis`). `FeatureKind::bodies_used`, `planes_used` and `axes_used` extend
     `features()`, so dependents, moves and deletions account for them.
-  - Recompute: `ParameterValues` evaluates parameters in dependency order and reports cycles
-    rather than following them. `Recompute` walks the features in tree order and reuses a
-    cached result when the feature's content (an `Arc`, compared by pointer first, then its ID
-    and kind but not its name), the values of the parameters it uses and its upstream results
-    are unchanged; a failed result is also recomputed when the names in its message changed.
-    Upstream results count as unchanged when they are the same `Arc` or, for sketches, have
-    the same plane and entities (datums: the same result), so an edit that leaves geometry
-    alone (a satisfied constraint, a settle) stops there. A
-    failing feature is `Failed` with a `FeatureError` (reason, remedy and a `FixTarget`) and
-    keeps its last good result. Its dependents fail with a pointer back to it, and everything
-    else is unaffected. A panic inside an `Evaluator` is caught and becomes that feature's
-    error. Each body's latest good state is carried through the tree and is part of the next
-    change's upstream of every feature that uses the body (`bodies_used`): a feature that
-    changes a body gets its current solid through `Inputs::body`, and a failing one is skipped, so later features of the body build on the
-    state before it. `Evaluation::body` gives each body's final solid and `body_result` the
-    shared result holding it; a body whose creating feature failed or was not reached keeps
-    the last good state of its latest feature as a stale body (`is_stale`), drawn tinted and
-    still exported. `body_seen_by` gives the state of a body a given feature used, which is
-    where a revolve's model axis is drawn. Solid features map profile, sweep and boolean errors to sentences
-    naming the sketch curves involved.
+  - Recompute: `ParameterValues` evaluates parameters in dependency order and reports cycles rather
+    than following them. `Recompute` walks the features in tree order and reuses a cached result
+    when the feature's content (an `Arc`, compared by pointer first, then its ID and kind but not
+    its name), the values of the parameters it uses and its upstream results are unchanged; a failed
+    result is also recomputed when the names in its message changed. Upstream results count as
+    unchanged when they are the same `Arc` or, for sketches, have the same plane and entities
+    (datums: the same result), so an edit that leaves geometry alone (a satisfied constraint, a
+    settle) stops there. A failing feature is `Failed` with a `FeatureError` (reason, remedy and a
+    `FixTarget`) and keeps its last good result. Its dependents fail with a pointer back to it, and
+    everything else is unaffected. A panic inside an `Evaluator` is caught and becomes that
+    feature's error. Each body's latest good state is carried through the tree and is part of the
+    next change's upstream of every feature that uses the body (`bodies_used`): a feature that
+    changes a body gets its current solid through `Inputs::body`, and a failing one is skipped, so
+    later features of the body build on the state before it. `Evaluation::body` gives each body's
+    final solid and `body_result` the shared result holding it; a body whose creating feature failed
+    or was not reached keeps the last good state of its latest feature as a stale body (`is_stale`),
+    drawn tinted and still exported. `body_seen_by` gives the state of a body a given feature used,
+    which is where a revolve's model axis is drawn. Solid features map profile, sweep and boolean
+    errors to sentences naming the sketch curves involved.
   - Display data is computed on the worker at the end of each run and cached inside the shared
     results (`OnceLock`), so the UI only reads it: each body's final state is tessellated
     (`SolidResult::mesh`; intermediate states are not), and every sketch that a solid feature
@@ -572,15 +571,15 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     out, an unreadable opened face is left closed, and a sketch whose face or datum plane cannot
     be restored stays on its stored plane, each with a report.
   - Version history: every save that changes the model keeps the state it replaces as a version
-    inside the file (`save_with` reads the earlier versions from the session's own file, so Save
-    As carries them along; saving an unchanged model adds none). A version is an info chunk (time,
-    last change, blake3 digest) and a data chunk compressed with the next newer version as a
-    zstd prefix, so a version costs only its difference; every eighth one is stored whole, which
-    bounds the chain a damaged chunk can break. Each rebuilt version is checked against its
-    digest before it is offered. `history` lists the versions (with whether each can still be
-    rebuilt), keeping only the rolling newer snapshot, and `load_version` rebuilds one starting
-    from the nearest whole version at or after it. When the head cannot be rebuilt, the next save drops
-    the deltas that depended on it and keeps the rest.
+    inside the file (`save_with` reads the earlier versions from the session's own file, so Save As
+    carries them along; saving an unchanged model adds none). A version is an info chunk (time, last
+    change, blake3 digest) and a data chunk compressed with the next newer version as a zstd prefix,
+    so a version costs only its difference; every eighth one is stored whole, which bounds the chain
+    a damaged chunk can break. Each rebuilt version is checked against its digest before it is
+    offered. `history` lists the versions (with whether each can still be rebuilt), keeping only the
+    rolling newer snapshot, and `load_version` rebuilds one starting from the nearest whole version
+    at or after it. When the head cannot be rebuilt, the next save drops the deltas that depended on
+    it and keeps the rest.
   - Saving writes a temporary sibling, fsyncs it, renames it over the target and fsyncs the
     directory, keeping the target's permissions. A symbolic link is followed to the file it
     names, which is what gets replaced. A failed directory fsync after the rename is logged, not
@@ -634,10 +633,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     plain language. It reads `$INSUNITS` (none is read as millimetres, with a note), layers
     (entities on off or frozen layers are left out), blocks and INSERTs (base point, scale,
     rotation, column and row arrays, nested with cycle and depth limits and at most
-    `MAX_EXPANDED_OBJECTS` objects and cells visited in all, block content on layer 0
-    taking the insert's layer), and the entities LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE and
-    POLYLINE (bulges become arcs, 3D polylines lines) and SPLINE (control points with knots and
-    weights up to degree 9, or fit points). Object coordinate systems follow the arbitrary axis algorithm.
+    `MAX_EXPANDED_OBJECTS` objects and cells visited in all, block content on layer 0 taking the
+    insert's layer), and the entities LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE and POLYLINE
+    (bulges become arcs, 3D polylines lines) and SPLINE (control points with knots and weights up to
+    degree 9, or fit points). Object coordinate systems follow the arbitrary axis algorithm.
     Everything becomes a 3D shape (point, line, parametric conic, NURBS or fit points), is
     transformed, then flattened onto XY: conics that project to circles become circles and arcs
     (counter-clockwise), other conics and splines that are not already in the sketch's uniform form
@@ -769,14 +768,14 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     sketch editing as translucent squares and lines centred where the world origin projects
     onto them, picked as `Pickable::Datum`, tinted when failed, and double-clicking one opens
     it.
-  - Sketches on faces and planes (`sketch_placement.rs`): New sketch starts on a selected
-    principal plane, datum plane or flat face, and while choosing a plane a click on any of them
-    does the same. The attachment is captured from
-    the body's state where the sketch sits in the tree, so a face made further down is refused
-    with the reason. A sketch's row says which face or plane it lies on and offers Detach, and
-    Place on selected plane or Place on selected face when one is selected. Everything that draws or maps onto a sketch takes its
-    plane from the solved result (`scene::sketch_plane`, `displayed_sketch`), since an attached
-    sketch's stored plane is only where it was placed.
+  - Sketches on faces and planes (`sketch_placement.rs`): New sketch starts on a selected principal
+    plane, datum plane or flat face, and while choosing a plane a click on any of them does the
+    same. The attachment is captured from the body's state where the sketch sits in the tree, so a
+    face made further down is refused with the reason. A sketch's row says which face or plane it
+    lies on and offers Detach, and Place on selected plane or Place on selected face when one is
+    selected. Everything that draws or maps onto a sketch takes its plane from the solved result
+    (`scene::sketch_plane`, `displayed_sketch`), since an attached sketch's stored plane is only
+    where it was placed.
   - `Model` also owns the file session: the path, the last saved document (the model is
     unsaved exactly when its document differs from it), the journal entries since then and the
     `Storage` worker, to which every change is recorded. `files.rs` is the file workflow: the
@@ -802,13 +801,13 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     palette and the welcome dialog open one as an untitled, unmodified model after the
     unsaved-changes prompt.
   - Onboarding (`onboarding.rs`): the welcome dialog appears until it is closed once
-    (`onboarding.welcomed`) and again from Help › Welcome and samples…; it offers an empty
-    model, the samples and Open. Tips are shown one at a time as a card at the bottom centre of
-    the viewport when no dialog is open, first of those that apply and were not dismissed: start with a sketch
-    (empty model), draw (edited sketch with no geometry), constrain (edited sketch that can
-    still move), extrude or revolve (a sweepable sketch and no body), navigate (a body exists),
-    and the palette. Got it dismisses one (`onboarding.dismissed_hints`, unknown ids kept), Hide
-    tips turns them off (`onboarding.hints`), and Preferences turns them back on or restores the
+    (`onboarding.welcomed`) and again from Help › Welcome and samples…; it offers an empty model,
+    the samples and Open. Tips are shown one at a time as a card at the bottom centre of the
+    viewport when no dialog is open, first of those that apply and were not dismissed: start with a
+    sketch (empty model), draw (edited sketch with no geometry), constrain (edited sketch that can
+    still move), extrude or revolve (a sweepable sketch and no body), navigate (a body exists), and
+    the palette. Got it dismisses one (`onboarding.dismissed_hints`, unknown ids kept), Hide tips
+    turns them off (`onboarding.hints`), and Preferences turns them back on or restores the
     dismissed ones.
   - About and the command line (`about.rs`, `cli.rs`): Help › About caditor shows the version
     and licences. `caditor [MODEL]` opens one model; `--version` and `--help` print and exit, and
