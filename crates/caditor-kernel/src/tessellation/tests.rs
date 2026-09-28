@@ -286,3 +286,26 @@ fn a_self_crossing_boundary_is_an_error_not_a_panic() {
     ));
     assert!(solid.validate().is_err());
 }
+
+#[test]
+fn a_cone_meshes_without_slivers_at_its_apex_at_any_tolerance() {
+    for (radius, height) in [(3.0, 4.0), (1.0, 20.0), (20.0, 1.0)] {
+        let cone = fixtures::cone(radius, height);
+        for chord in [0.1, 0.01] {
+            let mesh = cone
+                .tessellate(&SamplingTolerance::new(chord, 0.3).unwrap())
+                .unwrap();
+            assert_watertight("cone", &mesh);
+            for triangle in mesh.triangles() {
+                let [a, b, c] = mesh.corner_points(*triangle).unwrap();
+                let longest = a.distance(b).max(b.distance(c)).max(c.distance(a));
+                let area = (b - a).cross(c - a).length() / 2.0;
+                assert!(
+                    area > 1e-9 * longest * longest,
+                    "a sliver {a} {b} {c} on a cone of radius {radius} and height {height} at \
+                     chord {chord}"
+                );
+            }
+        }
+    }
+}

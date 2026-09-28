@@ -4,7 +4,7 @@ mod mass;
 #[cfg(test)]
 mod tests;
 
-use std::ops::Range;
+use std::{collections::BTreeMap, ops::Range};
 
 use caditor_geometry::{Point3, Vector3};
 use thiserror::Error;
@@ -182,13 +182,25 @@ fn tessellate_once(
     for (_, vertex) in solid.vertices() {
         vertex_positions.push(mesh.push_position(vertex.point())?);
     }
+    let mut least_segments: BTreeMap<EdgeId, usize> = BTreeMap::new();
+    for (id, _) in solid.faces() {
+        for (edge, segments) in face::pole_edge_segments(solid, id, tolerance)? {
+            let least = least_segments.entry(edge).or_default();
+            *least = (*least).max(segments);
+        }
+    }
     let mut samplings = Vec::new();
     for (id, edge) in solid.edges() {
         let mut samples = edge.curve().sample(edge.interval(), tolerance);
-        if edge.is_closed() && samples.len() <= MIN_CLOSED_EDGE_SEGMENTS {
+        let pieces = if edge.is_closed() {
+            MIN_CLOSED_EDGE_SEGMENTS
+        } else {
+            least_segments.get(&id).copied().unwrap_or(0)
+        };
+        if samples.len() <= pieces {
             samples = edge
                 .interval()
-                .split(MIN_CLOSED_EDGE_SEGMENTS)
+                .split(pieces)
                 .map(|parameter| crate::curve::CurveSample {
                     parameter,
                     point: edge.curve().point(parameter),

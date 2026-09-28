@@ -8,6 +8,7 @@ use spade::{
 
 use crate::{
     coordinates::distance_to_segment,
+    curve::Curve,
     sense::Sense,
     surface::Surface,
     tessellation::{
@@ -15,7 +16,7 @@ use crate::{
         density::{Density, density},
     },
     tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
-    topology::{Face, FaceId, Solid},
+    topology::{EdgeId, Face, FaceId, Solid},
 };
 
 const UV_MERGE: f64 = 1e-9;
@@ -24,6 +25,7 @@ const GRID_CLEARANCE: f64 = 0.3;
 const TINY_COORDINATE: f64 = 1e-30;
 const MAX_GAP_PIECES: f64 = 4096.0;
 const NORMAL_NUDGE: f64 = 1e-3;
+const MAX_POLE_EDGE_PIECES: usize = 1024;
 
 type Cdt = ConstrainedDelaunayTriangulation<PlanePoint<f64>>;
 
@@ -98,6 +100,71 @@ pub(crate) fn triangulate(
         triangulation.add_interior(uv)?;
     }
     triangulation.emit(surface, face.sense(), mesh)
+}
+
+pub(crate) fn pole_edge_segments(
+    solid: &Solid,
+    face_id: FaceId,
+    tolerance: &SamplingTolerance,
+) -> Result<Vec<(EdgeId, usize)>, TessellationError> {
+    let face = solid
+        .face(face_id)
+        .ok_or(TessellationError::MissingEntity)?;
+    let surface = face.surface();
+    let poles = surface.poles();
+    if poles.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut coedges = Vec::new();
+    for loop_id in face.loops() {
+        let face_loop = solid
+            .face_loop(*loop_id)
+            .ok_or(TessellationError::MissingEntity)?;
+        for coedge_id in face_loop.coedges() {
+            coedges.push(
+                solid
+                    .coedge(*coedge_id)
+                    .ok_or(TessellationError::MissingEntity)?,
+            );
+        }
+    }
+    let uvs = coedges
+        .iter()
+        .flat_map(|coedge| coedge.pcurve().samples().iter().map(|sample| sample.uv));
+    let Some(bounds) = Aabb2::from_points(uvs) else {
+        return Ok(Vec::new());
+    };
+    let rows = density(surface, bounds, tolerance).v_segments;
+    let row_height = bounds.size().y / rows as f64;
+    if row_height.is_nan() || row_height <= 0.0 {
+        return Ok(Vec::new());
+    }
+    let mut segments = Vec::new();
+    for coedge in coedges {
+        let edge = solid
+            .edge(coedge.edge())
+            .ok_or(TessellationError::MissingEntity)?;
+        if !matches!(edge.curve(), Curve::Line(_)) {
+            continue;
+        }
+        let at_pole = [edge.start(), edge.end()].into_iter().any(|vertex| {
+            solid.vertex(vertex).is_some_and(|vertex| {
+                poles
+                    .iter()
+                    .any(|pole| pole.point.distance(vertex.point()) <= LINEAR_RESOLUTION)
+            })
+        });
+        if !at_pole {
+            continue;
+        }
+        let pcurve = coedge.pcurve();
+        let rise = (pcurve.end().y - pcurve.start().y).abs();
+        let pieces = (rise / row_height).round();
+        if pieces.is_finite() && pieces >= 2.0 {
+            segments.push((coedge.edge(), (pieces as usize).min(MAX_POLE_EDGE_PIECES)));
+        }
+    }
+    Ok(segments)
 }
 
 fn boundary_loops(

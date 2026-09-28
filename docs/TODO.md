@@ -27,10 +27,6 @@ within a category run from most to least important.
 
 ## Kernel correctness
 
-- A grid point on the same ruling as a cone apex makes a zero-area triangle there, whose normal
-  points anywhere (`tessellation/face.rs`); it shows once the cone's grid is refined, which is
-  why measured refinement is limited to spline, revolution and extrusion faces. Keep grid points
-  off the apex's rulings or drop such triangles without leaving a T-junction.
 - Shell fails on convex faces with a radius below the thickness and at vertices of four or more
   faces whose offsets do not meet (both now reported as such). Drop collapsed faces, and split
   such vertices into edges.

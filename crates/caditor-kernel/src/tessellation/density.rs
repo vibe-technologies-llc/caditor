@@ -101,7 +101,7 @@ pub(crate) fn density(surface: &Surface, bounds: Aabb2, tolerance: &SamplingTole
     }
     let measured = matches!(
         surface,
-        Surface::BSpline(_) | Surface::Revolution(_) | Surface::Extrusion(_)
+        Surface::BSpline(_) | Surface::Revolution(_) | Surface::Extrusion(_) | Surface::Cone(_)
     );
     for _ in 0..if measured { REFINEMENTS } else { 0 } {
         let deviation = grid_deviation(surface, bounds, u_segments, v_segments);

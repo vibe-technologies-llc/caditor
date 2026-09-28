@@ -252,19 +252,21 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Tessellation samples each edge once and shares its positions between both faces. Each face is a
     constrained Delaunay triangulation (spade) of its loops in (u, v), scaled by the mean surface
     speeds, plus a uniform grid of interior points spaced by curvature (normal curvature and twist,
-    sampled on a lattice that also covers every knot span; spline, revolution and extrusion faces
-    are then refined until the grid's cells stay within the chord tolerance) and kept clear of the
-    boundary (a direction without curvature gets cells at most four times longer than the curved
+    sampled on a lattice that also covers every knot span; spline, revolution, extrusion and cone
+    faces are then refined until the grid's cells stay within the chord tolerance) and kept clear of
+    the boundary (a direction without curvature gets cells at most four times longer than the curved
     one's, so no triangle spans far across a curved direction); triangles are kept by the parity of
     constraint crossings from outside. Consecutive boundary points at the same vertex whose
     parameters differ by a spatially negligible gap (an edge ending within the resolution of its
     vertex) are merged, so such joints do not become spikes. Pole-line points share the pole's
-    position and the triangles that collapse there are dropped, so the mesh stays watertight. `Mesh`
-    holds shared positions, per-face vertices with exact surface normals, triangles, each face's
-    triangle range and each edge's polyline, and computes volume, area and centroid by the
-    divergence theorem. When a face boundary crosses itself at the requested tolerance (loops closer
-    than the sampling error), tessellation retries with halved chord and angle a few times before
-    failing.
+    position and the triangles that collapse there are dropped, so the mesh stays watertight. A
+    straight edge ending at a pole (a ruling to a cone's apex) is sampled at the grid's row spacing
+    of the faces it bounds, since with only its ends the triangles between it and the next grid
+    column would fan from the apex along one ruling and have no area. `Mesh` holds shared positions,
+    per-face vertices with exact surface normals, triangles, each face's triangle range and each
+    edge's polyline, and computes volume, area and centroid by the divergence theorem. When a face
+    boundary crosses itself at the requested tolerance (loops closer than the sampling error),
+    tessellation retries with halved chord and angle a few times before failing.
   - Naming (`naming/`): `FaceName`, `EdgeName` and `VertexName` are 128-bit FNV-1a digests over a
     canonical little-endian encoding with a tag byte per constructor; they are stored in files, so
     the encoding and the pinned digests in `naming/tests.rs` never change. Faces: `side(feature,
