@@ -36,6 +36,8 @@ pub enum IntersectionError {
     InvalidBounds,
     #[error("the intersection needs more than {0} subdivisions")]
     TooComplex(usize),
+    #[error("an intersection curve could not be followed to its end")]
+    Unfollowable,
     #[error(transparent)]
     Geometry(#[from] GeometryError),
 }

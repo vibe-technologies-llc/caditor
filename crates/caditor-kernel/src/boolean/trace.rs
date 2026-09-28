@@ -16,6 +16,8 @@ const PERIOD_SHIFTS: [f64; 3] = [0.0, -1.0, 1.0];
 const JOINT_MATCH: f64 = 1e-6;
 const INTERIOR_POINTS: usize = 3;
 const SPAN_OFFSETS: [f64; 3] = [0.5, 0.37, 0.61];
+const POLE_RING: usize = 8;
+const POLE_OFFSET: f64 = 1e-3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct HalfEdge {
@@ -232,10 +234,38 @@ fn vertex_normal(
     hint: Option<Point2>,
 ) -> Option<Vector3> {
     let point = arrangement.point(vertex)?;
-    let uv = chart
-        .surface
-        .project(point, Some(hint.unwrap_or(chart.center)));
-    Some(chart.surface.normal(uv.x, uv.y)? * chart.sense.sign())
+    let surface = chart.surface;
+    let uv = surface.project(point, Some(hint.unwrap_or(chart.center)));
+    let normal = match surface.pole_at(uv) {
+        Some(pole) => pole_normal(surface, pole.v)?,
+        None => surface.normal(uv.x, uv.y)?,
+    };
+    Some(normal * chart.sense.sign())
+}
+
+fn pole_normal(surface: &Surface, pole: f64) -> Option<Vector3> {
+    let domain = surface.v_domain();
+    let span = domain.end() - domain.start();
+    let offset = if span.is_finite() {
+        POLE_OFFSET.min(span * POLE_OFFSET)
+    } else {
+        POLE_OFFSET
+    };
+    let inward = if (pole - domain.start()).abs() <= (pole - domain.end()).abs() {
+        offset
+    } else {
+        -offset
+    };
+    let period = surface.u_period().unwrap_or(TAU);
+    let start = surface.u_domain().start();
+    let start = if start.is_finite() { start } else { 0.0 };
+    let sum = (0..POLE_RING)
+        .filter_map(|index| {
+            let u = start + period * index as f64 / POLE_RING as f64;
+            surface.normal(u, pole + inward)
+        })
+        .fold(Vector3::ZERO, |sum, normal| sum + normal);
+    sum.try_normalize()
 }
 
 pub(super) fn trace(

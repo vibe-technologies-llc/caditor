@@ -539,3 +539,14 @@ fn an_interrupted_boolean_and_tessellation_stop_with_cancelled() {
     ));
     assert!(boolean(&first, &second, BooleanOperation::Union).is_ok());
 }
+
+#[test]
+fn a_cut_through_a_cone_apex_leaves_half_the_cone() {
+    let cone = crate::fixtures::cone(3.0, 4.0);
+    let half = block((0.0, -5.0, -1.0), (5.0, 5.0, 5.0));
+    let result = boolean(&cone, &half, BooleanOperation::Difference).unwrap();
+    check("half cone", &result, 6.0 * PI);
+    let quarter = block((-5.0, 0.0, -1.0), (5.0, 5.0, 5.0));
+    let result = boolean(&result, &quarter, BooleanOperation::Difference).unwrap();
+    check("quarter cone", &result, 3.0 * PI);
+}

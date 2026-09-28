@@ -41,18 +41,12 @@ within a category run from most to least important.
   `TooThick`), and fails on convex faces with a radius below the thickness and at vertices of
   four or more faces whose offsets do not meet. Add distinct errors, drop collapsed faces, and
   split such vertices into edges.
-- The marcher treats step collapse and the step cap as a tangent end (`march.rs`), and
-  `prune_dangling` then discards the incomplete cut, so failures surface far away as
-  `Ambiguous` or a wrong keep. Report them as errors.
-- The loop tracer orders edges at a cone apex by the normal of one ruling (`trace.rs`
-  `vertex_normal`), so cuts through the apex can take the wrong next edge. Order by uv direction
-  at poles.
 - Spline surfaces that coincide over only part of their extent are not seen as coincident
   (`coincidence.rs` samples the whole domain), so booleans march between identical surfaces.
 - Validation does not check faces or loops against each other, so self-intersecting imports pass
   and fail later in booleans.
 - Untested: spline surfaces in intersections, booleans, blends and shells; import edge naming;
-  every blend and shell refusal branch; cuts through a cone apex.
+  every blend and shell refusal branch.
 
 ## Kernel performance
 

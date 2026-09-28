@@ -162,6 +162,11 @@ struct Marched {
     tangent_end: bool,
 }
 
+enum Stalled {
+    Tangent,
+    Collapsed,
+}
+
 struct Step {
     contact: Contact,
     tangent: Vector3,
@@ -348,11 +353,11 @@ impl<'a> Tracer<'a> {
         best
     }
 
-    fn step(&self, current: &Contact, tangent: Vector3, step: &mut f64) -> Option<Step> {
+    fn step(&self, current: &Contact, tangent: Vector3, step: &mut f64) -> Result<Step, Stalled> {
         let surfaces = self.surfaces();
-        let (direction, sine) = contact_direction(surfaces, current)?;
+        let (direction, sine) = contact_direction(surfaces, current).ok_or(Stalled::Tangent)?;
         if sine < STOP_SINE {
-            return None;
+            return Err(Stalled::Tangent);
         }
         let direction = if direction.dot(tangent) < 0.0 {
             -direction
@@ -402,11 +407,11 @@ impl<'a> Tracer<'a> {
             if let Some(found) = accepted {
                 let growth = (TARGET_TURN / found.turn.max(1e-6)).clamp(0.5, 2.0);
                 *step = (h * growth).min(self.max_step);
-                return Some(found);
+                return Ok(found);
             }
             *step *= 0.5;
         }
-        None
+        Err(Stalled::Collapsed)
     }
 
     fn exit(&self, inside: &Contact, outside: &Contact) -> Option<Contact> {
@@ -511,14 +516,14 @@ impl<'a> Tracer<'a> {
         Some(low)
     }
 
-    fn march(&self, seed: &Contact, forward: bool) -> Marched {
+    fn march(&self, seed: &Contact, forward: bool) -> Result<Marched, IntersectionError> {
         let mut contacts = vec![*seed];
         let Some((initial, _)) = contact_direction(self.surfaces(), seed) else {
-            return Marched {
+            return Ok(Marched {
                 contacts,
                 closed: false,
                 tangent_end: true,
-            };
+            });
         };
         let seed_tangent = if forward { initial } else { -initial };
         let mut tangent = seed_tangent;
@@ -529,12 +534,16 @@ impl<'a> Tracer<'a> {
             let Some(current) = contacts.last().copied() else {
                 break;
             };
-            let Some(next) = self.step(&current, tangent, &mut step) else {
-                return Marched {
-                    contacts,
-                    closed: false,
-                    tangent_end: true,
-                };
+            let next = match self.step(&current, tangent, &mut step) {
+                Ok(next) => next,
+                Err(Stalled::Tangent) => {
+                    return Ok(Marched {
+                        contacts,
+                        closed: false,
+                        tangent_end: true,
+                    });
+                }
+                Err(Stalled::Collapsed) => return Err(IntersectionError::Unfollowable),
             };
             if !self.inside(&next.contact) {
                 if let Some(boundary) = self.exit(&current, &next.contact)
@@ -542,40 +551,40 @@ impl<'a> Tracer<'a> {
                 {
                     contacts.push(boundary);
                 }
-                return Marched {
+                return Ok(Marched {
                     contacts,
                     closed: false,
                     tangent_end: false,
-                };
+                });
             }
             if steps >= 3 && closes(seed, seed_tangent, &current, &next) {
                 contacts.push(*seed);
-                return Marched {
+                return Ok(Marched {
                     contacts,
                     closed: true,
                     tangent_end: false,
-                };
+                });
             }
             let merged = self.distance_to_branches(next.contact.point) <= ON_BRANCH;
             contacts.push(next.contact);
             tangent = next.tangent;
             if merged {
-                break;
+                return Ok(Marched {
+                    contacts,
+                    closed: false,
+                    tangent_end: false,
+                });
             }
         }
-        Marched {
-            contacts,
-            closed: false,
-            tangent_end: false,
-        }
+        Err(IntersectionError::Unfollowable)
     }
 
-    fn trace(&mut self, seed: &Seed) {
-        let forward = self.march(&seed.contact, true);
+    fn trace(&mut self, seed: &Seed) -> Result<(), IntersectionError> {
+        let forward = self.march(&seed.contact, true)?;
         let (contacts, closed, ends) = if forward.closed {
             (forward.contacts, true, Vec::new())
         } else {
-            let backward = self.march(&seed.contact, false);
+            let backward = self.march(&seed.contact, false)?;
             let mut ends = Vec::new();
             if backward.tangent_end
                 && let Some(first) = backward.contacts.last()
@@ -596,17 +605,18 @@ impl<'a> Tracer<'a> {
             tangent: true,
         }));
         if contacts.len() < 2 {
-            return;
+            return Ok(());
         }
         let [first, second] = self.surfaces();
         let Some(curve) =
             IntersectionCurve::from_contacts([first.clone(), second.clone()], &contacts, closed)
         else {
-            return;
+            return Ok(());
         };
         let curve = Curve::Intersection(curve);
         let bounds = curve.bounding_box(curve.domain().clipped(1.0));
         self.curves.push((curve, bounds));
+        Ok(())
     }
 }
 
@@ -650,7 +660,7 @@ pub(crate) fn intersect(
         if tracer.distance_to_branches(seed.contact.point) <= ON_BRANCH {
             continue;
         }
-        tracer.trace(seed);
+        tracer.trace(seed)?;
     }
     let mut raw = Raw::default();
     for touch in touches {

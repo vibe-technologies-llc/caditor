@@ -345,7 +345,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
       holding a transversal seed is skipped. Branches march both ways from each seed not already
       on a branch, with steps limited by the turn of the tangent, stop exactly on the box boundary
       (a parameter-constrained solve), close loops through the seed and end where the normals
-      become parallel (reported as tangent points). Near poles the contact is solved with one
+      become parallel (reported as tangent points); a step that collapses or a branch longer
+      than the step cap fails as `IntersectionError::Unfollowable` rather than ending there. Near poles the contact is solved with one
       surface as carrier and the other's signed distance. A marched branch that is a line, circle
       or ellipse within half the resolution is returned as that curve.
   - Point classification (`topology/classify.rs`, `SolidClassifier` to reuse per solid):
@@ -387,8 +388,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
       edge and coincident faces need no special case.
     - Each face is traced into loops from its boundary pieces (hinted by the original pcurves) and
       its cuts (both ways, dangling ones pruned): at each vertex the next edge is the first one
-      clockwise from the arriving one about the outward normal, with ties and cusps decided by
-      chords at a common distance. Loops are fitted in the face's chart; a run of cuts leaving a
+      clockwise from the arriving one about the outward normal (at a pole, the mean normal of a
+      ring around it, so rulings through a cone apex are ordered by azimuth), with ties and cusps
+      decided by chords at a common distance. Loops are fitted in the face's chart; a run of cuts leaving a
       pole is shifted by whole periods to meet the next boundary edge, pcurve ends are snapped to
       their vertices, and a hole goes to the smallest outer loop containing a point of it that is
       not on that loop.
