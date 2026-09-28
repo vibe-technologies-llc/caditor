@@ -7,7 +7,9 @@ use std::{
 
 use caditor_expression::{Dimension, EvalError, ParameterId, Quantity};
 use caditor_kernel::{Interrupt, Profile, ProfileError, Solid, interruptible};
-use caditor_sketch::{ConstraintId, DimensionError, Sketch, SketchError, SketchSolution, Solved};
+use caditor_sketch::{
+    ConstraintId, DimensionError, Sketch, SketchError, SketchSolution, SolveMemo, Solved,
+};
 
 use crate::{
     attachment, blend,
@@ -76,6 +78,7 @@ impl From<FeatureError> for Failure {
 pub struct SketchResult {
     pub geometry: Sketch,
     pub solution: SketchSolution,
+    memo: SolveMemo,
     profile: OnceLock<Box<Result<Profile, ProfileError>>>,
     regions: OnceLock<Result<Vec<SketchRegion>, ProfileError>>,
 }
@@ -90,12 +93,21 @@ impl PartialEq for SketchResult {
 
 impl SketchResult {
     pub fn new(geometry: Sketch, solution: SketchSolution) -> Self {
+        Self::remembering(geometry, solution, SolveMemo::default())
+    }
+
+    fn remembering(geometry: Sketch, solution: SketchSolution, memo: SolveMemo) -> Self {
         Self {
             geometry,
             solution,
+            memo,
             profile: OnceLock::new(),
             regions: OnceLock::new(),
         }
+    }
+
+    pub fn memo(&self) -> &SolveMemo {
+        &self.memo
     }
 
     pub fn regions(&self) -> Option<&Result<Vec<SketchRegion>, ProfileError>> {
@@ -178,6 +190,7 @@ pub struct Inputs<'a> {
     pub parameters: &'a ParameterValues,
     pub features: &'a BTreeMap<FeatureId, Arc<FeatureResult>>,
     pub bodies: &'a BTreeMap<FeatureId, (FeatureId, Arc<FeatureResult>)>,
+    pub previous: Option<&'a FeatureResult>,
 }
 
 impl Inputs<'_> {
@@ -426,6 +439,7 @@ impl Recompute {
                             parameters: &parameters,
                             features: &current,
                             bodies: &bodies,
+                            previous: last_good.as_deref(),
                         },
                         cancel,
                     ),
@@ -652,17 +666,28 @@ impl Evaluator for ModelEvaluator {
                     .map(|attachment| attachment::attached_plane(feature, attachment, inputs))
                     .transpose()?;
                 let sketch = &definition.sketch;
-                let solved =
-                    sketch.solve(&|id| inputs.parameters.value(id), &|| cancel.is_cancelled());
+                let memo = inputs
+                    .previous
+                    .and_then(FeatureResult::sketch)
+                    .map(|previous| &previous.memo);
+                let solved = sketch.solve_from(
+                    &|id| inputs.parameters.value(id),
+                    &|| cancel.is_cancelled(),
+                    &[],
+                    memo,
+                );
                 match solved {
                     Ok(Solved {
                         mut geometry,
                         solution,
+                        memo,
                     }) => {
                         if let Some(plane) = plane {
                             geometry.set_plane(plane);
                         }
-                        Ok(FeatureResult::Sketch(SketchResult::new(geometry, solution)))
+                        Ok(FeatureResult::Sketch(SketchResult::remembering(
+                            geometry, solution, memo,
+                        )))
                     }
                     Err(SketchError::Cancelled) => Err(Failure::Cancelled),
                     Err(error) => Err(Failure::Error(sketch_error(feature.id(), sketch, &error))),

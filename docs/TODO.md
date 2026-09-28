@@ -25,12 +25,6 @@ within a category run from most to least important.
 - Slow tests to keep an eye on: STEP `every_fixture_survives_a_round_trip` (7 s),
   `blend::every_edge_of_assorted_prisms` (6 s) and about 40 UI tests at over a second each.
 
-## Sketch solver
-
-- No incremental solve: every edit re-solves and re-analyses the whole sketch. Solve only the
-  parts an edit touches, which dragging in the viewport will need at interactive rates.
-- Untested: branch keeping under perturbation.
-
 ## Kernel correctness
 
 - A grid point on the same ruling as a cone apex makes a zero-area triangle there, whose normal

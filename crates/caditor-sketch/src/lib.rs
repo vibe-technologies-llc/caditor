@@ -14,5 +14,5 @@ pub use crate::{
     fit::FittedSpline,
     id::{ConstraintId, EntityId, Reference},
     sketch::{DimensionValues, Sketch, SketchError},
-    solve::{Drag, EntityState, Redundancy, SketchSolution, Solved},
+    solve::{Drag, EntityState, Redundancy, SketchSolution, SolveMemo, Solved},
 };

@@ -628,3 +628,68 @@ fn restoring_an_earlier_version_never_lowers_a_sketch_counter() {
     assert!(document.same_content(&version));
     assert_eq!(next_sketch_id(&document, feature), reached);
 }
+
+#[test]
+fn recompute_reanalyses_only_the_parts_of_a_sketch_an_edit_touches() {
+    let shape = rectangle();
+    let feature = shape.feature;
+    let mut document = shape.document.clone();
+    let mut transaction = document.transaction("Add circle");
+    let center = transaction.add_sketch_entity(feature, Entity::Point(Point2::new(60.0, 10.0)));
+    let circle = transaction.add_sketch_entity(
+        feature,
+        Entity::Circle {
+            center,
+            radius: 4.0,
+        },
+    );
+    let radius = transaction.add_sketch_constraint(
+        feature,
+        Constraint::Radius {
+            entity: circle,
+            value: transaction.parse("4 mm").unwrap(),
+        },
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let mut engine = crate::Recompute::default();
+    let run = |engine: &mut crate::Recompute, document: &Document| {
+        engine.run(
+            document,
+            &crate::ModelEvaluator,
+            &crate::CancelToken::never(),
+            &|_, _| {},
+        )
+    };
+    let first = run(&mut engine, &document);
+    let solved = first
+        .feature(feature)
+        .and_then(|status| status.result.as_deref())
+        .and_then(crate::FeatureResult::sketch)
+        .unwrap()
+        .geometry
+        .clone();
+    let mut transaction = document.transaction("Settle");
+    transaction.settle_sketch(feature, &solved);
+    document.apply(transaction.finish()).unwrap();
+    document
+        .apply(Transaction::single(
+            "Set radius",
+            Edit::SetDimension {
+                feature,
+                constraint: radius,
+                value: document.parse("6 mm").unwrap(),
+            },
+        ))
+        .unwrap();
+
+    let second = run(&mut engine, &document);
+    let result = second
+        .feature(feature)
+        .and_then(|status| status.result.as_deref())
+        .and_then(crate::FeatureResult::sketch)
+        .unwrap();
+    assert_eq!(result.memo().recalled(), 1);
+    assert_eq!(result.geometry.circle(circle).unwrap().1, 6.0);
+    assert_eq!(result.solution.degrees_of_freedom(), 2);
+}

@@ -172,6 +172,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     QuickXplain-style divide and conquer over its constraints (newest preferred, re-solving
     only the failed parts) finds a minimal set of conflicting constraints, which recompute
     reports as the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
+    `Sketch::solve_from` takes the `SolveMemo` of the previous solve (recompute passes the
+    feature's last good `SketchResult::memo`): each part is keyed by its entities, constraints,
+    dimension values, starting values and the solver's scale, and remembered under both its
+    starting and its solved values, so a part an edit did not touch starts from its old
+    solution and reuses its rank analysis once its solved values match exactly.
 - **caditor-kernel**: caditor's own B-rep geometry kernel (no truck, no OpenCascade), the base of
   solid modelling.
   - Cancellation (`interrupt.rs`): `interruptible(interrupt, work)` installs a check for the

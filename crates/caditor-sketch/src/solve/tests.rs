@@ -960,3 +960,82 @@ fn dragging_a_corner_of_a_free_rectangle_moves_the_rest_with_it() {
     let (_, far) = solved.geometry.line_endpoints(lines[1]).unwrap();
     assert_near(far, Point2::new(7.0, 4.0));
 }
+
+#[test]
+fn a_start_that_needs_perturbing_keeps_the_tangency_it_was_drawn_with() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let base = sketch.add_line(Point2::ZERO, Point2::new(4.0, 0.0));
+    let (a, b) = ends(&sketch, base);
+    add(&mut sketch, Constraint::Coincident(a, EntityId::ORIGIN));
+    let c = sketch.add_point(Point2::new(2.0, 0.0));
+    for (from, to, length) in [(a, b, 4.0), (b, c, 3.0), (a, c, 5.0)] {
+        add(
+            &mut sketch,
+            Constraint::Distance {
+                from,
+                to,
+                value: mm(length),
+            },
+        );
+    }
+    let first = sketch.add_circle(Point2::new(4.0, 0.0), 1.0);
+    let second = sketch.add_circle(Point2::new(2.0, 0.0), 1.0);
+    let first_center = center(&sketch, first);
+    let second_center = center(&sketch, second);
+    add(&mut sketch, Constraint::Coincident(first_center, b));
+    add(&mut sketch, Constraint::Coincident(second_center, c));
+    add(&mut sketch, Constraint::Tangent(first, second));
+
+    let solved = solve(&sketch).unwrap();
+    assert_finite(&solved);
+    assert!((at(&solved, a).distance(at(&solved, b)) - 4.0).abs() < EXACT);
+    assert!((at(&solved, b).distance(at(&solved, c)) - 3.0).abs() < EXACT);
+    assert!((at(&solved, a).distance(at(&solved, c)) - 5.0).abs() < EXACT);
+    let (_, first_radius) = solved.geometry.circle(first).unwrap();
+    let (_, second_radius) = solved.geometry.circle(second).unwrap();
+    assert!((first_radius + second_radius - 3.0).abs() < EXACT);
+}
+
+#[test]
+fn an_edit_reanalyses_only_the_parts_it_touches() {
+    let first = rectangle([
+        Point2::new(0.0, 0.0),
+        Point2::new(40.0, 0.0),
+        Point2::new(40.0, 20.0),
+        Point2::new(0.0, 20.0),
+    ]);
+    let mut sketch = first.sketch;
+    let circle = sketch.add_circle(Point2::new(80.0, 10.0), 4.0);
+    let radius = add(
+        &mut sketch,
+        Constraint::Radius {
+            entity: circle,
+            value: mm(4.0),
+        },
+    );
+    let line = sketch.add_line(Point2::new(60.0, 30.0), Point2::new(70.0, 31.0));
+    add(&mut sketch, Constraint::Horizontal(line));
+
+    let fresh = solve(&sketch).unwrap();
+    assert_eq!(fresh.memo.remembered(), 4);
+    assert_eq!(fresh.memo.recalled(), 0);
+    let mut settled = fresh.geometry.clone();
+    let again = settled
+        .solve_from(&no_parameters, &|| false, &[], Some(&fresh.memo))
+        .unwrap();
+    assert_eq!(again.memo.recalled(), 3);
+    assert_eq!(again.solution, fresh.solution);
+    assert_eq!(again.geometry, fresh.geometry);
+
+    settled
+        .set_dimension(radius, mm(6.0))
+        .expect("the radius takes a new value");
+    let edited = settled
+        .solve_from(&no_parameters, &|| false, &[], Some(&again.memo))
+        .unwrap();
+    let from_scratch = solve(&settled).unwrap();
+    assert_eq!(edited.memo.recalled(), 2);
+    assert_eq!(edited.solution, from_scratch.solution);
+    assert_eq!(edited.geometry, from_scratch.geometry);
+    assert_eq!(edited.geometry.circle(circle).unwrap().1, 6.0);
+}

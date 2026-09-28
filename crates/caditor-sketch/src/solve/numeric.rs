@@ -366,34 +366,31 @@ impl Solver<'_> {
         (rows, residuals)
     }
 
-    pub fn analyze(&self, active: &[usize], values: &[f64]) -> Analysis {
-        let mut analysis = Analysis::default();
+    pub fn analyze_component(&self, component: &Component, values: &[f64]) -> ComponentAnalysis {
+        let mut analysis = ComponentAnalysis::default();
         let mut contributions = BTreeMap::new();
-        for component in components(self.system, active, values) {
-            self.analyze_component(&component, values, &mut analysis, &mut contributions);
+        if component.variables.len() > DENSE_LIMIT {
+            self.analyze_sparse(component, values, &mut analysis, &mut contributions);
+        } else {
+            self.analyze_dense(component, values, &mut analysis, &mut contributions);
         }
-        analysis.redundancies = contributions
+        analysis.contributions = contributions
             .into_iter()
-            .filter(|(_, contribution)| !contribution.adds_rank)
-            .map(|(constraint, contribution)| Redundancy {
-                constraint,
-                duplicates: contribution.duplicates.into_iter().collect(),
+            .map(|(constraint, contribution)| {
+                let duplicates = contribution.duplicates.into_iter().collect();
+                (constraint, contribution.adds_rank, duplicates)
             })
             .collect();
         analysis
     }
 
-    fn analyze_component(
+    fn analyze_dense(
         &self,
         component: &Component,
         values: &[f64],
-        analysis: &mut Analysis,
+        analysis: &mut ComponentAnalysis,
         contributions: &mut BTreeMap<ConstraintId, Contribution>,
     ) {
-        if component.variables.len() > DENSE_LIMIT {
-            self.analyze_sparse(component, values, analysis, contributions);
-            return;
-        }
         let mut groups: BTreeMap<Option<ConstraintId>, Vec<Vec<f64>>> = BTreeMap::new();
         let mut gradient = Gradient::new();
         for equation in self.equations(component) {
@@ -446,7 +443,7 @@ impl Solver<'_> {
         &self,
         component: &Component,
         values: &[f64],
-        analysis: &mut Analysis,
+        analysis: &mut ComponentAnalysis,
         contributions: &mut BTreeMap<ConstraintId, Contribution>,
     ) {
         let mut groups: BTreeMap<Option<ConstraintId>, Vec<sparse::Row>> = BTreeMap::new();
@@ -495,6 +492,38 @@ pub(crate) struct Analysis {
     pub rank: usize,
     pub fixed: Vec<usize>,
     pub redundancies: Vec<Redundancy>,
+}
+
+impl Analysis {
+    pub fn combine(parts: impl IntoIterator<Item = ComponentAnalysis>) -> Self {
+        let mut analysis = Self::default();
+        let mut contributions: BTreeMap<ConstraintId, Contribution> = BTreeMap::new();
+        for part in parts {
+            analysis.rank += part.rank;
+            analysis.fixed.extend(part.fixed);
+            for (constraint, adds_rank, duplicates) in part.contributions {
+                let contribution = contributions.entry(constraint).or_default();
+                contribution.adds_rank |= adds_rank;
+                contribution.duplicates.extend(duplicates);
+            }
+        }
+        analysis.redundancies = contributions
+            .into_iter()
+            .filter(|(_, contribution)| !contribution.adds_rank)
+            .map(|(constraint, contribution)| Redundancy {
+                constraint,
+                duplicates: contribution.duplicates.into_iter().collect(),
+            })
+            .collect();
+        analysis
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct ComponentAnalysis {
+    pub rank: usize,
+    pub fixed: Vec<usize>,
+    pub contributions: Vec<(ConstraintId, bool, Vec<ConstraintId>)>,
 }
 
 #[derive(Debug, Clone, Default)]

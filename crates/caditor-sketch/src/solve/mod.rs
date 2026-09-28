@@ -1,4 +1,5 @@
 mod equation;
+mod memo;
 mod numeric;
 mod sparse;
 mod system;
@@ -10,13 +11,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use caditor_expression::{EvalError, ParameterId, Quantity};
 use caditor_geometry::Point2;
 
-pub use crate::solve::numeric::Redundancy;
+pub use crate::solve::{memo::SolveMemo, numeric::Redundancy};
 use crate::{
     id::{ConstraintId, EntityId},
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{
         equation::value,
-        numeric::{Analysis, Cancelled, Component, FROZEN, STIFF, Solver},
+        memo::Recall,
+        numeric::{Analysis, Cancelled, Component, FROZEN, STIFF, Solver, components},
         system::System,
     },
 };
@@ -104,6 +106,7 @@ pub struct Drag {
 pub struct Solved {
     pub geometry: Sketch,
     pub solution: SketchSolution,
+    pub memo: SolveMemo,
 }
 
 impl From<Cancelled> for SketchError {
@@ -133,6 +136,19 @@ impl Sketch {
     where
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
+        self.solve_from(value_of, cancelled, drags, None)
+    }
+
+    pub fn solve_from<F>(
+        &self,
+        value_of: &F,
+        cancelled: &dyn Fn() -> bool,
+        drags: &[Drag],
+        previous: Option<&SolveMemo>,
+    ) -> Result<Solved, SketchError>
+    where
+        F: Fn(ParameterId) -> Result<Quantity, EvalError>,
+    {
         let dimensions = self.evaluate(value_of)?;
         let mut system = System::build(self, &dimensions)?;
         let mut stiff = BTreeSet::new();
@@ -150,29 +166,41 @@ impl Sketch {
             }
         }
         let every_equation: Vec<usize> = (0..system.equations.len()).collect();
+        let mut recall = Recall::new(&system, &dimensions, &every_equation, &stiff, previous);
+        let mut start = system.values.clone();
+        recall.start_from(&mut start);
         let frozen = Solver {
             system: &system,
             cancelled,
             stiff: &stiff,
             stiffness: FROZEN,
         };
-        let mut values = system.values.clone();
+        let mut values = start.clone();
         let held = !stiff.is_empty() && frozen.solve(&every_equation, &mut values)?.is_empty();
         let solver = Solver {
             stiffness: STIFF,
             ..frozen
         };
         if !held {
-            values = system.values.clone();
+            values = start;
             let failed = solver.solve(&every_equation, &mut values)?;
             if !failed.is_empty() {
                 return Err(diagnose_failure(&solver, &failed)?);
             }
         }
-        let analysis = solver.analyze(&every_equation, &values);
+        let parts: Vec<_> = components(&system, &every_equation, &values)
+            .iter()
+            .map(|component| {
+                recall.analysis(component, &values, || {
+                    solver.analyze_component(component, &values)
+                })
+            })
+            .collect();
+        let analysis = Analysis::combine(parts);
         Ok(Solved {
             geometry: self.with_values(&system, &values),
             solution: SketchSolution::new(dimensions, &system, analysis),
+            memo: recall.finish(),
         })
     }
 
