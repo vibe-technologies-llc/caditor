@@ -2,7 +2,11 @@ use std::time::Duration;
 
 use caditor_render::{Frame, Renderer};
 use egui_wgpu::ScreenDescriptor;
-use winit::window::Window;
+use egui_winit::accesskit_winit;
+use winit::{
+    event_loop::{ActiveEventLoop, EventLoopProxy},
+    window::Window,
+};
 
 const LONGEST_SCHEDULED_REPAINT: Duration = Duration::from_secs(3600);
 
@@ -39,6 +43,33 @@ impl Overlay {
             context,
             state,
             renderer,
+        }
+    }
+
+    pub fn enable_accessibility<T: From<accesskit_winit::Event> + Send>(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window: &Window,
+        proxy: EventLoopProxy<T>,
+    ) {
+        if window.is_visible() == Some(true) {
+            log::warn!("screen readers are unavailable: the window was shown too early");
+            return;
+        }
+        self.state.init_accesskit(event_loop, window, proxy);
+    }
+
+    pub fn on_accessibility_event(&mut self, event: accesskit_winit::WindowEvent) {
+        match event {
+            accesskit_winit::WindowEvent::InitialTreeRequested => {
+                self.context.enable_accesskit();
+            }
+            accesskit_winit::WindowEvent::ActionRequested(request) => {
+                self.state.on_accesskit_action_request(request);
+            }
+            accesskit_winit::WindowEvent::AccessibilityDeactivated => {
+                self.context.disable_accesskit();
+            }
         }
     }
 

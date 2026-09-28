@@ -165,10 +165,6 @@ within a category run from most to least important.
 - Dragging a navigation slider writes and fsyncs `preferences.json` every frame.
 - Sketch curves are faceted at a fixed 3° regardless of size or zoom.
 
-## Keyboard, accessibility and look
-
-- No screen-reader support: the egui AccessKit integration is off.
-
 ## Sketching
 
 - The arc end snaps to a target not on its circle and keeps the `Coincident`, so the solver

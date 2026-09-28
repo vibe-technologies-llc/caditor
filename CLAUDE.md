@@ -825,7 +825,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     dismissed ones.
   - About and the command line (`about.rs`, `cli.rs`): Help › About caditor shows the version
     and licences. `caditor [MODEL]` opens one model; `--version` and `--help` print and exit, and
-    unknown options or several paths are refused. The window's Wayland app ID and X11 class are
+    unknown options or several paths are refused. Screen readers reach the interface through
+    egui's AccessKit integration (`egui-winit`'s `accesskit` feature): the window is created
+    hidden, the adapter is attached (`Overlay::enable_accessibility`) and then it is shown, and
+    `AppEvent::Accessibility` carries the adapter's requests to the overlay. The window's
+    Wayland app ID and X11 class are
     `about::APP_ID` (`caditor`), which must match the desktop entry's name.
   - Export (`export.rs`): File › Export… (Ctrl+E) opens a dialog with the format (STL, 3MF or
     STEP), for meshes the resolution (showing the resulting deviation in millimetres) and a

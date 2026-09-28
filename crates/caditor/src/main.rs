@@ -127,7 +127,7 @@ fn main() -> Result<()> {
             .map(caditor_file::Settings::load)
             .unwrap_or_default(),
     );
-    let mut app = App::new(model, files, preferences, open);
+    let mut app = App::new(model, files, preferences, open, event_loop.create_proxy());
     event_loop.run_app(&mut app)?;
     app.finish()
 }

@@ -2,6 +2,7 @@ use std::{path::PathBuf, sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
 use caditor_render::{Renderer, SurfaceSize, ViewportFrame, WindowTarget};
+use egui_winit::accesskit_winit;
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -32,9 +33,16 @@ use crate::{
     viewport::ViewportState,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum AppEvent {
     Wake,
+    Accessibility(accesskit_winit::Event),
+}
+
+impl From<accesskit_winit::Event> for AppEvent {
+    fn from(event: accesskit_winit::Event) -> Self {
+        Self::Accessibility(event)
+    }
 }
 
 pub fn waker_factory(proxy: EventLoopProxy<AppEvent>) -> WakerFactory {
@@ -385,6 +393,7 @@ pub struct App {
     preferences: Preferences,
     session: Option<Session>,
     startup_error: Option<anyhow::Error>,
+    proxy: EventLoopProxy<AppEvent>,
 }
 
 impl App {
@@ -393,6 +402,7 @@ impl App {
         mut files: Files,
         preferences: Preferences,
         open: Option<PathBuf>,
+        proxy: EventLoopProxy<AppEvent>,
     ) -> Self {
         model.set_length_unit(preferences.unit);
         files.settings_loaded(preferences.settings());
@@ -403,6 +413,7 @@ impl App {
             preferences,
             session: None,
             startup_error: None,
+            proxy,
         }
     }
 
@@ -423,7 +434,8 @@ impl ApplicationHandler<AppEvent> for App {
             return;
         }
         let preferences = self.preferences.clone();
-        match Session::open(event_loop, &window_title(&self.model), preferences) {
+        let title = window_title(&self.model);
+        match Session::open(event_loop, &title, preferences, self.proxy.clone()) {
             Ok(session) => self.session = Some(session),
             Err(error) => {
                 self.startup_error = Some(error);
@@ -436,6 +448,14 @@ impl ApplicationHandler<AppEvent> for App {
         match event {
             AppEvent::Wake => {
                 if let Some(session) = &self.session {
+                    session.window.request_redraw();
+                }
+            }
+            AppEvent::Accessibility(event) => {
+                if let Some(session) = &mut self.session
+                    && event.window_id == session.window.id()
+                {
+                    session.overlay.on_accessibility_event(event.window_event);
                     session.window.request_redraw();
                 }
             }
@@ -484,7 +504,9 @@ impl ApplicationHandler<AppEvent> for App {
 }
 
 fn window_attributes(title: &str) -> WindowAttributes {
-    let attributes = Window::default_attributes().with_title(title);
+    let attributes = Window::default_attributes()
+        .with_title(title)
+        .with_visible(false);
     let attributes =
         WindowAttributesExtWayland::with_name(attributes, about::APP_ID, about::APP_ID);
     WindowAttributesExtX11::with_name(attributes, about::APP_ID, about::APP_ID)
@@ -501,7 +523,12 @@ struct Session {
 }
 
 impl Session {
-    fn open(event_loop: &ActiveEventLoop, title: &str, preferences: Preferences) -> Result<Self> {
+    fn open(
+        event_loop: &ActiveEventLoop,
+        title: &str,
+        preferences: Preferences,
+        proxy: EventLoopProxy<AppEvent>,
+    ) -> Result<Self> {
         let window = Arc::new(
             event_loop
                 .create_window(window_attributes(title))
@@ -512,7 +539,9 @@ impl Session {
             surface_size(window.inner_size()),
         ))
         .context("could not start the renderer")?;
-        let overlay = Overlay::new(&window, &renderer);
+        let mut overlay = Overlay::new(&window, &renderer);
+        overlay.enable_accessibility(event_loop, &window, proxy);
+        window.set_visible(true);
         Ok(Self {
             window,
             renderer,
