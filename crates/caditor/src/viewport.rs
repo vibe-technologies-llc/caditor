@@ -14,7 +14,7 @@ use crate::{
     datum_tools,
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
-    model::{Action, Model},
+    model::{Action, Model, RecomputeStatus},
     preferences::Navigation,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
     selection::{Pickable, Selection},
@@ -111,6 +111,8 @@ pub struct ViewportState {
     keyboard_highlight: Option<Pickable>,
     highlightable: Vec<Pickable>,
     typed_point: TypedPoint,
+    session: u64,
+    fit_when_computed: bool,
 }
 
 impl ViewportState {
@@ -144,6 +146,8 @@ impl ViewportState {
             keyboard_highlight: None,
             highlightable: Vec::new(),
             typed_point: TypedPoint::default(),
+            session: 0,
+            fit_when_computed: false,
         }
     }
 
@@ -153,6 +157,10 @@ impl ViewportState {
 
     pub fn edit_dimension(&mut self, feature: FeatureId, constraint: ConstraintId) {
         self.annotations.request_field(feature, constraint);
+    }
+
+    pub fn rect(&self) -> Option<Rect> {
+        self.rect
     }
 
     pub fn selection(&self) -> &Selection {
@@ -205,6 +213,14 @@ impl ViewportState {
     ) {
         if commands.available(Command::FitView) {
             self.fit_requested = true;
+        }
+        if self.session != model.session() {
+            self.session = model.session();
+            self.fit_when_computed = true;
+        }
+        if self.fit_when_computed && model.status() == RecomputeStatus::UpToDate {
+            self.fit_requested = true;
+            self.fit_when_computed = false;
         }
         self.keyboard_commands(model, editing, commands, actions);
         let hint = match commands.keys(Command::FitView) {

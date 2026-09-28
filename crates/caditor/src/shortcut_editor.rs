@@ -10,13 +10,14 @@ const LIST_HEIGHT: f32 = 420.0;
 const RECORDING_TEXT: &str = "Press the keys… (Esc cancels)";
 const RESERVED_TEXT: &str = "Esc, Enter and Tab keep their meaning everywhere (back out, confirm, move between fields), so \
      they cannot be shortcuts.";
-const CATEGORIES: [Category; 6] = [
+const CATEGORIES: [Category; 7] = [
     Category::File,
     Category::Edit,
     Category::View,
     Category::Model,
     Category::Sketch,
     Category::Constraint,
+    Category::Help,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -40,6 +40,7 @@ pub fn show(
     egui::Panel::top("toolbar").show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             files::menu(ui, model, files, context.editing, commands, actions);
+            help_menu(ui, commands);
             palette_button(ui, commands);
             ui.separator();
             history_buttons(ui, model, commands, actions);
@@ -65,6 +66,28 @@ pub fn show(
             }
         });
     });
+}
+
+fn help_menu(ui: &mut Ui, commands: &mut CommandFrame<'_>) {
+    let mut chosen = None;
+    ui.menu_button("Help", |ui| {
+        for command in [
+            Command::Welcome,
+            Command::Palette,
+            Command::KeyboardShortcuts,
+        ] {
+            let mut button = Button::new(command.title());
+            if let Some(keys) = commands.keys(command) {
+                button = button.shortcut_text(keys);
+            }
+            if ui.add(button).clicked() {
+                chosen = Some(command);
+            }
+        }
+    });
+    if let Some(command) = chosen {
+        commands.trigger(command);
+    }
 }
 
 fn palette_button(ui: &mut Ui, commands: &mut CommandFrame<'_>) {

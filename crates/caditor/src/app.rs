@@ -16,6 +16,7 @@ use crate::{
     editing::SketchEditing,
     files::{self, FileCommand, Files},
     model::{Action, Model, Notice, WakerFactory},
+    onboarding::{self, HintChoice, WelcomeChoice},
     overlay::Overlay,
     palette::Palette,
     panels::{self, PanelState},
@@ -57,6 +58,7 @@ pub struct Workspace {
     pub preferences_open: bool,
     pub palette: Palette,
     pub shortcut_editor: Option<ShortcutEditor>,
+    pub welcome_open: bool,
     applied_appearance: Option<Appearance>,
     keyboard_was_taken: bool,
 }
@@ -64,10 +66,13 @@ pub struct Workspace {
 impl Workspace {
     #[cfg(test)]
     pub fn new() -> Self {
-        Self::with_preferences(Preferences::default())
+        let mut preferences = Preferences::default();
+        preferences.onboarding = crate::onboarding::Onboarding::finished();
+        Self::with_preferences(preferences)
     }
 
     pub fn with_preferences(preferences: Preferences) -> Self {
+        let welcome_open = !preferences.onboarding.welcomed;
         let mut viewport = ViewportState::new();
         viewport.set_navigation(preferences.navigation);
         Self {
@@ -78,6 +83,7 @@ impl Workspace {
             preferences_open: false,
             palette: Palette::default(),
             shortcut_editor: None,
+            welcome_open,
             applied_appearance: None,
             keyboard_was_taken: false,
         }
@@ -97,6 +103,14 @@ impl Workspace {
                     .get_or_insert_with(ShortcutEditor::default);
             }
             PreferencesCommand::HideShortcuts => self.shortcut_editor = None,
+            PreferencesCommand::ShowWelcome => self.welcome_open = true,
+            PreferencesCommand::CloseWelcome => {
+                self.welcome_open = false;
+                if !self.preferences.onboarding.welcomed {
+                    self.preferences.apply(PreferenceChange::Welcomed);
+                    files.store_settings(self.preferences.settings());
+                }
+            }
             PreferencesCommand::Change(change) => {
                 self.preferences.apply(change);
                 model.set_length_unit(self.preferences.unit);
@@ -119,7 +133,8 @@ pub fn show(
     let keyboard_taken = text_focused || workspace.keyboard_was_taken;
     let dialog_open = workspace.preferences_open
         || workspace.palette.is_open()
-        || workspace.shortcut_editor.is_some();
+        || workspace.shortcut_editor.is_some()
+        || workspace.welcome_open;
     let blocked = files.is_blocking() || dialog_open;
     let keys_free = !keyboard_taken && !blocked;
     let Workspace {
@@ -130,6 +145,7 @@ pub fn show(
         preferences_open,
         palette,
         shortcut_editor,
+        welcome_open,
         keyboard_was_taken,
         ..
     } = workspace;
@@ -168,6 +184,9 @@ pub fn show(
     interface_size(&preferences.appearance, &mut commands, actions);
     let open_palette = commands.available(Command::Palette);
     let open_shortcuts = commands.available(Command::KeyboardShortcuts);
+    if commands.available(Command::Welcome) {
+        actions.push(Action::Preferences(PreferencesCommand::ShowWelcome));
+    }
     let (offers, refused) = commands.finish();
     for (command, reason) in refused {
         actions.push(Action::Inform(Notice::info(format!(
@@ -192,6 +211,33 @@ pub fn show(
             palette.open();
         }
         palette.show(ui.ctx(), &offers, &preferences.keymap);
+        if *welcome_open && let Some(choice) = onboarding::welcome(ui.ctx(), &preferences.keymap) {
+            actions.push(Action::Preferences(PreferencesCommand::CloseWelcome));
+            match choice {
+                WelcomeChoice::Close => {}
+                WelcomeChoice::Sample(sample) => {
+                    actions.push(Action::File(FileCommand::OpenSample(sample)));
+                }
+                WelcomeChoice::Open => actions.push(Action::File(FileCommand::Open)),
+            }
+        }
+        let situation = onboarding::Situation {
+            model,
+            editing,
+            offers: &offers,
+        };
+        let hint = onboarding::current(&preferences.onboarding, &situation)
+            .filter(|_| !dialog_open)
+            .zip(viewport.rect());
+        if let Some((hint, rect)) = hint
+            && let Some(choice) = onboarding::show_hint(ui.ctx(), rect, hint, &preferences.keymap)
+        {
+            let change = match choice {
+                HintChoice::Dismiss(hint) => PreferenceChange::DismissHint(hint),
+                HintChoice::HideAll => PreferenceChange::ShowHints(false),
+            };
+            actions.push(Action::Preferences(PreferencesCommand::Change(change)));
+        }
     }
     *keyboard_was_taken = ui.ctx().egui_wants_keyboard_input();
 }

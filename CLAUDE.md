@@ -644,8 +644,26 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `Storage` worker, to which every change is recorded. `files.rs` is the file workflow: the
     File menu and shortcuts, native dialogs through the XDG desktop portal (`rfd`) on their own
     thread, loading and recovery scans on a background worker, the unsaved-changes prompt before
-    New, Open, Restore and Quit, the recovery offer and the load report. `main.rs` installs the
-    panic hook that flushes the journal.
+    New, Open, Open Sample, Restore and Quit, the recovery offer and the load report. `main.rs`
+    installs the panic hook that flushes the journal and starts with an empty model. The viewport
+    fits the view once the first recompute of a newly opened model (another `Model::session`)
+    is up to date.
+  - Samples (`samples.rs`): three parametric models built through the document API, so they are
+    always in the current format: a plate with two holes (extrude), a flanged spool (full
+    revolve about the sketch's vertical axis) and an angle bracket (symmetric extrude with a
+    hole removed by a second one). Every sketch is fully constrained and its dimensions refer to
+    named parameters; a test recomputes each and checks its volume. File › Open Sample, the
+    palette and the welcome dialog open one as an untitled, unmodified model after the
+    unsaved-changes prompt.
+  - Onboarding (`onboarding.rs`): the welcome dialog appears until it is closed once
+    (`onboarding.welcomed`) and again from Help › Welcome and samples…; it offers an empty
+    model, the samples and Open. Tips are shown one at a time in the corner of the viewport when
+    no dialog is open, first of those that apply and were not dismissed: start with a sketch
+    (empty model), draw (edited sketch with no geometry), constrain (edited sketch that can
+    still move), extrude or revolve (a sweepable sketch and no body), navigate (a body exists),
+    and the palette. Got it dismisses one (`onboarding.dismissed_hints`, unknown ids kept), Hide
+    tips turns them off (`onboarding.hints`), and Preferences turns them back on or restores the
+    dismissed ones.
   - Export (`export.rs`): File › Export… (Ctrl+E) opens a dialog with the format (STL, 3MF or
     STEP), for meshes the resolution (showing the resulting deviation in millimetres) and a
     checkbox per body, all on by default.

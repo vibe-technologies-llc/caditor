@@ -4,7 +4,7 @@ use caditor_file::Settings;
 use caditor_geometry::Vector3;
 use egui::{Event, Key, KeyboardShortcut, Modifiers};
 
-use crate::{editing::Tool, sketch_tools::ConstraintTool};
+use crate::{editing::Tool, samples::Sample, sketch_tools::ConstraintTool};
 
 const SETTINGS_PREFIX: &str = "keys.";
 const RESERVED_KEYS: [Key; 3] = [Key::Escape, Key::Enter, Key::Tab];
@@ -59,6 +59,8 @@ pub enum Command {
     HighlightNext,
     HighlightPrevious,
     ActivateHighlighted,
+    OpenSample(Sample),
+    Welcome,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -203,6 +205,7 @@ pub enum Category {
     Model,
     Sketch,
     Constraint,
+    Help,
 }
 
 impl Category {
@@ -214,6 +217,7 @@ impl Category {
             Self::Model => "Model",
             Self::Sketch => "Sketch",
             Self::Constraint => "Constraint",
+            Self::Help => "Help",
         }
     }
 }
@@ -237,7 +241,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 30] = [
+const PLAIN_COMMANDS: [Command; 31] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -248,6 +252,7 @@ const PLAIN_COMMANDS: [Command; 30] = [
     Command::Export,
     Command::Preferences,
     Command::KeyboardShortcuts,
+    Command::Welcome,
     Command::Quit,
     Command::Undo,
     Command::Redo,
@@ -278,6 +283,7 @@ impl Command {
             .chain(ConstraintTool::ALL.into_iter().map(Self::Constraint))
             .chain(StandardView::ALL.into_iter().map(Self::View))
             .chain(CameraMove::ALL.into_iter().map(Self::Camera))
+            .chain(Sample::ALL.into_iter().map(Self::OpenSample))
     }
 
     pub fn id(self) -> &'static str {
@@ -343,6 +349,12 @@ impl Command {
             Self::HighlightNext => "view.highlight_next",
             Self::HighlightPrevious => "view.highlight_previous",
             Self::ActivateHighlighted => "view.activate_highlighted",
+            Self::OpenSample(sample) => match sample {
+                Sample::Plate => "file.sample.plate",
+                Sample::Spool => "file.sample.spool",
+                Sample::Bracket => "file.sample.bracket",
+            },
+            Self::Welcome => "help.welcome",
         }
     }
 
@@ -384,6 +396,8 @@ impl Command {
             Self::HighlightNext => "Highlight the next item in the view",
             Self::HighlightPrevious => "Highlight the previous item in the view",
             Self::ActivateHighlighted => "Select the highlighted item",
+            Self::OpenSample(sample) => return format!("Open the {} sample", sample.title()),
+            Self::Welcome => "Welcome and samples…",
         };
         fixed.to_owned()
     }
@@ -399,7 +413,9 @@ impl Command {
             | Self::Export
             | Self::Preferences
             | Self::KeyboardShortcuts
-            | Self::Quit => Category::File,
+            | Self::Quit
+            | Self::OpenSample(_) => Category::File,
+            Self::Welcome => Category::Help,
             Self::Palette | Self::Undo | Self::Redo => Category::Edit,
             Self::FitView
             | Self::LargerInterface
@@ -474,7 +490,9 @@ impl Command {
             | Self::Chamfer
             | Self::Shell
             | Self::DatumPlane
-            | Self::DatumAxis => Vec::new(),
+            | Self::DatumAxis
+            | Self::OpenSample(_)
+            | Self::Welcome => Vec::new(),
         }
     }
 

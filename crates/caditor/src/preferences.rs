@@ -4,6 +4,7 @@ use egui::{Id, KeyboardShortcut, Modal, RichText, ThemePreference, Ui};
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     commands::{Command, Keymap},
+    onboarding::{Hint, Onboarding},
     units::LengthUnit,
 };
 
@@ -97,6 +98,7 @@ pub struct Preferences {
     pub unit: LengthUnit,
     pub appearance: Appearance,
     pub navigation: Navigation,
+    pub onboarding: Onboarding,
     pub keymap: Keymap,
     loaded_keymap: Keymap,
     raw: Settings,
@@ -115,6 +117,10 @@ pub enum PreferenceChange {
     Unbind(Command, KeyboardShortcut),
     ResetShortcut(Command),
     ResetShortcuts,
+    Welcomed,
+    DismissHint(Hint),
+    ShowHints(bool),
+    RestoreHints,
     Defaults,
 }
 
@@ -124,6 +130,8 @@ pub enum PreferencesCommand {
     Hide,
     ShowShortcuts,
     HideShortcuts,
+    ShowWelcome,
+    CloseWelcome,
     Change(PreferenceChange),
 }
 
@@ -153,6 +161,7 @@ impl Preferences {
                 zoom_speed: speed(raw.number(ZOOM_KEY)),
                 invert_zoom: raw.flag(INVERT_ZOOM_KEY).unwrap_or(false),
             },
+            onboarding: Onboarding::from_settings(&raw),
             keymap: Keymap::from_settings(&raw),
             loaded_keymap: Keymap::from_settings(&raw),
             raw,
@@ -169,6 +178,7 @@ impl Preferences {
         settings.set_number(ZOOM_KEY, self.navigation.zoom_speed);
         settings.set_flag(INVERT_ZOOM_KEY, self.navigation.invert_zoom);
         self.keymap.write(&self.loaded_keymap, &mut settings);
+        self.onboarding.write(&mut settings);
         settings
     }
 
@@ -191,6 +201,15 @@ impl Preferences {
             PreferenceChange::Unbind(command, shortcut) => self.keymap.unbind(command, shortcut),
             PreferenceChange::ResetShortcut(command) => self.keymap.reset(command),
             PreferenceChange::ResetShortcuts => self.keymap.reset_all(),
+            PreferenceChange::Welcomed => self.onboarding.welcomed = true,
+            PreferenceChange::DismissHint(hint) => {
+                self.onboarding.dismissed.insert(hint);
+            }
+            PreferenceChange::ShowHints(shown) => self.onboarding.hints = shown,
+            PreferenceChange::RestoreHints => {
+                self.onboarding.hints = true;
+                self.onboarding.dismissed.clear();
+            }
             PreferenceChange::Defaults => {
                 self.unit = LengthUnit::default();
                 self.appearance = Appearance::default();
@@ -209,6 +228,7 @@ pub fn dialog(ctx: &egui::Context, preferences: &Preferences) -> Option<Preferen
         appearance(ui, preferences, &mut command);
         navigation(ui, preferences, &mut command);
         keyboard(ui, &mut command);
+        tips(ui, preferences, &mut command);
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             if ui.button("Close").clicked() {
@@ -303,6 +323,29 @@ fn appearance(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
         }
     });
     ui.weak("Panels and menus follow the theme; the 3D view keeps its dark background.");
+}
+
+fn tips(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
+    section(ui, "Tips");
+    let onboarding = &preferences.onboarding;
+    let mut shown = onboarding.hints;
+    if ui
+        .checkbox(&mut shown, "Show tips for getting started")
+        .changed()
+    {
+        *command = Some(PreferencesCommand::Change(PreferenceChange::ShowHints(
+            shown,
+        )));
+    }
+    let restore = ui
+        .add_enabled(
+            !onboarding.dismissed.is_empty(),
+            egui::Button::new("Show dismissed tips again"),
+        )
+        .clicked();
+    if restore {
+        *command = Some(PreferencesCommand::Change(PreferenceChange::RestoreHints));
+    }
 }
 
 fn keyboard(ui: &mut Ui, command: &mut Option<PreferencesCommand>) {

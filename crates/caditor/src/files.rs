@@ -27,6 +27,7 @@ use crate::{
     import::{self, IMPORT_HINT},
     model::{Action, FileEvent, Model, Notice, WakerFactory, display_name},
     preferences::PreferencesCommand,
+    samples::Sample,
 };
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -66,6 +67,7 @@ pub enum FileCommand {
     Export(ExportCommand),
     History(HistoryCommand),
     Import { into: Option<FeatureId> },
+    OpenSample(Sample),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -246,6 +248,7 @@ enum Event {
 
 enum Intent {
     New,
+    Sample(Sample),
     Open(Option<PathBuf>),
     Restore(PathBuf),
     Replace(Box<Opened>),
@@ -363,6 +366,7 @@ impl Files {
     pub fn perform(&mut self, command: FileCommand, model: &mut Model) {
         match command {
             FileCommand::New => self.request(Intent::New, model),
+            FileCommand::OpenSample(sample) => self.request(Intent::Sample(sample), model),
             FileCommand::Open => self.request(Intent::Open(None), model),
             FileCommand::OpenPath(path) => self.request(Intent::Open(Some(path)), model),
             FileCommand::Quit => self.request(Intent::Quit, model),
@@ -704,6 +708,16 @@ impl Files {
     fn run(&mut self, intent: Intent, model: &mut Model) {
         match intent {
             Intent::New => model.replace(Document::default(), None, false),
+            Intent::Sample(sample) => match sample.document() {
+                Ok(document) => model.replace(document, None, false),
+                Err(error) => {
+                    log::error!("could not build a sample: {error:#}");
+                    model.perform(Action::Inform(Notice::error(format!(
+                        "The {} sample could not be opened. Your model was not changed.",
+                        sample.title()
+                    ))));
+                }
+            },
             Intent::Open(None) => self.pick(Purpose::Open, model),
             Intent::Open(Some(path)) => self.open(path, model),
             Intent::Restore(journal) => {
@@ -949,6 +963,16 @@ pub fn menu(
                 }
             });
         });
+        ui.menu_button("Open Sample", |ui| {
+            for sample in Sample::ALL {
+                let response = ui
+                    .button(sample.title())
+                    .on_hover_text(sample.description());
+                if response.clicked() {
+                    chosen.push(Command::OpenSample(sample));
+                }
+            }
+        });
         ui.separator();
         item(ui, &mut chosen, Command::Save);
         item(ui, &mut chosen, Command::SaveAs);
@@ -984,6 +1008,12 @@ pub fn menu(
         ui.separator();
         item(ui, &mut chosen, Command::Quit);
     });
+    for sample in Sample::ALL {
+        let command = Command::OpenSample(sample);
+        if commands.available(command) || chosen.contains(&command) {
+            actions.push(Action::File(FileCommand::OpenSample(sample)));
+        }
+    }
     for command in FILE_COMMANDS {
         let availability = match command {
             Command::VersionHistory => history,
@@ -1063,15 +1093,19 @@ fn guard(ctx: &egui::Context, model: &Model, intent: &Intent) -> Option<GuardCho
     let name = model.display_name();
     let consequence = match intent {
         Intent::Quit => "If you close without saving, your changes will be lost.",
-        Intent::New | Intent::Open(_) | Intent::Restore(_) | Intent::Replace(_) => {
-            "If you continue without saving, your changes will be lost."
-        }
+        Intent::New
+        | Intent::Sample(_)
+        | Intent::Open(_)
+        | Intent::Restore(_)
+        | Intent::Replace(_) => "If you continue without saving, your changes will be lost.",
     };
     let (discard, keep) = match intent {
         Intent::Quit => ("Close Without Saving", "Cancel"),
-        Intent::New | Intent::Open(_) | Intent::Restore(_) | Intent::Replace(_) => {
-            ("Continue Without Saving", "Cancel")
-        }
+        Intent::New
+        | Intent::Sample(_)
+        | Intent::Open(_)
+        | Intent::Restore(_)
+        | Intent::Replace(_) => ("Continue Without Saving", "Cancel"),
     };
     let save = if model.path().is_some() {
         "Save"
