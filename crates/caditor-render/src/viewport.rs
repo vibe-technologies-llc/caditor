@@ -1,9 +1,10 @@
-use caditor_geometry::{Point2, Point3};
+use caditor_geometry::{Point2, Point3, Vector3};
 use glam::{DVec2, Vec3};
 
 use crate::{
     camera::View,
     gpu::{Bytes, GrowableBuffer},
+    mesh::{MESH_VERTEX_STRIDE, MeshCache},
     picking::{self, Picking},
     scene::{Fill, Grid, PickId, Primitive, Scene, ViewportRect},
 };
@@ -19,8 +20,10 @@ const FAR_DEPTH: f32 = 0.0;
 const QUAD_VERTICES: u32 = 6;
 const LINE_STRIDE: u64 = 52;
 const MARKER_STRIDE: u64 = 40;
-const FILL_VERTEX_STRIDE: u64 = 32;
-const VIEW_UNIFORM_SIZE: u64 = 112;
+const FILL_VERTEX_STRIDE: u64 = 36;
+const VIEW_UNIFORM_SIZE: u64 = 128;
+const KEY_LIGHT_UP: f64 = 0.8;
+const KEY_LIGHT_LEFT: f64 = 0.5;
 const GRID_UNIFORM_SIZE: u64 = 64;
 const GRID_CELLS_ACROSS_SCALE: f64 = 100.0;
 const GRID_EXTENT_PER_SCALE: f64 = 40.0;
@@ -70,6 +73,7 @@ impl Uniform {
 }
 
 struct Pipelines {
+    meshes: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
     markers: wgpu::RenderPipeline,
     fills: wgpu::RenderPipeline,
@@ -77,6 +81,7 @@ struct Pipelines {
     pick_lines: wgpu::RenderPipeline,
     pick_markers: wgpu::RenderPipeline,
     pick_fills: wgpu::RenderPipeline,
+    pick_meshes: wgpu::RenderPipeline,
 }
 
 struct SceneTargets {
@@ -103,6 +108,7 @@ pub struct ViewportRenderer {
     lines: GrowableBuffer,
     markers: GrowableBuffer,
     fills: GrowableBuffer,
+    meshes: MeshCache,
     staging: Bytes,
     targets: Option<SceneTargets>,
     picking: Picking,
@@ -127,17 +133,24 @@ impl ViewportRenderer {
         };
         let view_layout = uniform_layout("view uniform");
         let grid_layout = uniform_layout("grid uniform");
+        let meshes = MeshCache::new(device);
+        let layouts = Layouts {
+            view: &view_layout,
+            grid: &grid_layout,
+            mesh: meshes.layout(),
+        };
 
         Self {
             format,
             sample_count,
-            pipelines: Pipelines::new(device, format, sample_count, &view_layout, &grid_layout),
+            pipelines: Pipelines::new(device, format, sample_count, &layouts),
             view_uniform: Uniform::new(device, &view_layout, "view", VIEW_UNIFORM_SIZE),
             pick_view_uniform: Uniform::new(device, &view_layout, "pick view", VIEW_UNIFORM_SIZE),
             grid_uniform: Uniform::new(device, &grid_layout, "grid", GRID_UNIFORM_SIZE),
             lines: GrowableBuffer::new(device, "lines", wgpu::BufferUsages::VERTEX),
             markers: GrowableBuffer::new(device, "markers", wgpu::BufferUsages::VERTEX),
             fills: GrowableBuffer::new(device, "fills", wgpu::BufferUsages::VERTEX),
+            meshes,
             staging: Bytes::default(),
             targets: None,
             picking: Picking::new(device, DEPTH_FORMAT),
@@ -169,7 +182,10 @@ impl ViewportRenderer {
             viewport.filter(|viewport| viewport.rect.width >= 1.0 && viewport.rect.height >= 1.0);
         let counts = match viewport {
             Some(viewport) => self.upload(device, queue, viewport),
-            None => Counts::default(),
+            None => {
+                self.meshes.clear();
+                Counts::default()
+            }
         };
 
         let Some(targets) = self.targets.as_ref() else {
@@ -217,6 +233,7 @@ impl ViewportRenderer {
         );
         pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
         pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
+        self.meshes.draw(&mut pass, &self.pipelines.meshes);
         self.draw_lines(&mut pass, &self.pipelines.lines, &counts);
         self.draw_markers(&mut pass, &self.pipelines.markers, &counts);
         if viewport.scene.grid.is_some() {
@@ -326,6 +343,7 @@ impl ViewportRenderer {
             ..Default::default()
         });
         pass.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
+        self.meshes.draw(&mut pass, &self.pipelines.pick_meshes);
         self.draw_fills(&mut pass, &self.pipelines.pick_fills, counts);
         self.draw_lines(&mut pass, &self.pipelines.pick_lines, counts);
         self.draw_markers(&mut pass, &self.pipelines.pick_markers, counts);
@@ -389,6 +407,8 @@ impl ViewportRenderer {
             queue.write_buffer(&self.grid_uniform.buffer, 0, self.staging.as_slice());
         }
 
+        self.meshes.prepare(device, queue, &scene.meshes, eye);
+
         self.staging.clear();
         for line in &scene.lines {
             self.staging
@@ -415,14 +435,14 @@ impl ViewportRenderer {
         self.staging.clear();
         let mut fill_vertices = 0u32;
         for fill in fills_back_to_front(&scene.fills, view) {
-            for triangle in fan_triangles(&fill.convex_outline) {
-                for corner in triangle {
-                    self.staging
-                        .vec3(relative_to_eye(corner, eye))
-                        .floats(&fill.color.to_array())
-                        .u32(PickId::raw(fill.pick));
-                    fill_vertices = fill_vertices.saturating_add(1);
-                }
+            let depth_bias = fill.layer.depth_bias(Primitive::Fill);
+            for corner in fill.triangles.iter().flatten() {
+                self.staging
+                    .vec3(relative_to_eye(*corner, eye))
+                    .floats(&fill.color.to_array())
+                    .u32(PickId::raw(fill.pick))
+                    .f32(depth_bias);
+                fill_vertices = fill_vertices.saturating_add(1);
             }
         }
         self.fills.upload(device, queue, &self.staging);
@@ -435,29 +455,38 @@ impl ViewportRenderer {
     }
 }
 
+struct Layouts<'a> {
+    view: &'a wgpu::BindGroupLayout,
+    grid: &'a wgpu::BindGroupLayout,
+    mesh: &'a wgpu::BindGroupLayout,
+}
+
 impl Pipelines {
     fn new(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         sample_count: u32,
-        view_layout: &wgpu::BindGroupLayout,
-        grid_layout: &wgpu::BindGroupLayout,
+        layouts: &Layouts<'_>,
     ) -> Self {
         let module = device.create_shader_module(wgpu::include_wgsl!("viewport.wgsl"));
-        let scene_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("scene"),
-            bind_group_layouts: &[Some(view_layout)],
-            immediate_size: 0,
-        });
-        let grid_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("grid"),
-            bind_group_layouts: &[Some(view_layout), Some(grid_layout)],
-            immediate_size: 0,
-        });
+        let pipeline_layout = |label, groups: &[Option<&wgpu::BindGroupLayout>]| {
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some(label),
+                bind_group_layouts: groups,
+                immediate_size: 0,
+            })
+        };
+        let scene_layout = pipeline_layout("scene", &[Some(layouts.view)]);
+        let grid_pipeline_layout =
+            pipeline_layout("grid", &[Some(layouts.view), Some(layouts.grid)]);
+        let mesh_pipeline_layout =
+            pipeline_layout("mesh", &[Some(layouts.view), Some(layouts.mesh)]);
 
         let line_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32, 4 => Uint32, 5 => Float32];
         let marker_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Float32, 3 => Uint32, 4 => Float32];
-        let fill_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Uint32];
+        let fill_attributes =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Uint32, 3 => Float32];
+        let mesh_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Uint32];
         let lines = [Some(wgpu::VertexBufferLayout {
             array_stride: LINE_STRIDE,
             step_mode: wgpu::VertexStepMode::Instance,
@@ -472,6 +501,12 @@ impl Pipelines {
             array_stride: FILL_VERTEX_STRIDE,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &fill_attributes,
+        })];
+
+        let meshes = [Some(wgpu::VertexBufferLayout {
+            array_stride: MESH_VERTEX_STRIDE,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &mesh_attributes,
         })];
 
         let color_target = [Some(wgpu::ColorTargetState {
@@ -499,12 +534,12 @@ impl Pipelines {
                 },
             )
         };
-        let pick = |label, vertex, buffers, fragment, depth_write| {
+        let pick = |label, layout, vertex, buffers, fragment, depth_write| {
             build_pipeline(
                 device,
                 &PipelineSpec {
                     label,
-                    layout: &scene_layout,
+                    layout,
                     module: &module,
                     vertex,
                     buffers,
@@ -517,6 +552,14 @@ impl Pipelines {
         };
 
         Self {
+            meshes: color(
+                "meshes",
+                &mesh_pipeline_layout,
+                "vs_mesh",
+                &meshes,
+                "fs_mesh",
+                true,
+            ),
             lines: color("lines", &scene_layout, "vs_line", &lines, "fs_color", true),
             markers: color(
                 "markers",
@@ -535,15 +578,38 @@ impl Pipelines {
                 "fs_grid",
                 false,
             ),
-            pick_lines: pick("pick lines", "vs_line", &lines, "fs_pick", true),
+            pick_lines: pick(
+                "pick lines",
+                &scene_layout,
+                "vs_line",
+                &lines,
+                "fs_pick",
+                true,
+            ),
             pick_markers: pick(
                 "pick markers",
+                &scene_layout,
                 "vs_marker",
                 &markers,
                 "fs_marker_pick",
                 true,
             ),
-            pick_fills: pick("pick fills", "vs_fill", &fills, "fs_pick", false),
+            pick_fills: pick(
+                "pick fills",
+                &scene_layout,
+                "vs_fill",
+                &fills,
+                "fs_pick",
+                false,
+            ),
+            pick_meshes: pick(
+                "pick meshes",
+                &mesh_pipeline_layout,
+                "vs_mesh",
+                &meshes,
+                "fs_pick",
+                true,
+            ),
         }
     }
 }
@@ -608,7 +674,14 @@ fn view_uniform(bytes: &mut Bytes, view: &View, pick_cursor: Option<DVec2>) {
         .mat4(view.rotation_projection().as_mat4())
         .vec4(view.forward().as_vec3(), view.near_plane() as f32)
         .floats(&[size.x as f32, size.y as f32, 0.0, 0.0])
-        .floats(&pick_transform);
+        .floats(&pick_transform)
+        .vec4(key_light(view).as_vec3(), 0.0);
+}
+
+fn key_light(view: &View) -> Vector3 {
+    let viewpoint = view.viewpoint();
+    (-viewpoint.forward() + viewpoint.up() * KEY_LIGHT_UP - viewpoint.right() * KEY_LIGHT_LEFT)
+        .normalize_or(-viewpoint.forward())
 }
 
 pub fn grid_spacing(scale: f64) -> f64 {
@@ -642,25 +715,12 @@ fn grid_uniform(bytes: &mut Bytes, grid: &Grid, view: &View) {
 
 fn fills_back_to_front<'a>(fills: &'a [Fill], view: &View) -> Vec<&'a Fill> {
     let depth = |fill: &Fill| {
-        let count = fill.convex_outline.len().max(1) as f64;
-        let centroid = fill
-            .convex_outline
-            .iter()
-            .fold(Point3::ZERO, |sum, corner| sum + *corner)
-            / count;
-        view.view_depth(centroid)
+        fill.centroid()
+            .map_or(f64::NEG_INFINITY, |centroid| view.view_depth(centroid))
     };
     let mut sorted: Vec<(f64, &Fill)> = fills.iter().map(|fill| (depth(fill), fill)).collect();
     sorted.sort_by(|a, b| b.0.total_cmp(&a.0));
     sorted.into_iter().map(|(_, fill)| fill).collect()
-}
-
-fn fan_triangles(outline: &[Point3]) -> impl Iterator<Item = [Point3; 3]> + '_ {
-    let first = outline.first().copied();
-    outline
-        .windows(2)
-        .skip(1)
-        .filter_map(move |pair| Some([first?, *pair.first()?, *pair.get(1)?]))
 }
 
 fn scissor_rect(rect: ViewportRect, width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
@@ -710,42 +770,26 @@ mod tests {
     }
 
     #[test]
-    fn fans_convex_outlines_into_triangles() {
-        let square = [
-            Point3::ZERO,
-            Point3::X,
-            Point3::new(1.0, 1.0, 0.0),
-            Point3::Y,
-        ];
-        let triangles: Vec<_> = fan_triangles(&square).collect();
-        assert_eq!(
-            triangles,
-            vec![
-                [Point3::ZERO, Point3::X, Point3::new(1.0, 1.0, 0.0)],
-                [Point3::ZERO, Point3::new(1.0, 1.0, 0.0), Point3::Y],
-            ]
-        );
-        assert_eq!(fan_triangles(&square[..2]).count(), 0);
-    }
-
-    #[test]
     fn sorts_fills_from_the_farthest_to_the_nearest() {
         let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
         let view = View::new(viewpoint, 100.0, 100.0);
-        let square_at = |z: f64| Fill {
-            convex_outline: vec![
-                Point3::new(0.0, 0.0, z),
-                Point3::new(1.0, 0.0, z),
-                Point3::new(0.0, 1.0, z),
-            ],
-            color: crate::scene::Color::from_rgb8(0, 0, 0),
-            pick: None,
+        let square_at = |z: f64| {
+            Fill::convex(
+                &[
+                    Point3::new(0.0, 0.0, z),
+                    Point3::new(1.0, 0.0, z),
+                    Point3::new(0.0, 1.0, z),
+                ],
+                crate::scene::Color::from_rgb8(0, 0, 0),
+                crate::scene::Layer::Reference,
+                None,
+            )
         };
         let fills = [square_at(10.0), square_at(-10.0), square_at(0.0)];
 
         let order: Vec<f64> = fills_back_to_front(&fills, &view)
             .iter()
-            .filter_map(|fill| fill.convex_outline.first().map(|corner| corner.z))
+            .filter_map(|fill| fill.centroid().map(|centroid| centroid.z))
             .collect();
         assert_eq!(order, vec![-10.0, 0.0, 10.0]);
     }

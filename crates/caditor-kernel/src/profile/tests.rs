@@ -523,3 +523,35 @@ fn a_spline_tangent_to_a_line_touches_it_once() {
         assert_closed(region);
     }
 }
+
+#[test]
+fn a_region_with_a_hole_triangulates_to_its_own_area() {
+    let mut curves = rectangle(1, (0.0, 0.0), (20.0, 10.0));
+    curves.push(circle(9, (10.0, 5.0), 3.0));
+    let profile = profile(&curves);
+    let ring = profile
+        .regions()
+        .iter()
+        .find(|region| region.depth() == 0)
+        .unwrap();
+    let tolerance = SamplingTolerance::new(1e-3, 0.05).unwrap();
+
+    let mesh = ring.triangulate(&tolerance).unwrap();
+
+    let area: f64 = mesh
+        .triangles
+        .iter()
+        .map(|[a, b, c]| {
+            let [a, b, c] = [a, b, c].map(|index| mesh.points[*index as usize]);
+            (b - a).perp_dot(c - a) / 2.0
+        })
+        .map(f64::abs)
+        .sum();
+    assert!(
+        (area - ring.area()).abs() < 0.02,
+        "{area} vs {}",
+        ring.area()
+    );
+    assert!((ring.area() - (200.0 - 9.0 * PI)).abs() < 1e-6);
+    assert_eq!(ring.polygons(&tolerance).len(), 2);
+}

@@ -1,6 +1,6 @@
 use caditor_document::{
-    Document, Edit, ExtrudeExtent, Feature, FeatureError, FeatureKind, FeatureState, FeatureStatus,
-    FixTarget, RevolveExtent, SolidFeature, Transaction,
+    Document, Edit, Feature, FeatureError, FeatureKind, FeatureState, FeatureStatus, FixTarget,
+    SolidResult, Transaction,
 };
 use caditor_sketch::{ConstraintId, Redundancy, Sketch};
 use egui::{
@@ -13,13 +13,15 @@ use crate::{
     model::{Action, Model},
     panels::{Focus, PanelState, Renaming},
     sketch_status::{self, SketchSummary},
-    sketch_tools,
+    sketch_tools, solid_panel,
 };
 
 const NAME_FIELD_WIDTH: f32 = 180.0;
 const DIMENSION_FIELD_WIDTH: f32 = 140.0;
 const EDIT_SKETCH_LABEL: &str = "Edit sketch";
 const FINISH_SKETCH_LABEL: &str = "Finish sketch";
+const OPEN_SOLID_LABEL: &str = "Edit feature and choose its regions in the view";
+const CLOSE_SOLID_LABEL: &str = "Done editing this feature";
 const EDIT_ICON: &str = "🖊";
 const DELETE_ICON: &str = "🗙";
 
@@ -43,7 +45,8 @@ pub fn show(
         let row = Row {
             feature,
             position: Position { index, count },
-            edited: editing.feature() == Some(feature.id()),
+            edited: editing.feature() == Some(feature.id())
+                || editing.solid() == Some(feature.id()),
         };
         ui.push_id(("feature", feature.id()), |ui| {
             feature_row(ui, model, state, actions, &row);
@@ -105,7 +108,10 @@ fn feature_row(
     }
     let (_, header, _) = header.body(|ui| match &feature.kind {
         FeatureKind::Sketch(sketch) => sketch_body(ui, model, state, actions, feature, sketch),
-        FeatureKind::Solid(solid) => solid_body(ui, model.document(), solid),
+        FeatureKind::Solid(solid) => {
+            solid_panel::show(ui, model, actions, feature, solid, row.edited);
+            body_display(ui, model, feature);
+        }
     });
     let mut header = header.inner;
     if state.take_focus(Focus::Feature(id)) {
@@ -155,10 +161,12 @@ fn edit_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
 }
 
 fn edit_command(row: &Row<'_>) -> (&'static str, EditingCommand) {
-    if row.edited {
-        (FINISH_SKETCH_LABEL, EditingCommand::Finish)
-    } else {
-        (EDIT_SKETCH_LABEL, EditingCommand::Enter(row.feature.id()))
+    let id = row.feature.id();
+    match (&row.feature.kind, row.edited) {
+        (FeatureKind::Sketch(_), true) => (FINISH_SKETCH_LABEL, EditingCommand::Finish),
+        (FeatureKind::Sketch(_), false) => (EDIT_SKETCH_LABEL, EditingCommand::Enter(id)),
+        (FeatureKind::Solid(_), true) => (CLOSE_SOLID_LABEL, EditingCommand::CloseSolid),
+        (FeatureKind::Solid(_), false) => (OPEN_SOLID_LABEL, EditingCommand::OpenSolid(id)),
     }
 }
 
@@ -315,47 +323,21 @@ fn failure(ui: &mut Ui, document: &Document, state: &mut PanelState, error: &Fea
     });
 }
 
-fn solid_body(ui: &mut Ui, document: &Document, solid: &SolidFeature) {
-    let name_of = |id| {
-        document
-            .feature(id)
-            .map_or("a missing feature", |feature| feature.name.as_str())
+fn body_display(ui: &mut Ui, model: &Model, feature: &Feature) {
+    let Some(body) = feature.body() else {
+        return;
     };
-    let text = |expression| document.expression_text(expression);
-    let (shape, extent) = match solid {
-        SolidFeature::Extrude(extrude) => (
-            "Extrusion",
-            match &extrude.extent {
-                ExtrudeExtent::OneSide { distance, reversed } => format!(
-                    "{}{}",
-                    text(distance),
-                    if *reversed { ", reversed" } else { "" }
-                ),
-                ExtrudeExtent::Symmetric { distance } => format!("{} symmetric", text(distance)),
-                ExtrudeExtent::TwoSides { forward, backward } => {
-                    format!("{} forward, {} back", text(forward), text(backward))
-                }
-            },
-        ),
-        SolidFeature::Revolve(revolve) => (
-            "Revolution",
-            match &revolve.extent {
-                RevolveExtent::Full => "full turn".to_owned(),
-                RevolveExtent::OneSide { angle, reversed } => format!(
-                    "{}{}",
-                    text(angle),
-                    if *reversed { ", reversed" } else { "" }
-                ),
-                RevolveExtent::Symmetric { angle } => format!("{} symmetric", text(angle)),
-            },
-        ),
-    };
-    ui.label(format!("{shape} of {}, {extent}", name_of(solid.sketch())));
-    let operation = solid.operation();
-    ui.label(match operation.target() {
-        Some(body) => format!("{} {}", operation.verb(), name_of(body)),
-        None => operation.verb().to_owned(),
-    });
+    let failed = model
+        .evaluation()
+        .body_result(body)
+        .and_then(|result| result.solid())
+        .is_some_and(SolidResult::mesh_failed);
+    if failed {
+        ui.colored_label(
+            ui.visuals().warn_fg_color,
+            "The body could not be drawn. Its shape is kept and later features still use it.",
+        );
+    }
 }
 
 fn sketch_body(

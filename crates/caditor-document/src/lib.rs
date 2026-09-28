@@ -15,8 +15,8 @@ pub use crate::{
         FeatureStatus, FixTarget, Inputs, ModelEvaluator, Recompute, SketchResult,
     },
     solid::{
-        BodyOperation, Extrude, ExtrudeExtent, RegionChoice, Revolve, RevolveExtent, SolidFeature,
-        SolidResult, sketch_regions,
+        BodyOperation, Extrude, ExtrudeExtent, RegionChoice, Revolve, RevolveExtent, SketchRegion,
+        SolidFeature, SolidResult, sketch_regions,
     },
     values::{ParameterError, ParameterValues},
     worker::{Outcome, Progress, Recomputer, Update, WorkerStopped},

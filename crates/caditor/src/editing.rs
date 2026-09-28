@@ -110,11 +110,20 @@ pub enum EditingCommand {
     Enter(FeatureId),
     Finish,
     SetTool(Tool),
+    OpenSolid(FeatureId),
+    CloseSolid,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Context {
+    pub sketch: Option<FeatureId>,
+    pub solid: Option<FeatureId>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct SketchEditing {
     active: Option<ActiveSketch>,
+    solid: Option<FeatureId>,
     choosing_plane: bool,
     session: u64,
 }
@@ -126,6 +135,17 @@ impl SketchEditing {
 
     pub fn feature(&self) -> Option<FeatureId> {
         self.active.map(|active| active.feature)
+    }
+
+    pub fn solid(&self) -> Option<FeatureId> {
+        self.solid
+    }
+
+    pub fn context(&self) -> Context {
+        Context {
+            sketch: self.feature(),
+            solid: self.solid,
+        }
     }
 
     pub fn is_choosing_plane(&self) -> bool {
@@ -149,6 +169,7 @@ impl SketchEditing {
             EditingCommand::NewSketch(Some(plane)) => self.create(plane, model),
             EditingCommand::NewSketch(None) => {
                 self.active = None;
+                self.solid = None;
                 self.choosing_plane = true;
             }
             EditingCommand::CancelNewSketch => self.choosing_plane = false,
@@ -159,6 +180,14 @@ impl SketchEditing {
                     active.tool = tool;
                 }
             }
+            EditingCommand::OpenSolid(feature) => {
+                if opened_solid(model.document(), feature) {
+                    self.active = None;
+                    self.choosing_plane = false;
+                    self.solid = Some(feature);
+                }
+            }
+            EditingCommand::CloseSolid => self.solid = None,
         }
     }
 
@@ -166,12 +195,18 @@ impl SketchEditing {
         if self.session != model.session() {
             self.session = model.session();
             self.active = None;
+            self.solid = None;
             self.choosing_plane = false;
         }
         if let Some(active) = self.active
             && edited_sketch(model.document(), active.feature).is_none()
         {
             self.active = None;
+        }
+        if let Some(solid) = self.solid
+            && !opened_solid(model.document(), solid)
+        {
+            self.solid = None;
         }
     }
 
@@ -189,6 +224,7 @@ impl SketchEditing {
     fn enter(&mut self, feature: FeatureId, document: &Document) {
         if edited_sketch(document, feature).is_some() {
             self.choosing_plane = false;
+            self.solid = None;
             self.active = Some(ActiveSketch {
                 feature,
                 tool: Tool::Select,
@@ -201,11 +237,21 @@ pub fn edited_sketch(document: &Document, feature: FeatureId) -> Option<&Sketch>
     document.feature(feature)?.kind.sketch()
 }
 
+fn opened_solid(document: &Document, feature: FeatureId) -> bool {
+    document
+        .feature(feature)
+        .is_some_and(|feature| feature.kind.solid().is_some())
+}
+
 pub fn next_sketch_name(document: &Document) -> String {
+    next_feature_name(document, NEW_SKETCH_PREFIX)
+}
+
+pub fn next_feature_name(document: &Document, prefix: &str) -> String {
     (1..=document.features().len() + 1)
-        .map(|number| format!("{NEW_SKETCH_PREFIX} {number}"))
+        .map(|number| format!("{prefix} {number}"))
         .find(|name| document.features().all(|feature| feature.name != *name))
-        .unwrap_or_else(|| NEW_SKETCH_PREFIX.to_owned())
+        .unwrap_or_else(|| prefix.to_owned())
 }
 
 #[cfg(test)]

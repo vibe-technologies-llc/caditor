@@ -1,6 +1,7 @@
 mod annotation_layout;
 mod annotations;
 mod app;
+mod bodies;
 mod drawing;
 mod editing;
 mod feature_tree;
@@ -16,6 +17,8 @@ mod sketch_status;
 mod sketch_toolbar;
 mod sketch_tools;
 mod snap;
+mod solid_panel;
+mod solid_tools;
 mod toolbar;
 #[cfg(test)]
 mod ui_tests;

@@ -176,7 +176,7 @@ pub fn show(
                     ui.weak("Nothing selected. Click geometry in the view to select it.");
                 }
                 for pickable in selection.iter() {
-                    ui.label(pickable.describe(model.document()));
+                    ui.label(pickable.describe(model.document(), model.evaluation()));
                 }
             });
         });

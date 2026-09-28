@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_sketch::{EntityId, Sketch};
@@ -113,6 +115,48 @@ fn features_chain_through_the_body() {
         evaluation.bodies().collect::<Vec<_>>(),
         vec![(model.base, model.boss)]
     );
+}
+
+#[test]
+fn only_the_final_state_of_each_body_is_meshed_on_the_worker() {
+    let model = model();
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+    let solid_of = |feature| {
+        evaluation
+            .feature(feature)
+            .and_then(|status| status.result.as_deref())
+            .and_then(FeatureResult::solid)
+            .unwrap()
+    };
+
+    let last = solid_of(model.boss);
+    let mesh = last.mesh().unwrap();
+    assert!((mesh.mass_properties().volume - 348.0).abs() < 0.5);
+    assert!(Arc::ptr_eq(
+        evaluation.body_result(model.base).unwrap(),
+        evaluation
+            .feature(model.boss)
+            .unwrap()
+            .result
+            .as_ref()
+            .unwrap()
+    ));
+    assert!(!solid_of(model.base).is_meshed());
+    assert!(!solid_of(model.pocket).is_meshed());
+    assert!(!last.mesh_failed());
+
+    let outline = model.document.features().next().unwrap().id();
+    let regions = evaluation
+        .feature(outline)
+        .and_then(|status| status.result.as_deref())
+        .and_then(FeatureResult::sketch)
+        .and_then(SketchResult::regions)
+        .unwrap()
+        .as_ref()
+        .unwrap();
+    assert_eq!(regions.len(), 1);
+    assert!(regions[0].even_depth);
+    assert_eq!(regions[0].mesh.as_ref().unwrap().triangles.len(), 2);
 }
 
 #[test]

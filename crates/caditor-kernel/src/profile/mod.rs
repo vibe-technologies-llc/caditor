@@ -6,17 +6,18 @@ mod region;
 mod source;
 #[cfg(test)]
 mod tests;
+mod triangulate;
 
 use std::collections::BTreeSet;
 
 use caditor_geometry::{Aabb2, Point2};
 
-pub use self::error::ProfileError;
 use self::{
     arrangement::Arrangement,
     region::{lumps, with_keys},
 };
-use crate::{curve2::Curve2, interval::Interval, naming::Digest};
+pub use self::{error::ProfileError, triangulate::RegionMesh};
+use crate::{curve2::Curve2, interval::Interval, naming::Digest, tolerance::SamplingTolerance};
 
 const REGION_KEY: u8 = 0x30;
 const REGION_TIEBREAK: u8 = 0x31;
@@ -345,6 +346,16 @@ impl Region {
 
     pub fn bounds(&self) -> Option<Aabb2> {
         self.pieces().map(Piece::bounds).reduce(Aabb2::union)
+    }
+
+    pub fn polygons(&self, tolerance: &SamplingTolerance) -> Vec<Vec<Point2>> {
+        self.loops()
+            .map(|profile_loop| triangulate::loop_polygon(profile_loop, tolerance))
+            .collect()
+    }
+
+    pub fn triangulate(&self, tolerance: &SamplingTolerance) -> Option<RegionMesh> {
+        triangulate::triangulate(self, tolerance)
     }
 }
 

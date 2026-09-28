@@ -1,15 +1,24 @@
 use std::{borrow::Cow, collections::BTreeSet};
 
-use caditor_document::{Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState};
+use caditor_document::{
+    Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState, RegionChoice,
+    SketchRegion, SolidFeature,
+};
 use caditor_geometry::{Aabb, Plane, Point2, Point3};
-use caditor_render::{Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene};
+use caditor_kernel::RegionKey;
+use caditor_render::{
+    Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId, PickResult,
+    Scene,
+};
 use caditor_sketch::{
     Constraint, ConstraintId, Entity, EntityId, EntityState, Reference, Sketch, SketchSolution,
 };
 
 use crate::{
+    bodies::{BodyMesh, BodyMeshes},
     drawing::Preview,
-    selection::{Axis, Pickable, PrincipalPlane, Selection},
+    editing::Context,
+    selection::{self, Axis, Pickable, PrincipalPlane, Selection},
 };
 
 const MIN_REFERENCE_SIZE: f64 = 20.0;
@@ -42,8 +51,20 @@ const HIGHLIGHT_FILL_ALPHA: f32 = 0.22;
 const PREVIEW_CURVE: Color = Color::from_rgb8(190, 150, 255);
 const PREVIEW_POINT: Color = Color::from_rgb8(214, 190, 255);
 const SNAP_MARKER: Color = Color::from_rgb8(80, 226, 236);
+const BODY: Color = Color::from_rgb8(150, 162, 180);
+const FAILED_BODY: Color = Color::from_rgb8(200, 134, 124);
+const OUTDATED_BODY: Color = Color::from_rgb8(182, 170, 130);
+const BACKGROUND_BODY: Color = Color::from_rgb8(92, 96, 104);
+const BODY_EDGE: Color = Color::from_rgb8(30, 32, 38);
+const BACKGROUND_BODY_EDGE: Color = Color::from_rgb8(62, 64, 70);
+const CHOSEN_REGION: Color = Color::from_rgba8(86, 170, 255, 90);
+const OPEN_REGION: Color = Color::from_rgba8(210, 214, 224, 26);
+const HOVERED_REGION_ALPHA: f32 = 0.4;
+const REVOLVE_AXIS: Color = Color::from_rgb8(255, 150, 60);
 
 const CURVE_WIDTH: f32 = 2.0;
+const BODY_EDGE_WIDTH: f32 = 1.5;
+const REVOLVE_AXIS_WIDTH: f32 = 2.5;
 const AXIS_WIDTH: f32 = 2.0;
 const SKETCH_AXIS_WIDTH: f32 = 1.5;
 const PLANE_EDGE_WIDTH: f32 = 1.25;
@@ -117,6 +138,19 @@ impl PickTable {
         self.entries.get(id.index()).copied()
     }
 
+    #[cfg(test)]
+    pub fn id_of(&self, pickable: Pickable) -> Option<PickId> {
+        self.entries
+            .iter()
+            .position(|(candidate, _)| *candidate == pickable)
+            .and_then(PickId::from_index)
+    }
+
+    #[cfg(test)]
+    pub fn pickables(&self) -> impl Iterator<Item = Pickable> + '_ {
+        self.entries.iter().map(|(pickable, _)| *pickable)
+    }
+
     pub fn best_hit(&self, result: &PickResult) -> Option<(Pickable, PickHit)> {
         result
             .hits
@@ -136,7 +170,7 @@ pub struct Highlight<'a> {
 }
 
 impl Highlight<'_> {
-    fn is_hovered(&self, pickable: Pickable) -> bool {
+    pub fn is_hovered(&self, pickable: Pickable) -> bool {
         self.hovered.contains(&pickable)
     }
 
@@ -183,16 +217,23 @@ pub struct BuiltScene {
     reference_size: f64,
 }
 
+pub struct Sources<'a> {
+    pub document: &'a Document,
+    pub evaluation: &'a Evaluation,
+    pub bodies: &'a BodyMeshes,
+}
+
 impl BuiltScene {
     pub fn bounds_of<'a>(
         &self,
-        document: &Document,
-        evaluation: &Evaluation,
+        sources: &Sources<'_>,
         pickables: impl IntoIterator<Item = Pickable> + 'a,
     ) -> Option<Aabb> {
-        Aabb::from_points(pickables.into_iter().flat_map(|pickable| {
-            pickable_points(document, evaluation, pickable, self.reference_size)
-        }))
+        Aabb::from_points(
+            pickables
+                .into_iter()
+                .flat_map(|pickable| pickable_points(sources, pickable, self.reference_size)),
+        )
     }
 
     pub fn fit_all(&self) -> Aabb {
@@ -200,13 +241,14 @@ impl BuiltScene {
     }
 }
 
-pub fn build(
-    document: &Document,
-    evaluation: &Evaluation,
-    highlight: &Highlight<'_>,
-    editing: Option<FeatureId>,
-) -> BuiltScene {
-    let model = model_bounds(document, evaluation);
+pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context) -> BuiltScene {
+    let Sources {
+        document,
+        evaluation,
+        bodies,
+    } = *sources;
+    let editing = context.sketch;
+    let model = model_bounds(sources);
     let reference_size = reference_size(model);
     let edited = editing
         .and_then(|id| document.feature(id))
@@ -253,6 +295,16 @@ pub fn build(
             continue;
         };
         builder.sketch(feature.id(), &displayed, &states, presence);
+    }
+    for (body, mesh) in bodies.iter() {
+        let color = match editing {
+            Some(_) => None,
+            None => Some(body_color(document, evaluation, body)),
+        };
+        builder.body(body, mesh, color);
+    }
+    if let Some(feature) = context.solid {
+        builder.swept(document, evaluation, feature, reference_size);
     }
 
     let reference = Aabb::from_points(plane_corners(Plane::XY, reference_size))
@@ -381,11 +433,148 @@ impl Builder<'_> {
                 pick,
             });
         }
-        self.scene.fills.push(Fill {
-            convex_outline: corners.to_vec(),
-            color: self.highlight.fill_color(pickable, PLANE_FILL),
+        self.scene.fills.push(Fill::convex(
+            &corners,
+            self.highlight.fill_color(pickable, PLANE_FILL),
+            Layer::Reference,
             pick,
+        ));
+    }
+
+    fn body(&mut self, body: FeatureId, mesh: &BodyMesh, color: Option<Color>) {
+        let faces = mesh
+            .faces
+            .iter()
+            .map(|face| match color {
+                Some(base) => {
+                    let pickable = Pickable::Face {
+                        body,
+                        face: face.key,
+                    };
+                    FaceStyle {
+                        color: self.highlight.color(pickable, base),
+                        pick: self.picks.register(pickable, PickPriority::Surface),
+                    }
+                }
+                None => FaceStyle {
+                    color: BACKGROUND_BODY,
+                    pick: None,
+                },
+            })
+            .collect();
+        self.scene.meshes.push(MeshInstance {
+            mesh: std::sync::Arc::clone(&mesh.mesh),
+            faces,
         });
+        for edge in &mesh.edges {
+            let pickable = Pickable::Edge {
+                body,
+                edge: edge.name,
+            };
+            let (color, width, pick) = match color {
+                Some(_) => (
+                    self.highlight.color(pickable, BODY_EDGE),
+                    BODY_EDGE_WIDTH + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
+                    self.picks.register(pickable, PickPriority::Curve),
+                ),
+                None => (BACKGROUND_BODY_EDGE, BODY_EDGE_WIDTH, None),
+            };
+            let segments = edge.points.windows(2).filter_map(|pair| match pair {
+                [start, end] => Some(Line {
+                    start: *start,
+                    end: *end,
+                    color,
+                    width,
+                    layer: Layer::Model,
+                    pick,
+                }),
+                _ => None,
+            });
+            self.scene.lines.extend(segments);
+        }
+    }
+
+    fn swept(
+        &mut self,
+        document: &Document,
+        evaluation: &Evaluation,
+        feature: FeatureId,
+        reference_size: f64,
+    ) {
+        let Some(solid) = document
+            .feature(feature)
+            .and_then(|owner| owner.kind.solid())
+        else {
+            return;
+        };
+        let Some(plane) = document
+            .feature(solid.sketch())
+            .and_then(|sketch| sketch.kind.sketch())
+            .map(Sketch::plane)
+        else {
+            return;
+        };
+        if let SolidFeature::Revolve(revolve) = solid {
+            let displayed = document
+                .feature(solid.sketch())
+                .and_then(|sketch| displayed_sketch(evaluation, sketch));
+            let ends = match revolve.axis.reference() {
+                Some(reference) => Some(reference_points(plane, reference, reference_size)),
+                None => displayed
+                    .as_deref()
+                    .and_then(|sketch| sketch.line_endpoints(revolve.axis))
+                    .map(|(start, end)| [plane.to_world(start), plane.to_world(end)]),
+            };
+            if let Some([start, end]) = ends {
+                self.scene.lines.push(Line {
+                    start,
+                    end,
+                    color: REVOLVE_AXIS,
+                    width: REVOLVE_AXIS_WIDTH,
+                    layer: Layer::Model,
+                    pick: None,
+                });
+            }
+        }
+        let Some((_, regions)) = selection::swept_regions(document, evaluation, feature) else {
+            return;
+        };
+        let chosen = chosen_regions(solid.regions(), regions);
+        for region in regions {
+            let Some(mesh) = &region.mesh else {
+                continue;
+            };
+            let key = region.region.key();
+            let pickable = Pickable::Region {
+                feature,
+                region: key,
+            };
+            let color = if self.highlight.is_hovered(pickable) {
+                HOVERED.with_alpha(HOVERED_REGION_ALPHA)
+            } else if chosen.contains(&key) {
+                CHOSEN_REGION
+            } else {
+                OPEN_REGION
+            };
+            let triangles = mesh
+                .triangles
+                .iter()
+                .filter_map(|triangle| {
+                    let [a, b, c] = triangle.map(|index| {
+                        mesh.points
+                            .get(index as usize)
+                            .map(|point| plane.to_world(*point))
+                    });
+                    Some([a?, b?, c?])
+                })
+                .collect();
+            self.scene.fills.push(Fill {
+                triangles,
+                color,
+                layer: Layer::Model,
+                pick: self.picks.register(pickable, PickPriority::Surface),
+            });
+        }
     }
 
     fn axis(&mut self, axis: Axis, size: f64) {
@@ -544,6 +733,32 @@ pub fn add_preview(scene: &mut Scene, plane: Plane, preview: &Preview) {
     scene.markers.extend(snap.into_iter().chain(points));
 }
 
+pub fn chosen_regions(choice: &RegionChoice, regions: &[SketchRegion]) -> BTreeSet<RegionKey> {
+    match choice {
+        RegionChoice::All => regions
+            .iter()
+            .filter(|region| region.even_depth)
+            .map(|region| region.region.key())
+            .collect(),
+        RegionChoice::Chosen(keys) => keys.iter().copied().collect(),
+    }
+}
+
+fn body_color(document: &Document, evaluation: &Evaluation, body: FeatureId) -> Color {
+    let mut color = BODY;
+    for feature in document
+        .features()
+        .filter(|feature| feature.body() == Some(body))
+    {
+        match evaluation.feature(feature.id()).map(|status| &status.state) {
+            Some(FeatureState::Failed(_)) => return FAILED_BODY,
+            Some(FeatureState::Outdated) => color = OUTDATED_BODY,
+            Some(FeatureState::UpToDate) | None => {}
+        }
+    }
+    color
+}
+
 fn reference_points(plane: Plane, reference: Reference, size: f64) -> [Point3; 2] {
     let (start, end) = match reference {
         Reference::Origin => (Point2::ZERO, Point2::ZERO),
@@ -618,12 +833,12 @@ fn with_solved_positions<'a>(definition: &'a Sketch, solved: &'a Sketch) -> Cow<
     Cow::Owned(merged)
 }
 
-fn pickable_points(
-    document: &Document,
-    evaluation: &Evaluation,
-    pickable: Pickable,
-    reference_size: f64,
-) -> Vec<Point3> {
+fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f64) -> Vec<Point3> {
+    let Sources {
+        document,
+        evaluation,
+        bodies,
+    } = *sources;
     match pickable {
         Pickable::Origin => vec![Point3::ZERO],
         Pickable::Axis(axis) => vec![Point3::ZERO, axis.direction() * reference_size],
@@ -639,13 +854,47 @@ fn pickable_points(
             .filter(|entity| {
                 !matches!(entity, Pickable::SketchEntity { entity, .. } if entity.is_reference())
             })
-            .flat_map(|entity| pickable_points(document, evaluation, entity, reference_size))
+            .flat_map(|entity| pickable_points(sources, entity, reference_size))
             .collect(),
+        Pickable::Face { body, face } => bodies
+            .get(body)
+            .and_then(|mesh| mesh.face_bounds(face))
+            .map(|bounds| bounds.corners().to_vec())
+            .unwrap_or_default(),
+        Pickable::Edge { body, edge } => bodies
+            .get(body)
+            .and_then(|mesh| mesh.edge_points(edge))
+            .map(<[Point3]>::to_vec)
+            .unwrap_or_default(),
+        Pickable::Region { feature, region } => {
+            let Some((sketch, regions)) = selection::swept_regions(document, evaluation, feature)
+            else {
+                return Vec::new();
+            };
+            let Some(plane) = document
+                .feature(sketch)
+                .and_then(|sketch| sketch.kind.sketch())
+                .map(Sketch::plane)
+            else {
+                return Vec::new();
+            };
+            regions
+                .iter()
+                .filter(|candidate| candidate.region.key() == region)
+                .filter_map(|candidate| candidate.mesh.as_ref())
+                .flat_map(|mesh| mesh.points.iter().map(|point| plane.to_world(*point)))
+                .collect()
+        }
     }
 }
 
-fn model_bounds(document: &Document, evaluation: &Evaluation) -> Option<Aabb> {
-    Aabb::from_points(document.features().flat_map(|feature| {
+fn model_bounds(sources: &Sources<'_>) -> Option<Aabb> {
+    let Sources {
+        document,
+        evaluation,
+        bodies,
+    } = *sources;
+    let sketches = Aabb::from_points(document.features().flat_map(|feature| {
         let Some(sketch) = displayed_sketch(evaluation, feature) else {
             return Vec::new();
         };
@@ -653,7 +902,12 @@ fn model_bounds(document: &Document, evaluation: &Evaluation) -> Option<Aabb> {
             .entities()
             .flat_map(|(entity, _)| sketch_entity_points(&sketch, entity, 0.0))
             .collect::<Vec<_>>()
-    }))
+    }));
+    match (sketches, bodies.bounds()) {
+        (Some(sketches), Some(bodies)) => Some(sketches.union(bodies)),
+        (Some(bounds), None) | (None, Some(bounds)) => Some(bounds),
+        (None, None) => None,
+    }
 }
 
 fn reference_size(model: Option<Aabb>) -> f64 {
@@ -689,6 +943,44 @@ mod tests {
         (document, feature, line)
     }
 
+    fn build_for(
+        document: &Document,
+        evaluation: &Evaluation,
+        highlight: &Highlight<'_>,
+        editing: Option<FeatureId>,
+    ) -> BuiltScene {
+        build(
+            &Sources {
+                document,
+                evaluation,
+                bodies: &BodyMeshes::default(),
+            },
+            highlight,
+            Context {
+                sketch: editing,
+                solid: None,
+            },
+        )
+    }
+
+    impl BuiltScene {
+        fn bounds_with(
+            &self,
+            document: &Document,
+            evaluation: &Evaluation,
+            pickables: impl IntoIterator<Item = Pickable>,
+        ) -> Option<Aabb> {
+            self.bounds_of(
+                &Sources {
+                    document,
+                    evaluation,
+                    bodies: &BodyMeshes::default(),
+                },
+                pickables,
+            )
+        }
+    }
+
     fn hit(id: PickId, offset_px: f32) -> PickHit {
         PickHit {
             id,
@@ -701,7 +993,7 @@ mod tests {
     fn every_pickable_gets_a_unique_id_and_sketch_geometry_is_on_its_plane() {
         let (document, feature, line) = document();
         let selection = Selection::default();
-        let built = build(
+        let built = build_for(
             &document,
             &Evaluation::default(),
             &Highlight {
@@ -777,7 +1069,7 @@ mod tests {
             hovered: &[],
         };
 
-        let built = build(&document, &Evaluation::default(), &highlight, Some(side));
+        let built = build_for(&document, &Evaluation::default(), &highlight, Some(side));
 
         let references: Vec<Pickable> = [
             EntityId::HORIZONTAL_AXIS,
@@ -813,7 +1105,7 @@ mod tests {
         assert_eq!(built.fit_all(), edited.bounds);
         assert!(
             built
-                .bounds_of(&document, &Evaluation::default(), [references[0]])
+                .bounds_with(&document, &Evaluation::default(), [references[0]])
                 .is_some_and(|bounds| bounds.max().x > 0.0 && bounds.min().x < 0.0)
         );
         assert!(!picks.contains(&Pickable::SketchEntity {
@@ -861,7 +1153,7 @@ mod tests {
         };
         let entity = |entity| Pickable::SketchEntity { feature, entity };
 
-        let built = build(&document, &evaluate(&document), &highlight, Some(feature));
+        let built = build_for(&document, &evaluate(&document), &highlight, Some(feature));
         assert_eq!(line_color(&built, entity(fixed)), FULLY_CONSTRAINED_CURVE);
         assert_eq!(line_color(&built, entity(free)), SKETCH_CURVE);
         assert_eq!(line_color(&built, entity(doubled)), REDUNDANT_CURVE);
@@ -869,7 +1161,7 @@ mod tests {
         let mut transaction = document.transaction("Conflict");
         transaction.add_sketch_constraint(feature, Constraint::Vertical(fixed));
         document.apply(transaction.finish()).unwrap();
-        let built = build(&document, &evaluate(&document), &highlight, Some(feature));
+        let built = build_for(&document, &evaluate(&document), &highlight, Some(feature));
         assert_eq!(line_color(&built, entity(fixed)), CONFLICTING_CURVE);
         assert_eq!(line_color(&built, entity(free)), SKETCH_CURVE);
 
@@ -878,7 +1170,7 @@ mod tests {
             selection: &selection,
             hovered: &[entity(fixed)],
         };
-        let built = build(&document, &evaluate(&document), &hovered, Some(feature));
+        let built = build_for(&document, &evaluate(&document), &hovered, Some(feature));
         assert_eq!(line_color(&built, entity(fixed)), HOVERED);
     }
 
@@ -931,7 +1223,7 @@ mod tests {
     fn selection_bounds_cover_the_selected_line() {
         let (document, feature, line) = document();
         let selection = Selection::default();
-        let built = build(
+        let built = build_for(
             &document,
             &Evaluation::default(),
             &Highlight {
@@ -941,7 +1233,7 @@ mod tests {
             None,
         );
         let bounds = built
-            .bounds_of(
+            .bounds_with(
                 &document,
                 &Evaluation::default(),
                 [Pickable::SketchEntity {
@@ -966,7 +1258,7 @@ mod tests {
         let feature = transaction.add_feature("Curves", FeatureKind::Sketch(sketch));
         document.apply(transaction.finish()).unwrap();
         let selection = Selection::default();
-        let built = build(
+        let built = build_for(
             &document,
             &Evaluation::default(),
             &Highlight {
@@ -1000,7 +1292,7 @@ mod tests {
         assert_eq!(built.everything.max().x, 48.0);
         assert_eq!(built.everything.min().x, -48.0);
         let bounds = built
-            .bounds_of(
+            .bounds_with(
                 &document,
                 &Evaluation::default(),
                 [Pickable::SketchEntity {

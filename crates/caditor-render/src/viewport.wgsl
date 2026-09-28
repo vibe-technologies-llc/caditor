@@ -3,6 +3,7 @@ struct View {
     forward_near: vec4<f32>,
     viewport: vec4<f32>,
     pick_transform: vec4<f32>,
+    light: vec4<f32>,
 }
 
 struct Grid {
@@ -12,8 +13,19 @@ struct Grid {
     color: vec4<f32>,
 }
 
+struct FaceStyle {
+    color: vec4<f32>,
+    pick: u32,
+}
+
+struct MeshStyle {
+    offset: vec4<f32>,
+    faces: array<FaceStyle>,
+}
+
 @group(0) @binding(0) var<uniform> view: View;
 @group(1) @binding(0) var<uniform> grid: Grid;
+@group(1) @binding(1) var<storage, read> mesh: MeshStyle;
 
 const CULLED: vec4<f32> = vec4<f32>(0.0, 0.0, 2.0, 1.0);
 
@@ -25,6 +37,7 @@ struct Varyings {
     @location(3) local: vec2<f32>,
     @location(4) @interpolate(flat) diameter: f32,
     @location(5) relative: vec3<f32>,
+    @location(6) normal: vec3<f32>,
 }
 
 struct PickOutput {
@@ -66,6 +79,7 @@ fn empty_varyings() -> Varyings {
     out.local = vec2<f32>(0.0);
     out.diameter = 0.0;
     out.relative = vec3<f32>(0.0);
+    out.normal = vec3<f32>(0.0);
     return out;
 }
 
@@ -164,15 +178,38 @@ struct FillVertex {
     @location(0) position: vec3<f32>,
     @location(1) color: vec4<f32>,
     @location(2) pick: u32,
+    @location(3) depth_bias: f32,
 }
 
 @vertex
 fn vs_fill(fill: FillVertex) -> Varyings {
     var out = empty_varyings();
-    out.position = finish(to_clip(fill.position), 1.0);
+    out.position = finish(to_clip(fill.position), fill.depth_bias);
     out.color = fill.color;
     out.pick = fill.pick;
     out.depth = view_depth(fill.position);
+    return out;
+}
+
+struct MeshVertex {
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) face: u32,
+}
+
+@vertex
+fn vs_mesh(vertex: MeshVertex) -> Varyings {
+    let relative = vertex.position + mesh.offset.xyz;
+    let face = min(vertex.face, arrayLength(&mesh.faces) - 1u);
+    let style = mesh.faces[face];
+
+    var out = empty_varyings();
+    out.position = finish(to_clip(relative), 1.0);
+    out.color = style.color;
+    out.pick = style.pick;
+    out.depth = view_depth(relative);
+    out.relative = relative;
+    out.normal = vertex.normal;
     return out;
 }
 
@@ -194,6 +231,32 @@ fn vs_grid(@builtin(vertex_index) vertex: u32) -> Varyings {
 @fragment
 fn fs_color(in: Varyings) -> @location(0) vec4<f32> {
     return in.color;
+}
+
+const AMBIENT: f32 = 0.3;
+const KEY_LIGHT: f32 = 0.55;
+const HEADLIGHT: f32 = 0.2;
+const SPECULAR: f32 = 0.12;
+const SHININESS: f32 = 40.0;
+
+@fragment
+fn fs_mesh(in: Varyings) -> @location(0) vec4<f32> {
+    let toward_eye = normalize(-in.relative);
+    var normal = in.normal;
+    if dot(normal, normal) < 1e-12 {
+        normal = toward_eye;
+    }
+    normal = normalize(normal);
+    if dot(normal, toward_eye) < 0.0 {
+        normal = -normal;
+    }
+    let toward_light = view.light.xyz;
+    let key = max(dot(normal, toward_light), 0.0);
+    let head = max(dot(normal, toward_eye), 0.0);
+    let halfway = normalize(toward_light + toward_eye);
+    let shine = pow(max(dot(normal, halfway), 0.0), SHININESS) * SPECULAR;
+    let shade = AMBIENT + KEY_LIGHT * key + HEADLIGHT * head;
+    return vec4<f32>(in.color.rgb * shade + vec3<f32>(shine), in.color.a);
 }
 
 fn marker_coverage(in: Varyings) -> f32 {

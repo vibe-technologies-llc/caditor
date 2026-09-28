@@ -43,7 +43,7 @@ pub use crate::{
     naming::{EdgeName, FaceName, FaceOrigin, VertexName},
     profile::{
         Piece, PieceBound, PieceId, Profile, ProfileCurve, ProfileError, ProfileLoop, ProfileShape,
-        Region, RegionKey, Selection, Side,
+        Region, RegionKey, RegionMesh, Selection, Side,
     },
     sense::Sense,
     surface::{

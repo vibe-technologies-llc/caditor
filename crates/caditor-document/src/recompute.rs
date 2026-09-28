@@ -2,16 +2,16 @@ use std::{
     any::Any,
     collections::{BTreeMap, BTreeSet},
     panic::{self, AssertUnwindSafe},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use caditor_expression::{Dimension, EvalError, ParameterId, Quantity};
-use caditor_kernel::Solid;
+use caditor_kernel::{ProfileError, Solid};
 use caditor_sketch::{ConstraintId, DimensionError, Sketch, SketchError, SketchSolution, Solved};
 
 use crate::{
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
-    solid::{self, SolidResult},
+    solid::{self, SketchRegion, SolidFeature, SolidResult},
     values::ParameterValues,
 };
 
@@ -69,6 +69,31 @@ impl From<FeatureError> for Failure {
 pub struct SketchResult {
     pub geometry: Sketch,
     pub solution: SketchSolution,
+    regions: OnceLock<Result<Vec<SketchRegion>, ProfileError>>,
+}
+
+impl SketchResult {
+    pub fn new(geometry: Sketch, solution: SketchSolution) -> Self {
+        Self {
+            geometry,
+            solution,
+            regions: OnceLock::new(),
+        }
+    }
+
+    pub fn regions(&self) -> Option<&Result<Vec<SketchRegion>, ProfileError>> {
+        self.regions.get()
+    }
+
+    pub(crate) fn find_regions(&self) {
+        self.regions.get_or_init(|| {
+            panic::catch_unwind(AssertUnwindSafe(|| solid::display_regions(&self.geometry)))
+                .unwrap_or_else(|_| {
+                    log::error!("dividing a sketch into regions panicked");
+                    Err(ProfileError::Unresolved)
+                })
+        });
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -145,9 +170,12 @@ impl Evaluation {
     }
 
     pub fn body(&self, body: FeatureId) -> Option<&Solid> {
+        self.body_result(body)?.solid().map(|result| &result.solid)
+    }
+
+    pub fn body_result(&self, body: FeatureId) -> Option<&Arc<FeatureResult>> {
         let state = self.bodies.get(&body)?;
-        let result = self.features.get(state)?.result.as_deref()?;
-        result.solid().map(|result| &result.solid)
+        self.features.get(state)?.result.as_ref()
     }
 
     pub fn feature(&self, id: FeatureId) -> Option<&FeatureStatus> {
@@ -320,6 +348,33 @@ impl Recompute {
             );
         }
         progress(features.len(), features.len());
+        let swept: BTreeSet<FeatureId> = features
+            .iter()
+            .filter_map(|feature| feature.kind.solid().map(SolidFeature::sketch))
+            .collect();
+        for sketch in &swept {
+            if cancel.is_cancelled() {
+                break;
+            }
+            if let Some(result) = statuses
+                .get(sketch)
+                .and_then(|status: &FeatureStatus| status.result.as_deref())
+                .and_then(FeatureResult::sketch)
+            {
+                result.find_regions();
+            }
+        }
+        for (body, (_, result)) in &bodies {
+            if cancel.is_cancelled() {
+                break;
+            }
+            if let Some(solid) = result.solid() {
+                let name = document
+                    .feature(*body)
+                    .map_or("a feature", |feature| feature.name.as_str());
+                solid.tessellate(name);
+            }
+        }
 
         let alive: BTreeSet<FeatureId> = features.iter().map(|feature| feature.id()).collect();
         self.cache.retain(|id, _| alive.contains(id));
@@ -409,7 +464,7 @@ impl Evaluator for ModelEvaluator {
                     sketch.solve(&|id| inputs.parameters.value(id), &|| cancel.is_cancelled());
                 match solved {
                     Ok(Solved { geometry, solution }) => {
-                        Ok(FeatureResult::Sketch(SketchResult { geometry, solution }))
+                        Ok(FeatureResult::Sketch(SketchResult::new(geometry, solution)))
                     }
                     Err(SketchError::Cancelled) => Err(Failure::Cancelled),
                     Err(error) => Err(Failure::Error(sketch_error(feature.id(), sketch, &error))),

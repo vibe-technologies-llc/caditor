@@ -40,7 +40,8 @@ caditor-geometry  ←  caditor-sketch  ←  caditor-document  ←  caditor-file 
 `caditor-expression` has no workspace dependencies; the sketch, document, file and app crates all
 use it. `caditor-file` and the app also use the geometry and sketch crates directly.
 `caditor-kernel` depends only on `caditor-geometry`, never on the sketch or document crates; the
-document and file crates use it for solid features.
+document and file crates use it for solid features, and the app for face and edge names and
+meshes.
 
 - **caditor-geometry**: the math vocabulary, as f64 `glam` aliases (`Point3`, `Rotation3`, …)
   plus `Plane` (origin, normal and in-plane x axis, also used as the frame of every circle and
@@ -164,7 +165,8 @@ document and file crates use it for solid features.
     ids. Depth counts nesting of connected components inside faces of others. `select` with
     `Selection::EvenDepth` (the default) or explicit keys returns the union of the chosen regions
     as new regions keyed the same way, so adjacent regions sweep as one lump. Errors name the
-    entity ids.
+    entity ids. `Region::triangulate` samples the loops and keeps the constrained Delaunay
+    triangles inside by the parity of constraint crossings, for drawing regions as fills.
   - Intersections (`intersect/`) take a `SurfacePatch` (a surface and a finite uv box; periodic
     boxes wrap, poles accept any u) so booleans intersect face patches, and restrict curves to a
     parameter interval. Coincidence within tolerance is detected, never guessed: a curve lying
@@ -296,8 +298,15 @@ document and file crates use it for solid features.
     error. Each body's latest good state is carried through the tree and is part of the next
     change's upstream: a feature that changes a body gets its current solid through
     `Inputs::body`, and a failing one is skipped, so later features of the body build on the
-    state before it. `Evaluation::body` gives each body's final solid. Solid features map
-    profile, sweep and boolean errors to sentences naming the sketch curves involved.
+    state before it. `Evaluation::body` gives each body's final solid and `body_result` the
+    shared result holding it. Solid features map profile, sweep and boolean errors to sentences
+    naming the sketch curves involved.
+  - Display data is computed on the worker at the end of each run and cached inside the shared
+    results (`OnceLock`), so the UI only reads it: each body's final state is tessellated
+    (`SolidResult::mesh`; intermediate states are not), and every sketch that a solid feature
+    sweeps gets its regions with a triangulation each (`SketchResult::regions`). A panic or
+    failure while meshing leaves the body without a mesh (`mesh_failed`) but keeps its shape for
+    later features.
   - `Recomputer` runs recompute on a worker thread. A newer submission or `cancel` stops the
     running job between features (evaluators also receive a `CancelToken`), and features that
     were not reached are reported as `Outdated`. The worker calls a wake callback after each
@@ -338,14 +347,24 @@ document and file crates use it for solid features.
     the file) and returns the rest with a replayed `Editor`.
 - **caditor-render**: wgpu device and surface ownership, the camera and the viewport. It does
   not depend on winit or on the document: it takes any `Arc<dyn WindowTarget>` and draws a
-  `Scene` of lines, markers, convex fills and a grid built by the app. `begin_frame` draws the
-  3D viewport into its rect and hands back a `Frame` whose encoder the app draws the UI into;
-  `submit` presents it.
+  `Scene` of shaded meshes, lines, markers, triangle fills and a grid built by the app.
+  `begin_frame` draws the 3D viewport into its rect and hands back a `Frame` whose encoder the
+  app draws the UI into; `submit` presents it.
   - Precision: every position is converted relative to the eye in f64 before the cast to f32,
-    and the view matrix is rotation only, so geometry far from the origin stays exact.
+    and the view matrix is rotation only, so geometry far from the origin stays exact. Meshes
+    are the exception that keeps the rule: a `ShadedMesh` stores f32 positions relative to its
+    own centre, and the offset from the eye to that centre is computed in f64 each frame.
+  - Meshes: a `MeshInstance` is an `Arc<ShadedMesh>` (faces of points with normals) plus a
+    `FaceStyle` (colour, pick id) per face. Vertex and index buffers are uploaded once per
+    `Arc` and dropped when the mesh leaves the scene; only the per-face styles, read from a
+    storage buffer by face index, are rewritten each frame, so hover and selection cost nothing
+    in geometry. Faces are lit two-sided by a key light above and to the left of the camera, a
+    headlight and a small specular term, and write depth, so edges and sketches behind them are
+    hidden in the view and in picking alike.
   - Depth is reverse-Z with an infinite far plane and `Depth32Float`, with 4x MSAA when the
     adapter supports it. Model geometry draws over reference geometry (datum planes, axes)
-    through a per-`Layer` depth bias.
+    through a per-`Layer` depth bias, and model-layer fills (sketch regions) over the faces
+    they lie on.
   - Picking renders a small window around the cursor into ID and depth targets and reads it
     back asynchronously, so hover never blocks the UI thread. Hits carry their world position,
     which navigation uses as the orbit pivot, pan grab point and zoom anchor.
@@ -362,6 +381,24 @@ document and file crates use it for solid features.
     returns `Action`s, which the app performs after the UI pass, so the UI never mutates the
     document directly. Each change submits a snapshot to the worker. Feature geometry is drawn
     from the last good result, tinted when the feature failed or is outdated.
+  - Bodies (`bodies.rs`): `BodyMeshes` converts each body's final mesh into a `ShadedMesh` with
+    its edge polylines (seams left out) once per result, keyed by the result's `Arc`, and keeps
+    the previous one while a new mesh is not ready. A face is picked and selected as
+    `Pickable::Face` with a `FaceKey` (its `FaceName` and its occurrence among faces sharing
+    the name, in solid order), an edge as `Pickable::Edge` with its `EdgeName`; both are
+    described in words from the `FaceOrigin` (for example "Extrude 1 side from Line 3"). While
+    a sketch is edited, bodies are dimmed and not pickable.
+  - Solid modelling (`solid_tools.rs`, `solid_panel.rs`): the toolbar's Extrude and Revolve
+    take the edited sketch, else the sketch of the selected entities, else the last sketch, and
+    a selected line or sketch axis as the revolve axis (the vertical axis otherwise). A new
+    feature is one-sided 10 mm or a full turn and adds to the last body, or makes a new one
+    when there is none. It then opens: `SketchEditing` holds at most one open solid feature,
+    never together with an edited sketch, and `editing::Context` carries both to the scene and
+    to availability checks. An open feature's row in the tree is its property panel (sketch,
+    regions, extent, axis, result and target body), where every change is one `SetFeatureKind`
+    checked before it is offered, and its sketch's regions are drawn as fills that
+    `Pickable::Region` clicks add or leave out, turning `RegionChoice::All` into the explicit
+    keys. Double-clicking a face opens the feature that made it; Escape closes it last.
   - `Model` also owns the file session: the path, the last saved document (the model is
     unsaved exactly when its document differs from it), the journal entries since then and the
     `Storage` worker, to which every change is recorded. `files.rs` is the file workflow: the
@@ -426,7 +463,8 @@ document and file crates use it for solid features.
     `Focus::Dimension` of the edited sketch, which the app takes from the panels and hands to
     the viewport, waiting until the dimension can be drawn.
   - `ui_tests.rs` drives the real toolbars, panels and viewport through a headless egui context
-    with synthetic input; picking needs the GPU, so tests set the viewport selection directly,
+    with synthetic input; picking needs the GPU, so tests set the viewport selection directly
+    or feed a pick result for a chosen `Pickable` (`hover_through_pick`),
     while drawing tests click sketch positions mapped to the screen through the view and
     annotation tests click the painted labels and glyphs.
 

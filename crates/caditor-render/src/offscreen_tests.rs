@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use caditor_geometry::{Point3, Vector3};
 use glam::DVec2;
 
 use crate::{
     camera::{View, Viewpoint},
+    mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     scene::{Color, Fill, Layer, Line, Marker, PickId, PickResult, Scene, ViewportRect},
     viewport::{SurfaceTarget, ViewportFrame, ViewportRenderer},
 };
@@ -22,6 +25,7 @@ fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
 
 fn scene() -> Scene {
     Scene {
+        meshes: Vec::new(),
         lines: vec![Line {
             start: Point3::new(-20.0, 0.0, 0.0),
             end: Point3::new(20.0, 0.0, 0.0),
@@ -30,16 +34,17 @@ fn scene() -> Scene {
             layer: Layer::Model,
             pick: PickId::from_index(0),
         }],
-        fills: vec![Fill {
-            convex_outline: vec![
+        fills: vec![Fill::convex(
+            &[
                 Point3::new(-30.0, -30.0, 0.0),
                 Point3::new(30.0, -30.0, 0.0),
                 Point3::new(30.0, 30.0, 0.0),
                 Point3::new(-30.0, 30.0, 0.0),
             ],
-            color: Color::from_rgba8(0, 0, 255, 40),
-            pick: PickId::from_index(1),
-        }],
+            Color::from_rgba8(0, 0, 255, 40),
+            Layer::Reference,
+            PickId::from_index(1),
+        )],
         markers: vec![Marker {
             position: Point3::new(10.0, 10.0, 0.0),
             color: Color::from_rgb8(255, 255, 255),
@@ -56,7 +61,13 @@ struct Rendered {
     pixels: Vec<u8>,
 }
 
-fn render(device: &wgpu::Device, queue: &wgpu::Queue, view: &View, pick_at: DVec2) -> Rendered {
+fn render(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    view: &View,
+    scene: &Scene,
+    pick_at: DVec2,
+) -> Rendered {
     let mut renderer = ViewportRenderer::new(device, FORMAT, 4);
     let target = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("offscreen target"),
@@ -80,7 +91,6 @@ fn render(device: &wgpu::Device, queue: &wgpu::Queue, view: &View, pick_at: DVec
         mapped_at_creation: false,
     });
 
-    let scene = scene();
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     renderer.draw(
         device,
@@ -99,7 +109,7 @@ fn render(device: &wgpu::Device, queue: &wgpu::Queue, view: &View, pick_at: DVec
                 height: SIZE as f32,
             },
             view,
-            scene: &scene,
+            scene,
             pick_at: Some(pick_at),
         }),
     );
@@ -141,7 +151,7 @@ fn draws_and_picks_a_line_over_a_fill() {
     let on_line = view.project(Point3::new(5.0, 0.0, 0.0)).unwrap();
     let off_line = view.project(Point3::new(5.0, 20.0, 0.0)).unwrap();
 
-    let rendered = render(&device, &queue, &view, on_line);
+    let rendered = render(&device, &queue, &view, &scene(), on_line);
 
     let nearest = rendered.pick.hits[0];
     assert_eq!(nearest.id, PickId::from_index(0).unwrap());
@@ -174,6 +184,7 @@ fn draws_and_picks_a_line_over_a_fill() {
         &device,
         &queue,
         &view,
+        &scene(),
         view.project(Point3::new(10.0, 12.0, 0.0)).unwrap(),
     );
     let marker = rendered
@@ -183,4 +194,100 @@ fn draws_and_picks_a_line_over_a_fill() {
         .find(|hit| hit.id == PickId::from_index(2).unwrap())
         .unwrap();
     assert!(marker.offset_px > 0.0 && marker.offset_px < 7.5);
+}
+
+fn box_mesh(half: f64) -> ShadedMesh {
+    let face = |normal: Vector3| {
+        let (u, v) = normal.any_orthonormal_pair();
+        let corner = |a: f64, b: f64| MeshPoint {
+            position: Point3::ZERO + (normal + u * a + v * b) * half,
+            normal,
+        };
+        MeshFace {
+            points: vec![
+                corner(-1.0, -1.0),
+                corner(1.0, -1.0),
+                corner(1.0, 1.0),
+                corner(-1.0, 1.0),
+            ],
+            triangles: vec![[0, 1, 2], [0, 2, 3]],
+        }
+    };
+    ShadedMesh::new(
+        [
+            Vector3::X,
+            Vector3::NEG_X,
+            Vector3::Y,
+            Vector3::NEG_Y,
+            Vector3::Z,
+            Vector3::NEG_Z,
+        ]
+        .map(face),
+    )
+}
+
+#[test]
+fn draws_shaded_faces_that_hide_what_is_behind_them_and_picks_the_face_in_front() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("no graphics adapter available, skipping the offscreen test");
+        return;
+    };
+    let mesh = Arc::new(box_mesh(20.0));
+    let styles: Vec<FaceStyle> = (0..6)
+        .map(|index| FaceStyle {
+            color: Color::from_rgb8(40, 200, 40),
+            pick: PickId::from_index(10 + index),
+        })
+        .collect();
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh,
+            faces: styles,
+        }],
+        lines: vec![Line {
+            start: Point3::new(-50.0, 0.0, 0.0),
+            end: Point3::new(50.0, 0.0, 0.0),
+            color: LINE_COLOR,
+            width: 3.0,
+            layer: Layer::Model,
+            pick: PickId::from_index(0),
+        }],
+        ..Scene::default()
+    };
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let on_top = view.project(Point3::new(0.0, 10.0, 20.0)).unwrap();
+    let hidden_line = view.project(Point3::new(5.0, 0.0, 20.0)).unwrap();
+    let visible_line = view.project(Point3::new(40.0, 0.0, 0.0)).unwrap();
+
+    let rendered = render(&device, &queue, &view, &scene, on_top);
+
+    let nearest = rendered.pick.hits[0];
+    assert_eq!(nearest.id, PickId::from_index(14).unwrap());
+    assert_eq!(nearest.offset_px, 0.0);
+    assert!(nearest.position.distance(Point3::new(0.0, 10.0, 20.0)) < 0.5);
+    let [red, green, blue, _] = pixel(&rendered, on_top);
+    assert!(
+        green > 60 && green > red * 2 && green > blue * 2,
+        "face pixel was {red} {green} {blue}"
+    );
+    let [red, green, _, _] = pixel(&rendered, hidden_line);
+    assert!(
+        green > red,
+        "the line inside the box showed through its top"
+    );
+    let [red, green, _, _] = pixel(&rendered, visible_line);
+    assert!(
+        red > 200 && green < 80,
+        "the line outside the box was hidden"
+    );
+
+    let rendered = render(&device, &queue, &view, &scene, hidden_line);
+    assert!(
+        rendered
+            .pick
+            .hits
+            .iter()
+            .all(|hit| hit.id != PickId::from_index(0).unwrap())
+    );
 }

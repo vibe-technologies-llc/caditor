@@ -286,7 +286,10 @@ pub fn selected_entities(selection: &Selection, feature: FeatureId) -> Vec<Entit
             | Pickable::SketchConstraint { .. }
             | Pickable::Origin
             | Pickable::Axis(_)
-            | Pickable::Plane(_) => None,
+            | Pickable::Plane(_)
+            | Pickable::Face { .. }
+            | Pickable::Edge { .. }
+            | Pickable::Region { .. } => None,
         })
         .collect()
 }
@@ -303,7 +306,10 @@ pub fn selected_constraints(selection: &Selection, feature: FeatureId) -> Vec<Co
             | Pickable::SketchEntity { .. }
             | Pickable::Origin
             | Pickable::Axis(_)
-            | Pickable::Plane(_) => None,
+            | Pickable::Plane(_)
+            | Pickable::Face { .. }
+            | Pickable::Edge { .. }
+            | Pickable::Region { .. } => None,
         })
         .collect()
 }

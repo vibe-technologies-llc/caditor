@@ -4,7 +4,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use caditor_document::{Document, Edit, Editor, Feature, FeatureId, FeatureKind, Transaction};
+use caditor_document::{
+    BodyOperation, Document, Edit, Editor, ExtrudeExtent, Feature, FeatureId, FeatureKind,
+    RegionChoice, SolidFeature, SolidResult, Transaction,
+};
 use caditor_expression::{Expression, ParameterId, Unit};
 use caditor_file::{JournalEntry, Start, Storage, StorageConfig};
 use caditor_geometry::{Plane, Point2, Vector2};
@@ -407,6 +410,56 @@ impl Harness {
             .find(|(shown, _)| shown == label)
             .unwrap_or_else(|| panic!("'{label}' is not on screen"))
             .1
+    }
+
+    fn built(&mut self) -> scene::BuiltScene {
+        self.workspace.viewport.build_scene(
+            self.model.document(),
+            self.model.evaluation(),
+            &self.workspace.editing,
+        )
+    }
+
+    fn type_into_field(&mut self, id: Id, text: &str) {
+        self.context.memory_mut(|memory| memory.request_focus(id));
+        self.frame();
+        self.key(Key::A, Modifiers::COMMAND);
+        self.events.push(Event::Text(text.to_owned()));
+        self.frame();
+        self.key(Key::Enter, Modifiers::NONE);
+        self.frame();
+    }
+
+    fn click_pickable(&mut self, plane: Plane, point: Point2, pickable: Pickable) {
+        let position = self
+            .workspace
+            .viewport
+            .screen_position(plane, point)
+            .expect("the point is in view");
+        self.events.push(Event::PointerMoved(position));
+        self.frame();
+        let built = self.built();
+        self.workspace.viewport.hover_through_pick(&built, pickable);
+        self.press(position);
+        self.frame();
+    }
+
+    fn solid(&self, feature: FeatureId) -> &SolidFeature {
+        self.document()
+            .feature(feature)
+            .and_then(|feature| feature.kind.solid())
+            .unwrap()
+    }
+
+    fn body_volume(&self, body: FeatureId) -> f64 {
+        self.model
+            .evaluation()
+            .body_result(body)
+            .and_then(|result| result.solid())
+            .and_then(SolidResult::mesh)
+            .expect("the body is meshed")
+            .mass_properties()
+            .volume
     }
 
     fn error_color(&self) -> Color32 {
@@ -1466,4 +1519,222 @@ fn tool_buttons_name_their_shortcuts() {
     assert_eq!(harness.tool(), Some(Tool::Circle));
     harness.hover("Parallel");
     assert!(harness.shows("Make two lines parallel. Select two lines (Shift+P)"));
+}
+
+fn rectangle(sketch: &mut Sketch, min: Point2, max: Point2) {
+    let corners = [
+        min,
+        Point2::new(max.x, min.y),
+        max,
+        Point2::new(min.x, max.y),
+    ];
+    for (index, corner) in corners.iter().enumerate() {
+        sketch.add_line(*corner, corners[(index + 1) % 4]);
+    }
+}
+
+fn distance_of(harness: &Harness, feature: FeatureId) -> String {
+    let SolidFeature::Extrude(extrude) = harness.solid(feature) else {
+        panic!("expected an extrusion");
+    };
+    let ExtrudeExtent::OneSide { distance, .. } = &extrude.extent else {
+        panic!("expected a one-sided extent");
+    };
+    harness.document().expression_text(distance)
+}
+
+#[test]
+fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
+    let mut harness = Harness::new();
+    let sketch = harness.draw_on_new_sketch();
+    harness.use_tool(Key::R);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(40.0, 30.0));
+    harness.settle();
+
+    harness.click("⬆ Extrude");
+    harness.settle();
+
+    let extrude = harness
+        .document()
+        .features()
+        .find(|feature| feature.name == "Extrude 1")
+        .map(Feature::id)
+        .expect("the extrusion was created");
+    assert_eq!(harness.model.undo_label(), Some("Create Extrude 1"));
+    assert_eq!(harness.editing(), None);
+    assert_eq!(harness.workspace.editing.solid(), Some(extrude));
+    assert_eq!(harness.solid(extrude).sketch(), sketch);
+    assert_eq!(harness.solid(extrude).operation(), BodyOperation::NewBody);
+    assert!((harness.body_volume(extrude) - 6000.0).abs() < 1.0);
+    assert!(harness.shows("Click regions of the sketch to include or leave them out"));
+
+    let built = harness.built();
+    assert_eq!(built.scene.meshes.len(), 1);
+    assert_eq!(built.scene.meshes[0].mesh.face_count(), 6);
+    let pickables: Vec<Pickable> = built.picks.pickables().collect();
+    assert_eq!(
+        pickables
+            .iter()
+            .filter(|pickable| matches!(pickable, Pickable::Face { .. }))
+            .count(),
+        6
+    );
+    assert_eq!(
+        pickables
+            .iter()
+            .filter(|pickable| matches!(pickable, Pickable::Edge { .. }))
+            .count(),
+        12
+    );
+    assert_eq!(
+        pickables
+            .iter()
+            .filter(|pickable| matches!(pickable, Pickable::Region { .. }))
+            .count(),
+        1
+    );
+    assert!(built.everything.max().z >= 10.0);
+
+    let field = Id::new(("solid-field", "distance", extrude));
+    harness.type_into_field(field, "25 mm");
+    assert_eq!(distance_of(&harness, extrude), "25 mm");
+    harness.settle();
+    assert!((harness.body_volume(extrude) - 15000.0).abs() < 1.0);
+
+    harness.type_into_field(field, "-5 mm");
+    assert!(harness.shows("Enter a value above zero. Use Reversed to go the other way"));
+    assert_eq!(distance_of(&harness, extrude), "25 mm");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert_eq!(distance_of(&harness, extrude), "10 mm");
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    assert_eq!(harness.workspace.editing.solid(), None);
+    assert!(
+        harness
+            .built()
+            .picks
+            .pickables()
+            .all(|pickable| !matches!(pickable, Pickable::Region { .. }))
+    );
+}
+
+#[test]
+fn clicking_a_hole_region_adds_it_and_a_face_names_the_feature_that_made_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+    rectangle(
+        &mut sketch,
+        Point2::new(10.0, 10.0),
+        Point2::new(20.0, 20.0),
+    );
+    let sketch = harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("⬆ Extrude");
+    harness.settle();
+    let extrude = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    assert_eq!(harness.solid(extrude).sketch(), sketch);
+    assert!((harness.body_volume(extrude) - 15000.0).abs() < 1.0);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    let hole = harness
+        .built()
+        .picks
+        .pickables()
+        .filter_map(|pickable| match pickable {
+            Pickable::Region { region, .. } => Some(region),
+            _ => None,
+        })
+        .find(|region| {
+            let RegionChoice::All = harness.solid(extrude).regions() else {
+                return false;
+            };
+            let regions = crate::selection::swept_regions(
+                harness.document(),
+                harness.model.evaluation(),
+                extrude,
+            )
+            .unwrap()
+            .1;
+            regions
+                .iter()
+                .any(|candidate| candidate.region.key() == *region && !candidate.even_depth)
+        })
+        .expect("the hole is a region");
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(15.0, 15.0),
+        Pickable::Region {
+            feature: extrude,
+            region: hole,
+        },
+    );
+    harness.settle();
+
+    let RegionChoice::Chosen(keys) = harness.solid(extrude).regions() else {
+        panic!("the regions were not chosen");
+    };
+    assert_eq!(keys.len(), 2);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Choose regions of Extrude 1")
+    );
+    assert!((harness.body_volume(extrude) - 16000.0).abs() < 1.0);
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let top = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            matches!(pickable, Pickable::Face { .. })
+                && pickable.describe(harness.document(), harness.model.evaluation())
+                    == "Extrude 1 › Extrude 1 end face"
+        })
+        .expect("the top face is pickable");
+    harness.select([top]);
+    assert!(harness.shows("Extrude 1 › Extrude 1 end face"));
+    let Pickable::Face { body, .. } = top else {
+        panic!("expected a face");
+    };
+    assert_eq!(body, extrude);
+}
+
+#[test]
+fn revolving_about_a_selected_line_uses_it_as_the_axis() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XZ);
+    rectangle(&mut sketch, Point2::new(10.0, 0.0), Point2::new(20.0, 10.0));
+    let axis = sketch.add_line(Point2::new(0.0, -5.0), Point2::new(0.0, 15.0));
+    let sketch = harness.add_sketch(sketch);
+    harness.select([Pickable::SketchEntity {
+        feature: sketch,
+        entity: axis,
+    }]);
+
+    harness.click("⟳ Revolve");
+    harness.settle();
+
+    let revolve = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the revolution is open");
+    assert_eq!(harness.solid(revolve).axis(), Some(axis));
+    let expected = std::f64::consts::PI * (20.0f64.powi(2) - 10.0f64.powi(2)) * 10.0;
+    assert!((harness.body_volume(revolve) - expected).abs() / expected < 0.01);
+    assert!(harness.shows("Axis"));
 }

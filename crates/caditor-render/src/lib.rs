@@ -1,5 +1,6 @@
 mod camera;
 mod gpu;
+mod mesh;
 #[cfg(test)]
 mod offscreen_tests;
 mod picking;
@@ -13,6 +14,7 @@ use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 use crate::viewport::{DEPTH_FORMAT, SurfaceTarget, ViewportRenderer};
 pub use crate::{
     camera::{Camera, View, Viewpoint},
+    mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     scene::{
         Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene, ViewportRect,
     },

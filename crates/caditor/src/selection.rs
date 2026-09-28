@@ -1,8 +1,14 @@
 use std::collections::BTreeSet;
 
-use caditor_document::{Document, FeatureId};
+use caditor_document::{Document, Evaluation, FeatureId, FeatureResult, SketchRegion};
 use caditor_geometry::{Plane, Vector3};
+use caditor_kernel::{EdgeName, RegionKey};
 use caditor_sketch::{ConstraintId, EntityId};
+
+use crate::{
+    bodies::{self, FaceKey},
+    editing::Context,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Axis {
@@ -87,10 +93,45 @@ pub enum Pickable {
         feature: FeatureId,
         constraint: ConstraintId,
     },
+    Face {
+        body: FeatureId,
+        face: FaceKey,
+    },
+    Edge {
+        body: FeatureId,
+        edge: EdgeName,
+    },
+    Region {
+        feature: FeatureId,
+        region: RegionKey,
+    },
+}
+
+pub fn swept_regions<'a>(
+    document: &Document,
+    evaluation: &'a Evaluation,
+    feature: FeatureId,
+) -> Option<(FeatureId, &'a [SketchRegion])> {
+    let sketch = document.feature(feature)?.kind.solid()?.sketch();
+    let regions = evaluation
+        .feature(sketch)?
+        .result
+        .as_deref()
+        .and_then(FeatureResult::sketch)?
+        .regions()?
+        .as_ref()
+        .ok()?;
+    Some((sketch, regions.as_slice()))
+}
+
+fn body_name(document: &Document, body: FeatureId) -> &str {
+    document
+        .feature(body)
+        .map_or("A deleted body", |feature| feature.name.as_str())
 }
 
 impl Pickable {
-    pub fn describe(self, document: &Document) -> String {
+    pub fn describe(self, document: &Document, evaluation: &Evaluation) -> String {
         match self {
             Self::Origin => "Origin".to_owned(),
             Self::Axis(axis) => axis.name().to_owned(),
@@ -120,6 +161,32 @@ impl Pickable {
                     sketch.describe_constraint(constraint)
                 )
             }
+            Self::Face { body, face } => {
+                let name = body_name(document, body);
+                match evaluation.body(body) {
+                    Some(solid) => {
+                        format!("{name} › {}", bodies::describe_face(document, solid, face))
+                    }
+                    None => format!("{name} › Face"),
+                }
+            }
+            Self::Edge { body, edge } => {
+                let name = body_name(document, body);
+                match evaluation.body(body) {
+                    Some(solid) => {
+                        format!("{name} › {}", bodies::describe_edge(document, solid, edge))
+                    }
+                    None => format!("{name} › Edge"),
+                }
+            }
+            Self::Region { feature, .. } => {
+                let sketch = document
+                    .feature(feature)
+                    .and_then(|owner| owner.kind.solid())
+                    .and_then(|solid| document.feature(solid.sketch()))
+                    .map_or("the sketch", |sketch| sketch.name.as_str());
+                format!("Region of {sketch}: click to choose or leave out")
+            }
         }
     }
 
@@ -145,7 +212,13 @@ impl Pickable {
             .unwrap_or_default()
     }
 
-    pub fn is_available(self, document: &Document, editing: Option<FeatureId>) -> bool {
+    pub fn is_available(
+        self,
+        document: &Document,
+        evaluation: &Evaluation,
+        context: Context,
+    ) -> bool {
+        let editing = context.sketch;
         match self {
             Self::SketchEntity { feature, entity } => {
                 let in_context = editing.is_none_or(|edited| edited == feature);
@@ -172,6 +245,26 @@ impl Pickable {
                         .is_some_and(|sketch| sketch.constraint(constraint).is_some())
             }
             Self::Origin | Self::Axis(_) | Self::Plane(_) => editing.is_none(),
+            Self::Face { body, face } => {
+                editing.is_none()
+                    && evaluation
+                        .body(body)
+                        .is_some_and(|solid| bodies::find_face(solid, face).is_some())
+            }
+            Self::Edge { body, edge } => {
+                editing.is_none()
+                    && evaluation
+                        .body(body)
+                        .is_some_and(|solid| bodies::find_edge(solid, edge).is_some())
+            }
+            Self::Region { feature, region } => {
+                context.solid == Some(feature)
+                    && swept_regions(document, evaluation, feature).is_some_and(|(_, regions)| {
+                        regions
+                            .iter()
+                            .any(|candidate| candidate.region.key() == region)
+                    })
+            }
         }
     }
 }
@@ -209,9 +302,14 @@ impl Selection {
         }
     }
 
-    pub fn retain_available(&mut self, document: &Document, editing: Option<FeatureId>) {
+    pub fn retain_available(
+        &mut self,
+        document: &Document,
+        evaluation: &Evaluation,
+        context: Context,
+    ) {
         self.items
-            .retain(|pickable| pickable.is_available(document, editing));
+            .retain(|pickable| pickable.is_available(document, evaluation, context));
     }
 }
 

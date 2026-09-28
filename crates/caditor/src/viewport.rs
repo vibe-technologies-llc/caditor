@@ -8,12 +8,14 @@ use egui::{Align2, Color32, FontId, Key, PointerButton, Rect, Response, Sense, v
 
 use crate::{
     annotations::{Annotations, Surface},
+    bodies::{self, BodyMeshes},
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
     model::{Action, Model},
-    scene::{self, BuiltScene, EditedSketch, Highlight, PickTable},
+    scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
     selection::{Pickable, Selection},
     snap::{Pointer, Screen},
+    solid_tools,
     view_cube::{self, CubeAction},
 };
 
@@ -30,6 +32,8 @@ const NAVIGATION_HINT: &str =
     "Right-drag: orbit   Middle-drag or Shift+right-drag: pan   Scroll: zoom   F: fit";
 pub const CHOOSE_PLANE_PROMPT: &str = "Click a plane to sketch on";
 const CHOOSE_PLANE_HINT: &str = "Esc: cancel";
+const CHOOSE_REGIONS_PROMPT: &str = "Click regions of the sketch to include or leave them out";
+const CHOOSE_REGIONS_HINT: &str = "Esc: done";
 const SNAP_LABEL_OFFSET: egui::Vec2 = vec2(14.0, 10.0);
 const SNAP_LABEL_COLOR: Color32 = Color32::from_rgb(80, 226, 236);
 
@@ -84,6 +88,7 @@ pub struct ViewportState {
     sketch_cursor: Option<Point2>,
     drawing: Drawing,
     annotations: Annotations,
+    bodies: BodyMeshes,
 }
 
 impl ViewportState {
@@ -112,6 +117,7 @@ impl ViewportState {
             sketch_cursor: None,
             drawing: Drawing::default(),
             annotations: Annotations::default(),
+            bodies: BodyMeshes::default(),
         }
     }
 
@@ -181,7 +187,7 @@ impl ViewportState {
                 self.handle_keys(ui, model, editing, actions);
             }
             self.annotate(ui, rect, model, editing, actions);
-            self.decorate(ui, rect, model.document(), editing);
+            self.decorate(ui, rect, model, editing);
         });
     }
 
@@ -192,15 +198,18 @@ impl ViewportState {
         editing: &SketchEditing,
     ) -> BuiltScene {
         let edited = editing.feature();
+        let context = editing.context();
         if edited != self.edited {
             self.edited = edited;
             self.face_edited_sketch = edited.is_some();
             self.last_pick = None;
         }
-        self.selection.retain_available(document, edited);
+        self.bodies.update(evaluation);
+        self.selection
+            .retain_available(document, evaluation, context);
         self.hovered = self
             .hovered
-            .filter(|hovered| hovered.is_available(document, edited));
+            .filter(|hovered| hovered.is_available(document, evaluation, context));
         let hovered: Vec<Pickable> = if self.drawing.is_active() {
             edited
                 .zip(self.drawing.snap_entity())
@@ -212,14 +221,18 @@ impl ViewportState {
         } else {
             self.hovered.into_iter().collect()
         };
-        let mut built = scene::build(
+        let sources = Sources {
             document,
             evaluation,
+            bodies: &self.bodies,
+        };
+        let mut built = scene::build(
+            &sources,
             &Highlight {
                 selection: &self.selection,
                 hovered: &hovered,
             },
-            edited,
+            context,
         );
         if let Some(sketch) = built.edited {
             scene::add_preview(&mut built.scene, sketch.plane, &self.drawing.preview());
@@ -241,7 +254,7 @@ impl ViewportState {
                 everything
             } else {
                 built
-                    .bounds_of(document, evaluation, self.selection.iter())
+                    .bounds_of(&sources, self.selection.iter())
                     .unwrap_or(everything)
             };
             self.camera.animate_to(view.fitted(bounds));
@@ -294,6 +307,22 @@ impl ViewportState {
     pub fn screen_position(&self, plane: Plane, point: Point2) -> Option<egui::Pos2> {
         let pixel = self.view()?.project(plane.to_world(point))? / f64::from(self.pixels_per_point);
         Some(self.rect?.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32))
+    }
+
+    #[cfg(test)]
+    pub fn hover_through_pick(&mut self, built: &BuiltScene, pickable: Pickable) {
+        let (Some(cursor), Some(id)) = (self.cursor, built.picks.id_of(pickable)) else {
+            return;
+        };
+        self.picks_in_flight = Some(built.picks.clone());
+        self.apply_pick(&PickResult {
+            cursor,
+            hits: vec![caditor_render::PickHit {
+                id,
+                offset_px: 0.0,
+                position: Point3::ZERO,
+            }],
+        });
     }
 
     fn to_pixels(&self, points: egui::Vec2) -> Vector2 {
@@ -418,14 +447,30 @@ impl ViewportState {
         editing: &SketchEditing,
         actions: &mut Vec<Action>,
     ) {
-        if response.double_clicked()
-            && editing.feature().is_none()
-            && let Some(Pickable::SketchEntity { feature, .. }) = self.hovered
-        {
-            actions.push(Action::Editing(EditingCommand::Enter(feature)));
-            return;
+        if response.double_clicked() && editing.feature().is_none() {
+            let command = match self.hovered {
+                Some(Pickable::SketchEntity { feature, .. }) => {
+                    Some(EditingCommand::Enter(feature))
+                }
+                Some(Pickable::Face { body, face }) => model
+                    .evaluation()
+                    .body(body)
+                    .and_then(|solid| bodies::face_origin(solid, face))
+                    .map(|origin| EditingCommand::OpenSolid(bodies::origin_feature(origin))),
+                _ => None,
+            };
+            if let Some(command) = command {
+                actions.push(Action::Editing(command));
+                return;
+            }
         }
         if !response.clicked_by(PointerButton::Primary) {
+            return;
+        }
+        if let Some(Pickable::Region { feature, region }) = self.hovered {
+            if let Some(transaction) = solid_tools::toggle_region(model, feature, region) {
+                actions.push(Action::Apply(transaction));
+            }
             return;
         }
         if editing.is_choosing_plane() {
@@ -498,6 +543,8 @@ impl ViewportState {
             self.selection.clear();
         } else if active.is_some() {
             actions.push(Action::Editing(EditingCommand::Finish));
+        } else if editing.solid().is_some() {
+            actions.push(Action::Editing(EditingCommand::CloseSolid));
         }
     }
 
@@ -532,13 +579,8 @@ impl ViewportState {
             .show(ui, model, &surface, &mut self.selection, actions);
     }
 
-    fn decorate(
-        &mut self,
-        ui: &mut egui::Ui,
-        rect: Rect,
-        document: &Document,
-        editing: &SketchEditing,
-    ) {
+    fn decorate(&mut self, ui: &mut egui::Ui, rect: Rect, model: &Model, editing: &SketchEditing) {
+        let document = model.document();
         let orientation = self.camera.viewpoint().orientation;
         let fit_label = if self.selection.is_empty() {
             "Fit all"
@@ -565,7 +607,7 @@ impl ViewportState {
             painter.text(
                 rect.left_top() + vec2(LABEL_MARGIN, LABEL_MARGIN),
                 Align2::LEFT_TOP,
-                hovered.describe(document),
+                hovered.describe(document, model.evaluation()),
                 FontId::proportional(13.0),
                 LABEL_COLOR,
             );
@@ -579,6 +621,8 @@ impl ViewportState {
         );
         let prompt = if editing.is_choosing_plane() {
             Some((CHOOSE_PLANE_PROMPT, CHOOSE_PLANE_HINT))
+        } else if editing.solid().is_some() {
+            Some((CHOOSE_REGIONS_PROMPT, CHOOSE_REGIONS_HINT))
         } else {
             self.drawing
                 .prompt()

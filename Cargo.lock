@@ -311,6 +311,7 @@ dependencies = [
  "caditor-expression",
  "caditor-file",
  "caditor-geometry",
+ "caditor-kernel",
  "caditor-render",
  "caditor-sketch",
  "egui",

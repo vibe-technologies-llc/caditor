@@ -3,11 +3,12 @@ use std::time::Duration;
 use egui::{Button, Color32, Key, KeyboardShortcut, Modifiers, Ui};
 
 use crate::{
-    editing::{EditingCommand, SketchEditing},
+    editing::{self, EditingCommand, SketchEditing},
     feature_tree::count,
     files::{self, Files},
     model::{Action, Model, NoticeKind, RecomputeStatus},
     selection::{Pickable, Selection},
+    solid_tools::{self, Sweep},
     viewport::CHOOSE_PLANE_PROMPT,
 };
 
@@ -35,6 +36,7 @@ pub fn show(ui: &mut Ui, model: &Model, context: &ToolbarContext<'_>, actions: &
             history_buttons(ui, model, actions);
             ui.separator();
             sketch_buttons(ui, context.selection, context.editing, actions);
+            solid_buttons(ui, model, context, actions);
             ui.separator();
             recompute_status(ui, model, actions);
             if let Some(notice) = model.notice() {
@@ -77,7 +79,10 @@ fn sketch_buttons(
         Pickable::Origin
         | Pickable::Axis(_)
         | Pickable::SketchEntity { .. }
-        | Pickable::SketchConstraint { .. } => None,
+        | Pickable::SketchConstraint { .. }
+        | Pickable::Face { .. }
+        | Pickable::Edge { .. }
+        | Pickable::Region { .. } => None,
     });
     let hover = match plane {
         Some(plane) => format!("Start a sketch on the selected {}", plane.name()),
@@ -85,6 +90,48 @@ fn sketch_buttons(
     };
     if ui.button(NEW_SKETCH_LABEL).on_hover_text(hover).clicked() {
         actions.push(Action::Editing(EditingCommand::NewSketch(plane)));
+    }
+}
+
+fn solid_buttons(
+    ui: &mut Ui,
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let document = model.document();
+    let source = solid_tools::sweep_source(document, context.selection, context.editing);
+    for sweep in Sweep::ALL {
+        let text = format!("{} {}", sweep.icon(), sweep.label());
+        let response = ui.add_enabled(source.is_some(), Button::new(text));
+        let response = match source {
+            Some(source) => {
+                let sketch = document
+                    .feature(source.sketch)
+                    .map_or("the sketch", |feature| feature.name.as_str());
+                let hover = match (sweep, source.axis) {
+                    (Sweep::Extrude, _) => format!("Extrude the closed regions of {sketch}"),
+                    (Sweep::Revolve, Some(axis)) => {
+                        let axis = editing::edited_sketch(document, source.sketch).map_or_else(
+                            || "the chosen line".to_owned(),
+                            |sketch| sketch.entity_label(axis),
+                        );
+                        format!("Revolve the closed regions of {sketch} about {axis}")
+                    }
+                    (Sweep::Revolve, None) => format!(
+                        "Revolve the closed regions of {sketch} about its vertical axis, or about \
+                         a line you select first"
+                    ),
+                };
+                response.on_hover_text(hover)
+            }
+            None => response.on_disabled_hover_text("Draw a sketch with a closed outline first"),
+        };
+        if response.clicked()
+            && let Some(source) = source
+        {
+            actions.extend(solid_tools::create_actions(document, sweep, source));
+        }
     }
 }
 

@@ -1,10 +1,15 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    panic::{self, AssertUnwindSafe},
+    sync::OnceLock,
+};
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Aabb2, Point2, Vector2};
 use caditor_kernel::{
-    AngularExtent, Axis2, BooleanError, BooleanOperation, LinearExtent, Profile, ProfileCurve,
-    ProfileError, Region, RegionKey, Selection, Solid, SweepError, boolean, extrude, revolve,
+    AngularExtent, Axis2, BooleanError, BooleanOperation, LinearExtent, Mesh, Profile,
+    ProfileCurve, ProfileError, Region, RegionKey, RegionMesh, SamplingTolerance, Selection, Solid,
+    SweepError, boolean, extrude, revolve,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -194,6 +199,48 @@ impl SolidFeature {
 pub struct SolidResult {
     pub body: FeatureId,
     pub solid: Solid,
+    mesh: OnceLock<Option<Mesh>>,
+}
+
+impl SolidResult {
+    pub fn new(body: FeatureId, solid: Solid) -> Self {
+        Self {
+            body,
+            solid,
+            mesh: OnceLock::new(),
+        }
+    }
+
+    pub fn mesh(&self) -> Option<&Mesh> {
+        self.mesh.get().and_then(Option::as_ref)
+    }
+
+    pub fn is_meshed(&self) -> bool {
+        self.mesh.get().is_some()
+    }
+
+    pub fn mesh_failed(&self) -> bool {
+        matches!(self.mesh.get(), Some(None))
+    }
+
+    pub(crate) fn tessellate(&self, name: &str) {
+        self.mesh.get_or_init(|| {
+            let tessellated = panic::catch_unwind(AssertUnwindSafe(|| {
+                self.solid.tessellate(&self.solid.default_tolerance())
+            }));
+            match tessellated {
+                Ok(Ok(mesh)) => Some(mesh),
+                Ok(Err(error)) => {
+                    log::warn!("the body of {name} could not be meshed: {error}");
+                    None
+                }
+                Err(_) => {
+                    log::error!("meshing the body of {name} panicked");
+                    None
+                }
+            }
+        });
+    }
 }
 
 pub(crate) fn profile_curves(sketch: &Sketch) -> Vec<ProfileCurve> {
@@ -230,6 +277,33 @@ pub(crate) fn profile_curves(sketch: &Sketch) -> Vec<ProfileCurve> {
 
 pub fn sketch_regions(sketch: &Sketch) -> Result<Vec<Region>, ProfileError> {
     Ok(Profile::new(&profile_curves(sketch))?.regions().to_vec())
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SketchRegion {
+    pub region: Region,
+    pub mesh: Option<RegionMesh>,
+    pub even_depth: bool,
+}
+
+pub(crate) fn display_regions(sketch: &Sketch) -> Result<Vec<SketchRegion>, ProfileError> {
+    let profile = Profile::new(&profile_curves(sketch))?;
+    let extent = profile
+        .regions()
+        .iter()
+        .filter_map(Region::bounds)
+        .reduce(Aabb2::union)
+        .map_or(1.0, |bounds| bounds.size().length());
+    let tolerance = SamplingTolerance::for_extent(extent);
+    Ok(profile
+        .regions()
+        .iter()
+        .map(|region| SketchRegion {
+            mesh: region.triangulate(&tolerance),
+            even_depth: region.depth() % 2 == 0,
+            region: region.clone(),
+        })
+        .collect())
 }
 
 struct Context<'a> {
@@ -332,7 +406,7 @@ pub(crate) fn evaluate(
             (body, combined)
         }
     };
-    Ok(FeatureResult::Solid(SolidResult { body, solid }))
+    Ok(FeatureResult::Solid(SolidResult::new(body, solid)))
 }
 
 fn missing_body(inputs: &Inputs<'_>, body: FeatureId) -> Failure {

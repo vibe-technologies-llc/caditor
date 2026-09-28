@@ -250,6 +250,10 @@ mod tests {
         assert_eq!(update.revision, 7);
         assert_eq!(update.outcome, Outcome::Finished);
         assert_eq!(update.evaluation.failed_count(), 0);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while woken.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
         assert_eq!(woken.load(Ordering::SeqCst), 1);
         assert_eq!(worker.progress(), None);
     }
