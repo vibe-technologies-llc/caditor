@@ -9,6 +9,7 @@ permissions:
   contents: read
 
 env:
+  RUST_TOOLCHAIN: 1.98.1
   CARGO_ABOUT_VERSION: 0.9.2
   CARGO_TERM_COLOR: always
 
@@ -25,7 +26,8 @@ jobs:
           apt-get install -y --no-install-recommends \
             appstream build-essential ca-certificates curl desktop-file-utils git zstd
 
-      - uses: actions/checkout@v7
+      - name: Check out (actions/checkout v7.0.1)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
 
@@ -35,7 +37,8 @@ jobs:
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --component clippy
+            | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
+              --component clippy
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Install cargo-about
@@ -50,7 +53,8 @@ jobs:
       - name: Build the release archive
         run: packaging/build-release.sh
 
-      - uses: actions/upload-artifact@v7
+      - name: Keep the archive (actions/upload-artifact v7.0.1)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: release
           if-no-files-found: error
@@ -65,7 +69,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - name: Fetch the archive (actions/download-artifact v8.0.1)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: release
           path: dist

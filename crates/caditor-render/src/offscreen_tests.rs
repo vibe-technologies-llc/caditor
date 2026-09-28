@@ -15,7 +15,21 @@ const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const ROW_PITCH: u32 = 1024;
 const LINE_COLOR: Color = Color::from_rgb8(250, 20, 20);
 
+const REQUIRE_GPU: &str = "CADITOR_REQUIRE_GPU";
+
 fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
+    let found = device();
+    if found.is_none() {
+        assert!(
+            std::env::var_os(REQUIRE_GPU).is_none(),
+            "no graphics adapter is available, and {REQUIRE_GPU} says the offscreen tests must run"
+        );
+        eprintln!("no graphics adapter available, skipping the offscreen test");
+    }
+    found
+}
+
+fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -143,7 +157,6 @@ fn pixel(rendered: &Rendered, at: DVec2) -> [u8; 4] {
 #[test]
 fn draws_and_picks_a_line_over_a_fill() {
     let Some((device, queue)) = gpu() else {
-        eprintln!("no graphics adapter available, skipping the offscreen test");
         return;
     };
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
@@ -229,7 +242,6 @@ fn box_mesh(half: f64) -> ShadedMesh {
 #[test]
 fn draws_shaded_faces_that_hide_what_is_behind_them_and_picks_the_face_in_front() {
     let Some((device, queue)) = gpu() else {
-        eprintln!("no graphics adapter available, skipping the offscreen test");
         return;
     };
     let mesh = Arc::new(box_mesh(20.0));

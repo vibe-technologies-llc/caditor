@@ -27,5 +27,4 @@ thiserror.workspace = true
 xxhash-rust.workspace = true
 
 [dev-dependencies]
-serde_json = { workspace = true, features = ["preserve_order"] }
 tempfile.workspace = true

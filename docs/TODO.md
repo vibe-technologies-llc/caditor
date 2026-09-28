@@ -22,21 +22,6 @@ within a category run from most to least important.
 
 ## Checks and CI
 
-- No workflow runs tests or clippy on push or pull request; `.github/workflows/release.yml` only
-  runs on `v*` tags. Add one on the Ubuntu 22.04 container with `--locked`.
-- The render offscreen tests pass silently without an adapter (`offscreen_tests.rs` prints
-  "skipping" and returns), and CI installs no Vulkan driver. Install lavapipe and fail when a
-  `CADITOR_REQUIRE_GPU`-style variable is set.
-- No fuzz targets for the Part 21 parser, DXF reader, binary container and value decoder,
-  expression parser, or `read_step` and model `load` end to end. Every crash in "Hostile input"
-  below was found by reading code.
-- Wire `cargo deny` or `cargo audit` into CI; `ttf-parser` (through winit and sctk-adwaita) is
-  already flagged unmaintained (RUSTSEC-2026-0192).
-- The `preserve_order` feature on the dev-dependency `serde_json` changes the production
-  `serde_json::Value` map type under test (`caditor-file/Cargo.toml`), so tests do not exercise
-  what users run.
-- The release workflow installs whatever stable is current with no pinned toolchain and actions
-  pinned by tag, not commit, which undercuts the `SOURCE_DATE_EPOCH` reproducibility.
 - Slow tests to keep an eye on: STEP `every_fixture_survives_a_round_trip` (7 s),
   `blend::every_edge_of_assorted_prisms` (6 s) and about 40 UI tests at over a second each.
 

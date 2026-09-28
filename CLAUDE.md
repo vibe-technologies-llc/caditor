@@ -19,11 +19,23 @@ cargo test -p <crate> <test_name>
 cargo clippy --workspace --all-targets -- -D warnings
 rust-formatter
 rust-formatter --check
+cargo deny check
+(cd fuzz && cargo +nightly fuzz run <target> -- -max_total_time=60)
 packaging/build-release.sh --snapshot
 ```
 
 `rust-formatter` formats both `.rs` and `.toml` files. It replaces `cargo fmt` and `rustfmt`
 entirely; see `.claude/rules/rust-style.md`.
+
+`.github/workflows/ci.yml` runs on every push to `master` and every pull request, in an Ubuntu
+22.04 container on the toolchain pinned by `RUST_TOOLCHAIN` (shared with the release workflow;
+actions are pinned by commit): the tests with `--locked` and `CADITOR_REQUIRE_GPU=1` on the
+lavapipe software Vulkan driver (without that variable the offscreen render tests skip when no
+adapter exists), clippy, `cargo deny` (`deny.toml`: licences, sources and advisories, each
+ignored advisory with its reason), and a minute of fuzzing per target. `fuzz/` is its own cargo
+workspace for `cargo fuzz` on nightly, with targets for the expression parser (`expression`),
+DXF (`dxf`), model files (`model`, which covers the container and value decoder), `read_step`
+(`step`, which covers the Part 21 parser) and STEP import end to end (`step_import`).
 
 ## Architecture
 

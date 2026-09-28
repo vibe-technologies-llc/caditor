@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.98.1
+  FUZZ_TOOLCHAIN: nightly-2026-09-27
+  CARGO_DENY_VERSION: 0.20.2
+  CARGO_FUZZ_VERSION: 0.13.2
+  FUZZ_SECONDS: 60
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    steps:
+      - name: Install build tools and a software Vulkan driver
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential ca-certificates curl git libvulkan1 mesa-vulkan-drivers
+
+      - name: Check out (actions/checkout v7.0.1)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
+              --component clippy
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Test
+        env:
+          CADITOR_REQUIRE_GPU: "1"
+        run: cargo test --workspace --locked
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Check dependencies
+        run: |
+          cargo install --locked cargo-deny --version "$CARGO_DENY_VERSION"
+          cargo deny --locked check
+
+  fuzz:
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [expression, dxf, model, step, step_import]
+    steps:
+      - name: Install build tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential ca-certificates curl git
+
+      - name: Check out (actions/checkout v7.0.1)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain "$FUZZ_TOOLCHAIN"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install cargo-fuzz
+        run: cargo install --locked cargo-fuzz --version "$CARGO_FUZZ_VERSION"
+
+      - name: Fuzz
+        working-directory: fuzz
+        run: |
+          cargo fuzz run "${{ matrix.target }}" -- \
+            -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=2048 -timeout=10
+
+      - name: Keep the failing input (actions/upload-artifact v7.0.1)
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: fuzz/artifacts
+          if-no-files-found: ignore

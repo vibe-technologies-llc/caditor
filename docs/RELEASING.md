@@ -48,9 +48,11 @@ differently, what they must do), not as a commit message.
 5. Commit as `Release <version>`, tag it `v<version>` with `git tag -a`, and push `master` and
    the tag.
 6. The `Release` workflow (`.github/workflows/release.yml`) runs the tests and clippy in an
-   Ubuntu 22.04 container, builds the archive with `packaging/build-release.sh`, and publishes
-   the GitHub release with the archive, its checksum and the changelog section as notes. GitHub
-   attaches the tagged source, which is the corresponding source the AGPL asks for.
+   Ubuntu 22.04 container on the toolchain pinned by `RUST_TOOLCHAIN` (kept equal in `ci.yml`
+   and raised in both at once), builds the archive with `packaging/build-release.sh`, and
+   publishes the GitHub release with the archive, its checksum and the changelog section as
+   notes. GitHub attaches the tagged source, which is the corresponding source the AGPL asks
+   for.
 
 `packaging/build-release.sh` refuses to build a release from a dirty tree, from a commit that
 is not tagged `v<version>`, or without a dated changelog section for the version, and checks the

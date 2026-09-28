@@ -1056,9 +1056,9 @@ fn a_sketch_on_a_face_is_saved_and_loaded() {
     let (document, _, _) = attached_model();
     let text = encode(&document).unwrap();
     assert!(text.contains(
-        "\"attachment\":{\"body\":1,\"face\":\"feed0000000000000000000000000001\",\"origin\":\
-         {\"end_cap\":{\"feature\":1}},\"neighbours\":[\"00000000000000000000000000000003\",\
-         \"ffffffffffffffffffffffffffffffff\"]}"
+        "\"attachment\":{\"body\":1,\"face\":\"feed0000000000000000000000000001\",\"neighbours\":\
+         [\"00000000000000000000000000000003\",\"ffffffffffffffffffffffffffffffff\"],\"origin\":\
+         {\"end_cap\":{\"feature\":1}}}"
     ));
     let loaded = decode_text(&text);
     assert_eq!(loaded.issues, Vec::<String>::new());
@@ -1184,10 +1184,10 @@ fn fillets_and_chamfers_are_saved_and_loaded() {
     let (document, _, _) = blended_model();
     let text = encode(&document).unwrap();
     assert!(text.contains(
-        "\"fillet\":{\"body\":1,\"size\":\"$0 / 3\",\"edges\":[{\"name\":\
-         \"0000000000000000000000000000abcd\",\"faces\":[\"00000000000000000000000000000001\",\
-         \"00000000000000000000000000000002\"],\"ends\":[\"00000000000000000000000000000003\",\
-         \"00000000000000000000000000000004\"]}]}"
+        "\"fillet\":{\"body\":1,\"edges\":[{\"ends\":[\"00000000000000000000000000000003\",\
+         \"00000000000000000000000000000004\"],\"faces\":[\"00000000000000000000000000000001\",\
+         \"00000000000000000000000000000002\"],\"name\":\"0000000000000000000000000000abcd\"}],\
+         \"size\":\"$0 / 3\"}"
     ));
     assert!(text.contains("\"chamfer\":{\"body\":1"));
     assert!(text.contains("\"origin\":{\"chamfer\":{\"feature\":7}}"));
@@ -1250,9 +1250,9 @@ fn shells_are_saved_and_loaded() {
     let (document, shell) = shelled_model();
     let text = encode(&document).unwrap();
     assert!(text.contains(
-        "\"shell\":{\"body\":1,\"thickness\":\"$0 / 4\",\"open\":[{\"face\":\
-         \"0000000000000000000000000000beef\",\"origin\":{\"end_cap\":{\"feature\":1}},\
-         \"neighbours\":[\"00000000000000000000000000000002\"]}]}"
+        "\"shell\":{\"body\":1,\"open\":[{\"face\":\"0000000000000000000000000000beef\",\
+         \"neighbours\":[\"00000000000000000000000000000002\"],\"origin\":{\"end_cap\":\
+         {\"feature\":1}}}],\"thickness\":\"$0 / 4\"}"
     ));
     let loaded = decode_text(&text);
     assert_eq!(loaded.issues, Vec::<String>::new());
@@ -1353,8 +1353,9 @@ fn datum_model() -> (Document, FeatureId, FeatureId) {
 fn datum_planes_and_axes_are_saved_and_loaded() {
     let (document, plane, sketch) = datum_model();
     let text = encode(&document).unwrap();
+    assert!(text.contains("\"plane\":{\"base\":{\"principal\":\"xz\"},\"offset\":"));
     assert!(text.contains(
-        "\"plane\":{\"base\":{\"principal\":\"xz\"},\"rotation\":{\"axis\":{\"edge\":{\"body\":1,"
+        "\"rotation\":{\"angle\":\"$0 * 10 deg / 1 mm\",\"axis\":{\"edge\":{\"body\":1,"
     ));
     assert!(text.contains("\"axis\":{\"intersection\":[{\"datum\":"));
     assert!(text.contains("\"axis\":{\"along\":{\"principal\":\"y\"}}"));

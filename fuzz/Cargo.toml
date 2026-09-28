@@ -1,0 +1,54 @@
+[package]
+name = "caditor-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+caditor-expression.path = "../crates/caditor-expression"
+caditor-file.path = "../crates/caditor-file"
+caditor-step.path = "../crates/caditor-step"
+
+libfuzzer-sys = "0.4.13"
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "expression"
+path = "fuzz_targets/expression.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dxf"
+path = "fuzz_targets/dxf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "model"
+path = "fuzz_targets/model.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "step"
+path = "fuzz_targets/step.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "step_import"
+path = "fuzz_targets/step_import.rs"
+test = false
+doc = false
+bench = false
