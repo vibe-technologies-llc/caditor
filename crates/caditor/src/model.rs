@@ -5,7 +5,7 @@ use std::{
 };
 
 use caditor_document::{
-    Document, Editor, Evaluation, FeatureId, FeatureResult, FeatureState, ModelEvaluator, Outcome,
+    Document, Editor, Evaluation, FeatureId, FeatureState, ModelEvaluator, Outcome,
     ParameterValues, Progress, Recomputer, Transaction,
 };
 use caditor_file::{
@@ -191,9 +191,11 @@ impl Model {
         if status.state != FeatureState::UpToDate {
             return None;
         }
-        match status.result.as_deref()? {
-            FeatureResult::Sketch(result) => Some(&result.geometry),
-        }
+        status
+            .result
+            .as_deref()?
+            .sketch()
+            .map(|result| &result.geometry)
     }
 
     pub fn path(&self) -> Option<&Path> {

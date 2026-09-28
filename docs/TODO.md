@@ -27,11 +27,10 @@ These need an answer before the milestone that depends on them starts.
 
 `caditor-kernel` already has the geometry, topology, validation, tessellation, planar profiles,
 the extrude and revolve builders, frozen face and edge names, intersections, point
-classification and booleans. Nothing outside the kernel uses it yet.
+classification and booleans. The document and file format have extrude and revolve features
+that make, add to, remove from or intersect bodies; the app lists them but does not yet draw or
+create them.
 
-- [ ] Solid features in the document and file format: extrude, revolve and pocket or cut from
-      a sketch's regions, with new body, add, remove and intersect operations and the body
-      state chained through the tree, a failed feature skipped rather than blocking the rest
 - [ ] Solid rendering in `caditor-render`: shaded triangle meshes with pickable faces and edges
 - [ ] Solid modelling in the app: extrude and revolve tools, region choice, a property panel
       for each feature, and face and edge selection

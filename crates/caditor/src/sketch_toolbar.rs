@@ -1,4 +1,4 @@
-use caditor_document::{Feature, FeatureKind};
+use caditor_document::Feature;
 use caditor_sketch::{Constraint, ConstraintId, EntityId, Sketch};
 use egui::{Button, Key, KeyboardShortcut, Modifiers, Ui};
 
@@ -39,8 +39,12 @@ pub fn show(
     let Some(feature) = model.document().feature(active.feature) else {
         return;
     };
-    let FeatureKind::Sketch(definition) = &feature.kind;
-    let shown = scene::displayed_sketch(model.evaluation(), feature);
+    let (Some(definition), Some(shown)) = (
+        feature.kind.sketch(),
+        scene::displayed_sketch(model.evaluation(), feature),
+    ) else {
+        return;
+    };
     let selected = sketch_tools::selected_entities(input.selection, feature.id());
     let offers: Vec<Offer> = ConstraintTool::ALL
         .into_iter()

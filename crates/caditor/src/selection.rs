@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_document::{Document, FeatureId, FeatureKind};
+use caditor_document::{Document, FeatureId};
 use caditor_geometry::{Plane, Vector3};
 use caditor_sketch::{ConstraintId, EntityId};
 
@@ -99,7 +99,9 @@ impl Pickable {
                 let Some(owner) = document.feature(feature) else {
                     return format!("Missing entity {entity}");
                 };
-                let FeatureKind::Sketch(sketch) = &owner.kind;
+                let Some(sketch) = owner.kind.sketch() else {
+                    return owner.name.clone();
+                };
                 format!("{} › {}", owner.name, sketch.entity_label(entity))
             }
             Self::SketchConstraint {
@@ -109,7 +111,9 @@ impl Pickable {
                 let Some(owner) = document.feature(feature) else {
                     return format!("Missing constraint {constraint}");
                 };
-                let FeatureKind::Sketch(sketch) = &owner.kind;
+                let Some(sketch) = owner.kind.sketch() else {
+                    return owner.name.clone();
+                };
                 format!(
                     "{} › {}",
                     owner.name,

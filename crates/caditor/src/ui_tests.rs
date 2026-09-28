@@ -232,7 +232,9 @@ impl Harness {
 
     fn shown(&self, feature: FeatureId) -> Sketch {
         let feature = self.document().feature(feature).unwrap();
-        scene::displayed_sketch(self.model.evaluation(), feature).into_owned()
+        scene::displayed_sketch(self.model.evaluation(), feature)
+            .unwrap()
+            .into_owned()
     }
 
     fn add_sketch(&mut self, sketch: Sketch) -> FeatureId {
@@ -491,8 +493,13 @@ fn editing_parameters_breaking_a_feature_and_undoing_it_works_through_the_panels
 fn a_dimension_edited_in_the_tree_is_undoable_and_rejects_the_wrong_kind() {
     let mut harness = Harness::new();
     let base = harness.document().features().next().unwrap().id();
-    let caditor_document::FeatureKind::Sketch(sketch) =
-        &harness.document().feature(base).unwrap().kind;
+    let sketch = harness
+        .document()
+        .feature(base)
+        .unwrap()
+        .kind
+        .sketch()
+        .unwrap();
     let (constraint, _) = sketch
         .constraints()
         .find(|(_, constraint)| constraint.dimension().is_some())
@@ -707,7 +714,7 @@ fn a_missing_file_is_reported_and_dropped_from_recent_files_and_reopening_is_har
 fn a_constraint_conflict_is_named_and_leads_to_the_newest_constraint() {
     let mut harness = Harness::new();
     let base = harness.document().features().next().unwrap().clone();
-    let FeatureKind::Sketch(mut sketch) = base.kind.clone();
+    let mut sketch = base.kind.sketch().unwrap().clone();
     let line = sketch
         .entities()
         .find_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id))

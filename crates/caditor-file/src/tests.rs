@@ -167,7 +167,7 @@ fn a_saved_model_loads_back_exactly() {
     assert_eq!(loaded.document.next_parameter_id(), 3);
     assert_eq!(loaded.document.next_feature_id(), 3);
     let text = fs::read_to_string(&path).unwrap();
-    assert!(text.starts_with("{\"format\":\"caditor\",\"version\":2}\n"));
+    assert!(text.starts_with("{\"format\":\"caditor\",\"version\":3}\n"));
     assert!(text.contains("\"expression\":\"$0 / 2 + 0.1 mm\""));
     assert_eq!(text.lines().count(), 1 + 2 + 2 + 1);
     assert_eq!(files_in(dir.path()), ["model.caditor"]);
@@ -278,7 +278,7 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
         .position(|line| line.contains("Side sketch"))
         .unwrap();
     lines[side] =
-        "{\"feature\":{\"id\":1,\"name\":\"Pad\",\"extrude\":{\"distance\":\"5\"}}}".to_owned();
+        "{\"feature\":{\"id\":1,\"name\":\"Pad\",\"loft\":{\"distance\":\"5\"}}}".to_owned();
     lines.push("{\"assembly\":{\"parts\":[]}}".to_owned());
 
     let loaded = decode_lines(&lines);
@@ -288,7 +288,7 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
         [
             "This model was made by a newer version of caditor (format 7). Anything this version \
              does not understand was left out.",
-            "The feature “Pad” is a kind this version of caditor does not know (extrude), so it \
+            "The feature “Pad” is a kind this version of caditor does not know (loft), so it \
              was left out. It may come from a newer version.",
             "Line 7 holds something this version of caditor does not know (assembly), so it was \
              left out. It may come from a newer version.",
@@ -334,7 +334,7 @@ fn cycles_invalid_names_and_broken_dimensions_are_repaired_and_reported() {
     );
     let document = &loaded.document;
     assert_eq!(document.parameters().len(), 5);
-    let FeatureKind::Sketch(sketch) = &document.features().next().unwrap().kind;
+    let sketch = document.features().next().unwrap().kind.sketch().unwrap();
     assert_eq!(sketch.entities().len(), 2);
     assert_eq!(sketch.constraints().len(), 1);
     assert_eq!(sketch.plane(), Plane::XY);
@@ -363,7 +363,7 @@ fn a_damaged_header_still_recovers_the_records() {
     let loaded = decode_lines(&lines);
     assert_eq!(
         loaded.issues,
-        ["The start of the file is damaged; the rest was read as a version 2 model."]
+        ["The start of the file is damaged; the rest was read as a version 3 model."]
     );
     assert_eq!(loaded.document, sample());
 }
@@ -722,7 +722,14 @@ fn unreadable_angles_and_radii_take_their_drawn_values() {
          radius, 10 mm.",
         ]
     );
-    let FeatureKind::Sketch(sketch) = &loaded.document.features().next().unwrap().kind;
+    let sketch = loaded
+        .document
+        .features()
+        .next()
+        .unwrap()
+        .kind
+        .sketch()
+        .unwrap();
     assert!(matches!(
         sketch.constraint(angle).and_then(Constraint::dimension),
         Some(Expression::Measure(degrees, Unit::Degree)) if (degrees - 26.565_051_177_078).abs() < 1e-9
@@ -964,4 +971,84 @@ fn an_edit_kind_this_version_does_not_know_stops_replay_at_its_line() {
     };
     assert_eq!(recovered.changes(), 1);
     assert_eq!(recovered.issues.len(), 1);
+}
+
+fn solid_model() -> (Document, FeatureId, FeatureId) {
+    use caditor_document::{
+        BodyOperation, Extrude, ExtrudeExtent, RegionChoice, Revolve, RevolveExtent, SolidFeature,
+    };
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Solids");
+    let depth = transaction.add_parameter("depth", transaction.parse("3 mm").unwrap());
+    let mut outline = Sketch::new(Plane::XY);
+    let corners = [(0.0, 0.0), (6.0, 0.0), (6.0, 4.0), (0.0, 4.0)];
+    for index in 0..4 {
+        let (a, b) = (corners[index], corners[(index + 1) % 4]);
+        outline.add_line(Point2::new(a.0, a.1), Point2::new(b.0, b.1));
+    }
+    let sketch = transaction.add_feature("Outline", FeatureKind::Sketch(outline));
+    let base = transaction.add_feature(
+        "Base",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::Chosen(vec![caditor_kernel::RegionKey::from_digest(
+                0x0123_4567_89ab_cdef_0011_2233_4455_6677,
+            )]),
+            extent: ExtrudeExtent::TwoSides {
+                forward: Expression::Parameter(depth),
+                backward: transaction.parse("1 mm").unwrap(),
+            },
+            operation: BodyOperation::NewBody,
+        })),
+    );
+    let turned = transaction.add_feature(
+        "Turned",
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch,
+            regions: RegionChoice::All,
+            axis: EntityId::HORIZONTAL_AXIS,
+            extent: RevolveExtent::OneSide {
+                angle: transaction.parse("90 deg").unwrap(),
+                reversed: true,
+            },
+            operation: BodyOperation::Remove(base),
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, base, turned)
+}
+
+#[test]
+fn solid_features_are_saved_and_loaded() {
+    let (document, _, _) = solid_model();
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"extrude\""));
+    assert!(text.contains("\"remove\":1"));
+    let loaded = decode(text.as_bytes()).unwrap();
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn a_damaged_solid_value_falls_back_and_is_reported() {
+    let (document, _, _) = solid_model();
+    let text = encode(&document)
+        .unwrap()
+        .replace("\"angle\":\"90 deg\"", "\"angle\":\"90 ((\"");
+    let loaded = decode(text.as_bytes()).unwrap();
+    assert_eq!(
+        loaded.issues,
+        ["The angle of “Turned” could not be read, so it was set to 360 deg."]
+    );
+    assert_eq!(loaded.document.features().count(), 3);
+}
+
+#[test]
+fn a_changed_solid_feature_round_trips_through_the_journal() {
+    let (document, base, _) = solid_model();
+    let kind = document.feature(base).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit Base", Edit::SetFeatureKind { id: base, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = serde_json::from_str(&text).unwrap();
+    assert_eq!(format::restore_transaction(record), Some(transaction));
 }

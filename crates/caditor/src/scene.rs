@@ -1,8 +1,6 @@
 use std::{borrow::Cow, collections::BTreeSet};
 
-use caditor_document::{
-    Document, Evaluation, Feature, FeatureId, FeatureKind, FeatureResult, FeatureState,
-};
+use caditor_document::{Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState};
 use caditor_geometry::{Aabb, Plane, Point2, Point3};
 use caditor_render::{Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene};
 use caditor_sketch::{
@@ -212,7 +210,7 @@ pub fn build(
     let reference_size = reference_size(model);
     let edited = editing
         .and_then(|id| document.feature(id))
-        .map(|feature| (feature, displayed_sketch(evaluation, feature)));
+        .and_then(|feature| Some((feature, displayed_sketch(evaluation, feature)?)));
     let grid_plane = edited
         .as_ref()
         .map_or(Plane::XY, |(_, displayed)| displayed.plane());
@@ -248,8 +246,12 @@ pub fn build(
             Some(edited) if edited == feature.id() => Presence::Edited,
             Some(_) => Presence::Background,
         };
-        let displayed = displayed_sketch(evaluation, feature);
-        let states = ConstraintStates::of(evaluation, feature);
+        let (Some(displayed), Some(states)) = (
+            displayed_sketch(evaluation, feature),
+            ConstraintStates::of(evaluation, feature),
+        ) else {
+            continue;
+        };
         builder.sketch(feature.id(), &displayed, &states, presence);
     }
 
@@ -289,8 +291,8 @@ struct ConstraintStates<'a> {
 }
 
 impl<'a> ConstraintStates<'a> {
-    fn of(evaluation: &'a Evaluation, feature: &Feature) -> Self {
-        let FeatureKind::Sketch(definition) = &feature.kind;
+    fn of(evaluation: &'a Evaluation, feature: &Feature) -> Option<Self> {
+        let definition = feature.kind.sketch()?;
         let mut states = Self {
             solution: None,
             conflicting: BTreeSet::new(),
@@ -298,7 +300,7 @@ impl<'a> ConstraintStates<'a> {
             failed: false,
         };
         let Some(status) = evaluation.feature(feature.id()) else {
-            return states;
+            return Some(states);
         };
         match &status.state {
             FeatureState::Failed(error) if !error.constraints.is_empty() => {
@@ -306,9 +308,11 @@ impl<'a> ConstraintStates<'a> {
             }
             FeatureState::Failed(_) | FeatureState::Outdated => states.failed = true,
             FeatureState::UpToDate => {
-                states.solution = status.result.as_deref().map(|result| match result {
-                    FeatureResult::Sketch(result) => &result.solution,
-                });
+                states.solution = status
+                    .result
+                    .as_deref()
+                    .and_then(FeatureResult::sketch)
+                    .map(|result| &result.solution);
                 let redundant: Vec<ConstraintId> = states
                     .solution
                     .into_iter()
@@ -321,7 +325,7 @@ impl<'a> ConstraintStates<'a> {
                 states.redundant = entities_of(definition, &redundant);
             }
         }
-        states
+        Some(states)
     }
 
     fn palette(&self, entity: EntityId) -> Palette {
@@ -577,18 +581,20 @@ fn sketch_bounds(sketch: &Sketch) -> Aabb {
     .unwrap_or_else(|| Aabb::from_point(plane.origin()))
 }
 
-pub fn displayed_sketch<'a>(evaluation: &'a Evaluation, feature: &'a Feature) -> Cow<'a, Sketch> {
-    let FeatureKind::Sketch(definition) = &feature.kind;
+pub fn displayed_sketch<'a>(
+    evaluation: &'a Evaluation,
+    feature: &'a Feature,
+) -> Option<Cow<'a, Sketch>> {
+    let definition = feature.kind.sketch()?;
     let last_good = evaluation
         .feature(feature.id())
         .and_then(|status| status.result.as_deref())
-        .map(|result| match result {
-            FeatureResult::Sketch(result) => &result.geometry,
-        });
-    match last_good {
+        .and_then(FeatureResult::sketch)
+        .map(|result| &result.geometry);
+    Some(match last_good {
         Some(solved) => with_solved_positions(definition, solved),
         None => Cow::Borrowed(definition),
-    }
+    })
 }
 
 fn with_solved_positions<'a>(definition: &'a Sketch, solved: &'a Sketch) -> Cow<'a, Sketch> {
@@ -624,9 +630,8 @@ fn pickable_points(
         Pickable::Plane(plane) => plane_corners(plane.plane(), reference_size).to_vec(),
         Pickable::SketchEntity { feature, entity } => document
             .feature(feature)
-            .map(|owner| {
-                sketch_entity_points(&displayed_sketch(evaluation, owner), entity, reference_size)
-            })
+            .and_then(|owner| displayed_sketch(evaluation, owner))
+            .map(|sketch| sketch_entity_points(&sketch, entity, reference_size))
             .unwrap_or_default(),
         Pickable::SketchConstraint { .. } => pickable
             .constrained_entities(document)
@@ -641,7 +646,9 @@ fn pickable_points(
 
 fn model_bounds(document: &Document, evaluation: &Evaluation) -> Option<Aabb> {
     Aabb::from_points(document.features().flat_map(|feature| {
-        let sketch = displayed_sketch(evaluation, feature);
+        let Some(sketch) = displayed_sketch(evaluation, feature) else {
+            return Vec::new();
+        };
         sketch
             .entities()
             .flat_map(|(entity, _)| sketch_entity_points(&sketch, entity, 0.0))
@@ -666,7 +673,7 @@ fn plane_corners(plane: Plane, size: f64) -> [Point3; 4] {
 
 #[cfg(test)]
 mod tests {
-    use caditor_document::{CancelToken, ModelEvaluator, Recompute};
+    use caditor_document::{CancelToken, FeatureKind, ModelEvaluator, Recompute};
     use caditor_expression::{Expression, Unit};
     use caditor_geometry::Plane;
 

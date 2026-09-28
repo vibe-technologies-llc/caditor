@@ -1,6 +1,6 @@
 use caditor_document::{
-    Document, Edit, Feature, FeatureError, FeatureKind, FeatureState, FeatureStatus, FixTarget,
-    Transaction,
+    Document, Edit, ExtrudeExtent, Feature, FeatureError, FeatureKind, FeatureState, FeatureStatus,
+    FixTarget, RevolveExtent, SolidFeature, Transaction,
 };
 use caditor_sketch::{ConstraintId, Redundancy, Sketch};
 use egui::{
@@ -105,6 +105,7 @@ fn feature_row(
     }
     let (_, header, _) = header.body(|ui| match &feature.kind {
         FeatureKind::Sketch(sketch) => sketch_body(ui, model, state, actions, feature, sketch),
+        FeatureKind::Solid(solid) => solid_body(ui, model.document(), solid),
     });
     let mut header = header.inner;
     if state.take_focus(Focus::Feature(id)) {
@@ -300,16 +301,60 @@ fn failure(ui: &mut Ui, document: &Document, state: &mut PanelState, error: &Fea
             FixTarget::Constraint {
                 feature,
                 constraint,
-            } => match document.feature(feature).map(|owner| &owner.kind) {
-                Some(FeatureKind::Sketch(sketch)) => {
-                    format!("Go to {}", sketch.describe_constraint(constraint))
-                }
+            } => match document
+                .feature(feature)
+                .and_then(|owner| owner.kind.sketch())
+            {
+                Some(sketch) => format!("Go to {}", sketch.describe_constraint(constraint)),
                 None => "Go to the constraint".to_owned(),
             },
         };
         if ui.button(label).clicked() {
             state.request_focus(target.into());
         }
+    });
+}
+
+fn solid_body(ui: &mut Ui, document: &Document, solid: &SolidFeature) {
+    let name_of = |id| {
+        document
+            .feature(id)
+            .map_or("a missing feature", |feature| feature.name.as_str())
+    };
+    let text = |expression| document.expression_text(expression);
+    let (shape, extent) = match solid {
+        SolidFeature::Extrude(extrude) => (
+            "Extrusion",
+            match &extrude.extent {
+                ExtrudeExtent::OneSide { distance, reversed } => format!(
+                    "{}{}",
+                    text(distance),
+                    if *reversed { ", reversed" } else { "" }
+                ),
+                ExtrudeExtent::Symmetric { distance } => format!("{} symmetric", text(distance)),
+                ExtrudeExtent::TwoSides { forward, backward } => {
+                    format!("{} forward, {} back", text(forward), text(backward))
+                }
+            },
+        ),
+        SolidFeature::Revolve(revolve) => (
+            "Revolution",
+            match &revolve.extent {
+                RevolveExtent::Full => "full turn".to_owned(),
+                RevolveExtent::OneSide { angle, reversed } => format!(
+                    "{}{}",
+                    text(angle),
+                    if *reversed { ", reversed" } else { "" }
+                ),
+                RevolveExtent::Symmetric { angle } => format!("{} symmetric", text(angle)),
+            },
+        ),
+    };
+    ui.label(format!("{shape} of {}, {extent}", name_of(solid.sketch())));
+    let operation = solid.operation();
+    ui.label(match operation.target() {
+        Some(body) => format!("{} {}", operation.verb(), name_of(body)),
+        None => operation.verb().to_owned(),
     });
 }
 

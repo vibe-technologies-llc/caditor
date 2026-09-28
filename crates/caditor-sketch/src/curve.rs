@@ -94,6 +94,10 @@ impl BSpline {
         &self.control_points
     }
 
+    pub fn knots(&self) -> &[f64] {
+        &self.knots
+    }
+
     pub fn point_at(&self, parameter: f64) -> Point2 {
         let parameter = if parameter.is_nan() {
             0.0

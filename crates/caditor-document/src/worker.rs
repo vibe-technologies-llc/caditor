@@ -180,7 +180,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        document::{Feature, FeatureKind},
+        document::Feature,
         recompute::{Failure, FeatureResult, FeatureState, Inputs, ModelEvaluator},
         tests::sample,
     };
@@ -217,9 +217,7 @@ mod tests {
             _inputs: &Inputs<'_>,
             _cancel: &CancelToken,
         ) -> Result<FeatureResult, Failure> {
-            match &feature.kind {
-                FeatureKind::Sketch(_) => panic!("kernel bug"),
-            }
+            panic!("kernel bug in {}", feature.name)
         }
     }
 

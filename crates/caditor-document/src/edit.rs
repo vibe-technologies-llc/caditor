@@ -5,7 +5,10 @@ use std::{collections::BTreeMap, sync::Arc};
 use caditor_expression::{Expression, NameError, ParameterId, ParseError, check_name};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
 
-use crate::document::{Document, Feature, FeatureId, FeatureKind, Parameter, list_names};
+use crate::{
+    document::{Document, Feature, FeatureId, FeatureKind, Parameter, list_names},
+    solid::BodyOperation,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Edit {
@@ -38,6 +41,10 @@ pub enum Edit {
     MoveFeature {
         id: FeatureId,
         index: usize,
+    },
+    SetFeatureKind {
+        id: FeatureId,
+        kind: FeatureKind,
     },
     SetDimension {
         feature: FeatureId,
@@ -130,6 +137,12 @@ pub enum EditError {
     Sketch { name: String, error: SketchError },
     #[error("{0} is not a sketch")]
     NotASketch(String),
+    #[error("{0} does not make a body")]
+    NotABody(String),
+    #[error("{0} cannot become a different kind of feature")]
+    KindChange(String),
+    #[error("{name} makes the body that {users} change, so it must keep making a new body")]
+    BodyInUse { name: String, users: String },
     #[error("In {feature}, {name} is used by {users}. Remove those first.")]
     EntityInUse {
         feature: String,
@@ -246,6 +259,7 @@ impl Document {
             Edit::RemoveFeature { id } => self.remove_feature(id),
             Edit::RenameFeature { id, name } => self.rename_feature(id, name),
             Edit::MoveFeature { id, index } => self.move_feature(id, index),
+            Edit::SetFeatureKind { id, kind } => self.set_feature_kind(id, kind),
             Edit::SetDimension {
                 feature,
                 constraint,
@@ -310,7 +324,61 @@ impl Document {
                 _ => return Err(EditError::MissingFeature),
             }
         }
+        let Some(solid) = kind.solid() else {
+            return Ok(());
+        };
+        let sketch = self
+            .feature(solid.sketch())
+            .ok_or(EditError::MissingFeature)?;
+        if sketch.kind.sketch().is_none() {
+            return Err(EditError::NotASketch(sketch.name.clone()));
+        }
+        if let Some(target) = solid.operation().target() {
+            let body = self.feature(target).ok_or(EditError::MissingFeature)?;
+            if !body.makes_body() {
+                return Err(EditError::NotABody(body.name.clone()));
+            }
+        }
         Ok(())
+    }
+
+    fn set_feature_kind(&mut self, id: FeatureId, kind: FeatureKind) -> Result<Edit, EditError> {
+        let index = self.feature_position(id)?;
+        let existing = self.feature(id).ok_or(EditError::MissingFeature)?;
+        let name = existing.name.clone();
+        let same_kind = match (&existing.kind, &kind) {
+            (FeatureKind::Solid(old), FeatureKind::Solid(new)) => old.same_kind(new),
+            _ => false,
+        };
+        if !same_kind {
+            return Err(EditError::KindChange(name));
+        }
+        self.check_feature_references(&kind, index)?;
+        let keeps_body = kind
+            .solid()
+            .is_some_and(|solid| solid.operation() == BodyOperation::NewBody);
+        if !keeps_body {
+            let users: Vec<String> = self
+                .features()
+                .filter(|other| {
+                    other
+                        .kind
+                        .solid()
+                        .and_then(|solid| solid.operation().target())
+                        == Some(id)
+                })
+                .map(|other| other.name.clone())
+                .collect();
+            if !users.is_empty() {
+                return Err(EditError::BodyInUse {
+                    name,
+                    users: list_names(&users),
+                });
+            }
+        }
+        let feature = self.feature_mut(id)?;
+        let previous = std::mem::replace(&mut feature.kind, kind);
+        Ok(Edit::SetFeatureKind { id, kind: previous })
     }
 
     fn parameter_position(&self, id: ParameterId) -> Result<usize, EditError> {

@@ -1,4 +1,4 @@
-use caditor_document::{Evaluation, FeatureId, FeatureResult, FeatureState};
+use caditor_document::{Evaluation, FeatureId, FeatureState};
 use caditor_sketch::SketchSolution;
 use egui::{Color32, Label, RichText, Sense, Ui};
 
@@ -85,9 +85,11 @@ pub fn up_to_date_solution(evaluation: &Evaluation, feature: FeatureId) -> Optio
     if status.state != FeatureState::UpToDate {
         return None;
     }
-    match status.result.as_deref()? {
-        FeatureResult::Sketch(result) => Some(&result.solution),
-    }
+    status
+        .result
+        .as_deref()?
+        .sketch()
+        .map(|result| &result.solution)
 }
 
 pub fn show(ui: &mut Ui, summary: &SketchSummary) -> Option<Focus> {

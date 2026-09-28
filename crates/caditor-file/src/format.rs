@@ -1,13 +1,17 @@
 use std::sync::Arc;
 
-use caditor_document::{Document, Edit, Feature, FeatureId, FeatureKind, Parameter, Transaction};
+use caditor_document::{
+    BodyOperation, Document, Edit, Extrude, ExtrudeExtent, Feature, FeatureId, FeatureKind,
+    Parameter, RegionChoice, Revolve, RevolveExtent, SolidFeature, Transaction,
+};
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_kernel::RegionKey;
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 pub(crate) const FORMAT_NAME: &str = "caditor";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -54,9 +58,60 @@ pub(crate) struct FeatureRecord {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum FeatureKindRecord {
     Sketch(SketchRecord),
+    Extrude(ExtrudeRecord),
+    Revolve(RevolveRecord),
 }
 
-pub(crate) const FEATURE_KINDS: [&str; 1] = ["sketch"];
+pub(crate) const FEATURE_KINDS: [&str; 3] = ["sketch", "extrude", "revolve"];
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RegionsRecord {
+    All,
+    Chosen(Vec<String>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum OperationRecord {
+    NewBody,
+    Add(u64),
+    Remove(u64),
+    Intersect(u64),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ExtrudeExtentRecord {
+    OneSide { distance: String, reversed: bool },
+    Symmetric { distance: String },
+    TwoSides { forward: String, backward: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RevolveExtentRecord {
+    Full,
+    OneSide { angle: String, reversed: bool },
+    Symmetric { angle: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ExtrudeRecord {
+    pub sketch: u64,
+    pub regions: RegionsRecord,
+    pub extent: ExtrudeExtentRecord,
+    pub operation: OperationRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct RevolveRecord {
+    pub sketch: u64,
+    pub regions: RegionsRecord,
+    pub axis: u64,
+    pub extent: RevolveExtentRecord,
+    pub operation: OperationRecord,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SketchRecord {
@@ -172,6 +227,9 @@ pub(crate) enum EditRecord {
         id: u64,
         index: usize,
     },
+    SetFeatureKind {
+        feature: FeatureRecord,
+    },
     SetDimension {
         feature: u64,
         constraint: u64,
@@ -279,9 +337,73 @@ pub(crate) fn feature_record(feature: &Feature) -> FeatureRecord {
     FeatureRecord {
         id: feature.id().raw(),
         name: feature.name.clone(),
-        kind: match &feature.kind {
-            FeatureKind::Sketch(sketch) => FeatureKindRecord::Sketch(sketch_record(sketch)),
-        },
+        kind: feature_kind_record(&feature.kind),
+    }
+}
+
+fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
+    match kind {
+        FeatureKind::Sketch(sketch) => FeatureKindRecord::Sketch(sketch_record(sketch)),
+        FeatureKind::Solid(SolidFeature::Extrude(extrude)) => {
+            FeatureKindRecord::Extrude(ExtrudeRecord {
+                sketch: extrude.sketch.raw(),
+                regions: regions_record(&extrude.regions),
+                extent: match &extrude.extent {
+                    ExtrudeExtent::OneSide { distance, reversed } => ExtrudeExtentRecord::OneSide {
+                        distance: distance.to_stored_text(),
+                        reversed: *reversed,
+                    },
+                    ExtrudeExtent::Symmetric { distance } => ExtrudeExtentRecord::Symmetric {
+                        distance: distance.to_stored_text(),
+                    },
+                    ExtrudeExtent::TwoSides { forward, backward } => {
+                        ExtrudeExtentRecord::TwoSides {
+                            forward: forward.to_stored_text(),
+                            backward: backward.to_stored_text(),
+                        }
+                    }
+                },
+                operation: operation_record(extrude.operation),
+            })
+        }
+        FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
+            FeatureKindRecord::Revolve(RevolveRecord {
+                sketch: revolve.sketch.raw(),
+                regions: regions_record(&revolve.regions),
+                axis: revolve.axis.raw(),
+                extent: match &revolve.extent {
+                    RevolveExtent::Full => RevolveExtentRecord::Full,
+                    RevolveExtent::OneSide { angle, reversed } => RevolveExtentRecord::OneSide {
+                        angle: angle.to_stored_text(),
+                        reversed: *reversed,
+                    },
+                    RevolveExtent::Symmetric { angle } => RevolveExtentRecord::Symmetric {
+                        angle: angle.to_stored_text(),
+                    },
+                },
+                operation: operation_record(revolve.operation),
+            })
+        }
+    }
+}
+
+fn regions_record(regions: &RegionChoice) -> RegionsRecord {
+    match regions {
+        RegionChoice::All => RegionsRecord::All,
+        RegionChoice::Chosen(keys) => RegionsRecord::Chosen(
+            keys.iter()
+                .map(|key| format!("{:032x}", key.digest()))
+                .collect(),
+        ),
+    }
+}
+
+fn operation_record(operation: BodyOperation) -> OperationRecord {
+    match operation {
+        BodyOperation::NewBody => OperationRecord::NewBody,
+        BodyOperation::Add(body) => OperationRecord::Add(body.raw()),
+        BodyOperation::Remove(body) => OperationRecord::Remove(body.raw()),
+        BodyOperation::Intersect(body) => OperationRecord::Intersect(body.raw()),
     }
 }
 
@@ -410,6 +532,13 @@ fn edit_record(edit: &Edit) -> EditRecord {
             id: id.raw(),
             index: *index,
         },
+        Edit::SetFeatureKind { id, kind } => EditRecord::SetFeatureKind {
+            feature: FeatureRecord {
+                id: id.raw(),
+                name: String::new(),
+                kind: feature_kind_record(kind),
+            },
+        },
         Edit::SetDimension {
             feature,
             constraint,
@@ -507,6 +636,17 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             id: FeatureId::from_raw(id),
             index,
         },
+        EditRecord::SetFeatureKind { feature } => {
+            let mut issues = Vec::new();
+            let kind = restore_kind(&feature.kind, "", &mut issues);
+            if !issues.is_empty() {
+                return None;
+            }
+            Edit::SetFeatureKind {
+                id: FeatureId::from_raw(feature.id),
+                kind,
+            }
+        }
         EditRecord::SetDimension {
             feature,
             constraint,
@@ -555,12 +695,112 @@ pub(crate) fn restore_feature(record: &FeatureRecord, issues: &mut Vec<String>) 
     } else {
         record.name.clone()
     };
-    let kind = match &record.kind {
-        FeatureKindRecord::Sketch(sketch) => {
-            FeatureKind::Sketch(restore_sketch(sketch, &name, issues))
-        }
-    };
+    let kind = restore_kind(&record.kind, &name, issues);
     Feature::new(FeatureId::from_raw(record.id), name, kind)
+}
+
+fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>) -> FeatureKind {
+    match record {
+        FeatureKindRecord::Sketch(sketch) => {
+            FeatureKind::Sketch(restore_sketch(sketch, name, issues))
+        }
+        FeatureKindRecord::Extrude(extrude) => {
+            let mut value =
+                |text: &str, what: &str| restore_value(text, what, "10 mm", name, issues);
+            let extent = match &extrude.extent {
+                ExtrudeExtentRecord::OneSide { distance, reversed } => ExtrudeExtent::OneSide {
+                    distance: value(distance, "distance"),
+                    reversed: *reversed,
+                },
+                ExtrudeExtentRecord::Symmetric { distance } => ExtrudeExtent::Symmetric {
+                    distance: value(distance, "distance"),
+                },
+                ExtrudeExtentRecord::TwoSides { forward, backward } => ExtrudeExtent::TwoSides {
+                    forward: value(forward, "forward distance"),
+                    backward: value(backward, "backward distance"),
+                },
+            };
+            FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+                sketch: FeatureId::from_raw(extrude.sketch),
+                regions: restore_regions(&extrude.regions, name, issues),
+                extent,
+                operation: restore_operation(extrude.operation),
+            }))
+        }
+        FeatureKindRecord::Revolve(revolve) => {
+            let mut value = |text: &str| restore_value(text, "angle", "360 deg", name, issues);
+            let extent = match &revolve.extent {
+                RevolveExtentRecord::Full => RevolveExtent::Full,
+                RevolveExtentRecord::OneSide { angle, reversed } => RevolveExtent::OneSide {
+                    angle: value(angle),
+                    reversed: *reversed,
+                },
+                RevolveExtentRecord::Symmetric { angle } => RevolveExtent::Symmetric {
+                    angle: value(angle),
+                },
+            };
+            FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+                sketch: FeatureId::from_raw(revolve.sketch),
+                regions: restore_regions(&revolve.regions, name, issues),
+                axis: EntityId::from_raw(revolve.axis),
+                extent,
+                operation: restore_operation(revolve.operation),
+            }))
+        }
+    }
+}
+
+fn restore_value(
+    text: &str,
+    what: &str,
+    fallback: &str,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Expression {
+    if let Ok(value) = Expression::parse_stored(text) {
+        return value;
+    }
+    issues.push(format!(
+        "The {what} of “{feature}” could not be read, so it was set to {fallback}."
+    ));
+    Expression::parse_stored(fallback).unwrap_or(Expression::Number(10.0))
+}
+
+fn restore_regions(
+    record: &RegionsRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> RegionChoice {
+    let RegionsRecord::Chosen(keys) = record else {
+        return RegionChoice::All;
+    };
+    let read: Vec<RegionKey> = keys
+        .iter()
+        .filter_map(|key| u128::from_str_radix(key, 16).ok())
+        .map(RegionKey::from_digest)
+        .collect();
+    if read.len() == keys.len() {
+        return RegionChoice::Chosen(read);
+    }
+    if read.is_empty() {
+        issues.push(format!(
+            "The chosen regions of “{feature}” could not be read, so all regions are used."
+        ));
+        return RegionChoice::All;
+    }
+    issues.push(format!(
+        "Some chosen regions of “{feature}” could not be read and were left out."
+    ));
+    RegionChoice::Chosen(read)
+}
+
+fn restore_operation(record: OperationRecord) -> BodyOperation {
+    match record {
+        OperationRecord::NewBody => BodyOperation::NewBody,
+        OperationRecord::Add(body) => BodyOperation::Add(FeatureId::from_raw(body)),
+        OperationRecord::Remove(body) => BodyOperation::Remove(FeatureId::from_raw(body)),
+        OperationRecord::Intersect(body) => BodyOperation::Intersect(FeatureId::from_raw(body)),
+    }
 }
 
 fn restore_sketch(record: &SketchRecord, feature: &str, issues: &mut Vec<String>) -> Sketch {

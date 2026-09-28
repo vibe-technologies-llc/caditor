@@ -32,15 +32,15 @@ The Cargo workspace is `crates/*`. Dependencies point in one direction only:
 caditor-expression  ←──────────────────┐
        ↑                               │
 caditor-geometry  ←  caditor-sketch  ←  caditor-document  ←  caditor-file  ←  caditor (bin)
-   ↑   ↑                                                                          │
-   │   └──────────────  caditor-render  ←─────────────────────────────────────────┘
-   └──  caditor-kernel
+   ↑   ↑                                   │                                      │
+   │   └──────────────  caditor-render  ←──┼──────────────────────────────────────┘
+   └──  caditor-kernel  ←──────────────────┘
 ```
 
 `caditor-expression` has no workspace dependencies; the sketch, document, file and app crates all
 use it. `caditor-file` and the app also use the geometry and sketch crates directly.
-`caditor-kernel` depends only on `caditor-geometry`, never on the sketch or document crates; no
-crate uses it yet.
+`caditor-kernel` depends only on `caditor-geometry`, never on the sketch or document crates; the
+document and file crates use it for solid features.
 
 - **caditor-geometry**: the math vocabulary, as f64 `glam` aliases (`Point3`, `Rotation3`, …)
   plus `Plane` (origin, normal and in-plane x axis, also used as the frame of every circle and
@@ -277,6 +277,15 @@ crate uses it yet.
     deletion into constraints first, then curves, then points. Setting an entity changes only
     its value, never its kind or the points it uses. `settle_sketch` moves the definition to a
     solved shape so the next solve starts from what the user sees.
+  - Solid features (`solid.rs`, `FeatureKind::Solid`) are an `Extrude` or a `Revolve` of a
+    sketch's regions (`RegionChoice::All` for even depth, or chosen `RegionKey`s) with a
+    `BodyOperation`: `NewBody`, or `Add`, `Remove` or `Intersect` on the body of the feature
+    that made it. A body is named by that feature's ID. Extents are expressions (lengths, or
+    angles in degrees) that must be above zero; one-sided extents flip with `reversed`, and a
+    revolve's axis is a line of its sketch or one of the sketch axes. Inserting one checks that
+    its sketch is a sketch and its target makes a body; `SetFeatureKind` replaces its settings
+    but never its kind, and a feature whose body others change keeps making a new body. A sketch
+    line used as a revolve axis cannot be deleted.
   - Recompute: `ParameterValues` evaluates parameters in dependency order and reports cycles
     rather than following them. `Recompute` walks the features in tree order and reuses a
     cached result when the feature definition (an `Arc`, compared by pointer first), the values
@@ -284,7 +293,11 @@ crate uses it yet.
     failing feature is `Failed` with a `FeatureError` (reason, remedy and a `FixTarget`) and
     keeps its last good result. Its dependents fail with a pointer back to it, and everything
     else is unaffected. A panic inside an `Evaluator` is caught and becomes that feature's
-    error.
+    error. Each body's latest good state is carried through the tree and is part of the next
+    change's upstream: a feature that changes a body gets its current solid through
+    `Inputs::body`, and a failing one is skipped, so later features of the body build on the
+    state before it. `Evaluation::body` gives each body's final solid. Solid features map
+    profile, sweep and boolean errors to sentences naming the sketch curves involved.
   - `Recomputer` runs recompute on a worker thread. A newer submission or `cancel` stops the
     running job between features (evaluators also receive a `CancelToken`), and features that
     were not reached are reported as `Outdated`. The worker calls a wake callback after each
@@ -294,7 +307,9 @@ crate uses it yet.
   carrying its stable ID, and the ID counters. Expressions are stored as canonical text that
   refers to parameters as `$<id>` (`Expression::to_stored_text` and `parse_stored`), so stored
   text never depends on names, and numbers round-trip exactly. Every format version that has
-  shipped stays readable.
+  shipped stays readable. Version 3 added `extrude` and `revolve` features; region keys are
+  stored as 32-digit hex strings, and an unreadable extent falls back to 10 mm or 360° with a
+  report.
   - Saving writes a temporary sibling, fsyncs it, renames it over the target and fsyncs the
     directory, keeping the target's permissions. Overwriting a file that loaded with problems
     first keeps the original as `<name>.damaged.caditor`.

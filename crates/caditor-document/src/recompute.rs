@@ -6,10 +6,12 @@ use std::{
 };
 
 use caditor_expression::{Dimension, EvalError, ParameterId, Quantity};
+use caditor_kernel::Solid;
 use caditor_sketch::{ConstraintId, DimensionError, Sketch, SketchError, SketchSolution, Solved};
 
 use crate::{
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
+    solid::{self, SolidResult},
     values::ParameterValues,
 };
 
@@ -72,12 +74,39 @@ pub struct SketchResult {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FeatureResult {
     Sketch(SketchResult),
+    Solid(SolidResult),
 }
+
+impl FeatureResult {
+    pub fn sketch(&self) -> Option<&SketchResult> {
+        match self {
+            Self::Sketch(sketch) => Some(sketch),
+            Self::Solid(_) => None,
+        }
+    }
+
+    pub fn solid(&self) -> Option<&SolidResult> {
+        match self {
+            Self::Sketch(_) => None,
+            Self::Solid(solid) => Some(solid),
+        }
+    }
+}
+
+type BodyStates = BTreeMap<FeatureId, (FeatureId, Arc<FeatureResult>)>;
 
 pub struct Inputs<'a> {
     pub document: &'a Document,
     pub parameters: &'a ParameterValues,
     pub features: &'a BTreeMap<FeatureId, Arc<FeatureResult>>,
+    pub bodies: &'a BTreeMap<FeatureId, (FeatureId, Arc<FeatureResult>)>,
+}
+
+impl Inputs<'_> {
+    pub fn body(&self, body: FeatureId) -> Option<&Solid> {
+        let (_, result) = self.bodies.get(&body)?;
+        result.solid().map(|result| &result.solid)
+    }
 }
 
 pub trait Evaluator: Send + 'static {
@@ -107,9 +136,20 @@ pub struct Evaluation {
     pub parameters: ParameterValues,
     features: BTreeMap<FeatureId, FeatureStatus>,
     recomputed: Vec<FeatureId>,
+    bodies: BTreeMap<FeatureId, FeatureId>,
 }
 
 impl Evaluation {
+    pub fn bodies(&self) -> impl Iterator<Item = (FeatureId, FeatureId)> + '_ {
+        self.bodies.iter().map(|(body, state)| (*body, *state))
+    }
+
+    pub fn body(&self, body: FeatureId) -> Option<&Solid> {
+        let state = self.bodies.get(&body)?;
+        let result = self.features.get(state)?.result.as_deref()?;
+        result.solid().map(|result| &result.solid)
+    }
+
     pub fn feature(&self, id: FeatureId) -> Option<&FeatureStatus> {
         self.features.get(&id)
     }
@@ -184,6 +224,7 @@ impl Recompute {
         let features = document.feature_handles();
         let mut statuses = BTreeMap::new();
         let mut current: BTreeMap<FeatureId, Arc<FeatureResult>> = BTreeMap::new();
+        let mut bodies: BodyStates = BTreeMap::new();
         let mut recomputed = Vec::new();
         let mut cancelled = false;
 
@@ -191,12 +232,19 @@ impl Recompute {
             progress(index, features.len());
             let id = feature.id();
             let parameter_fingerprint = parameters.fingerprint(&feature.kind.parameters());
-            let upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)> = feature
+            let mut upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)> = feature
                 .kind
                 .features()
                 .into_iter()
                 .map(|used| (used, current.get(&used).cloned()))
                 .collect();
+            let changed_body = feature
+                .kind
+                .solid()
+                .and_then(|solid| solid.operation().target());
+            if let Some((state, result)) = changed_body.and_then(|body| bodies.get(&body)) {
+                upstream.push((*state, Some(Arc::clone(result))));
+            }
             let previous = self.cache.get(&id);
 
             let reusable = previous
@@ -225,6 +273,7 @@ impl Recompute {
                             document,
                             parameters: &parameters,
                             features: &current,
+                            bodies: &bodies,
                         },
                         cancel,
                     ),
@@ -258,6 +307,9 @@ impl Recompute {
 
             if let (FeatureState::UpToDate, Some(result)) = (&entry.state, &entry.result) {
                 current.insert(id, Arc::clone(result));
+                if let Some(solid) = result.solid() {
+                    bodies.insert(solid.body, (id, Arc::clone(result)));
+                }
             }
             statuses.insert(
                 id,
@@ -275,6 +327,10 @@ impl Recompute {
             parameters,
             features: statuses,
             recomputed,
+            bodies: bodies
+                .into_iter()
+                .map(|(body, (state, _))| (body, state))
+                .collect(),
         }
     }
 }
@@ -359,6 +415,7 @@ impl Evaluator for ModelEvaluator {
                     Err(error) => Err(Failure::Error(sketch_error(feature.id(), sketch, &error))),
                 }
             }
+            FeatureKind::Solid(solid) => solid::evaluate(feature, solid, inputs, cancel),
         }
     }
 }

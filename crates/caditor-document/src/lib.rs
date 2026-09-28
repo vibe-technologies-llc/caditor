@@ -2,6 +2,7 @@ mod document;
 mod edit;
 mod editor;
 mod recompute;
+mod solid;
 mod values;
 mod worker;
 
@@ -13,12 +14,18 @@ pub use crate::{
         CancelToken, Evaluation, Evaluator, Failure, FeatureError, FeatureResult, FeatureState,
         FeatureStatus, FixTarget, Inputs, ModelEvaluator, Recompute, SketchResult,
     },
+    solid::{
+        BodyOperation, Extrude, ExtrudeExtent, RegionChoice, Revolve, RevolveExtent, SolidFeature,
+        SolidResult, sketch_regions,
+    },
     values::{ParameterError, ParameterValues},
     worker::{Outcome, Progress, Recomputer, Update, WorkerStopped},
 };
 
 #[cfg(test)]
 mod sketch_tests;
+#[cfg(test)]
+mod solid_tests;
 #[cfg(test)]
 mod tests {
     use std::sync::{

@@ -12,6 +12,7 @@ workspace = true
 caditor-document.workspace = true
 caditor-expression.workspace = true
 caditor-geometry.workspace = true
+caditor-kernel.workspace = true
 caditor-sketch.workspace = true
 
 crc32fast.workspace = true

@@ -387,7 +387,7 @@ impl ViewportState {
         let displayed = editing
             .feature()
             .and_then(|feature| model.document().feature(feature))
-            .map(|feature| scene::displayed_sketch(model.evaluation(), feature));
+            .and_then(|feature| scene::displayed_sketch(model.evaluation(), feature));
         self.drawing.sync(editing.active(), displayed.as_deref());
         let scale = f64::from(self.pixels_per_point);
         let pointer = self

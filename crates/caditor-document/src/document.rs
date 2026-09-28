@@ -7,6 +7,8 @@ use std::{
 use caditor_expression::{Expression, ParameterId, ParseError};
 use caditor_sketch::Sketch;
 
+use crate::solid::{BodyOperation, SolidFeature};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FeatureId(u64);
 
@@ -50,36 +52,49 @@ impl Parameter {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FeatureKind {
     Sketch(Sketch),
+    Solid(SolidFeature),
 }
 
 impl FeatureKind {
     pub fn sketch(&self) -> Option<&Sketch> {
         match self {
             Self::Sketch(sketch) => Some(sketch),
+            Self::Solid(_) => None,
         }
     }
 
     pub fn sketch_mut(&mut self) -> Option<&mut Sketch> {
         match self {
             Self::Sketch(sketch) => Some(sketch),
+            Self::Solid(_) => None,
+        }
+    }
+
+    pub fn solid(&self) -> Option<&SolidFeature> {
+        match self {
+            Self::Sketch(_) => None,
+            Self::Solid(solid) => Some(solid),
         }
     }
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
         match self {
             Self::Sketch(sketch) => sketch.parameters(),
+            Self::Solid(solid) => solid.parameters(),
         }
     }
 
     pub fn uses_parameter(&self, parameter: ParameterId) -> bool {
         match self {
             Self::Sketch(sketch) => sketch.uses_parameter(parameter),
+            Self::Solid(solid) => solid.uses_parameter(parameter),
         }
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         match self {
             Self::Sketch(_) => BTreeSet::new(),
+            Self::Solid(solid) => solid.features(),
         }
     }
 }
@@ -98,6 +113,17 @@ impl Feature {
 
     pub fn id(&self) -> FeatureId {
         self.id
+    }
+
+    pub fn body(&self) -> Option<FeatureId> {
+        let solid = self.kind.solid()?;
+        Some(solid.operation().target().unwrap_or(self.id))
+    }
+
+    pub fn makes_body(&self) -> bool {
+        self.kind
+            .solid()
+            .is_some_and(|solid| solid.operation() == BodyOperation::NewBody)
     }
 }
 
