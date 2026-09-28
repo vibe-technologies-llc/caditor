@@ -20,59 +20,6 @@ Git history is the record of what was done.
 Categories below are ordered so that earlier ones unblock or protect later ones, and entries
 within a category run from most to least important.
 
-## Data safety
-
-- Release builds set `panic = "abort"` (root `Cargo.toml`), so the panic containment around
-  evaluators, meshing and export (`recompute.rs` `evaluate_contained`, `export/mod.rs`) does
-  nothing in shipped binaries and one bad feature ends the process. Unwind in release, and add a
-  check that fails if the release profile aborts.
-- The recovery scan deletes a journal as unchanged when none of its entries could be read
-  (`recovery.rs`: `replayed.entries.is_empty()`), so a journal whose first entry comes from a
-  newer version or is damaged is destroyed. Delete only when nothing was left unread.
-- `storage.rs` `Worker::start` removes the journal it replaces even when creating the new one
-  failed (`None != Some(replaced)`), so restoring on a full disk deletes the only copy of the
-  recovered work. Remove the old journal only after the new one is written.
-- Save As checks neither the journal lock nor an existing target: `with_extension` silently adds
-  `.caditor` and can replace another model, and saving onto a file open in another window renames
-  a new journal over that window's locked one (`files.rs`, `storage.rs` `create_journal`). Check
-  `journal_for` and the lock before saving and confirm replacing a file the dialog did not ask
-  about.
-- `write_atomically` renames over a symlink instead of writing through it (`save.rs`), which
-  forks symlinked models and `preferences.json`. Resolve the final link before choosing the
-  temporary sibling.
-- After one journal write error the journal is dropped for the session and its lock released
-  (`storage.rs`), so a transient ENOSPC leaves the session unprotected, lets another instance
-  offer the stale journal, and brings back discarded changes after "Don't save". The app's
-  warning also disappears on the next edit (`model.rs` clears `notice`). Retry by rewriting the
-  journal from the app's entries, keep the path locked, and show a persistent status pill until
-  protection is back.
-- Recovering a file that loaded with problems loses the `.damaged` backup: the journal header
-  has no "loaded with problems" flag and `Model::switch_to` resets `keep_original`. Store the
-  flag in the header.
-- A failed read of the previous file (EIO, EACCES) makes `save_with` write a file with no
-  version history (`save.rs` `read_previous`). Fail the save or ask instead.
-- The startup scan locks a journal by path and later removes it by path, so it can unlink the
-  new journal an owner renamed into place between the two (`recovery.rs`). Compare the locked
-  inode with the path's before deciding.
-- The files worker runs STEP import, version history and model loads with no `catch_unwind`
-  (`files.rs` `spawn_worker`), so a panic there never reports and leaves the status bar busy.
-  Contain each job and send a failure event.
-- No SIGTERM or SIGHUP handling: logout or `kill` drops queued journal entries (`main.rs` only
-  installs a panic hook). Flush through the existing `Flusher` on those signals.
-- Quitting after "Close Without Saving" waits at most 5 s for the storage worker and quits
-  anyway (`files.rs` `CLOSE_TIMEOUT`), so a busy worker leaves the discarded changes to be
-  offered for recovery next start.
-- Journals are created with default permissions while saves copy the target's
-  (`storage.rs` `create_journal`), so a 0600 model gets a world-readable journal of its content.
-- Two instances overwrite each other's preferences because `Settings::save` writes the map read
-  at startup without re-reading the file, and an unreadable `preferences.json` is replaced by
-  defaults (`settings.rs`).
-- Orphaned `.<name>.<pid>-<n>.tmp` files from a crash during save are never cleaned up, a failed
-  directory fsync after a successful rename is reported as a failed save, and any
-  `create_new` error in `keep_backup` is misreported as too many backups (`save.rs`).
-- Non-UTF-8 paths are dropped from the journal header and recent files (`journal.rs`,
-  `recent.rs` use `to_str`), so a crashed file with such a name recovers as untitled.
-
 ## Checks and CI
 
 - No workflow runs tests or clippy on push or pull request; `.github/workflows/release.yml` only
@@ -492,9 +439,6 @@ within a category run from most to least important.
 - One files worker runs everything and Open and Import cannot be cancelled, so a slow STEP import
   blocks Open behind a modal. Give imports their own cancellable job. When a worker thread cannot
   be spawned the job runs on the UI thread.
-- Save As keeps any extension the name already has, so "Bracket v1.2" is saved without
-  `.caditor` and disappears from the Open dialog's filter; check for the model extension as
-  export does.
 - Dropping a file on the window does nothing.
 - The welcome dialog's "Start with an empty model" only closes the dialog when a file was opened
   from the command line.

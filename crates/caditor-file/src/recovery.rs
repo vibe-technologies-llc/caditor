@@ -3,6 +3,7 @@ use std::{
     collections::BTreeSet,
     fs::{self, File, TryLockError},
     io::{self, Read},
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -19,6 +20,7 @@ use crate::{
 pub struct Recovered {
     pub journal: PathBuf,
     pub file: Option<PathBuf>,
+    pub loaded_with_problems: bool,
     pub base: Document,
     pub entries: Vec<JournalEntry>,
     pub editor: Editor,
@@ -60,7 +62,8 @@ pub fn inspect(journal: &Path) -> io::Result<Inspection> {
     };
     let replayed = replay(contents.base.clone(), contents.entries);
     let document = replayed.editor.document();
-    let unchanged = replayed.entries.is_empty() || *document == contents.base;
+    let unapplied = contents.unreadable_entries + usize::from(replayed.stopped_early);
+    let unchanged = || document.same_content(&contents.base);
     let already_saved = || {
         contents
             .file
@@ -68,23 +71,22 @@ pub fn inspect(journal: &Path) -> io::Result<Inspection> {
             .and_then(|file| load(file).ok())
             .is_some_and(|loaded| loaded.issues.is_empty() && loaded.document == *document)
     };
-    if unchanged || already_saved() {
-        fs::remove_file(journal)?;
-        return Ok(Inspection::Removed);
+    if unapplied == 0 && (unchanged() || already_saved()) {
+        return remove_locked(&file, journal);
     }
 
     let mut issues = contents.issues;
-    let unapplied = contents.unreadable_entries + usize::from(replayed.stopped_early);
     if unapplied > 0 {
         issues.push(
-            "The most recent changes were damaged and could not be recovered; everything before \
-             them was."
+            "The most recent changes were damaged or made by a newer version of caditor and could \
+             not be recovered; everything before them was."
                 .to_owned(),
         );
     }
     Ok(Inspection::Recoverable(Box::new(Recovered {
         journal: journal.to_path_buf(),
         file: contents.file,
+        loaded_with_problems: contents.loaded_with_problems,
         base: contents.base,
         entries: replayed.entries,
         editor: replayed.editor,
@@ -155,5 +157,25 @@ pub fn journal_for(file: &Path, recovery_dir: Option<&Path>) -> FileJournal {
 pub fn discard(journal: &Path) -> io::Result<()> {
     let file = File::open(journal)?;
     file.try_lock().map_err(io::Error::from)?;
-    fs::remove_file(journal)
+    match remove_locked(&file, journal)? {
+        Inspection::Removed => Ok(()),
+        _ => Err(io::Error::new(
+            io::ErrorKind::ResourceBusy,
+            "the changes are open in another caditor window",
+        )),
+    }
+}
+
+fn remove_locked(file: &File, journal: &Path) -> io::Result<Inspection> {
+    let locked = file.metadata()?;
+    let current = match fs::symlink_metadata(journal) {
+        Ok(current) => current,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Inspection::Removed),
+        Err(error) => return Err(error),
+    };
+    if (locked.dev(), locked.ino()) != (current.dev(), current.ino()) {
+        return Ok(Inspection::InUse);
+    }
+    fs::remove_file(journal)?;
+    Ok(Inspection::Removed)
 }

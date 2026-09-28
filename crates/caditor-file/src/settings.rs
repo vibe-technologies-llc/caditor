@@ -10,6 +10,8 @@ use crate::save::write_atomically;
 
 const APPLICATION: &str = "caditor";
 const SETTINGS_FILE: &str = "preferences.json";
+const UNREADABLE_STEM: &str = "preferences.unreadable";
+const MAX_KEPT: u32 = 100;
 
 pub fn config_dir() -> Option<PathBuf> {
     let from_xdg = std::env::var_os("XDG_CONFIG_HOME")
@@ -50,9 +52,40 @@ impl Settings {
     }
 
     pub fn save(&self, dir: &Path) -> io::Result<()> {
-        let contents = serde_json::to_vec_pretty(&self.values).map_err(io::Error::other)?;
+        self.save_changes(dir, &Self::default())
+    }
+
+    pub fn save_changes(&self, dir: &Path, since: &Self) -> io::Result<()> {
+        let path = dir.join(SETTINGS_FILE);
+        let mut values = match std::fs::read(&path) {
+            Ok(bytes) => match serde_json::from_slice::<BTreeMap<String, Value>>(&bytes) {
+                Ok(values) => values,
+                Err(error) => {
+                    let kept = keep_unreadable(&path)?;
+                    log::warn!(
+                        "the preferences in {} were unreadable ({error}) and were kept as {}",
+                        path.display(),
+                        kept.display()
+                    );
+                    self.values.clone()
+                }
+            },
+            Err(error) if error.kind() == io::ErrorKind::NotFound => self.values.clone(),
+            Err(error) => return Err(error),
+        };
+        for (key, value) in &self.values {
+            if since.values.get(key) != Some(value) {
+                values.insert(key.clone(), value.clone());
+            }
+        }
+        for key in since.values.keys() {
+            if !self.values.contains_key(key) {
+                values.remove(key);
+            }
+        }
+        let contents = serde_json::to_vec_pretty(&values).map_err(io::Error::other)?;
         std::fs::create_dir_all(dir)?;
-        write_atomically(&dir.join(SETTINGS_FILE), &contents)
+        write_atomically(&path, &contents)
     }
 
     pub fn text(&self, key: &str) -> Option<&str> {
@@ -112,6 +145,24 @@ impl Settings {
     }
 }
 
+fn keep_unreadable(path: &Path) -> io::Result<PathBuf> {
+    for attempt in 1..=MAX_KEPT {
+        let kept = path.with_file_name(match attempt {
+            1 => format!("{UNREADABLE_STEM}.json"),
+            _ => format!("{UNREADABLE_STEM}-{attempt}.json"),
+        });
+        match std::fs::hard_link(path, &kept) {
+            Ok(()) => return Ok(kept),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "too many unreadable copies of the preferences already exist",
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
@@ -147,6 +198,54 @@ mod tests {
         assert_eq!(
             Settings::load(&dir.path().join("missing")),
             Settings::default()
+        );
+    }
+
+    #[test]
+    fn two_windows_keep_each_others_changes() {
+        let dir = TempDir::new().unwrap();
+        let mut start = Settings::default();
+        start.set_text("units", "mm");
+        start.set_flag("invert", false);
+        start.save(dir.path()).unwrap();
+
+        let first_loaded = Settings::load(dir.path());
+        let second_loaded = Settings::load(dir.path());
+        let mut first = first_loaded.clone();
+        first.set_text("units", "cm");
+        first.save_changes(dir.path(), &first_loaded).unwrap();
+        let mut second = second_loaded.clone();
+        second.set_flag("invert", true);
+        second.remove("units");
+        second.set_number("zoom", 2.0);
+        second.save_changes(dir.path(), &second_loaded).unwrap();
+
+        let merged = Settings::load(dir.path());
+        assert_eq!(merged.text("units"), None);
+        assert_eq!(merged.flag("invert"), Some(true));
+        assert_eq!(merged.number("zoom"), Some(2.0));
+
+        let mut third = merged.clone();
+        third.set_text("units", "m");
+        first.save_changes(dir.path(), &first_loaded).unwrap();
+        third.save_changes(dir.path(), &merged).unwrap();
+        let merged = Settings::load(dir.path());
+        assert_eq!(merged.text("units"), Some("m"));
+        assert_eq!(merged.number("zoom"), Some(2.0));
+    }
+
+    #[test]
+    fn unreadable_preferences_are_kept_aside_before_they_are_replaced() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join(SETTINGS_FILE), "{ broken").unwrap();
+        let loaded = Settings::load(dir.path());
+        let mut changed = loaded.clone();
+        changed.set_text("units", "cm");
+        changed.save_changes(dir.path(), &loaded).unwrap();
+        assert_eq!(Settings::load(dir.path()).text("units"), Some("cm"));
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("preferences.unreadable.json")).unwrap(),
+            "{ broken"
         );
     }
 }

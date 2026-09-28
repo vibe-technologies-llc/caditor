@@ -496,8 +496,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     rebuilt) and `load_version` loads one. When the head cannot be rebuilt, the next save drops
     the deltas that depended on it and keeps the rest.
   - Saving writes a temporary sibling, fsyncs it, renames it over the target and fsyncs the
-    directory, keeping the target's permissions. Overwriting a file that loaded with problems
-    first keeps the original as `<name>.damaged.caditor`.
+    directory, keeping the target's permissions. A symbolic link is followed to the file it
+    names, which is what gets replaced. A failed directory fsync after the rename is logged, not
+    reported as a failed save, and temporary siblings left by processes that no longer exist are
+    removed after each write. A save refuses to go ahead when the earlier versions in the file
+    it replaces cannot be read, since it would drop them. Overwriting a file that loaded with
+    problems first keeps the original as `<name>.damaged.caditor`.
   - Loading is partial. Each record and each sketch item is read on its own (`Lenient`), and the
     pieces are assembled through `Document::apply`, so a loaded model always satisfies the
     document invariants. Damaged or unknown (newer) records are left out, a lost parameter that
@@ -506,24 +510,39 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     dimension takes its drawn length. Each of these is reported in plain language.
   - The recovery journal uses the same container: a header chunk naming the file, a snapshot of
     the last saved state, then one chunk per change (`apply`, `undo` or `redo` with the
-    transaction that was applied). Replay stops at the first damaged or unreadable chunk, so a
+    transaction that was applied). The header also carries the path as raw bytes (so
+    non-UTF-8 names survive) and whether the file loaded with problems, so a recovered session
+    still keeps the damaged original on its first save. Replay stops at the first damaged or
+    unreadable chunk, so a
     torn tail loses only the changes after it, and replaying through an `Editor` restores the
     undo history. New edit kinds do not bump the journal version: an older reader stops at the
     first entry it cannot read and keeps everything before it. The journal lives next to the
     file as `.<name>.journal`, falling back to `$XDG_STATE_HOME/caditor/recovery/`, where
     untitled documents keep theirs. Its owner holds an exclusive lock on it, which is how the
-    startup scan and other instances tell a live journal from an orphan.
+    startup scan and other instances tell a live journal from an orphan. Journals take the
+    model's permissions, or owner-only for untitled documents.
   - `Storage` is one worker thread per open document. It owns the journal and performs saves,
     so appends, saves and the rebase of the journal onto the saved snapshot stay in order, and
-    it fsyncs after each batch of entries. A `Flusher` lets the panic hook wait for pending
-    entries.
+    it fsyncs after each batch of entries. It keeps the saved snapshot and the entries since, so
+    after a write error (`Report::JournalFailed`) it keeps holding the lock, stops appending and
+    rewrites the whole journal every few seconds until that succeeds
+    (`Report::JournalRestored`). A journal it replaces (after a save or a restore) is removed
+    only once the new one is written. Saving to another path is refused while another window
+    holds that model's journal, and a journal is never renamed over one another window holds.
+    A `Flusher` lets the panic hook and the signal handler wait for pending entries.
   - Preferences (`settings.rs`): `Settings` is a JSON key/value file in
     `$XDG_CONFIG_HOME/caditor/preferences.json` (`config_dir`), read leniently and written
     atomically; keys a version does not know are kept, so an older caditor never erases a newer
-    one's settings.
+    one's settings. `save_changes` re-reads the file and applies only the keys changed since the
+    last save, so two windows keep each other's changes, and an unreadable file is kept as
+    `preferences.unreadable.json` before it is replaced. Recent files store paths that are not
+    UTF-8 as byte arrays.
   - Recovery (`scan`, `journal_for`) inspects unlocked journals in the recovery directory and
     next to recent files, deletes those with nothing to recover (no net change, or already in
-    the file) and returns the rest with a replayed `Editor`.
+    the file, and every entry read) and returns the rest with a replayed `Editor`. A journal
+    with entries it could not read (damaged, or from a newer version) is offered, never deleted.
+    Before deleting, the locked file is compared with the path by inode, so a journal an owner
+    renamed into place meanwhile is left alone.
   - DXF import (`import/`): `parse_dxf` reads ASCII and binary DXF (group codes with typed values,
     UTF-8 or single-byte text) into a `Drawing` of 2D `DrawingCurve`s in millimetres plus notes in
     plain language. It reads `$INSUNITS` (none is read as millimetres, with a note), layers
@@ -675,9 +694,17 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     unsaved exactly when its document differs from it), the journal entries since then and the
     `Storage` worker, to which every change is recorded. `files.rs` is the file workflow: the
     File menu and shortcuts, native dialogs through the XDG desktop portal (`rfd`) on their own
-    thread, loading and recovery scans on a background worker, the unsaved-changes prompt before
-    New, Open, Open Sample, Restore and Quit, the recovery offer and the load report. `main.rs`
-    installs the panic hook that flushes the journal and starts with an empty model. The viewport
+    thread, loading and recovery scans on a background worker (each job contained by
+    `catch_unwind`, a panic becoming that job's failure event), the unsaved-changes prompt before
+    New, Open, Open Sample, Restore and Quit, the recovery offer and the load report. Save As
+    appends `.caditor` to any other name, checks the target on the worker (refused while open in
+    another window or holding unrecovered changes) and asks before replacing a file the dialog
+    did not name. Quitting waits for the storage worker without blocking the UI, offering Quit
+    Anyway after a few seconds. While the journal cannot be written the status bar shows a
+    Not protected pill. `main.rs` installs the panic hook and a SIGTERM, SIGHUP and SIGINT
+    handler (`signal-hook`) that flush the journal before the process ends, and starts with an
+    empty model. Release builds unwind (`panic = "unwind"`), since containment relies on it, and
+    `recompute.rs` fails to compile otherwise. The viewport
     fits the view once the first recompute of a newly opened model (another `Model::session`)
     is up to date.
   - Samples (`samples.rs`): three parametric models built through the document API, so they are

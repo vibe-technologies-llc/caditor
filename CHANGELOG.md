@@ -27,6 +27,10 @@ The first release of caditor.
 - The `.caditor` model format: compressed, checksummed, and partially readable when damaged.
 - Every change can be undone, a recovery journal restores unsaved work after a crash, and each
   file keeps the versions its saves replaced so they can be restored later.
+- Unsaved work is flushed to the recovery journal when caditor is stopped by logout or a signal,
+  and a status bar pill says when it cannot be protected while caditor keeps retrying.
+- Save As adds `.caditor` to names such as "Bracket v1.2", asks before replacing a file the
+  dialog did not name, and refuses a model open in another window.
 - Import of DXF drawings into sketches and of STEP models as bodies; export of bodies as STEP,
   STL and 3MF.
 

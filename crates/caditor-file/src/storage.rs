@@ -1,10 +1,11 @@
 use std::{
-    fs::{self, File},
+    fs::{self, File, OpenOptions, Permissions, TryLockError},
     io::{self, Write},
+    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use caditor_document::Document;
@@ -12,10 +13,12 @@ use caditor_document::Document;
 use crate::{
     journal::{JournalEntry, encode_entry, encode_journal},
     paths, reason,
-    save::{self, SaveOptions, sync_parent, temporary_sibling},
+    save::{self, SaveOptions, remove_orphaned_temporaries, sync_parent, temporary_sibling},
 };
 
 const PREDECESSOR_TIMEOUT: Duration = Duration::from_secs(5);
+const RETRY_INTERVAL: Duration = Duration::from_secs(5);
+const PRIVATE_MODE: u32 = 0o600;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StorageConfig {
@@ -24,6 +27,7 @@ pub struct StorageConfig {
 
 pub struct Start {
     pub file: Option<PathBuf>,
+    pub loaded_with_problems: bool,
     pub base: Document,
     pub entries: Vec<JournalEntry>,
     pub replaces: Option<PathBuf>,
@@ -54,6 +58,7 @@ pub enum Report {
     JournalFailed {
         reason: String,
     },
+    JournalRestored,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -85,6 +90,7 @@ impl Storage {
             .spawn(move || {
                 let Start {
                     file,
+                    loaded_with_problems,
                     base,
                     entries,
                     replaces,
@@ -99,12 +105,19 @@ impl Storage {
                     untitled: config.recovery_dir.as_deref().map(paths::untitled_journal),
                     recovery_dir: config.recovery_dir,
                     file,
+                    loaded_with_problems,
+                    base,
+                    entries,
+                    replaces,
                     journal: None,
+                    protected: false,
+                    failure_reported: false,
+                    next_retry: Instant::now(),
                     reports: sender,
                     wake: Box::new(wake),
                     unsynced: false,
                 };
-                worker.start(&base, &entries, replaces.as_deref());
+                worker.rewrite();
                 worker.run(&queue);
             })?;
         Ok(Self { commands, reports })
@@ -163,6 +176,12 @@ impl Flusher {
 pub struct Closing(Option<Receiver<()>>);
 
 impl Closing {
+    pub fn finished(&self) -> bool {
+        self.0
+            .as_ref()
+            .is_none_or(|finished| !matches!(finished.try_recv(), Err(TryRecvError::Empty)))
+    }
+
     pub fn wait(self, timeout: Duration) -> bool {
         self.0.is_some_and(|finished| {
             !matches!(
@@ -182,7 +201,14 @@ struct Worker {
     recovery_dir: Option<PathBuf>,
     untitled: Option<PathBuf>,
     file: Option<PathBuf>,
+    loaded_with_problems: bool,
+    base: Document,
+    entries: Vec<JournalEntry>,
+    replaces: Option<PathBuf>,
     journal: Option<OpenJournal>,
+    protected: bool,
+    failure_reported: bool,
+    next_retry: Instant,
     reports: Sender<Report>,
     wake: Box<dyn Fn() + Send>,
     unsynced: bool,
@@ -194,35 +220,43 @@ enum Flow {
 }
 
 impl Worker {
-    fn start(&mut self, base: &Document, entries: &[JournalEntry], replaces: Option<&Path>) {
-        self.journal = self.create_journal(base, entries);
-        if let Some(replaced) = replaces
-            && self.journal.as_ref().map(|journal| journal.path.as_path()) != Some(replaced)
-        {
-            remove_journal(replaced);
-        }
-    }
-
     fn run(&mut self, queue: &Receiver<Command>) {
-        while let Ok(command) = queue.recv() {
-            let mut next = Some(command);
-            while let Some(command) = next.take() {
-                if let Flow::Stop = self.handle(command) {
-                    return;
+        loop {
+            let received = if self.protected || !self.has_place() {
+                queue.recv().map_err(|_| RecvTimeoutError::Disconnected)
+            } else {
+                queue.recv_timeout(self.next_retry.saturating_duration_since(Instant::now()))
+            };
+            match received {
+                Ok(command) => {
+                    let mut next = Some(command);
+                    while let Some(command) = next.take() {
+                        if let Flow::Stop = self.handle(command) {
+                            return;
+                        }
+                        next = queue.try_recv().ok();
+                    }
+                    self.sync();
+                    if self.retry_due() {
+                        self.retry();
+                    }
                 }
-                next = queue.try_recv().ok();
+                Err(RecvTimeoutError::Timeout) => self.retry(),
+                Err(RecvTimeoutError::Disconnected) => break,
             }
-            self.sync();
         }
         self.sync();
     }
 
     fn handle(&mut self, command: Command) -> Flow {
         match command {
-            Command::Record(entry) => self.append(&entry),
+            Command::Record(entry) => self.append(entry),
             Command::Save(request) => self.save(request),
             Command::Flush(done) => {
                 self.sync();
+                if !self.protected {
+                    self.retry();
+                }
                 let _ = done.send(());
             }
             Command::Close { discard, done } => {
@@ -233,27 +267,24 @@ impl Worker {
                     remove_journal(&journal.path);
                 }
                 let _ = done.send(());
+                (self.wake)();
                 return Flow::Stop;
             }
         }
         Flow::Continue
     }
 
-    fn append(&mut self, entry: &JournalEntry) {
-        let Some(journal) = &mut self.journal else {
-            return;
+    fn append(&mut self, entry: JournalEntry) {
+        let written = match &mut self.journal {
+            Some(journal) if self.protected => encode_entry(&entry)
+                .map_err(io::Error::other)
+                .and_then(|chunk| journal.file.write_all(&chunk)),
+            Some(_) | None => Ok(()),
         };
-        let written = encode_entry(entry)
-            .map_err(io::Error::other)
-            .and_then(|chunk| journal.file.write_all(&chunk));
+        self.entries.push(entry);
         match written {
-            Ok(()) => self.unsynced = true,
-            Err(error) => {
-                self.journal = None;
-                self.report(Report::JournalFailed {
-                    reason: reason::writing(&error),
-                });
-            }
+            Ok(()) => self.unsynced = self.protected,
+            Err(error) => self.lose_protection(&error),
         }
     }
 
@@ -265,15 +296,45 @@ impl Worker {
         if let Some(journal) = &self.journal
             && let Err(error) = journal.file.sync_data()
         {
-            self.journal = None;
-            self.report(Report::JournalFailed {
-                reason: reason::writing(&error),
-            });
+            self.lose_protection(&error);
+        }
+    }
+
+    fn lose_protection(&mut self, error: &io::Error) {
+        log::warn!("the recovery journal could not be written: {error}");
+        self.fail(reason::writing(error));
+    }
+
+    fn fail(&mut self, reason: String) {
+        self.protected = false;
+        self.unsynced = false;
+        self.next_retry = Instant::now() + RETRY_INTERVAL;
+        if !self.failure_reported {
+            self.failure_reported = true;
+            self.report(Report::JournalFailed { reason });
+        }
+    }
+
+    fn retry(&mut self) {
+        self.rewrite();
+        if self.protected && self.failure_reported {
+            self.failure_reported = false;
+            self.report(Report::JournalRestored);
         }
     }
 
     fn save(&mut self, request: SaveRequest) {
         self.sync();
+        if self.file.as_deref() != Some(request.path.as_path())
+            && self.opened_elsewhere(&request.path)
+        {
+            self.report(Report::SaveFailed {
+                ticket: request.ticket,
+                path: request.path,
+                reason: "it is open in another caditor window".to_owned(),
+            });
+            return;
+        }
         let options = SaveOptions {
             keep_original: request.keep_original,
             history_from: self.file.as_deref(),
@@ -282,13 +343,10 @@ impl Worker {
         let report = match save::save_with(&request.document, &request.path, &options) {
             Ok(backup) => {
                 self.file = Some(request.path.clone());
-                let previous = self.journal.take();
-                self.journal = self.create_journal(&request.document, &[]);
-                if let Some(previous) = previous
-                    && self.journal.as_ref().map(|journal| &journal.path) != Some(&previous.path)
-                {
-                    remove_journal(&previous.path);
-                }
+                self.loaded_with_problems = false;
+                self.base = request.document;
+                self.entries.clear();
+                self.rewrite();
                 Report::Saved {
                     ticket: request.ticket,
                     path: request.path,
@@ -304,25 +362,73 @@ impl Worker {
         self.report(report);
     }
 
-    fn create_journal(&mut self, base: &Document, entries: &[JournalEntry]) -> Option<OpenJournal> {
-        let contents = match encode_journal(self.file.as_deref(), base, entries) {
+    fn opened_elsewhere(&self, file: &Path) -> bool {
+        paths::journals_for(file, self.recovery_dir.as_deref())
+            .iter()
+            .filter(|candidate| self.journal_path() != Some(candidate.as_path()))
+            .any(|candidate| locked_elsewhere(candidate))
+    }
+
+    fn journal_path(&self) -> Option<&Path> {
+        self.journal.as_ref().map(|journal| journal.path.as_path())
+    }
+
+    fn rewrite(&mut self) {
+        let candidates = self.journal_candidates();
+        if candidates.is_empty() {
+            self.fail("there is no folder to keep it in".to_owned());
+            return;
+        }
+        let contents = match encode_journal(
+            self.file.as_deref(),
+            self.loaded_with_problems,
+            &self.base,
+            &self.entries,
+        ) {
             Ok(contents) => contents,
             Err(error) => {
                 log::error!("could not encode the recovery journal: {error}");
-                self.report(Report::JournalFailed {
-                    reason: "the model could not be converted for the recovery journal".to_owned(),
-                });
-                return None;
+                self.fail("the model could not be converted for the recovery journal".to_owned());
+                return;
             }
         };
+        let permissions = self
+            .file
+            .as_deref()
+            .and_then(|file| fs::metadata(file).ok())
+            .map(|metadata| metadata.permissions());
         let mut failure = None;
-        for candidate in self.journal_candidates() {
-            match write_locked(&candidate, &contents, self.recovery_dir.as_deref()) {
+        for candidate in candidates.iter().cloned() {
+            let own = self.journal_path() == Some(candidate.as_path());
+            if !own && locked_elsewhere(&candidate) {
+                log::warn!("{} belongs to another caditor window", candidate.display());
+                continue;
+            }
+            let written = write_locked(
+                &candidate,
+                &contents,
+                permissions.as_ref(),
+                self.recovery_dir.as_deref(),
+            );
+            match written {
                 Ok(file) => {
-                    return Some(OpenJournal {
+                    let previous = self.journal.replace(OpenJournal {
                         path: candidate,
                         file,
                     });
+                    if let Some(previous) = previous
+                        && self.journal_path() != Some(previous.path.as_path())
+                    {
+                        remove_journal(&previous.path);
+                    }
+                    if let Some(replaced) = self.replaces.take()
+                        && self.journal_path() != Some(replaced.as_path())
+                    {
+                        remove_journal(&replaced);
+                    }
+                    self.protected = true;
+                    self.unsynced = false;
+                    return;
                 }
                 Err(error) => {
                     log::warn!("could not create {}: {error}", candidate.display());
@@ -330,12 +436,24 @@ impl Worker {
                 }
             }
         }
-        if let Some(error) = failure {
-            self.report(Report::JournalFailed {
-                reason: reason::writing(&error),
-            });
+        if let Some(stale) = self
+            .journal
+            .take_if(|previous| !candidates.contains(&previous.path))
+        {
+            remove_journal(&stale.path);
         }
-        None
+        self.fail(failure.map_or_else(
+            || "the recovery file is in use by another caditor window".to_owned(),
+            |error| reason::writing(&error),
+        ));
+    }
+
+    fn retry_due(&self) -> bool {
+        !self.protected && self.has_place() && Instant::now() >= self.next_retry
+    }
+
+    fn has_place(&self) -> bool {
+        self.file.is_some() || self.untitled.is_some()
     }
 
     fn journal_candidates(&self) -> Vec<PathBuf> {
@@ -352,27 +470,52 @@ impl Worker {
     }
 }
 
-fn write_locked(path: &Path, contents: &[u8], recovery_dir: Option<&Path>) -> io::Result<File> {
+fn locked_elsewhere(journal: &Path) -> bool {
+    let Ok(file) = File::open(journal) else {
+        return false;
+    };
+    matches!(file.try_lock(), Err(TryLockError::WouldBlock))
+}
+
+fn write_locked(
+    path: &Path,
+    contents: &[u8],
+    permissions: Option<&Permissions>,
+    recovery_dir: Option<&Path>,
+) -> io::Result<File> {
     if let Some(dir) = recovery_dir
         && path.starts_with(dir)
     {
         fs::create_dir_all(dir)?;
     }
     let temporary = temporary_sibling(path)?;
-    let written = write_locked_then_rename(&temporary, path, contents);
+    let written = write_locked_then_rename(&temporary, path, contents, permissions);
     if written.is_err() {
         let _ = fs::remove_file(&temporary);
     }
     written
 }
 
-fn write_locked_then_rename(temporary: &Path, path: &Path, contents: &[u8]) -> io::Result<File> {
-    let mut file = File::create_new(temporary)?;
+fn write_locked_then_rename(
+    temporary: &Path,
+    path: &Path,
+    contents: &[u8],
+    permissions: Option<&Permissions>,
+) -> io::Result<File> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(PRIVATE_MODE)
+        .open(temporary)?;
+    if let Some(permissions) = permissions {
+        file.set_permissions(permissions.clone())?;
+    }
     file.try_lock().map_err(io::Error::from)?;
     file.write_all(contents)?;
     file.sync_all()?;
     fs::rename(temporary, path)?;
     sync_parent(path)?;
+    remove_orphaned_temporaries(path);
     Ok(file)
 }
 

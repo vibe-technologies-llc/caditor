@@ -700,7 +700,7 @@ fn closing_with_unsaved_changes_asks_first_and_the_title_marks_them() {
     let mut harness = Harness::new();
     assert_eq!(app::window_title(&harness.model), "Untitled — caditor");
     harness.command(FileCommand::Quit);
-    assert!(harness.files.should_quit());
+    harness.wait_until("caditor quits", |harness| harness.files.should_quit());
 
     let mut harness = Harness::new();
     harness.edit_width("45 mm");
@@ -715,7 +715,101 @@ fn closing_with_unsaved_changes_asks_first_and_the_title_marks_them() {
 
     harness.command(FileCommand::Quit);
     harness.click("Close Without Saving");
-    assert!(harness.files.should_quit());
+    harness.wait_until("caditor quits", |harness| harness.files.should_quit());
+}
+
+#[test]
+fn save_as_adds_the_model_extension_and_asks_before_replacing_what_the_dialog_did_not_name() {
+    let dir = TempDir::new().unwrap();
+    let existing = dir.path().join("Bracket v1.2.caditor");
+    caditor_file::save(&Document::default(), &existing, false).unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.answer_dialog(Some(dir.path().join("Bracket v1.2")));
+
+    harness.key(Key::S, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “Bracket v1.2.caditor”?")
+    });
+    harness.click("Cancel");
+    assert_eq!(harness.model.path(), None);
+    assert_eq!(
+        caditor_file::load(&existing).unwrap().document,
+        Document::default()
+    );
+
+    harness.key(Key::S, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “Bracket v1.2.caditor”?")
+    });
+    harness.click("Replace");
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
+    assert_eq!(
+        harness.model.path(),
+        Some(std::fs::canonicalize(&existing).unwrap().as_path())
+    );
+    assert_eq!(
+        caditor_file::load(&existing).unwrap().document,
+        *harness.model.document()
+    );
+}
+
+#[test]
+fn save_as_refuses_a_model_open_in_another_window() {
+    let dir = TempDir::new().unwrap();
+    let other_path = dir.path().join("other.caditor");
+    caditor_file::save(&Document::default(), &other_path, false).unwrap();
+    let other = Storage::spawn(
+        StorageConfig {
+            recovery_dir: Some(dir.path().join("recovery")),
+        },
+        Start {
+            file: Some(other_path.clone()),
+            loaded_with_problems: false,
+            base: Document::default(),
+            entries: Vec::new(),
+            replaces: None,
+            after: None,
+        },
+        || {},
+    )
+    .unwrap();
+    assert!(other.flusher().flush(FILE_TIMEOUT));
+
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.answer_dialog(Some(other_path.clone()));
+    harness.key(Key::S, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.wait_until("the save is refused", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.contains("open in another caditor window"))
+    });
+    assert_eq!(harness.model.path(), None);
+    assert_eq!(
+        caditor_file::load(&other_path).unwrap().document,
+        Document::default()
+    );
+    assert!(other.close(true).wait(FILE_TIMEOUT));
+}
+
+#[test]
+fn an_unwritable_recovery_folder_shows_that_changes_are_not_protected() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let recovery = dir.path().join("recovery");
+    std::fs::create_dir(&recovery).unwrap();
+    std::fs::set_permissions(&recovery, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.wait_until("the problem is shown", |harness| {
+        harness.model.unprotected().is_some()
+    });
+    assert!(harness.shows("Not protected"));
+    harness.edit_width("45 mm");
+    assert!(harness.shows("Not protected"));
+    std::fs::set_permissions(&recovery, std::fs::Permissions::from_mode(0o700)).unwrap();
 }
 
 #[test]
@@ -1089,6 +1183,7 @@ fn unsaved_work_from_a_crash_is_offered_and_restored_with_its_history() {
         },
         Start {
             file: None,
+            loaded_with_problems: false,
             base,
             entries: vec![JournalEntry::Apply(change)],
             replaces: None,

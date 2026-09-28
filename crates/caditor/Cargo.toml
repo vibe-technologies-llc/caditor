@@ -27,6 +27,7 @@ log.workspace = true
 parking_lot.workspace = true
 pollster.workspace = true
 rfd = { workspace = true, features = ["xdg-portal"] }
+signal-hook.workspace = true
 wgpu.workspace = true
 winit.workspace = true
 

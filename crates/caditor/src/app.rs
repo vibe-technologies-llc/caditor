@@ -390,6 +390,7 @@ impl App {
         open: Option<PathBuf>,
     ) -> Self {
         model.set_length_unit(preferences.unit);
+        files.settings_loaded(preferences.settings());
         files.start(open, &mut model);
         Self {
             model,

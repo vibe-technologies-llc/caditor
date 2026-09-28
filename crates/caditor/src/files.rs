@@ -1,20 +1,22 @@
 use std::{
+    ffi::OsString,
     fs,
+    panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
         Arc,
         mpsc::{self, Receiver, Sender},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use caditor_document::{Document, FeatureId};
 use caditor_file::{
-    DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported, FILE_EXTENSION, FileJournal,
-    History, ImportError, LoadError, Loaded, ModelImport, RecentFiles, Recovered, STEP_EXTENSIONS,
-    STEP_IMPORT_EXTENSIONS, SavedState, Settings, journal_for, load, load_version, read_dxf,
-    read_step_file, scan,
+    Closing, DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported, FILE_EXTENSION,
+    FileJournal, History, ImportError, LoadError, Loaded, ModelImport, RecentFiles, Recovered,
+    STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings, journal_for, load, load_version,
+    read_dxf, read_step_file, scan,
 };
 use egui::{Id, Modal, RichText, Ui};
 use parking_lot::Mutex;
@@ -33,7 +35,8 @@ use crate::{
     widgets::{self, DialogWidth, Tone},
 };
 
-const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
+const QUIT_ANYWAY_AFTER: Duration = Duration::from_secs(5);
+const INTERNAL_ERROR: &str = "caditor ran into an internal error while reading it";
 const REPORT_HEIGHT: f32 = 280.0;
 const MODEL_KIND: &str = "caditor model";
 const DRAWING_KIND: &str = "DXF drawing";
@@ -67,6 +70,8 @@ pub enum FileCommand {
     KeepRecovered,
     Discard(PathBuf),
     DismissReport,
+    Replace(bool),
+    QuitAnyway,
     Export(ExportCommand),
     History(HistoryCommand),
     Import { into: Option<FeatureId> },
@@ -205,7 +210,17 @@ struct Opened {
     loaded: Loaded,
 }
 
+enum SaveTarget {
+    Ready(PathBuf),
+    Confirm(PathBuf),
+    InUse(PathBuf),
+    HasRecovery(PathBuf),
+    Failed(PathBuf),
+}
+
 enum Event {
+    ScanFailed,
+    SaveTargetChecked(SaveTarget),
     Picked {
         purpose: Purpose,
         path: Option<PathBuf>,
@@ -295,6 +310,9 @@ pub struct Files {
     exporter: Exporter,
     history: VersionHistory,
     picking: bool,
+    confirm_replace: Option<PathBuf>,
+    closing: Option<(Closing, Instant)>,
+    stored_settings: Option<Settings>,
     quit: bool,
 }
 
@@ -320,6 +338,9 @@ impl Files {
             exporter: Exporter::default(),
             history: VersionHistory::default(),
             picking: false,
+            confirm_replace: None,
+            closing: None,
+            stored_settings: None,
             quit: false,
         }
     }
@@ -327,14 +348,17 @@ impl Files {
     pub fn start(&mut self, open: Option<PathBuf>, model: &mut Model) {
         let state_dir = self.config.state_dir.clone();
         let recovery_dir = self.config.recovery_dir.clone();
-        self.spawn(move || {
-            let recent = state_dir
-                .as_deref()
-                .map(RecentFiles::load)
-                .unwrap_or_default();
-            let recovered = scan(recovery_dir.as_deref(), recent.paths());
-            Event::Started { recent, recovered }
-        });
+        self.spawn(
+            move || {
+                let recent = state_dir
+                    .as_deref()
+                    .map(RecentFiles::load)
+                    .unwrap_or_default();
+                let recovered = scan(recovery_dir.as_deref(), recent.paths());
+                Event::Started { recent, recovered }
+            },
+            || Event::ScanFailed,
+        );
         if let Some(path) = open {
             self.perform(FileCommand::OpenPath(path), model);
         }
@@ -346,6 +370,8 @@ impl Files {
 
     pub fn is_blocking(&self) -> bool {
         self.guard.is_some()
+            || self.closing.is_some()
+            || self.confirm_replace.is_some()
             || self.opening.is_some()
             || self.report.is_some()
             || self.showing_recovery()
@@ -372,6 +398,7 @@ impl Files {
             FileCommand::OpenSample(sample) => self.request(Intent::Sample(sample), model),
             FileCommand::Open => self.request(Intent::Open(None), model),
             FileCommand::OpenPath(path) => self.request(Intent::Open(Some(path)), model),
+            FileCommand::Quit if self.closing.is_some() => {}
             FileCommand::Quit => self.request(Intent::Quit, model),
             FileCommand::Restore(journal) => self.request(Intent::Restore(journal), model),
             FileCommand::Save => self.save(model),
@@ -398,14 +425,37 @@ impl Files {
             FileCommand::KeepRecovered => self.confirm_discard = None,
             FileCommand::Discard(journal) => {
                 self.confirm_discard = None;
-                self.spawn(move || Event::Discarded {
-                    error: caditor_file::discard(&journal)
-                        .err()
-                        .map(|error| error.to_string()),
-                    journal,
-                });
+                let failed = journal.clone();
+                self.spawn(
+                    move || Event::Discarded {
+                        error: caditor_file::discard(&journal)
+                            .err()
+                            .map(|error| error.to_string()),
+                        journal,
+                    },
+                    move || Event::Discarded {
+                        journal: failed,
+                        error: Some(INTERNAL_ERROR.to_owned()),
+                    },
+                );
             }
             FileCommand::DismissReport => self.report = None,
+            FileCommand::Replace(confirmed) => {
+                let Some(path) = self.confirm_replace.take() else {
+                    return;
+                };
+                if confirmed {
+                    model.save_to(path);
+                } else {
+                    self.after_save = None;
+                }
+            }
+            FileCommand::QuitAnyway => {
+                if self.closing.take().is_some() {
+                    log::warn!("quitting before the storage worker finished");
+                    self.quit = true;
+                }
+            }
             FileCommand::Export(command) => {
                 self.exporter.perform(command);
                 if command == ExportCommand::Choose {
@@ -441,11 +491,19 @@ impl Files {
             HistoryCommand::Hide => self.history.close(),
             HistoryCommand::Restore(index) => {
                 if let Some((path, state)) = self.history.start_restoring(index) {
-                    self.spawn(move || Event::VersionLoaded {
-                        result: load_version(&path, index),
-                        path,
-                        state,
-                    });
+                    let (failed_path, failed_state) = (path.clone(), state.clone());
+                    self.spawn(
+                        move || Event::VersionLoaded {
+                            result: load_version(&path, index),
+                            path,
+                            state,
+                        },
+                        move || Event::VersionLoaded {
+                            path: failed_path,
+                            state: failed_state,
+                            result: Err(internal_load_error()),
+                        },
+                    );
                 }
             }
         }
@@ -453,10 +511,17 @@ impl Files {
 
     fn list_versions(&mut self) {
         if let Some(path) = self.history.path().cloned() {
-            self.spawn(move || Event::HistoryListed {
-                result: caditor_file::history(&path),
-                path,
-            });
+            let failed = path.clone();
+            self.spawn(
+                move || Event::HistoryListed {
+                    result: caditor_file::history(&path),
+                    path,
+                },
+                move || Event::HistoryListed {
+                    path: failed,
+                    result: Err(internal_load_error()),
+                },
+            );
         }
     }
 
@@ -495,6 +560,14 @@ impl Files {
 
     pub fn poll(&mut self, model: &mut Model, editing: &mut SketchEditing) -> bool {
         let mut changed = false;
+        if self
+            .closing
+            .take_if(|(closing, _)| closing.finished())
+            .is_some()
+        {
+            self.quit = true;
+            changed = true;
+        }
         for event in model.take_file_events() {
             changed = true;
             match event {
@@ -519,11 +592,16 @@ impl Files {
 
     fn handle(&mut self, event: Event, model: &mut Model, editing: &mut SketchEditing) {
         match event {
+            Event::ScanFailed => model.set_notice(Notice::error(
+                "caditor could not look for unsaved work from an earlier session. It will look \
+                 again the next time it starts.",
+            )),
+            Event::SaveTargetChecked(target) => self.save_target_checked(target, model),
             Event::Picked { purpose, path } => {
                 self.picking = false;
                 match (purpose, path) {
                     (Purpose::Open, Some(path)) => self.open(path, model),
-                    (Purpose::SaveAs, Some(path)) => model.save_to(with_extension(path)),
+                    (Purpose::SaveAs, Some(path)) => self.save_as(path, model),
                     (Purpose::Export(format), Some(path)) => self.export(path, format, model),
                     (Purpose::Import, Some(path)) => self.import(path, model),
                     (Purpose::Import, None) => self.importing = None,
@@ -620,22 +698,31 @@ impl Files {
             into,
         });
         let session = model.session();
-        self.spawn(move || {
-            if import::is_model(&path) {
-                Event::ImportedModel {
-                    result: read_step_file(&path),
-                    path,
-                    session,
+        let failed = path.clone();
+        self.spawn(
+            move || {
+                if import::is_model(&path) {
+                    Event::ImportedModel {
+                        result: read_step_file(&path),
+                        path,
+                        session,
+                    }
+                } else {
+                    Event::Imported {
+                        result: read_dxf(&path),
+                        path,
+                        session,
+                        into,
+                    }
                 }
-            } else {
-                Event::Imported {
-                    result: read_dxf(&path),
-                    path,
-                    session,
-                    into,
-                }
-            }
-        });
+            },
+            move || Event::Imported {
+                path: failed,
+                session,
+                into,
+                result: Err(ImportError::Reading(INTERNAL_ERROR.to_owned())),
+            },
+        );
     }
 
     fn export(&mut self, path: PathBuf, format: ExportFormat, model: &mut Model) {
@@ -739,14 +826,10 @@ impl Files {
                 model.restore(candidate.recovered);
             }
             Intent::Replace(opened) => self.finish_open(*opened, model),
-            Intent::Quit => {
-                if let Some(closing) = model.close()
-                    && !closing.wait(CLOSE_TIMEOUT)
-                {
-                    log::warn!("the storage worker did not finish before quitting");
-                }
-                self.quit = true;
-            }
+            Intent::Quit => match model.close() {
+                Some(closing) => self.closing = Some((closing, Instant::now())),
+                None => self.quit = true,
+            },
         }
     }
 
@@ -802,15 +885,72 @@ impl Files {
         let revision = model.revision();
         let current = model.path().map(Path::to_path_buf);
         let recovery_dir = self.config.recovery_dir.clone();
-        self.spawn(move || {
-            let path = fs::canonicalize(&path).unwrap_or(path);
-            let outcome = open_file(&path, current.as_deref(), recovery_dir.as_deref());
-            Event::Opened {
-                path,
+        let failed = path.clone();
+        self.spawn(
+            move || {
+                let path = fs::canonicalize(&path).unwrap_or(path);
+                let outcome = open_file(&path, current.as_deref(), recovery_dir.as_deref());
+                Event::Opened {
+                    path,
+                    revision,
+                    outcome,
+                }
+            },
+            move || Event::Opened {
+                path: failed,
                 revision,
-                outcome,
+                outcome: OpenOutcome::Failed {
+                    error: internal_load_error(),
+                    missing: false,
+                },
+            },
+        );
+    }
+
+    fn save_as(&mut self, picked: PathBuf, model: &mut Model) {
+        let current = model.path().map(Path::to_path_buf);
+        let recovery_dir = self.config.recovery_dir.clone();
+        let failed = picked.clone();
+        self.spawn(
+            move || {
+                Event::SaveTargetChecked(check_save_target(
+                    &picked,
+                    current.as_deref(),
+                    recovery_dir.as_deref(),
+                ))
+            },
+            move || Event::SaveTargetChecked(SaveTarget::Failed(failed)),
+        );
+    }
+
+    fn save_target_checked(&mut self, target: SaveTarget, model: &mut Model) {
+        let refusal = match &target {
+            SaveTarget::Ready(path) => {
+                model.save_to(path.clone());
+                return;
             }
-        });
+            SaveTarget::Confirm(path) => {
+                self.confirm_replace = Some(path.clone());
+                return;
+            }
+            SaveTarget::InUse(path) => format!(
+                "“{}” is open in another caditor window. Close it there first, or save under \
+                 another name.",
+                display_name(Some(path))
+            ),
+            SaveTarget::HasRecovery(path) => format!(
+                "“{}” has unsaved changes from an earlier session. Open it to recover or discard \
+                 them first, or save under another name.",
+                display_name(Some(path))
+            ),
+            SaveTarget::Failed(path) => format!(
+                "Could not save “{}”: caditor ran into an internal error while checking the \
+                 location. Try again, or choose another name.",
+                display_name(Some(path))
+            ),
+        };
+        self.after_save = None;
+        model.set_notice(Notice::error(refusal));
     }
 
     fn finish_open(&mut self, opened: Opened, model: &mut Model) {
@@ -840,12 +980,20 @@ impl Files {
         self.store_recent();
     }
 
+    pub fn settings_loaded(&mut self, settings: Settings) {
+        self.stored_settings = Some(settings);
+    }
+
     pub fn store_settings(&mut self, settings: Settings) {
         let Some(config_dir) = self.config.config_dir.clone() else {
             return;
         };
+        let since = self
+            .stored_settings
+            .replace(settings.clone())
+            .unwrap_or_default();
         self.run_job(Box::new(move || {
-            if let Err(error) = settings.save(&config_dir) {
+            if let Err(error) = settings.save_changes(&config_dir, &since) {
                 log::warn!("could not save the preferences: {error}");
             }
         }));
@@ -863,11 +1011,19 @@ impl Files {
         }));
     }
 
-    fn spawn(&mut self, task: impl FnOnce() -> Event + Send + 'static) {
+    fn spawn(
+        &mut self,
+        task: impl FnOnce() -> Event + Send + 'static,
+        failed: impl FnOnce() -> Event + Send + 'static,
+    ) {
         let events = self.events.clone();
         let wake = (self.make_waker)();
         self.run_job(Box::new(move || {
-            if events.send(task()).is_ok() {
+            let event = panic::catch_unwind(AssertUnwindSafe(task)).unwrap_or_else(|_| {
+                log::error!("a background file task panicked");
+                failed()
+            });
+            if events.send(event).is_ok() {
                 wake();
             }
         }));
@@ -879,13 +1035,13 @@ impl Files {
         }
         let Some(jobs) = &self.jobs else {
             log::error!("no background worker, so the file task runs on the UI thread");
-            job();
+            run_contained(job);
             return;
         };
         if let Err(mpsc::SendError(job)) = jobs.send(job) {
             self.jobs = None;
             log::error!("the background worker stopped, so the file task runs on the UI thread");
-            job();
+            run_contained(job);
         }
     }
 }
@@ -913,7 +1069,7 @@ fn spawn_worker() -> Option<Sender<Job>> {
         .name("files".to_owned())
         .spawn(move || {
             while let Ok(job) = queue.recv() {
-                job();
+                run_contained(job);
             }
         });
     match spawned {
@@ -925,12 +1081,61 @@ fn spawn_worker() -> Option<Sender<Job>> {
     }
 }
 
-fn with_extension(path: PathBuf) -> PathBuf {
-    if path.extension().is_some() {
-        path
-    } else {
-        path.with_extension(FILE_EXTENSION)
+fn internal_load_error() -> LoadError {
+    LoadError::Unreadable(INTERNAL_ERROR.to_owned())
+}
+
+fn run_contained(job: Job) {
+    if panic::catch_unwind(AssertUnwindSafe(job)).is_err() {
+        log::error!("a background file task panicked");
     }
+}
+
+fn with_extension(path: PathBuf) -> PathBuf {
+    let is_model = path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(FILE_EXTENSION));
+    if is_model {
+        return path;
+    }
+    let mut named = OsString::from(path.as_os_str());
+    named.push(".");
+    named.push(FILE_EXTENSION);
+    PathBuf::from(named)
+}
+
+fn check_save_target(
+    picked: &Path,
+    current: Option<&Path>,
+    recovery_dir: Option<&Path>,
+) -> SaveTarget {
+    let named = with_extension(picked.to_path_buf());
+    let target = canonical_location(&named);
+    if current == Some(target.as_path()) {
+        return SaveTarget::Ready(target);
+    }
+    match journal_for(&target, recovery_dir) {
+        FileJournal::InUse => return SaveTarget::InUse(target),
+        FileJournal::Recoverable(_) => return SaveTarget::HasRecovery(target),
+        FileJournal::None => {}
+    }
+    if named != picked && target.exists() {
+        SaveTarget::Confirm(target)
+    } else {
+        SaveTarget::Ready(target)
+    }
+}
+
+fn canonical_location(path: &Path) -> PathBuf {
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return path.to_path_buf();
+    };
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    fs::canonicalize(parent).map_or_else(|_| path.to_path_buf(), |parent| parent.join(name))
 }
 
 pub fn menu(
@@ -1047,6 +1252,12 @@ pub fn menu(
 }
 
 pub fn activity(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>) {
+    if let Some(reason) = model.unprotected() {
+        widgets::pill(ui, Tone::Warning, "Not protected").on_hover_text(format!(
+            "Unsaved changes are not protected against a crash: {reason}. caditor keeps trying; \
+             saving keeps your work safe."
+        ));
+    }
     if model.is_saving() {
         ui.spinner();
         ui.label("Saving…");
@@ -1080,7 +1291,9 @@ fn submenu_label(ui: &Ui, glyph: &str, title: &str) -> (egui::RichText, String) 
 pub fn show(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>) {
     let ctx = ui.ctx().clone();
     let mut command = None;
-    if let Some(path) = &files.opening {
+    if let Some((_, since)) = &files.closing {
+        command = closing(&ctx, *since);
+    } else if let Some(path) = &files.opening {
         Modal::new(Id::new("opening"))
             .frame(widgets::dialog_frame(&ctx))
             .show(&ctx, |ui| {
@@ -1091,6 +1304,8 @@ pub fn show(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>
             });
     } else if let Some(intent) = &files.guard {
         command = guard(&ctx, model, intent).map(FileCommand::Guard);
+    } else if let Some(path) = &files.confirm_replace {
+        command = confirm_replace(&ctx, path).map(FileCommand::Replace);
     } else if let Some(report) = &files.report {
         command = show_report(&ctx, report);
     } else if files.showing_recovery() {
@@ -1142,6 +1357,58 @@ fn guard(ctx: &egui::Context, model: &Model, intent: &Intent) -> Option<GuardCho
         })
     });
     let closed = response.should_close().then_some(GuardChoice::Cancel);
+    response.inner.or(closed)
+}
+
+fn closing(ctx: &egui::Context, since: Instant) -> Option<FileCommand> {
+    let waited = since.elapsed();
+    if waited < QUIT_ANYWAY_AFTER {
+        ctx.request_repaint_after(QUIT_ANYWAY_AFTER.saturating_sub(waited));
+    }
+    Modal::new(Id::new("closing"))
+        .frame(widgets::dialog_frame(ctx))
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Finishing writing to disk…");
+            });
+            if waited < QUIT_ANYWAY_AFTER {
+                return None;
+            }
+            ui.label("This is taking longer than usual, for example because the disk is slow.");
+            widgets::footer(ui, |ui| {
+                ui.button("Quit Anyway")
+                    .on_hover_text(
+                        "The changes you chose not to save may be offered for recovery the next \
+                         time caditor starts.",
+                    )
+                    .clicked()
+                    .then_some(FileCommand::QuitAnyway)
+            })
+        })
+        .inner
+}
+
+fn confirm_replace(ctx: &egui::Context, path: &Path) -> Option<bool> {
+    let name = display_name(Some(path));
+    let title = format!("Replace “{name}”?");
+    let response = widgets::dialog(ctx, "replace-model", &title, DialogWidth::Medium, |ui| {
+        let folder = path
+            .parent()
+            .map(|folder| folder.display().to_string())
+            .unwrap_or_default();
+        ui.label(format!(
+            "A model named “{name}” already exists in “{folder}”. Replacing it overwrites what \
+             it holds."
+        ));
+        widgets::footer(ui, |ui| {
+            if ui.add(widgets::primary_button(ui, "Replace")).clicked() {
+                return Some(true);
+            }
+            ui.button("Cancel").clicked().then_some(false)
+        })
+    });
+    let closed = response.should_close().then_some(false);
     response.inner.or(closed)
 }
 

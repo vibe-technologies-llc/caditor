@@ -143,6 +143,7 @@ fn config(dir: &TempDir) -> StorageConfig {
 fn untitled(base: &Document) -> Start {
     Start {
         file: None,
+        loaded_with_problems: false,
         base: base.clone(),
         entries: Vec::new(),
         replaces: None,
@@ -546,6 +547,7 @@ fn restoring_rewrites_the_journal_in_place() {
 
     let start = Start {
         file: None,
+        loaded_with_problems: false,
         base: recovered.base.clone(),
         entries: recovered.entries.clone(),
         replaces: Some(recovered.journal.clone()),
@@ -1400,4 +1402,222 @@ fn a_sketch_on_a_lost_plane_stays_where_it_was() {
         "{:?}",
         loaded.issues
     );
+}
+
+fn only_file_in(dir: &Path) -> PathBuf {
+    let mut entries = fs::read_dir(dir).unwrap();
+    let path = entries.next().unwrap().unwrap().path();
+    assert!(entries.next().is_none());
+    path
+}
+
+#[test]
+fn a_journal_whose_first_change_cannot_be_read_is_kept() {
+    let dir = TempDir::new().unwrap();
+    let storage = Storage::spawn(config(&dir), untitled(&sample()), || {}).unwrap();
+    let mut editor = Editor::new(sample());
+    record_session(&storage, &mut editor);
+    crash(storage);
+    let journal = only_file_in(&dir.path().join("recovery"));
+    let original = fs::read(&journal).unwrap();
+    let rewritten = rewrite_journal(&original, |index, json| match index {
+        2 => json.replace("set_parameter_expression", "bend_sheet"),
+        _ => json,
+    });
+    fs::write(&journal, rewritten).unwrap();
+
+    let Inspection::Recoverable(recovered) = inspect(&journal).unwrap() else {
+        panic!("a journal with unread changes should be offered, not removed");
+    };
+    assert_eq!(recovered.changes(), 0);
+    assert!(recovered.issues[0].contains("newer version of caditor"));
+    assert!(journal.exists());
+}
+
+#[test]
+fn restoring_keeps_the_recovered_journal_until_a_new_one_is_written() {
+    let dir = TempDir::new().unwrap();
+    let base = sample();
+    let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
+    let mut editor = Editor::new(base);
+    record_session(&storage, &mut editor);
+    crash(storage);
+    let recovery = dir.path().join("recovery");
+    let recovered = scan(Some(&recovery), &[]).remove(0);
+
+    fs::set_permissions(&recovery, fs::Permissions::from_mode(0o500)).unwrap();
+    let start = Start {
+        file: None,
+        loaded_with_problems: false,
+        base: recovered.base.clone(),
+        entries: recovered.entries.clone(),
+        replaces: Some(recovered.journal.clone()),
+        after: None,
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    assert!(matches!(
+        wait_for_report(&storage),
+        Report::JournalFailed { .. }
+    ));
+    assert!(recovered.journal.exists());
+
+    fs::set_permissions(&recovery, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(storage.flusher().flush(WAIT));
+    assert_eq!(wait_for_report(&storage), Report::JournalRestored);
+    assert!(!recovered.journal.exists());
+    crash(storage);
+    let again = scan(Some(&recovery), &[]);
+    assert_eq!(again.len(), 1);
+    assert_eq!(again[0].editor.document(), editor.document());
+}
+
+#[test]
+fn saving_through_a_symbolic_link_writes_the_file_it_points_to() {
+    let dir = TempDir::new().unwrap();
+    let real = dir.path().join("real.caditor");
+    let link = dir.path().join("link.caditor");
+    save(&Document::default(), &real, false).unwrap();
+    std::os::unix::fs::symlink("real.caditor", &link).unwrap();
+
+    save(&sample(), &link, false).unwrap();
+
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(load(&real).unwrap().document, sample());
+    assert_eq!(crate::history(&real).unwrap().versions.len(), 1);
+}
+
+#[test]
+fn a_save_that_cannot_read_the_earlier_versions_fails_and_changes_nothing() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    save(&Document::default(), &path, false).unwrap();
+    let before = fs::read(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o200)).unwrap();
+
+    let error = save(&sample(), &path, false).unwrap_err();
+
+    assert!(
+        error.reason.contains("earlier versions"),
+        "{}",
+        error.reason
+    );
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn orphaned_temporary_files_are_removed_by_the_next_save() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let orphan = dir.path().join(".model.caditor.4294967295-3.tmp");
+    let ours = dir
+        .path()
+        .join(format!(".model.caditor.{}-999.tmp", std::process::id()));
+    let unrelated = dir.path().join(".model.caditor.notes.tmp");
+    for file in [&orphan, &ours, &unrelated] {
+        fs::write(file, "partial").unwrap();
+    }
+
+    save(&sample(), &path, false).unwrap();
+
+    assert!(!orphan.exists());
+    assert!(ours.exists());
+    assert!(unrelated.exists());
+}
+
+#[test]
+fn a_recovered_file_remembers_that_it_loaded_with_problems() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let base = sample();
+    save(&base, &path, false).unwrap();
+    let start = Start {
+        file: Some(path.clone()),
+        loaded_with_problems: true,
+        ..untitled(&base)
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    let mut editor = Editor::new(base);
+    record_session(&storage, &mut editor);
+    crash(storage);
+
+    let FileJournal::Recoverable(recovered) =
+        journal_for(&path, Some(&dir.path().join("recovery")))
+    else {
+        panic!("unsaved changes should be offered");
+    };
+    assert!(recovered.loaded_with_problems);
+}
+
+#[test]
+fn journals_take_the_permissions_of_their_model() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let base = sample();
+    save(&base, &path, false).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+    let start = Start {
+        file: Some(path.clone()),
+        ..untitled(&base)
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    assert!(storage.flusher().flush(WAIT));
+    let mode = |file: &Path| fs::metadata(file).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&dir.path().join(".model.caditor.journal")), 0o640);
+    crash(storage);
+
+    let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
+    assert!(storage.flusher().flush(WAIT));
+    let recovery = dir.path().join("recovery");
+    let untitled_journal = fs::read_dir(&recovery)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|journal| journal.to_string_lossy().contains("untitled"))
+        .unwrap();
+    assert_eq!(mode(&untitled_journal), 0o600);
+    crash(storage);
+}
+
+#[test]
+fn saving_over_a_model_open_in_another_window_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let base = sample();
+    save(&base, &path, false).unwrap();
+    let other = Storage::spawn(
+        config(&dir),
+        Start {
+            file: Some(path.clone()),
+            ..untitled(&base)
+        },
+        || {},
+    )
+    .unwrap();
+    assert!(other.flusher().flush(WAIT));
+    let journal = dir.path().join(".model.caditor.journal");
+    let before = fs::read(&journal).unwrap();
+
+    let storage = Storage::spawn(config(&dir), untitled(&Document::default()), || {}).unwrap();
+    storage
+        .save(SaveRequest {
+            ticket: 1,
+            document: Document::default(),
+            path: path.clone(),
+            keep_original: false,
+            label: None,
+        })
+        .unwrap();
+    let Report::SaveFailed { reason, .. } = wait_for_report(&storage) else {
+        panic!("the save should be refused");
+    };
+    assert_eq!(reason, "it is open in another caditor window");
+    assert_eq!(load(&path).unwrap().document, base);
+    assert_eq!(fs::read(&journal).unwrap(), before);
+    crash(storage);
+    crash(other);
 }

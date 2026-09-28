@@ -449,6 +449,11 @@ fn missing_upstream(
     })
 }
 
+const _: () = assert!(
+    cfg!(panic = "unwind"),
+    "a panicking feature is contained by unwinding, so caditor must be built with panic = \"unwind\""
+);
+
 fn evaluate_contained(
     evaluator: &dyn Evaluator,
     feature: &Feature,

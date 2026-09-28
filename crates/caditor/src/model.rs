@@ -86,6 +86,13 @@ pub struct Services {
     pub panic_flush: PanicFlush,
 }
 
+struct Session {
+    editor: Editor,
+    saved: Document,
+    path: Option<PathBuf>,
+    keep_original: bool,
+}
+
 struct PendingSave {
     ticket: u64,
     document: Document,
@@ -106,6 +113,7 @@ pub struct Model {
     saved: Document,
     entries: Vec<JournalEntry>,
     keep_original: bool,
+    unprotected: Option<String>,
     dirty: bool,
     pending_save: Option<PendingSave>,
     next_ticket: u64,
@@ -129,6 +137,7 @@ impl Model {
             saved: document,
             entries: Vec::new(),
             keep_original: false,
+            unprotected: None,
             dirty: false,
             pending_save: None,
             next_ticket: 0,
@@ -221,6 +230,10 @@ impl Model {
 
     pub fn is_dirty(&self) -> bool {
         self.dirty
+    }
+
+    pub fn unprotected(&self) -> Option<&str> {
+        self.unprotected.as_deref()
     }
 
     pub fn is_saving(&self) -> bool {
@@ -366,25 +379,37 @@ impl Model {
 
     pub fn replace(&mut self, document: Document, path: Option<PathBuf>, damaged: bool) {
         self.switch_to(
-            Editor::new(document.clone()),
-            document,
-            path,
+            Session {
+                editor: Editor::new(document.clone()),
+                saved: document,
+                path,
+                keep_original: damaged,
+            },
             Vec::new(),
             None,
         );
-        self.keep_original = damaged;
     }
 
     pub fn restore(&mut self, recovered: Recovered) {
         let Recovered {
             journal,
             file,
+            loaded_with_problems,
             base,
             entries,
             editor,
             ..
         } = recovered;
-        self.switch_to(editor, base, file, entries, Some(journal));
+        self.switch_to(
+            Session {
+                editor,
+                saved: base,
+                path: file,
+                keep_original: loaded_with_problems,
+            },
+            entries,
+            Some(journal),
+        );
     }
 
     pub fn close(&mut self) -> Option<Closing> {
@@ -394,20 +419,19 @@ impl Model {
 
     fn switch_to(
         &mut self,
-        editor: Editor,
-        saved: Document,
-        path: Option<PathBuf>,
+        session: Session,
         entries: Vec<JournalEntry>,
         replaces: Option<PathBuf>,
     ) {
         let predecessor = self.storage.take().map(|storage| storage.close(true));
         self.revision_offset = self.revision() + 1;
-        self.editor = editor;
-        self.dirty = *self.editor.document() != saved;
-        self.saved = saved;
-        self.path = path;
+        self.editor = session.editor;
+        self.dirty = *self.editor.document() != session.saved;
+        self.saved = session.saved;
+        self.path = session.path;
         self.entries = entries;
-        self.keep_original = false;
+        self.keep_original = session.keep_original;
+        self.unprotected = None;
         self.pending_save = None;
         self.notice = None;
         self.parameters = ParameterValues::evaluate(self.editor.document());
@@ -419,6 +443,7 @@ impl Model {
     fn start_storage(&mut self, replaces: Option<PathBuf>, after: Option<Closing>) {
         let start = Start {
             file: self.path.clone(),
+            loaded_with_problems: self.keep_original,
             base: self.saved.clone(),
             entries: self.entries.clone(),
             replaces,
@@ -433,6 +458,7 @@ impl Model {
             Err(error) => {
                 log::error!("could not start the storage worker: {error}");
                 *self.services.panic_flush.lock() = None;
+                self.unprotected = Some("the background writer could not start".to_owned());
                 self.set_notice(Notice::error(
                     "Unsaved changes are not protected against a crash, because the background \
                      writer could not start. Save your work often.",
@@ -462,6 +488,7 @@ impl Model {
             ));
             self.file_events.push(FileEvent::SaveFailed);
         }
+        self.unprotected = None;
         self.start_storage(None, None);
     }
 
@@ -522,10 +549,19 @@ impl Model {
                 )));
                 self.file_events.push(FileEvent::SaveFailed);
             }
-            Report::JournalFailed { reason } => self.set_notice(Notice::error(format!(
-                "Unsaved changes are not protected against a crash: {reason}. Save your work to \
-                 keep it safe."
-            ))),
+            Report::JournalFailed { reason } => {
+                self.set_notice(Notice::error(format!(
+                    "Unsaved changes are not protected against a crash: {reason}. caditor keeps \
+                     trying; save your work to keep it safe."
+                )));
+                self.unprotected = Some(reason);
+            }
+            Report::JournalRestored => {
+                self.unprotected = None;
+                self.set_notice(Notice::info(
+                    "Unsaved changes are protected against a crash again.",
+                ));
+            }
         }
     }
 

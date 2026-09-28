@@ -1,4 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsString,
+    os::unix::ffi::{OsStrExt, OsStringExt},
+    path::{Path, PathBuf},
+};
 
 use caditor_document::{Document, Editor, Transaction};
 use serde::{Deserialize, Serialize};
@@ -24,6 +28,10 @@ pub enum JournalEntry {
 #[derive(Debug, Serialize, Deserialize)]
 struct JournalHeader {
     file: Option<String>,
+    #[serde(default)]
+    file_bytes: Option<Vec<u8>>,
+    #[serde(default)]
+    loaded_with_problems: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -35,11 +43,14 @@ struct SnapshotRecord {
 
 pub(crate) fn encode_journal(
     file: Option<&Path>,
+    loaded_with_problems: bool,
     base: &Document,
     entries: &[JournalEntry],
 ) -> Result<Vec<u8>, EncodeError> {
     let header = JournalHeader {
         file: file.and_then(Path::to_str).map(str::to_owned),
+        file_bytes: file.map(|file| file.as_os_str().as_bytes().to_vec()),
+        loaded_with_problems,
     };
     let mut bytes = start_file(&JOURNAL_MAGIC, JOURNAL_VERSION);
     push_packed(
@@ -91,6 +102,7 @@ fn snapshot_record(document: &Document) -> SnapshotRecord {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct JournalContents {
     pub file: Option<PathBuf>,
+    pub loaded_with_problems: bool,
     pub base: Document,
     pub issues: Vec<String>,
     pub entries: Vec<JournalEntry>,
@@ -122,8 +134,13 @@ pub(crate) fn decode_journal(bytes: &[u8]) -> Result<JournalContents, DamagedJou
             None => unreadable_entries += 1,
         }
     }
+    let file = match header.file_bytes {
+        Some(bytes) => Some(PathBuf::from(OsString::from_vec(bytes))),
+        None => header.file.map(PathBuf::from),
+    };
     Ok(JournalContents {
-        file: header.file.map(PathBuf::from),
+        file,
+        loaded_with_problems: header.loaded_with_problems,
         base,
         issues,
         entries,
