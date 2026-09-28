@@ -19,6 +19,7 @@ pub enum Constraint {
     Angle {
         from: EntityId,
         to: EntityId,
+        reversed: bool,
         value: Expression,
     },
     Radius {

@@ -14,6 +14,7 @@ use crate::{
 };
 
 const DEGENERATE_LENGTH: f64 = 1e-12;
+const COLLAPSED_LENGTH: f64 = 1e-9;
 
 #[derive(Debug, Clone)]
 pub(crate) struct System {
@@ -24,6 +25,8 @@ pub(crate) struct System {
     pub radii: BTreeMap<EntityId, usize>,
     pub radius_variables: BTreeSet<usize>,
     pub entity_variables: BTreeMap<EntityId, Vec<usize>>,
+    pub spans: Vec<(PointHandle, PointHandle)>,
+    pub collapsed_length: f64,
 }
 
 impl System {
@@ -69,12 +72,25 @@ impl System {
             points,
             radii,
             entity_variables: BTreeMap::new(),
+            spans: Vec::new(),
+            collapsed_length: COLLAPSED_LENGTH * scale,
         };
         system.entity_variables = sketch
             .entities()
             .map(|(id, entity)| (id, system.variables_of(id, entity)))
             .collect();
 
+        for (_, entity) in sketch.entities() {
+            let span = match *entity {
+                Entity::Line { start, end } => Some((start, end)),
+                Entity::Arc { center, start, .. } => Some((center, start)),
+                Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. } => None,
+            };
+            if let Some((from, to)) = span {
+                let handles = (system.point(from)?, system.point(to)?);
+                system.spans.push(handles);
+            }
+        }
         for (id, entity) in sketch.entities() {
             if let Entity::Arc { end, .. } = *entity {
                 let circle = system.circle(sketch, id)?;
@@ -243,15 +259,7 @@ impl System {
             Constraint::Tangent(a, b) => match (role(a)?, role(b)?) {
                 (Role::Line, Role::Circular) => vec![self.line_tangent(sketch, a, b)?],
                 (Role::Circular, Role::Line) => vec![self.line_tangent(sketch, b, a)?],
-                (Role::Circular, Role::Circular) => {
-                    let (first, second) = (self.circle(sketch, a)?, self.circle(sketch, b)?);
-                    vec![Form::CircleTangent {
-                        first,
-                        second,
-                        fallback: self.initial_direction(second.center, first.center),
-                        contact: self.initial_contact(&first, &second),
-                    }]
-                }
+                (Role::Circular, Role::Circular) => vec![self.circle_tangent(sketch, a, b)?],
                 _ => return Err(not_applicable(a, b)),
             },
             Constraint::Equal(a, b) => match (role(a)?, role(b)?) {
@@ -268,6 +276,10 @@ impl System {
             Constraint::Distance { from, to, .. } => {
                 let value = dimension()?;
                 match (role(from)?, role(to)?) {
+                    (Role::Point, Role::Point) if value.abs() <= self.context.degenerate_length => {
+                        let (from, to) = (self.point(from)?, self.point(to)?);
+                        vec![Form::SameX(from, to), Form::SameY(from, to)]
+                    }
                     (Role::Point, Role::Point) => {
                         let (from, to) = (self.point(from)?, self.point(to)?);
                         vec![Form::PointDistance {
@@ -282,9 +294,12 @@ impl System {
                     _ => return Err(not_applicable(from, to)),
                 }
             }
-            Constraint::Angle { from, to, .. } => vec![Form::Angle {
+            Constraint::Angle {
+                from, to, reversed, ..
+            } => vec![Form::Angle {
                 from: self.line(sketch, from)?,
                 to: self.line(sketch, to)?,
+                reversed,
                 radians: dimension()?.to_radians(),
             }],
             Constraint::Radius { entity, .. } => vec![Form::Radius {
@@ -326,12 +341,51 @@ impl System {
         line: EntityId,
         circle: EntityId,
     ) -> Result<Form, SketchError> {
+        let joint = joint(sketch, line, circle);
         let (line, circle) = (self.line(sketch, line)?, self.circle(sketch, circle)?);
+        if let Some(point) = joint {
+            let point = self.point(point)?;
+            return Ok(Form::Perpendicular(
+                line,
+                self.radius_line(point, circle.center),
+            ));
+        }
         Ok(Form::LineTangent {
             side: self.initial_side(circle.center, &line),
             line,
             circle,
         })
+    }
+
+    fn circle_tangent(
+        &self,
+        sketch: &Sketch,
+        a: EntityId,
+        b: EntityId,
+    ) -> Result<Form, SketchError> {
+        let joint = joint(sketch, a, b);
+        let (first, second) = (self.circle(sketch, a)?, self.circle(sketch, b)?);
+        if let Some(point) = joint {
+            let point = self.point(point)?;
+            return Ok(Form::Parallel(
+                self.radius_line(point, first.center),
+                self.radius_line(point, second.center),
+            ));
+        }
+        Ok(Form::CircleTangent {
+            first,
+            second,
+            fallback: self.initial_direction(second.center, first.center),
+            contact: self.initial_contact(&first, &second),
+        })
+    }
+
+    fn radius_line(&self, point: PointHandle, center: PointHandle) -> LineHandle {
+        LineHandle {
+            start: point,
+            end: center,
+            fallback: self.initial_direction(point, center),
+        }
     }
 
     fn line_distance(
@@ -348,5 +402,78 @@ impl System {
             line,
             value,
         })
+    }
+}
+
+fn joint(sketch: &Sketch, first: EntityId, second: EntityId) -> Option<EntityId> {
+    let classes = Coincidence::of(sketch);
+    let on_second: BTreeSet<EntityId> = points_on(sketch, second)
+        .into_iter()
+        .map(|point| classes.class(point))
+        .collect();
+    points_on(sketch, first)
+        .into_iter()
+        .find(|point| on_second.contains(&classes.class(*point)))
+}
+
+fn points_on(sketch: &Sketch, curve: EntityId) -> BTreeSet<EntityId> {
+    let mut points: BTreeSet<EntityId> = match sketch.entity(curve) {
+        Some(Entity::Line { start, end } | Entity::Arc { start, end, .. }) => {
+            BTreeSet::from([*start, *end])
+        }
+        Some(Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. }) | None => {
+            BTreeSet::new()
+        }
+    };
+    for (_, constraint) in sketch.constraints() {
+        if let Constraint::Coincident(a, b) = *constraint {
+            match (sketch.role(a), sketch.role(b)) {
+                (Some(Role::Point), _) if b == curve => {
+                    points.insert(a);
+                }
+                (_, Some(Role::Point)) if a == curve => {
+                    points.insert(b);
+                }
+                _ => {}
+            }
+        }
+    }
+    points
+}
+
+struct Coincidence {
+    parents: BTreeMap<EntityId, EntityId>,
+}
+
+impl Coincidence {
+    fn of(sketch: &Sketch) -> Self {
+        let mut classes = Self {
+            parents: BTreeMap::new(),
+        };
+        for (_, constraint) in sketch.constraints() {
+            if let Constraint::Coincident(a, b) = *constraint
+                && sketch.role(a) == Some(Role::Point)
+                && sketch.role(b) == Some(Role::Point)
+            {
+                let (a, b) = (classes.class(a), classes.class(b));
+                if a != b {
+                    classes.parents.insert(a.max(b), a.min(b));
+                }
+            }
+        }
+        classes
+    }
+
+    fn class(&self, point: EntityId) -> EntityId {
+        let mut current = point;
+        let mut steps = 0;
+        while let Some(parent) = self.parents.get(&current)
+            && *parent != current
+            && steps <= self.parents.len()
+        {
+            current = *parent;
+            steps += 1;
+        }
+        current
     }
 }

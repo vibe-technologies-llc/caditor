@@ -5,7 +5,7 @@ use nalgebra::{DMatrix, DVector, SVD};
 use crate::{
     id::ConstraintId,
     solve::{
-        equation::{Equation, Gradient, value},
+        equation::{Equation, Gradient, PointHandle, value},
         system::System,
     },
 };
@@ -155,7 +155,7 @@ impl Solver<'_> {
         if magnitude == 0.0 {
             return;
         }
-        let offset = magnitude * self.system.context.scale;
+        let offset = magnitude * self.extent(component, values);
         for (order, variable) in component.variables.iter().enumerate() {
             if self.system.radius_variables.contains(variable) {
                 continue;
@@ -164,6 +164,28 @@ impl Solver<'_> {
             if let Some(slot) = values.get_mut(*variable) {
                 *slot += offset * pattern;
             }
+        }
+    }
+
+    fn extent(&self, component: &Component, values: &[f64]) -> f64 {
+        let (mut low, mut high, mut radius) = (f64::INFINITY, f64::NEG_INFINITY, 0.0_f64);
+        for variable in &component.variables {
+            let current = value(values, *variable);
+            if !current.is_finite() {
+                continue;
+            }
+            if self.system.radius_variables.contains(variable) {
+                radius = radius.max(current.abs());
+            } else {
+                low = low.min(current);
+                high = high.max(current);
+            }
+        }
+        let extent = (high - low).max(radius);
+        if extent.is_finite() && extent > self.system.context.degenerate_length {
+            extent
+        } else {
+            self.system.context.scale
         }
     }
 
@@ -185,10 +207,22 @@ impl Solver<'_> {
     }
 
     fn admissible(&self, component: &Component, values: &[f64]) -> bool {
-        component.variables.iter().all(|variable| {
+        let finite = component.variables.iter().all(|variable| {
             let current = value(values, *variable);
             current.is_finite()
                 && (!self.system.radius_variables.contains(variable) || current > 0.0)
+        });
+        finite && !self.collapses(component, values)
+    }
+
+    fn collapses(&self, component: &Component, values: &[f64]) -> bool {
+        let moves = |handle: &PointHandle| match handle {
+            PointHandle::Variable(x) => component.variables.binary_search(x).is_ok(),
+            PointHandle::Fixed(_) => false,
+        };
+        self.system.spans.iter().any(|(from, to)| {
+            (moves(from) || moves(to))
+                && from.at(values).distance(to.at(values)) <= self.system.collapsed_length
         })
     }
 

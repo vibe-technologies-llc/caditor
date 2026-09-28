@@ -126,7 +126,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `VERTICAL_AXIS`) that the counter never reaches; stored IDs stay below 2^63.
   - Constraints have stable `ConstraintId`s: coincident (point–point or point on a curve),
     horizontal, vertical, parallel, perpendicular, tangent, equal, and the dimensions distance,
-    angle and radius, whose values are expressions. `check_constraint` refuses constraints that
+    angle and radius, whose values are expressions. An angle measures from its first line's
+    direction (or its reverse when `reversed`, which the UI sets so a corner of a chain is
+    measured inside it) to its second's. `check_constraint` refuses constraints that
     do not fit the entity kinds, so the UI can ask before offering one. `insert_entity` and
     `insert_constraint` take explicit IDs and check references, for loading. The sketch counts
     how often each entity is used by curves and constraints, so refusing to remove a used one
@@ -139,7 +141,14 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     (SVD from `nalgebra`) on each independent part of the system, so geometry that already
     satisfies its constraints does not move and under-constrained geometry moves as little as
     possible. Every equation has an analytic gradient; two-branch equations (tangent side,
-    signed distance) take their branch from the starting geometry, so a solve never flips.
+    signed distance) take their branch from the starting geometry, so a solve never flips,
+    while internal circle tangency follows whichever circle is currently larger. A tangent
+    whose curves share a point (directly or through point–point coincidences) is written as
+    the radius there being perpendicular to the line (or both radii along one line), which
+    keeps full rank where the distance form has none, and a zero distance between points is
+    solved as a coincidence. A solve that would collapse a line or an arc's radius to nothing
+    counts as not converged, so it is reported as a conflict. Retries perturb each part by a
+    fraction of its own extent.
     Degrees of freedom and each entity's constraint state come from the rank and null space
     of the Jacobian at the solution; a constraint whose equations add no rank over older ones
     is reported as redundant, naming what it duplicates. When a part does not converge, a

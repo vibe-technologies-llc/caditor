@@ -372,6 +372,7 @@ fn an_angle_turns_the_second_line_counter_clockwise_from_the_first() {
         Constraint::Angle {
             from: base,
             to: slope,
+            reversed: false,
             value: degrees(30.0),
         },
     );
@@ -453,9 +454,12 @@ fn contradicting_directions_and_length_are_named_as_one_conflict() {
     assert_eq!(
         solve(&sketch),
         Err(SketchError::Conflict {
-            constraints: vec![horizontal, vertical, distance]
+            constraints: vec![horizontal, vertical]
         })
     );
+    sketch.remove_constraint(vertical).unwrap();
+    assert!(solve(&sketch).is_ok());
+    let _ = distance;
 }
 
 #[test]
@@ -534,6 +538,7 @@ fn degenerate_geometry_never_produces_nan() {
         Constraint::Angle {
             from: collapsed,
             to: EntityId::HORIZONTAL_AXIS,
+            reversed: false,
             value: degrees(45.0),
         },
     );
@@ -595,7 +600,7 @@ fn degenerate_geometry_never_produces_nan() {
     let line = zero.add_line(Point2::ZERO, Point2::new(4.0, 0.0));
     let (start, end) = ends(&zero, line);
     add(&mut zero, Constraint::Horizontal(line));
-    add(
+    let collapse = add(
         &mut zero,
         Constraint::Distance {
             from: start,
@@ -603,10 +608,12 @@ fn degenerate_geometry_never_produces_nan() {
             value: mm(0.0),
         },
     );
-    let solved = solve(&zero).unwrap();
-    assert_finite(&solved);
-    assert_near(at(&solved, start), at(&solved, end));
-    assert_eq!(solved.solution.degrees_of_freedom(), 2);
+    assert_eq!(
+        solve(&zero),
+        Err(SketchError::Conflict {
+            constraints: vec![collapse]
+        })
+    );
 }
 
 #[test]
@@ -644,4 +651,128 @@ fn dimension_errors_come_before_solving() {
         .solve(&|_: ParameterId| Ok(Quantity::length(-2.0)), &|| false)
         .unwrap_err();
     assert!(matches!(error, SketchError::Dimension { constraint, .. } if constraint == radius));
+}
+
+#[test]
+fn a_zero_distance_between_separate_points_joins_them_with_full_rank() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_point(Point2::new(1.0, 2.0));
+    let second = sketch.add_point(Point2::new(4.0, 6.0));
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: first,
+            to: second,
+            value: mm(0.0),
+        },
+    );
+    let solved = solve(&sketch).unwrap();
+    assert_near(at(&solved, first), at(&solved, second));
+    assert_eq!(solved.solution.degrees_of_freedom(), 2);
+    assert!(solved.solution.redundancies().is_empty());
+}
+
+#[test]
+fn horizontal_on_a_nearly_vertical_line_is_a_conflict_not_a_collapse() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(0.001, 10.0));
+    let (start, _) = ends(&sketch, line);
+    add(&mut sketch, Constraint::Coincident(start, EntityId::ORIGIN));
+    add(&mut sketch, Constraint::Vertical(line));
+    let horizontal = add(&mut sketch, Constraint::Horizontal(line));
+    let Err(SketchError::Conflict { constraints }) = solve(&sketch) else {
+        panic!("the line would collapse");
+    };
+    assert!(constraints.contains(&horizontal), "{constraints:?}");
+}
+
+#[test]
+fn a_tangent_at_a_line_arc_joint_adds_one_degree_of_constraint() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(-10.0, 5.0), Point2::new(0.0, 5.0));
+    let arc = sketch.add_arc(
+        Point2::new(0.2, 0.1),
+        Point2::new(0.0, 5.0),
+        Point2::new(5.0, 0.0),
+    );
+    let (_, line_end) = ends(&sketch, line);
+    let Some(Entity::Arc {
+        start: arc_start, ..
+    }) = sketch.entity(arc).cloned()
+    else {
+        panic!("expected an arc");
+    };
+    add(&mut sketch, Constraint::Coincident(line_end, arc_start));
+    let before = solve(&sketch).unwrap().solution.degrees_of_freedom();
+    let tangent = add(&mut sketch, Constraint::Tangent(line, arc));
+    let solved = solve(&sketch).unwrap();
+    assert_eq!(solved.solution.degrees_of_freedom(), before - 1);
+    assert!(solved.solution.redundancy(tangent).is_none());
+    let (start, end) = solved.geometry.line_endpoints(line).unwrap();
+    let center = solved.geometry.arc(arc).unwrap().center;
+    let direction = (end - start).normalize();
+    assert!(direction.dot((center - end).normalize()).abs() < 1e-9);
+}
+
+#[test]
+fn internal_tangency_follows_whichever_circle_becomes_larger() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let outer = sketch.add_circle(Point2::ZERO, 5.0);
+    let inner = sketch.add_circle(Point2::new(2.0, 0.0), 3.0);
+    add(&mut sketch, Constraint::Tangent(outer, inner));
+    let outer_center = center(&sketch, outer);
+    add(
+        &mut sketch,
+        Constraint::Coincident(outer_center, EntityId::ORIGIN),
+    );
+    let outer_radius = add(
+        &mut sketch,
+        Constraint::Radius {
+            entity: outer,
+            value: mm(5.0),
+        },
+    );
+    add(
+        &mut sketch,
+        Constraint::Radius {
+            entity: inner,
+            value: mm(3.0),
+        },
+    );
+    assert!(solve(&sketch).is_ok());
+    sketch.set_dimension(outer_radius, mm(1.0)).unwrap();
+    let solved = solve(&sketch).unwrap();
+    let (outer_middle, outer_size) = solved.geometry.circle(outer).unwrap();
+    let (inner_middle, inner_size) = solved.geometry.circle(inner).unwrap();
+    assert!((outer_middle.distance(inner_middle) - (inner_size - outer_size)).abs() < 1e-6);
+}
+
+#[test]
+fn a_reversed_angle_holds_the_corner_between_a_chain_of_lines() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+    let second = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(6.0, 7.0));
+    let (first_start, first_end) = ends(&sketch, first);
+    let (second_start, _) = ends(&sketch, second);
+    add(&mut sketch, Constraint::Coincident(first_end, second_start));
+    add(
+        &mut sketch,
+        Constraint::Coincident(first_start, EntityId::ORIGIN),
+    );
+    add(&mut sketch, Constraint::Horizontal(first));
+    add(
+        &mut sketch,
+        Constraint::Angle {
+            from: first,
+            to: second,
+            reversed: true,
+            value: degrees(60.0),
+        },
+    );
+    let solved = solve(&sketch).unwrap();
+    let (corner, far) = solved.geometry.line_endpoints(second).unwrap();
+    let (start, _) = solved.geometry.line_endpoints(first).unwrap();
+    let back = (start - corner).normalize();
+    let along = (far - corner).normalize();
+    assert!((back.angle_to(along).abs().to_degrees() - 60.0).abs() < 1e-6);
 }

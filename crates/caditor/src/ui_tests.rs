@@ -581,12 +581,18 @@ fn editing_parameters_breaking_a_feature_and_undoing_it_works_through_the_panels
     let width = harness.parameter("width");
     let height = harness.parameter("height");
 
-    harness.type_into(Focus::ParameterValue(height), "400 mm * 1 mm / width");
-    assert_eq!(harness.expression_text("height"), "400 mm * 1 mm / width");
+    harness.type_into(
+        Focus::ParameterValue(height),
+        "400 mm * 1 mm / (width - 30 mm)",
+    );
+    assert_eq!(
+        harness.expression_text("height"),
+        "400 mm * 1 mm / (width - 30 mm)"
+    );
     harness.settle();
-    assert!(harness.shows("10 mm"));
+    assert!(harness.shows("40 mm"));
 
-    harness.type_into(Focus::ParameterValue(width), "0 mm");
+    harness.type_into(Focus::ParameterValue(width), "30 mm");
     harness.settle();
     assert!(harness.shows("1 feature failed"));
     assert_eq!(harness.color_of("Side sketch"), harness.error_color());
@@ -604,7 +610,10 @@ fn editing_parameters_breaking_a_feature_and_undoing_it_works_through_the_panels
 
     harness.type_into(Focus::ParameterValue(height), "wdth");
     assert!(harness.shows("There is no parameter named 'wdth'"));
-    assert_eq!(harness.expression_text("height"), "400 mm * 1 mm / width");
+    assert_eq!(
+        harness.expression_text("height"),
+        "400 mm * 1 mm / (width - 30 mm)"
+    );
 
     harness.focus(Focus::ParameterValue(height));
     harness.key(Key::Escape, Modifiers::NONE);
@@ -1276,10 +1285,7 @@ fn a_constraint_conflict_is_named_and_leads_to_the_newest_constraint() {
     harness.settle();
 
     assert_eq!(harness.color_of("Base sketch"), harness.error_color());
-    assert!(harness.shows(
-        "Vertical Line 2 conflicts with Horizontal Line 2 and Distance between Point 0 and \
-         Point 1."
-    ));
+    assert!(harness.shows("Vertical Line 2 conflicts with Horizontal Line 2."));
     harness.click("Go to Vertical Line 2");
     harness.let_animations_finish();
     assert!(harness.shows("Vertical Line 2"));
@@ -1590,9 +1596,10 @@ fn a_conflict_colours_the_dimensions_and_glyphs_involved() {
     harness.frame();
     harness.settle();
     assert!(harness.shows("Conflicting constraints"));
-    for mark in ["H", "V", "width = 40 mm"] {
+    for mark in ["H", "V"] {
         assert_eq!(harness.color_of(mark), harness.error_color(), "{mark}");
     }
+    assert_ne!(harness.color_of("width = 40 mm"), harness.error_color());
 }
 
 #[test]
@@ -1656,10 +1663,7 @@ fn a_conflicting_constraint_is_reported_and_undo_clears_it() {
     harness.frame();
     harness.settle();
     assert!(harness.shows("Conflicting constraints"));
-    assert!(harness.shows(
-        "Vertical Line 2 conflicts with Horizontal Line 2 and Distance between Point 0 and \
-         Point 1."
-    ));
+    assert!(harness.shows("Vertical Line 2 conflicts with Horizontal Line 2."));
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();

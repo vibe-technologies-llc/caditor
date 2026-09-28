@@ -1020,6 +1020,7 @@ mod tests {
             refused(Constraint::Angle {
                 from: line,
                 to: arc,
+                reversed: false,
                 value: Expression::Number(1.0)
             }),
             "it needs a line, but Arc 11 is not one"
@@ -1058,6 +1059,7 @@ mod tests {
                 Constraint::Angle {
                     from: line,
                     to: other,
+                    reversed: false,
                     value: value.clone(),
                 },
                 "Angle between Line 2 and Line 5",
@@ -1139,6 +1141,7 @@ mod tests {
             .add_constraint(Constraint::Angle {
                 from: line,
                 to: EntityId::HORIZONTAL_AXIS,
+                reversed: false,
                 value: Expression::Parameter(WIDTH),
             })
             .unwrap();

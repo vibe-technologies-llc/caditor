@@ -186,6 +186,7 @@ pub(crate) enum Form {
     Angle {
         from: LineHandle,
         to: LineHandle,
+        reversed: bool,
         radians: f64,
     },
     Radius {
@@ -300,6 +301,12 @@ impl Form {
                         direction.length - (first_radius + second_radius)
                     }
                     Contact::Internal { larger_first } => {
+                        let larger_first =
+                            if (first_radius - second_radius).abs() > context.degenerate_length {
+                                (first_radius - second_radius).signum()
+                            } else {
+                                larger_first
+                            };
                         first.push_radius(values, context, gradient, -larger_first);
                         second.push_radius(values, context, gradient, larger_first);
                         direction.length - larger_first * (first_radius - second_radius)
@@ -334,7 +341,12 @@ impl Form {
                 side,
                 value,
             } => signed_distance(point, &line, values, context, gradient, side) - value,
-            Self::Angle { from, to, radians } => {
+            Self::Angle {
+                from,
+                to,
+                reversed,
+                radians,
+            } => {
                 let (first, second) = (
                     from.direction(values, context),
                     to.direction(values, context),
@@ -354,7 +366,8 @@ impl Form {
                 } else {
                     to.push_vector(gradient, Vector2::ZERO);
                 }
-                wrap_angle(angle - radians) * scale
+                let turn = if reversed { PI } else { 0.0 };
+                wrap_angle(angle + turn - radians) * scale
             }
             Self::Radius { circle, value } => {
                 circle.push_radius(values, context, gradient, 1.0);
@@ -499,6 +512,13 @@ mod tests {
             Form::Angle {
                 from: line(0, 2),
                 to: line(4, 6),
+                reversed: false,
+                radians: 0.5,
+            },
+            Form::Angle {
+                from: line(0, 2),
+                to: line(4, 6),
+                reversed: true,
                 radians: 0.5,
             },
             Form::Radius {

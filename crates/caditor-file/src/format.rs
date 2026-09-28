@@ -279,9 +279,22 @@ pub(crate) enum ConstraintKindRecord {
     Perpendicular([u64; 2]),
     Tangent([u64; 2]),
     Equal([u64; 2]),
-    Distance { from: u64, to: u64, value: String },
-    Angle { from: u64, to: u64, value: String },
-    Radius { entity: u64, value: String },
+    Distance {
+        from: u64,
+        to: u64,
+        value: String,
+    },
+    Angle {
+        from: u64,
+        to: u64,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        reversed: bool,
+        value: String,
+    },
+    Radius {
+        entity: u64,
+        value: String,
+    },
 }
 
 const CONSTRAINT_KINDS: [&str; 10] = [
@@ -741,9 +754,15 @@ fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
             to: to.raw(),
             value: value.to_stored_text(),
         },
-        Constraint::Angle { from, to, value } => ConstraintKindRecord::Angle {
+        Constraint::Angle {
+            from,
+            to,
+            reversed,
+            value,
+        } => ConstraintKindRecord::Angle {
             from: from.raw(),
             to: to.raw(),
+            reversed: *reversed,
             value: value.to_stored_text(),
         },
         Constraint::Radius { entity, value } => ConstraintKindRecord::Radius {
@@ -1481,11 +1500,17 @@ fn constraint_from_record(
         ConstraintKindRecord::Angle {
             from,
             to,
+            reversed,
             value: text,
         } => {
-            let (from, to) = (entity(*from), entity(*to));
-            let value = value(text, DrawnValue::Angle { from, to })?;
-            Constraint::Angle { from, to, value }
+            let (from, to, reversed) = (entity(*from), entity(*to), *reversed);
+            let value = value(text, DrawnValue::Angle { from, to, reversed })?;
+            Constraint::Angle {
+                from,
+                to,
+                reversed,
+                value,
+            }
         }
         ConstraintKindRecord::Radius {
             entity: curve,
@@ -1503,8 +1528,15 @@ fn constraint_from_record(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DrawnValue {
-    Distance { from: EntityId, to: EntityId },
-    Angle { from: EntityId, to: EntityId },
+    Distance {
+        from: EntityId,
+        to: EntityId,
+    },
+    Angle {
+        from: EntityId,
+        to: EntityId,
+        reversed: bool,
+    },
     Radius(EntityId),
 }
 
@@ -1537,8 +1569,9 @@ impl DrawnValue {
                     .or_else(|| line_distance(sketch, to, from))
                     .map(Quantity::length)
             }
-            Self::Angle { from, to } => {
+            Self::Angle { from, to, reversed } => {
                 let (from, to) = (sketch.line_direction(from)?, sketch.line_direction(to)?);
+                let from = if reversed { -from } else { from };
                 let radians = from.perp_dot(to).atan2(from.dot(to));
                 Some(Quantity::angle(radians.to_degrees()))
             }

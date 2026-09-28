@@ -231,13 +231,46 @@ fn distance_to_line(point: Point2, (origin, direction): (Point2, Vector2)) -> f6
 
 fn angle(shown: &Sketch, a: EntityId, b: EntityId) -> Option<Constraint> {
     let (first, second) = (shown.line_direction(a)?, shown.line_direction(b)?);
-    let signed = first.perp_dot(second).atan2(first.dot(second)).to_degrees();
+    let reversed = opens_backwards(shown, (a, first), (b, second));
+    let from_ray = if reversed { -first } else { first };
+    let signed = from_ray
+        .perp_dot(second)
+        .atan2(from_ray.dot(second))
+        .to_degrees();
     let (from, to) = if signed < 0.0 { (b, a) } else { (a, b) };
     Some(Constraint::Angle {
         from,
         to,
+        reversed,
         value: Expression::Measure(rounded_for_display(signed.abs()), Unit::Degree),
     })
+}
+
+fn opens_backwards(
+    shown: &Sketch,
+    (a, first): (EntityId, Vector2),
+    (b, second): (EntityId, Vector2),
+) -> bool {
+    let (Some((a_origin, _)), Some((b_origin, _))) =
+        (line_through(shown, a), line_through(shown, b))
+    else {
+        return false;
+    };
+    let sine = first.perp_dot(second);
+    if sine.abs() <= DEGENERATE_LENGTH * first.length() * second.length() {
+        return false;
+    }
+    let vertex = a_origin + first * ((b_origin - a_origin).perp_dot(second) / sine);
+    let side = |line: EntityId, direction: Vector2| {
+        let middle = shown
+            .line_endpoints(line)
+            .map(|(start, end)| (start + end) / 2.0);
+        match middle {
+            Some(middle) if (middle - vertex).dot(direction) < 0.0 => -1.0,
+            Some(_) | None => 1.0,
+        }
+    };
+    side(a, first) * side(b, second) < 0.0
 }
 
 pub fn in_unit(constraints: Vec<Constraint>, unit: LengthUnit) -> Vec<Constraint> {
@@ -558,6 +591,7 @@ mod tests {
         let expected = Ok(vec![Constraint::Angle {
             from: f.horizontal,
             to: f.slanted,
+            reversed: false,
             value: measure(45.0, Unit::Degree),
         }]);
         assert_eq!(
@@ -577,9 +611,34 @@ mod tests {
             Ok(vec![Constraint::Angle {
                 from: f.slanted,
                 to: EntityId::VERTICAL_AXIS,
+                reversed: false,
                 value: measure(45.0, Unit::Degree),
             }])
         );
+    }
+
+    #[test]
+    fn the_angle_of_a_corner_in_a_chain_is_measured_inside_it() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let first = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+        let second = sketch.add_line(
+            Point2::new(10.0, 0.0),
+            Point2::new(5.0, 5.0 * 3.0_f64.sqrt()),
+        );
+        let found = ConstraintTool::Angle.candidates(&sketch, &sketch, &[first, second]);
+        let Ok(constraints) = found else {
+            panic!("two lines can take an angle");
+        };
+        let [
+            Constraint::Angle {
+                reversed, value, ..
+            },
+        ] = constraints.as_slice()
+        else {
+            panic!("expected one angle");
+        };
+        assert!(*reversed);
+        assert_eq!(*value, measure(60.0, Unit::Degree));
     }
 
     #[test]

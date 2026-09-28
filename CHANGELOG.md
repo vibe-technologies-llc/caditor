@@ -15,6 +15,9 @@ The first release of caditor.
   equal constraints and distance, angle and radius dimensions. Sketches always show their
   remaining degrees of freedom and colour what is fully constrained; conflicting and redundant
   constraints are named.
+- Angles at a corner of a chain of lines are measured inside the corner, tangents where a line
+  meets an arc count fully towards a constrained sketch, and a constraint that would shrink a
+  line to nothing is reported as a conflict.
 - Extrude and revolve sketch regions into new bodies or add to, remove from or intersect
   existing ones; fillet and chamfer edges; shell bodies with open faces; datum planes and axes.
 - References to faces and edges survive edits to earlier sketches and features. A feature that

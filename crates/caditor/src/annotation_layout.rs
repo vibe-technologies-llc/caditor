@@ -91,7 +91,7 @@ impl LineSpan {
 pub enum Measured {
     Points(Point2, Point2),
     PointToLine(Point2, LineSpan),
-    Angle(LineSpan, LineSpan),
+    Angle(LineSpan, LineSpan, bool),
     Radius {
         center: Point2,
         radius: f64,
@@ -107,9 +107,12 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
             (None, Some(point)) => Some(Measured::PointToLine(point, LineSpan::of(sketch, from)?)),
             (None, None) => None,
         },
-        Constraint::Angle { from, to, .. } => Some(Measured::Angle(
+        Constraint::Angle {
+            from, to, reversed, ..
+        } => Some(Measured::Angle(
             LineSpan::of(sketch, from)?,
             LineSpan::of(sketch, to)?,
+            reversed,
         )),
         Constraint::Radius { entity, .. } => {
             let (center, radius) = sketch.circle(entity)?;
@@ -199,7 +202,7 @@ pub fn layout(
     match *measured {
         Measured::Points(a, b) => points_layout(screen, a, b, centre),
         Measured::PointToLine(point, line) => point_to_line_layout(screen, point, line, centre),
-        Measured::Angle(first, second) => angle_layout(screen, first, second),
+        Measured::Angle(first, second, reversed) => angle_layout(screen, first, second, reversed),
         Measured::Radius {
             center,
             radius,
@@ -304,6 +307,7 @@ fn angle_layout(
     screen: &impl Screen,
     first: LineSpan,
     second: LineSpan,
+    reversed: bool,
 ) -> Option<DimensionLayout> {
     let sine = first.direction.perp_dot(second.direction);
     if sine.abs() < PARALLEL_SINE {
@@ -311,15 +315,22 @@ fn angle_layout(
     }
     let across = (second.origin - first.origin).perp_dot(second.direction) / sine;
     let vertex = first.at(across);
-    let signed = sine.atan2(first.direction.dot(second.direction));
-    let toward_segments = [first, second]
+    let first_ray = if reversed {
+        -first.direction
+    } else {
+        first.direction
+    };
+    let signed = first_ray
+        .perp_dot(second.direction)
+        .atan2(first_ray.dot(second.direction));
+    let toward_segments = [(first, first_ray), (second, second.direction)]
         .iter()
-        .filter_map(|line| Some((line.middle()? - vertex).dot(line.direction)))
+        .filter_map(|(line, ray)| Some((line.middle()? - vertex).dot(*ray)))
         .sum::<f64>();
     let flip = if toward_segments < 0.0 { -1.0 } else { 1.0 };
     let projector = Projector::new(screen, vertex)?;
     let radius = projector.units(ANGLE_RADIUS);
-    let start_angle = (first.direction * flip).to_angle();
+    let start_angle = (first_ray * flip).to_angle();
     let ray = |fraction: f64| Vector2::from_angle(start_angle + signed * fraction);
     let segments = (signed.abs() / ARC_STEP).ceil().max(MIN_ARC_SEGMENTS);
     let arc: Vec<Point2> = (0..=segments as usize)
@@ -598,6 +609,7 @@ mod tests {
             &Constraint::Angle {
                 from: first,
                 to: second,
+                reversed: false,
                 value: caditor_expression::Expression::Number(45.0),
             },
         )
@@ -639,6 +651,7 @@ mod tests {
             &Constraint::Angle {
                 from: first,
                 to: second,
+                reversed: false,
                 value: caditor_expression::Expression::Number(0.0),
             },
         )

@@ -27,24 +27,6 @@ within a category run from most to least important.
 
 ## Sketch solver
 
-- A tangent at a line–arc joint, or on a point snapped onto a circle, is reported redundant and
-  the sketch keeps one degree of freedom too many, since the distance-equals-radius form
-  (`equation.rs` `LineTangent`) adds no rank there. Such sketches can never show as fully
-  constrained, and the tangent direction converges only to about 1e-4 rad. Use a joint form
-  (direction perpendicular to the radius) when the curves share a point.
-- Internal circle tangency fixes which circle is larger when the system is built
-  (`system.rs` `larger_first`), so changing a radius so the inner circle becomes the larger
-  one makes the sketch unsolvable.
-- `Distance = 0` between points is accepted but gives rank 1 instead of 2, so freedoms and
-  entity states are wrong. Turn it into `Coincident` or refuse it.
-- Angle dimensions depend on the direction each line was drawn, so a 60° corner in a chain of
-  lines is dimensioned as 120°, and typing 60 turns the line instead. Record the measured
-  quadrant when the dimension is made.
-- Horizontal or Vertical on a nearly perpendicular line shrinks it towards zero length and
-  still succeeds. Refuse collapsed lines like zero radii.
-- Retry perturbations move every point by a fraction of the whole sketch's size
-  (`numeric.rs` `PERTURBATIONS` times `context.scale`), which can flip small features' branches
-  in large sketches. Scale per component.
 - Every Gauss–Newton iteration builds a dense Jacobian and runs a full SVD
   (`numeric.rs`), so a connected 100-line sketch costs about 1e9 flops per iteration and a
   1000-segment DXF loop about 1e11. Use a sparse factorisation and share one rank-revealing
@@ -59,8 +41,7 @@ within a category run from most to least important.
 - `BSpline::interpolate` uses evenly spaced parameters, so unevenly spaced DXF fit points
   overshoot and loop, and fitting searches knot spans linearly and solves dense systems
   (`fit.rs`, `curve.rs`). Use chord-length parameters, binary search and banded solvers.
-- Untested: tangent joints, internal-tangency swaps, `Distance = 0`, branch keeping under
-  perturbation, and a time budget for a large chained sketch.
+- Untested: branch keeping under perturbation, and a time budget for a large chained sketch.
 
 ## Expressions and units
 

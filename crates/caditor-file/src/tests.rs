@@ -634,7 +634,14 @@ fn every_kind() -> EveryKind {
     let angle = add(Constraint::Angle {
         from: EntityId::HORIZONTAL_AXIS,
         to: other,
+        reversed: false,
         value: Expression::Measure(30.0, Unit::Degree),
+    });
+    add(Constraint::Angle {
+        from: line,
+        to: other,
+        reversed: true,
+        value: Expression::Measure(45.0, Unit::Degree),
     });
     let radius = add(Constraint::Radius {
         entity: arc,
@@ -662,6 +669,7 @@ fn every_entity_and_constraint_kind_round_trips() {
         "\"tangent\":[",
         "\"equal\":[",
         "\"angle\":{\"from\":18446744073709551614,",
+        "\"angle\":{\"from\":2,\"reversed\":true,\"to\":5,\"value\":\"45 deg\"}",
         "\"radius\":{\"entity\":",
         "\"coincident\":[0,18446744073709551615]",
         "\"value\":\"30 deg\"",

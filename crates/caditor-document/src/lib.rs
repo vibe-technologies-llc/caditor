@@ -572,7 +572,7 @@ mod tests {
 
     #[test]
     fn conflicting_constraints_are_named_and_the_fix_points_at_the_newest() {
-        let (mut sketch, distance) = line_with_distance(Plane::XY, 40.0, Expression::Number(40.0));
+        let (mut sketch, _) = line_with_distance(Plane::XY, 40.0, Expression::Number(40.0));
         let line = sketch
             .entities()
             .find_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id))
@@ -596,8 +596,7 @@ mod tests {
         let error = failure(&evaluation, replaced);
         assert_eq!(
             error.reason,
-            "Vertical Line 2 conflicts with Horizontal Line 2 and Distance between Point 0 and \
-             Point 1."
+            "Vertical Line 2 conflicts with Horizontal Line 2."
         );
         assert_eq!(
             error.remedy,
@@ -610,7 +609,7 @@ mod tests {
                 constraint: vertical
             })
         );
-        assert_eq!(error.constraints, [horizontal, distance, vertical]);
+        assert_eq!(error.constraints, [horizontal, vertical]);
         assert_eq!(
             evaluation.feature(side).unwrap().state,
             FeatureState::UpToDate
