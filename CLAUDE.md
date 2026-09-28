@@ -277,7 +277,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     constrained Delaunay triangulation (spade) of its loops in (u, v), scaled by the mean surface
     speeds, plus a uniform grid of interior points spaced by curvature (normal curvature and twist,
     sampled on a lattice that also covers every knot span; spline, revolution, extrusion and cone
-    faces are then refined until the grid's cells stay within the chord tolerance) and kept clear of
+    faces are then refined, by the square root of the excess, until the grid's cells stay within
+    the chord tolerance) and kept clear of
     the boundary (a direction without curvature gets cells at most four times longer than the curved
     one's, so no triangle spans far across a curved direction); triangles are kept by the parity of
     constraint crossings from outside. Consecutive boundary points at the same vertex whose

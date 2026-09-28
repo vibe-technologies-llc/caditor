@@ -10,6 +10,8 @@ const FLAT_ASPECT: f64 = 4.0;
 const SPAN_SAMPLES: usize = 4;
 const MAX_LATTICE: usize = 64;
 const REFINEMENTS: usize = 4;
+const REFINEMENT_MARGIN: f64 = 1.05;
+const MIN_GROWTH: f64 = 1.1;
 const CHECKED_CELLS: usize = 16;
 const COLLAPSED_EDGE: f64 = 1e-9;
 
@@ -108,7 +110,7 @@ pub(crate) fn density(surface: &Surface, bounds: Aabb2, tolerance: &SamplingTole
         if !deviation.is_finite() || deviation <= tolerance.chord() {
             break;
         }
-        let factor = (deviation / tolerance.chord()).sqrt().ceil().max(2.0);
+        let factor = ((deviation / tolerance.chord()).sqrt() * REFINEMENT_MARGIN).max(MIN_GROWTH);
         u_segments = segments(u_segments as f64 * factor);
         v_segments = segments(v_segments as f64 * factor);
     }
