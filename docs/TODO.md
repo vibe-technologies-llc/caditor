@@ -29,15 +29,10 @@ These need an answer before the milestone that depends on them starts.
 the extrude and revolve builders, frozen face and edge names, face and edge references that
 resolve through those names, intersections, point classification, booleans, fillets and
 chamfers, and a shell. The app draws bodies as shaded meshes, creates and edits extrude,
-revolve, fillet and chamfer features with property panels, region and edge choice in the view,
-selects faces and edges, and places sketches on flat faces that they follow through upstream
-edits.
+revolve, fillet, chamfer and shell features with property panels, region, edge and face choice
+in the view, selects faces and edges, and places sketches on flat faces that they follow through
+upstream edits.
 
-- [ ] Shell: `caditor_kernel::shell` works (inner offset solid with the topology kept, an
-  opening prism per flat opened face, one boolean), but has no feature, file record or panel
-  yet. It needs the thickness below half of every dimension of the body, including the
-  direction it opens in, because every face is offset before the openings are cut; lift that
-  (offset the opened faces outward where no smooth neighbour stops it) before shipping.
 - [ ] Datum planes and axes
 
 ## M6: Interop

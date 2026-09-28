@@ -197,6 +197,31 @@ fn rounded_and_turned_bodies_are_shelled() {
 }
 
 #[test]
+fn opened_faces_move_outward_so_the_body_only_needs_room_across_its_walls() {
+    let plate = cuboid(Vector3::new(10.0, 10.0, 2.0));
+    let top = face_facing(&plate, Vector3::Z, Point3::new(5.0, 5.0, 2.0));
+    let tray = run(&plate, &[top], 1.5);
+    check("thin tray", &tray, 200.0 - 7.0 * 7.0 * 0.5);
+    assert_eq!(tray.faces().count(), 11);
+    assert_eq!(shell(&plate, &[top], 2.5, 1), Err(ShellError::TooThick));
+
+    let solid = cuboid(Vector3::splat(10.0));
+    let top = face_facing(&solid, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
+    let bottom = face_facing(&solid, Vector3::NEG_Z, Point3::ZERO);
+    let front = face_facing(&solid, Vector3::NEG_Y, Point3::ZERO);
+    check(
+        "tube",
+        &run(&solid, &[top, bottom], 1.0),
+        1000.0 - 8.0 * 8.0 * 10.0,
+    );
+    check(
+        "open corner",
+        &run(&solid, &[top, front], 1.0),
+        1000.0 - 8.0 * 9.0 * 9.0,
+    );
+}
+
+#[test]
 fn walls_thicker_than_the_body_are_refused() {
     let solid = cuboid(Vector3::splat(10.0));
     let top = face_facing(&solid, Vector3::Z, Point3::new(5.0, 5.0, 10.0));

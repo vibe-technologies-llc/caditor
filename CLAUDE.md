@@ -288,11 +288,16 @@ meshes.
     (`corner.rs`: a hexahedron minus the rolling ball, built through `Plan`); other corners
     mitre. Faces are named `FaceName::blend(feature, edge)` and `corner(feature, vertex)` with
     `FaceOrigin::Fillet` or `Chamfer`.
-  - Shell (`shell/`): `shell(solid, open, thickness, feature)` offsets every face inward with
-    the topology kept (each vertex solved by minimal-norm Newton on the offset surfaces, each
-    line or circle edge rebuilt through its offset ends and checked on both offset surfaces),
-    unions a prism swept outward from the offset copy of each flat opened face, and subtracts
-    the result. Inner faces are `FaceName::shell(feature, original)` with `FaceOrigin::Shell`.
+  - Shell (`shell/`): `shell(solid, open, thickness, feature)` offsets every face by the
+    thickness with the topology kept (each vertex solved by minimal-norm Newton on the offset
+    surfaces, each line or circle edge rebuilt through its offset ends and checked on both
+    offset surfaces) and subtracts the result. Only flat faces open. An opened face with no
+    smooth edge to a closed face is offset outward, so the inner solid passes through it and
+    the body needs room only across its walls; this attempt counts only when every closed
+    face's inner face survives the subtraction. Otherwise (or when it fails) every face is
+    offset inward and a prism swept outward from the offset copy of each opened face is
+    unioned before subtracting, which needs the thickness below half the body in every
+    direction. Inner faces are `FaceName::shell(feature, original)` with `FaceOrigin::Shell`.
 - **caditor-document**: the parametric model: parameters, the ordered feature tree and
   everything that changes or recomputes it.
   - Every mutation is a `Transaction` of `Edit`s passed to `Document::apply`, the only public
@@ -315,6 +320,11 @@ meshes.
     split edge contributes all its pieces, a lost one fails the feature) and maps kernel errors
     to sentences naming the edge by its faces (`describe.rs`). The state each blend starts from
     is kept (`Evaluation::body_before`) and meshed so the app can show it while choosing edges.
+  - Shell features (`shell.rs`, `FeatureKind::Shell`) keep the body, the opened faces as
+    `FaceReference`s (possibly none, for a closed hollow body) and a thickness expression.
+    Like blends they modify a body, resolve their references in the state before them (a
+    reference tied between fragments opens all of them, a lost one fails the feature) and have
+    that state meshed; kernel errors become sentences naming the face or edge involved.
   - Solid features (`solid.rs`, `FeatureKind::Solid`) are an `Extrude` or a `Revolve` of a
     sketch's regions (`RegionChoice::All` for even depth, or chosen `RegionKey`s) with a
     `BodyOperation`: `NewBody`, or `Add`, `Remove` or `Intersect` on the body of the feature
@@ -368,7 +378,9 @@ meshes.
   as hex digests); older readers ignore it and keep the sketch on its stored plane. An
   unreadable attachment, or one whose body could not be restored, leaves the sketch on its
   stored plane with a report. Version 5 added `fillet` and `chamfer` features (body, size and
-  edges as name, face and end digests); an unreadable edge is left out with a report.
+  edges as name, face and end digests); an unreadable edge is left out with a report. Version 6
+  added `shell` features (body, thickness and opened faces stored like an attachment's face);
+  an unreadable face is left closed with a report.
   - Saving writes a temporary sibling, fsyncs it, renames it over the target and fsyncs the
     directory, keeping the target's permissions. Overwriting a file that loaded with problems
     first keeps the original as `<name>.damaged.caditor`.
@@ -455,6 +467,11 @@ meshes.
     edges and the chains they pull in are highlighted, and a click adds an edge or removes the
     references whose chain contains it. The panel switches between fillet and chamfer, edits
     the size and lists the edges in words.
+  - Shells (`shell_tools.rs`, `shell_panel.rs`): the toolbar's Shell takes the selected flat
+    faces of one body as the faces to open and creates a 1 mm feature that opens. While open,
+    the body is drawn as it was before the feature (`BodyMeshes::body_before`, shared with
+    blends) with its flat faces as `Pickable::ShellFace`, opened ones highlighted, and a click
+    opens a face or closes it again. The panel edits the thickness and lists the open faces.
   - Sketches on faces (`sketch_placement.rs`): New sketch starts on a selected flat face, and
     while choosing a plane a click on a flat face does the same. The attachment is captured from
     the body's state where the sketch sits in the tree, so a face made further down is refused

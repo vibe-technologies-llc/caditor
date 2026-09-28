@@ -12,6 +12,7 @@ use caditor_sketch::{ConstraintId, DimensionError, Sketch, SketchError, SketchSo
 use crate::{
     attachment, blend,
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
+    shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult},
     values::ParameterValues,
 };
@@ -509,6 +510,7 @@ impl Evaluator for ModelEvaluator {
             }
             FeatureKind::Solid(solid) => solid::evaluate(feature, solid, inputs, cancel),
             FeatureKind::Blend(definition) => blend::evaluate(feature, definition, inputs, cancel),
+            FeatureKind::Shell(definition) => shell::evaluate(feature, definition, inputs, cancel),
         }
     }
 }

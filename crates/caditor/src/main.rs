@@ -15,6 +15,8 @@ mod panels;
 mod parameter_table;
 mod scene;
 mod selection;
+mod shell_panel;
+mod shell_tools;
 mod sketch_placement;
 mod sketch_status;
 mod sketch_toolbar;

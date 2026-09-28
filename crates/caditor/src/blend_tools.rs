@@ -24,10 +24,6 @@ pub fn icon(kind: BlendKind) -> &'static str {
     }
 }
 
-pub fn input_solid(evaluation: &Evaluation, feature: FeatureId) -> Option<&Solid> {
-    Some(&evaluation.body_before(feature)?.solid()?.solid)
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EdgeSource {
     pub body: FeatureId,
@@ -145,7 +141,7 @@ pub fn toggle_edge(model: &Model, feature: FeatureId, edge: EdgeName) -> Option<
     let document = model.document();
     let owner = document.feature(feature)?;
     let blend = owner.kind.blend()?;
-    let solid = input_solid(model.evaluation(), feature)?;
+    let solid = bodies::input_solid(model.evaluation(), feature)?;
     let clicked = bodies::find_edge(solid, edge)?;
     let mut changed = blend.clone();
     changed.edges.retain(|reference| {

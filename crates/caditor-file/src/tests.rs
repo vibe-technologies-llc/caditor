@@ -166,7 +166,7 @@ fn a_saved_model_loads_back_exactly() {
     assert_eq!(loaded.document.next_parameter_id(), 3);
     assert_eq!(loaded.document.next_feature_id(), 3);
     let text = fs::read_to_string(&path).unwrap();
-    assert!(text.starts_with("{\"format\":\"caditor\",\"version\":5}\n"));
+    assert!(text.starts_with("{\"format\":\"caditor\",\"version\":6}\n"));
     assert!(text.contains("\"expression\":\"$0 / 2 + 0.1 mm\""));
     assert_eq!(text.lines().count(), 1 + 2 + 2 + 1);
     assert_eq!(files_in(dir.path()), ["model.caditor"]);
@@ -362,7 +362,7 @@ fn a_damaged_header_still_recovers_the_records() {
     let loaded = decode_lines(&lines);
     assert_eq!(
         loaded.issues,
-        ["The start of the file is damaged; the rest was read as a version 5 model."]
+        ["The start of the file is damaged; the rest was read as a version 6 model."]
     );
     assert_eq!(loaded.document, sample());
 }
@@ -1211,7 +1211,7 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
 fn fillets_and_chamfers_are_saved_and_loaded() {
     let (document, _, _) = blended_model();
     let text = encode(&document).unwrap();
-    assert!(text.contains("\"version\":5"));
+    assert!(text.contains("\"version\":6"));
     assert!(text.contains(
         "\"fillet\":{\"body\":1,\"size\":\"$0 / 3\",\"edges\":[{\"name\":\
          \"0000000000000000000000000000abcd\",\"faces\":[\"00000000000000000000000000000001\",\
@@ -1250,4 +1250,63 @@ fn a_changed_blend_round_trips_through_the_journal() {
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = serde_json::from_str(&text).unwrap();
     assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+fn shelled_model() -> (Document, FeatureId) {
+    use caditor_document::Shell;
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let top = FaceReference::new(
+        FaceName::from_digest(0xbeef),
+        Some(FaceOrigin::EndCap { feature: 1 }),
+        [FaceName::from_digest(2)],
+    );
+    let mut transaction = document.transaction("Shell");
+    let shell = transaction.add_feature(
+        "Shell 1",
+        FeatureKind::Shell(Shell {
+            body: base,
+            open: vec![top],
+            thickness: transaction.parse("depth / 4").unwrap(),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, shell)
+}
+
+#[test]
+fn shells_are_saved_and_loaded() {
+    let (document, shell) = shelled_model();
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"version\":6"));
+    assert!(text.contains(
+        "\"shell\":{\"body\":1,\"thickness\":\"$0 / 4\",\"open\":[{\"face\":\
+         \"0000000000000000000000000000beef\",\"origin\":{\"end_cap\":{\"feature\":1}},\
+         \"neighbours\":[\"00000000000000000000000000000002\"]}]}"
+    ));
+    let loaded = decode(text.as_bytes()).unwrap();
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(shell).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: shell, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = serde_json::from_str(&text).unwrap();
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn an_unreadable_opened_face_is_left_closed_and_reported() {
+    let (document, shell) = shelled_model();
+    let text =
+        encode(&document)
+            .unwrap()
+            .replacen("0000000000000000000000000000beef", "not a digest", 1);
+    let loaded = decode(text.as_bytes()).unwrap();
+    assert_eq!(
+        loaded.issues,
+        ["Some faces opened by “Shell 1” could not be read and were left closed."]
+    );
+    let restored = loaded.document.feature(shell).unwrap();
+    assert!(restored.kind.shell().unwrap().open.is_empty());
 }

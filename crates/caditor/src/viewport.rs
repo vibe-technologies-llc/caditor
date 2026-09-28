@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use caditor_document::{Document, Evaluation, FeatureId};
+use caditor_document::{Document, Evaluation, FeatureId, FeatureKind};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{Camera, PickResult, Scene, View, Viewpoint, ViewportRect};
 use caditor_sketch::ConstraintId;
@@ -15,6 +15,7 @@ use crate::{
     model::{Action, Model},
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
     selection::{Pickable, Selection},
+    shell_tools,
     sketch_placement::{self, FaceChoice},
     snap::{Pointer, Screen},
     solid_tools,
@@ -37,6 +38,7 @@ const CHOOSE_PLANE_HINT: &str = "Esc: cancel";
 const CHOOSE_REGIONS_PROMPT: &str = "Click regions of the sketch to include or leave them out";
 const CHOOSE_REGIONS_HINT: &str = "Esc: done";
 const CHOOSE_EDGES_PROMPT: &str = "Click edges to add them or leave them out";
+const CHOOSE_FACES_PROMPT: &str = "Click flat faces to open them or close them again";
 const SNAP_LABEL_OFFSET: egui::Vec2 = vec2(14.0, 10.0);
 const SNAP_LABEL_COLOR: Color32 = Color32::from_rgb(80, 226, 236);
 
@@ -482,6 +484,12 @@ impl ViewportState {
             }
             return;
         }
+        if let Some(Pickable::ShellFace { feature, face }) = self.hovered {
+            if let Some(transaction) = shell_tools::toggle_face(model, feature, face) {
+                actions.push(Action::Apply(transaction));
+            }
+            return;
+        }
         if editing.is_choosing_plane() {
             let command = match self.hovered {
                 Some(Pickable::Plane(plane)) => Some(EditingCommand::NewSketch(Some(plane))),
@@ -638,13 +646,11 @@ impl ViewportState {
         let prompt = if editing.is_choosing_plane() {
             Some((CHOOSE_PLANE_PROMPT, CHOOSE_PLANE_HINT))
         } else if let Some(feature) = editing.solid() {
-            let blend = document
-                .feature(feature)
-                .is_some_and(|feature| feature.kind.blend().is_some());
-            let prompt = if blend {
-                CHOOSE_EDGES_PROMPT
-            } else {
-                CHOOSE_REGIONS_PROMPT
+            let kind = document.feature(feature).map(|feature| &feature.kind);
+            let prompt = match kind {
+                Some(FeatureKind::Blend(_)) => CHOOSE_EDGES_PROMPT,
+                Some(FeatureKind::Shell(_)) => CHOOSE_FACES_PROMPT,
+                _ => CHOOSE_REGIONS_PROMPT,
             };
             Some((prompt, CHOOSE_REGIONS_HINT))
         } else {

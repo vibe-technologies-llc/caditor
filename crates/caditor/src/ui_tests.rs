@@ -2000,3 +2000,123 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
         .expect("the chamfer face is pickable and named after its feature");
     assert!(matches!(chamfer_face, Pickable::Face { .. }));
 }
+
+fn shell_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Shell {
+    harness
+        .document()
+        .feature(feature)
+        .and_then(|feature| feature.kind.shell())
+        .unwrap()
+}
+
+fn pickable_described(harness: &mut Harness, text: &str) -> Pickable {
+    let built = harness.built();
+    let found = built
+        .picks
+        .pickables()
+        .find(|pickable| pickable.describe(harness.document(), harness.model.evaluation()) == text);
+    found.unwrap_or_else(|| panic!("nothing pickable is described as {text}"))
+}
+
+#[test]
+fn a_shell_opens_the_selected_face_and_takes_more_faces_clicked_in_the_view() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let Pickable::Face { face: top_key, .. } = top else {
+        panic!("the top is a face");
+    };
+
+    harness.select([top]);
+    harness.click("⬚ Shell");
+    harness.settle();
+    let shell = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the shell is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Shell 1"));
+    assert_eq!(shell_of(&harness, shell).open.len(), 1);
+    assert!(removed_about(&harness, plate, 38.0 * 38.0 * 9.0));
+    assert!(harness.shows("Click flat faces to open them or close them again"));
+    assert!(harness.shows("Thickness"));
+
+    let built = harness.built();
+    assert_eq!(built.scene.meshes.len(), 1);
+    let shell_faces = built
+        .picks
+        .pickables()
+        .filter(|pickable| matches!(pickable, Pickable::ShellFace { .. }))
+        .count();
+    assert_eq!(shell_faces, 6);
+
+    let bottom = pickable_described(
+        &mut harness,
+        "Extrude 1 start face: click to open it in Shell 1 or close it again",
+    );
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), bottom);
+    harness.settle();
+    assert_eq!(shell_of(&harness, shell).open.len(), 2);
+    assert_eq!(harness.model.undo_label(), Some("Open a face of Shell 1"));
+    assert!(removed_about(&harness, plate, 38.0 * 38.0 * 10.0));
+
+    harness.type_into_field(Id::new(("shell-thickness", shell)), "2 mm");
+    harness.settle();
+    assert!(removed_about(&harness, plate, 36.0 * 36.0 * 10.0));
+
+    harness.type_into_field(Id::new(("shell-thickness", shell)), "0 mm");
+    assert!(harness.shows("Enter a thickness above zero"));
+    assert_eq!(harness.workspace.editing.solid(), Some(shell));
+
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(20.0, 20.0),
+        Pickable::ShellFace {
+            feature: shell,
+            face: top_key,
+        },
+    );
+    harness.settle();
+    assert_eq!(shell_of(&harness, shell).open.len(), 1);
+    assert_eq!(harness.model.undo_label(), Some("Close a face of Shell 1"));
+    assert!(removed_about(&harness, plate, 36.0 * 36.0 * 8.0));
+
+    for _ in 0..2 {
+        harness.key(Key::Escape, Modifiers::NONE);
+        harness.frame();
+        harness.frame();
+    }
+    assert_eq!(harness.workspace.editing.solid(), None);
+    let inner = pickable_described(&mut harness, "Extrude 1 › Shell 1 inner face");
+    assert!(matches!(inner, Pickable::Face { .. }));
+}
+
+#[test]
+fn the_shell_button_needs_faces_of_a_body_and_opens_every_selected_one() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let built = harness.built();
+    let side = built
+        .picks
+        .pickables()
+        .find(|pickable| matches!(pickable, Pickable::Face { .. }) && *pickable != top)
+        .expect("the plate has other faces");
+
+    harness.select([]);
+    harness.click("⬚ Shell");
+    harness.settle();
+    assert_eq!(harness.workspace.editing.solid(), None);
+    assert_ne!(harness.model.undo_label(), Some("Create Shell 1"));
+
+    harness.select([top, side]);
+    harness.click("⬚ Shell");
+    harness.settle();
+    let shell = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the shell is open");
+    assert_eq!(shell_of(&harness, shell).open.len(), 2);
+    assert!(harness.body_volume(plate) < 16000.0 - 38.0 * 38.0 * 9.0);
+}

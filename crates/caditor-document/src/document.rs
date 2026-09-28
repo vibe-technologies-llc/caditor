@@ -10,6 +10,7 @@ use caditor_sketch::Sketch;
 use crate::{
     attachment::{FaceAttachment, SketchFeature},
     blend::Blend,
+    shell::Shell,
     solid::{BodyOperation, SolidFeature},
 };
 
@@ -58,6 +59,7 @@ pub enum FeatureKind {
     Sketch(SketchFeature),
     Solid(SolidFeature),
     Blend(Blend),
+    Shell(Shell),
 }
 
 impl From<Sketch> for FeatureKind {
@@ -70,21 +72,21 @@ impl FeatureKind {
     pub fn sketch(&self) -> Option<&Sketch> {
         match self {
             Self::Sketch(sketch) => Some(&sketch.sketch),
-            Self::Solid(_) | Self::Blend(_) => None,
+            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) => None,
         }
     }
 
     pub fn sketch_mut(&mut self) -> Option<&mut Sketch> {
         match self {
             Self::Sketch(sketch) => Some(&mut sketch.sketch),
-            Self::Solid(_) | Self::Blend(_) => None,
+            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) => None,
         }
     }
 
     pub fn attachment(&self) -> Option<&FaceAttachment> {
         match self {
             Self::Sketch(sketch) => sketch.attachment.as_ref(),
-            Self::Solid(_) | Self::Blend(_) => None,
+            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) => None,
         }
     }
 
@@ -93,24 +95,32 @@ impl FeatureKind {
             Self::Sketch(sketch) => sketch.attachment.as_ref().map(|attachment| attachment.body),
             Self::Solid(solid) => solid.operation().target(),
             Self::Blend(blend) => Some(blend.body),
+            Self::Shell(shell) => Some(shell.body),
         }
     }
 
     pub fn modifies_body(&self) -> bool {
-        matches!(self, Self::Blend(_))
+        matches!(self, Self::Blend(_) | Self::Shell(_))
     }
 
     pub fn solid(&self) -> Option<&SolidFeature> {
         match self {
             Self::Solid(solid) => Some(solid),
-            Self::Sketch(_) | Self::Blend(_) => None,
+            Self::Sketch(_) | Self::Blend(_) | Self::Shell(_) => None,
         }
     }
 
     pub fn blend(&self) -> Option<&Blend> {
         match self {
             Self::Blend(blend) => Some(blend),
-            Self::Sketch(_) | Self::Solid(_) => None,
+            Self::Sketch(_) | Self::Solid(_) | Self::Shell(_) => None,
+        }
+    }
+
+    pub fn shell(&self) -> Option<&Shell> {
+        match self {
+            Self::Shell(shell) => Some(shell),
+            Self::Sketch(_) | Self::Solid(_) | Self::Blend(_) => None,
         }
     }
 
@@ -119,6 +129,7 @@ impl FeatureKind {
             Self::Sketch(sketch) => sketch.sketch.parameters(),
             Self::Solid(solid) => solid.parameters(),
             Self::Blend(blend) => blend.parameters(),
+            Self::Shell(shell) => shell.parameters(),
         }
     }
 
@@ -127,6 +138,7 @@ impl FeatureKind {
             Self::Sketch(sketch) => sketch.sketch.uses_parameter(parameter),
             Self::Solid(solid) => solid.uses_parameter(parameter),
             Self::Blend(blend) => blend.uses_parameter(parameter),
+            Self::Shell(shell) => shell.uses_parameter(parameter),
         }
     }
 
@@ -135,6 +147,7 @@ impl FeatureKind {
             Self::Sketch(_) => self.body_input().into_iter().collect(),
             Self::Solid(solid) => solid.features(),
             Self::Blend(blend) => blend.features(),
+            Self::Shell(shell) => shell.features(),
         }
     }
 }
@@ -159,6 +172,7 @@ impl Feature {
         match &self.kind {
             FeatureKind::Solid(solid) => Some(solid.operation().target().unwrap_or(self.id)),
             FeatureKind::Blend(blend) => Some(blend.body),
+            FeatureKind::Shell(shell) => Some(shell.body),
             FeatureKind::Sketch(_) => None,
         }
     }

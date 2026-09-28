@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use caditor_document::{
     Blend, BlendKind, BodyOperation, Document, Edit, Extrude, ExtrudeExtent, FaceAttachment,
-    Feature, FeatureId, FeatureKind, Parameter, RegionChoice, Revolve, RevolveExtent,
+    Feature, FeatureId, FeatureKind, Parameter, RegionChoice, Revolve, RevolveExtent, Shell,
     SketchFeature, SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
@@ -14,7 +14,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
-pub const FORMAT_VERSION: u32 = 5;
+pub const FORMAT_VERSION: u32 = 6;
 pub(crate) const FORMAT_NAME: &str = "caditor";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -65,9 +65,25 @@ pub(crate) enum FeatureKindRecord {
     Revolve(RevolveRecord),
     Fillet(BlendRecord),
     Chamfer(BlendRecord),
+    Shell(ShellRecord),
 }
 
-pub(crate) const FEATURE_KINDS: [&str; 5] = ["sketch", "extrude", "revolve", "fillet", "chamfer"];
+pub(crate) const FEATURE_KINDS: [&str; 6] =
+    ["sketch", "extrude", "revolve", "fillet", "chamfer", "shell"];
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ShellRecord {
+    pub body: u64,
+    pub thickness: String,
+    pub open: Vec<Lenient<FaceRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FaceRecord {
+    pub face: String,
+    pub origin: Option<FaceOriginRecord>,
+    pub neighbours: Vec<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct BlendRecord {
@@ -444,6 +460,15 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 BlendKind::Chamfer => FeatureKindRecord::Chamfer(record),
             }
         }
+        FeatureKind::Shell(shell) => FeatureKindRecord::Shell(ShellRecord {
+            body: shell.body.raw(),
+            thickness: shell.thickness.to_stored_text(),
+            open: shell
+                .open
+                .iter()
+                .map(|face| Lenient::Read(face_record(face)))
+                .collect(),
+        }),
     }
 }
 
@@ -487,10 +512,8 @@ fn hex(digest: u128) -> String {
     format!("{digest:032x}")
 }
 
-fn attachment_record(attachment: &FaceAttachment) -> AttachmentRecord {
-    let face = &attachment.face;
-    AttachmentRecord {
-        body: attachment.body.raw(),
+fn face_record(face: &FaceReference) -> FaceRecord {
+    FaceRecord {
         face: hex(face.name().digest()),
         origin: face.origin().map(|origin| match origin {
             FaceOrigin::Side { feature, entity } => FaceOriginRecord::Side { feature, entity },
@@ -505,6 +528,20 @@ fn attachment_record(attachment: &FaceAttachment) -> AttachmentRecord {
             .iter()
             .map(|name| hex(name.digest()))
             .collect(),
+    }
+}
+
+fn attachment_record(attachment: &FaceAttachment) -> AttachmentRecord {
+    let FaceRecord {
+        face,
+        origin,
+        neighbours,
+    } = face_record(&attachment.face);
+    AttachmentRecord {
+        body: attachment.body.raw(),
+        face,
+        origin,
+        neighbours,
     }
 }
 
@@ -889,6 +926,29 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
         FeatureKindRecord::Chamfer(record) => {
             FeatureKind::Blend(restore_blend(record, BlendKind::Chamfer, name, issues))
         }
+        FeatureKindRecord::Shell(record) => FeatureKind::Shell(restore_shell(record, name, issues)),
+    }
+}
+
+fn restore_shell(record: &ShellRecord, feature: &str, issues: &mut Vec<String>) -> Shell {
+    let thickness = restore_value(&record.thickness, "thickness", "1 mm", feature, issues);
+    let open: Vec<FaceReference> = record
+        .open
+        .iter()
+        .filter_map(|face| match face {
+            Lenient::Read(face) => restore_face(&face.face, face.origin, &face.neighbours),
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if open.len() < record.open.len() {
+        issues.push(format!(
+            "Some faces opened by “{feature}” could not be read and were left closed."
+        ));
+    }
+    Shell {
+        body: FeatureId::from_raw(record.body),
+        open,
+        thickness,
     }
 }
 
@@ -1060,12 +1120,22 @@ fn restore_digest(text: &str) -> Option<u128> {
 }
 
 fn restore_attachment(record: &AttachmentRecord) -> Option<FaceAttachment> {
-    let neighbours = record
-        .neighbours
+    Some(FaceAttachment {
+        body: FeatureId::from_raw(record.body),
+        face: restore_face(&record.face, record.origin, &record.neighbours)?,
+    })
+}
+
+fn restore_face(
+    face: &str,
+    origin: Option<FaceOriginRecord>,
+    neighbours: &[String],
+) -> Option<FaceReference> {
+    let neighbours = neighbours
         .iter()
         .map(|text| restore_digest(text).map(FaceName::from_digest))
         .collect::<Option<Vec<FaceName>>>()?;
-    let origin = record.origin.map(|origin| match origin {
+    let origin = origin.map(|origin| match origin {
         FaceOriginRecord::Side { feature, entity } => FaceOrigin::Side { feature, entity },
         FaceOriginRecord::StartCap { feature } => FaceOrigin::StartCap { feature },
         FaceOriginRecord::EndCap { feature } => FaceOrigin::EndCap { feature },
@@ -1073,14 +1143,11 @@ fn restore_attachment(record: &AttachmentRecord) -> Option<FaceAttachment> {
         FaceOriginRecord::Chamfer { feature } => FaceOrigin::Chamfer { feature },
         FaceOriginRecord::Shell { feature } => FaceOrigin::Shell { feature },
     });
-    Some(FaceAttachment {
-        body: FeatureId::from_raw(record.body),
-        face: FaceReference::new(
-            FaceName::from_digest(restore_digest(&record.face)?),
-            origin,
-            neighbours,
-        ),
-    })
+    Some(FaceReference::new(
+        FaceName::from_digest(restore_digest(face)?),
+        origin,
+        neighbours,
+    ))
 }
 
 fn restore_plane(record: PlaneRecord) -> Option<Plane> {

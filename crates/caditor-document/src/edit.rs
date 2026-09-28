@@ -360,7 +360,8 @@ impl Document {
         let name = existing.name.clone();
         let same_kind = match (&existing.kind, &kind) {
             (FeatureKind::Solid(old), FeatureKind::Solid(new)) => old.same_kind(new),
-            (FeatureKind::Blend(_), FeatureKind::Blend(_)) => true,
+            (FeatureKind::Blend(_), FeatureKind::Blend(_))
+            | (FeatureKind::Shell(_), FeatureKind::Shell(_)) => true,
             _ => false,
         };
         if !same_kind {

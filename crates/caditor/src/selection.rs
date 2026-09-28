@@ -6,7 +6,6 @@ use caditor_kernel::{EdgeName, RegionKey};
 use caditor_sketch::{ConstraintId, EntityId};
 
 use crate::{
-    blend_tools,
     bodies::{self, FaceKey},
     editing::Context,
 };
@@ -110,6 +109,10 @@ pub enum Pickable {
         feature: FeatureId,
         edge: EdgeName,
     },
+    ShellFace {
+        feature: FeatureId,
+        face: FaceKey,
+    },
 }
 
 pub fn swept_regions<'a>(
@@ -196,11 +199,21 @@ impl Pickable {
                 let owner = document
                     .feature(feature)
                     .map_or("the feature", |owner| owner.name.as_str());
-                let described = blend_tools::input_solid(evaluation, feature).map_or_else(
+                let described = bodies::input_solid(evaluation, feature).map_or_else(
                     || "Edge".to_owned(),
                     |solid| bodies::describe_edge(document, solid, edge),
                 );
                 format!("{described}: click to add to {owner} or leave it out")
+            }
+            Self::ShellFace { feature, face } => {
+                let owner = document
+                    .feature(feature)
+                    .map_or("the feature", |owner| owner.name.as_str());
+                let described = bodies::input_solid(evaluation, feature).map_or_else(
+                    || "Face".to_owned(),
+                    |solid| bodies::describe_face(document, solid, face),
+                );
+                format!("{described}: click to open it in {owner} or close it again")
             }
         }
     }
@@ -282,8 +295,13 @@ impl Pickable {
             }
             Self::BlendEdge { feature, edge } => {
                 context.solid == Some(feature)
-                    && blend_tools::input_solid(evaluation, feature)
+                    && bodies::input_solid(evaluation, feature)
                         .is_some_and(|solid| bodies::find_edge(solid, edge).is_some())
+            }
+            Self::ShellFace { feature, face } => {
+                context.solid == Some(feature)
+                    && bodies::input_solid(evaluation, feature)
+                        .is_some_and(|solid| bodies::find_face(solid, face).is_some())
             }
         }
     }

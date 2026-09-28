@@ -5,6 +5,7 @@ mod document;
 mod edit;
 mod editor;
 mod recompute;
+mod shell;
 mod solid;
 mod values;
 mod worker;
@@ -20,6 +21,7 @@ pub use crate::{
         CancelToken, Evaluation, Evaluator, Failure, FeatureError, FeatureResult, FeatureState,
         FeatureStatus, FixTarget, Inputs, ModelEvaluator, Recompute, SketchResult,
     },
+    shell::Shell,
     solid::{
         BodyOperation, Extrude, ExtrudeExtent, RegionChoice, Revolve, RevolveExtent, SketchRegion,
         SolidFeature, SolidResult, sketch_regions,
@@ -32,6 +34,8 @@ pub use crate::{
 mod attachment_tests;
 #[cfg(test)]
 mod blend_tests;
+#[cfg(test)]
+mod shell_tests;
 #[cfg(test)]
 mod sketch_tests;
 #[cfg(test)]

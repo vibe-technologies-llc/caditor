@@ -127,7 +127,7 @@ fn edges_row(
 ) {
     ui.label("Edges");
     let document = model.document();
-    let solid = blend_tools::input_solid(model.evaluation(), feature);
+    let solid = bodies::input_solid(model.evaluation(), feature);
     let chosen = solid.map(|solid| blend_tools::chosen_edges(solid, blend));
     ui.vertical(|ui| {
         let mut summary = count(blend.edges.len(), "edge", "edges");

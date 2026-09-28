@@ -9,7 +9,7 @@ use crate::{
     files::{self, Files},
     model::{Action, Model, NoticeKind, RecomputeStatus},
     selection::{Pickable, Selection},
-    sketch_placement,
+    shell_tools, sketch_placement,
     solid_tools::{self, Sweep},
     viewport::CHOOSE_PLANE_PROMPT,
 };
@@ -40,6 +40,7 @@ pub fn show(ui: &mut Ui, model: &Model, context: &ToolbarContext<'_>, actions: &
             sketch_buttons(ui, model, context.selection, context.editing, actions);
             solid_buttons(ui, model, context, actions);
             blend_buttons(ui, model, context, actions);
+            shell_button(ui, model, context, actions);
             ui.separator();
             recompute_status(ui, model, actions);
             if let Some(notice) = model.notice() {
@@ -87,7 +88,8 @@ fn sketch_buttons(
         | Pickable::Face { .. }
         | Pickable::Edge { .. }
         | Pickable::Region { .. }
-        | Pickable::BlendEdge { .. } => None,
+        | Pickable::BlendEdge { .. }
+        | Pickable::ShellFace { .. } => None,
     });
     let face = sketch_placement::selected_face(selection)
         .filter(|face| sketch_placement::is_flat(model, *face));
@@ -184,6 +186,37 @@ fn blend_buttons(
                 source,
             ));
         }
+    }
+}
+
+fn shell_button(
+    ui: &mut Ui,
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = shell_tools::selected_faces(model, context.selection);
+    let text = format!("{} {}", shell_tools::ICON, shell_tools::TITLE);
+    let response = ui.add_enabled(source.is_ok(), Button::new(text));
+    let response = match &source {
+        Ok(source) => response.on_hover_text(format!(
+            "{} ({} open)",
+            shell_tools::DESCRIPTION,
+            count(source.faces.len(), "face", "faces")
+        )),
+        Err(reason) => response.on_disabled_hover_text(format!(
+            "{}. {reason}, then click here.",
+            shell_tools::DESCRIPTION
+        )),
+    };
+    if response.clicked()
+        && let Ok(source) = &source
+    {
+        actions.extend(shell_tools::create_actions(
+            model.document(),
+            model.evaluation(),
+            source,
+        ));
     }
 }
 

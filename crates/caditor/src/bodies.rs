@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use caditor_document::{Document, Evaluation, FeatureId, FeatureResult};
 pub use caditor_document::{describe_origin, origin_feature};
 use caditor_geometry::{Aabb, Point3};
-use caditor_kernel::{EdgeId, EdgeName, FaceId, FaceName, FaceOrigin, Mesh, Solid};
+use caditor_kernel::{EdgeId, EdgeName, FaceId, FaceName, FaceOrigin, Mesh, Solid, Surface};
 use caditor_render::{MeshFace, MeshPoint, ShadedMesh};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -26,6 +26,10 @@ pub fn face_keys(solid: &Solid) -> Vec<(FaceId, FaceKey)> {
             (id, key)
         })
         .collect()
+}
+
+pub fn input_solid(evaluation: &Evaluation, feature: FeatureId) -> Option<&Solid> {
+    Some(&evaluation.body_before(feature)?.solid()?.solid)
 }
 
 pub fn find_face(solid: &Solid, key: FaceKey) -> Option<FaceId> {
@@ -60,6 +64,7 @@ fn is_seam(solid: &Solid, edge: EdgeId) -> bool {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyFace {
     pub key: FaceKey,
+    pub flat: bool,
     pub bounds: Option<Aabb>,
 }
 
@@ -101,6 +106,9 @@ impl BodyMesh {
             }
             faces.push(BodyFace {
                 key,
+                flat: solid
+                    .face(face.face)
+                    .is_some_and(|face| matches!(face.surface(), Surface::Plane(_))),
                 bounds: Aabb::from_points(drawn.points.iter().map(|point| point.position)),
             });
             shaded.push(drawn);
@@ -167,7 +175,7 @@ fn local_corner(
 }
 
 #[derive(Debug, Clone)]
-pub struct OpenBlend {
+pub struct BodyBefore {
     pub feature: FeatureId,
     pub body: FeatureId,
     pub before: BodyMesh,
@@ -176,11 +184,11 @@ pub struct OpenBlend {
 #[derive(Debug, Clone, Default)]
 pub struct BodyMeshes {
     bodies: BTreeMap<FeatureId, BodyMesh>,
-    open: Option<OpenBlend>,
+    open: Option<BodyBefore>,
 }
 
 impl BodyMeshes {
-    pub fn open_blend(&self) -> Option<&OpenBlend> {
+    pub fn body_before(&self) -> Option<&BodyBefore> {
         self.open.as_ref()
     }
 
@@ -196,7 +204,7 @@ impl BodyMeshes {
                 Some(open) if Arc::ptr_eq(&open.before.source, input) => open.before,
                 _ => BodyMesh::build(input, &solid.solid, solid.mesh()?),
             };
-            Some(OpenBlend {
+            Some(BodyBefore {
                 feature,
                 body: solid.body,
                 before,

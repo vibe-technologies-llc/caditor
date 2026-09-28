@@ -29,6 +29,7 @@ const INDEPENDENT_ROW: f64 = 1e-6;
 const OFFSET_TOLERANCE: f64 = 10.0 * LINEAR_RESOLUTION;
 const EDGE_SAMPLES: [f64; 3] = [0.25, 0.5, 0.75];
 const OPENING_REACH: f64 = 2.0;
+const SMOOTH_TOLERANCE: f64 = 1e-6;
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum ShellError {
@@ -49,11 +50,16 @@ pub enum ShellError {
 struct Offsets<'a> {
     solid: &'a Solid,
     thickness: f64,
+    outward: BTreeSet<FaceId>,
 }
 
 impl Offsets<'_> {
-    fn distance(&self, _face: FaceId) -> f64 {
-        self.thickness
+    fn distance(&self, face: FaceId) -> f64 {
+        if self.outward.contains(&face) {
+            -self.thickness
+        } else {
+            self.thickness
+        }
     }
 
     fn residual(
@@ -392,6 +398,60 @@ fn opening(
     Ok(prism.renamed(|_, _| (offset_name, Some(FaceOrigin::Shell { feature }))))
 }
 
+fn meets_smoothly(solid: &Solid, edge: EdgeId, faces: &[FaceId]) -> bool {
+    let [first, second] = faces else {
+        return false;
+    };
+    let Some(definition) = solid.edge(edge) else {
+        return true;
+    };
+    let middle = definition.curve().point(definition.interval().middle());
+    let normal = |face: FaceId| {
+        let face = solid.face(face)?;
+        let surface = face.surface();
+        let uv = surface.project(middle, None);
+        Some(surface.normal(uv.x, uv.y)? * face.sense().sign())
+    };
+    match (normal(*first), normal(*second)) {
+        (Some(a), Some(b)) => a.cross(b).length() <= SMOOTH_TOLERANCE && a.dot(b) > 0.0,
+        _ => true,
+    }
+}
+
+fn extendable(solid: &Solid, open: &[FaceId]) -> BTreeSet<FaceId> {
+    let opened: BTreeSet<FaceId> = open.iter().copied().collect();
+    let mut blocked = BTreeSet::new();
+    for (edge, _) in solid.edges() {
+        let faces = edge_faces(solid, edge);
+        let closed_neighbour = faces.iter().any(|face| !opened.contains(face));
+        if closed_neighbour && meets_smoothly(solid, edge, &faces) {
+            blocked.extend(faces.iter().filter(|face| opened.contains(face)).copied());
+        }
+    }
+    opened.difference(&blocked).copied().collect()
+}
+
+fn keeps_every_wall(solid: &Solid, open: &[FaceId], result: &Solid, feature: u64) -> bool {
+    let present: BTreeSet<FaceName> = result.faces().map(|(_, face)| face.name()).collect();
+    solid
+        .faces()
+        .filter(|(id, _)| !open.contains(id))
+        .all(|(_, face)| present.contains(&FaceName::shell(feature, face.name())))
+}
+
+fn hollow(offsets: &Offsets<'_>, open: &[FaceId], feature: u64) -> Result<Solid, ShellError> {
+    let mut inner = inner_solid(offsets, feature)?;
+    for face in open.iter().filter(|face| !offsets.outward.contains(face)) {
+        let prism = opening(&inner, offsets, *face, feature)?;
+        inner = boolean(&inner, &prism, BooleanOperation::Union)?;
+    }
+    Ok(boolean(
+        offsets.solid,
+        &inner,
+        BooleanOperation::Difference,
+    )?)
+}
+
 pub fn shell(
     solid: &Solid,
     open: &[FaceId],
@@ -407,11 +467,24 @@ pub fn shell(
             return Err(ShellError::UnsupportedFace(*face));
         }
     }
-    let offsets = Offsets { solid, thickness };
-    let mut inner = inner_solid(&offsets, feature)?;
-    for face in open {
-        let prism = opening(&inner, &offsets, *face, feature)?;
-        inner = boolean(&inner, &prism, BooleanOperation::Union)?;
+    let outward = extendable(solid, open);
+    let inward = Offsets {
+        solid,
+        thickness,
+        outward: BTreeSet::new(),
+    };
+    if outward.is_empty() {
+        return hollow(&inward, open, feature);
     }
-    Ok(boolean(solid, &inner, BooleanOperation::Difference)?)
+    let extended = Offsets {
+        solid,
+        thickness,
+        outward,
+    };
+    let first = match hollow(&extended, open, feature) {
+        Ok(result) if keeps_every_wall(solid, open, &result, feature) => return Ok(result),
+        Ok(_) => ShellError::TooThick,
+        Err(error) => error,
+    };
+    hollow(&inward, open, feature).map_err(|_| first)
 }
