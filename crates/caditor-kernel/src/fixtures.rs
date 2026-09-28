@@ -7,7 +7,7 @@ use crate::{
     curve::{Circle, Curve},
     interval::Interval,
     sense::Sense,
-    surface::{Cone, Cylinder, Extrusion, PlaneSurface, Sphere, Surface, Torus},
+    surface::{BSplineSurface, Cone, Cylinder, Extrusion, PlaneSurface, Sphere, Surface, Torus},
     topology::{EdgeId, FaceId, ShellId, Solid, SolidBuilder, VertexId},
 };
 
@@ -192,6 +192,35 @@ pub(crate) fn tweaked_cuboid(tweak: Tweak) -> Solid {
         tweak,
     );
     fixture.build_unchecked()
+}
+
+pub(crate) fn spline_topped_block(side: f64, height: f64, bulge: f64) -> Solid {
+    let mut fixture = Fixture::new();
+    let vertices = cuboid_vertices(&mut fixture, Point3::ZERO, Point3::new(side, side, height));
+    for (index, face) in CUBOID_FACES.iter().enumerate() {
+        let corners: Vec<VertexId> = face.iter().map(|corner| vertices[*corner]).collect();
+        if index != 1 {
+            fixture.polygon(&corners, &[]);
+            continue;
+        }
+        let mut control_points = Vec::with_capacity(16);
+        for row in 0..4 {
+            for column in 0..4 {
+                let raised = (1..=2).contains(&row) && (1..=2).contains(&column);
+                control_points.push(Point3::new(
+                    side * column as f64 / 3.0,
+                    side * row as f64 / 3.0,
+                    if raised { height + bulge } else { height },
+                ));
+            }
+        }
+        let knots = vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
+        let surface =
+            BSplineSurface::new(3, 3, knots.clone(), knots, 4, control_points, None).unwrap();
+        let coedges = fixture.polygon_loop(&corners);
+        fixture.face(surface, Sense::Same, &[coedges]);
+    }
+    fixture.build()
 }
 
 pub(crate) fn hollow_cuboid(outer: f64, inner: f64) -> Solid {

@@ -398,3 +398,45 @@ fn overlapping_lumps_cross_and_valid_solids_do_not() {
         assert_eq!(solid.find_crossing().unwrap(), None, "{name}");
     }
 }
+
+#[test]
+fn imported_solids_name_faces_by_position_and_edges_uniquely() {
+    let drum = fixtures::cylinder(3.0, 10.0);
+    let right = fixtures::cuboid(Vector3::new(20.0, 20.0, 20.0))
+        .transformed(&RigidTransform::translation(Vector3::new(0.0, -10.0, -5.0)).unwrap())
+        .unwrap();
+    let half_drum = crate::boolean::boolean(
+        &drum,
+        &right,
+        crate::boolean::BooleanOperation::Intersection,
+    )
+    .unwrap();
+    for (name, solid) in fixtures::every_solid()
+        .into_iter()
+        .chain([("half drum", half_drum)])
+    {
+        let imported = solid.clone().imported(9);
+        for (index, (_, face)) in imported.faces().enumerate() {
+            let index = u32::try_from(index).unwrap();
+            assert_eq!(face.name(), FaceName::imported(9, index), "{name}");
+            assert_eq!(
+                face.origin(),
+                Some(FaceOrigin::Imported {
+                    feature: 9,
+                    face: index
+                }),
+                "{name}"
+            );
+        }
+        let names: Vec<EdgeName> = imported.edges().map(|(_, edge)| edge.name()).collect();
+        let distinct: BTreeSet<EdgeName> = names.iter().copied().collect();
+        assert_eq!(distinct.len(), names.len(), "{name}");
+
+        let moved = solid
+            .transformed(&RigidTransform::translation(Vector3::new(3.0, -2.0, 7.0)).unwrap())
+            .unwrap()
+            .imported(9);
+        let again: Vec<EdgeName> = moved.edges().map(|(_, edge)| edge.name()).collect();
+        assert_eq!(again, names, "{name}");
+    }
+}

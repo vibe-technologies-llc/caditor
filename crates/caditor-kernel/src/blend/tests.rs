@@ -443,3 +443,34 @@ fn a_face_that_narrows_away_from_the_middle_of_the_edge_is_too_small() {
     ));
     assert!(blend(&notched, &[front], fillet(0.1), 60).is_ok());
 }
+
+#[test]
+fn every_refusal_names_what_cannot_be_blended() {
+    let block = cuboid(Vector3::new(10.0, 10.0, 2.0));
+    let gone = EdgeId::from_index(999).unwrap();
+    assert_eq!(
+        blend(&block, &[gone], fillet(1.0), 1),
+        Err(BlendError::MissingEdge(gone))
+    );
+
+    let bulged = crate::fixtures::spline_topped_block(10.0, 4.0, 3.0);
+    let rim = edge_through(&bulged, (5.0, 0.0, 4.0));
+    assert_eq!(
+        blend(&bulged, &[rim], fillet(0.5), 1),
+        Err(BlendError::Unsupported(rim))
+    );
+
+    let sheared = swept(
+        Plane::XY,
+        &polygon(&[(0.0, 0.0), (10.0, 0.0), (10.0, 5.0), (-60.0, 5.0)]),
+        2.0,
+    );
+    let long = edge_through(&sheared, (5.0, 0.0, 2.0));
+    assert!(
+        matches!(
+            blend(&sheared, &[long], fillet(0.2), 1),
+            Err(BlendError::UnsupportedEnd { edge, vertex: Some(_) }) if edge == long
+        ),
+        "a blend along an edge that meets its end face at a glancing angle is refused"
+    );
+}

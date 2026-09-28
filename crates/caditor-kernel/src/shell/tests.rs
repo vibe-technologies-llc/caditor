@@ -251,3 +251,100 @@ fn a_round_face_tighter_than_the_thickness_is_named() {
         other => panic!("expected the round face to be named, got {other:?}"),
     }
 }
+
+#[test]
+fn every_refusal_names_what_cannot_be_shelled() {
+    let block = cuboid(Vector3::new(10.0, 10.0, 4.0));
+    let top = face_facing(&block, Vector3::Z, Point3::new(0.0, 0.0, 4.0));
+    for thickness in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        assert_eq!(
+            shell(&block, &[top], thickness, 1),
+            Err(ShellError::InvalidThickness)
+        );
+    }
+    let gone = FaceId::from_index(999).unwrap();
+    assert_eq!(
+        shell(&block, &[gone], 1.0, 1),
+        Err(ShellError::MissingFace(gone))
+    );
+
+    let drum = cylinder(3.0, 10.0);
+    let side = drum
+        .faces()
+        .find(|(_, face)| matches!(face.surface(), Surface::Cylinder(_)))
+        .map(|(id, _)| id)
+        .unwrap();
+    assert_eq!(
+        shell(&drum, &[side], 1.0, 1),
+        Err(ShellError::UnsupportedFace(side))
+    );
+
+    let bulged = crate::fixtures::spline_topped_block(10.0, 4.0, 3.0);
+    let bottom = face_facing(&bulged, Vector3::NEG_Z, Point3::ZERO);
+    let spline = bulged
+        .faces()
+        .find(|(_, face)| matches!(face.surface(), Surface::BSpline(_)))
+        .map(|(id, _)| id)
+        .unwrap();
+    assert_eq!(
+        shell(&bulged, &[bottom], 1.0, 1),
+        Err(ShellError::UnsupportedFace(spline))
+    );
+
+    let mut fixture = crate::fixtures::Fixture::new();
+    let base = [(0.0, 0.0), (0.0, 10.0), (10.0, 10.0), (10.0, 0.0)]
+        .map(|(x, y)| fixture.vertex(Point3::new(x, y, 0.0)));
+    let apex = fixture.vertex(Point3::new(2.0, 3.0, 6.0));
+    fixture.polygon(&base, &[]);
+    for index in 0..4 {
+        fixture.polygon(&[base[(index + 1) % 4], base[index], apex], &[]);
+    }
+    let pyramid = fixture.build();
+    let floor = face_facing(&pyramid, Vector3::NEG_Z, Point3::ZERO);
+    assert_eq!(
+        shell(&pyramid, &[floor], 0.5, 1),
+        Err(ShellError::Corner(apex))
+    );
+
+    let regions = Profile::new(&polygon(&[
+        (-10.0, -1.0),
+        (10.0, -1.0),
+        (10.0, 6.0),
+        (-10.0, 2.0),
+    ]))
+    .unwrap()
+    .select(&Selection::EvenDepth)
+    .unwrap();
+    let wedge = extrude(
+        &Plane::XZ,
+        &regions,
+        LinearExtent::one_side(20.0).unwrap(),
+        2,
+    )
+    .unwrap()
+    .transformed(&RigidTransform::translation(Vector3::new(0.0, 10.0, 0.0)).unwrap())
+    .unwrap();
+    let slanted = crate::boolean::boolean(
+        &cylinder(3.0, 10.0),
+        &wedge,
+        crate::boolean::BooleanOperation::Intersection,
+    )
+    .unwrap();
+    let rim = slanted
+        .edges()
+        .find(|(_, edge)| !matches!(edge.curve(), Curve::Line(_) | Curve::Circle(_)))
+        .map(|(id, _)| id)
+        .expect("the slanted top meets the side along an ellipse");
+    let lid = slanted
+        .faces()
+        .find(|(_, face)| match face.surface() {
+            Surface::Plane(plane) => plane.frame().normal().z.abs() < 0.999,
+            _ => false,
+        })
+        .map(|(id, _)| id)
+        .unwrap();
+    assert_eq!(
+        shell(&slanted, &[lid], 0.5, 1),
+        Err(ShellError::UnsupportedEdge(rim))
+    );
+}

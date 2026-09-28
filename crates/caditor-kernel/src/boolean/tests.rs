@@ -550,3 +550,27 @@ fn a_cut_through_a_cone_apex_leaves_half_the_cone() {
     let result = boolean(&result, &quarter, BooleanOperation::Difference).unwrap();
     check("quarter cone", &result, 3.0 * PI);
 }
+
+#[test]
+fn a_spline_face_is_drilled_and_shares_its_plane_with_a_neighbour() {
+    let bulged = crate::fixtures::spline_topped_block(10.0, 4.0, 3.0);
+    assert_eq!(bulged.find_crossing().unwrap(), None);
+    let before = volume(&bulged);
+    let drill = moved(cylinder(1.5, 20.0), (5.0, 5.0, -5.0));
+    let drilled = boolean(&bulged, &drill, BooleanOperation::Difference).unwrap();
+    assert_eq!(drilled.validate(), Ok(()));
+    assert_watertight(
+        "drilled",
+        &drilled.tessellate(&drilled.default_tolerance()).unwrap(),
+    );
+    let removed = before - volume(&drilled);
+    let (below, above) = (PI * 1.5 * 1.5 * 4.0, PI * 1.5 * 1.5 * 7.0);
+    assert!(removed > below && removed < above, "{removed}");
+
+    let flat = crate::fixtures::spline_topped_block(10.0, 4.0, 0.0);
+    let beside = moved(flat.clone(), (5.0, 3.0, 0.0));
+    let joined = boolean(&flat, &beside, BooleanOperation::Union).unwrap();
+    check("joined", &joined, (100.0 + 100.0 - 5.0 * 7.0) * 4.0);
+    let shared = boolean(&flat, &beside, BooleanOperation::Intersection).unwrap();
+    check("shared", &shared, 5.0 * 7.0 * 4.0);
+}
