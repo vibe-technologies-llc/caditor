@@ -602,3 +602,36 @@ fn crossings_closer_than_a_thousandth_of_the_sketch_stay_apart() {
         .collect();
     assert_eq!(small.len(), 1, "{:?}", areas(&profile));
 }
+
+#[test]
+fn a_region_keeps_its_key_whatever_else_is_chosen() {
+    let profile = profile(&[
+        spline(
+            1,
+            &[
+                (0.0, 0.0),
+                (2.0, 3.0),
+                (4.0, -3.0),
+                (6.0, 3.0),
+                (8.0, -3.0),
+                (10.0, 0.0),
+            ],
+        ),
+        line(2, (0.0, 0.0), (10.0, 0.0)),
+    ]);
+    let all: Vec<RegionKey> = profile.regions().iter().map(Region::key).collect();
+    for key in &all {
+        let alone = profile.select(&Selection::Regions(vec![*key])).unwrap();
+        assert_eq!(alone.len(), 1);
+        assert_eq!(alone[0].key(), *key);
+    }
+    let separated: Vec<RegionKey> = all.iter().step_by(2).copied().collect();
+    let together = profile
+        .select(&Selection::Regions(separated.clone()))
+        .unwrap();
+    let mut found: Vec<RegionKey> = together.iter().map(Region::key).collect();
+    found.sort();
+    let mut expected = separated;
+    expected.sort();
+    assert_eq!(found, expected);
+}

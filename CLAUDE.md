@@ -246,8 +246,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     for doubly curved faces, a grid of points inside each face plus a sphere's axis extremes.
   - Tessellation samples each edge once and shares its positions between both faces. Each face
     is a constrained Delaunay triangulation (spade) of its loops in (u, v), scaled by the mean
-    surface speeds, plus a uniform grid of interior points spaced by curvature and kept clear of
-    the boundary (a direction without curvature gets cells at most four times longer than the
+    surface speeds, plus a uniform grid of interior points spaced by curvature (normal curvature
+    and twist, sampled on a lattice that also covers every knot span; spline, revolution and
+    extrusion faces are then refined until the grid's cells stay within the chord tolerance)
+    and kept clear of the boundary (a direction without curvature gets cells at most four times longer than the
     curved one's, so no triangle spans far across a curved direction); triangles are kept by the
     parity of constraint crossings from outside. Consecutive boundary points at the same vertex
     whose parameters differ by a spatially negligible gap (an edge ending within the resolution
@@ -299,7 +301,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     ids. Depth counts nesting of connected components inside faces of others. `select` with
     `Selection::EvenDepth` (the default) or explicit keys returns the union of the chosen regions
     as new regions keyed the same way, so adjacent regions sweep as one lump. Errors name the
-    entity ids. `Region::triangulate` samples the loops and keeps the constrained Delaunay
+    entity ids. Whether a key is tie-broken is decided once over the whole arrangement (any two
+    regions sharing it), so a region keeps its key whatever else is selected with it.
+    `Region::triangulate` samples the loops and keeps the constrained Delaunay
     triangles inside by the parity of constraint crossings, for drawing regions as fills.
   - Intersections (`intersect/`) take a `SurfacePatch` (a surface and a finite uv box; periodic
     boxes wrap, poles accept any u) so booleans intersect face patches, and restrict curves to a

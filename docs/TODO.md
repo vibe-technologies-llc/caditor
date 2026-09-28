@@ -33,12 +33,10 @@ within a category run from most to least important.
 
 ## Kernel correctness
 
-- Region keys change with what else is selected: `region.rs` tie-breaks only against regions in
-  the same batch, and `select` re-keys the selected lumps alone, so a cap face is renamed when
-  a neighbouring region joins the selection. Compute tie-breaks once over the whole arrangement.
-- Twisted faces tessellate as two triangles at any tolerance, because density looks only at
-  `duu` and `dvv` (`tessellation/density.rs`); curvature is also sampled on one 9×9 lattice.
-  Include twist, sample per knot span and refine by measured error.
+- A grid point on the same ruling as a cone apex makes a zero-area triangle there, whose normal
+  points anywhere (`tessellation/face.rs`); it shows once the cone's grid is refined, which is
+  why measured refinement is limited to spline, revolution and extrusion faces. Keep grid points
+  off the apex's rulings or drop such triangles without leaving a T-junction.
 - `fits` checks the blend only at the middle of the edge, so a face that narrows elsewhere lets
   the tool cut through.
 - Shell blames every failure on the thickness (`plan.build`, profile and extrude errors map to

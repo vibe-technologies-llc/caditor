@@ -14,7 +14,7 @@ use caditor_geometry::{Aabb2, Point2};
 
 use self::{
     arrangement::Arrangement,
-    region::{lumps, with_keys},
+    region::{base_keys, lumps, shared_keys, with_keys},
 };
 pub use self::{error::ProfileError, triangulate::RegionMesh};
 use crate::{curve2::Curve2, interval::Interval, naming::Digest, tolerance::SamplingTolerance};
@@ -370,23 +370,26 @@ pub struct Profile {
     arrangement: Arrangement,
     regions: Vec<Region>,
     region_faces: Vec<BTreeSet<usize>>,
+    ambiguous: BTreeSet<RegionKey>,
 }
 
 impl Profile {
     pub fn new(curves: &[ProfileCurve]) -> Result<Self, ProfileError> {
         let arrangement = Arrangement::new(curves)?;
-        let drafts = (0..arrangement.face_count())
+        let drafts: Vec<_> = (0..arrangement.face_count())
             .filter_map(|face| {
                 lumps(&arrangement, &BTreeSet::from([face]))
                     .into_iter()
                     .next()
             })
             .collect();
-        let (regions, region_faces) = with_keys(drafts).into_iter().unzip();
+        let ambiguous = shared_keys(&base_keys(&drafts));
+        let (regions, region_faces) = with_keys(drafts, &ambiguous).into_iter().unzip();
         Ok(Self {
             arrangement,
             regions,
             region_faces,
+            ambiguous,
         })
     }
 
@@ -431,7 +434,7 @@ impl Profile {
                 .ok_or(ProfileError::MissingRegion(key))?;
             faces.extend(region_faces.iter().copied());
         }
-        Ok(with_keys(lumps(&self.arrangement, &faces))
+        Ok(with_keys(lumps(&self.arrangement, &faces), &self.ambiguous)
             .into_iter()
             .map(|(region, _)| region)
             .collect())

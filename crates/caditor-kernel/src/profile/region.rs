@@ -105,24 +105,41 @@ pub(super) fn lumps(arrangement: &Arrangement, chosen: &BTreeSet<usize>) -> Vec<
         .collect()
 }
 
-pub(super) fn with_keys(drafts: Vec<Draft>) -> Vec<(Region, BTreeSet<usize>)> {
-    let all_pieces = |draft: &Draft| -> Vec<Piece> {
-        draft
-            .outer
-            .iter()
-            .chain(draft.holes.iter().flatten())
-            .cloned()
-            .collect()
-    };
-    let bases: Vec<RegionKey> = drafts
+fn all_pieces(draft: &Draft) -> Vec<Piece> {
+    draft
+        .outer
+        .iter()
+        .chain(draft.holes.iter().flatten())
+        .cloned()
+        .collect()
+}
+
+pub(super) fn base_keys(drafts: &[Draft]) -> Vec<RegionKey> {
+    drafts
         .iter()
         .map(|draft| RegionKey::of_sides(&all_pieces(draft).iter().collect::<Vec<_>>()))
-        .collect();
+        .collect()
+}
+
+pub(super) fn shared_keys(bases: &[RegionKey]) -> BTreeSet<RegionKey> {
+    bases
+        .iter()
+        .filter(|base| bases.iter().filter(|other| other == base).count() > 1)
+        .copied()
+        .collect()
+}
+
+pub(super) fn with_keys(
+    drafts: Vec<Draft>,
+    ambiguous: &BTreeSet<RegionKey>,
+) -> Vec<(Region, BTreeSet<usize>)> {
+    let bases = base_keys(&drafts);
     let mut keyed: Vec<(Region, BTreeSet<usize>)> = drafts
         .into_iter()
         .zip(&bases)
         .map(|(draft, base)| {
-            let shared = bases.iter().filter(|other| *other == base).count() > 1;
+            let shared =
+                ambiguous.contains(base) || bases.iter().filter(|other| *other == base).count() > 1;
             let key = if shared {
                 base.tiebroken(&all_pieces(&draft).iter().collect::<Vec<_>>())
             } else {
