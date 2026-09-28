@@ -54,3 +54,10 @@ winit = "0.30.13"
 
 [profile.dev.package.nalgebra]
 opt-level = 3
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "thin"
+strip = "symbols"
+panic = "abort"
