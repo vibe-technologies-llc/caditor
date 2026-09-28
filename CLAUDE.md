@@ -241,9 +241,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     topology (edge uses and senses, loop chaining in space and in uv, vertices on curve ends,
     edges on both surfaces, pcurves on their edges, loop winding and nesting, shell
     connectivity, Euler–Poincaré per shell, positive volume for lumps and voids inside a lump)
-    and returns the first `ValidationError`, with ids. `bounding_box` covers the edges and, for
-    doubly curved faces, a grid of points inside each face plus a sphere's axis extremes. The volume checks run on a coarse mesh and
-    retry finer before reporting a void outside its lump.
+    and returns the first `ValidationError`, with ids. The volume checks run on a coarse mesh and
+    retry finer before reporting a void outside its lump. `bounding_box` covers the edges and,
+    for doubly curved faces, a grid of points inside each face plus a sphere's axis extremes.
   - Tessellation samples each edge once and shares its positions between both faces. Each face
     is a constrained Delaunay triangulation (spade) of its loops in (u, v), scaled by the mean
     surface speeds, plus a uniform grid of interior points spaced by curvature and kept clear of
