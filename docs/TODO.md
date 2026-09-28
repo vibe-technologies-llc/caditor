@@ -27,39 +27,9 @@ within a category run from most to least important.
 
 ## Document and recompute
 
-- Add then undo leaves the model Unsaved: `Document` and `Sketch` derive `PartialEq` over their
-  ID counters, which never go back, and the app compares documents for `dirty` (`model.rs`).
-  Compare content only.
-- A body disappears from the view and from export when the feature that makes it fails, because
-  `bodies` records only up-to-date states (`recompute.rs`). Carry the last good state as a stale
-  body, drawn tinted, as `ux.md` promises.
-- Cancelling during meshing reports Up to date: `is_complete` looks only at feature states, and
-  `BodyMeshes` keeps the old mesh on screen until the next edit. Count unmeshed bodies as
-  incomplete.
-- Restoring an earlier version lowers sketch `next_id` counters, because `transaction_to`
-  re-inserts the old sketches unchanged; later entities reuse IDs that face names were derived
-  from. Reserve IDs below the current sketch's counter.
 - Kernel operations and tessellation take no cancel token (`boolean`, `blend`, `shell`,
   `extrude`, `revolve`, `tessellate`), so a superseded job runs a multi-second boolean to the
   end. Pass `CancelToken` into their bounded loops.
-- No early cutoff: dependents are compared by `Arc` pointer, so any edit that leaves geometry
-  unchanged (`20 mm` to `2 cm`, a satisfied constraint, the settle before every sketch edit)
-  rebuilds and re-meshes everything downstream. Keep the old `Arc` when a sketch or datum result
-  is equal.
-- Renaming a feature or parameter invalidates the cache, because the key compares the whole
-  `Feature` including its name and the fingerprint includes parameter names. Key on content and
-  refresh only message text.
-- Feature names may repeat (`rename_feature`, `insert_feature` check only emptiness), while
-  every error message names features by name. Refuse or suffix duplicates.
-- A revolve's model axis is drawn from the body's final state (`datum.rs` `displayed_axis`), not
-  the state the feature used, so a later fillet or split edge hides or misplaces it.
-- A datum plane's rotation axis is not checked against its base plane: XY turned about Z is XY
-  again and an oblique axis gives a plane that does not contain it (`datum.rs`). Require the
-  axis to lie in the plane and say so otherwise.
-- Two-sided extrude skips the above-zero rule the other extents apply (`solid.rs`), so negative
-  distances silently extrude the other way.
-- Some edit errors show raw IDs and positions ("entity 42 no longer exists", "Position 3 is
-  outside the list") through undo and stale transactions. Map them to sentences with labels.
 - Each sketch's profile arrangement is rebuilt once per solid feature and once more for display.
   Cache the `Profile` in `SketchResult`.
 - Every blend's and shell's input state is tessellated on every run, although only the open one
@@ -69,9 +39,6 @@ within a category run from most to least important.
   dependency map once per apply.
 - `Document::check` clones the document twice and the parameter table calls it for every row
   every frame. Add cheap `can_remove_*` queries.
-- Untested: the `Import` feature's evaluation, `TwoSides` and `Symmetric` extents, revolve
-  `OneSide` and `Symmetric`, `BodyOperation::Intersect`, cache reuse through solid chains, and
-  cancel during meshing.
 
 ## Sketch solver
 

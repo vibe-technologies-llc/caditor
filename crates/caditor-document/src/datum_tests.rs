@@ -222,6 +222,29 @@ fn a_rotated_plane_turns_about_its_axis_before_the_offset() {
 }
 
 #[test]
+fn a_plane_cannot_turn_about_an_axis_that_crosses_it() {
+    let mut document = Document::default();
+    let plane = add(
+        &mut document,
+        "Plane 1",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xy),
+            rotation: Some(PlaneRotation {
+                axis: AxisReference::Principal(PrincipalAxis::Z),
+                angle: degrees(45.0),
+            }),
+            offset: millimetres(0.0),
+        })),
+    );
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let error = failure(&evaluation, plane);
+    assert_eq!(
+        error.reason,
+        "The Z axis does not run along the XY plane, so turning the plane about it cannot work."
+    );
+}
+
+#[test]
 fn datums_on_body_faces_and_edges_follow_the_body() {
     let Block {
         mut document,
@@ -412,4 +435,53 @@ fn datum_references_are_checked_and_kept_in_use() {
         )),
         Err(EditError::BelowDependent { .. })
     ));
+}
+
+#[test]
+fn a_revolve_axis_is_shown_where_the_revolve_found_it() {
+    let Block {
+        mut document, base, ..
+    } = block();
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let edge = edge_along(evaluation.body(base).unwrap(), Point3::new(5.0, 0.0, 0.0));
+    let axis = AxisReference::Edge { body: base, edge };
+    let section = add(
+        &mut document,
+        "Section",
+        FeatureKind::from(rectangle(Plane::XZ, (2.0, 1.0), (3.0, 2.0))),
+    );
+    let ring = add(
+        &mut document,
+        "Ring",
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch: section,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Model(axis.clone()),
+            extent: RevolveExtent::Full,
+            operation: BodyOperation::NewBody,
+        })),
+    );
+    let strip = add(
+        &mut document,
+        "Strip",
+        FeatureKind::from(rectangle(Plane::XY, (-1.0, -1.0), (11.0, 1.0))),
+    );
+    add(
+        &mut document,
+        "Chamfer cut",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: strip,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::OneSide {
+                distance: millimetres(1.0),
+                reversed: false,
+            },
+            operation: BodyOperation::Remove(base),
+        })),
+    );
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    assert_eq!(evaluation.failed_count(), 0);
+    let shown = displayed_axis(&evaluation, ring, &axis).unwrap();
+    assert!(close(shown.direction().abs(), Vector3::X), "{shown:?}");
+    assert!(shown.origin().y.abs() < 1e-9 && shown.origin().z.abs() < 1e-9);
 }

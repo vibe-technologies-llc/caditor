@@ -185,7 +185,15 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
         }
     }
 
-    for feature in features {
+    for mut feature in features {
+        if document.features().any(|other| other.name == feature.name) {
+            let renamed = unique_feature_name(&document, &feature.name);
+            issues.push(format!(
+                "Two features were named “{}”, so one of them is now “{renamed}”.",
+                feature.name
+            ));
+            feature.name = renamed;
+        }
         let name = feature.name.clone();
         let raw_id = feature.id().raw();
         let detached = detached(&feature);
@@ -282,6 +290,13 @@ fn usable_name(document: &Document, name: &str, id: u64, issues: &mut Vec<String
         "A parameter was renamed to “{renamed}” because {problem}."
     ));
     renamed
+}
+
+fn unique_feature_name(document: &Document, base: &str) -> String {
+    (2_u32..)
+        .map(|suffix| format!("{base} {suffix}"))
+        .find(|candidate| document.features().all(|other| other.name != *candidate))
+        .unwrap_or_else(|| base.to_owned())
 }
 
 fn unique_name(document: &Document, base: &str) -> String {

@@ -280,8 +280,17 @@ impl Harness {
     }
 
     fn add_sketch(&mut self, sketch: Sketch) -> FeatureId {
+        let taken = self
+            .document()
+            .features()
+            .any(|feature| feature.name == "Plate");
+        let name = if taken {
+            crate::editing::next_feature_name(self.document(), "Plate")
+        } else {
+            "Plate".to_owned()
+        };
         let mut transaction = self.document().transaction("Add sketch");
-        let feature = transaction.add_feature("Plate", FeatureKind::from(sketch));
+        let feature = transaction.add_feature(name, FeatureKind::from(sketch));
         self.perform(Action::Apply(transaction.finish()));
         self.settle();
         feature
@@ -3121,4 +3130,16 @@ fn endpoints(sketch: &Sketch, line: EntityId) -> Option<(EntityId, EntityId)> {
         Entity::Line { start, end } => Some((*start, *end)),
         _ => None,
     }
+}
+
+#[test]
+fn adding_a_feature_then_undoing_it_leaves_the_model_saved() {
+    let mut harness = Harness::new();
+    assert!(!harness.model.is_dirty());
+    harness.add_sketch(Sketch::new(Plane::XY));
+    assert!(harness.model.is_dirty());
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(!harness.model.is_dirty());
+    assert_eq!(app::window_title(&harness.model), "Untitled — caditor");
 }

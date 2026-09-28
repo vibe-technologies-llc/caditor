@@ -81,15 +81,25 @@ impl ParameterValues {
     pub(crate) fn fingerprint(
         &self,
         used: &BTreeSet<ParameterId>,
-    ) -> Vec<(ParameterId, String, Option<Quantity>)> {
+    ) -> Vec<(ParameterId, Option<Quantity>)> {
         used.iter()
             .map(|id| {
-                let entry = self.entries.get(id);
+                let value = self.entries.get(id);
                 (
                     *id,
-                    entry.map(|entry| entry.name.clone()).unwrap_or_default(),
-                    entry.and_then(|entry| entry.value.as_ref().ok().copied()),
+                    value.and_then(|entry| entry.value.as_ref().ok().copied()),
                 )
+            })
+            .collect()
+    }
+
+    pub(crate) fn names(&self, used: &BTreeSet<ParameterId>) -> Vec<String> {
+        used.iter()
+            .map(|id| {
+                self.entries
+                    .get(id)
+                    .map(|entry| entry.name.clone())
+                    .unwrap_or_default()
             })
             .collect()
     }

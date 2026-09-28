@@ -221,6 +221,15 @@ impl FeatureKind {
         }
     }
 
+    pub fn same_content(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Sketch(own), Self::Sketch(theirs)) => {
+                own.sketch.same_content(&theirs.sketch) && own.attachment == theirs.attachment
+            }
+            _ => self == other,
+        }
+    }
+
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = match self {
             Self::Sketch(_) => BTreeSet::new(),
@@ -251,6 +260,10 @@ impl Feature {
 
     pub fn id(&self) -> FeatureId {
         self.id
+    }
+
+    pub fn same_content(&self, other: &Self) -> bool {
+        self.id == other.id && self.name == other.name && self.kind.same_content(&other.kind)
     }
 
     pub fn body(&self) -> Option<FeatureId> {
@@ -330,7 +343,13 @@ impl Document {
     }
 
     pub fn same_content(&self, other: &Self) -> bool {
-        self.parameters == other.parameters && self.features == other.features
+        self.parameters == other.parameters
+            && self.features.len() == other.features.len()
+            && self
+                .features
+                .iter()
+                .zip(&other.features)
+                .all(|(own, theirs)| Arc::ptr_eq(own, theirs) || own.same_content(theirs))
     }
 
     pub fn transaction_to(&self, target: &Self, label: impl Into<String>) -> Transaction {
@@ -376,10 +395,27 @@ impl Document {
             .chain(target.features.iter().enumerate().map(|(index, feature)| {
                 Edit::InsertFeature {
                     index,
-                    feature: Arc::clone(feature),
+                    feature: self.keeping_sketch_ids(feature),
                 }
             }));
         Transaction::new(label, removals.chain(insertions).collect())
+    }
+
+    fn keeping_sketch_ids(&self, restored: &Arc<Feature>) -> Arc<Feature> {
+        let current = self
+            .feature(restored.id)
+            .and_then(|feature| feature.kind.sketch())
+            .map(Sketch::next_id);
+        match (restored.kind.sketch(), current) {
+            (Some(sketch), Some(next_id)) if next_id > sketch.next_id() => {
+                let mut raised = Feature::clone(restored);
+                if let Some(sketch) = raised.kind.sketch_mut() {
+                    sketch.reserve_ids_below(next_id);
+                }
+                Arc::new(raised)
+            }
+            _ => Arc::clone(restored),
+        }
     }
 
     pub fn reserve_ids_below(&mut self, next_parameter_id: u64, next_feature_id: u64) {

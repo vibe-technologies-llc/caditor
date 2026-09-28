@@ -304,7 +304,7 @@ impl Model {
             Ok(Some(entry)) => {
                 self.notice = None;
                 self.record(entry);
-                self.dirty = *self.editor.document() != self.saved;
+                self.dirty = !self.editor.document().same_content(&self.saved);
                 self.parameters = ParameterValues::evaluate(self.editor.document());
                 self.recompute();
             }
@@ -426,7 +426,7 @@ impl Model {
         let predecessor = self.storage.take().map(|storage| storage.close(true));
         self.revision_offset = self.revision() + 1;
         self.editor = session.editor;
-        self.dirty = *self.editor.document() != session.saved;
+        self.dirty = !self.editor.document().same_content(&session.saved);
         self.saved = session.saved;
         self.path = session.path;
         self.entries = entries;
@@ -527,7 +527,7 @@ impl Model {
                 }
                 self.path = Some(path.clone());
                 self.keep_original = false;
-                self.dirty = *self.editor.document() != self.saved;
+                self.dirty = !self.editor.document().same_content(&self.saved);
                 if let Some(backup) = backup {
                     self.set_notice(Notice::info(format!(
                         "Saved. The damaged original was kept as “{}”.",

@@ -584,3 +584,47 @@ fn sketch_items_can_be_added_to_a_feature_created_in_the_same_transaction() {
         Some((Point2::ZERO, Point2::X))
     );
 }
+
+fn next_sketch_id(document: &Document, feature: FeatureId) -> u64 {
+    document
+        .feature(feature)
+        .and_then(|feature| feature.kind.sketch())
+        .map(Sketch::next_id)
+        .unwrap()
+}
+
+#[test]
+fn adding_then_undoing_leaves_the_same_content_with_higher_counters() {
+    let Rectangle {
+        mut document,
+        feature,
+        ..
+    } = rectangle();
+    let before = document.clone();
+    let mut transaction = document.transaction("Draw point");
+    transaction.add_sketch_entity(feature, Entity::Point(Point2::new(3.0, 3.0)));
+    let undo = document.apply(transaction.finish()).unwrap();
+    document.apply(undo).unwrap();
+    assert!(document.same_content(&before));
+    assert_ne!(document, before);
+    assert!(next_sketch_id(&document, feature) > next_sketch_id(&before, feature));
+}
+
+#[test]
+fn restoring_an_earlier_version_never_lowers_a_sketch_counter() {
+    let Rectangle {
+        mut document,
+        feature,
+        ..
+    } = rectangle();
+    let version = document.clone();
+    let mut transaction = document.transaction("Draw point");
+    transaction.add_sketch_entity(feature, Entity::Point(Point2::new(3.0, 3.0)));
+    document.apply(transaction.finish()).unwrap();
+    let reached = next_sketch_id(&document, feature);
+
+    let restore = document.transaction_to(&version, "Restore earlier version");
+    document.apply(restore).unwrap();
+    assert!(document.same_content(&version));
+    assert_eq!(next_sketch_id(&document, feature), reached);
+}

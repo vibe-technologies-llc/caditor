@@ -107,6 +107,16 @@ pub enum FeatureResult {
 }
 
 impl FeatureResult {
+    fn same_for_dependents(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Sketch(own), Self::Sketch(theirs)) => {
+                own.geometry.same_geometry(&theirs.geometry)
+            }
+            (Self::Datum(own), Self::Datum(theirs)) => own == theirs,
+            _ => false,
+        }
+    }
+
     pub fn sketch(&self) -> Option<&SketchResult> {
         match self {
             Self::Sketch(sketch) => Some(sketch),
@@ -173,7 +183,10 @@ pub struct Evaluation {
     features: BTreeMap<FeatureId, FeatureStatus>,
     recomputed: Vec<FeatureId>,
     bodies: BTreeMap<FeatureId, FeatureId>,
+    stale_bodies: BTreeSet<FeatureId>,
     inputs_before: BTreeMap<FeatureId, FeatureId>,
+    seen_bodies: BTreeMap<FeatureId, BTreeMap<FeatureId, FeatureId>>,
+    meshed: bool,
 }
 
 impl Evaluation {
@@ -184,6 +197,20 @@ impl Evaluation {
 
     pub fn bodies(&self) -> impl Iterator<Item = (FeatureId, FeatureId)> + '_ {
         self.bodies.iter().map(|(body, state)| (*body, *state))
+    }
+
+    pub fn body_seen_by(&self, feature: FeatureId, body: FeatureId) -> Option<&Solid> {
+        let state = self.seen_bodies.get(&feature)?.get(&body)?;
+        self.features
+            .get(state)?
+            .result
+            .as_deref()?
+            .solid()
+            .map(|result| &result.solid)
+    }
+
+    pub fn is_stale(&self, body: FeatureId) -> bool {
+        self.stale_bodies.contains(&body)
     }
 
     pub fn body(&self, body: FeatureId) -> Option<&Solid> {
@@ -211,18 +238,53 @@ impl Evaluation {
     }
 
     pub fn is_complete(&self) -> bool {
-        self.features
-            .values()
-            .all(|status| status.state != FeatureState::Outdated)
+        self.meshed
+            && self
+                .features
+                .values()
+                .all(|status| status.state != FeatureState::Outdated)
     }
 }
 
-type ParameterFingerprint = Vec<(ParameterId, String, Option<Quantity>)>;
+type ParameterFingerprint = Vec<(ParameterId, Option<Quantity>)>;
+
+#[derive(Debug, Clone, PartialEq)]
+struct Names {
+    feature: String,
+    features: Vec<String>,
+    parameters: Vec<String>,
+}
+
+impl Names {
+    fn of(
+        document: &Document,
+        feature: &Feature,
+        parameters: &ParameterValues,
+        used: &BTreeSet<ParameterId>,
+    ) -> Self {
+        Self {
+            feature: feature.name.clone(),
+            features: feature
+                .kind
+                .features()
+                .into_iter()
+                .map(|used| {
+                    document
+                        .feature(used)
+                        .map(|feature| feature.name.clone())
+                        .unwrap_or_default()
+                })
+                .collect(),
+            parameters: parameters.names(used),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 struct CacheEntry {
     definition: Arc<Feature>,
     parameters: ParameterFingerprint,
+    names: Names,
     upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)>,
     state: FeatureState,
     result: Option<Arc<FeatureResult>>,
@@ -233,22 +295,29 @@ impl CacheEntry {
         &self,
         definition: &Arc<Feature>,
         parameters: &ParameterFingerprint,
+        names: &Names,
         upstream: &[(FeatureId, Option<Arc<FeatureResult>>)],
     ) -> bool {
-        let same_definition =
-            Arc::ptr_eq(&self.definition, definition) || *self.definition == **definition;
+        let same_definition = Arc::ptr_eq(&self.definition, definition)
+            || (self.definition.id() == definition.id() && self.definition.kind == definition.kind);
+        let same_message = match self.state {
+            FeatureState::Failed(_) => self.names == *names,
+            FeatureState::UpToDate | FeatureState::Outdated => true,
+        };
         let same_upstream = self.upstream.len() == upstream.len()
             && self.upstream.iter().zip(upstream).all(
                 |((id, result), (other_id, other_result))| {
                     id == other_id
                         && match (result, other_result) {
-                            (Some(result), Some(other)) => Arc::ptr_eq(result, other),
+                            (Some(result), Some(other)) => {
+                                Arc::ptr_eq(result, other) || result.same_for_dependents(other)
+                            }
                             (None, None) => true,
                             (Some(_), None) | (None, Some(_)) => false,
                         }
                 },
             );
-        same_definition && self.parameters == *parameters && same_upstream
+        same_definition && same_message && self.parameters == *parameters && same_upstream
     }
 }
 
@@ -272,12 +341,15 @@ impl Recompute {
         let mut bodies: BodyStates = BTreeMap::new();
         let mut recomputed = Vec::new();
         let mut inputs_before = BTreeMap::new();
+        let mut seen_bodies: BTreeMap<FeatureId, BTreeMap<FeatureId, FeatureId>> = BTreeMap::new();
         let mut cancelled = false;
 
         for (index, feature) in features.iter().enumerate() {
             progress(index, features.len());
             let id = feature.id();
-            let parameter_fingerprint = parameters.fingerprint(&feature.kind.parameters());
+            let used_parameters = feature.kind.parameters();
+            let parameter_fingerprint = parameters.fingerprint(&used_parameters);
+            let names = Names::of(document, feature, &parameters, &used_parameters);
             let mut upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)> = feature
                 .kind
                 .features()
@@ -287,6 +359,7 @@ impl Recompute {
             for body in feature.kind.bodies_used() {
                 if let Some((state, result)) = bodies.get(&body) {
                     upstream.push((*state, Some(Arc::clone(result))));
+                    seen_bodies.entry(id).or_default().insert(body, *state);
                     if feature.kind.modifies_body() && feature.kind.body_input() == Some(body) {
                         inputs_before.insert(id, *state);
                     }
@@ -295,7 +368,7 @@ impl Recompute {
             let previous = self.cache.get(&id);
 
             let reusable = previous
-                .filter(|entry| entry.matches(feature, &parameter_fingerprint, &upstream))
+                .filter(|entry| entry.matches(feature, &parameter_fingerprint, &names, &upstream))
                 .cloned();
             let entry = if let Some(entry) = reusable {
                 entry
@@ -344,6 +417,7 @@ impl Recompute {
                 let entry = CacheEntry {
                     definition: Arc::clone(feature),
                     parameters: parameter_fingerprint,
+                    names,
                     upstream,
                     state,
                     result,
@@ -383,17 +457,36 @@ impl Recompute {
                 result.find_regions();
             }
         }
-        for (body, (_, result)) in &bodies {
+        let mut shown: BTreeMap<FeatureId, FeatureId> = bodies
+            .iter()
+            .map(|(body, (state, _))| (*body, *state))
+            .collect();
+        let stale_bodies = last_good_bodies(document, &statuses, &shown);
+        for (body, state) in &stale_bodies {
+            shown.insert(*body, *state);
+        }
+        for (body, state) in &shown {
             if cancel.is_cancelled() {
                 break;
             }
-            if let Some(solid) = result.solid() {
+            let meshable = statuses
+                .get(state)
+                .and_then(|status: &FeatureStatus| status.result.as_deref())
+                .and_then(FeatureResult::solid);
+            if let Some(solid) = meshable {
                 let name = document
                     .feature(*body)
                     .map_or("a feature", |feature| feature.name.as_str());
                 solid.tessellate(name);
             }
         }
+        let meshed = shown.values().all(|state| {
+            statuses
+                .get(state)
+                .and_then(|status| status.result.as_deref())
+                .and_then(FeatureResult::solid)
+                .is_none_or(SolidResult::is_meshed)
+        });
 
         for (feature, state) in &inputs_before {
             if cancel.is_cancelled() {
@@ -416,13 +509,39 @@ impl Recompute {
             parameters,
             features: statuses,
             recomputed,
-            bodies: bodies
-                .into_iter()
-                .map(|(body, (state, _))| (body, state))
-                .collect(),
+            bodies: shown,
+            stale_bodies: stale_bodies.into_keys().collect(),
             inputs_before,
+            seen_bodies,
+            meshed,
         }
     }
+}
+
+fn last_good_bodies(
+    document: &Document,
+    statuses: &BTreeMap<FeatureId, FeatureStatus>,
+    current: &BTreeMap<FeatureId, FeatureId>,
+) -> BTreeMap<FeatureId, FeatureId> {
+    let made: BTreeSet<FeatureId> = document
+        .features()
+        .filter(|feature| feature.makes_body())
+        .map(Feature::id)
+        .collect();
+    let mut stale = BTreeMap::new();
+    for feature in document.features() {
+        let last_good = statuses
+            .get(&feature.id())
+            .and_then(|status| status.result.as_deref())
+            .and_then(FeatureResult::solid);
+        if let Some(solid) = last_good
+            && made.contains(&solid.body)
+            && !current.contains_key(&solid.body)
+        {
+            stale.insert(solid.body, feature.id());
+        }
+    }
+    stale
 }
 
 fn missing_upstream(

@@ -692,7 +692,7 @@ impl Builder<'_> {
                         .and_then(|sketch| sketch.line_endpoints(*line))
                         .map(|(start, end)| [plane.to_world(start), plane.to_world(end)]),
                 },
-                RevolveAxis::Model(axis) => displayed_axis(evaluation, axis)
+                RevolveAxis::Model(axis) => displayed_axis(evaluation, feature, axis)
                     .map(|ray| axis_ends(ray, plane.origin(), reference_size)),
             };
             if let Some([start, end]) = ends {

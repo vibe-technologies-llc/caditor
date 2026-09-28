@@ -1622,3 +1622,24 @@ fn saving_over_a_model_open_in_another_window_is_refused() {
     crash(storage);
     crash(other);
 }
+
+#[test]
+fn features_that_share_a_name_are_loaded_under_distinct_names() {
+    let mut lines = lines_of(&sample());
+    let side = lines
+        .iter_mut()
+        .find(|line| line.contains("\"Side sketch\""))
+        .unwrap();
+    *side = side.replace("\"Side sketch\"", "\"Base sketch\"");
+    let loaded = decode_lines(&lines);
+    let names: Vec<&str> = loaded
+        .document
+        .features()
+        .map(|feature| feature.name.as_str())
+        .collect();
+    assert_eq!(names, ["Base sketch", "Base sketch 2"]);
+    assert_eq!(
+        loaded.issues,
+        ["Two features were named “Base sketch”, so one of them is now “Base sketch 2”."]
+    );
+}

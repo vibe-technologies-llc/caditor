@@ -121,9 +121,9 @@ pub enum EditError {
     MissingParameter,
     #[error("That feature no longer exists")]
     MissingFeature,
-    #[error("An item with this ID already exists")]
+    #[error("That item already exists")]
     DuplicateId,
-    #[error("Position {0} is outside the list")]
+    #[error("The list has changed, so that place in it no longer exists")]
     OutOfRange(usize),
     #[error(transparent)]
     InvalidName(#[from] NameError),
@@ -131,6 +131,8 @@ pub enum EditError {
     DuplicateName(String),
     #[error("A feature needs a name")]
     EmptyFeatureName,
+    #[error("There is already a feature named '{0}'")]
+    DuplicateFeatureName(String),
     #[error("{name} is used by {users}. Remove those uses first.")]
     ParameterInUse { name: String, users: String },
     #[error("This would make {name} depend on itself ({path})")]
@@ -531,6 +533,7 @@ impl Document {
         if feature.name.trim().is_empty() {
             return Err(EditError::EmptyFeatureName);
         }
+        self.check_feature_name(&feature.name, feature.id())?;
         self.check_feature_references(&feature.kind, index)?;
         let id = feature.id();
         self.next_feature_id = self.next_feature_id.max(id.raw().saturating_add(1));
@@ -561,9 +564,20 @@ impl Document {
         if name.is_empty() {
             return Err(EditError::EmptyFeatureName);
         }
+        self.check_feature_name(&name, id)?;
         let feature = self.feature_mut(id)?;
         let previous = std::mem::replace(&mut feature.name, name);
         Ok(Edit::RenameFeature { id, name: previous })
+    }
+
+    fn check_feature_name(&self, name: &str, id: FeatureId) -> Result<(), EditError> {
+        let taken = self
+            .features()
+            .any(|other| other.id() != id && other.name == name);
+        if taken {
+            return Err(EditError::DuplicateFeatureName(name.to_owned()));
+        }
+        Ok(())
     }
 
     fn move_feature(&mut self, id: FeatureId, index: usize) -> Result<Edit, EditError> {

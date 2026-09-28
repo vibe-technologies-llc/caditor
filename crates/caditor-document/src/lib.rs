@@ -347,6 +347,33 @@ mod tests {
         );
         document.apply(rename("  Outline ")).unwrap();
         assert_eq!(document.feature(ids.base).unwrap().name, "Outline");
+        document.apply(rename("Outline")).unwrap();
+    }
+
+    #[test]
+    fn feature_names_are_unique() {
+        let (mut document, ids) = sample();
+        let taken = document
+            .features()
+            .find(|feature| feature.id() != ids.base)
+            .map(|feature| feature.name.clone())
+            .unwrap();
+        assert_eq!(
+            document.apply(Transaction::single(
+                "Rename",
+                Edit::RenameFeature {
+                    id: ids.base,
+                    name: taken.clone(),
+                },
+            )),
+            Err(EditError::DuplicateFeatureName(taken.clone()))
+        );
+        let mut transaction = document.transaction("Add");
+        transaction.add_feature(taken.clone(), FeatureKind::from(Sketch::new(Plane::XY)));
+        assert_eq!(
+            document.apply(transaction.finish()),
+            Err(EditError::DuplicateFeatureName(taken))
+        );
     }
 
     #[test]

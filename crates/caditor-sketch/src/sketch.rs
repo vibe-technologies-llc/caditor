@@ -14,7 +14,7 @@ use crate::{
 pub enum SketchError {
     #[error("the constraint no longer exists")]
     MissingConstraint(ConstraintId),
-    #[error("entity {0} no longer exists")]
+    #[error("the geometry it changes no longer exists")]
     NoSuchEntity(EntityId),
     #[error("{label} is reference geometry, which cannot be removed or changed")]
     ReferenceGeometry { entity: EntityId, label: String },
@@ -24,11 +24,11 @@ pub enum SketchError {
     ChangesStructure { entity: EntityId, label: String },
     #[error("it uses an entity that does not exist")]
     MissingEntity(EntityId),
-    #[error("it needs a point, but entity {0} is not one")]
+    #[error("it needs a point where the sketch has other geometry")]
     NotAPoint(EntityId),
-    #[error("the ID {0} is already in use")]
+    #[error("it would replace geometry or a constraint that already exists")]
     DuplicateId(u64),
-    #[error("the ID {0} is reserved for reference geometry")]
+    #[error("it would replace the sketch's origin or axes")]
     ReservedId(u64),
     #[error("a point must have finite coordinates")]
     NotFinite,
@@ -257,6 +257,16 @@ impl Sketch {
             .values()
             .filter_map(Constraint::dimension)
             .any(|expression| expression.uses(parameter))
+    }
+
+    pub fn same_geometry(&self, other: &Self) -> bool {
+        self.plane == other.plane && self.entities == other.entities
+    }
+
+    pub fn same_content(&self, other: &Self) -> bool {
+        self.plane == other.plane
+            && self.entities == other.entities
+            && self.constraints == other.constraints
     }
 
     pub fn next_id(&self) -> u64 {

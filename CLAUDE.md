@@ -395,9 +395,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     is atomic and returns the inverse transaction, and `Editor` keeps undo and redo as stacks of
     these inverses. Edits carry their IDs, so redo restores the same IDs, and ID counters never
     move backwards. Edits refuse to break invariants: unknown references, parameter cycles,
-    deleting something still in use, or moving a feature past one it depends on.
+    deleting something still in use, moving a feature past one it depends on, or two features
+    sharing a name (loading renames the second with a report). `same_content` compares
+    documents without their ID counters, which is what decides whether a model is unsaved.
     `Document::check` runs a transaction on a clone so the UI can report the error before
-    committing. `Document::transaction_to` builds the transaction that turns one document
+    committing. `Document::transaction_to` (which keeps every sketch's ID counter at least
+    where it is, so restoring never reuses IDs) builds the transaction that turns one document
     into another (every feature and parameter removed, then the target's inserted with their
     IDs), which is how an earlier version is restored as one undoable change.
   - Sketch content changes only through sketch edits (add, remove or set an entity, add or
@@ -427,7 +430,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     sketch's regions (`RegionChoice::All` for even depth, or chosen `RegionKey`s) with a
     `BodyOperation`: `NewBody`, or `Add`, `Remove` or `Intersect` on the body of the feature
     that made it. A body is named by that feature's ID. Extents are expressions (lengths, or
-    angles in degrees) that must be above zero; one-sided extents flip with `reversed`, and a
+    angles in degrees) that must be above zero, both distances of a two-sided extrusion
+    included; one-sided extents flip with `reversed`, and a
     revolve's axis (`RevolveAxis`) is a line of its sketch, one of the sketch axes, or an
     `AxisReference` to a model axis that must lie in the sketch plane. Inserting one checks that
     its sketch is a sketch and its target makes a body; `SetFeatureKind` replaces its settings
@@ -451,7 +455,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     toroidal or revolved face as a `FaceReference`), resolved in each body's state at the
     feature's place in the tree; pieces of a split edge or face count when they lie on one line.
     A `DatumPlane` starts from its base plane, optionally moves it to pass through an axis and
-    turns it about the axis by an angle, then offsets it along its normal; a `DatumAxis` runs
+    turns it about the axis (which must run along the plane) by an angle, then offsets it along
+    its normal; a `DatumAxis` runs
     along an axis reference or where two planes meet. Plane stays plane and axis stays axis
     under `SetFeatureKind`, and edits refuse a sketch or plane based on something that is not a
     datum plane (`NotAPlane`) or an axis reference to something that is not a datum axis
@@ -459,8 +464,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `features()`, so dependents, moves and deletions account for them.
   - Recompute: `ParameterValues` evaluates parameters in dependency order and reports cycles
     rather than following them. `Recompute` walks the features in tree order and reuses a
-    cached result when the feature definition (an `Arc`, compared by pointer first), the values
-    and names of the parameters it uses, and its upstream feature results are all unchanged. A
+    cached result when the feature's content (an `Arc`, compared by pointer first, then its ID
+    and kind but not its name), the values of the parameters it uses and its upstream results
+    are unchanged; a failed result is also recomputed when the names in its message changed.
+    Upstream results count as unchanged when they are the same `Arc` or, for sketches, have
+    the same plane and entities (datums: the same result), so an edit that leaves geometry
+    alone (a satisfied constraint, a settle) stops there. A
     failing feature is `Failed` with a `FeatureError` (reason, remedy and a `FixTarget`) and
     keeps its last good result. Its dependents fail with a pointer back to it, and everything
     else is unaffected. A panic inside an `Evaluator` is caught and becomes that feature's
@@ -468,14 +477,17 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     change's upstream of every feature that uses the body (`bodies_used`): a feature that
     changes a body gets its current solid through `Inputs::body`, and a failing one is skipped, so later features of the body build on the
     state before it. `Evaluation::body` gives each body's final solid and `body_result` the
-    shared result holding it. Solid features map profile, sweep and boolean errors to sentences
+    shared result holding it; a body whose creating feature failed or was not reached keeps
+    the last good state of its latest feature as a stale body (`is_stale`), drawn tinted and
+    still exported. `body_seen_by` gives the state of a body a given feature used, which is
+    where a revolve's model axis is drawn. Solid features map profile, sweep and boolean errors to sentences
     naming the sketch curves involved.
   - Display data is computed on the worker at the end of each run and cached inside the shared
     results (`OnceLock`), so the UI only reads it: each body's final state is tessellated
     (`SolidResult::mesh`; intermediate states are not), and every sketch that a solid feature
     sweeps gets its regions with a triangulation each (`SketchResult::regions`). A panic or
     failure while meshing leaves the body without a mesh (`mesh_failed`) but keeps its shape for
-    later features.
+    later features, and a run cancelled before every shown body was meshed is not complete.
   - `Recomputer` runs recompute on a worker thread. A newer submission or `cancel` stops the
     running job between features (evaluators also receive a `CancelToken`), and features that
     were not reached are reported as `Outdated`. The worker calls a wake callback after each

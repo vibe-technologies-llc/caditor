@@ -326,7 +326,16 @@ pub(crate) fn face_axis(solid: &Solid, face: FaceId) -> Option<Ray> {
     Ray::new(origin, direction)
 }
 
-pub fn displayed_axis(evaluation: &Evaluation, reference: &AxisReference) -> Option<Ray> {
+pub fn displayed_axis(
+    evaluation: &Evaluation,
+    user: FeatureId,
+    reference: &AxisReference,
+) -> Option<Ray> {
+    let body_seen = |body: FeatureId| {
+        evaluation
+            .body_seen_by(user, body)
+            .or_else(|| evaluation.body(body))
+    };
     match reference {
         AxisReference::Principal(axis) => axis.ray(),
         AxisReference::Datum(feature) => evaluation
@@ -336,11 +345,11 @@ pub fn displayed_axis(evaluation: &Evaluation, reference: &AxisReference) -> Opt
             .datum()?
             .axis(),
         AxisReference::Edge { body, edge } => {
-            let solid = evaluation.body(*body)?;
+            let solid = body_seen(*body)?;
             edge_ray(solid, edge.resolve(solid).ok()?)
         }
         AxisReference::Face { body, face } => {
-            let solid = evaluation.body(*body)?;
+            let solid = body_seen(*body)?;
             face_axis(solid, face.resolve(solid).ok()?)
         }
     }
@@ -569,6 +578,18 @@ pub(crate) fn evaluate(
             let mut plane = resolver.plane(&definition.base)?;
             if let Some(rotation) = &definition.rotation {
                 let axis = resolver.axis(&rotation.axis)?;
+                if axis.direction().dot(plane.normal()).abs() > COLLINEAR {
+                    return Err(resolver.own_error(
+                        format!(
+                            "{} does not run along {}, so turning the plane about it cannot \
+                             work.",
+                            capitalized(&describe_axis(document, &rotation.axis)),
+                            describe_plane(document, &definition.base)
+                        ),
+                        "Choose an axis that lies in the plane or runs parallel to it, such as \
+                         an edge of the face.",
+                    ));
+                }
                 let angle = resolver.value(&rotation.angle, "angle", Dimension::ANGLE)?;
                 let transform = RigidTransform::rotation_about(
                     axis.origin(),

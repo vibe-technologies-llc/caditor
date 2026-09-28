@@ -20,6 +20,8 @@ The first release of caditor.
 - References to faces and edges survive edits to earlier sketches and features. A feature that
   fails is marked in the tree with the reason and what to do, and everything that does not
   depend on it keeps working.
+- A body whose first feature fails stays in view, tinted, in its last good shape, and edits that
+  leave geometry unchanged or only rename something do not rebuild what follows them.
 - Named parameters and unit-aware expressions in every field.
 
 ### Files

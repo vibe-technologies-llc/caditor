@@ -693,23 +693,10 @@ fn linear_extent(
         ExtrudeExtent::Symmetric { distance } => {
             LinearExtent::symmetric(length(distance, "distance")?)
         }
-        ExtrudeExtent::TwoSides { forward, backward } => {
-            let forward = evaluate_value(
-                context,
-                forward,
-                Dimension::LENGTH,
-                "forward distance",
-                parameters,
-            )?;
-            let backward = evaluate_value(
-                context,
-                backward,
-                Dimension::LENGTH,
-                "backward distance",
-                parameters,
-            )?;
-            LinearExtent::two_sided(forward, backward)
-        }
+        ExtrudeExtent::TwoSides { forward, backward } => LinearExtent::two_sided(
+            length(forward, "forward distance")?,
+            length(backward, "backward distance")?,
+        ),
     };
     built.map_err(|_| {
         context.error(
