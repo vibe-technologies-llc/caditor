@@ -37,7 +37,6 @@ within a category run from most to least important.
 
 - B-spline surface projection of a point off the surface refines four seeds every call, which is
   most of its cost.
-- Blend corners look up loops quadratically (`blend/corner.rs`).
 
 ## STEP import and export
 

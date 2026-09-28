@@ -50,7 +50,6 @@ fn plane_normal(solid: &Solid, face: FaceId) -> Option<Vector3> {
 pub(super) fn find(
     solid: &Solid,
     topology: &Topology,
-    chosen: &[EdgeId],
     convex: &BTreeMap<EdgeId, bool>,
     radius: f64,
     vertex: VertexId,
@@ -61,8 +60,7 @@ pub(super) fn find(
     };
     let ids = [*first, *second, *third];
     let usable = ids.iter().all(|edge| {
-        chosen.contains(edge)
-            && convex.get(edge) == Some(&true)
+        convex.get(edge) == Some(&true)
             && solid
                 .edge(*edge)
                 .is_some_and(|definition| matches!(definition.curve(), Curve::Line(_)))

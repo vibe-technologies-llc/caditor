@@ -886,7 +886,7 @@ fn apply_analysed(
             vertices
                 .into_iter()
                 .filter_map(|vertex| {
-                    corner::find(solid, topology, &chosen, &convex, radius, vertex)
+                    corner::find(solid, topology, &convex, radius, vertex)
                         .map(|corner| (vertex, corner))
                 })
                 .collect()
