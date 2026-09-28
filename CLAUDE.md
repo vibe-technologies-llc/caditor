@@ -206,25 +206,26 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     surfaces only touch (a tangent fillet edge) by alternating projection, accepting the middle
     of a gap up to `LINEAR_RESOLUTION`; only this path follows touching surfaces.
   - `Surface`: plane, cylinder, cone, sphere, torus, extrusion, revolution and `BSplineSurface`
-    (tensor-product, clamped, optionally rational, degree up to 9, points stored row by row with
-    u along a row). A spline surface whose first and last rows or columns meet is periodic in
-    that direction over its knot range (C0 at the seam is enough), and a boundary row collapsed
-    to a point is a pole; a collapsed column cannot be a pole, so importers transpose such
-    surfaces and flip the face. It evaluates second derivatives exactly (rational by the
-    quotient rule), bounds a uv box by the control points of its spans, and projects from a
-    precomputed sample grid plus the hint, refined by Newton, keeping the hint's foot only when
-    it is as close as the best. u is the angle
-    around the axis (the frame normal) on every rotational surface; the cone's v is slant
-    distance from its reference circle, the sphere's v latitude, the torus's v the tube angle,
-    and a revolution's v the profile parameter. An extrusion is (profile parameter, distance).
-    du × dv points outward on every elementary surface. Singularities are always `Pole`s: v
-    isolines where du vanishes (sphere poles, cone apex, a revolution profile ending on its
-    axis). `project` returns the periodic representative nearest a hint, else the principal one
-    in [0, period); on spline profiles it keeps the closest point near the hint when no other is
-    closer by more than the resolution, so self-crossing profiles project consistently.
-    `same_surface` gives the `Sense` between the normals of two coincident surfaces whatever
-    their frames and seams: analytic for elementary pairs, and by mutual sampled projection when
-    an extrusion or revolution is involved.
+    (tensor-product, clamped, optionally rational, degree up to 9, points stored row by row with u
+    along a row). A spline surface whose first and last rows or columns meet is periodic in that
+    direction over its knot range (C0 at the seam is enough), and a boundary row collapsed to a
+    point is a pole; a collapsed column cannot be a pole, so importers transpose such surfaces and
+    flip the face. It evaluates second derivatives exactly (rational by the quotient rule), bounds a
+    uv box by its own control net, cut out of the spans by knot insertion (in homogeneous
+    coordinates, so the hull holds for rational surfaces; the spans' net when the box wraps a closed
+    direction), so sub-patches shrink as they are divided, and projects from a precomputed sample
+    grid plus the hint, refined by Newton, keeping the hint's foot only when it is as close as the
+    best. u is the angle around the axis (the frame normal) on every rotational surface; the cone's
+    v is slant distance from its reference circle, the sphere's v latitude, the torus's v the tube
+    angle, and a revolution's v the profile parameter. An extrusion is (profile parameter,
+    distance). du × dv points outward on every elementary surface. Singularities are always `Pole`s:
+    v isolines where du vanishes (sphere poles, cone apex, a revolution profile ending on its axis).
+    `project` returns the periodic representative nearest a hint, else the principal one in [0,
+    period); on spline profiles it keeps the closest point near the hint when no other is closer by
+    more than the resolution, so self-crossing profiles project consistently. `same_surface` gives
+    the `Sense` between the normals of two coincident surfaces whatever their frames and seams:
+    analytic for elementary pairs, and by mutual sampled projection when an extrusion or revolution
+    is involved.
   - Topology: a `Solid` arena of vertices, edges, coedges, loops, faces and shells behind typed
     ids and accessors, built through `SolidBuilder`, whose `build` validates. An edge is a
     curve, an interval and two vertices (one for a closed edge). A coedge has a sense and a
@@ -316,7 +317,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     boxes wrap, poles accept any u) so booleans intersect face patches, and restrict curves to a
     parameter interval. Coincidence within tolerance is detected, never guessed: a curve lying
     in a surface or on another curve is an overlap interval, and coincident surfaces return
-    `SurfaceIntersection::Coincident(Sense)` from `same_surface`. Points within
+    `SurfaceIntersection::Coincident(Sense)` from `same_surface`; patches of the sampled kinds
+    (extrusion, revolution, spline) are also `Coincident` when they share only part of their
+    extent: every grid sample of either whose foot lands inside the other must lie on it (a
+    foot pushed against the other's edge, with a residual off the normal, is skipped), and at
+    least four must land there. Points within
     `LINEAR_RESOLUTION` are one point; one at a range end takes the exact end parameter, and a
     closed curve's wrap point is reported once. `tangent` flags touches (no sign change, or
     parallel tangent within 1e-7), and clusters of roots closer than the resolution collapse to
@@ -351,8 +356,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
       holding a transversal seed is skipped. Branches march both ways from each seed not already
       on a branch, with steps limited by the turn of the tangent, stop exactly on the box boundary
       (a parameter-constrained solve), close loops through the seed and end where the normals
-      become parallel (reported as tangent points); a step that collapses or a branch longer
-      than the step cap fails as `IntersectionError::Unfollowable` rather than ending there.
+      become parallel (reported as tangent points). A step that collapses where the branch runs
+      off a bounded surface ends on the boundary ahead (the nearest patch bound along the
+      tangent, within one maximum step, by a parameter-constrained solve); otherwise it, and a
+      branch longer than the step cap, fails as `IntersectionError::Unfollowable`.
       Near poles the contact is solved with one surface as carrier and the other's signed
       distance. A marched branch that is a line, circle
       or ellipse within half the resolution is returned as that curve.

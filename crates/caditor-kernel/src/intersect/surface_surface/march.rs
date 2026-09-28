@@ -494,6 +494,83 @@ impl<'a> Tracer<'a> {
         solved.or_else(|| self.bisect_exit(inside, outside))
     }
 
+    fn boundary_ahead(&self, current: &Contact, tangent: Vector3) -> Option<Contact> {
+        let surfaces = self.surfaces();
+        let [first, second] = self.patches;
+        let [uv_first, uv_second] = current.uv;
+        let [surface_first, surface_second] = surfaces;
+        let velocity_first = uv_direction(&surface_first.evaluate(uv_first.x, uv_first.y), tangent);
+        let velocity_second =
+            uv_direction(&surface_second.evaluate(uv_second.x, uv_second.y), tangent);
+        let checks = [
+            (
+                first,
+                true,
+                uv_first.x,
+                velocity_first.x,
+                Coordinate::FirstU,
+            ),
+            (
+                first,
+                false,
+                uv_first.y,
+                velocity_first.y,
+                Coordinate::FirstV,
+            ),
+            (
+                second,
+                true,
+                uv_second.x,
+                velocity_second.x,
+                Coordinate::SecondU,
+            ),
+            (
+                second,
+                false,
+                uv_second.y,
+                velocity_second.y,
+                Coordinate::SecondV,
+            ),
+        ];
+        let mut nearest: Option<(f64, Coordinate, f64)> = None;
+        for (patch, along_u, value, velocity, coordinate) in checks {
+            let (range, period) = if along_u {
+                (patch.u_range(), patch.surface().u_period())
+            } else {
+                (patch.v_range(), patch.surface().v_period())
+            };
+            if period.is_some_and(|period| range.length() >= period * (1.0 - PERIOD_SLACK))
+                || velocity == 0.0
+                || !velocity.is_finite()
+            {
+                continue;
+            }
+            let shift = value - wrap_into(value, range, period);
+            let bound = if velocity > 0.0 {
+                range.end() + shift
+            } else {
+                range.start() + shift
+            };
+            let reach = (bound - value) / velocity;
+            if reach >= 0.0 && nearest.is_none_or(|(known, _, _)| reach < known) {
+                nearest = Some((reach, coordinate, bound));
+            }
+        }
+        let (reach, coordinate, bound) = nearest?;
+        if reach > self.max_step {
+            return None;
+        }
+        refine_contact(
+            surfaces,
+            current.uv,
+            Constraint::Parameter {
+                coordinate,
+                value: bound,
+            },
+        )
+        .filter(|contact| contact.point.distance(current.point) <= 2.0 * self.max_step)
+    }
+
     fn bisect_exit(&self, inside: &Contact, outside: &Contact) -> Option<Contact> {
         let normal = (outside.point - inside.point).try_normalize()?;
         let (mut low, mut high) = (*inside, *outside);
@@ -543,7 +620,19 @@ impl<'a> Tracer<'a> {
                         tangent_end: true,
                     });
                 }
-                Err(Stalled::Collapsed) => return Err(IntersectionError::Unfollowable),
+                Err(Stalled::Collapsed) => {
+                    let boundary = self
+                        .boundary_ahead(&current, tangent)
+                        .ok_or(IntersectionError::Unfollowable)?;
+                    if boundary.point.distance(current.point) > TOLERANCE {
+                        contacts.push(boundary);
+                    }
+                    return Ok(Marched {
+                        contacts,
+                        closed: false,
+                        tangent_end: false,
+                    });
+                }
             };
             if !self.inside(&next.contact) {
                 if let Some(boundary) = self.exit(&current, &next.contact)

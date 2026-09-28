@@ -478,3 +478,75 @@ fn swept_surfaces_are_marched_against_other_surfaces() {
     assert_eq!(result.branches().len(), 1, "{result:?}");
     assert!(result.branches()[0].closed);
 }
+
+fn flat_spline(corners: [Point3; 4]) -> Surface {
+    let [a, b, c, d] = corners;
+    crate::surface::BSplineSurface::new(
+        1,
+        1,
+        vec![0.0, 0.0, 1.0, 1.0],
+        vec![0.0, 0.0, 1.0, 1.0],
+        2,
+        vec![a, b, c, d],
+        None,
+    )
+    .unwrap()
+    .into()
+}
+
+#[test]
+fn spline_patches_that_share_only_part_of_their_extent_are_coincident() {
+    let unit = (0.0, 1.0);
+    let left = flat_spline([
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(10.0, 0.0, 0.0),
+        Point3::new(0.0, 10.0, 0.0),
+        Point3::new(10.0, 10.0, 0.0),
+    ]);
+    let right = flat_spline([
+        Point3::new(5.0, 2.0, 0.0),
+        Point3::new(15.0, 2.0, 0.0),
+        Point3::new(5.0, 12.0, 0.0),
+        Point3::new(15.0, 12.0, 0.0),
+    ]);
+    let flipped = flat_spline([
+        Point3::new(5.0, 2.0, 0.0),
+        Point3::new(5.0, 12.0, 0.0),
+        Point3::new(15.0, 2.0, 0.0),
+        Point3::new(15.0, 12.0, 0.0),
+    ]);
+    let tilted = flat_spline([
+        Point3::new(5.0, 2.0, -1.0),
+        Point3::new(15.0, 2.0, 3.0),
+        Point3::new(5.0, 12.0, -1.0),
+        Point3::new(15.0, 12.0, 3.0),
+    ]);
+    let found = |first: &Surface, second: &Surface| {
+        intersect_surfaces(&patch(first, unit, unit), &patch(second, unit, unit)).unwrap()
+    };
+    assert_eq!(
+        found(&left, &right),
+        SurfaceIntersection::Coincident(Sense::Same)
+    );
+    assert_eq!(
+        found(&right, &left),
+        SurfaceIntersection::Coincident(Sense::Same)
+    );
+    assert_eq!(
+        found(&left, &flipped),
+        SurfaceIntersection::Coincident(Sense::Reversed)
+    );
+    let SurfaceIntersection::Branches { branches, .. } = found(&left, &tilted) else {
+        panic!("a crossing spline is not coincident");
+    };
+    let [branch] = branches.as_slice() else {
+        panic!("expected one crossing line, found {branches:?}");
+    };
+    for fraction in [0.0, 0.5, 1.0] {
+        let point = branch.curve.point(branch.range.at(fraction));
+        assert!(
+            (point.x - 7.5).abs() < 1e-6 && point.z.abs() < 1e-6,
+            "{point}"
+        );
+    }
+}

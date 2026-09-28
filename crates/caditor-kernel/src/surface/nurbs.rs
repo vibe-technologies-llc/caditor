@@ -478,10 +478,72 @@ impl BSplineSurface {
             self.v_domain,
             wraps(v_range, self.v_domain, self.v_closed),
         );
-        let points = (v_first..=v_last).flat_map(|row| {
-            (u_first..=u_last).filter_map(move |column| self.control_point(column, row))
-        });
-        Aabb::from_points(points).unwrap_or_else(|| Aabb::from_point(Point3::ZERO))
+        let hull = || {
+            let points = (v_first..=v_last).flat_map(|row| {
+                (u_first..=u_last).filter_map(move |column| self.control_point(column, row))
+            });
+            Aabb::from_points(points).unwrap_or_else(|| Aabb::from_point(Point3::ZERO))
+        };
+        let whole_u = wraps(u_range, self.u_domain, self.u_closed);
+        let whole_v = wraps(v_range, self.v_domain, self.v_closed);
+        if whole_u || whole_v {
+            return hull();
+        }
+        let restricted = self.restricted_net(
+            (
+                u_first,
+                u_last,
+                self.u_domain.clamp(u_range.start()),
+                self.u_domain.clamp(u_range.end()),
+            ),
+            (
+                v_first,
+                v_last,
+                self.v_domain.clamp(v_range.start()),
+                self.v_domain.clamp(v_range.end()),
+            ),
+        );
+        restricted
+            .and_then(|net| {
+                Aabb::from_points(
+                    net.into_iter()
+                        .filter(|[_, _, _, w]| *w > 0.0)
+                        .map(|[x, y, z, w]| Point3::new(x / w, y / w, z / w)),
+                )
+            })
+            .unwrap_or_else(hull)
+    }
+
+    fn restricted_net(
+        &self,
+        (u_first, u_last, u_low, u_high): (usize, usize, f64, f64),
+        (v_first, v_last, v_low, v_high): (usize, usize, f64, f64),
+    ) -> Option<Vec<[f64; 4]>> {
+        let homogeneous = |column: usize, row: usize| {
+            let index = row * self.columns + column;
+            let point = self.control_points.get(index)?;
+            let weight = self.weight(index);
+            Some([point.x * weight, point.y * weight, point.z * weight, weight])
+        };
+        let u_knots = self.u_knots.get(u_first..=u_last + self.u_degree + 1)?;
+        let v_knots = self.v_knots.get(v_first..=v_last + self.v_degree + 1)?;
+        let mut rows = Vec::with_capacity(v_last - v_first + 1);
+        for row in v_first..=v_last {
+            let points = (u_first..=u_last)
+                .map(|column| homogeneous(column, row))
+                .collect::<Option<Vec<_>>>()?;
+            rows.push(restrict(u_knots, self.u_degree, points, u_low, u_high)?);
+        }
+        let width = rows.first()?.len();
+        let mut net = Vec::with_capacity(width * rows.len());
+        for column in 0..width {
+            let points = rows
+                .iter()
+                .map(|row| row.get(column).copied())
+                .collect::<Option<Vec<_>>>()?;
+            net.extend(restrict(v_knots, self.v_degree, points, v_low, v_high)?);
+        }
+        Some(net)
     }
 
     fn sample_grid(&self) -> Vec<(Point2, Point3)> {
@@ -520,6 +582,75 @@ fn column_of(basis: &Basis, index: usize) -> [f64; 3] {
             .copied()
             .unwrap_or(0.0)
     })
+}
+
+fn restrict(
+    knots: &[f64],
+    degree: usize,
+    points: Vec<[f64; 4]>,
+    low: f64,
+    high: f64,
+) -> Option<Vec<[f64; 4]>> {
+    if low.is_nan() || high.is_nan() || low >= high || degree == 0 {
+        return None;
+    }
+    let mut knots = knots.to_vec();
+    let mut points = points;
+    for parameter in [low, high] {
+        let present = knots.iter().filter(|knot| **knot == parameter).count();
+        for _ in present..degree {
+            insert_knot(&mut knots, &mut points, degree, parameter)?;
+        }
+    }
+    let count = points.len();
+    let first = knots
+        .partition_point(|knot| *knot <= low)
+        .checked_sub(1)?
+        .min(count.checked_sub(1)?);
+    let last = knots
+        .partition_point(|knot| *knot < high)
+        .checked_sub(1)?
+        .min(count.checked_sub(1)?);
+    points
+        .get(first.checked_sub(degree)?..=last)
+        .map(<[_]>::to_vec)
+}
+
+fn insert_knot(
+    knots: &mut Vec<f64>,
+    points: &mut Vec<[f64; 4]>,
+    degree: usize,
+    parameter: f64,
+) -> Option<()> {
+    let count = points.len();
+    let span = knots
+        .partition_point(|knot| *knot <= parameter)
+        .checked_sub(1)?
+        .clamp(degree, count.checked_sub(1)?);
+    let mut inserted = Vec::with_capacity(count + 1);
+    for index in 0..=count {
+        let point = if index + degree <= span {
+            *points.get(index)?
+        } else if index > span {
+            *points.get(index - 1)?
+        } else {
+            let (start, end) = (*knots.get(index)?, *knots.get(index + degree)?);
+            let along = if end > start {
+                (parameter - start) / (end - start)
+            } else {
+                0.0
+            };
+            let (before, after) = (points.get(index - 1)?, points.get(index)?);
+            [0, 1, 2, 3].map(|axis| {
+                let (a, b) = (before.get(axis).copied(), after.get(axis).copied());
+                a.zip(b).map_or(f64::NAN, |(a, b)| a + (b - a) * along)
+            })
+        };
+        inserted.push(point);
+    }
+    knots.insert(span + 1, parameter);
+    *points = inserted;
+    Some(())
 }
 
 fn span_of(knots: &[f64], degree: usize, count: usize, parameter: f64) -> usize {
@@ -675,6 +806,33 @@ mod tests {
             Some(weights),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn a_small_box_is_bounded_tightly_and_still_contains_its_surface() {
+        for surface in [wavy(), quarter_cylinder()] {
+            let (u, v) = (surface.u_domain, surface.v_domain);
+            let whole = surface.bounds(u, v);
+            for (low, high) in [(0.1, 0.2), (0.45, 0.55), (0.8, 0.95)] {
+                let (u_box, v_box) = (
+                    Interval::new(u.at(low), u.at(high)).unwrap(),
+                    Interval::new(v.at(low), v.at(high)).unwrap(),
+                );
+                let bounds = surface.bounds(u_box, v_box);
+                assert!(bounds.diagonal() < 0.5 * whole.diagonal(), "{bounds:?}");
+                for row in 0..=8 {
+                    for column in 0..=8 {
+                        let point = surface
+                            .evaluate(u_box.at(column as f64 / 8.0), v_box.at(row as f64 / 8.0))
+                            .point;
+                        let margin = bounds.expanded(1e-9);
+                        let inside =
+                            point.cmpge(margin.min()).all() && point.cmple(margin.max()).all();
+                        assert!(inside, "{point} is outside {bounds:?}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

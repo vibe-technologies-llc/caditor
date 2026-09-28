@@ -1,6 +1,7 @@
 mod analytic;
 mod coaxial;
 mod march;
+mod overlap;
 mod recognize;
 
 use caditor_geometry::{Aabb, Point2, Point3};
@@ -99,6 +100,10 @@ pub fn intersect_surfaces(
             branches: Vec::new(),
             points: Vec::new(),
         });
+    }
+    let sampled = overlap::sampled_kind(first.surface()) || overlap::sampled_kind(second.surface());
+    if sampled && let Some(sense) = overlap::coincident_part(first, second) {
+        return Ok(SurfaceIntersection::Coincident(sense));
     }
     let window = shared_window(&first_box, &second_box);
     let raw = match analytic::intersect(first, second, &window) {
