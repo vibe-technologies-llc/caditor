@@ -474,3 +474,36 @@ fn every_refusal_names_what_cannot_be_blended() {
         "a blend along an edge that meets its end face at a glancing angle is refused"
     );
 }
+
+#[test]
+fn every_rim_of_a_perforated_plate_is_rounded_at_once() {
+    let mut curves = polygon(&[(0.0, 0.0), (44.0, 0.0), (44.0, 32.0), (0.0, 32.0)]);
+    for row in 0..3 {
+        for column in 0..2 {
+            curves.push(crate::test_support::circle(
+                100 + row * 2 + column,
+                (10.0 + 12.0 * row as f64, 10.0 + 12.0 * column as f64),
+                3.0,
+            ));
+        }
+    }
+    let plate = swept(Plane::XY, &curves, 5.0);
+    let rims: Vec<EdgeId> = plate
+        .edges()
+        .filter(|(_, edge)| {
+            matches!(edge.curve(), Curve::Circle(_))
+                && edge.curve().point(edge.interval().start()).z > 4.0
+        })
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(rims.len(), 6);
+    let result = run(&plate, &rims, fillet(1.0));
+    let hole = PI * 9.0 * 5.0;
+    let rounded = 2.0 * PI * (3.0 + SPANDREL_CENTROID) * spandrel(1.0);
+    check(
+        "perforated",
+        &result,
+        44.0 * 32.0 * 5.0 - 6.0 * (hole + rounded),
+    );
+    assert_eq!(blend_faces(&result).len(), 6);
+}

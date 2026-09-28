@@ -786,23 +786,31 @@ pub fn blend(
     }
     let topology = Topology::new(solid);
     let chosen = propagate(solid, &topology, edges)?;
-    let mut concave = Vec::new();
-    let mut convex = Vec::new();
-    for edge in chosen {
-        if analyze(solid, edge)?.section.convex {
-            convex.push(edge);
-        } else {
-            concave.push(edge);
-        }
-    }
+    let analysed: BTreeMap<EdgeId, EdgeGeometry> = chosen
+        .iter()
+        .map(|edge| Ok((*edge, analyze(solid, *edge)?)))
+        .collect::<Result<_, BlendError>>()?;
+    let (convex, concave): (Vec<EdgeId>, Vec<EdgeId>) = chosen.iter().partition(|edge| {
+        analysed
+            .get(edge)
+            .is_some_and(|geometry| geometry.section.convex)
+    });
     if concave.is_empty() || convex.is_empty() {
-        return apply(solid, edges, shape, feature);
+        let geometries: Vec<EdgeGeometry> = analysed.into_values().collect();
+        return apply_analysed(solid, &topology, &geometries, shape, feature);
     }
     let references: Vec<(EdgeId, EdgeReference)> = convex
         .iter()
         .filter_map(|edge| Some((*edge, EdgeReference::capture(solid, *edge)?)))
         .collect();
-    let filled = apply(solid, &concave, shape, feature)?;
+    let filling = propagate(solid, &topology, &concave)?
+        .iter()
+        .map(|edge| match analysed.get(edge) {
+            Some(geometry) => Ok(*geometry),
+            None => analyze(solid, *edge),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let filled = apply_analysed(solid, &topology, &filling, shape, feature)?;
     if let Some(lost) = convex
         .iter()
         .find(|edge| !references.iter().any(|(captured, _)| captured == *edge))
@@ -832,19 +840,34 @@ fn apply(
     feature: u64,
 ) -> Result<Solid, BlendError> {
     let topology = Topology::new(solid);
-    let chosen = propagate(solid, &topology, edges)?;
+    let geometries = propagate(solid, &topology, edges)?
+        .into_iter()
+        .map(|edge| analyze(solid, edge))
+        .collect::<Result<Vec<_>, _>>()?;
+    apply_analysed(solid, &topology, &geometries, shape, feature)
+}
+
+fn apply_analysed(
+    solid: &Solid,
+    topology: &Topology,
+    geometries: &[EdgeGeometry],
+    shape: BlendShape,
+    feature: u64,
+) -> Result<Solid, BlendError> {
+    let chosen: Vec<EdgeId> = geometries.iter().map(|geometry| geometry.edge).collect();
     let chosen_set: BTreeSet<EdgeId> = chosen.iter().copied().collect();
     let classifier = solid.classifier();
     let mut planned = Vec::with_capacity(chosen.len());
-    for edge in &chosen {
-        let geometry = analyze(solid, *edge)?;
+    for geometry in geometries {
+        let geometry = *geometry;
+        let edge = geometry.edge;
         let blend = match shape {
             BlendShape::Fillet { radius } => geometry.section.fillet(radius),
             BlendShape::Chamfer { distance } => geometry.section.chamfer(distance),
         }
-        .ok_or(BlendError::TooLarge(*edge))?;
+        .ok_or(BlendError::TooLarge(edge))?;
         if !fits(&classifier, solid, &geometry, &blend) {
-            return Err(BlendError::TooLarge(*edge));
+            return Err(BlendError::TooLarge(edge));
         }
         let reach = geometry.section.reach(&blend);
         planned.push((geometry, blend, reach));
@@ -863,7 +886,7 @@ fn apply(
             vertices
                 .into_iter()
                 .filter_map(|vertex| {
-                    corner::find(solid, &topology, &chosen, &convex, radius, vertex)
+                    corner::find(solid, topology, &chosen, &convex, radius, vertex)
                         .map(|corner| (vertex, corner))
                 })
                 .collect()
@@ -872,7 +895,7 @@ fn apply(
     };
     let around = Surroundings {
         solid,
-        topology: &topology,
+        topology,
         chosen: &chosen_set,
         corners: &corners,
     };
@@ -893,15 +916,93 @@ fn apply(
             convex: true,
         });
     }
-    tools.sort_by_key(|tool| !tool.convex);
+    let (convex, concave): (Vec<Tool>, Vec<Tool>) = tools.into_iter().partition(|tool| tool.convex);
     let mut result = solid.clone();
-    for tool in tools {
-        let operation = if tool.convex {
-            BooleanOperation::Difference
-        } else {
-            BooleanOperation::Union
-        };
-        result = boolean(&result, &tool.solid, operation)?;
+    for (group, operation) in [
+        (convex, BooleanOperation::Difference),
+        (concave, BooleanOperation::Union),
+    ] {
+        let solids: Vec<Solid> = group.into_iter().map(|tool| tool.solid).collect();
+        result = applied(&result, &solids, operation)?;
+    }
+    Ok(result)
+}
+
+struct ToolGroup {
+    solid: Solid,
+    members: Vec<usize>,
+}
+
+fn cancelled(error: BooleanError) -> Result<(), BooleanError> {
+    match error {
+        BooleanError::Cancelled(interrupted) => Err(BooleanError::Cancelled(interrupted)),
+        _ => Ok(()),
+    }
+}
+
+fn grouped(tools: &[Solid]) -> Result<Vec<ToolGroup>, BooleanError> {
+    let mut groups: Vec<ToolGroup> = tools
+        .iter()
+        .enumerate()
+        .map(|(index, solid)| ToolGroup {
+            solid: solid.clone(),
+            members: vec![index],
+        })
+        .collect();
+    let mut refused: BTreeSet<(Vec<usize>, Vec<usize>)> = BTreeSet::new();
+    loop {
+        let mut progressed = false;
+        let mut next = Vec::with_capacity(groups.len());
+        let mut pending = groups.into_iter();
+        while let Some(first) = pending.next() {
+            let Some(second) = pending.next() else {
+                next.push(first);
+                break;
+            };
+            let pair = (first.members.clone(), second.members.clone());
+            if !refused.contains(&pair) {
+                progressed = true;
+                match boolean(&first.solid, &second.solid, BooleanOperation::Union) {
+                    Ok(solid) => {
+                        let mut members = first.members;
+                        members.extend(second.members);
+                        next.push(ToolGroup { solid, members });
+                        continue;
+                    }
+                    Err(error) => cancelled(error)?,
+                }
+                refused.insert(pair);
+            }
+            next.push(first);
+            next.push(second);
+        }
+        groups = next;
+        if groups.len() <= 1 || !progressed {
+            return Ok(groups);
+        }
+        groups.rotate_left(1);
+    }
+}
+
+fn applied(
+    solid: &Solid,
+    tools: &[Solid],
+    operation: BooleanOperation,
+) -> Result<Solid, BooleanError> {
+    let mut result = solid.clone();
+    for group in grouped(tools)? {
+        if group.members.len() > 1 {
+            match boolean(&result, &group.solid, operation) {
+                Ok(next) => {
+                    result = next;
+                    continue;
+                }
+                Err(error) => cancelled(error)?,
+            }
+        }
+        for tool in group.members.iter().filter_map(|member| tools.get(*member)) {
+            result = boolean(&result, tool, operation)?;
+        }
     }
     Ok(result)
 }

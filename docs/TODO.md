@@ -35,8 +35,6 @@ within a category run from most to least important.
 
 ## Kernel performance
 
-- Blends run one full boolean per edge on a growing solid, and mixed selections analyse twice.
-  Union the tools first.
 - `heal_edges` rebuilds use and incidence maps for every join.
 - B-spline surface projection of a point off the surface refines four seeds every call, and
   recomputes poles.

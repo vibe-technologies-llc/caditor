@@ -448,8 +448,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
       origins (fragments of a split face share its name), pieces keep their edge's name and new
       edges are named `between` their two faces, before the plan disambiguates duplicates.
   - Blends (`blend/`): `blend(solid, edges, BlendShape, feature)` rounds (`Fillet`) or bevels
-    (`Chamfer`) edges by sweeping a tool and one boolean per tool, valid or a `BlendError` that
-    names the edge. Chosen edges first grow along tangent-continuous chains (`blend_chain`) and
+    (`Chamfer`) edges by sweeping a tool per edge, valid or a `BlendError` that names the edge.
+    Tools are united pairwise in rounds (a pair that cannot be united, such as tools meeting only
+    along an edge, stays apart) and each group is applied in one boolean, or tool by tool when
+    that fails. Chosen edges first grow along tangent-continuous chains (`blend_chain`) and
     smooth edges are dropped. Supported edges are straight ones whose faces run along them (planes,
     parallel cylinders), swept by extrusion, and circles whose faces share their axis (planes,
     cylinders, cones, spheres, tori), swept by revolution; the blend must fit on both faces at a
