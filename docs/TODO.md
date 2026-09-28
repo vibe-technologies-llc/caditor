@@ -100,19 +100,12 @@ within a category run from most to least important.
 
 ## Rendering robustness
 
-- Picking lets translucent fills win: pick fills write no depth, so a principal or datum plane
-  in front of a face or region owns the pixel, and choosing a sketch plane can put the sketch on
-  XZ instead of the clicked face (`viewport.rs` pick pass, `scene.rs`).
 - Line widths, marker sizes, pick tolerances and the pick window are in physical pixels, so at
   200% edges are 0.75 logical px and picks half as forgiving, while snapping scales.
-- A click can act on a stale hover from an earlier cursor position or view, since `apply_pick`
-  never compares the result's key with the current one.
 - GPU device loss is never handled: no device-lost callback, and the UI shares the dead encoder.
 - Frame failures redraw in a tight loop, and a hidden window blocks the UI thread for the 1 s
   acquire timeout per frame. Back off and stop drawing while occluded.
 - Surface recovery reconfigures with the stale size, which can spin on `Outdated`.
-- The surface format is the first non-sRGB one the driver lists, which can be snorm or float on
-  HDR setups. Prefer `Bgra8Unorm` or `Rgba8Unorm`.
 - The device uses default limits with no retry, so windows wider than 8192 px fail and GL or
   downlevel adapters (the mesh shader needs vertex storage) fail at startup; the high-performance
   preference also wakes discrete GPUs.

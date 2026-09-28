@@ -718,12 +718,16 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     headlight and a small specular term, and write depth, so edges and sketches behind them are
     hidden in the view and in picking alike.
   - Depth is reverse-Z with an infinite far plane and `Depth32Float`, with 4x MSAA when the
-    adapter supports it. Model geometry draws over reference geometry (datum planes, axes)
-    through a per-`Layer` depth bias, and model-layer fills (sketch regions) over the faces
-    they lie on.
+    adapter supports it. The surface is `Bgra8Unorm` or `Rgba8Unorm` when offered (never a float
+    or snorm format an HDR setup lists first), else the first non-sRGB one. Model geometry draws
+    over reference geometry (datum planes, axes) through a per-`Layer` depth bias, and model-layer
+    fills (sketch regions) over the faces they lie on.
   - Picking renders a small window around the cursor into ID and depth targets and reads it
     back asynchronously, so hover never blocks the UI thread. Hits carry their world position,
-    which navigation uses as the orbit pivot, pan grab point and zoom anchor.
+    which navigation uses as the orbit pivot, pan grab point and zoom anchor. Reference-layer
+    fills (principal and datum planes) are drawn in a pass of their own first, nearest winning,
+    and everything else is drawn over them, so a translucent plane owns a pixel only where no
+    face, line, marker or model fill covers it and a face seen through a plane is picked.
   - Navigation has a single model: right-drag orbits (turntable around world Z), middle-drag or
     Shift+right-drag pans, the wheel and pinch zoom toward the point under the cursor, and
     view changes from the view cube or fit animate.
@@ -733,7 +737,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   (`feature_tree.rs`) and parameter table (`parameter_table.rs`), the viewport widget with
   navigation, hover and selection (`viewport.rs`), the view cube (`view_cube.rs`) and the
   conversion of documents and results to a `Scene` (`scene.rs`). Selectable things are
-  `Pickable` values built from stable IDs.
+  `Pickable` values built from stable IDs. The hover remembers the cursor position and view its
+  pick result was made for, and a click that depends on it (anything but a drawing tool's) waits
+  until a result for the current cursor and view has arrived, so it never acts on a stale hover.
   - Look (`fonts.rs`, `appearance.rs`, `icons.rs`, `widgets.rs`): the interface is set in Inter (the
     variable font in `assets/fonts`, OFL, registered at weights 400, 500 and 600 through its `wght`
     axis as the proportional, `medium` and `semibold` families) with Phosphor icons
@@ -1005,10 +1011,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `Focus::Dimension` of the edited sketch, which the app takes from the panels and hands to
     the viewport, waiting until the dimension can be drawn.
   - `ui_tests.rs` drives the real toolbars, panels and viewport through a headless egui context
-    with synthetic input; picking needs the GPU, so tests set the viewport selection directly
-    or feed a pick result for a chosen `Pickable` (`hover_through_pick`),
-    while drawing tests click sketch positions mapped to the screen through the view and
-    annotation tests click the painted labels and glyphs.
+    with synthetic input; picking needs the GPU, so the harness answers each pick request as the
+    renderer would, with nothing under the cursor unless a test hovers a chosen `Pickable`
+    (`hover_pickable`, through `hover_through_pick`) until the pointer moves, and can hold answers
+    back like a slow GPU (`picks_held`). Tests also set the viewport selection directly, drawing
+    tests click sketch positions mapped to the screen through the view and annotation tests click
+    the painted labels and glyphs.
 
 Entities, constraints, parameters and features are referred to by stable IDs (`EntityId`,
 `ConstraintId`, `ParameterId`, `FeatureId`). IDs come from a per-container counter and are never

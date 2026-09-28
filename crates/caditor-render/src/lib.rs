@@ -100,9 +100,10 @@ impl Renderer {
             .get_default_config(&adapter, size.width, size.height)
             .ok_or(RenderError::UnsupportedSurface)?;
         let capabilities = surface.get_capabilities(&adapter);
-        if let Some(format) = capabilities.formats.iter().find(|format| !format.is_srgb()) {
-            config.format = *format;
+        if let Some(format) = preferred_format(&capabilities.formats) {
+            config.format = format;
         }
+        log::info!("drawing to a {:?} surface", config.format);
         surface.configure(&device, &config);
         let sample_count = supported_sample_count(&adapter, config.format);
         log::info!("drawing the viewport with {sample_count}x multisampling");
@@ -240,6 +241,18 @@ impl Renderer {
     }
 }
 
+const PREFERRED_FORMATS: [wgpu::TextureFormat; 2] = [
+    wgpu::TextureFormat::Bgra8Unorm,
+    wgpu::TextureFormat::Rgba8Unorm,
+];
+
+fn preferred_format(formats: &[wgpu::TextureFormat]) -> Option<wgpu::TextureFormat> {
+    PREFERRED_FORMATS
+        .into_iter()
+        .find(|format| formats.contains(format))
+        .or_else(|| formats.iter().copied().find(|format| !format.is_srgb()))
+}
+
 fn supported_sample_count(adapter: &wgpu::Adapter, format: wgpu::TextureFormat) -> u32 {
     let color = adapter.get_texture_format_features(format).flags;
     let depth = adapter.get_texture_format_features(DEPTH_FORMAT).flags;
@@ -257,5 +270,34 @@ fn clamp_size(size: SurfaceSize) -> SurfaceSize {
     SurfaceSize {
         width: size.width.max(1),
         height: size.height.max(1),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use wgpu::TextureFormat;
+
+    use super::*;
+
+    #[test]
+    fn the_surface_prefers_plain_eight_bit_formats() {
+        assert_eq!(
+            preferred_format(&[
+                TextureFormat::Rgba16Float,
+                TextureFormat::Bgra8UnormSrgb,
+                TextureFormat::Rgba8Unorm,
+                TextureFormat::Bgra8Unorm,
+            ]),
+            Some(TextureFormat::Bgra8Unorm)
+        );
+        assert_eq!(
+            preferred_format(&[TextureFormat::Rgba16Float, TextureFormat::Rgba8Unorm]),
+            Some(TextureFormat::Rgba8Unorm)
+        );
+        assert_eq!(
+            preferred_format(&[TextureFormat::Bgra8UnormSrgb, TextureFormat::Rgb10a2Unorm]),
+            Some(TextureFormat::Rgb10a2Unorm)
+        );
+        assert_eq!(preferred_format(&[TextureFormat::Bgra8UnormSrgb]), None);
     }
 }

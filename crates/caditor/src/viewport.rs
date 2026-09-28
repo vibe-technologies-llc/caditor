@@ -72,6 +72,19 @@ struct PointerHit {
     position: Point3,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PickSource {
+    cursor: Vector2,
+    view: View,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Click {
+    double: bool,
+    primary: bool,
+    toggle: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct PickKey {
     cursor: Vector2,
@@ -89,6 +102,8 @@ pub struct ViewportState {
     camera: Camera,
     selection: Selection,
     hovered: Option<Pickable>,
+    hover_source: Option<PickSource>,
+    pending_click: Option<Click>,
     pointer_hit: Option<PointerHit>,
     cursor: Option<Vector2>,
     rect: Option<Rect>,
@@ -96,7 +111,7 @@ pub struct ViewportState {
     drag_anchor: Option<Point3>,
     needs_initial_fit: bool,
     fit_requested: bool,
-    picks_in_flight: Option<PickTable>,
+    picks_in_flight: Option<(PickTable, View)>,
     last_pick: Option<PickKey>,
     edited: Option<FeatureId>,
     face_edited_sketch: bool,
@@ -124,6 +139,8 @@ impl ViewportState {
             camera: Camera::new(initial),
             selection: Selection::default(),
             hovered: None,
+            hover_source: None,
+            pending_click: None,
             pointer_hit: None,
             cursor: None,
             rect: None,
@@ -182,7 +199,7 @@ impl ViewportState {
     }
 
     pub fn apply_pick(&mut self, result: &PickResult) {
-        let Some(picks) = self.picks_in_flight.take() else {
+        let Some((picks, view)) = self.picks_in_flight.take() else {
             return;
         };
         if self.cursor.is_none() {
@@ -190,6 +207,10 @@ impl ViewportState {
         }
         let best = picks.best_hit(result);
         self.hovered = best.map(|(pickable, _)| pickable);
+        self.hover_source = Some(PickSource {
+            cursor: result.cursor,
+            view,
+        });
         self.pointer_hit = best
             .map(|(_, hit)| hit)
             .or_else(|| result.hits.first().copied())
@@ -337,7 +358,7 @@ impl ViewportState {
                 return None;
             }
             self.last_pick = Some(key);
-            self.picks_in_flight = Some(built.picks.clone());
+            self.picks_in_flight = Some((built.picks.clone(), view));
             Some(cursor)
         });
         let scale = self.pixels_per_point;
@@ -382,10 +403,12 @@ impl ViewportState {
 
     #[cfg(test)]
     pub fn hover_through_pick(&mut self, built: &BuiltScene, pickable: Pickable) {
-        let (Some(cursor), Some(id)) = (self.cursor, built.picks.id_of(pickable)) else {
+        let (Some(cursor), Some(id), Some(view)) =
+            (self.cursor, built.picks.id_of(pickable), self.view())
+        else {
             return;
         };
-        self.picks_in_flight = Some(built.picks.clone());
+        self.picks_in_flight = Some((built.picks.clone(), view));
         self.apply_pick(&PickResult {
             cursor,
             hits: vec![caditor_render::PickHit {
@@ -427,6 +450,8 @@ impl ViewportState {
         self.cursor = inside.map(|position| self.to_pixels(position - rect.min));
         if self.cursor.is_none() {
             self.hovered = None;
+            self.hover_source = None;
+            self.pending_click = None;
             self.pointer_hit = None;
             self.last_pick = None;
         }
@@ -535,33 +560,65 @@ impl ViewportState {
         editing: &SketchEditing,
         actions: &mut Vec<Action>,
     ) {
-        if response.double_clicked()
+        let drawing = editing.active().is_some_and(|active| active.tool.draws());
+        if self.hover_is_current()
+            && let Some(click) = self.pending_click.take()
+        {
+            self.perform_click(click, model, editing, drawing, actions);
+        }
+        let click = Click {
+            double: response.double_clicked(),
+            primary: response.clicked_by(PointerButton::Primary),
+            toggle: ui.input(|input| input.modifiers.shift || input.modifiers.command),
+        };
+        if !click.double && !click.primary {
+            return;
+        }
+        if drawing || self.hover_is_current() {
+            self.perform_click(click, model, editing, drawing, actions);
+        } else {
+            self.pending_click = Some(click);
+        }
+    }
+
+    fn hover_is_current(&self) -> bool {
+        let current = self.cursor.zip(self.view());
+        self.hover_source
+            .is_some_and(|source| current == Some((source.cursor, source.view)))
+    }
+
+    fn perform_click(
+        &mut self,
+        click: Click,
+        model: &Model,
+        editing: &SketchEditing,
+        drawing: bool,
+        actions: &mut Vec<Action>,
+    ) {
+        if click.double
             && editing.feature().is_none()
             && let Some(command) = open_command(self.hovered, model)
         {
             actions.push(Action::Editing(command));
             return;
         }
-        if !response.clicked_by(PointerButton::Primary) {
+        if !click.primary {
             return;
         }
         if let Some(action) = pick_action(self.hovered, model, editing) {
             actions.extend(action);
             return;
         }
-        if let Some(active) = editing.active()
-            && active.tool.draws()
-        {
+        if drawing {
             if let Some(transaction) = self.drawing.click(model) {
                 actions.push(Action::Apply(transaction));
             }
             return;
         }
-        self.select(ui);
+        self.select(click.toggle);
     }
 
-    fn select(&mut self, ui: &egui::Ui) {
-        let toggle = ui.input(|input| input.modifiers.shift || input.modifiers.command);
+    fn select(&mut self, toggle: bool) {
         match (self.hovered, toggle) {
             (Some(pickable), true) => self.selection.toggle(pickable),
             (Some(pickable), false) => self.selection.replace_with(pickable),

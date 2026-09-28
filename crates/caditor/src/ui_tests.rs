@@ -91,6 +91,8 @@ struct Harness {
     texts: Vec<(String, Rect)>,
     text_colors: Vec<(String, Color32)>,
     time: f64,
+    forced_hover: Option<(Pos2, Pickable)>,
+    picks_held: bool,
 }
 
 impl Harness {
@@ -139,6 +141,8 @@ impl Harness {
             texts: Vec::new(),
             text_colors: Vec::new(),
             time: 0.0,
+            forced_hover: None,
+            picks_held: false,
         };
         harness.settle();
         harness
@@ -159,6 +163,14 @@ impl Harness {
 
     fn frame(&mut self) {
         self.time += FRAME_SECONDS;
+        if let Some((forced, _)) = self.forced_hover
+            && self
+                .events
+                .iter()
+                .any(|event| matches!(event, Event::PointerMoved(position) if *position != forced))
+        {
+            self.forced_hover = None;
+        }
         let input = RawInput {
             screen_rect: Some(Rect::from_min_size(
                 Pos2::ZERO,
@@ -192,17 +204,45 @@ impl Harness {
         );
         self.model
             .mesh_before(self.workspace.editing.context().solid);
-        self.workspace.viewport.build_scene(
+        let built = self.workspace.viewport.build_scene(
             self.model.document(),
             self.model.evaluation(),
             &self.workspace.editing,
         );
+        self.answer_pick(&built);
         self.texts.clear();
         self.text_colors.clear();
         for clipped in output.shapes {
             let ClippedShape { shape, .. } = clipped;
             collect_texts(shape, &mut self.texts, &mut self.text_colors);
         }
+    }
+
+    fn answer_pick(&mut self, built: &scene::BuiltScene) {
+        if self.picks_held {
+            return;
+        }
+        let Some(cursor) = self
+            .workspace
+            .viewport
+            .request(built, true)
+            .and_then(|request| request.pick_at)
+        else {
+            return;
+        };
+        let hits = self
+            .forced_hover
+            .and_then(|(_, pickable)| built.picks.id_of(pickable))
+            .map(|id| caditor_render::PickHit {
+                id,
+                offset_px: 0.0,
+                position: caditor_geometry::Point3::ZERO,
+            })
+            .into_iter()
+            .collect();
+        self.workspace
+            .viewport
+            .apply_pick(&caditor_render::PickResult { cursor, hits });
     }
 
     fn settle(&mut self) {
@@ -511,6 +551,12 @@ impl Harness {
     }
 
     fn click_pickable(&mut self, plane: Plane, point: Point2, pickable: Pickable) {
+        let position = self.hover_pickable(plane, point, pickable);
+        self.press(position);
+        self.frame();
+    }
+
+    fn hover_pickable(&mut self, plane: Plane, point: Point2, pickable: Pickable) -> Pos2 {
         let position = self
             .workspace
             .viewport
@@ -519,9 +565,9 @@ impl Harness {
         self.events.push(Event::PointerMoved(position));
         self.frame();
         let built = self.built();
+        self.forced_hover = Some((position, pickable));
         self.workspace.viewport.hover_through_pick(&built, pickable);
-        self.press(position);
-        self.frame();
+        position
     }
 
     fn solid(&self, feature: FeatureId) -> &SolidFeature {
@@ -2319,6 +2365,41 @@ fn a_sketch_started_on_a_selected_face_follows_it_when_the_body_changes() {
     assert_eq!(plane_height(&harness, sketch), 25.0);
     assert!((harness.body_volume(extrude) - (40000.0 + 2000.0)).abs() < 1.0);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn a_click_waits_for_the_pick_under_the_cursor_rather_than_using_an_old_one() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([]);
+    harness.hover_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    harness.frame();
+
+    harness.picks_held = true;
+    let beside = harness
+        .workspace
+        .viewport
+        .screen_position(Plane::XY, Point2::new(-30.0, 20.0))
+        .unwrap();
+    harness.events.push(Event::PointerMoved(beside));
+    harness.press(beside);
+    harness.frame();
+    assert!(harness.workspace.viewport.selection().is_empty());
+
+    harness.picks_held = false;
+    harness.frame();
+    harness.frame();
+    assert!(harness.workspace.viewport.selection().is_empty());
+
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    assert!(harness.workspace.viewport.selection().contains(top));
+    harness.picks_held = true;
+    harness.events.push(Event::PointerMoved(beside));
+    harness.press(beside);
+    harness.picks_held = false;
+    harness.frame();
+    harness.frame();
+    assert!(harness.workspace.viewport.selection().is_empty());
 }
 
 #[test]

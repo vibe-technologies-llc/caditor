@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use caditor_geometry::{Point2, Point3, Vector3};
 use glam::{DVec2, Vec3};
 
@@ -5,8 +7,8 @@ use crate::{
     camera::View,
     gpu::{Bytes, GrowableBuffer},
     mesh::{MESH_VERTEX_STRIDE, MeshCache},
-    picking::{self, Picking},
-    scene::{Fill, Grid, PickId, Primitive, Scene, ViewportRect},
+    picking::{self, PickTargets, Picking},
+    scene::{Fill, Grid, Layer, PickId, Primitive, Scene, ViewportRect},
 };
 
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -81,6 +83,7 @@ struct Pipelines {
     pick_lines: wgpu::RenderPipeline,
     pick_markers: wgpu::RenderPipeline,
     pick_fills: wgpu::RenderPipeline,
+    pick_reference_fills: wgpu::RenderPipeline,
     pick_meshes: wgpu::RenderPipeline,
 }
 
@@ -96,6 +99,13 @@ struct Counts {
     lines: u32,
     markers: u32,
     fill_vertices: u32,
+    pick_fills: PickFills,
+}
+
+#[derive(Default)]
+struct PickFills {
+    reference_vertices: u32,
+    model_vertices: u32,
 }
 
 pub struct ViewportRenderer {
@@ -108,6 +118,7 @@ pub struct ViewportRenderer {
     lines: GrowableBuffer,
     markers: GrowableBuffer,
     fills: GrowableBuffer,
+    pick_fills: GrowableBuffer,
     meshes: MeshCache,
     staging: Bytes,
     targets: Option<SceneTargets>,
@@ -150,6 +161,7 @@ impl ViewportRenderer {
             lines: GrowableBuffer::new(device, "lines", wgpu::BufferUsages::VERTEX),
             markers: GrowableBuffer::new(device, "markers", wgpu::BufferUsages::VERTEX),
             fills: GrowableBuffer::new(device, "fills", wgpu::BufferUsages::VERTEX),
+            pick_fills: GrowableBuffer::new(device, "pick fills", wgpu::BufferUsages::VERTEX),
             meshes,
             staging: Bytes::default(),
             targets: None,
@@ -309,46 +321,46 @@ impl ViewportRenderer {
         if !self.picking.is_idle() {
             return;
         }
+        let fills = &counts.pick_fills;
         let targets = self.picking.targets();
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("pick"),
-            color_attachments: &[
-                Some(wgpu::RenderPassColorAttachment {
-                    view: &targets.ids,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                }),
-                Some(wgpu::RenderPassColorAttachment {
-                    view: &targets.depths,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                }),
-            ],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &targets.depth_buffer,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(FAR_DEPTH),
-                    store: wgpu::StoreOp::Discard,
-                }),
-                stencil_ops: None,
-            }),
-            ..Default::default()
-        });
+        let mut behind = begin_pick_pass(encoder, targets, "pick reference fills", true);
+        behind.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
+        self.draw_pick_fills(
+            &mut behind,
+            &self.pipelines.pick_reference_fills,
+            0..fills.reference_vertices,
+        );
+        drop(behind);
+        let mut pass = begin_pick_pass(encoder, targets, "pick", false);
         pass.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
         self.meshes.draw(&mut pass, &self.pipelines.pick_meshes);
-        self.draw_fills(&mut pass, &self.pipelines.pick_fills, counts);
+        self.draw_pick_fills(
+            &mut pass,
+            &self.pipelines.pick_fills,
+            fills.reference_vertices..fills.reference_vertices + fills.model_vertices,
+        );
         self.draw_lines(&mut pass, &self.pipelines.pick_lines, counts);
         self.draw_markers(&mut pass, &self.pipelines.pick_markers, counts);
         drop(pass);
         self.picking.encode_readback(encoder, *view, cursor);
+    }
+
+    fn draw_pick_fills(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        vertices: Range<u32>,
+    ) {
+        if vertices.is_empty() {
+            return;
+        }
+        pass.set_pipeline(pipeline);
+        pass.set_vertex_buffer(
+            0,
+            self.pick_fills
+                .slice(u64::from(vertices.end) * FILL_VERTEX_STRIDE),
+        );
+        pass.draw(vertices, 0..1);
     }
 
     fn ensure_targets(&mut self, device: &wgpu::Device, width: u32, height: u32) {
@@ -447,11 +459,51 @@ impl ViewportRenderer {
         }
         self.fills.upload(device, queue, &self.staging);
 
+        let pick_fills = match viewport.pick_at {
+            Some(_) => self.upload_pick_fills(device, queue, &scene.fills, eye),
+            None => PickFills::default(),
+        };
+
         Counts {
             lines: u32::try_from(scene.lines.len()).unwrap_or(u32::MAX),
             markers: u32::try_from(scene.markers.len()).unwrap_or(u32::MAX),
             fill_vertices,
+            pick_fills,
         }
+    }
+
+    fn upload_pick_fills(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        fills: &[Fill],
+        eye: Point3,
+    ) -> PickFills {
+        self.staging.clear();
+        let mut counts = PickFills::default();
+        for layer in [Layer::Reference, Layer::Model] {
+            let mut written = 0u32;
+            for fill in fills
+                .iter()
+                .filter(|fill| fill.layer == layer && fill.pick.is_some())
+            {
+                let depth_bias = fill.layer.depth_bias(Primitive::Fill);
+                for corner in fill.triangles.iter().flatten() {
+                    self.staging
+                        .vec3(relative_to_eye(*corner, eye))
+                        .floats(&fill.color.to_array())
+                        .u32(PickId::raw(fill.pick))
+                        .f32(depth_bias);
+                    written = written.saturating_add(1);
+                }
+            }
+            match layer {
+                Layer::Reference => counts.reference_vertices = written,
+                Layer::Model => counts.model_vertices = written,
+            }
+        }
+        self.pick_fills.upload(device, queue, &self.staging);
+        counts
     }
 }
 
@@ -602,6 +654,14 @@ impl Pipelines {
                 "fs_pick",
                 false,
             ),
+            pick_reference_fills: pick(
+                "pick reference fills",
+                &scene_layout,
+                "vs_fill",
+                &fills,
+                "fs_pick",
+                true,
+            ),
             pick_meshes: pick(
                 "pick meshes",
                 &mesh_pipeline_layout,
@@ -711,6 +771,43 @@ fn grid_uniform(bytes: &mut Bytes, grid: &Grid, view: &View) {
         .vec4(plane.x_axis().as_vec3(), spacing as f32)
         .vec4(plane.y_axis().as_vec3(), extent as f32)
         .floats(&grid.color.to_array());
+}
+
+fn begin_pick_pass<'a>(
+    encoder: &'a mut wgpu::CommandEncoder,
+    targets: &PickTargets,
+    label: &'static str,
+    first: bool,
+) -> wgpu::RenderPass<'a> {
+    let load = if first {
+        wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+    } else {
+        wgpu::LoadOp::Load
+    };
+    let attachment = |view| {
+        Some(wgpu::RenderPassColorAttachment {
+            view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load,
+                store: wgpu::StoreOp::Store,
+            },
+        })
+    };
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some(label),
+        color_attachments: &[attachment(&targets.ids), attachment(&targets.depths)],
+        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+            view: &targets.depth_buffer,
+            depth_ops: Some(wgpu::Operations {
+                load: wgpu::LoadOp::Clear(FAR_DEPTH),
+                store: wgpu::StoreOp::Discard,
+            }),
+            stencil_ops: None,
+        }),
+        ..Default::default()
+    })
 }
 
 fn fills_back_to_front<'a>(fills: &'a [Fill], view: &View) -> Vec<&'a Fill> {

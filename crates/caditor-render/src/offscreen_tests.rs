@@ -303,3 +303,63 @@ fn draws_shaded_faces_that_hide_what_is_behind_them_and_picks_the_face_in_front(
             .all(|hit| hit.id != PickId::from_index(0).unwrap())
     );
 }
+
+fn square_fill(z: f64, half: f64, layer: Layer, index: usize) -> Fill {
+    Fill::convex(
+        &[
+            Point3::new(-half, -half, z),
+            Point3::new(half, -half, z),
+            Point3::new(half, half, z),
+            Point3::new(-half, half, z),
+        ],
+        Color::from_rgba8(0, 0, 255, 40),
+        layer,
+        PickId::from_index(index),
+    )
+}
+
+#[test]
+fn reference_fills_are_picked_only_where_nothing_else_is() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let top_face = PickId::from_index(14).unwrap();
+    let styles: Vec<FaceStyle> = (0..6)
+        .map(|index| FaceStyle {
+            color: Color::from_rgb8(40, 200, 40),
+            pick: PickId::from_index(10 + index),
+        })
+        .collect();
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(box_mesh(20.0)),
+            faces: styles,
+        }],
+        fills: vec![
+            square_fill(40.0, 60.0, Layer::Reference, 1),
+            square_fill(30.0, 60.0, Layer::Reference, 2),
+            square_fill(20.0, 5.0, Layer::Model, 3),
+        ],
+        ..Scene::default()
+    };
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let first_hit = |at: Point3| {
+        render(&device, &queue, &view, &scene, view.project(at).unwrap())
+            .pick
+            .hits
+            .first()
+            .map(|hit| (hit.id, hit.position))
+    };
+
+    let (id, position) = first_hit(Point3::new(12.0, 12.0, 20.0)).unwrap();
+    assert_eq!(id, top_face);
+    assert!(position.distance(Point3::new(12.0, 12.0, 20.0)) < 0.5);
+
+    let (id, _) = first_hit(Point3::new(0.0, 0.0, 20.0)).unwrap();
+    assert_eq!(id, PickId::from_index(3).unwrap());
+
+    let (id, position) = first_hit(Point3::new(45.0, 45.0, 40.0)).unwrap();
+    assert_eq!(id, PickId::from_index(1).unwrap());
+    assert!((position.z - 40.0).abs() < 0.5, "{position:?}");
+}
