@@ -80,29 +80,33 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   `same_sense` is the face sense, since the kernel's normals are STEP's. Reals print as the shortest
   round-tripping decimal with a point, and text escapes quotes, backslashes and non-ASCII (`\X2\`).
   The output was checked against OpenCascade (valid, closed, same volume) for every kind of face.
-  - Reading (`part21.rs`, `read/`): a Part 21 parser (header, data sections, complex instances
-    sorted by name, typed values, comments, the `\X\`, `\X2\`, `\X4\` and `\S\` encodings, nesting
-    limit) feeds `read_step`, which returns every `MANIFOLD_SOLID_BREP` and `BREP_WITH_VOIDS` as
-    named kernel solids plus notes, or a `ReadError` in words. Units come from each representation's
-    context (SI prefixes and conversion-based units such as inches and degrees, whose factor may be
-    a simple or a complex `MEASURE_WITH_UNIT`), and a note names every length unit other than
-    millimetres that was converted. Assemblies are followed from each solid's representation up to
-    the roots through `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION` (the child is the
-    representation of the occurrence's child definition, found through
-    `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` and `NEXT_ASSEMBLY_USAGE_OCCURRENCE`, else guessed from
-    which side is some assembly's child; `rep_1` is carried into `rep_2`, so the transform is
-    inverted when the parent is listed first), untransformed relationships and `MAPPED_ITEM`s,
-    giving one solid per placement. A product's only body takes the product's name and several
-    bodies keep their own; placements of one solid take their occurrences' names when each has a
-    distinct one, else a number. Placements are memoised per representation (so layered assemblies
-    cost one visit per part), assemblies deeper than `MAX_DEPTH` or placing a part only inside
-    itself leave that solid out with a note, and the whole file yields at most `MAX_INSTANCES`
-    solids. Spline degrees above the kernel's `MAX_SPLINE_DEGREE` are refused as they are read, and
-    knot multiplicities must sum to points plus degree plus one (with checked arithmetic) before any
-    knot is expanded. Geometry covers every kernel surface and curve including B-spline surfaces and
-    curves in all their forms (Bézier ones with the standard piecewise knots, degree-fold at every
-    joint; uniform and other unclamped ones clamped by knot insertion), trimmed and surface curves
-    by their basis, and polylines. Topology is surveyed first (which faces use each edge and
+  - Reading (`part21.rs`, `read/`): a Part 21 parser (header, named and repeated data sections,
+    edition 3 `ANCHOR`, `REFERENCE` and `SIGNATURE` sections skipped byte by byte past strings and
+    comments, complex instances sorted by name, typed values, comments, the `\X\`, `\X2\`, `\X4\`
+    and `\S\` encodings, nesting limit) feeds `read_step`, which returns every
+    `MANIFOLD_SOLID_BREP`, `BREP_WITH_VOIDS`, `FACETED_BREP` and `SHELL_BASED_SURFACE_MODEL` with
+    closed shells (each closed shell a lump) as named kernel solids plus notes, or a `ReadError` in
+    words. Units come from each representation's context (SI prefixes and conversion-based units
+    such as inches and degrees, whose factor may be a simple or a complex `MEASURE_WITH_UNIT`), and
+    a note names every length unit other than millimetres that was converted. Assemblies are
+    followed from each solid's representation up to the roots through
+    `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION` (the child is the representation of the
+    occurrence's child definition, found through `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` and
+    `NEXT_ASSEMBLY_USAGE_OCCURRENCE`, else guessed from which side is some assembly's child; `rep_1`
+    is carried into `rep_2`, so the transform is inverted when the parent is listed first),
+    untransformed relationships and `MAPPED_ITEM`s, giving one solid per placement. A product's only
+    body takes the product's name and several bodies keep their own; placements of one solid take
+    their occurrences' names when each has a distinct one, else a number. Placements are memoised
+    per representation (so layered assemblies cost one visit per part), assemblies deeper than
+    `MAX_DEPTH` or placing a part only inside itself leave that solid out with a note, and the whole
+    file yields at most `MAX_INSTANCES` solids. Spline degrees above the kernel's
+    `MAX_SPLINE_DEGREE` are refused as they are read, and knot multiplicities must sum to points
+    plus degree plus one (with checked arithmetic) before any knot is expanded. Geometry covers
+    every kernel surface and curve including B-spline surfaces and curves in all their forms (Bézier
+    ones with the standard piecewise knots, degree-fold at every joint; uniform and other unclamped
+    ones clamped by knot insertion), trimmed and surface curves by their basis, and polylines. Faces
+    bounded by `POLY_LOOP`s get line edges shared by corner position (and a plane from the polygon
+    when a plain `FACE` names no surface). Topology is surveyed first (which faces use each edge and
     vertex), then vertices off their faces are moved onto all of them by damped least squares, edges
     not within a quarter of the resolution of both faces are rebuilt with
     `IntersectionCurve::through`, loops take their orientation from bounds, oriented edges and

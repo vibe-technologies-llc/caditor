@@ -56,9 +56,7 @@ within a category run from most to least important.
 ## STEP import and export
 
 - Unsupported entities: `OFFSET_SURFACE`, `DEGENERATE_TOROIDAL_SURFACE` (the kernel refuses
-  spindle tori), `COMPOSITE_CURVE`, `OFFSET_CURVE_3D`, `POLY_LOOP` (so `FACETED_BREP`, which
-  is also misreported as an open surface body), `CLOSED_SHELL`s inside
-  `SHELL_BASED_SURFACE_MODEL`, Part 21 edition 3 sections, and colours and layers.
+  spindle tori), `COMPOSITE_CURVE`, `OFFSET_CURVE_3D`, and colours and layers.
 - The declared `UNCERTAINTY_MEASURE_WITH_UNIT` is ignored, and healing covers only edges with
   exactly two faces.
 - Import canonicalises each placement by writing and re-reading it, parses every import again on

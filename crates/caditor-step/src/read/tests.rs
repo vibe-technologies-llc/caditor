@@ -285,3 +285,82 @@ fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
         .collect();
     assert_eq!(names, ["Left", "Right"]);
 }
+
+fn faceted_cube(top: &str, missing_face: bool) -> String {
+    const FACES: [[usize; 4]; 6] = [
+        [0, 2, 3, 1],
+        [4, 5, 7, 6],
+        [0, 1, 5, 4],
+        [2, 6, 7, 3],
+        [0, 4, 6, 2],
+        [1, 3, 7, 5],
+    ];
+    let mut data = String::new();
+    for index in 0..8 {
+        let pick = |bit: usize| if index & bit == 0 { 0.0 } else { 10.0 };
+        data.push_str(&format!(
+            "#{}=CARTESIAN_POINT('',({:?},{:?},{:?}));\n",
+            index + 1,
+            pick(1),
+            pick(2),
+            pick(4)
+        ));
+    }
+    let mut faces = Vec::new();
+    for (face, corners) in FACES.iter().enumerate() {
+        if missing_face && face == 5 {
+            continue;
+        }
+        let mut points: Vec<String> = corners
+            .iter()
+            .map(|corner| format!("#{}", corner + 1))
+            .collect();
+        let orientation = if face == 3 {
+            points.reverse();
+            ".F."
+        } else {
+            ".T."
+        };
+        data.push_str(&format!(
+            "#{}=POLY_LOOP('',({}));\n#{}=FACE_OUTER_BOUND('',#{},{orientation});\n#{}=FACE('',(#{}));\n",
+            10 + face,
+            points.join(","),
+            20 + face,
+            10 + face,
+            30 + face,
+            20 + face
+        ));
+        faces.push(format!("#{}", 30 + face));
+    }
+    let shell = if missing_face {
+        "OPEN_SHELL"
+    } else {
+        "CLOSED_SHELL"
+    };
+    data.push_str(&format!(
+        "#40={shell}('',({}));\n#41={top};\n",
+        faces.join(",")
+    ));
+    format!("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n{data}ENDSEC;\nEND-ISO-10303-21;\n")
+}
+
+#[test]
+fn faceted_solids_and_closed_surface_models_are_imported() {
+    for top in [
+        "FACETED_BREP('cube',#40)",
+        "SHELL_BASED_SURFACE_MODEL('cube',(#40))",
+    ] {
+        let model = sample(&faceted_cube(top, false));
+        assert_eq!(model.solids.len(), 1, "{top}");
+        assert_eq!(model.solids[0].solid.faces().count(), 6, "{top}");
+        assert_volume(&model.solids[0].solid, 1000.0);
+    }
+    let open = read_step(&faceted_cube(
+        "SHELL_BASED_SURFACE_MODEL('open',(#40))",
+        true,
+    ));
+    assert_eq!(
+        open.map(|model| model.solids.len()),
+        Err(ReadError::NoSolids)
+    );
+}

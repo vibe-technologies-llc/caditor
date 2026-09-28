@@ -23,7 +23,7 @@ use crate::{
     },
 };
 
-const SOLID_KINDS: [&str; 2] = ["MANIFOLD_SOLID_BREP", "BREP_WITH_VOIDS"];
+const SOLID_KINDS: [&str; 3] = ["MANIFOLD_SOLID_BREP", "BREP_WITH_VOIDS", "FACETED_BREP"];
 const UNIT_SLACK: f64 = 1e-9;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -62,13 +62,27 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
     let mut unnamed_units = false;
     let mut converted: Vec<f64> = Vec::new();
     let mut repaired = 0;
+    let encloses = |entity: &Entity<'_>| {
+        entity.fields().is_ok_and(|fields| {
+            fields.references(1).is_ok_and(|shells| {
+                shells.into_iter().any(|shell| {
+                    graph
+                        .entity(shell)
+                        .is_ok_and(|shell| shell.kind() == "CLOSED_SHELL")
+                })
+            })
+        })
+    };
     let solids: Vec<Entity<'_>> = graph
         .entities()
-        .filter(|entity| SOLID_KINDS.contains(&entity.kind()))
+        .filter(|entity| {
+            SOLID_KINDS.contains(&entity.kind())
+                || (entity.kind() == "SHELL_BASED_SURFACE_MODEL" && encloses(entity))
+        })
         .collect();
     let skipped = graph
         .entities()
-        .filter(|entity| matches!(entity.kind(), "SHELL_BASED_SURFACE_MODEL" | "FACETED_BREP"))
+        .filter(|entity| entity.kind() == "SHELL_BASED_SURFACE_MODEL" && !encloses(entity))
         .count();
     let mut solids_per_representation: BTreeMap<u64, usize> = BTreeMap::new();
     for entity in &solids {

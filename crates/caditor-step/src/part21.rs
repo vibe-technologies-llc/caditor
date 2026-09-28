@@ -160,6 +160,51 @@ impl<'a> Lexer<'a> {
         SyntaxError::Damaged { line: self.line }
     }
 
+    fn skip_section(&mut self) -> Result<(), SyntaxError> {
+        let mut quoted = false;
+        while let Some(&byte) = self.bytes.get(self.position) {
+            if byte == b'\n' {
+                self.line += 1;
+            }
+            if quoted {
+                quoted = byte != b'\'';
+                self.position += 1;
+                continue;
+            }
+            match byte {
+                b'\'' => quoted = true,
+                b'/' if self.bytes.get(self.position + 1) == Some(&b'*') => {
+                    self.position += 2;
+                    while self.bytes.get(self.position).is_some()
+                        && self.bytes.get(self.position..self.position + 2) != Some(b"*/")
+                    {
+                        if self.bytes.get(self.position) == Some(&b'\n') {
+                            self.line += 1;
+                        }
+                        self.position += 1;
+                    }
+                }
+                b'E' if self.bytes.get(self.position..self.position + 6) == Some(b"ENDSEC") => {
+                    let mut after = self.position + 6;
+                    while self
+                        .bytes
+                        .get(after)
+                        .is_some_and(|byte| byte.is_ascii_whitespace())
+                    {
+                        after += 1;
+                    }
+                    if self.bytes.get(after) == Some(&b';') {
+                        self.position = after + 1;
+                        return Ok(());
+                    }
+                }
+                _ => {}
+            }
+            self.position += 1;
+        }
+        Err(self.damaged())
+    }
+
     fn peek_byte(&self) -> Option<u8> {
         self.bytes.get(self.position).copied()
     }
@@ -499,6 +544,13 @@ pub(crate) fn parse(text: &str) -> Result<Exchange, SyntaxError> {
                     }
                 }
             }
+            "ANCHOR" | "REFERENCE" | "SIGNATURE" => {
+                parser.expect(&Token::Semicolon)?;
+                if parser.lookahead.is_some() {
+                    return Err(parser.lexer.damaged());
+                }
+                parser.lexer.skip_section()?;
+            }
             "END-ISO-10303-21" => return Ok(exchange),
             _ => return Err(parser.lexer.damaged()),
         }
@@ -567,5 +619,21 @@ mod tests {
             ")".repeat(200)
         );
         assert!(matches!(parse(&deep), Err(SyntaxError::Damaged { .. })));
+    }
+
+    #[test]
+    fn edition_three_sections_and_named_data_sections_are_read_past() {
+        let text = "ISO-10303-21;\nHEADER;\nENDSEC;\nANCHOR;\n<top>=#1;\n<'odd;ENDSEC;'>=#2;\n\
+                    ENDSEC;\nREFERENCE;\n#20=<http://example.invalid/part.stp#frame>;\n\
+                    /* ENDSEC; inside a comment */\nENDSEC ;\nDATA('first',());\n\
+                    #1=CARTESIAN_POINT('',(0.,0.,0.));\nENDSEC;\nDATA('second',());\n\
+                    #2=CARTESIAN_POINT('',(1.,0.,0.));\nENDSEC;\nSIGNATURE;\nabc\nENDSEC;\n\
+                    END-ISO-10303-21;\n";
+        let exchange = parse(text).unwrap();
+        assert_eq!(exchange.data.len(), 2);
+        assert_eq!(
+            parse("ISO-10303-21;\nANCHOR;\n<top>=#1;\n"),
+            Err(SyntaxError::Damaged { line: 4 })
+        );
     }
 }

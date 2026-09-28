@@ -6,12 +6,13 @@ use std::{
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
     BSpline, BuildError, Circle, Curve, EdgeId, FaceId, IntersectionCurve, Interval,
-    LINEAR_RESOLUTION, Sense, ShellId, Solid, SolidBuilder, Surface, ValidationError, VertexId,
+    LINEAR_RESOLUTION, PlaneSurface, Sense, ShellId, Solid, SolidBuilder, Surface, ValidationError,
+    VertexId,
 };
 
 use crate::read::{
     geometry::Geometry,
-    graph::{Entity, Problem, Read, friendly},
+    graph::{Entity, Graph, Problem, Read, friendly},
 };
 
 const LOOP_SAMPLES: usize = 16;
@@ -30,6 +31,8 @@ pub(crate) struct Topology<'g, 'a> {
     vertices: BTreeMap<u64, VertexId>,
     edges: BTreeMap<u64, (EdgeId, bool)>,
     curves: BTreeMap<EdgeId, (Curve, Interval)>,
+    corners: BTreeMap<[u64; 3], VertexId>,
+    sides: BTreeMap<(VertexId, VertexId), EdgeId>,
     face_entities: Vec<u64>,
     healed: usize,
 }
@@ -61,6 +64,8 @@ impl<'g, 'a> Topology<'g, 'a> {
             vertices: BTreeMap::new(),
             edges: BTreeMap::new(),
             curves: BTreeMap::new(),
+            corners: BTreeMap::new(),
+            sides: BTreeMap::new(),
             face_entities: Vec::new(),
             healed: 0,
         }
@@ -69,14 +74,23 @@ impl<'g, 'a> Topology<'g, 'a> {
     pub fn solid(mut self, id: u64) -> Read<(Solid, usize)> {
         let graph = self.geometry.graph;
         let entity = graph.entity(id)?;
-        let (outer, voids) = match entity.kind() {
+        let (outer, voids, lumps) = match entity.kind() {
             "MANIFOLD_SOLID_BREP" => (
                 entity.record("MANIFOLD_SOLID_BREP")?.reference(1)?,
                 Vec::new(),
+                Vec::new(),
             ),
+            "FACETED_BREP" => (entity.fields()?.reference(1)?, Vec::new(), Vec::new()),
             "BREP_WITH_VOIDS" => {
                 let fields = entity.record("BREP_WITH_VOIDS")?;
-                (fields.reference(1)?, fields.references(2)?)
+                (fields.reference(1)?, fields.references(2)?, Vec::new())
+            }
+            "SHELL_BASED_SURFACE_MODEL" => {
+                let mut closed = closed_shells(&graph, entity)?.into_iter();
+                let first = closed
+                    .next()
+                    .ok_or_else(|| Problem::new(id, "has no closed shell, so it is not a solid"))?;
+                (first, Vec::new(), closed.collect())
             }
             other => {
                 return Err(Problem::new(
@@ -86,6 +100,9 @@ impl<'g, 'a> Topology<'g, 'a> {
             }
         };
         let mut shells = vec![self.plan_shell(outer, false)?];
+        for lump in lumps {
+            shells.push(self.plan_shell(lump, false)?);
+        }
         for void in voids {
             let void_entity = graph.entity(void)?;
             shells.push(match void_entity.kind() {
@@ -158,7 +175,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             return Ok(());
         }
         let fields = match entity.kind() {
-            "ADVANCED_FACE" | "FACE_SURFACE" => entity.fields()?,
+            "ADVANCED_FACE" | "FACE_SURFACE" | "FACE" => entity.fields()?,
             other => {
                 return Err(Problem::new(
                     entity.id,
@@ -166,8 +183,20 @@ impl<'g, 'a> Topology<'g, 'a> {
                 ));
             }
         };
-        let (surface, transposed) = upright(self.geometry.surface(fields.reference(2)?)?);
         let bounds = fields.references(1)?;
+        if entity.kind() == "FACE" {
+            let surface = self.polygon_plane(entity.id, &bounds)?;
+            self.faces.insert(
+                entity.id,
+                FacePlan {
+                    surface,
+                    same_sense: true,
+                    bounds,
+                },
+            );
+            return Ok(());
+        }
+        let (surface, transposed) = upright(self.geometry.surface(fields.reference(2)?)?);
         let graph = self.geometry.graph;
         for bound in &bounds {
             let loop_id = graph.entity(*bound)?.fields()?.reference(1)?;
@@ -304,6 +333,87 @@ impl<'g, 'a> Topology<'g, 'a> {
         Ok(Some(edge))
     }
 
+    fn polygon_plane(&self, face: u64, bounds: &[u64]) -> Read<Surface> {
+        let graph = self.geometry.graph;
+        let mut outline = None;
+        for bound in bounds {
+            let bound = graph.entity(*bound)?;
+            let loop_entity = graph.entity(bound.fields()?.reference(1)?)?;
+            if loop_entity.kind() == "POLY_LOOP" {
+                let points = loop_entity
+                    .fields()?
+                    .references(1)?
+                    .into_iter()
+                    .map(|point| self.geometry.point(point))
+                    .collect::<Read<Vec<Point3>>>()?;
+                let orientation = bound.fields()?.logical(2)?;
+                let outer = bound.kind() == "FACE_OUTER_BOUND";
+                if outer || outline.is_none() {
+                    outline = Some((points, orientation));
+                }
+            }
+        }
+        let (points, orientation) =
+            outline.ok_or_else(|| Problem::new(face, "has no polygon to take its plane from"))?;
+        let plane = polygon_plane(&points, orientation)
+            .ok_or_else(|| Problem::new(face, "has a polygon that encloses no area"))?;
+        PlaneSurface::new(plane)
+            .map(Surface::from)
+            .map_err(|error| Problem::new(face, format!("is not a usable plane ({error})")))
+    }
+
+    fn corner(&mut self, point: u64) -> Read<VertexId> {
+        let position = self.geometry.point(point)?;
+        let key = position.to_array().map(f64::to_bits);
+        if let Some(existing) = self.corners.get(&key) {
+            return Ok(*existing);
+        }
+        let vertex = self
+            .builder
+            .vertex(position)
+            .map_err(|error| Problem::new(point, describe_build(&error)))?;
+        self.corners.insert(key, vertex);
+        Ok(vertex)
+    }
+
+    fn polygon(&mut self, id: u64, points: &[u64]) -> Read<Vec<(EdgeId, Sense)>> {
+        let mut corners = Vec::with_capacity(points.len());
+        for point in points {
+            let corner = self.corner(*point)?;
+            if corners.last() != Some(&corner) {
+                corners.push(corner);
+            }
+        }
+        if corners.len() > 1 && corners.first() == corners.last() {
+            corners.pop();
+        }
+        if corners.len() < 3 {
+            return Err(Problem::new(id, "has fewer than three corners"));
+        }
+        let mut coedges = Vec::with_capacity(corners.len());
+        for (index, from) in corners.iter().enumerate() {
+            let to = corners
+                .get((index + 1) % corners.len())
+                .copied()
+                .ok_or_else(|| Problem::new(id, "has fewer than three corners"))?;
+            if let Some(edge) = self.sides.get(&(to, *from)) {
+                coedges.push((*edge, Sense::Reversed));
+                continue;
+            }
+            if let Some(edge) = self.sides.get(&(*from, to)) {
+                coedges.push((*edge, Sense::Same));
+                continue;
+            }
+            let edge = self
+                .builder
+                .line_edge(*from, to)
+                .map_err(|error| Problem::new(id, describe_build(&error)))?;
+            self.sides.insert((*from, to), edge);
+            coedges.push((edge, Sense::Same));
+        }
+        Ok(coedges)
+    }
+
     fn bound(&mut self, id: u64, flipped: bool) -> Read<Option<Bound>> {
         let graph = self.geometry.graph;
         let entity = graph.entity(id)?;
@@ -314,6 +424,17 @@ impl<'g, 'a> Topology<'g, 'a> {
         let edges = match loop_entity.kind() {
             "EDGE_LOOP" => loop_entity.fields()?.references(1)?,
             "VERTEX_LOOP" => return Ok(None),
+            "POLY_LOOP" => {
+                let points = loop_entity.fields()?.references(1)?;
+                let mut coedges = self.polygon(loop_entity.id, &points)?;
+                if reversed {
+                    coedges.reverse();
+                    for (_, sense) in &mut coedges {
+                        *sense = sense.reversed();
+                    }
+                }
+                return Ok(Some(Bound { outer, coedges }));
+            }
             other => {
                 return Err(Problem::new(
                     loop_entity.id,
@@ -643,6 +764,31 @@ fn signed_area(polygon: &[Point2]) -> f64 {
                 .map(|next| point.perp_dot(*next))
         })
         .sum::<f64>()
+}
+
+fn closed_shells(graph: &Graph<'_>, model: Entity<'_>) -> Read<Vec<u64>> {
+    let mut closed = Vec::new();
+    for shell in model.fields()?.references(1)? {
+        if graph.entity(shell)?.kind() == "CLOSED_SHELL" {
+            closed.push(shell);
+        }
+    }
+    Ok(closed)
+}
+
+fn polygon_plane(points: &[Point3], orientation: bool) -> Option<Plane> {
+    let first = *points.first()?;
+    let mut normal = Vector3::ZERO;
+    for (index, point) in points.iter().enumerate() {
+        let next = points.get((index + 1) % points.len())?;
+        normal += (*point - first).cross(*next - first);
+    }
+    let normal = if orientation { normal } else { -normal };
+    let along = points
+        .iter()
+        .map(|point| *point - first)
+        .find(|offset| offset.length() > LINEAR_RESOLUTION)?;
+    Plane::with_x_axis(first, normal, along)
 }
 
 pub(crate) fn describe_build(error: &BuildError) -> String {
