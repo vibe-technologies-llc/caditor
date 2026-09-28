@@ -136,6 +136,39 @@ mod tests {
     }
 
     #[test]
+    fn a_whole_document_can_be_turned_into_an_earlier_one_and_back_by_undo() {
+        let (earlier, ids) = sample();
+        let mut later = earlier.clone();
+        let mut transaction = later.transaction("Grow");
+        let depth = transaction.add_parameter("depth", transaction.parse("width / 2").unwrap());
+        transaction.add_feature("Top sketch", FeatureKind::from(Sketch::new(Plane::YZ)));
+        later.apply(transaction.finish()).unwrap();
+        later
+            .apply(set_expression(&later, ids.height, "depth + 1 mm"))
+            .unwrap();
+        later
+            .apply(Transaction::single(
+                "Drop gap",
+                Edit::RemoveParameter { id: ids.gap },
+            ))
+            .unwrap();
+
+        let mut editor = Editor::new(later.clone());
+        editor
+            .apply(later.transaction_to(&earlier, "Restore"))
+            .unwrap();
+        assert!(editor.document().same_content(&earlier));
+        assert!(editor.document().parameter(depth).is_none());
+        assert_eq!(
+            editor.document().next_parameter_id(),
+            later.next_parameter_id()
+        );
+
+        editor.undo().unwrap();
+        assert!(editor.document().same_content(&later));
+    }
+
+    #[test]
     fn a_failing_edit_rolls_back_the_whole_transaction() {
         let (mut document, ids) = sample();
         let before = document.clone();

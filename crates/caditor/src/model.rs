@@ -325,6 +325,7 @@ impl Model {
             ticket,
             document: document.clone(),
             keep_original: self.keep_original && self.path.as_ref() == Some(&path),
+            label: self.editor.undo_label().map(str::to_owned),
             path,
         };
         let sent = self

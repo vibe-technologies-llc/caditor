@@ -25,6 +25,7 @@ use crate::{
     editing::{EditingCommand, Tool},
     export::ExportCommand,
     files::{Dialogs, FileCommand, Files, FilesConfig, Respond},
+    history::HistoryCommand,
     model::{Action, Model, RecomputeStatus, Services, WakerFactory},
     panels::Focus,
     scene,
@@ -719,28 +720,97 @@ fn exporting_writes_the_chosen_bodies_in_the_chosen_format_beside_the_model() {
     assert!(!dir.path().join("plate.caditor").exists());
 }
 
+fn damage_chunk(bytes: &[u8], chunk: usize) -> Vec<u8> {
+    let starts: Vec<usize> = bytes
+        .windows(4)
+        .enumerate()
+        .filter(|(_, window)| *window == b"CDCK")
+        .map(|(start, _)| start)
+        .collect();
+    let end = starts.get(chunk + 1).copied().unwrap_or(bytes.len());
+    let mut damaged = bytes.to_vec();
+    damaged[end - 1] ^= 0x55;
+    damaged
+}
+
+#[test]
+fn every_save_keeps_a_version_that_can_be_restored_and_undone() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.command(FileCommand::History(HistoryCommand::Show));
+    assert!(!harness.files.is_blocking());
+
+    let path = dir.path().join("plate.caditor");
+    harness.answer_dialog(Some(path.clone()));
+    harness.command(FileCommand::SaveAs);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
+    for width in ["45 mm", "50 mm"] {
+        harness.edit_width(width);
+        harness.command(FileCommand::Save);
+        harness.wait_until("the change is saved", |harness| !harness.model.is_dirty());
+    }
+    let history = caditor_file::history(&path).unwrap();
+    assert_eq!(history.versions.len(), 2);
+    assert!(history.versions.iter().all(|version| version.available));
+
+    harness.command(FileCommand::History(HistoryCommand::Show));
+    harness.wait_until("the versions are listed", |harness| {
+        harness.shows("Restore")
+    });
+    assert!(harness.shows("Versions of “plate.caditor”"));
+    harness.click("Restore");
+    harness.wait_until("the version is restored", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Restored the version saved"))
+    });
+    assert_eq!(harness.expression_text("width"), "45 mm");
+    assert!(harness.model.is_dirty());
+    assert!(!harness.files.is_blocking());
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert_eq!(harness.expression_text("width"), "50 mm");
+    assert!(!harness.model.is_dirty());
+    harness.key(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.frame();
+    harness.command(FileCommand::Save);
+    harness.wait_until("the restored model is saved", |harness| {
+        !harness.model.is_dirty()
+    });
+    let reopened = caditor_file::load(&path).unwrap();
+    assert_eq!(
+        reopened.document.expression_text(
+            &reopened
+                .document
+                .parameter_named("width")
+                .unwrap()
+                .expression
+        ),
+        "45 mm"
+    );
+    assert_eq!(caditor_file::history(&path).unwrap().versions.len(), 3);
+}
+
 #[test]
 fn opening_a_damaged_file_reports_what_was_lost_and_keeps_the_original_on_save() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("damaged.caditor");
-    let text = caditor_file::encode(&crate::sample_document().unwrap()).unwrap();
-    let damaged: Vec<&str> = text
-        .lines()
-        .map(|line| {
-            if line.contains("Side sketch") {
-                "{\"feature\":"
-            } else {
-                line
-            }
-        })
-        .collect();
-    std::fs::write(&path, damaged.join("\n")).unwrap();
+    let bytes = caditor_file::encode(&crate::sample_document().unwrap()).unwrap();
+    let side_sketch_record = 4;
+    let damaged = damage_chunk(&bytes, side_sketch_record);
+    std::fs::write(&path, &damaged).unwrap();
 
     let mut harness = Harness::with_directories(Some(dir.path()));
     harness.command(FileCommand::OpenPath(path.clone()));
     harness.wait_until("the file is open", |harness| harness.model.path().is_some());
     assert!(harness.shows("Parts of “damaged.caditor” could not be read"));
-    assert!(harness.shows("• Line 5 is damaged and was left out."));
+    assert!(
+        harness.shows("• A damaged part of the file was skipped; anything it held was left out.")
+    );
     assert_eq!(harness.model.document().features().len(), 1);
     harness.click("OK");
     assert!(!harness.shows("Parts of “damaged.caditor” could not be read"));
@@ -748,7 +818,7 @@ fn opening_a_damaged_file_reports_what_was_lost_and_keeps_the_original_on_save()
     harness.command(FileCommand::Save);
     harness.wait_until("the model is saved", |harness| !harness.model.is_saving());
     let backup = dir.path().join("damaged.damaged.caditor");
-    assert_eq!(std::fs::read_to_string(backup).unwrap(), damaged.join("\n"));
+    assert_eq!(std::fs::read(backup).unwrap(), damaged);
     assert!(harness.shows("Saved. The damaged original was kept as “damaged.damaged.caditor”."));
     assert!(caditor_file::load(&path).unwrap().issues.is_empty());
 }

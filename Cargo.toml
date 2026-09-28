@@ -29,15 +29,18 @@ caditor-geometry.path = "crates/caditor-geometry"
 caditor-kernel.path = "crates/caditor-kernel"
 caditor-render.path = "crates/caditor-render"
 caditor-sketch.path = "crates/caditor-sketch"
+caditor-zstd.path = "crates/caditor-zstd"
 
 ahash = "0.8.12"
 anyhow = "1.0.104"
+blake3 = { version = "1.8.7", features = ["pure"] }
 crc32fast = "1.5.2"
 egui = "0.36.2"
 egui-wgpu = "0.36.2"
 egui-winit = "0.36.2"
 env_logger = "0.11.11"
 glam = "0.33.11"
+libzstd-rs-sys = "0.0.1-prerelease.2"
 log = "0.4.34"
 miniz_oxide = "0.9.1"
 naga = "30.0.1"
@@ -52,6 +55,7 @@ tempfile = "3.27.0"
 thiserror = "2.0.21"
 wgpu = "30.0.1"
 winit = "0.30.13"
+xxhash-rust = { version = "0.8.18", features = ["xxh3"] }
 
 [profile.dev.package.nalgebra]
 opt-level = 3

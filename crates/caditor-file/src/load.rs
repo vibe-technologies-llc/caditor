@@ -8,9 +8,10 @@ use caditor_document::{Document, Edit, EditError, Feature, FeatureKind, Paramete
 use caditor_expression::{Expression, ParameterId, check_name};
 
 use crate::{
+    binary::{self, History},
     format::{
-        FEATURE_KINDS, FORMAT_NAME, FORMAT_VERSION, FeatureRecord, Header, Lenient, NextIdsRecord,
-        ParameterRecord, RECORD_KINDS, Record, Unreadable, restore_feature,
+        FEATURE_KINDS, FeatureRecord, NextIdsRecord, ParameterRecord, RECORD_KINDS, Record,
+        Unreadable, restore_feature,
     },
     reason,
 };
@@ -29,6 +30,8 @@ pub enum LoadError {
     NotAModel,
     #[error("the file is empty")]
     Empty,
+    #[error("this version is damaged and cannot be restored")]
+    VersionUnavailable,
 }
 
 pub fn load(path: &Path) -> Result<Loaded, LoadError> {
@@ -38,80 +41,29 @@ pub fn load(path: &Path) -> Result<Loaded, LoadError> {
 }
 
 pub fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
-    let mut issues = Vec::new();
-    let mut parts = Parts::default();
-    let mut header = None;
-    let mut records_read = 0_usize;
-
-    let lines = bytes
-        .split(|byte| *byte == b'\n')
-        .enumerate()
-        .map(|(index, line)| (index + 1, String::from_utf8_lossy(line)))
-        .filter(|(_, line)| !line.trim().is_empty());
-    for (number, line) in lines {
-        let line = line.trim();
-        if header.is_none() {
-            match serde_json::from_str::<Header>(line) {
-                Ok(read) if read.format == FORMAT_NAME => {
-                    if read.version > FORMAT_VERSION {
-                        issues.push(format!(
-                            "This model was made by a newer version of caditor (format {}). \
-                             Anything this version does not understand was left out.",
-                            read.version
-                        ));
-                    }
-                    header = Some(HeaderState::Read);
-                    continue;
-                }
-                Ok(_) => return Err(LoadError::NotAModel),
-                Err(_) => header = Some(HeaderState::Damaged { line: number }),
-            }
-        }
-        match serde_json::from_str::<Lenient<Record>>(line) {
-            Ok(Lenient::Read(record)) => {
-                records_read += 1;
-                parts.add(record);
-            }
-            Ok(Lenient::Unreadable(value)) => {
-                let item = Unreadable(&value);
-                if item.kind() == Some("parameter")
-                    && let Some(id) = item.id()
-                {
-                    parts
-                        .lost_parameter_names
-                        .insert(id, item.name().unwrap_or_default().to_owned());
-                }
-                issues.push(describe_unreadable_record(number, &item));
-            }
-            Err(_) if header == Some(HeaderState::Damaged { line: number }) => {}
-            Err(_) => issues.push(format!("Line {number} is damaged and was left out.")),
-        }
-    }
-
-    match header {
-        Some(HeaderState::Read) => {}
-        Some(HeaderState::Damaged { .. }) if records_read > 0 => issues.insert(
-            0,
-            format!(
-                "The start of the file is damaged; the rest was read as a version \
-                 {FORMAT_VERSION} model."
-            ),
-        ),
-        Some(HeaderState::Damaged { .. }) => return Err(LoadError::NotAModel),
-        None => return Err(LoadError::Empty),
-    }
-
-    let document = assemble(parts, &mut issues);
-    Ok(Loaded { document, issues })
+    binary::decode(bytes)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum HeaderState {
-    Read,
-    Damaged { line: usize },
+pub fn history(path: &Path) -> Result<History, LoadError> {
+    let bytes =
+        std::fs::read(path).map_err(|error| LoadError::Unreadable(reason::reading(&error)))?;
+    Ok(binary::history(&bytes))
 }
 
-fn describe_unreadable_record(line: usize, item: &Unreadable<'_>) -> String {
+pub fn load_version(path: &Path, index: usize) -> Result<Loaded, LoadError> {
+    let bytes =
+        std::fs::read(path).map_err(|error| LoadError::Unreadable(reason::reading(&error)))?;
+    binary::load_version(&bytes, index)
+}
+
+pub(crate) fn newer_version(version: u32) -> String {
+    format!(
+        "This model was made by a newer version of caditor (format {version}). Anything this \
+         version does not understand was left out."
+    )
+}
+
+pub(crate) fn describe_unreadable_record(place: &str, item: &Unreadable<'_>) -> String {
     let name = item.name();
     match (item.kind(), name) {
         (Some("feature"), Some(name)) => match item.unknown_kind(&FEATURE_KINDS) {
@@ -125,10 +77,10 @@ fn describe_unreadable_record(line: usize, item: &Unreadable<'_>) -> String {
             format!("The parameter “{name}” is damaged and was left out.")
         }
         (Some(kind), _) if !RECORD_KINDS.contains(&kind) => format!(
-            "Line {line} holds something this version of caditor does not know ({kind}), so it \
+            "{place} holds something this version of caditor does not know ({kind}), so it \
              was left out. It may come from a newer version."
         ),
-        _ => format!("Line {line} is damaged and was left out."),
+        _ => format!("{place} is damaged and was left out."),
     }
 }
 
@@ -141,7 +93,16 @@ pub(crate) struct Parts {
 }
 
 impl Parts {
-    fn add(&mut self, record: Record) {
+    pub(crate) fn remember_lost(&mut self, item: &Unreadable<'_>) {
+        if item.kind() == Some("parameter")
+            && let Some(id) = item.id()
+        {
+            self.lost_parameter_names
+                .insert(id, item.name().unwrap_or_default().to_owned());
+        }
+    }
+
+    pub(crate) fn add(&mut self, record: Record) {
         match record {
             Record::Parameter(parameter) => self.parameters.push(parameter),
             Record::Feature(feature) => self.features.push(feature),

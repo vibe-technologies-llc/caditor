@@ -6,19 +6,20 @@ use std::{
         mpsc::{self, Receiver, Sender},
     },
     thread,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
 use caditor_document::Document;
 use caditor_file::{
-    ExportError, Exported, FILE_EXTENSION, FileJournal, LoadError, Loaded, MeshFormat, RecentFiles,
-    Recovered, journal_for, load, scan,
+    ExportError, Exported, FILE_EXTENSION, FileJournal, History, LoadError, Loaded, MeshFormat,
+    RecentFiles, Recovered, SavedState, journal_for, load, load_version, scan,
 };
 use egui::{Button, Id, KeyboardShortcut, Modal, Modifiers, RichText, Ui};
 use parking_lot::Mutex;
 
 use crate::{
     export::{self, EXPORT, ExportCommand, Exporter},
+    history::{self, HistoryCommand, VersionHistory},
     model::{Action, FileEvent, Model, Notice, WakerFactory, display_name},
 };
 
@@ -49,6 +50,7 @@ pub enum FileCommand {
     Discard(PathBuf),
     DismissReport,
     Export(ExportCommand),
+    History(HistoryCommand),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,6 +187,15 @@ enum Event {
         path: PathBuf,
         result: Result<Exported, ExportError>,
     },
+    HistoryListed {
+        path: PathBuf,
+        result: Result<History, LoadError>,
+    },
+    VersionLoaded {
+        path: PathBuf,
+        state: SavedState,
+        result: Result<Loaded, LoadError>,
+    },
 }
 
 enum Intent {
@@ -223,6 +234,7 @@ pub struct Files {
     report: Option<LoadReport>,
     opening: Option<PathBuf>,
     exporter: Exporter,
+    history: VersionHistory,
     picking: bool,
     quit: bool,
 }
@@ -246,6 +258,7 @@ impl Files {
             report: None,
             opening: None,
             exporter: Exporter::default(),
+            history: VersionHistory::default(),
             picking: false,
             quit: false,
         }
@@ -277,6 +290,7 @@ impl Files {
             || self.report.is_some()
             || self.showing_recovery()
             || self.exporter.is_open()
+            || self.history.is_open()
             || self.picking
     }
 
@@ -337,6 +351,73 @@ impl Files {
                     self.pick(Purpose::Export(self.exporter.format()), model);
                 }
             }
+            FileCommand::History(command) => self.history_command(command, model),
+        }
+    }
+
+    fn history_command(&mut self, command: HistoryCommand, model: &mut Model) {
+        match command {
+            HistoryCommand::Show => match model.path() {
+                Some(path) => {
+                    self.history.open(path.to_path_buf());
+                    self.list_versions();
+                }
+                None => model.set_notice(Notice::info(
+                    "Save the model first; from then on every save keeps the version before it.",
+                )),
+            },
+            HistoryCommand::Hide => self.history.close(),
+            HistoryCommand::Restore(index) => {
+                if let Some((path, state)) = self.history.start_restoring(index) {
+                    self.spawn(move || Event::VersionLoaded {
+                        result: load_version(&path, index),
+                        path,
+                        state,
+                    });
+                }
+            }
+        }
+    }
+
+    fn list_versions(&mut self) {
+        if let Some(path) = self.history.path().cloned() {
+            self.spawn(move || Event::HistoryListed {
+                result: caditor_file::history(&path),
+                path,
+            });
+        }
+    }
+
+    fn version_loaded(
+        &mut self,
+        path: &Path,
+        state: &SavedState,
+        result: Result<Loaded, LoadError>,
+        model: &mut Model,
+    ) {
+        self.history.finish_restoring();
+        if model.path() != Some(path) {
+            return;
+        }
+        let described = history::describe(state);
+        match result {
+            Ok(loaded) if loaded.document.same_content(model.document()) => {
+                model.set_notice(Notice::info("That version is the same as the model now."));
+            }
+            Ok(loaded) => {
+                let transaction = model
+                    .document()
+                    .transaction_to(&loaded.document, "Restore earlier version");
+                model.perform(Action::Apply(transaction));
+                self.history.close();
+                model.set_notice(Notice::info(format!(
+                    "Restored the version {}. Undo brings back what you had.",
+                    described.to_lowercase()
+                )));
+            }
+            Err(error) => model.set_notice(Notice::error(format!(
+                "Could not restore that version: {error}."
+            ))),
         }
     }
 
@@ -346,6 +427,9 @@ impl Files {
             changed = true;
             match event {
                 FileEvent::Saved(path) => {
+                    if self.history.path() == Some(&path) {
+                        self.list_versions();
+                    }
                     self.remember(path);
                     if let Some(intent) = self.after_save.take() {
                         self.request(intent, model);
@@ -411,6 +495,12 @@ impl Files {
                 let notice = self.exporter.finished(&path, result);
                 model.set_notice(notice);
             }
+            Event::HistoryListed { path, result } => self.history.listed(&path, result),
+            Event::VersionLoaded {
+                path,
+                state,
+                result,
+            } => self.version_loaded(&path, &state, result, model),
         }
     }
 
@@ -708,6 +798,16 @@ pub fn menu(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>
         ui.separator();
         item(ui, "Save", Some(SAVE), FileCommand::Save);
         item(ui, "Save As…", Some(SAVE_AS), FileCommand::SaveAs);
+        ui.add_enabled_ui(model.path().is_some(), |ui| {
+            item(
+                ui,
+                "Version History…",
+                None,
+                FileCommand::History(HistoryCommand::Show),
+            );
+        })
+        .response
+        .on_disabled_hover_text("Save the model to start keeping its versions.");
         item(
             ui,
             "Export…",
@@ -774,6 +874,8 @@ pub fn show(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>
         command = recovery(&ctx, files);
     } else if files.exporter.is_open() {
         command = export::dialog(&ctx, model, &files.exporter).map(FileCommand::Export);
+    } else if files.history.is_open() {
+        command = history::dialog(&ctx, model, &files.history).map(FileCommand::History);
     }
     if let Some(command) = command {
         actions.push(Action::File(command));
@@ -879,7 +981,7 @@ fn recovery_row(ui: &mut Ui, files: &Files, recovered: &Recovered) -> Option<Fil
     };
     let when = recovered
         .modified
-        .map(|modified| format!(", last one {}", ago(modified)))
+        .map(|modified| format!(", last one {}", history::ago(modified)))
         .unwrap_or_default();
     ui.weak(format!("{changes}{when}"));
     if let Some(file) = &recovered.file {
@@ -908,21 +1010,4 @@ fn recovery_row(ui: &mut Ui, files: &Files, recovered: &Recovered) -> Option<Fil
             .then_some(FileCommand::AskDiscard(journal))
     })
     .inner
-}
-
-fn ago(time: SystemTime) -> String {
-    let seconds = SystemTime::now()
-        .duration_since(time)
-        .unwrap_or_default()
-        .as_secs();
-    let (count, unit) = match seconds {
-        0..60 => return "just now".to_owned(),
-        60..3600 => (seconds / 60, "minute"),
-        3600..86400 => (seconds / 3600, "hour"),
-        _ => (seconds / 86400, "day"),
-    };
-    match count {
-        1 => format!("1 {unit} ago"),
-        count => format!("{count} {unit}s ago"),
-    }
 }

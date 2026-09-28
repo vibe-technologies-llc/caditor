@@ -30,5 +30,10 @@ tests only.
   a crash loses at most seconds of work. On startup, offer to restore from it.
 - Install a panic hook that flushes the journal before the process ends.
 - Version the file format, and keep every format that has shipped readable forever.
+- Keep the versions a save replaces inside the file, so earlier states can be restored after a
+  restart, and make restoring one an ordinary undoable change.
+- Our own formats use zstd for compression, xxh3 for checksums and blake3 for content digests.
+  Legacy codecs and checksums (deflate, CRC32) appear only where a foreign format requires them,
+  such as the ZIP container of 3MF.
 - Loading a damaged file recovers everything it can and reports what was lost. It never refuses
   the whole file over one bad feature.

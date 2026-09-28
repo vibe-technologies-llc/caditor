@@ -32,17 +32,24 @@ The Cargo workspace is `crates/*`. Dependencies point in one direction only:
 caditor-expression  ←──────────────────┐
        ↑                               │
 caditor-geometry  ←  caditor-sketch  ←  caditor-document  ←  caditor-file  ←  caditor (bin)
-   ↑   ↑                                   │                                      │
-   │   └──────────────  caditor-render  ←──┼──────────────────────────────────────┘
-   └──  caditor-kernel  ←──────────────────┘
+   ↑   ↑                                   │                    ↑                 │
+   │   └──────────────  caditor-render  ←──┼────────────────────┼─────────────────┘
+   └──  caditor-kernel  ←──────────────────┘              caditor-zstd
 ```
 
 `caditor-expression` has no workspace dependencies; the sketch, document, file and app crates all
 use it. `caditor-file` and the app also use the geometry and sketch crates directly.
 `caditor-kernel` depends only on `caditor-geometry`, never on the sketch or document crates; the
 document and file crates use it for solid features, and the app for face and edge names and
-meshes.
+meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` uses it.
 
+- **caditor-zstd**: safe `compress`, `compress_after`, `decompress` and `decompress_after` over
+  Trifecta Tech Foundation's pure-Rust zstd port (`libzstd-rs-sys`), the `_after` pair taking a
+  raw prefix (the newer version) that makes the frame a delta. It is the only crate with
+  `unsafe`: its lints set `unsafe_code = "deny"` and each FFI-style call is allowed at its own
+  item. Contexts are owned by guards that free them on drop, frames must record their content
+  size, and decompression refuses a frame larger than the caller's limit or one that decodes to
+  a different size than it records.
 - **caditor-geometry**: the math vocabulary, as f64 `glam` aliases (`Point3`, `Rotation3`, …)
   plus `Plane` (origin, normal and in-plane x axis, also used as the frame of every circle and
   rotational surface), `Ray`, `Aabb`, `Aabb2` and the rigid transforms `RigidTransform` and
@@ -307,7 +314,9 @@ meshes.
     move backwards. Edits refuse to break invariants: unknown references, parameter cycles,
     deleting something still in use, or moving a feature past one it depends on.
     `Document::check` runs a transaction on a clone so the UI can report the error before
-    committing.
+    committing. `Document::transaction_to` builds the transaction that turns one document
+    into another (every feature and parameter removed, then the target's inserted with their
+    IDs), which is how an earlier version is restored as one undoable change.
   - Sketch content changes only through sketch edits (add, remove or set an entity, add or
     remove a constraint, set a dimension). Removing an entity that something still uses is
     refused rather than cascaded; `TransactionBuilder::remove_sketch_items` expands a user's
@@ -382,44 +391,57 @@ meshes.
     running job between features (evaluators also receive a `CancelToken`), and features that
     were not reached are reported as `Outdated`. The worker calls a wake callback after each
     report so the UI can redraw.
-- **caditor-file**: persistence. A model file (`.caditor`) is UTF-8 JSON Lines: a header
-  `{"format":"caditor","version":N}`, one self-contained record per parameter and per feature
-  carrying its stable ID, and the ID counters. Expressions are stored as canonical text that
-  refers to parameters as `$<id>` (`Expression::to_stored_text` and `parse_stored`), so stored
-  text never depends on names, and numbers round-trip exactly. Every format version that has
-  shipped stays readable. Version 3 added `extrude` and `revolve` features; region keys are
-  stored as 32-digit hex strings, and an unreadable extent falls back to 10 mm or 360° with a
-  report. Version 4 added a sketch's `attachment` (body ID, face name, origin and neighbour names
-  as hex digests); older readers ignore it and keep the sketch on its stored plane. An
-  unreadable attachment, or one whose body could not be restored, leaves the sketch on its
-  stored plane with a report. Version 5 added `fillet` and `chamfer` features (body, size and
-  edges as name, face and end digests); an unreadable edge is left out with a report. Version 6
-  added `shell` features (body, thickness and opened faces stored like an attachment's face);
-  an unreadable face is left closed with a report. Version 7 added `plane` and `axis` features
-  (references as tagged records, faces and edges stored like attachments and blend edges), a
-  sketch's `datum`, which older readers ignore so the sketch stays on its stored plane, and a
-  revolve `axis` that is either a sketch entity ID or an axis reference, which older readers
-  cannot read, so they leave that revolve out with a report rather than turn it about the
-  wrong axis. A sketch whose datum plane could not be restored stays where it was.
+- **caditor-file**: persistence. Our own formats are binary, compressed with zstd and checked
+  with xxh3; there is no text model format. The format number restarted at 1 with this design,
+  and from here on every version that ships stays readable.
+  - Container (`binary/`): an 8-byte magic (`\x89CAD\r\n\x1a\n` for models, `\x89CJL…` for
+    journals), a little-endian `u32` format version, then chunks. A chunk is the sync marker
+    `CDCK`, its kind, its codec (stored, zstd, or zstd against the next newer version as a raw
+    prefix), stored and content lengths and an xxh3-64 of the header fields and payload, followed
+    by the payload. A reader that meets a bad chunk scans forward to the next marker whose
+    checksum holds, so damage loses only the chunks it touches. Content is capped at 256 MiB per
+    chunk so a hostile file cannot force a huge allocation.
+  - Values (`binary/value.rs`) are a self-describing serde encoding: tagged null, booleans,
+    LEB128 unsigned and negative integers, little-endian f64, strings, bytes, and sequences and
+    maps closed by an end tag, with nesting limited. Enums are encoded like JSON (a unit variant
+    is its name, others a one-entry map), so `Lenient` reads any record through a
+    `serde_json::Value`, fields a reader does not know are ignored and records of an unknown kind
+    are reported as coming from a newer version.
+  - A model file holds a head chunk (when it was saved, the name of the last change, and a
+    blake3 digest of its records), one zstd chunk per record (parameters, features, the ID
+    counters) and the version history. Records carry their stable IDs; expressions are stored
+    as canonical text that refers to parameters as `$<id>` (`Expression::to_stored_text` and
+    `parse_stored`), region keys and topology names as 32-digit hex digests, and numbers as
+    exact f64. An unreadable extent falls back to 10 mm or 360°, an unreadable blend edge is left
+    out, an unreadable opened face is left closed, and a sketch whose face or datum plane cannot
+    be restored stays on its stored plane, each with a report.
+  - Version history: every save that changes the model keeps the state it replaces as a version
+    inside the file (`save_with` reads the earlier versions from the session's own file, so Save
+    As carries them along; saving an unchanged model adds none). A version is an info chunk (time,
+    last change, blake3 digest) and a data chunk compressed with the next newer version as a
+    zstd prefix, so a version costs only its difference; every eighth one is stored whole, which
+    bounds the chain a damaged chunk can break. Each rebuilt version is checked against its
+    digest before it is offered. `history` lists the versions (with whether each can still be
+    rebuilt) and `load_version` loads one. When the head cannot be rebuilt, the next save drops
+    the deltas that depended on it and keeps the rest.
   - Saving writes a temporary sibling, fsyncs it, renames it over the target and fsyncs the
     directory, keeping the target's permissions. Overwriting a file that loaded with problems
     first keeps the original as `<name>.damaged.caditor`.
-  - Loading is partial. Each line and each sketch item is read on its own (`Lenient`), and the
+  - Loading is partial. Each record and each sketch item is read on its own (`Lenient`), and the
     pieces are assembled through `Document::apply`, so a loaded model always satisfies the
     document invariants. Damaged or unknown (newer) records are left out, a lost parameter that
     something still uses becomes a stand-in with value 0, unusable or duplicate names are
     renamed, a parameter cycle is broken at the parameter that closes it, and an unreadable
     dimension takes its drawn length. Each of these is reported in plain language.
-  - The recovery journal is JSON Lines as well: a header naming the file, a snapshot of the last
-    saved state, then one entry per change (`apply`, `undo` or `redo` with the transaction that
-    was applied), each line carrying a CRC32 of its entry. Replay stops at the first bad line,
-    so a torn tail loses only the changes after it, and replaying through an `Editor` restores
-    the undo history. New edit kinds do not bump the journal version: an older reader stops at
-    the first entry it cannot read and keeps everything before it, whereas a newer version
-    number would make it refuse the whole journal. The journal lives next to the file as
-    `.<name>.journal`, falling back to `$XDG_STATE_HOME/caditor/recovery/`, where untitled
-    documents keep theirs. Its owner holds an exclusive lock on it, which is how the startup
-    scan and other instances tell a live journal from an orphan.
+  - The recovery journal uses the same container: a header chunk naming the file, a snapshot of
+    the last saved state, then one chunk per change (`apply`, `undo` or `redo` with the
+    transaction that was applied). Replay stops at the first damaged or unreadable chunk, so a
+    torn tail loses only the changes after it, and replaying through an `Editor` restores the
+    undo history. New edit kinds do not bump the journal version: an older reader stops at the
+    first entry it cannot read and keeps everything before it. The journal lives next to the
+    file as `.<name>.journal`, falling back to `$XDG_STATE_HOME/caditor/recovery/`, where
+    untitled documents keep theirs. Its owner holds an exclusive lock on it, which is how the
+    startup scan and other instances tell a live journal from an orphan.
   - `Storage` is one worker thread per open document. It owns the journal and performs saves,
     so appends, saves and the rebase of the journal onto the saved snapshot stay in order, and
     it fsyncs after each batch of entries. A `Flusher` lets the panic hook wait for pending
@@ -427,7 +449,7 @@ meshes.
   - Recovery (`scan`, `journal_for`) inspects unlocked journals in the recovery directory and
     next to recent files, deletes those with nothing to recover (no net change, or already in
     the file) and returns the rest with a replayed `Editor`.
-  - Mesh export (`export/`): `export_mesh` tessellates each `ExportBody` (a name and a solid) at
+  - Mesh export (`export/`), the one place that follows foreign formats: `export_mesh` tessellates each `ExportBody` (a name and a solid) at
     a `MeshResolution` (coarse, standard or fine: a chord that is a fraction of the largest
     body's diagonal, and 20°, 10° or 5° between triangles), keeps only the positions the
     triangles use and drops collapsed triangles, then writes binary STL (every body in one
@@ -532,6 +554,12 @@ meshes.
     last good state), and after the save dialog runs on its own thread, shown beside the File
     menu with a Cancel button. A path without the format's extension gets it appended, so an
     export never replaces a model file. The outcome is a notice with the body and triangle count.
+  - Version history (`history.rs`): File › Version History… (for a saved model) reads the
+    versions from the file on the files worker and lists them newest first as "Saved 2 hours ago
+    after “Edit width”", marking damaged ones. Restore loads that version in the background and
+    applies `Document::transaction_to` (remove every feature and parameter, then insert the
+    version's, keeping ID counters) as one "Restore earlier version" change, so Undo brings back
+    what was there and the next save keeps the replaced state as a version too.
   - Every numeric input is a `field::commit_field`: it commits on Enter or loss of focus,
     reverts on Escape, and keeps invalid text with its error inline instead of discarding it.
     Expression fields parse, evaluate and check the dimension before building a transaction;

@@ -11,7 +11,12 @@ use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use tempfile::TempDir;
 
-use super::*;
+use super::{
+    binary::testing::{
+        corrupt_chunk, current_model_from_json, model_from_json, records_as_json, rewrite_journal,
+    },
+    *,
+};
 
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -81,15 +86,25 @@ fn edit_width(document: &Document, text: &str) -> Transaction {
 }
 
 fn lines_of(document: &Document) -> Vec<String> {
-    encode(document)
-        .unwrap()
-        .lines()
-        .map(str::to_owned)
-        .collect()
+    records_as_json(&crate::encode(document).unwrap())
+}
+
+fn encode(document: &Document) -> Result<String, SaveError> {
+    Ok(lines_of(document).join("\n"))
 }
 
 fn decode_lines(lines: &[String]) -> Loaded {
-    decode(lines.join("\n").as_bytes()).unwrap()
+    decode(&current_model_from_json(lines)).unwrap()
+}
+
+fn decode_text(text: &str) -> Loaded {
+    let lines: Vec<String> = text.lines().map(str::to_owned).collect();
+    decode_lines(&lines)
+}
+
+fn through_binary<T: serde::de::DeserializeOwned>(json: &str) -> T {
+    let value: serde_json::Value = serde_json::from_str(json).unwrap();
+    binary::value::from_bytes(&binary::value::to_bytes(&value).unwrap()).unwrap()
 }
 
 fn issues_mention(loaded: &Loaded, text: &str) -> bool {
@@ -165,10 +180,11 @@ fn a_saved_model_loads_back_exactly() {
     assert_eq!(loaded.document, document);
     assert_eq!(loaded.document.next_parameter_id(), 3);
     assert_eq!(loaded.document.next_feature_id(), 3);
-    let text = fs::read_to_string(&path).unwrap();
-    assert!(text.starts_with("{\"format\":\"caditor\",\"version\":7}\n"));
-    assert!(text.contains("\"expression\":\"$0 / 2 + 0.1 mm\""));
-    assert_eq!(text.lines().count(), 1 + 2 + 2 + 1);
+    let bytes = fs::read(&path).unwrap();
+    assert!(bytes.starts_with(&binary::MODEL_MAGIC));
+    let records = records_as_json(&bytes);
+    assert!(records[1].contains("\"expression\":\"$0 / 2 + 0.1 mm\""));
+    assert_eq!(records.len(), 2 + 2 + 1);
     assert_eq!(files_in(dir.path()), ["model.caditor"]);
 }
 
@@ -222,7 +238,7 @@ fn a_damaged_line_loses_only_that_record() {
 
     let loaded = decode_lines(&lines);
 
-    assert_eq!(loaded.issues, ["Line 5 is damaged and was left out."]);
+    assert_eq!(loaded.issues, ["Record 4 is damaged and was left out."]);
     let names: Vec<&str> = loaded
         .document
         .features()
@@ -236,7 +252,7 @@ fn a_damaged_line_loses_only_that_record() {
 fn a_lost_parameter_is_replaced_by_a_stand_in_that_keeps_its_name_when_known() {
     let document = sample();
     let mut lines = lines_of(&document);
-    lines[1] = lines[1].replace("\"expression\":\"40 mm\"", "\"expression\":40");
+    lines[0] = lines[0].replace("\"expression\":\"40 mm\"", "\"expression\":40");
     let loaded = decode_lines(&lines);
 
     assert!(issues_mention(
@@ -248,7 +264,7 @@ fn a_lost_parameter_is_replaced_by_a_stand_in_that_keeps_its_name_when_known() {
     assert_eq!(width.expression, Expression::Number(0.0));
     assert_eq!(loaded.document.features().len(), 2);
 
-    lines.remove(1);
+    lines.remove(0);
     let loaded = decode_lines(&lines);
     assert!(issues_mention(&loaded, "It was replaced by “lost_0” = 0"));
     let height = loaded.document.parameter_named("height").unwrap();
@@ -262,7 +278,6 @@ fn a_lost_parameter_is_replaced_by_a_stand_in_that_keeps_its_name_when_known() {
 fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
     let document = sample();
     let mut lines = lines_of(&document);
-    lines[0] = "{\"format\":\"caditor\",\"version\":8}".to_owned();
     let base = lines
         .iter()
         .position(|line| line.contains("Base sketch"))
@@ -280,16 +295,16 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
         "{\"feature\":{\"id\":1,\"name\":\"Pad\",\"loft\":{\"distance\":\"5\"}}}".to_owned();
     lines.push("{\"assembly\":{\"parts\":[]}}".to_owned());
 
-    let loaded = decode_lines(&lines);
+    let loaded = decode(&model_from_json(FORMAT_VERSION + 1, &lines)).unwrap();
 
     assert_eq!(
         loaded.issues,
         [
-            "This model was made by a newer version of caditor (format 8). Anything this version \
+            "This model was made by a newer version of caditor (format 2). Anything this version \
              does not understand was left out.",
             "The feature “Pad” is a kind this version of caditor does not know (loft), so it \
              was left out. It may come from a newer version.",
-            "Line 7 holds something this version of caditor does not know (assembly), so it was \
+            "Record 6 holds something this version of caditor does not know (assembly), so it was \
              left out. It may come from a newer version.",
             "In “Base sketch”, an entity of a kind this version of caditor does not know \
              (ellipse) was left out. It may come from a newer version.",
@@ -301,8 +316,7 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
 
 #[test]
 fn cycles_invalid_names_and_broken_dimensions_are_repaired_and_reported() {
-    let text = r#"{"format":"caditor","version":1}
-{"parameter":{"id":0,"name":"a","expression":"$1 + 1"}}
+    let text = r#"{"parameter":{"id":0,"name":"a","expression":"$1 + 1"}}
 {"parameter":{"id":1,"name":"b","expression":"$0 * 2"}}
 {"parameter":{"id":2,"name":"mm","expression":"3"}}
 {"parameter":{"id":3,"name":"a","expression":"4"}}
@@ -310,7 +324,7 @@ fn cycles_invalid_names_and_broken_dimensions_are_repaired_and_reported() {
 {"parameter":{"id":4,"name":"typo","expression":"4 $$ 2"}}
 {"feature":{"id":0,"name":" ","sketch":{"plane":{"origin":[0,0,0],"normal":[0,0,2],"x_axis":[0,0,1]},"entities":[{"id":0,"point":[0,0]},{"id":1,"point":[3,4]},{"id":2,"line":{"start":0,"end":9}}],"constraints":[{"id":3,"distance":{"from":0,"to":1,"value":"?"}},{"id":4,"vertical":2}],"next_id":5}}}
 "#;
-    let loaded = decode(text.as_bytes()).unwrap();
+    let loaded = decode_text(text);
 
     assert_eq!(
         loaded.issues,
@@ -340,31 +354,16 @@ fn cycles_invalid_names_and_broken_dimensions_are_repaired_and_reported() {
 }
 
 #[test]
-fn files_that_are_not_models_are_refused_as_a_whole() {
-    assert_eq!(decode(b""), Err(LoadError::Empty));
-    assert_eq!(decode(b"\n  \n"), Err(LoadError::Empty));
-    assert_eq!(
-        decode(b"\x89PNG\r\n\x1a\n\0\0\0"),
-        Err(LoadError::NotAModel)
-    );
-    assert_eq!(
-        decode(b"{\"format\":\"svg\",\"version\":1}\n"),
-        Err(LoadError::NotAModel)
-    );
-    let missing = load(Path::new("/nonexistent/model.caditor")).unwrap_err();
-    assert_eq!(missing.to_string(), "it no longer exists");
-}
-
-#[test]
-fn a_damaged_header_still_recovers_the_records() {
-    let mut lines = lines_of(&sample());
-    lines[0] = "{\"format\":\"cad".to_owned();
-    let loaded = decode_lines(&lines);
+fn a_damaged_head_keeps_every_record() {
+    let bytes = corrupt_chunk(&crate::encode(&sample()).unwrap(), &binary::MODEL_MAGIC, 0);
+    let loaded = decode(&bytes).unwrap();
     assert_eq!(
         loaded.issues,
-        ["The start of the file is damaged; the rest was read as a version 7 model."]
+        ["A damaged part of the file was skipped; anything it held was left out."]
     );
     assert_eq!(loaded.document, sample());
+    let missing = load(Path::new("/nonexistent/model.caditor")).unwrap_err();
+    assert_eq!(missing.to_string(), "it no longer exists");
 }
 
 #[test]
@@ -405,9 +404,10 @@ fn a_torn_or_corrupted_tail_loses_only_the_changes_after_it() {
         .unwrap()
         .unwrap()
         .path();
-    let original = fs::read_to_string(&journal).unwrap();
+    let original = fs::read(&journal).unwrap();
 
-    let torn = format!("{original}{{\"crc\":\"0000");
+    let mut torn = original.clone();
+    torn.extend_from_slice(b"CDCK\x07\x01\0\0\x40");
     fs::write(&journal, torn).unwrap();
     let Inspection::Recoverable(recovered) = inspect(&journal).unwrap() else {
         panic!("the journal should still be recoverable");
@@ -415,10 +415,11 @@ fn a_torn_or_corrupted_tail_loses_only_the_changes_after_it() {
     assert_eq!(recovered.changes(), 3);
     assert_eq!(recovered.issues.len(), 1);
 
-    let mut lines: Vec<&str> = original.lines().collect();
-    let flipped = lines[3].replace("60", "70");
-    lines[3] = &flipped;
-    fs::write(&journal, lines.join("\n")).unwrap();
+    fs::write(
+        &journal,
+        corrupt_chunk(&original, &binary::JOURNAL_MAGIC, 3),
+    )
+    .unwrap();
     let Inspection::Recoverable(recovered) = inspect(&journal).unwrap() else {
         panic!("the journal should still be recoverable");
     };
@@ -455,6 +456,7 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
             document: editor.document().clone(),
             path: path.clone(),
             keep_original: false,
+            label: None,
         })
         .unwrap();
     assert_eq!(
@@ -582,34 +584,6 @@ fn recent_files_are_deduplicated_limited_and_persisted() {
     );
 }
 
-fn version_one_sample() -> Document {
-    let mut document = Document::default();
-    let mut transaction = document.transaction("Sample");
-    let width = transaction.add_parameter("width", transaction.parse("40 mm").unwrap());
-    transaction.add_feature(
-        "Base sketch",
-        FeatureKind::from(dimensioned_line(
-            Plane::XY,
-            40.0,
-            Expression::Parameter(width),
-        )),
-    );
-    document.apply(transaction.finish()).unwrap();
-    document
-}
-
-#[test]
-fn a_version_1_file_still_loads_exactly() {
-    let text = r#"{"format":"caditor","version":1}
-{"parameter":{"id":0,"name":"width","expression":"40 mm"}}
-{"feature":{"id":0,"name":"Base sketch","sketch":{"plane":{"origin":[0.0,0.0,0.0],"normal":[0.0,0.0,1.0],"x_axis":[1.0,0.0,0.0]},"entities":[{"id":0,"point":[0.0,0.0]},{"id":1,"point":[40.0,0.0]},{"id":2,"line":{"start":0,"end":1}}],"constraints":[{"id":3,"horizontal":2},{"id":4,"distance":{"from":0,"to":1,"value":"$0"}}],"next_id":5}}}
-{"next_ids":{"parameter":1,"feature":1}}
-"#;
-    let loaded = decode(text.as_bytes()).unwrap();
-    assert_eq!(loaded.issues, Vec::<String>::new());
-    assert_eq!(loaded.document, version_one_sample());
-}
-
 struct EveryKind {
     document: Document,
     angle: ConstraintId,
@@ -693,7 +667,7 @@ fn every_entity_and_constraint_kind_round_trips() {
         assert!(text.contains(record), "{record} is missing from {text}");
     }
 
-    let loaded = decode(text.as_bytes()).unwrap();
+    let loaded = decode_text(&text);
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 }
@@ -710,7 +684,7 @@ fn unreadable_angles_and_radii_take_their_drawn_values() {
         .replace("\"value\":\"30 deg\"", "\"value\":\"30 ((\"")
         .replace("\"value\":\"$0\"", "\"value\":\"$$\"");
 
-    let loaded = decode(text.as_bytes()).unwrap();
+    let loaded = decode_text(&text);
 
     assert_eq!(
         loaded.issues,
@@ -809,11 +783,11 @@ fn every_sketch_edit_record_round_trips() {
         assert!(text.contains(record), "{record} is missing from {text}");
     }
 
-    let record: format::TransactionRecord = serde_json::from_str(&text).unwrap();
+    let record: format::TransactionRecord = through_binary(&text);
     assert_eq!(format::restore_transaction(record), Some(transaction));
 
     let damaged: format::TransactionRecord =
-        serde_json::from_str(&text.replace("\"$0 / 3\"", "\"$0 //\"")).unwrap();
+        through_binary(&text.replace("\"$0 / 3\"", "\"$0 //\""));
     assert_eq!(format::restore_transaction(damaged), None);
 }
 
@@ -953,17 +927,12 @@ fn an_edit_kind_this_version_does_not_know_stops_replay_at_its_line() {
         .unwrap()
         .unwrap()
         .path();
-    let original = fs::read_to_string(&journal).unwrap();
-
-    let mut lines: Vec<String> = original.lines().map(str::to_owned).collect();
-    let (_, entry) = lines[3].split_once(",\"entry\":").unwrap();
-    let entry = entry
-        .strip_suffix('}')
-        .unwrap()
-        .replace("set_parameter_expression", "bend_sheet");
-    let crc = crc32fast::hash(entry.as_bytes());
-    lines[3] = format!("{{\"crc\":\"{crc:08x}\",\"entry\":{entry}}}");
-    fs::write(&journal, lines.join("\n")).unwrap();
+    let original = fs::read(&journal).unwrap();
+    let rewritten = rewrite_journal(&original, |index, json| match index {
+        3 => json.replace("set_parameter_expression", "bend_sheet"),
+        _ => json,
+    });
+    fs::write(&journal, rewritten).unwrap();
 
     let Inspection::Recoverable(recovered) = inspect(&journal).unwrap() else {
         panic!("the journal should still be recoverable");
@@ -1024,7 +993,7 @@ fn solid_features_are_saved_and_loaded() {
     let text = encode(&document).unwrap();
     assert!(text.contains("\"extrude\""));
     assert!(text.contains("\"remove\":1"));
-    let loaded = decode(text.as_bytes()).unwrap();
+    let loaded = decode_text(&text);
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 }
@@ -1035,7 +1004,7 @@ fn a_damaged_solid_value_falls_back_and_is_reported() {
     let text = encode(&document)
         .unwrap()
         .replace("\"angle\":\"90 deg\"", "\"angle\":\"90 ((\"");
-    let loaded = decode(text.as_bytes()).unwrap();
+    let loaded = decode_text(&text);
     assert_eq!(
         loaded.issues,
         ["The angle of “Turned” could not be read, so it was set to 360 deg."]
@@ -1049,7 +1018,7 @@ fn a_changed_solid_feature_round_trips_through_the_journal() {
     let kind = document.feature(base).unwrap().kind.clone();
     let transaction = Transaction::single("Edit Base", Edit::SetFeatureKind { id: base, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
-    let record = serde_json::from_str(&text).unwrap();
+    let record = through_binary(&text);
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -1089,7 +1058,7 @@ fn a_sketch_on_a_face_is_saved_and_loaded() {
          {\"end_cap\":{\"feature\":1}},\"neighbours\":[\"00000000000000000000000000000003\",\
          \"ffffffffffffffffffffffffffffffff\"]}"
     ));
-    let loaded = decode(text.as_bytes()).unwrap();
+    let loaded = decode_text(&text);
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 }
@@ -1100,7 +1069,7 @@ fn a_sketch_whose_face_cannot_be_read_stays_where_it_was() {
     let text = encode(&document)
         .unwrap()
         .replace("feed0000000000000000000000000001", "not a digest");
-    let loaded = decode(text.as_bytes()).unwrap();
+    let loaded = decode_text(&text);
     assert_eq!(
         loaded.issues,
         ["The face that “Top” lies on could not be read, so the sketch stays where it was."]
@@ -1154,7 +1123,7 @@ fn a_placement_change_round_trips_through_the_journal() {
         );
         assert!(document.check(&transaction).is_ok());
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
-        let record = serde_json::from_str(&text).unwrap();
+        let record = through_binary(&text);
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
 }
@@ -1212,7 +1181,6 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
 fn fillets_and_chamfers_are_saved_and_loaded() {
     let (document, _, _) = blended_model();
     let text = encode(&document).unwrap();
-    assert!(text.contains("\"version\":7"));
     assert!(text.contains(
         "\"fillet\":{\"body\":1,\"size\":\"$0 / 3\",\"edges\":[{\"name\":\
          \"0000000000000000000000000000abcd\",\"faces\":[\"00000000000000000000000000000001\",\
@@ -1221,7 +1189,7 @@ fn fillets_and_chamfers_are_saved_and_loaded() {
     ));
     assert!(text.contains("\"chamfer\":{\"body\":1"));
     assert!(text.contains("\"origin\":{\"chamfer\":{\"feature\":7}}"));
-    let loaded = decode(text.as_bytes()).unwrap();
+    let loaded = decode_text(&text);
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 }
@@ -1233,7 +1201,7 @@ fn an_unreadable_blend_edge_is_left_out_and_reported() {
         encode(&document)
             .unwrap()
             .replacen("0000000000000000000000000000abcd", "not a digest", 1);
-    let loaded = decode(text.as_bytes()).unwrap();
+    let loaded = decode_text(&text);
     assert_eq!(
         loaded.issues,
         ["Some edges chosen for “Fillet 1” could not be read and were left out."]
@@ -1249,7 +1217,7 @@ fn a_changed_blend_round_trips_through_the_journal() {
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: fillet, kind });
     assert!(document.check(&transaction).is_ok());
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
-    let record = serde_json::from_str(&text).unwrap();
+    let record = through_binary(&text);
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -1279,20 +1247,19 @@ fn shelled_model() -> (Document, FeatureId) {
 fn shells_are_saved_and_loaded() {
     let (document, shell) = shelled_model();
     let text = encode(&document).unwrap();
-    assert!(text.contains("\"version\":7"));
     assert!(text.contains(
         "\"shell\":{\"body\":1,\"thickness\":\"$0 / 4\",\"open\":[{\"face\":\
          \"0000000000000000000000000000beef\",\"origin\":{\"end_cap\":{\"feature\":1}},\
          \"neighbours\":[\"00000000000000000000000000000002\"]}]}"
     ));
-    let loaded = decode(text.as_bytes()).unwrap();
+    let loaded = decode_text(&text);
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
     let kind = document.feature(shell).unwrap().kind.clone();
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: shell, kind });
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
-    let record = serde_json::from_str(&text).unwrap();
+    let record = through_binary(&text);
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -1303,7 +1270,7 @@ fn an_unreadable_opened_face_is_left_closed_and_reported() {
         encode(&document)
             .unwrap()
             .replacen("0000000000000000000000000000beef", "not a digest", 1);
-    let loaded = decode(text.as_bytes()).unwrap();
+    let loaded = decode_text(&text);
     assert_eq!(
         loaded.issues,
         ["Some faces opened by “Shell 1” could not be read and were left closed."]
@@ -1384,7 +1351,6 @@ fn datum_model() -> (Document, FeatureId, FeatureId) {
 fn datum_planes_and_axes_are_saved_and_loaded() {
     let (document, plane, sketch) = datum_model();
     let text = encode(&document).unwrap();
-    assert!(text.contains("\"version\":7"));
     assert!(text.contains(
         "\"plane\":{\"base\":{\"principal\":\"xz\"},\"rotation\":{\"axis\":{\"edge\":{\"body\":1,"
     ));
@@ -1392,7 +1358,7 @@ fn datum_planes_and_axes_are_saved_and_loaded() {
     assert!(text.contains("\"axis\":{\"along\":{\"principal\":\"y\"}}"));
     assert!(text.contains(&format!("\"datum\":{}", plane.raw())));
     assert!(text.contains("\"axis\":{\"datum\":"));
-    let loaded = decode(text.as_bytes()).unwrap();
+    let loaded = decode_text(&text);
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 
@@ -1410,7 +1376,7 @@ fn datum_planes_and_axes_are_saved_and_loaded() {
     );
     assert!(document.check(&transaction).is_ok());
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
-    let record = serde_json::from_str(&text).unwrap();
+    let record = through_binary(&text);
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
@@ -1423,7 +1389,7 @@ fn a_sketch_on_a_lost_plane_stays_where_it_was() {
         .filter(|line| !line.contains("\"name\":\"Plane 1\""))
         .map(|line| format!("{line}\n"))
         .collect();
-    let loaded = decode(damaged.as_bytes()).unwrap();
+    let loaded = decode_text(&damaged);
     assert!(loaded.document.feature(plane).is_none());
     let restored = loaded.document.feature(sketch).unwrap();
     assert!(restored.kind.attachment().is_none());

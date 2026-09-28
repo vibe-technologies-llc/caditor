@@ -4,15 +4,12 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
+    time::SystemTime,
 };
 
 use caditor_document::Document;
-use serde::Serialize;
 
-use crate::{
-    format::{Header, Record, feature_record, next_ids_record, parameter_record},
-    reason,
-};
+use crate::{binary, reason};
 
 const BACKUP_MARKER: &str = "damaged";
 const MAX_BACKUP_ATTEMPTS: u32 = 1000;
@@ -31,25 +28,24 @@ impl SaveError {
             reason: reason::writing(error),
         }
     }
+
+    fn encoding(error: &impl std::fmt::Display) -> Self {
+        log::error!("could not encode the model: {error}");
+        Self {
+            reason: "the model could not be converted for saving".to_owned(),
+        }
+    }
 }
 
-pub fn encode(document: &Document) -> Result<String, serde_json::Error> {
-    let mut text = String::new();
-    push_line(&mut text, &Header::current())?;
-    for parameter in document.parameters() {
-        push_line(&mut text, &Record::Parameter(parameter_record(parameter)))?;
-    }
-    for feature in document.features() {
-        push_line(&mut text, &Record::Feature(feature_record(feature)))?;
-    }
-    push_line(&mut text, &Record::NextIds(next_ids_record(document)))?;
-    Ok(text)
+pub fn encode(document: &Document) -> Result<Vec<u8>, SaveError> {
+    binary::encode(document).map_err(|error| SaveError::encoding(&error))
 }
 
-fn push_line(text: &mut String, value: &impl Serialize) -> Result<(), serde_json::Error> {
-    text.push_str(&serde_json::to_string(value)?);
-    text.push('\n');
-    Ok(())
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SaveOptions<'a> {
+    pub keep_original: bool,
+    pub history_from: Option<&'a Path>,
+    pub label: Option<&'a str>,
 }
 
 pub fn save(
@@ -57,19 +53,51 @@ pub fn save(
     path: &Path,
     keep_original: bool,
 ) -> Result<Option<PathBuf>, SaveError> {
-    let contents = encode(document).map_err(|error| {
-        log::error!("could not encode the model: {error}");
-        SaveError {
-            reason: "the model could not be converted for saving".to_owned(),
-        }
-    })?;
-    let backup = if keep_original && path.exists() {
+    save_with(
+        document,
+        path,
+        &SaveOptions {
+            keep_original,
+            history_from: Some(path),
+            label: None,
+        },
+    )
+}
+
+pub fn save_with(
+    document: &Document,
+    path: &Path,
+    options: &SaveOptions<'_>,
+) -> Result<Option<PathBuf>, SaveError> {
+    let previous = options.history_from.and_then(read_previous);
+    let contents = binary::save_bytes(
+        document,
+        previous.as_deref(),
+        SystemTime::now(),
+        options.label,
+    )
+    .map_err(|error| SaveError::encoding(&error))?;
+    let backup = if options.keep_original && path.exists() {
         Some(keep_backup(path).map_err(|error| SaveError::writing(&error))?)
     } else {
         None
     };
-    write_atomically(path, contents.as_bytes()).map_err(|error| SaveError::writing(&error))?;
+    write_atomically(path, &contents).map_err(|error| SaveError::writing(&error))?;
     Ok(backup)
+}
+
+fn read_previous(path: &Path) -> Option<Vec<u8>> {
+    match fs::read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => {
+            log::warn!(
+                "could not read the earlier versions in {}: {error}",
+                path.display()
+            );
+            None
+        }
+    }
 }
 
 pub fn write_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {

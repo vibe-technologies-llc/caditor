@@ -2,9 +2,9 @@ use std::path::{Path, PathBuf};
 
 use caditor_document::{Document, Editor, Transaction};
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 
 use crate::{
+    binary::{ChunkKind, EncodeError, JOURNAL_MAGIC, Piece, parse, push_packed, start_file, value},
     format::{
         FeatureRecord, Lenient, NextIdsRecord, ParameterRecord, TransactionRecord, feature_record,
         next_ids_record, parameter_record, restore_transaction, transaction_record,
@@ -12,7 +12,6 @@ use crate::{
     load::{Parts, assemble},
 };
 
-const JOURNAL_FORMAT: &str = "caditor-journal";
 const JOURNAL_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -24,18 +23,7 @@ pub enum JournalEntry {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JournalHeader {
-    format: String,
-    version: u32,
     file: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum EntryRecord {
-    Snapshot(SnapshotRecord),
-    Apply(TransactionRecord),
-    Undo(TransactionRecord),
-    Redo(TransactionRecord),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,44 +33,44 @@ struct SnapshotRecord {
     next_ids: NextIdsRecord,
 }
 
-#[derive(Debug, Deserialize)]
-struct Line<'a> {
-    crc: String,
-    #[serde(borrow)]
-    entry: &'a RawValue,
-}
-
 pub(crate) fn encode_journal(
     file: Option<&Path>,
     base: &Document,
     entries: &[JournalEntry],
-) -> Result<String, serde_json::Error> {
+) -> Result<Vec<u8>, EncodeError> {
     let header = JournalHeader {
-        format: JOURNAL_FORMAT.to_owned(),
-        version: JOURNAL_VERSION,
         file: file.and_then(Path::to_str).map(str::to_owned),
     };
-    let mut text = serde_json::to_string(&header)?;
-    text.push('\n');
-    text.push_str(&encode_line(&EntryRecord::Snapshot(snapshot_record(base)))?);
+    let mut bytes = start_file(&JOURNAL_MAGIC, JOURNAL_VERSION);
+    push_packed(
+        &mut bytes,
+        ChunkKind::JournalHeader,
+        &value::to_bytes(&header)?,
+    )?;
+    push_packed(
+        &mut bytes,
+        ChunkKind::Snapshot,
+        &value::to_bytes(&snapshot_record(base))?,
+    )?;
     for entry in entries {
-        text.push_str(&encode_entry(entry)?);
+        bytes.extend_from_slice(&encode_entry(entry)?);
     }
-    Ok(text)
+    Ok(bytes)
 }
 
-pub(crate) fn encode_entry(entry: &JournalEntry) -> Result<String, serde_json::Error> {
-    encode_line(&match entry {
-        JournalEntry::Apply(transaction) => EntryRecord::Apply(transaction_record(transaction)),
-        JournalEntry::Undo(transaction) => EntryRecord::Undo(transaction_record(transaction)),
-        JournalEntry::Redo(transaction) => EntryRecord::Redo(transaction_record(transaction)),
-    })
-}
-
-fn encode_line(record: &EntryRecord) -> Result<String, serde_json::Error> {
-    let entry = serde_json::to_string(record)?;
-    let crc = crc32fast::hash(entry.as_bytes());
-    Ok(format!("{{\"crc\":\"{crc:08x}\",\"entry\":{entry}}}\n"))
+pub(crate) fn encode_entry(entry: &JournalEntry) -> Result<Vec<u8>, EncodeError> {
+    let (kind, transaction) = match entry {
+        JournalEntry::Apply(transaction) => (ChunkKind::Apply, transaction),
+        JournalEntry::Undo(transaction) => (ChunkKind::Undo, transaction),
+        JournalEntry::Redo(transaction) => (ChunkKind::Redo, transaction),
+    };
+    let mut bytes = Vec::new();
+    push_packed(
+        &mut bytes,
+        kind,
+        &value::to_bytes(&transaction_record(transaction))?,
+    )?;
+    Ok(bytes)
 }
 
 fn snapshot_record(document: &Document) -> SnapshotRecord {
@@ -114,34 +102,21 @@ pub(crate) struct JournalContents {
 pub(crate) struct DamagedJournal;
 
 pub(crate) fn decode_journal(bytes: &[u8]) -> Result<JournalContents, DamagedJournal> {
-    let mut lines = bytes
-        .split(|byte| *byte == b'\n')
-        .filter(|line| !line.iter().all(u8::is_ascii_whitespace));
-    let header: JournalHeader = lines
-        .next()
-        .and_then(|line| serde_json::from_slice(line).ok())
-        .filter(|header: &JournalHeader| {
-            header.format == JOURNAL_FORMAT && header.version <= JOURNAL_VERSION
-        })
+    let container = parse(bytes, &JOURNAL_MAGIC)
+        .filter(|container| container.version <= JOURNAL_VERSION)
         .ok_or(DamagedJournal)?;
-    let Some(EntryRecord::Snapshot(snapshot)) = lines.next().and_then(decode_line) else {
-        return Err(DamagedJournal);
-    };
+    let mut pieces = container.pieces.iter();
+    let header: JournalHeader = next_of_kind(&mut pieces, ChunkKind::JournalHeader)?;
+    let snapshot: SnapshotRecord = next_of_kind(&mut pieces, ChunkKind::Snapshot)?;
 
     let mut issues = Vec::new();
     let base = assemble(snapshot_parts(snapshot, &mut issues), &mut issues);
     let mut entries = Vec::new();
     let mut unreadable_entries = 0;
-    for line in lines {
+    for piece in pieces {
         let entry = (unreadable_entries == 0)
-            .then(|| decode_line(line))
-            .flatten()
-            .and_then(|record| match record {
-                EntryRecord::Snapshot(_) => None,
-                EntryRecord::Apply(record) => restore_transaction(record).map(JournalEntry::Apply),
-                EntryRecord::Undo(record) => restore_transaction(record).map(JournalEntry::Undo),
-                EntryRecord::Redo(record) => restore_transaction(record).map(JournalEntry::Redo),
-            });
+            .then(|| decode_entry(piece))
+            .flatten();
         match entry {
             Some(entry) => entries.push(entry),
             None => unreadable_entries += 1,
@@ -156,14 +131,38 @@ pub(crate) fn decode_journal(bytes: &[u8]) -> Result<JournalContents, DamagedJou
     })
 }
 
-fn decode_line(line: &[u8]) -> Option<EntryRecord> {
-    let line: Line<'_> = serde_json::from_slice(line).ok()?;
-    let entry = line.entry.get();
-    let expected = u32::from_str_radix(&line.crc, 16).ok()?;
-    if crc32fast::hash(entry.as_bytes()) != expected {
-        return None;
+fn next_of_kind<'a, T: for<'de> Deserialize<'de>>(
+    pieces: &mut impl Iterator<Item = &'a Piece<'a>>,
+    kind: ChunkKind,
+) -> Result<T, DamagedJournal> {
+    let Some(Piece::Chunk(chunk)) = pieces.next() else {
+        return Err(DamagedJournal);
+    };
+    if chunk.kind != Some(kind) {
+        return Err(DamagedJournal);
     }
-    serde_json::from_str(entry).ok()
+    let content = chunk.unpack(None).map_err(|_| DamagedJournal)?;
+    value::from_bytes(&content).map_err(|_| DamagedJournal)
+}
+
+fn decode_entry(piece: &Piece<'_>) -> Option<JournalEntry> {
+    let Piece::Chunk(chunk) = piece else {
+        return None;
+    };
+    let content = chunk.unpack(None).ok()?;
+    let record: TransactionRecord = value::from_bytes(&content).ok()?;
+    let transaction = restore_transaction(record)?;
+    match chunk.kind? {
+        ChunkKind::Apply => Some(JournalEntry::Apply(transaction)),
+        ChunkKind::Undo => Some(JournalEntry::Undo(transaction)),
+        ChunkKind::Redo => Some(JournalEntry::Redo(transaction)),
+        ChunkKind::Head
+        | ChunkKind::Record
+        | ChunkKind::VersionInfo
+        | ChunkKind::VersionData
+        | ChunkKind::JournalHeader
+        | ChunkKind::Snapshot => None,
+    }
 }
 
 fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {

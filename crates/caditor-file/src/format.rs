@@ -15,23 +15,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
-pub const FORMAT_VERSION: u32 = 7;
-pub(crate) const FORMAT_NAME: &str = "caditor";
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Header {
-    pub format: String,
-    pub version: u32,
-}
-
-impl Header {
-    pub fn current() -> Self {
-        Self {
-            format: FORMAT_NAME.to_owned(),
-            version: FORMAT_VERSION,
-        }
-    }
-}
+pub const FORMAT_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -52,6 +52,9 @@ paths:
 - If `unsafe` truly cannot be avoided, confine it to the smallest possible crate or module,
   relax that crate alone to `deny`, and allow it only at the exact item. Never relax it for the
   whole workspace.
+- `caditor-zstd` is that crate for zstd: it wraps `libzstd-rs-sys` behind a safe API, lists
+  the workspace clippy lints itself because it cannot inherit them with `unsafe_code` changed,
+  and is the only place that calls into the library.
 
 ## Language
 

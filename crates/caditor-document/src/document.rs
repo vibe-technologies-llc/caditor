@@ -11,6 +11,7 @@ use crate::{
     attachment::{SketchAttachment, SketchFeature},
     blend::Blend,
     datum::Datum,
+    edit::{Edit, Transaction},
     shell::Shell,
     solid::{BodyOperation, SolidFeature},
 };
@@ -284,6 +285,59 @@ impl Document {
 
     pub fn next_feature_id(&self) -> u64 {
         self.next_feature_id
+    }
+
+    pub fn same_content(&self, other: &Self) -> bool {
+        self.parameters == other.parameters && self.features == other.features
+    }
+
+    pub fn transaction_to(&self, target: &Self, label: impl Into<String>) -> Transaction {
+        let removals = self
+            .features
+            .iter()
+            .rev()
+            .map(|feature| Edit::RemoveFeature { id: feature.id })
+            .chain(
+                self.parameters
+                    .iter()
+                    .map(|parameter| Edit::SetParameterExpression {
+                        id: parameter.id,
+                        expression: Expression::Number(0.0),
+                    }),
+            )
+            .chain(
+                self.parameters
+                    .iter()
+                    .map(|parameter| Edit::RemoveParameter { id: parameter.id }),
+            );
+        let insertions = target
+            .parameters
+            .iter()
+            .enumerate()
+            .map(|(index, parameter)| Edit::InsertParameter {
+                index,
+                parameter: Parameter::new(
+                    parameter.id,
+                    parameter.name.clone(),
+                    Expression::Number(0.0),
+                ),
+            })
+            .chain(
+                target
+                    .parameters
+                    .iter()
+                    .map(|parameter| Edit::SetParameterExpression {
+                        id: parameter.id,
+                        expression: parameter.expression.clone(),
+                    }),
+            )
+            .chain(target.features.iter().enumerate().map(|(index, feature)| {
+                Edit::InsertFeature {
+                    index,
+                    feature: Arc::clone(feature),
+                }
+            }));
+        Transaction::new(label, removals.chain(insertions).collect())
     }
 
     pub fn reserve_ids_below(&mut self, next_parameter_id: u64, next_feature_id: u64) {

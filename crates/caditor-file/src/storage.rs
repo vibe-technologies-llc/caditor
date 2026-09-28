@@ -12,7 +12,7 @@ use caditor_document::Document;
 use crate::{
     journal::{JournalEntry, encode_entry, encode_journal},
     paths, reason,
-    save::{self, sync_parent, temporary_sibling},
+    save::{self, SaveOptions, sync_parent, temporary_sibling},
 };
 
 const PREDECESSOR_TIMEOUT: Duration = Duration::from_secs(5);
@@ -36,6 +36,7 @@ pub struct SaveRequest {
     pub document: Document,
     pub path: PathBuf,
     pub keep_original: bool,
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -244,7 +245,7 @@ impl Worker {
         };
         let written = encode_entry(entry)
             .map_err(io::Error::other)
-            .and_then(|line| journal.file.write_all(line.as_bytes()));
+            .and_then(|chunk| journal.file.write_all(&chunk));
         match written {
             Ok(()) => self.unsynced = true,
             Err(error) => {
@@ -273,7 +274,12 @@ impl Worker {
 
     fn save(&mut self, request: SaveRequest) {
         self.sync();
-        let report = match save::save(&request.document, &request.path, request.keep_original) {
+        let options = SaveOptions {
+            keep_original: request.keep_original,
+            history_from: self.file.as_deref(),
+            label: request.label.as_deref(),
+        };
+        let report = match save::save_with(&request.document, &request.path, &options) {
             Ok(backup) => {
                 self.file = Some(request.path.clone());
                 let previous = self.journal.take();
@@ -311,11 +317,7 @@ impl Worker {
         };
         let mut failure = None;
         for candidate in self.journal_candidates() {
-            match write_locked(
-                &candidate,
-                contents.as_bytes(),
-                self.recovery_dir.as_deref(),
-            ) {
+            match write_locked(&candidate, &contents, self.recovery_dir.as_deref()) {
                 Ok(file) => {
                     return Some(OpenJournal {
                         path: candidate,

@@ -25,9 +25,6 @@ These need an answer before the milestone that depends on them starts.
 
 ## M6: Interop
 
-- [ ] Model files as a custom binary format compressed with zstd, so they stay small on disk and
-  load fast; every JSON Lines version stays readable, and a damaged file still loses only the
-  records it cannot read
 - [ ] STEP import and export
 - [ ] DXF import into sketches
 

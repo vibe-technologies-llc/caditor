@@ -14,13 +14,17 @@ caditor-expression.workspace = true
 caditor-geometry.workspace = true
 caditor-kernel.workspace = true
 caditor-sketch.workspace = true
+caditor-zstd.workspace = true
 
+blake3.workspace = true
 crc32fast.workspace = true
 log.workspace = true
 miniz_oxide.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["float_roundtrip", "raw_value"] }
 thiserror.workspace = true
+xxhash-rust.workspace = true
 
 [dev-dependencies]
+serde_json = { workspace = true, features = ["preserve_order"] }
 tempfile.workspace = true
