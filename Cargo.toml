@@ -29,6 +29,7 @@ caditor-geometry.path = "crates/caditor-geometry"
 caditor-kernel.path = "crates/caditor-kernel"
 caditor-render.path = "crates/caditor-render"
 caditor-sketch.path = "crates/caditor-sketch"
+caditor-step.path = "crates/caditor-step"
 caditor-zstd.path = "crates/caditor-zstd"
 
 ahash = "0.8.12"

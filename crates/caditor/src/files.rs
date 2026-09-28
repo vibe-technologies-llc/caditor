@@ -11,9 +11,9 @@ use std::{
 
 use caditor_document::{Document, FeatureId};
 use caditor_file::{
-    DXF_EXTENSION, Drawing, ExportError, Exported, FILE_EXTENSION, FileJournal, History,
-    ImportError, LoadError, Loaded, MeshFormat, RecentFiles, Recovered, SavedState, journal_for,
-    load, load_version, read_dxf, scan,
+    DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported, FILE_EXTENSION, FileJournal,
+    History, ImportError, LoadError, Loaded, RecentFiles, Recovered, STEP_EXTENSIONS, SavedState,
+    journal_for, load, load_version, read_dxf, scan,
 };
 use egui::{Button, Id, KeyboardShortcut, Modal, Modifiers, RichText, Ui};
 use parking_lot::Mutex;
@@ -74,7 +74,7 @@ pub trait Dialogs {
         &self,
         directory: Option<PathBuf>,
         file_name: String,
-        format: MeshFormat,
+        format: ExportFormat,
         respond: Respond,
     );
     fn pick_import(&self, directory: Option<PathBuf>, respond: Respond);
@@ -102,8 +102,8 @@ impl NativeDialogs {
         }
     }
 
-    fn dialog(directory: Option<PathBuf>, kind: &str, extension: &str) -> rfd::FileDialog {
-        let dialog = rfd::FileDialog::new().add_filter(kind, &[extension]);
+    fn dialog(directory: Option<PathBuf>, kind: &str, extensions: &[&str]) -> rfd::FileDialog {
+        let dialog = rfd::FileDialog::new().add_filter(kind, extensions);
         match directory {
             Some(directory) => dialog.set_directory(directory),
             None => dialog,
@@ -114,7 +114,7 @@ impl NativeDialogs {
 impl Dialogs for NativeDialogs {
     fn pick_model(&self, directory: Option<PathBuf>, respond: Respond) {
         Self::spawn(respond, move || {
-            Self::dialog(directory, MODEL_KIND, FILE_EXTENSION)
+            Self::dialog(directory, MODEL_KIND, &[FILE_EXTENSION])
                 .set_title("Open Model")
                 .pick_file()
         });
@@ -122,7 +122,7 @@ impl Dialogs for NativeDialogs {
 
     fn pick_save_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
         Self::spawn(respond, move || {
-            Self::dialog(directory, MODEL_KIND, FILE_EXTENSION)
+            Self::dialog(directory, MODEL_KIND, &[FILE_EXTENSION])
                 .set_title("Save Model")
                 .set_file_name(file_name)
                 .save_file()
@@ -133,11 +133,15 @@ impl Dialogs for NativeDialogs {
         &self,
         directory: Option<PathBuf>,
         file_name: String,
-        format: MeshFormat,
+        format: ExportFormat,
         respond: Respond,
     ) {
         Self::spawn(respond, move || {
-            Self::dialog(directory, format.name(), format.extension())
+            let extensions: &[&str] = match format {
+                ExportFormat::Step => &STEP_EXTENSIONS,
+                ExportFormat::Stl | ExportFormat::ThreeMf => &[format.extension()],
+            };
+            Self::dialog(directory, format.name(), extensions)
                 .set_title(format!("Export {}", format.name()))
                 .set_file_name(file_name)
                 .save_file()
@@ -146,7 +150,7 @@ impl Dialogs for NativeDialogs {
 
     fn pick_import(&self, directory: Option<PathBuf>, respond: Respond) {
         Self::spawn(respond, move || {
-            Self::dialog(directory, DRAWING_KIND, DXF_EXTENSION)
+            Self::dialog(directory, DRAWING_KIND, &[DXF_EXTENSION])
                 .set_title("Import")
                 .pick_file()
         });
@@ -163,7 +167,7 @@ pub struct FilesConfig {
 enum Purpose {
     Open,
     SaveAs,
-    Export(MeshFormat),
+    Export(ExportFormat),
     Import,
 }
 
@@ -579,7 +583,7 @@ impl Files {
         });
     }
 
-    fn export(&mut self, path: PathBuf, format: MeshFormat, model: &mut Model) {
+    fn export(&mut self, path: PathBuf, format: ExportFormat, model: &mut Model) {
         if self.exporter.is_running() {
             model.set_notice(Notice::info("An export is already running."));
             return;

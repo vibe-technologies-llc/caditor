@@ -14,6 +14,7 @@ caditor-expression.workspace = true
 caditor-geometry.workspace = true
 caditor-kernel.workspace = true
 caditor-sketch.workspace = true
+caditor-step.workspace = true
 caditor-zstd.workspace = true
 
 blake3.workspace = true

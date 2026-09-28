@@ -322,10 +322,10 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
         name: "Extrude 1",
         solid: &block,
     }];
-    for format in MeshFormat::ALL {
+    for format in ExportFormat::ALL {
         let path = dir.path().join(format!("part.{}", format.extension()));
         assert!(format.matches(&path));
-        let exported = export_mesh(
+        let exported = export_bodies(
             &path,
             format,
             MeshResolution::Standard,
@@ -334,7 +334,8 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
         )
         .unwrap();
         assert_eq!(exported.bodies, 1);
-        assert_eq!(exported.triangles, 12);
+        let expected = format.is_mesh().then_some(12);
+        assert_eq!(exported.triangles, expected);
         assert!(std::fs::metadata(&path).unwrap().len() > 0);
     }
     let mut names: Vec<_> = std::fs::read_dir(dir.path())
@@ -342,7 +343,10 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect();
     names.sort();
-    assert_eq!(names, ["part.3mf", "part.stl"]);
+    assert_eq!(names, ["part.3mf", "part.step", "part.stl"]);
+    let step = std::fs::read_to_string(dir.path().join("part.step")).unwrap();
+    assert!(step.contains("=MANIFOLD_SOLID_BREP('Extrude 1',"));
+    assert!(step.contains("FILE_NAME('part',"));
 }
 
 #[test]
@@ -358,9 +362,9 @@ fn a_cancelled_or_empty_export_writes_nothing() {
     let flag = Arc::clone(&cancelled);
     let cancel = CancelToken::new(move || flag.load(Ordering::SeqCst));
     assert_eq!(
-        export_mesh(
+        export_bodies(
             &path,
-            MeshFormat::Stl,
+            ExportFormat::Stl,
             MeshResolution::Fine,
             &bodies,
             &cancel
@@ -368,9 +372,9 @@ fn a_cancelled_or_empty_export_writes_nothing() {
         Err(ExportError::Cancelled)
     );
     assert_eq!(
-        export_mesh(
+        export_bodies(
             &path,
-            MeshFormat::Stl,
+            ExportFormat::Stl,
             MeshResolution::Fine,
             &[],
             &CancelToken::never()
@@ -380,9 +384,9 @@ fn a_cancelled_or_empty_export_writes_nothing() {
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 
     let missing = dir.path().join("gone").join("part.stl");
-    let error = export_mesh(
+    let error = export_bodies(
         &missing,
-        MeshFormat::Stl,
+        ExportFormat::Stl,
         MeshResolution::Coarse,
         &bodies,
         &CancelToken::never(),

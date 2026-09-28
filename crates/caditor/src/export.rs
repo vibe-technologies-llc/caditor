@@ -10,7 +10,7 @@ use std::{
 };
 
 use caditor_document::{CancelToken, FeatureId, FeatureResult};
-use caditor_file::{ExportBody, ExportError, Exported, MeshFormat, MeshResolution, export_mesh};
+use caditor_file::{ExportBody, ExportError, ExportFormat, Exported, MeshResolution};
 use egui::{Button, Id, KeyboardShortcut, Modal, Modifiers, RichText, Ui};
 use parking_lot::Mutex;
 
@@ -29,7 +29,7 @@ const NO_BODIES: &str =
 pub enum ExportCommand {
     Show,
     Hide,
-    SetFormat(MeshFormat),
+    SetFormat(ExportFormat),
     SetResolution(MeshResolution),
     Include { body: FeatureId, included: bool },
     Choose,
@@ -46,7 +46,7 @@ struct Running {
 #[derive(Default)]
 pub struct Exporter {
     open: bool,
-    format: MeshFormat,
+    format: ExportFormat,
     resolution: MeshResolution,
     left_out: BTreeSet<FeatureId>,
     running: Option<Running>,
@@ -67,7 +67,7 @@ impl Exporter {
         self.running.is_some()
     }
 
-    pub fn format(&self) -> MeshFormat {
+    pub fn format(&self) -> ExportFormat {
         self.format
     }
 
@@ -100,7 +100,13 @@ impl Exporter {
         format!("{stem}.{}", self.format.extension())
     }
 
-    pub fn start(&mut self, path: PathBuf, format: MeshFormat, model: &Model, finished: Finished) {
+    pub fn start(
+        &mut self,
+        path: PathBuf,
+        format: ExportFormat,
+        model: &Model,
+        finished: Finished,
+    ) {
         let path = with_format_extension(path, format);
         let bodies: Vec<(String, Arc<FeatureResult>)> = self
             .chosen(model)
@@ -116,7 +122,7 @@ impl Exporter {
         let spawned = thread::Builder::new()
             .name("export".to_owned())
             .spawn(move || {
-                let exported = export_bodies(&target, format, resolution, &bodies, &cancel);
+                let exported = export_results(&target, format, resolution, &bodies, &cancel);
                 if let Some(finished) = worker_slot.lock().take() {
                     finished(target, exported);
                 }
@@ -147,11 +153,16 @@ impl Exporter {
         }
         let name = display_name(Some(path));
         match result {
-            Ok(exported) => Notice::info(format!(
-                "Exported {} to “{name}” ({}).",
-                count(exported.bodies, "body", "bodies"),
-                count(exported.triangles, "triangle", "triangles"),
-            )),
+            Ok(exported) => {
+                let bodies = count(exported.bodies, "body", "bodies");
+                Notice::info(match exported.triangles {
+                    Some(triangles) => format!(
+                        "Exported {bodies} to “{name}” ({}).",
+                        count(triangles, "triangle", "triangles")
+                    ),
+                    None => format!("Exported {bodies} to “{name}”."),
+                })
+            }
             Err(ExportError::Cancelled) => Notice::info("The export was cancelled."),
             Err(error) => Notice::error(format!("Could not export “{name}”: {error}.")),
         }
@@ -178,9 +189,9 @@ impl Exporter {
     }
 }
 
-fn export_bodies(
+fn export_results(
     path: &Path,
-    format: MeshFormat,
+    format: ExportFormat,
     resolution: MeshResolution,
     bodies: &[(String, Arc<FeatureResult>)],
     cancel: &CancelToken,
@@ -194,10 +205,10 @@ fn export_bodies(
             })
         })
         .collect();
-    export_mesh(path, format, resolution, &bodies, cancel)
+    caditor_file::export_bodies(path, format, resolution, &bodies, cancel)
 }
 
-fn with_format_extension(path: PathBuf, format: MeshFormat) -> PathBuf {
+fn with_format_extension(path: PathBuf, format: ExportFormat) -> PathBuf {
     if format.matches(&path) {
         return path;
     }
@@ -237,7 +248,9 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
         }
         let mut command = None;
         format_choice(ui, exporter, &mut command);
-        resolution_choice(ui, exporter, &bodies, &mut command);
+        if exporter.format.is_mesh() {
+            resolution_choice(ui, exporter, &bodies, &mut command);
+        }
         body_choice(ui, exporter, &bodies, &mut command);
         let failed = model.evaluation().failed_count();
         if failed > 0 {
@@ -285,7 +298,7 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
 fn format_choice(ui: &mut Ui, exporter: &Exporter, command: &mut Option<ExportCommand>) {
     ui.label(RichText::new("Format").strong());
     ui.horizontal(|ui| {
-        for format in MeshFormat::ALL {
+        for format in ExportFormat::ALL {
             if ui
                 .radio(exporter.format == format, format.name())
                 .on_hover_text(format_hint(format))
@@ -298,12 +311,15 @@ fn format_choice(ui: &mut Ui, exporter: &Exporter, command: &mut Option<ExportCo
     ui.weak(format_hint(exporter.format));
 }
 
-fn format_hint(format: MeshFormat) -> &'static str {
+fn format_hint(format: ExportFormat) -> &'static str {
     match format {
-        MeshFormat::Stl => "Triangles only, read by every slicer and mesh tool.",
-        MeshFormat::ThreeMf => {
+        ExportFormat::Stl => "Triangles only, read by every slicer and mesh tool.",
+        ExportFormat::ThreeMf => {
             "Keeps each body as a separate named object with its units, preferred by modern \
              slicers."
+        }
+        ExportFormat::Step => {
+            "Exact faces and edges that other CAD programs can open and keep editing."
         }
     }
 }

@@ -13,7 +13,10 @@ mod storage;
 
 pub use crate::{
     binary::{History, SavedState, Version},
-    export::{ExportBody, ExportError, Exported, MeshFormat, MeshResolution, export_mesh},
+    export::{
+        ExportBody, ExportError, ExportFormat, Exported, MeshResolution, STEP_EXTENSION,
+        STEP_EXTENSIONS, export_bodies,
+    },
     format::FORMAT_VERSION,
     import::{
         DXF_EXTENSION, Drawing, DrawingCurve, DrawingImport, ImportError, MAX_DRAWING_CURVES,

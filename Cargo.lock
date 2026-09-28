@@ -370,6 +370,7 @@ dependencies = [
  "caditor-geometry",
  "caditor-kernel",
  "caditor-sketch",
+ "caditor-step",
  "caditor-zstd",
  "crc32fast",
  "log",
@@ -419,6 +420,16 @@ dependencies = [
  "caditor-expression",
  "caditor-geometry",
  "nalgebra",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "caditor-step"
+version = "0.1.0"
+dependencies = [
+ "caditor-geometry",
+ "caditor-kernel",
+ "log",
  "thiserror 2.0.21",
 ]
 

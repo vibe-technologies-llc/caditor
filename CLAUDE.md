@@ -32,9 +32,11 @@ The Cargo workspace is `crates/*`. Dependencies point in one direction only:
 caditor-expression  ←──────────────────┐
        ↑                               │
 caditor-geometry  ←  caditor-sketch  ←  caditor-document  ←  caditor-file  ←  caditor (bin)
-   ↑   ↑                                   │                    ↑                 │
-   │   └──────────────  caditor-render  ←──┼────────────────────┼─────────────────┘
-   └──  caditor-kernel  ←──────────────────┘              caditor-zstd
+   ↑   ↑                                   │                  ↑  ↑                │
+   │   └──────────────  caditor-render  ←──┼──────────────────┼──┼────────────────┘
+   └──  caditor-kernel  ←──────────────────┘                  │  caditor-zstd
+              ↑                                               │
+              └───────────────────────  caditor-step  ←───────┘
 ```
 
 `caditor-expression` has no workspace dependencies; the sketch, document, file and app crates all
@@ -42,6 +44,7 @@ use it. `caditor-file` and the app also use the geometry and sketch crates direc
 `caditor-kernel` depends only on `caditor-geometry`, never on the sketch or document crates; the
 document and file crates use it for solid features, and the app for face and edge names and
 meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` uses it.
+`caditor-step` depends only on the kernel and geometry crates, and only `caditor-file` uses it.
 
 - **caditor-zstd**: safe `compress`, `compress_after`, `decompress` and `decompress_after` over
   Trifecta Tech Foundation's pure-Rust zstd port (`libzstd-rs-sys`), the `_after` pair taking a
@@ -50,6 +53,19 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   item. Contexts are owned by guards that free them on drop, frames must record their content
   size, and decompression refuses a frame larger than the caller's limit or one that decodes to
   a different size than it records.
+- **caditor-step**: STEP (ISO 10303-21, AP214 `AUTOMOTIVE_DESIGN`). `write_step` writes named
+  kernel solids as one product whose `ADVANCED_BREP_SHAPE_REPRESENTATION` holds one
+  `MANIFOLD_SOLID_BREP` per lump, or a `BREP_WITH_VOIDS` whose voids are
+  `ORIENTED_CLOSED_SHELL`s of inverted faces; shells are told apart by the sign of their meshed
+  volume. Millimetres and radians, uncertainty `LINEAR_RESOLUTION`, no author or organisation.
+  Every kernel surface and curve has an exact STEP form: planes, cylinders, spheres and tori as
+  they are, cones with a negative half angle on a flipped axis, extrusions and revolutions as
+  `SURFACE_OF_LINEAR_EXTRUSION` and `SURFACE_OF_REVOLUTION`, B-splines with knot runs (rational
+  ones as the complex entity), and intersection curves as the cubic B-spline of their Hermite
+  segments over the edge. Face `same_sense` is the face sense, since the kernel's normals are
+  STEP's. Reals print as the shortest round-tripping decimal with a point, and text escapes
+  quotes, backslashes and non-ASCII (`\X2\`). The output was checked against OpenCascade
+  (valid, closed, same volume) for every kind of face.
 - **caditor-geometry**: the math vocabulary, as f64 `glam` aliases (`Point3`, `Rotation3`, …)
   plus `Plane` (origin, normal and in-plane x axis, also used as the frame of every circle and
   rotational surface), `Ray`, `Aabb`, `Aabb2` and the rigid transforms `RigidTransform` and
@@ -471,8 +487,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     is `MAX_DRAWING_CURVES`. `drawing_transaction` turns a drawing into one transaction on an
     existing or new sketch, dropping curves shorter than the joint tolerance and joining ends closer
     than a millionth of the drawing's size with `Coincident` constraints.
-  - Mesh export (`export/`), the one place besides import that follows foreign formats:
-    `export_mesh` tessellates each `ExportBody` (a name and a solid) at a `MeshResolution` (coarse,
+  - Export (`export/`), the one place besides import that follows foreign formats:
+    `export_bodies` writes each `ExportBody` (a name and a solid) as STEP through `caditor-step`
+    (resolution ignored, no triangle count), or tessellates it at a `MeshResolution` (coarse,
     standard or fine: a chord that is a fraction of the largest body's diagonal, and 20°, 10° or 5°
     between triangles), keeps only the positions the triangles use and drops collapsed triangles,
     then writes binary STL (every body in one surface, facet normals from the winding) or 3MF (one
@@ -571,12 +588,14 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     thread, loading and recovery scans on a background worker, the unsaved-changes prompt before
     New, Open, Restore and Quit, the recovery offer and the load report. `main.rs` installs the
     panic hook that flushes the journal.
-  - Export (`export.rs`): File › Export… (Ctrl+E) opens a dialog with the format, resolution
-    (showing the resulting deviation in millimetres) and a checkbox per body, all on by default.
+  - Export (`export.rs`): File › Export… (Ctrl+E) opens a dialog with the format (STL, 3MF or
+    STEP), for meshes the resolution (showing the resulting deviation in millimetres) and a
+    checkbox per body, all on by default.
     It waits for a running recompute, warns when features failed (each body is exported as its
     last good state), and after the save dialog runs on its own thread, shown beside the File
     menu with a Cancel button. A path without the format's extension gets it appended, so an
-    export never replaces a model file. The outcome is a notice with the body and triangle count.
+    export never replaces a model file (`.stp` counts as STEP). The outcome is a notice with the
+    body count and, for meshes, the triangle count.
   - Import (`import.rs`): File › Import… (Ctrl+I) picks a DXF file, reads it on the files
     worker and adds it as one "Import <file>" change to the sketch being edited when the command
     was given, else to a new sketch on the XY plane named after the file, which is then entered.

@@ -7,11 +7,13 @@ mod zip;
 use std::{
     panic::{self, AssertUnwindSafe},
     path::Path,
+    time::SystemTime,
 };
 
 use caditor_document::CancelToken;
 use caditor_geometry::Point3;
 use caditor_kernel::{Mesh, SamplingTolerance, Solid};
+use caditor_step::{StepBody, WriteError, write_step};
 
 use crate::{reason, save::write_atomically};
 
@@ -19,19 +21,21 @@ const APPLICATION: &str = concat!("caditor ", env!("CARGO_PKG_VERSION"));
 const SMALLEST_EXTENT: f64 = 1.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum MeshFormat {
+pub enum ExportFormat {
     #[default]
     Stl,
     ThreeMf,
+    Step,
 }
 
-impl MeshFormat {
-    pub const ALL: [Self; 2] = [Self::Stl, Self::ThreeMf];
+impl ExportFormat {
+    pub const ALL: [Self; 3] = [Self::Stl, Self::ThreeMf, Self::Step];
 
     pub fn extension(self) -> &'static str {
         match self {
             Self::Stl => "stl",
             Self::ThreeMf => "3mf",
+            Self::Step => STEP_EXTENSION,
         }
     }
 
@@ -39,14 +43,32 @@ impl MeshFormat {
         match self {
             Self::Stl => "STL",
             Self::ThreeMf => "3MF",
+            Self::Step => "STEP",
+        }
+    }
+
+    pub fn is_mesh(self) -> bool {
+        match self {
+            Self::Stl | Self::ThreeMf => true,
+            Self::Step => false,
         }
     }
 
     pub fn matches(self, path: &Path) -> bool {
-        path.extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case(self.extension()))
+        let accepted: &[&str] = match self {
+            Self::Step => &STEP_EXTENSIONS,
+            Self::Stl | Self::ThreeMf => &[self.extension()],
+        };
+        path.extension().is_some_and(|extension| {
+            accepted
+                .iter()
+                .any(|accepted| extension.eq_ignore_ascii_case(accepted))
+        })
     }
 }
+
+pub const STEP_EXTENSION: &str = "step";
+pub const STEP_EXTENSIONS: [&str; 2] = ["step", "stp"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum MeshResolution {
@@ -111,7 +133,7 @@ pub struct ExportBody<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Exported {
     pub bodies: usize,
-    pub triangles: usize,
+    pub triangles: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -130,18 +152,23 @@ pub enum ExportError {
     #[error("the model could not be converted to the file format")]
     Encoding,
     #[error("{0}")]
+    Step(String),
+    #[error("{0}")]
     Writing(String),
 }
 
-pub fn export_mesh(
+pub fn export_bodies(
     path: &Path,
-    format: MeshFormat,
+    format: ExportFormat,
     resolution: MeshResolution,
     bodies: &[ExportBody<'_>],
     cancel: &CancelToken,
 ) -> Result<Exported, ExportError> {
     if bodies.is_empty() {
         return Err(ExportError::Empty);
+    }
+    if !format.is_mesh() {
+        return export_step(path, bodies, cancel);
     }
     let tolerance = resolution.tolerance(bodies.iter().map(|body| body.solid));
     let mut meshes = Vec::with_capacity(bodies.len());
@@ -162,14 +189,53 @@ pub fn export_mesh(
         .map_err(|error| ExportError::Writing(reason::writing(&error)))?;
     Ok(Exported {
         bodies: meshes.len(),
-        triangles: meshes.iter().map(|mesh| mesh.triangles.len()).sum(),
+        triangles: Some(meshes.iter().map(|mesh| mesh.triangles.len()).sum()),
     })
 }
 
-fn encode(format: MeshFormat, bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, ExportError> {
+fn export_step(
+    path: &Path,
+    bodies: &[ExportBody<'_>],
+    cancel: &CancelToken,
+) -> Result<Exported, ExportError> {
+    let step_bodies: Vec<StepBody<'_>> = bodies
+        .iter()
+        .map(|body| StepBody {
+            name: body.name,
+            solid: body.solid,
+        })
+        .collect();
+    let model_name = path
+        .file_stem()
+        .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned());
+    let written = panic::catch_unwind(AssertUnwindSafe(|| {
+        write_step(&step_bodies, &model_name, SystemTime::now())
+    }));
+    let contents = match written {
+        Ok(Ok(contents)) => contents,
+        Ok(Err(WriteError::Empty)) => return Err(ExportError::Empty),
+        Ok(Err(error)) => return Err(ExportError::Step(error.to_string())),
+        Err(_) => {
+            log::error!("writing STEP panicked");
+            return Err(ExportError::Encoding);
+        }
+    };
+    if cancel.is_cancelled() {
+        return Err(ExportError::Cancelled);
+    }
+    write_atomically(path, contents.as_bytes())
+        .map_err(|error| ExportError::Writing(reason::writing(&error)))?;
+    Ok(Exported {
+        bodies: bodies.len(),
+        triangles: None,
+    })
+}
+
+fn encode(format: ExportFormat, bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, ExportError> {
     match format {
-        MeshFormat::Stl => stl::encode(bodies),
-        MeshFormat::ThreeMf => three_mf::encode(bodies),
+        ExportFormat::Stl => stl::encode(bodies),
+        ExportFormat::ThreeMf => three_mf::encode(bodies),
+        ExportFormat::Step => Err(ExportError::Encoding),
     }
 }
 

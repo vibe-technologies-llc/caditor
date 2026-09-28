@@ -9,7 +9,7 @@ use caditor_document::{
     RegionChoice, SolidFeature, SolidResult, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Unit};
-use caditor_file::{JournalEntry, MeshFormat, Start, Storage, StorageConfig};
+use caditor_file::{ExportFormat, JournalEntry, Start, Storage, StorageConfig};
 use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 use egui::{
@@ -59,7 +59,7 @@ impl Dialogs for ScriptedDialogs {
         &self,
         _directory: Option<PathBuf>,
         _file_name: String,
-        _format: MeshFormat,
+        _format: ExportFormat,
         respond: Respond,
     ) {
         respond(self.answer.lock().clone());
@@ -723,6 +723,21 @@ fn exporting_writes_the_chosen_bodies_in_the_chosen_format_beside_the_model() {
     let triangles = u32::from_le_bytes(stl[80..84].try_into().unwrap()) as usize;
     assert_eq!(stl.len(), 84 + 50 * triangles);
     assert!(!dir.path().join("plate.caditor").exists());
+
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.click("STEP");
+    assert!(!harness.shows("Resolution"));
+    harness.answer_dialog(Some(dir.path().join("plate.stp")));
+    harness.click("Export…");
+    harness.wait_until("the STEP file is written", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text == "Exported 1 body to “plate.stp”.")
+    });
+    let step = std::fs::read_to_string(dir.path().join("plate.stp")).unwrap();
+    assert!(step.starts_with("ISO-10303-21;"));
+    assert!(step.contains("MANIFOLD_SOLID_BREP("));
 }
 
 fn write_drawing(path: &Path, units: Option<i64>, entities: &str) {

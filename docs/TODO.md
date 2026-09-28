@@ -25,7 +25,7 @@ These need an answer before the milestone that depends on them starts.
 
 ## M6: Interop
 
-- [ ] STEP import and export
+- [ ] STEP import
 
 ## M7: Polish
 
