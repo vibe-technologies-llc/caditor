@@ -1,6 +1,6 @@
 use caditor_geometry::{Plane, Point3, Vector3};
 use caditor_kernel::{
-    BSpline, BSplineSurface, Circle, Cone, Curve, Cylinder, Ellipse, Extrusion, Line,
+    BSpline, BSplineSurface, Circle, Cone, Curve, Cylinder, Ellipse, Extrusion, Interval, Line,
     MAX_SPLINE_DEGREE, PlaneSurface, Revolution, Sphere, Surface, Torus,
 };
 
@@ -11,6 +11,31 @@ use crate::read::{
 };
 
 const MAX_CURVE_DEPTH: usize = 8;
+const PIECE_SAMPLES: usize = 64;
+const OFFSET_SAMPLES: usize = 256;
+const JOINT_GAP: f64 = 1e-6;
+
+fn sampled(curve: &Curve, range: Interval) -> Vec<Point3> {
+    range
+        .split(PIECE_SAMPLES)
+        .map(|parameter| curve.point(parameter))
+        .collect()
+}
+
+fn polyline(id: u64, points: Vec<Point3>) -> Read<Curve> {
+    let mut knots = vec![0.0, 0.0];
+    let mut travelled = 0.0;
+    for pair in points.windows(2) {
+        if let [a, b] = pair {
+            travelled += a.distance(*b);
+            knots.push(travelled);
+        }
+    }
+    knots.push(travelled);
+    BSpline::new(1, knots, points)
+        .map(Curve::BSpline)
+        .map_err(|error| Problem::new(id, format!("is not a usable curve ({error})")))
+}
 
 fn spline_degree(value: i64, id: u64) -> Read<usize> {
     let degree = usize::try_from(value).map_err(|_| Problem::new(id, "has a negative degree"))?;
@@ -128,6 +153,8 @@ impl<'a> Geometry<'a> {
                 let fields = entity.record("TRIMMED_CURVE")?;
                 self.curve_at(fields.reference(1)?, depth + 1)
             }
+            "OFFSET_CURVE_3D" => self.offset_curve(entity, depth),
+            _ if entity.is("COMPOSITE_CURVE") => self.composite_curve(entity, depth),
             "POLYLINE" => {
                 let fields = entity.record("POLYLINE")?;
                 let points = fields
@@ -163,6 +190,138 @@ impl<'a> Geometry<'a> {
                 ),
             )),
         }
+    }
+
+    fn composite_curve(&self, entity: Entity<'_>, depth: usize) -> Read<Curve> {
+        let id = entity.id;
+        let segments = match entity.fields() {
+            Ok(fields) => fields.references(1)?,
+            Err(_) => entity.record("COMPOSITE_CURVE")?.references(0)?,
+        };
+        let mut points: Vec<Point3> = Vec::new();
+        for segment in segments {
+            let fields = self.graph.entity(segment)?.fields()?;
+            let same_sense = fields.logical(1)?;
+            let mut piece = self.piece(fields.reference(2)?, depth + 1)?;
+            if !same_sense {
+                piece.reverse();
+            }
+            let joined = points
+                .last()
+                .zip(piece.first())
+                .is_some_and(|(last, first)| {
+                    last.distance(*first) <= JOINT_GAP * self.units.length
+                });
+            points.extend(piece.into_iter().skip(usize::from(joined)));
+        }
+        polyline(id, points)
+    }
+
+    fn piece(&self, id: u64, depth: usize) -> Read<Vec<Point3>> {
+        if depth > MAX_CURVE_DEPTH {
+            return Err(Problem::new(id, "refers to itself"));
+        }
+        let entity = self.graph.entity(id)?;
+        if entity.kind() != "TRIMMED_CURVE" {
+            let curve = self.curve_at(id, depth)?;
+            let range = curve
+                .domain()
+                .bounded()
+                .ok_or_else(|| Problem::new(id, "is a piece of a curve with no end"))?;
+            return Ok(sampled(&curve, range));
+        }
+        let fields = entity.record("TRIMMED_CURVE")?;
+        let basis_id = fields.reference(1)?;
+        let curve = self.curve_at(basis_id, depth + 1)?;
+        let scale = self.parameter_scale(basis_id)?;
+        let trim = |index: usize| -> Read<f64> {
+            let options = fields.list(index)?;
+            let by_point = options
+                .iter()
+                .filter_map(crate::part21::Parameter::reference)
+                .find_map(|point| self.point(point).ok());
+            let search = curve
+                .domain()
+                .bounded()
+                .or_else(|| curve.period().and_then(|period| Interval::new(0.0, period)))
+                .unwrap_or_else(|| Interval::new(-1e12, 1e12).unwrap_or(Interval::UNIT));
+            match by_point {
+                Some(point) => Ok(curve.closest_parameter(point, search)),
+                None => options
+                    .iter()
+                    .find_map(crate::part21::Parameter::real)
+                    .map(|value| value * scale)
+                    .ok_or_else(|| Problem::new(id, "is trimmed by nothing it can read")),
+            }
+        };
+        let (first, second) = (trim(2)?, trim(3)?);
+        let forward = fields.logical(4)?;
+        let (low, mut high) = if forward {
+            (first, second)
+        } else {
+            (second, first)
+        };
+        if let Some(period) = curve.period() {
+            high = low + (high - low).rem_euclid(period);
+            if high - low <= period * 1e-12 {
+                high = low + period;
+            }
+        }
+        let range =
+            Interval::new(low, high).ok_or_else(|| Problem::new(id, "is trimmed to nothing"))?;
+        let mut points = sampled(&curve, range);
+        if !forward {
+            points.reverse();
+        }
+        Ok(points)
+    }
+
+    fn parameter_scale(&self, basis: u64) -> Read<f64> {
+        let entity = self.graph.entity(basis)?;
+        Ok(match entity.kind() {
+            "CIRCLE" | "ELLIPSE" => self.units.angle,
+            "LINE" => {
+                let vector = entity.record("LINE")?.reference(2)?;
+                let magnitude = self.graph.entity(vector)?.record("VECTOR")?.real(2)?;
+                magnitude.abs() * self.units.length
+            }
+            _ => 1.0,
+        })
+    }
+
+    fn offset_curve(&self, entity: Entity<'_>, depth: usize) -> Read<Curve> {
+        let id = entity.id;
+        let fields = entity.record("OFFSET_CURVE_3D")?;
+        let basis = self.curve_at(fields.reference(1)?, depth + 1)?;
+        let distance = self.length(&fields, 2)?;
+        let reference = self.direction(fields.reference(4)?)?;
+        let offset = |parameter: f64| {
+            let tangent = basis.evaluate(parameter).first;
+            tangent
+                .cross(reference)
+                .try_normalize()
+                .map(|side| basis.point(parameter) + side * distance)
+        };
+        if let Curve::Line(line) = &basis {
+            let shifted =
+                offset(0.0).ok_or_else(|| Problem::new(id, "is offset along its own direction"))?;
+            return Ok(Line::new(shifted, line.direction())
+                .map_err(|error| Problem::new(id, format!("is not a usable curve ({error})")))?
+                .into());
+        }
+        let range = basis
+            .domain()
+            .bounded()
+            .or_else(|| basis.period().and_then(|period| Interval::new(0.0, period)))
+            .ok_or_else(|| Problem::new(id, "offsets a curve with no end"))?;
+        let points = range
+            .split(OFFSET_SAMPLES)
+            .map(|parameter| {
+                offset(parameter)
+                    .ok_or_else(|| Problem::new(id, "is offset along its own direction somewhere"))
+            })
+            .collect::<Read<Vec<Point3>>>()?;
+        polyline(id, points)
     }
 
     fn spline_curve(&self, entity: Entity<'_>) -> Read<BSpline<Point3>> {

@@ -364,3 +364,43 @@ fn faceted_solids_and_closed_surface_models_are_imported() {
         Err(ReadError::NoSolids)
     );
 }
+
+#[test]
+fn a_composite_curve_follows_its_trimmed_segments() {
+    use caditor_geometry::Point3;
+
+    use crate::{
+        part21::parse,
+        read::{geometry::Geometry, graph::Graph, units::Units},
+    };
+
+    let text = "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n\
+        #1=CARTESIAN_POINT('',(0.,0.,0.));#2=CARTESIAN_POINT('',(10.,0.,0.));\n\
+        #3=CARTESIAN_POINT('',(10.,5.,0.));#4=DIRECTION('',(1.,0.,0.));\n\
+        #5=DIRECTION('',(0.,1.,0.));#6=VECTOR('',#4,2.);#7=VECTOR('',#5,1.);\n\
+        #8=LINE('',#1,#6);#9=LINE('',#2,#7);\n\
+        #10=TRIMMED_CURVE('',#8,(PARAMETER_VALUE(0.)),(PARAMETER_VALUE(5.)),.T.,.PARAMETER.);\n\
+        #11=TRIMMED_CURVE('',#9,(#3),(#2),.F.,.CARTESIAN.);\n\
+        #12=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#10);\n\
+        #13=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.F.,#11);\n\
+        #14=COMPOSITE_CURVE('',(#12,#13),.F.);\nENDSEC;\nEND-ISO-10303-21;\n";
+    let exchange = parse(text).unwrap();
+    let geometry = Geometry {
+        graph: Graph::new(&exchange),
+        units: Units::default(),
+    };
+    let curve = geometry.curve(14).unwrap();
+    let range = curve.domain().bounded().unwrap();
+    let ends = [curve.point(range.start()), curve.point(range.end())];
+    assert!(ends[0].distance(Point3::ZERO) < 1e-9, "{}", ends[0]);
+    assert!(
+        ends[1].distance(Point3::new(10.0, 5.0, 0.0)) < 1e-9,
+        "{}",
+        ends[1]
+    );
+    let corner = curve.point(range.start() + 10.0);
+    assert!(
+        corner.distance(Point3::new(10.0, 0.0, 0.0)) < 1e-9,
+        "{corner}"
+    );
+}

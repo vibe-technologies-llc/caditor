@@ -104,7 +104,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     plus degree plus one (with checked arithmetic) before any knot is expanded. Geometry covers
     every kernel surface and curve including B-spline surfaces and curves in all their forms (Bézier
     ones with the standard piecewise knots, degree-fold at every joint; uniform and other unclamped
-    ones clamped by knot insertion), trimmed and surface curves by their basis, and polylines. Faces
+    ones clamped by knot insertion), trimmed and surface curves by their basis, polylines, and
+    `COMPOSITE_CURVE`s (each segment trimmed by point or parameter and followed in its sense) and
+    `OFFSET_CURVE_3D`s as dense polylines that edge healing then rebuilds on the faces. Faces
     bounded by `POLY_LOOP`s get line edges shared by corner position (and a plane from the polygon
     when a plain `FACE` names no surface). Topology is surveyed first (which faces use each edge and
     vertex), then vertices off their faces are moved onto all of them by damped least squares, edges
