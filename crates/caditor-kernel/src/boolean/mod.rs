@@ -91,6 +91,22 @@ struct Input<'a> {
     second: &'a Solid,
     classifiers: [SolidClassifier<'a>; 2],
     faces: [Vec<FaceBounds>; 2],
+    positions: [Vec<Option<usize>>; 2],
+}
+
+fn bounds_positions(faces: &[FaceBounds]) -> Vec<Option<usize>> {
+    let size = faces
+        .iter()
+        .map(|face| face.id.index() + 1)
+        .max()
+        .unwrap_or(0);
+    let mut positions = vec![None; size];
+    for (position, face) in faces.iter().enumerate() {
+        if let Some(slot) = positions.get_mut(face.id.index()) {
+            *slot = Some(position);
+        }
+    }
+    positions
 }
 
 fn face_bounds(solid: &Solid) -> Vec<FaceBounds> {
@@ -116,11 +132,16 @@ fn face_bounds(solid: &Solid) -> Vec<FaceBounds> {
 
 impl<'a> Input<'a> {
     fn new(first: &'a Solid, second: &'a Solid) -> Self {
+        let (first_faces, second_faces) = (face_bounds(first), face_bounds(second));
         Self {
             first,
             second,
             classifiers: [first.classifier(), second.classifier()],
-            faces: [face_bounds(first), face_bounds(second)],
+            positions: [
+                bounds_positions(&first_faces),
+                bounds_positions(&second_faces),
+            ],
+            faces: [first_faces, second_faces],
         }
     }
 
@@ -152,9 +173,13 @@ impl<'a> Input<'a> {
     }
 
     fn bounds(&self, key: FaceKey) -> Option<&FaceBounds> {
-        self.faces(key.operand)
-            .iter()
-            .find(|bounds| bounds.id == key.face)
+        let [first, second] = &self.positions;
+        let positions = match key.operand {
+            Operand::First => first,
+            Operand::Second => second,
+        };
+        let position = (*positions.get(key.face.index())?)?;
+        self.faces(key.operand).get(position)
     }
 }
 

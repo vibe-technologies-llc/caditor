@@ -79,7 +79,23 @@ struct FaceData {
 pub struct SolidClassifier<'a> {
     solid: &'a Solid,
     faces: Vec<FaceData>,
+    positions: Vec<Option<usize>>,
     bounds: Option<Aabb>,
+}
+
+fn positions_of(faces: &[FaceData]) -> Vec<Option<usize>> {
+    let size = faces
+        .iter()
+        .map(|data| data.id.index() + 1)
+        .max()
+        .unwrap_or(0);
+    let mut positions = vec![None; size];
+    for (position, data) in faces.iter().enumerate() {
+        if let Some(slot) = positions.get_mut(data.id.index()) {
+            *slot = Some(position);
+        }
+    }
+    positions
 }
 
 fn face_data(solid: &Solid, id: FaceId) -> Option<FaceData> {
@@ -161,13 +177,15 @@ impl<'a> SolidClassifier<'a> {
         let bounds = faces.iter().map(|face| face.bounds).reduce(Aabb::union);
         Self {
             solid,
+            positions: positions_of(&faces),
             faces,
             bounds,
         }
     }
 
     fn data(&self, face: FaceId) -> Option<&FaceData> {
-        self.faces.iter().find(|data| data.id == face)
+        let position = (*self.positions.get(face.index())?)?;
+        self.faces.get(position)
     }
 
     pub(crate) fn face_uv_box(&self, face: FaceId) -> Option<Aabb2> {
@@ -509,9 +527,11 @@ impl Solid {
 
     pub fn point_in_face(&self, face: FaceId, uv: Point2) -> Option<FaceContainment> {
         let data = face_data(self, face)?;
+        let faces = vec![data];
         SolidClassifier {
             solid: self,
-            faces: vec![data],
+            positions: positions_of(&faces),
+            faces,
             bounds: None,
         }
         .point_in_face(face, uv)

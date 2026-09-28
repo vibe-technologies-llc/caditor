@@ -117,6 +117,12 @@ impl Arrangement {
 struct Pool {
     points: Vec<Point3>,
     owners: Vec<[bool; 2]>,
+    by_x: BTreeMap<i64, Vec<usize>>,
+}
+
+fn order_key(value: f64) -> i64 {
+    let bits = value.to_bits() as i64;
+    bits ^ ((((bits >> 63) as u64) >> 1) as i64)
 }
 
 fn owner_index(operand: Operand) -> usize {
@@ -127,19 +133,28 @@ fn owner_index(operand: Operand) -> usize {
 }
 
 impl Pool {
+    fn within_x(&self, low: f64, high: f64) -> impl Iterator<Item = usize> + '_ {
+        self.by_x
+            .range(order_key(low)..=order_key(high))
+            .flat_map(|(_, indices)| indices.iter().copied())
+    }
+
     fn insert(&mut self, point: Point3, owner: Option<Operand>) -> usize {
         let existing = self
-            .points
-            .iter()
-            .enumerate()
-            .map(|(index, known)| (index, known.distance_squared(point)))
+            .within_x(point.x - TOLERANCE, point.x + TOLERANCE)
+            .filter_map(|index| {
+                let known = self.points.get(index)?;
+                Some((index, known.distance_squared(point)))
+            })
             .filter(|(_, distance)| *distance <= TOLERANCE * TOLERANCE)
-            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)))
             .map(|(index, _)| index);
         let index = existing.unwrap_or_else(|| {
             self.points.push(point);
             self.owners.push([false; 2]);
-            self.points.len() - 1
+            let index = self.points.len() - 1;
+            self.by_x.entry(order_key(point.x)).or_default().push(index);
+            index
         });
         if let Some(owner) = owner
             && let Some(flags) = self.owners.get_mut(index)
@@ -160,13 +175,13 @@ impl Pool {
 
     fn near(&self, bounds: &Aabb) -> impl Iterator<Item = (usize, Point3)> + '_ {
         let bounds = bounds.expanded(TOLERANCE);
-        self.points
-            .iter()
-            .copied()
-            .enumerate()
-            .filter(move |(_, point)| {
-                point.cmpge(bounds.min()).all() && point.cmple(bounds.max()).all()
-            })
+        let mut found: Vec<usize> = self.within_x(bounds.min().x, bounds.max().x).collect();
+        found.sort_unstable();
+        found.into_iter().filter_map(move |index| {
+            let point = *self.points.get(index)?;
+            (point.cmpge(bounds.min()).all() && point.cmple(bounds.max()).all())
+                .then_some((index, point))
+        })
     }
 }
 

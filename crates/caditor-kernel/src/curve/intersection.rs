@@ -340,7 +340,17 @@ impl IntersectionCurve {
                     ..*node
                 }
             };
-            for pair in self.nodes.windows(2) {
+            let from = self
+                .nodes
+                .partition_point(|node| node.parameter + offset < range.start())
+                .saturating_sub(1);
+            let to = self
+                .nodes
+                .partition_point(|node| node.parameter + offset <= range.end())
+                .saturating_add(1)
+                .min(self.nodes.len());
+            let window = self.nodes.get(from..to).unwrap_or(&[]);
+            for pair in window.windows(2) {
                 let [a, b] = pair else {
                     continue;
                 };

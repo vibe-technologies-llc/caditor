@@ -269,16 +269,30 @@ impl Plan {
                 .collect();
             members.sort_unstable();
             members.dedup();
-            for (rank, vertex) in members.iter().enumerate() {
-                let Some(point) = self.point(*vertex) else {
-                    continue;
-                };
-                let earlier = members.iter().take(rank).find(|other| {
-                    self.point(**other)
-                        .is_some_and(|other| other.distance(point) <= LINEAR_RESOLUTION)
-                });
+            let mut by_x: Vec<(Point3, usize)> = members
+                .iter()
+                .filter_map(|vertex| Some((self.point(*vertex)?, *vertex)))
+                .collect();
+            by_x.sort_by(|a, b| a.0.x.total_cmp(&b.0.x).then(a.1.cmp(&b.1)));
+            for (position, (point, vertex)) in by_x.iter().enumerate() {
+                let nearby = by_x
+                    .iter()
+                    .skip(position + 1)
+                    .take_while(|(other, _)| other.x - point.x <= LINEAR_RESOLUTION)
+                    .chain(
+                        by_x.iter()
+                            .take(position)
+                            .rev()
+                            .take_while(|(other, _)| point.x - other.x <= LINEAR_RESOLUTION),
+                    );
+                let earlier = nearby
+                    .filter(|(other, id)| {
+                        *id < *vertex && other.distance(*point) <= LINEAR_RESOLUTION
+                    })
+                    .map(|(_, id)| *id)
+                    .min();
                 if let (Some(earlier), Some(slot)) = (earlier, representative.get_mut(*vertex)) {
-                    *slot = *earlier;
+                    *slot = earlier;
                 }
             }
         }

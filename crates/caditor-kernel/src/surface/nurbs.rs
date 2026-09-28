@@ -12,6 +12,7 @@ use crate::{
 
 const SAMPLES_PER_SPAN: usize = 3;
 const MAX_GRID_SAMPLES: usize = 48;
+const PROJECTION_SEEDS: usize = 3;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BSplineSurface {
@@ -397,13 +398,18 @@ impl BSplineSurface {
     }
 
     pub(crate) fn project_seed(&self, point: Point3, hint: Option<Point2>) -> Vec<Point2> {
-        let mut seeds: Vec<(f64, Point2)> = self
-            .grid
-            .iter()
-            .map(|(uv, sample)| (sample.distance_squared(point), *uv))
-            .collect();
-        seeds.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let mut chosen: Vec<Point2> = seeds.into_iter().take(3).map(|(_, uv)| uv).collect();
+        let mut nearest: Vec<(f64, Point2)> = Vec::with_capacity(PROJECTION_SEEDS + 1);
+        for (uv, sample) in self.grid.iter() {
+            let distance = sample.distance_squared(point);
+            let full = nearest.len() >= PROJECTION_SEEDS;
+            if full && nearest.last().is_some_and(|(worst, _)| distance >= *worst) {
+                continue;
+            }
+            let at = nearest.partition_point(|(known, _)| *known <= distance);
+            nearest.insert(at, (distance, *uv));
+            nearest.truncate(PROJECTION_SEEDS);
+        }
+        let mut chosen: Vec<Point2> = nearest.into_iter().map(|(_, uv)| uv).collect();
         if let Some(hint) = hint.filter(|hint| hint.is_finite()) {
             let (u, v) = self.wrap(hint.x, hint.y);
             chosen.insert(0, Point2::new(u, v));

@@ -128,17 +128,16 @@ impl<P: Coordinates> BSpline<P> {
         let span = self.span(parameter);
         let table = self.basis_table(span, parameter);
         let degree = self.degree;
-        let values = table.get(degree).cloned().unwrap_or_default();
+        let values = table.get(degree).copied().unwrap_or(ZERO_ROW);
         let first = table
             .get(degree - 1)
-            .map(|lower| self.derivative_row(lower, degree, span))
-            .unwrap_or_default();
+            .map_or(ZERO_ROW, |lower| self.derivative_row(lower, degree, span));
         let second = match degree.checked_sub(2).and_then(|index| table.get(index)) {
             Some(lower) => {
                 let middle = self.derivative_row(lower, degree - 1, span);
                 self.derivative_row(&middle, degree, span)
             }
-            None => Vec::new(),
+            None => ZERO_ROW,
         };
         let (a0, w0) = self.combine(span, &values);
         let (a1, w1) = self.combine(span, &first);
@@ -233,38 +232,17 @@ impl<P: Coordinates> BSpline<P> {
             .clamp(self.degree, last)
     }
 
-    fn basis_table(&self, span: usize, parameter: f64) -> Vec<Vec<f64>> {
-        let mut table: Vec<Vec<f64>> = vec![vec![1.0]];
-        for degree in 1..=self.degree {
-            let lower = table.last().cloned().unwrap_or_default();
-            let row = (0..=degree)
-                .map(|offset| {
-                    let index = span + offset - degree;
-                    let left = offset
-                        .checked_sub(1)
-                        .and_then(|below| lower.get(below))
-                        .copied()
-                        .unwrap_or(0.0);
-                    let right = lower.get(offset).copied().unwrap_or(0.0);
-                    let rising = ratio(
-                        parameter - self.knot(index),
-                        self.knot(index + degree) - self.knot(index),
-                    );
-                    let falling = ratio(
-                        self.knot(index + degree + 1) - parameter,
-                        self.knot(index + degree + 1) - self.knot(index + 1),
-                    );
-                    left * rising + right * falling
-                })
-                .collect();
-            table.push(row);
+    fn basis_table(&self, span: usize, parameter: f64) -> [BasisRow; ROW_WIDTH] {
+        let mut table = [ZERO_ROW; ROW_WIDTH];
+        if let Some(first) = table.first_mut().and_then(|row| row.first_mut()) {
+            *first = 1.0;
         }
-        table
-    }
-
-    fn derivative_row(&self, lower: &[f64], degree: usize, span: usize) -> Vec<f64> {
-        (0..=degree)
-            .map(|offset| {
+        for degree in 1..=self.degree.min(MAX_SPLINE_DEGREE) {
+            let lower = table.get(degree - 1).copied().unwrap_or(ZERO_ROW);
+            let Some(row) = table.get_mut(degree) else {
+                break;
+            };
+            for (offset, slot) in row.iter_mut().enumerate().take(degree + 1) {
                 let index = span + offset - degree;
                 let left = offset
                     .checked_sub(1)
@@ -272,16 +250,44 @@ impl<P: Coordinates> BSpline<P> {
                     .copied()
                     .unwrap_or(0.0);
                 let right = lower.get(offset).copied().unwrap_or(0.0);
-                degree as f64
-                    * (ratio(left, self.knot(index + degree) - self.knot(index))
-                        - ratio(right, self.knot(index + degree + 1) - self.knot(index + 1)))
-            })
-            .collect()
+                let rising = ratio(
+                    parameter - self.knot(index),
+                    self.knot(index + degree) - self.knot(index),
+                );
+                let falling = ratio(
+                    self.knot(index + degree + 1) - parameter,
+                    self.knot(index + degree + 1) - self.knot(index + 1),
+                );
+                *slot = left * rising + right * falling;
+            }
+        }
+        table
     }
 
-    fn combine(&self, span: usize, coefficients: &[f64]) -> (P, f64) {
+    fn derivative_row(&self, lower: &BasisRow, degree: usize, span: usize) -> BasisRow {
+        let mut row = ZERO_ROW;
+        for (offset, slot) in row.iter_mut().enumerate().take(degree + 1) {
+            let index = span + offset - degree;
+            let left = offset
+                .checked_sub(1)
+                .and_then(|below| lower.get(below))
+                .copied()
+                .unwrap_or(0.0);
+            let right = if offset < degree {
+                lower.get(offset).copied().unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            *slot = degree as f64
+                * (ratio(left, self.knot(index + degree) - self.knot(index))
+                    - ratio(right, self.knot(index + degree + 1) - self.knot(index + 1)));
+        }
+        row
+    }
+
+    fn combine(&self, span: usize, coefficients: &BasisRow) -> (P, f64) {
         let first = span - self.degree;
-        coefficients.iter().enumerate().fold(
+        coefficients.iter().take(self.degree + 1).enumerate().fold(
             (P::ORIGIN, 0.0),
             |(sum, total), (offset, coefficient)| {
                 let index = first + offset;
@@ -300,6 +306,10 @@ impl<P: Coordinates> BSpline<P> {
         )
     }
 }
+
+const ROW_WIDTH: usize = MAX_SPLINE_DEGREE + 1;
+type BasisRow = [f64; ROW_WIDTH];
+const ZERO_ROW: BasisRow = [0.0; ROW_WIDTH];
 
 fn ratio(numerator: f64, denominator: f64) -> f64 {
     if denominator > 0.0 {

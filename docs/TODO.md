@@ -51,24 +51,18 @@ within a category run from most to least important.
 
 - Booleans re-trace, re-fit and re-classify every face of both solids (`boolean/faces.rs`),
   including untouched ones that can still fail. Pass untouched faces through.
-- No spatial index: vertex pooling, edge–face and face–face candidate pairs, face bounds lookup
-  and `merge_coincident_vertices` are all quadratic (`imprint.rs`, `boolean/mod.rs`,
-  `build/plan.rs`). Add a grid hash for points and a BVH for face boxes.
+- Edge–face and face–face candidate pairs are tested all against all (`imprint.rs`). Add a BVH
+  for face boxes.
 - Blends run one full boolean per edge on a growing solid, and mixed selections analyse twice.
   Union the tools first.
 - `heal_edges` rebuilds use and incidence maps for every join.
-- A projection hint never saves work: `numeric.rs` runs the global search before using it, twice
-  per `Revolution` projection. Try the hint locally first.
-- B-spline curve evaluation allocates about ten vectors per call (`bspline.rs`), unlike the
-  surface's stack arrays.
-- B-spline surface projection sorts the whole 49×49 grid and refines four seeds every call, and
+- B-spline surface projection of a point off the surface refines four seeds every call, and
   recomputes poles.
-- Intersection-curve `bounds`, `seeds` and `trimmed` walk every node; use `partition_point`.
 - A failing face re-meshes the whole solid up to five times, and validation retries that three
   times. Retry only the failing face.
 - The profile arrangement is quadratic in curves (`arrangement.rs` `split` scans every event per
   source), about 1e9 comparisons at `MAX_DRAWING_CURVES`.
-- Classifier lookups are linear per face and quadratic per loop in `corner`.
+- Blend corners look up loops quadratically (`blend/corner.rs`).
 
 ## STEP import and export
 

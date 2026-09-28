@@ -243,6 +243,11 @@ impl Surface {
             Self::Sphere(sphere) => sphere.project(point, hint),
             Self::Torus(torus) => torus.project(point, hint),
             Self::Extrusion(extrusion) => extrusion.project(point, hint),
+            Self::Revolution(_) | Self::BSpline(_)
+                if let Some(on_surface) = self.project_on_surface(point, hint) =>
+            {
+                on_surface
+            }
             Self::Revolution(revolution) => {
                 let seed = revolution.project_seed(point, hint);
                 let refined = projection::refine(self, point, seed);
@@ -284,6 +289,29 @@ impl Surface {
                 }
             }
         }
+    }
+
+    fn project_on_surface(&self, point: Point3, hint: Option<Point2>) -> Option<Point2> {
+        let hint = hint?;
+        let refined = projection::refine(self, point, hint);
+        if !refined.is_finite() || self.point_at(refined).distance(point) > LINEAR_RESOLUTION {
+            return None;
+        }
+        let placed = match self {
+            Self::BSpline(spline) => spline.place(refined, Some(hint)),
+            _ => {
+                let u = periodic_near(refined.x, TAU, Some(hint.x));
+                let v = match self.v_period() {
+                    Some(period) => periodic_near(refined.y, period, Some(hint.y)),
+                    None => refined.y,
+                };
+                Point2::new(u, v)
+            }
+        };
+        Some(match self.pole_at(placed) {
+            Some(_) => Point2::new(hint.x, placed.y),
+            None => placed,
+        })
     }
 
     pub fn distance(&self, point: Point3) -> f64 {
