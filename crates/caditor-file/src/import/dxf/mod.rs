@@ -162,8 +162,14 @@ struct Block {
     records: Vec<Record>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct HeaderUnits {
+    insertion: Option<i64>,
+    imperial: bool,
+}
+
 struct DxfFile {
-    units: Option<i64>,
+    units: HeaderUnits,
     layers: BTreeMap<String, Layer>,
     blocks: BTreeMap<String, Block>,
     entities: Vec<Record>,
@@ -172,7 +178,7 @@ struct DxfFile {
 impl DxfFile {
     fn read(records: &[Record]) -> Result<Self, ImportError> {
         let mut file = Self {
-            units: None,
+            units: HeaderUnits::default(),
             layers: BTreeMap::new(),
             blocks: BTreeMap::new(),
             entities: Vec::new(),
@@ -243,16 +249,21 @@ impl DxfFile {
     }
 }
 
-fn header_units(header: &Record) -> Option<i64> {
+fn header_units(header: &Record) -> HeaderUnits {
+    let mut units = HeaderUnits::default();
     let mut variable = "";
     for pair in &header.pairs {
         if pair.code == 9 {
             variable = pair.text().trim();
-        } else if variable.eq_ignore_ascii_case("$INSUNITS") && pair.code == 70 {
-            return pair.integer();
+        } else if pair.code == 70 {
+            if variable.eq_ignore_ascii_case("$INSUNITS") {
+                units.insertion = pair.integer();
+            } else if variable.eq_ignore_ascii_case("$MEASUREMENT") {
+                units.imperial = pair.integer() == Some(IMPERIAL_MEASUREMENT);
+            }
         }
     }
-    None
+    units
 }
 
 struct Item<'a> {
@@ -702,8 +713,17 @@ fn spline(record: &Record) -> Option<Vec<Shape>> {
     (fit_points.len() >= 2).then(|| vec![Shape::Interpolated(fit_points)])
 }
 
-fn unit_note(units: Option<i64>, notes: &mut Vec<String>) -> f64 {
-    match units.and_then(unit) {
+fn unit_note(units: HeaderUnits, notes: &mut Vec<String>) -> f64 {
+    let named = units.insertion.filter(|code| *code != UNITLESS);
+    if named.is_none() && units.imperial {
+        notes.push(
+            "The drawing does not name its unit but uses imperial measurement, so its numbers \
+             were read as inches and converted to millimetres."
+                .to_owned(),
+        );
+        return INCH;
+    }
+    match named.and_then(unit) {
         Some((scale, name)) => {
             if scale != 1.0 {
                 notes.push(format!(
@@ -722,6 +742,10 @@ fn unit_note(units: Option<i64>, notes: &mut Vec<String>) -> f64 {
         }
     }
 }
+
+const UNITLESS: i64 = 0;
+const INCH: f64 = 25.4;
+const IMPERIAL_MEASUREMENT: i64 = 0;
 
 fn unit(code: i64) -> Option<(f64, &'static str)> {
     Some(match code {

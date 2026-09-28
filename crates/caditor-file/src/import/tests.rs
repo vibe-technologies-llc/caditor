@@ -241,6 +241,37 @@ fn units_are_converted_to_millimetres_and_named() {
 
     let unitless = drawing(Some(0), vec![line((0.0, 0.0), (1.0, 0.0))]);
     assert!(unitless.notes[0].contains("read as millimetres"));
+
+    for units in [None, Some(0)] {
+        let mut content = vec![pair(9, "$MEASUREMENT"), pair(70, 0)];
+        if let Some(units) = units {
+            content.extend([pair(9, "$INSUNITS"), pair(70, units)]);
+        }
+        let imperial = parse_dxf(&text(vec![
+            section("HEADER", vec![content]),
+            section("ENTITIES", vec![line((0.0, 0.0), (1.0, 0.0))]),
+        ]))
+        .unwrap();
+        assert_eq!(
+            lines(&imperial),
+            vec![(Point2::ZERO, Point2::new(25.4, 0.0))]
+        );
+        assert!(imperial.notes[0].contains("inches"), "{:?}", imperial.notes);
+    }
+    let metric_named = parse_dxf(&text(vec![
+        section(
+            "HEADER",
+            vec![vec![
+                pair(9, "$MEASUREMENT"),
+                pair(70, 0),
+                pair(9, "$INSUNITS"),
+                pair(70, 4),
+            ]],
+        ),
+        section("ENTITIES", vec![line((0.0, 0.0), (1.0, 0.0))]),
+    ]))
+    .unwrap();
+    assert_eq!(lines(&metric_named), vec![(Point2::ZERO, Point2::X)]);
 }
 
 fn block(name: &str, base: (f64, f64), content: Vec<Pairs>) -> Pairs {

@@ -22,6 +22,7 @@ use crate::{
 };
 
 const SOLID_KINDS: [&str; 2] = ["MANIFOLD_SOLID_BREP", "BREP_WITH_VOIDS"];
+const UNIT_SLACK: f64 = 1e-9;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StepSolid {
@@ -57,6 +58,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
     let mut model = StepModel::default();
     let mut failures = Vec::new();
     let mut unnamed_units = false;
+    let mut converted: Vec<f64> = Vec::new();
     let mut repaired = 0;
     let solids: Vec<Entity<'_>> = graph
         .entities()
@@ -74,6 +76,9 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
             .map(|representation| structure.units_of(&graph, representation))
             .unwrap_or_default();
         unnamed_units |= !units.named;
+        if units.named && (units.length - 1.0).abs() > UNIT_SLACK {
+            converted.push(units.length);
+        }
         let name = solid_name(entity, &structure, representation, index);
         let placements = match representation {
             Some(representation) => structure.placements(representation),
@@ -173,6 +178,16 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
             if repaired == 1 { "its" } else { "their" }
         ));
     }
+    converted.sort_by(f64::total_cmp);
+    converted.dedup_by(|a, b| (*a - *b).abs() <= UNIT_SLACK * b.abs());
+    if !model.solids.is_empty() {
+        for scale in converted {
+            model.notes.push(format!(
+                "The file measures lengths in {}, so they were converted to millimetres.",
+                unit_name(scale)
+            ));
+        }
+    }
     if unnamed_units && !model.solids.is_empty() {
         model.notes.push(
             "The file does not say which unit it uses, so its numbers were read as millimetres."
@@ -191,6 +206,27 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
         );
     }
     Ok(model)
+}
+
+fn unit_name(millimetres: f64) -> String {
+    const NAMED: [(f64, &str); 9] = [
+        (0.001, "micrometres"),
+        (0.0254, "thousandths of an inch"),
+        (10.0, "centimetres"),
+        (25.4, "inches"),
+        (100.0, "decimetres"),
+        (304.8, "feet"),
+        (914.4, "yards"),
+        (1_000.0, "metres"),
+        (1_000_000.0, "kilometres"),
+    ];
+    NAMED
+        .iter()
+        .find(|(scale, _)| (scale - millimetres).abs() <= UNIT_SLACK * scale)
+        .map_or_else(
+            || format!("units of {millimetres} mm"),
+            |(_, name)| (*name).to_owned(),
+        )
 }
 
 fn unplaced_note(name: &str, reason: Unplaced) -> String {

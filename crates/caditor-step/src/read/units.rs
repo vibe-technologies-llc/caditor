@@ -87,7 +87,10 @@ fn measure(graph: &Graph<'_>, unit: Entity<'_>, depth: usize) -> Measure {
         else {
             return Measure::Other;
         };
-        let Ok(fields) = factor.fields() else {
+        let Ok(fields) = factor
+            .fields()
+            .or_else(|_| factor.record("MEASURE_WITH_UNIT"))
+        else {
             return Measure::Other;
         };
         let (Ok(value), Some(base)) = (

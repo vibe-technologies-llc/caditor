@@ -117,6 +117,40 @@ fn lengths_follow_the_unit_of_the_file() {
     let model = sample(&text);
     let expected = fixtures::volume(&solid) * 1000.0;
     assert_volume(&model.solids[0].solid, expected);
+    assert_eq!(
+        model.notes,
+        ["The file measures lengths in centimetres, so they were converted to millimetres."]
+    );
+    let inches = write_step(
+        &[StepBody {
+            name: "Plate",
+            solid: &solid,
+        }],
+        "Plate",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap()
+    .replace(
+        "(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.))",
+        "(CONVERSION_BASED_UNIT('INCH',#9001) LENGTH_UNIT() NAMED_UNIT(#9002))",
+    )
+    .replace(
+        "ENDSEC;\nEND-ISO-10303-21;",
+        "#9001=(LENGTH_MEASURE_WITH_UNIT() MEASURE_WITH_UNIT(LENGTH_MEASURE(25.4),#9003));\n\
+         #9002=DIMENSIONAL_EXPONENTS(1.,0.,0.,0.,0.,0.,0.);\n\
+         #9003=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));\n\
+         ENDSEC;\nEND-ISO-10303-21;",
+    );
+    assert!(inches.contains("#9001="));
+    let model = sample(&inches);
+    assert_volume(
+        &model.solids[0].solid,
+        fixtures::volume(&solid) * 25.4_f64.powi(3),
+    );
+    assert_eq!(
+        model.notes,
+        ["The file measures lengths in inches, so they were converted to millimetres."]
+    );
     let unnamed = write_step(
         &[StepBody {
             name: "Plate",

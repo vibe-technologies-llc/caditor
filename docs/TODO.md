@@ -55,8 +55,6 @@ within a category run from most to least important.
 
 ## STEP import and export
 
-- Units given as a complex `MEASURE_WITH_UNIT` are read as millimetres (`read/units.rs` uses
-  `fields()`, which refuses complex instances), so such inch files import 25.4 times too small.
 - Plain `BEZIER_CURVE`, `UNIFORM_CURVE` and `QUASI_UNIFORM_CURVE` are refused because the name
   match covers only `B_SPLINE_CURVE` (`read/geometry.rs`), and multi-segment Bézier curves and
   surfaces get quasi-uniform knots instead of the standard's.
@@ -97,8 +95,6 @@ within a category run from most to least important.
 
 ## DXF import
 
-- `$MEASUREMENT = 0` (imperial) is ignored when `$INSUNITS` is absent or 0, so such drawings
-  import 25.4 times too small.
 - HATCH boundaries, SOLID, TRACE, 3DFACE and MLINE are dropped; HATCH boundaries are often the
   only closed profile.
 - Fit-point splines ignore their end tangents, and a SPLINE with bad control points is refused

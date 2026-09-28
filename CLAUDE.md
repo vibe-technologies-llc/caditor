@@ -80,32 +80,32 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   round-tripping decimal with a point, and text escapes quotes, backslashes and non-ASCII (`\X2\`).
   The output was checked against OpenCascade (valid, closed, same volume) for every kind of face.
   - Reading (`part21.rs`, `read/`): a Part 21 parser (header, data sections, complex instances
-    sorted by name, typed values, comments, the `\X\`, `\X2\`, `\X4\` and `\S\` encodings,
-    nesting limit) feeds `read_step`, which returns every `MANIFOLD_SOLID_BREP` and
-    `BREP_WITH_VOIDS` as named kernel solids plus notes, or a `ReadError` in words. Units come
-    from each representation's context (SI prefixes and conversion-based units such as inches
-    and degrees). Assemblies are followed from each solid's representation up to the roots
-    through `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION` (child and parent told apart by
-    `NEXT_ASSEMBLY_USAGE_OCCURRENCE` when present), untransformed relationships and
-    `MAPPED_ITEM`s, giving one solid per placement, named after its product. Placements are
-    memoised per representation (so layered assemblies cost one visit per part), assemblies
-    deeper than `MAX_DEPTH` or placing a part only inside itself leave that solid out with a
-    note, and the whole file yields at most `MAX_INSTANCES` solids. Spline degrees above the
-    kernel's `MAX_SPLINE_DEGREE` are refused as they are read, and knot multiplicities must sum
-    to points plus degree plus one (with checked arithmetic) before any knot is expanded.
-    Geometry covers every kernel surface and curve including B-spline surfaces and
-    curves in all their forms (unclamped ones are clamped by knot insertion), trimmed and
-    surface curves by their basis, and polylines. Topology is surveyed first (which faces use
-    each edge and vertex), then vertices off their faces are moved onto all of them by damped
-    least squares, edges not within a quarter of the resolution of both faces are rebuilt with
-    `IntersectionCurve::through`, loops take their orientation from bounds, oriented edges and
-    `same_sense` (voids from `ORIENTED_CLOSED_SHELL`), the outer loop is the
-    `FACE_OUTER_BOUND`, else the one using a seam, else the largest by area, and faces bounded
-    only by `VERTEX_LOOP`s get a pole-to-pole seam (spheres and closed spline surfaces). Every
-    solid then goes through `SolidBuilder::build`, so an import is valid or a sentence naming the
-    entity; faces that meet only farther apart than `LINEAR_RESOLUTION` are refused in those
-    words, and a solid whose faces cross (`Solid::find_crossing`) is refused naming the two face
-    entities.
+    sorted by name, typed values, comments, the `\X\`, `\X2\`, `\X4\` and `\S\` encodings, nesting
+    limit) feeds `read_step`, which returns every `MANIFOLD_SOLID_BREP` and `BREP_WITH_VOIDS` as
+    named kernel solids plus notes, or a `ReadError` in words. Units come from each representation's
+    context (SI prefixes and conversion-based units such as inches and degrees, whose factor may be
+    a simple or a complex `MEASURE_WITH_UNIT`), and a note names every length unit other than
+    millimetres that was converted. Assemblies are followed from each solid's representation up to
+    the roots through `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION` (child and parent told apart
+    by `NEXT_ASSEMBLY_USAGE_OCCURRENCE` when present), untransformed relationships and
+    `MAPPED_ITEM`s, giving one solid per placement, named after its product. Placements are memoised
+    per representation (so layered assemblies cost one visit per part), assemblies deeper than
+    `MAX_DEPTH` or placing a part only inside itself leave that solid out with a note, and the whole
+    file yields at most `MAX_INSTANCES` solids. Spline degrees above the kernel's
+    `MAX_SPLINE_DEGREE` are refused as they are read, and knot multiplicities must sum to points
+    plus degree plus one (with checked arithmetic) before any knot is expanded. Geometry covers
+    every kernel surface and curve including B-spline surfaces and curves in all their forms
+    (unclamped ones are clamped by knot insertion), trimmed and surface curves by their basis, and
+    polylines. Topology is surveyed first (which faces use each edge and vertex), then vertices off
+    their faces are moved onto all of them by damped least squares, edges not within a quarter of
+    the resolution of both faces are rebuilt with `IntersectionCurve::through`, loops take their
+    orientation from bounds, oriented edges and `same_sense` (voids from `ORIENTED_CLOSED_SHELL`),
+    the outer loop is the `FACE_OUTER_BOUND`, else the one using a seam, else the largest by area,
+    and faces bounded only by `VERTEX_LOOP`s get a pole-to-pole seam (spheres and closed spline
+    surfaces). Every solid then goes through `SolidBuilder::build`, so an import is valid or a
+    sentence naming the entity; faces that meet only farther apart than `LINEAR_RESOLUTION` are
+    refused in those words, and a solid whose faces cross (`Solid::find_crossing`) is refused naming
+    the two face entities.
 - **caditor-geometry**: the math vocabulary, as f64 `glam` aliases (`Point3`, `Rotation3`, …)
   plus `Plane` (origin, normal and in-plane x axis, also used as the frame of every circle and
   rotational surface), `Ray`, `Aabb`, `Aabb2` and the rigid transforms `RigidTransform` and
@@ -652,21 +652,22 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     renamed into place meanwhile is left alone.
   - DXF import (`import/`): `parse_dxf` reads ASCII and binary DXF (group codes with typed values,
     UTF-8 or single-byte text) into a `Drawing` of 2D `DrawingCurve`s in millimetres plus notes in
-    plain language. It reads `$INSUNITS` (none is read as millimetres, with a note), layers
-    (entities on off or frozen layers are left out), blocks and INSERTs (base point, scale,
-    rotation, column and row arrays, nested with cycle and depth limits and at most
-    `MAX_EXPANDED_OBJECTS` objects and cells visited in all, block content on layer 0 taking the
-    insert's layer), and the entities LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE and POLYLINE
-    (bulges become arcs, 3D polylines lines) and SPLINE (control points with knots and weights up to
-    degree 9, or fit points). Object coordinate systems follow the arbitrary axis algorithm.
-    Everything becomes a 3D shape (point, line, parametric conic, NURBS or fit points), is
-    transformed, then flattened onto XY: conics that project to circles become circles and arcs
-    (counter-clockwise), other conics and splines that are not already in the sketch's uniform form
-    are fitted within a millionth of the drawing's size. Paper space and invisible entities are
-    skipped silently; text, dimensions, hatches and other annotations are counted in a note. The cap
-    is `MAX_DRAWING_CURVES`. `drawing_transaction` turns a drawing into one transaction on an
-    existing or new sketch, dropping curves shorter than the joint tolerance and joining ends closer
-    than a millionth of the drawing's size with `Coincident` constraints.
+    plain language. It reads `$INSUNITS` (none is read as millimetres, with a note, unless
+    `$MEASUREMENT` is 0, imperial, when it is read as inches, also with a note), layers (entities on
+    off or frozen layers are left out), blocks and INSERTs (base point, scale, rotation, column and
+    row arrays, nested with cycle and depth limits and at most `MAX_EXPANDED_OBJECTS` objects and
+    cells visited in all, block content on layer 0 taking the insert's layer), and the entities
+    LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE and POLYLINE (bulges become arcs, 3D polylines
+    lines) and SPLINE (control points with knots and weights up to degree 9, or fit points). Object
+    coordinate systems follow the arbitrary axis algorithm. Everything becomes a 3D shape (point,
+    line, parametric conic, NURBS or fit points), is transformed, then flattened onto XY: conics
+    that project to circles become circles and arcs (counter-clockwise), other conics and splines
+    that are not already in the sketch's uniform form are fitted within a millionth of the drawing's
+    size. Paper space and invisible entities are skipped silently; text, dimensions, hatches and
+    other annotations are counted in a note. The cap is `MAX_DRAWING_CURVES`. `drawing_transaction`
+    turns a drawing into one transaction on an existing or new sketch, dropping curves shorter than
+    the joint tolerance and joining ends closer than a millionth of the drawing's size with
+    `Coincident` constraints.
   - STEP import (`import/model.rs`): `read_step_file` reads a STEP file through `caditor-step`
     and canonicalises each solid (written by caditor's own writer and read back, so what is
     stored is exactly what later loads), giving one `ImportedBody` per solid plus notes;
