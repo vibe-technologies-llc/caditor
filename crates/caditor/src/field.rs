@@ -259,8 +259,7 @@ mod tests {
             })
             .unwrap();
         let mut transaction = document.transaction("Sketch");
-        let feature =
-            transaction.add_feature("Holes", caditor_document::FeatureKind::Sketch(sketch));
+        let feature = transaction.add_feature("Holes", caditor_document::FeatureKind::from(sketch));
         document.apply(transaction.finish()).unwrap();
         let parameters = ParameterValues::evaluate(&document);
         let target = DimensionTarget {

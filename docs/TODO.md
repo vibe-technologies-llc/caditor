@@ -26,15 +26,14 @@ These need an answer before the milestone that depends on them starts.
 ## M5: Solid modelling
 
 `caditor-kernel` already has the geometry, topology, validation, tessellation, planar profiles,
-the extrude and revolve builders, frozen face and edge names, intersections, point
-classification and booleans. The app draws bodies as shaded meshes, creates and edits extrude
-and revolve features with a property panel and region choice, and selects faces and edges.
+the extrude and revolve builders, frozen face and edge names, face and edge references that
+resolve through those names, intersections, point classification and booleans. The app draws
+bodies as shaded meshes, creates and edits extrude and revolve features with a property panel
+and region choice, selects faces and edges, and places sketches on flat faces that they follow
+through upstream edits. Edge references are ready for fillet and chamfer but have no user yet.
 
-- [ ] References to generated faces and edges that resolve through their names, choosing among
-      the fragments of a split face by its neighbours, so that edits upstream do not rewire
-      downstream features
 - [ ] Fillet, chamfer and shell
-- [ ] Sketch on a face and datum planes and axes
+- [ ] Datum planes and axes
 
 ## M6: Interop
 

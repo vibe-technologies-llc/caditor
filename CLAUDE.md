@@ -149,6 +149,15 @@ meshes.
     resort. `FaceOrigin` (side of an entity, start or end cap, with the raw feature and entity
     ids) says in words what a face came from. Later generators (a fillet face named by the edge it
     replaced, boolean fragments that keep their name) are new constructors with new tags.
+  - References (`naming/reference.rs`) are how later features keep hold of generated topology.
+    A `FaceReference` is a face's name, origin and the set of its neighbours' names. It resolves
+    to the one face with that name; among fragments of a split face, to the one whose neighbours
+    match best (most shared, then fewest differences); and when the name is gone (its region
+    key or piece id changed), to the face of the same origin sharing at least one neighbour.
+    An `EdgeReference` is an edge's name, its two face names and its end vertex names, resolved
+    by name, else among the edges between the same faces by matching ends. A tie is
+    `ReferenceError::Ambiguous` with the candidates and no match is `Missing`: resolution never
+    guesses between equals.
   - Profiles (`profile/`): `Profile::new` takes `ProfileCurve`s (lines, circles, counter-clockwise
     arcs, clamped B-splines with an explicit knot vector) tagged with the sketch entity id as a
     plain u64, and builds the planar arrangement with tolerance 1e-7 of the profile size (at
@@ -288,6 +297,16 @@ meshes.
     its sketch is a sketch and its target makes a body; `SetFeatureKind` replaces its settings
     but never its kind, and a feature whose body others change keeps making a new body. A sketch
     line used as a revolve axis cannot be deleted.
+  - Sketches (`FeatureKind::Sketch(SketchFeature)`) keep their `Sketch` and, when they lie on
+    a body, a `FaceAttachment` (`attachment.rs`: the body's feature ID and a `FaceReference`).
+    The stored plane is where the sketch was placed; recompute resolves the reference in the
+    body's state at the sketch's place in the tree (`FeatureKind::body_input`, shared with solid
+    features that change a body) and gives the solved geometry the face's plane, outward normal
+    and surface frame, so the sketch follows the face. Fragments of a split face are accepted
+    when they lie in one plane; a lost, split or curved face fails the sketch alone with a fix
+    pointing at it. `SetSketchPlacement` sets the plane and attachment together (attach, move
+    to another face, or detach where it is); a body with attached sketches cannot be deleted or
+    stop making a body.
   - Recompute: `ParameterValues` evaluates parameters in dependency order and reports cycles
     rather than following them. `Recompute` walks the features in tree order and reuses a
     cached result when the feature definition (an `Arc`, compared by pointer first), the values
@@ -318,7 +337,10 @@ meshes.
   text never depends on names, and numbers round-trip exactly. Every format version that has
   shipped stays readable. Version 3 added `extrude` and `revolve` features; region keys are
   stored as 32-digit hex strings, and an unreadable extent falls back to 10 mm or 360° with a
-  report.
+  report. Version 4 added a sketch's `attachment` (body ID, face name, origin and neighbour names
+  as hex digests); older readers ignore it and keep the sketch on its stored plane. An
+  unreadable attachment, or one whose body could not be restored, leaves the sketch on its
+  stored plane with a report.
   - Saving writes a temporary sibling, fsyncs it, renames it over the target and fsyncs the
     directory, keeping the target's permissions. Overwriting a file that loaded with problems
     first keeps the original as `<name>.damaged.caditor`.
@@ -399,6 +421,13 @@ meshes.
     checked before it is offered, and its sketch's regions are drawn as fills that
     `Pickable::Region` clicks add or leave out, turning `RegionChoice::All` into the explicit
     keys. Double-clicking a face opens the feature that made it; Escape closes it last.
+  - Sketches on faces (`sketch_placement.rs`): New sketch starts on a selected flat face, and
+    while choosing a plane a click on a flat face does the same. The attachment is captured from
+    the body's state where the sketch sits in the tree, so a face made further down is refused
+    with the reason. A sketch's row says which face it lies on and offers Detach, and Place on
+    selected face when one is selected. Everything that draws or maps onto a sketch takes its
+    plane from the solved result (`scene::sketch_plane`, `displayed_sketch`), since an attached
+    sketch's stored plane is only where it was placed.
   - `Model` also owns the file session: the path, the last saved document (the model is
     unsaved exactly when its document differs from it), the journal entries since then and the
     `Storage` worker, to which every change is recorded. `files.rs` is the file workflow: the

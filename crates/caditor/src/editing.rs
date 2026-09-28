@@ -5,6 +5,7 @@ use egui::Key;
 use crate::{
     model::{Action, Model},
     selection::PrincipalPlane,
+    sketch_placement::{self, FaceChoice},
 };
 
 const NEW_SKETCH_PREFIX: &str = "Sketch";
@@ -106,6 +107,7 @@ pub struct ActiveSketch {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EditingCommand {
     NewSketch(Option<PrincipalPlane>),
+    NewSketchOnFace(FaceChoice),
     CancelNewSketch,
     Enter(FeatureId),
     Finish,
@@ -167,6 +169,7 @@ impl SketchEditing {
         self.sync(model);
         match command {
             EditingCommand::NewSketch(Some(plane)) => self.create(plane, model),
+            EditingCommand::NewSketchOnFace(face) => self.create_on_face(face, model),
             EditingCommand::NewSketch(None) => {
                 self.active = None;
                 self.solid = None;
@@ -215,9 +218,17 @@ impl SketchEditing {
         let document = model.document();
         let name = next_sketch_name(document);
         let mut transaction = document.transaction(format!("Create {name}"));
-        let feature =
-            transaction.add_feature(name, FeatureKind::Sketch(Sketch::new(plane.plane())));
+        let feature = transaction.add_feature(name, FeatureKind::from(Sketch::new(plane.plane())));
         model.perform(Action::Apply(transaction.finish()));
+        self.enter(feature, model.document());
+    }
+
+    fn create_on_face(&mut self, face: FaceChoice, model: &mut Model) {
+        let Some((transaction, feature)) = sketch_placement::new_sketch(model, face) else {
+            return;
+        };
+        self.choosing_plane = false;
+        model.perform(Action::Apply(transaction));
         self.enter(feature, model.document());
     }
 
@@ -265,8 +276,8 @@ mod tests {
         let mut document = Document::default();
         assert_eq!(next_sketch_name(&document), "Sketch 1");
         let mut transaction = document.transaction("Sketches");
-        transaction.add_feature("Sketch 1", FeatureKind::Sketch(Sketch::new(Plane::XY)));
-        transaction.add_feature("Sketch 3", FeatureKind::Sketch(Sketch::new(Plane::XY)));
+        transaction.add_feature("Sketch 1", FeatureKind::from(Sketch::new(Plane::XY)));
+        transaction.add_feature("Sketch 3", FeatureKind::from(Sketch::new(Plane::XY)));
         document.apply(transaction.finish()).unwrap();
         assert_eq!(next_sketch_name(&document), "Sketch 2");
     }

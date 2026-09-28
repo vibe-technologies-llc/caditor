@@ -1,6 +1,6 @@
 use caditor_document::{
     Document, Edit, Feature, FeatureError, FeatureKind, FeatureState, FeatureStatus, FixTarget,
-    SolidResult, Transaction,
+    SketchFeature, SolidResult, Transaction,
 };
 use caditor_sketch::{ConstraintId, Redundancy, Sketch};
 use egui::{
@@ -12,6 +12,8 @@ use crate::{
     field::{self, DimensionTarget},
     model::{Action, Model},
     panels::{Focus, PanelState, Renaming},
+    selection::Selection,
+    sketch_placement,
     sketch_status::{self, SketchSummary},
     sketch_tools, solid_panel,
 };
@@ -22,12 +24,15 @@ const EDIT_SKETCH_LABEL: &str = "Edit sketch";
 const FINISH_SKETCH_LABEL: &str = "Finish sketch";
 const OPEN_SOLID_LABEL: &str = "Edit feature and choose its regions in the view";
 const CLOSE_SOLID_LABEL: &str = "Done editing this feature";
+const PLACE_ON_FACE_LABEL: &str = "Place on selected face";
+const DETACH_LABEL: &str = "Detach";
 const EDIT_ICON: &str = "🖊";
 const DELETE_ICON: &str = "🗙";
 
 pub fn show(
     ui: &mut Ui,
     model: &Model,
+    selection: &Selection,
     editing: &SketchEditing,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
@@ -44,6 +49,7 @@ pub fn show(
     for (index, feature) in document.features().enumerate() {
         let row = Row {
             feature,
+            selection,
             position: Position { index, count },
             edited: editing.feature() == Some(feature.id())
                 || editing.solid() == Some(feature.id()),
@@ -62,6 +68,7 @@ struct Position {
 
 struct Row<'a> {
     feature: &'a Feature,
+    selection: &'a Selection,
     position: Position,
     edited: bool,
 }
@@ -107,7 +114,10 @@ fn feature_row(
         header.toggle();
     }
     let (_, header, _) = header.body(|ui| match &feature.kind {
-        FeatureKind::Sketch(sketch) => sketch_body(ui, model, state, actions, feature, sketch),
+        FeatureKind::Sketch(sketch) => {
+            placement(ui, model, row.selection, actions, feature, sketch);
+            sketch_body(ui, model, state, actions, feature, &sketch.sketch);
+        }
         FeatureKind::Solid(solid) => {
             solid_panel::show(ui, model, actions, feature, solid, row.edited);
             body_display(ui, model, feature);
@@ -337,6 +347,50 @@ fn body_display(ui: &mut Ui, model: &Model, feature: &Feature) {
             ui.visuals().warn_fg_color,
             "The body could not be drawn. Its shape is kept and later features still use it.",
         );
+    }
+}
+
+fn placement(
+    ui: &mut Ui,
+    model: &Model,
+    selection: &Selection,
+    actions: &mut Vec<Action>,
+    feature: &Feature,
+    sketch: &SketchFeature,
+) {
+    if let Some(attachment) = &sketch.attachment {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!(
+                "Lies on {}",
+                sketch_placement::describe(model.document(), attachment)
+            ));
+            if let Some(transaction) = sketch_placement::detach(model, feature.id()) {
+                let detach = ui
+                    .small_button(DETACH_LABEL)
+                    .on_hover_text("Keep the sketch where it is and stop following the face");
+                if detach.clicked() {
+                    actions.push(Action::Apply(transaction));
+                }
+            }
+        });
+    }
+    let Some(face) = sketch_placement::selected_face(selection) else {
+        return;
+    };
+    match sketch_placement::place(model, feature.id(), face) {
+        Ok(transaction) => {
+            let place = ui.button(PLACE_ON_FACE_LABEL).on_hover_text(
+                "Move this sketch onto the selected face; it follows the face when the model \
+                 changes",
+            );
+            if place.clicked() {
+                actions.push(Action::Apply(transaction));
+            }
+        }
+        Err(reason) => {
+            ui.add_enabled(false, Button::new(PLACE_ON_FACE_LABEL))
+                .on_disabled_hover_text(reason);
+        }
     }
 }
 

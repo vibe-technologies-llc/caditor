@@ -165,7 +165,7 @@ pub fn show(
         .default_size(SIDE_PANEL_WIDTH)
         .show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                feature_tree::show(ui, model, editing, state, actions);
+                feature_tree::show(ui, model, selection, editing, state, actions);
 
                 ui.separator();
                 parameter_table::show(ui, model, state, actions);

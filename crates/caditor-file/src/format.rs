@@ -1,17 +1,18 @@
 use std::sync::Arc;
 
 use caditor_document::{
-    BodyOperation, Document, Edit, Extrude, ExtrudeExtent, Feature, FeatureId, FeatureKind,
-    Parameter, RegionChoice, Revolve, RevolveExtent, SolidFeature, Transaction,
+    BodyOperation, Document, Edit, Extrude, ExtrudeExtent, FaceAttachment, Feature, FeatureId,
+    FeatureKind, Parameter, RegionChoice, Revolve, RevolveExtent, SketchFeature, SolidFeature,
+    Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
-use caditor_kernel::RegionKey;
+use caditor_kernel::{FaceName, FaceOrigin, FaceReference, RegionKey};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
-pub const FORMAT_VERSION: u32 = 3;
+pub const FORMAT_VERSION: u32 = 4;
 pub(crate) const FORMAT_NAME: &str = "caditor";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -116,9 +117,27 @@ pub(crate) struct RevolveRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SketchRecord {
     pub plane: PlaneRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<Lenient<AttachmentRecord>>,
     pub entities: Vec<Lenient<EntityRecord>>,
     pub constraints: Vec<Lenient<ConstraintRecord>>,
     pub next_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct AttachmentRecord {
+    pub body: u64,
+    pub face: String,
+    pub origin: Option<FaceOriginRecord>,
+    pub neighbours: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum FaceOriginRecord {
+    Side { feature: u64, entity: u64 },
+    StartCap { feature: u64 },
+    EndCap { feature: u64 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -229,6 +248,11 @@ pub(crate) enum EditRecord {
     },
     SetFeatureKind {
         feature: FeatureRecord,
+    },
+    SetSketchPlacement {
+        feature: u64,
+        plane: PlaneRecord,
+        attachment: Option<AttachmentRecord>,
     },
     SetDimension {
         feature: u64,
@@ -390,11 +414,9 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
 fn regions_record(regions: &RegionChoice) -> RegionsRecord {
     match regions {
         RegionChoice::All => RegionsRecord::All,
-        RegionChoice::Chosen(keys) => RegionsRecord::Chosen(
-            keys.iter()
-                .map(|key| format!("{:032x}", key.digest()))
-                .collect(),
-        ),
+        RegionChoice::Chosen(keys) => {
+            RegionsRecord::Chosen(keys.iter().map(|key| hex(key.digest())).collect())
+        }
     }
 }
 
@@ -407,14 +429,44 @@ fn operation_record(operation: BodyOperation) -> OperationRecord {
     }
 }
 
-fn sketch_record(sketch: &Sketch) -> SketchRecord {
-    let plane = sketch.plane();
+fn plane_record(plane: Plane) -> PlaneRecord {
+    PlaneRecord {
+        origin: plane.origin().to_array(),
+        normal: plane.normal().to_array(),
+        x_axis: plane.x_axis().to_array(),
+    }
+}
+
+fn hex(digest: u128) -> String {
+    format!("{digest:032x}")
+}
+
+fn attachment_record(attachment: &FaceAttachment) -> AttachmentRecord {
+    let face = &attachment.face;
+    AttachmentRecord {
+        body: attachment.body.raw(),
+        face: hex(face.name().digest()),
+        origin: face.origin().map(|origin| match origin {
+            FaceOrigin::Side { feature, entity } => FaceOriginRecord::Side { feature, entity },
+            FaceOrigin::StartCap { feature } => FaceOriginRecord::StartCap { feature },
+            FaceOrigin::EndCap { feature } => FaceOriginRecord::EndCap { feature },
+        }),
+        neighbours: face
+            .neighbours()
+            .iter()
+            .map(|name| hex(name.digest()))
+            .collect(),
+    }
+}
+
+fn sketch_record(feature: &SketchFeature) -> SketchRecord {
+    let sketch = &feature.sketch;
     SketchRecord {
-        plane: PlaneRecord {
-            origin: plane.origin().to_array(),
-            normal: plane.normal().to_array(),
-            x_axis: plane.x_axis().to_array(),
-        },
+        plane: plane_record(sketch.plane()),
+        attachment: feature
+            .attachment
+            .as_ref()
+            .map(|attachment| Lenient::Read(attachment_record(attachment))),
         entities: sketch
             .entities()
             .map(|(id, entity)| Lenient::Read(entity_record(id, entity)))
@@ -539,6 +591,15 @@ fn edit_record(edit: &Edit) -> EditRecord {
                 kind: feature_kind_record(kind),
             },
         },
+        Edit::SetSketchPlacement {
+            feature,
+            plane,
+            attachment,
+        } => EditRecord::SetSketchPlacement {
+            feature: feature.raw(),
+            plane: plane_record(*plane),
+            attachment: attachment.as_ref().map(attachment_record),
+        },
         Edit::SetDimension {
             feature,
             constraint,
@@ -647,6 +708,18 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
                 kind,
             }
         }
+        EditRecord::SetSketchPlacement {
+            feature,
+            plane,
+            attachment,
+        } => Edit::SetSketchPlacement {
+            feature: FeatureId::from_raw(feature),
+            plane: restore_plane(plane)?,
+            attachment: match attachment {
+                Some(record) => Some(restore_attachment(&record)?),
+                None => None,
+            },
+        },
         EditRecord::SetDimension {
             feature,
             constraint,
@@ -702,7 +775,21 @@ pub(crate) fn restore_feature(record: &FeatureRecord, issues: &mut Vec<String>) 
 fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>) -> FeatureKind {
     match record {
         FeatureKindRecord::Sketch(sketch) => {
-            FeatureKind::Sketch(restore_sketch(sketch, name, issues))
+            let attachment = match &sketch.attachment {
+                None => None,
+                Some(Lenient::Read(record)) => restore_attachment(record),
+                Some(Lenient::Unreadable(_)) => None,
+            };
+            if sketch.attachment.is_some() && attachment.is_none() {
+                issues.push(format!(
+                    "The face that “{name}” lies on could not be read, so the sketch stays where \
+                     it was."
+                ));
+            }
+            FeatureKind::Sketch(SketchFeature {
+                sketch: restore_sketch(sketch, name, issues),
+                attachment,
+            })
         }
         FeatureKindRecord::Extrude(extrude) => {
             let mut value =
@@ -776,7 +863,7 @@ fn restore_regions(
     };
     let read: Vec<RegionKey> = keys
         .iter()
-        .filter_map(|key| u128::from_str_radix(key, 16).ok())
+        .filter_map(|key| restore_digest(key))
         .map(RegionKey::from_digest)
         .collect();
     if read.len() == keys.len() {
@@ -871,6 +958,31 @@ fn restore_entity(record: &EntityKindRecord) -> Entity {
             control_points: control_points.iter().copied().map(entity).collect(),
         },
     }
+}
+
+fn restore_digest(text: &str) -> Option<u128> {
+    u128::from_str_radix(text, 16).ok()
+}
+
+fn restore_attachment(record: &AttachmentRecord) -> Option<FaceAttachment> {
+    let neighbours = record
+        .neighbours
+        .iter()
+        .map(|text| restore_digest(text).map(FaceName::from_digest))
+        .collect::<Option<Vec<FaceName>>>()?;
+    let origin = record.origin.map(|origin| match origin {
+        FaceOriginRecord::Side { feature, entity } => FaceOrigin::Side { feature, entity },
+        FaceOriginRecord::StartCap { feature } => FaceOrigin::StartCap { feature },
+        FaceOriginRecord::EndCap { feature } => FaceOrigin::EndCap { feature },
+    });
+    Some(FaceAttachment {
+        body: FeatureId::from_raw(record.body),
+        face: FaceReference::new(
+            FaceName::from_digest(restore_digest(&record.face)?),
+            origin,
+            neighbours,
+        ),
+    })
 }
 
 fn restore_plane(record: PlaneRecord) -> Option<Plane> {

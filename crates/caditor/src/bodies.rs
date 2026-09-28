@@ -215,7 +215,7 @@ pub fn origin_feature(origin: FaceOrigin) -> FeatureId {
     FeatureId::from_raw(origin.feature())
 }
 
-fn describe_origin(document: &Document, origin: Option<FaceOrigin>) -> String {
+pub fn describe_origin(document: &Document, origin: Option<FaceOrigin>) -> String {
     let Some(origin) = origin else {
         return "Face".to_owned();
     };

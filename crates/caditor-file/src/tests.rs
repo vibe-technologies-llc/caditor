@@ -46,16 +46,15 @@ fn sample() -> Document {
     .unwrap();
     transaction.add_feature(
         "Base sketch",
-        FeatureKind::Sketch(dimensioned_line(
+        FeatureKind::from(dimensioned_line(
             Plane::XY,
             40.0,
             Expression::Parameter(width),
         )),
     );
     let side = dimensioned_line(tilted, 1.0 / 3.0, transaction.parse("height * 2").unwrap());
-    transaction.add_feature("Side sketch", FeatureKind::Sketch(side));
-    let scrap_feature =
-        transaction.add_feature("Scrap", FeatureKind::Sketch(Sketch::new(Plane::YZ)));
+    transaction.add_feature("Side sketch", FeatureKind::from(side));
+    let scrap_feature = transaction.add_feature("Scrap", FeatureKind::from(Sketch::new(Plane::YZ)));
     document.apply(transaction.finish()).unwrap();
 
     let scrap = document.parameter_named("scrap").unwrap().id();
@@ -167,7 +166,7 @@ fn a_saved_model_loads_back_exactly() {
     assert_eq!(loaded.document.next_parameter_id(), 3);
     assert_eq!(loaded.document.next_feature_id(), 3);
     let text = fs::read_to_string(&path).unwrap();
-    assert!(text.starts_with("{\"format\":\"caditor\",\"version\":3}\n"));
+    assert!(text.starts_with("{\"format\":\"caditor\",\"version\":4}\n"));
     assert!(text.contains("\"expression\":\"$0 / 2 + 0.1 mm\""));
     assert_eq!(text.lines().count(), 1 + 2 + 2 + 1);
     assert_eq!(files_in(dir.path()), ["model.caditor"]);
@@ -363,7 +362,7 @@ fn a_damaged_header_still_recovers_the_records() {
     let loaded = decode_lines(&lines);
     assert_eq!(
         loaded.issues,
-        ["The start of the file is damaged; the rest was read as a version 3 model."]
+        ["The start of the file is damaged; the rest was read as a version 4 model."]
     );
     assert_eq!(loaded.document, sample());
 }
@@ -589,7 +588,7 @@ fn version_one_sample() -> Document {
     let width = transaction.add_parameter("width", transaction.parse("40 mm").unwrap());
     transaction.add_feature(
         "Base sketch",
-        FeatureKind::Sketch(dimensioned_line(
+        FeatureKind::from(dimensioned_line(
             Plane::XY,
             40.0,
             Expression::Parameter(width),
@@ -665,7 +664,7 @@ fn every_kind() -> EveryKind {
         entity: arc,
         value: Expression::Parameter(width),
     });
-    transaction.add_feature("Everything", FeatureKind::Sketch(sketch));
+    transaction.add_feature("Everything", FeatureKind::from(sketch));
     document.apply(transaction.finish()).unwrap();
     EveryKind {
         document,
@@ -748,7 +747,7 @@ struct SketchSession {
 fn sketch_session() -> SketchSession {
     let mut base = sample();
     let mut transaction = base.transaction("New sketch");
-    let plate = transaction.add_feature("Plate", FeatureKind::Sketch(Sketch::new(Plane::XY)));
+    let plate = transaction.add_feature("Plate", FeatureKind::from(Sketch::new(Plane::XY)));
     base.apply(transaction.finish()).unwrap();
     SketchSession { base, plate }
 }
@@ -986,7 +985,7 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
         let (a, b) = (corners[index], corners[(index + 1) % 4]);
         outline.add_line(Point2::new(a.0, a.1), Point2::new(b.0, b.1));
     }
-    let sketch = transaction.add_feature("Outline", FeatureKind::Sketch(outline));
+    let sketch = transaction.add_feature("Outline", FeatureKind::from(outline));
     let base = transaction.add_feature(
         "Base",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -1051,4 +1050,110 @@ fn a_changed_solid_feature_round_trips_through_the_journal() {
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = serde_json::from_str(&text).unwrap();
     assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+fn attached_model() -> (Document, FeatureId, FeatureId) {
+    use caditor_document::{FaceAttachment, SketchFeature};
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let top = Plane::from_frame(Point3::new(0.0, 0.0, 3.0), Vector3::Z, Vector3::X).unwrap();
+    let attachment = FaceAttachment {
+        body: base,
+        face: FaceReference::new(
+            FaceName::from_digest(0xfeed_0000_0000_0000_0000_0000_0000_0001),
+            Some(FaceOrigin::EndCap {
+                feature: base.raw(),
+            }),
+            [FaceName::from_digest(3), FaceName::from_digest(u128::MAX)],
+        ),
+    };
+    let mut transaction = document.transaction("Sketch on top");
+    let sketch = transaction.add_feature(
+        "Top",
+        FeatureKind::Sketch(SketchFeature::on_face(
+            dimensioned_line(top, 2.0, Expression::Number(2.0)),
+            attachment,
+        )),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, base, sketch)
+}
+
+#[test]
+fn a_sketch_on_a_face_is_saved_and_loaded() {
+    let (document, _, _) = attached_model();
+    let text = encode(&document).unwrap();
+    assert!(text.contains(
+        "\"attachment\":{\"body\":1,\"face\":\"feed0000000000000000000000000001\",\"origin\":\
+         {\"end_cap\":{\"feature\":1}},\"neighbours\":[\"00000000000000000000000000000003\",\
+         \"ffffffffffffffffffffffffffffffff\"]}"
+    ));
+    let loaded = decode(text.as_bytes()).unwrap();
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn a_sketch_whose_face_cannot_be_read_stays_where_it_was() {
+    let (document, _, sketch) = attached_model();
+    let text = encode(&document)
+        .unwrap()
+        .replace("feed0000000000000000000000000001", "not a digest");
+    let loaded = decode(text.as_bytes()).unwrap();
+    assert_eq!(
+        loaded.issues,
+        ["The face that “Top” lies on could not be read, so the sketch stays where it was."]
+    );
+    let restored = loaded.document.feature(sketch).unwrap();
+    assert!(restored.kind.attachment().is_none());
+    assert_eq!(
+        restored.kind.sketch().unwrap().plane(),
+        document
+            .feature(sketch)
+            .unwrap()
+            .kind
+            .sketch()
+            .unwrap()
+            .plane()
+    );
+}
+
+#[test]
+fn a_sketch_on_a_lost_body_stays_where_it_was() {
+    let (document, base, sketch) = attached_model();
+    let lines: Vec<String> = encode(&document)
+        .unwrap()
+        .lines()
+        .filter(|line| !line.contains("\"name\":\"Base\""))
+        .map(str::to_owned)
+        .collect();
+    let loaded = decode_lines(&lines);
+    assert!(loaded.document.feature(base).is_none());
+    assert!(issues_mention(
+        &loaded,
+        "“Top” lay on a face of a body that could not be restored, so the sketch now stays where \
+         it was."
+    ));
+    let restored = loaded.document.feature(sketch).unwrap();
+    assert!(restored.kind.attachment().is_none());
+}
+
+#[test]
+fn a_placement_change_round_trips_through_the_journal() {
+    let (document, _, sketch) = attached_model();
+    let attachment = document.feature(sketch).unwrap().kind.attachment().cloned();
+    for attachment in [attachment, None] {
+        let transaction = Transaction::single(
+            "Place",
+            Edit::SetSketchPlacement {
+                feature: sketch,
+                plane: Plane::YZ,
+                attachment,
+            },
+        );
+        assert!(document.check(&transaction).is_ok());
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = serde_json::from_str(&text).unwrap();
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
 }

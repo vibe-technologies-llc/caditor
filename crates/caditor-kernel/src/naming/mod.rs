@@ -1,8 +1,12 @@
 mod digest;
+mod reference;
+#[cfg(test)]
+mod reference_tests;
 #[cfg(test)]
 mod tests;
 
 pub(crate) use self::digest::Digest;
+pub use self::reference::{EdgeReference, FaceReference, ReferenceError};
 use crate::profile::{PieceId, RegionKey};
 
 const SIDE_FACE: u8 = 0x01;

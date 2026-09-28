@@ -507,11 +507,7 @@ impl Builder<'_> {
         else {
             return;
         };
-        let Some(plane) = document
-            .feature(solid.sketch())
-            .and_then(|sketch| sketch.kind.sketch())
-            .map(Sketch::plane)
-        else {
+        let Some(plane) = sketch_plane(document, evaluation, solid.sketch()) else {
             return;
         };
         if let SolidFeature::Revolve(revolve) = solid {
@@ -796,6 +792,19 @@ fn sketch_bounds(sketch: &Sketch) -> Aabb {
     .unwrap_or_else(|| Aabb::from_point(plane.origin()))
 }
 
+pub fn sketch_plane(
+    document: &Document,
+    evaluation: &Evaluation,
+    feature: FeatureId,
+) -> Option<Plane> {
+    let solved = evaluation
+        .feature(feature)
+        .and_then(|status| status.result.as_deref())
+        .and_then(FeatureResult::sketch)
+        .map(|result| result.geometry.plane());
+    solved.or_else(|| Some(document.feature(feature)?.kind.sketch()?.plane()))
+}
+
 pub fn displayed_sketch<'a>(
     evaluation: &'a Evaluation,
     feature: &'a Feature,
@@ -822,6 +831,7 @@ fn with_solved_positions<'a>(definition: &'a Sketch, solved: &'a Sketch) -> Cow<
         return Cow::Borrowed(solved);
     }
     let mut merged = definition.clone();
+    merged.set_plane(solved.plane());
     for (id, settled) in solved.entities() {
         let fits = definition
             .entity(id)
@@ -871,11 +881,7 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
             else {
                 return Vec::new();
             };
-            let Some(plane) = document
-                .feature(sketch)
-                .and_then(|sketch| sketch.kind.sketch())
-                .map(Sketch::plane)
-            else {
+            let Some(plane) = sketch_plane(document, evaluation, sketch) else {
                 return Vec::new();
             };
             regions
@@ -938,7 +944,7 @@ mod tests {
         let mut sketch = Sketch::new(Plane::XY);
         let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
         let mut transaction = document.transaction("Add sketch");
-        let feature = transaction.add_feature("Base sketch", FeatureKind::Sketch(sketch));
+        let feature = transaction.add_feature("Base sketch", FeatureKind::from(sketch));
         document.apply(transaction.finish()).unwrap();
         (document, feature, line)
     }
@@ -1061,7 +1067,7 @@ mod tests {
         let mut transaction = document.transaction("Add sketch");
         let mut other = Sketch::new(Plane::XZ);
         other.add_line(Point2::ZERO, Point2::new(0.0, 10.0));
-        let side = transaction.add_feature("Side", FeatureKind::Sketch(other));
+        let side = transaction.add_feature("Side", FeatureKind::from(other));
         document.apply(transaction.finish()).unwrap();
         let selection = Selection::default();
         let highlight = Highlight {
@@ -1144,7 +1150,7 @@ mod tests {
             .add_constraint(Constraint::Horizontal(doubled))
             .unwrap();
         let mut transaction = document.transaction("Add sketch");
-        let feature = transaction.add_feature("States", FeatureKind::Sketch(sketch));
+        let feature = transaction.add_feature("States", FeatureKind::from(sketch));
         document.apply(transaction.finish()).unwrap();
         let selection = Selection::default();
         let highlight = Highlight {
@@ -1255,7 +1261,7 @@ mod tests {
         let spline =
             sketch.add_spline(&[Point2::ZERO, Point2::new(3.0, 6.0), Point2::new(8.0, 1.0)]);
         let mut transaction = document.transaction("Add sketch");
-        let feature = transaction.add_feature("Curves", FeatureKind::Sketch(sketch));
+        let feature = transaction.add_feature("Curves", FeatureKind::from(sketch));
         document.apply(transaction.finish()).unwrap();
         let selection = Selection::default();
         let built = build_for(

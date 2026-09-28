@@ -3,9 +3,11 @@ mod sketch;
 use std::{collections::BTreeMap, sync::Arc};
 
 use caditor_expression::{Expression, NameError, ParameterId, ParseError, check_name};
+use caditor_geometry::Plane;
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
 
 use crate::{
+    attachment::FaceAttachment,
     document::{Document, Feature, FeatureId, FeatureKind, Parameter, list_names},
     solid::BodyOperation,
 };
@@ -45,6 +47,11 @@ pub enum Edit {
     SetFeatureKind {
         id: FeatureId,
         kind: FeatureKind,
+    },
+    SetSketchPlacement {
+        feature: FeatureId,
+        plane: Plane,
+        attachment: Option<FaceAttachment>,
     },
     SetDimension {
         feature: FeatureId,
@@ -141,7 +148,7 @@ pub enum EditError {
     NotABody(String),
     #[error("{0} cannot become a different kind of feature")]
     KindChange(String),
-    #[error("{name} makes the body that {users} change, so it must keep making a new body")]
+    #[error("{name} makes the body that {users} use, so it must keep making a new body")]
     BodyInUse { name: String, users: String },
     #[error("In {feature}, {name} is used by {users}. Remove those first.")]
     EntityInUse {
@@ -260,6 +267,11 @@ impl Document {
             Edit::RenameFeature { id, name } => self.rename_feature(id, name),
             Edit::MoveFeature { id, index } => self.move_feature(id, index),
             Edit::SetFeatureKind { id, kind } => self.set_feature_kind(id, kind),
+            Edit::SetSketchPlacement {
+                feature,
+                plane,
+                attachment,
+            } => self.set_sketch_placement(feature, plane, attachment),
             Edit::SetDimension {
                 feature,
                 constraint,
@@ -324,6 +336,12 @@ impl Document {
                 _ => return Err(EditError::MissingFeature),
             }
         }
+        if let Some(body) = kind.body_input() {
+            let body = self.feature(body).ok_or(EditError::MissingFeature)?;
+            if !body.makes_body() {
+                return Err(EditError::NotABody(body.name.clone()));
+            }
+        }
         let Some(solid) = kind.solid() else {
             return Ok(());
         };
@@ -332,12 +350,6 @@ impl Document {
             .ok_or(EditError::MissingFeature)?;
         if sketch.kind.sketch().is_none() {
             return Err(EditError::NotASketch(sketch.name.clone()));
-        }
-        if let Some(target) = solid.operation().target() {
-            let body = self.feature(target).ok_or(EditError::MissingFeature)?;
-            if !body.makes_body() {
-                return Err(EditError::NotABody(body.name.clone()));
-            }
         }
         Ok(())
     }
@@ -360,13 +372,7 @@ impl Document {
         if !keeps_body {
             let users: Vec<String> = self
                 .features()
-                .filter(|other| {
-                    other
-                        .kind
-                        .solid()
-                        .and_then(|solid| solid.operation().target())
-                        == Some(id)
-                })
+                .filter(|other| other.kind.body_input() == Some(id))
                 .map(|other| other.name.clone())
                 .collect();
             if !users.is_empty() {
@@ -379,6 +385,34 @@ impl Document {
         let feature = self.feature_mut(id)?;
         let previous = std::mem::replace(&mut feature.kind, kind);
         Ok(Edit::SetFeatureKind { id, kind: previous })
+    }
+
+    fn set_sketch_placement(
+        &mut self,
+        id: FeatureId,
+        plane: Plane,
+        attachment: Option<FaceAttachment>,
+    ) -> Result<Edit, EditError> {
+        let index = self.feature_position(id)?;
+        let existing = self.feature(id).ok_or(EditError::MissingFeature)?;
+        let FeatureKind::Sketch(sketch) = &existing.kind else {
+            return Err(EditError::NotASketch(existing.name.clone()));
+        };
+        let mut placed = sketch.clone();
+        placed.sketch.set_plane(plane);
+        placed.attachment = attachment;
+        let kind = FeatureKind::Sketch(placed);
+        self.check_feature_references(&kind, index)?;
+        let feature = self.feature_mut(id)?;
+        let previous = std::mem::replace(&mut feature.kind, kind);
+        let FeatureKind::Sketch(previous) = previous else {
+            return Err(EditError::NotASketch(feature.name.clone()));
+        };
+        Ok(Edit::SetSketchPlacement {
+            feature: id,
+            plane: previous.sketch.plane(),
+            attachment: previous.attachment,
+        })
     }
 
     fn parameter_position(&self, id: ParameterId) -> Result<usize, EditError> {

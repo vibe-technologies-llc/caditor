@@ -3,7 +3,7 @@ use std::time::Duration;
 use caditor_document::{Document, Evaluation, FeatureId};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{Camera, PickResult, Scene, View, Viewpoint, ViewportRect};
-use caditor_sketch::{ConstraintId, Sketch};
+use caditor_sketch::ConstraintId;
 use egui::{Align2, Color32, FontId, Key, PointerButton, Rect, Response, Sense, vec2};
 
 use crate::{
@@ -14,6 +14,7 @@ use crate::{
     model::{Action, Model},
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
     selection::{Pickable, Selection},
+    sketch_placement::{self, FaceChoice},
     snap::{Pointer, Screen},
     solid_tools,
     view_cube::{self, CubeAction},
@@ -30,7 +31,7 @@ const PROMPT_COLOR: Color32 = Color32::from_rgb(255, 214, 120);
 const PROMPT_MARGIN: f32 = 16.0;
 const NAVIGATION_HINT: &str =
     "Right-drag: orbit   Middle-drag or Shift+right-drag: pan   Scroll: zoom   F: fit";
-pub const CHOOSE_PLANE_PROMPT: &str = "Click a plane to sketch on";
+pub const CHOOSE_PLANE_PROMPT: &str = "Click a plane or a flat face to sketch on";
 const CHOOSE_PLANE_HINT: &str = "Esc: cancel";
 const CHOOSE_REGIONS_PROMPT: &str = "Click regions of the sketch to include or leave them out";
 const CHOOSE_REGIONS_HINT: &str = "Esc: done";
@@ -179,7 +180,7 @@ impl ViewportState {
             let response = ui.interact(rect, ui.id().with("viewport"), Sense::click_and_drag());
 
             self.track_cursor(ui, &response, rect);
-            self.track_sketch_cursor(model.document(), editing);
+            self.track_sketch_cursor(model, editing);
             self.track_drawing(model, editing);
             self.navigate(ui, &response, rect);
             self.click(ui, &response, model, editing, actions);
@@ -396,11 +397,10 @@ impl ViewportState {
         self.camera.zoom(anchor, factor);
     }
 
-    fn track_sketch_cursor(&mut self, document: &Document, editing: &SketchEditing) {
+    fn track_sketch_cursor(&mut self, model: &Model, editing: &SketchEditing) {
         let plane = editing
             .feature()
-            .and_then(|feature| editing::edited_sketch(document, feature))
-            .map(Sketch::plane);
+            .and_then(|feature| scene::sketch_plane(model.document(), model.evaluation(), feature));
         self.sketch_cursor =
             plane
                 .zip(self.cursor)
@@ -474,8 +474,15 @@ impl ViewportState {
             return;
         }
         if editing.is_choosing_plane() {
-            if let Some(Pickable::Plane(plane)) = self.hovered {
-                actions.push(Action::Editing(EditingCommand::NewSketch(Some(plane))));
+            let command = match self.hovered {
+                Some(Pickable::Plane(plane)) => Some(EditingCommand::NewSketch(Some(plane))),
+                Some(pickable) => FaceChoice::of(pickable)
+                    .filter(|face| sketch_placement::is_flat(model, *face))
+                    .map(EditingCommand::NewSketchOnFace),
+                None => None,
+            };
+            if let Some(command) = command {
+                actions.push(Action::Editing(command));
             }
             return;
         }
@@ -557,7 +564,7 @@ impl ViewportState {
         actions: &mut Vec<Action>,
     ) {
         let edited = editing.feature().and_then(|feature| {
-            let plane = editing::edited_sketch(model.document(), feature).map(Sketch::plane)?;
+            let plane = scene::sketch_plane(model.document(), model.evaluation(), feature)?;
             Some((feature, plane))
         });
         let (Some((feature, plane)), Some(view)) = (edited, self.view()) else {
@@ -741,8 +748,7 @@ mod tests {
         let mut sketch = caditor_sketch::Sketch::new(caditor_geometry::Plane::XZ);
         let line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(30.0, 20.0));
         let mut transaction = document.transaction("Add sketch");
-        let feature =
-            transaction.add_feature("Side", caditor_document::FeatureKind::Sketch(sketch));
+        let feature = transaction.add_feature("Side", caditor_document::FeatureKind::from(sketch));
         document.apply(transaction.finish()).unwrap();
         let evaluation = Evaluation::default();
         let mut state = state_with_cursor();

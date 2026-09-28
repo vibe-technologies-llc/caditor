@@ -8,6 +8,7 @@ use crate::{
     files::{self, Files},
     model::{Action, Model, NoticeKind, RecomputeStatus},
     selection::{Pickable, Selection},
+    sketch_placement,
     solid_tools::{self, Sweep},
     viewport::CHOOSE_PLANE_PROMPT,
 };
@@ -35,7 +36,7 @@ pub fn show(ui: &mut Ui, model: &Model, context: &ToolbarContext<'_>, actions: &
             ui.separator();
             history_buttons(ui, model, actions);
             ui.separator();
-            sketch_buttons(ui, context.selection, context.editing, actions);
+            sketch_buttons(ui, model, context.selection, context.editing, actions);
             solid_buttons(ui, model, context, actions);
             ui.separator();
             recompute_status(ui, model, actions);
@@ -59,6 +60,7 @@ pub fn show(ui: &mut Ui, model: &Model, context: &ToolbarContext<'_>, actions: &
 
 fn sketch_buttons(
     ui: &mut Ui,
+    model: &Model,
     selection: &Selection,
     editing: &SketchEditing,
     actions: &mut Vec<Action>,
@@ -84,12 +86,25 @@ fn sketch_buttons(
         | Pickable::Edge { .. }
         | Pickable::Region { .. } => None,
     });
-    let hover = match plane {
-        Some(plane) => format!("Start a sketch on the selected {}", plane.name()),
-        None => "Start a sketch on the plane you click next".to_owned(),
+    let face = sketch_placement::selected_face(selection)
+        .filter(|face| sketch_placement::is_flat(model, *face));
+    let (hover, command) = match (plane, face) {
+        (Some(plane), _) => (
+            format!("Start a sketch on the selected {}", plane.name()),
+            EditingCommand::NewSketch(Some(plane)),
+        ),
+        (None, Some(face)) => (
+            "Start a sketch on the selected face; it follows the face when the model changes"
+                .to_owned(),
+            EditingCommand::NewSketchOnFace(face),
+        ),
+        (None, None) => (
+            "Start a sketch on the plane or flat face you click next".to_owned(),
+            EditingCommand::NewSketch(None),
+        ),
     };
     if ui.button(NEW_SKETCH_LABEL).on_hover_text(hover).clicked() {
-        actions.push(Action::Editing(EditingCommand::NewSketch(plane)));
+        actions.push(Action::Editing(command));
     }
 }
 

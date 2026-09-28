@@ -228,8 +228,8 @@ mod tests {
         let mut second = Sketch::new(Plane::XZ);
         let line = second.add_line(Point2::ZERO, Point2::new(0.0, 10.0));
         let mut transaction = document.transaction("Sketches");
-        let base = transaction.add_feature("Base", FeatureKind::Sketch(first));
-        let side = transaction.add_feature("Side", FeatureKind::Sketch(second));
+        let base = transaction.add_feature("Base", FeatureKind::from(first));
+        let side = transaction.add_feature("Side", FeatureKind::from(second));
         document.apply(transaction.finish()).unwrap();
         (document, base, side, line)
     }

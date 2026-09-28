@@ -1,3 +1,4 @@
+mod attachment;
 mod document;
 mod edit;
 mod editor;
@@ -7,6 +8,7 @@ mod values;
 mod worker;
 
 pub use crate::{
+    attachment::{AttachmentError, FaceAttachment, SketchFeature, face_plane},
     document::{Document, Feature, FeatureId, FeatureKind, Parameter},
     edit::{Edit, EditError, Transaction, TransactionBuilder},
     editor::Editor,
@@ -22,6 +24,8 @@ pub use crate::{
     worker::{Outcome, Progress, Recomputer, Update, WorkerStopped},
 };
 
+#[cfg(test)]
+mod attachment_tests;
 #[cfg(test)]
 mod sketch_tests;
 #[cfg(test)]
@@ -76,8 +80,8 @@ mod tests {
             line_with_distance(Plane::XY, 40.0, Expression::Parameter(width));
         let (side_sketch, side_distance) =
             line_with_distance(Plane::XZ, 20.0, Expression::Parameter(height));
-        let base = transaction.add_feature("Base sketch", FeatureKind::Sketch(base_sketch));
-        let side = transaction.add_feature("Side sketch", FeatureKind::Sketch(side_sketch));
+        let base = transaction.add_feature("Base sketch", FeatureKind::from(base_sketch));
+        let side = transaction.add_feature("Side sketch", FeatureKind::from(side_sketch));
         document.apply(transaction.finish()).unwrap();
         (
             document,
@@ -503,9 +507,9 @@ mod tests {
             .unwrap();
         let mut document = Document::default();
         let mut transaction = document.transaction("Add sketches");
-        let replaced = transaction.add_feature("Base sketch", FeatureKind::Sketch(sketch));
+        let replaced = transaction.add_feature("Base sketch", FeatureKind::from(sketch));
         let (fine, _) = line_with_distance(Plane::XZ, 20.0, Expression::Number(20.0));
-        let side = transaction.add_feature("Side sketch", FeatureKind::Sketch(fine));
+        let side = transaction.add_feature("Side sketch", FeatureKind::from(fine));
         document.apply(transaction.finish()).unwrap();
 
         let evaluation = recompute(&mut Recompute::default(), &document);

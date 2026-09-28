@@ -19,7 +19,7 @@ fn rectangle() -> Rectangle {
     let mut document = Document::default();
     let mut transaction = document.transaction("New sketch");
     let width = transaction.add_parameter("width", transaction.parse("30 mm").unwrap());
-    let feature = transaction.add_feature("Plate", FeatureKind::Sketch(Sketch::new(Plane::XY)));
+    let feature = transaction.add_feature("Plate", FeatureKind::from(Sketch::new(Plane::XY)));
     document.apply(transaction.finish()).unwrap();
 
     let mut transaction = document.transaction("Draw rectangle");
@@ -573,7 +573,7 @@ fn check_reports_sketch_errors_without_changing_the_document() {
 fn sketch_items_can_be_added_to_a_feature_created_in_the_same_transaction() {
     let mut document = Document::default();
     let mut transaction = document.transaction("New sketch with a line");
-    let feature = transaction.add_feature("Sketch", FeatureKind::Sketch(Sketch::new(Plane::XY)));
+    let feature = transaction.add_feature("Sketch", FeatureKind::from(Sketch::new(Plane::XY)));
     let start = transaction.add_sketch_entity(feature, Entity::Point(Point2::ZERO));
     let end = transaction.add_sketch_entity(feature, Entity::Point(Point2::X));
     let line = transaction.add_sketch_entity(feature, Entity::Line { start, end });

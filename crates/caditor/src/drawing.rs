@@ -656,7 +656,7 @@ mod tests {
         let document = caditor_document::Document::default();
         let feature = document.transaction("Sketch").add_feature(
             "Sketch",
-            caditor_document::FeatureKind::Sketch(sketch.clone()),
+            caditor_document::FeatureKind::from(sketch.clone()),
         );
         let mut drawing = Drawing {
             context: Some((feature, Tool::Line)),

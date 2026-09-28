@@ -7,7 +7,10 @@ use std::{
 use caditor_expression::{Expression, ParameterId, ParseError};
 use caditor_sketch::Sketch;
 
-use crate::solid::{BodyOperation, SolidFeature};
+use crate::{
+    attachment::{FaceAttachment, SketchFeature},
+    solid::{BodyOperation, SolidFeature},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FeatureId(u64);
@@ -51,22 +54,42 @@ impl Parameter {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FeatureKind {
-    Sketch(Sketch),
+    Sketch(SketchFeature),
     Solid(SolidFeature),
+}
+
+impl From<Sketch> for FeatureKind {
+    fn from(sketch: Sketch) -> Self {
+        Self::Sketch(SketchFeature::from(sketch))
+    }
 }
 
 impl FeatureKind {
     pub fn sketch(&self) -> Option<&Sketch> {
         match self {
-            Self::Sketch(sketch) => Some(sketch),
+            Self::Sketch(sketch) => Some(&sketch.sketch),
             Self::Solid(_) => None,
         }
     }
 
     pub fn sketch_mut(&mut self) -> Option<&mut Sketch> {
         match self {
-            Self::Sketch(sketch) => Some(sketch),
+            Self::Sketch(sketch) => Some(&mut sketch.sketch),
             Self::Solid(_) => None,
+        }
+    }
+
+    pub fn attachment(&self) -> Option<&FaceAttachment> {
+        match self {
+            Self::Sketch(sketch) => sketch.attachment.as_ref(),
+            Self::Solid(_) => None,
+        }
+    }
+
+    pub fn body_input(&self) -> Option<FeatureId> {
+        match self {
+            Self::Sketch(sketch) => sketch.attachment.as_ref().map(|attachment| attachment.body),
+            Self::Solid(solid) => solid.operation().target(),
         }
     }
 
@@ -79,21 +102,21 @@ impl FeatureKind {
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
         match self {
-            Self::Sketch(sketch) => sketch.parameters(),
+            Self::Sketch(sketch) => sketch.sketch.parameters(),
             Self::Solid(solid) => solid.parameters(),
         }
     }
 
     pub fn uses_parameter(&self, parameter: ParameterId) -> bool {
         match self {
-            Self::Sketch(sketch) => sketch.uses_parameter(parameter),
+            Self::Sketch(sketch) => sketch.sketch.uses_parameter(parameter),
             Self::Solid(solid) => solid.uses_parameter(parameter),
         }
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         match self {
-            Self::Sketch(_) => BTreeSet::new(),
+            Self::Sketch(_) => self.body_input().into_iter().collect(),
             Self::Solid(solid) => solid.features(),
         }
     }

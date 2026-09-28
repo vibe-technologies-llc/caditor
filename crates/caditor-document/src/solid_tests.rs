@@ -64,7 +64,7 @@ fn model() -> Model {
     let depth = transaction.add_parameter("depth", transaction.parse("2 mm").unwrap());
     let outline = transaction.add_feature(
         "Outline",
-        FeatureKind::Sketch(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
+        FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
     );
     let base = transaction.add_feature(
         "Base",
@@ -73,7 +73,7 @@ fn model() -> Model {
     let top = Plane::from_frame(Point3::new(0.0, 0.0, 4.0), Vector3::Z, Vector3::X).unwrap();
     let hole = transaction.add_feature(
         "Hole sketch",
-        FeatureKind::Sketch(rectangle(top, (2.0, 2.0), (4.0, 4.0))),
+        FeatureKind::from(rectangle(top, (2.0, 2.0), (4.0, 4.0))),
     );
     let pocket = transaction.add_feature(
         "Pocket",
@@ -89,7 +89,7 @@ fn model() -> Model {
     );
     let lug = transaction.add_feature(
         "Lug sketch",
-        FeatureKind::Sketch(rectangle(top, (6.0, 2.0), (9.0, 6.0))),
+        FeatureKind::from(rectangle(top, (6.0, 2.0), (9.0, 6.0))),
     );
     let boss = transaction.add_feature(
         "Boss",
@@ -253,7 +253,7 @@ fn a_revolve_uses_a_sketch_axis_and_keeps_it() {
     let mut transaction = document.transaction("Build");
     let section = transaction.add_feature(
         "Section",
-        FeatureKind::Sketch(rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0))),
+        FeatureKind::from(rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0))),
     );
     let ring = transaction.add_feature(
         "Ring",
@@ -277,7 +277,7 @@ fn an_open_sketch_is_reported_against_the_sketch() {
     let mut transaction = document.transaction("Build");
     let mut open = Sketch::new(Plane::XY);
     open.add_line(Point2::ZERO, Point2::new(5.0, 0.0));
-    let sketch = transaction.add_feature("Open", FeatureKind::Sketch(open));
+    let sketch = transaction.add_feature("Open", FeatureKind::from(open));
     let solid = transaction.add_feature(
         "Solid",
         extrude(sketch, "1 mm", false, BodyOperation::NewBody),

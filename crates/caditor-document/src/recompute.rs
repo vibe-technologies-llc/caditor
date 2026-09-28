@@ -10,6 +10,7 @@ use caditor_kernel::{ProfileError, Solid};
 use caditor_sketch::{ConstraintId, DimensionError, Sketch, SketchError, SketchSolution, Solved};
 
 use crate::{
+    attachment,
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     solid::{self, SketchRegion, SolidFeature, SolidResult},
     values::ParameterValues,
@@ -266,11 +267,9 @@ impl Recompute {
                 .into_iter()
                 .map(|used| (used, current.get(&used).cloned()))
                 .collect();
-            let changed_body = feature
-                .kind
-                .solid()
-                .and_then(|solid| solid.operation().target());
-            if let Some((state, result)) = changed_body.and_then(|body| bodies.get(&body)) {
+            if let Some((state, result)) =
+                feature.kind.body_input().and_then(|body| bodies.get(&body))
+            {
                 upstream.push((*state, Some(Arc::clone(result))));
             }
             let previous = self.cache.get(&id);
@@ -459,11 +458,23 @@ impl Evaluator for ModelEvaluator {
         cancel: &CancelToken,
     ) -> Result<FeatureResult, Failure> {
         match &feature.kind {
-            FeatureKind::Sketch(sketch) => {
+            FeatureKind::Sketch(definition) => {
+                let plane = definition
+                    .attachment
+                    .as_ref()
+                    .map(|attachment| attachment::attached_plane(feature, attachment, inputs))
+                    .transpose()?;
+                let sketch = &definition.sketch;
                 let solved =
                     sketch.solve(&|id| inputs.parameters.value(id), &|| cancel.is_cancelled());
                 match solved {
-                    Ok(Solved { geometry, solution }) => {
+                    Ok(Solved {
+                        mut geometry,
+                        solution,
+                    }) => {
+                        if let Some(plane) = plane {
+                            geometry.set_plane(plane);
+                        }
                         Ok(FeatureResult::Sketch(SketchResult::new(geometry, solution)))
                     }
                     Err(SketchError::Cancelled) => Err(Failure::Cancelled),

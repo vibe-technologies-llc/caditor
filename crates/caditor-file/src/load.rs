@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use caditor_document::{Document, Edit, EditError, Feature, Parameter, Transaction};
+use caditor_document::{Document, Edit, EditError, Feature, FeatureKind, Parameter, Transaction};
 use caditor_expression::{Expression, ParameterId, check_name};
 
 use crate::{
@@ -227,11 +227,29 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
     for feature in features {
         let name = feature.name.clone();
         let raw_id = feature.id().raw();
+        let detached = detached(&feature);
         let edit = Edit::InsertFeature {
             index: document.features().len(),
             feature: Arc::new(feature),
         };
-        match document.apply(Transaction::single("Load", edit)) {
+        let inserted = match (document.apply(Transaction::single("Load", edit)), detached) {
+            (Err(_), Some(detached)) => {
+                let edit = Edit::InsertFeature {
+                    index: document.features().len(),
+                    feature: Arc::new(detached),
+                };
+                let retried = document.apply(Transaction::single("Load", edit));
+                if retried.is_ok() {
+                    issues.push(format!(
+                        "“{name}” lay on a face of a body that could not be restored, so the \
+                         sketch now stays where it was."
+                    ));
+                }
+                retried
+            }
+            (first, _) => first,
+        };
+        match inserted {
             Ok(_) => {}
             Err(EditError::DuplicateId) => issues.push(format!(
                 "Two features share the ID {raw_id}, so “{name}” was left out."
@@ -246,6 +264,18 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
         document.reserve_ids_below(next.parameter, next.feature);
     }
     document
+}
+
+fn detached(feature: &Feature) -> Option<Feature> {
+    let FeatureKind::Sketch(sketch) = &feature.kind else {
+        return None;
+    };
+    sketch.attachment.as_ref()?;
+    Some(Feature::new(
+        feature.id(),
+        feature.name.clone(),
+        FeatureKind::from(sketch.sketch.clone()),
+    ))
 }
 
 fn insert_placeholder(

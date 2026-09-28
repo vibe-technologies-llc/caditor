@@ -40,7 +40,9 @@ pub use crate::{
         intersect_curves, intersect_curves2, intersect_surfaces,
     },
     interval::{Domain, Interval},
-    naming::{EdgeName, FaceName, FaceOrigin, VertexName},
+    naming::{
+        EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, ReferenceError, VertexName,
+    },
     profile::{
         Piece, PieceBound, PieceId, Profile, ProfileCurve, ProfileError, ProfileLoop, ProfileShape,
         Region, RegionKey, RegionMesh, Selection, Side,

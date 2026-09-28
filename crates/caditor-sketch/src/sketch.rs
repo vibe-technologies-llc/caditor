@@ -106,6 +106,10 @@ impl Sketch {
         self.plane
     }
 
+    pub fn set_plane(&mut self, plane: Plane) {
+        self.plane = plane;
+    }
+
     pub fn entities(&self) -> impl ExactSizeIterator<Item = (EntityId, &Entity)> {
         self.entities.iter().map(|(id, entity)| (*id, entity))
     }

@@ -242,7 +242,7 @@ impl Harness {
 
     fn add_sketch(&mut self, sketch: Sketch) -> FeatureId {
         let mut transaction = self.document().transaction("Add sketch");
-        let feature = transaction.add_feature("Plate", FeatureKind::Sketch(sketch));
+        let feature = transaction.add_feature("Plate", FeatureKind::from(sketch));
         self.perform(Action::Apply(transaction.finish()));
         self.settle();
         feature
@@ -336,7 +336,8 @@ impl Harness {
 
     fn on_screen(&self, point: Point2) -> Pos2 {
         let feature = self.editing().expect("a sketch is being edited");
-        let plane = self.sketch(feature).plane();
+        let plane = scene::sketch_plane(self.document(), self.model.evaluation(), feature)
+            .expect("the sketch has a plane");
         self.workspace
             .viewport
             .screen_position(plane, point)
@@ -773,7 +774,7 @@ fn a_constraint_conflict_is_named_and_leads_to_the_newest_constraint() {
         .find_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id))
         .unwrap();
     let vertical = sketch.add_constraint(Constraint::Vertical(line)).unwrap();
-    let replacement = Feature::new(base.id(), base.name.clone(), FeatureKind::Sketch(sketch));
+    let replacement = Feature::new(base.id(), base.name.clone(), FeatureKind::from(sketch));
     harness.model.perform(Action::Apply(Transaction::new(
         "Add vertical",
         vec![
@@ -834,12 +835,12 @@ fn a_new_sketch_on_the_selected_plane_is_edited_until_finished() {
 
     harness.click("New sketch");
     assert!(harness.workspace.editing.is_choosing_plane());
-    assert!(harness.shows("Click a plane to sketch on"));
+    assert!(harness.shows("Click a plane or a flat face to sketch on"));
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
     assert!(!harness.workspace.editing.is_choosing_plane());
-    assert!(!harness.shows("Click a plane to sketch on"));
+    assert!(!harness.shows("Click a plane or a flat face to sketch on"));
 
     harness.perform(Action::Editing(EditingCommand::NewSketch(Some(
         PrincipalPlane::Yz,
@@ -1737,4 +1738,142 @@ fn revolving_about_a_selected_line_uses_it_as_the_axis() {
     let expected = std::f64::consts::PI * (20.0f64.powi(2) - 10.0f64.powi(2)) * 10.0;
     assert!((harness.body_volume(revolve) - expected).abs() / expected < 0.01);
     assert!(harness.shows("Axis"));
+}
+
+fn extruded_plate(harness: &mut Harness) -> (FeatureId, Pickable) {
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("⬆ Extrude");
+    harness.settle();
+    let extrude = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let top = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            pickable.describe(harness.document(), harness.model.evaluation())
+                == "Extrude 1 › Extrude 1 end face"
+        })
+        .expect("the top face is pickable");
+    (extrude, top)
+}
+
+fn attached_body(harness: &Harness, sketch: FeatureId) -> Option<FeatureId> {
+    harness
+        .document()
+        .feature(sketch)
+        .and_then(|feature| feature.kind.attachment())
+        .map(|attachment| attachment.body)
+}
+
+fn plane_height(harness: &Harness, sketch: FeatureId) -> f64 {
+    harness.shown(sketch).plane().origin().z
+}
+
+#[test]
+fn a_sketch_started_on_a_selected_face_follows_it_when_the_body_changes() {
+    let mut harness = Harness::new();
+    let (extrude, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.hover("New sketch");
+    assert!(
+        harness.shows(
+            "Start a sketch on the selected face; it follows the face when the model changes"
+        )
+    );
+    harness.click("New sketch");
+    harness.settle();
+
+    let sketch = harness.editing().expect("the new sketch is edited");
+    assert_eq!(harness.model.undo_label(), Some("Create Sketch 1"));
+    assert_eq!(attached_body(&harness, sketch), Some(extrude));
+    assert_eq!(plane_height(&harness, sketch), 10.0);
+    assert!(harness.shows("Lies on Extrude 1 end face"));
+
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.use_tool(Key::R);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(20.0, 30.0));
+    harness.settle();
+    harness.click("⬆ Extrude");
+    harness.settle();
+    let boss = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the second extrusion is open");
+    assert_eq!(harness.solid(boss).operation(), BodyOperation::Add(extrude));
+    assert!((harness.body_volume(extrude) - (16000.0 + 2000.0)).abs() < 1.0);
+
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
+    harness.type_into_field(Id::new(("solid-field", "distance", extrude)), "25 mm");
+    harness.settle();
+    assert_eq!(plane_height(&harness, sketch), 25.0);
+    assert!((harness.body_volume(extrude) - (40000.0 + 2000.0)).abs() < 1.0);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn clicking_a_flat_face_while_choosing_a_plane_starts_a_sketch_on_it() {
+    let mut harness = Harness::new();
+    let (extrude, top) = extruded_plate(&mut harness);
+    harness.select([]);
+    harness.click("New sketch");
+    assert!(harness.workspace.editing.is_choosing_plane());
+    assert!(harness.shows("Click a plane or a flat face to sketch on"));
+
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    harness.settle();
+
+    let sketch = harness.editing().expect("the new sketch is edited");
+    assert!(!harness.workspace.editing.is_choosing_plane());
+    assert_eq!(attached_body(&harness, sketch), Some(extrude));
+    assert_eq!(plane_height(&harness, sketch), 10.0);
+}
+
+#[test]
+fn the_tree_places_a_sketch_on_the_selected_face_and_detaches_it() {
+    let mut harness = Harness::new();
+    let (extrude, top) = extruded_plate(&mut harness);
+    let mut transaction = harness.document().transaction("Add sketch");
+    let mut loose = Sketch::new(Plane::XY);
+    rectangle(&mut loose, Point2::new(5.0, 5.0), Point2::new(15.0, 15.0));
+    let sketch = transaction.add_feature("Loose", FeatureKind::from(loose));
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+
+    harness.select([top]);
+    harness.click("Loose");
+    harness.click("Place on selected face");
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Place Loose on a face"));
+    assert_eq!(attached_body(&harness, sketch), Some(extrude));
+    assert_eq!(plane_height(&harness, sketch), 10.0);
+    assert!(harness.shows("Lies on Extrude 1 end face"));
+
+    harness.click("Detach");
+    harness.settle();
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Detach Loose from its face")
+    );
+    assert_eq!(attached_body(&harness, sketch), None);
+    assert_eq!(harness.sketch(sketch).plane().origin().z, 10.0);
+    assert!(!harness.shows("Lies on Extrude 1 end face"));
+
+    harness.perform(Action::Undo);
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert_eq!(attached_body(&harness, sketch), None);
+    assert_eq!(plane_height(&harness, sketch), 0.0);
 }

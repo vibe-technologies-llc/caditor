@@ -13,6 +13,7 @@ mod panels;
 mod parameter_table;
 mod scene;
 mod selection;
+mod sketch_placement;
 mod sketch_status;
 mod sketch_toolbar;
 mod sketch_tools;
@@ -108,14 +109,14 @@ fn sample_document() -> Result<Document> {
         Constraint::Horizontal,
         transaction.parse("width")?,
     )?;
-    transaction.add_feature("Base sketch", FeatureKind::Sketch(base));
+    transaction.add_feature("Base sketch", FeatureKind::from(base));
     let side = dimensioned_line(
         Plane::XZ,
         Point2::new(0.0, 20.0),
         Constraint::Vertical,
         transaction.parse("height")?,
     )?;
-    transaction.add_feature("Side sketch", FeatureKind::Sketch(side));
+    transaction.add_feature("Side sketch", FeatureKind::from(side));
 
     document.apply(transaction.finish())?;
     Ok(document)
