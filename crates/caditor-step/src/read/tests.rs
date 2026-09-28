@@ -170,3 +170,74 @@ fn lengths_follow_the_unit_of_the_file() {
         ["The file does not say which unit it uses, so its numbers were read as millimetres."]
     );
 }
+
+#[test]
+fn bezier_and_uniform_curves_and_surfaces_are_read_with_the_standard_knots() {
+    use caditor_geometry::Point3;
+    use caditor_kernel::{Curve, Surface};
+
+    use crate::{
+        part21::parse,
+        read::{geometry::Geometry, graph::Graph, units::Units},
+    };
+
+    let points: Vec<(f64, f64, f64)> = (0..7)
+        .map(|index| {
+            let x = index as f64;
+            (x, if index % 3 == 0 { 0.0 } else { 2.0 }, 0.0)
+        })
+        .collect();
+    let mut data: Vec<String> = points
+        .iter()
+        .enumerate()
+        .map(|(index, (x, y, z))| {
+            format!("#{}=CARTESIAN_POINT('',({x:?},{y:?},{z:?}));", index + 1)
+        })
+        .collect();
+    let list = (1..=7)
+        .map(|index| format!("#{index}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    data.push(format!(
+        "#20=BEZIER_CURVE('',3,({list}),.UNSPECIFIED.,.F.,.F.);"
+    ));
+    data.push(format!(
+        "#21=QUASI_UNIFORM_CURVE('',3,({list}),.UNSPECIFIED.,.F.,.F.);"
+    ));
+    data.push(format!(
+        "#22=UNIFORM_CURVE('',3,({list}),.UNSPECIFIED.,.F.,.F.);"
+    ));
+    data.push(format!(
+        "#23=(BEZIER_CURVE() BOUNDED_CURVE() B_SPLINE_CURVE(3,({list}),.UNSPECIFIED.,.F.,.F.) \
+         CURVE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM(''));"
+    ));
+    let grid = "((#1,#2,#3,#4),(#2,#3,#4,#5),(#3,#4,#5,#6),(#4,#5,#6,#7))";
+    data.push(format!(
+        "#30=BEZIER_SURFACE('',3,3,{grid},.UNSPECIFIED.,.F.,.F.,.F.);"
+    ));
+    let text = format!(
+        "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n{}\nENDSEC;\nEND-ISO-10303-21;\n",
+        data.join("\n")
+    );
+    let exchange = parse(&text).unwrap();
+    let geometry = Geometry {
+        graph: Graph::new(&exchange),
+        units: Units::default(),
+    };
+    let point = |index: usize| {
+        let (x, y, z) = points[index];
+        Point3::new(x, y, z)
+    };
+    for id in [20, 23] {
+        let Curve::BSpline(bezier) = geometry.curve(id).unwrap() else {
+            panic!("a Bézier curve is a B-spline");
+        };
+        let domain = bezier.domain();
+        let joint = bezier.point(domain.start() + domain.length() / 2.0);
+        assert!(joint.distance(point(3)) < 1e-12, "#{id}: {joint}");
+    }
+    for id in [21, 22] {
+        assert!(matches!(geometry.curve(id), Ok(Curve::BSpline(_))), "#{id}");
+    }
+    assert!(matches!(geometry.surface(30), Ok(Surface::BSpline(_))));
+}

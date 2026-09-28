@@ -6,7 +6,7 @@ use caditor_kernel::{
 
 use crate::read::{
     graph::{Entity, Graph, Problem, Read, friendly},
-    spline::{Homogeneous, clamp, expand_knots, knot_count, uniform_knots},
+    spline::{Homogeneous, bezier_knots, clamp, expand_knots, knot_count, uniform_knots},
     units::Units,
 };
 
@@ -149,6 +149,9 @@ impl<'a> Geometry<'a> {
                     BSpline::new(1, knots, points).map_err(kernel)?,
                 ))
             }
+            "BEZIER_CURVE" | "UNIFORM_CURVE" | "QUASI_UNIFORM_CURVE" => {
+                Ok(Curve::BSpline(self.spline_curve(entity)?))
+            }
             _ if entity.is("B_SPLINE_CURVE") || entity.is("B_SPLINE_CURVE_WITH_KNOTS") => {
                 Ok(Curve::BSpline(self.spline_curve(entity)?))
             }
@@ -181,6 +184,7 @@ impl<'a> Geometry<'a> {
                             .ok_or_else(mismatched)?
                     }
                     "UNIFORM_CURVE" => uniform_knots(points.len(), degree, false),
+                    "BEZIER_CURVE" => bezier_knots(points.len(), degree),
                     _ => uniform_knots(points.len(), degree, true),
                 };
                 (degree, points, knots)
@@ -198,6 +202,8 @@ impl<'a> Geometry<'a> {
                     let expected = knot_count(points.len(), degree).ok_or_else(mismatched)?;
                     expand_knots(&multiplicities, &with_knots.reals(1)?, expected)
                         .ok_or_else(mismatched)?
+                } else if entity.is("BEZIER_CURVE") {
+                    bezier_knots(points.len(), degree)
                 } else {
                     uniform_knots(points.len(), degree, !entity.is("UNIFORM_CURVE"))
                 };
@@ -382,6 +388,10 @@ impl Geometry<'_> {
                     _ => return Err(Problem::new(id, "has knots that do not match")),
                 }
             }
+            _ if entity.is("BEZIER_SURFACE") => (
+                bezier_knots(columns, u_degree),
+                bezier_knots(count, v_degree),
+            ),
             _ => {
                 let clamped = !entity.is("UNIFORM_SURFACE");
                 (

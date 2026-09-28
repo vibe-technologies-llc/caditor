@@ -95,7 +95,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `MAX_SPLINE_DEGREE` are refused as they are read, and knot multiplicities must sum to points
     plus degree plus one (with checked arithmetic) before any knot is expanded. Geometry covers
     every kernel surface and curve including B-spline surfaces and curves in all their forms
-    (unclamped ones are clamped by knot insertion), trimmed and surface curves by their basis, and
+    (Bézier ones with the standard piecewise knots, degree-fold at every joint; uniform and other
+    unclamped ones clamped by knot insertion), trimmed and surface curves by their basis, and
     polylines. Topology is surveyed first (which faces use each edge and vertex), then vertices off
     their faces are moved onto all of them by damped least squares, edges not within a quarter of
     the resolution of both faces are rebuilt with `IntersectionCurve::through`, loops take their

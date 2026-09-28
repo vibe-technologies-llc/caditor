@@ -55,9 +55,6 @@ within a category run from most to least important.
 
 ## STEP import and export
 
-- Plain `BEZIER_CURVE`, `UNIFORM_CURVE` and `QUASI_UNIFORM_CURVE` are refused because the name
-  match covers only `B_SPLINE_CURVE` (`read/geometry.rs`), and multi-segment Bézier curves and
-  surfaces get quasi-uniform knots instead of the standard's.
 - Nested sub-assemblies can be placed upside down, since parent and child are guessed from
   `children` and `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` is never read.
 - Product names lose to body names such as "Body1", and `NEXT_ASSEMBLY_USAGE_OCCURRENCE`

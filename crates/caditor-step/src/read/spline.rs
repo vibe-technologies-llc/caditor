@@ -31,6 +31,18 @@ pub(crate) fn knot_count(points: usize, degree: usize) -> Option<usize> {
     points.checked_add(degree)?.checked_add(1)
 }
 
+pub(crate) fn bezier_knots(count: usize, degree: usize) -> Vec<f64> {
+    let whole_segments = degree > 0 && count > degree && (count - 1).is_multiple_of(degree);
+    if !whole_segments {
+        return uniform_knots(count, degree, true);
+    }
+    let segments = (count - 1) / degree;
+    std::iter::repeat_n(0.0, degree + 1)
+        .chain((1..segments).flat_map(|segment| std::iter::repeat_n(segment as f64, degree)))
+        .chain(std::iter::repeat_n(segments as f64, degree + 1))
+        .collect()
+}
+
 pub(crate) fn uniform_knots(count: usize, degree: usize, clamped: bool) -> Vec<f64> {
     if clamped {
         let spans = count.saturating_sub(degree).max(1);
