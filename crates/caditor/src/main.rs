@@ -13,6 +13,7 @@ mod feature_tree;
 mod field;
 mod files;
 mod history;
+mod import;
 mod model;
 mod overlay;
 mod panels;

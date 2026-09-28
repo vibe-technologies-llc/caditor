@@ -9,23 +9,27 @@ use std::{
     time::Duration,
 };
 
-use caditor_document::Document;
+use caditor_document::{Document, FeatureId};
 use caditor_file::{
-    ExportError, Exported, FILE_EXTENSION, FileJournal, History, LoadError, Loaded, MeshFormat,
-    RecentFiles, Recovered, SavedState, journal_for, load, load_version, scan,
+    DXF_EXTENSION, Drawing, ExportError, Exported, FILE_EXTENSION, FileJournal, History,
+    ImportError, LoadError, Loaded, MeshFormat, RecentFiles, Recovered, SavedState, journal_for,
+    load, load_version, read_dxf, scan,
 };
 use egui::{Button, Id, KeyboardShortcut, Modal, Modifiers, RichText, Ui};
 use parking_lot::Mutex;
 
 use crate::{
+    editing::SketchEditing,
     export::{self, EXPORT, ExportCommand, Exporter},
     history::{self, HistoryCommand, VersionHistory},
+    import::{self, IMPORT, IMPORT_HINT},
     model::{Action, FileEvent, Model, Notice, WakerFactory, display_name},
 };
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const DIALOG_WIDTH: f32 = 420.0;
 const MODEL_KIND: &str = "caditor model";
+const DRAWING_KIND: &str = "DXF drawing";
 pub const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::N);
 pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::O);
 pub const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::S);
@@ -51,6 +55,7 @@ pub enum FileCommand {
     DismissReport,
     Export(ExportCommand),
     History(HistoryCommand),
+    Import { into: Option<FeatureId> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +77,7 @@ pub trait Dialogs {
         format: MeshFormat,
         respond: Respond,
     );
+    fn pick_import(&self, directory: Option<PathBuf>, respond: Respond);
 }
 
 pub struct NativeDialogs;
@@ -137,6 +143,14 @@ impl Dialogs for NativeDialogs {
                 .save_file()
         });
     }
+
+    fn pick_import(&self, directory: Option<PathBuf>, respond: Respond) {
+        Self::spawn(respond, move || {
+            Self::dialog(directory, DRAWING_KIND, DXF_EXTENSION)
+                .set_title("Import")
+                .pick_file()
+        });
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -150,6 +164,7 @@ enum Purpose {
     Open,
     SaveAs,
     Export(MeshFormat),
+    Import,
 }
 
 enum OpenOutcome {
@@ -196,6 +211,12 @@ enum Event {
         state: SavedState,
         result: Result<Loaded, LoadError>,
     },
+    Imported {
+        path: PathBuf,
+        session: u64,
+        into: Option<FeatureId>,
+        result: Result<Drawing, ImportError>,
+    },
 }
 
 enum Intent {
@@ -211,9 +232,15 @@ struct Candidate {
     open_file_on_discard: bool,
 }
 
-struct LoadReport {
-    name: String,
+struct Report {
+    heading: String,
+    intro: Option<&'static str>,
     issues: Vec<String>,
+}
+
+struct Importing {
+    path: Option<PathBuf>,
+    into: Option<FeatureId>,
 }
 
 type Job = Box<dyn FnOnce() + Send>;
@@ -231,8 +258,9 @@ pub struct Files {
     confirm_discard: Option<PathBuf>,
     guard: Option<Intent>,
     after_save: Option<Intent>,
-    report: Option<LoadReport>,
+    report: Option<Report>,
     opening: Option<PathBuf>,
+    importing: Option<Importing>,
     exporter: Exporter,
     history: VersionHistory,
     picking: bool,
@@ -257,6 +285,7 @@ impl Files {
             after_save: None,
             report: None,
             opening: None,
+            importing: None,
             exporter: Exporter::default(),
             history: VersionHistory::default(),
             picking: false,
@@ -352,6 +381,17 @@ impl Files {
                 }
             }
             FileCommand::History(command) => self.history_command(command, model),
+            FileCommand::Import { into } => {
+                if self.importing.is_some() {
+                    model.set_notice(Notice::info("An import is already running."));
+                    return;
+                }
+                if self.picking {
+                    return;
+                }
+                self.importing = Some(Importing { path: None, into });
+                self.pick(Purpose::Import, model);
+            }
         }
     }
 
@@ -421,7 +461,7 @@ impl Files {
         }
     }
 
-    pub fn poll(&mut self, model: &mut Model) -> bool {
+    pub fn poll(&mut self, model: &mut Model, editing: &mut SketchEditing) -> bool {
         let mut changed = false;
         for event in model.take_file_events() {
             changed = true;
@@ -440,12 +480,12 @@ impl Files {
         }
         while let Ok(event) = self.inbox.try_recv() {
             changed = true;
-            self.handle(event, model);
+            self.handle(event, model, editing);
         }
         changed
     }
 
-    fn handle(&mut self, event: Event, model: &mut Model) {
+    fn handle(&mut self, event: Event, model: &mut Model, editing: &mut SketchEditing) {
         match event {
             Event::Picked { purpose, path } => {
                 self.picking = false;
@@ -453,6 +493,8 @@ impl Files {
                     (Purpose::Open, Some(path)) => self.open(path, model),
                     (Purpose::SaveAs, Some(path)) => model.save_to(with_extension(path)),
                     (Purpose::Export(format), Some(path)) => self.export(path, format, model),
+                    (Purpose::Import, Some(path)) => self.import(path, model),
+                    (Purpose::Import, None) => self.importing = None,
                     (_, None) => self.after_save = None,
                 }
             }
@@ -501,7 +543,40 @@ impl Files {
                 state,
                 result,
             } => self.version_loaded(&path, &state, result, model),
+            Event::Imported {
+                path,
+                session,
+                into,
+                result,
+            } => {
+                self.importing = None;
+                if session != model.session() {
+                    return;
+                }
+                if let Some(report) = import::place_drawing(model, editing, &path, into, result) {
+                    self.report = Some(Report {
+                        heading: report.heading,
+                        intro: None,
+                        issues: report.notes,
+                    });
+                }
+            }
         }
+    }
+
+    fn import(&mut self, path: PathBuf, model: &Model) {
+        let into = self.importing.as_ref().and_then(|importing| importing.into);
+        self.importing = Some(Importing {
+            path: Some(path.clone()),
+            into,
+        });
+        let session = model.session();
+        self.spawn(move || Event::Imported {
+            result: read_dxf(&path),
+            path,
+            session,
+            into,
+        });
     }
 
     fn export(&mut self, path: PathBuf, format: MeshFormat, model: &mut Model) {
@@ -649,6 +724,7 @@ impl Files {
                 self.dialogs
                     .pick_export_path(directory, file_name, format, respond);
             }
+            Purpose::Import => self.dialogs.pick_import(directory, respond),
         }
     }
 
@@ -672,8 +748,12 @@ impl Files {
         let Opened { path, loaded } = opened;
         let damaged = !loaded.issues.is_empty();
         if damaged {
-            self.report = Some(LoadReport {
-                name: display_name(Some(&path)),
+            self.report = Some(Report {
+                heading: format!("Parts of “{}” could not be read", display_name(Some(&path))),
+                intro: Some(
+                    "The rest of the model was opened. When you save it, the original file is \
+                     kept next to it as a backup.",
+                ),
                 issues: loaded.issues,
             });
         }
@@ -773,11 +853,17 @@ fn with_extension(path: PathBuf) -> PathBuf {
     }
 }
 
-pub fn menu(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>) {
+pub fn menu(
+    ui: &mut Ui,
+    model: &Model,
+    files: &Files,
+    editing: &SketchEditing,
+    actions: &mut Vec<Action>,
+) {
     ui.menu_button("File", |ui| {
         let mut command = None;
         let mut item = |ui: &mut Ui, text: &str, shortcut: Option<KeyboardShortcut>, chosen| {
-            if menu_item(ui, text, shortcut) {
+            if menu_item(ui, text, shortcut).clicked() {
                 command = Some(chosen);
             }
         };
@@ -808,6 +894,10 @@ pub fn menu(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>
         })
         .response
         .on_disabled_hover_text("Save the model to start keeping its versions.");
+        ui.separator();
+        let import = menu_item(ui, "Import…", Some(IMPORT))
+            .on_hover_text(IMPORT_HINT)
+            .clicked();
         item(
             ui,
             "Export…",
@@ -820,6 +910,11 @@ pub fn menu(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>
         }
         ui.separator();
         item(ui, "Quit", Some(QUIT), FileCommand::Quit);
+        if import {
+            command = Some(FileCommand::Import {
+                into: editing.feature(),
+            });
+        }
         if let Some(command) = command {
             actions.push(Action::File(command));
         }
@@ -828,24 +923,37 @@ pub fn menu(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>
         ui.spinner();
         ui.label("Saving…");
     }
+    if let Some(Importing {
+        path: Some(path), ..
+    }) = &files.importing
+    {
+        ui.spinner();
+        ui.label(format!("Importing “{}”…", display_name(Some(path))));
+    }
     export::menu_status(ui, &files.exporter, actions);
 }
 
-fn menu_item(ui: &mut Ui, text: &str, shortcut: Option<KeyboardShortcut>) -> bool {
+fn menu_item(ui: &mut Ui, text: &str, shortcut: Option<KeyboardShortcut>) -> egui::Response {
     let mut button = Button::new(text);
     if let Some(shortcut) = shortcut {
         button = button.shortcut_text(ui.ctx().format_shortcut(&shortcut));
     }
-    ui.add(button).clicked()
+    ui.add(button)
 }
 
-pub fn shortcuts(ui: &mut Ui, actions: &mut Vec<Action>) {
+pub fn shortcuts(ui: &mut Ui, editing: &SketchEditing, actions: &mut Vec<Action>) {
     let commands = [
         (SAVE_AS, FileCommand::SaveAs),
         (SAVE, FileCommand::Save),
         (NEW, FileCommand::New),
         (OPEN, FileCommand::Open),
         (EXPORT, FileCommand::Export(ExportCommand::Show)),
+        (
+            IMPORT,
+            FileCommand::Import {
+                into: editing.feature(),
+            },
+        ),
         (QUIT, FileCommand::Quit),
     ];
     for (shortcut, command) in commands {
@@ -869,7 +977,7 @@ pub fn show(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>
     } else if let Some(intent) = &files.guard {
         command = guard(&ctx, model, intent).map(FileCommand::Guard);
     } else if let Some(report) = &files.report {
-        command = load_report(&ctx, report);
+        command = show_report(&ctx, report);
     } else if files.showing_recovery() {
         command = recovery(&ctx, files);
     } else if files.exporter.is_open() {
@@ -921,14 +1029,13 @@ fn guard(ctx: &egui::Context, model: &Model, intent: &Intent) -> Option<GuardCho
     response.inner.or(closed)
 }
 
-fn load_report(ctx: &egui::Context, report: &LoadReport) -> Option<FileCommand> {
-    let response = Modal::new(Id::new("load-report")).show(ctx, |ui| {
+fn show_report(ctx: &egui::Context, report: &Report) -> Option<FileCommand> {
+    let response = Modal::new(Id::new("file-report")).show(ctx, |ui| {
         ui.set_max_width(DIALOG_WIDTH);
-        ui.heading(format!("Parts of “{}” could not be read", report.name));
-        ui.label(
-            "The rest of the model was opened. When you save it, the original file is kept \
-             next to it as a backup.",
-        );
+        ui.heading(&report.heading);
+        if let Some(intro) = report.intro {
+            ui.label(intro);
+        }
         ui.add_space(4.0);
         egui::ScrollArea::vertical()
             .max_height(240.0)

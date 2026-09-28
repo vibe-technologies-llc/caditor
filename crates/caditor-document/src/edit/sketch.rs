@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::Expression;
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError};
@@ -104,6 +104,18 @@ impl Removal {
         entities: impl IntoIterator<Item = EntityId>,
         constraints: impl IntoIterator<Item = ConstraintId>,
     ) -> Self {
+        let mut entity_users: BTreeMap<EntityId, Vec<EntityId>> = BTreeMap::new();
+        for (user, entity) in sketch.entities() {
+            for point in entity.points() {
+                entity_users.entry(point).or_default().push(user);
+            }
+        }
+        let mut constraint_users: BTreeMap<EntityId, Vec<ConstraintId>> = BTreeMap::new();
+        for (user, constraint) in sketch.constraints() {
+            for entity in constraint.entities() {
+                constraint_users.entry(entity).or_default().push(user);
+            }
+        }
         let mut doomed_entities = BTreeSet::new();
         let mut pending: Vec<EntityId> = entities
             .into_iter()
@@ -111,7 +123,7 @@ impl Removal {
             .collect();
         while let Some(id) = pending.pop() {
             if doomed_entities.insert(id) {
-                pending.extend(sketch.entities_using(id));
+                pending.extend(entity_users.get(&id).into_iter().flatten());
             }
         }
         let mut doomed_constraints: BTreeSet<ConstraintId> = constraints
@@ -119,7 +131,7 @@ impl Removal {
             .filter(|id| sketch.constraint(*id).is_some())
             .collect();
         for entity in &doomed_entities {
-            doomed_constraints.extend(sketch.constraints_using(*entity));
+            doomed_constraints.extend(constraint_users.get(entity).into_iter().flatten());
         }
         let uses_points = |id: &EntityId| {
             sketch

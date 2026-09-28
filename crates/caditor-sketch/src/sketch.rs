@@ -89,6 +89,7 @@ pub struct Sketch {
     plane: Plane,
     entities: BTreeMap<EntityId, Entity>,
     constraints: BTreeMap<ConstraintId, Constraint>,
+    uses: BTreeMap<EntityId, usize>,
     next_id: u64,
 }
 
@@ -98,6 +99,7 @@ impl Sketch {
             plane,
             entities: BTreeMap::new(),
             constraints: BTreeMap::new(),
+            uses: BTreeMap::new(),
             next_id: 0,
         }
     }
@@ -268,6 +270,7 @@ impl Sketch {
     pub fn insert_entity(&mut self, id: EntityId, entity: Entity) -> Result<(), SketchError> {
         self.check_new_id(id.raw())?;
         self.check_entity(&entity)?;
+        self.count_uses(&entity.points(), true);
         self.entities.insert(id, entity);
         self.reserve_ids_below(id.raw().saturating_add(1));
         Ok(())
@@ -280,6 +283,7 @@ impl Sketch {
     ) -> Result<(), SketchError> {
         self.check_new_id(id.raw())?;
         self.check_constraint(&constraint)?;
+        self.count_uses(&constraint.entities(), true);
         self.constraints.insert(id, constraint);
         self.reserve_ids_below(id.raw().saturating_add(1));
         Ok(())
@@ -318,6 +322,7 @@ impl Sketch {
     pub fn add_constraint(&mut self, constraint: Constraint) -> Result<ConstraintId, SketchError> {
         self.check_constraint(&constraint)?;
         let id = ConstraintId::from_raw(self.allocate());
+        self.count_uses(&constraint.entities(), true);
         self.constraints.insert(id, constraint);
         Ok(id)
     }
@@ -407,15 +412,18 @@ impl Sketch {
 
     pub fn remove_unused_entity(&mut self, id: EntityId) -> Result<Entity, SketchError> {
         self.check_editable(id)?;
-        if !self.entities_using(id).is_empty() || !self.constraints_using(id).is_empty() {
+        if self.uses.contains_key(&id) {
             return Err(SketchError::InUse {
                 entity: id,
                 label: self.entity_label(id),
             });
         }
-        self.entities
+        let removed = self
+            .entities
             .remove(&id)
-            .ok_or(SketchError::NoSuchEntity(id))
+            .ok_or(SketchError::NoSuchEntity(id))?;
+        self.count_uses(&removed.points(), false);
+        Ok(removed)
     }
 
     pub fn replace_entity(&mut self, id: EntityId, entity: Entity) -> Result<Entity, SketchError> {
@@ -437,9 +445,12 @@ impl Sketch {
     }
 
     pub fn remove_constraint(&mut self, id: ConstraintId) -> Result<Constraint, SketchError> {
-        self.constraints
+        let removed = self
+            .constraints
             .remove(&id)
-            .ok_or(SketchError::MissingConstraint(id))
+            .ok_or(SketchError::MissingConstraint(id))?;
+        self.count_uses(&removed.entities(), false);
+        Ok(removed)
     }
 
     pub fn remove_entity(&mut self, id: EntityId) -> Option<Entity> {
@@ -455,7 +466,32 @@ impl Sketch {
         }
         self.constraints
             .retain(|_, constraint| !constraint.references(id));
+        self.recount_uses();
         Some(removed)
+    }
+
+    fn count_uses(&mut self, used: &[EntityId], add: bool) {
+        for id in used {
+            if add {
+                *self.uses.entry(*id).or_default() += 1;
+            } else if let Some(count) = self.uses.get_mut(id) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    self.uses.remove(id);
+                }
+            }
+        }
+    }
+
+    fn recount_uses(&mut self) {
+        let used: Vec<EntityId> = self
+            .entities
+            .values()
+            .flat_map(Entity::points)
+            .chain(self.constraints.values().flat_map(Constraint::entities))
+            .collect();
+        self.uses.clear();
+        self.count_uses(&used, true);
     }
 
     pub fn evaluate<F>(&self, value_of: &F) -> Result<DimensionValues, SketchError>
@@ -627,6 +663,7 @@ impl Sketch {
 
     fn insert(&mut self, entity: Entity) -> EntityId {
         let id = EntityId::from_raw(self.allocate());
+        self.count_uses(&entity.points(), true);
         self.entities.insert(id, entity);
         id
     }

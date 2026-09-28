@@ -72,7 +72,13 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     horizontal, vertical, parallel, perpendicular, tangent, equal, and the dimensions distance,
     angle and radius, whose values are expressions. `check_constraint` refuses constraints that
     do not fit the entity kinds, so the UI can ask before offering one. `insert_entity` and
-    `insert_constraint` take explicit IDs and check references, for loading.
+    `insert_constraint` take explicit IDs and check references, for loading. The sketch counts
+    how often each entity is used by curves and constraints, so refusing to remove a used one
+    never scans the sketch and undoing a large import stays fast.
+  - Sketch splines are clamped with uniform knots and degree min(3, points − 1). `BSpline::fit`
+    approximates a dense polyline by one of these (chord-length parameters corrected by
+    projection, least squares with fixed ends, doubling the control points until within a
+    tolerance, else the best found) and `BSpline::interpolate` passes one through given points.
   - `solve` evaluates the dimensions, then runs damped Gauss–Newton with minimal-norm steps
     (SVD from `nalgebra`) on each independent part of the system, so geometry that already
     satisfies its constraints does not move and under-constrained geometry moves as little as
@@ -449,14 +455,31 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Recovery (`scan`, `journal_for`) inspects unlocked journals in the recovery directory and
     next to recent files, deletes those with nothing to recover (no net change, or already in
     the file) and returns the rest with a replayed `Editor`.
-  - Mesh export (`export/`), the one place that follows foreign formats: `export_mesh` tessellates each `ExportBody` (a name and a solid) at
-    a `MeshResolution` (coarse, standard or fine: a chord that is a fraction of the largest
-    body's diagonal, and 20°, 10° or 5° between triangles), keeps only the positions the
-    triangles use and drops collapsed triangles, then writes binary STL (every body in one
-    surface, facet normals from the winding) or 3MF (one named object per body, millimetres) and
-    saves it atomically like a model. Cancellation is checked between bodies and before writing,
-    and failures are sentences naming the body. The 3MF package is written by a small ZIP writer
-    (`zip.rs`: deflate through `miniz_oxide` unless storing is smaller, CRC32, no ZIP64).
+  - DXF import (`import/`): `parse_dxf` reads ASCII and binary DXF (group codes with typed values,
+    UTF-8 or single-byte text) into a `Drawing` of 2D `DrawingCurve`s in millimetres plus notes in
+    plain language. It reads `$INSUNITS` (none is read as millimetres, with a note), layers
+    (entities on off or frozen layers are left out), blocks and INSERTs (base point, scale,
+    rotation, column and row arrays, nested with cycle and depth limits, block content on layer 0
+    taking the insert's layer), and the entities LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE and
+    POLYLINE (bulges become arcs, 3D polylines lines) and SPLINE (control points with knots and
+    weights, or fit points). Object coordinate systems follow the arbitrary axis algorithm.
+    Everything becomes a 3D shape (point, line, parametric conic, NURBS or fit points), is
+    transformed, then flattened onto XY: conics that project to circles become circles and arcs
+    (counter-clockwise), other conics and splines that are not already in the sketch's uniform form
+    are fitted within a millionth of the drawing's size. Paper space and invisible entities are
+    skipped silently; text, dimensions, hatches and other annotations are counted in a note. The cap
+    is `MAX_DRAWING_CURVES`. `drawing_transaction` turns a drawing into one transaction on an
+    existing or new sketch, dropping curves shorter than the joint tolerance and joining ends closer
+    than a millionth of the drawing's size with `Coincident` constraints.
+  - Mesh export (`export/`), the one place besides import that follows foreign formats:
+    `export_mesh` tessellates each `ExportBody` (a name and a solid) at a `MeshResolution` (coarse,
+    standard or fine: a chord that is a fraction of the largest body's diagonal, and 20°, 10° or 5°
+    between triangles), keeps only the positions the triangles use and drops collapsed triangles,
+    then writes binary STL (every body in one surface, facet normals from the winding) or 3MF (one
+    named object per body, millimetres) and saves it atomically like a model. Cancellation is
+    checked between bodies and before writing, and failures are sentences naming the body. The 3MF
+    package is written by a small ZIP writer (`zip.rs`: deflate through `miniz_oxide` unless storing
+    is smaller, CRC32, no ZIP64).
 - **caditor-render**: wgpu device and surface ownership, the camera and the viewport. It does
   not depend on winit or on the document: it takes any `Arc<dyn WindowTarget>` and draws a
   `Scene` of shaded meshes, lines, markers, triangle fills and a grid built by the app.
@@ -554,6 +577,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     last good state), and after the save dialog runs on its own thread, shown beside the File
     menu with a Cancel button. A path without the format's extension gets it appended, so an
     export never replaces a model file. The outcome is a notice with the body and triangle count.
+  - Import (`import.rs`): File › Import… (Ctrl+I) picks a DXF file, reads it on the files
+    worker and adds it as one "Import <file>" change to the sketch being edited when the command
+    was given, else to a new sketch on the XY plane named after the file, which is then entered.
+    The outcome is a notice with the curve count; the drawing's notes (units, left-out objects,
+    fitted curves) are shown in the same report dialog as a damaged file's problems. A result
+    that arrives after another document was opened is dropped.
   - Version history (`history.rs`): File › Version History… (for a saved model) reads the
     versions from the file on the files worker and lists them newest first as "Saved 2 hours ago
     after “Edit width”", marking damaged ones. Restore loads that version in the background and

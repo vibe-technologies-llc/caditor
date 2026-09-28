@@ -261,7 +261,7 @@ impl Session {
             .map(|previous| now.saturating_duration_since(previous))
             .unwrap_or_default();
         model.poll();
-        files.poll(model);
+        files.poll(model, &mut self.workspace.editing);
         self.workspace.editing.sync(model);
         if let Some(result) = self.renderer.poll_pick() {
             self.workspace.viewport.apply_pick(&result);

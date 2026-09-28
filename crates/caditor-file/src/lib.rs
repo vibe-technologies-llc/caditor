@@ -1,6 +1,7 @@
 mod binary;
 mod export;
 mod format;
+mod import;
 mod journal;
 mod load;
 mod paths;
@@ -14,6 +15,10 @@ pub use crate::{
     binary::{History, SavedState, Version},
     export::{ExportBody, ExportError, Exported, MeshFormat, MeshResolution, export_mesh},
     format::FORMAT_VERSION,
+    import::{
+        DXF_EXTENSION, Drawing, DrawingCurve, DrawingImport, ImportError, MAX_DRAWING_CURVES,
+        SketchTarget, drawing_transaction, parse_dxf, read_dxf,
+    },
     journal::JournalEntry,
     load::{LoadError, Loaded, decode, history, load, load_version},
     paths::{recovery_dir, state_dir},

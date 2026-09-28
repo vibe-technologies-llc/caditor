@@ -64,6 +64,10 @@ impl Dialogs for ScriptedDialogs {
     ) {
         respond(self.answer.lock().clone());
     }
+
+    fn pick_import(&self, _directory: Option<PathBuf>, respond: Respond) {
+        respond(self.answer.lock().clone());
+    }
 }
 
 fn no_wake() -> WakerFactory {
@@ -143,7 +147,8 @@ impl Harness {
         };
         let mut actions = Vec::new();
         self.model.poll();
-        self.files.poll(&mut self.model);
+        self.files
+            .poll(&mut self.model, &mut self.workspace.editing);
         self.workspace.editing.sync(&self.model);
         let Self {
             context,
@@ -718,6 +723,79 @@ fn exporting_writes_the_chosen_bodies_in_the_chosen_format_beside_the_model() {
     let triangles = u32::from_le_bytes(stl[80..84].try_into().unwrap()) as usize;
     assert_eq!(stl.len(), 84 + 50 * triangles);
     assert!(!dir.path().join("plate.caditor").exists());
+}
+
+fn write_drawing(path: &Path, units: Option<i64>, entities: &str) {
+    let header = units.map_or_else(String::new, |units| {
+        format!("0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n{units}\n0\nENDSEC\n")
+    });
+    let text = format!("{header}0\nSECTION\n2\nENTITIES\n{entities}0\nENDSEC\n0\nEOF\n");
+    std::fs::write(path, text).unwrap();
+}
+
+#[test]
+fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let square = dir.path().join("bracket.dxf");
+    write_drawing(
+        &square,
+        Some(4),
+        "0\nLWPOLYLINE\n8\n0\n90\n4\n70\n1\n\
+         10\n0\n20\n0\n10\n30\n20\n0\n10\n30\n20\n30\n10\n0\n20\n30\n",
+    );
+    let features = harness.document().features().len();
+    harness.answer_dialog(Some(square));
+    harness.key(Key::I, Modifiers::COMMAND);
+    harness.frame();
+    harness.wait_until("the drawing is imported", |harness| {
+        harness.document().features().len() == features + 1
+    });
+    let sketch = harness.document().features().last().unwrap().id();
+    assert_eq!(harness.document().feature(sketch).unwrap().name, "bracket");
+    assert_eq!(harness.editing(), Some(sketch));
+    assert_eq!(
+        harness.model.notice().unwrap().text,
+        "Imported 4 curves from “bracket.dxf” into bracket."
+    );
+    assert!(!harness.files.is_blocking());
+    harness.settle();
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    let before = harness.sketch(sketch).entities().len();
+
+    let hole = dir.path().join("hole.dxf");
+    write_drawing(
+        &hole,
+        None,
+        "0\nCIRCLE\n8\n0\n10\n15\n20\n15\n40\n5\n0\nTEXT\n8\n0\n1\nNote\n",
+    );
+    harness.answer_dialog(Some(hole));
+    harness.command(FileCommand::Import {
+        into: harness.editing(),
+    });
+    harness.wait_until("the report is shown", |harness| {
+        harness.shows("Imported “hole.dxf” into bracket")
+    });
+    assert_eq!(harness.sketch(sketch).entities().len(), before + 2);
+    assert_eq!(harness.document().features().len(), features + 1);
+    assert!(harness.shows(
+        "• The drawing does not say which unit it uses, so its numbers were read as millimetres."
+    ));
+    harness.click("OK");
+    assert!(!harness.files.is_blocking());
+    harness.perform(Action::Undo);
+    assert_eq!(harness.sketch(sketch).entities().len(), before);
+
+    let picture = dir.path().join("photo.dxf");
+    std::fs::write(&picture, b"\x89PNG\r\n\x1a\n").unwrap();
+    harness.answer_dialog(Some(picture));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_until("the failure is reported", |harness| {
+        harness.model.notice().is_some_and(|notice| {
+            notice.text == "Could not import “photo.dxf”: it is not a DXF drawing."
+        })
+    });
+    assert_eq!(harness.document().features().len(), features + 1);
 }
 
 fn damage_chunk(bytes: &[u8], chunk: usize) -> Vec<u8> {

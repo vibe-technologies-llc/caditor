@@ -1,0 +1,689 @@
+use std::f64::consts::{FRAC_PI_2, PI};
+
+use caditor_document::{
+    BodyOperation, CancelToken, Document, Evaluation, Extrude, ExtrudeExtent, FeatureId,
+    FeatureKind, ModelEvaluator, Recompute, RegionChoice, SolidFeature,
+};
+use caditor_expression::Expression;
+use caditor_geometry::{Plane, Point2};
+use caditor_kernel::SamplingTolerance;
+use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, Sketch};
+
+use crate::import::{
+    Drawing, DrawingCurve, ImportError, MAX_DRAWING_CURVES, SketchTarget, drawing_transaction,
+    parse_dxf,
+};
+
+type Pairs = Vec<(i32, String)>;
+
+fn pair(code: i32, value: impl ToString) -> (i32, String) {
+    (code, value.to_string())
+}
+
+fn entity(kind: &str, layer: &str, rest: &[(i32, f64)]) -> Pairs {
+    let mut pairs = vec![pair(0, kind), pair(8, layer)];
+    pairs.extend(rest.iter().map(|(code, value)| pair(*code, value)));
+    pairs
+}
+
+fn line(start: (f64, f64), end: (f64, f64)) -> Pairs {
+    entity(
+        "LINE",
+        "0",
+        &[
+            (10, start.0),
+            (20, start.1),
+            (30, 0.0),
+            (11, end.0),
+            (21, end.1),
+            (31, 0.0),
+        ],
+    )
+}
+
+fn section(name: &str, content: Vec<Pairs>) -> Pairs {
+    let mut pairs = vec![pair(0, "SECTION"), pair(2, name)];
+    pairs.extend(content.into_iter().flatten());
+    pairs.push(pair(0, "ENDSEC"));
+    pairs
+}
+
+fn header(units: Option<i64>) -> Pairs {
+    let mut content = vec![pair(9, "$ACADVER"), pair(1, "AC1027")];
+    if let Some(units) = units {
+        content.extend([pair(9, "$INSUNITS"), pair(70, units)]);
+    }
+    section("HEADER", vec![content])
+}
+
+fn text(sections: Vec<Pairs>) -> Vec<u8> {
+    let mut out = String::new();
+    for (code, value) in sections.into_iter().flatten().chain([pair(0, "EOF")]) {
+        out.push_str(&format!("{code:>3}\r\n{value}\r\n"));
+    }
+    out.into_bytes()
+}
+
+fn drawing(units: Option<i64>, entities: Vec<Pairs>) -> Drawing {
+    parse_dxf(&text(vec![header(units), section("ENTITIES", entities)])).unwrap()
+}
+
+fn millimetre_drawing(entities: Vec<Pairs>) -> Drawing {
+    drawing(Some(4), entities)
+}
+
+fn near(a: Point2, b: Point2) -> bool {
+    a.distance(b) < 1e-9
+}
+
+fn lines(drawing: &Drawing) -> Vec<(Point2, Point2)> {
+    drawing
+        .curves
+        .iter()
+        .filter_map(|curve| match curve {
+            DrawingCurve::Line { start, end } => Some((*start, *end)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn arcs(drawing: &Drawing) -> Vec<ArcGeometry> {
+    drawing
+        .curves
+        .iter()
+        .filter_map(|curve| match curve {
+            DrawingCurve::Arc { center, start, end } => {
+                Some(ArcGeometry::from_points(*center, *start, *end))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn slot() -> Pairs {
+    entity(
+        "LWPOLYLINE",
+        "Outline",
+        &[
+            (90, 4.0),
+            (70, 1.0),
+            (10, 0.0),
+            (20, 0.0),
+            (10, 20.0),
+            (20, 0.0),
+            (42, 1.0),
+            (10, 20.0),
+            (20, 10.0),
+            (10, 0.0),
+            (20, 10.0),
+            (42, 1.0),
+        ],
+    )
+}
+
+#[test]
+fn a_closed_polyline_with_bulges_becomes_lines_and_arcs() {
+    let drawing = millimetre_drawing(vec![slot()]);
+    assert!(drawing.notes.is_empty(), "{:?}", drawing.notes);
+    assert_eq!(lines(&drawing).len(), 2);
+    let arcs = arcs(&drawing);
+    assert_eq!(arcs.len(), 2);
+    let right = arcs
+        .iter()
+        .find(|arc| near(arc.center, Point2::new(20.0, 5.0)))
+        .unwrap();
+    assert!((right.radius - 5.0).abs() < 1e-12);
+    assert!((right.sweep - PI).abs() < 1e-12);
+    assert!((right.start_angle + FRAC_PI_2).abs() < 1e-12);
+    let left = arcs
+        .iter()
+        .find(|arc| near(arc.center, Point2::new(0.0, 5.0)))
+        .unwrap();
+    assert!((left.start_angle - FRAC_PI_2).abs() < 1e-12);
+}
+
+fn evaluate(document: &Document) -> Evaluation {
+    Recompute::default().run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
+}
+
+fn sketch(document: &Document, feature: FeatureId) -> &Sketch {
+    document.feature(feature).unwrap().kind.sketch().unwrap()
+}
+
+#[test]
+fn an_imported_outline_is_joined_and_extrudes_into_a_solid() {
+    let drawing = millimetre_drawing(vec![
+        slot(),
+        entity(
+            "CIRCLE",
+            "Holes",
+            &[(10, 10.0), (20, 5.0), (30, 0.0), (40, 2.0)],
+        ),
+    ]);
+    let mut document = Document::default();
+    let import = drawing_transaction(
+        &document,
+        &drawing,
+        SketchTarget::New {
+            name: "slot".to_owned(),
+            plane: Plane::XY,
+        },
+        "Import slot.dxf",
+    );
+    assert_eq!(import.curves, 5);
+    assert_eq!(import.joints, 4);
+    document.apply(import.transaction).unwrap();
+    let imported = sketch(&document, import.sketch);
+    let coincidences = imported
+        .constraints()
+        .filter(|(_, constraint)| matches!(constraint, Constraint::Coincident(..)))
+        .count();
+    assert_eq!(coincidences, 4);
+
+    let mut transaction = document.transaction("Extrude");
+    let body = transaction.add_feature(
+        "Plate",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: import.sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::OneSide {
+                distance: Expression::parse_stored("2 mm").unwrap(),
+                reversed: false,
+            },
+            operation: BodyOperation::NewBody,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document);
+    assert_eq!(evaluation.failed_count(), 0);
+    let volume = evaluation
+        .body(body)
+        .unwrap()
+        .tessellate(&SamplingTolerance::new(1e-3, 0.05).unwrap())
+        .unwrap()
+        .mass_properties()
+        .volume;
+    let expected = 2.0 * (20.0 * 10.0 + PI * 25.0 - PI * 4.0);
+    assert!((volume - expected).abs() < 0.05, "{volume} vs {expected}");
+}
+
+#[test]
+fn importing_into_an_existing_sketch_keeps_its_contents() {
+    let mut document = Document::default();
+    let mut existing = Sketch::new(Plane::XY);
+    existing.add_line(Point2::ZERO, Point2::new(5.0, 0.0));
+    let mut transaction = document.transaction("Sketch");
+    let feature = transaction.add_feature("Sketch 1", FeatureKind::from(existing));
+    document.apply(transaction.finish()).unwrap();
+    let before = sketch(&document, feature).entities().len();
+
+    let drawing = millimetre_drawing(vec![line((5.0, 0.0), (5.0, 5.0))]);
+    let import = drawing_transaction(
+        &document,
+        &drawing,
+        SketchTarget::Existing(feature),
+        "Import",
+    );
+    assert_eq!(import.sketch, feature);
+    document.apply(import.transaction).unwrap();
+    assert_eq!(sketch(&document, feature).entities().len(), before + 3);
+}
+
+#[test]
+fn units_are_converted_to_millimetres_and_named() {
+    let inches = drawing(Some(1), vec![line((0.0, 0.0), (1.0, 0.0))]);
+    assert_eq!(lines(&inches), vec![(Point2::ZERO, Point2::new(25.4, 0.0))]);
+    assert!(inches.notes[0].contains("inches"), "{:?}", inches.notes);
+
+    let unknown = drawing(None, vec![line((0.0, 0.0), (1.0, 0.0))]);
+    assert_eq!(lines(&unknown), vec![(Point2::ZERO, Point2::X)]);
+    assert!(unknown.notes[0].contains("read as millimetres"));
+
+    let unitless = drawing(Some(0), vec![line((0.0, 0.0), (1.0, 0.0))]);
+    assert!(unitless.notes[0].contains("read as millimetres"));
+}
+
+fn block(name: &str, base: (f64, f64), content: Vec<Pairs>) -> Pairs {
+    let mut pairs = vec![
+        pair(0, "BLOCK"),
+        pair(8, "0"),
+        pair(2, name),
+        pair(70, 0),
+        pair(10, base.0),
+        pair(20, base.1),
+        pair(30, 0.0),
+    ];
+    pairs.extend(content.into_iter().flatten());
+    pairs.extend([pair(0, "ENDBLK"), pair(8, "0")]);
+    pairs
+}
+
+fn insert(name: &str, layer: &str, rest: &[(i32, f64)]) -> Pairs {
+    let mut pairs = vec![pair(0, "INSERT"), pair(8, layer), pair(2, name)];
+    pairs.extend(rest.iter().map(|(code, value)| pair(*code, value)));
+    pairs
+}
+
+fn layer(name: &str, color: i64, flags: i64) -> Pairs {
+    vec![
+        pair(0, "LAYER"),
+        pair(2, name),
+        pair(70, flags),
+        pair(62, color),
+    ]
+}
+
+fn tables(layers: Vec<Pairs>) -> Pairs {
+    let mut content = vec![vec![pair(0, "TABLE"), pair(2, "LAYER")]];
+    content.extend(layers);
+    content.push(vec![pair(0, "ENDTAB")]);
+    section("TABLES", content)
+}
+
+#[test]
+fn inserted_blocks_are_placed_rotated_scaled_and_repeated() {
+    let bytes = text(vec![
+        header(Some(4)),
+        section(
+            "BLOCKS",
+            vec![
+                block("Tick", (1.0, 0.0), vec![line((1.0, 0.0), (2.0, 0.0))]),
+                block(
+                    "Pair",
+                    (0.0, 0.0),
+                    vec![insert("tick", "0", &[(10, 0.0), (20, 0.0), (30, 0.0)])],
+                ),
+            ],
+        ),
+        section(
+            "ENTITIES",
+            vec![
+                insert(
+                    "Tick",
+                    "0",
+                    &[(10, 10.0), (20, 0.0), (30, 0.0), (41, 2.0), (50, 90.0)],
+                ),
+                insert(
+                    "Pair",
+                    "0",
+                    &[(10, 0.0), (20, 20.0), (30, 0.0), (70, 3.0), (44, 5.0)],
+                ),
+            ],
+        ),
+    ]);
+    let drawing = parse_dxf(&bytes).unwrap();
+    let found = lines(&drawing);
+    assert_eq!(found.len(), 4);
+    assert!(near(found[0].0, Point2::new(10.0, 0.0)));
+    assert!(near(found[0].1, Point2::new(10.0, 2.0)));
+    for (index, (start, end)) in found[1..].iter().enumerate() {
+        let x = 5.0 * index as f64;
+        assert!(near(*start, Point2::new(x, 20.0)));
+        assert!(near(*end, Point2::new(x + 1.0, 20.0)));
+    }
+}
+
+#[test]
+fn hidden_layers_paper_space_and_annotations_are_left_out_with_a_note() {
+    let mut paper = line((0.0, 0.0), (9.0, 9.0));
+    paper.push(pair(67, 1));
+    let bytes = text(vec![
+        header(Some(4)),
+        tables(vec![
+            layer("Off", -7, 0),
+            layer("Frozen", 7, 1),
+            layer("Shown", 7, 0),
+        ]),
+        section(
+            "BLOCKS",
+            vec![block(
+                "Mark",
+                (0.0, 0.0),
+                vec![line((0.0, 0.0), (1.0, 0.0))],
+            )],
+        ),
+        section(
+            "ENTITIES",
+            vec![
+                entity("LINE", "Off", &[(10, 0.0), (20, 0.0), (11, 1.0), (21, 1.0)]),
+                entity(
+                    "LINE",
+                    "frozen",
+                    &[(10, 0.0), (20, 0.0), (11, 1.0), (21, 1.0)],
+                ),
+                entity(
+                    "LINE",
+                    "Shown",
+                    &[(10, 0.0), (20, 0.0), (11, 3.0), (21, 0.0)],
+                ),
+                insert("Mark", "Off", &[(10, 0.0), (20, 0.0)]),
+                insert("Missing", "Shown", &[(10, 0.0), (20, 0.0)]),
+                paper,
+                vec![pair(0, "TEXT"), pair(8, "Shown"), pair(1, "Note")],
+                vec![pair(0, "TEXT"), pair(8, "Shown"), pair(1, "Other")],
+                vec![pair(0, "DIMENSION"), pair(8, "Shown")],
+                entity("LINE", "Shown", &[(10, 0.0), (20, 0.0)]),
+            ],
+        ),
+    ]);
+    let drawing = parse_dxf(&bytes).unwrap();
+    assert_eq!(lines(&drawing), vec![(Point2::ZERO, Point2::new(3.0, 0.0))]);
+    let notes = drawing.notes.join("\n");
+    assert!(
+        notes.contains("1 dimension and 2 texts were left out"),
+        "{notes}"
+    );
+    assert!(
+        notes.contains("3 objects on hidden or frozen layers"),
+        "{notes}"
+    );
+    assert!(
+        notes.contains("does not contain were left out: Missing"),
+        "{notes}"
+    );
+    assert!(
+        notes.contains("1 damaged object could not be read"),
+        "{notes}"
+    );
+}
+
+#[test]
+fn a_downward_arc_keeps_its_place_and_turns_the_right_way() {
+    let drawing = millimetre_drawing(vec![entity(
+        "ARC",
+        "0",
+        &[
+            (10, 5.0),
+            (20, 0.0),
+            (30, 0.0),
+            (40, 2.0),
+            (50, 0.0),
+            (51, 90.0),
+            (210, 0.0),
+            (220, 0.0),
+            (230, -1.0),
+        ],
+    )]);
+    let arcs = arcs(&drawing);
+    assert_eq!(arcs.len(), 1);
+    let arc = arcs[0];
+    assert!(near(arc.center, Point2::new(-5.0, 0.0)));
+    assert!((arc.sweep - FRAC_PI_2).abs() < 1e-12);
+    assert!(near(arc.point_at(arc.start_angle), Point2::new(-5.0, 2.0)));
+    assert!(near(arc.point_at(arc.end_angle()), Point2::new(-7.0, 0.0)));
+}
+
+#[test]
+fn uniform_cubic_splines_are_kept_exactly_and_others_are_fitted() {
+    let control = [(0.0, 0.0), (1.0, 2.0), (3.0, 2.0), (4.0, 0.0), (6.0, 1.0)];
+    let mut exact = vec![pair(0, "SPLINE"), pair(8, "0"), pair(70, 8), pair(71, 3)];
+    for knot in [0.0, 0.0, 0.0, 0.0, 5.0, 10.0, 10.0, 10.0, 10.0] {
+        exact.push(pair(40, knot));
+    }
+    for (x, y) in control {
+        exact.extend([pair(10, x), pair(20, y), pair(30, 0.0)]);
+    }
+    let half = std::f64::consts::FRAC_1_SQRT_2;
+    let mut rational = vec![pair(0, "SPLINE"), pair(8, "0"), pair(70, 12), pair(71, 2)];
+    for knot in [0.0, 0.0, 0.0, 1.0, 1.0, 1.0] {
+        rational.push(pair(40, knot));
+    }
+    for weight in [1.0, half, 1.0] {
+        rational.push(pair(41, weight));
+    }
+    for (x, y) in [(10.0, 0.0), (10.0, 10.0), (0.0, 10.0)] {
+        rational.extend([pair(10, x), pair(20, y)]);
+    }
+    let mut fit = vec![pair(0, "SPLINE"), pair(8, "0"), pair(71, 3)];
+    for (x, y) in [(0.0, 20.0), (5.0, 25.0), (10.0, 20.0), (15.0, 25.0)] {
+        fit.extend([pair(11, x), pair(21, y)]);
+    }
+    let bytes = text(vec![
+        header(Some(4)),
+        section("ENTITIES", vec![exact, rational, fit]),
+    ]);
+    let drawing = parse_dxf(&bytes).unwrap();
+    let splines: Vec<&Vec<Point2>> = drawing
+        .curves
+        .iter()
+        .filter_map(|curve| match curve {
+            DrawingCurve::Spline { control_points } => Some(control_points),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(splines.len(), 3);
+    let expected: Vec<Point2> = control.iter().map(|(x, y)| Point2::new(*x, *y)).collect();
+    assert_eq!(*splines[0], expected);
+
+    let arc = BSpline::clamped(splines[1].clone()).unwrap();
+    for step in 0..=100 {
+        let point = arc.point_at(step as f64 / 100.0);
+        assert!((point.length() - 10.0).abs() < 1e-4, "{point}");
+    }
+    let through = BSpline::clamped(splines[2].clone()).unwrap();
+    assert!(near(through.point_at(0.0), Point2::new(0.0, 20.0)));
+    assert!(near(through.point_at(1.0), Point2::new(15.0, 25.0)));
+
+    let notes = drawing.notes.join("\n");
+    assert!(
+        notes.contains("1 spline was converted to sketch splines"),
+        "{notes}"
+    );
+    assert!(
+        notes.contains("1 spline given only by points on the curve was rebuilt"),
+        "{notes}"
+    );
+}
+
+#[test]
+fn ellipses_become_splines_unless_they_are_circles() {
+    let drawing = millimetre_drawing(vec![
+        entity(
+            "ELLIPSE",
+            "0",
+            &[(10, 0.0), (20, 0.0), (11, 20.0), (21, 0.0), (40, 0.5)],
+        ),
+        entity(
+            "ELLIPSE",
+            "0",
+            &[
+                (10, 50.0),
+                (20, 0.0),
+                (11, 0.0),
+                (21, 5.0),
+                (40, 1.0),
+                (41, 0.0),
+                (42, PI),
+            ],
+        ),
+    ]);
+    let spline = drawing
+        .curves
+        .iter()
+        .find_map(|curve| match curve {
+            DrawingCurve::Spline { control_points } => BSpline::clamped(control_points.clone()),
+            _ => None,
+        })
+        .unwrap();
+    for step in 0..=200 {
+        let point = spline.point_at(step as f64 / 200.0);
+        let on_ellipse = (point.x / 20.0).powi(2) + (point.y / 10.0).powi(2);
+        assert!((on_ellipse - 1.0).abs() < 1e-4, "{point}");
+    }
+    let arcs = arcs(&drawing);
+    assert_eq!(arcs.len(), 1);
+    assert!(near(arcs[0].center, Point2::new(50.0, 0.0)));
+    assert!((arcs[0].sweep - PI).abs() < 1e-9);
+    assert!(near(
+        arcs[0].point_at(arcs[0].start_angle),
+        Point2::new(50.0, 5.0)
+    ));
+    assert!(drawing.notes.join(" ").contains("1 ellipse was converted"));
+}
+
+#[test]
+fn old_style_polylines_and_three_dimensional_ones_are_read() {
+    let mut pairs = vec![
+        pair(0, "POLYLINE"),
+        pair(8, "0"),
+        pair(66, 1),
+        pair(70, 1),
+        pair(10, 0.0),
+        pair(20, 0.0),
+        pair(30, 0.0),
+    ];
+    for (x, y, bulge) in [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (10.0, 10.0, 0.0)] {
+        pairs.extend([
+            pair(0, "VERTEX"),
+            pair(8, "0"),
+            pair(10, x),
+            pair(20, y),
+            pair(30, 0.0),
+            pair(42, bulge),
+        ]);
+    }
+    pairs.extend([pair(0, "SEQEND"), pair(8, "0")]);
+    let mut three = vec![pair(0, "POLYLINE"), pair(8, "0"), pair(70, 8)];
+    for (x, y, z) in [(0.0, 20.0, 0.0), (5.0, 20.0, 3.0)] {
+        three.extend([
+            pair(0, "VERTEX"),
+            pair(8, "0"),
+            pair(10, x),
+            pair(20, y),
+            pair(30, z),
+            pair(70, 32),
+        ]);
+    }
+    three.extend([pair(0, "SEQEND")]);
+    let drawing = millimetre_drawing(vec![pairs, three]);
+    assert_eq!(lines(&drawing).len(), 4);
+    assert!(drawing.notes.join(" ").contains("not flat"));
+}
+
+#[test]
+fn a_binary_drawing_reads_like_a_text_one() {
+    let mut bytes = b"AutoCAD Binary DXF\r\n\x1a\0".to_vec();
+    let code = |bytes: &mut Vec<u8>, code: i16| bytes.extend(code.to_le_bytes());
+    let string = |bytes: &mut Vec<u8>, text: &str| {
+        bytes.extend(text.as_bytes());
+        bytes.push(0);
+    };
+    code(&mut bytes, 0);
+    string(&mut bytes, "SECTION");
+    code(&mut bytes, 2);
+    string(&mut bytes, "ENTITIES");
+    code(&mut bytes, 0);
+    string(&mut bytes, "LINE");
+    code(&mut bytes, 8);
+    string(&mut bytes, "0");
+    for (group, value) in [
+        (10, 1.0),
+        (20, 2.0),
+        (30, 0.0),
+        (11, 4.0),
+        (21, 6.0),
+        (31, 0.0),
+    ] {
+        code(&mut bytes, group);
+        bytes.extend(f64::to_le_bytes(value));
+    }
+    code(&mut bytes, 0);
+    string(&mut bytes, "ENDSEC");
+    code(&mut bytes, 0);
+    string(&mut bytes, "EOF");
+    let drawing = parse_dxf(&bytes).unwrap();
+    assert_eq!(
+        lines(&drawing),
+        vec![(Point2::new(1.0, 2.0), Point2::new(4.0, 6.0))]
+    );
+}
+
+#[test]
+fn files_that_are_not_usable_drawings_are_refused_in_words() {
+    assert_eq!(
+        parse_dxf(b"\x89PNG\r\n\x1a\n\0\0"),
+        Err(ImportError::NotDxf)
+    );
+    assert_eq!(
+        parse_dxf(b"  0\nSECTION\n  2\nENTITIES\nnot a code\nLINE\n"),
+        Err(ImportError::DamagedAt(5))
+    );
+    let only_text = text(vec![section(
+        "ENTITIES",
+        vec![vec![pair(0, "TEXT"), pair(8, "0"), pair(1, "Hello")]],
+    )]);
+    assert_eq!(parse_dxf(&only_text), Err(ImportError::Empty));
+    let many: Vec<Pairs> = (0..=MAX_DRAWING_CURVES)
+        .map(|index| line((index as f64, 0.0), (index as f64, 1.0)))
+        .collect();
+    let huge = text(vec![section("ENTITIES", many)]);
+    assert_eq!(parse_dxf(&huge), Err(ImportError::TooLarge));
+    let truncated = b"AutoCAD Binary DXF\r\n\x1a\0\0\0SECTION\0\x02\0ENT";
+    assert_eq!(parse_dxf(truncated), Err(ImportError::Damaged));
+}
+
+#[test]
+fn a_self_inserting_block_stops_with_a_note() {
+    let bytes = text(vec![
+        header(Some(4)),
+        section(
+            "BLOCKS",
+            vec![block(
+                "Loop",
+                (0.0, 0.0),
+                vec![
+                    line((0.0, 0.0), (1.0, 0.0)),
+                    insert("Loop", "0", &[(10, 1.0), (20, 0.0)]),
+                ],
+            )],
+        ),
+        section(
+            "ENTITIES",
+            vec![insert("Loop", "0", &[(10, 0.0), (20, 0.0)])],
+        ),
+    ]);
+    let drawing = parse_dxf(&bytes).unwrap();
+    assert_eq!(lines(&drawing).len(), 1);
+    assert!(drawing.notes.join(" ").contains("inside themselves"));
+}
+
+#[test]
+fn short_curves_and_closed_arcs_are_tidied_before_they_reach_the_sketch() {
+    let drawing = Drawing {
+        curves: vec![
+            DrawingCurve::Line {
+                start: Point2::ZERO,
+                end: Point2::new(100.0, 0.0),
+            },
+            DrawingCurve::Line {
+                start: Point2::ZERO,
+                end: Point2::new(1e-9, 0.0),
+            },
+            DrawingCurve::Arc {
+                center: Point2::new(50.0, 50.0),
+                start: Point2::new(60.0, 50.0),
+                end: Point2::new(60.0, 50.0 - 1e-9),
+            },
+        ],
+        notes: Vec::new(),
+    };
+    let document = Document::default();
+    let import = drawing_transaction(
+        &document,
+        &drawing,
+        SketchTarget::New {
+            name: "tidy".to_owned(),
+            plane: Plane::XY,
+        },
+        "Import",
+    );
+    assert_eq!(import.curves, 2);
+    let mut document = document;
+    document.apply(import.transaction).unwrap();
+    let imported = sketch(&document, import.sketch);
+    let circles = imported
+        .entities()
+        .filter(|(_, entity)| matches!(entity, Entity::Circle { .. }))
+        .count();
+    assert_eq!(circles, 1);
+}

@@ -26,7 +26,6 @@ These need an answer before the milestone that depends on them starts.
 ## M6: Interop
 
 - [ ] STEP import and export
-- [ ] DXF import into sketches
 
 ## M7: Polish
 

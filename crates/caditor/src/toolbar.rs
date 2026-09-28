@@ -34,7 +34,7 @@ pub fn show(ui: &mut Ui, model: &Model, context: &ToolbarContext<'_>, actions: &
     let files = context.files;
     egui::Panel::top("toolbar").show(ui, |ui| {
         ui.horizontal(|ui| {
-            files::menu(ui, model, files, actions);
+            files::menu(ui, model, files, context.editing, actions);
             ui.separator();
             history_buttons(ui, model, actions);
             ui.separator();
@@ -60,7 +60,7 @@ pub fn show(ui: &mut Ui, model: &Model, context: &ToolbarContext<'_>, actions: &
         });
     });
     if !files.is_blocking() {
-        shortcuts(ui, actions);
+        shortcuts(ui, context.editing, actions);
     }
 }
 
@@ -368,11 +368,11 @@ fn summary(ui: &mut Ui, model: &Model) {
     }
 }
 
-fn shortcuts(ui: &mut Ui, actions: &mut Vec<Action>) {
+fn shortcuts(ui: &mut Ui, editing: &SketchEditing, actions: &mut Vec<Action>) {
     if ui.ctx().egui_wants_keyboard_input() {
         return;
     }
-    files::shortcuts(ui, actions);
+    files::shortcuts(ui, editing, actions);
     let (redo, undo) = ui.input_mut(|input| {
         let redo = input.consume_shortcut(&REDO) || input.consume_shortcut(&REDO_ALTERNATIVE);
         (redo, input.consume_shortcut(&UNDO))
