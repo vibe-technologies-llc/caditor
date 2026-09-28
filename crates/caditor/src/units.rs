@@ -92,17 +92,21 @@ impl LengthUnit {
     }
 
     pub fn attach(self, expression: Expression) -> Expression {
-        match expression {
-            Expression::Number(value) => Expression::Measure(value, self.unit()),
-            Expression::Negate(inner) if matches!(*inner, Expression::Number(_)) => {
-                Expression::Negate(Box::new(self.attach(*inner)))
-            }
-            other => Expression::WithUnit(Box::new(other), self.unit(), 1),
-        }
+        attach_unit(expression, self.unit())
     }
 
     pub fn applies_to(self, expected: Option<Dimension>, found: Dimension) -> bool {
         self != Self::Millimetre && expected == Some(Dimension::LENGTH) && found.is_plain()
+    }
+}
+
+pub fn attach_unit(expression: Expression, unit: Unit) -> Expression {
+    match expression {
+        Expression::Number(value) => Expression::Measure(value, unit),
+        Expression::Negate(inner) if matches!(*inner, Expression::Number(_)) => {
+            Expression::Negate(Box::new(attach_unit(*inner, unit)))
+        }
+        other => Expression::WithUnit(Box::new(other), unit, 1),
     }
 }
 

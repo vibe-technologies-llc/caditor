@@ -234,6 +234,10 @@ impl Model {
         self.dirty
     }
 
+    pub fn is_empty_and_untitled(&self) -> bool {
+        self.path.is_none() && self.document().same_content(&Document::default())
+    }
+
     pub fn unprotected(&self) -> Option<&str> {
         self.unprotected.as_deref()
     }

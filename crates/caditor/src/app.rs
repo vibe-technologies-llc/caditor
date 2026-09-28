@@ -258,6 +258,8 @@ pub fn show(
             actions.push(Action::Preferences(PreferencesCommand::CloseWelcome));
             match choice {
                 WelcomeChoice::Close => {}
+                WelcomeChoice::Empty if model.is_empty_and_untitled() => {}
+                WelcomeChoice::Empty => actions.push(Action::File(FileCommand::New)),
                 WelcomeChoice::Sample(sample) => {
                     actions.push(Action::File(FileCommand::OpenSample(sample)));
                 }

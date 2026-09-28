@@ -196,10 +196,6 @@ within a category run from most to least important.
   blocks Open behind a modal. Give imports their own cancellable job. When a worker thread cannot
   be spawned the job runs on the UI thread.
 - Dropping a file on the window does nothing.
-- The welcome dialog's "Start with an empty model" only closes the dialog when a file was opened
-  from the command line.
-- A plain number typed as a parameter value ignores the preferred length unit, so `10` becomes
-  10 mm where dimensions would read 10 cm.
 - Window size, position and panel state are not remembered.
 - One document per process.
 - No clipboard for sketch geometry or features, no parameter import or export.

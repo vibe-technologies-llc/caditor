@@ -852,8 +852,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     palette and the welcome dialog open one as an untitled, unmodified model after the
     unsaved-changes prompt.
   - Onboarding (`onboarding.rs`): the welcome dialog appears until it is closed once
-    (`onboarding.welcomed`) and again from Help › Welcome and samples…; it offers an empty model,
-    the samples and Open. Tips are shown one at a time as a card at the bottom centre of the
+    (`onboarding.welcomed`) and again from Help › Welcome and samples…; it offers an empty model
+    (New, through the unsaved-changes prompt, unless the model already is empty and untitled), the
+    samples and Open. Tips are shown one at a time as a card at the bottom centre of the
     viewport when no dialog is open, first of those that apply and were not dismissed: start with a
     sketch (empty model), draw (edited sketch with no geometry), constrain (edited sketch that can
     still move), extrude or revolve (a sweepable sketch and no body), navigate (a body exists), and
@@ -901,8 +902,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `Workspace` owns the `Preferences`, `Model` carries the length unit so every panel can use it,
     and `Action::Preferences` is performed with the workspace. The unit is for display and input
     only: models stay unit-explicit. Values and previews are shown in it (`LengthUnit::show`), a
-    plain number typed where a length is expected gets it attached (`2` becomes `2 cm`), measured
-    dimensions are written in it and new features start from round numbers in it.
+    plain number typed where a length is expected gets it attached (`2` becomes `2 cm`), as does a
+    plain value typed for a parameter that holds a length (one holding an angle gets degrees,
+    `field::parameter_expression`), measured dimensions are written in it and new features start
+    from round numbers in it.
   - Every numeric input is a `field::commit_field`: it commits on Enter or loss of focus,
     reverts on Escape, and keeps invalid text with its error inline instead of discarding it.
     Expression fields parse, evaluate and check the dimension before building a transaction;

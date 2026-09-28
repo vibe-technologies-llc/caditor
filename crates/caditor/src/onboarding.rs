@@ -273,6 +273,7 @@ pub fn show_hint(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WelcomeChoice {
     Close,
+    Empty,
     Sample(Sample),
     Open,
 }
@@ -317,7 +318,7 @@ pub fn welcome(ctx: &egui::Context, keymap: &Keymap) -> Option<WelcomeChoice> {
                     .add(widgets::primary_button(ui, "Start with an empty model"))
                     .clicked()
                 {
-                    choice = Some(WelcomeChoice::Close);
+                    choice = Some(WelcomeChoice::Empty);
                 }
                 let open =
                     widgets::small_button(ui, icons::command(Command::Open), "Open a model…");

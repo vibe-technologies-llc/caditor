@@ -1,9 +1,9 @@
 use caditor_document::{Document, Edit, FeatureId, ParameterValues, Transaction};
-use caditor_expression::{Dimension, Expression};
+use caditor_expression::{Dimension, Expression, Unit};
 use caditor_sketch::{Constraint, ConstraintId};
 use egui::{Align, Id, Key, Response, Stroke, StrokeKind, TextEdit, Ui, vec2};
 
-use crate::units::LengthUnit;
+use crate::units::{LengthUnit, attach_unit};
 
 const ERROR_OUTLINE_WIDTH: f32 = 1.5;
 const ERROR_OUTLINE_RADIUS: f32 = 2.0;
@@ -128,6 +128,24 @@ pub fn parse_expression(
         return Ok(unit.attach(expression));
     }
     Ok(expression)
+}
+
+pub fn parameter_expression(
+    document: &Document,
+    parameters: &ParameterValues,
+    text: &str,
+    current: Option<Dimension>,
+    unit: LengthUnit,
+) -> Result<Expression, String> {
+    let expression = parse_expression(document, parameters, text, Expected::ANYTHING, unit)?;
+    let plain = parameters
+        .evaluate_expression(&expression)
+        .is_ok_and(|value| value.dimension.is_plain());
+    Ok(match current {
+        Some(Dimension::LENGTH) if plain => unit.attach(expression),
+        Some(Dimension::ANGLE) if plain => attach_unit(expression, Unit::Degree),
+        _ => expression,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -257,6 +275,32 @@ mod tests {
             Err("There is no parameter named 'wdth'".to_owned())
         );
         assert!(parse("-width * width", Expected::ANYTHING).is_ok());
+    }
+
+    #[test]
+    fn a_plain_parameter_value_keeps_the_kind_of_the_parameter() {
+        let document = document();
+        let parameters = ParameterValues::evaluate(&document);
+        let text = |input: &str, current: Option<Dimension>| {
+            parameter_expression(
+                &document,
+                &parameters,
+                input,
+                current,
+                LengthUnit::Centimetre,
+            )
+            .map(|expression| document.expression_text(&expression))
+        };
+        let length = Some(Dimension::LENGTH);
+        let angle = Some(Dimension::ANGLE);
+        assert_eq!(text("12", length).unwrap(), "12 cm");
+        assert_eq!(text("-2", length).unwrap(), "-2 cm");
+        assert_eq!(text("2 * 3", length).unwrap(), "(2 * 3) cm");
+        assert_eq!(text("width / 2", length).unwrap(), "width / 2");
+        assert_eq!(text("30", angle).unwrap(), "30 deg");
+        assert_eq!(text("5 mm", angle).unwrap(), "5 mm");
+        assert_eq!(text("4", Some(Dimension::NONE)).unwrap(), "4");
+        assert_eq!(text("4", None).unwrap(), "4");
     }
 
     #[test]

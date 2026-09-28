@@ -2,8 +2,7 @@ use caditor_document::{Document, Edit, Parameter, Transaction};
 use egui::{Grid, Ui};
 
 use crate::{
-    field::{self, Expected},
-    icons,
+    field, icons,
     model::{Action, Model},
     panels::{Focus, PanelState},
     widgets,
@@ -107,11 +106,15 @@ fn row(
         EXPRESSION_FIELD_WIDTH,
         state.wants_focus(value_focus),
         |text| {
-            let expression = field::parse_expression(
+            let current = match model.parameters().get(id) {
+                Some(Ok(value)) => Some(value.dimension),
+                _ => None,
+            };
+            let expression = field::parameter_expression(
                 document,
                 model.parameters(),
                 text,
-                Expected::ANYTHING,
+                current,
                 model.length_unit(),
             )?;
             field::checked(

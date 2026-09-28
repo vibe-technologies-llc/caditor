@@ -709,6 +709,9 @@ fn preferences_change_units_and_navigation_and_are_remembered() {
         .map(|value| harness.document().expression_text(value))
         .unwrap();
     assert_eq!(stored, "3 cm");
+    let width = harness.parameter("width");
+    harness.type_into(Focus::ParameterValue(width), "4");
+    assert_eq!(harness.expression_text("width"), "4 cm");
 
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::Defaults,
@@ -3072,6 +3075,35 @@ fn a_first_run_welcomes_opens_a_sample_and_offers_tips_until_they_are_hidden() {
     assert!(harness.shows("Welcome to caditor"));
     harness.click("Start with an empty model");
     assert!(!harness.shows("Welcome to caditor"));
+    harness.click("Continue Without Saving");
+    harness.settle();
+    assert_eq!(harness.document().features().len(), 0);
+    assert!(!harness.model.is_dirty());
+}
+
+#[test]
+fn starting_with_an_empty_model_from_the_welcome_replaces_an_opened_one() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::first_run(dir.path());
+    harness.frame();
+    harness.click("Flanged spool");
+    harness.settle();
+    assert!(harness.document().features().len() > 0);
+
+    harness.click("Help");
+    harness.click("Welcome and samples…");
+    harness.click("Start with an empty model");
+    harness.settle();
+    assert!(!harness.shows("Welcome to caditor"));
+    assert!(!harness.shows("Save changes"));
+    assert_eq!(harness.document().features().len(), 0);
+
+    harness.click("Help");
+    harness.click("Welcome and samples…");
+    harness.click("Start with an empty model");
+    harness.settle();
+    assert!(!harness.shows("Welcome to caditor"));
+    assert_eq!(harness.model.undo_label(), None);
 }
 
 #[test]
