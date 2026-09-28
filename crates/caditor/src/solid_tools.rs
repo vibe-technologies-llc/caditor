@@ -12,6 +12,7 @@ use crate::{
     model::{Action, Model},
     scene,
     selection::{self, Pickable, Selection},
+    units::LengthUnit,
 };
 
 pub const DEFAULT_DISTANCE: f64 = 10.0;
@@ -153,15 +154,16 @@ pub fn default_operation(document: &Document, before: Option<FeatureId>) -> Body
     last_body(document, before).map_or(BodyOperation::NewBody, BodyOperation::Add)
 }
 
-pub fn millimetres(value: f64) -> Expression {
-    Expression::Measure(value, Unit::Millimetre)
-}
-
 pub fn degrees(value: f64) -> Expression {
     Expression::Measure(value, Unit::Degree)
 }
 
-pub fn create(document: &Document, sweep: Sweep, source: SweepSource) -> (Transaction, FeatureId) {
+pub fn create(
+    document: &Document,
+    sweep: Sweep,
+    source: SweepSource,
+    unit: LengthUnit,
+) -> (Transaction, FeatureId) {
     let name = editing::next_feature_name(document, sweep.label());
     let operation = default_operation(document, None);
     let solid = match sweep {
@@ -169,7 +171,7 @@ pub fn create(document: &Document, sweep: Sweep, source: SweepSource) -> (Transa
             sketch: source.sketch,
             regions: RegionChoice::All,
             extent: ExtrudeExtent::OneSide {
-                distance: millimetres(DEFAULT_DISTANCE),
+                distance: unit.default_length(DEFAULT_DISTANCE),
                 reversed: false,
             },
             operation,
@@ -189,8 +191,13 @@ pub fn create(document: &Document, sweep: Sweep, source: SweepSource) -> (Transa
     (transaction.finish(), feature)
 }
 
-pub fn create_actions(document: &Document, sweep: Sweep, source: SweepSource) -> Vec<Action> {
-    let (transaction, feature) = create(document, sweep, source);
+pub fn create_actions(
+    document: &Document,
+    sweep: Sweep,
+    source: SweepSource,
+    unit: LengthUnit,
+) -> Vec<Action> {
+    let (transaction, feature) = create(document, sweep, source, unit);
     vec![
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),
@@ -309,6 +316,7 @@ mod tests {
                 sketch: base,
                 axis: None,
             },
+            LengthUnit::Millimetre,
         );
         document.apply(transaction).unwrap();
         let (transaction, second) = create(
@@ -318,6 +326,7 @@ mod tests {
                 sketch: side,
                 axis: Some(RevolveAxis::Sketch(line)),
             },
+            LengthUnit::Millimetre,
         );
         assert_eq!(transaction.label(), "Create Revolve 1");
         document.apply(transaction).unwrap();

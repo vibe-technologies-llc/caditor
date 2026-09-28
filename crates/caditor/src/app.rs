@@ -16,6 +16,7 @@ use crate::{
     model::{Action, Model, WakerFactory},
     overlay::Overlay,
     panels::{self, PanelState},
+    preferences::{self, Preferences, PreferencesCommand, Theme},
     sketch_toolbar::{self, SketchInput},
     toolbar::{self, ToolbarContext},
     viewport::ViewportState,
@@ -48,16 +49,47 @@ pub struct Workspace {
     pub viewport: ViewportState,
     pub panels: PanelState,
     pub editing: SketchEditing,
+    pub preferences: Preferences,
+    pub preferences_open: bool,
+    applied_theme: Option<Theme>,
     keyboard_was_taken: bool,
 }
 
 impl Workspace {
+    #[cfg(test)]
     pub fn new() -> Self {
+        Self::with_preferences(Preferences::default())
+    }
+
+    pub fn with_preferences(preferences: Preferences) -> Self {
+        let mut viewport = ViewportState::new();
+        viewport.set_navigation(preferences.navigation);
         Self {
-            viewport: ViewportState::new(),
+            viewport,
             panels: PanelState::default(),
             editing: SketchEditing::default(),
+            preferences,
+            preferences_open: false,
+            applied_theme: None,
             keyboard_was_taken: false,
+        }
+    }
+
+    fn preferences_command(
+        &mut self,
+        command: PreferencesCommand,
+        model: &mut Model,
+        files: &mut Files,
+    ) {
+        match command {
+            PreferencesCommand::Show => self.preferences_open = true,
+            PreferencesCommand::Hide => self.preferences_open = false,
+            PreferencesCommand::Change(change) => {
+                self.preferences.apply(change);
+                model.set_length_unit(self.preferences.unit);
+                self.viewport.set_navigation(self.preferences.navigation);
+                files.store_settings(self.preferences.settings());
+            }
         }
     }
 }
@@ -69,18 +101,28 @@ pub fn show(
     workspace: &mut Workspace,
     actions: &mut Vec<Action>,
 ) {
+    let theme = workspace.preferences.theme;
+    if workspace.applied_theme != Some(theme) {
+        ui.ctx().set_theme(theme.egui());
+        workspace.applied_theme = Some(theme);
+    }
     let keyboard_taken = ui.ctx().egui_wants_keyboard_input() || workspace.keyboard_was_taken;
-    let keys_free = !keyboard_taken && !files.is_blocking();
+    let blocked = files.is_blocking() || workspace.preferences_open;
+    let keys_free = !keyboard_taken && !blocked;
     let Workspace {
         viewport,
         panels,
         editing,
+        preferences,
+        preferences_open,
         keyboard_was_taken,
+        ..
     } = workspace;
     let toolbar = ToolbarContext {
         files,
         selection: viewport.selection(),
         editing,
+        blocked,
     };
     toolbar::show(ui, model, &toolbar, actions);
     let input = SketchInput {
@@ -94,6 +136,12 @@ pub fn show(
     route_dimension_focus(panels, editing, viewport);
     viewport.show(ui, model, editing, keys_free, actions);
     files::show(ui, model, files, actions);
+    if *preferences_open
+        && !files.is_blocking()
+        && let Some(command) = preferences::dialog(ui.ctx(), preferences)
+    {
+        actions.push(Action::Preferences(command));
+    }
     *keyboard_was_taken = ui.ctx().egui_wants_keyboard_input();
 }
 
@@ -113,31 +161,40 @@ pub fn perform(
     actions: Vec<Action>,
     model: &mut Model,
     files: &mut Files,
-    editing: &mut SketchEditing,
+    workspace: &mut Workspace,
 ) {
     for action in actions {
         match action {
             Action::File(command) => files.perform(command, model),
-            Action::Editing(command) => editing.perform(command, model),
+            Action::Editing(command) => workspace.editing.perform(command, model),
+            Action::Preferences(command) => workspace.preferences_command(command, model, files),
             other => model.perform(other),
         }
     }
-    editing.sync(model);
+    workspace.editing.sync(model);
 }
 
 pub struct App {
     model: Model,
     files: Files,
+    preferences: Preferences,
     session: Option<Session>,
     startup_error: Option<anyhow::Error>,
 }
 
 impl App {
-    pub fn new(mut model: Model, mut files: Files, open: Option<PathBuf>) -> Self {
+    pub fn new(
+        mut model: Model,
+        mut files: Files,
+        preferences: Preferences,
+        open: Option<PathBuf>,
+    ) -> Self {
+        model.set_length_unit(preferences.unit);
         files.start(open, &mut model);
         Self {
             model,
             files,
+            preferences,
             session: None,
             startup_error: None,
         }
@@ -159,7 +216,8 @@ impl ApplicationHandler<AppEvent> for App {
         if self.session.is_some() {
             return;
         }
-        match Session::open(event_loop, &window_title(&self.model)) {
+        let preferences = self.preferences.clone();
+        match Session::open(event_loop, &window_title(&self.model), preferences) {
             Ok(session) => self.session = Some(session),
             Err(error) => {
                 self.startup_error = Some(error);
@@ -230,7 +288,7 @@ struct Session {
 }
 
 impl Session {
-    fn open(event_loop: &ActiveEventLoop, title: &str) -> Result<Self> {
+    fn open(event_loop: &ActiveEventLoop, title: &str, preferences: Preferences) -> Result<Self> {
         let window = Arc::new(
             event_loop
                 .create_window(Window::default_attributes().with_title(title))
@@ -246,7 +304,7 @@ impl Session {
             window,
             renderer,
             overlay,
-            workspace: Workspace::new(),
+            workspace: Workspace::with_preferences(preferences),
             last_redraw: None,
             next_repaint: None,
             title: title.to_owned(),
@@ -276,7 +334,7 @@ impl Session {
             show(ui, view_model, view_files, workspace, &mut actions);
         });
         let changed = !actions.is_empty();
-        perform(actions, model, files, &mut self.workspace.editing);
+        perform(actions, model, files, &mut self.workspace);
         let title = window_title(model);
         if title != self.title {
             self.window.set_title(&title);

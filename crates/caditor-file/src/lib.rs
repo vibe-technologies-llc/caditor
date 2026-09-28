@@ -9,6 +9,7 @@ mod reason;
 mod recent;
 mod recovery;
 mod save;
+mod settings;
 mod storage;
 
 pub use crate::{
@@ -29,6 +30,7 @@ pub use crate::{
     recent::{RECENT_LIMIT, RecentFiles},
     recovery::{FileJournal, Inspection, Recovered, discard, inspect, journal_for, scan},
     save::{SaveError, SaveOptions, encode, save, save_with, write_atomically},
+    settings::{Settings, config_dir},
     storage::{
         Closing, Flusher, Report, SaveRequest, Start, Storage, StorageConfig, StorageStopped,
     },

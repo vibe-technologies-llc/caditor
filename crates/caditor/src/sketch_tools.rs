@@ -8,6 +8,7 @@ use crate::{
     field::sentence,
     model::Model,
     selection::{Pickable, Selection},
+    units::LengthUnit,
 };
 
 const DISPLAY_DECIMALS: f64 = 3.0;
@@ -253,6 +254,28 @@ fn angle(shown: &Sketch, a: EntityId, b: EntityId) -> Option<Constraint> {
         to,
         value: Expression::Measure(rounded_for_display(signed.abs()), Unit::Degree),
     })
+}
+
+pub fn in_unit(constraints: Vec<Constraint>, unit: LengthUnit) -> Vec<Constraint> {
+    let converted = |value: Expression| match value {
+        Expression::Measure(length, Unit::Millimetre) => unit.measured(length),
+        other => other,
+    };
+    constraints
+        .into_iter()
+        .map(|constraint| match constraint {
+            Constraint::Distance { from, to, value } => Constraint::Distance {
+                from,
+                to,
+                value: converted(value),
+            },
+            Constraint::Radius { entity, value } => Constraint::Radius {
+                entity,
+                value: converted(value),
+            },
+            other => other,
+        })
+        .collect()
 }
 
 fn millimetres(length: f64) -> Expression {

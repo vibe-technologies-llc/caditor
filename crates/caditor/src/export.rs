@@ -18,6 +18,7 @@ use crate::{
     feature_tree::count,
     files::FileCommand,
     model::{Action, Model, Notice, RecomputeStatus, display_name},
+    units::LengthUnit,
 };
 
 pub const EXPORT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::E);
@@ -249,7 +250,7 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
         let mut command = None;
         format_choice(ui, exporter, &mut command);
         if exporter.format.is_mesh() {
-            resolution_choice(ui, exporter, &bodies, &mut command);
+            resolution_choice(ui, exporter, &bodies, model.length_unit(), &mut command);
         }
         body_choice(ui, exporter, &bodies, &mut command);
         let failed = model.evaluation().failed_count();
@@ -328,6 +329,7 @@ fn resolution_choice(
     ui: &mut Ui,
     exporter: &Exporter,
     bodies: &[Body],
+    unit: LengthUnit,
     command: &mut Option<ExportCommand>,
 ) {
     ui.add_space(4.0);
@@ -350,14 +352,9 @@ fn resolution_choice(
     ui.weak(format!(
         "Curved faces stay within {} of the model, with at most {}° between neighbouring \
          triangles.",
-        millimetres(tolerance.chord()),
+        unit.small_length_text(tolerance.chord()),
         tolerance.angle().to_degrees().round()
     ));
-}
-
-fn millimetres(value: f64) -> String {
-    let digits = (1.0 - value.log10().floor()).clamp(0.0, 6.0) as usize;
-    format!("{value:.digits$} mm")
 }
 
 fn body_choice(

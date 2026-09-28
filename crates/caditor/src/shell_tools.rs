@@ -10,7 +10,7 @@ use crate::{
     editing::{self, EditingCommand},
     model::{Action, Model},
     selection::{Pickable, Selection},
-    solid_tools,
+    units::LengthUnit,
 };
 
 pub const DEFAULT_THICKNESS: f64 = 1.0;
@@ -54,6 +54,7 @@ pub fn create(
     document: &Document,
     evaluation: &Evaluation,
     source: &FaceSource,
+    unit: LengthUnit,
 ) -> Option<(Transaction, FeatureId)> {
     let solid = evaluation.body(source.body)?;
     let open: Vec<FaceReference> = source
@@ -71,7 +72,7 @@ pub fn create(
         FeatureKind::Shell(Shell {
             body: source.body,
             open,
-            thickness: solid_tools::millimetres(DEFAULT_THICKNESS),
+            thickness: unit.default_length(DEFAULT_THICKNESS),
         }),
     );
     Some((transaction.finish(), feature))
@@ -81,8 +82,9 @@ pub fn create_actions(
     document: &Document,
     evaluation: &Evaluation,
     source: &FaceSource,
+    unit: LengthUnit,
 ) -> Vec<Action> {
-    let Some((transaction, feature)) = create(document, evaluation, source) else {
+    let Some((transaction, feature)) = create(document, evaluation, source, unit) else {
         return Vec::new();
     };
     vec![

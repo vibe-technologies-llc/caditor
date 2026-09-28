@@ -14,7 +14,9 @@ use caditor_file::{
 use caditor_sketch::Sketch;
 use parking_lot::Mutex;
 
-use crate::{editing::EditingCommand, files::FileCommand};
+use crate::{
+    editing::EditingCommand, files::FileCommand, preferences::PreferencesCommand, units::LengthUnit,
+};
 
 pub type Waker = Box<dyn Fn() + Send>;
 pub type WakerFactory = Box<dyn Fn() -> Waker>;
@@ -33,6 +35,7 @@ pub enum Action {
     Inform(Notice),
     File(FileCommand),
     Editing(EditingCommand),
+    Preferences(PreferencesCommand),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,6 +110,7 @@ pub struct Model {
     pending_save: Option<PendingSave>,
     next_ticket: u64,
     file_events: Vec<FileEvent>,
+    length_unit: LengthUnit,
 }
 
 impl Model {
@@ -129,10 +133,19 @@ impl Model {
             pending_save: None,
             next_ticket: 0,
             file_events: Vec::new(),
+            length_unit: LengthUnit::default(),
         };
         model.start_storage(None, None);
         model.recompute();
         model
+    }
+
+    pub fn length_unit(&self) -> LengthUnit {
+        self.length_unit
+    }
+
+    pub fn set_length_unit(&mut self, unit: LengthUnit) {
+        self.length_unit = unit;
     }
 
     pub fn document(&self) -> &Document {
@@ -267,6 +280,10 @@ impl Model {
             }
             Action::Editing(command) => {
                 log::warn!("{command:?} reached the model instead of the sketch editor");
+                Ok(None)
+            }
+            Action::Preferences(command) => {
+                log::warn!("{command:?} reached the model instead of the preferences");
                 Ok(None)
             }
         };

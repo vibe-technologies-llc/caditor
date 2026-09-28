@@ -516,6 +516,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     so appends, saves and the rebase of the journal onto the saved snapshot stay in order, and
     it fsyncs after each batch of entries. A `Flusher` lets the panic hook wait for pending
     entries.
+  - Preferences (`settings.rs`): `Settings` is a JSON key/value file in
+    `$XDG_CONFIG_HOME/caditor/preferences.json` (`config_dir`), read leniently and written
+    atomically; keys a version does not know are kept, so an older caditor never erases a newer
+    one's settings.
   - Recovery (`scan`, `journal_for`) inspects unlocked journals in the recovery directory and
     next to recent files, deletes those with nothing to recover (no net change, or already in
     the file) and returns the rest with a replayed `Editor`.
@@ -664,6 +668,15 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     applies `Document::transaction_to` (remove every feature and parameter, then insert the
     version's, keeping ID counters) as one "Restore earlier version" change, so Undo brings back
     what was there and the next save keeps the replaced state as a version too.
+  - Preferences (`preferences.rs`, `units.rs`): File › Preferences… (Ctrl+,) sets the length
+    unit (millimetres, centimetres or metres; SI only, see `.claude/rules/ux.md`), the theme
+    (system, dark or light; the 3D view keeps its dark canvas) and orbit and zoom speed with the
+    zoom direction. Changes apply at once and are saved on the files worker. `Workspace` owns the
+    `Preferences`, `Model` carries the length unit so every panel can use it, and
+    `Action::Preferences` is performed with the workspace. The unit is for display and input
+    only: models stay unit-explicit. Values and previews are shown in it (`LengthUnit::show`), a
+    plain number typed where a length is expected gets it attached (`2` becomes `2 cm`),
+    measured dimensions are written in it and new features start from round numbers in it.
   - Every numeric input is a `field::commit_field`: it commits on Enter or loss of focus,
     reverts on Escape, and keeps invalid text with its error inline instead of discarding it.
     Expression fields parse, evaluate and check the dimension before building a transaction;

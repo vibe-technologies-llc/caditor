@@ -14,6 +14,7 @@ use crate::{
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
     model::{Action, Model},
+    preferences::Navigation,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
     selection::{Pickable, Selection},
     shell_tools,
@@ -97,6 +98,7 @@ pub struct ViewportState {
     drawing: Drawing,
     annotations: Annotations,
     bodies: BodyMeshes,
+    navigation: Navigation,
 }
 
 impl ViewportState {
@@ -126,7 +128,12 @@ impl ViewportState {
             drawing: Drawing::default(),
             annotations: Annotations::default(),
             bodies: BodyMeshes::default(),
+            navigation: Navigation::default(),
         }
+    }
+
+    pub fn set_navigation(&mut self, navigation: Navigation) {
+        self.navigation = navigation;
     }
 
     pub fn edit_dimension(&mut self, feature: FeatureId, constraint: ConstraintId) {
@@ -375,7 +382,7 @@ impl ViewportState {
             let pivot = self.drag_anchor.unwrap_or(view.viewpoint().target);
             self.camera.orbit(
                 pivot,
-                drag,
+                drag * self.navigation.orbit_speed,
                 f64::from(rect.height() * self.pixels_per_point),
             );
         } else if panning && drag != Vector2::ZERO {
@@ -391,7 +398,13 @@ impl ViewportState {
             return;
         }
         let (scroll, pinch) = ui.input(|input| (input.smooth_scroll_delta.y, input.zoom_delta()));
-        let factor = (-f64::from(scroll) * ZOOM_PER_SCROLL_POINT).exp() / f64::from(pinch);
+        let direction = if self.navigation.invert_zoom {
+            1.0
+        } else {
+            -1.0
+        };
+        let rate = ZOOM_PER_SCROLL_POINT * self.navigation.zoom_speed;
+        let factor = (direction * f64::from(scroll) * rate).exp() / f64::from(pinch);
         if (factor - 1.0).abs() < 1e-9 {
             return;
         }
@@ -701,7 +714,11 @@ impl ViewportState {
             painter.text(
                 rect.left_bottom() + vec2(LABEL_MARGIN, -LABEL_MARGIN),
                 Align2::LEFT_BOTTOM,
-                format!("x {:.2} mm   y {:.2} mm", position.x, position.y),
+                format!(
+                    "x {}   y {}",
+                    model.length_unit().length_text(position.x, 2),
+                    model.length_unit().length_text(position.y, 2)
+                ),
                 FontId::monospace(11.0),
                 LABEL_COLOR,
             );

@@ -116,6 +116,7 @@ impl Panel<'_> {
                             dimension: Some(dimension),
                             non_negative: false,
                         },
+                        model.length_unit(),
                     )?;
                     let value = parameters
                         .evaluate_expression(&parsed)
@@ -129,7 +130,8 @@ impl Panel<'_> {
                 self.actions.push(Action::Apply(transaction));
             }
             if field.error.is_none()
-                && let Some(preview) = field::value_preview(parameters, expression)
+                && let Some(preview) =
+                    field::value_preview(parameters, expression, model.length_unit())
             {
                 ui.weak(preview);
             }

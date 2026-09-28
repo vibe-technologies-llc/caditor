@@ -10,7 +10,7 @@ use crate::{
     editing::{self, EditingCommand},
     model::{Action, Model},
     selection::{Pickable, Selection},
-    solid_tools,
+    units::LengthUnit,
 };
 
 pub const DEFAULT_SIZE: f64 = 1.0;
@@ -53,6 +53,7 @@ pub fn create(
     evaluation: &Evaluation,
     kind: BlendKind,
     source: &EdgeSource,
+    unit: LengthUnit,
 ) -> Option<(Transaction, FeatureId)> {
     let solid = evaluation.body(source.body)?;
     let edges: Vec<EdgeReference> = source
@@ -74,7 +75,7 @@ pub fn create(
             kind,
             body: source.body,
             edges,
-            size: solid_tools::millimetres(DEFAULT_SIZE),
+            size: unit.default_length(DEFAULT_SIZE),
         }),
     );
     Some((transaction.finish(), feature))
@@ -85,8 +86,9 @@ pub fn create_actions(
     evaluation: &Evaluation,
     kind: BlendKind,
     source: &EdgeSource,
+    unit: LengthUnit,
 ) -> Vec<Action> {
-    let Some((transaction, feature)) = create(document, evaluation, kind, source) else {
+    let Some((transaction, feature)) = create(document, evaluation, kind, source, unit) else {
         return Vec::new();
     };
     vec![

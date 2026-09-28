@@ -18,6 +18,7 @@ mod model;
 mod overlay;
 mod panels;
 mod parameter_table;
+mod preferences;
 mod scene;
 mod selection;
 mod shell_panel;
@@ -32,6 +33,7 @@ mod solid_tools;
 mod toolbar;
 #[cfg(test)]
 mod ui_tests;
+mod units;
 mod view_cube;
 mod viewport;
 
@@ -49,6 +51,7 @@ use crate::{
     app::{App, AppEvent},
     files::{Files, FilesConfig, NativeDialogs},
     model::{Model, PanicFlush, Services},
+    preferences::Preferences,
 };
 
 const PANIC_FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
@@ -75,16 +78,24 @@ fn main() -> Result<()> {
             panic_flush,
         },
     );
+    let config_dir = caditor_file::config_dir();
     let files = Files::new(
         FilesConfig {
             state_dir,
             recovery_dir,
+            config_dir: config_dir.clone(),
         },
         Box::new(NativeDialogs),
         app::waker_factory(event_loop.create_proxy()),
     );
+    let preferences = Preferences::from_settings(
+        config_dir
+            .as_deref()
+            .map(caditor_file::Settings::load)
+            .unwrap_or_default(),
+    );
     let open = std::env::args_os().nth(1).map(PathBuf::from);
-    let mut app = App::new(model, files, open);
+    let mut app = App::new(model, files, preferences, open);
     event_loop.run_app(&mut app)?;
     app.finish()
 }

@@ -28,6 +28,7 @@ pub struct ToolbarContext<'a> {
     pub files: &'a Files,
     pub selection: &'a Selection,
     pub editing: &'a SketchEditing,
+    pub blocked: bool,
 }
 
 pub fn show(ui: &mut Ui, model: &Model, context: &ToolbarContext<'_>, actions: &mut Vec<Action>) {
@@ -59,7 +60,7 @@ pub fn show(ui: &mut Ui, model: &Model, context: &ToolbarContext<'_>, actions: &
             }
         });
     });
-    if !files.is_blocking() {
+    if !context.blocked {
         shortcuts(ui, context.editing, actions);
     }
 }
@@ -163,7 +164,12 @@ fn solid_buttons(
         if response.clicked()
             && let Some(source) = &source
         {
-            actions.extend(solid_tools::create_actions(document, sweep, source.clone()));
+            actions.extend(solid_tools::create_actions(
+                document,
+                sweep,
+                source.clone(),
+                model.length_unit(),
+            ));
         }
     }
 }
@@ -197,6 +203,7 @@ fn blend_buttons(
                 model.evaluation(),
                 kind,
                 source,
+                model.length_unit(),
             ));
         }
     }
@@ -272,6 +279,7 @@ fn shell_button(
             model.document(),
             model.evaluation(),
             source,
+            model.length_unit(),
         ));
     }
 }

@@ -1,5 +1,4 @@
 use caditor_document::{Document, Edit, Parameter, Transaction};
-use caditor_expression::{Expression, Unit};
 use egui::{Button, Grid, RichText, Ui};
 
 use crate::{
@@ -41,7 +40,9 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
         let mut transaction = document.transaction(format!("Add {name}"));
         let id = transaction.add_parameter(
             name,
-            Expression::Measure(NEW_PARAMETER_MILLIMETRES, Unit::Millimetre),
+            model
+                .length_unit()
+                .default_length(NEW_PARAMETER_MILLIMETRES),
         );
         actions.push(Action::Apply(transaction.finish()));
         state.request_focus(Focus::ParameterName(id));
@@ -86,8 +87,13 @@ fn row(
         EXPRESSION_FIELD_WIDTH,
         state.wants_focus(value_focus),
         |text| {
-            let expression =
-                field::parse_expression(document, model.parameters(), text, Expected::ANYTHING)?;
+            let expression = field::parse_expression(
+                document,
+                model.parameters(),
+                text,
+                Expected::ANYTHING,
+                model.length_unit(),
+            )?;
             field::checked(
                 document,
                 Transaction::single(
@@ -105,7 +111,7 @@ fn row(
 
     match model.parameters().get(id) {
         Some(Ok(value)) => {
-            ui.weak(value.to_string());
+            ui.weak(model.length_unit().show(*value));
         }
         Some(Err(error)) => {
             ui.label(RichText::new("⚑ error").color(ui.visuals().error_fg_color))

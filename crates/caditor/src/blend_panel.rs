@@ -81,6 +81,7 @@ fn size_row(
                         dimension: Some(Dimension::LENGTH),
                         non_negative: false,
                     },
+                    model.length_unit(),
                 )?;
                 let value = parameters
                     .evaluate_expression(&parsed)
@@ -103,7 +104,8 @@ fn size_row(
             actions.push(Action::Apply(transaction));
         }
         if field.error.is_none()
-            && let Some(preview) = field::value_preview(parameters, &blend.size)
+            && let Some(preview) =
+                field::value_preview(parameters, &blend.size, model.length_unit())
         {
             ui.weak(preview);
         }

@@ -134,7 +134,7 @@ pub fn plane_from_selection(
     Ok(DatumPlane {
         base,
         rotation,
-        offset: solid_tools::millimetres(offset),
+        offset: model.length_unit().default_length(offset),
     })
 }
 

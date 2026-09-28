@@ -13,8 +13,8 @@ use caditor_document::{Document, FeatureId};
 use caditor_file::{
     DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported, FILE_EXTENSION, FileJournal,
     History, ImportError, LoadError, Loaded, ModelImport, RecentFiles, Recovered, STEP_EXTENSIONS,
-    STEP_IMPORT_EXTENSIONS, SavedState, journal_for, load, load_version, read_dxf, read_step_file,
-    scan,
+    STEP_IMPORT_EXTENSIONS, SavedState, Settings, journal_for, load, load_version, read_dxf,
+    read_step_file, scan,
 };
 use egui::{Button, Id, KeyboardShortcut, Modal, Modifiers, RichText, Ui};
 use parking_lot::Mutex;
@@ -25,6 +25,7 @@ use crate::{
     history::{self, HistoryCommand, VersionHistory},
     import::{self, IMPORT, IMPORT_HINT},
     model::{Action, FileEvent, Model, Notice, WakerFactory, display_name},
+    preferences::{PREFERENCES, PreferencesCommand},
 };
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -169,6 +170,7 @@ impl Dialogs for NativeDialogs {
 pub struct FilesConfig {
     pub state_dir: Option<PathBuf>,
     pub recovery_dir: Option<PathBuf>,
+    pub config_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -815,6 +817,17 @@ impl Files {
         self.store_recent();
     }
 
+    pub fn store_settings(&mut self, settings: Settings) {
+        let Some(config_dir) = self.config.config_dir.clone() else {
+            return;
+        };
+        self.run_job(Box::new(move || {
+            if let Err(error) = settings.save(&config_dir) {
+                log::warn!("could not save the preferences: {error}");
+            }
+        }));
+    }
+
     fn store_recent(&mut self) {
         let Some(state_dir) = self.config.state_dir.clone() else {
             return;
@@ -953,11 +966,16 @@ pub fn menu(
             item(ui, "Recover Unsaved Work…", None, FileCommand::ShowRecovery);
         }
         ui.separator();
+        let preferences = menu_item(ui, "Preferences…", Some(PREFERENCES)).clicked();
+        ui.separator();
         item(ui, "Quit", Some(QUIT), FileCommand::Quit);
         if import {
             command = Some(FileCommand::Import {
                 into: editing.feature(),
             });
+        }
+        if preferences {
+            actions.push(Action::Preferences(PreferencesCommand::Show));
         }
         if let Some(command) = command {
             actions.push(Action::File(command));
@@ -1005,6 +1023,9 @@ pub fn shortcuts(ui: &mut Ui, editing: &SketchEditing, actions: &mut Vec<Action>
             actions.push(Action::File(command));
             return;
         }
+    }
+    if ui.input_mut(|input| input.consume_shortcut(&PREFERENCES)) {
+        actions.push(Action::Preferences(PreferencesCommand::Show));
     }
 }
 

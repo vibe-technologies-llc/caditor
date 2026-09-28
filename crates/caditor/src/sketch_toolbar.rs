@@ -48,7 +48,12 @@ pub fn show(
     let selected = sketch_tools::selected_entities(input.selection, feature.id());
     let offers: Vec<Offer> = ConstraintTool::ALL
         .into_iter()
-        .map(|tool| (tool, tool.candidates(definition, &shown, &selected)))
+        .map(|tool| {
+            let candidates = tool
+                .candidates(definition, &shown, &selected)
+                .map(|constraints| sketch_tools::in_unit(constraints, model.length_unit()));
+            (tool, candidates)
+        })
         .collect();
     let deletable = Deletable {
         entities: selected

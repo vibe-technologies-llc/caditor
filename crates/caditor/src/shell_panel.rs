@@ -47,6 +47,7 @@ fn thickness_row(
                         dimension: Some(Dimension::LENGTH),
                         non_negative: false,
                     },
+                    model.length_unit(),
                 )?;
                 let value = parameters
                     .evaluate_expression(&parsed)
@@ -69,7 +70,8 @@ fn thickness_row(
             actions.push(Action::Apply(transaction));
         }
         if field.error.is_none()
-            && let Some(preview) = field::value_preview(parameters, &shell.thickness)
+            && let Some(preview) =
+                field::value_preview(parameters, &shell.thickness, model.length_unit())
         {
             ui.weak(preview);
         }

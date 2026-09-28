@@ -3,6 +3,8 @@ use caditor_expression::{Dimension, EvalError, Expression};
 use caditor_sketch::{Constraint, ConstraintId};
 use egui::{Align, Id, Key, Response, Stroke, StrokeKind, TextEdit, Ui, vec2};
 
+use crate::units::LengthUnit;
+
 const ERROR_OUTLINE_WIDTH: f32 = 1.5;
 const ERROR_OUTLINE_RADIUS: f32 = 2.0;
 
@@ -108,6 +110,7 @@ pub fn parse_expression(
     parameters: &ParameterValues,
     text: &str,
     expected: Expected,
+    unit: LengthUnit,
 ) -> Result<Expression, String> {
     let expression = document.parse(text).map_err(|error| error.to_string())?;
     let value = parameters
@@ -126,6 +129,9 @@ pub fn parse_expression(
     if expected.non_negative && value.value < 0.0 {
         return Err("The value cannot be negative".to_owned());
     }
+    if unit.applies_to(expected.dimension, value.dimension) {
+        return Ok(unit.attach(expression));
+    }
     Ok(expression)
 }
 
@@ -140,6 +146,7 @@ pub fn dimension_transaction(
     parameters: &ParameterValues,
     target: DimensionTarget,
     text: &str,
+    unit: LengthUnit,
 ) -> Result<Transaction, String> {
     let owner = document
         .feature(target.feature)
@@ -153,7 +160,7 @@ pub fn dimension_transaction(
         dimension: definition.dimension_kind(),
         non_negative: !matches!(definition, Constraint::Angle { .. }),
     };
-    let value = parse_expression(document, parameters, text, expected)?;
+    let value = parse_expression(document, parameters, text, expected, unit)?;
     let quantity = parameters
         .evaluate_expression(&value)
         .map_err(|error| sentence(&error.to_string()))?;
@@ -180,14 +187,18 @@ pub fn checked(document: &Document, transaction: Transaction) -> Result<Transact
         .map_err(|error| error.to_string())
 }
 
-pub fn value_preview(parameters: &ParameterValues, expression: &Expression) -> Option<String> {
+pub fn value_preview(
+    parameters: &ParameterValues,
+    expression: &Expression,
+    unit: LengthUnit,
+) -> Option<String> {
     if expression.is_literal() {
         return None;
     }
     parameters
         .evaluate_expression(expression)
         .ok()
-        .map(|value| format!("= {value}"))
+        .map(|value| format!("= {}", unit.show(value)))
 }
 
 pub fn sentence(clause: &str) -> String {
@@ -216,7 +227,13 @@ mod tests {
     fn parse(text: &str, expected: Expected) -> Result<Expression, String> {
         let document = document();
         let parameters = ParameterValues::evaluate(&document);
-        parse_expression(&document, &parameters, text, expected)
+        parse_expression(
+            &document,
+            &parameters,
+            text,
+            expected,
+            LengthUnit::Millimetre,
+        )
     }
 
     const LENGTH: Expected = Expected {
@@ -266,7 +283,9 @@ mod tests {
             feature,
             constraint: radius,
         };
-        let edit = |text| dimension_transaction(&document, &parameters, target, text);
+        let edit = |text| {
+            dimension_transaction(&document, &parameters, target, text, LengthUnit::Millimetre)
+        };
 
         assert_eq!(
             edit("width - 40 mm").err(),
@@ -287,7 +306,13 @@ mod tests {
     fn previews_show_computed_values_only_for_non_literals() {
         let document = document();
         let parameters = ParameterValues::evaluate(&document);
-        let preview = |text: &str| value_preview(&parameters, &document.parse(text).unwrap());
+        let preview = |text: &str| {
+            value_preview(
+                &parameters,
+                &document.parse(text).unwrap(),
+                LengthUnit::Millimetre,
+            )
+        };
         assert_eq!(preview("width / 4"), Some("= 10 mm".to_owned()));
         assert_eq!(preview("2 in"), None);
         assert_eq!(preview("width / zero"), None);

@@ -28,8 +28,10 @@ use crate::{
     history::HistoryCommand,
     model::{Action, Model, RecomputeStatus, Services, WakerFactory},
     panels::Focus,
+    preferences::{PreferenceChange, Preferences, PreferencesCommand},
     scene,
     selection::{Pickable, PrincipalPlane},
+    units::LengthUnit,
 };
 
 const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));
@@ -105,6 +107,7 @@ impl Harness {
         let config = FilesConfig {
             state_dir: dir.map(|dir| dir.join("state")),
             recovery_dir,
+            config_dir: dir.map(|dir| dir.join("config")),
         };
         let mut model = Model::new(document, services);
         let mut files = Files::new(config, Box::new(dialogs.clone()), no_wake());
@@ -165,7 +168,7 @@ impl Harness {
             actions,
             &mut self.model,
             &mut self.files,
-            &mut self.workspace.editing,
+            &mut self.workspace,
         );
         self.workspace.viewport.build_scene(
             self.model.document(),
@@ -210,7 +213,7 @@ impl Harness {
             vec![action],
             &mut self.model,
             &mut self.files,
-            &mut self.workspace.editing,
+            &mut self.workspace,
         );
         self.show_new_windows();
     }
@@ -590,6 +593,60 @@ fn a_dimension_edited_in_the_tree_is_undoable_and_rejects_the_wrong_kind() {
         harness.model.undo_label(),
         Some("Edit dimension in Base sketch")
     );
+}
+
+#[test]
+fn preferences_change_units_and_navigation_and_are_remembered() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.key(Key::Comma, Modifiers::COMMAND);
+    harness.frame();
+    harness.show_new_windows();
+    assert!(harness.shows("Preferences"));
+    harness.click("Centimetres");
+    assert_eq!(harness.model.length_unit(), LengthUnit::Centimetre);
+    harness.click("Scroll up to zoom out");
+    assert!(harness.workspace.preferences.navigation.invert_zoom);
+    harness.click("Close");
+    assert!(!harness.workspace.preferences_open);
+
+    harness.wait_until("the preferences are saved", |_| {
+        caditor_file::Settings::load(&dir.path().join("config")).text("units.length") == Some("cm")
+    });
+    let stored =
+        Preferences::from_settings(caditor_file::Settings::load(&dir.path().join("config")));
+    assert_eq!(stored.unit, LengthUnit::Centimetre);
+    assert!(stored.navigation.invert_zoom);
+
+    harness.settle();
+    assert!(harness.shows("2 cm"));
+    let base = harness.document().features().next().unwrap().id();
+    let (constraint, _) = harness
+        .sketch(base)
+        .constraints()
+        .find(|(_, constraint)| constraint.dimension().is_some())
+        .map(|(id, constraint)| (id, constraint.clone()))
+        .unwrap();
+    harness.type_into(
+        Focus::Dimension {
+            feature: base,
+            constraint,
+        },
+        "3",
+    );
+    let stored = harness
+        .sketch(base)
+        .constraint(constraint)
+        .and_then(Constraint::dimension)
+        .map(|value| harness.document().expression_text(value))
+        .unwrap();
+    assert_eq!(stored, "3 cm");
+
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Defaults,
+    )));
+    assert_eq!(harness.model.length_unit(), LengthUnit::Millimetre);
+    assert!(harness.shows("20 mm"));
 }
 
 #[test]

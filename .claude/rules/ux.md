@@ -37,3 +37,11 @@ requirement to avoid.
   background, shows progress and can be cancelled.
 - Undo and redo cover every change to the document, including parameter edits and feature
   reordering, with no operation outside the history.
+
+## Units
+
+- caditor uses SI units only: lengths in micrometres, millimetres, centimetres and metres, and
+  angles in degrees or radians. Imperial units (inches, feet and the like) are never offered in
+  the UI, the preferences or new features.
+- Foreign files drawn in imperial units are still read: their lengths are converted to
+  millimetres on import, and the import report says so.

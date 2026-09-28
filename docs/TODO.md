@@ -26,7 +26,6 @@ These need an answer before the milestone that depends on them starts.
 ## M7: Polish
 
 - [ ] Command palette and customisable keyboard shortcuts
-- [ ] Preferences: units, theme and navigation sensitivity
 - [ ] Accessibility: keyboard-only operation, scalable UI and readable contrast
 - [ ] Onboarding: sample models and first-run hints
 

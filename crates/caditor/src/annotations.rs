@@ -199,7 +199,7 @@ fn centre_of(sketch: &Sketch) -> Option<Point2> {
 
 fn label_text(model: &Model, constraint: &Constraint, expression: &Expression) -> String {
     let text = model.document().expression_text(expression);
-    let text = match field::value_preview(model.parameters(), expression) {
+    let text = match field::value_preview(model.parameters(), expression, model.length_unit()) {
         Some(value) => format!("{text} {value}"),
         None => text,
     };
@@ -489,6 +489,7 @@ impl Annotations {
                                     model.parameters(),
                                     target,
                                     text,
+                                    model.length_unit(),
                                 )
                             },
                         );

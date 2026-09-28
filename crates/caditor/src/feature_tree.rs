@@ -545,14 +545,23 @@ fn sketch_body(
                 &document.expression_text(expression),
                 DIMENSION_FIELD_WIDTH,
                 state.wants_focus(focus),
-                |text| field::dimension_transaction(document, model.parameters(), target, text),
+                |text| {
+                    field::dimension_transaction(
+                        document,
+                        model.parameters(),
+                        target,
+                        text,
+                        model.length_unit(),
+                    )
+                },
             );
             state.focus_reached(focus, field.response.has_focus());
             if let Some(transaction) = field.committed {
                 actions.push(Action::Apply(transaction));
             }
             if field.error.is_none()
-                && let Some(preview) = field::value_preview(model.parameters(), expression)
+                && let Some(preview) =
+                    field::value_preview(model.parameters(), expression, model.length_unit())
             {
                 ui.weak(preview);
             }
