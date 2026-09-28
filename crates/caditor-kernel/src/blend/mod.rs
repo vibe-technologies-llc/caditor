@@ -596,6 +596,8 @@ fn ends(
     })
 }
 
+const FIT_FRACTIONS: [f64; 3] = [0.25, 0.5, 0.75];
+
 fn fits(
     classifier: &SolidClassifier<'_>,
     solid: &Solid,
@@ -603,15 +605,25 @@ fn fits(
     blend: &Blend,
 ) -> bool {
     geometry.faces.iter().zip(blend.feet).all(|(face, foot)| {
-        let Some(point) = geometry.place(foot, 0.5) else {
-            return false;
-        };
         let Some(surface) = solid.face(*face).map(|face| face.surface()) else {
             return false;
         };
-        let uv = surface.project(point, None);
-        surface.point_at(uv).distance(point) <= LINEAR_RESOLUTION
-            && classifier.point_in_face(*face, uv) == Some(FaceContainment::Inside)
+        FIT_FRACTIONS.iter().all(|fraction| {
+            let Some(point) = geometry.place(foot, *fraction) else {
+                return false;
+            };
+            let uv = surface.project(point, None);
+            let contained = classifier.point_in_face(*face, uv);
+            let accepted = if *fraction == 0.5 {
+                contained == Some(FaceContainment::Inside)
+            } else {
+                matches!(
+                    contained,
+                    Some(FaceContainment::Inside | FaceContainment::OnBoundary)
+                )
+            };
+            surface.point_at(uv).distance(point) <= LINEAR_RESOLUTION && accepted
+        })
     })
 }
 

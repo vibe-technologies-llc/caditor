@@ -37,8 +37,6 @@ within a category run from most to least important.
   points anywhere (`tessellation/face.rs`); it shows once the cone's grid is refined, which is
   why measured refinement is limited to spline, revolution and extrusion faces. Keep grid points
   off the apex's rulings or drop such triangles without leaving a T-junction.
-- `fits` checks the blend only at the middle of the edge, so a face that narrows elsewhere lets
-  the tool cut through.
 - Shell blames every failure on the thickness (`plan.build`, profile and extrude errors map to
   `TooThick`), and fails on convex faces with a radius below the thickness and at vertices of
   four or more faces whose offsets do not meet. Add distinct errors, drop collapsed faces, and
@@ -46,15 +44,11 @@ within a category run from most to least important.
 - The marcher treats step collapse and the step cap as a tangent end (`march.rs`), and
   `prune_dangling` then discards the incomplete cut, so failures surface far away as
   `Ambiguous` or a wrong keep. Report them as errors.
-- `split_edges` skips tiny pieces without merging their vertices (`imprint.rs`), leaving a gap in
-  the chain.
 - The loop tracer orders edges at a cone apex by the normal of one ruling (`trace.rs`
   `vertex_normal`), so cuts through the apex can take the wrong next edge. Order by uv direction
   at poles.
 - Spline surfaces that coincide over only part of their extent are not seen as coincident
   (`coincidence.rs` samples the whole domain), so booleans march between identical surfaces.
-- STEP export of a solid that cannot be meshed writes each void as its own inverted solid and
-  still succeeds (`write/shape.rs`), and an unclassified void is attached to the first lump.
 - Validation does not check faces or loops against each other, so self-intersecting imports pass
   and fail later in booleans.
 - Untested: spline surfaces in intersections, booleans, blends and shells; import edge naming;
@@ -108,8 +102,7 @@ within a category run from most to least important.
   2400 surface evaluations per sample on spline faces.
 - The parse tree costs several times the file size with a `String` per token and a `BTreeMap`
   of instances, and the reader walks all entities about six times.
-- The writer meshes every body just to sort its shells, even single-shell ones, and puts all
-  bodies in one product with no colours, holding the output twice in memory.
+- The writer puts all bodies in one product with no colours, holding the output twice in memory.
 - Imports cannot be positioned: `Import` has no placement.
 
 ## File format and storage

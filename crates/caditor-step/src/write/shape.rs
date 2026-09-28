@@ -9,7 +9,10 @@ use caditor_kernel::{
 use crate::write::{Data, Ref, list, logical, text};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Unsupported;
+pub(crate) enum Unsupported {
+    Geometry,
+    Shells,
+}
 
 pub(crate) struct Shapes<'a> {
     data: &'a mut Data,
@@ -43,7 +46,7 @@ impl<'a> Shapes<'a> {
         self.vertices.clear();
         self.edges.clear();
         let mut solids = Vec::new();
-        for lump in lumps(solid) {
+        for lump in lumps(solid)? {
             let outer = self.closed_shell(solid, lump.outer, false)?;
             let entity = if lump.voids.is_empty() {
                 format!("MANIFOLD_SOLID_BREP({},{outer})", text(name))
@@ -69,7 +72,7 @@ impl<'a> Shapes<'a> {
         shell: ShellId,
         flipped: bool,
     ) -> Result<Ref, Unsupported> {
-        let faces = solid.shell(shell).ok_or(Unsupported)?.faces();
+        let faces = solid.shell(shell).ok_or(Unsupported::Geometry)?.faces();
         let mut written = Vec::with_capacity(faces.len());
         for face in faces {
             written.push(self.face(solid, *face, flipped)?);
@@ -78,13 +81,13 @@ impl<'a> Shapes<'a> {
     }
 
     fn face(&mut self, solid: &Solid, id: FaceId, flipped: bool) -> Result<Ref, Unsupported> {
-        let face = solid.face(id).ok_or(Unsupported)?;
+        let face = solid.face(id).ok_or(Unsupported::Geometry)?;
         let mut bounds = Vec::with_capacity(face.loops().len());
         for (index, loop_id) in face.loops().iter().enumerate() {
-            let face_loop = solid.face_loop(*loop_id).ok_or(Unsupported)?;
+            let face_loop = solid.face_loop(*loop_id).ok_or(Unsupported::Geometry)?;
             let mut oriented = Vec::with_capacity(face_loop.coedges().len());
             for coedge_id in face_loop.coedges() {
-                let coedge = solid.coedge(*coedge_id).ok_or(Unsupported)?;
+                let coedge = solid.coedge(*coedge_id).ok_or(Unsupported::Geometry)?;
                 let edge = self.edge(solid, coedge.edge())?;
                 oriented.push(self.data.add(format!(
                     "ORIENTED_EDGE('',*,*,{edge},{})",
@@ -114,7 +117,10 @@ impl<'a> Shapes<'a> {
         if let Some(existing) = self.vertices.get(&id) {
             return Ok(*existing);
         }
-        let point = point(self.data, solid.vertex(id).ok_or(Unsupported)?.point());
+        let point = point(
+            self.data,
+            solid.vertex(id).ok_or(Unsupported::Geometry)?.point(),
+        );
         let vertex = self.data.add(format!("VERTEX_POINT('',{point})"));
         self.vertices.insert(id, vertex);
         Ok(vertex)
@@ -124,7 +130,7 @@ impl<'a> Shapes<'a> {
         if let Some(existing) = self.edges.get(&id) {
             return Ok(*existing);
         }
-        let edge = solid.edge(id).ok_or(Unsupported)?;
+        let edge = solid.edge(id).ok_or(Unsupported::Geometry)?;
         let start = self.vertex(solid, edge.start())?;
         let end = self.vertex(solid, edge.end())?;
         let ends = [edge.start(), edge.end()]
@@ -169,11 +175,11 @@ impl<'a> Shapes<'a> {
             Curve::BSpline(spline) => self.spline(spline),
             Curve::Intersection(intersection) => {
                 let range = interval.unwrap_or_else(|| intersection.domain());
-                let trimmed = intersection.trimmed(range).ok_or(Unsupported)?;
-                let spline = hermite_spline(&trimmed, ends).ok_or(Unsupported)?;
+                let trimmed = intersection.trimmed(range).ok_or(Unsupported::Geometry)?;
+                let spline = hermite_spline(&trimmed, ends).ok_or(Unsupported::Geometry)?;
                 self.spline(&spline)
             }
-            _ => return Err(Unsupported),
+            _ => return Err(Unsupported::Geometry),
         })
     }
 
@@ -305,7 +311,7 @@ impl<'a> Shapes<'a> {
                 self.data
                     .add(format!("SURFACE_OF_REVOLUTION('',{profile},{placement})"))
             }
-            _ => return Err(Unsupported),
+            _ => return Err(Unsupported::Geometry),
         })
     }
 }
@@ -403,16 +409,17 @@ fn classify(solid: &Solid) -> Option<(Classified, caditor_kernel::Mesh)> {
     Some((classified, mesh))
 }
 
-fn lumps(solid: &Solid) -> Vec<Lump> {
+fn lumps(solid: &Solid) -> Result<Vec<Lump>, Unsupported> {
+    let shells: Vec<ShellId> = solid.shells().map(|(id, _)| id).collect();
+    if let [outer] = shells.as_slice() {
+        return Ok(vec![Lump {
+            outer: *outer,
+            voids: Vec::new(),
+        }]);
+    }
     let Some((classified, mesh)) = classify(solid) else {
-        log::warn!("the solid could not be meshed, so every shell is written as its own solid");
-        return solid
-            .shells()
-            .map(|(outer, _)| Lump {
-                outer,
-                voids: Vec::new(),
-            })
-            .collect();
+        log::warn!("the solid could not be meshed, so its shells cannot be told apart");
+        return Err(Unsupported::Shells);
     };
     let mut lumps: Vec<Lump> = classified
         .outward
@@ -433,11 +440,12 @@ fn lumps(solid: &Solid) -> Vec<Lump> {
                 }) == Some(true)
             })
         });
-        if let Some(lump) = lumps.get_mut(owner.unwrap_or(0)) {
-            lump.voids.push(void);
-        }
+        let lump = owner
+            .and_then(|owner| lumps.get_mut(owner))
+            .ok_or(Unsupported::Shells)?;
+        lump.voids.push(void);
     }
-    lumps
+    Ok(lumps)
 }
 
 fn shell_point(solid: &Solid, shell: ShellId) -> Option<Point3> {

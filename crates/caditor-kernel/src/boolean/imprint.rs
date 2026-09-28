@@ -219,14 +219,19 @@ pub(super) fn imprint(input: &Input) -> Result<Arrangement, BooleanError> {
     }
     let branches = face_branches(input, &mut pool)?;
     let mut arrangement = Arrangement::default();
+    let mut merged = Merged::default();
     for (operand, ids) in Operand::BOTH.into_iter().zip(&vertex_ids) {
-        split_edges(input, operand, ids, &pool, &mut arrangement)?;
+        split_edges(input, operand, ids, &pool, &mut arrangement, &mut merged)?;
     }
     for overlap in &overlaps {
         add_overlap_cuts(input, overlap, &mut arrangement);
     }
     for branch in &branches {
         clip_branch(input, branch, &mut pool, &mut arrangement);
+    }
+    for piece in &mut arrangement.pieces {
+        piece.start = merged.find(piece.start);
+        piece.end = merged.find(piece.end);
     }
     arrangement.points = pool.points;
     arrangement.representatives = deduplicate(&arrangement);
@@ -356,12 +361,40 @@ fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanE
     Ok(branches)
 }
 
+#[derive(Debug, Clone, Default)]
+struct Merged {
+    parents: BTreeMap<usize, usize>,
+}
+
+impl Merged {
+    fn find(&self, vertex: usize) -> usize {
+        let mut current = vertex;
+        let mut steps = 0;
+        while let Some(parent) = self.parents.get(&current)
+            && *parent != current
+            && steps <= self.parents.len()
+        {
+            current = *parent;
+            steps += 1;
+        }
+        current
+    }
+
+    fn join(&mut self, first: usize, second: usize) {
+        let (first, second) = (self.find(first), self.find(second));
+        if first != second {
+            self.parents.insert(first.max(second), first.min(second));
+        }
+    }
+}
+
 fn split_edges(
     input: &Input,
     operand: Operand,
     vertex_ids: &[usize],
     pool: &Pool,
     arrangement: &mut Arrangement,
+    merged: &mut Merged,
 ) -> Result<(), BooleanError> {
     let solid = input.solid(operand);
     for (edge_id, edge) in solid.edges() {
@@ -395,9 +428,11 @@ fn split_edges(
                 continue;
             };
             let Some(range) = Interval::new(*from, *to) else {
+                merged.join(*start, *end);
                 continue;
             };
             if curve.length(range) <= TOLERANCE {
+                merged.join(*start, *end);
                 continue;
             }
             pieces.push(arrangement.add_piece(Piece {

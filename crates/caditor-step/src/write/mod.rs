@@ -24,6 +24,8 @@ pub enum WriteError {
     Empty,
     #[error("the body “{0}” has geometry that STEP cannot hold")]
     Geometry(String),
+    #[error("the body “{0}” has several shells that could not be told apart as outer and inner")]
+    Shells(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -147,7 +149,10 @@ pub fn write_step(
         if shapes.data().take_unwritable() {
             return Err(WriteError::Geometry(body.name.to_owned()));
         }
-        items.extend(solids.map_err(|_| WriteError::Geometry(body.name.to_owned()))?);
+        items.extend(solids.map_err(|unsupported| match unsupported {
+            shape::Unsupported::Geometry => WriteError::Geometry(body.name.to_owned()),
+            shape::Unsupported::Shells => WriteError::Shells(body.name.to_owned()),
+        })?);
     }
     let representation = data.add(format!(
         "ADVANCED_BREP_SHAPE_REPRESENTATION('',{},{context})",

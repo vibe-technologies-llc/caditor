@@ -404,13 +404,13 @@ fn cancelling_stops_the_meshing_of_a_body_already_started() {
         name: "Extrude 1",
         solid: &block,
     }];
-    for (format, name) in [
-        (ExportFormat::Stl, "part.stl"),
-        (ExportFormat::Step, "part.step"),
+    for (format, name, allowed) in [
+        (ExportFormat::Stl, "part.stl", 2),
+        (ExportFormat::Step, "part.step", 0),
     ] {
         let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counted = Arc::clone(&calls);
-        let cancel = CancelToken::new(move || counted.fetch_add(1, Ordering::SeqCst) >= 2);
+        let cancel = CancelToken::new(move || counted.fetch_add(1, Ordering::SeqCst) >= allowed);
         let path = dir.path().join(name);
         assert_eq!(
             export_bodies(&path, format, MeshResolution::Fine, &bodies, &cancel),

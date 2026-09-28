@@ -413,3 +413,33 @@ fn turned_parts_are_rounded_on_every_edge() {
         }
     }
 }
+
+#[test]
+fn a_face_that_narrows_away_from_the_middle_of_the_edge_is_too_small() {
+    let notched = swept(
+        Plane::XY,
+        &polygon(&[
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 4.0),
+            (3.0, 4.0),
+            (3.0, 0.2),
+            (2.0, 0.2),
+            (2.0, 4.0),
+            (0.0, 4.0),
+        ]),
+        3.0,
+    );
+    let (front, _) = notched
+        .edges()
+        .find(|(_, edge)| {
+            let middle = edge.curve().point(edge.interval().middle());
+            (middle - caditor_geometry::Point3::new(5.0, 0.0, 3.0)).length() < 1e-9
+        })
+        .unwrap();
+    assert!(matches!(
+        blend(&notched, &[front], fillet(0.5), 60),
+        Err(BlendError::TooLarge(edge)) if edge == front
+    ));
+    assert!(blend(&notched, &[front], fillet(0.1), 60).is_ok());
+}
