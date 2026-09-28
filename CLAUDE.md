@@ -70,7 +70,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   kernel solids as one product whose `ADVANCED_BREP_SHAPE_REPRESENTATION` holds one
   `MANIFOLD_SOLID_BREP` per lump, or a `BREP_WITH_VOIDS` whose voids are
   `ORIENTED_CLOSED_SHELL`s of inverted faces; shells are told apart by the sign of their meshed
-  volume. Millimetres and radians, uncertainty `LINEAR_RESOLUTION`, no author or organisation.
+  volume (only bodies with several shells are meshed, and one whose shells cannot be sorted is
+  refused as `WriteError::Shells`). Millimetres and radians, uncertainty `LINEAR_RESOLUTION`, no author or organisation.
   Every kernel surface and curve has an exact STEP form: planes, cylinders, spheres and tori as
   they are, cones with a negative half angle on a flipped axis, extrusions and revolutions as
   `SURFACE_OF_LINEAR_EXTRUSION` and `SURFACE_OF_REVOLUTION`, B-splines with knot runs (rational
@@ -378,7 +379,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     - Imprinting pools vertices within `LINEAR_RESOLUTION`: those of both solids, edge–face hits
       inside or on the face, the ends of an edge lying in a face's surface and its crossings with
       that face's edges, and the tangent points of face pairs. Each edge is split at the pooled
-      vertices of the other solid lying on it and each face–face branch at every pooled vertex on
+      vertices of the other solid lying on it (the ends of a piece shorter than the resolution
+      become one vertex) and each face–face branch at every pooled vertex on
       it; a branch piece is kept where its midpoint is strictly inside both faces, and an edge piece
       lying in the surface of a face of the other solid and inside it is a cut in that face. Pieces
       with the same end vertices and geometry are one edge, so an intersection along an existing
@@ -407,7 +409,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     names the edge. Chosen edges first grow along tangent-continuous chains (`blend_chain`) and
     smooth edges are dropped. Supported edges are straight ones whose faces run along them
     (planes, parallel cylinders), swept by extrusion, and circles whose faces share their axis
-    (planes, cylinders, cones, spheres, tori), swept by revolution; the cross-section is solved
+    (planes, cylinders, cones, spheres, tori), swept by revolution; the blend must fit on both
+    faces at a quarter, half and three quarters of the edge, and the cross-section is solved
     in 2D (`section.rs`: fillet circle from the offset curves, chamfer points at equal
     distance). Convex tools are lifted clear of the faces they cut and subtracted; concave ones
     are flush and added, all concave edges first, then the convex ones re-found by reference in
