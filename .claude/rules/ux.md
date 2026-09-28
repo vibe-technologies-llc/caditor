@@ -46,7 +46,7 @@ requirement to avoid.
 - Text stays readable: every text colour in the panels meets 4.5:1 against its background in
   both themes (7:1 for body text in high contrast), checked by the tests in `appearance.rs`.
   Take colours from the theme tokens (`appearance::tokens`) or the current visuals, never fixed
-  values, outside the dark 3D view.
+  values. Text on the dark 3D view takes the tested colours and backdrop of `canvas.rs`.
 - The interface scales from 75% to 200%, and panels and toolbars wrap rather than clip.
 
 ## Look

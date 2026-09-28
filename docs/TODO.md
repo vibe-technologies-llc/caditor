@@ -167,19 +167,12 @@ within a category run from most to least important.
 
 ## Keyboard, accessibility and look
 
-- Red and amber dimension labels on the dark canvas are about 3:1 in light and 1.9:1 in light
-  high contrast (`annotations.rs` uses the theme's `error_fg_color`). Give the canvas its own
-  tested colours.
-- The hover label, prompt and coordinate readout have no backdrop and fall to about 2:1 over
-  bodies.
 - Fixed-size dialogs and lists clip at 200% on 1080p (`widgets.rs`, `shortcut_editor.rs`,
   `palette.rs`, `history.rs`). Clamp to the content rect.
 - Several actions fail without a word: New sketch on an unusable face, a datum that fails its
   check, fillet or shell with nothing usable, clicking a curved face while choosing a plane.
 - The Plane tool silently falls back to XY when a selected face cannot be captured, and a face
   that is only outdated is described as made after the sketch.
-- The contrast test requires only 3:1 for pill text on status fills; require 4.5:1, and 7:1 in
-  high contrast.
 - No screen-reader support: the egui AccessKit integration is off.
 
 ## Sketching

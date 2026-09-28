@@ -13,6 +13,7 @@ use egui::{
 
 use crate::{
     annotation_layout::{self, DimensionLayout, GlyphKind},
+    canvas,
     field::{self, DimensionTarget},
     model::{Action, Model},
     scene,
@@ -45,11 +46,6 @@ const FIELD_MARGIN: f32 = 4.0;
 const REQUEST_FRAMES: u8 = 30;
 const RADIUS_PREFIX: &str = "R ";
 const EDIT_HINT: &str = "Double-click to change it.";
-
-const NORMAL_COLOR: Color32 = Color32::from_rgb(196, 202, 218);
-const HOVERED_COLOR: Color32 = Color32::from_rgb(255, 196, 84);
-const SELECTED_COLOR: Color32 = Color32::from_rgb(86, 170, 255);
-const BACKDROP_COLOR: Color32 = Color32::from_rgba_premultiplied(22, 24, 30, 210);
 
 pub fn field_id(feature: FeatureId, constraint: ConstraintId) -> Id {
     Id::new(("canvas-dimension", feature, constraint))
@@ -335,14 +331,14 @@ impl Annotations {
         let color = |constraint, standing| {
             let pickable = pickable(constraint);
             if self.hovered == Some(pickable) {
-                HOVERED_COLOR
+                canvas::HOVERED
             } else if selection.contains(pickable) {
-                SELECTED_COLOR
+                canvas::SELECTED
             } else {
                 match standing {
-                    Standing::Normal => NORMAL_COLOR,
-                    Standing::Conflicting => ui.visuals().error_fg_color,
-                    Standing::Redundant => ui.visuals().warn_fg_color,
+                    Standing::Normal => canvas::DIMENSION,
+                    Standing::Conflicting => canvas::ERROR,
+                    Standing::Redundant => canvas::WARNING,
                 }
             }
         };
@@ -573,7 +569,7 @@ fn paint_dimension(
         ));
     }
     if let Some((galley, label)) = label {
-        painter.rect_filled(label, CORNER_RADIUS, BACKDROP_COLOR);
+        painter.rect_filled(label, CORNER_RADIUS, canvas::BACKDROP);
         painter.galley(label.min + LABEL_PADDING, galley, color);
     }
 }
@@ -613,7 +609,7 @@ fn paint_glyph(painter: &egui::Painter, center: Pos2, kind: GlyphKind, color: Co
     painter.rect_filled(
         Rect::from_center_size(center, egui::Vec2::splat(GLYPH_SIZE)),
         CORNER_RADIUS,
-        BACKDROP_COLOR,
+        canvas::BACKDROP,
     );
     if let Some(letter) = glyph_letter(kind) {
         let galley = painter.layout_no_wrap(

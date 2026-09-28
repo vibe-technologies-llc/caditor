@@ -22,6 +22,7 @@ use tempfile::TempDir;
 use crate::{
     annotations,
     app::{self, Workspace},
+    canvas,
     commands::{Command, Offer, RecentSlot},
     editing::{EditingCommand, Tool},
     export::ExportCommand,
@@ -1564,7 +1565,7 @@ fn clicking_a_glyph_selects_its_constraint_and_delete_removes_it_in_one_step() {
     harness.events.push(Event::PointerGone);
     harness.frame();
     harness.frame();
-    assert_eq!(harness.color_of("H"), Color32::from_rgb(86, 170, 255));
+    assert_eq!(harness.color_of("H"), canvas::SELECTED);
 
     harness.key(Key::Delete, Modifiers::NONE);
     harness.frame();
@@ -1585,8 +1586,8 @@ fn clicking_a_glyph_selects_its_constraint_and_delete_removes_it_in_one_step() {
 fn a_conflict_colours_the_dimensions_and_glyphs_involved() {
     let mut harness = Harness::new();
     let base = edit_base_sketch(&mut harness);
-    assert_ne!(harness.color_of("H"), harness.error_color());
-    assert_ne!(harness.color_of("width = 40 mm"), harness.error_color());
+    assert_ne!(harness.color_of("H"), canvas::ERROR);
+    assert_ne!(harness.color_of("width = 40 mm"), canvas::ERROR);
     let line = entities_of_kind(harness.sketch(base), "Line")[0];
     harness.select([Pickable::SketchEntity {
         feature: base,
@@ -1598,9 +1599,9 @@ fn a_conflict_colours_the_dimensions_and_glyphs_involved() {
     harness.settle();
     assert!(harness.shows("Conflicting constraints"));
     for mark in ["H", "V"] {
-        assert_eq!(harness.color_of(mark), harness.error_color(), "{mark}");
+        assert_eq!(harness.color_of(mark), canvas::ERROR, "{mark}");
     }
-    assert_ne!(harness.color_of("width = 40 mm"), harness.error_color());
+    assert_ne!(harness.color_of("width = 40 mm"), canvas::ERROR);
 }
 
 #[test]

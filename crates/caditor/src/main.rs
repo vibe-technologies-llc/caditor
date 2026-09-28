@@ -6,6 +6,7 @@ mod appearance;
 mod blend_panel;
 mod blend_tools;
 mod bodies;
+mod canvas;
 mod cli;
 mod commands;
 mod datum_panel;

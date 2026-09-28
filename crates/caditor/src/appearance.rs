@@ -325,10 +325,10 @@ pub fn clamp_scale(scale: f32) -> f32 {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
-    fn contrast_ratio(a: Color32, b: Color32) -> f32 {
+    pub fn contrast_ratio(a: Color32, b: Color32) -> f32 {
         let (lighter, darker) = {
             let (a, b) = (luminance(a), luminance(b));
             if a >= b { (a, b) } else { (b, a) }
@@ -348,8 +348,8 @@ mod tests {
         0.2126 * channel(color.r()) + 0.7152 * channel(color.g()) + 0.0722 * channel(color.b())
     }
 
-    const READABLE: f32 = 4.5;
-    const HIGHLY_READABLE: f32 = 7.0;
+    pub const READABLE: f32 = 4.5;
+    pub const HIGHLY_READABLE: f32 = 7.0;
     const VISIBLE_OUTLINE: f32 = 3.0;
 
     fn assert_readable(what: &str, foreground: Color32, background: Color32, minimum: f32) {
@@ -489,6 +489,8 @@ mod tests {
                 READABLE,
             );
             for (what, foreground, background) in [
+                ("neutral pill", tokens.text_muted, tokens.button),
+                ("info pill", tokens.accent_text, tokens.accent_subtle),
                 ("error on its callout", tokens.error, tokens.error_subtle),
                 ("warning on its callout", tokens.warn, tokens.warn_subtle),
                 (
@@ -497,7 +499,7 @@ mod tests {
                     tokens.success_subtle,
                 ),
             ] {
-                assert_readable(&case(what), foreground, background, VISIBLE_OUTLINE);
+                assert_readable(&case(what), foreground, background, body);
             }
             assert_readable(
                 &case("focus outline"),

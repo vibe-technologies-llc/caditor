@@ -713,7 +713,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `callout` and `pill` with a `Tone`, `icon_button`, `small_button`, `primary_button`,
     `menu_item`, `link_label`, `choose_in_view`, and `dialog`/`footer` (a titled modal with a
     close button and the primary action rightmost). Icons and labels are separate text atoms,
-    so tests find a button by its bare label.
+    so tests find a button by its bare label. The 3D view keeps a dark canvas in every theme, so
+    text drawn on it takes its colours from `canvas.rs` and sits on its translucent backdrop
+    (`canvas::label`); a test holds every canvas colour to 4.5:1 (body text 7:1) over that
+    backdrop on black, white and highlight colours.
   - Layout: the menu bar holds File, Edit, View, Model, Sketch and Help, built from the
     commands with their icons and shortcuts; items trigger their command and are enabled from
     the previous frame's offers (`Workspace::last_offers`), with the reason on hover. Its right
@@ -843,20 +846,19 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     applies `Document::transaction_to` (remove every feature and parameter, then insert the
     version's, keeping ID counters) as one "Restore earlier version" change, so Undo brings back
     what was there and the next save keeps the replaced state as a version too.
-  - Preferences (`preferences.rs`, `units.rs`): File › Preferences… (Ctrl+,) sets the length
-    unit (millimetres, centimetres or metres; SI only, see `.claude/rules/ux.md`), the
-    `Appearance` (theme: system, dark or light, the 3D view keeping its dark canvas; interface
-    size from 75% to 200% in eighths, also on Ctrl+Plus, Ctrl+Minus and Ctrl+0, applied as the
-    egui zoom factor, whose own keyboard zoom and quit shortcut are switched off; high
-    contrast), orbit and zoom speed with the zoom direction, and opens the shortcut editor.
-    Every text colour of the theme is tested against its background (4.5:1, and 7:1 for body
-    text in high contrast, whose button and focus outlines reach 3:1). Changes apply at once and
-    are saved on the files worker. `Workspace` owns the
-    `Preferences`, `Model` carries the length unit so every panel can use it, and
-    `Action::Preferences` is performed with the workspace. The unit is for display and input
+  - Preferences (`preferences.rs`, `units.rs`): File › Preferences… (Ctrl+,) sets the length unit
+    (millimetres, centimetres or metres; SI only, see `.claude/rules/ux.md`), the `Appearance`
+    (theme: system, dark or light, the 3D view keeping its dark canvas; interface size from 75% to
+    200% in eighths, also on Ctrl+Plus, Ctrl+Minus and Ctrl+0, applied as the egui zoom factor,
+    whose own keyboard zoom and quit shortcut are switched off; high contrast), orbit and zoom speed
+    with the zoom direction, and opens the shortcut editor. Every text colour of the theme is tested
+    against its background (4.5:1, and 7:1 for body text and pills in high contrast, whose button
+    and focus outlines reach 3:1). Changes apply at once and are saved on the files worker.
+    `Workspace` owns the `Preferences`, `Model` carries the length unit so every panel can use it,
+    and `Action::Preferences` is performed with the workspace. The unit is for display and input
     only: models stay unit-explicit. Values and previews are shown in it (`LengthUnit::show`), a
-    plain number typed where a length is expected gets it attached (`2` becomes `2 cm`),
-    measured dimensions are written in it and new features start from round numbers in it.
+    plain number typed where a length is expected gets it attached (`2` becomes `2 cm`), measured
+    dimensions are written in it and new features start from round numbers in it.
   - Every numeric input is a `field::commit_field`: it commits on Enter or loss of focus,
     reverts on Escape, and keeps invalid text with its error inline instead of discarding it.
     Expression fields parse, evaluate and check the dimension before building a transaction;

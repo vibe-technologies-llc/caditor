@@ -4,12 +4,13 @@ use caditor_document::{Document, Evaluation, FeatureId, FeatureKind};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{Camera, PickResult, Scene, View, Viewpoint, ViewportRect};
 use caditor_sketch::ConstraintId;
-use egui::{Align2, Color32, FontId, Key, PointerButton, Rect, Response, Sense, vec2};
+use egui::{Align2, FontId, Key, PointerButton, Rect, Response, Sense, vec2};
 
 use crate::{
     annotations::{Annotations, Surface},
     blend_tools,
     bodies::{self, BodyMeshes},
+    canvas,
     commands::{CameraMove, Command, CommandFrame, StandardView},
     datum_tools,
     drawing::Drawing,
@@ -31,9 +32,6 @@ const INITIAL_DISTANCE: f64 = 200.0;
 const ZOOM_PER_SCROLL_POINT: f64 = 0.0025;
 const HIT_CURSOR_TOLERANCE_PX: f64 = 1.5;
 const LABEL_MARGIN: f32 = 12.0;
-const LABEL_COLOR: Color32 = Color32::from_rgb(225, 228, 235);
-const HINT_COLOR: Color32 = Color32::from_rgba_premultiplied(120, 124, 132, 160);
-const PROMPT_COLOR: Color32 = Color32::from_rgb(255, 214, 120);
 const PROMPT_MARGIN: f32 = 16.0;
 const NAVIGATION_HINT: &str =
     "Right-drag: orbit   Middle-drag or Shift+right-drag: pan   Scroll: zoom";
@@ -46,7 +44,6 @@ const CHOOSE_FACES_PROMPT: &str = "Click flat faces to open them or close them a
 const CHOOSE_REFERENCES_PROMPT: &str =
     "Select planes, faces, axes or edges, then use them from the feature's panel";
 const SNAP_LABEL_OFFSET: egui::Vec2 = vec2(14.0, 10.0);
-const SNAP_LABEL_COLOR: Color32 = Color32::from_rgb(80, 226, 236);
 const KEYBOARD_ORBIT_FRACTION: f64 = 1.0 / 12.0;
 const KEYBOARD_PAN_FRACTION: f64 = 0.1;
 const KEYBOARD_ZOOM_FACTOR: f64 = 1.25;
@@ -822,29 +819,32 @@ impl ViewportState {
         let painter = ui.painter();
         let hovered = self.annotations.hovered().or(self.highlighted());
         if let Some(hovered) = hovered.filter(|_| !self.drawing.is_active()) {
-            let label = painter.text(
+            let label = canvas::label(
+                painter,
                 rect.left_top() + vec2(LABEL_MARGIN, LABEL_MARGIN),
                 Align2::LEFT_TOP,
                 hovered.describe(document, model.evaluation()),
                 FontId::proportional(13.0),
-                LABEL_COLOR,
+                canvas::TEXT,
             );
             if self.keyboard_highlight.is_some() {
-                painter.text(
+                canvas::label(
+                    painter,
                     label.left_bottom() + vec2(0.0, LABEL_MARGIN / 3.0),
                     Align2::LEFT_TOP,
                     &key_hints.highlight,
                     FontId::proportional(11.0),
-                    HINT_COLOR,
+                    canvas::MUTED,
                 );
             }
         }
-        painter.text(
+        canvas::label(
+            painter,
             rect.right_bottom() - vec2(LABEL_MARGIN, LABEL_MARGIN),
             Align2::RIGHT_BOTTOM,
             &key_hints.navigation,
             FontId::proportional(11.0),
-            HINT_COLOR,
+            canvas::MUTED,
         );
         let prompt = if editing.is_choosing_plane() {
             Some((CHOOSE_PLANE_PROMPT, CHOOSE_PLANE_HINT.to_owned()))
@@ -864,19 +864,21 @@ impl ViewportState {
                 .map(|prompt| (prompt.text, format!("{}   {TYPE_POINT_HINT}", prompt.keys)))
         };
         if let Some((text, keys)) = prompt {
-            let prompt = painter.text(
+            let prompt = canvas::label(
+                painter,
                 rect.center_top() + vec2(0.0, PROMPT_MARGIN),
                 Align2::CENTER_TOP,
                 text,
                 FontId::proportional(16.0),
-                PROMPT_COLOR,
+                canvas::PROMPT,
             );
-            painter.text(
+            canvas::label(
+                painter,
                 prompt.center_bottom() + vec2(0.0, LABEL_MARGIN / 2.0),
                 Align2::CENTER_TOP,
                 keys,
                 FontId::proportional(11.0),
-                HINT_COLOR,
+                canvas::MUTED,
             );
         }
         let snap_label = editing
@@ -886,16 +888,18 @@ impl ViewportState {
         if let (Some(label), Some(cursor)) = (snap_label, self.cursor) {
             let position = rect.min
                 + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
-            painter.text(
+            canvas::label(
+                painter,
                 position + SNAP_LABEL_OFFSET,
                 Align2::LEFT_TOP,
                 label,
                 FontId::proportional(12.0),
-                SNAP_LABEL_COLOR,
+                canvas::SNAP,
             );
         }
         if let Some(position) = self.sketch_cursor {
-            painter.text(
+            canvas::label(
+                painter,
                 rect.left_bottom() + vec2(LABEL_MARGIN, -LABEL_MARGIN),
                 Align2::LEFT_BOTTOM,
                 format!(
@@ -904,7 +908,7 @@ impl ViewportState {
                     model.length_unit().length_text(position.y, 2)
                 ),
                 FontId::monospace(11.0),
-                LABEL_COLOR,
+                canvas::TEXT,
             );
         }
     }
