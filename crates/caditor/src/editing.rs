@@ -2,7 +2,8 @@ use caditor_document::{Document, FeatureId, FeatureKind};
 use caditor_sketch::Sketch;
 
 use crate::{
-    model::{Action, Model},
+    commands::Command,
+    model::{Action, Model, Notice},
     selection::PrincipalPlane,
     sketch_placement::{self, FaceChoice},
 };
@@ -197,22 +198,25 @@ impl SketchEditing {
     }
 
     fn create_on_datum(&mut self, datum: FeatureId, model: &mut Model) {
-        let Some((transaction, feature)) = sketch_placement::new_sketch_on_datum(model, datum)
-        else {
-            return;
-        };
-        self.choosing_plane = false;
-        model.perform(Action::Apply(transaction));
-        self.enter(feature, model.document());
+        match sketch_placement::new_sketch_on_datum(model, datum) {
+            Ok((transaction, feature)) => {
+                self.choosing_plane = false;
+                model.perform(Action::Apply(transaction));
+                self.enter(feature, model.document());
+            }
+            Err(reason) => refuse_new_sketch(model, &reason),
+        }
     }
 
     fn create_on_face(&mut self, face: FaceChoice, model: &mut Model) {
-        let Some((transaction, feature)) = sketch_placement::new_sketch(model, face) else {
-            return;
-        };
-        self.choosing_plane = false;
-        model.perform(Action::Apply(transaction));
-        self.enter(feature, model.document());
+        match sketch_placement::new_sketch(model, face) {
+            Ok((transaction, feature)) => {
+                self.choosing_plane = false;
+                model.perform(Action::Apply(transaction));
+                self.enter(feature, model.document());
+            }
+            Err(reason) => refuse_new_sketch(model, reason),
+        }
     }
 
     fn enter(&mut self, feature: FeatureId, document: &Document) {
@@ -225,6 +229,13 @@ impl SketchEditing {
             });
         }
     }
+}
+
+fn refuse_new_sketch(model: &mut Model, reason: &str) {
+    model.perform(Action::Inform(Notice::info(format!(
+        "{}: {reason}.",
+        Command::NewSketch.title()
+    ))));
 }
 
 pub fn edited_sketch(document: &Document, feature: FeatureId) -> Option<&Sketch> {

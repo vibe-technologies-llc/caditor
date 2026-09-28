@@ -8,7 +8,7 @@ use caditor_kernel::{EdgeReference, FaceReference};
 use crate::{
     bodies,
     editing::{self, EditingCommand},
-    model::{Action, Model},
+    model::{Action, Model, Notice},
     selection::{Pickable, Selection},
     sketch_placement::{self, FaceChoice},
     solid_tools,
@@ -73,13 +73,13 @@ pub fn axis_reference(model: &Model, pickable: Pickable, index: usize) -> Option
         Pickable::Edge { body, edge } => {
             let shown = evaluation.body(body)?;
             let reference = EdgeReference::capture(shown, bodies::find_edge(shown, edge)?)?;
-            let state = sketch_placement::body_state_before(model, body, index)?;
+            let state = sketch_placement::body_state_before(model, body, index).ok()?;
             AxisReference::capture_edge(body, state, reference.resolve(state).ok()?)
         }
         Pickable::Face { body, face } => {
             let shown = evaluation.body(body)?;
             let reference = FaceReference::capture(shown, bodies::find_face(shown, face)?)?;
-            let state = sketch_placement::body_state_before(model, body, index)?;
+            let state = sketch_placement::body_state_before(model, body, index).ok()?;
             AxisReference::capture_face(body, state, reference.resolve(state).ok()?)
         }
         _ => None,
@@ -89,19 +89,48 @@ pub fn axis_reference(model: &Model, pickable: Pickable, index: usize) -> Option
 struct Chosen {
     planes: Vec<PlaneReference>,
     axes: Vec<AxisReference>,
+    unusable: Option<&'static str>,
 }
 
 fn chosen(model: &Model, selection: &Selection, index: usize) -> Chosen {
     let mut planes = Vec::new();
     let mut axes = Vec::new();
+    let mut unusable = None;
     for pickable in selection.iter() {
         if let Some(plane) = plane_reference(model, pickable, index) {
             planes.push(plane);
         } else if let Some(axis) = axis_reference(model, pickable, index) {
             axes.push(axis);
+        } else if let Some(reason) = why_unusable(model, pickable, index) {
+            unusable.get_or_insert(reason);
         }
     }
-    Chosen { planes, axes }
+    Chosen {
+        planes,
+        axes,
+        unusable,
+    }
+}
+
+fn why_unusable(model: &Model, pickable: Pickable, index: usize) -> Option<&'static str> {
+    let state = |body| sketch_placement::body_state_before(model, body, index).err();
+    match pickable {
+        Pickable::Face { body, face } => Some(
+            match sketch_placement::attachment_at(model, FaceChoice { body, face }, index) {
+                Err(sketch_placement::NOT_FLAT) => {
+                    "The selected face is neither flat nor round, so it gives no plane or axis"
+                }
+                Err(reason) => reason,
+                Ok(_) => return None,
+            },
+        ),
+        Pickable::Edge { body, .. } => Some(match state(body) {
+            Some(error) => error.edge(),
+            None => "The selected edge is not straight, so it gives no axis",
+        }),
+        Pickable::Datum(_) => Some("The selected plane or axis comes after this point in the tree"),
+        _ => None,
+    }
 }
 
 pub fn plane_from_selection(
@@ -109,7 +138,14 @@ pub fn plane_from_selection(
     selection: &Selection,
     index: usize,
 ) -> Result<DatumPlane, &'static str> {
-    let Chosen { planes, axes } = chosen(model, selection, index);
+    let Chosen {
+        planes,
+        axes,
+        unusable,
+    } = chosen(model, selection, index);
+    if let Some(reason) = unusable {
+        return Err(reason);
+    }
     if planes.len() > 1 {
         return Err("Select only one plane or flat face to start from");
     }
@@ -141,7 +177,14 @@ pub fn axis_from_selection(
     selection: &Selection,
     index: usize,
 ) -> Result<DatumAxis, &'static str> {
-    let Chosen { planes, axes } = chosen(model, selection, index);
+    let Chosen {
+        planes,
+        axes,
+        unusable,
+    } = chosen(model, selection, index);
+    if let Some(reason) = unusable {
+        return Err(reason);
+    }
     let mut planes = planes.into_iter();
     let mut axes = axes.into_iter();
     match (
@@ -167,9 +210,10 @@ pub fn create(document: &Document, datum: Datum) -> (Transaction, FeatureId) {
 }
 
 pub fn create_actions(document: &Document, datum: Datum) -> Vec<Action> {
+    let title = datum.title();
     let (transaction, feature) = create(document, datum);
-    if document.check(&transaction).is_err() {
-        return Vec::new();
+    if let Err(error) = document.check(&transaction) {
+        return vec![Action::Inform(Notice::info(format!("{title}: {error}.")))];
     }
     vec![
         Action::Apply(transaction),

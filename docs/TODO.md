@@ -167,10 +167,6 @@ within a category run from most to least important.
 
 ## Keyboard, accessibility and look
 
-- Several actions fail without a word: New sketch on an unusable face, a datum that fails its
-  check, fillet or shell with nothing usable, clicking a curved face while choosing a plane.
-- The Plane tool silently falls back to XY when a selected face cannot be captured, and a face
-  that is only outdated is described as made after the sketch.
 - No screen-reader support: the egui AccessKit integration is off.
 
 ## Sketching

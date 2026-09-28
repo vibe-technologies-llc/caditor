@@ -8,7 +8,7 @@ use caditor_kernel::{FaceId, FaceReference, ReferenceError, Solid};
 use crate::{
     bodies::{self, FaceKey},
     editing::{self, EditingCommand},
-    model::{Action, Model},
+    model::{Action, Model, Notice},
     selection::{Pickable, Selection},
     units::LengthUnit,
 };
@@ -54,15 +54,17 @@ pub fn create(
     evaluation: &Evaluation,
     source: &FaceSource,
     unit: LengthUnit,
-) -> Option<(Transaction, FeatureId)> {
-    let solid = evaluation.body(source.body)?;
+) -> Result<(Transaction, FeatureId), &'static str> {
+    let solid = evaluation
+        .body(source.body)
+        .ok_or("The body has no shape yet; recompute the model, then try again")?;
     let open: Vec<FaceReference> = source
         .faces
         .iter()
         .filter_map(|key| FaceReference::capture(solid, bodies::find_face(solid, *key)?))
         .collect();
     if open.len() < source.faces.len() {
-        return None;
+        return Err("Some of the selected faces are no longer part of the model");
     }
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
@@ -74,7 +76,7 @@ pub fn create(
             thickness: unit.default_length(DEFAULT_THICKNESS),
         }),
     );
-    Some((transaction.finish(), feature))
+    Ok((transaction.finish(), feature))
 }
 
 pub fn create_actions(
@@ -83,13 +85,13 @@ pub fn create_actions(
     source: &FaceSource,
     unit: LengthUnit,
 ) -> Vec<Action> {
-    let Some((transaction, feature)) = create(document, evaluation, source, unit) else {
-        return Vec::new();
-    };
-    vec![
-        Action::Apply(transaction),
-        Action::Editing(EditingCommand::OpenSolid(feature)),
-    ]
+    match create(document, evaluation, source, unit) {
+        Ok((transaction, feature)) => vec![
+            Action::Apply(transaction),
+            Action::Editing(EditingCommand::OpenSolid(feature)),
+        ],
+        Err(reason) => vec![Action::Inform(Notice::info(format!("{TITLE}: {reason}.")))],
+    }
 }
 
 pub fn edit(document: &Document, feature: FeatureId, shell: Shell) -> Option<Transaction> {

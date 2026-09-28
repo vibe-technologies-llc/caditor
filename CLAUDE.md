@@ -770,19 +770,22 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     the body is drawn as it was before the feature (`BodyMeshes::body_before`, shared with
     blends) with its flat faces as `Pickable::ShellFace`, opened ones highlighted, and a click
     opens a face or closes it again. The panel edits the thickness and lists the open faces.
-  - Datums (`datum_tools.rs`, `datum_panel.rs`): the toolbar's Plane starts from the selected
-    plane or flat face (the XY plane otherwise), turned 45° about the selected axis, straight
-    edge or round face when there is one (offset 0 mm), else offset 10 mm; Axis runs along the
-    selected axis, straight edge or round face, or where two selected planes or flat faces
-    meet. The new feature opens, and its panel has Use selected for its base and rotation axis
-    (or for the whole axis) and fields for the angle and offset. Datums are drawn outside
-    sketch editing as translucent squares and lines centred where the world origin projects
-    onto them, picked as `Pickable::Datum`, tinted when failed, and double-clicking one opens
-    it.
+  - Datums (`datum_tools.rs`, `datum_panel.rs`): the toolbar's Plane starts from the selected plane
+    or flat face (the XY plane otherwise), turned 45° about the selected axis, straight edge or
+    round face when there is one (offset 0 mm), else offset 10 mm; Axis runs along the selected
+    axis, straight edge or round face, or where two selected planes or flat faces meet. A selected
+    face or edge that gives neither (curved, round rim, made later, not yet recomputed) makes both
+    refuse with that reason. The new feature opens, and its panel has Use selected for its base and
+    rotation axis (or for the whole axis) and fields for the angle and offset. Datums are drawn
+    outside sketch editing as translucent squares and lines centred where the world origin projects
+    onto them, picked as `Pickable::Datum`, tinted when failed, and double-clicking one opens it.
   - Sketches on faces and planes (`sketch_placement.rs`): New sketch starts on a selected principal
     plane, datum plane or flat face, and while choosing a plane a click on any of them does the
     same. The attachment is captured from the body's state where the sketch sits in the tree, so a
-    face made further down is refused with the reason. A sketch's row says which face or plane it
+    face made further down is refused with the reason, and one whose body is not recomputed that
+    far says so (`body_state_before` tells the two apart). Every refused New sketch, including a
+    click on a curved face while choosing, and every Fillet, Chamfer, Shell or datum that cannot
+    be created, leaves a notice with the reason. A sketch's row says which face or plane it
     lies on and offers Detach, and Place on selected plane or Place on selected face when one is
     selected. Everything that draws or maps onto a sketch takes its plane from the solved result
     (`scene::sketch_plane`, `displayed_sketch`), since an attached sketch's stored plane is only

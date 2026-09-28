@@ -20,7 +20,7 @@ use crate::{
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
     selection::{Pickable, Selection},
     shell_tools,
-    sketch_placement::{self, FaceChoice},
+    sketch_placement::FaceChoice,
     snap::{Pointer, Screen},
     solid_tools,
     typed_point::{self, TypedPoint},
@@ -952,9 +952,7 @@ fn pick_action(
         Some(Pickable::Datum(datum)) if datum_tools::is_plane(model.document(), datum) => {
             Some(EditingCommand::NewSketchOnDatum(datum))
         }
-        Some(pickable) => FaceChoice::of(pickable)
-            .filter(|face| sketch_placement::is_flat(model, *face))
-            .map(EditingCommand::NewSketchOnFace),
+        Some(pickable) => FaceChoice::of(pickable).map(EditingCommand::NewSketchOnFace),
         None => None,
     };
     Some(command.map(Action::Editing))

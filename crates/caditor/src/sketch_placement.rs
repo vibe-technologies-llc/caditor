@@ -35,27 +35,70 @@ pub fn selected_face(selection: &Selection) -> Option<FaceChoice> {
     faces.next().is_none().then_some(face)
 }
 
+pub const NOT_FLAT: &str = "The selected face is curved; sketches lie on planes and flat faces";
+
 pub fn is_flat(model: &Model, choice: FaceChoice) -> bool {
     model.evaluation().body(choice.body).is_some_and(|solid| {
         bodies::find_face(solid, choice.face).is_some_and(|face| face_plane(solid, face).is_some())
     })
 }
 
-pub fn body_state_before(model: &Model, body: FeatureId, index: usize) -> Option<&Solid> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StateError {
+    NotRecomputed,
+    MadeAfter,
+}
+
+impl StateError {
+    pub fn face(self) -> &'static str {
+        match self {
+            Self::NotRecomputed => NOT_RECOMPUTED,
+            Self::MadeAfter => "The selected face is made after this point in the tree",
+        }
+    }
+
+    pub fn edge(self) -> &'static str {
+        match self {
+            Self::NotRecomputed => NOT_RECOMPUTED,
+            Self::MadeAfter => "The selected edge is made after this point in the tree",
+        }
+    }
+}
+
+const NOT_RECOMPUTED: &str =
+    "The model is not recomputed up to there yet; recompute it, then try again";
+const GONE: &str = "The selected face is no longer part of the model";
+
+pub fn body_state_before(
+    model: &Model,
+    body: FeatureId,
+    index: usize,
+) -> Result<&Solid, StateError> {
     let evaluation = model.evaluation();
-    model
+    for feature in model
         .document()
         .features()
         .take(index)
         .rev()
         .filter(|feature| feature.body() == Some(body))
-        .find_map(|feature| {
-            let status = evaluation.feature(feature.id())?;
-            if status.state != FeatureState::UpToDate {
-                return None;
+    {
+        let Some(status) = evaluation.feature(feature.id()) else {
+            return Err(StateError::NotRecomputed);
+        };
+        match &status.state {
+            FeatureState::UpToDate => {
+                return status
+                    .result
+                    .as_deref()
+                    .and_then(|result| result.solid())
+                    .map(|result| &result.solid)
+                    .ok_or(StateError::NotRecomputed);
             }
-            Some(&status.result.as_deref()?.solid()?.solid)
-        })
+            FeatureState::Outdated => return Err(StateError::NotRecomputed),
+            FeatureState::Failed(_) => {}
+        }
+    }
+    Err(StateError::MadeAfter)
 }
 
 pub fn attachment_at(
@@ -63,36 +106,33 @@ pub fn attachment_at(
     choice: FaceChoice,
     index: usize,
 ) -> Result<(FaceAttachment, Plane), &'static str> {
-    let shown = model
-        .evaluation()
-        .body(choice.body)
-        .ok_or("The selected face is no longer part of the model")?;
-    let face = bodies::find_face(shown, choice.face)
-        .ok_or("The selected face is no longer part of the model")?;
+    let shown = model.evaluation().body(choice.body).ok_or(GONE)?;
+    let face = bodies::find_face(shown, choice.face).ok_or(GONE)?;
     if face_plane(shown, face).is_none() {
-        return Err("The selected face is not flat");
+        return Err(NOT_FLAT);
     }
-    let reference = FaceReference::capture(shown, face)
-        .ok_or("The selected face is no longer part of the model")?;
-    let state = body_state_before(model, choice.body, index)
-        .ok_or("The selected face is made after this sketch in the tree")?;
+    let reference = FaceReference::capture(shown, face).ok_or(GONE)?;
+    let state = body_state_before(model, choice.body, index).map_err(StateError::face)?;
     let there = reference
         .resolve(state)
-        .map_err(|_| "The selected face is made after this sketch in the tree")?;
+        .map_err(|_| StateError::MadeAfter.face())?;
     FaceAttachment::capture(choice.body, state, there)
-        .ok_or("The selected face is not flat where this sketch is in the tree")
+        .ok_or("The selected face is not flat at this point in the tree")
 }
 
-pub fn new_sketch(model: &Model, choice: FaceChoice) -> Option<(Transaction, FeatureId)> {
+pub fn new_sketch(
+    model: &Model,
+    choice: FaceChoice,
+) -> Result<(Transaction, FeatureId), &'static str> {
     let document = model.document();
-    let (attachment, plane) = attachment_at(model, choice, document.features().len()).ok()?;
+    let (attachment, plane) = attachment_at(model, choice, document.features().len())?;
     let name = editing::next_sketch_name(document);
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(
         name,
         FeatureKind::Sketch(SketchFeature::on_face(Sketch::new(plane), attachment)),
     );
-    Some((transaction.finish(), feature))
+    Ok((transaction.finish(), feature))
 }
 
 pub fn place(
@@ -153,9 +193,14 @@ pub fn describe(document: &Document, attachment: &SketchAttachment) -> String {
     }
 }
 
-pub fn new_sketch_on_datum(model: &Model, datum: FeatureId) -> Option<(Transaction, FeatureId)> {
+pub fn new_sketch_on_datum(
+    model: &Model,
+    datum: FeatureId,
+) -> Result<(Transaction, FeatureId), String> {
     let document = model.document();
-    let plane = datum_tools::result(model.evaluation(), datum)?.plane()?;
+    let plane = datum_tools::result(model.evaluation(), datum)
+        .and_then(|result| result.plane())
+        .ok_or("The selected plane has no position yet")?;
     let name = editing::next_sketch_name(document);
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(
@@ -163,8 +208,10 @@ pub fn new_sketch_on_datum(model: &Model, datum: FeatureId) -> Option<(Transacti
         FeatureKind::Sketch(SketchFeature::on_datum(Sketch::new(plane), datum)),
     );
     let transaction = transaction.finish();
-    document.check(&transaction).ok()?;
-    Some((transaction, feature))
+    document
+        .check(&transaction)
+        .map_err(|error| error.to_string())?;
+    Ok((transaction, feature))
 }
 
 pub fn place_on_datum(

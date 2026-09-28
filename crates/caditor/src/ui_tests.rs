@@ -3320,3 +3320,55 @@ fn dialogs_fit_the_screen_at_the_largest_interface_size() {
         );
     }
 }
+
+#[test]
+fn a_curved_face_or_a_round_edge_says_why_it_cannot_be_used() {
+    let mut harness = Harness::new();
+    let mut disc = Sketch::new(Plane::XY);
+    disc.add_circle(Point2::ZERO, 10.0);
+    harness.add_sketch(disc);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let pickables: Vec<Pickable> = harness.built().picks.pickables().collect();
+    let side = pickables
+        .iter()
+        .copied()
+        .find(|pickable| {
+            pickable
+                .describe(harness.document(), harness.model.evaluation())
+                .contains("side")
+        })
+        .expect("the round side is pickable");
+    let rim = pickables
+        .iter()
+        .copied()
+        .find(|pickable| matches!(pickable, Pickable::Edge { .. }))
+        .expect("a rim is pickable");
+
+    harness.select([]);
+    harness.click("New sketch");
+    harness.click_pickable(Plane::XY, Point2::new(10.0, 0.0), side);
+    harness.settle();
+    assert!(harness.workspace.editing.is_choosing_plane());
+    assert_eq!(
+        harness.model.notice().map(|notice| notice.text.as_str()),
+        Some("New sketch: The selected face is curved; sketches lie on planes and flat faces.")
+    );
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.select([rim]);
+    let end = harness.document().features().len();
+    assert_eq!(
+        crate::datum_tools::plane_from_selection(
+            &harness.model,
+            harness.workspace.viewport.selection(),
+            end
+        ),
+        Err("The selected edge is not straight, so it gives no axis")
+    );
+}

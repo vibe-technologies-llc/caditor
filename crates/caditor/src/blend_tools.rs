@@ -8,12 +8,13 @@ use caditor_kernel::{EdgeId, EdgeName, EdgeReference, ReferenceError, Solid, ble
 use crate::{
     bodies,
     editing::{self, EditingCommand},
-    model::{Action, Model},
+    model::{Action, Model, Notice},
     selection::{Pickable, Selection},
     units::LengthUnit,
 };
 
 pub const DEFAULT_SIZE: f64 = 1.0;
+const NO_SHAPE: &str = "The body has no shape yet; recompute the model, then try again";
 
 pub const KINDS: [BlendKind; 2] = [BlendKind::Fillet, BlendKind::Chamfer];
 
@@ -47,8 +48,8 @@ pub fn create(
     kind: BlendKind,
     source: &EdgeSource,
     unit: LengthUnit,
-) -> Option<(Transaction, FeatureId)> {
-    let solid = evaluation.body(source.body)?;
+) -> Result<(Transaction, FeatureId), &'static str> {
+    let solid = evaluation.body(source.body).ok_or(NO_SHAPE)?;
     let edges: Vec<EdgeReference> = source
         .edges
         .iter()
@@ -58,7 +59,7 @@ pub fn create(
         })
         .collect();
     if edges.is_empty() {
-        return None;
+        return Err("The selected edges are no longer part of the model");
     }
     let name = editing::next_feature_name(document, kind.title());
     let mut transaction = document.transaction(format!("Create {name}"));
@@ -71,7 +72,7 @@ pub fn create(
             size: unit.default_length(DEFAULT_SIZE),
         }),
     );
-    Some((transaction.finish(), feature))
+    Ok((transaction.finish(), feature))
 }
 
 pub fn create_actions(
@@ -81,13 +82,16 @@ pub fn create_actions(
     source: &EdgeSource,
     unit: LengthUnit,
 ) -> Vec<Action> {
-    let Some((transaction, feature)) = create(document, evaluation, kind, source, unit) else {
-        return Vec::new();
-    };
-    vec![
-        Action::Apply(transaction),
-        Action::Editing(EditingCommand::OpenSolid(feature)),
-    ]
+    match create(document, evaluation, kind, source, unit) {
+        Ok((transaction, feature)) => vec![
+            Action::Apply(transaction),
+            Action::Editing(EditingCommand::OpenSolid(feature)),
+        ],
+        Err(reason) => vec![Action::Inform(Notice::info(format!(
+            "{}: {reason}.",
+            kind.title()
+        )))],
+    }
 }
 
 pub fn edit(document: &Document, feature: FeatureId, blend: Blend) -> Option<Transaction> {
