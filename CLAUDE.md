@@ -346,8 +346,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
       on a branch, with steps limited by the turn of the tangent, stop exactly on the box boundary
       (a parameter-constrained solve), close loops through the seed and end where the normals
       become parallel (reported as tangent points); a step that collapses or a branch longer
-      than the step cap fails as `IntersectionError::Unfollowable` rather than ending there. Near poles the contact is solved with one
-      surface as carrier and the other's signed distance. A marched branch that is a line, circle
+      than the step cap fails as `IntersectionError::Unfollowable` rather than ending there.
+      Near poles the contact is solved with one surface as carrier and the other's signed
+      distance. A marched branch that is a line, circle
       or ellipse within half the resolution is returned as that curve.
   - Point classification (`topology/classify.rs`, `SolidClassifier` to reuse per solid):
     `classify_point` gives `Inside`, `Outside` or `OnBoundary(face)` exactly, or `Undecided` when
