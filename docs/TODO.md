@@ -33,22 +33,12 @@ within a category run from most to least important.
 
 ## Kernel correctness
 
-- Mixed convex and concave blends silently drop convex edges whose references are lost in the
-  concave pass (`blend/mod.rs`: `ReferenceError::Missing => Vec::new()`), and the feature
-  succeeds unrounded. Fail naming the edge, and assert blend face counts in
-  `every_edge_of_assorted_prisms`.
 - Region keys change with what else is selected: `region.rs` tie-breaks only against regions in
   the same batch, and `select` re-keys the selected lumps alone, so a cap face is renamed when
   a neighbouring region joins the selection. Compute tie-breaks once over the whole arrangement.
-- A reference whose name is unique is accepted without checking neighbours
-  (`naming/reference.rs`), but cut occurrences are numbered along the curve, so removing two
-  crossings silently hands an old face's reference to a different side face. Require neighbour
-  overlap even for unique names.
 - Twisted faces tessellate as two triangles at any tolerance, because density looks only at
   `duu` and `dvv` (`tessellation/density.rs`); curvature is also sampled on one 9×9 lattice.
   Include twist, sample per knot span and refine by measured error.
-- Blend errors can name the wrong edge or a vertex of an intermediate solid
-  (`blend/mod.rs` `remapped` falls back to the first convex edge).
 - `fits` checks the blend only at the middle of the edge, so a face that narrows elsewhere lets
   the tool cut through.
 - Shell blames every failure on the thickness (`plan.build`, profile and extrude errors map to
@@ -65,20 +55,10 @@ within a category run from most to least important.
   at poles.
 - Spline surfaces that coincide over only part of their extent are not seen as coincident
   (`coincidence.rs` samples the whole domain), so booleans march between identical surfaces.
-- Point classification returns `Outside` when every ray was ambiguous (`classify.rs`), and pole
-  probing uses an absolute `1e-3` in v, which lies outside small knot ranges.
-- Same-name edges are ordered by exact float comparison of midpoints (`build/plan.rs`,
-  `topology/mod.rs`), so last-bit noise can swap occurrences after an upstream change.
-- Long wiggly splines fail with "runs back over itself": the per-pair budget in
-  `profile/intersect.rs` is charged before the box test, so about 450 monotone segments always
-  exhaust it. Prune first and give exhaustion its own error.
-- Two real profile crossings closer than 0.1% of the sketch size merge into one
-  (`profile/intersect.rs` deduplicates by leaf size).
 - STEP export of a solid that cannot be meshed writes each void as its own inverted solid and
   still succeeds (`write/shape.rs`), and an unclassified void is attached to the first lump.
 - Validation does not check faces or loops against each other, so self-intersecting imports pass
   and fail later in booleans.
-- `Solid::bounding_box` uses only edges and vertices, so a sphere's box misses half of it.
 - Untested: spline surfaces in intersections, booleans, blends and shells; import edge naming;
   every blend and shell refusal branch; cuts through a cone apex.
 

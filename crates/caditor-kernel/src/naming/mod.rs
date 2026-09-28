@@ -210,3 +210,13 @@ impl FaceOrigin {
         }
     }
 }
+
+const OCCURRENCE_GRID: f64 = 100.0 * crate::tolerance::LINEAR_RESOLUTION;
+
+pub(crate) fn occurrence_order(point: caditor_geometry::Point3) -> [i64; 3] {
+    let cell = |coordinate: f64| {
+        let scaled = (coordinate / OCCURRENCE_GRID).round();
+        if scaled.is_finite() { scaled as i64 } else { 0 }
+    };
+    [cell(point.x), cell(point.y), cell(point.z)]
+}

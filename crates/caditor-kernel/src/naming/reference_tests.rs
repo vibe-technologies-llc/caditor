@@ -259,3 +259,32 @@ fn name_of_fragments(solid: &Solid) -> FaceName {
     assert_eq!(names.len(), 1);
     names.into_iter().next().unwrap()
 }
+
+#[test]
+fn a_unique_name_is_not_trusted_when_none_of_its_neighbours_remain() {
+    let solid = plate_with_hole((4.0, 4.0));
+    let hole = face_from(
+        &solid,
+        FaceOrigin::Side {
+            feature: 11,
+            entity: 5,
+        },
+    );
+    let captured = FaceReference::capture(&solid, hole).unwrap();
+    let strangers = FaceReference::new(
+        captured.name(),
+        captured.origin(),
+        [FaceName::side(
+            99,
+            &crate::profile::PieceId::new(
+                1,
+                crate::profile::PieceBound::Start,
+                crate::profile::PieceBound::End,
+            ),
+        )],
+    );
+    assert_eq!(strangers.resolve(&solid), Err(ReferenceError::Missing));
+    assert_eq!(captured.resolve(&solid), Ok(hole));
+    let unrecorded = FaceReference::new(captured.name(), captured.origin(), []);
+    assert_eq!(unrecorded.resolve(&solid), Ok(hole));
+}

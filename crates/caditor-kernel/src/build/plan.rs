@@ -8,7 +8,7 @@ use crate::{
     curve::{Curve, Line},
     error::GeometryError,
     interval::Interval,
-    naming::{EdgeName, FaceName, FaceOrigin, VertexName},
+    naming::{EdgeName, FaceName, FaceOrigin, VertexName, occurrence_order},
     sense::Sense,
     surface::Surface,
     tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE},
@@ -205,12 +205,7 @@ impl Plan {
                     edge.curve.point(edge.interval.middle())
                 })
             };
-            named.sort_by(|a, b| {
-                let (a, b) = (midpoint(a.0), midpoint(b.0));
-                a.x.total_cmp(&b.x)
-                    .then(a.y.total_cmp(&b.y))
-                    .then(a.z.total_cmp(&b.z))
-            });
+            named.sort_by_key(|(index, _)| occurrence_order(midpoint(*index)));
             let mut occurrences: BTreeMap<EdgeName, u32> = BTreeMap::new();
             for (index, name) in named {
                 if counts.get(&name).copied().unwrap_or(0) > 1 {

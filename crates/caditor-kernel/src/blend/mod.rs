@@ -75,7 +75,14 @@ pub enum BlendError {
     #[error("the size does not fit on the faces next to edge {0:?}")]
     TooLarge(EdgeId),
     #[error("edge {edge:?} ends at vertex {vertex:?} where the blend cannot be closed off")]
-    UnsupportedEnd { edge: EdgeId, vertex: VertexId },
+    UnsupportedEnd {
+        edge: EdgeId,
+        vertex: Option<VertexId>,
+    },
+    #[error("edge {0:?} could not be found again after the concave edges were filled")]
+    Lost(EdgeId),
+    #[error("after the concave edges were filled: {0}")]
+    AfterFill(Box<BlendError>),
     #[error("the blend shape could not be built: {0}")]
     Profile(#[from] ProfileError),
     #[error("the blend shape could not be swept: {0}")]
@@ -85,16 +92,19 @@ pub enum BlendError {
 }
 
 impl BlendError {
-    fn remapped(self, map: impl Fn(EdgeId) -> EdgeId) -> Self {
+    fn remapped(self, map: impl Fn(EdgeId) -> Option<EdgeId>) -> Self {
+        let Some(original) = self.edge().map(&map) else {
+            return self;
+        };
+        let Some(edge) = original else {
+            return Self::AfterFill(Box::new(self));
+        };
         match self {
-            Self::MissingEdge(edge) => Self::MissingEdge(map(edge)),
-            Self::Unsupported(edge) => Self::Unsupported(map(edge)),
-            Self::Smooth(edge) => Self::Smooth(map(edge)),
-            Self::TooLarge(edge) => Self::TooLarge(map(edge)),
-            Self::UnsupportedEnd { edge, vertex } => Self::UnsupportedEnd {
-                edge: map(edge),
-                vertex,
-            },
+            Self::MissingEdge(_) => Self::MissingEdge(edge),
+            Self::Unsupported(_) => Self::Unsupported(edge),
+            Self::Smooth(_) => Self::Smooth(edge),
+            Self::TooLarge(_) => Self::TooLarge(edge),
+            Self::UnsupportedEnd { .. } => Self::UnsupportedEnd { edge, vertex: None },
             other => other,
         }
     }
@@ -105,8 +115,10 @@ impl BlendError {
             | Self::Unsupported(edge)
             | Self::Smooth(edge)
             | Self::TooLarge(edge)
+            | Self::Lost(edge)
             | Self::UnsupportedEnd { edge, .. } => Some(*edge),
             Self::InvalidSize
+            | Self::AfterFill(_)
             | Self::NoEdges
             | Self::Profile(_)
             | Self::Sweep(_)
@@ -509,7 +521,10 @@ fn end_at(
     {
         return Ok((End::Setback(*setback), None));
     }
-    let refused = BlendError::UnsupportedEnd { edge, vertex };
+    let refused = BlendError::UnsupportedEnd {
+        edge,
+        vertex: Some(vertex),
+    };
     let out = leaving(solid, edge, vertex).ok_or(refused.clone())?;
     let continued = topology
         .edges_at(vertex)
@@ -776,25 +791,26 @@ pub fn blend(
         .filter_map(|edge| Some((*edge, EdgeReference::capture(solid, *edge)?)))
         .collect();
     let filled = apply(solid, &concave, shape, feature)?;
+    if let Some(lost) = convex
+        .iter()
+        .find(|edge| !references.iter().any(|(captured, _)| captured == *edge))
+    {
+        return Err(BlendError::Lost(*lost));
+    }
     let mut original = BTreeMap::new();
     for (edge, reference) in &references {
         let found = match reference.resolve(&filled) {
             Ok(found) => vec![found],
             Err(ReferenceError::Ambiguous(candidates)) => candidates,
-            Err(ReferenceError::Missing) => Vec::new(),
+            Err(ReferenceError::Missing) => return Err(BlendError::Lost(*edge)),
         };
         for piece in found {
             original.insert(piece, *edge);
         }
     }
     let remaining: Vec<EdgeId> = original.keys().copied().collect();
-    if remaining.is_empty() {
-        return Ok(filled);
-    }
-    apply(&filled, &remaining, shape, feature).map_err(|error| {
-        let fallback = convex.first().copied();
-        error.remapped(|edge| original.get(&edge).copied().or(fallback).unwrap_or(edge))
-    })
+    apply(&filled, &remaining, shape, feature)
+        .map_err(|error| error.remapped(|edge| original.get(&edge).copied()))
 }
 
 fn apply(

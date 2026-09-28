@@ -394,9 +394,14 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
                 segments.get(second).map_or(&[], Vec::as_slice),
                 scale,
             )
-            .map_err(|_| ProfileError::Overlap {
-                first: first_source.entity,
-                second: second_source.entity,
+            .map_err(|failure| match failure {
+                intersect::Unresolved::Overlapping => ProfileError::Overlap {
+                    first: first_source.entity,
+                    second: second_source.entity,
+                },
+                intersect::Unresolved::TooIntricate => ProfileError::TooIntricate {
+                    entities: vec![first_source.entity, second_source.entity],
+                },
             })?;
             for hit in hits {
                 events.push(cut(first, hit.first, hit.point));
@@ -409,8 +414,13 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
                 segments.get(first).map_or(&[], Vec::as_slice),
                 scale,
             )
-            .map_err(|_| ProfileError::SelfOverlap {
-                entity: first_source.entity,
+            .map_err(|failure| match failure {
+                intersect::Unresolved::Overlapping => ProfileError::SelfOverlap {
+                    entity: first_source.entity,
+                },
+                intersect::Unresolved::TooIntricate => ProfileError::TooIntricate {
+                    entities: vec![first_source.entity],
+                },
             })?;
             for hit in hits {
                 events.push(cut(first, hit.first, hit.point));

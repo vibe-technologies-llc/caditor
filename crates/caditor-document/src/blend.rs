@@ -187,6 +187,24 @@ impl Context<'_> {
                 format!("The {noun} cannot be closed off where {edge} ends."),
                 "Also choose the edges that continue from it, or leave it out.".to_owned(),
             ),
+            BlendError::Lost(_) => self.error(
+                format!(
+                    "The {noun} of {edge} could not be finished after the inner corners next to \
+                     it were filled."
+                ),
+                "Blend the inner and the outer edges in separate features.".to_owned(),
+            ),
+            BlendError::AfterFill(inner) => {
+                log::warn!("{} could not be built: {inner}", self.feature.name);
+                self.error(
+                    format!(
+                        "The {noun} could not be finished after the inner corners of the body of \
+                         {} were filled.",
+                        self.body_name
+                    ),
+                    "Blend the inner and the outer edges in separate features.".to_owned(),
+                )
+            }
             BlendError::Profile(_) | BlendError::Sweep(_) | BlendError::Boolean(_) => {
                 log::warn!("{} could not be built: {error}", self.feature.name);
                 self.error(

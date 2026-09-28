@@ -61,9 +61,11 @@ impl FaceReference {
             .map(|(id, _)| id)
             .collect();
         if let [only] = named.as_slice() {
-            return Ok(*only);
-        }
-        if !named.is_empty() {
+            let found = neighbour_names(solid, *only);
+            if self.neighbours.is_empty() || !self.neighbours.is_disjoint(&found) {
+                return Ok(*only);
+            }
+        } else if !named.is_empty() {
             return self.best_by_neighbours(solid, &named, 0);
         }
         let Some(origin) = self.origin else {

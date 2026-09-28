@@ -27,7 +27,10 @@ pub(crate) struct Hit {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Overlapping;
+pub(crate) enum Unresolved {
+    Overlapping,
+    TooIntricate,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Scale {
@@ -47,7 +50,7 @@ pub(crate) fn between(
     second: &Source,
     second_segments: &[Interval],
     scale: Scale,
-) -> Result<Vec<Hit>, Overlapping> {
+) -> Result<Vec<Hit>, Unresolved> {
     let tolerance = scale.tolerance;
     match (&first.curve, &second.curve) {
         (Curve2::Line(a), Curve2::Line(b)) => {
@@ -74,8 +77,13 @@ pub(crate) fn between(
         _ => {
             let mut hits = Vec::new();
             let mut budget = MAX_BOX_TESTS;
-            for first_segment in first_segments {
-                for second_segment in second_segments {
+            let first_boxes = segment_boxes(first, first_segments);
+            let second_boxes = segment_boxes(second, second_segments);
+            for (first_segment, first_box) in first_segments.iter().zip(&first_boxes) {
+                for (second_segment, second_box) in second_segments.iter().zip(&second_boxes) {
+                    if !near(first_box, second_box, scale.tolerance) {
+                        continue;
+                    }
                     hits.extend(subdivide(
                         (first, *first_segment),
                         (second, *second_segment),
@@ -93,11 +101,18 @@ pub(crate) fn within(
     source: &Source,
     segments: &[Interval],
     scale: Scale,
-) -> Result<Vec<Hit>, Overlapping> {
+) -> Result<Vec<Hit>, Unresolved> {
     let mut hits = Vec::new();
     let mut budget = MAX_BOX_TESTS;
+    let boxes = segment_boxes(source, segments);
     for (index, first) in segments.iter().enumerate() {
         for (offset, second) in segments.iter().enumerate().skip(index + 1) {
+            let (Some(first_box), Some(second_box)) = (boxes.get(index), boxes.get(offset)) else {
+                continue;
+            };
+            if !near(first_box, second_box, scale.tolerance) {
+                continue;
+            }
             let found = subdivide((source, *first), (source, *second), scale, &mut budget)?;
             let adjacent = offset == index + 1;
             let joint = source.point(first.end());
@@ -297,7 +312,7 @@ fn subdivide(
     (second, second_segment): (&Source, Interval),
     scale: Scale,
     budget: &mut usize,
-) -> Result<Vec<Hit>, Overlapping> {
+) -> Result<Vec<Hit>, Unresolved> {
     let leaf = scale.leaf();
     let mut pending = vec![(
         Span::of(first, first_segment),
@@ -305,14 +320,11 @@ fn subdivide(
     )];
     let mut leaves = Vec::new();
     while let Some((a, b)) = pending.pop() {
-        *budget = budget.checked_sub(1).ok_or(Overlapping)?;
         let (a_box, b_box) = (a.bounds(), b.bounds());
-        if !overlaps(
-            &a_box.expanded(scale.tolerance),
-            &b_box.expanded(scale.tolerance),
-        ) {
+        if !near(&a_box, &b_box, scale.tolerance) {
             continue;
         }
+        *budget = budget.checked_sub(1).ok_or(Unresolved::TooIntricate)?;
         let (a_size, b_size) = (largest_side(&a_box), largest_side(&b_box));
         let split_first = a_size >= b_size;
         let halves = if a_size <= leaf && b_size <= leaf {
@@ -330,7 +342,7 @@ fn subdivide(
             }
             None => {
                 if leaves.len() >= MAX_LEAVES {
-                    return Err(Overlapping);
+                    return Err(Unresolved::Overlapping);
                 }
                 leaves.push((a.range.middle(), b.range.middle()));
             }
@@ -338,10 +350,6 @@ fn subdivide(
     }
     let mut hits: Vec<Hit> = Vec::new();
     for start in leaves {
-        let near = first.point(start.0);
-        if hits.iter().any(|hit| hit.point.distance(near) <= leaf) {
-            continue;
-        }
         let (s, t, distance) = converge(
             &first.curve,
             first_segment,
@@ -349,15 +357,31 @@ fn subdivide(
             second_segment,
             start,
         );
-        if distance <= scale.tolerance {
+        let point = (first.point(s) + second.point(t)) * 0.5;
+        let repeated = hits.iter().any(|hit| {
+            hit.point.distance(point) <= scale.tolerance
+                && first.length_between(hit.first, s) <= LEAF_TOLERANCES * scale.tolerance
+        });
+        if distance <= scale.tolerance && !repeated {
             hits.push(Hit {
                 first: s,
                 second: t,
-                point: (first.point(s) + second.point(t)) * 0.5,
+                point,
             });
         }
     }
     Ok(hits)
+}
+
+fn segment_boxes(source: &Source, segments: &[Interval]) -> Vec<Aabb2> {
+    segments
+        .iter()
+        .map(|segment| Span::of(source, *segment).bounds())
+        .collect()
+}
+
+fn near(first: &Aabb2, second: &Aabb2, tolerance: f64) -> bool {
+    overlaps(&first.expanded(tolerance), &second.expanded(tolerance))
 }
 
 fn converge(
@@ -425,7 +449,7 @@ fn consolidate(
     mut hits: Vec<Hit>,
     scale: Scale,
     same: bool,
-) -> Result<Vec<Hit>, Overlapping> {
+) -> Result<Vec<Hit>, Unresolved> {
     hits.sort_by(|a, b| a.first.total_cmp(&b.first));
     let mut distinct: Vec<Hit> = Vec::new();
     for hit in hits {
@@ -462,7 +486,7 @@ fn consolidate(
             continue;
         };
         if first.length_between(start.first, end.first) > TANGENT_SPAN * scale.size {
-            return Err(Overlapping);
+            return Err(Unresolved::Overlapping);
         }
         if let Some(middle) = chain.get(chain.len() / 2) {
             result.push(*middle);

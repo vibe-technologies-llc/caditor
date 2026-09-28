@@ -516,12 +516,14 @@ fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
         | ProfileError::Degenerate { .. }
         | ProfileError::InvalidCurve { .. }
         | ProfileError::SelfOverlap { .. }
-        | ProfileError::Overlap { .. } => {
+        | ProfileError::Overlap { .. }
+        | ProfileError::TooIntricate { .. } => {
             let curves = context.curves(&error.entities());
             let problem = match error {
                 ProfileError::Degenerate { .. } => "has no length",
                 ProfileError::SelfOverlap { .. } => "runs back over itself",
                 ProfileError::Overlap { .. } => "run along each other",
+                ProfileError::TooIntricate { .. } => "cross too often to be divided into regions",
                 _ => "cannot be used",
             };
             context.error(

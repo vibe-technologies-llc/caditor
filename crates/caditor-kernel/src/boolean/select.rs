@@ -79,7 +79,7 @@ fn classify(
             BoundaryClass::Coincident { sense, .. } => {
                 coincident = coincident.or(Some(Class::Coincident(sense)));
             }
-            BoundaryClass::Touching(_) => {}
+            BoundaryClass::Touching(_) | BoundaryClass::Undecided => {}
         }
     }
     solid_side.or(coincident).ok_or(BooleanError::Ambiguous)

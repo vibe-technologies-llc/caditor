@@ -241,7 +241,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     topology (edge uses and senses, loop chaining in space and in uv, vertices on curve ends,
     edges on both surfaces, pcurves on their edges, loop winding and nesting, shell
     connectivity, Euler–Poincaré per shell, positive volume for lumps and voids inside a lump)
-    and returns the first `ValidationError`, with ids. The volume checks run on a coarse mesh and
+    and returns the first `ValidationError`, with ids. `bounding_box` covers the edges and, for
+    doubly curved faces, a grid of points inside each face plus a sphere's axis extremes. The volume checks run on a coarse mesh and
     retry finer before reporting a void outside its lump.
   - Tessellation samples each edge once and shares its positions between both faces. Each face
     is a constrained Delaunay triangulation (spade) of its loops in (u, v), scaled by the mean
@@ -264,8 +265,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     PieceId)`, `start_cap` and `end_cap(feature, RegionKey)`. Edges: `between` (unordered face
     pair), `seam(face)` for the profile seam of a full revolution, and, when several edges share
     a name, `between_at(left, right, from, to)` with the vertex names (sets of faces around each
-    end) and the faces oriented by the edge, then `occurrence` ordered by position as a last
-    resort. `FaceOrigin` (side of an entity, start or end cap, with the raw feature and entity
+    end) and the faces oriented by the edge, then `occurrence` ordered by position (midpoints on
+    a grid of a hundred resolutions, so rounding noise cannot swap them) as a last resort. `FaceOrigin` (side of an entity, start or end cap, with the raw feature and entity
     ids) says in words what a face came from. Later generators (a fillet face named by the edge it
     replaced, boolean fragments that keep their name) are new constructors with new tags.
     `Solid::imported(feature)` names an imported solid: `FaceName::imported(feature, index)` by
@@ -273,7 +274,7 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `FaceOrigin::Imported`, and edges `between` their faces, disambiguated like sweeps.
   - References (`naming/reference.rs`) are how later features keep hold of generated topology.
     A `FaceReference` is a face's name, origin and the set of its neighbours' names. It resolves
-    to the one face with that name; among fragments of a split face, to the one whose neighbours
+    to the one face with that name when it still shares a neighbour (or none were recorded); among fragments of a split face, to the one whose neighbours
     match best (most shared, then fewest differences); and when the name is gone (its region
     key or piece id changed), to the face of the same origin sharing at least one neighbour.
     An `EdgeReference` is an edge's name, its two face names and its end vertex names, resolved
@@ -284,7 +285,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     arcs, clamped B-splines with an explicit knot vector) tagged with the sketch entity id as a
     plain u64, and builds the planar arrangement with tolerance 1e-7 of the profile size (at
     least `LINEAR_RESOLUTION`): analytic line and circle intersections, subdivision on monotone
-    spans plus damped Newton for splines (self-crossings included), endpoints landing on curves,
+    spans (pairs pruned by their boxes before any budget is spent, running out of it is its own
+    `TooIntricate` error) plus damped Newton from every leaf for splines (self-crossings
+    included, crossings merged only within tolerance), endpoints landing on curves,
     clustering of nearby points into vertices, merging of overlapping collinear or co-circular
     pieces (the lowest entity id is kept), pruning of dangling pieces and bridges, and faces
     traced by angle at each vertex (ties between tangent curves decided by the position a short
@@ -341,13 +344,14 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
       surface as carrier and the other's signed distance. A marched branch that is a line, circle
       or ellipse within half the resolution is returned as that curve.
   - Point classification (`topology/classify.rs`, `SolidClassifier` to reuse per solid):
-    `classify_point` gives `Inside`, `Outside` or `OnBoundary(face)` exactly: a point on a face's
+    `classify_point` gives `Inside`, `Outside` or `OnBoundary(face)` exactly, or `Undecided` when
+    every ray was ambiguous (a boolean then tries the fragment's other points): a point on a face's
     surface and inside its boundary is on it, otherwise rays from a fixed list of directions are
     intersected with each face's surface through `intersect_curve_surface`, and the nearest
     crossing's outward normal decides; a ray that grazes, is tangent, lies in a face or meets an
     edge or vertex is discarded for the next direction. `point_in_face(face, uv)` (`Inside`,
     `Outside`, `OnBoundary`) uses the pcurve polygons by parity over periodic shifts (poles probed
-    just off the pole line), and near the boundary (within a few `PCURVE_TOLERANCE`) the exact
+    just off the pole line, inwards from whichever end of the domain is nearer), and near the boundary (within a few `PCURVE_TOLERANCE`) the exact
     edge: the side of the nearest non-seam coedge, or of both coedges at a vertex (convex corners
     need both). `classify_boundary_point(point, normal)` adds `Coincident { face, sense }` for a
     point on a face whose normal is parallel, and `Touching(face)` otherwise.
@@ -403,7 +407,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     in 2D (`section.rs`: fillet circle from the offset curves, chamfer points at equal
     distance). Convex tools are lifted clear of the faces they cut and subtracted; concave ones
     are flush and added, all concave edges first, then the convex ones re-found by reference in
-    the filled solid. Ends continuing into another chosen edge stop flush, ends on a face
+    the filled solid (one that cannot be found fails as `Lost`, and errors about edges of the
+    filled solid that are not chosen ones come back as `AfterFill` without an id). Ends continuing into another chosen edge stop flush, ends on a face
     perpendicular to the edge stop there, ends on a slanted face extend past it when the
     extension lies where the operation changes nothing, else are clipped by the face's plane.
     Three convex straight edges filleted at a vertex of three planes get a spherical corner

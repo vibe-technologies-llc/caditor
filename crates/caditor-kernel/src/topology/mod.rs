@@ -9,7 +9,7 @@ mod validate;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::{Aabb, Point3, RigidTransform};
+use caditor_geometry::{Aabb, Point2, Point3, RigidTransform, Vector3};
 
 pub use self::{
     builder::{BuildError, SolidBuilder},
@@ -25,7 +25,7 @@ use crate::{
     curve::Curve,
     error::GeometryError,
     interval::Interval,
-    naming::{EdgeName, FaceName, FaceOrigin, VertexName},
+    naming::{EdgeName, FaceName, FaceOrigin, VertexName, occurrence_order},
     sense::Sense,
     surface::Surface,
     tessellation::{self, Mesh, TessellationError},
@@ -304,7 +304,56 @@ impl Solid {
             .vertices
             .iter()
             .map(|vertex| Aabb::from_point(vertex.point));
-        edges.chain(vertices).reduce(Aabb::union)
+        let outline = edges.chain(vertices).reduce(Aabb::union)?;
+        let curved: Vec<FaceId> = self
+            .faces()
+            .filter(|(_, face)| doubly_curved(face.surface()))
+            .map(|(id, _)| id)
+            .collect();
+        if curved.is_empty() {
+            return Some(outline);
+        }
+        let classifier = self.classifier();
+        let mut inside = Vec::new();
+        for id in curved {
+            let (Some(face), Some(uv_box)) = (self.face(id), classifier.face_uv_box(id)) else {
+                continue;
+            };
+            let surface = face.surface();
+            let step = |low: f64, high: f64, index: usize| {
+                low + (high - low) * index as f64 / BOUNDS_GRID as f64
+            };
+            let grid = (0..=BOUNDS_GRID).flat_map(|row| {
+                (0..=BOUNDS_GRID).map(move |column| {
+                    Point2::new(
+                        step(uv_box.min().x, uv_box.max().x, column),
+                        step(uv_box.min().y, uv_box.max().y, row),
+                    )
+                })
+            });
+            let extremes: Vec<Point2> = match surface {
+                Surface::Sphere(sphere) => [Vector3::X, Vector3::Y, Vector3::Z]
+                    .into_iter()
+                    .flat_map(|axis| [axis, -axis])
+                    .map(|direction| {
+                        surface.project(sphere.center() + direction * sphere.radius(), None)
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            for uv in grid.chain(extremes) {
+                if matches!(
+                    classifier.point_in_face(id, uv),
+                    Some(FaceContainment::Inside | FaceContainment::OnBoundary)
+                ) {
+                    inside.push(surface.point_at(uv));
+                }
+            }
+        }
+        Some(match Aabb::from_points(inside) {
+            Some(faces) => outline.union(faces),
+            None => outline,
+        })
     }
 
     pub fn transformed(&self, transform: &RigidTransform) -> Result<Self, GeometryError> {
@@ -462,11 +511,7 @@ impl Solid {
             for (_, name, _) in &named {
                 *counts.entry(*name).or_default() += 1;
             }
-            named.sort_by(|(_, _, a), (_, _, b)| {
-                a.x.total_cmp(&b.x)
-                    .then(a.y.total_cmp(&b.y))
-                    .then(a.z.total_cmp(&b.z))
-            });
+            named.sort_by_key(|(_, _, midpoint)| occurrence_order(*midpoint));
             let mut occurrences: BTreeMap<EdgeName, u32> = BTreeMap::new();
             for (index, name, _) in named {
                 let unique = if counts.get(&name).copied().unwrap_or(0) > 1 {
@@ -496,4 +541,13 @@ impl Solid {
     pub fn default_tolerance(&self) -> SamplingTolerance {
         SamplingTolerance::for_extent(self.bounding_box().map_or(1.0, |bounds| bounds.diagonal()))
     }
+}
+
+const BOUNDS_GRID: usize = 12;
+
+fn doubly_curved(surface: &Surface) -> bool {
+    matches!(
+        surface,
+        Surface::Sphere(_) | Surface::Torus(_) | Surface::Revolution(_) | Surface::BSpline(_)
+    )
 }

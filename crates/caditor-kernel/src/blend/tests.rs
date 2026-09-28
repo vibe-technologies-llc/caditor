@@ -347,6 +347,14 @@ fn every_edge_of_assorted_prisms() {
                 after < before && after > 0.8 * before,
                 "{name} {shape:?}: {after}"
             );
+            for edge in blend_chain(&solid, &every) {
+                let edge = solid.edge(edge).unwrap();
+                let expected = crate::naming::FaceName::blend(50, edge.name());
+                assert!(
+                    result.faces().any(|(_, face)| face.name() == expected),
+                    "{name} {shape:?}: an edge was left without its blend face"
+                );
+            }
         }
     }
 }

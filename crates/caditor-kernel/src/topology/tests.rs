@@ -359,3 +359,13 @@ fn pcurves_on_curved_faces_stay_close_to_their_edges() {
         }
     }
 }
+
+#[test]
+fn a_sphere_is_bounded_where_no_edge_reaches() {
+    let ball = crate::fixtures::sphere(5.0);
+    let bounds = ball.bounding_box().unwrap();
+    for axis in 0..3 {
+        assert!((bounds.min()[axis] + 5.0).abs() < 1e-6, "{bounds:?}");
+        assert!((bounds.max()[axis] - 5.0).abs() < 1e-6, "{bounds:?}");
+    }
+}

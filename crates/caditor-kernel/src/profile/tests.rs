@@ -555,3 +555,50 @@ fn a_region_with_a_hole_triangulates_to_its_own_area() {
     assert!((ring.area() - (200.0 - 9.0 * PI)).abs() < 1e-6);
     assert_eq!(ring.polygons(&tolerance).len(), 2);
 }
+
+#[test]
+fn a_long_wiggly_spline_closed_by_a_line_is_divided() {
+    let wiggles: Vec<(f64, f64)> = (0..=600)
+        .map(|index| {
+            let x = index as f64;
+            let y = if index == 0 || index == 600 {
+                0.0
+            } else {
+                5.0 + (x / 3.0).sin()
+            };
+            (x, y)
+        })
+        .collect();
+    let profile = profile(&[spline(1, &wiggles), line(2, (600.0, 0.0), (0.0, 0.0))]);
+    assert_eq!(profile.regions().len(), 1, "{:?}", areas(&profile));
+    assert_closed(&profile.regions()[0]);
+}
+
+#[test]
+fn crossings_closer_than_a_thousandth_of_the_sketch_stay_apart() {
+    let profile = profile(&[
+        spline(
+            1,
+            &[
+                (-500.0, 1.0),
+                (-100.0, 1.0),
+                (-1.0, 1.0),
+                (-0.3, 1.0),
+                (0.0, -2.0),
+                (0.3, 1.0),
+                (1.0, 1.0),
+                (100.0, 1.0),
+                (500.0, 1.0),
+            ],
+        ),
+        line(2, (-500.0, 1.0), (-500.0, -400.0)),
+        line(3, (-500.0, -400.0), (500.0, -400.0)),
+        line(4, (500.0, -400.0), (500.0, 1.0)),
+        line(5, (-500.0, 0.0), (500.0, 0.0)),
+    ]);
+    let small: Vec<f64> = areas(&profile)
+        .into_iter()
+        .filter(|area| *area < 1.0)
+        .collect();
+    assert_eq!(small.len(), 1, "{:?}", areas(&profile));
+}

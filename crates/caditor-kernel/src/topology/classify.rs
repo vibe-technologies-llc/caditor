@@ -15,6 +15,7 @@ const NEAR_BOUNDARY: f64 = 8.0 * PCURVE_TOLERANCE;
 const GRAZING_COSINE: f64 = 1e-4;
 const COINCIDENT_SINE: f64 = 1e-6;
 const POLE_NUDGE: f64 = 1e-7;
+const RELATIVE_POLE_NUDGE: f64 = 1e-6;
 const RAY_REACH_MARGIN: f64 = 1.0;
 const PERIOD_SHIFTS: [f64; 5] = [0.0, -1.0, 1.0, -2.0, 2.0];
 const POLE_PROBES: usize = 5;
@@ -38,6 +39,7 @@ pub enum PointClass {
     Inside,
     Outside,
     OnBoundary(FaceId),
+    Undecided,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +55,7 @@ pub enum BoundaryClass {
     Outside,
     Coincident { face: FaceId, sense: Sense },
     Touching(FaceId),
+    Undecided,
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +170,10 @@ impl<'a> SolidClassifier<'a> {
         self.faces.iter().find(|data| data.id == face)
     }
 
+    pub(crate) fn face_uv_box(&self, face: FaceId) -> Option<Aabb2> {
+        self.data(face).map(|data| data.uv_box)
+    }
+
     fn outward_normal(&self, face: FaceId, uv: Point2) -> Option<Vector3> {
         let face = self.solid.face(face)?;
         let surface = face.surface();
@@ -217,11 +224,18 @@ impl<'a> SolidClassifier<'a> {
         let probes = match surface.pole_at(uv) {
             Some(pole) => {
                 let domain = surface.v_domain();
-                let inward = if domain.start().is_finite() && (pole.v - domain.start()).abs() < 1e-3
-                {
-                    POLE_NUDGE
+                let span = domain.end() - domain.start();
+                let nudge = if span.is_finite() {
+                    POLE_NUDGE.min(span * RELATIVE_POLE_NUDGE)
                 } else {
-                    -POLE_NUDGE
+                    POLE_NUDGE
+                };
+                let from_start = (pole.v - domain.start()).abs();
+                let from_end = (pole.v - domain.end()).abs();
+                let inward = if from_start <= from_end {
+                    nudge
+                } else {
+                    -nudge
                 };
                 let u_range = Interval::new(data.uv_box.min().x, data.uv_box.max().x)
                     .unwrap_or(Interval::UNIT);
@@ -381,7 +395,7 @@ impl<'a> SolidClassifier<'a> {
                 }
             }
         }
-        fallback.unwrap_or(PointClass::Outside)
+        fallback.unwrap_or(PointClass::Undecided)
     }
 
     fn cast(&self, origin: Point3, direction: Vector3, reach: f64) -> Cast {
@@ -474,6 +488,7 @@ impl<'a> SolidClassifier<'a> {
             PointClass::Inside => BoundaryClass::Inside,
             PointClass::Outside => BoundaryClass::Outside,
             PointClass::OnBoundary(face) => BoundaryClass::Touching(face),
+            PointClass::Undecided => BoundaryClass::Undecided,
         }
     }
 }
