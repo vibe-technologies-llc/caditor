@@ -776,3 +776,95 @@ fn a_reversed_angle_holds_the_corner_between_a_chain_of_lines() {
     let along = (far - corner).normalize();
     assert!((back.angle_to(along).abs().to_degrees() - 60.0).abs() < 1e-6);
 }
+
+fn chain(count: usize) -> (Sketch, Vec<EntityId>) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let mut lines = Vec::with_capacity(count);
+    let mut previous_end = None;
+    for index in 0..count {
+        let x = index as f64;
+        let line = sketch.add_line(
+            Point2::new(x + 0.01, (index % 3) as f64 * 0.01),
+            Point2::new(x + 1.02, 0.02),
+        );
+        let (start, end) = ends(&sketch, line);
+        match previous_end {
+            Some(previous) => {
+                add(&mut sketch, Constraint::Coincident(previous, start));
+            }
+            None => {
+                add(&mut sketch, Constraint::Coincident(start, EntityId::ORIGIN));
+            }
+        }
+        add(&mut sketch, Constraint::Horizontal(line));
+        add(
+            &mut sketch,
+            Constraint::Distance {
+                from: start,
+                to: end,
+                value: mm(1.0),
+            },
+        );
+        previous_end = Some(end);
+        lines.push(line);
+    }
+    (sketch, lines)
+}
+
+#[test]
+fn a_long_chain_solves_and_analyses_within_its_time_budget() {
+    let (sketch, lines) = chain(400);
+    let started = std::time::Instant::now();
+    let solved = solve(&sketch).unwrap();
+    assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+    assert!(solved.solution.is_fully_constrained());
+    let (_, end) = solved.geometry.line_endpoints(lines[399]).unwrap();
+    assert_near(end, Point2::new(400.0, 0.0));
+    assert!(
+        lines
+            .iter()
+            .all(|line| solved.solution.entity_state(*line) == Some(EntityState::FullyConstrained))
+    );
+}
+
+#[test]
+fn large_parts_report_freedoms_and_redundancies_like_small_ones() {
+    let (mut sketch, lines) = chain(15);
+    let horizontal = sketch
+        .constraints()
+        .find_map(|(id, constraint)| {
+            (*constraint == Constraint::Horizontal(lines[7])).then_some(id)
+        })
+        .unwrap();
+    sketch.remove_constraint(horizontal).unwrap();
+    let solved = solve(&sketch).unwrap();
+    assert_eq!(solved.solution.degrees_of_freedom(), 1);
+    assert_eq!(
+        solved.solution.entity_state(lines[3]),
+        Some(EntityState::FullyConstrained)
+    );
+    assert_eq!(
+        solved.solution.entity_state(lines[7]),
+        Some(EntityState::UnderConstrained)
+    );
+
+    let (mut sketch, lines) = chain(15);
+    let parallel = add(&mut sketch, Constraint::Parallel(lines[4], lines[5]));
+    let solved = solve(&sketch).unwrap();
+    assert!(solved.solution.is_fully_constrained());
+    let redundancy = solved.solution.redundancy(parallel).unwrap();
+    assert!(!redundancy.duplicates.is_empty());
+}
+
+#[test]
+fn a_conflict_at_the_end_of_a_long_chain_is_found_quickly() {
+    let (mut sketch, lines) = chain(120);
+    let vertical = add(&mut sketch, Constraint::Vertical(lines[119]));
+    let started = std::time::Instant::now();
+    let Err(SketchError::Conflict { constraints }) = solve(&sketch) else {
+        panic!("a line cannot be horizontal and vertical");
+    };
+    assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+    assert!(constraints.contains(&vertical));
+    assert!(constraints.len() <= 3, "{constraints:?}");
+}

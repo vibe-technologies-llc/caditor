@@ -465,18 +465,40 @@ impl Sketch {
 
     pub fn remove_entity(&mut self, id: EntityId) -> Option<Entity> {
         let removed = self.entities.remove(&id)?;
-        let dependents: Vec<EntityId> = self
-            .entities
-            .iter()
-            .filter(|(_, entity)| entity.references(id))
-            .map(|(dependent, _)| *dependent)
-            .collect();
-        for dependent in dependents {
-            self.remove_entity(dependent);
+        let mut gone = BTreeSet::from([id]);
+        let mut dropped = vec![removed.clone()];
+        loop {
+            let dependents: Vec<EntityId> = self
+                .entities
+                .iter()
+                .filter(|(_, entity)| entity.points().iter().any(|point| gone.contains(point)))
+                .map(|(dependent, _)| *dependent)
+                .collect();
+            if dependents.is_empty() {
+                break;
+            }
+            for dependent in dependents {
+                if let Some(entity) = self.entities.remove(&dependent) {
+                    dropped.push(entity);
+                }
+                gone.insert(dependent);
+            }
         }
-        self.constraints
-            .retain(|_, constraint| !constraint.references(id));
-        self.recount_uses();
+        let doomed: Vec<ConstraintId> = self
+            .constraints
+            .iter()
+            .filter(|(_, constraint)| constraint.entities().iter().any(|used| gone.contains(used)))
+            .map(|(constraint, _)| *constraint)
+            .collect();
+        for constraint in doomed {
+            if let Some(constraint) = self.constraints.remove(&constraint) {
+                self.count_uses(&constraint.entities(), false);
+            }
+        }
+        for entity in &dropped {
+            self.count_uses(&entity.points(), false);
+        }
+        self.uses.retain(|used, _| !gone.contains(used));
         Some(removed)
     }
 
@@ -493,15 +515,17 @@ impl Sketch {
         }
     }
 
-    fn recount_uses(&mut self) {
+    #[cfg(test)]
+    fn counted_from_scratch(&self) -> BTreeMap<EntityId, usize> {
+        let mut fresh = Self::new(self.plane);
         let used: Vec<EntityId> = self
             .entities
             .values()
             .flat_map(Entity::points)
             .chain(self.constraints.values().flat_map(Constraint::entities))
             .collect();
-        self.uses.clear();
-        self.count_uses(&used, true);
+        fresh.count_uses(&used, true);
+        fresh.uses
     }
 
     pub fn evaluate<F>(&self, value_of: &F) -> Result<DimensionValues, SketchError>
@@ -768,8 +792,11 @@ mod tests {
         };
 
         sketch.remove_entity(start);
+        assert_eq!(sketch.uses, sketch.counted_from_scratch());
         sketch.remove_entity(center);
+        assert_eq!(sketch.uses, sketch.counted_from_scratch());
         sketch.remove_entity(control_points[1]);
+        assert_eq!(sketch.uses, sketch.counted_from_scratch());
 
         assert_eq!(sketch.entity(line), None);
         assert_eq!(sketch.entity(arc), None);

@@ -27,21 +27,9 @@ within a category run from most to least important.
 
 ## Sketch solver
 
-- Every Gauss–Newton iteration builds a dense Jacobian and runs a full SVD
-  (`numeric.rs`), so a connected 100-line sketch costs about 1e9 flops per iteration and a
-  1000-segment DXF loop about 1e11. Use a sparse factorisation and share one rank-revealing
-  decomposition between solving and analysis.
-- Explaining a conflict re-solves the failed part once per constraint from scratch
-  (`solve/mod.rs` `solves_with`), up to 300 SVDs each. Narrow suspects from the residuals first
-  and warm-start.
 - No drag or incremental solve: every edit re-solves and re-analyses the whole sketch, and there
   is no way to solve towards a dragged point. Needed for dragging geometry in the viewport.
-- Removing an entity recounts all uses at every level of the cascade (`sketch.rs`
-  `remove_entity`).
-- `BSpline::interpolate` uses evenly spaced parameters, so unevenly spaced DXF fit points
-  overshoot and loop, and fitting searches knot spans linearly and solves dense systems
-  (`fit.rs`, `curve.rs`). Use chord-length parameters, binary search and banded solvers.
-- Untested: branch keeping under perturbation, and a time budget for a large chained sketch.
+- Untested: branch keeping under perturbation.
 
 ## Expressions and units
 
@@ -184,8 +172,8 @@ within a category run from most to least important.
   import 25.4 times too small.
 - HATCH boundaries, SOLID, TRACE, 3DFACE and MLINE are dropped; HATCH boundaries are often the
   only closed profile.
-- Fit-point splines ignore their end tangents and use uniform parameters; a SPLINE with bad
-  control points is refused even when it has fit points.
+- Fit-point splines ignore their end tangents, and a SPLINE with bad control points is refused
+  even when it has fit points.
 - `$DWGCODEPAGE` is ignored, so non-UTF-8 names come out garbled.
 - Parsing keeps an owned `String` per value and clones every record, two to three times the
   file size, with no size limit.

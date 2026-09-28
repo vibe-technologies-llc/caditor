@@ -1,5 +1,6 @@
 mod equation;
 mod numeric;
+mod sparse;
 mod system;
 #[cfg(test)]
 mod tests;
@@ -146,22 +147,23 @@ impl Sketch {
 }
 
 fn diagnose_failure(solver: &Solver<'_>, failed: &[Component]) -> Result<SketchError, SketchError> {
-    let suspects: BTreeSet<ConstraintId> = failed
+    let scope: Vec<usize> = failed
         .iter()
-        .flat_map(|component| &component.equations)
-        .filter_map(|index| solver.system.equations.get(*index)?.owner)
+        .flat_map(|component| component.equations.iter().copied())
         .collect();
-    let mut conflicting: Vec<ConstraintId> = suspects.iter().copied().collect();
-    for candidate in suspects {
-        let without: Vec<ConstraintId> = conflicting
-            .iter()
-            .copied()
-            .filter(|constraint| *constraint != candidate)
-            .collect();
-        if !solves_with(solver, &without)? {
-            conflicting = without;
-        }
+    let suspects: Vec<ConstraintId> = scope
+        .iter()
+        .filter_map(|index| solver.system.equations.get(*index)?.owner)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    let diagnosis = Diagnosis { solver, scope };
+    if suspects.is_empty() || !diagnosis.solves_with(&[])? {
+        return Ok(SketchError::Unsolvable);
     }
+    let mut conflicting = diagnosis.conflict(&[], false, &suspects)?;
+    conflicting.sort_unstable();
     Ok(if conflicting.is_empty() {
         SketchError::Unsolvable
     } else {
@@ -171,19 +173,49 @@ fn diagnose_failure(solver: &Solver<'_>, failed: &[Component]) -> Result<SketchE
     })
 }
 
-fn solves_with(solver: &Solver<'_>, constraints: &[ConstraintId]) -> Result<bool, SketchError> {
-    let active: Vec<usize> = solver
-        .system
-        .equations
-        .iter()
-        .enumerate()
-        .filter(|(_, equation)| {
-            equation
-                .owner
-                .is_none_or(|owner| constraints.binary_search(&owner).is_ok())
-        })
-        .map(|(index, _)| index)
-        .collect();
-    let mut values = solver.system.values.clone();
-    Ok(solver.solve(&active, &mut values)?.is_empty())
+struct Diagnosis<'a> {
+    solver: &'a Solver<'a>,
+    scope: Vec<usize>,
+}
+
+impl Diagnosis<'_> {
+    fn conflict(
+        &self,
+        kept: &[ConstraintId],
+        just_added: bool,
+        candidates: &[ConstraintId],
+    ) -> Result<Vec<ConstraintId>, SketchError> {
+        if just_added && !self.solves_with(kept)? {
+            return Ok(Vec::new());
+        }
+        if candidates.len() <= 1 {
+            return Ok(candidates.to_vec());
+        }
+        let (first, second) = candidates.split_at(candidates.len() / 2);
+        let with_first: Vec<ConstraintId> = kept.iter().chain(first).copied().collect();
+        let from_second = self.conflict(&with_first, !first.is_empty(), second)?;
+        let with_found: Vec<ConstraintId> = kept.iter().chain(&from_second).copied().collect();
+        let from_first = self.conflict(&with_found, !from_second.is_empty(), first)?;
+        Ok(from_first.into_iter().chain(from_second).collect())
+    }
+
+    fn solves_with(&self, constraints: &[ConstraintId]) -> Result<bool, SketchError> {
+        let kept: BTreeSet<ConstraintId> = constraints.iter().copied().collect();
+        let active: Vec<usize> = self
+            .scope
+            .iter()
+            .copied()
+            .filter(|index| {
+                self.solver
+                    .system
+                    .equations
+                    .get(*index)
+                    .is_some_and(|equation| {
+                        equation.owner.is_none_or(|owner| kept.contains(&owner))
+                    })
+            })
+            .collect();
+        let mut values = self.solver.system.values.clone();
+        Ok(self.solver.solve(&active, &mut values)?.is_empty())
+    }
 }

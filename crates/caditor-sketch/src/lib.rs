@@ -1,3 +1,4 @@
+mod banded;
 mod constraint;
 mod curve;
 mod entity;

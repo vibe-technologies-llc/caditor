@@ -132,13 +132,19 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     do not fit the entity kinds, so the UI can ask before offering one. `insert_entity` and
     `insert_constraint` take explicit IDs and check references, for loading. The sketch counts
     how often each entity is used by curves and constraints, so refusing to remove a used one
-    never scans the sketch and undoing a large import stays fast.
+    never scans the sketch and undoing a large import stays fast; `remove_entity` removes a
+    whole cascade in one pass and updates those counts incrementally.
   - Sketch splines are clamped with uniform knots and degree min(3, points − 1). `BSpline::fit`
     approximates a dense polyline by one of these (chord-length parameters corrected by
-    projection, least squares with fixed ends, doubling the control points until within a
-    tolerance, else the best found) and `BSpline::interpolate` passes one through given points.
-  - `solve` evaluates the dimensions, then runs damped Gauss–Newton with minimal-norm steps
-    (SVD from `nalgebra`) on each independent part of the system, so geometry that already
+    projection, banded least squares with fixed ends, doubling the control points until within
+    a tolerance, else the best found), `BSpline::interpolate` passes one through given points at
+    evenly spaced parameters, and `BSpline::through` follows unevenly spaced points without
+    loops: a chord-length interpolation with averaged knots, sampled and fitted. Knot spans are
+    found by binary search and every system is solved by banded elimination (`banded.rs`).
+  - `solve` evaluates the dimensions, then runs damped Gauss–Newton with minimal-norm steps on
+    each independent part of the system (SVD from `nalgebra` for parts of up to 48 variables;
+    above that CGLS from zero on the sparse Jacobian, which converges to the same minimal-norm
+    step, and the analysis uses sparse forward elimination, `sparse.rs`), so geometry that already
     satisfies its constraints does not move and under-constrained geometry moves as little as
     possible. Every equation has an analytic gradient; two-branch equations (tangent side,
     signed distance) take their branch from the starting geometry, so a solve never flips,
@@ -151,9 +157,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     fraction of its own extent.
     Degrees of freedom and each entity's constraint state come from the rank and null space
     of the Jacobian at the solution; a constraint whose equations add no rank over older ones
-    is reported as redundant, naming what it duplicates. When a part does not converge, a
-    deletion filter finds a minimal set of conflicting constraints, which recompute reports as
-    the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
+    is reported as redundant, naming what it duplicates. When a part does not converge,
+    QuickXplain-style divide and conquer over its constraints (newest preferred, re-solving
+    only the failed parts) finds a minimal set of conflicting constraints, which recompute
+    reports as the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
 - **caditor-kernel**: caditor's own B-rep geometry kernel (no truck, no OpenCascade), the base of
   solid modelling.
   - Cancellation (`interrupt.rs`): `interruptible(interrupt, work)` installs a check for the

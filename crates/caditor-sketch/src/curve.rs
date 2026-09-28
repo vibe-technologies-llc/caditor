@@ -6,7 +6,7 @@ const MAX_SEGMENTS: usize = 4096;
 const MIN_SEGMENT_ANGLE: f64 = 1e-3;
 const DEFAULT_SEGMENT_ANGLE: f64 = 5.0 * TAU / 360.0;
 const SPLINE_SEGMENTS_PER_SPAN: usize = 4;
-const MAX_SPLINE_DEGREE: usize = 3;
+pub(crate) const MAX_SPLINE_DEGREE: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ArcGeometry {
@@ -138,15 +138,10 @@ impl BSpline {
             .sum()
     }
 
-    fn span_containing(&self, parameter: f64) -> usize {
+    pub(crate) fn span_containing(&self, parameter: f64) -> usize {
         let last = self.control_points.len().saturating_sub(1);
-        (self.degree..last)
-            .find(|span| {
-                self.knots
-                    .get(span + 1)
-                    .is_some_and(|next| parameter < *next)
-            })
-            .unwrap_or(last)
+        let above = self.knots.partition_point(|knot| *knot <= parameter);
+        above.saturating_sub(1).clamp(self.degree.min(last), last)
     }
 
     fn de_boor(&self, parameter: f64) -> Option<Point2> {

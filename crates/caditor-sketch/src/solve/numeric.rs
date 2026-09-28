@@ -6,6 +6,7 @@ use crate::{
     id::ConstraintId,
     solve::{
         equation::{Equation, Gradient, PointHandle, value},
+        sparse,
         system::System,
     },
 };
@@ -21,6 +22,7 @@ const GOLDEN_RATIO_FRACTION: f64 = 0.618_033_988_749_894_9;
 const RANK_TOLERANCE: f64 = 1e-8;
 const NULL_SPACE_TOLERANCE: f64 = 1e-10;
 const DUPLICATE_TOLERANCE: f64 = 1e-6;
+const DENSE_LIMIT: usize = 48;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Cancelled;
@@ -244,9 +246,14 @@ impl Solver<'_> {
             if self.converged(component, values) {
                 return Ok(true);
             }
-            let (rows, residuals) = self.linearize(component, values);
-            let Some(mut step) = minimal_norm_step(&rows, &residuals, component.variables.len())
-            else {
+            let step = if component.variables.len() > DENSE_LIMIT {
+                let (rows, residuals) = self.sparse_linearize(component, values);
+                sparse::minimal_norm_step(&rows, &residuals, component.variables.len())
+            } else {
+                let (rows, residuals) = self.linearize(component, values);
+                minimal_norm_step(&rows, &residuals, component.variables.len())
+            };
+            let Some(mut step) = step else {
                 return Ok(false);
             };
             let length = step.iter().map(|delta| delta * delta).sum::<f64>().sqrt();
@@ -306,6 +313,22 @@ impl Solver<'_> {
         (rows, residuals)
     }
 
+    fn sparse_linearize(
+        &self,
+        component: &Component,
+        values: &[f64],
+    ) -> (Vec<sparse::Row>, Vec<f64>) {
+        let mut gradient = Gradient::new();
+        let mut rows = Vec::with_capacity(component.equations.len());
+        let mut residuals = Vec::with_capacity(component.equations.len());
+        for equation in self.equations(component) {
+            let residual = equation.linearize(values, &self.system.context, &mut gradient);
+            rows.push(sparse::row(&gradient, &component.variables));
+            residuals.push(residual);
+        }
+        (rows, residuals)
+    }
+
     pub fn analyze(&self, active: &[usize], values: &[f64]) -> Analysis {
         let mut analysis = Analysis::default();
         let mut contributions = BTreeMap::new();
@@ -330,6 +353,10 @@ impl Solver<'_> {
         analysis: &mut Analysis,
         contributions: &mut BTreeMap<ConstraintId, Contribution>,
     ) {
+        if component.variables.len() > DENSE_LIMIT {
+            self.analyze_sparse(component, values, analysis, contributions);
+            return;
+        }
         let mut groups: BTreeMap<Option<ConstraintId>, Vec<Vec<f64>>> = BTreeMap::new();
         let mut gradient = Gradient::new();
         for equation in self.equations(component) {
@@ -371,6 +398,55 @@ impl Solver<'_> {
                 .map(|entry| entry * entry)
                 .sum();
             if 1.0 - in_row_space <= NULL_SPACE_TOLERANCE {
+                analysis.fixed.push(*variable);
+            }
+        }
+    }
+}
+
+impl Solver<'_> {
+    fn analyze_sparse(
+        &self,
+        component: &Component,
+        values: &[f64],
+        analysis: &mut Analysis,
+        contributions: &mut BTreeMap<ConstraintId, Contribution>,
+    ) {
+        let mut groups: BTreeMap<Option<ConstraintId>, Vec<sparse::Row>> = BTreeMap::new();
+        let mut gradient = Gradient::new();
+        for equation in self.equations(component) {
+            equation.linearize(values, &self.system.context, &mut gradient);
+            groups
+                .entry(equation.owner)
+                .or_default()
+                .push(sparse::normalized(sparse::row(
+                    &gradient,
+                    &component.variables,
+                )));
+        }
+        let mut echelon = sparse::Echelon::default();
+        let mut earlier: Vec<(Option<ConstraintId>, sparse::Row)> = Vec::new();
+        for (owner, rows) in groups {
+            let mut adds_rank = false;
+            for row in &rows {
+                adds_rank |= echelon.insert(row, RANK_TOLERANCE);
+            }
+            if let Some(constraint) = owner {
+                let contribution = contributions.entry(constraint).or_default();
+                contribution.adds_rank |= adds_rank;
+                if !contribution.adds_rank {
+                    contribution.duplicates.extend(sparse::duplicates(
+                        &rows,
+                        &earlier,
+                        component.variables.len(),
+                    ));
+                }
+            }
+            earlier.extend(rows.into_iter().map(|row| (owner, row)));
+        }
+        analysis.rank += echelon.rank();
+        for (column, variable) in component.variables.iter().enumerate() {
+            if echelon.spans_unit(column, NULL_SPACE_TOLERANCE.sqrt()) {
                 analysis.fixed.push(*variable);
             }
         }
@@ -439,7 +515,7 @@ fn orthogonalized(row: &[f64], basis: &[Vec<f64>]) -> Vec<f64> {
     remainder
 }
 
-fn duplicates(
+pub(crate) fn duplicates(
     rows: &[Vec<f64>],
     earlier: &[(Option<ConstraintId>, Vec<f64>)],
 ) -> Vec<ConstraintId> {

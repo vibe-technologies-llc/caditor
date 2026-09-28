@@ -139,10 +139,15 @@ fn flatten_shape(shape: &Shape, tolerance: f64, tally: &mut Tally) -> Option<Dra
                     end: *end,
                 }),
                 _ => {
-                    let spline = BSpline::interpolate(&points)?;
+                    let Some(fit) = BSpline::through(&points, tolerance, MAX_FIT_CONTROL_POINTS)
+                    else {
+                        tally.collapsed += 1;
+                        return None;
+                    };
                     tally.rebuilt += 1;
+                    tally.deviation = tally.deviation.max(fit.deviation);
                     Some(DrawingCurve::Spline {
-                        control_points: spline.control_points().to_vec(),
+                        control_points: fit.spline.control_points().to_vec(),
                     })
                 }
             }
