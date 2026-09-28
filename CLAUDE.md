@@ -147,6 +147,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
 - **caditor-kernel**: caditor's own B-rep geometry kernel (no truck, no OpenCascade), the base of
   solid modelling.
+  - Cancellation (`interrupt.rs`): `interruptible(interrupt, work)` installs a check for the
+    current thread while `work` runs, and booleans (per edge, face pair, face and fragment and
+    between phases) and tessellation (per face) poll it, failing with a `Cancelled` variant of
+    their error. The document installs its `CancelToken` around every evaluation and meshing,
+    and export around its meshing and STEP writing.
   - Tolerances live in `tolerance.rs`: `LINEAR_RESOLUTION` is 1e-6 mm and `ANGULAR_RESOLUTION`
     is the angle that moves a point at `MODEL_EXTENT` (10 m) by it. `SamplingTolerance` (chord
     and angle) drives every sampling, and `Solid::default_tolerance` derives one from the size.
@@ -399,7 +404,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     sharing a name (loading renames the second with a report). `same_content` compares
     documents without their ID counters, which is what decides whether a model is unsaved.
     `Document::check` runs a transaction on a clone so the UI can report the error before
-    committing. `Document::transaction_to` (which keeps every sketch's ID counter at least
+    committing; `can_remove_parameter` and `can_remove_feature` answer the common case without
+    one. Parameter dependencies are built once per `apply`, and evaluation orders parameters
+    topologically before looking for cycles, so both stay near linear in the parameter count. `Document::transaction_to` (which keeps every sketch's ID counter at least
     where it is, so restoring never reuses IDs) builds the transaction that turns one document
     into another (every feature and parameter removed, then the target's inserted with their
     IDs), which is how an earlier version is restored as one undoable change.
@@ -485,7 +492,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Display data is computed on the worker at the end of each run and cached inside the shared
     results (`OnceLock`), so the UI only reads it: each body's final state is tessellated
     (`SolidResult::mesh`; intermediate states are not), and every sketch that a solid feature
-    sweeps gets its regions with a triangulation each (`SketchResult::regions`). A panic or
+    sweeps gets its regions with a triangulation each (`SketchResult::regions`). A sketch's
+    profile arrangement is built once per result and shared by every feature that sweeps it and
+    by the display. The state before an open blend or shell is meshed only when the app asks
+    (`Recomputer::mesh`, sent by `Model::mesh_before` for the open feature). A panic or
     failure while meshing leaves the body without a mesh (`mesh_failed`) but keeps its shape for
     later features, and a run cancelled before every shown body was meshed is not complete.
   - `Recomputer` runs recompute on a worker thread. A newer submission or `cancel` stops the

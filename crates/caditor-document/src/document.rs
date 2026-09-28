@@ -454,6 +454,7 @@ impl Document {
     }
 
     pub(crate) fn parameter_dependencies(&self) -> BTreeMap<ParameterId, BTreeSet<ParameterId>> {
+        let ids: BTreeSet<ParameterId> = self.parameters.iter().map(Parameter::id).collect();
         self.parameters
             .iter()
             .map(|parameter| {
@@ -461,7 +462,7 @@ impl Document {
                     .expression
                     .parameters()
                     .into_iter()
-                    .filter(|used| self.parameter(*used).is_some())
+                    .filter(|used| ids.contains(used))
                     .collect();
                 (parameter.id, existing)
             })

@@ -5,6 +5,7 @@ use caditor_geometry::{Aabb, Point2, Point3};
 use crate::{
     boolean::{BooleanError, FaceBounds, FaceKey, Input, Operand, TOLERANCE},
     curve::Curve,
+    interrupt,
     intersect::{
         IntersectionBranch, SurfaceIntersection, SurfacePatch, boxes_overlap,
         intersect_curve_surface, intersect_curves, intersect_surfaces,
@@ -243,6 +244,7 @@ fn edge_hits(
     let target = input.solid(other);
     let classifier = input.classifier(other);
     for (edge_id, edge) in solid.edges() {
+        interrupt::check()?;
         let curve = edge.curve();
         let bounds = curve.bounding_box(edge.interval());
         for face in input.faces(other) {
@@ -306,6 +308,7 @@ fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanE
             if !boxes_overlap(&first.bounds, &second.bounds, TOLERANCE) {
                 continue;
             }
+            interrupt::check()?;
             let (Some(first_face), Some(second_face)) =
                 (input.first.face(first.id), input.second.face(second.id))
             else {

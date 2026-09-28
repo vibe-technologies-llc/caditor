@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 
 use crate::{
     document::Document,
-    recompute::{CancelToken, Evaluation, Evaluator, Recompute},
+    recompute::{CancelToken, Evaluation, Evaluator, FeatureResult, Recompute},
 };
 
 const NO_JOB: u64 = u64::MAX;
@@ -45,6 +45,14 @@ struct Job {
     document: Document,
 }
 
+enum Message {
+    Recompute(Job),
+    Mesh {
+        result: Arc<FeatureResult>,
+        name: String,
+    },
+}
+
 struct Shared {
     latest: AtomicU64,
     cancelled: AtomicU64,
@@ -59,7 +67,7 @@ impl Shared {
 }
 
 pub struct Recomputer {
-    jobs: mpsc::Sender<Job>,
+    jobs: mpsc::Sender<Message>,
     updates: mpsc::Receiver<Update>,
     shared: Arc<Shared>,
     next_sequence: u64,
@@ -94,11 +102,17 @@ impl Recomputer {
         self.next_sequence += 1;
         self.shared.latest.store(sequence, Ordering::SeqCst);
         self.jobs
-            .send(Job {
+            .send(Message::Recompute(Job {
                 sequence,
                 revision,
                 document,
-            })
+            }))
+            .map_err(|_| WorkerStopped)
+    }
+
+    pub fn mesh(&self, result: Arc<FeatureResult>, name: String) -> Result<(), WorkerStopped> {
+        self.jobs
+            .send(Message::Mesh { result, name })
             .map_err(|_| WorkerStopped)
     }
 
@@ -133,16 +147,30 @@ impl Recomputer {
 
 fn work(
     evaluator: &dyn Evaluator,
-    queue: &mpsc::Receiver<Job>,
+    queue: &mpsc::Receiver<Message>,
     updates: &mpsc::Sender<Update>,
     shared: &Arc<Shared>,
     wake: &dyn Fn(),
 ) {
     let mut recompute = Recompute::default();
-    while let Ok(mut job) = queue.recv() {
-        while let Ok(newer) = queue.try_recv() {
-            job = newer;
+    while let Ok(first) = queue.recv() {
+        let mut latest = None;
+        let mut meshes = Vec::new();
+        for message in std::iter::once(first).chain(std::iter::from_fn(|| queue.try_recv().ok())) {
+            match message {
+                Message::Recompute(job) => latest = Some(job),
+                Message::Mesh { result, name } => meshes.push((result, name)),
+            }
         }
+        for (result, name) in meshes {
+            if let Some(solid) = result.solid() {
+                solid.tessellate(&name);
+                wake();
+            }
+        }
+        let Some(job) = latest else {
+            continue;
+        };
         let sequence = job.sequence;
         let watched = Arc::clone(shared);
         let cancel = CancelToken::new(move || watched.is_cancelled(sequence));

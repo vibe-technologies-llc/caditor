@@ -161,7 +161,7 @@ fn delete_button(
         format!("Delete {}", parameter.name),
         Edit::RemoveParameter { id: parameter.id() },
     );
-    let check = document.check(&delete);
+    let check = document.can_remove_parameter(parameter.id());
     let hover = format!("Delete {}", parameter.name);
     let response = ui
         .add_enabled_ui(check.is_ok(), |ui| {

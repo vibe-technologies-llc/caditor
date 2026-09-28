@@ -165,11 +165,23 @@ fn a_fillet_changes_its_body_and_follows_upstream_edits() {
 }
 
 #[test]
-fn the_body_before_a_blend_is_meshed_for_choosing_edges() {
-    let mut model = model();
-    let evaluation = evaluate(&model.document, &mut model.engine);
+fn the_body_before_a_blend_is_kept_and_meshed_only_when_asked() {
+    let model = model();
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
     let input = evaluation.body_before(model.fillet).unwrap();
     let solid = input.solid().unwrap();
+    assert!(!solid.is_meshed());
+    let (wake, woken) = std::sync::mpsc::channel();
+    let recomputer = Recomputer::spawn(ModelEvaluator, move || {
+        let _ = wake.send(());
+    })
+    .unwrap();
+    recomputer
+        .mesh(std::sync::Arc::clone(input), "Fillet".to_owned())
+        .unwrap();
+    woken
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .unwrap();
     assert!(solid.is_meshed());
     assert_eq!(solid.solid.faces().count(), 6);
     assert!(evaluation.body_before(model.base).is_none());

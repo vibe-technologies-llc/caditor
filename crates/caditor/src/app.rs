@@ -549,6 +549,7 @@ impl Session {
             self.title = title;
         }
 
+        model.mesh_before(self.workspace.editing.context().solid);
         let workspace = &mut self.workspace;
         let built = workspace.viewport.build_scene(
             model.document(),

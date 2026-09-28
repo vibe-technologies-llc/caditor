@@ -521,3 +521,21 @@ fn stress_cylinders_on_a_grid() {
     }
     assert!(contacts <= 8, "{contacts} results touch along a line");
 }
+
+#[test]
+fn an_interrupted_boolean_and_tessellation_stop_with_cancelled() {
+    let first = block((0.0, 0.0, 0.0), (4.0, 4.0, 4.0));
+    let second = moved(sphere(2.0), (4.0, 4.0, 4.0));
+    let stopped = crate::interruptible(std::sync::Arc::new(|| true), || {
+        (
+            boolean(&first, &second, BooleanOperation::Union),
+            second.tessellate(&second.default_tolerance()),
+        )
+    });
+    assert!(matches!(stopped.0, Err(BooleanError::Cancelled(_))));
+    assert!(matches!(
+        stopped.1,
+        Err(crate::TessellationError::Cancelled(_))
+    ));
+    assert!(boolean(&first, &second, BooleanOperation::Union).is_ok());
+}

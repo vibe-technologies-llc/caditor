@@ -9,6 +9,7 @@ mod curve2;
 mod error;
 #[cfg(test)]
 mod fixtures;
+mod interrupt;
 mod intersect;
 mod interval;
 mod naming;
@@ -36,6 +37,7 @@ pub use crate::{
     },
     curve2::{BSplineCurve2, Circle2, Curve2, Curve2Derivatives, Curve2Sample, Line2},
     error::GeometryError,
+    interrupt::{Interrupt, Interrupted, interruptible},
     intersect::{
         CurveCurveIntersection, CurveCurveOverlap, CurveCurvePoint, CurveSurfaceIntersection,
         CurveSurfaceOverlap, CurveSurfacePoint, IntersectionBranch, IntersectionError,

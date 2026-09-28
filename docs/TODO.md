@@ -25,21 +25,6 @@ within a category run from most to least important.
 - Slow tests to keep an eye on: STEP `every_fixture_survives_a_round_trip` (7 s),
   `blend::every_edge_of_assorted_prisms` (6 s) and about 40 UI tests at over a second each.
 
-## Document and recompute
-
-- Kernel operations and tessellation take no cancel token (`boolean`, `blend`, `shell`,
-  `extrude`, `revolve`, `tessellate`), so a superseded job runs a multi-second boolean to the
-  end. Pass `CancelToken` into their bounded loops.
-- Each sketch's profile arrangement is rebuilt once per solid feature and once more for display.
-  Cache the `Profile` in `SketchResult`.
-- Every blend's and shell's input state is tessellated on every run, although only the open one
-  is shown. Mesh the before-state on demand.
-- Parameter evaluation and cycle checks are O(P²), and restoring a version O(P³), on the UI
-  thread (`parameter_dependencies`, `EvaluationOrder::of`, `cycle_through`). Build the
-  dependency map once per apply.
-- `Document::check` clones the document twice and the parameter table calls it for every row
-  every frame. Add cheap `can_remove_*` queries.
-
 ## Sketch solver
 
 - A tangent at a line–arc joint, or on a point snapped onto a circle, is reported redundant and
@@ -230,7 +215,6 @@ within a category run from most to least important.
   into one surface.
 - 3MF has no colours, materials or thumbnail, builds everything in memory and cannot exceed
   4 GiB without ZIP64.
-- STEP export and each body's tessellation cannot be cancelled while running.
 
 ## Rendering robustness
 

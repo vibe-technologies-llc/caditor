@@ -4,6 +4,7 @@ use crate::{
         faces::SplitFace,
         trace::{Fragment, interior_points},
     },
+    interrupt,
     naming::{FaceName, FaceOrigin},
     sense::Sense,
     surface::Surface,
@@ -91,6 +92,7 @@ pub(super) fn select(
 ) -> Result<Vec<KeptFace>, BooleanError> {
     let mut kept = Vec::new();
     for face in split {
+        interrupt::check()?;
         let original = input.face(face.key).ok_or(BooleanError::Split)?;
         for fragment in face.fragments {
             let class = classify(

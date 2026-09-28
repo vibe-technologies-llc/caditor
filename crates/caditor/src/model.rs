@@ -5,7 +5,7 @@ use std::{
 };
 
 use caditor_document::{
-    Document, Editor, Evaluation, FeatureId, FeatureState, ModelEvaluator, Outcome,
+    Document, Editor, Evaluation, FeatureId, FeatureResult, FeatureState, ModelEvaluator, Outcome,
     ParameterValues, Progress, Recomputer, Transaction,
 };
 use caditor_file::{
@@ -119,6 +119,7 @@ pub struct Model {
     next_ticket: u64,
     file_events: Vec<FileEvent>,
     length_unit: LengthUnit,
+    mesh_requested: Option<Arc<FeatureResult>>,
 }
 
 impl Model {
@@ -143,6 +144,7 @@ impl Model {
             next_ticket: 0,
             file_events: Vec::new(),
             length_unit: LengthUnit::default(),
+            mesh_requested: None,
         };
         model.start_storage(None, None);
         model.recompute();
@@ -238,6 +240,35 @@ impl Model {
 
     pub fn is_saving(&self) -> bool {
         self.pending_save.is_some()
+    }
+
+    pub fn mesh_before(&mut self, feature: Option<FeatureId>) {
+        let Some((feature, result)) = feature.and_then(|feature| {
+            self.evaluation
+                .body_before(feature)
+                .map(|result| (feature, Arc::clone(result)))
+        }) else {
+            return;
+        };
+        let meshed = result.solid().is_none_or(|solid| solid.is_meshed());
+        let requested = self
+            .mesh_requested
+            .as_ref()
+            .is_some_and(|requested| Arc::ptr_eq(requested, &result));
+        if meshed || requested {
+            return;
+        }
+        let name = self
+            .document()
+            .feature(feature)
+            .map_or_else(String::new, |feature| feature.name.clone());
+        let sent = self
+            .recomputer
+            .as_ref()
+            .is_some_and(|recomputer| recomputer.mesh(Arc::clone(&result), name).is_ok());
+        if sent {
+            self.mesh_requested = Some(result);
+        }
     }
 
     pub fn take_file_events(&mut self) -> Vec<FileEvent> {

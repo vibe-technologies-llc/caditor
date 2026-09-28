@@ -456,7 +456,7 @@ fn context_menu(
     }
     ui.separator();
     let delete = Transaction::single(format!("Delete {name}"), Edit::RemoveFeature { id });
-    let check = document.check(&delete);
+    let check = document.can_remove_feature(id);
     let response = ui
         .add_enabled_ui(check.is_ok(), |ui| {
             widgets::menu_item(ui, icons::DELETE, "Delete", None)

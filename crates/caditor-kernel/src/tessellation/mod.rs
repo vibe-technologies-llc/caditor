@@ -11,6 +11,7 @@ use thiserror::Error;
 
 pub use self::mass::MassProperties;
 use crate::{
+    interrupt::{self, Interrupted},
     tolerance::SamplingTolerance,
     topology::{EdgeId, FaceId, Solid},
 };
@@ -33,6 +34,8 @@ pub enum TessellationError {
     SelfIntersectingBoundary(FaceId),
     #[error("two different boundary points of face {0:?} share a parameter position")]
     DuplicateBoundaryPoint(FaceId),
+    #[error(transparent)]
+    Cancelled(#[from] Interrupted),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -224,6 +227,7 @@ fn tessellate_once(
         });
     }
     for (id, _) in solid.faces() {
+        interrupt::check()?;
         let first = mesh.triangles.len();
         face::triangulate(solid, id, &samplings, tolerance, &mut mesh)?;
         mesh.faces.push(FaceTriangles {

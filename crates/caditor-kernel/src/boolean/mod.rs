@@ -12,6 +12,7 @@ use thiserror::Error;
 
 use crate::{
     build::plan::PlanError,
+    interrupt::{self, Interrupted},
     intersect::{IntersectionError, patch_bounds},
     tolerance::LINEAR_RESOLUTION,
     topology::{BuildError, Face, FaceId, Solid, SolidClassifier},
@@ -42,6 +43,8 @@ pub enum BooleanError {
     NonManifold,
     #[error("the result is not a valid solid: {0}")]
     Invalid(#[from] BuildError),
+    #[error(transparent)]
+    Cancelled(#[from] Interrupted),
 }
 
 impl From<PlanError> for BooleanError {
@@ -160,13 +163,18 @@ pub fn boolean(
     second: &Solid,
     operation: BooleanOperation,
 ) -> Result<Solid, BooleanError> {
+    interrupt::check()?;
     let input = Input::new(first, second);
     let mut arrangement = imprint::imprint(&input)?;
+    interrupt::check()?;
     let split = faces::split(&input, &arrangement)?;
+    interrupt::check()?;
     let kept = select::select(&input, split, operation)?;
     if kept.is_empty() {
         return Err(BooleanError::Empty);
     }
+    interrupt::check()?;
     let healed = heal::heal(&mut arrangement, kept)?;
+    interrupt::check()?;
     assemble::assemble(&arrangement, healed)
 }

@@ -637,3 +637,48 @@ mod tests {
         assert!(!evaluation.is_complete());
     }
 }
+
+#[cfg(test)]
+mod scale_tests {
+    use std::time::{Duration, Instant};
+
+    use caditor_expression::{BinaryOperator, Expression, Unit};
+
+    use crate::{Document, ParameterValues};
+
+    const CHAIN: usize = 1500;
+    const BUDGET: Duration = Duration::from_secs(3);
+
+    fn chain(step: f64) -> Document {
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Chain");
+        let mut previous =
+            transaction.add_parameter("p0", Expression::Measure(1.0, Unit::Millimetre));
+        for index in 1..CHAIN {
+            previous = transaction.add_parameter(
+                format!("p{index}"),
+                Expression::binary(
+                    BinaryOperator::Add,
+                    Expression::Parameter(previous),
+                    Expression::Measure(step, Unit::Millimetre),
+                ),
+            );
+        }
+        document.apply(transaction.finish()).unwrap();
+        document
+    }
+
+    #[test]
+    fn long_parameter_chains_evaluate_and_restore_in_linear_time() {
+        let started = Instant::now();
+        let mut document = chain(1.0);
+        let values = ParameterValues::evaluate(&document);
+        let last = document.parameters().last().unwrap().id();
+        assert_eq!(values.value(last).unwrap().value, CHAIN as f64);
+        let other = chain(2.0);
+        let restore = document.transaction_to(&other, "Restore");
+        document.apply(restore).unwrap();
+        assert!(document.same_content(&other));
+        assert!(started.elapsed() < BUDGET, "{:?}", started.elapsed());
+    }
+}

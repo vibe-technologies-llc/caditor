@@ -70,6 +70,7 @@ fn mesh_of(solid: &Solid, resolution: MeshResolution) -> MeshBody<'_> {
             solid,
         },
         &resolution.tolerance([solid]),
+        &CancelToken::never(),
     )
     .unwrap()
 }
@@ -393,4 +394,29 @@ fn a_cancelled_or_empty_export_writes_nothing() {
     )
     .unwrap_err();
     assert_eq!(error.to_string(), "its folder no longer exists");
+}
+
+#[test]
+fn cancelling_stops_the_meshing_of_a_body_already_started() {
+    let dir = TempDir::new().unwrap();
+    let block = block();
+    let bodies = [ExportBody {
+        name: "Extrude 1",
+        solid: &block,
+    }];
+    for (format, name) in [
+        (ExportFormat::Stl, "part.stl"),
+        (ExportFormat::Step, "part.step"),
+    ] {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = Arc::clone(&calls);
+        let cancel = CancelToken::new(move || counted.fetch_add(1, Ordering::SeqCst) >= 2);
+        let path = dir.path().join(name);
+        assert_eq!(
+            export_bodies(&path, format, MeshResolution::Fine, &bodies, &cancel),
+            Err(ExportError::Cancelled),
+            "{format:?}"
+        );
+        assert!(!path.exists());
+    }
 }

@@ -9,14 +9,16 @@ use caditor_geometry::{Aabb2, Plane, Point2, Vector2};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, LinearExtent, Mesh, Profile,
     ProfileCurve, ProfileError, Region, RegionKey, RegionMesh, SamplingTolerance, Selection, Solid,
-    SweepError, boolean, extrude, revolve,
+    SweepError, TessellationError, boolean, extrude, revolve,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
     datum::{AxisReference, Resolver, capitalized, describe_axis},
     document::{Feature, FeatureId},
-    recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
+    recompute::{
+        CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, SketchResult,
+    },
     values::ParameterValues,
 };
 
@@ -265,22 +267,25 @@ impl SolidResult {
     }
 
     pub(crate) fn tessellate(&self, name: &str) {
-        self.mesh.get_or_init(|| {
-            let tessellated = panic::catch_unwind(AssertUnwindSafe(|| {
-                self.solid.tessellate(&self.solid.default_tolerance())
-            }));
-            match tessellated {
-                Ok(Ok(mesh)) => Some(mesh),
-                Ok(Err(error)) => {
-                    log::warn!("the body of {name} could not be meshed: {error}");
-                    None
-                }
-                Err(_) => {
-                    log::error!("meshing the body of {name} panicked");
-                    None
-                }
+        if self.is_meshed() {
+            return;
+        }
+        let tessellated = panic::catch_unwind(AssertUnwindSafe(|| {
+            self.solid.tessellate(&self.solid.default_tolerance())
+        }));
+        let mesh = match tessellated {
+            Ok(Ok(mesh)) => Some(mesh),
+            Ok(Err(TessellationError::Cancelled(_))) => return,
+            Ok(Err(error)) => {
+                log::warn!("the body of {name} could not be meshed: {error}");
+                None
             }
-        });
+            Err(_) => {
+                log::error!("meshing the body of {name} panicked");
+                None
+            }
+        };
+        let _ = self.mesh.set(mesh);
     }
 }
 
@@ -327,8 +332,7 @@ pub struct SketchRegion {
     pub even_depth: bool,
 }
 
-pub(crate) fn display_regions(sketch: &Sketch) -> Result<Vec<SketchRegion>, ProfileError> {
-    let profile = Profile::new(&profile_curves(sketch))?;
+pub(crate) fn display_regions(profile: &Profile) -> Result<Vec<SketchRegion>, ProfileError> {
     let extent = profile
         .regions()
         .iter()
@@ -408,7 +412,7 @@ pub(crate) fn evaluate(
         sketch_id,
         sketch: &sketch.geometry,
     };
-    let regions = chosen_regions(&context, solid.regions())?;
+    let regions = chosen_regions(&context, sketch, solid.regions())?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
@@ -469,13 +473,19 @@ fn missing_body(inputs: &Inputs<'_>, body: FeatureId) -> Failure {
     })
 }
 
-fn chosen_regions(context: &Context<'_>, choice: &RegionChoice) -> Result<Vec<Region>, Failure> {
+fn chosen_regions(
+    context: &Context<'_>,
+    sketch: &SketchResult,
+    choice: &RegionChoice,
+) -> Result<Vec<Region>, Failure> {
     let selection = match choice {
         RegionChoice::All => Selection::EvenDepth,
         RegionChoice::Chosen(keys) => Selection::Regions(keys.clone()),
     };
-    Profile::new(&profile_curves(context.sketch))
-        .and_then(|profile| profile.select(&selection))
+    sketch
+        .profile()
+        .map_err(|error| profile_failure(context, error))?
+        .select(&selection)
         .map_err(|error| profile_failure(context, &error))
 }
 
@@ -590,6 +600,7 @@ fn boolean_failure(
         .map(|feature| feature.name.clone())
         .unwrap_or_default();
     match error {
+        BooleanError::Cancelled(_) => Failure::Cancelled,
         BooleanError::Empty => {
             let reason = match operation {
                 BodyOperation::Intersect(_) => {

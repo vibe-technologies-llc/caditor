@@ -1,6 +1,9 @@
 mod sketch;
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use caditor_expression::{Expression, NameError, ParameterId, ParseError, check_name};
 use caditor_geometry::Plane;
@@ -9,7 +12,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
 use crate::{
     attachment::SketchAttachment,
     datum::Datum,
-    document::{Document, Feature, FeatureId, FeatureKind, Parameter, list_names},
+    document::{Document, Feature, FeatureId, FeatureKind, Parameter, list_names, path_to},
     solid::BodyOperation,
 };
 
@@ -165,6 +168,20 @@ pub enum EditError {
     },
 }
 
+#[derive(Default)]
+struct ParameterGraph(Option<BTreeMap<ParameterId, BTreeSet<ParameterId>>>);
+
+impl ParameterGraph {
+    fn of(&mut self, document: &Document) -> &mut BTreeMap<ParameterId, BTreeSet<ParameterId>> {
+        self.0
+            .get_or_insert_with(|| document.parameter_dependencies())
+    }
+
+    fn invalidate(&mut self) {
+        self.0 = None;
+    }
+}
+
 pub struct TransactionBuilder<'a> {
     document: &'a Document,
     label: String,
@@ -244,8 +261,9 @@ impl Document {
     pub fn apply(&mut self, transaction: Transaction) -> Result<Transaction, EditError> {
         let before = self.clone();
         let mut inverse = Vec::with_capacity(transaction.edits.len());
+        let mut graph = ParameterGraph::default();
         for edit in transaction.edits {
-            match self.apply_edit(edit) {
+            match self.apply_edit(edit, &mut graph) {
                 Ok(undo) => inverse.push(undo),
                 Err(error) => {
                     *self = before;
@@ -261,13 +279,19 @@ impl Document {
         self.clone().apply(transaction.clone()).map(|_| ())
     }
 
-    fn apply_edit(&mut self, edit: Edit) -> Result<Edit, EditError> {
+    fn apply_edit(&mut self, edit: Edit, graph: &mut ParameterGraph) -> Result<Edit, EditError> {
         match edit {
-            Edit::InsertParameter { index, parameter } => self.insert_parameter(index, parameter),
-            Edit::RemoveParameter { id } => self.remove_parameter(id),
+            Edit::InsertParameter { index, parameter } => {
+                graph.invalidate();
+                self.insert_parameter(index, parameter)
+            }
+            Edit::RemoveParameter { id } => {
+                graph.invalidate();
+                self.remove_parameter(id)
+            }
             Edit::RenameParameter { id, name } => self.rename_parameter(id, name),
             Edit::SetParameterExpression { id, expression } => {
-                self.set_parameter_expression(id, expression)
+                self.set_parameter_expression(id, expression, graph)
             }
             Edit::InsertFeature { index, feature } => self.insert_feature(index, feature),
             Edit::RemoveFeature { id } => self.remove_feature(id),
@@ -479,14 +503,8 @@ impl Document {
     }
 
     fn remove_parameter(&mut self, id: ParameterId) -> Result<Edit, EditError> {
+        self.can_remove_parameter(id)?;
         let index = self.parameter_position(id)?;
-        let users = self.parameter_users(id);
-        if !users.is_empty() {
-            return Err(EditError::ParameterInUse {
-                name: self.parameter_name(id).unwrap_or_default().to_owned(),
-                users: list_names(&users),
-            });
-        }
         let parameter = self.parameters.remove(index);
         Ok(Edit::InsertParameter { index, parameter })
     }
@@ -502,10 +520,12 @@ impl Document {
         &mut self,
         id: ParameterId,
         expression: Expression,
+        graph: &mut ParameterGraph,
     ) -> Result<Edit, EditError> {
         self.parameter_position(id)?;
         self.check_references(&expression)?;
-        if let Some(cycle) = self.cycle_through(id, &expression) {
+        let dependencies = graph.of(self);
+        if let Some(cycle) = path_to(id, expression.parameters(), dependencies) {
             let names: Vec<&str> = cycle
                 .iter()
                 .map(|step| self.parameter_name(*step).unwrap_or("?"))
@@ -515,11 +535,41 @@ impl Document {
                 path: names.join(" → "),
             });
         }
+        dependencies.insert(id, expression.parameters());
         let parameter = self.parameter_mut(id)?;
         let previous = std::mem::replace(&mut parameter.expression, expression);
         Ok(Edit::SetParameterExpression {
             id,
             expression: previous,
+        })
+    }
+
+    pub fn can_remove_parameter(&self, id: ParameterId) -> Result<(), EditError> {
+        self.parameter_position(id)?;
+        let users = self.parameter_users(id);
+        if users.is_empty() {
+            return Ok(());
+        }
+        Err(EditError::ParameterInUse {
+            name: self.parameter_name(id).unwrap_or_default().to_owned(),
+            users: list_names(&users),
+        })
+    }
+
+    pub fn can_remove_feature(&self, id: FeatureId) -> Result<(), EditError> {
+        self.feature_position(id)?;
+        let users: Vec<String> = self
+            .feature_dependents(id)
+            .iter()
+            .filter_map(|dependent| self.feature(*dependent))
+            .map(|dependent| dependent.name.clone())
+            .collect();
+        if users.is_empty() {
+            return Ok(());
+        }
+        Err(EditError::FeatureInUse {
+            name: self.feature_name(id),
+            users: list_names(&users),
         })
     }
 
@@ -542,19 +592,8 @@ impl Document {
     }
 
     fn remove_feature(&mut self, id: FeatureId) -> Result<Edit, EditError> {
+        self.can_remove_feature(id)?;
         let index = self.feature_position(id)?;
-        let dependents = self.feature_dependents(id);
-        if !dependents.is_empty() {
-            let users: Vec<String> = dependents
-                .iter()
-                .filter_map(|dependent| self.feature(*dependent))
-                .map(|dependent| dependent.name.clone())
-                .collect();
-            return Err(EditError::FeatureInUse {
-                name: self.feature_name(id),
-                users: list_names(&users),
-            });
-        }
         let feature = self.features.remove(index);
         Ok(Edit::InsertFeature { index, feature })
     }

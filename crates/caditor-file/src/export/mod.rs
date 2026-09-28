@@ -12,7 +12,7 @@ use std::{
 
 use caditor_document::CancelToken;
 use caditor_geometry::Point3;
-use caditor_kernel::{Mesh, SamplingTolerance, Solid};
+use caditor_kernel::{Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_step::{StepBody, WriteError, write_step};
 
 use crate::{reason, save::write_atomically};
@@ -176,7 +176,7 @@ pub fn export_bodies(
         if cancel.is_cancelled() {
             return Err(ExportError::Cancelled);
         }
-        meshes.push(MeshBody::tessellate(body, &tolerance)?);
+        meshes.push(MeshBody::tessellate(body, &tolerance, cancel)?);
     }
     if cancel.is_cancelled() {
         return Err(ExportError::Cancelled);
@@ -209,9 +209,12 @@ fn export_step(
         .file_stem()
         .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned());
     let written = panic::catch_unwind(AssertUnwindSafe(|| {
-        write_step(&step_bodies, &model_name, SystemTime::now())
+        interruptible(cancel.interrupt(), || {
+            write_step(&step_bodies, &model_name, SystemTime::now())
+        })
     }));
     let contents = match written {
+        Ok(Err(_)) if cancel.is_cancelled() => return Err(ExportError::Cancelled),
         Ok(Ok(contents)) => contents,
         Ok(Err(WriteError::Empty)) => return Err(ExportError::Empty),
         Ok(Err(error)) => return Err(ExportError::Step(error.to_string())),
@@ -250,12 +253,15 @@ impl<'a> MeshBody<'a> {
     fn tessellate(
         body: &ExportBody<'a>,
         tolerance: &SamplingTolerance,
+        cancel: &CancelToken,
     ) -> Result<Self, ExportError> {
         let meshing = ExportError::Meshing(body.name.to_owned());
-        let tessellated =
-            panic::catch_unwind(AssertUnwindSafe(|| body.solid.tessellate(tolerance)));
+        let tessellated = panic::catch_unwind(AssertUnwindSafe(|| {
+            interruptible(cancel.interrupt(), || body.solid.tessellate(tolerance))
+        }));
         match tessellated {
             Ok(Ok(mesh)) => Self::compact(body.name, &mesh).ok_or(meshing),
+            Ok(Err(TessellationError::Cancelled(_))) => Err(ExportError::Cancelled),
             Ok(Err(error)) => {
                 log::warn!("exporting {} failed: {error}", body.name);
                 Err(meshing)

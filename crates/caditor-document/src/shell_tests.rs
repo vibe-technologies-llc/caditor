@@ -162,8 +162,7 @@ fn a_shell_hollows_its_body_and_follows_upstream_edits() {
         vec![(model.base, model.shell)]
     );
     assert_volume(&evaluation, model.base, 320.0 - 8.0 * 6.0 * 3.0);
-    let before = evaluation.body_before(model.shell).unwrap();
-    assert!(before.solid().unwrap().is_meshed());
+    assert!(evaluation.body_before(model.shell).is_some());
 
     let id = model.height;
     set(&mut model, id, "2 mm");

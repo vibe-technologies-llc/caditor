@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity};
 
-use crate::document::{Document, path_to};
+use crate::document::{Document, Parameter, path_to};
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ParameterError {
@@ -26,14 +26,23 @@ pub struct ParameterValues {
 impl ParameterValues {
     pub fn evaluate(document: &Document) -> Self {
         let order = EvaluationOrder::of(document);
+        let by_id: BTreeMap<ParameterId, &Parameter> = document
+            .parameters()
+            .iter()
+            .map(|parameter| (parameter.id(), parameter))
+            .collect();
         let mut values = Self::default();
         for (id, cycle) in order.cycles {
-            let Some(parameter) = document.parameter(id) else {
+            let Some(parameter) = by_id.get(&id) else {
                 continue;
             };
             let path = cycle
                 .iter()
-                .map(|step| document.parameter_name(*step).unwrap_or("?"))
+                .map(|step| {
+                    by_id
+                        .get(step)
+                        .map_or("?", |parameter| parameter.name.as_str())
+                })
                 .collect::<Vec<_>>()
                 .join(" → ");
             values.entries.insert(
@@ -45,7 +54,7 @@ impl ParameterValues {
             );
         }
         for id in order.sequence {
-            let Some(parameter) = document.parameter(id) else {
+            let Some(parameter) = by_id.get(&id) else {
                 continue;
             };
             let value = values
@@ -113,16 +122,26 @@ struct EvaluationOrder {
 impl EvaluationOrder {
     fn of(document: &Document) -> Self {
         let dependencies = document.parameter_dependencies();
-        let cycles: BTreeMap<ParameterId, Vec<ParameterId>> = dependencies
+        let (_, unordered) = Self::topological(&dependencies, &BTreeMap::new());
+        let cycles: BTreeMap<ParameterId, Vec<ParameterId>> = unordered
             .iter()
-            .filter_map(|(id, used)| {
+            .filter_map(|id| {
+                let used = dependencies.get(id)?;
                 path_to(*id, used.iter().copied(), &dependencies).map(|cycle| (*id, cycle))
             })
             .collect();
+        let (mut sequence, rest) = Self::topological(&dependencies, &cycles);
+        sequence.extend(rest);
+        Self { sequence, cycles }
+    }
 
+    fn topological(
+        dependencies: &BTreeMap<ParameterId, BTreeSet<ParameterId>>,
+        cycles: &BTreeMap<ParameterId, Vec<ParameterId>>,
+    ) -> (Vec<ParameterId>, Vec<ParameterId>) {
         let mut waiting: BTreeMap<ParameterId, usize> = BTreeMap::new();
         let mut dependents: BTreeMap<ParameterId, Vec<ParameterId>> = BTreeMap::new();
-        for (id, used) in &dependencies {
+        for (id, used) in dependencies {
             if cycles.contains_key(id) {
                 continue;
             }
@@ -155,7 +174,11 @@ impl EvaluationOrder {
             }
         }
         let placed: BTreeSet<ParameterId> = sequence.iter().copied().collect();
-        sequence.extend(waiting.keys().filter(|id| !placed.contains(id)));
-        Self { sequence, cycles }
+        let rest = waiting
+            .keys()
+            .filter(|id| !placed.contains(id))
+            .copied()
+            .collect();
+        (sequence, rest)
     }
 }

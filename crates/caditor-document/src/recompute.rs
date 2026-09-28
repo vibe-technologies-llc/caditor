@@ -6,7 +6,7 @@ use std::{
 };
 
 use caditor_expression::{Dimension, EvalError, ParameterId, Quantity};
-use caditor_kernel::{ProfileError, Solid};
+use caditor_kernel::{Interrupt, Profile, ProfileError, Solid, interruptible};
 use caditor_sketch::{ConstraintId, DimensionError, Sketch, SketchError, SketchSolution, Solved};
 
 use crate::{
@@ -32,6 +32,10 @@ impl CancelToken {
 
     pub fn is_cancelled(&self) -> bool {
         (self.0)()
+    }
+
+    pub fn interrupt(&self) -> Interrupt {
+        Arc::clone(&self.0)
     }
 }
 
@@ -68,11 +72,20 @@ impl From<FeatureError> for Failure {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct SketchResult {
     pub geometry: Sketch,
     pub solution: SketchSolution,
+    profile: OnceLock<Box<Result<Profile, ProfileError>>>,
     regions: OnceLock<Result<Vec<SketchRegion>, ProfileError>>,
+}
+
+impl PartialEq for SketchResult {
+    fn eq(&self, other: &Self) -> bool {
+        self.geometry == other.geometry
+            && self.solution == other.solution
+            && self.regions == other.regions
+    }
 }
 
 impl SketchResult {
@@ -80,6 +93,7 @@ impl SketchResult {
         Self {
             geometry,
             solution,
+            profile: OnceLock::new(),
             regions: OnceLock::new(),
         }
     }
@@ -88,11 +102,29 @@ impl SketchResult {
         self.regions.get()
     }
 
+    pub(crate) fn profile(&self) -> Result<&Profile, &ProfileError> {
+        self.profile
+            .get_or_init(|| {
+                Box::new(
+                    panic::catch_unwind(AssertUnwindSafe(|| {
+                        Profile::new(&solid::profile_curves(&self.geometry))
+                    }))
+                    .unwrap_or_else(|_| {
+                        log::error!("dividing a sketch into regions panicked");
+                        Err(ProfileError::Unresolved)
+                    }),
+                )
+            })
+            .as_ref()
+            .as_ref()
+    }
+
     pub(crate) fn find_regions(&self) {
         self.regions.get_or_init(|| {
-            panic::catch_unwind(AssertUnwindSafe(|| solid::display_regions(&self.geometry)))
+            let profile = self.profile().map_err(Clone::clone)?;
+            panic::catch_unwind(AssertUnwindSafe(|| solid::display_regions(profile)))
                 .unwrap_or_else(|_| {
-                    log::error!("dividing a sketch into regions panicked");
+                    log::error!("triangulating the regions of a sketch panicked");
                     Err(ProfileError::Unresolved)
                 })
         });
@@ -477,7 +509,7 @@ impl Recompute {
                 let name = document
                     .feature(*body)
                     .map_or("a feature", |feature| feature.name.as_str());
-                solid.tessellate(name);
+                interruptible(cancel.interrupt(), || solid.tessellate(name));
             }
         }
         let meshed = shown.values().all(|state| {
@@ -488,21 +520,6 @@ impl Recompute {
                 .is_none_or(SolidResult::is_meshed)
         });
 
-        for (feature, state) in &inputs_before {
-            if cancel.is_cancelled() {
-                break;
-            }
-            let meshable = statuses
-                .get(state)
-                .and_then(|status: &FeatureStatus| status.result.as_deref())
-                .and_then(FeatureResult::solid);
-            if let Some(solid) = meshable {
-                let name = document
-                    .feature(*feature)
-                    .map_or("a feature", |feature| feature.name.as_str());
-                solid.tessellate(name);
-            }
-        }
         let alive: BTreeSet<FeatureId> = features.iter().map(|feature| feature.id()).collect();
         self.cache.retain(|id, _| alive.contains(id));
         Evaluation {
@@ -579,24 +596,34 @@ fn evaluate_contained(
     inputs: &Inputs<'_>,
     cancel: &CancelToken,
 ) -> Result<FeatureResult, Failure> {
-    panic::catch_unwind(AssertUnwindSafe(|| {
-        evaluator.evaluate(feature, inputs, cancel)
-    }))
-    .unwrap_or_else(|payload| {
+    let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
+        interruptible(cancel.interrupt(), || {
+            evaluator.evaluate(feature, inputs, cancel)
+        })
+    }));
+    match outcome {
+        Ok(Err(Failure::Error(_))) if cancel.is_cancelled() => Err(Failure::Cancelled),
+        Ok(result) => result,
+        Err(payload) => Err(panicked(feature, payload.as_ref())),
+    }
+}
+
+fn panicked(feature: &Feature, payload: &(dyn Any + Send)) -> Failure {
+    {
         log::error!(
             "recomputing {} panicked: {}",
             feature.name,
-            panic_message(payload.as_ref())
+            panic_message(payload)
         );
-        Err(Failure::Error(FeatureError {
+        Failure::Error(FeatureError {
             reason: "caditor ran into an internal error while recomputing this feature.".to_owned(),
             remedy:
                 "Your model is unchanged. Undo the last change, and please report this problem."
                     .to_owned(),
             fix: None,
             constraints: Vec::new(),
-        }))
-    })
+        })
+    }
 }
 
 fn panic_message(payload: &(dyn Any + Send)) -> &str {

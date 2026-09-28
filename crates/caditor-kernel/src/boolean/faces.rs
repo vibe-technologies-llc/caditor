@@ -6,6 +6,7 @@ use crate::{
         imprint::Arrangement,
         trace::{Chart, Fragment, HalfEdge, fit_loop, group, trace},
     },
+    interrupt,
     sense::Sense,
     topology::{Face, Solid},
 };
@@ -24,6 +25,7 @@ pub(super) fn split(
     for operand in Operand::BOTH {
         let solid = input.solid(operand);
         for (id, face) in solid.faces() {
+            interrupt::check()?;
             let key = FaceKey { operand, face: id };
             let center = input
                 .bounds(key)

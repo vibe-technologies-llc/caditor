@@ -188,6 +188,8 @@ impl Harness {
             &mut self.files,
             &mut self.workspace,
         );
+        self.model
+            .mesh_before(self.workspace.editing.context().solid);
         self.workspace.viewport.build_scene(
             self.model.document(),
             self.model.evaluation(),
