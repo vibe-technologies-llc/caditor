@@ -2,6 +2,7 @@ mod builder;
 mod classify;
 #[cfg(test)]
 mod classify_tests;
+mod crossing;
 mod pcurve;
 #[cfg(test)]
 mod tests;
@@ -14,6 +15,7 @@ use caditor_geometry::{Aabb, Point2, Point3, RigidTransform, Vector3};
 pub use self::{
     builder::{BuildError, SolidBuilder},
     classify::{BoundaryClass, FaceContainment, PointClass, SolidClassifier},
+    crossing::Crossing,
     pcurve::{Pcurve, PcurveError, PcurveSample},
     validate::ValidationError,
 };

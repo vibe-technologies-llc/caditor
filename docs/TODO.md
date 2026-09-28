@@ -30,8 +30,9 @@ within a category run from most to least important.
 - Shell fails on convex faces with a radius below the thickness and at vertices of four or more
   faces whose offsets do not meet (both now reported as such). Drop collapsed faces, and split
   such vertices into edges.
-- Validation does not check faces or loops against each other, so self-intersecting imports pass
-  and fail later in booleans.
+- Imports are checked for crossing faces only between faces that share no edge
+  (`Solid::find_crossing`), and the loops of one face are never checked against each other, so a
+  face folding over its neighbour or a hole crossing its outer loop still passes.
 - Untested: spline surfaces in intersections, booleans, blends and shells; import edge naming;
   every blend and shell refusal branch.
 

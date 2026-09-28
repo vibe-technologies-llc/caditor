@@ -66,8 +66,8 @@ pub use crate::{
         PCURVE_TOLERANCE, SamplingTolerance, parallel, same_direction, same_point,
     },
     topology::{
-        BoundaryClass, BuildError, Coedge, CoedgeId, Edge, EdgeId, Face, FaceContainment, FaceId,
-        Loop, LoopId, Pcurve, PcurveError, PcurveSample, PointClass, Shell, ShellId, Solid,
+        BoundaryClass, BuildError, Coedge, CoedgeId, Crossing, Edge, EdgeId, Face, FaceContainment,
+        FaceId, Loop, LoopId, Pcurve, PcurveError, PcurveSample, PointClass, Shell, ShellId, Solid,
         SolidBuilder, SolidClassifier, ValidationError, Vertex, VertexId,
     },
 };

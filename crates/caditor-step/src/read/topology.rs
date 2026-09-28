@@ -30,6 +30,7 @@ pub(crate) struct Topology<'g, 'a> {
     vertices: BTreeMap<u64, VertexId>,
     edges: BTreeMap<u64, (EdgeId, bool)>,
     curves: BTreeMap<EdgeId, (Curve, Interval)>,
+    face_entities: Vec<u64>,
     healed: usize,
 }
 
@@ -60,6 +61,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             vertices: BTreeMap::new(),
             edges: BTreeMap::new(),
             curves: BTreeMap::new(),
+            face_entities: Vec::new(),
             healed: 0,
         }
     }
@@ -103,6 +105,24 @@ impl<'g, 'a> Topology<'g, 'a> {
             .builder
             .build()
             .map_err(|error| Problem::new(id, describe_build(&error)))?;
+        let crossing = solid
+            .find_crossing()
+            .map_err(|_| Problem::new(id, "was not checked, because the import was cancelled"))?;
+        if let Some(crossing) = crossing {
+            let [first, second] = crossing
+                .faces
+                .map(|face| self.face_entities.get(face.index()).copied());
+            let reason = match (first, second) {
+                (Some(first), Some(second)) => format!(
+                    "has faces #{first} and #{second} that cross each other, so it does not \
+                     enclose one volume"
+                ),
+                _ => {
+                    "has faces that cross each other, so it does not enclose one volume".to_owned()
+                }
+            };
+            return Err(Problem::new(id, reason));
+        }
         Ok((solid, healed))
     }
 
@@ -228,6 +248,9 @@ impl<'g, 'a> Topology<'g, 'a> {
             .builder
             .face(shell, surface, sense)
             .map_err(|error| Problem::new(id, describe_build(&error)))?;
+        if self.face_entities.len() == face.index() {
+            self.face_entities.push(id);
+        }
         self.loops(face, id, &bounds)
     }
 

@@ -369,3 +369,32 @@ fn a_sphere_is_bounded_where_no_edge_reaches() {
         assert!((bounds.max()[axis] - 5.0).abs() < 1e-6, "{bounds:?}");
     }
 }
+
+#[test]
+fn overlapping_lumps_cross_and_valid_solids_do_not() {
+    let mut fixture = crate::fixtures::Fixture::new();
+    crate::fixtures::add_cuboid(
+        &mut fixture,
+        Point3::ZERO,
+        Point3::splat(4.0),
+        crate::fixtures::Tweak::default(),
+    );
+    fixture.next_shell();
+    crate::fixtures::add_cuboid(
+        &mut fixture,
+        Point3::splat(2.0),
+        Point3::splat(6.0),
+        crate::fixtures::Tweak::default(),
+    );
+    let overlapping = fixture.build_unchecked();
+    let crossing = overlapping
+        .find_crossing()
+        .unwrap()
+        .expect("the lumps cross");
+    assert_ne!(crossing.faces[0], crossing.faces[1]);
+    assert!(overlapping.classify_point(crossing.point) != crate::PointClass::Outside);
+
+    for (name, solid) in crate::fixtures::every_solid() {
+        assert_eq!(solid.find_crossing().unwrap(), None, "{name}");
+    }
+}
