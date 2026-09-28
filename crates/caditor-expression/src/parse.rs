@@ -8,7 +8,7 @@ use crate::{
 
 pub const MAX_LENGTH: usize = 1000;
 const MAX_STORED_LENGTH: usize = 64 * MAX_LENGTH;
-const MAX_STORED_TREE_DEPTH: usize = MAX_LENGTH;
+const MAX_TREE_DEPTH: usize = MAX_LENGTH;
 const MAX_DEPTH: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -93,14 +93,7 @@ pub fn parse(
 }
 
 pub fn parse_stored(text: &str) -> Result<Expression, ParseError> {
-    let expression = parse_with(text, MAX_STORED_LENGTH, References::Stored, &|_| None)?;
-    if expression.depth() > MAX_STORED_TREE_DEPTH {
-        return Err(ParseError {
-            kind: ParseErrorKind::TooDeep,
-            span: 0..text.len(),
-        });
-    }
-    Ok(expression)
+    parse_with(text, MAX_STORED_LENGTH, References::Stored, &|_| None)
 }
 
 fn parse_with(
@@ -245,6 +238,17 @@ fn name_end(text: &str, start: usize, first: char) -> usize {
         .unwrap_or(text.len())
 }
 
+fn deepened(depth: usize, right: &Expression, span: Range<usize>) -> Result<usize, ParseError> {
+    let deeper = depth.max(right.depth()) + 1;
+    if deeper > MAX_TREE_DEPTH {
+        return Err(ParseError {
+            kind: ParseErrorKind::TooDeep,
+            span,
+        });
+    }
+    Ok(deeper)
+}
+
 struct Parser<'a> {
     text: &'a str,
     tokens: Vec<Token>,
@@ -310,27 +314,33 @@ impl Parser<'_> {
 
     fn expression(&mut self) -> Result<Expression, ParseError> {
         let mut left = self.term()?;
+        let mut depth = left.depth();
         loop {
             let operator = match self.peek_kind() {
                 Some(TokenKind::Plus) => BinaryOperator::Add,
                 Some(TokenKind::Minus) => BinaryOperator::Subtract,
                 _ => return Ok(left),
             };
-            self.advance();
-            left = Expression::binary(operator, left, self.term()?);
+            let span = self.advance().map(|token| token.span).unwrap_or_default();
+            let right = self.term()?;
+            depth = deepened(depth, &right, span)?;
+            left = Expression::binary(operator, left, right);
         }
     }
 
     fn term(&mut self) -> Result<Expression, ParseError> {
         let mut left = self.unary()?;
+        let mut depth = left.depth();
         loop {
             let operator = match self.peek_kind() {
                 Some(TokenKind::Star) => BinaryOperator::Multiply,
                 Some(TokenKind::Slash) => BinaryOperator::Divide,
                 _ => return Ok(left),
             };
-            self.advance();
-            left = Expression::binary(operator, left, self.unary()?);
+            let span = self.advance().map(|token| token.span).unwrap_or_default();
+            let right = self.unary()?;
+            depth = deepened(depth, &right, span)?;
+            left = Expression::binary(operator, left, right);
         }
     }
 

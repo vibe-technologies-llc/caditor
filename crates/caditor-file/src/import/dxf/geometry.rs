@@ -1,6 +1,7 @@
 use std::f64::consts::TAU;
 
 use caditor_geometry::{Point2, Point3, Vector2, Vector3};
+use caditor_kernel::MAX_SPLINE_DEGREE;
 
 const ARBITRARY_AXIS_LIMIT: f64 = 1.0 / 64.0;
 const FULL_TURN_TOLERANCE: f64 = 1e-9;
@@ -104,7 +105,7 @@ impl Nurbs {
         weights: Option<Vec<f64>>,
     ) -> Option<Self> {
         let weights = weights.filter(|weights| weights.len() == points.len());
-        let valid = degree >= 1
+        let valid = (1..=MAX_SPLINE_DEGREE).contains(&degree)
             && points.len() > degree
             && knots.len() == points.len() + degree + 1
             && knots.iter().all(|knot| knot.is_finite())

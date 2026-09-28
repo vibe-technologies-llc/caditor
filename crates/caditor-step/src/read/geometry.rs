@@ -1,16 +1,29 @@
 use caditor_geometry::{Plane, Point3, Vector3};
 use caditor_kernel::{
-    BSpline, BSplineSurface, Circle, Cone, Curve, Cylinder, Ellipse, Extrusion, Line, PlaneSurface,
-    Revolution, Sphere, Surface, Torus,
+    BSpline, BSplineSurface, Circle, Cone, Curve, Cylinder, Ellipse, Extrusion, Line,
+    MAX_SPLINE_DEGREE, PlaneSurface, Revolution, Sphere, Surface, Torus,
 };
 
 use crate::read::{
     graph::{Entity, Graph, Problem, Read, friendly},
-    spline::{Homogeneous, clamp, expand_knots, uniform_knots},
+    spline::{Homogeneous, clamp, expand_knots, knot_count, uniform_knots},
     units::Units,
 };
 
 const MAX_CURVE_DEPTH: usize = 8;
+
+fn spline_degree(value: i64, id: u64) -> Read<usize> {
+    let degree = usize::try_from(value).map_err(|_| Problem::new(id, "has a negative degree"))?;
+    if degree > MAX_SPLINE_DEGREE {
+        return Err(Problem::new(
+            id,
+            format!(
+                "has degree {degree}, and caditor reads splines up to degree {MAX_SPLINE_DEGREE}"
+            ),
+        ));
+    }
+    Ok(degree)
+}
 
 pub(crate) struct Geometry<'a> {
     pub graph: Graph<'a>,
@@ -151,10 +164,10 @@ impl<'a> Geometry<'a> {
 
     fn spline_curve(&self, entity: Entity<'_>) -> Read<BSpline<Point3>> {
         let id = entity.id;
+        let mismatched = || Problem::new(id, "has knots that do not match");
         let (degree, points, knots) = match entity.fields() {
             Ok(fields) => {
-                let degree = usize::try_from(fields.integer(1)?)
-                    .map_err(|_| Problem::new(id, "has a negative degree"))?;
+                let degree = spline_degree(fields.integer(1)?, id)?;
                 let points = fields.references(2)?;
                 let knots = match entity.kind() {
                     "B_SPLINE_CURVE_WITH_KNOTS" => {
@@ -163,8 +176,9 @@ impl<'a> Geometry<'a> {
                             .iter()
                             .filter_map(crate::part21::Parameter::integer)
                             .collect();
-                        expand_knots(&multiplicities, &fields.reals(7)?)
-                            .ok_or_else(|| Problem::new(id, "has knots that do not match"))?
+                        let expected = knot_count(points.len(), degree).ok_or_else(mismatched)?;
+                        expand_knots(&multiplicities, &fields.reals(7)?, expected)
+                            .ok_or_else(mismatched)?
                     }
                     "UNIFORM_CURVE" => uniform_knots(points.len(), degree, false),
                     _ => uniform_knots(points.len(), degree, true),
@@ -173,8 +187,7 @@ impl<'a> Geometry<'a> {
             }
             Err(_) => {
                 let curve = entity.record("B_SPLINE_CURVE")?;
-                let degree = usize::try_from(curve.integer(0)?)
-                    .map_err(|_| Problem::new(id, "has a negative degree"))?;
+                let degree = spline_degree(curve.integer(0)?, id)?;
                 let points = curve.references(1)?;
                 let knots = if let Ok(with_knots) = entity.record("B_SPLINE_CURVE_WITH_KNOTS") {
                     let multiplicities: Vec<i64> = with_knots
@@ -182,8 +195,9 @@ impl<'a> Geometry<'a> {
                         .iter()
                         .filter_map(crate::part21::Parameter::integer)
                         .collect();
-                    expand_knots(&multiplicities, &with_knots.reals(1)?)
-                        .ok_or_else(|| Problem::new(id, "has knots that do not match"))?
+                    let expected = knot_count(points.len(), degree).ok_or_else(mismatched)?;
+                    expand_knots(&multiplicities, &with_knots.reals(1)?, expected)
+                        .ok_or_else(mismatched)?
                 } else {
                     uniform_knots(points.len(), degree, !entity.is("UNIFORM_CURVE"))
                 };
@@ -300,9 +314,7 @@ impl<'a> Geometry<'a> {
 impl Geometry<'_> {
     fn spline_surface(&self, entity: Entity<'_>) -> Read<BSplineSurface> {
         let id = entity.id;
-        let degree = |value: i64| {
-            usize::try_from(value).map_err(|_| Problem::new(id, "has a negative degree"))
-        };
+        let degree = |value: i64| spline_degree(value, id);
         let (u_degree, v_degree, grid_index, fields, knot_fields, knot_offset) =
             match entity.fields() {
                 Ok(fields) => (
@@ -352,8 +364,19 @@ impl Geometry<'_> {
                         .filter_map(crate::part21::Parameter::integer)
                         .collect())
                 };
-                let u = expand_knots(&integers(knot_offset)?, &knots.reals(knot_offset + 2)?);
-                let v = expand_knots(&integers(knot_offset + 1)?, &knots.reals(knot_offset + 3)?);
+                let mismatched = || Problem::new(id, "has knots that do not match");
+                let u_expected = knot_count(columns, u_degree).ok_or_else(mismatched)?;
+                let v_expected = knot_count(count, v_degree).ok_or_else(mismatched)?;
+                let u = expand_knots(
+                    &integers(knot_offset)?,
+                    &knots.reals(knot_offset + 2)?,
+                    u_expected,
+                );
+                let v = expand_knots(
+                    &integers(knot_offset + 1)?,
+                    &knots.reals(knot_offset + 3)?,
+                    v_expected,
+                );
                 match (u, v) {
                     (Some(u), Some(v)) => (u, v),
                     _ => return Err(Problem::new(id, "has knots that do not match")),
@@ -487,4 +510,18 @@ pub(crate) fn cartesian(points: &[Homogeneous]) -> Option<(Vec<Point3>, Vec<f64>
         weights.push(*weight);
     }
     Some((cartesian, weights))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spline_degrees_above_the_kernel_limit_are_refused_before_any_work() {
+        assert_eq!(spline_degree(3, 7), Ok(3));
+        assert_eq!(spline_degree(9, 7), Ok(9));
+        let refused = spline_degree(1_000_000_000, 7).unwrap_err();
+        assert!(refused.to_string().contains("up to degree 9"), "{refused}");
+        assert!(spline_degree(-1, 7).is_err());
+    }
 }

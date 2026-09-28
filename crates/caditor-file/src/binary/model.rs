@@ -1,4 +1,7 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    borrow::Cow,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use caditor_document::Document;
 use serde::{Deserialize, Serialize};
@@ -17,6 +20,26 @@ use crate::{
 };
 
 const KEYFRAME_SPACING: usize = 8;
+const MAX_DECOMPRESSED: usize = 1 << 31;
+
+struct Budget {
+    remaining: usize,
+}
+
+impl Default for Budget {
+    fn default() -> Self {
+        Self {
+            remaining: MAX_DECOMPRESSED,
+        }
+    }
+}
+
+impl Budget {
+    fn unpack(&mut self, chunk: &Chunk<'_>, newer: Option<&[u8]>) -> Option<Vec<u8>> {
+        self.remaining = self.remaining.checked_sub(chunk.content_length())?;
+        chunk.unpack(newer).ok()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedState {
@@ -59,7 +82,9 @@ impl StateRecord {
 
     fn state(&self) -> SavedState {
         SavedState {
-            saved_at: UNIX_EPOCH + Duration::from_secs(self.saved_at),
+            saved_at: UNIX_EPOCH
+                .checked_add(Duration::from_secs(self.saved_at))
+                .unwrap_or(UNIX_EPOCH),
             label: self.label.clone(),
         }
     }
@@ -138,34 +163,46 @@ impl<'a> Parsed<'a> {
         Some(parsed)
     }
 
-    fn record_contents(&self) -> Vec<Result<Vec<u8>, super::UnpackError>> {
-        self.records
-            .iter()
-            .map(|chunk| chunk.unpack(None))
-            .collect()
-    }
-
-    fn head_snapshot(&self) -> Option<Vec<u8>> {
+    fn head_snapshot(&self, budget: &mut Budget) -> Option<Vec<u8>> {
         let head = self.head.as_ref()?;
-        let contents: Option<Vec<Vec<u8>>> =
-            self.record_contents().into_iter().map(Result::ok).collect();
-        let snapshot = snapshot_of(&contents?);
+        let mut snapshot = Vec::new();
+        for chunk in &self.records {
+            let content = budget.unpack(chunk, None)?;
+            push_varint(&mut snapshot, content.len() as u64);
+            snapshot.extend_from_slice(&content);
+        }
         head.holds(&snapshot).then_some(snapshot)
     }
 
-    fn version_snapshots(&self, until: usize) -> Vec<Option<Vec<u8>>> {
-        let mut newer = self.head_snapshot();
-        let mut snapshots = Vec::new();
-        for version in self.versions.iter().take(until.saturating_add(1)) {
-            let snapshot = version
-                .data
-                .unpack(newer.as_deref())
-                .ok()
+    fn walk_versions(
+        &self,
+        from: usize,
+        until: usize,
+        mut visit: impl FnMut(usize, Option<&[u8]>),
+    ) {
+        let mut budget = Budget::default();
+        let mut newer = if from == 0 {
+            self.head_snapshot(&mut budget)
+        } else {
+            None
+        };
+        let versions = self.versions.iter().enumerate();
+        let count = until.saturating_add(1).saturating_sub(from);
+        for (index, version) in versions.skip(from).take(count) {
+            let snapshot = budget
+                .unpack(&version.data, newer.as_deref())
                 .filter(|snapshot| version.info.holds(snapshot));
-            snapshots.push(snapshot.clone());
+            visit(index, snapshot.as_deref());
             newer = snapshot;
         }
-        snapshots
+    }
+
+    fn keyframe_at_or_before(&self, index: usize) -> usize {
+        self.versions
+            .iter()
+            .take(index.saturating_add(1))
+            .rposition(StoredVersion::is_keyframe)
+            .unwrap_or(0)
     }
 
     fn leading_deltas(&self) -> usize {
@@ -238,9 +275,12 @@ pub(crate) fn save_bytes(
     let records = document_records(document)?;
     let snapshot = snapshot_of(&records);
     let prior = previous.and_then(Parsed::of);
-    let prior_head = prior
-        .as_ref()
-        .and_then(|prior| prior.head.clone().zip(prior.head_snapshot()));
+    let prior_head = prior.as_ref().and_then(|prior| {
+        prior
+            .head
+            .clone()
+            .zip(prior.head_snapshot(&mut Budget::default()))
+    });
     let unchanged = prior_head
         .as_ref()
         .is_some_and(|(info, _)| info.holds(&snapshot));
@@ -311,21 +351,24 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
             ),
         });
     }
-    let contents = parsed.record_contents();
-    let records = contents.iter().map(|content| content.as_deref().ok());
+    let mut budget = Budget::default();
+    let records = parsed
+        .records
+        .iter()
+        .map(|chunk| budget.unpack(chunk, None).map(Cow::Owned));
     let parts = read_records(records, &mut issues);
     let document = assemble(parts, &mut issues);
     Ok(Loaded { document, issues })
 }
 
 fn read_records<'a>(
-    records: impl Iterator<Item = Option<&'a [u8]>>,
+    records: impl Iterator<Item = Option<Cow<'a, [u8]>>>,
     issues: &mut Vec<String>,
 ) -> Parts {
     let mut parts = Parts::default();
     for (index, content) in records.enumerate() {
         let place = format!("Record {}", index + 1);
-        match content.map(value::from_bytes::<Lenient<Record>>) {
+        match content.map(|content| value::from_bytes::<Lenient<Record>>(&content)) {
             Some(Ok(Lenient::Read(record))) => parts.add(record),
             Some(Ok(Lenient::Unreadable(value))) => {
                 let item = Unreadable(&value);
@@ -342,18 +385,23 @@ pub(crate) fn history(bytes: &[u8]) -> History {
     let Some(parsed) = Parsed::of(bytes) else {
         return History::default();
     };
-    let snapshots = parsed.version_snapshots(usize::MAX);
+    let mut available = vec![false; parsed.versions.len()];
+    parsed.walk_versions(0, usize::MAX, |index, snapshot| {
+        if let Some(slot) = available.get_mut(index) {
+            *slot = snapshot.is_some();
+        }
+    });
     History {
         current: parsed.head.as_ref().map(StateRecord::state),
         versions: parsed
             .versions
             .iter()
-            .zip(snapshots)
+            .zip(available)
             .enumerate()
-            .map(|(index, (version, snapshot))| Version {
+            .map(|(index, (version, available))| Version {
                 index,
                 state: version.info.state(),
-                available: snapshot.is_some(),
+                available,
             })
             .collect(),
     }
@@ -361,15 +409,25 @@ pub(crate) fn history(bytes: &[u8]) -> History {
 
 pub(crate) fn load_version(bytes: &[u8], index: usize) -> Result<Loaded, LoadError> {
     let parsed = Parsed::of(bytes).ok_or(LoadError::NotAModel)?;
-    let snapshot = parsed
-        .version_snapshots(index)
-        .into_iter()
-        .nth(index)
-        .flatten()
-        .ok_or(LoadError::VersionUnavailable)?;
+    let mut wanted = None;
+    parsed.walk_versions(
+        parsed.keyframe_at_or_before(index),
+        index,
+        |at, snapshot| {
+            if at == index {
+                wanted = snapshot.map(<[u8]>::to_vec);
+            }
+        },
+    );
+    let snapshot = wanted.ok_or(LoadError::VersionUnavailable)?;
     let records = split_snapshot(&snapshot).ok_or(LoadError::VersionUnavailable)?;
     let mut issues = Vec::new();
-    let parts = read_records(records.into_iter().map(Some), &mut issues);
+    let parts = read_records(
+        records
+            .into_iter()
+            .map(|record| Some(Cow::Borrowed(record))),
+        &mut issues,
+    );
     let document = assemble(parts, &mut issues);
     Ok(Loaded { document, issues })
 }

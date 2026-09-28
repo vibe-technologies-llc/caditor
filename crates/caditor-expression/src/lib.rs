@@ -355,6 +355,12 @@ mod tests {
         assert_eq!(error_kind("$0"), ParseErrorKind::UnexpectedCharacter('$'));
         let deep = vec!["$0"; MAX_LENGTH + 2].join("+");
         assert_eq!(kind(&deep), ParseErrorKind::TooDeep);
+        let longest = vec!["$0"; MAX_LENGTH * 16].join("*");
+        let started = std::time::Instant::now();
+        let error = Expression::parse_stored(&longest).unwrap_err();
+        assert_eq!(error.kind, ParseErrorKind::TooDeep);
+        assert!(error.span.start < MAX_LENGTH * 4, "{:?}", error.span);
+        assert!(started.elapsed().as_secs() < 2);
     }
 
     #[test]

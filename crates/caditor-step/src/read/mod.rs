@@ -15,7 +15,7 @@ use crate::{
     read::{
         geometry::Geometry,
         graph::{Entity, Graph, Problem},
-        structure::{MAX_INSTANCES as MAX_PLACEMENTS, Structure},
+        structure::{MAX_DEPTH, MAX_INSTANCES as MAX_PLACEMENTS, Placements, Structure, Unplaced},
         topology::Topology,
         units::Units,
     },
@@ -66,6 +66,8 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
         .entities()
         .filter(|entity| matches!(entity.kind(), "SHELL_BASED_SURFACE_MODEL" | "FACETED_BREP"))
         .count();
+    let mut budget = MAX_PLACEMENTS;
+    let mut unplaced = Vec::new();
     for (index, entity) in solids.iter().enumerate() {
         let representation = structure.representation_of(entity.id);
         let units = representation
@@ -75,19 +77,36 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
         let name = solid_name(entity, &structure, representation, index);
         let placements = match representation {
             Some(representation) => structure.placements(representation),
-            None => vec![RigidTransform::IDENTITY],
+            None => Placements {
+                transforms: vec![RigidTransform::IDENTITY],
+                unplaced: None,
+            },
         };
+        if let Some(reason) = placements.unplaced {
+            unplaced.push(unplaced_note(&name, reason));
+            continue;
+        }
+        if placements.transforms.len() > budget {
+            structure.truncated = true;
+        }
+        let transforms: Vec<RigidTransform> =
+            placements.transforms.into_iter().take(budget).collect();
+        if transforms.is_empty() {
+            continue;
+        }
         match build(&graph, units, entity.id) {
             Ok((solid, healed)) => {
                 repaired += healed;
-                let count = placements.len();
-                for (instance, placement) in placements.into_iter().enumerate() {
+                let count = transforms.len();
+                let mut misplaced = false;
+                for (instance, placement) in transforms.into_iter().enumerate() {
                     let placed = if placement == RigidTransform::IDENTITY {
                         Ok(solid.clone())
                     } else {
                         solid.transformed(&placement)
                     };
                     let Ok(placed) = placed else {
+                        misplaced = true;
                         continue;
                     };
                     let name = if count > 1 && instance > 0 {
@@ -95,10 +114,17 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
                     } else {
                         name.clone()
                     };
+                    budget = budget.saturating_sub(1);
                     model.solids.push(StepSolid {
                         name,
                         solid: placed,
                     });
+                }
+                if misplaced {
+                    unplaced.push(format!(
+                        "A copy of “{name}” was left out, because its placement in the assembly \
+                         is not a rigid move."
+                    ));
                 }
             }
             Err(problem) => {
@@ -112,9 +138,10 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
             "“{name}” could not be imported, because its entity {problem}."
         ));
     }
+    model.notes.extend(unplaced.iter().cloned());
     if structure.truncated {
         model.notes.push(format!(
-            "The assembly places some parts more than {MAX_PLACEMENTS} times; only the first \
+            "The file places parts more than {MAX_PLACEMENTS} times in all; only the first \
              {MAX_PLACEMENTS} copies were imported."
         ));
     }
@@ -153,14 +180,29 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
         );
     }
     if model.solids.is_empty() {
-        return Err(match failures.into_iter().next() {
-            Some((name, problem)) => ReadError::Unreadable(format!(
-                "“{name}” could not be rebuilt, because its entity {problem}"
-            )),
-            None => ReadError::NoSolids,
-        });
+        return Err(
+            match (failures.into_iter().next(), unplaced.into_iter().next()) {
+                (Some((name, problem)), _) => ReadError::Unreadable(format!(
+                    "“{name}” could not be rebuilt, because its entity {problem}"
+                )),
+                (None, Some(note)) => ReadError::Unreadable(note.trim_end_matches('.').to_owned()),
+                (None, None) => ReadError::NoSolids,
+            },
+        );
     }
     Ok(model)
+}
+
+fn unplaced_note(name: &str, reason: Unplaced) -> String {
+    match reason {
+        Unplaced::InsideItself => {
+            format!("“{name}” was left out, because the assembly places it inside itself.")
+        }
+        Unplaced::TooDeep => format!(
+            "“{name}” was left out, because the assembly nests it more than {MAX_DEPTH} levels \
+             deep."
+        ),
+    }
 }
 
 fn build(graph: &Graph<'_>, units: Units, id: u64) -> Result<(Solid, usize), Problem> {

@@ -87,8 +87,13 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     and degrees). Assemblies are followed from each solid's representation up to the roots
     through `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION` (child and parent told apart by
     `NEXT_ASSEMBLY_USAGE_OCCURRENCE` when present), untransformed relationships and
-    `MAPPED_ITEM`s, giving one solid per placement (at most `MAX_INSTANCES`), named after its
-    product. Geometry covers every kernel surface and curve including B-spline surfaces and
+    `MAPPED_ITEM`s, giving one solid per placement, named after its product. Placements are
+    memoised per representation (so layered assemblies cost one visit per part), assemblies
+    deeper than `MAX_DEPTH` or placing a part only inside itself leave that solid out with a
+    note, and the whole file yields at most `MAX_INSTANCES` solids. Spline degrees above the
+    kernel's `MAX_SPLINE_DEGREE` are refused as they are read, and knot multiplicities must sum
+    to points plus degree plus one (with checked arithmetic) before any knot is expanded.
+    Geometry covers every kernel surface and curve including B-spline surfaces and
     curves in all their forms (unclamped ones are clamped by knot insertion), trimmed and
     surface curves by their basis, and polylines. Topology is surveyed first (which faces use
     each edge and vertex), then vertices off their faces are moved onto all of them by damped
@@ -111,8 +116,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   the dimension of whatever it is added to, and a field that expects a length takes a plain
   result as millimetres. Trigonometry reads a plain number as radians. An `Expression` refers to
   parameters by `ParameterId`, never by name, so renaming a parameter rewrites every
-  expression's text. Parsing limits length and nesting so that hostile input cannot overflow the
-  stack, and errors are plain-language clauses.
+  expression's text. Parsing limits length, nesting and the depth of the tree it builds (checked
+  as each operator is added, so long chains stop at the limit) so that hostile input cannot
+  overflow the stack, and errors are plain-language clauses.
 - **caditor-sketch**: 2D sketches on a `Plane` and caditor's own constraint solver.
   - Entities are points, lines, circles (centre point and radius), arcs (centre, start and end
     points, counter-clockwise) and clamped B-splines through control points. Every sketch also
@@ -482,8 +488,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `CDCK`, its kind, its codec (stored, zstd, or zstd against the next newer version as a raw
     prefix), stored and content lengths and an xxh3-64 of the header fields and payload, followed
     by the payload. A reader that meets a bad chunk scans forward to the next marker whose
-    checksum holds, so damage loses only the chunks it touches. Content is capped at 256 MiB per
-    chunk so a hostile file cannot force a huge allocation.
+    checksum holds, so damage loses only the chunks it touches; the payload bytes hashed while
+    scanning are capped at four times the file size, so forged headers cannot make the scan
+    quadratic. Content is capped at 256 MiB per chunk, records are decoded one at a time, and
+    one load, listing or restore decompresses at most 2 GiB in all, so a hostile file cannot
+    force a huge allocation or endless work.
   - Values (`binary/value.rs`) are a self-describing serde encoding: tagged null, booleans,
     LEB128 unsigned and negative integers, little-endian f64, strings, bytes, and sequences and
     maps closed by an end tag, with nesting limited. Enums are encoded like JSON (a unit variant
@@ -505,7 +514,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     zstd prefix, so a version costs only its difference; every eighth one is stored whole, which
     bounds the chain a damaged chunk can break. Each rebuilt version is checked against its
     digest before it is offered. `history` lists the versions (with whether each can still be
-    rebuilt) and `load_version` loads one. When the head cannot be rebuilt, the next save drops
+    rebuilt), keeping only the rolling newer snapshot, and `load_version` rebuilds one starting
+    from the nearest whole version at or after it. When the head cannot be rebuilt, the next save drops
     the deltas that depended on it and keeps the rest.
   - Saving writes a temporary sibling, fsyncs it, renames it over the target and fsyncs the
     directory, keeping the target's permissions. A symbolic link is followed to the file it
@@ -559,10 +569,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     UTF-8 or single-byte text) into a `Drawing` of 2D `DrawingCurve`s in millimetres plus notes in
     plain language. It reads `$INSUNITS` (none is read as millimetres, with a note), layers
     (entities on off or frozen layers are left out), blocks and INSERTs (base point, scale,
-    rotation, column and row arrays, nested with cycle and depth limits, block content on layer 0
+    rotation, column and row arrays, nested with cycle and depth limits and at most
+    `MAX_EXPANDED_OBJECTS` objects and cells visited in all, block content on layer 0
     taking the insert's layer), and the entities LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE and
     POLYLINE (bulges become arcs, 3D polylines lines) and SPLINE (control points with knots and
-    weights, or fit points). Object coordinate systems follow the arbitrary axis algorithm.
+    weights up to degree 9, or fit points). Object coordinate systems follow the arbitrary axis algorithm.
     Everything becomes a 3D shape (point, line, parametric conic, NURBS or fit points), is
     transformed, then flattened onto XY: conics that project to circles become circles and arcs
     (counter-clockwise), other conics and splines that are not already in the sketch's uniform form

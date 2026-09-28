@@ -245,3 +245,45 @@ fn the_packaged_mime_type_matches_models_by_magic_and_extension() {
     )));
     assert!(mime.contains(&format!("<glob pattern=\"*.{}\"/>", crate::FILE_EXTENSION)));
 }
+
+#[test]
+fn a_save_time_beyond_what_the_clock_holds_does_not_break_the_history() {
+    let state = serde_json::json!({ "saved_at": u64::MAX, "digest": "" });
+    let mut bytes = start_file(&MODEL_MAGIC, 1);
+    push_packed(&mut bytes, ChunkKind::Head, &to_bytes(&state).unwrap()).unwrap();
+    push_packed(
+        &mut bytes,
+        ChunkKind::VersionInfo,
+        &to_bytes(&state).unwrap(),
+    )
+    .unwrap();
+    push_packed(&mut bytes, ChunkKind::VersionData, b"old").unwrap();
+    let listed = history(&bytes);
+    assert_eq!(listed.current.unwrap().saved_at, UNIX_EPOCH);
+    assert_eq!(listed.versions[0].state.saved_at, UNIX_EPOCH);
+    assert!(!listed.versions[0].available);
+}
+
+#[test]
+fn forged_chunk_headers_cannot_make_the_resync_scan_quadratic() {
+    const FORGED: usize = 40_000;
+    let mut bytes = start_file(&MODEL_MAGIC, 1);
+    let body_length = FORGED * CHUNK_HEADER_LENGTH;
+    for index in 0..FORGED {
+        let remaining = body_length - (index + 1) * CHUNK_HEADER_LENGTH;
+        bytes.extend_from_slice(&SYNC);
+        bytes.extend_from_slice(&[ChunkKind::Record as u8, Codec::Stored as u8, 0, 0]);
+        bytes.extend_from_slice(&u32::try_from(remaining).unwrap().to_le_bytes());
+        bytes.extend_from_slice(&u32::try_from(remaining).unwrap().to_le_bytes());
+        bytes.extend_from_slice(&[0; 8]);
+    }
+    let started = std::time::Instant::now();
+    let container = parse(&bytes, &MODEL_MAGIC).unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(container.chunks().count(), 0);
+    assert_eq!(container.damaged(), 1);
+}

@@ -20,6 +20,7 @@ use crate::reason;
 
 pub const DXF_EXTENSION: &str = "dxf";
 pub const MAX_DRAWING_CURVES: usize = 20_000;
+pub const MAX_EXPANDED_OBJECTS: usize = 1_000_000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawingCurve {
@@ -121,6 +122,11 @@ pub enum ImportError {
          split it into smaller drawings"
     )]
     TooLarge,
+    #[error(
+        "its blocks repeat into more than {MAX_EXPANDED_OBJECTS} objects, more than caditor reads \
+         from one drawing"
+    )]
+    TooManyObjects,
 }
 
 pub fn read_dxf(path: &Path) -> Result<Drawing, ImportError> {

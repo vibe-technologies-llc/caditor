@@ -20,6 +20,7 @@ const VERSION_LENGTH: usize = 4;
 const CHUNK_HEADER_LENGTH: usize = 24;
 const CHECKED_HEADER: std::ops::Range<usize> = 4..16;
 const MAX_CONTENT: usize = 1 << 28;
+const HASHING_ALLOWANCE: usize = 4;
 const LEVEL: Level = Level::BALANCED;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +93,10 @@ pub(crate) enum UnpackError {
 }
 
 impl Chunk<'_> {
+    pub fn content_length(&self) -> usize {
+        self.content_length
+    }
+
     pub fn unpack(&self, newer: Option<&[u8]>) -> Result<Vec<u8>, UnpackError> {
         let content = match self.codec {
             Some(Codec::Stored) => self.payload.to_vec(),
@@ -151,17 +156,24 @@ pub(crate) fn parse<'a>(bytes: &'a [u8], magic: &Magic) -> Option<Container<'a>>
     let body = rest.get(VERSION_LENGTH..)?;
     let mut pieces = Vec::new();
     let mut position = 0;
+    let mut hashing_budget = body.len().saturating_mul(HASHING_ALLOWANCE);
     while position < body.len() {
-        match read_chunk(body, position) {
-            Some((chunk, next)) => {
+        match read_chunk(body, position, &mut hashing_budget) {
+            Ok((chunk, next)) => {
                 pieces.push(Piece::Chunk(chunk));
                 position = next;
             }
-            None => {
+            Err(Rejected::Chunk) => {
                 if pieces.last() != Some(&Piece::Damaged) {
                     pieces.push(Piece::Damaged);
                 }
                 position = next_sync(body, position + 1);
+            }
+            Err(Rejected::OverBudget) => {
+                if pieces.last() != Some(&Piece::Damaged) {
+                    pieces.push(Piece::Damaged);
+                }
+                break;
             }
         }
     }
@@ -174,7 +186,27 @@ fn next_sync(body: &[u8], from: usize) -> usize {
         .map_or(body.len(), |offset| from + offset)
 }
 
-fn read_chunk(body: &[u8], position: usize) -> Option<(Chunk<'_>, usize)> {
+enum Rejected {
+    Chunk,
+    OverBudget,
+}
+
+fn read_chunk<'a>(
+    body: &'a [u8],
+    position: usize,
+    hashing_budget: &mut usize,
+) -> Result<(Chunk<'a>, usize), Rejected> {
+    let (chunk, end, header, checksum) = chunk_at(body, position).ok_or(Rejected::Chunk)?;
+    *hashing_budget = hashing_budget
+        .checked_sub(chunk.payload.len())
+        .ok_or(Rejected::OverBudget)?;
+    if checksum_of(header, chunk.payload) != checksum {
+        return Err(Rejected::Chunk);
+    }
+    Ok((chunk, end))
+}
+
+fn chunk_at(body: &[u8], position: usize) -> Option<(Chunk<'_>, usize, &[u8], u64)> {
     let header = body.get(position..position.checked_add(CHUNK_HEADER_LENGTH)?)?;
     if header.get(..SYNC.len())? != SYNC {
         return None;
@@ -190,9 +222,6 @@ fn read_chunk(body: &[u8], position: usize) -> Option<(Chunk<'_>, usize)> {
     let payload_start = position + CHUNK_HEADER_LENGTH;
     let end = payload_start.checked_add(stored_length)?;
     let payload = body.get(payload_start..end)?;
-    if checksum_of(header.get(CHECKED_HEADER)?, payload) != checksum {
-        return None;
-    }
     Some((
         Chunk {
             kind: ChunkKind::from_byte(kind),
@@ -202,6 +231,8 @@ fn read_chunk(body: &[u8], position: usize) -> Option<(Chunk<'_>, usize)> {
             whole: body.get(position..end)?,
         },
         end,
+        header.get(CHECKED_HEADER)?,
+        checksum,
     ))
 }
 

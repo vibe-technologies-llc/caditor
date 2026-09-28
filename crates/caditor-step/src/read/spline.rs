@@ -2,16 +2,33 @@ pub(crate) type Homogeneous = [f64; 4];
 
 const KNOT_MATCH: f64 = 1e-12;
 
-pub(crate) fn expand_knots(multiplicities: &[i64], knots: &[f64]) -> Option<Vec<f64>> {
+pub(crate) fn expand_knots(
+    multiplicities: &[i64],
+    knots: &[f64],
+    expected: usize,
+) -> Option<Vec<f64>> {
     if multiplicities.len() != knots.len() {
         return None;
     }
-    let mut expanded = Vec::new();
-    for (count, knot) in multiplicities.iter().zip(knots) {
-        let count = usize::try_from(*count).ok().filter(|count| *count > 0)?;
+    let counts = multiplicities
+        .iter()
+        .map(|count| usize::try_from(*count).ok().filter(|count| *count > 0))
+        .collect::<Option<Vec<usize>>>()?;
+    let total = counts
+        .iter()
+        .try_fold(0_usize, |total, count| total.checked_add(*count))?;
+    if total != expected {
+        return None;
+    }
+    let mut expanded = Vec::with_capacity(total);
+    for (count, knot) in counts.into_iter().zip(knots) {
         expanded.extend(std::iter::repeat_n(*knot, count));
     }
     Some(expanded)
+}
+
+pub(crate) fn knot_count(points: usize, degree: usize) -> Option<usize> {
+    points.checked_add(degree)?.checked_add(1)
 }
 
 pub(crate) fn uniform_knots(count: usize, degree: usize, clamped: bool) -> Vec<f64> {
@@ -194,10 +211,19 @@ mod tests {
     #[test]
     fn knots_expand_from_runs() {
         assert_eq!(
-            expand_knots(&[4, 1, 4], &[0.0, 0.5, 1.0]),
+            expand_knots(&[4, 1, 4], &[0.0, 0.5, 1.0], 9),
             Some(vec![0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 1.0])
         );
-        assert_eq!(expand_knots(&[1], &[0.0, 1.0]), None);
-        assert_eq!(expand_knots(&[0], &[0.0]), None);
+        assert_eq!(expand_knots(&[4, 1, 4], &[0.0, 0.5, 1.0], 8), None);
+        assert_eq!(expand_knots(&[1], &[0.0, 1.0], 1), None);
+        assert_eq!(expand_knots(&[0], &[0.0], 0), None);
+        assert_eq!(
+            expand_knots(&[4_000_000_000_000_000_000, 4], &[0.0, 1.0], 8),
+            None
+        );
+        assert_eq!(
+            expand_knots(&[i64::MAX, i64::MAX, i64::MAX], &[0.0, 0.5, 1.0], 8),
+            None
+        );
     }
 }

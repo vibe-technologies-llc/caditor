@@ -10,7 +10,7 @@ use std::{
 use caditor_geometry::{Point2, Point3, Vector3};
 
 use crate::import::{
-    Drawing, ImportError, MAX_DRAWING_CURVES,
+    Drawing, ImportError, MAX_DRAWING_CURVES, MAX_EXPANDED_OBJECTS,
     dxf::{
         flatten::flatten,
         geometry::{Affine, Nurbs, Shape, conic_arc},
@@ -293,6 +293,7 @@ struct Interpreter<'a> {
     hidden: usize,
     unreadable: usize,
     too_deep: usize,
+    visited: usize,
     external: BTreeSet<String>,
     missing: BTreeSet<String>,
 }
@@ -306,6 +307,7 @@ impl<'a> Interpreter<'a> {
             hidden: 0,
             unreadable: 0,
             too_deep: 0,
+            visited: 0,
             external: BTreeSet::new(),
             missing: BTreeSet::new(),
         }
@@ -319,6 +321,7 @@ impl<'a> Interpreter<'a> {
         blocks: &mut Vec<String>,
     ) -> Result<(), ImportError> {
         for item in items {
+            self.visit()?;
             let record = item.record;
             if record.flags(67) & PAPER_SPACE != 0 || record.flags(60) & INVISIBLE != 0 {
                 continue;
@@ -353,6 +356,14 @@ impl<'a> Interpreter<'a> {
                 Decoded::LeftOut(category) => *self.left_out.entry(category).or_default() += 1,
                 Decoded::Ignored => {}
             }
+        }
+        Ok(())
+    }
+
+    fn visit(&mut self) -> Result<(), ImportError> {
+        self.visited += 1;
+        if self.visited > MAX_EXPANDED_OBJECTS {
+            return Err(ImportError::TooManyObjects);
         }
         Ok(())
     }
@@ -410,6 +421,7 @@ impl<'a> Interpreter<'a> {
                     row as f64 * record.real_or(45, 0.0),
                     0.0,
                 );
+                self.visit()?;
                 let cell = local.then(&Affine::translation(offset)).then(&placement);
                 if !cell.is_finite() {
                     self.unreadable += 1;

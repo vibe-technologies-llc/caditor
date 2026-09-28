@@ -860,3 +860,56 @@ mod step {
         ));
     }
 }
+
+#[test]
+fn blocks_that_fan_out_into_millions_of_objects_are_refused_quickly() {
+    let text_entity = vec![pair(0, "TEXT"), pair(8, "0"), pair(1, "note")];
+    let mut blocks = vec![block("B0", (0.0, 0.0), vec![text_entity])];
+    for level in 1..16 {
+        let inner = format!("B{}", level - 1);
+        let copies = (0..4)
+            .map(|copy| insert(&inner, "0", &[(10, f64::from(copy)), (20, 0.0)]))
+            .collect();
+        blocks.push(block(&format!("B{level}"), (0.0, 0.0), copies));
+    }
+    let bytes = text(vec![
+        header(Some(4)),
+        section("BLOCKS", blocks),
+        section(
+            "ENTITIES",
+            vec![insert("B15", "0", &[(10, 0.0), (20, 0.0)])],
+        ),
+    ]);
+    let started = std::time::Instant::now();
+    assert_eq!(parse_dxf(&bytes), Err(ImportError::TooManyObjects));
+    assert!(started.elapsed().as_secs() < 10);
+}
+
+#[test]
+fn splines_of_a_degree_above_the_kernel_limit_are_left_out() {
+    let degree = 12;
+    let count = degree + 1;
+    let mut spline = vec![
+        pair(0, "SPLINE"),
+        pair(8, "0"),
+        pair(70, 8),
+        pair(71, degree),
+    ];
+    for index in 0..count + degree + 1 {
+        spline.push(pair(40, if index <= degree { 0.0 } else { 1.0 }));
+    }
+    for index in 0..count {
+        spline.extend([pair(10, index as f64), pair(20, 0.0), pair(30, 0.0)]);
+    }
+    let bytes = text(vec![
+        header(Some(4)),
+        section("ENTITIES", vec![spline, line((0.0, 0.0), (1.0, 0.0))]),
+    ]);
+    let drawing = parse_dxf(&bytes).unwrap();
+    assert_eq!(drawing.curves.len(), 1);
+    assert!(
+        drawing.notes.join(" ").contains("could not be read"),
+        "{:?}",
+        drawing.notes
+    );
+}

@@ -25,33 +25,6 @@ within a category run from most to least important.
 - Slow tests to keep an eye on: STEP `every_fixture_survives_a_round_trip` (7 s),
   `blend::every_edge_of_assorted_prisms` (6 s) and about 40 UI tests at over a second each.
 
-## Hostile input
-
-- STEP knot multiplicities are expanded before they are checked (`read/spline.rs`
-  `expand_knots`), so one `B_SPLINE_CURVE_WITH_KNOTS` with a multiplicity of 4e18 aborts on
-  allocation. Check the sum against points plus degree plus one with checked adds first.
-- STEP spline degree is not bounded until `BSpline::new`, after `uniform_knots` and `clamp` have
-  allocated and looped by it (`read/spline.rs`, `read/geometry.rs`). Refuse degree above 9 on
-  reading.
-- STEP assembly placement can be made exponential: `structure.rs` `walk` returns at
-  `MAX_DEPTH` without counting, and `MAX_INSTANCES` is per representation, not per file. A
-  20 KB layered graph runs about 2^32 walks, and 1000 solids placed 1000 times make 10^6 solid
-  copies. Memoise placements and apply one budget per file.
-- A crafted `saved_at` panics Version History: `binary/model.rs` computes
-  `UNIX_EPOCH + Duration::from_secs(self.saved_at)`. Use `checked_add`.
-- Nested DXF blocks can hang the import: only depth and cycles are limited and the cap counts
-  emitted shapes, so blocks fanning out into TEXT do exponential work (`dxf/mod.rs`). Count
-  visited cells and entities against a budget.
-- DXF SPLINE degree is unbounded (`dxf/mod.rs`, `geometry.rs`), so degree 50 000 costs about
-  10^11 operations. Refuse degree above 9.
-- A small model file can declare many 256 MiB chunks, all decompressed into one `Vec` at once
-  (`binary/model.rs` `record_contents`), and fake chunk headers make the resync scan quadratic
-  because the payload is hashed before the header is rejected. Cap total decompressed bytes,
-  decode records one at a time, and checksum the header separately.
-- A stored expression of 64 000 characters builds a left-deep tree of about 32 000 levels before
-  the depth check, and dropping it recurses on the files worker's 2 MiB stack
-  (`caditor-expression/src/parse.rs`). Stop at `MAX_STORED_TREE_DEPTH` while parsing.
-
 ## Document and recompute
 
 - Add then undo leaves the model Unsaved: `Document` and `Sketch` derive `PartialEq` over their
@@ -231,9 +204,6 @@ within a category run from most to least important.
 
 ## STEP import and export
 
-- Solids vanish without a note when a placement cannot be transformed or its search hits the
-  depth limit or a cycle (`read/mod.rs`, `structure.rs`); if all do, the message is "holds no
-  solid bodies".
 - Units given as a complex `MEASURE_WITH_UNIT` are read as millimetres (`read/units.rs` uses
   `fields()`, which refuses complex instances), so such inch files import 25.4 times too small.
 - Plain `BEZIER_CURVE`, `UNIFORM_CURVE` and `QUASI_UNIFORM_CURVE` are refused because the name
@@ -267,9 +237,6 @@ within a category run from most to least important.
   (`binary/model.rs`). Add a retention policy and write history append-only.
 - A model whose records total more than 256 MiB saves once and never again, since the previous
   snapshot and the journal snapshot are each one chunk (`MAX_CONTENT`). Chunk per record.
-- Opening Version History decompresses and holds every version at once
-  (`version_snapshots(usize::MAX)`), and `load_version` always starts from the head. Keep only
-  the rolling snapshot and start from the nearest keyframe.
 - Deltas set no zstd window or long-distance matching (`caditor-zstd` `compress_after`), so
   versions above the default window are close to full copies. Size the window to prefix plus
   data, raise the decoder's `windowLogMax`, and test with a prefix of several MiB.

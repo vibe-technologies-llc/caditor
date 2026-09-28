@@ -9,7 +9,7 @@ use crate::read::{
 };
 
 pub(crate) const MAX_INSTANCES: usize = 1000;
-const MAX_DEPTH: usize = 32;
+pub(crate) const MAX_DEPTH: usize = 32;
 
 pub(crate) struct Structure {
     item_representation: BTreeMap<u64, u64>,
@@ -18,6 +18,7 @@ pub(crate) struct Structure {
     identical: BTreeMap<u64, BTreeSet<u64>>,
     parents: BTreeMap<u64, Vec<(u64, RigidTransform)>>,
     units: BTreeMap<u64, Units>,
+    walked: BTreeMap<u64, Walk>,
     pub truncated: bool,
 }
 
@@ -30,6 +31,7 @@ impl Structure {
             identical: BTreeMap::new(),
             parents: BTreeMap::new(),
             units: BTreeMap::new(),
+            walked: BTreeMap::new(),
             truncated: false,
         };
         for entity in graph.entities() {
@@ -189,50 +191,85 @@ impl Structure {
         class
     }
 
-    pub fn placements(&mut self, representation: u64) -> Vec<RigidTransform> {
-        let mut path = Vec::new();
-        let mut count = 0;
-        let placements = self.walk(representation, &mut path, &mut count);
-        if count > MAX_INSTANCES {
-            self.truncated = true;
-        }
-        placements
+    pub fn placements(&mut self, representation: u64) -> Placements {
+        self.walk(representation, 0)
     }
 
-    fn walk(
-        &self,
-        representation: u64,
-        path: &mut Vec<u64>,
-        count: &mut usize,
-    ) -> Vec<RigidTransform> {
+    fn walk(&mut self, representation: u64, depth: usize) -> Placements {
         let class = self.class(representation);
+        let key = class.first().copied().unwrap_or(representation);
+        match self.walked.get(&key) {
+            Some(Walk::Done(placements)) => return placements.clone(),
+            Some(Walk::InProgress) => return Placements::unplaced(Unplaced::InsideItself),
+            None => {}
+        }
         let parents: Vec<(u64, RigidTransform)> = class
             .iter()
             .flat_map(|member| self.parents.get(member).into_iter().flatten())
             .filter(|(parent, _)| !class.contains(parent))
             .copied()
             .collect();
-        if parents.is_empty() {
-            *count += 1;
-            return vec![RigidTransform::IDENTITY];
-        }
-        if path.len() >= MAX_DEPTH {
-            return Vec::new();
-        }
-        let mut placements = Vec::new();
-        for (parent, transform) in parents {
-            if path.contains(&parent) || *count > MAX_INSTANCES {
-                continue;
+        let placements = if parents.is_empty() {
+            Placements {
+                transforms: vec![RigidTransform::IDENTITY],
+                unplaced: None,
             }
-            path.push(parent);
-            for outer in self.walk(parent, path, count) {
-                placements.push(transform.then(&outer));
+        } else if depth >= MAX_DEPTH {
+            Placements::unplaced(Unplaced::TooDeep)
+        } else {
+            self.walked.insert(key, Walk::InProgress);
+            let mut placed = Placements {
+                transforms: Vec::new(),
+                unplaced: None,
+            };
+            for (parent, transform) in parents {
+                let outer = self.walk(parent, depth + 1);
+                if outer.transforms.is_empty() {
+                    placed.unplaced = placed.unplaced.or(outer.unplaced);
+                }
+                for outer in outer.transforms {
+                    if placed.transforms.len() >= MAX_INSTANCES {
+                        self.truncated = true;
+                        break;
+                    }
+                    placed.transforms.push(transform.then(&outer));
+                }
             }
-            path.pop();
-        }
-        placements.truncate(MAX_INSTANCES);
+            if !placed.transforms.is_empty() {
+                placed.unplaced = None;
+            }
+            placed
+        };
+        self.walked.insert(key, Walk::Done(placements.clone()));
         placements
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unplaced {
+    InsideItself,
+    TooDeep,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Placements {
+    pub transforms: Vec<RigidTransform>,
+    pub unplaced: Option<Unplaced>,
+}
+
+impl Placements {
+    fn unplaced(reason: Unplaced) -> Self {
+        Self {
+            transforms: Vec::new(),
+            unplaced: Some(reason),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum Walk {
+    InProgress,
+    Done(Placements),
 }
 
 fn frame(geometry: &Geometry<'_>, id: u64) -> Option<RigidTransform> {
@@ -312,4 +349,93 @@ fn product_names(
         }
     }
     names
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fmt::Write;
+
+    use super::*;
+    use crate::part21::parse;
+
+    const ORIGIN: &str = "#1=AXIS2_PLACEMENT_3D('',#2,#3,#4);#2=CARTESIAN_POINT('',(0.,0.,0.));\
+                          #3=DIRECTION('',(0.,0.,1.));#4=DIRECTION('',(1.,0.,0.));\
+                          #5=ITEM_DEFINED_TRANSFORMATION('','',#1,#1);";
+
+    fn representation(id: u64) -> String {
+        format!("#{id}=SHAPE_REPRESENTATION('',(#1),#9);")
+    }
+
+    fn placed(id: u64, child: u64, parent: u64) -> String {
+        format!(
+            "#{id}=(REPRESENTATION_RELATIONSHIP('','',#{child},#{parent})\
+             REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#5)\
+             SHAPE_REPRESENTATION_RELATIONSHIP());"
+        )
+    }
+
+    fn file(data: &str) -> String {
+        format!("ISO-10303-21;HEADER;ENDSEC;DATA;{ORIGIN}{data}ENDSEC;END-ISO-10303-21;")
+    }
+
+    #[test]
+    fn a_layered_assembly_is_walked_once_per_part_and_capped_per_file() {
+        let layers = 30_u64;
+        let mut data = String::new();
+        let mut relation = 10_000;
+        for layer in 0..=layers {
+            for side in 0..2 {
+                data.push_str(&representation(100 + layer * 2 + side));
+            }
+        }
+        for layer in 0..layers {
+            for side in 0..2 {
+                for parent in 0..2 {
+                    relation += 1;
+                    let child = 100 + layer * 2 + side;
+                    write!(
+                        data,
+                        "{}",
+                        placed(relation, child, 102 + layer * 2 + parent)
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        let exchange = parse(&file(&data)).unwrap();
+        let graph = Graph::new(&exchange);
+        let mut structure = Structure::read(&graph);
+        let started = std::time::Instant::now();
+        let placements = structure.placements(100);
+        assert!(started.elapsed().as_secs() < 5);
+        assert_eq!(placements.transforms.len(), MAX_INSTANCES);
+        assert!(structure.truncated);
+    }
+
+    #[test]
+    fn a_part_placed_only_inside_itself_is_reported() {
+        let data = [
+            representation(100),
+            representation(101),
+            representation(102),
+            placed(200, 100, 101),
+            placed(201, 101, 100),
+        ]
+        .concat();
+        let exchange = parse(&file(&data)).unwrap();
+        let graph = Graph::new(&exchange);
+        let mut structure = Structure::read(&graph);
+        assert_eq!(
+            structure.placements(100).unplaced,
+            Some(Unplaced::InsideItself)
+        );
+
+        let data = [data, placed(202, 101, 102)].concat();
+        let exchange = parse(&file(&data)).unwrap();
+        let graph = Graph::new(&exchange);
+        let mut structure = Structure::read(&graph);
+        let placements = structure.placements(100);
+        assert_eq!(placements.transforms, [RigidTransform::IDENTITY]);
+        assert_eq!(placements.unplaced, None);
+    }
 }
