@@ -666,8 +666,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_glyph_letter_and_label_prefix_renders_with_the_default_fonts() {
+    fn every_glyph_letter_and_label_prefix_renders_with_the_app_fonts() {
         let context = egui::Context::default();
+        context.set_fonts(crate::fonts::definitions());
         let mut output = context.run_ui(RawInput::default(), |_| {});
         output.textures_delta.clear();
         let kinds = [
@@ -688,7 +689,7 @@ mod tests {
             let renders = context.fonts_mut(|fonts| {
                 fonts.has_glyphs(&FontId::proportional(LABEL_FONT_SIZE), text.trim())
             });
-            assert!(renders, "'{text}' cannot be drawn with the default fonts");
+            assert!(renders, "'{text}' cannot be drawn with the app fonts");
         }
     }
 }

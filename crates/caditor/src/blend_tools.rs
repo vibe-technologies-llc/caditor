@@ -17,13 +17,6 @@ pub const DEFAULT_SIZE: f64 = 1.0;
 
 pub const KINDS: [BlendKind; 2] = [BlendKind::Fillet, BlendKind::Chamfer];
 
-pub fn icon(kind: BlendKind) -> &'static str {
-    match kind {
-        BlendKind::Fillet => "◜",
-        BlendKind::Chamfer => "◸",
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EdgeSource {
     pub body: FeatureId,

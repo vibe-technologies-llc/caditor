@@ -5,13 +5,18 @@ use egui::Id;
 
 use crate::{
     editing::SketchEditing,
-    feature_tree,
+    feature_tree, icons,
     model::{Action, Model},
     parameter_table,
     selection::Selection,
+    widgets::{self, SectionAction},
 };
 
-const SIDE_PANEL_WIDTH: f32 = 300.0;
+const SIDE_PANEL_WIDTH: f32 = 330.0;
+const SIDE_PANEL_MIN_WIDTH: f32 = 270.0;
+const SECTION_GAP: f32 = 10.0;
+pub const FEATURES_TITLE: &str = "Features";
+pub const PARAMETERS_TITLE: &str = "Parameters";
 const FOCUS_ATTEMPT_FRAMES: u8 = 30;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,20 +168,30 @@ pub fn show(
     egui::Panel::left("model")
         .resizable(true)
         .default_size(SIDE_PANEL_WIDTH)
+        .min_size(SIDE_PANEL_MIN_WIDTH)
         .show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                feature_tree::show(ui, model, selection, editing, state, actions);
-
-                ui.separator();
-                parameter_table::show(ui, model, state, actions);
-
-                ui.separator();
-                ui.heading("Selection");
-                if selection.is_empty() {
-                    ui.weak("Nothing selected. Click geometry in the view to select it.");
-                }
-                for pickable in selection.iter() {
-                    ui.label(pickable.describe(model.document(), model.evaluation()));
+                ui.add_space(SECTION_GAP / 2.0);
+                let features = model.document().features().len();
+                widgets::section(ui, "features", FEATURES_TITLE, Some(features), None, |ui| {
+                    feature_tree::show(ui, model, selection, editing, state, actions);
+                });
+                ui.add_space(SECTION_GAP);
+                let parameters = model.document().parameters().len();
+                let add = SectionAction {
+                    glyph: icons::ADD,
+                    hover: parameter_table::ADD_LABEL,
+                };
+                let adding = widgets::section(
+                    ui,
+                    "parameters",
+                    PARAMETERS_TITLE,
+                    Some(parameters),
+                    Some(add),
+                    |ui| parameter_table::show(ui, model, state, actions),
+                );
+                if adding {
+                    parameter_table::add(model, state, actions);
                 }
             });
         });

@@ -4,25 +4,27 @@ use caditor_document::{
 };
 use caditor_sketch::{ConstraintId, Redundancy, Sketch};
 use egui::{
-    Align, Button, Id, Label, Response, RichText, Sense, Ui, collapsing_header::CollapsingState,
+    Align, Button, Color32, CornerRadius, Frame, Id, Label, Margin, Rect, Response, RichText,
+    Sense, Sides, Ui, collapsing_header::CollapsingState, containers::menu::MenuButton, vec2,
 };
 
 use crate::{
+    appearance::{self, WIDGET_RADIUS},
     blend_panel, datum_panel, datum_tools,
     editing::{EditingCommand, SketchEditing},
     field::{self, DimensionTarget},
+    icons,
     model::{Action, Model},
     panels::{Focus, PanelState, Renaming},
     selection::Selection,
     shell_panel, sketch_placement,
     sketch_status::{self, SketchSummary},
     sketch_tools, solid_panel,
+    widgets::{self, NAME_FIELD_WIDTH, Tone},
 };
 
-const MORE_ICON: &str = "⋯";
 const MORE_HINT: &str = "Rename, move or delete (also on right-click)";
-const NAME_FIELD_WIDTH: f32 = 180.0;
-const DIMENSION_FIELD_WIDTH: f32 = 140.0;
+const DIMENSION_FIELD_WIDTH: f32 = 150.0;
 const EDIT_SKETCH_LABEL: &str = "Edit sketch";
 const FINISH_SKETCH_LABEL: &str = "Finish sketch";
 const OPEN_SOLID_LABEL: &str = "Edit feature and choose its regions in the view";
@@ -33,8 +35,12 @@ const OPEN_DATUM_LABEL: &str = "Edit this plane or axis";
 const PLACE_ON_PLANE_LABEL: &str = "Place on selected plane";
 const PLACE_ON_FACE_LABEL: &str = "Place on selected face";
 const DETACH_LABEL: &str = "Detach";
-const EDIT_ICON: &str = "🖊";
-const DELETE_ICON: &str = "🗙";
+const EMPTY_TREE: &str = "The model has no features yet. Start with New sketch in the toolbar.";
+const ROW_MARGIN: Margin = Margin::symmetric(4, 2);
+const EDITED_BAR_WIDTH: f32 = 3.0;
+const BODY_INDENT: f32 = 8.0;
+const DIMENSION_INDENT: f32 = 16.0;
+const ROW_GAP: f32 = 2.0;
 
 pub fn show(
     ui: &mut Ui,
@@ -47,11 +53,11 @@ pub fn show(
     if editing.feature().is_none() {
         state.opened_for_editing = None;
     }
-    ui.heading("Features");
     let document = model.document();
     if document.features().len() == 0 {
-        ui.weak("The model has no features yet.");
+        ui.label(widgets::muted(EMPTY_TREE, ui));
     }
+    ui.spacing_mut().item_spacing.y = ROW_GAP;
     let count = document.features().len();
     for (index, feature) in document.features().enumerate() {
         let row = Row {
@@ -109,23 +115,115 @@ fn feature_row(
     if state.focus_inside(id) || editing_started {
         collapsing.set_open(true);
     }
-    let text = header_text(ui, feature, status);
-    let mut toggle = false;
-    let mut header = collapsing.show_header(ui, |ui| {
-        let label = ui.add(Label::new(text).selectable(false).sense(Sense::click()));
-        toggle = label.clicked();
-        edit_button(ui, row, actions);
-        ui.menu_button(MORE_ICON, |ui| {
-            context_menu(ui, document, state, actions, row);
-        })
-        .response
-        .on_hover_text(MORE_HINT);
-        label
-    });
-    if toggle {
-        header.toggle();
+
+    let tokens = appearance::tokens(ui);
+    let mut prepared = Frame::new()
+        .corner_radius(CornerRadius::same(WIDGET_RADIUS))
+        .inner_margin(ROW_MARGIN)
+        .begin(ui);
+    let (toggled, name) = {
+        let ui = &mut prepared.content_ui;
+        let open = collapsing.is_open();
+        Sides::new()
+            .shrink_left()
+            .truncate()
+            .show(
+                ui,
+                |ui| {
+                    let chevron = if open {
+                        icons::EXPANDED
+                    } else {
+                        icons::COLLAPSED
+                    };
+                    let hint = if open { "Hide details" } else { "Show details" };
+                    let toggle = ui
+                        .add(
+                            Button::new(widgets::icon(chevron).color(tokens.text_muted))
+                                .frame(false),
+                        )
+                        .on_hover_text(hint);
+                    let kind_color = if row.edited {
+                        tokens.accent_text
+                    } else {
+                        state_color(ui, status).unwrap_or(tokens.text_muted)
+                    };
+                    widgets::icon_label(ui, icons::feature(&feature.kind), kind_color);
+                    let name = ui.add(
+                        Label::new(name_text(ui, feature, status))
+                            .selectable(false)
+                            .sense(Sense::click())
+                            .truncate(),
+                    );
+                    (toggle.clicked(), name)
+                },
+                |ui| {
+                    more_menu(ui, document, state, actions, row);
+                    edit_button(ui, row, actions);
+                    status_icon(ui, status);
+                },
+            )
+            .0
+    };
+    let rect = prepared.content_ui.min_rect() + ROW_MARGIN;
+    prepared.frame.fill = if row.edited {
+        tokens.accent_subtle
+    } else if ui.rect_contains_pointer(rect) {
+        tokens.stripe
+    } else {
+        Color32::TRANSPARENT
+    };
+    let row_rect = prepared.end(ui).rect;
+    if row.edited {
+        let bar = Rect::from_min_size(row_rect.min, vec2(EDITED_BAR_WIDTH, row_rect.height()));
+        ui.painter()
+            .rect_filled(bar, CornerRadius::same(WIDGET_RADIUS), tokens.accent);
     }
-    let (_, header, _) = header.body(|ui| match &feature.kind {
+    if toggled || name.clicked() {
+        collapsing.toggle(ui);
+    }
+    let mut name = name;
+    if state.take_focus(Focus::Feature(id)) {
+        name.scroll_to_me(Some(Align::Center));
+        name = name.highlight();
+    }
+    if name.double_clicked() {
+        start_renaming(state, feature);
+    }
+    name.context_menu(|ui| context_menu(ui, document, state, actions, row));
+
+    match status.map(|status| &status.state) {
+        Some(FeatureState::Failed(error)) => failure(ui, document, state, error),
+        Some(FeatureState::Outdated) => {
+            widgets::callout(ui, Tone::Warning, |ui| {
+                ui.label("Not recomputed, because the recompute was cancelled.");
+                if ui.button("Recompute").clicked() {
+                    actions.push(Action::Recompute);
+                }
+            });
+        }
+        Some(FeatureState::UpToDate) | None => {}
+    }
+
+    collapsing.show_body_unindented(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.add_space(BODY_INDENT);
+            ui.vertical(|ui| {
+                widgets::card(ui, |ui| body(ui, model, state, actions, row));
+            });
+        });
+    });
+    collapsing.store(ui.ctx());
+}
+
+fn body(
+    ui: &mut Ui,
+    model: &Model,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    row: &Row<'_>,
+) {
+    let feature = row.feature;
+    match &feature.kind {
         FeatureKind::Sketch(sketch) => {
             placement(ui, model, row.selection, actions, feature, sketch);
             sketch_body(ui, model, state, actions, feature, &sketch.sketch);
@@ -154,53 +252,77 @@ fn feature_row(
             datum_panel::show(ui, model, row.selection, actions, feature, datum);
         }
         FeatureKind::Import(import) => {
-            ui.label(format!("Imported from “{}”", import.source));
+            ui.horizontal(|ui| {
+                let muted = appearance::tokens(ui).text_muted;
+                widgets::icon_label(ui, icons::FILE, muted);
+                ui.label(format!("Imported from “{}”", import.source));
+            });
             body_display(ui, model, feature);
         }
-    });
-    let mut header = header.inner;
-    if state.take_focus(Focus::Feature(id)) {
-        header.scroll_to_me(Some(Align::Center));
-        header = header.highlight();
-    }
-    if header.double_clicked() {
-        start_renaming(state, feature);
-    }
-    header.context_menu(|ui| context_menu(ui, document, state, actions, row));
-
-    match status.map(|status| &status.state) {
-        Some(FeatureState::Failed(error)) => failure(ui, document, state, error),
-        Some(FeatureState::Outdated) => {
-            ui.indent("outdated", |ui| {
-                ui.weak("Not recomputed, because the recompute was cancelled.");
-                if ui.button("Recompute").clicked() {
-                    actions.push(Action::Recompute);
-                }
-            });
-        }
-        Some(FeatureState::UpToDate) | None => {}
     }
 }
 
-fn header_text(ui: &Ui, feature: &Feature, status: Option<&FeatureStatus>) -> RichText {
+fn state_color(ui: &Ui, status: Option<&FeatureStatus>) -> Option<Color32> {
     match status.map(|status| &status.state) {
-        Some(FeatureState::Failed(_)) => {
-            RichText::new(format!("⚑ {}", feature.name)).color(ui.visuals().error_fg_color)
-        }
-        Some(FeatureState::Outdated) => {
-            RichText::new(format!("⏸ {}", feature.name)).color(ui.visuals().warn_fg_color)
-        }
-        Some(FeatureState::UpToDate) => RichText::new(&feature.name),
-        None => RichText::new(format!("… {}", feature.name)).weak(),
+        Some(FeatureState::Failed(_)) => Some(ui.visuals().error_fg_color),
+        Some(FeatureState::Outdated) => Some(ui.visuals().warn_fg_color),
+        Some(FeatureState::UpToDate) | None => None,
     }
+}
+
+fn name_text(ui: &Ui, feature: &Feature, status: Option<&FeatureStatus>) -> RichText {
+    let text = RichText::new(&feature.name);
+    match status {
+        None => text.color(appearance::tokens(ui).text_muted),
+        Some(_) => match state_color(ui, status) {
+            Some(color) => text.color(color),
+            None => text,
+        },
+    }
+}
+
+fn status_icon(ui: &mut Ui, status: Option<&FeatureStatus>) {
+    let tokens = appearance::tokens(ui);
+    let (glyph, color, hint) = match status.map(|status| &status.state) {
+        Some(FeatureState::Failed(_)) => (icons::FAILED, tokens.error, "This feature failed"),
+        Some(FeatureState::Outdated) => (
+            icons::OUTDATED,
+            tokens.warn,
+            "Not recomputed, because the recompute was cancelled",
+        ),
+        None => (icons::PENDING, tokens.text_muted, "Waiting to be computed"),
+        Some(FeatureState::UpToDate) => return,
+    };
+    widgets::icon_label(ui, glyph, color).on_hover_text(hint);
+}
+
+fn more_menu(
+    ui: &mut Ui,
+    document: &Document,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    row: &Row<'_>,
+) {
+    let muted = appearance::tokens(ui).text_muted;
+    let button = Button::new(widgets::icon(icons::MORE).color(muted)).frame_when_inactive(false);
+    let (response, _) = MenuButton::from_button(button).ui(ui, |ui| {
+        context_menu(ui, document, state, actions, row);
+    });
+    response.on_hover_text(MORE_HINT);
 }
 
 fn edit_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
     let Some((hover, command)) = edit_command(row) else {
         return;
     };
+    let tokens = appearance::tokens(ui);
+    let (glyph, color) = if row.edited {
+        (icons::DONE, tokens.accent_text)
+    } else {
+        (icons::EDIT, tokens.text_muted)
+    };
     let response = ui
-        .add(Button::selectable(row.edited, EDIT_ICON).small())
+        .add(Button::new(widgets::icon(glyph).color(color)).frame_when_inactive(false))
         .on_hover_text(hover);
     if response.clicked() {
         actions.push(Action::Editing(command));
@@ -263,7 +385,7 @@ fn rename_row(
         },
     );
     if let Some(error) = &field.error {
-        ui.colored_label(ui.visuals().error_fg_color, error);
+        field_error(ui, error);
     }
     if let Some(transaction) = field.committed {
         actions.push(Action::Apply(transaction));
@@ -290,24 +412,25 @@ fn context_menu(
     let id = feature.id();
     let name = &feature.name;
     if let Some((label, command)) = edit_command(row) {
-        if ui.button(label).clicked() {
+        if widgets::menu_item(ui, icons::EDIT, label, None).clicked() {
             actions.push(Action::Editing(command));
             ui.close();
         }
         ui.separator();
     }
-    if ui.button("Rename").clicked() {
+    if widgets::menu_item(ui, icons::RENAME, "Rename", None).clicked() {
         start_renaming(state, feature);
         ui.close();
     }
     let moves = [
-        ("Move up", position.index.checked_sub(1)),
+        ("Move up", icons::MOVE_UP, position.index.checked_sub(1)),
         (
             "Move down",
+            icons::MOVE_DOWN,
             Some(position.index + 1).filter(|below| *below < position.count),
         ),
     ];
-    for (label, target) in moves {
+    for (label, glyph, target) in moves {
         let transaction = target.map(|index| {
             Transaction::single(format!("{label} {name}"), Edit::MoveFeature { id, index })
         });
@@ -317,7 +440,9 @@ fn context_menu(
                 .map_err(|error| error.to_string())
         });
         let enabled = matches!(check, Some(Ok(())));
-        let response = ui.add_enabled(enabled, Button::new(label));
+        let response = ui
+            .add_enabled_ui(enabled, |ui| widgets::menu_item(ui, glyph, label, None))
+            .inner;
         let response = match check {
             Some(Err(reason)) => response.on_disabled_hover_text(reason),
             Some(Ok(())) | None => response,
@@ -332,7 +457,11 @@ fn context_menu(
     ui.separator();
     let delete = Transaction::single(format!("Delete {name}"), Edit::RemoveFeature { id });
     let check = document.check(&delete);
-    let response = ui.add_enabled(check.is_ok(), Button::new("Delete"));
+    let response = ui
+        .add_enabled_ui(check.is_ok(), |ui| {
+            widgets::menu_item(ui, icons::DELETE, "Delete", None)
+        })
+        .inner;
     let response = match check {
         Err(reason) => response.on_disabled_hover_text(reason.to_string()),
         Ok(()) => response,
@@ -344,9 +473,9 @@ fn context_menu(
 }
 
 fn failure(ui: &mut Ui, document: &Document, state: &mut PanelState, error: &FeatureError) {
-    ui.indent("failure", |ui| {
-        ui.colored_label(ui.visuals().error_fg_color, &error.reason);
-        ui.label(&error.remedy);
+    widgets::callout(ui, Tone::Error, |ui| {
+        ui.label(&error.reason);
+        ui.label(widgets::muted(&error.remedy, ui));
         let Some(target) = error.fix else {
             return;
         };
@@ -391,10 +520,11 @@ fn body_display(ui: &mut Ui, model: &Model, feature: &Feature) {
         .and_then(|result| result.solid())
         .is_some_and(SolidResult::mesh_failed);
     if failed {
-        ui.colored_label(
-            ui.visuals().warn_fg_color,
-            "The body could not be drawn. Its shape is kept and later features still use it.",
-        );
+        widgets::callout(ui, Tone::Warning, |ui| {
+            ui.label(
+                "The body could not be drawn. Its shape is kept and later features still use it.",
+            );
+        });
     }
 }
 
@@ -408,6 +538,8 @@ fn placement(
 ) {
     if let Some(attachment) = &sketch.attachment {
         ui.horizontal_wrapped(|ui| {
+            let muted = appearance::tokens(ui).text_muted;
+            widgets::icon_label(ui, icons::ATTACHED, muted);
             ui.label(format!(
                 "Lies on {}",
                 sketch_placement::describe(model.document(), attachment)
@@ -425,7 +557,8 @@ fn placement(
     if let Some(datum) = datum_tools::selected_datum_plane(model.document(), selection) {
         match sketch_placement::place_on_datum(model, feature.id(), datum) {
             Ok(transaction) => {
-                let place = ui.button(PLACE_ON_PLANE_LABEL).on_hover_text(
+                let button = widgets::small_button(ui, icons::USE_SELECTED, PLACE_ON_PLANE_LABEL);
+                let place = ui.add(button).on_hover_text(
                     "Move this sketch onto the selected plane; it follows the plane when the \
                      model changes",
                 );
@@ -434,8 +567,8 @@ fn placement(
                 }
             }
             Err(reason) => {
-                ui.add_enabled(false, Button::new(PLACE_ON_PLANE_LABEL))
-                    .on_disabled_hover_text(reason);
+                let button = widgets::small_button(ui, icons::USE_SELECTED, PLACE_ON_PLANE_LABEL);
+                ui.add_enabled(false, button).on_disabled_hover_text(reason);
             }
         }
         return;
@@ -445,7 +578,8 @@ fn placement(
     };
     match sketch_placement::place(model, feature.id(), face) {
         Ok(transaction) => {
-            let place = ui.button(PLACE_ON_FACE_LABEL).on_hover_text(
+            let button = widgets::small_button(ui, icons::USE_SELECTED, PLACE_ON_FACE_LABEL);
+            let place = ui.add(button).on_hover_text(
                 "Move this sketch onto the selected face; it follows the face when the model \
                  changes",
             );
@@ -454,8 +588,8 @@ fn placement(
             }
         }
         Err(reason) => {
-            ui.add_enabled(false, Button::new(PLACE_ON_FACE_LABEL))
-                .on_disabled_hover_text(reason);
+            let button = widgets::small_button(ui, icons::USE_SELECTED, PLACE_ON_FACE_LABEL);
+            ui.add_enabled(false, button).on_disabled_hover_text(reason);
         }
     }
 }
@@ -475,10 +609,13 @@ fn sketch_body(
             state.request_focus(focus);
         }
     });
-    ui.weak(format!(
-        "{}, {}",
-        count(sketch.entities().len(), "entity", "entities"),
-        count(sketch.constraints().len(), "constraint", "constraints")
+    ui.label(widgets::muted(
+        format!(
+            "{} · {}",
+            count(sketch.entities().len(), "entity", "entities"),
+            count(sketch.constraints().len(), "constraint", "constraints")
+        ),
+        ui,
     ));
     let involved = involved_constraints(model, feature);
     let solution = sketch_status::up_to_date_solution(model.evaluation(), feature.id());
@@ -501,29 +638,25 @@ fn sketch_body(
                 vec![constraint],
             ))
         };
-        let row = ui
-            .horizontal(|ui| {
-                let row = ui.add(Label::new(text).selectable(false).sense(Sense::click()));
-                row.context_menu(|ui| {
-                    if ui.button("Delete").clicked() {
-                        actions.push(delete());
-                        ui.close();
-                    }
-                });
-                let button = ui
-                    .small_button(DELETE_ICON)
-                    .on_hover_text("Delete this constraint");
-                if button.clicked() {
-                    actions.push(delete());
-                }
-                row
-            })
-            .inner;
+        let (row, deleted) = Sides::new().shrink_left().truncate().show(
+            ui,
+            |ui| widgets::link_label(ui, text),
+            |ui| widgets::icon_button(ui, icons::DELETE, "Delete this constraint").clicked(),
+        );
+        let mut deleted = deleted;
+        row.context_menu(|ui| {
+            if widgets::menu_item(ui, icons::DELETE, "Delete", None).clicked() {
+                deleted = true;
+                ui.close();
+            }
+        });
+        if deleted {
+            actions.push(delete());
+        }
         if let Some(redundancy) = redundancy {
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
-                redundancy_text(sketch, redundancy),
-            );
+            widgets::callout(ui, Tone::Warning, |ui| {
+                ui.label(redundancy_text(sketch, redundancy));
+            });
         }
         reveal_if_focused(
             state,
@@ -546,6 +679,7 @@ fn sketch_body(
         };
         let mut error = None;
         ui.horizontal(|ui| {
+            ui.add_space(DIMENSION_INDENT);
             let field = field::commit_field(
                 ui,
                 focus.field_id(),
@@ -570,12 +704,15 @@ fn sketch_body(
                 && let Some(preview) =
                     field::value_preview(model.parameters(), expression, model.length_unit())
             {
-                ui.weak(preview);
+                ui.label(widgets::muted(preview, ui));
             }
             error = field.error;
         });
         if let Some(error) = error {
-            ui.colored_label(ui.visuals().error_fg_color, error);
+            ui.horizontal(|ui| {
+                ui.add_space(DIMENSION_INDENT);
+                field_error(ui, &error);
+            });
         }
     }
 }
@@ -612,6 +749,14 @@ fn reveal_if_focused(state: &mut PanelState, row: Response, focus: Focus) {
         row.scroll_to_me(Some(Align::Center));
         row.highlight();
     }
+}
+
+fn field_error(ui: &mut Ui, error: &str) {
+    ui.horizontal_wrapped(|ui| {
+        let color = ui.visuals().error_fg_color;
+        widgets::icon_label(ui, icons::FAILED, color);
+        ui.colored_label(color, error);
+    });
 }
 
 pub fn count(amount: usize, singular: &str, plural: &str) -> String {

@@ -1,8 +1,12 @@
 use caditor_document::{Evaluation, FeatureId, FeatureState};
 use caditor_sketch::SketchSolution;
-use egui::{Label, RichText, Sense, Ui};
+use egui::{CursorIcon, Sense, Ui};
 
-use crate::{appearance, feature_tree::count, panels::Focus};
+use crate::{
+    feature_tree::count,
+    panels::Focus,
+    widgets::{self, Tone},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SketchStatus {
@@ -91,30 +95,25 @@ pub fn up_to_date_solution(evaluation: &Evaluation, feature: FeatureId) -> Optio
 }
 
 pub fn show(ui: &mut Ui, summary: &SketchSummary) -> Option<Focus> {
-    let (error, warning) = (ui.visuals().error_fg_color, ui.visuals().warn_fg_color);
-    let text = RichText::new(summary.status_text());
-    let text = match summary.status {
-        SketchStatus::NotSolved => text.weak(),
-        SketchStatus::FullyConstrained => text.color(appearance::success_color(ui.visuals())),
-        SketchStatus::Free(_) => text,
-        SketchStatus::Conflicting | SketchStatus::Failed => text.color(error),
+    let tone = match summary.status {
+        SketchStatus::NotSolved => Tone::Neutral,
+        SketchStatus::FullyConstrained => Tone::Success,
+        SketchStatus::Free(_) => Tone::Info,
+        SketchStatus::Conflicting | SketchStatus::Failed => Tone::Error,
     };
+    let response = widgets::pill(ui, tone, summary.status_text());
     let mut focus = None;
-    match summary.problem {
-        Some(problem) => {
-            let response = ui
-                .add(Label::new(text).selectable(false).sense(Sense::click()))
-                .on_hover_text("Show the problem");
-            if response.clicked() {
-                focus = Some(problem);
-            }
-        }
-        None => {
-            ui.label(text);
+    if let Some(problem) = summary.problem {
+        let response = response
+            .interact(Sense::click())
+            .on_hover_cursor(CursorIcon::PointingHand)
+            .on_hover_text("Show the problem");
+        if response.clicked() {
+            focus = Some(problem);
         }
     }
     if let Some(redundant) = summary.redundant_text() {
-        ui.colored_label(warning, redundant);
+        widgets::pill(ui, Tone::Warning, redundant);
     }
     focus
 }

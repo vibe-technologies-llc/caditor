@@ -44,22 +44,6 @@ impl Tool {
         }
     }
 
-    pub fn icon(self) -> &'static str {
-        match self {
-            Self::Select => "⬉",
-            Self::Point => "•",
-            Self::Line => "∕",
-            Self::Rectangle => "☐",
-            Self::Circle => "○",
-            Self::Arc => "↺",
-            Self::Spline => "∫",
-        }
-    }
-
-    pub fn button_text(self) -> String {
-        format!("{} {}", self.icon(), self.label())
-    }
-
     pub fn description(self) -> &'static str {
         match self {
             Self::Select => "Click geometry to select it for constraints or deletion",

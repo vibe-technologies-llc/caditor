@@ -16,22 +16,25 @@ use caditor_file::{
     STEP_IMPORT_EXTENSIONS, SavedState, Settings, journal_for, load, load_version, read_dxf,
     read_step_file, scan,
 };
-use egui::{Button, Id, Modal, RichText, Ui};
+use egui::{Id, Modal, RichText, Ui};
 use parking_lot::Mutex;
 
 use crate::{
+    appearance,
     commands::{Command, CommandFrame},
     editing::SketchEditing,
     export::{self, ExportCommand, Exporter},
     history::{self, HistoryCommand, VersionHistory},
+    icons,
     import::{self, IMPORT_HINT},
     model::{Action, FileEvent, Model, Notice, WakerFactory, display_name},
     preferences::PreferencesCommand,
     samples::Sample,
+    widgets::{self, DialogWidth, Tone},
 };
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
-const DIALOG_WIDTH: f32 = 420.0;
+const REPORT_HEIGHT: f32 = 280.0;
 const MODEL_KIND: &str = "caditor model";
 const DRAWING_KIND: &str = "DXF drawing";
 const MODEL_EXCHANGE_KIND: &str = "STEP model";
@@ -952,7 +955,7 @@ pub fn menu(
         item(ui, &mut chosen, Command::New);
         item(ui, &mut chosen, Command::Open);
         ui.add_enabled_ui(!files.recent().is_empty(), |ui| {
-            ui.menu_button("Open Recent", |ui| {
+            ui.menu_button(submenu_label(ui, icons::RECENT, "Open Recent"), |ui| {
                 for path in files.recent() {
                     let response = ui
                         .button(display_name(Some(path)))
@@ -963,7 +966,7 @@ pub fn menu(
                 }
             });
         });
-        ui.menu_button("Open Sample", |ui| {
+        ui.menu_button(submenu_label(ui, icons::SAMPLE, "Open Sample"), |ui| {
             for sample in Sample::ALL {
                 let response = ui
                     .button(sample.title())
@@ -998,7 +1001,7 @@ pub fn menu(
         }
         if files.has_recoverable() {
             ui.separator();
-            if ui.button("Recover Unsaved Work…").clicked() {
+            if widgets::menu_item(ui, icons::RECOVER, "Recover Unsaved Work…", None).clicked() {
                 actions.push(Action::File(FileCommand::ShowRecovery));
             }
         }
@@ -1041,6 +1044,9 @@ pub fn menu(
     if chosen.contains(&Command::KeyboardShortcuts) {
         commands.trigger(Command::KeyboardShortcuts);
     }
+}
+
+pub fn activity(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>) {
     if model.is_saving() {
         ui.spinner();
         ui.label("Saving…");
@@ -1052,27 +1058,37 @@ pub fn menu(
         ui.spinner();
         ui.label(format!("Importing “{}”…", display_name(Some(path))));
     }
-    export::menu_status(ui, &files.exporter, actions);
+    export::activity(ui, &files.exporter, actions);
 }
 
 fn menu_item(ui: &mut Ui, commands: &CommandFrame<'_>, command: Command) -> egui::Response {
-    let mut button = Button::new(command.title());
-    if let Some(keys) = commands.keys(command) {
-        button = button.shortcut_text(keys);
-    }
-    ui.add(button)
+    widgets::menu_item(
+        ui,
+        icons::command(command),
+        &command.title(),
+        commands.keys(command),
+    )
+}
+
+fn submenu_label(ui: &Ui, glyph: &str, title: &str) -> (egui::RichText, String) {
+    (
+        widgets::icon(glyph).color(appearance::tokens(ui).text_muted),
+        title.to_owned(),
+    )
 }
 
 pub fn show(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>) {
     let ctx = ui.ctx().clone();
     let mut command = None;
     if let Some(path) = &files.opening {
-        Modal::new(Id::new("opening")).show(&ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label(format!("Opening “{}”…", display_name(Some(path))));
+        Modal::new(Id::new("opening"))
+            .frame(widgets::dialog_frame(&ctx))
+            .show(&ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(format!("Opening “{}”…", display_name(Some(path))));
+                });
             });
-        });
     } else if let Some(intent) = &files.guard {
         command = guard(&ctx, model, intent).map(FileCommand::Guard);
     } else if let Some(report) = &files.report {
@@ -1112,13 +1128,11 @@ fn guard(ctx: &egui::Context, model: &Model, intent: &Intent) -> Option<GuardCho
     } else {
         "Save As…"
     };
-    let response = Modal::new(Id::new("unsaved-changes")).show(ctx, |ui| {
-        ui.set_max_width(DIALOG_WIDTH);
-        ui.heading(format!("Save changes to “{name}”?"));
+    let title = format!("Save changes to “{name}”?");
+    let response = widgets::dialog(ctx, "unsaved-changes", &title, DialogWidth::Medium, |ui| {
         ui.label(consequence);
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if ui.button(save).clicked() {
+        widgets::footer(ui, |ui| {
+            if ui.add(widgets::primary_button(ui, save)).clicked() {
                 return Some(GuardChoice::Save);
             }
             if ui.button(discard).clicked() {
@@ -1126,55 +1140,67 @@ fn guard(ctx: &egui::Context, model: &Model, intent: &Intent) -> Option<GuardCho
             }
             ui.button(keep).clicked().then_some(GuardChoice::Cancel)
         })
-        .inner
     });
     let closed = response.should_close().then_some(GuardChoice::Cancel);
     response.inner.or(closed)
 }
 
 fn show_report(ctx: &egui::Context, report: &Report) -> Option<FileCommand> {
-    let response = Modal::new(Id::new("file-report")).show(ctx, |ui| {
-        ui.set_max_width(DIALOG_WIDTH);
-        ui.heading(&report.heading);
-        if let Some(intro) = report.intro {
-            ui.label(intro);
-        }
-        ui.add_space(4.0);
-        egui::ScrollArea::vertical()
-            .max_height(240.0)
-            .show(ui, |ui| {
-                for issue in &report.issues {
-                    ui.label(format!("• {issue}"));
-                }
-            });
-        ui.add_space(8.0);
-        ui.button("OK").clicked()
-    });
+    let response = widgets::dialog(
+        ctx,
+        "file-report",
+        &report.heading,
+        DialogWidth::Medium,
+        |ui| {
+            if let Some(intro) = report.intro {
+                ui.label(intro);
+            }
+            egui::ScrollArea::vertical()
+                .max_height(REPORT_HEIGHT)
+                .min_scrolled_height(REPORT_HEIGHT)
+                .show(ui, |ui| {
+                    for issue in &report.issues {
+                        widgets::callout(ui, Tone::Info, |ui| {
+                            ui.label(issue);
+                        });
+                    }
+                });
+            widgets::footer(ui, |ui| ui.add(widgets::primary_button(ui, "OK")).clicked())
+        },
+    );
     (response.inner || response.should_close()).then_some(FileCommand::DismissReport)
 }
 
 fn recovery(ctx: &egui::Context, files: &Files) -> Option<FileCommand> {
-    let response = Modal::new(Id::new("recovery")).show(ctx, |ui| {
-        ui.set_max_width(DIALOG_WIDTH);
-        ui.heading("Recover unsaved work");
-        ui.label("caditor closed before these changes were saved.");
-        let mut command = None;
-        for candidate in &files.recoverable {
-            ui.separator();
-            if let Some(chosen) = recovery_row(ui, files, &candidate.recovered) {
-                command = Some(chosen);
+    let response = widgets::dialog(
+        ctx,
+        "recovery",
+        "Recover unsaved work",
+        DialogWidth::Medium,
+        |ui| {
+            ui.label("caditor closed before these changes were saved.");
+            let mut command = None;
+            for candidate in &files.recoverable {
+                widgets::card(ui, |ui| {
+                    if let Some(chosen) = recovery_row(ui, files, &candidate.recovered) {
+                        command = Some(chosen);
+                    }
+                });
             }
-        }
-        ui.separator();
-        if ui
-            .button("Decide Later")
-            .on_hover_text("These changes will be offered again the next time caditor starts.")
-            .clicked()
-        {
-            command = Some(FileCommand::HideRecovery);
-        }
-        command
-    });
+            widgets::footer(ui, |ui| {
+                if ui
+                    .button("Decide Later")
+                    .on_hover_text(
+                        "These changes will be offered again the next time caditor starts.",
+                    )
+                    .clicked()
+                {
+                    command = Some(FileCommand::HideRecovery);
+                }
+            });
+            command
+        },
+    );
     let closed = response.should_close().then_some(FileCommand::HideRecovery);
     response.inner.or(closed)
 }
@@ -1193,12 +1219,14 @@ fn recovery_row(ui: &mut Ui, files: &Files, recovered: &Recovered) -> Option<Fil
         .modified
         .map(|modified| format!(", last one {}", history::ago(modified)))
         .unwrap_or_default();
-    ui.weak(format!("{changes}{when}"));
+    ui.label(widgets::muted(format!("{changes}{when}"), ui));
     if let Some(file) = &recovered.file {
-        ui.weak(file.display().to_string());
+        ui.label(widgets::muted(file.display().to_string(), ui));
     }
     for issue in &recovered.issues {
-        ui.colored_label(ui.visuals().warn_fg_color, issue);
+        widgets::callout(ui, Tone::Warning, |ui| {
+            ui.label(issue);
+        });
     }
     let journal = recovered.journal.clone();
     ui.horizontal(|ui| {
@@ -1212,7 +1240,7 @@ fn recovery_row(ui: &mut Ui, files: &Files, recovered: &Recovered) -> Option<Fil
                 .clicked()
                 .then_some(FileCommand::KeepRecovered);
         }
-        if ui.button("Restore").clicked() {
+        if ui.add(widgets::primary_button(ui, "Restore")).clicked() {
             return Some(FileCommand::Restore(journal));
         }
         ui.button("Discard…")

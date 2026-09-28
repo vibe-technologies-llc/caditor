@@ -16,8 +16,6 @@ use crate::{
 
 pub const DEFAULT_OFFSET: f64 = 10.0;
 pub const DEFAULT_ANGLE: f64 = 45.0;
-pub const PLANE_ICON: &str = "▱";
-pub const AXIS_ICON: &str = "⟋";
 
 pub fn result(evaluation: &Evaluation, feature: FeatureId) -> Option<DatumResult> {
     evaluation

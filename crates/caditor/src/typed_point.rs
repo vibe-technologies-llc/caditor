@@ -8,9 +8,12 @@ use egui::{
 
 use crate::{
     field::{self, Expected},
+    icons,
     model::Model,
+    widgets,
 };
 
+pub const FIELD_LABEL: &str = "Place point";
 const FIELD_WIDTH: f32 = 180.0;
 const RELATIVE_MARK: char = '@';
 const SEPARATORS: [char; 2] = [',', ';'];
@@ -98,14 +101,13 @@ impl TypedPoint {
                 Frame::popup(ui.style())
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label("Point");
+                            ui.label(FIELD_LABEL);
                             let field = ui.add(
                                 TextEdit::singleline(text)
                                     .id(id)
                                     .desired_width(FIELD_WIDTH)
                                     .hint_text("x, y"),
                             );
-                            ui.add_space(4.0);
                             ui.label(RichText::new(hint).weak());
                             field
                         })
@@ -120,7 +122,11 @@ impl TypedPoint {
                 .fixed_pos(response.response.rect.center_bottom())
                 .show(ctx, |ui| {
                     Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.colored_label(ui.visuals().error_fg_color, error);
+                        ui.horizontal(|ui| {
+                            let color = ui.visuals().error_fg_color;
+                            widgets::icon_label(ui, icons::FAILED, color);
+                            ui.colored_label(color, error);
+                        });
                     });
                 });
         }

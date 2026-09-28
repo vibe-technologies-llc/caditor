@@ -4,21 +4,22 @@ use caditor_document::{
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_sketch::{Entity, EntityId, Reference};
-use egui::{Button, ComboBox, Grid, Id, Ui};
+use egui::{Button, ComboBox, Id, Ui};
 
 use crate::{
     datum_tools,
     editing::EditingCommand,
     field::{self, Expected},
-    model::{Action, Model},
+    icons,
+    model::{Action, Model, Notice},
     scene,
     selection::{self, Selection},
     solid_tools::{self, DEFAULT_PARTIAL_ANGLE},
+    widgets::{self, FIELD_WIDTH},
 };
 
-const FIELD_WIDTH: f32 = 110.0;
 const FULL_TURN_DEGREES: f64 = 360.0;
-const USE_SELECTED_AXIS: &str = "Use selected axis";
+const USE_SELECTED: &str = "Use selected";
 
 struct Panel<'a> {
     model: &'a Model,
@@ -133,20 +134,18 @@ impl Panel<'_> {
                 && let Some(preview) =
                     field::value_preview(parameters, expression, model.length_unit())
             {
-                ui.weak(preview);
+                ui.label(widgets::muted(preview, ui));
             }
             error = field.error;
         });
         ui.end_row();
         if let Some(error) = error {
-            ui.label("");
-            ui.colored_label(ui.visuals().error_fg_color, error);
-            ui.end_row();
+            widgets::error_row(ui, &error);
         }
     }
 
     fn sketch_row(&mut self, ui: &mut Ui) {
-        ui.label("Sketch");
+        widgets::caption(ui, "Sketch");
         let current = self.solid.sketch();
         let model = self.model;
         let name = model
@@ -171,7 +170,7 @@ impl Panel<'_> {
     }
 
     fn regions_row(&mut self, ui: &mut Ui, opened: bool) {
-        ui.label("Regions");
+        widgets::caption(ui, "Regions");
         let model = self.model;
         let document = model.document();
         let evaluation = model.evaluation();
@@ -209,13 +208,12 @@ impl Panel<'_> {
                     RegionChoice::Chosen(keys),
                 )));
             }
-            if opened {
-                ui.weak("Click regions in the view to include or leave them out.");
-            } else if ui
-                .small_button("Choose in the view")
-                .on_hover_text("Show the regions of the sketch so you can click them")
-                .clicked()
-            {
+            if widgets::choose_in_view(
+                ui,
+                opened,
+                "Click regions in the view to include or leave them out.",
+                "Show the regions of the sketch so you can click them",
+            ) {
                 self.actions
                     .push(Action::Editing(EditingCommand::OpenSolid(self.id())));
             }
@@ -223,13 +221,13 @@ impl Panel<'_> {
         ui.end_row();
         match change {
             Some(Ok(transaction)) => self.actions.push(Action::Apply(transaction)),
-            Some(Err(reason)) => log::warn!("could not change the regions: {reason}"),
+            Some(Err(reason)) => self.refuse(&reason),
             None => {}
         }
     }
 
     fn extrude_rows(&mut self, ui: &mut Ui, extrude: &Extrude) {
-        ui.label("Extent");
+        widgets::caption(ui, "Extent");
         let current = extent_name(&extrude.extent);
         self.combo(ui, "extrude-extent", current, |panel| {
             let distance = match &extrude.extent {
@@ -266,7 +264,7 @@ impl Panel<'_> {
         ui.end_row();
         match &extrude.extent {
             ExtrudeExtent::OneSide { distance, reversed } => {
-                ui.label("Distance");
+                widgets::caption(ui, "Distance");
                 let reversed = *reversed;
                 self.expression(
                     ui,
@@ -281,7 +279,7 @@ impl Panel<'_> {
                         })
                     },
                 );
-                ui.label("Direction");
+                widgets::caption(ui, "Direction");
                 let mut flipped = reversed;
                 if ui.checkbox(&mut flipped, "Reversed").changed() {
                     let flipped = SolidFeature::Extrude(Extrude {
@@ -296,7 +294,7 @@ impl Panel<'_> {
                 ui.end_row();
             }
             ExtrudeExtent::Symmetric { distance } => {
-                ui.label("Total distance");
+                widgets::caption(ui, "Total distance");
                 self.expression(
                     ui,
                     "distance",
@@ -312,7 +310,7 @@ impl Panel<'_> {
                 );
             }
             ExtrudeExtent::TwoSides { forward, backward } => {
-                ui.label("Forward");
+                widgets::caption(ui, "Forward");
                 self.expression(
                     ui,
                     "forward",
@@ -329,7 +327,7 @@ impl Panel<'_> {
                         })
                     },
                 );
-                ui.label("Backward");
+                widgets::caption(ui, "Backward");
                 self.expression(
                     ui,
                     "backward",
@@ -370,7 +368,8 @@ impl Panel<'_> {
                     .to_owned(),
             ),
         };
-        let response = ui.add_enabled(change.is_ok(), Button::new(USE_SELECTED_AXIS).small());
+        let button = widgets::small_button(ui, icons::USE_SELECTED, USE_SELECTED);
+        let response = ui.add_enabled(change.is_ok(), button);
         match change {
             Ok(transaction) => {
                 if response
@@ -387,14 +386,14 @@ impl Panel<'_> {
     }
 
     fn revolve_rows(&mut self, ui: &mut Ui, revolve: &Revolve) {
-        ui.label("Axis");
+        widgets::caption(ui, "Axis");
         let model = self.model;
         let sketch = model
             .document()
             .feature(revolve.sketch)
             .and_then(|feature| feature.kind.sketch());
         let axis_name = solid_tools::axis_name(model.document(), revolve.sketch, &revolve.axis);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             self.combo(ui, "axis", &axis_name, |panel| {
                 let Some(sketch) = sketch else {
                     return Vec::new();
@@ -425,7 +424,7 @@ impl Panel<'_> {
         });
         ui.end_row();
 
-        ui.label("Extent");
+        widgets::caption(ui, "Extent");
         let current = turn_name(&revolve.extent);
         self.combo(ui, "revolve-extent", current, |panel| {
             let angle = match &revolve.extent {
@@ -458,7 +457,7 @@ impl Panel<'_> {
         match &revolve.extent {
             RevolveExtent::Full => {}
             RevolveExtent::OneSide { angle, reversed } => {
-                ui.label("Angle");
+                widgets::caption(ui, "Angle");
                 let reversed = *reversed;
                 self.expression(
                     ui,
@@ -473,7 +472,7 @@ impl Panel<'_> {
                         })
                     },
                 );
-                ui.label("Direction");
+                widgets::caption(ui, "Direction");
                 let mut flipped = reversed;
                 if ui.checkbox(&mut flipped, "Reversed").changed() {
                     let flipped = SolidFeature::Revolve(Revolve {
@@ -488,7 +487,7 @@ impl Panel<'_> {
                 ui.end_row();
             }
             RevolveExtent::Symmetric { angle } => {
-                ui.label("Total angle");
+                widgets::caption(ui, "Total angle");
                 self.expression(
                     ui,
                     "angle",
@@ -510,7 +509,7 @@ impl Panel<'_> {
         let operation = self.solid.operation();
         let bodies = solid_tools::bodies_before(self.document(), self.id());
         let fallback = bodies.last().copied();
-        ui.label("Result");
+        widgets::caption(ui, "Result");
         self.combo(ui, "operation", operation_name(operation), |panel| {
             let target = operation.target().or(fallback);
             let candidates = [
@@ -533,7 +532,7 @@ impl Panel<'_> {
         let Some(target) = operation.target() else {
             return;
         };
-        ui.label("Body");
+        widgets::caption(ui, "Body");
         let model = self.model;
         let name = model
             .document()
@@ -561,8 +560,15 @@ impl Panel<'_> {
     fn apply(&mut self, solid: SolidFeature) {
         match self.change(solid) {
             Ok(transaction) => self.actions.push(Action::Apply(transaction)),
-            Err(reason) => log::warn!("could not change {}: {reason}", self.feature.name),
+            Err(reason) => self.refuse(&reason),
         }
+    }
+
+    fn refuse(&mut self, reason: &str) {
+        self.actions.push(Action::Inform(Notice::error(format!(
+            "{} was not changed: {reason}",
+            self.feature.name
+        ))));
     }
 }
 
@@ -647,16 +653,13 @@ pub fn show(
         solid,
         actions,
     };
-    Grid::new(("solid-properties", feature.id()))
-        .num_columns(2)
-        .spacing([8.0, 6.0])
-        .show(ui, |ui| {
-            panel.sketch_row(ui);
-            panel.regions_row(ui, opened);
-            match solid {
-                SolidFeature::Extrude(extrude) => panel.extrude_rows(ui, extrude),
-                SolidFeature::Revolve(revolve) => panel.revolve_rows(ui, revolve),
-            }
-            panel.operation_rows(ui);
-        });
+    widgets::properties(ui, ("solid-properties", feature.id()), |ui| {
+        panel.sketch_row(ui);
+        panel.regions_row(ui, opened);
+        match solid {
+            SolidFeature::Extrude(extrude) => panel.extrude_rows(ui, extrude),
+            SolidFeature::Revolve(revolve) => panel.revolve_rows(ui, revolve),
+        }
+        panel.operation_rows(ui);
+    });
 }

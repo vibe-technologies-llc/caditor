@@ -12,9 +12,11 @@ use winit::{
 
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
-    commands::{self, Command, CommandFrame, Situation},
+    commands::{self, Command, CommandFrame, Offer, Situation},
     editing::SketchEditing,
     files::{self, FileCommand, Files},
+    fonts,
+    menu_bar::{self, MenuContext},
     model::{Action, Model, Notice, WakerFactory},
     onboarding::{self, HintChoice, WelcomeChoice},
     overlay::Overlay,
@@ -23,6 +25,7 @@ use crate::{
     preferences::{self, Appearance, PreferenceChange, Preferences, PreferencesCommand},
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar,
+    status_bar::{self, StatusContext},
     toolbar::{self, ToolbarContext},
     viewport::ViewportState,
 };
@@ -59,6 +62,7 @@ pub struct Workspace {
     pub palette: Palette,
     pub shortcut_editor: Option<ShortcutEditor>,
     pub welcome_open: bool,
+    last_offers: Vec<Offer>,
     applied_appearance: Option<Appearance>,
     keyboard_was_taken: bool,
 }
@@ -84,6 +88,7 @@ impl Workspace {
             palette: Palette::default(),
             shortcut_editor: None,
             welcome_open,
+            last_offers: Vec::new(),
             applied_appearance: None,
             keyboard_was_taken: false,
         }
@@ -128,7 +133,11 @@ pub fn show(
     workspace: &mut Workspace,
     actions: &mut Vec<Action>,
 ) {
-    apply_appearance(ui.ctx(), workspace);
+    match apply_appearance(ui.ctx(), workspace) {
+        Applied::FontsPending => return,
+        Applied::Changed => ui.set_style(ui.ctx().global_style()),
+        Applied::Unchanged => {}
+    }
     let text_focused = ui.ctx().egui_wants_keyboard_input();
     let keyboard_taken = text_focused || workspace.keyboard_was_taken;
     let dialog_open = workspace.preferences_open
@@ -146,6 +155,7 @@ pub fn show(
         palette,
         shortcut_editor,
         welcome_open,
+        last_offers,
         keyboard_was_taken,
         ..
     } = workspace;
@@ -162,8 +172,13 @@ pub fn show(
     };
     triggered.extend(palette.take_chosen());
     let mut commands = CommandFrame::new(&preferences.keymap, triggered);
-    let toolbar = ToolbarContext {
+    let menu = MenuContext {
         files,
+        editing,
+        offers: last_offers,
+    };
+    menu_bar::show(ui, model, &menu, &mut commands, actions);
+    let toolbar = ToolbarContext {
         selection: viewport.selection(),
         editing,
     };
@@ -177,6 +192,12 @@ pub fn show(
         panels,
         actions,
     );
+    let status = StatusContext {
+        files,
+        selection: viewport.selection(),
+        appearance: &preferences.appearance,
+    };
+    status_bar::show(ui, model, &status, panels, actions);
     route_dimension_focus(panels, editing, viewport);
     panels::show(ui, model, viewport.selection(), editing, panels, actions);
     route_dimension_focus(panels, editing, viewport);
@@ -239,26 +260,37 @@ pub fn show(
             actions.push(Action::Preferences(PreferencesCommand::Change(change)));
         }
     }
+    *last_offers = offers;
     *keyboard_was_taken = ui.ctx().egui_wants_keyboard_input();
 }
 
-fn apply_appearance(ctx: &egui::Context, workspace: &mut Workspace) {
+enum Applied {
+    FontsPending,
+    Changed,
+    Unchanged,
+}
+
+fn apply_appearance(ctx: &egui::Context, workspace: &mut Workspace) -> Applied {
     let wanted = workspace.preferences.appearance;
     if workspace.applied_appearance == Some(wanted) {
-        return;
+        return Applied::Unchanged;
     }
-    if workspace.applied_appearance.is_none() {
+    if !fonts::installed(ctx) {
         ctx.options_mut(|options| {
             options.zoom_with_keyboard = false;
             options.quit_shortcuts.clear();
         });
+        ctx.set_fonts(fonts::definitions());
+        ctx.request_repaint();
+        return Applied::FontsPending;
     }
     for (theme, dark) in [(egui::Theme::Dark, true), (egui::Theme::Light, false)] {
-        ctx.set_visuals_of(theme, appearance::visuals(dark, wanted.high_contrast));
+        ctx.set_style_of(theme, appearance::style(dark, wanted.high_contrast));
     }
     ctx.set_theme(wanted.theme.egui());
     ctx.set_zoom_factor(wanted.scale);
     workspace.applied_appearance = Some(wanted);
+    Applied::Changed
 }
 
 fn interface_size(

@@ -1,7 +1,5 @@
-use std::time::Duration;
-
 use caditor_document::{BlendKind, Datum};
-use egui::{Button, Ui};
+use egui::{Response, Ui};
 
 use crate::{
     blend_panel, blend_tools,
@@ -9,22 +7,21 @@ use crate::{
     datum_tools,
     editing::{EditingCommand, SketchEditing},
     feature_tree::count,
-    files::{self, Files},
-    model::{Action, Model, NoticeKind, RecomputeStatus},
+    icons,
+    model::{Action, Model},
     selection::{Pickable, Selection},
     shell_tools, sketch_placement,
     solid_tools::{self, Sweep},
     viewport::CHOOSE_PLANE_PROMPT,
+    widgets::{self, Tone, ToolButton},
 };
 
-const SHOW_PROGRESS_AFTER: Duration = Duration::from_millis(150);
-const PROGRESS_REFRESH: Duration = Duration::from_millis(100);
-const NEW_SKETCH_LABEL: &str = "New sketch";
-const PALETTE_LABEL: &str = "🔍 Commands";
+pub const NEW_SKETCH_LABEL: &str = "New sketch";
+pub const PLANE_LABEL: &str = "Plane";
+pub const AXIS_LABEL: &str = "Axis";
 const NO_SKETCH_TO_SWEEP: &str = "Draw a sketch with a closed outline first";
 
 pub struct ToolbarContext<'a> {
-    pub files: &'a Files,
     pub selection: &'a Selection,
     pub editing: &'a SketchEditing,
 }
@@ -36,65 +33,27 @@ pub fn show(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let files = context.files;
     egui::Panel::top("toolbar").show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            files::menu(ui, model, files, context.editing, commands, actions);
-            help_menu(ui, commands);
-            palette_button(ui, commands);
-            ui.separator();
+            ui.spacing_mut().item_spacing.x = TOOL_GAP;
             history_buttons(ui, model, commands, actions);
             ui.separator();
             sketch_buttons(ui, model, context, commands, actions);
+            ui.separator();
             solid_buttons(ui, model, context, commands, actions);
+            ui.separator();
             blend_buttons(ui, model, context, commands, actions);
             shell_button(ui, model, context, commands, actions);
             ui.separator();
             datum_buttons(ui, model, context, commands, actions);
-            ui.separator();
-            recompute_status(ui, model, actions);
-            if let Some(notice) = model.notice() {
-                ui.separator();
-                let color = match notice.kind {
-                    NoticeKind::Info => ui.visuals().text_color(),
-                    NoticeKind::Error => ui.visuals().error_fg_color,
-                };
-                ui.colored_label(color, &notice.text);
-                if ui.small_button("🗙").on_hover_text("Dismiss").clicked() {
-                    actions.push(Action::DismissNotice);
-                }
-            }
         });
     });
 }
 
-fn help_menu(ui: &mut Ui, commands: &mut CommandFrame<'_>) {
-    let mut chosen = None;
-    ui.menu_button("Help", |ui| {
-        for command in [
-            Command::Welcome,
-            Command::Palette,
-            Command::KeyboardShortcuts,
-        ] {
-            let mut button = Button::new(command.title());
-            if let Some(keys) = commands.keys(command) {
-                button = button.shortcut_text(keys);
-            }
-            if ui.add(button).clicked() {
-                chosen = Some(command);
-            }
-        }
-    });
-    if let Some(command) = chosen {
-        commands.trigger(command);
-    }
-}
+const TOOL_GAP: f32 = 2.0;
 
-fn palette_button(ui: &mut Ui, commands: &mut CommandFrame<'_>) {
-    let hover = commands.with_keys(Command::Palette, "Search every command by name");
-    if ui.button(PALETTE_LABEL).on_hover_text(hover).clicked() {
-        commands.trigger(Command::Palette);
-    }
+fn tool(ui: &mut Ui, command: Command, label: &str, enabled: bool) -> Response {
+    ui.add_enabled(enabled, ToolButton::new(icons::command(command), label))
 }
 
 fn sketch_buttons(
@@ -106,7 +65,7 @@ fn sketch_buttons(
 ) {
     let (selection, editing) = (context.selection, context.editing);
     if editing.is_choosing_plane() {
-        ui.colored_label(ui.visuals().warn_fg_color, CHOOSE_PLANE_PROMPT);
+        widgets::pill(ui, Tone::Info, CHOOSE_PLANE_PROMPT);
         if ui
             .button("Cancel")
             .on_hover_text("Stop choosing a plane (Esc)")
@@ -159,7 +118,8 @@ fn sketch_buttons(
     };
     let hover = commands.with_keys(Command::NewSketch, &hover);
     let invoked = commands.available(Command::NewSketch);
-    if ui.button(NEW_SKETCH_LABEL).on_hover_text(hover).clicked() || invoked {
+    let response = tool(ui, Command::NewSketch, NEW_SKETCH_LABEL, true).on_hover_text(hover);
+    if response.clicked() || invoked {
         actions.push(Action::Editing(command));
     }
 }
@@ -180,8 +140,7 @@ fn solid_buttons(
             Sweep::Revolve => Command::Revolve,
         };
         let invoked = commands.invoke(command, &source.as_ref().ok_or(NO_SKETCH_TO_SWEEP));
-        let text = format!("{} {}", sweep.icon(), sweep.label());
-        let response = ui.add_enabled(source.is_some(), Button::new(text));
+        let response = tool(ui, command, sweep.label(), source.is_some());
         let response = match &source {
             Some(source) => {
                 let sketch = document
@@ -229,8 +188,7 @@ fn blend_buttons(
             BlendKind::Chamfer => Command::Chamfer,
         };
         let invoked = commands.invoke(command, &source);
-        let text = format!("{} {}", blend_tools::icon(kind), kind.title());
-        let response = ui.add_enabled(source.is_ok(), Button::new(text));
+        let response = tool(ui, command, kind.title(), source.is_ok());
         let response = match &source {
             Ok(source) => response.on_hover_text(commands.with_keys(
                 command,
@@ -270,8 +228,7 @@ fn datum_buttons(
     let end = document.features().len();
     let plane = datum_tools::plane_from_selection(model, context.selection, end);
     let invoked = commands.invoke(Command::DatumPlane, &plane);
-    let text = format!("{} Plane", datum_tools::PLANE_ICON);
-    let response = ui.add_enabled(plane.is_ok(), Button::new(text));
+    let response = tool(ui, Command::DatumPlane, PLANE_LABEL, plane.is_ok());
     let response = match &plane {
         Ok(_) => response.on_hover_text(commands.with_keys(
             Command::DatumPlane,
@@ -288,8 +245,7 @@ fn datum_buttons(
 
     let axis = datum_tools::axis_from_selection(model, context.selection, end);
     let invoked = commands.invoke(Command::DatumAxis, &axis);
-    let text = format!("{} Axis", datum_tools::AXIS_ICON);
-    let response = ui.add_enabled(axis.is_ok(), Button::new(text));
+    let response = tool(ui, Command::DatumAxis, AXIS_LABEL, axis.is_ok());
     let response = match &axis {
         Ok(_) => response.on_hover_text(commands.with_keys(
             Command::DatumAxis,
@@ -316,8 +272,7 @@ fn shell_button(
 ) {
     let source = shell_tools::selected_faces(model, context.selection);
     let invoked = commands.invoke(Command::Shell, &source);
-    let text = format!("{} {}", shell_tools::ICON, shell_tools::TITLE);
-    let response = ui.add_enabled(source.is_ok(), Button::new(text));
+    let response = tool(ui, Command::Shell, shell_tools::TITLE, source.is_ok());
     let response = match &source {
         Ok(source) => response.on_hover_text(commands.with_keys(
             Command::Shell,
@@ -352,91 +307,30 @@ fn history_buttons(
 ) {
     let buttons = [
         (
-            "⟲ Undo",
             model.undo_label(),
             Command::Undo,
             Action::Undo,
             "Nothing to undo",
         ),
         (
-            "⟳ Redo",
             model.redo_label(),
             Command::Redo,
             Action::Redo,
             "Nothing to redo",
         ),
     ];
-    for (text, label, command, action, idle) in buttons {
+    for (label, command, action, idle) in buttons {
         let invoked = commands.invoke(command, &label.ok_or(idle));
-        let response = ui.add_enabled(label.is_some(), Button::new(text));
+        let verb = command.title();
+        let response = tool(ui, command, &verb, label.is_some());
         let response = match label {
             Some(label) => {
-                let verb = text.trim_start_matches(|character: char| !character.is_alphabetic());
                 response.on_hover_text(commands.with_keys(command, &format!("{verb} {label}")))
             }
             None => response.on_disabled_hover_text(idle),
         };
         if response.clicked() || invoked {
             actions.push(action);
-        }
-    }
-}
-
-fn recompute_status(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>) {
-    match model.status() {
-        RecomputeStatus::Running { since } if since.elapsed() >= SHOW_PROGRESS_AFTER => {
-            ui.spinner();
-            let text = match model.progress() {
-                Some(progress) if progress.total > 0 => format!(
-                    "Recomputing {} of {}…",
-                    (progress.done + 1).min(progress.total),
-                    progress.total
-                ),
-                Some(_) | None => "Recomputing…".to_owned(),
-            };
-            ui.label(text);
-            if ui.button("Cancel").clicked() {
-                actions.push(Action::CancelRecompute);
-            }
-            ui.ctx().request_repaint_after(PROGRESS_REFRESH);
-        }
-        RecomputeStatus::Running { since } => {
-            ui.ctx()
-                .request_repaint_after(SHOW_PROGRESS_AFTER.saturating_sub(since.elapsed()));
-            summary(ui, model);
-        }
-        RecomputeStatus::UpToDate => summary(ui, model),
-        RecomputeStatus::Cancelled => {
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
-                "Recompute cancelled, so some features are outdated",
-            );
-            if ui.button("Recompute").clicked() {
-                actions.push(Action::Recompute);
-            }
-        }
-        RecomputeStatus::Stopped => {
-            ui.colored_label(
-                ui.visuals().error_fg_color,
-                "Recompute stopped unexpectedly. Your model is safe.",
-            );
-            if ui.button("Restart").clicked() {
-                actions.push(Action::Recompute);
-            }
-        }
-    }
-}
-
-fn summary(ui: &mut Ui, model: &Model) {
-    match model.evaluation().failed_count() {
-        0 => {
-            ui.weak("Up to date");
-        }
-        failed => {
-            ui.colored_label(
-                ui.visuals().error_fg_color,
-                format!("⚑ {} failed", count(failed, "feature", "features")),
-            );
         }
     }
 }

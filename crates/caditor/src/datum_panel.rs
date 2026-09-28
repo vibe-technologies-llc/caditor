@@ -3,17 +3,18 @@ use caditor_document::{
     Transaction, capitalized, describe_axis, describe_plane,
 };
 use caditor_expression::{Dimension, Expression};
-use egui::{Button, Grid, Id, Ui};
+use egui::{Id, Ui};
 
 use crate::{
     datum_tools,
     field::{self, Expected},
-    model::{Action, Model},
+    icons,
+    model::{Action, Model, Notice},
     selection::Selection,
     solid_tools,
+    widgets::{self, FIELD_WIDTH},
 };
 
-const FIELD_WIDTH: f32 = 110.0;
 const USE_SELECTED: &str = "Use selected";
 
 struct Panel<'a> {
@@ -35,7 +36,9 @@ impl Panel<'_> {
     fn apply(&mut self, change: Result<Transaction, String>) {
         match change {
             Ok(transaction) => self.actions.push(Action::Apply(transaction)),
-            Err(reason) => log::warn!("could not change the datum: {reason}"),
+            Err(reason) => self.actions.push(Action::Inform(Notice::error(format!(
+                "The datum was not changed: {reason}"
+            )))),
         }
     }
 
@@ -43,7 +46,8 @@ impl Panel<'_> {
         let change = change
             .map_err(str::to_owned)
             .and_then(|datum| self.change(datum));
-        let response = ui.add_enabled(change.is_ok(), Button::new(USE_SELECTED).small());
+        let button = widgets::small_button(ui, icons::USE_SELECTED, USE_SELECTED);
+        let response = ui.add_enabled(change.is_ok(), button);
         match change {
             Ok(transaction) => {
                 if response.on_hover_text(hover).clicked() {
@@ -95,7 +99,7 @@ impl Panel<'_> {
                 && let Some(preview) =
                     field::value_preview(parameters, expression, model.length_unit())
             {
-                ui.weak(preview);
+                ui.label(widgets::muted(preview, ui));
             }
             error = field.error;
         });
@@ -104,9 +108,7 @@ impl Panel<'_> {
         }
         ui.end_row();
         if let Some(error) = error {
-            ui.label("");
-            ui.colored_label(ui.visuals().error_fg_color, error);
-            ui.end_row();
+            widgets::error_row(ui, &error);
         }
     }
 
@@ -124,8 +126,8 @@ impl Panel<'_> {
 
     fn plane_rows(&mut self, ui: &mut Ui, plane: &DatumPlane) {
         let document = self.model.document();
-        ui.label("Starts from");
-        ui.horizontal(|ui| {
+        widgets::caption(ui, "Starts from");
+        ui.horizontal_wrapped(|ui| {
             ui.label(capitalized(&describe_plane(document, &plane.base)));
             let change = match self.first_plane() {
                 Some(base) if base == plane.base => Err("It already starts from the selection"),
@@ -139,14 +141,14 @@ impl Panel<'_> {
         });
         ui.end_row();
 
-        ui.label("Turned about");
-        ui.horizontal(|ui| {
+        widgets::caption(ui, "Turned about");
+        ui.horizontal_wrapped(|ui| {
             match &plane.rotation {
                 Some(rotation) => {
                     ui.label(capitalized(&describe_axis(document, &rotation.axis)));
                 }
                 None => {
-                    ui.weak("Nothing");
+                    ui.label(widgets::muted("Nothing", ui));
                 }
             }
             let change = match self.first_axis() {
@@ -173,10 +175,7 @@ impl Panel<'_> {
                 change,
             );
             if plane.rotation.is_some()
-                && ui
-                    .small_button("🗙")
-                    .on_hover_text("Stop turning the plane")
-                    .clicked()
+                && widgets::icon_button(ui, icons::REMOVE, "Stop turning the plane").clicked()
             {
                 let change = self.change(Datum::Plane(DatumPlane {
                     rotation: None,
@@ -188,7 +187,7 @@ impl Panel<'_> {
         ui.end_row();
 
         if let Some(rotation) = &plane.rotation {
-            ui.label("Angle");
+            widgets::caption(ui, "Angle");
             self.expression(ui, "angle", &rotation.angle, Dimension::ANGLE, |angle| {
                 Datum::Plane(DatumPlane {
                     rotation: Some(PlaneRotation {
@@ -200,7 +199,7 @@ impl Panel<'_> {
             });
         }
 
-        ui.label("Offset");
+        widgets::caption(ui, "Offset");
         self.expression(ui, "offset", &plane.offset, Dimension::LENGTH, |offset| {
             Datum::Plane(DatumPlane {
                 offset,
@@ -225,8 +224,8 @@ impl Panel<'_> {
                 ),
             ),
         };
-        ui.label(title);
-        ui.horizontal(|ui| {
+        widgets::caption(ui, title);
+        ui.horizontal_wrapped(|ui| {
             ui.label(text);
             let change =
                 match datum_tools::axis_from_selection(self.model, self.selection, self.index) {
@@ -261,11 +260,8 @@ pub fn show(
         index: model.document().feature_index(id).unwrap_or(0),
         actions,
     };
-    Grid::new(("datum-properties", id))
-        .num_columns(2)
-        .spacing([8.0, 6.0])
-        .show(ui, |ui| match datum {
-            Datum::Plane(plane) => panel.plane_rows(ui, plane),
-            Datum::Axis(axis) => panel.axis_rows(ui, axis),
-        });
+    widgets::properties(ui, ("datum-properties", id), |ui| match datum {
+        Datum::Plane(plane) => panel.plane_rows(ui, plane),
+        Datum::Axis(axis) => panel.axis_rows(ui, axis),
+    });
 }

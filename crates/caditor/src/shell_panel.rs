@@ -1,17 +1,17 @@
 use caditor_document::{Feature, FeatureId, Shell, Transaction};
 use caditor_expression::Dimension;
-use egui::{Grid, Id, Ui};
+use egui::{Id, Ui};
 
 use crate::{
     bodies,
     editing::EditingCommand,
     feature_tree::count,
     field::{self, Expected},
-    model::{Action, Model},
+    icons,
+    model::{Action, Model, Notice},
     shell_tools,
+    widgets::{self, FIELD_WIDTH},
 };
-
-const FIELD_WIDTH: f32 = 110.0;
 
 fn change(model: &Model, feature: FeatureId, shell: Shell) -> Result<Transaction, String> {
     let document = model.document();
@@ -27,7 +27,7 @@ fn thickness_row(
     shell: &Shell,
     actions: &mut Vec<Action>,
 ) {
-    ui.label("Thickness");
+    widgets::caption(ui, "Thickness");
     let document = model.document();
     let parameters = model.parameters();
     let mut error = None;
@@ -73,15 +73,13 @@ fn thickness_row(
             && let Some(preview) =
                 field::value_preview(parameters, &shell.thickness, model.length_unit())
         {
-            ui.weak(preview);
+            ui.label(widgets::muted(preview, ui));
         }
         error = field.error;
     });
     ui.end_row();
     if let Some(error) = error {
-        ui.label("");
-        ui.colored_label(ui.visuals().error_fg_color, error);
-        ui.end_row();
+        widgets::error_row(ui, &error);
     }
 }
 
@@ -93,12 +91,12 @@ fn faces_row(
     opened: bool,
     actions: &mut Vec<Action>,
 ) {
-    ui.label("Open faces");
+    widgets::caption(ui, "Open faces");
     let document = model.document();
     let solid = bodies::input_solid(model.evaluation(), feature);
     ui.vertical(|ui| {
         if shell.open.is_empty() {
-            ui.label("None: the body is hollow and closed");
+            ui.label(widgets::muted("None: the body is hollow and closed", ui));
         } else {
             ui.label(count(shell.open.len(), "face", "faces"));
         }
@@ -113,25 +111,26 @@ fn faces_row(
                 })
                 .unwrap_or_else(|| "A face that is no longer there".to_owned());
             ui.horizontal(|ui| {
-                ui.weak(text);
-                let close = ui.small_button("🗙").on_hover_text("Close this face");
+                ui.label(widgets::muted(text, ui));
+                let close = widgets::icon_button(ui, icons::REMOVE, "Close this face");
                 if close.clicked() {
                     let mut changed = shell.clone();
                     changed.open.remove(index);
                     match change(model, feature, changed) {
                         Ok(transaction) => actions.push(Action::Apply(transaction)),
-                        Err(reason) => log::warn!("could not change the shell: {reason}"),
+                        Err(reason) => actions.push(Action::Inform(Notice::error(format!(
+                            "The shell was not changed: {reason}"
+                        )))),
                     }
                 }
             });
         }
-        if opened {
-            ui.weak("Click flat faces in the view to open them or close them again.");
-        } else if ui
-            .small_button("Choose in the view")
-            .on_hover_text("Show the body as it was before this feature so you can click faces")
-            .clicked()
-        {
+        if widgets::choose_in_view(
+            ui,
+            opened,
+            "Click flat faces in the view to open them or close them again.",
+            "Show the body as it was before this feature so you can click faces",
+        ) {
             actions.push(Action::Editing(EditingCommand::OpenSolid(feature)));
         }
     });
@@ -147,19 +146,16 @@ pub fn show(
     opened: bool,
 ) {
     let id = feature.id();
-    Grid::new(("shell-properties", id))
-        .num_columns(2)
-        .spacing([8.0, 6.0])
-        .show(ui, |ui| {
-            thickness_row(ui, model, id, shell, actions);
-            faces_row(ui, model, id, shell, opened, actions);
-            ui.label("Body");
-            ui.label(
-                model
-                    .document()
-                    .feature(shell.body)
-                    .map_or("a missing body", |body| body.name.as_str()),
-            );
-            ui.end_row();
-        });
+    widgets::properties(ui, ("shell-properties", id), |ui| {
+        thickness_row(ui, model, id, shell, actions);
+        faces_row(ui, model, id, shell, opened, actions);
+        widgets::caption(ui, "Body");
+        ui.label(
+            model
+                .document()
+                .feature(shell.body)
+                .map_or("a missing body", |body| body.name.as_str()),
+        );
+        ui.end_row();
+    });
 }

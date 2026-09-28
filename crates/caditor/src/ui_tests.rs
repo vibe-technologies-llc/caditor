@@ -32,6 +32,7 @@ use crate::{
     preferences::{PreferenceChange, Preferences, PreferencesCommand},
     scene,
     selection::{Pickable, PrincipalPlane},
+    typed_point,
     units::LengthUnit,
 };
 
@@ -39,6 +40,7 @@ const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));
 const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(10);
 const FRAME_SECONDS: f64 = 0.05;
 const ANIMATION_FRAMES: usize = 5;
+const WINDOW_SETTLE_FRAMES: usize = 5;
 const FILE_TIMEOUT: Duration = Duration::from_secs(10);
 const TOOLTIP_FRAMES: usize = 20;
 const CAMERA_SETTLE: Duration = Duration::from_secs(5);
@@ -235,8 +237,9 @@ impl Harness {
     }
 
     fn show_new_windows(&mut self) {
-        self.frame();
-        self.frame();
+        for _ in 0..WINDOW_SETTLE_FRAMES {
+            self.frame();
+        }
     }
 
     fn answer_dialog(&self, path: Option<PathBuf>) {
@@ -305,6 +308,10 @@ impl Harness {
 
     fn shows(&self, text: &str) -> bool {
         self.texts.iter().any(|(shown, _)| shown == text)
+    }
+
+    fn count_shown(&self, text: &str) -> usize {
+        self.texts.iter().filter(|(shown, _)| shown == text).count()
     }
 
     fn key(&mut self, key: Key, modifiers: Modifiers) {
@@ -414,6 +421,18 @@ impl Harness {
 
     fn click(&mut self, label: &str) {
         let position = self.position_of(label);
+        self.click_screen(position);
+        self.show_new_windows();
+    }
+
+    fn click_leftmost(&mut self, label: &str) {
+        let position = self
+            .texts
+            .iter()
+            .filter(|(shown, _)| shown == label)
+            .map(|(_, rect)| rect.center())
+            .min_by(|a, b| a.x.total_cmp(&b.x))
+            .unwrap_or_else(|| panic!("'{label}' is not on screen"));
         self.click_screen(position);
         self.show_new_windows();
     }
@@ -558,8 +577,8 @@ fn editing_parameters_breaking_a_feature_and_undoing_it_works_through_the_panels
 
     harness.type_into(Focus::ParameterValue(width), "0 mm");
     harness.settle();
-    assert!(harness.shows("⚑ 1 feature failed"));
-    assert!(harness.shows("⚑ Side sketch"));
+    assert!(harness.shows("1 feature failed"));
+    assert_eq!(harness.color_of("Side sketch"), harness.error_color());
     assert!(harness.shows(
         "Distance between Point 0 and Point 1 cannot be evaluated: it uses height, which has an \
          error."
@@ -573,14 +592,14 @@ fn editing_parameters_breaking_a_feature_and_undoing_it_works_through_the_panels
     );
 
     harness.type_into(Focus::ParameterValue(height), "wdth");
-    assert!(harness.shows("height: There is no parameter named 'wdth'"));
+    assert!(harness.shows("There is no parameter named 'wdth'"));
     assert_eq!(harness.expression_text("height"), "400 mm * 1 mm / width");
 
     harness.focus(Focus::ParameterValue(height));
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
-    assert!(!harness.shows("height: There is no parameter named 'wdth'"));
+    assert!(!harness.shows("There is no parameter named 'wdth'"));
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
@@ -878,7 +897,7 @@ fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
     assert_eq!(harness.sketch(sketch).entities().len(), before + 2);
     assert_eq!(harness.document().features().len(), features + 1);
     assert!(harness.shows(
-        "• The drawing does not say which unit it uses, so its numbers were read as millimetres."
+        "The drawing does not say which unit it uses, so its numbers were read as millimetres."
     ));
     harness.click("OK");
     assert!(!harness.files.is_blocking());
@@ -1036,7 +1055,7 @@ fn opening_a_damaged_file_reports_what_was_lost_and_keeps_the_original_on_save()
     harness.wait_until("the file is open", |harness| harness.model.path().is_some());
     assert!(harness.shows("Parts of “damaged.caditor” could not be read"));
     assert!(
-        harness.shows("• A damaged part of the file was skipped; anything it held was left out.")
+        harness.shows("A damaged part of the file was skipped; anything it held was left out.")
     );
     assert_eq!(harness.model.document().features().len(), 1);
     harness.click("OK");
@@ -1150,12 +1169,13 @@ fn a_constraint_conflict_is_named_and_leads_to_the_newest_constraint() {
     )));
     harness.settle();
 
-    assert!(harness.shows("⚑ Base sketch"));
+    assert_eq!(harness.color_of("Base sketch"), harness.error_color());
     assert!(harness.shows(
         "Vertical Line 2 conflicts with Horizontal Line 2 and Distance between Point 0 and \
          Point 1."
     ));
     harness.click("Go to Vertical Line 2");
+    harness.let_animations_finish();
     assert!(harness.shows("Vertical Line 2"));
     assert!(!harness.workspace.panels.wants_focus(Focus::Constraint {
         feature: base.id(),
@@ -1877,9 +1897,9 @@ fn escape_cancels_the_shape_in_progress_then_returns_to_select() {
 fn tool_buttons_name_their_shortcuts() {
     let mut harness = Harness::new();
     harness.draw_on_new_sketch();
-    harness.hover("∕ Line");
+    harness.hover("Line");
     assert!(harness.shows("Draw connected lines, one click per corner (L)"));
-    harness.click("○ Circle");
+    harness.click("Circle");
     assert_eq!(harness.tool(), Some(Tool::Circle));
     harness.hover("Parallel");
     assert!(harness.shows("Make two lines parallel. Select two lines (Shift+P)"));
@@ -1916,7 +1936,7 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
     harness.click_at(Point2::new(40.0, 30.0));
     harness.settle();
 
-    harness.click("⬆ Extrude");
+    harness.click("Extrude");
     harness.settle();
 
     let extrude = harness
@@ -2001,7 +2021,7 @@ fn clicking_a_hole_region_adds_it_and_a_face_names_the_feature_that_made_it() {
     );
     let sketch = harness.add_sketch(sketch);
     harness.select([]);
-    harness.click("⬆ Extrude");
+    harness.click("Extrude");
     harness.settle();
     let extrude = harness
         .workspace
@@ -2089,7 +2109,7 @@ fn revolving_about_a_selected_line_uses_it_as_the_axis() {
         entity: axis,
     }]);
 
-    harness.click("⟳ Revolve");
+    harness.click("Revolve");
     harness.settle();
 
     let revolve = harness
@@ -2108,7 +2128,7 @@ fn extruded_plate(harness: &mut Harness) -> (FeatureId, Pickable) {
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
-    harness.click("⬆ Extrude");
+    harness.click("Extrude");
     harness.settle();
     let extrude = harness
         .workspace
@@ -2168,7 +2188,7 @@ fn a_sketch_started_on_a_selected_face_follows_it_when_the_body_changes() {
     harness.click_at(Point2::new(10.0, 10.0));
     harness.click_at(Point2::new(20.0, 30.0));
     harness.settle();
-    harness.click("⬆ Extrude");
+    harness.click("Extrude");
     harness.settle();
     let boss = harness
         .workspace
@@ -2278,7 +2298,7 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
         body: plate,
         edge: front,
     }]);
-    harness.click("◜ Fillet");
+    harness.click("Fillet");
     harness.settle();
     let fillet = harness
         .workspace
@@ -2339,8 +2359,8 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
         Some("Leave an edge out of Fillet 1")
     );
 
-    harness.click("Fillet");
-    harness.click("Chamfer");
+    harness.click_leftmost("Fillet");
+    harness.click_leftmost("Chamfer");
     harness.settle();
     assert_eq!(
         blend_of(&harness, fillet).kind,
@@ -2390,7 +2410,7 @@ fn a_shell_opens_the_selected_face_and_takes_more_faces_clicked_in_the_view() {
     };
 
     harness.select([top]);
-    harness.click("⬚ Shell");
+    harness.click("Shell");
     harness.settle();
     let shell = harness
         .workspace
@@ -2467,13 +2487,13 @@ fn the_shell_button_needs_faces_of_a_body_and_opens_every_selected_one() {
         .expect("the plate has other faces");
 
     harness.select([]);
-    harness.click("⬚ Shell");
+    harness.click("Shell");
     harness.settle();
     assert_eq!(harness.workspace.editing.solid(), None);
     assert_ne!(harness.model.undo_label(), Some("Create Shell 1"));
 
     harness.select([top, side]);
-    harness.click("⬚ Shell");
+    harness.click("Shell");
     harness.settle();
     let shell = harness
         .workspace
@@ -2502,7 +2522,7 @@ fn datum_plane(harness: &Harness, feature: FeatureId) -> Plane {
 fn a_datum_plane_carries_a_sketch_that_follows_its_offset() {
     let mut harness = Harness::new();
     harness.select([]);
-    harness.click("▱ Plane");
+    harness.click("Plane");
     harness.settle();
     let plane = harness
         .workspace
@@ -2584,7 +2604,7 @@ fn an_axis_from_a_selected_edge_turns_a_plane_and_a_revolve() {
     };
 
     harness.select([top, edge]);
-    harness.click("▱ Plane");
+    harness.click("Plane");
     harness.settle();
     let plane = harness
         .workspace
@@ -2604,7 +2624,7 @@ fn an_axis_from_a_selected_edge_turns_a_plane_and_a_revolve() {
     assert!(harness.shows("Angle"));
 
     harness.select([edge]);
-    harness.click("⟋ Axis");
+    harness.click("Axis");
     harness.settle();
     let axis = harness.workspace.editing.solid().expect("the axis is open");
     assert_eq!(harness.model.undo_label(), Some("Create Axis 1"));
@@ -2621,7 +2641,7 @@ fn an_axis_from_a_selected_edge_turns_a_plane_and_a_revolve() {
     );
     let section = harness.add_sketch(section);
     harness.select([Pickable::Datum(axis)]);
-    harness.click("⟳ Revolve");
+    harness.click("Revolve");
     harness.settle();
     let revolve = harness
         .workspace
@@ -2655,7 +2675,7 @@ fn the_command_palette_runs_what_fits_the_context_and_explains_the_rest() {
     assert!(harness.workspace.palette.is_open());
 
     harness.type_text("fillet");
-    assert!(harness.shows("Model: Fillet is not available: Select the edges of a body first."));
+    assert!(harness.shows("Fillet is not available: Select the edges of a body first."));
     harness.key(Key::Enter, Modifiers::NONE);
     harness.show_new_windows();
     assert!(harness.workspace.palette.is_open());
@@ -2674,7 +2694,7 @@ fn the_command_palette_runs_what_fits_the_context_and_explains_the_rest() {
 
     let base = harness.document().features().next().unwrap().id();
     harness.edit(base);
-    harness.click("🔍 Commands");
+    harness.click("Search commands");
     assert!(harness.workspace.palette.is_open());
     harness.type_text("draw line");
     harness.key(Key::Enter, Modifiers::NONE);
@@ -2693,21 +2713,21 @@ fn a_shortcut_recorded_in_the_editor_runs_its_command_and_is_remembered() {
     harness.click("Keyboard shortcuts…");
     assert!(harness.shows("Keyboard Shortcuts"));
     harness.type_text("undo");
-    assert!(!harness.shows("Redo"));
+    assert_eq!(harness.count_shown("Redo"), 1);
     harness.click("Keyboard Shortcuts");
 
     harness.click("Add…");
     assert!(harness.shows("Press the keys… (Esc cancels)"));
     harness.key(Key::U, Modifiers::ALT);
     harness.show_new_windows();
-    assert!(harness.shows("Alt+U  ✕"));
+    assert!(harness.shows("Alt+U"));
 
     harness.click("Add…");
     harness.key(Key::F, Modifiers::NONE);
     harness.show_new_windows();
     assert!(harness.shows("F is already used by Fit view. Use it for Undo instead?"));
     harness.click("Keep it where it is");
-    assert!(!harness.shows("F  ✕"));
+    assert!(!harness.shows("F"));
 
     harness.click("Add…");
     harness.key(Key::Enter, Modifiers::NONE);
@@ -2732,7 +2752,7 @@ fn a_shortcut_recorded_in_the_editor_runs_its_command_and_is_remembered() {
         caditor_file::Settings::load(&dir.path().join("config")).texts("keys.edit.undo")
             == Some(vec!["Ctrl+Z".to_owned(), "Alt+U".to_owned()])
     });
-    harness.hover("⟳ Redo");
+    harness.hover("Redo");
     assert!(harness.shows("Redo Edit width (Ctrl+Shift+Z)"));
 }
 
@@ -2777,9 +2797,9 @@ fn a_part_can_be_modelled_from_the_keyboard_alone() {
     harness.use_tool(Key::R);
     type_point(&mut harness, "5, 5");
     assert!(harness.workspace.viewport.is_drawing());
-    assert!(!harness.shows("Point"));
+    assert!(!harness.shows(typed_point::FIELD_LABEL));
     type_point(&mut harness, "5, nowhere");
-    assert!(harness.shows("Point"));
+    assert!(harness.shows(typed_point::FIELD_LABEL));
     assert!(
         harness
             .texts
@@ -2788,7 +2808,7 @@ fn a_part_can_be_modelled_from_the_keyboard_alone() {
     );
     harness.key(Key::Escape, Modifiers::NONE);
     harness.show_new_windows();
-    assert!(!harness.shows("Point"));
+    assert!(!harness.shows(typed_point::FIELD_LABEL));
     assert!(harness.workspace.viewport.is_drawing());
     type_point(&mut harness, "@20 mm, width / 4");
     assert_eq!(entities_of_kind(harness.sketch(sketch), "Line").len(), 4);
@@ -2856,7 +2876,7 @@ fn the_interface_scales_from_the_keyboard_and_high_contrast_changes_the_colours(
     harness.frame();
     harness.frame();
     let visible = SCREEN.size() / 2.0;
-    for label in ["File", "⟋ Axis", "Up to date", "Features"] {
+    for label in ["File", "Axis", "Up to date", "Features"] {
         let rect = harness
             .texts
             .iter()

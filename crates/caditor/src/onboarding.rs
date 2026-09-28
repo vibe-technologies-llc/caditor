@@ -2,23 +2,33 @@ use std::collections::BTreeSet;
 
 use caditor_document::FeatureKind;
 use caditor_file::Settings;
-use egui::{Align2, Area, Button, Frame, Id, Modal, Order, Rect, RichText, Ui, vec2};
+use egui::{
+    Align2, Area, CornerRadius, Frame, Id, Margin, Order, Rect, RichText, Sense, Stroke, Ui, vec2,
+};
 
 use crate::{
+    appearance::{self, CARD_RADIUS},
     commands::{self, Command, Keymap, Offer},
     editing::{SketchEditing, Tool},
+    fonts, icons,
     model::Model,
     samples::Sample,
     sketch_status::{SketchStatus, SketchSummary},
+    widgets::{self, DialogWidth},
 };
 
 const WELCOMED_KEY: &str = "onboarding.welcomed";
 const HINTS_KEY: &str = "onboarding.hints";
 const DISMISSED_KEY: &str = "onboarding.dismissed_hints";
-const WELCOME_WIDTH: f32 = 480.0;
-const HINT_WIDTH: f32 = 340.0;
-const HINT_MARGIN: f32 = 12.0;
-const HINT_BOTTOM_CLEARANCE: f32 = 32.0;
+const TIP_TITLE: &str = "Tip";
+const HINT_WIDTH: f32 = 360.0;
+const HINT_MARGIN: i8 = 14;
+const HINT_BOTTOM_CLEARANCE: f32 = 16.0;
+const HINT_GAP: f32 = 4.0;
+const SAMPLE_GAP: f32 = 8.0;
+const SAMPLE_MARGIN: i8 = 10;
+const SAMPLE_ICON_SIZE: f32 = 24.0;
+const FOCUS_WIDTH: f32 = 2.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Hint {
@@ -88,7 +98,7 @@ impl Hint {
                 .to_owned(),
             Self::Palette => format!(
                 "Press {} to find any command by name, including ones without a button.",
-                keys(Command::Palette, "the Commands button")
+                keys(Command::Palette, "the Search commands button")
             ),
         }
     }
@@ -219,29 +229,39 @@ pub fn show_hint(
     hint: Hint,
     keymap: &Keymap,
 ) -> Option<HintChoice> {
-    let anchor = viewport.left_bottom() + vec2(HINT_MARGIN, -HINT_BOTTOM_CLEARANCE);
+    let anchor = viewport.center_bottom() - vec2(0.0, HINT_BOTTOM_CLEARANCE);
     Area::new(Id::new("onboarding-hint"))
         .order(Order::Foreground)
-        .pivot(Align2::LEFT_BOTTOM)
+        .pivot(Align2::CENTER_BOTTOM)
         .fixed_pos(anchor)
         .show(ctx, |ui| {
-            Frame::popup(ui.style())
+            widgets::dialog_frame(ctx)
+                .inner_margin(Margin::same(HINT_MARGIN))
                 .show(ui, |ui| {
                     ui.set_max_width(HINT_WIDTH);
-                    ui.label(RichText::new("Tip").strong());
-                    ui.label(hint.text(keymap));
-                    ui.horizontal(|ui| {
-                        if ui.button("Got it").clicked() {
-                            return Some(HintChoice::Dismiss(hint));
-                        }
-                        if ui
-                            .button("Hide tips")
-                            .on_hover_text("Turn tips back on in Preferences")
-                            .clicked()
-                        {
-                            return Some(HintChoice::HideAll);
-                        }
-                        None
+                    ui.horizontal_top(|ui| {
+                        let accent = appearance::tokens(ui).accent_text;
+                        widgets::icon_label(ui, icons::TIP, accent);
+                        ui.vertical(|ui| {
+                            ui.label(widgets::section_title(TIP_TITLE));
+                            ui.label(hint.text(keymap));
+                            ui.add_space(HINT_GAP);
+                            ui.horizontal(|ui| {
+                                if ui.add(widgets::primary_button(ui, "Got it")).clicked() {
+                                    return Some(HintChoice::Dismiss(hint));
+                                }
+                                if ui
+                                    .button("Hide tips")
+                                    .on_hover_text("Turn tips back on in Preferences")
+                                    .clicked()
+                                {
+                                    return Some(HintChoice::HideAll);
+                                }
+                                None
+                            })
+                            .inner
+                        })
+                        .inner
                     })
                     .inner
                 })
@@ -258,48 +278,96 @@ pub enum WelcomeChoice {
 }
 
 pub fn welcome(ctx: &egui::Context, keymap: &Keymap) -> Option<WelcomeChoice> {
-    let response = Modal::new(Id::new("welcome")).show(ctx, |ui| {
-        ui.set_max_width(WELCOME_WIDTH);
-        ui.heading("Welcome to caditor");
-        ui.label(
-            "Models are built from sketches and features that stay editable: change a value or \
-             an early sketch and everything after it follows. Every change can be undone, and \
-             unsaved work survives a crash.",
-        );
-        ui.add_space(8.0);
-        let mut choice = None;
-        if ui.button("Start with an empty model").clicked() {
-            choice = Some(WelcomeChoice::Close);
-        }
-        ui.add_space(6.0);
-        ui.label(RichText::new("Or open a sample to see how a model is built:").strong());
-        for sample in Sample::ALL {
-            if sample_button(ui, sample) {
-                choice = Some(WelcomeChoice::Sample(sample));
+    let response = widgets::dialog(
+        ctx,
+        "welcome",
+        "Welcome to caditor",
+        DialogWidth::Medium,
+        |ui| {
+            ui.label(widgets::muted(
+                "Models are built from sketches and features that stay editable: change a value \
+                 or an early sketch and everything after it follows. Every change can be undone, \
+                 and unsaved work survives a crash.",
+                ui,
+            ));
+            ui.add_space(SAMPLE_GAP);
+            ui.label(widgets::section_title(
+                "Open a sample to see how a model is built",
+            ));
+            let mut choice = None;
+            for sample in Sample::ALL {
+                if sample_card(ui, sample) {
+                    choice = Some(WelcomeChoice::Sample(sample));
+                }
             }
-        }
-        ui.add_space(6.0);
-        if ui.button("Open a model…").clicked() {
-            choice = Some(WelcomeChoice::Open);
-        }
-        ui.add_space(8.0);
-        let palette = keymap.first(Command::Palette).map_or_else(
-            || "the Commands button".to_owned(),
-            |shortcut| commands::display(&shortcut),
-        );
-        ui.weak(format!(
-            "{palette} finds any command by name. Tips in the corner of the view suggest the next \
-             step; Help › Welcome brings this back."
-        ));
-        choice
-    });
+            let palette = keymap.first(Command::Palette).map_or_else(
+                || "Search commands".to_owned(),
+                |shortcut| commands::display(&shortcut),
+            );
+            ui.add_space(SAMPLE_GAP);
+            ui.label(widgets::muted(
+                format!(
+                    "{palette} finds any command by name. Tips in the view suggest the next step; \
+                     Help › Welcome brings this back."
+                ),
+                ui,
+            ));
+            widgets::footer(ui, |ui| {
+                if ui
+                    .add(widgets::primary_button(ui, "Start with an empty model"))
+                    .clicked()
+                {
+                    choice = Some(WelcomeChoice::Close);
+                }
+                let open =
+                    widgets::small_button(ui, icons::command(Command::Open), "Open a model…");
+                if ui.add(open).clicked() {
+                    choice = Some(WelcomeChoice::Open);
+                }
+            });
+            choice
+        },
+    );
     let closed = response.should_close().then_some(WelcomeChoice::Close);
     response.inner.or(closed)
 }
 
-fn sample_button(ui: &mut Ui, sample: Sample) -> bool {
-    let response = ui.add(Button::new(sample.title()).min_size(vec2(ui.available_width(), 0.0)));
-    ui.weak(sample.description());
+fn sample_card(ui: &mut Ui, sample: Sample) -> bool {
+    let tokens = appearance::tokens(ui);
+    let mut prepared = Frame::new()
+        .stroke(Stroke::new(1.0, tokens.border))
+        .corner_radius(CornerRadius::same(CARD_RADIUS))
+        .inner_margin(Margin::same(SAMPLE_MARGIN))
+        .begin(ui);
+    {
+        let ui = &mut prepared.content_ui;
+        ui.set_width(ui.available_width());
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(icons::SAMPLE)
+                    .font(egui::FontId::new(SAMPLE_ICON_SIZE, fonts::icons()))
+                    .color(tokens.accent_text),
+            );
+            ui.vertical(|ui| {
+                ui.label(RichText::new(sample.title()).strong());
+                ui.label(widgets::muted(sample.description(), ui));
+            });
+        });
+    }
+    let hovered = ui.rect_contains_pointer(prepared.content_ui.min_rect());
+    prepared.frame.fill = if hovered { tokens.hover } else { tokens.raised };
+    let response = prepared
+        .end(ui)
+        .interact(Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            response.rect,
+            CornerRadius::same(CARD_RADIUS),
+            Stroke::new(FOCUS_WIDTH, tokens.focus),
+            egui::StrokeKind::Inside,
+        );
+    }
     response.clicked()
 }
 

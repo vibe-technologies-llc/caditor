@@ -1,6 +1,6 @@
 use caditor_document::{Blend, BlendKind, Feature, FeatureId, Transaction};
 use caditor_expression::Dimension;
-use egui::{Button, ComboBox, Grid, Id, Ui};
+use egui::{Button, ComboBox, Id, Ui};
 
 use crate::{
     blend_tools::{self, KINDS},
@@ -8,10 +8,10 @@ use crate::{
     editing::EditingCommand,
     feature_tree::count,
     field::{self, Expected},
-    model::{Action, Model},
+    icons,
+    model::{Action, Model, Notice},
+    widgets::{self, FIELD_WIDTH},
 };
-
-const FIELD_WIDTH: f32 = 110.0;
 
 fn change(model: &Model, feature: FeatureId, blend: Blend) -> Result<Transaction, String> {
     let document = model.document();
@@ -23,30 +23,51 @@ fn change(model: &Model, feature: FeatureId, blend: Blend) -> Result<Transaction
 fn apply(actions: &mut Vec<Action>, change: Result<Transaction, String>) {
     match change {
         Ok(transaction) => actions.push(Action::Apply(transaction)),
-        Err(reason) => log::warn!("could not change the blend: {reason}"),
+        Err(reason) => actions.push(Action::Inform(Notice::error(format!(
+            "The blend was not changed: {reason}"
+        )))),
     }
 }
 
-fn kind_row(ui: &mut Ui, model: &Model, feature: FeatureId, blend: &Blend) -> Option<Action> {
-    ui.label("Shape");
+fn kind_row(
+    ui: &mut Ui,
+    model: &Model,
+    feature: FeatureId,
+    blend: &Blend,
+    actions: &mut Vec<Action>,
+) {
+    widgets::caption(ui, "Shape");
     let mut chosen = None;
     ComboBox::from_id_salt(("blend-kind", feature))
         .selected_text(blend.kind.title())
         .show_ui(ui, |ui| {
             for kind in KINDS {
                 let selected = kind == blend.kind;
-                if ui.add(Button::selectable(selected, kind.title())).clicked() && !selected {
-                    chosen = Some(kind);
+                let change = (!selected).then(|| {
+                    change(
+                        model,
+                        feature,
+                        Blend {
+                            kind,
+                            ..blend.clone()
+                        },
+                    )
+                });
+                let enabled = !matches!(change, Some(Err(_)));
+                let response = ui.add_enabled(enabled, Button::selectable(selected, kind.title()));
+                let response = match &change {
+                    Some(Err(reason)) => response.on_disabled_hover_text(reason),
+                    Some(Ok(_)) | None => response,
+                };
+                if response.clicked() {
+                    chosen = change;
                 }
             }
         });
     ui.end_row();
-    let kind = chosen?;
-    let changed = Blend {
-        kind,
-        ..blend.clone()
-    };
-    change(model, feature, changed).ok().map(Action::Apply)
+    if let Some(change) = chosen {
+        apply(actions, change);
+    }
 }
 
 fn size_row(
@@ -61,7 +82,7 @@ fn size_row(
     if let Some(first) = title.get_mut(0..1) {
         first.make_ascii_uppercase();
     }
-    ui.label(title);
+    widgets::caption(ui, &title);
     let document = model.document();
     let parameters = model.parameters();
     let mut error = None;
@@ -107,15 +128,13 @@ fn size_row(
             && let Some(preview) =
                 field::value_preview(parameters, &blend.size, model.length_unit())
         {
-            ui.weak(preview);
+            ui.label(widgets::muted(preview, ui));
         }
         error = field.error;
     });
     ui.end_row();
     if let Some(error) = error {
-        ui.label("");
-        ui.colored_label(ui.visuals().error_fg_color, error);
-        ui.end_row();
+        widgets::error_row(ui, &error);
     }
 }
 
@@ -127,7 +146,7 @@ fn edges_row(
     opened: bool,
     actions: &mut Vec<Action>,
 ) {
-    ui.label("Edges");
+    widgets::caption(ui, "Edges");
     let document = model.document();
     let solid = bodies::input_solid(model.evaluation(), feature);
     let chosen = solid.map(|solid| blend_tools::chosen_edges(solid, blend));
@@ -156,8 +175,8 @@ fn edges_row(
                 })
                 .unwrap_or_else(|| "An edge that is no longer there".to_owned());
             ui.horizontal(|ui| {
-                ui.weak(text);
-                let remove = ui.small_button("🗙").on_hover_text("Leave this edge out");
+                ui.label(widgets::muted(text, ui));
+                let remove = widgets::icon_button(ui, icons::REMOVE, "Leave this edge out");
                 if remove.clicked() {
                     let mut changed = blend.clone();
                     changed.edges.remove(index);
@@ -165,13 +184,12 @@ fn edges_row(
                 }
             });
         }
-        if opened {
-            ui.weak("Click edges in the view to add them or leave them out.");
-        } else if ui
-            .small_button("Choose in the view")
-            .on_hover_text("Show the body as it was before this feature so you can click edges")
-            .clicked()
-        {
+        if widgets::choose_in_view(
+            ui,
+            opened,
+            "Click edges in the view to add them or leave them out.",
+            "Show the body as it was before this feature so you can click edges",
+        ) {
             actions.push(Action::Editing(EditingCommand::OpenSolid(feature)));
         }
     });
@@ -187,24 +205,19 @@ pub fn show(
     opened: bool,
 ) {
     let id = feature.id();
-    Grid::new(("blend-properties", id))
-        .num_columns(2)
-        .spacing([8.0, 6.0])
-        .show(ui, |ui| {
-            if let Some(action) = kind_row(ui, model, id, blend) {
-                actions.push(action);
-            }
-            size_row(ui, model, id, blend, actions);
-            edges_row(ui, model, id, blend, opened, actions);
-            ui.label("Body");
-            ui.label(
-                model
-                    .document()
-                    .feature(blend.body)
-                    .map_or("a missing body", |body| body.name.as_str()),
-            );
-            ui.end_row();
-        });
+    widgets::properties(ui, ("blend-properties", id), |ui| {
+        kind_row(ui, model, id, blend, actions);
+        size_row(ui, model, id, blend, actions);
+        edges_row(ui, model, id, blend, opened, actions);
+        widgets::caption(ui, "Body");
+        ui.label(
+            model
+                .document()
+                .feature(blend.body)
+                .map_or("a missing body", |body| body.name.as_str()),
+        );
+        ui.end_row();
+    });
 }
 
 pub fn describe_kind(kind: BlendKind) -> &'static str {

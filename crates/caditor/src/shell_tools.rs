@@ -15,7 +15,6 @@ use crate::{
 
 pub const DEFAULT_THICKNESS: f64 = 1.0;
 pub const TITLE: &str = "Shell";
-pub const ICON: &str = "⬚";
 pub const DESCRIPTION: &str = "Hollow the body out, leaving the selected faces open";
 
 #[derive(Debug, Clone, PartialEq, Eq)]

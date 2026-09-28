@@ -1,11 +1,21 @@
-use egui::{Align2, Button, Id, Key, Modal, Modifiers, RichText, ScrollArea, TextEdit, vec2};
+use egui::{
+    Align2, Atom, Button, Id, Key, Margin, Modal, Modifiers, RichText, ScrollArea, TextEdit,
+    TextStyle, vec2,
+};
 
-use crate::commands::{self, Command, Keymap, Offer};
+use crate::{
+    appearance,
+    commands::{self, Command, Keymap, Offer},
+    icons,
+    widgets::{self, Tone},
+};
 
 const WIDTH: f32 = 520.0;
 const TOP_MARGIN: f32 = 72.0;
 const LIST_HEIGHT: f32 = 360.0;
 const RECENT_LIMIT: usize = 6;
+const ROW_HEIGHT: f32 = 28.0;
+const FRAME_MARGIN: i8 = 12;
 const FIELD_HINT: &str = "Type to find a command";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -27,7 +37,6 @@ pub struct Palette {
 
 pub struct Entry<'a> {
     pub offer: &'a Offer,
-    pub text: String,
 }
 
 impl Palette {
@@ -73,7 +82,7 @@ impl Palette {
                     .position(|recent| *recent == offer.command)
                     .unwrap_or(RECENT_LIMIT);
                 let key = (fit, offer.availability.is_err(), recent, length, order);
-                Some((key, Entry { offer, text }))
+                Some((key, Entry { offer }))
             })
             .collect();
         ranked.sort_by_key(|(key, _)| *key);
@@ -93,13 +102,20 @@ impl Palette {
         });
         let id = Id::new("command-palette");
         let area = Modal::default_area(id).anchor(Align2::CENTER_TOP, vec2(0.0, TOP_MARGIN));
-        let response = Modal::new(id).area(area).show(ctx, |ui| {
+        let frame = widgets::dialog_frame(ctx).inner_margin(Margin::same(FRAME_MARGIN));
+        let response = Modal::new(id).area(area).frame(frame).show(ctx, |ui| {
             ui.set_width(WIDTH);
-            let field = ui.add(
-                TextEdit::singleline(&mut self.query)
-                    .hint_text(FIELD_HINT)
-                    .desired_width(f32::INFINITY),
-            );
+            let field = ui
+                .horizontal(|ui| {
+                    let muted = appearance::tokens(ui).text_muted;
+                    widgets::icon_label(ui, icons::SEARCH, muted);
+                    ui.add(
+                        TextEdit::singleline(&mut self.query)
+                            .hint_text(FIELD_HINT)
+                            .desired_width(f32::INFINITY),
+                    )
+                })
+                .inner;
             if field.changed() {
                 self.highlighted = 0;
             }
@@ -114,22 +130,42 @@ impl Palette {
             }
             self.highlighted = self.highlighted.min(last);
             let mut clicked = None;
-            ui.add_space(4.0);
+            ui.separator();
             if entries.is_empty() {
-                ui.weak(
+                ui.label(widgets::muted(
                     "No command matches. Commands that do not fit what you are doing are left out.",
-                );
+                    ui,
+                ));
             }
             ScrollArea::vertical()
                 .max_height(LIST_HEIGHT)
+                .min_scrolled_height(LIST_HEIGHT)
                 .show(ui, |ui| {
+                    let muted = appearance::tokens(ui).text_muted;
                     for (index, entry) in entries.iter().enumerate() {
                         let highlighted = index == self.highlighted;
-                        let mut button = Button::selectable(highlighted, entry.text.as_str())
-                            .min_size(vec2(ui.available_width(), 0.0));
-                        if let Some(shortcut) = keymap.first(entry.offer.command) {
-                            button = button.shortcut_text(commands::display(&shortcut));
-                        }
+                        let command = entry.offer.command;
+                        let small = |text: String| {
+                            RichText::new(text)
+                                .text_style(TextStyle::Small)
+                                .color(muted)
+                        };
+                        let keys = keymap
+                            .first(command)
+                            .map(|shortcut| commands::display(&shortcut))
+                            .unwrap_or_default();
+                        let button = Button::selectable(
+                            highlighted,
+                            (
+                                widgets::icon(icons::command(command)).color(muted),
+                                command.title(),
+                                Atom::grow(),
+                                small(command.category().label().to_owned()),
+                                small(keys),
+                            ),
+                        )
+                        .frame_when_inactive(highlighted)
+                        .min_size(vec2(ui.available_width(), ROW_HEIGHT));
                         let ready = entry.offer.availability.is_ok();
                         let row = ui.add_enabled(ready, button);
                         if highlighted && (up || down) {
@@ -148,14 +184,15 @@ impl Palette {
             if let Some(Entry {
                 offer:
                     Offer {
+                        command,
                         availability: Err(reason),
-                        ..
                     },
-                text,
+                ..
             }) = highlighted
             {
-                ui.add_space(4.0);
-                ui.label(RichText::new(format!("{text} is not available: {reason}.")).weak());
+                widgets::callout(ui, Tone::Info, |ui| {
+                    ui.label(format!("{} is not available: {reason}.", command.title()));
+                });
             }
             let entered = highlighted
                 .filter(|entry| enter && entry.offer.availability.is_ok())

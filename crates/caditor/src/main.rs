@@ -14,8 +14,11 @@ mod export;
 mod feature_tree;
 mod field;
 mod files;
+mod fonts;
 mod history;
+mod icons;
 mod import;
+mod menu_bar;
 mod model;
 mod onboarding;
 mod overlay;
@@ -36,6 +39,7 @@ mod sketch_tools;
 mod snap;
 mod solid_panel;
 mod solid_tools;
+mod status_bar;
 mod toolbar;
 mod typed_point;
 #[cfg(test)]
@@ -43,6 +47,7 @@ mod ui_tests;
 mod units;
 mod view_cube;
 mod viewport;
+mod widgets;
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 

@@ -1,52 +1,72 @@
 use caditor_document::{Document, Edit, Parameter, Transaction};
-use egui::{Button, Grid, RichText, Ui};
+use egui::{Grid, Ui};
 
 use crate::{
     field::{self, Expected},
+    icons,
     model::{Action, Model},
     panels::{Focus, PanelState},
+    widgets,
 };
 
-const NAME_FIELD_WIDTH: f32 = 80.0;
-const EXPRESSION_FIELD_WIDTH: f32 = 110.0;
+pub const ADD_LABEL: &str = "Add parameter";
+const COLUMNS: usize = 3;
+const SPACING: [f32; 2] = [6.0, 4.0];
+const NAME_FIELD_WIDTH: f32 = 84.0;
+const EXPRESSION_FIELD_WIDTH: f32 = 116.0;
 const NEW_PARAMETER_NAME: &str = "parameter";
 const NEW_PARAMETER_MILLIMETRES: f64 = 10.0;
 
 pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
-    ui.heading("Parameters");
     let document = model.document();
     if document.parameters().is_empty() {
-        ui.weak("Parameters are named values that any dimension can use, such as width / 2.");
+        ui.label(widgets::muted(
+            "Parameters are named values that any dimension can use, such as width / 2.",
+            ui,
+        ));
+        let button = widgets::small_button(ui, icons::ADD, ADD_LABEL);
+        if ui.add(button).clicked() {
+            add(model, state, actions);
+        }
+        return;
     }
-
-    let mut errors = Vec::new();
     Grid::new("parameters")
-        .num_columns(4)
+        .num_columns(COLUMNS)
         .striped(true)
+        .spacing(SPACING)
         .show(ui, |ui| {
+            for caption in ["Name", "Expression", "Value"] {
+                widgets::column_caption(ui, caption);
+            }
+            ui.end_row();
             for parameter in document.parameters() {
-                if let Some(error) = row(ui, model, state, actions, parameter) {
-                    errors.push(format!("{}: {error}", parameter.name));
-                }
+                let error = row(ui, model, state, actions, parameter);
                 ui.end_row();
+                if let Some(error) = error {
+                    ui.label("");
+                    let color = ui.visuals().error_fg_color;
+                    ui.horizontal_wrapped(|ui| {
+                        widgets::icon_label(ui, icons::FAILED, color);
+                        ui.colored_label(color, error);
+                    });
+                    ui.end_row();
+                }
             }
         });
-    for error in errors {
-        ui.colored_label(ui.visuals().error_fg_color, error);
-    }
+}
 
-    if ui.button("Add parameter").clicked() {
-        let name = unused_name(document);
-        let mut transaction = document.transaction(format!("Add {name}"));
-        let id = transaction.add_parameter(
-            name,
-            model
-                .length_unit()
-                .default_length(NEW_PARAMETER_MILLIMETRES),
-        );
-        actions.push(Action::Apply(transaction.finish()));
-        state.request_focus(Focus::ParameterName(id));
-    }
+pub fn add(model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
+    let document = model.document();
+    let name = unused_name(document);
+    let mut transaction = document.transaction(format!("Add {name}"));
+    let id = transaction.add_parameter(
+        name,
+        model
+            .length_unit()
+            .default_length(NEW_PARAMETER_MILLIMETRES),
+    );
+    actions.push(Action::Apply(transaction.finish()));
+    state.request_focus(Focus::ParameterName(id));
 }
 
 fn row(
@@ -109,23 +129,25 @@ fn row(
         actions.push(Action::Apply(transaction));
     }
 
-    match model.parameters().get(id) {
-        Some(Ok(value)) => {
-            ui.weak(model.length_unit().show(*value));
-        }
-        Some(Err(error)) => {
-            ui.label(RichText::new("⚑ error").color(ui.visuals().error_fg_color))
-                .on_hover_text(format!(
+    ui.horizontal(|ui| {
+        match model.parameters().get(id) {
+            Some(Ok(value)) => {
+                ui.label(widgets::muted(model.length_unit().show(*value), ui));
+            }
+            Some(Err(error)) => {
+                let color = ui.visuals().error_fg_color;
+                widgets::icon_label(ui, icons::FAILED, color).on_hover_text(format!(
                     "{} cannot be evaluated: {error}. Edit its expression.",
                     parameter.name
                 ));
+                ui.colored_label(color, "Error");
+            }
+            None => {}
         }
-        None => {
-            ui.label("");
-        }
-    }
-
-    delete_button(ui, document, actions, parameter);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            delete_button(ui, document, actions, parameter);
+        });
+    });
     name.error.or(expression.error)
 }
 
@@ -140,9 +162,14 @@ fn delete_button(
         Edit::RemoveParameter { id: parameter.id() },
     );
     let check = document.check(&delete);
-    let response = ui.add_enabled(check.is_ok(), Button::new("🗑").small());
+    let hover = format!("Delete {}", parameter.name);
+    let response = ui
+        .add_enabled_ui(check.is_ok(), |ui| {
+            widgets::icon_button(ui, icons::DELETE, &hover)
+        })
+        .inner;
     let response = match check {
-        Ok(()) => response.on_hover_text(format!("Delete {}", parameter.name)),
+        Ok(()) => response,
         Err(reason) => response.on_disabled_hover_text(reason.to_string()),
     };
     if response.clicked() {

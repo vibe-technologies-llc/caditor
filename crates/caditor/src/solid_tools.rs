@@ -33,13 +33,6 @@ impl Sweep {
             Self::Revolve => "Revolve",
         }
     }
-
-    pub fn icon(self) -> &'static str {
-        match self {
-            Self::Extrude => "⬆",
-            Self::Revolve => "⟳",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

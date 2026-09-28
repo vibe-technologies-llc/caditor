@@ -582,11 +582,42 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     Shift+right-drag pans, the wheel and pinch zoom toward the point under the cursor, and
     view changes from the view cube or fit animate.
 - **caditor**: the winit `ApplicationHandler` (`app.rs`), the egui integration drawn over the
-  viewport (`overlay.rs`), the side panel (`panels.rs`) with the feature tree
-  (`feature_tree.rs`) and parameter table (`parameter_table.rs`), the toolbar with undo, redo
-  and recompute status (`toolbar.rs`), the viewport widget with navigation, hover and selection
-  (`viewport.rs`), the view cube (`view_cube.rs`) and the conversion of documents and results to
-  a `Scene` (`scene.rs`). Selectable things are `Pickable` values built from stable IDs.
+  viewport (`overlay.rs`), the menu bar (`menu_bar.rs`), the tool ribbon (`toolbar.rs`), the
+  status bar (`status_bar.rs`), the side panel (`panels.rs`) with the feature tree
+  (`feature_tree.rs`) and parameter table (`parameter_table.rs`), the viewport widget with
+  navigation, hover and selection (`viewport.rs`), the view cube (`view_cube.rs`) and the
+  conversion of documents and results to a `Scene` (`scene.rs`). Selectable things are
+  `Pickable` values built from stable IDs.
+  - Look (`fonts.rs`, `appearance.rs`, `icons.rs`, `widgets.rs`): the interface is set in Inter
+    (the variable font in `assets/fonts`, OFL, registered at weights 400, 500 and 600 through
+    its `wght` axis as the proportional, `medium` and `semibold` families) with Phosphor icons
+    (`egui-phosphor`) in their own `icons` family, since Inter's private-use glyphs would
+    otherwise shadow them. The fonts are installed on the first frame, which draws nothing, and
+    the style is applied from the next. `appearance.rs` holds the theme as `Tokens` (surfaces,
+    text, a blue accent, error, warning and success with tinted backgrounds) for dark, light
+    and both high-contrast variants, builds each egui `Style` from them (Inter text styles plus
+    a `section` style, spacing, radii, shadows), and tests every text pairing against its
+    background. Panels read colours from `appearance::tokens(ui)` or the visuals, never fixed
+    values, and take their icons from `icons.rs` (one per command, tool, constraint and
+    feature kind). `widgets.rs` is the shared kit every panel and dialog is built from:
+    `ToolButton` (icon above label), `section`, `properties`/`property`/`error_row`, `card`,
+    `callout` and `pill` with a `Tone`, `icon_button`, `small_button`, `primary_button`,
+    `menu_item`, `link_label`, `choose_in_view`, and `dialog`/`footer` (a titled modal with a
+    close button and the primary action rightmost). Icons and labels are separate text atoms,
+    so tests find a button by its bare label.
+  - Layout: the menu bar holds File, Edit, View, Model, Sketch and Help, built from the
+    commands with their icons and shortcuts; items trigger their command and are enabled from
+    the previous frame's offers (`Workspace::last_offers`), with the reason on hover. Its right
+    side shows the document name (with an Unsaved pill) and the Search commands field. The
+    ribbon groups Undo and Redo, New sketch, Extrude and Revolve, Fillet, Chamfer and Shell, and
+    Plane and Axis as `ToolButton`s that wrap. While a sketch is edited a tinted sketch ribbon
+    shows its name and state pill, the drawing tools, the constraints in a grid that wraps, Delete
+    and Finish sketch. The status bar shows recompute progress (or Up to date, or a failed pill
+    that focuses the first failed feature), saving, importing and exporting, the current notice,
+    the selection, the length unit (opening Preferences) and the interface size when it is not
+    100%. The side panel has collapsible Features and Parameters sections; a feature row is its
+    kind icon, name, state icon, edit and more buttons, highlighted with an accent bar while
+    open, with failures and outdated states as callouts under it and its properties in a card.
   - `Model` (`model.rs`) owns the `Editor` and the `Recomputer`. The UI gets `&Model` and
     returns `Action`s, which the app performs after the UI pass, so the UI never mutates the
     document directly. Each change submits a snapshot to the worker. Feature geometry is drawn
@@ -657,8 +688,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     unsaved-changes prompt.
   - Onboarding (`onboarding.rs`): the welcome dialog appears until it is closed once
     (`onboarding.welcomed`) and again from Help › Welcome and samples…; it offers an empty
-    model, the samples and Open. Tips are shown one at a time in the corner of the viewport when
-    no dialog is open, first of those that apply and were not dismissed: start with a sketch
+    model, the samples and Open. Tips are shown one at a time as a card at the bottom centre of
+    the viewport when no dialog is open, first of those that apply and were not dismissed: start with a sketch
     (empty model), draw (edited sketch with no geometry), constrain (edited sketch that can
     still move), extrude or revolve (a sweepable sketch and no body), navigate (a body exists),
     and the palette. Got it dismisses one (`onboarding.dismissed_hints`, unknown ids kept), Hide
@@ -668,8 +699,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     STEP), for meshes the resolution (showing the resulting deviation in millimetres) and a
     checkbox per body, all on by default.
     It waits for a running recompute, warns when features failed (each body is exported as its
-    last good state), and after the save dialog runs on its own thread, shown beside the File
-    menu with a Cancel button. A path without the format's extension gets it appended, so an
+    last good state), and after the save dialog runs on its own thread, shown in the status bar
+    with a Cancel button. A path without the format's extension gets it appended, so an
     export never replaces a model file (`.stp` counts as STEP). The outcome is a notice with the
     body count and, for meshes, the triangle count.
   - Import (`import.rs`): File › Import… (Ctrl+I) picks a DXF or STEP file (by extension, else
@@ -692,10 +723,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     size from 75% to 200% in eighths, also on Ctrl+Plus, Ctrl+Minus and Ctrl+0, applied as the
     egui zoom factor, whose own keyboard zoom and quit shortcut are switched off; high
     contrast), orbit and zoom speed with the zoom direction, and opens the shortcut editor.
-    `appearance.rs` builds the visuals of both themes with and without high contrast from
-    palettes whose every text colour is tested against its background (4.5:1, and 7:1 for body
-    text in high contrast, whose button and focus outlines reach 3:1), and gives the success
-    colour; panels use these visuals' colours rather than fixed ones. Changes apply at once and
+    Every text colour of the theme is tested against its background (4.5:1, and 7:1 for body
+    text in high contrast, whose button and focus outlines reach 3:1). Changes apply at once and
     are saved on the files worker. `Workspace` owns the
     `Preferences`, `Model` carries the length unit so every panel can use it, and
     `Action::Preferences` is performed with the workspace. The unit is for display and input
@@ -723,7 +752,7 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     command that is unavailable becomes a notice with the reason. Hover texts and menu items
     show the current binding (`commands::display`). Esc, Enter and Tab are reserved and cannot
     be bound.
-  - The command palette (`palette.rs`, Ctrl+Shift+P or the toolbar's Commands button) lists
+  - The command palette (`palette.rs`, Ctrl+Shift+P or the menu bar's Search commands) lists
     this frame's offers, so only commands that fit the context appear: matches by title start,
     word starts, substring, then scattered letters, available before unavailable, recently used
     first; arrows move, Enter runs, and an unavailable highlighted command shows its reason. The

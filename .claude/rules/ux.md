@@ -45,8 +45,18 @@ requirement to avoid.
   that only a mouse can reach is not finished.
 - Text stays readable: every text colour in the panels meets 4.5:1 against its background in
   both themes (7:1 for body text in high contrast), checked by the tests in `appearance.rs`.
-  Take colours from the current visuals, never fixed values, outside the dark 3D view.
+  Take colours from the theme tokens (`appearance::tokens`) or the current visuals, never fixed
+  values, outside the dark 3D view.
 - The interface scales from 75% to 200%, and panels and toolbars wrap rather than clip.
+
+## Look
+
+- One visual language: Inter for text, Phosphor for icons (taken from `icons.rs`, never Unicode
+  or emoji glyphs), and the theme tokens for colour. Panels and dialogs are built from the
+  shared widgets in `widgets.rs` (property grids, cards, callouts, pills, tool buttons, the
+  titled dialog with its primary action rightmost) rather than their own spacing and colours.
+- Status reads the same everywhere: an icon and a tone (error, warning, success, info), with
+  problems shown as a callout that says what to do next.
 
 ## Units
 

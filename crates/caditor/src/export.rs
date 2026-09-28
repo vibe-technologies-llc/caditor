@@ -11,7 +11,7 @@ use std::{
 
 use caditor_document::{CancelToken, FeatureId, FeatureResult};
 use caditor_file::{ExportBody, ExportError, ExportFormat, Exported, MeshResolution};
-use egui::{Button, Id, Modal, RichText, Ui};
+use egui::Ui;
 use parking_lot::Mutex;
 
 use crate::{
@@ -19,9 +19,10 @@ use crate::{
     files::FileCommand,
     model::{Action, Model, Notice, RecomputeStatus, display_name},
     units::LengthUnit,
+    widgets::{self, DialogWidth, Tone},
 };
 
-const DIALOG_WIDTH: f32 = 420.0;
+const SECTION_GAP: f32 = 10.0;
 const NO_BODIES: &str =
     "There are no bodies to export yet. Extrude or revolve a sketch to make one.";
 
@@ -218,7 +219,7 @@ fn with_format_extension(path: PathBuf, format: ExportFormat) -> PathBuf {
     PathBuf::from(named)
 }
 
-pub fn menu_status(ui: &mut Ui, exporter: &Exporter, actions: &mut Vec<Action>) {
+pub fn activity(ui: &mut Ui, exporter: &Exporter, actions: &mut Vec<Action>) {
     let Some(running) = &exporter.running else {
         return;
     };
@@ -237,14 +238,13 @@ pub fn menu_status(ui: &mut Ui, exporter: &Exporter, actions: &mut Vec<Action>) 
 }
 
 pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option<ExportCommand> {
-    let response = Modal::new(Id::new("export")).show(ctx, |ui| {
-        ui.set_max_width(DIALOG_WIDTH);
-        ui.heading("Export");
+    let response = widgets::dialog(ctx, "export", "Export", DialogWidth::Medium, |ui| {
         let bodies: Vec<Body> = Exporter::bodies(model).collect();
         if bodies.is_empty() {
             ui.label(NO_BODIES);
-            ui.add_space(8.0);
-            return ui.button("Close").clicked().then_some(ExportCommand::Hide);
+            return widgets::footer(ui, |ui| {
+                ui.button("Close").clicked().then_some(ExportCommand::Hide)
+            });
         }
         let mut command = None;
         format_choice(ui, exporter, &mut command);
@@ -254,15 +254,13 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
         body_choice(ui, exporter, &bodies, &mut command);
         let failed = model.evaluation().failed_count();
         if failed > 0 {
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
-                format!(
+            widgets::callout(ui, Tone::Warning, |ui| {
+                ui.label(format!(
                     "{} failed, so each body is exported as it was before them.",
                     count(failed, "feature", "features")
-                ),
-            );
+                ));
+            });
         }
-        ui.add_space(8.0);
         let blocker = if exporter.is_running() {
             Some("An export is already running.")
         } else if matches!(model.status(), RecomputeStatus::Running { .. }) {
@@ -275,18 +273,21 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
         } else {
             None
         };
-        if let Some(blocker) = blocker {
-            ui.weak(blocker);
-        }
-        ui.horizontal(|ui| {
-            if ui
-                .add_enabled(blocker.is_none(), Button::new("Export…"))
-                .clicked()
-            {
+        widgets::footer(ui, |ui| {
+            let export = widgets::primary_button(ui, "Export…");
+            let response = ui.add_enabled(blocker.is_none(), export);
+            let response = match blocker {
+                Some(blocker) => response.on_disabled_hover_text(blocker),
+                None => response,
+            };
+            if response.clicked() {
                 command = Some(ExportCommand::Choose);
             }
             if ui.button("Cancel").clicked() {
                 command = Some(ExportCommand::Hide);
+            }
+            if let Some(blocker) = blocker {
+                ui.label(widgets::muted(blocker, ui));
             }
         });
         command
@@ -296,11 +297,11 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
 }
 
 fn format_choice(ui: &mut Ui, exporter: &Exporter, command: &mut Option<ExportCommand>) {
-    ui.label(RichText::new("Format").strong());
+    ui.label(widgets::section_title("Format"));
     ui.horizontal(|ui| {
         for format in ExportFormat::ALL {
             if ui
-                .radio(exporter.format == format, format.name())
+                .selectable_label(exporter.format == format, format.name())
                 .on_hover_text(format_hint(format))
                 .clicked()
             {
@@ -308,7 +309,7 @@ fn format_choice(ui: &mut Ui, exporter: &Exporter, command: &mut Option<ExportCo
             }
         }
     });
-    ui.weak(format_hint(exporter.format));
+    ui.label(widgets::muted(format_hint(exporter.format), ui));
 }
 
 fn format_hint(format: ExportFormat) -> &'static str {
@@ -331,12 +332,12 @@ fn resolution_choice(
     unit: LengthUnit,
     command: &mut Option<ExportCommand>,
 ) {
-    ui.add_space(4.0);
-    ui.label(RichText::new("Resolution").strong());
+    ui.add_space(SECTION_GAP);
+    ui.label(widgets::section_title("Resolution"));
     ui.horizontal(|ui| {
         for resolution in MeshResolution::ALL {
             if ui
-                .radio(exporter.resolution == resolution, resolution.name())
+                .selectable_label(exporter.resolution == resolution, resolution.name())
                 .clicked()
             {
                 *command = Some(ExportCommand::SetResolution(resolution));
@@ -348,11 +349,14 @@ fn resolution_choice(
         .filter(|body| !exporter.left_out.contains(&body.id))
         .filter_map(|body| body.result.solid().map(|result| &result.solid));
     let tolerance = exporter.resolution.tolerance(solids);
-    ui.weak(format!(
-        "Curved faces stay within {} of the model, with at most {}° between neighbouring \
-         triangles.",
-        unit.small_length_text(tolerance.chord()),
-        tolerance.angle().to_degrees().round()
+    ui.label(widgets::muted(
+        format!(
+            "Curved faces stay within {} of the model, with at most {}° between neighbouring \
+             triangles.",
+            unit.small_length_text(tolerance.chord()),
+            tolerance.angle().to_degrees().round()
+        ),
+        ui,
     ));
 }
 
@@ -362,8 +366,8 @@ fn body_choice(
     bodies: &[Body],
     command: &mut Option<ExportCommand>,
 ) {
-    ui.add_space(4.0);
-    ui.label(RichText::new("Bodies").strong());
+    ui.add_space(SECTION_GAP);
+    ui.label(widgets::section_title("Bodies"));
     for body in bodies {
         let mut included = !exporter.left_out.contains(&body.id);
         if ui.checkbox(&mut included, &body.name).changed() {

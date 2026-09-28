@@ -1,12 +1,17 @@
-use egui::{Event, Grid, Id, KeyboardShortcut, Modal, RichText, ScrollArea, TextEdit, Ui};
+use egui::{Event, Grid, KeyboardShortcut, RichText, ScrollArea, TextEdit, Ui};
 
 use crate::{
+    appearance,
     commands::{self, Category, Command, Keymap, Scope},
+    icons,
     preferences::{PreferenceChange, PreferencesCommand},
+    widgets::{self, DialogWidth, Tone},
 };
 
-const WIDTH: f32 = 600.0;
+const BINDINGS_WIDTH: f32 = 180.0;
 const LIST_HEIGHT: f32 = 420.0;
+const CATEGORY_GAP: f32 = 10.0;
+const ROW_SPACING: [f32; 2] = [12.0, 4.0];
 const RECORDING_TEXT: &str = "Press the keys… (Esc cancels)";
 const RESERVED_TEXT: &str = "Esc, Enter and Tab keep their meaning everywhere (back out, confirm, move between fields), so \
      they cannot be shortcuts.";
@@ -94,48 +99,59 @@ pub fn dialog(
     keymap: &Keymap,
 ) -> Option<PreferencesCommand> {
     let captured = editor.capture(ctx, keymap);
-    let response = Modal::new(Id::new("keyboard-shortcuts")).show(ctx, |ui| {
-        ui.set_width(WIDTH);
-        ui.heading("Keyboard Shortcuts");
-        ui.weak(
-            "Add records the next keys you press, and clicking a shortcut removes it. Sketch and \
-             constraint shortcuts only act while a sketch is edited.",
-        );
-        ui.add_space(4.0);
-        let mut command = None;
-        conflict(ui, editor, &mut command);
-        if let Some(message) = &editor.message {
-            ui.colored_label(ui.visuals().warn_fg_color, message);
-        }
-        let filter = ui.add(
-            TextEdit::singleline(&mut editor.query)
-                .hint_text("Filter commands")
-                .desired_width(f32::INFINITY),
-        );
-        if std::mem::take(&mut editor.focus_filter) {
-            filter.request_focus();
-        }
-        ui.add_space(4.0);
-        ScrollArea::vertical()
-            .max_height(LIST_HEIGHT)
-            .show(ui, |ui| list(ui, editor, keymap, &mut command));
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if ui.button("Close").clicked() {
-                command = Some(PreferencesCommand::HideShortcuts);
+    let response = widgets::dialog(
+        ctx,
+        "keyboard-shortcuts",
+        "Keyboard Shortcuts",
+        DialogWidth::Wide,
+        |ui| {
+            ui.label(widgets::muted(
+                "Add records the next keys you press, and clicking a shortcut removes it. Sketch \
+                 and constraint shortcuts only act while a sketch is edited.",
+                ui,
+            ));
+            let mut command = None;
+            conflict(ui, editor, &mut command);
+            if let Some(message) = &editor.message {
+                widgets::callout(ui, Tone::Warning, |ui| {
+                    ui.label(message);
+                });
             }
-            let reset = ui
-                .add_enabled(
-                    !keymap.is_all_default(),
-                    egui::Button::new("Reset all shortcuts"),
-                )
-                .on_hover_text("Go back to the shortcuts caditor starts with");
-            if reset.clicked() {
-                command = Some(PreferencesCommand::Change(PreferenceChange::ResetShortcuts));
+            let filter = ui
+                .horizontal(|ui| {
+                    let muted = appearance::tokens(ui).text_muted;
+                    widgets::icon_label(ui, icons::SEARCH, muted);
+                    ui.add(
+                        TextEdit::singleline(&mut editor.query)
+                            .hint_text("Filter commands")
+                            .desired_width(f32::INFINITY),
+                    )
+                })
+                .inner;
+            if std::mem::take(&mut editor.focus_filter) {
+                filter.request_focus();
             }
-        });
-        command
-    });
+            ScrollArea::vertical()
+                .max_height(LIST_HEIGHT)
+                .min_scrolled_height(LIST_HEIGHT)
+                .show(ui, |ui| list(ui, editor, keymap, &mut command));
+            widgets::footer(ui, |ui| {
+                if ui.add(widgets::primary_button(ui, "Close")).clicked() {
+                    command = Some(PreferencesCommand::HideShortcuts);
+                }
+                let reset = ui
+                    .add_enabled(
+                        !keymap.is_all_default(),
+                        egui::Button::new("Reset all shortcuts"),
+                    )
+                    .on_hover_text("Go back to the shortcuts caditor starts with");
+                if reset.clicked() {
+                    command = Some(PreferencesCommand::Change(PreferenceChange::ResetShortcuts));
+                }
+            });
+            command
+        },
+    );
     let closed = (!editor.is_recording() && response.should_close())
         .then_some(PreferencesCommand::HideShortcuts);
     captured.or(response.inner).or(closed)
@@ -151,24 +167,22 @@ fn conflict(ui: &mut Ui, editor: &mut ShortcutEditor, command: &mut Option<Prefe
         .iter()
         .map(|holder| holder.title())
         .collect();
-    ui.colored_label(
-        ui.visuals().warn_fg_color,
-        format!(
+    widgets::callout(ui, Tone::Warning, |ui| {
+        ui.label(format!(
             "{keys} is already used by {}. Use it for {} instead?",
             holders.join(" and "),
             pending.command.title()
-        ),
-    );
-    ui.horizontal(|ui| {
-        if ui.button(format!("Move {keys} here")).clicked() {
-            *command = Some(bind(pending.command, pending.shortcut));
-            editor.pending = None;
-        }
-        if ui.button("Keep it where it is").clicked() {
-            editor.pending = None;
-        }
+        ));
+        ui.horizontal(|ui| {
+            if ui.button(format!("Move {keys} here")).clicked() {
+                *command = Some(bind(pending.command, pending.shortcut));
+                editor.pending = None;
+            }
+            if ui.button("Keep it where it is").clicked() {
+                editor.pending = None;
+            }
+        });
     });
-    ui.add_space(4.0);
 }
 
 fn list(
@@ -194,11 +208,11 @@ fn list(
             Scope::Anywhere => category.label().to_owned(),
             Scope::Sketch => format!("{} ({})", category.label(), Scope::Sketch.describe()),
         };
-        ui.add_space(6.0);
-        ui.label(RichText::new(heading).strong());
+        ui.add_space(CATEGORY_GAP);
+        ui.label(widgets::section_title(&heading));
         Grid::new(("shortcuts", category.label()))
             .num_columns(3)
-            .spacing([12.0, 4.0])
+            .spacing(ROW_SPACING)
             .striped(true)
             .show(ui, |ui| {
                 for listed in shown {
@@ -216,16 +230,26 @@ fn row(
     listed: Command,
     command: &mut Option<PreferencesCommand>,
 ) {
-    ui.label(listed.title());
+    ui.horizontal(|ui| {
+        let muted = appearance::tokens(ui).text_muted;
+        widgets::icon_label(ui, icons::command(listed), muted);
+        ui.label(listed.title());
+    });
     ui.horizontal_wrapped(|ui| {
+        ui.set_min_width(BINDINGS_WIDTH);
         let shortcuts = keymap.shortcuts(listed);
         if shortcuts.is_empty() {
-            ui.weak("None");
+            ui.label(widgets::muted("None", ui));
         }
         for shortcut in shortcuts {
             let keys = commands::display(&shortcut);
+            let muted = appearance::tokens(ui).text_muted;
+            let chip = egui::Button::new((
+                RichText::new(keys.clone()).text_style(egui::TextStyle::Small),
+                widgets::icon(icons::REMOVE).color(muted),
+            ));
             let removed = ui
-                .button(format!("{keys}  ✕"))
+                .add(chip)
                 .on_hover_text(format!("Remove {keys} from {}", listed.title()))
                 .clicked();
             if removed {
@@ -237,7 +261,7 @@ fn row(
     });
     ui.horizontal(|ui| {
         if editor.recording == Some(listed) {
-            ui.colored_label(ui.visuals().warn_fg_color, RECORDING_TEXT);
+            widgets::pill(ui, Tone::Warning, RECORDING_TEXT);
             return;
         }
         let add = ui

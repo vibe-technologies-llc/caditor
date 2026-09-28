@@ -1,20 +1,28 @@
 use caditor_document::Feature;
 use caditor_sketch::{Constraint, ConstraintId, EntityId, Sketch};
-use egui::{Button, Ui};
+use egui::{Frame, Ui};
 
 use crate::{
+    appearance,
     commands::{Command, CommandFrame},
     editing::{ActiveSketch, EditingCommand, SketchEditing, Tool},
     feature_tree::count,
+    icons,
     model::{Action, Model},
     panels::{Focus, PanelState},
     scene,
     selection::Selection,
     sketch_status::{self, SketchSummary},
     sketch_tools::{self, ConstraintTool},
+    widgets::{self, ToolButton},
 };
 
 const FINISH_LABEL: &str = "Finish sketch";
+const DELETE_LABEL: &str = "Delete";
+const TOOL_GAP: f32 = 2.0;
+const CONSTRAINT_COLUMNS: usize = 5;
+const CONSTRAINT_WIDTH: f32 = 112.0;
+const FINISH_HEIGHT: f32 = 32.0;
 const SELECT_KEY: &str = "Esc";
 const NOTHING_TO_DELETE: &str = "Select sketch geometry or constraints to delete them";
 
@@ -61,17 +69,24 @@ pub fn show(
     };
 
     let mut request = Request::default();
-    egui::Panel::top("sketch-toolbar").show(ui, |ui| {
-        ui.horizontal_wrapped(|ui| {
-            header(ui, model, feature, commands, panels, actions);
-            ui.separator();
-            tools(ui, active, commands, actions);
-            ui.separator();
-            constraint_buttons(ui, &offers, commands, &mut request);
-            ui.separator();
-            delete_button(ui, !deletable.is_empty(), commands, &mut request);
+    let tint = appearance::tokens(ui).accent_subtle;
+    let frame = Frame::side_top_panel(ui.style()).fill(tint);
+    egui::Panel::top("sketch-toolbar")
+        .frame(frame)
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = TOOL_GAP;
+                header(ui, model, feature, panels);
+                ui.separator();
+                tools(ui, active, commands, actions);
+                ui.separator();
+                constraint_buttons(ui, &offers, commands, &mut request);
+                ui.separator();
+                delete_button(ui, !deletable.is_empty(), commands, &mut request);
+                ui.separator();
+                finish_button(ui, commands, actions);
+            });
         });
-    });
 
     if let Some((tool, constraints)) = request.constraints {
         let added = sketch_tools::add_constraints(model, feature.id(), tool, constraints);
@@ -125,30 +140,35 @@ struct Request {
     delete: bool,
 }
 
-fn header(
-    ui: &mut Ui,
-    model: &Model,
-    feature: &Feature,
-    commands: &mut CommandFrame<'_>,
-    panels: &mut PanelState,
-    actions: &mut Vec<Action>,
-) {
-    ui.strong(format!("Editing {}", feature.name));
+fn header(ui: &mut Ui, model: &Model, feature: &Feature, panels: &mut PanelState) {
+    let tokens = appearance::tokens(ui);
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            widgets::icon_label(ui, icons::command(Command::NewSketch), tokens.accent_text);
+            ui.strong(format!("Editing {}", feature.name));
+        });
+        ui.horizontal(|ui| {
+            let summary = SketchSummary::of(model.evaluation(), feature.id());
+            if let Some(focus) = sketch_status::show(ui, &summary) {
+                panels.request_focus(focus);
+            }
+        });
+    });
+}
+
+fn finish_button(ui: &mut Ui, commands: &mut CommandFrame<'_>, actions: &mut Vec<Action>) {
     let invoked = commands.available(Command::FinishSketch);
     let keys = commands
         .keys(Command::FinishSketch)
         .unwrap_or_else(|| "Esc with nothing selected".to_owned());
+    let finish = widgets::primary_button(ui, FINISH_LABEL).min_size(egui::vec2(0.0, FINISH_HEIGHT));
     if ui
-        .button(FINISH_LABEL)
+        .add(finish)
         .on_hover_text(format!("Leave the sketch. Everything is kept. ({keys})"))
         .clicked()
         || invoked
     {
         actions.push(Action::Editing(EditingCommand::Finish));
-    }
-    let summary = SketchSummary::of(model.evaluation(), feature.id());
-    if let Some(focus) = sketch_status::show(ui, &summary) {
-        panels.request_focus(focus);
     }
 }
 
@@ -164,8 +184,9 @@ fn tools(
         let keys = commands
             .keys(command)
             .unwrap_or_else(|| SELECT_KEY.to_owned());
+        let button = ToolButton::new(icons::tool(tool), tool.label()).selected(active.tool == tool);
         let response = ui
-            .add(Button::selectable(active.tool == tool, tool.button_text()))
+            .add(button)
             .on_hover_text(format!("{} ({keys})", tool.description()));
         if response.clicked() || invoked {
             actions.push(Action::Editing(EditingCommand::SetTool(tool)));
@@ -179,22 +200,53 @@ fn constraint_buttons(
     commands: &mut CommandFrame<'_>,
     request: &mut Request,
 ) {
-    for (tool, offer) in offers {
-        let command = Command::Constraint(*tool);
-        let invoked = commands.invoke(command, offer);
-        let response = ui.add_enabled(offer.is_ok(), Button::new(tool.label()));
-        let response = match offer {
-            Ok(_) => response.on_hover_text(commands.with_keys(command, tool.description())),
-            Err(reason) => response.on_disabled_hover_text(
-                commands.with_keys(command, &format!("{}. {reason}", tool.description())),
-            ),
-        };
-        if (response.clicked() || invoked)
-            && let Ok(constraints) = offer
-        {
-            request.constraints = Some((*tool, constraints.clone()));
-        }
+    let muted = appearance::tokens(ui).text_muted;
+    let cell = CONSTRAINT_WIDTH + TOOL_GAP;
+    let fitting = (ui.max_rect().width() / cell).floor();
+    let columns = if fitting >= CONSTRAINT_COLUMNS as f32 {
+        CONSTRAINT_COLUMNS
+    } else if fitting >= 2.0 {
+        2
+    } else {
+        1
+    };
+    let remaining = ui.max_rect().right() - ui.cursor().min.x;
+    if remaining < cell * columns as f32 {
+        ui.end_row();
     }
+    egui::Grid::new(("constraint-tools", columns))
+        .num_columns(columns)
+        .spacing([TOOL_GAP, TOOL_GAP])
+        .show(ui, |ui| {
+            for (index, (tool, offer)) in offers.iter().enumerate() {
+                let command = Command::Constraint(*tool);
+                let invoked = commands.invoke(command, offer);
+                let button = egui::Button::new((
+                    widgets::icon(icons::constraint(*tool)).color(muted),
+                    tool.label(),
+                    egui::Atom::grow(),
+                ))
+                .frame_when_inactive(false)
+                .min_size(egui::vec2(CONSTRAINT_WIDTH, 0.0));
+                let response = ui.add_enabled(offer.is_ok(), button);
+                let response = match offer {
+                    Ok(_) => {
+                        response.on_hover_text(commands.with_keys(command, tool.description()))
+                    }
+                    Err(reason) => response.on_disabled_hover_text(
+                        commands.with_keys(command, &format!("{}. {reason}", tool.description())),
+                    ),
+                };
+                if (response.clicked() || invoked)
+                    && let Ok(constraints) = offer
+                {
+                    request.constraints = Some((*tool, constraints.clone()));
+                }
+                if (index + 1) % columns == 0 {
+                    ui.end_row();
+                }
+            }
+        });
 }
 
 fn delete_button(
@@ -209,7 +261,8 @@ fn delete_button(
         Err(NOTHING_TO_DELETE)
     };
     let invoked = commands.invoke(Command::DeleteSelection, &availability);
-    let response = ui.add_enabled(enabled, Button::new("Delete"));
+    let button = ToolButton::new(icons::DELETE, DELETE_LABEL);
+    let response = ui.add_enabled(enabled, button);
     let response = if enabled {
         response.on_hover_text(commands.with_keys(
             Command::DeleteSelection,

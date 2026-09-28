@@ -1,11 +1,13 @@
 use caditor_file::Settings;
-use egui::{Id, KeyboardShortcut, Modal, RichText, ThemePreference, Ui};
+use egui::{KeyboardShortcut, ThemePreference, Ui};
 
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     commands::{Command, Keymap},
+    icons,
     onboarding::{Hint, Onboarding},
     units::LengthUnit,
+    widgets::{self, DialogWidth},
 };
 
 pub const MIN_SPEED: f64 = 0.25;
@@ -17,7 +19,8 @@ const HIGH_CONTRAST_KEY: &str = "appearance.high_contrast";
 const ORBIT_KEY: &str = "navigation.orbit_speed";
 const ZOOM_KEY: &str = "navigation.zoom_speed";
 const INVERT_ZOOM_KEY: &str = "navigation.invert_zoom";
-const DIALOG_WIDTH: f32 = 440.0;
+const SECTION_GAP: f32 = 12.0;
+const BODY_HEIGHT_SHARE: f32 = 0.75;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Theme {
@@ -220,18 +223,20 @@ impl Preferences {
 }
 
 pub fn dialog(ctx: &egui::Context, preferences: &Preferences) -> Option<PreferencesCommand> {
-    let response = Modal::new(Id::new("preferences")).show(ctx, |ui| {
-        ui.set_max_width(DIALOG_WIDTH);
-        ui.heading("Preferences");
+    let response = widgets::dialog(ctx, "preferences", "Preferences", DialogWidth::Wide, |ui| {
         let mut command = None;
-        units(ui, preferences, &mut command);
-        appearance(ui, preferences, &mut command);
-        navigation(ui, preferences, &mut command);
-        keyboard(ui, &mut command);
-        tips(ui, preferences, &mut command);
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if ui.button("Close").clicked() {
+        let height = ui.ctx().content_rect().height() * BODY_HEIGHT_SHARE;
+        egui::ScrollArea::vertical()
+            .max_height(height)
+            .min_scrolled_height(height)
+            .show(ui, |ui| {
+                units(ui, preferences, &mut command);
+                appearance(ui, preferences, &mut command);
+                navigation(ui, preferences, &mut command);
+                help(ui, preferences, &mut command);
+            });
+        widgets::footer(ui, |ui| {
+            if ui.add(widgets::primary_button(ui, "Close")).clicked() {
                 command = Some(PreferencesCommand::Hide);
             }
             if ui
@@ -251,141 +256,165 @@ pub fn dialog(ctx: &egui::Context, preferences: &Preferences) -> Option<Preferen
     response.inner.or(closed)
 }
 
-fn section(ui: &mut Ui, title: &str) {
-    ui.add_space(6.0);
-    ui.label(RichText::new(title).strong());
+fn section(ui: &mut Ui, title: &str, id: &str, note: Option<String>, rows: impl FnOnce(&mut Ui)) {
+    ui.add_space(SECTION_GAP);
+    ui.label(widgets::section_title(title));
+    widgets::card(ui, |ui| {
+        widgets::properties(ui, id, rows);
+        if let Some(note) = note {
+            ui.label(widgets::muted(note, ui));
+        }
+    });
+}
+
+fn change(command: &mut Option<PreferencesCommand>, change: PreferenceChange) {
+    *command = Some(PreferencesCommand::Change(change));
 }
 
 fn units(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
-    section(ui, "Units");
-    ui.horizontal_wrapped(|ui| {
-        for unit in LengthUnit::ALL {
-            if ui.radio(preferences.unit == unit, unit.label()).clicked() {
-                *command = Some(PreferencesCommand::Change(PreferenceChange::Unit(unit)));
-            }
-        }
+    let unit = preferences.unit.label().to_lowercase();
+    let note = format!(
+        "Lengths are shown in {unit} and plain numbers typed for a length mean {unit}. Values \
+         already in the model keep the units they were entered in."
+    );
+    section(ui, "Units", "units", Some(note), |ui| {
+        widgets::property(ui, "Length", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for unit in LengthUnit::ALL {
+                    if ui
+                        .selectable_label(preferences.unit == unit, unit.label())
+                        .clicked()
+                    {
+                        change(command, PreferenceChange::Unit(unit));
+                    }
+                }
+            });
+        });
     });
-    ui.weak(format!(
-        "Lengths are shown in {} and plain numbers typed for a length mean {}. Values already in \
-         the model keep the units they were entered in.",
-        preferences.unit.label().to_lowercase(),
-        preferences.unit.label().to_lowercase()
-    ));
 }
 
 fn appearance(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
-    section(ui, "Appearance");
     let current = preferences.appearance;
-    ui.horizontal_wrapped(|ui| {
-        for theme in Theme::ALL {
-            if ui.radio(current.theme == theme, theme.label()).clicked() {
-                *command = Some(PreferencesCommand::Change(PreferenceChange::Theme(theme)));
-            }
-        }
-    });
-    let mut high_contrast = current.high_contrast;
-    if ui
-        .checkbox(&mut high_contrast, "High contrast")
-        .on_hover_text("Stronger text, outlined buttons and a bright focus outline")
-        .changed()
-    {
-        *command = Some(PreferencesCommand::Change(PreferenceChange::HighContrast(
-            high_contrast,
-        )));
-    }
-    ui.horizontal(|ui| {
-        ui.label("Interface size");
-        let steps = [
-            (
-                "−",
-                current.scale - SCALE_STEP,
-                current.scale > MIN_SCALE,
-                "Smaller",
-            ),
-            (
-                "+",
-                current.scale + SCALE_STEP,
-                current.scale < MAX_SCALE,
-                "Larger",
-            ),
-        ];
-        for (index, (text, scale, enabled, hover)) in steps.into_iter().enumerate() {
-            if index == 1 {
-                ui.label(format!("{:.0}%", current.scale * 100.0));
-            }
-            if ui
-                .add_enabled(enabled, egui::Button::new(text))
-                .on_hover_text(hover)
-                .clicked()
-            {
-                *command = Some(PreferencesCommand::Change(PreferenceChange::Scale(scale)));
-            }
-        }
-    });
-    ui.weak("Panels and menus follow the theme; the 3D view keeps its dark background.");
-}
-
-fn tips(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
-    section(ui, "Tips");
-    let onboarding = &preferences.onboarding;
-    let mut shown = onboarding.hints;
-    if ui
-        .checkbox(&mut shown, "Show tips for getting started")
-        .changed()
-    {
-        *command = Some(PreferencesCommand::Change(PreferenceChange::ShowHints(
-            shown,
-        )));
-    }
-    let restore = ui
-        .add_enabled(
-            !onboarding.dismissed.is_empty(),
-            egui::Button::new("Show dismissed tips again"),
-        )
-        .clicked();
-    if restore {
-        *command = Some(PreferencesCommand::Change(PreferenceChange::RestoreHints));
-    }
-}
-
-fn keyboard(ui: &mut Ui, command: &mut Option<PreferencesCommand>) {
-    section(ui, "Keyboard");
-    if ui
-        .button("Keyboard shortcuts…")
-        .on_hover_text("See every shortcut and change any of them")
-        .clicked()
-    {
-        *command = Some(PreferencesCommand::ShowShortcuts);
-    }
+    let note = "Panels and menus follow the theme; the 3D view keeps its dark background.";
+    section(
+        ui,
+        "Appearance",
+        "appearance",
+        Some(note.to_owned()),
+        |ui| {
+            widgets::property(ui, "Theme", |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for theme in Theme::ALL {
+                        if ui
+                            .selectable_label(current.theme == theme, theme.label())
+                            .clicked()
+                        {
+                            change(command, PreferenceChange::Theme(theme));
+                        }
+                    }
+                });
+            });
+            widgets::property(ui, "Contrast", |ui| {
+                let mut high_contrast = current.high_contrast;
+                if ui
+                    .checkbox(&mut high_contrast, "High contrast")
+                    .on_hover_text("Stronger text, outlined buttons and a bright focus outline")
+                    .changed()
+                {
+                    change(command, PreferenceChange::HighContrast(high_contrast));
+                }
+            });
+            widgets::property(ui, "Interface size", |ui| {
+                ui.horizontal(|ui| {
+                    let smaller = ui
+                        .add_enabled(
+                            current.scale > MIN_SCALE,
+                            egui::Button::new(widgets::icon(icons::SUBTRACT)),
+                        )
+                        .on_hover_text("Smaller");
+                    if smaller.clicked() {
+                        change(command, PreferenceChange::Scale(current.scale - SCALE_STEP));
+                    }
+                    ui.label(format!("{:.0}%", current.scale * 100.0));
+                    let larger = ui
+                        .add_enabled(
+                            current.scale < MAX_SCALE,
+                            egui::Button::new(widgets::icon(icons::ADD)),
+                        )
+                        .on_hover_text("Larger");
+                    if larger.clicked() {
+                        change(command, PreferenceChange::Scale(current.scale + SCALE_STEP));
+                    }
+                });
+            });
+        },
+    );
 }
 
 fn navigation(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
-    section(ui, "Navigation");
     let navigation = preferences.navigation;
-    let mut orbit = navigation.orbit_speed;
-    let orbit_slider = egui::Slider::new(&mut orbit, MIN_SPEED..=MAX_SPEED)
-        .logarithmic(true)
-        .text("Orbit speed");
-    if ui.add(orbit_slider).changed() {
-        *command = Some(PreferencesCommand::Change(PreferenceChange::OrbitSpeed(
-            orbit,
-        )));
-    }
-    let mut zoom = navigation.zoom_speed;
-    let zoom_slider = egui::Slider::new(&mut zoom, MIN_SPEED..=MAX_SPEED)
-        .logarithmic(true)
-        .text("Zoom speed");
-    if ui.add(zoom_slider).changed() {
-        *command = Some(PreferencesCommand::Change(PreferenceChange::ZoomSpeed(
-            zoom,
-        )));
-    }
-    let mut invert = navigation.invert_zoom;
-    if ui.checkbox(&mut invert, "Scroll up to zoom out").changed() {
-        *command = Some(PreferencesCommand::Change(PreferenceChange::InvertZoom(
-            invert,
-        )));
-    }
+    section(ui, "Navigation", "navigation", None, |ui| {
+        widgets::property(ui, "Orbit speed", |ui| {
+            let mut orbit = navigation.orbit_speed;
+            let slider = egui::Slider::new(&mut orbit, MIN_SPEED..=MAX_SPEED).logarithmic(true);
+            if ui.add(slider).changed() {
+                change(command, PreferenceChange::OrbitSpeed(orbit));
+            }
+        });
+        widgets::property(ui, "Zoom speed", |ui| {
+            let mut zoom = navigation.zoom_speed;
+            let slider = egui::Slider::new(&mut zoom, MIN_SPEED..=MAX_SPEED).logarithmic(true);
+            if ui.add(slider).changed() {
+                change(command, PreferenceChange::ZoomSpeed(zoom));
+            }
+        });
+        widgets::property(ui, "Scrolling", |ui| {
+            let mut invert = navigation.invert_zoom;
+            if ui.checkbox(&mut invert, "Scroll up to zoom out").changed() {
+                change(command, PreferenceChange::InvertZoom(invert));
+            }
+        });
+    });
+}
+
+fn help(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
+    let onboarding = &preferences.onboarding;
+    section(ui, "Help", "help", None, |ui| {
+        widgets::property(ui, "Shortcuts", |ui| {
+            let button = widgets::small_button(
+                ui,
+                icons::command(Command::KeyboardShortcuts),
+                "Keyboard shortcuts…",
+            );
+            if ui
+                .add(button)
+                .on_hover_text("See every shortcut and change any of them")
+                .clicked()
+            {
+                *command = Some(PreferencesCommand::ShowShortcuts);
+            }
+        });
+        widgets::property(ui, "Tips", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                let mut shown = onboarding.hints;
+                if ui
+                    .checkbox(&mut shown, "Show tips for getting started")
+                    .changed()
+                {
+                    change(command, PreferenceChange::ShowHints(shown));
+                }
+                let restore = ui
+                    .add_enabled(
+                        !onboarding.dismissed.is_empty(),
+                        egui::Button::new("Show dismissed tips again"),
+                    )
+                    .clicked();
+                if restore {
+                    change(command, PreferenceChange::RestoreHints);
+                }
+            });
+        });
+    });
 }
 
 #[cfg(test)]
