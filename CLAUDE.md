@@ -867,7 +867,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     commands are written, so unreadable or newer entries survive). Each frame `app::show`
     dispatches key presses to commands (exact modifiers first; extra Shift or Alt is ignored only
     for punctuation keys; sketch-scope bindings win while a sketch is edited; Backspace and
-    Delete are left to drawing while a shape is in progress) and hands a `CommandFrame` to the
+    Delete are left to drawing while a shape is in progress; a held key repeats only camera moves,
+    highlight steps, undo, redo and interface size) and hands a `CommandFrame` to the
     toolbars and the viewport. Whoever draws a command's button calls `invoke` with its
     availability, which records an `Offer` and says whether it was triggered; a triggered
     command that is unavailable becomes a notice with the reason. Hover texts and menu items
@@ -882,19 +883,19 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     bindings: Add records the next key press (Esc cancels), a binding already used in an
     overlapping scope asks before moving it, clicking a binding removes it, and Reset or Reset
     all go back to the defaults.
-  - Keyboard-only operation: every command is in the palette; Tab moves between widgets and
-    Escape leaves them; each feature row has a "⋯" menu with what its right-click menu holds.
-    In the viewport, standard views (Alt+0 to Alt+6), orbit (arrows), pan (Shift+arrows) and
-    zoom (Page Up and Page Down) are commands; N and Shift+N step a keyboard highlight through
-    the scene's pickables in pick-table order (it is drawn and described like hover, a pointer
-    move or Escape clears it), Space acts on it as a click would (toggling it in the selection,
-    or a region, blend edge, shell face or sketch plane as in those modes, through
-    `pick_action`), and Enter opens what it belongs to as a double-click would. While a drawing
-    tool is active, typing a digit, sign, point or `@` opens the typed-point field
-    (`typed_point.rs`): two length expressions in the preferred unit, `@` for an offset from the
-    last placed point; Enter places the point through `Drawing::type_point` (landing exactly on
-    an existing point or the pending one snaps to it, like a click), an error keeps the field
-    open with the reason, and Escape closes it without touching the shape.
+  - Keyboard-only operation: every command is in the palette; Tab moves between widgets and Escape
+    leaves them; each feature row has a "⋯" menu with what its right-click menu holds. In the
+    viewport, standard views (Alt+0 to Alt+6), orbit (arrows), pan (Shift+arrows) and zoom (Page Up
+    and Page Down) are commands; N and Shift+N step a keyboard highlight through the scene's
+    pickables in pick-table order, each once (it is drawn and described like hover, a pointer move
+    or Escape clears it), Space acts on it as a click would (toggling it in the selection, or a
+    region, blend edge, shell face or sketch plane as in those modes, through `pick_action`), and
+    Enter opens what it belongs to as a double-click would. While a drawing tool is active, typing a
+    digit, sign, point, `(` or `@` opens the typed-point field (`typed_point.rs`): two length
+    expressions in the preferred unit, split at top-level commas, `@` for an offset from the last
+    placed point; Enter places the point through `Drawing::type_point` (landing exactly on an
+    existing point or the pending one snaps to it, like a click), an error keeps the field open with
+    the reason, and Escape closes it without touching the shape.
   - Sketch editing is a context, not a mode: `editing.rs` holds which sketch is edited and the
     active `Tool`, changed by `Action::Editing` commands that `app::perform` routes after the UI
     pass; it ends by itself when the sketch disappears or another document is opened. The

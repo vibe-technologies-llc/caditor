@@ -3149,3 +3149,72 @@ fn adding_a_feature_then_undoing_it_leaves_the_model_saved() {
     assert!(!harness.model.is_dirty());
     assert_eq!(app::window_title(&harness.model), "Untitled — caditor");
 }
+
+#[test]
+fn holding_a_key_repeats_only_commands_that_should_repeat() {
+    let mut harness = Harness::new();
+    let base = harness.document().features().next().unwrap().id();
+    harness.edit(base);
+    for _ in 0..20 {
+        if harness.workspace.viewport.keyboard_highlight().is_some() {
+            break;
+        }
+        harness.key(Key::N, Modifiers::NONE);
+        harness.frame();
+    }
+    let target = harness.workspace.viewport.keyboard_highlight().unwrap();
+    for repeat in [false, true, true, true] {
+        harness.events.push(Event::Key {
+            key: Key::Space,
+            physical_key: None,
+            pressed: true,
+            repeat,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    harness.frame();
+    assert!(harness.workspace.viewport.selection().contains(target));
+}
+
+#[test]
+fn command_shortcuts_work_while_a_button_has_focus() {
+    let mut harness = Harness::new();
+    harness.edit_width("45 mm");
+    let button = egui::Id::new("focused button");
+    harness
+        .context
+        .memory_mut(|memory| memory.request_focus(button));
+    harness.frame();
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert_eq!(harness.expression_text("width"), "40 mm");
+}
+
+#[test]
+fn stepping_the_highlight_visits_a_datum_plane_once() {
+    let mut harness = Harness::new();
+    harness.click("Plane");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let mut visited = Vec::new();
+    for _ in 0..40 {
+        harness.key(Key::N, Modifiers::NONE);
+        harness.frame();
+        let Some(highlight) = harness.workspace.viewport.keyboard_highlight() else {
+            continue;
+        };
+        if visited.first() == Some(&highlight) {
+            break;
+        }
+        visited.push(highlight);
+    }
+    let datums = visited
+        .iter()
+        .filter(|pickable| matches!(pickable, Pickable::Datum(_)))
+        .count();
+    assert_eq!(datums, 1, "{visited:?}");
+    let distinct: std::collections::BTreeSet<_> = visited.iter().collect();
+    assert_eq!(distinct.len(), visited.len());
+}

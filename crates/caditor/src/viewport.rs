@@ -223,20 +223,7 @@ impl ViewportState {
             self.fit_when_computed = false;
         }
         self.keyboard_commands(model, editing, commands, actions);
-        let hint = match commands.keys(Command::FitView) {
-            Some(keys) => format!("{NAVIGATION_HINT}   {keys}: fit"),
-            None => NAVIGATION_HINT.to_owned(),
-        };
-        let highlight_keys = [
-            (Command::ActivateHighlighted, "select or pick"),
-            (Command::HighlightNext, "next"),
-            (Command::HighlightPrevious, "previous"),
-        ]
-        .into_iter()
-        .filter_map(|(command, what)| Some(format!("{}: {what}", commands.keys(command)?)))
-        .chain(["Enter: open   Esc: stop highlighting".to_owned()])
-        .collect::<Vec<_>>()
-        .join("   ");
+        let key_hints = KeyHints::new(commands);
         egui::CentralPanel::no_frame().show(ui, |ui| {
             let rect = ui.max_rect();
             self.rect = Some(rect);
@@ -253,7 +240,7 @@ impl ViewportState {
                 self.handle_keys(ui, model, editing, actions);
             }
             self.annotate(ui, rect, model, editing, actions);
-            self.decorate(ui, rect, model, editing, &hint, &highlight_keys);
+            self.decorate(ui, rect, model, editing, &key_hints);
         });
     }
 
@@ -305,7 +292,12 @@ impl ViewportState {
         if let Some(sketch) = built.edited {
             scene::add_preview(&mut built.scene, sketch.plane, &self.drawing.preview());
         }
-        self.highlightable = built.picks.pickables().collect();
+        let mut seen = std::collections::BTreeSet::new();
+        self.highlightable = built
+            .picks
+            .pickables()
+            .filter(|pickable| seen.insert(*pickable))
+            .collect();
         self.keyboard_highlight = self
             .keyboard_highlight
             .filter(|highlight| self.highlightable.contains(highlight));
@@ -804,8 +796,7 @@ impl ViewportState {
         rect: Rect,
         model: &Model,
         editing: &SketchEditing,
-        hint: &str,
-        highlight_keys: &str,
+        key_hints: &KeyHints,
     ) {
         let document = model.document();
         let orientation = self.camera.viewpoint().orientation;
@@ -814,7 +805,7 @@ impl ViewportState {
         } else {
             "Fit selection"
         };
-        match view_cube::show(ui, rect, orientation, fit_label) {
+        match view_cube::show(ui, rect, orientation, fit_label, &key_hints.fit) {
             Some(CubeAction::LookFrom(direction)) => {
                 let destination = self.camera.destination();
                 if let Some(viewpoint) =
@@ -842,7 +833,7 @@ impl ViewportState {
                 painter.text(
                     label.left_bottom() + vec2(0.0, LABEL_MARGIN / 3.0),
                     Align2::LEFT_TOP,
-                    highlight_keys,
+                    &key_hints.highlight,
                     FontId::proportional(11.0),
                     HINT_COLOR,
                 );
@@ -851,7 +842,7 @@ impl ViewportState {
         painter.text(
             rect.right_bottom() - vec2(LABEL_MARGIN, LABEL_MARGIN),
             Align2::RIGHT_BOTTOM,
-            hint,
+            &key_hints.navigation,
             FontId::proportional(11.0),
             HINT_COLOR,
         );
@@ -973,6 +964,36 @@ fn facing(view: &View, sketch: &EditedSketch) -> Viewpoint {
         view.viewpoint().distance,
     );
     View::new(facing, size.x, size.y).fitted(sketch.bounds)
+}
+
+struct KeyHints {
+    navigation: String,
+    highlight: String,
+    fit: String,
+}
+
+impl KeyHints {
+    fn new(commands: &CommandFrame<'_>) -> Self {
+        let navigation = match commands.keys(Command::FitView) {
+            Some(keys) => format!("{NAVIGATION_HINT}   {keys}: fit"),
+            None => NAVIGATION_HINT.to_owned(),
+        };
+        let highlight = [
+            (Command::ActivateHighlighted, "select or pick"),
+            (Command::HighlightNext, "next"),
+            (Command::HighlightPrevious, "previous"),
+        ]
+        .into_iter()
+        .filter_map(|(command, what)| Some(format!("{}: {what}", commands.keys(command)?)))
+        .chain(["Enter: open   Esc: stop highlighting".to_owned()])
+        .collect::<Vec<_>>()
+        .join("   ");
+        Self {
+            navigation,
+            highlight,
+            fit: commands.with_keys(Command::FitView, "Frame the view around it"),
+        }
+    }
 }
 
 #[cfg(test)]

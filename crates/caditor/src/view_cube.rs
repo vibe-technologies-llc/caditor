@@ -103,6 +103,7 @@ pub fn show(
     viewport: Rect,
     orientation: Rotation3,
     fit_label: &str,
+    fit_hover: &str,
 ) -> Option<CubeAction> {
     let rect = Rect::from_min_size(
         pos2(
@@ -169,7 +170,7 @@ pub fn show(
     );
     let fit = ui
         .put(fit_rect, egui::Button::new(fit_label))
-        .on_hover_text("Frame the view around it (F)");
+        .on_hover_text(fit_hover);
 
     if fit.clicked() {
         Some(CubeAction::Fit)

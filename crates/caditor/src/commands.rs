@@ -64,6 +64,21 @@ pub enum Command {
     About,
 }
 
+impl Command {
+    pub fn repeats(self) -> bool {
+        matches!(
+            self,
+            Self::Camera(_)
+                | Self::HighlightNext
+                | Self::HighlightPrevious
+                | Self::Undo
+                | Self::Redo
+                | Self::LargerInterface
+                | Self::SmallerInterface
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StandardView {
     Isometric,
@@ -823,12 +838,15 @@ pub fn dispatch(ctx: &egui::Context, keymap: &Keymap, situation: &Situation) -> 
             let Some(pressed) = pressed_shortcut(event) else {
                 return true;
             };
+            let repeated = matches!(event, Event::Key { repeat: true, .. });
             let found = keymap
                 .command_for(&pressed, situation)
                 .filter(|(_, shortcut)| situation.accepts(shortcut));
             match found {
                 Some((command, _)) => {
-                    triggered.push(command);
+                    if !repeated || command.repeats() {
+                        triggered.push(command);
+                    }
                     false
                 }
                 None => true,

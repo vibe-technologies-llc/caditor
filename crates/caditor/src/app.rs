@@ -142,8 +142,8 @@ pub fn show(
         Applied::Changed => ui.set_style(ui.ctx().global_style()),
         Applied::Unchanged => {}
     }
-    let text_focused = ui.ctx().egui_wants_keyboard_input();
-    let keyboard_taken = text_focused || workspace.keyboard_was_taken;
+    let text_focused = ui.ctx().text_edit_focused();
+    let keyboard_taken = ui.ctx().egui_wants_keyboard_input() || workspace.keyboard_was_taken;
     let dialog_open = workspace.preferences_open
         || workspace.palette.is_open()
         || workspace.shortcut_editor.is_some()

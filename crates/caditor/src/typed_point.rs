@@ -34,9 +34,28 @@ pub struct Typed {
 }
 
 fn starts_a_point(text: &str) -> bool {
-    text.chars()
-        .next()
-        .is_some_and(|first| first.is_ascii_digit() || matches!(first, '-' | '.' | RELATIVE_MARK))
+    text.chars().next().is_some_and(|first| {
+        first.is_ascii_digit() || matches!(first, '-' | '.' | '(' | RELATIVE_MARK)
+    })
+}
+
+fn split_top_level(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0_usize;
+    let mut start = 0;
+    for (index, character) in text.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            separator if depth == 0 && SEPARATORS.contains(&separator) => {
+                parts.push(text.get(start..index).unwrap_or_default());
+                start = index + separator.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    parts.push(text.get(start..).unwrap_or_default());
+    parts
 }
 
 impl TypedPoint {
@@ -162,8 +181,8 @@ pub fn parse(model: &Model, text: &str, last: Option<Point2>) -> Result<Point2, 
         Some(rest) => (true, rest),
         None => (false, text),
     };
-    let mut parts = text.split(SEPARATORS);
-    let (Some(x), Some(y), None) = (parts.next(), parts.next(), parts.next()) else {
+    let parts = split_top_level(text);
+    let [x, y] = parts.as_slice() else {
         return Err("Type two lengths separated by a comma, such as 10, 20".to_owned());
     };
     let coordinate = |part: &str, name: &str| {
@@ -199,11 +218,19 @@ mod tests {
 
     #[test]
     fn a_point_starts_with_a_digit_a_sign_a_decimal_point_or_the_relative_mark() {
-        for text in ["1", "-2", ".5", "@3, 4"] {
+        for text in ["1", "-2", ".5", "@3, 4", "(1 + 2), 3"] {
             assert!(starts_a_point(text), "{text}");
         }
         for text in ["l", " ", "", "x"] {
             assert!(!starts_a_point(text), "{text}");
         }
+    }
+
+    #[test]
+    fn only_top_level_commas_separate_the_coordinates() {
+        assert_eq!(split_top_level("max(w, 10), 5"), ["max(w, 10)", " 5"]);
+        assert_eq!(split_top_level("1; 2"), ["1", " 2"]);
+        assert_eq!(split_top_level("min(a, b)"), ["min(a, b)"]);
+        assert_eq!(split_top_level("1, 2, 3").len(), 3);
     }
 }

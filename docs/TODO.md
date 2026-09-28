@@ -167,14 +167,6 @@ within a category run from most to least important.
 
 ## Keyboard, accessibility and look
 
-- Ctrl and Alt shortcuts stop when any widget has focus, not only a text field, because
-  `app.rs` uses `egui_wants_keyboard_input`. Use `text_edit_focused`.
-- N gets stuck on a datum plane, which is registered twice (curve and fill), so
-  `step_highlight` alternates between its copies.
-- Typed points split on every comma, so `max(w, 10), 5` is refused (`typed_point.rs`), and the
-  field opens only on a digit, sign, point or `@`.
-- Key auto-repeat re-fires commands, so holding Space toggles the highlight in and out of the
-  selection.
 - Not commands, so neither in the palette nor bindable: recompute and cancel, rename, move and
   delete feature, add parameter, open recent, recover unsaved work, cancel export, dismiss
   notice. Delete does nothing outside sketches, as the tree has no selection.
@@ -185,7 +177,6 @@ within a category run from most to least important.
   bodies.
 - Fixed-size dialogs and lists clip at 200% on 1080p (`widgets.rs`, `shortcut_editor.rs`,
   `palette.rs`, `history.rs`). Clamp to the content rect.
-- The Fit button's tooltip hard-codes "(F)" instead of the current binding.
 - Several actions fail without a word: New sketch on an unusable face, a datum that fails its
   check, fillet or shell with nothing usable, clicking a curved face while choosing a plane.
 - The Plane tool silently falls back to XY when a selected face cannot be captured, and a face
