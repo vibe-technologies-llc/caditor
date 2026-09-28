@@ -106,7 +106,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     ones with the standard piecewise knots, degree-fold at every joint; uniform and other unclamped
     ones clamped by knot insertion), trimmed and surface curves by their basis, polylines, and
     `COMPOSITE_CURVE`s (each segment trimmed by point or parameter and followed in its sense) and
-    `OFFSET_CURVE_3D`s as dense polylines that edge healing then rebuilds on the faces. Faces
+    `OFFSET_CURVE_3D`s as dense polylines that edge healing then rebuilds on the faces. A spindle
+    `DEGENERATE_TOROIDAL_SURFACE` is the revolution of the rational arc of its tube on one side of
+    the axis (the apple or, mirrored, the lemon), so its normal stays the torus's. Faces
     bounded by `POLY_LOOP`s get line edges shared by corner position (and a plane from the polygon
     when a plain `FACE` names no surface). Topology is surveyed first (which faces use each edge and
     vertex), then vertices off their faces are moved onto all of them by damped least squares, edges
@@ -114,7 +116,7 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `IntersectionCurve::through`, loops take their orientation from bounds, oriented edges and
     `same_sense` (voids from `ORIENTED_CLOSED_SHELL`), the outer loop is the `FACE_OUTER_BOUND`,
     else the one using a seam, else the largest by area, and faces bounded only by `VERTEX_LOOP`s
-    get a pole-to-pole seam (spheres and closed spline surfaces). Every solid then goes through
+    get a pole-to-pole seam (spheres, closed spline surfaces and revolutions with two poles). Every solid then goes through
     `SolidBuilder::build`, so an import is valid or a sentence naming the entity; faces that meet
     only farther apart than `LINEAR_RESOLUTION` are refused in those words, and a solid whose faces
     cross (`Solid::find_crossing`) is refused naming the two face entities, or the one face whose

@@ -307,6 +307,14 @@ impl<'g, 'a> Topology<'g, 'a> {
                     Interval::new(-FRAC_PI_2, FRAC_PI_2).ok_or(BuildError::NonFinitePoint)?;
                 Some((curve, interval))
             }
+            Surface::Revolution(revolution) if surface.poles().len() == 2 => {
+                let profile = revolution.profile();
+                let interval = profile
+                    .domain()
+                    .bounded()
+                    .ok_or(BuildError::NonFinitePoint)?;
+                Some((profile.clone(), interval))
+            }
             Surface::BSpline(spline) if spline.u_period().is_some() => {
                 let column: Vec<Point3> = (0..spline.rows())
                     .filter_map(|row| spline.control_point(0, row))

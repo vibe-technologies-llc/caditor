@@ -1,7 +1,10 @@
+use std::f64::consts::FRAC_PI_2;
+
 use caditor_geometry::{Plane, Point3, Vector3};
 use caditor_kernel::{
-    BSpline, BSplineSurface, Circle, Cone, Curve, Cylinder, Ellipse, Extrusion, Interval, Line,
-    MAX_SPLINE_DEGREE, PlaneSurface, Revolution, Sphere, Surface, Torus,
+    BSpline, BSplineSurface, Circle, Cone, Curve, Cylinder, Ellipse, Extrusion, GeometryError,
+    Interval, LINEAR_RESOLUTION, Line, MAX_SPLINE_DEGREE, PlaneSurface, Revolution, Sphere,
+    Surface, Torus,
 };
 
 use crate::read::{
@@ -119,9 +122,8 @@ impl<'a> Geometry<'a> {
             return Err(Problem::new(id, "refers to itself"));
         }
         let entity = self.graph.entity(id)?;
-        let kernel = |error: caditor_kernel::GeometryError| {
-            Problem::new(id, format!("is not a usable curve ({error})"))
-        };
+        let kernel =
+            |error: GeometryError| Problem::new(id, format!("is not a usable curve ({error})"));
         match entity.kind() {
             "LINE" => {
                 let fields = entity.record("LINE")?;
@@ -401,9 +403,8 @@ impl<'a> Geometry<'a> {
             return Err(Problem::new(id, "refers to itself"));
         }
         let entity = self.graph.entity(id)?;
-        let kernel = |error: caditor_kernel::GeometryError| {
-            Problem::new(id, format!("is not a usable surface ({error})"))
-        };
+        let kernel =
+            |error: GeometryError| Problem::new(id, format!("is not a usable surface ({error})"));
         match entity.kind() {
             "PLANE" => {
                 let fields = entity.record("PLANE")?;
@@ -435,6 +436,23 @@ impl<'a> Geometry<'a> {
                 let major = self.length(&fields, 2)?;
                 let minor = self.length(&fields, 3)?;
                 Ok(Torus::new(frame, major, minor).map_err(kernel)?.into())
+            }
+            "DEGENERATE_TOROIDAL_SURFACE" => {
+                let fields = entity.record("DEGENERATE_TOROIDAL_SURFACE")?;
+                let frame = self.placement(fields.reference(1)?)?;
+                let major = self.length(&fields, 2)?;
+                let minor = self.length(&fields, 3)?;
+                if minor < major - LINEAR_RESOLUTION {
+                    return Ok(Torus::new(frame, major, minor).map_err(kernel)?.into());
+                }
+                if minor <= major + LINEAR_RESOLUTION {
+                    return Err(Problem::new(
+                        id,
+                        "is a torus whose tube just touches its axis, which caditor cannot import yet",
+                    ));
+                }
+                let outer = fields.logical(4)?;
+                Ok(spindle(&frame, major, minor, outer).map_err(kernel)?.into())
             }
             "SURFACE_OF_LINEAR_EXTRUSION" => {
                 let fields = entity.record("SURFACE_OF_LINEAR_EXTRUSION")?;
@@ -474,6 +492,45 @@ impl<'a> Geometry<'a> {
             )),
         }
     }
+}
+
+fn spindle(
+    frame: &Plane,
+    major: f64,
+    minor: f64,
+    outer: bool,
+) -> Result<Revolution, GeometryError> {
+    let (center, reach) = if outer {
+        (major, (-major / minor).acos())
+    } else {
+        (-major, (major / minor).acos())
+    };
+    let center = frame.origin() + frame.x_axis() * center;
+    let point =
+        |angle: f64| center + (frame.x_axis() * angle.cos() + frame.normal() * angle.sin()) * minor;
+    let range = Interval::new(-reach, reach).ok_or(GeometryError::NonFinite)?;
+    let pieces = (range.length() / FRAC_PI_2).ceil().max(1.0) as usize;
+    let step = range.length() / pieces as f64;
+    let weight = (0.5 * step).cos();
+    let mut points = Vec::with_capacity(2 * pieces + 1);
+    let mut weights = Vec::with_capacity(2 * pieces + 1);
+    let mut knots = vec![0.0; 3];
+    for index in 0..pieces {
+        let angle = range.start() + step * index as f64;
+        points.push(point(angle));
+        weights.push(1.0);
+        points.push(center + (point(angle + 0.5 * step) - center) / weight);
+        weights.push(weight);
+        if index > 0 {
+            let knot = index as f64 / pieces as f64;
+            knots.extend([knot, knot]);
+        }
+    }
+    points.push(point(range.end()));
+    weights.push(1.0);
+    knots.extend([1.0; 3]);
+    let profile = BSpline::rational(2, knots, points, weights)?;
+    Revolution::new(Curve::BSpline(profile), frame.origin(), frame.normal())
 }
 
 impl Geometry<'_> {

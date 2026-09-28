@@ -40,8 +40,8 @@ within a category run from most to least important.
 
 ## STEP import and export
 
-- Unsupported entities: `OFFSET_SURFACE`, `DEGENERATE_TOROIDAL_SURFACE` (the kernel refuses
-  spindle tori; a revolved arc would do), and colours and layers.
+- Unsupported entities: `OFFSET_SURFACE`, horn tori (a `DEGENERATE_TOROIDAL_SURFACE` whose tube
+  just touches its axis), and colours and layers.
 - The declared `UNCERTAINTY_MEASURE_WITH_UNIT` is ignored, and healing covers only edges with
   exactly two faces.
 - Import canonicalises each placement by writing and re-reading it, parses every import again on

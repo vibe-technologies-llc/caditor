@@ -404,3 +404,47 @@ fn a_composite_curve_follows_its_trimmed_segments() {
         "{corner}"
     );
 }
+
+fn spindle(major: f64, minor: f64, outer: bool) -> String {
+    let pole = -(minor * minor - major * major).sqrt();
+    let select = if outer { ".T." } else { ".F." };
+    format!(
+        "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n\
+        #1=CARTESIAN_POINT('',(0.,0.,0.));#2=DIRECTION('',(0.,0.,1.));\n\
+        #3=DIRECTION('',(1.,0.,0.));#4=AXIS2_PLACEMENT_3D('',#1,#2,#3);\n\
+        #5=DEGENERATE_TOROIDAL_SURFACE('',#4,{major:?},{minor:?},{select});\n\
+        #6=CARTESIAN_POINT('',(0.,0.,{pole:?}));#7=VERTEX_POINT('',#6);\n\
+        #8=VERTEX_LOOP('',#7);#9=FACE_BOUND('',#8,.T.);\n\
+        #10=ADVANCED_FACE('',(#9),#5,.T.);#11=CLOSED_SHELL('',(#10));\n\
+        #12=MANIFOLD_SOLID_BREP('spindle',#11);\nENDSEC;\nEND-ISO-10303-21;\n"
+    )
+}
+
+#[test]
+fn spindle_tori_are_read_as_the_apple_or_the_lemon() {
+    use std::f64::consts::PI;
+
+    let (major, minor) = (2.0_f64, 5.0_f64);
+    let beyond = minor * minor - major * major;
+    let segment = minor * minor * (major / minor).acos() - major * beyond.sqrt();
+    let reach = 2.0 * beyond.powf(1.5) / (3.0 * segment);
+    let apple = sample(&spindle(major, minor, true));
+    assert_eq!(apple.solids.len(), 1);
+    assert_volume(
+        &apple.solids[0].solid,
+        2.0 * PI * (PI * minor * minor * major - segment * (major - reach)),
+    );
+    let lemon = sample(&spindle(major, minor, false));
+    assert_volume(&lemon.solids[0].solid, 2.0 * PI * segment * (reach - major));
+    for (name, model) in [("apple", &apple), ("lemon", &lemon)] {
+        let solid = &model.solids[0].solid;
+        let read = round_trip(name, solid);
+        assert_eq!(read.faces().count(), solid.faces().count(), "{name}");
+        assert_eq!(read.edges().count(), solid.edges().count(), "{name}");
+    }
+    let horn = read_step(&spindle(3.0, 3.0, true));
+    assert!(
+        matches!(&horn, Err(error) if error.to_string().contains("just touches its axis")),
+        "{horn:?}"
+    );
+}
