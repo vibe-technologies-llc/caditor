@@ -80,6 +80,30 @@ fn a_pocket_from_the_top_face_leaves_a_hole_in_it() {
 }
 
 #[test]
+fn faces_the_other_solid_misses_pass_through_whole() {
+    let plate = block((0.0, 0.0, 0.0), (10.0, 10.0, 5.0));
+    let pocket = block((2.0, 3.0, 2.0), (4.0, 7.0, 6.0));
+    let input = Input::new(&plate, &pocket);
+    let arrangement = imprint::imprint(&input).unwrap();
+    let split = faces::split(&input, &arrangement).unwrap();
+    let untouched: Vec<Operand> = split
+        .iter()
+        .filter(|face| face.untouched)
+        .map(|face| face.key.operand)
+        .collect();
+    assert_eq!(untouched.len(), 7, "{untouched:?}");
+    assert_eq!(
+        untouched
+            .iter()
+            .filter(|operand| **operand == Operand::Second)
+            .count(),
+        2
+    );
+    let result = run(&plate, &pocket, BooleanOperation::Difference);
+    check("pocket", &result, 476.0);
+}
+
+#[test]
 fn a_cylinder_drills_a_hole_through_a_block() {
     let plate = block((0.0, 0.0, 0.0), (10.0, 10.0, 4.0));
     let drill = moved(cylinder(2.0, 6.0), (5.0, 5.0, -1.0));

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_geometry::{Aabb, Point2, Point3};
 
@@ -7,8 +7,8 @@ use crate::{
     curve::Curve,
     interrupt,
     intersect::{
-        IntersectionBranch, SurfaceIntersection, SurfacePatch, boxes_overlap,
-        intersect_curve_surface, intersect_curves, intersect_surfaces,
+        IntersectionBranch, SurfaceIntersection, SurfacePatch, intersect_curve_surface,
+        intersect_curves, intersect_surfaces,
     },
     interval::Interval,
     naming::EdgeName,
@@ -98,6 +98,21 @@ impl Arrangement {
 
     pub fn cuts(&self, face: FaceKey) -> &[usize] {
         self.cuts.get(&face).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn shared_pieces(&self) -> BTreeSet<usize> {
+        let cut = self
+            .cuts
+            .values()
+            .flatten()
+            .map(|piece| self.representative(*piece).0);
+        let merged = self
+            .representatives
+            .iter()
+            .enumerate()
+            .filter(|(piece, (representative, _))| piece != representative)
+            .flat_map(|(piece, (representative, _))| [piece, *representative]);
+        cut.chain(merged).collect()
     }
 
     pub fn add_source(&mut self, source: Source) -> usize {
@@ -267,10 +282,7 @@ fn edge_hits(
         interrupt::check()?;
         let curve = edge.curve();
         let bounds = curve.bounding_box(edge.interval());
-        for face in input.faces(other) {
-            if !boxes_overlap(&bounds, &face.bounds, TOLERANCE) {
-                continue;
-            }
+        for face in input.faces_near(other, &bounds) {
             let Some(surface) = target.face(face.id).map(|face| face.surface()) else {
                 continue;
             };
@@ -324,10 +336,7 @@ fn patch<'a>(surface: &'a Surface, bounds: &FaceBounds) -> Result<SurfacePatch<'
 fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanError> {
     let mut branches = Vec::new();
     for first in input.faces(Operand::First) {
-        for second in input.faces(Operand::Second) {
-            if !boxes_overlap(&first.bounds, &second.bounds, TOLERANCE) {
-                continue;
-            }
+        for second in input.faces_near(Operand::Second, &first.bounds) {
             interrupt::check()?;
             let (Some(first_face), Some(second_face)) =
                 (input.first.face(first.id), input.second.face(second.id))

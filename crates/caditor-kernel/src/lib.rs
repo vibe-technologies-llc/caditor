@@ -1,5 +1,6 @@
 mod blend;
 mod boolean;
+mod box_tree;
 mod bspline;
 mod build;
 mod checks;

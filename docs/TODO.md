@@ -35,10 +35,6 @@ within a category run from most to least important.
 
 ## Kernel performance
 
-- Booleans re-trace, re-fit and re-classify every face of both solids (`boolean/faces.rs`),
-  including untouched ones that can still fail. Pass untouched faces through.
-- Edge–face and face–face candidate pairs are tested all against all (`imprint.rs`). Add a BVH
-  for face boxes.
 - Blends run one full boolean per edge on a growing solid, and mixed selections analyse twice.
   Union the tools first.
 - `heal_edges` rebuilds use and incidence maps for every join.

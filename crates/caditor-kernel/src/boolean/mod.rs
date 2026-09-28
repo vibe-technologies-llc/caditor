@@ -11,6 +11,7 @@ use caditor_geometry::{Aabb, Aabb2};
 use thiserror::Error;
 
 use crate::{
+    box_tree::BoxTree,
     build::plan::PlanError,
     interrupt::{self, Interrupted},
     intersect::{IntersectionError, patch_bounds},
@@ -91,6 +92,7 @@ struct Input<'a> {
     second: &'a Solid,
     classifiers: [SolidClassifier<'a>; 2],
     faces: [Vec<FaceBounds>; 2],
+    trees: [BoxTree; 2],
     positions: [Vec<Option<usize>>; 2],
 }
 
@@ -141,6 +143,10 @@ impl<'a> Input<'a> {
                 bounds_positions(&first_faces),
                 bounds_positions(&second_faces),
             ],
+            trees: [
+                BoxTree::new(first_faces.iter().map(|face| face.bounds)),
+                BoxTree::new(second_faces.iter().map(|face| face.bounds)),
+            ],
             faces: [first_faces, second_faces],
         }
     }
@@ -166,6 +172,18 @@ impl<'a> Input<'a> {
             Operand::First => first,
             Operand::Second => second,
         }
+    }
+
+    fn faces_near(&self, operand: Operand, bounds: &Aabb) -> impl Iterator<Item = &FaceBounds> {
+        let [first, second] = &self.trees;
+        let tree = match operand {
+            Operand::First => first,
+            Operand::Second => second,
+        };
+        let faces = self.faces(operand);
+        tree.overlapping(bounds, TOLERANCE)
+            .into_iter()
+            .filter_map(|index| faces.get(index))
     }
 
     fn face(&self, key: FaceKey) -> Option<&'a Face> {
@@ -194,7 +212,7 @@ pub fn boolean(
     interrupt::check()?;
     let split = faces::split(&input, &arrangement)?;
     interrupt::check()?;
-    let kept = select::select(&input, split, operation)?;
+    let kept = select::select(&input, &arrangement, split, operation)?;
     if kept.is_empty() {
         return Err(BooleanError::Empty);
     }

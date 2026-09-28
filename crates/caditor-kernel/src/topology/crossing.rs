@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use caditor_geometry::{Aabb, Aabb2, Point2, Point3};
 
 use crate::{
+    box_tree::BoxTree,
     interrupt::{self, Interrupted},
     intersect::{
         SurfaceIntersection, SurfacePatch, boxes_overlap, intersect_curve_surface,
@@ -69,11 +70,14 @@ impl Solid {
             }
         }
         let classifier = self.classifier();
+        let tree = BoxTree::new(extents.iter().map(|extent| extent.bounds));
         for (index, first) in extents.iter().enumerate() {
-            for second in extents.iter().skip(index + 1) {
-                if !boxes_overlap(&first.bounds, &second.bounds, LINEAR_RESOLUTION) {
-                    continue;
-                }
+            let later = tree
+                .overlapping(&first.bounds, LINEAR_RESOLUTION)
+                .into_iter()
+                .filter(|other| *other > index)
+                .filter_map(|other| extents.get(other));
+            for second in later {
                 interrupt::check()?;
                 let found = if neighbours.contains(&(first.id, second.id)) {
                     self.edges_piercing(&classifier, first.id, second)?

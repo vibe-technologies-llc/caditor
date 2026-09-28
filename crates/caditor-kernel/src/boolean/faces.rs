@@ -4,17 +4,18 @@ use crate::{
     boolean::{
         BooleanError, FaceKey, Input, Operand,
         imprint::Arrangement,
-        trace::{Chart, Fragment, HalfEdge, fit_loop, group, trace},
+        trace::{Chart, Coedge, Fragment, HalfEdge, TracedLoop, fit_loop, group, snap_ends, trace},
     },
     interrupt,
     sense::Sense,
-    topology::{Face, Solid},
+    topology::{Face, Solid, continues, fit_pcurve, signed_area},
 };
 
 #[derive(Debug, Clone)]
 pub(super) struct SplitFace {
     pub key: FaceKey,
     pub fragments: Vec<Fragment>,
+    pub untouched: bool,
 }
 
 pub(super) fn split(
@@ -37,6 +38,15 @@ pub(super) fn split(
                 center,
             };
             let half_edges = half_edges(solid, arrangement, key, face)?;
+            let cut = half_edges.iter().any(|half_edge| half_edge.hint.is_none());
+            if !cut && let Some(fragment) = passed_through(solid, arrangement, key, face) {
+                split.push(SplitFace {
+                    key,
+                    fragments: vec![fragment],
+                    untouched: true,
+                });
+                continue;
+            }
             let loops = trace(arrangement, &chart, &half_edges)?
                 .into_iter()
                 .map(|members| fit_loop(arrangement, &chart, members))
@@ -44,10 +54,58 @@ pub(super) fn split(
             split.push(SplitFace {
                 key,
                 fragments: group(&chart, loops)?,
+                untouched: false,
             });
         }
     }
     Ok(split)
+}
+
+fn passed_through(
+    solid: &Solid,
+    arrangement: &Arrangement,
+    key: FaceKey,
+    face: &Face,
+) -> Option<Fragment> {
+    let surface = face.surface();
+    let mut loops = Vec::with_capacity(face.loops().len());
+    for loop_id in face.loops() {
+        let face_loop = solid.face_loop(*loop_id)?;
+        let mut coedges = Vec::with_capacity(face_loop.coedges().len());
+        for coedge_id in face_loop.coedges() {
+            let coedge = solid.coedge(*coedge_id)?;
+            let [piece] = arrangement.edge_pieces(key.operand, coedge.edge()) else {
+                return None;
+            };
+            let (representative, relation) = arrangement.representative(*piece);
+            let sense = coedge.sense().combined(relation);
+            let pcurve = if representative == *piece {
+                coedge.pcurve().clone()
+            } else {
+                let (curve, data) = arrangement.curve(representative)?;
+                let hint = Some(coedge.pcurve().start());
+                fit_pcurve(surface, curve, data.interval, sense, hint).ok()?
+            };
+            coedges.push(Coedge {
+                half_edge: HalfEdge::new(representative, sense, Some(pcurve.start())),
+                pcurve,
+            });
+        }
+        snap_ends(arrangement, surface, &mut coedges);
+        let count = coedges.len();
+        let closed = coedges.iter().enumerate().all(|(index, coedge)| {
+            coedges
+                .get((index + 1) % count)
+                .is_some_and(|next| continues(surface, coedge.pcurve.end(), next.pcurve.start()))
+        });
+        let mut traced = TracedLoop { coedges, area: 0.0 };
+        traced.area = signed_area(&traced.polygon());
+        if !closed || !traced.area.is_finite() || traced.area == 0.0 {
+            return None;
+        }
+        loops.push(traced);
+    }
+    Some(Fragment { loops })
 }
 
 fn half_edges(

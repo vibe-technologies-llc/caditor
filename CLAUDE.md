@@ -422,8 +422,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
       it; a branch piece is kept where its midpoint is strictly inside both faces, and an edge piece
       lying in the surface of a face of the other solid and inside it is a cut in that face. Pieces
       with the same end vertices and geometry are one edge, so an intersection along an existing
-      edge and coincident faces need no special case.
-    - Each face is traced into loops from its boundary pieces (hinted by the original pcurves) and
+      edge and coincident faces need no special case. Edge–face and face–face candidates come
+      from a tree of face boxes (`box_tree.rs`, also used by `Solid::find_crossing`).
+    - A face with no cuts whose edges are all unsplit passes through with its own loops and
+      pcurves (refitted only on an edge merged with one of the other solid). Otherwise it is
+      traced into loops from its boundary pieces (hinted by the original pcurves) and
       its cuts (both ways, dangling ones pruned): at each vertex the next edge is the first one
       clockwise from the arriving one about the outward normal (at a pole, the mean normal of a ring
       around it, so rulings through a cone apex are ordered by azimuth), with ties and cusps decided
@@ -433,7 +436,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
       not on that loop.
     - Each fragment is classified against the other solid at up to three interior points (inside
       or outside wins over coincident or touching; inside and outside together is `Ambiguous`) and
-      kept by the operation. Of coincident faces only the first solid's fragment can stay: with
+      kept by the operation. Faces that passed through share one class across unsplit edges that
+      no cut or other piece shares, and one whose box misses the other solid's is outside. Of coincident faces only the first solid's fragment can stay: with
       the same orientation for union and intersection, the opposite one for difference. A
       difference reverses the second solid's fragments it keeps. Every edge of the result then has
       one use each way, else `Open`, or `NonManifold` when solids would meet only along an edge.
