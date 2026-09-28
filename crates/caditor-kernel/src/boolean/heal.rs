@@ -225,29 +225,75 @@ fn face_users(uses: &Uses, piece: usize) -> Vec<usize> {
         .map(|list| list.iter().map(|(face, _)| *face).collect())
         .unwrap_or_default();
     users.sort_unstable();
+    users.dedup();
     users
 }
 
+struct Joints {
+    around: BTreeMap<usize, BTreeSet<usize>>,
+    candidates: BTreeSet<usize>,
+    uses: Uses,
+}
+
+impl Joints {
+    fn new(arrangement: &Arrangement, faces: &[KeptFace]) -> Self {
+        let around = incidence(arrangement, faces);
+        let candidates = around
+            .iter()
+            .filter(|(_, pieces)| pieces.len() == 2)
+            .map(|(vertex, _)| *vertex)
+            .collect();
+        Self {
+            around,
+            candidates,
+            uses: uses(faces),
+        }
+    }
+
+    fn next(&mut self) -> Option<(usize, usize, usize)> {
+        let vertex = self.candidates.pop_first()?;
+        let mut pieces = self.around.get(&vertex)?.iter().copied();
+        Some((vertex, pieces.next()?, pieces.next()?))
+    }
+
+    fn joined(&mut self, arrangement: &Arrangement, joint: &Joint) {
+        self.around.remove(&joint.vertex);
+        let replaced: Vec<usize> = joint
+            .pieces
+            .iter()
+            .filter_map(|piece| arrangement.piece(*piece))
+            .flat_map(|piece| [piece.start, piece.end])
+            .filter(|vertex| *vertex != joint.vertex)
+            .collect();
+        for vertex in replaced {
+            let Some(pieces) = self.around.get_mut(&vertex) else {
+                continue;
+            };
+            for piece in joint.pieces {
+                pieces.remove(&piece);
+            }
+            pieces.insert(joint.merged);
+            if pieces.len() == 2 {
+                self.candidates.insert(vertex);
+            } else {
+                self.candidates.remove(&vertex);
+            }
+        }
+        let [first, second] = joint.pieces;
+        let inherited = self.uses.remove(&first).unwrap_or_default();
+        self.uses.remove(&second);
+        self.uses.insert(joint.merged, inherited);
+    }
+}
+
 fn heal_edges(arrangement: &mut Arrangement, faces: &mut [KeptFace]) -> Result<(), BooleanError> {
-    let mut refused: BTreeSet<usize> = BTreeSet::new();
-    loop {
-        let face_uses = uses(faces);
-        let candidate = incidence(arrangement, faces)
-            .into_iter()
-            .filter(|(vertex, _)| !refused.contains(vertex))
-            .find_map(|(vertex, pieces)| {
-                let [first, second] =
-                    <[usize; 2]>::try_from(pieces.into_iter().collect::<Vec<usize>>()).ok()?;
-                Some((vertex, first, second))
-            });
-        let Some((vertex, first, second)) = candidate else {
-            return Ok(());
-        };
-        let joined = (face_users(&face_uses, first) == face_users(&face_uses, second))
+    let mut joints = Joints::new(arrangement, faces);
+    while let Some((vertex, first, second)) = joints.next() {
+        let users = face_users(&joints.uses, first);
+        let joined = (users == face_users(&joints.uses, second))
             .then(|| join(arrangement, vertex, first, second))
             .flatten();
         let Some(piece) = joined else {
-            refused.insert(vertex);
             continue;
         };
         let merged = arrangement.add_piece(piece);
@@ -256,7 +302,10 @@ fn heal_edges(arrangement: &mut Arrangement, faces: &mut [KeptFace]) -> Result<(
             pieces: [first, second],
             merged,
         };
-        for face in faces.iter_mut() {
+        for index in &users {
+            let Some(face) = faces.get_mut(*index) else {
+                continue;
+            };
             for traced in &mut face.fragment.loops {
                 let mut replaced = false;
                 while replace_pair(arrangement, &face.surface, traced, &joint)? {
@@ -267,7 +316,9 @@ fn heal_edges(arrangement: &mut Arrangement, faces: &mut [KeptFace]) -> Result<(
                 }
             }
         }
+        joints.joined(arrangement, &joint);
     }
+    Ok(())
 }
 
 struct Joint {
