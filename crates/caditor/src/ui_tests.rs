@@ -3292,3 +3292,31 @@ fn recent_models_notices_and_recompute_are_commands() {
     harness.settle();
     assert_eq!(harness.model.status(), RecomputeStatus::UpToDate);
 }
+
+#[test]
+fn dialogs_fit_the_screen_at_the_largest_interface_size() {
+    let mut harness = Harness::new();
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Scale(2.0),
+    )));
+    harness.frame();
+    harness.perform(Action::Preferences(PreferencesCommand::ShowShortcuts));
+    harness.frame();
+    harness.show_new_windows();
+    let visible = SCREEN.size() / 2.0;
+    for label in ["Close", "Reset all shortcuts", "Keyboard Shortcuts"] {
+        let rect = harness
+            .texts
+            .iter()
+            .find(|(shown, _)| shown == label)
+            .unwrap_or_else(|| panic!("{label} is not on screen"))
+            .1;
+        assert!(
+            rect.min.x >= 0.0
+                && rect.min.y >= 0.0
+                && rect.max.x <= visible.x
+                && rect.max.y <= visible.y,
+            "{label} at {rect:?}"
+        );
+    }
+}

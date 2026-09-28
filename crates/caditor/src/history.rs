@@ -149,8 +149,8 @@ fn versions(
     }
     let mut command = None;
     egui::ScrollArea::vertical()
-        .max_height(LIST_HEIGHT)
-        .min_scrolled_height(LIST_HEIGHT)
+        .max_height(widgets::list_height(ui.ctx(), LIST_HEIGHT))
+        .min_scrolled_height(widgets::list_height(ui.ctx(), LIST_HEIGHT))
         .show(ui, |ui| {
             for version in &listed.versions {
                 ui.separator();

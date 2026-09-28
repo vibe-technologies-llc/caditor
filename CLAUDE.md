@@ -697,26 +697,26 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   navigation, hover and selection (`viewport.rs`), the view cube (`view_cube.rs`) and the
   conversion of documents and results to a `Scene` (`scene.rs`). Selectable things are
   `Pickable` values built from stable IDs.
-  - Look (`fonts.rs`, `appearance.rs`, `icons.rs`, `widgets.rs`): the interface is set in Inter
-    (the variable font in `assets/fonts`, OFL, registered at weights 400, 500 and 600 through
-    its `wght` axis as the proportional, `medium` and `semibold` families) with Phosphor icons
-    (`egui-phosphor`) in their own `icons` family, since Inter's private-use glyphs would
-    otherwise shadow them. The fonts are installed on the first frame, which draws nothing, and
-    the style is applied from the next. `appearance.rs` holds the theme as `Tokens` (surfaces,
-    text, a blue accent, error, warning and success with tinted backgrounds) for dark, light
-    and both high-contrast variants, builds each egui `Style` from them (Inter text styles plus
-    a `section` style, spacing, radii, shadows), and tests every text pairing against its
-    background. Panels read colours from `appearance::tokens(ui)` or the visuals, never fixed
-    values, and take their icons from `icons.rs` (one per command, tool, constraint and
-    feature kind). `widgets.rs` is the shared kit every panel and dialog is built from:
-    `ToolButton` (icon above label), `section`, `properties`/`property`/`error_row`, `card`,
-    `callout` and `pill` with a `Tone`, `icon_button`, `small_button`, `primary_button`,
-    `menu_item`, `link_label`, `choose_in_view`, and `dialog`/`footer` (a titled modal with a
-    close button and the primary action rightmost). Icons and labels are separate text atoms,
-    so tests find a button by its bare label. The 3D view keeps a dark canvas in every theme, so
-    text drawn on it takes its colours from `canvas.rs` and sits on its translucent backdrop
-    (`canvas::label`); a test holds every canvas colour to 4.5:1 (body text 7:1) over that
-    backdrop on black, white and highlight colours.
+  - Look (`fonts.rs`, `appearance.rs`, `icons.rs`, `widgets.rs`): the interface is set in Inter (the
+    variable font in `assets/fonts`, OFL, registered at weights 400, 500 and 600 through its `wght`
+    axis as the proportional, `medium` and `semibold` families) with Phosphor icons
+    (`egui-phosphor`) in their own `icons` family, since Inter's private-use glyphs would otherwise
+    shadow them. The fonts are installed on the first frame, which draws nothing, and the style is
+    applied from the next. `appearance.rs` holds the theme as `Tokens` (surfaces, text, a blue
+    accent, error, warning and success with tinted backgrounds) for dark, light and both
+    high-contrast variants, builds each egui `Style` from them (Inter text styles plus a `section`
+    style, spacing, radii, shadows), and tests every text pairing against its background. Panels
+    read colours from `appearance::tokens(ui)` or the visuals, never fixed values, and take their
+    icons from `icons.rs` (one per command, tool, constraint and feature kind). `widgets.rs` is the
+    shared kit every panel and dialog is built from: `ToolButton` (icon above label), `section`,
+    `properties`/`property`/`error_row`, `card`, `callout` and `pill` with a `Tone`, `icon_button`,
+    `small_button`, `primary_button`, `menu_item`, `link_label`, `choose_in_view`, and
+    `dialog`/`footer` (a titled modal with a close button and the primary action rightmost); dialog
+    widths and list heights are clamped to the screen (`fitting_width`, `list_height`) so nothing
+    clips at 200%. Icons and labels are separate text atoms, so tests find a button by its bare
+    label. The 3D view keeps a dark canvas in every theme, so text drawn on it takes its colours
+    from `canvas.rs` and sits on its translucent backdrop (`canvas::label`); a test holds every
+    canvas colour to 4.5:1 (body text 7:1) over that backdrop on black, white and highlight colours.
   - Layout: the menu bar holds File, Edit, View, Model, Sketch and Help, built from the
     commands with their icons and shortcuts; items trigger their command and are enabled from
     the previous frame's offers (`Workspace::last_offers`), with the reason on hover. Its right

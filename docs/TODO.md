@@ -167,8 +167,6 @@ within a category run from most to least important.
 
 ## Keyboard, accessibility and look
 
-- Fixed-size dialogs and lists clip at 200% on 1080p (`widgets.rs`, `shortcut_editor.rs`,
-  `palette.rs`, `history.rs`). Clamp to the content rect.
 - Several actions fail without a word: New sketch on an unusable face, a datum that fails its
   check, fillet or shell with nothing usable, clicking a curved face while choosing a plane.
 - The Plane tool silently falls back to XY when a selected face cannot be captured, and a face

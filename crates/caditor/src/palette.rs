@@ -104,7 +104,7 @@ impl Palette {
         let area = Modal::default_area(id).anchor(Align2::CENTER_TOP, vec2(0.0, TOP_MARGIN));
         let frame = widgets::dialog_frame(ctx).inner_margin(Margin::same(FRAME_MARGIN));
         let response = Modal::new(id).area(area).frame(frame).show(ctx, |ui| {
-            ui.set_width(WIDTH);
+            ui.set_width(widgets::fitting_width(ui.ctx(), WIDTH));
             let field = ui
                 .horizontal(|ui| {
                     let muted = appearance::tokens(ui).text_muted;
@@ -138,8 +138,8 @@ impl Palette {
                 ));
             }
             ScrollArea::vertical()
-                .max_height(LIST_HEIGHT)
-                .min_scrolled_height(LIST_HEIGHT)
+                .max_height(widgets::list_height(ui.ctx(), LIST_HEIGHT))
+                .min_scrolled_height(widgets::list_height(ui.ctx(), LIST_HEIGHT))
                 .show(ui, |ui| {
                     let muted = appearance::tokens(ui).text_muted;
                     for (index, entry) in entries.iter().enumerate() {

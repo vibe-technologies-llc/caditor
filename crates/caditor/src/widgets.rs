@@ -9,6 +9,10 @@ use crate::{
     fonts, icons,
 };
 
+const DIALOG_EDGE: f32 = 8.0;
+const MIN_DIALOG_WIDTH: f32 = 240.0;
+const LIST_SCREEN_SHARE: f32 = 0.4;
+const MIN_LIST_HEIGHT: f32 = 96.0;
 pub const FIELD_WIDTH: f32 = 120.0;
 pub const NAME_FIELD_WIDTH: f32 = 180.0;
 const PROPERTY_SPACING: [f32; 2] = [12.0, 8.0];
@@ -436,7 +440,7 @@ pub fn dialog<T>(
     let response = Modal::new(Id::new(id))
         .frame(dialog_frame(ctx))
         .show(ctx, |ui| {
-            ui.set_width(width.points());
+            ui.set_width(fitting_width(ctx, width.points()));
             Sides::new().show(
                 ui,
                 |ui| ui.heading(title),
@@ -450,6 +454,17 @@ pub fn dialog<T>(
         inner: response.inner,
         close,
     }
+}
+
+pub fn fitting_width(ctx: &egui::Context, wanted: f32) -> f32 {
+    let room = ctx.content_rect().width() - 2.0 * (DIALOG_EDGE + f32::from(DIALOG_MARGIN));
+    wanted.min(room).max(MIN_DIALOG_WIDTH)
+}
+
+pub fn list_height(ctx: &egui::Context, wanted: f32) -> f32 {
+    wanted
+        .min(ctx.content_rect().height() * LIST_SCREEN_SHARE)
+        .max(MIN_LIST_HEIGHT)
 }
 
 pub fn dialog_frame(ctx: &egui::Context) -> Frame {

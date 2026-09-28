@@ -1456,8 +1456,8 @@ fn show_report(ctx: &egui::Context, report: &Report) -> Option<FileCommand> {
                 ui.label(intro);
             }
             egui::ScrollArea::vertical()
-                .max_height(REPORT_HEIGHT)
-                .min_scrolled_height(REPORT_HEIGHT)
+                .max_height(widgets::list_height(ui.ctx(), REPORT_HEIGHT))
+                .min_scrolled_height(widgets::list_height(ui.ctx(), REPORT_HEIGHT))
                 .show(ui, |ui| {
                     for issue in &report.issues {
                         widgets::callout(ui, Tone::Info, |ui| {

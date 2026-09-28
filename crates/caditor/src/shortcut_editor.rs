@@ -132,8 +132,8 @@ pub fn dialog(
                 filter.request_focus();
             }
             ScrollArea::vertical()
-                .max_height(LIST_HEIGHT)
-                .min_scrolled_height(LIST_HEIGHT)
+                .max_height(widgets::list_height(ui.ctx(), LIST_HEIGHT))
+                .min_scrolled_height(widgets::list_height(ui.ctx(), LIST_HEIGHT))
                 .show(ui, |ui| list(ui, editor, keymap, &mut command));
             widgets::footer(ui, |ui| {
                 if ui.add(widgets::primary_button(ui, "Close")).clicked() {
