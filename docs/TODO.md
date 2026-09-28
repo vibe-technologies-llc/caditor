@@ -27,8 +27,8 @@ within a category run from most to least important.
 
 ## Sketch solver
 
-- No drag or incremental solve: every edit re-solves and re-analyses the whole sketch, and there
-  is no way to solve towards a dragged point. Needed for dragging geometry in the viewport.
+- No incremental solve: every edit re-solves and re-analyses the whole sketch. Solve only the
+  parts an edit touches, which dragging in the viewport will need at interactive rates.
 - Untested: branch keeping under perturbation.
 
 ## Expressions and units

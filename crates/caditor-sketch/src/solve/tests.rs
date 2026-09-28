@@ -868,3 +868,95 @@ fn a_conflict_at_the_end_of_a_long_chain_is_found_quickly() {
     assert!(constraints.contains(&vertical));
     assert!(constraints.len() <= 3, "{constraints:?}");
 }
+
+fn drag(sketch: &Sketch, drags: &[crate::Drag]) -> Solved {
+    sketch
+        .solve_dragging(&no_parameters, &|| false, drags)
+        .unwrap()
+}
+
+#[test]
+fn a_dragged_point_goes_where_its_constraints_let_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let free = sketch.add_point(Point2::new(1.0, 1.0));
+    let solved = drag(
+        &sketch,
+        &[crate::Drag {
+            point: free,
+            to: Point2::new(4.0, -2.0),
+        }],
+    );
+    assert_near(at(&solved, free), Point2::new(4.0, -2.0));
+
+    let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+    let (start, end) = ends(&sketch, line);
+    add(&mut sketch, Constraint::Coincident(start, EntityId::ORIGIN));
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: start,
+            to: end,
+            value: mm(10.0),
+        },
+    );
+    let solved = drag(
+        &sketch,
+        &[crate::Drag {
+            point: end,
+            to: Point2::new(3.0, 4.0),
+        }],
+    );
+    assert_near(at(&solved, start), Point2::ZERO);
+    assert_near(at(&solved, end), Point2::new(6.0, 8.0));
+}
+
+#[test]
+fn dragging_a_corner_of_a_free_rectangle_moves_the_rest_with_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let corners = [
+        Point2::ZERO,
+        Point2::new(4.0, 0.0),
+        Point2::new(4.0, 2.0),
+        Point2::new(0.0, 2.0),
+    ];
+    let lines: Vec<EntityId> = (0..4)
+        .map(|index| sketch.add_line(corners[index], corners[(index + 1) % 4]))
+        .collect();
+    for index in 0..4 {
+        let (_, end) = ends(&sketch, lines[index]);
+        let (next_start, _) = ends(&sketch, lines[(index + 1) % 4]);
+        add(&mut sketch, Constraint::Coincident(end, next_start));
+    }
+    add(&mut sketch, Constraint::Horizontal(lines[0]));
+    add(&mut sketch, Constraint::Vertical(lines[1]));
+    add(&mut sketch, Constraint::Horizontal(lines[2]));
+    add(&mut sketch, Constraint::Vertical(lines[3]));
+    let (first, second) = ends(&sketch, lines[0]);
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: first,
+            to: second,
+            value: mm(4.0),
+        },
+    );
+    let (side_start, side_end) = ends(&sketch, lines[1]);
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: side_start,
+            to: side_end,
+            value: mm(2.0),
+        },
+    );
+    let solved = drag(
+        &sketch,
+        &[crate::Drag {
+            point: first,
+            to: Point2::new(3.0, 2.0),
+        }],
+    );
+    assert_near(at(&solved, first), Point2::new(3.0, 2.0));
+    let (_, far) = solved.geometry.line_endpoints(lines[1]).unwrap();
+    assert_near(far, Point2::new(7.0, 4.0));
+}

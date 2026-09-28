@@ -144,7 +144,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - `solve` evaluates the dimensions, then runs damped Gauss–Newton with minimal-norm steps on
     each independent part of the system (SVD from `nalgebra` for parts of up to 48 variables;
     above that CGLS from zero on the sparse Jacobian, which converges to the same minimal-norm
-    step, and the analysis uses sparse forward elimination, `sparse.rs`), so geometry that already
+    step, and the analysis uses sparse forward elimination, `sparse.rs`). `solve_dragging` starts
+    from dragged points placed at their targets and first holds them there while everything
+    else solves; when that cannot work they only weigh a hundred times more than free geometry,
+    so they end as near their targets as the constraints allow, so geometry that already
     satisfies its constraints does not move and under-constrained geometry moves as little as
     possible. Every equation has an analytic gradient; two-branch equations (tangent side,
     signed distance) take their branch from the starting geometry, so a solve never flips,

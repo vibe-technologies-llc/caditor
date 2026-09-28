@@ -23,6 +23,8 @@ const RANK_TOLERANCE: f64 = 1e-8;
 const NULL_SPACE_TOLERANCE: f64 = 1e-10;
 const DUPLICATE_TOLERANCE: f64 = 1e-6;
 const DENSE_LIMIT: usize = 48;
+pub(crate) const FROZEN: f64 = 0.0;
+pub(crate) const STIFF: f64 = 1e-2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Cancelled;
@@ -107,6 +109,8 @@ fn union(parents: &mut BTreeMap<usize, usize>, a: usize, b: usize) {
 pub(crate) struct Solver<'a> {
     pub system: &'a System,
     pub cancelled: &'a dyn Fn() -> bool,
+    pub stiff: &'a BTreeSet<usize>,
+    pub stiffness: f64,
 }
 
 impl Solver<'_> {
@@ -246,16 +250,49 @@ impl Solver<'_> {
             if self.converged(component, values) {
                 return Ok(true);
             }
+            let scales: Vec<f64> = component
+                .variables
+                .iter()
+                .map(|variable| {
+                    if self.stiff.contains(variable) {
+                        self.stiffness
+                    } else {
+                        1.0
+                    }
+                })
+                .collect();
             let step = if component.variables.len() > DENSE_LIMIT {
                 let (rows, residuals) = self.sparse_linearize(component, values);
+                let rows: Vec<sparse::Row> = rows
+                    .into_iter()
+                    .map(|row| {
+                        row.into_iter()
+                            .map(|(column, value)| {
+                                (column, value * scales.get(column).copied().unwrap_or(1.0))
+                            })
+                            .collect()
+                    })
+                    .collect();
                 sparse::minimal_norm_step(&rows, &residuals, component.variables.len())
             } else {
                 let (rows, residuals) = self.linearize(component, values);
+                let rows: Vec<Vec<f64>> = rows
+                    .into_iter()
+                    .map(|row| {
+                        row.iter()
+                            .zip(&scales)
+                            .map(|(value, scale)| value * scale)
+                            .collect()
+                    })
+                    .collect();
                 minimal_norm_step(&rows, &residuals, component.variables.len())
             };
             let Some(mut step) = step else {
                 return Ok(false);
             };
+            step.iter_mut()
+                .zip(&scales)
+                .for_each(|(delta, scale)| *delta *= scale);
             let length = step.iter().map(|delta| delta * delta).sum::<f64>().sqrt();
             if length > MAX_STEP * scale {
                 let shrink = MAX_STEP * scale / length;

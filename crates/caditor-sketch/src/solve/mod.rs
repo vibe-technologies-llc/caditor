@@ -16,7 +16,7 @@ use crate::{
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{
         equation::value,
-        numeric::{Analysis, Cancelled, Component, Solver},
+        numeric::{Analysis, Cancelled, Component, FROZEN, STIFF, Solver},
         system::System,
     },
 };
@@ -94,6 +94,12 @@ impl SketchSolution {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Drag {
+    pub point: EntityId,
+    pub to: Point2,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Solved {
     pub geometry: Sketch,
@@ -115,17 +121,53 @@ impl Sketch {
     where
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
+        self.solve_dragging(value_of, cancelled, &[])
+    }
+
+    pub fn solve_dragging<F>(
+        &self,
+        value_of: &F,
+        cancelled: &dyn Fn() -> bool,
+        drags: &[Drag],
+    ) -> Result<Solved, SketchError>
+    where
+        F: Fn(ParameterId) -> Result<Quantity, EvalError>,
+    {
         let dimensions = self.evaluate(value_of)?;
-        let system = System::build(self, &dimensions)?;
-        let solver = Solver {
+        let mut system = System::build(self, &dimensions)?;
+        let mut stiff = BTreeSet::new();
+        for drag in drags {
+            let Some(&x) = system.points.get(&drag.point) else {
+                continue;
+            };
+            for (variable, target) in [(x, drag.to.x), (x + 1, drag.to.y)] {
+                if let Some(slot) = system.values.get_mut(variable)
+                    && target.is_finite()
+                {
+                    *slot = target;
+                    stiff.insert(variable);
+                }
+            }
+        }
+        let every_equation: Vec<usize> = (0..system.equations.len()).collect();
+        let frozen = Solver {
             system: &system,
             cancelled,
+            stiff: &stiff,
+            stiffness: FROZEN,
         };
-        let every_equation: Vec<usize> = (0..system.equations.len()).collect();
         let mut values = system.values.clone();
-        let failed = solver.solve(&every_equation, &mut values)?;
-        if !failed.is_empty() {
-            return Err(diagnose_failure(&solver, &failed)?);
+        let held = !stiff.is_empty() && frozen.solve(&every_equation, &mut values)?.is_empty();
+        let solver = Solver {
+            stiffness: STIFF,
+            ..frozen
+        };
+        if !held {
+            values = system.values.clone();
+            let failed = solver.solve(&every_equation, &mut values)?;
+            if !failed.is_empty() {
+                return Err(diagnose_failure(&solver, &failed)?);
+            }
         }
         let analysis = solver.analyze(&every_equation, &values);
         Ok(Solved {
