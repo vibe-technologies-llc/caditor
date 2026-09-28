@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=caditor
+GenericName=Parametric CAD
+Comment=Design parts from constrained sketches and editable features
+Exec=caditor %f
+TryExec=caditor
+Icon=caditor
+Terminal=false
+Categories=Graphics;3DGraphics;Engineering;
+Keywords=CAD;parametric;sketch;3D;model;STEP;STL;3MF;DXF;
+MimeType=application/x-caditor;
+StartupNotify=true
+StartupWMClass=caditor
+SingleMainWindow=false

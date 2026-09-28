@@ -227,3 +227,21 @@ fn files_that_are_not_models_are_refused() {
     assert_eq!(decode(&MODEL_MAGIC[..5]), Err(crate::LoadError::NotAModel));
     assert_eq!(decode(&JOURNAL_MAGIC), Err(crate::LoadError::NotAModel));
 }
+
+#[test]
+fn the_packaged_mime_type_matches_models_by_magic_and_extension() {
+    let mime = include_str!("../../../../packaging/caditor-mime.xml");
+    let escaped: String = MODEL_MAGIC
+        .iter()
+        .map(|&byte| match byte {
+            b'\r' => "\\r".to_owned(),
+            b'\n' => "\\n".to_owned(),
+            0x21..=0x7e => char::from(byte).to_string(),
+            _ => format!("\\x{byte:02x}"),
+        })
+        .collect();
+    assert!(mime.contains(&format!(
+        "<match type=\"string\" offset=\"0\" value=\"{escaped}\"/>"
+    )));
+    assert!(mime.contains(&format!("<glob pattern=\"*.{}\"/>", crate::FILE_EXTENSION)));
+}

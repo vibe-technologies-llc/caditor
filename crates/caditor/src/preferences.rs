@@ -135,6 +135,8 @@ pub enum PreferencesCommand {
     HideShortcuts,
     ShowWelcome,
     CloseWelcome,
+    ShowAbout,
+    CloseAbout,
     Change(PreferenceChange),
 }
 

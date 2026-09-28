@@ -76,6 +76,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ActivateHighlighted => phosphor::CURSOR_CLICK,
         Command::OpenSample(_) => SAMPLE,
         Command::Welcome => phosphor::HAND_WAVING,
+        Command::About => phosphor::INFO,
     }
 }
 

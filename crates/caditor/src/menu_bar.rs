@@ -182,6 +182,7 @@ impl Menus<'_, '_> {
                     Command::Welcome,
                     Command::Palette,
                     Command::KeyboardShortcuts,
+                    Command::About,
                 ],
             );
         });

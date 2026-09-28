@@ -2962,6 +2962,23 @@ fn a_first_run_welcomes_opens_a_sample_and_offers_tips_until_they_are_hidden() {
     assert!(!harness.shows("Welcome to caditor"));
 }
 
+#[test]
+fn about_shows_the_version_from_the_help_menu_and_the_palette() {
+    let mut harness = Harness::new();
+    harness.click("Help");
+    harness.click("About caditor");
+    assert!(harness.workspace.about_open);
+    assert!(harness.shows(crate::about::VERSION));
+    harness.click("Close");
+    assert!(!harness.workspace.about_open);
+
+    run_from_palette(&mut harness, "about");
+    assert!(harness.workspace.about_open);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(!harness.workspace.about_open);
+}
+
 fn sample_document() -> anyhow::Result<Document> {
     let mut document = Document::default();
     let mut transaction = document.transaction("Sample model");

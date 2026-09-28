@@ -19,6 +19,7 @@ cargo test -p <crate> <test_name>
 cargo clippy --workspace --all-targets -- -D warnings
 rust-formatter
 rust-formatter --check
+packaging/build-release.sh --snapshot
 ```
 
 `rust-formatter` formats both `.rs` and `.toml` files. It replaces `cargo fmt` and `rustfmt`
@@ -695,6 +696,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     and the palette. Got it dismisses one (`onboarding.dismissed_hints`, unknown ids kept), Hide
     tips turns them off (`onboarding.hints`), and Preferences turns them back on or restores the
     dismissed ones.
+  - About and the command line (`about.rs`, `cli.rs`): Help › About caditor shows the version
+    and licences. `caditor [MODEL]` opens one model; `--version` and `--help` print and exit, and
+    unknown options or several paths are refused. The window's Wayland app ID and X11 class are
+    `about::APP_ID` (`caditor`), which must match the desktop entry's name.
   - Export (`export.rs`): File › Export… (Ctrl+E) opens a dialog with the format (STL, 3MF or
     STEP), for meshes the resolution (showing the resulting deviation in millimetres) and a
     checkbox per body, all on by default.
@@ -834,6 +839,15 @@ Entities, constraints, parameters and features are referred to by stable IDs (`E
 reused, never positional, and survive the removal of anything else. Anything that references
 model geometry must keep this property, because positional naming is the root of FreeCAD's
 topological naming failures.
+
+## Releases
+
+caditor ships as plain release binaries: a `.tar.zst` per release with an installer, built on
+Ubuntu 22.04 by `.github/workflows/release.yml` when a `v<version>` tag is pushed, and published
+as a GitHub release. `packaging/` holds the desktop entry, icon, metainfo, MIME type, installer,
+the cargo-about licence template and `build-release.sh`; `docs/RELEASING.md` explains the choice
+and the release steps. `CHANGELOG.md` lists every release: a change users notice adds a line
+under `## [Unreleased]` in the same commit, written for users.
 
 ## Roadmap
 

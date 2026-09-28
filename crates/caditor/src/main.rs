@@ -1,3 +1,4 @@
+mod about;
 mod annotation_layout;
 mod annotations;
 mod app;
@@ -5,6 +6,7 @@ mod appearance;
 mod blend_panel;
 mod blend_tools;
 mod bodies;
+mod cli;
 mod commands;
 mod datum_panel;
 mod datum_tools;
@@ -49,15 +51,16 @@ mod view_cube;
 mod viewport;
 mod widgets;
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use caditor_document::Document;
 use caditor_file::StorageConfig;
 use winit::event_loop::EventLoop;
 
 use crate::{
     app::{App, AppEvent},
+    cli::Invocation,
     files::{Files, FilesConfig, NativeDialogs},
     model::{Model, PanicFlush, Services},
     preferences::Preferences,
@@ -66,6 +69,18 @@ use crate::{
 const PANIC_FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn main() -> Result<()> {
+    let open = match Invocation::parse(std::env::args_os().skip(1)) {
+        Invocation::Run { open } => open,
+        Invocation::Version => {
+            println!("{}", about::version_line());
+            return Ok(());
+        }
+        Invocation::Help => {
+            print!("{}", cli::usage());
+            return Ok(());
+        }
+        Invocation::Refused(reason) => bail!(reason),
+    };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let panic_flush = PanicFlush::default();
     install_panic_hook(Arc::clone(&panic_flush));
@@ -103,7 +118,6 @@ fn main() -> Result<()> {
             .map(caditor_file::Settings::load)
             .unwrap_or_default(),
     );
-    let open = std::env::args_os().nth(1).map(PathBuf::from);
     let mut app = App::new(model, files, preferences, open);
     event_loop.run_app(&mut app)?;
     app.finish()

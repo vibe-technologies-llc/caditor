@@ -61,6 +61,7 @@ pub enum Command {
     ActivateHighlighted,
     OpenSample(Sample),
     Welcome,
+    About,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -241,7 +242,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 31] = [
+const PLAIN_COMMANDS: [Command; 32] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -253,6 +254,7 @@ const PLAIN_COMMANDS: [Command; 31] = [
     Command::Preferences,
     Command::KeyboardShortcuts,
     Command::Welcome,
+    Command::About,
     Command::Quit,
     Command::Undo,
     Command::Redo,
@@ -355,6 +357,7 @@ impl Command {
                 Sample::Bracket => "file.sample.bracket",
             },
             Self::Welcome => "help.welcome",
+            Self::About => "help.about",
         }
     }
 
@@ -398,6 +401,7 @@ impl Command {
             Self::ActivateHighlighted => "Select the highlighted item",
             Self::OpenSample(sample) => return format!("Open the {} sample", sample.title()),
             Self::Welcome => "Welcome and samples…",
+            Self::About => "About caditor",
         };
         fixed.to_owned()
     }
@@ -415,7 +419,7 @@ impl Command {
             | Self::KeyboardShortcuts
             | Self::Quit
             | Self::OpenSample(_) => Category::File,
-            Self::Welcome => Category::Help,
+            Self::Welcome | Self::About => Category::Help,
             Self::Palette | Self::Undo | Self::Redo => Category::Edit,
             Self::FitView
             | Self::LargerInterface
@@ -492,7 +496,8 @@ impl Command {
             | Self::DatumPlane
             | Self::DatumAxis
             | Self::OpenSample(_)
-            | Self::Welcome => Vec::new(),
+            | Self::Welcome
+            | Self::About => Vec::new(),
         }
     }
 

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-caditor">
+    <comment>caditor model</comment>
+    <icon name="caditor"/>
+    <glob pattern="*.caditor"/>
+    <magic priority="80">
+      <match type="string" offset="0" value="\x89CAD\r\n\x1a\n"/>
+    </magic>
+  </mime-type>
+</mime-info>

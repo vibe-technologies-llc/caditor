@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>caditor</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <name>caditor</name>
+  <summary>Parametric CAD for Linux</summary>
+  <description>
+    <p>
+      caditor designs parts from constrained 2D sketches and features that stay editable:
+      change a dimension or an early sketch and everything after it follows.
+    </p>
+    <ul>
+      <li>Sketches with a constraint solver that shows how much can still move</li>
+      <li>Extrude, revolve, fillet, chamfer, shell, datum planes and axes</li>
+      <li>References to faces and edges that survive upstream edits</li>
+      <li>Parameters and unit-aware expressions in every field</li>
+      <li>Undo for every change, a crash-recovery journal and version history inside each file</li>
+      <li>DXF and STEP import; STEP, STL and 3MF export</li>
+      <li>A command palette, customisable shortcuts and full keyboard operation</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">caditor.desktop</launchable>
+  <provides>
+    <binary>caditor</binary>
+    <mediatype>application/x-caditor</mediatype>
+  </provides>
+  <categories>
+    <category>Graphics</category>
+    <category>3DGraphics</category>
+    <category>Engineering</category>
+  </categories>
+  <keywords>
+    <keyword>CAD</keyword>
+    <keyword>parametric</keyword>
+    <keyword>sketch</keyword>
+    <keyword>STEP</keyword>
+  </keywords>
+  <requires>
+    <display_length compare="ge">1024</display_length>
+  </requires>
+  <recommends>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </recommends>
+  <content_rating type="oars-1.1"/>
+  <releases/>
+</component>

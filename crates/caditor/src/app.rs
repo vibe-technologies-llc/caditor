@@ -7,10 +7,12 @@ use winit::{
     dpi::PhysicalSize,
     event::{StartCause, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy},
-    window::{Window, WindowId},
+    platform::{wayland::WindowAttributesExtWayland, x11::WindowAttributesExtX11},
+    window::{Window, WindowAttributes, WindowId},
 };
 
 use crate::{
+    about,
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     commands::{self, Command, CommandFrame, Offer, Situation},
     editing::SketchEditing,
@@ -30,8 +32,6 @@ use crate::{
     viewport::ViewportState,
 };
 
-const APPLICATION_NAME: &str = "caditor";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppEvent {
     Wake,
@@ -50,7 +50,7 @@ pub fn waker_factory(proxy: EventLoopProxy<AppEvent>) -> WakerFactory {
 
 pub fn window_title(model: &Model) -> String {
     let marker = if model.is_dirty() { "*" } else { "" };
-    format!("{marker}{} — {APPLICATION_NAME}", model.display_name())
+    format!("{marker}{} — {}", model.display_name(), about::NAME)
 }
 
 pub struct Workspace {
@@ -62,6 +62,7 @@ pub struct Workspace {
     pub palette: Palette,
     pub shortcut_editor: Option<ShortcutEditor>,
     pub welcome_open: bool,
+    pub about_open: bool,
     last_offers: Vec<Offer>,
     applied_appearance: Option<Appearance>,
     keyboard_was_taken: bool,
@@ -88,6 +89,7 @@ impl Workspace {
             palette: Palette::default(),
             shortcut_editor: None,
             welcome_open,
+            about_open: false,
             last_offers: Vec::new(),
             applied_appearance: None,
             keyboard_was_taken: false,
@@ -116,6 +118,8 @@ impl Workspace {
                     files.store_settings(self.preferences.settings());
                 }
             }
+            PreferencesCommand::ShowAbout => self.about_open = true,
+            PreferencesCommand::CloseAbout => self.about_open = false,
             PreferencesCommand::Change(change) => {
                 self.preferences.apply(change);
                 model.set_length_unit(self.preferences.unit);
@@ -143,7 +147,8 @@ pub fn show(
     let dialog_open = workspace.preferences_open
         || workspace.palette.is_open()
         || workspace.shortcut_editor.is_some()
-        || workspace.welcome_open;
+        || workspace.welcome_open
+        || workspace.about_open;
     let blocked = files.is_blocking() || dialog_open;
     let keys_free = !keyboard_taken && !blocked;
     let Workspace {
@@ -155,6 +160,7 @@ pub fn show(
         palette,
         shortcut_editor,
         welcome_open,
+        about_open,
         last_offers,
         keyboard_was_taken,
         ..
@@ -208,6 +214,9 @@ pub fn show(
     if commands.available(Command::Welcome) {
         actions.push(Action::Preferences(PreferencesCommand::ShowWelcome));
     }
+    if commands.available(Command::About) {
+        actions.push(Action::Preferences(PreferencesCommand::ShowAbout));
+    }
     let (offers, refused) = commands.finish();
     for (command, reason) in refused {
         actions.push(Action::Inform(Notice::info(format!(
@@ -241,6 +250,9 @@ pub fn show(
                 }
                 WelcomeChoice::Open => actions.push(Action::File(FileCommand::Open)),
             }
+        }
+        if *about_open && about::dialog(ui.ctx()) {
+            actions.push(Action::Preferences(PreferencesCommand::CloseAbout));
         }
         let situation = onboarding::Situation {
             model,
@@ -465,6 +477,13 @@ impl ApplicationHandler<AppEvent> for App {
     }
 }
 
+fn window_attributes(title: &str) -> WindowAttributes {
+    let attributes = Window::default_attributes().with_title(title);
+    let attributes =
+        WindowAttributesExtWayland::with_name(attributes, about::APP_ID, about::APP_ID);
+    WindowAttributesExtX11::with_name(attributes, about::APP_ID, about::APP_ID)
+}
+
 struct Session {
     window: Arc<Window>,
     renderer: Renderer,
@@ -479,7 +498,7 @@ impl Session {
     fn open(event_loop: &ActiveEventLoop, title: &str, preferences: Preferences) -> Result<Self> {
         let window = Arc::new(
             event_loop
-                .create_window(Window::default_attributes().with_title(title))
+                .create_window(window_attributes(title))
                 .context("could not open the main window")?,
         );
         let renderer = pollster::block_on(Renderer::new(

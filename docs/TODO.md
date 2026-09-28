@@ -16,14 +16,3 @@ Features are added only once they meet both bars; an unpolished feature is not s
 is implemented when it works end to end in the app, not when the APIs exist. Implemented items
 and resolved decisions are removed from this file, and a milestone disappears once it is empty.
 Git history is the record of what was done.
-
-## Open decisions
-
-These need an answer before the milestone that depends on them starts.
-
-- [ ] **Distribution** (blocks M8): Flatpak, AUR and/or plain release binaries.
-
-## M8: Release
-
-- [ ] Packaging, per the open decision above
-- [ ] Release process and changelog
