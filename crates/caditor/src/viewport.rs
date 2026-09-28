@@ -10,6 +10,7 @@ use crate::{
     annotations::{Annotations, Surface},
     blend_tools,
     bodies::{self, BodyMeshes},
+    datum_tools,
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
     model::{Action, Model},
@@ -39,6 +40,8 @@ const CHOOSE_REGIONS_PROMPT: &str = "Click regions of the sketch to include or l
 const CHOOSE_REGIONS_HINT: &str = "Esc: done";
 const CHOOSE_EDGES_PROMPT: &str = "Click edges to add them or leave them out";
 const CHOOSE_FACES_PROMPT: &str = "Click flat faces to open them or close them again";
+const CHOOSE_REFERENCES_PROMPT: &str =
+    "Select planes, faces, axes or edges, then use them from the feature's panel";
 const SNAP_LABEL_OFFSET: egui::Vec2 = vec2(14.0, 10.0);
 const SNAP_LABEL_COLOR: Color32 = Color32::from_rgb(80, 226, 236);
 
@@ -457,6 +460,7 @@ impl ViewportState {
                 Some(Pickable::SketchEntity { feature, .. }) => {
                     Some(EditingCommand::Enter(feature))
                 }
+                Some(Pickable::Datum(datum)) => Some(EditingCommand::OpenSolid(datum)),
                 Some(Pickable::Face { body, face }) => model
                     .evaluation()
                     .body(body)
@@ -493,6 +497,9 @@ impl ViewportState {
         if editing.is_choosing_plane() {
             let command = match self.hovered {
                 Some(Pickable::Plane(plane)) => Some(EditingCommand::NewSketch(Some(plane))),
+                Some(Pickable::Datum(datum)) if datum_tools::is_plane(model.document(), datum) => {
+                    Some(EditingCommand::NewSketchOnDatum(datum))
+                }
                 Some(pickable) => FaceChoice::of(pickable)
                     .filter(|face| sketch_placement::is_flat(model, *face))
                     .map(EditingCommand::NewSketchOnFace),
@@ -650,6 +657,7 @@ impl ViewportState {
             let prompt = match kind {
                 Some(FeatureKind::Blend(_)) => CHOOSE_EDGES_PROMPT,
                 Some(FeatureKind::Shell(_)) => CHOOSE_FACES_PROMPT,
+                Some(FeatureKind::Datum(_)) => CHOOSE_REFERENCES_PROMPT,
                 _ => CHOOSE_REGIONS_PROMPT,
             };
             Some((prompt, CHOOSE_REGIONS_HINT))

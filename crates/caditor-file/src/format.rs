@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use caditor_document::{
-    Blend, BlendKind, BodyOperation, Document, Edit, Extrude, ExtrudeExtent, FaceAttachment,
-    Feature, FeatureId, FeatureKind, Parameter, RegionChoice, Revolve, RevolveExtent, Shell,
-    SketchFeature, SolidFeature, Transaction,
+    AxisReference, Blend, BlendKind, BodyOperation, Datum, DatumAxis, DatumPlane, Document, Edit,
+    Extrude, ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Parameter,
+    PlaneReference, PlaneRotation, PrincipalAxis, PrincipalPlane, RegionChoice, Revolve,
+    RevolveAxis, RevolveExtent, Shell, SketchAttachment, SketchFeature, SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -14,7 +15,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
-pub const FORMAT_VERSION: u32 = 6;
+pub const FORMAT_VERSION: u32 = 7;
 pub(crate) const FORMAT_NAME: &str = "caditor";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -66,10 +67,74 @@ pub(crate) enum FeatureKindRecord {
     Fillet(BlendRecord),
     Chamfer(BlendRecord),
     Shell(ShellRecord),
+    Plane(Box<DatumPlaneRecord>),
+    Axis(Box<DatumAxisRecord>),
 }
 
-pub(crate) const FEATURE_KINDS: [&str; 6] =
-    ["sketch", "extrude", "revolve", "fillet", "chamfer", "shell"];
+pub(crate) const FEATURE_KINDS: [&str; 8] = [
+    "sketch", "extrude", "revolve", "fillet", "chamfer", "shell", "plane", "axis",
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PrincipalPlaneRecord {
+    Xy,
+    Xz,
+    Yz,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PrincipalAxisRecord {
+    X,
+    Y,
+    Z,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PlaneReferenceRecord {
+    Principal(PrincipalPlaneRecord),
+    Datum(u64),
+    Face(AttachmentRecord),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum AxisReferenceRecord {
+    Principal(PrincipalAxisRecord),
+    Datum(u64),
+    Edge { body: u64, edge: EdgeRecord },
+    Face { body: u64, face: FaceRecord },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct RotationRecord {
+    pub axis: AxisReferenceRecord,
+    pub angle: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct DatumPlaneRecord {
+    pub base: PlaneReferenceRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<RotationRecord>,
+    pub offset: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DatumAxisRecord {
+    Along(AxisReferenceRecord),
+    Intersection([PlaneReferenceRecord; 2]),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum RevolveAxisRecord {
+    Sketch(u64),
+    Model(AxisReferenceRecord),
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ShellRecord {
@@ -143,7 +208,7 @@ pub(crate) struct ExtrudeRecord {
 pub(crate) struct RevolveRecord {
     pub sketch: u64,
     pub regions: RegionsRecord,
-    pub axis: u64,
+    pub axis: RevolveAxisRecord,
     pub extent: RevolveExtentRecord,
     pub operation: OperationRecord,
 }
@@ -153,6 +218,8 @@ pub(crate) struct SketchRecord {
     pub plane: PlaneRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachment: Option<Lenient<AttachmentRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub datum: Option<u64>,
     pub entities: Vec<Lenient<EntityRecord>>,
     pub constraints: Vec<Lenient<ConstraintRecord>>,
     pub next_id: u64,
@@ -290,6 +357,8 @@ pub(crate) enum EditRecord {
         feature: u64,
         plane: PlaneRecord,
         attachment: Option<AttachmentRecord>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        datum: Option<u64>,
     },
     SetDimension {
         feature: u64,
@@ -431,7 +500,10 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             FeatureKindRecord::Revolve(RevolveRecord {
                 sketch: revolve.sketch.raw(),
                 regions: regions_record(&revolve.regions),
-                axis: revolve.axis.raw(),
+                axis: match &revolve.axis {
+                    RevolveAxis::Sketch(line) => RevolveAxisRecord::Sketch(line.raw()),
+                    RevolveAxis::Model(axis) => RevolveAxisRecord::Model(axis_record(axis)),
+                },
                 extent: match &revolve.extent {
                     RevolveExtent::Full => RevolveExtentRecord::Full,
                     RevolveExtent::OneSide { angle, reversed } => RevolveExtentRecord::OneSide {
@@ -460,6 +532,23 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 BlendKind::Chamfer => FeatureKindRecord::Chamfer(record),
             }
         }
+        FeatureKind::Datum(Datum::Plane(plane)) => {
+            FeatureKindRecord::Plane(Box::new(DatumPlaneRecord {
+                base: plane_reference_record(&plane.base),
+                rotation: plane.rotation.as_ref().map(|rotation| RotationRecord {
+                    axis: axis_record(&rotation.axis),
+                    angle: rotation.angle.to_stored_text(),
+                }),
+                offset: plane.offset.to_stored_text(),
+            }))
+        }
+        FeatureKind::Datum(Datum::Axis(axis)) => FeatureKindRecord::Axis(Box::new(match axis {
+            DatumAxis::Along(reference) => DatumAxisRecord::Along(axis_record(reference)),
+            DatumAxis::Intersection(first, second) => DatumAxisRecord::Intersection([
+                plane_reference_record(first),
+                plane_reference_record(second),
+            ]),
+        })),
         FeatureKind::Shell(shell) => FeatureKindRecord::Shell(ShellRecord {
             body: shell.body.raw(),
             thickness: shell.thickness.to_stored_text(),
@@ -512,6 +601,39 @@ fn hex(digest: u128) -> String {
     format!("{digest:032x}")
 }
 
+fn plane_reference_record(reference: &PlaneReference) -> PlaneReferenceRecord {
+    match reference {
+        PlaneReference::Principal(plane) => PlaneReferenceRecord::Principal(match plane {
+            PrincipalPlane::Xy => PrincipalPlaneRecord::Xy,
+            PrincipalPlane::Xz => PrincipalPlaneRecord::Xz,
+            PrincipalPlane::Yz => PrincipalPlaneRecord::Yz,
+        }),
+        PlaneReference::Datum(feature) => PlaneReferenceRecord::Datum(feature.raw()),
+        PlaneReference::Face(attachment) => {
+            PlaneReferenceRecord::Face(attachment_record(attachment))
+        }
+    }
+}
+
+fn axis_record(reference: &AxisReference) -> AxisReferenceRecord {
+    match reference {
+        AxisReference::Principal(axis) => AxisReferenceRecord::Principal(match axis {
+            PrincipalAxis::X => PrincipalAxisRecord::X,
+            PrincipalAxis::Y => PrincipalAxisRecord::Y,
+            PrincipalAxis::Z => PrincipalAxisRecord::Z,
+        }),
+        AxisReference::Datum(feature) => AxisReferenceRecord::Datum(feature.raw()),
+        AxisReference::Edge { body, edge } => AxisReferenceRecord::Edge {
+            body: body.raw(),
+            edge: edge_record(edge),
+        },
+        AxisReference::Face { body, face } => AxisReferenceRecord::Face {
+            body: body.raw(),
+            face: face_record(face),
+        },
+    }
+}
+
 fn face_record(face: &FaceReference) -> FaceRecord {
     FaceRecord {
         face: hex(face.name().digest()),
@@ -552,7 +674,13 @@ fn sketch_record(feature: &SketchFeature) -> SketchRecord {
         attachment: feature
             .attachment
             .as_ref()
+            .and_then(SketchAttachment::face)
             .map(|attachment| Lenient::Read(attachment_record(attachment))),
+        datum: feature
+            .attachment
+            .as_ref()
+            .and_then(SketchAttachment::datum)
+            .map(FeatureId::raw),
         entities: sketch
             .entities()
             .map(|(id, entity)| Lenient::Read(entity_record(id, entity)))
@@ -684,7 +812,14 @@ fn edit_record(edit: &Edit) -> EditRecord {
         } => EditRecord::SetSketchPlacement {
             feature: feature.raw(),
             plane: plane_record(*plane),
-            attachment: attachment.as_ref().map(attachment_record),
+            attachment: attachment
+                .as_ref()
+                .and_then(SketchAttachment::face)
+                .map(attachment_record),
+            datum: attachment
+                .as_ref()
+                .and_then(SketchAttachment::datum)
+                .map(FeatureId::raw),
         },
         Edit::SetDimension {
             feature,
@@ -798,12 +933,14 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             feature,
             plane,
             attachment,
+            datum,
         } => Edit::SetSketchPlacement {
             feature: FeatureId::from_raw(feature),
             plane: restore_plane(plane)?,
-            attachment: match attachment {
-                Some(record) => Some(restore_attachment(&record)?),
-                None => None,
+            attachment: match (attachment, datum) {
+                (Some(record), _) => Some(SketchAttachment::Face(restore_attachment(&record)?)),
+                (None, Some(datum)) => Some(SketchAttachment::Datum(FeatureId::from_raw(datum))),
+                (None, None) => None,
             },
         },
         EditRecord::SetDimension {
@@ -872,6 +1009,11 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
                      it was."
                 ));
             }
+            let attachment = attachment.map(SketchAttachment::Face).or_else(|| {
+                sketch
+                    .datum
+                    .map(|datum| SketchAttachment::Datum(FeatureId::from_raw(datum)))
+            });
             FeatureKind::Sketch(SketchFeature {
                 sketch: restore_sketch(sketch, name, issues),
                 attachment,
@@ -915,7 +1057,21 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             FeatureKind::Solid(SolidFeature::Revolve(Revolve {
                 sketch: FeatureId::from_raw(revolve.sketch),
                 regions: restore_regions(&revolve.regions, name, issues),
-                axis: EntityId::from_raw(revolve.axis),
+                axis: match &revolve.axis {
+                    RevolveAxisRecord::Sketch(line) => {
+                        RevolveAxis::Sketch(EntityId::from_raw(*line))
+                    }
+                    RevolveAxisRecord::Model(axis) => match restore_axis(axis) {
+                        Some(axis) => RevolveAxis::Model(axis),
+                        None => {
+                            issues.push(format!(
+                                "The axis of “{name}” could not be read, so it turns about the \
+                                 vertical axis of its sketch."
+                            ));
+                            RevolveAxis::Sketch(EntityId::VERTICAL_AXIS)
+                        }
+                    },
+                },
                 extent,
                 operation: restore_operation(revolve.operation),
             }))
@@ -927,7 +1083,97 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             FeatureKind::Blend(restore_blend(record, BlendKind::Chamfer, name, issues))
         }
         FeatureKindRecord::Shell(record) => FeatureKind::Shell(restore_shell(record, name, issues)),
+        FeatureKindRecord::Plane(record) => {
+            FeatureKind::Datum(Datum::Plane(restore_datum_plane(record, name, issues)))
+        }
+        FeatureKindRecord::Axis(record) => {
+            FeatureKind::Datum(Datum::Axis(restore_datum_axis(record, name, issues)))
+        }
     }
+}
+
+fn restore_plane_reference(record: &PlaneReferenceRecord) -> Option<PlaneReference> {
+    Some(match record {
+        PlaneReferenceRecord::Principal(plane) => PlaneReference::Principal(match plane {
+            PrincipalPlaneRecord::Xy => PrincipalPlane::Xy,
+            PrincipalPlaneRecord::Xz => PrincipalPlane::Xz,
+            PrincipalPlaneRecord::Yz => PrincipalPlane::Yz,
+        }),
+        PlaneReferenceRecord::Datum(feature) => {
+            PlaneReference::Datum(FeatureId::from_raw(*feature))
+        }
+        PlaneReferenceRecord::Face(attachment) => {
+            PlaneReference::Face(restore_attachment(attachment)?)
+        }
+    })
+}
+
+fn restore_axis(record: &AxisReferenceRecord) -> Option<AxisReference> {
+    Some(match record {
+        AxisReferenceRecord::Principal(axis) => AxisReference::Principal(match axis {
+            PrincipalAxisRecord::X => PrincipalAxis::X,
+            PrincipalAxisRecord::Y => PrincipalAxis::Y,
+            PrincipalAxisRecord::Z => PrincipalAxis::Z,
+        }),
+        AxisReferenceRecord::Datum(feature) => AxisReference::Datum(FeatureId::from_raw(*feature)),
+        AxisReferenceRecord::Edge { body, edge } => AxisReference::Edge {
+            body: FeatureId::from_raw(*body),
+            edge: restore_edge(edge)?,
+        },
+        AxisReferenceRecord::Face { body, face } => AxisReference::Face {
+            body: FeatureId::from_raw(*body),
+            face: restore_face(&face.face, face.origin, &face.neighbours)?,
+        },
+    })
+}
+
+fn restore_datum_plane(
+    record: &DatumPlaneRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> DatumPlane {
+    let base = restore_plane_reference(&record.base).unwrap_or_else(|| {
+        issues.push(format!(
+            "What “{feature}” was based on could not be read, so it is based on the XY plane."
+        ));
+        PlaneReference::Principal(PrincipalPlane::Xy)
+    });
+    let rotation = record.rotation.as_ref().and_then(|rotation| {
+        let Some(axis) = restore_axis(&rotation.axis) else {
+            issues.push(format!(
+                "The axis “{feature}” turns about could not be read, so it no longer turns."
+            ));
+            return None;
+        };
+        Some(PlaneRotation {
+            axis,
+            angle: restore_value(&rotation.angle, "angle", "0 deg", feature, issues),
+        })
+    });
+    DatumPlane {
+        base,
+        rotation,
+        offset: restore_value(&record.offset, "offset", "0 mm", feature, issues),
+    }
+}
+
+fn restore_datum_axis(
+    record: &DatumAxisRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> DatumAxis {
+    let restored = match record {
+        DatumAxisRecord::Along(axis) => restore_axis(axis).map(DatumAxis::Along),
+        DatumAxisRecord::Intersection([first, second]) => restore_plane_reference(first)
+            .zip(restore_plane_reference(second))
+            .map(|(first, second)| DatumAxis::Intersection(first, second)),
+    };
+    restored.unwrap_or_else(|| {
+        issues.push(format!(
+            "What “{feature}” runs along could not be read, so it runs along the Z axis."
+        ));
+        DatumAxis::Along(AxisReference::Principal(PrincipalAxis::Z))
+    })
 }
 
 fn restore_shell(record: &ShellRecord, feature: &str, issues: &mut Vec<String>) -> Shell {

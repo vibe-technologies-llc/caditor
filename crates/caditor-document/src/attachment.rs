@@ -3,8 +3,9 @@ use caditor_kernel::{FaceId, FaceReference, ReferenceError, Solid, Surface};
 use caditor_sketch::Sketch;
 
 use crate::{
+    datum::DatumResult,
     document::{Feature, FeatureId},
-    recompute::{Failure, FeatureError, FixTarget, Inputs},
+    recompute::{Failure, FeatureError, FeatureResult, FixTarget, Inputs},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -62,16 +63,52 @@ pub fn face_plane(solid: &Solid, face: FaceId) -> Option<Plane> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum SketchAttachment {
+    Face(FaceAttachment),
+    Datum(FeatureId),
+}
+
+impl SketchAttachment {
+    pub fn body(&self) -> Option<FeatureId> {
+        match self {
+            Self::Face(attachment) => Some(attachment.body),
+            Self::Datum(_) => None,
+        }
+    }
+
+    pub fn datum(&self) -> Option<FeatureId> {
+        match self {
+            Self::Datum(datum) => Some(*datum),
+            Self::Face(_) => None,
+        }
+    }
+
+    pub fn face(&self) -> Option<&FaceAttachment> {
+        match self {
+            Self::Face(attachment) => Some(attachment),
+            Self::Datum(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct SketchFeature {
     pub sketch: Sketch,
-    pub attachment: Option<FaceAttachment>,
+    pub attachment: Option<SketchAttachment>,
 }
 
 impl SketchFeature {
     pub fn on_face(sketch: Sketch, attachment: FaceAttachment) -> Self {
         Self {
             sketch,
-            attachment: Some(attachment),
+            attachment: Some(SketchAttachment::Face(attachment)),
+        }
+    }
+
+    pub fn on_datum(sketch: Sketch, datum: FeatureId) -> Self {
+        Self {
+            sketch,
+            attachment: Some(SketchAttachment::Datum(datum)),
         }
     }
 }
@@ -86,6 +123,32 @@ impl From<Sketch> for SketchFeature {
 }
 
 pub(crate) fn attached_plane(
+    feature: &Feature,
+    attachment: &SketchAttachment,
+    inputs: &Inputs<'_>,
+) -> Result<Plane, Failure> {
+    match attachment {
+        SketchAttachment::Face(face) => face_attached_plane(feature, face, inputs),
+        SketchAttachment::Datum(datum) => {
+            let name = inputs
+                .document
+                .feature(*datum)
+                .map(|datum| datum.name.clone())
+                .unwrap_or_default();
+            match inputs.features.get(datum).map(AsRef::as_ref) {
+                Some(FeatureResult::Datum(DatumResult::Plane(plane))) => Ok(*plane),
+                _ => Err(Failure::Error(FeatureError {
+                    reason: format!("The plane this sketch lies on, {name}, is not available."),
+                    remedy: format!("Fix {name} first, or place the sketch on another plane."),
+                    fix: Some(FixTarget::Feature(*datum)),
+                    constraints: Vec::new(),
+                })),
+            }
+        }
+    }
+}
+
+fn face_attached_plane(
     feature: &Feature,
     attachment: &FaceAttachment,
     inputs: &Inputs<'_>,

@@ -1,5 +1,6 @@
 mod attachment;
 mod blend;
+mod datum;
 mod describe;
 mod document;
 mod edit;
@@ -11,8 +12,12 @@ mod values;
 mod worker;
 
 pub use crate::{
-    attachment::{AttachmentError, FaceAttachment, SketchFeature, face_plane},
+    attachment::{AttachmentError, FaceAttachment, SketchAttachment, SketchFeature, face_plane},
     blend::{Blend, BlendKind},
+    datum::{
+        AxisReference, Datum, DatumAxis, DatumPlane, DatumResult, PlaneReference, PlaneRotation,
+        PrincipalAxis, PrincipalPlane, capitalized, describe_axis, describe_plane, displayed_axis,
+    },
     describe::{describe_edge, describe_origin, edge_faces, origin_feature},
     document::{Document, Feature, FeatureId, FeatureKind, Parameter},
     edit::{Edit, EditError, Transaction, TransactionBuilder},
@@ -23,8 +28,8 @@ pub use crate::{
     },
     shell::Shell,
     solid::{
-        BodyOperation, Extrude, ExtrudeExtent, RegionChoice, Revolve, RevolveExtent, SketchRegion,
-        SolidFeature, SolidResult, sketch_regions,
+        BodyOperation, Extrude, ExtrudeExtent, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
+        SketchRegion, SolidFeature, SolidResult, sketch_regions,
     },
     values::{ParameterError, ParameterValues},
     worker::{Outcome, Progress, Recomputer, Update, WorkerStopped},
@@ -34,6 +39,8 @@ pub use crate::{
 mod attachment_tests;
 #[cfg(test)]
 mod blend_tests;
+#[cfg(test)]
+mod datum_tests;
 #[cfg(test)]
 mod shell_tests;
 #[cfg(test)]

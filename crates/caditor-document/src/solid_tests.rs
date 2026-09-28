@@ -260,7 +260,7 @@ fn a_revolve_uses_a_sketch_axis_and_keeps_it() {
         FeatureKind::Solid(SolidFeature::Revolve(Revolve {
             sketch: section,
             regions: RegionChoice::All,
-            axis: EntityId::VERTICAL_AXIS,
+            axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
             extent: RevolveExtent::Full,
             operation: BodyOperation::NewBody,
         })),

@@ -5,7 +5,7 @@ use std::{
 };
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
-use caditor_geometry::{Aabb2, Point2, Vector2};
+use caditor_geometry::{Aabb2, Plane, Point2, Vector2};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, LinearExtent, Mesh, Profile,
     ProfileCurve, ProfileError, Region, RegionKey, RegionMesh, SamplingTolerance, Selection, Solid,
@@ -14,10 +14,13 @@ use caditor_kernel::{
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
+    datum::{AxisReference, Resolver, capitalized, describe_axis},
     document::{Feature, FeatureId},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     values::ParameterValues,
 };
+
+const AXIS_IN_PLANE: f64 = 1e-6;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum RegionChoice {
@@ -111,10 +114,32 @@ pub struct Extrude {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum RevolveAxis {
+    Sketch(EntityId),
+    Model(AxisReference),
+}
+
+impl RevolveAxis {
+    pub fn line(&self) -> Option<EntityId> {
+        match self {
+            Self::Sketch(line) => Some(*line),
+            Self::Model(_) => None,
+        }
+    }
+
+    pub fn model(&self) -> Option<&AxisReference> {
+        match self {
+            Self::Model(axis) => Some(axis),
+            Self::Sketch(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Revolve {
     pub sketch: FeatureId,
     pub regions: RegionChoice,
-    pub axis: EntityId,
+    pub axis: RevolveAxis,
     pub extent: RevolveExtent,
     pub operation: BodyOperation,
 }
@@ -147,11 +172,27 @@ impl SolidFeature {
         }
     }
 
-    pub fn axis(&self) -> Option<EntityId> {
+    pub fn axis(&self) -> Option<&RevolveAxis> {
         match self {
             Self::Extrude(_) => None,
-            Self::Revolve(revolve) => Some(revolve.axis),
+            Self::Revolve(revolve) => Some(&revolve.axis),
         }
+    }
+
+    pub fn axis_line(&self) -> Option<EntityId> {
+        self.axis().and_then(RevolveAxis::line)
+    }
+
+    pub fn axis_body(&self) -> Option<FeatureId> {
+        self.axis()
+            .and_then(RevolveAxis::model)
+            .and_then(AxisReference::body)
+    }
+
+    pub fn axis_datum(&self) -> Option<FeatureId> {
+        self.axis()
+            .and_then(RevolveAxis::model)
+            .and_then(AxisReference::datum)
     }
 
     pub fn shape(&self) -> &'static str {
@@ -379,7 +420,12 @@ pub(crate) fn evaluate(
             extrude(&plane, &regions, extent, raw)
         }
         SolidFeature::Revolve(definition) => {
-            let axis = revolution_axis(&context, definition.axis)?;
+            let axis = match &definition.axis {
+                RevolveAxis::Sketch(line) => revolution_axis(&context, *line)?,
+                RevolveAxis::Model(reference) => {
+                    model_axis(&context, feature, inputs, &plane, reference)?
+                }
+            };
             let extent = angular_extent(&context, &definition.extent, inputs.parameters)?;
             revolve(&plane, &regions, axis, extent, raw)
         }
@@ -696,6 +742,32 @@ fn angular_extent(
         RevolveExtent::Symmetric { angle: value } => AngularExtent::symmetric(angle(value)?),
     };
     built.map_err(|error| sweep_failure(context, "revolution", &error))
+}
+
+fn model_axis(
+    context: &Context<'_>,
+    feature: &Feature,
+    inputs: &Inputs<'_>,
+    plane: &Plane,
+    reference: &AxisReference,
+) -> Result<Axis2, Failure> {
+    let axis = Resolver { feature, inputs }.axis(reference)?;
+    let in_plane = plane.normal().dot(axis.direction()).abs() <= AXIS_IN_PLANE
+        && plane.signed_distance(axis.origin()).abs() <= AXIS_IN_PLANE;
+    let origin = plane.to_local(axis.origin());
+    let direction = plane.to_local(axis.origin() + axis.direction()) - origin;
+    match Axis2::new(origin, direction) {
+        Ok(found) if in_plane => Ok(found),
+        _ => Err(context.error(
+            format!(
+                "{} does not lie in the plane of {}, so the sketch cannot turn about it.",
+                capitalized(&describe_axis(inputs.document, reference)),
+                context.sketch_name
+            ),
+            "Choose an axis that lies in the sketch plane, or a line of the sketch.".to_owned(),
+            context.own(),
+        )),
+    }
 }
 
 fn revolution_axis(context: &Context<'_>, axis: EntityId) -> Result<Axis2, Failure> {

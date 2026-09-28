@@ -1734,7 +1734,7 @@ fn revolving_about_a_selected_line_uses_it_as_the_axis() {
         .editing
         .solid()
         .expect("the revolution is open");
-    assert_eq!(harness.solid(revolve).axis(), Some(axis));
+    assert_eq!(harness.solid(revolve).axis_line(), Some(axis));
     let expected = std::f64::consts::PI * (20.0f64.powi(2) - 10.0f64.powi(2)) * 10.0;
     assert!((harness.body_volume(revolve) - expected).abs() / expected < 0.01);
     assert!(harness.shows("Axis"));
@@ -1772,7 +1772,7 @@ fn attached_body(harness: &Harness, sketch: FeatureId) -> Option<FeatureId> {
         .document()
         .feature(sketch)
         .and_then(|feature| feature.kind.attachment())
-        .map(|attachment| attachment.body)
+        .and_then(|attachment| attachment.body())
 }
 
 fn plane_height(harness: &Harness, sketch: FeatureId) -> f64 {
@@ -2119,4 +2119,166 @@ fn the_shell_button_needs_faces_of_a_body_and_opens_every_selected_one() {
         .expect("the shell is open");
     assert_eq!(shell_of(&harness, shell).open.len(), 2);
     assert!(harness.body_volume(plate) < 16000.0 - 38.0 * 38.0 * 9.0);
+}
+
+fn datum_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Datum {
+    harness
+        .document()
+        .feature(feature)
+        .and_then(|feature| feature.kind.datum())
+        .unwrap()
+}
+
+fn datum_plane(harness: &Harness, feature: FeatureId) -> Plane {
+    crate::datum_tools::result(harness.model.evaluation(), feature)
+        .and_then(|result| result.plane())
+        .expect("the datum plane has a position")
+}
+
+#[test]
+fn a_datum_plane_carries_a_sketch_that_follows_its_offset() {
+    let mut harness = Harness::new();
+    harness.select([]);
+    harness.click("▱ Plane");
+    harness.settle();
+    let plane = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the new plane is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Plane 1"));
+    assert!(datum_of(&harness, plane).is_plane());
+    assert_eq!(datum_plane(&harness, plane).origin().z, 10.0);
+    assert!(harness.shows("Starts from"));
+    assert!(harness.shows("The XY plane"));
+    assert!(
+        harness
+            .shows("Select planes, faces, axes or edges, then use them from the feature's panel")
+    );
+
+    harness.type_into_field(Id::new(("datum-field", "offset", plane)), "25 mm");
+    harness.settle();
+    assert_eq!(datum_plane(&harness, plane).origin().z, 25.0);
+    assert!(
+        harness
+            .built()
+            .picks
+            .pickables()
+            .any(|pickable| pickable == Pickable::Datum(plane))
+    );
+
+    for _ in 0..2 {
+        harness.key(Key::Escape, Modifiers::NONE);
+        harness.frame();
+        harness.frame();
+    }
+    assert_eq!(harness.workspace.editing.solid(), None);
+    harness.select([Pickable::Datum(plane)]);
+    harness.click("New sketch");
+    harness.settle();
+    let sketch = harness.editing().expect("the new sketch is edited");
+    assert_eq!(plane_height(&harness, sketch), 25.0);
+    let attachment = harness
+        .document()
+        .feature(sketch)
+        .and_then(|feature| feature.kind.attachment())
+        .cloned();
+    assert_eq!(
+        attachment,
+        Some(caditor_document::SketchAttachment::Datum(plane))
+    );
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let Some(caditor_document::Datum::Plane(mut changed)) = harness
+        .document()
+        .feature(plane)
+        .and_then(|feature| feature.kind.datum())
+        .cloned()
+    else {
+        panic!("the plane is a datum plane");
+    };
+    changed.offset = Expression::Measure(-5.0, Unit::Millimetre);
+    harness.perform(Action::Apply(Transaction::single(
+        "Move the plane",
+        Edit::SetFeatureKind {
+            id: plane,
+            kind: FeatureKind::Datum(caditor_document::Datum::Plane(changed)),
+        },
+    )));
+    harness.settle();
+    assert_eq!(plane_height(&harness, sketch), -5.0);
+}
+
+#[test]
+fn an_axis_from_a_selected_edge_turns_a_plane_and_a_revolve() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    let edge = Pickable::Edge {
+        body: plate,
+        edge: front,
+    };
+
+    harness.select([top, edge]);
+    harness.click("▱ Plane");
+    harness.settle();
+    let plane = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the plane is open");
+    let tilted = datum_plane(&harness, plane);
+    let half = std::f64::consts::FRAC_1_SQRT_2;
+    assert!((tilted.normal().z.abs() - half).abs() < 1e-9, "{tilted:?}");
+    assert!(
+        tilted
+            .signed_distance(caditor_geometry::Point3::new(7.0, 0.0, 10.0))
+            .abs()
+            < 1e-9
+    );
+    assert!(harness.shows("Turned about"));
+    assert!(harness.shows("Angle"));
+
+    harness.select([edge]);
+    harness.click("⟋ Axis");
+    harness.settle();
+    let axis = harness.workspace.editing.solid().expect("the axis is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Axis 1"));
+    let line = crate::datum_tools::result(harness.model.evaluation(), axis)
+        .and_then(|result| result.axis())
+        .expect("the axis has a position");
+    assert!((line.direction().x.abs() - 1.0).abs() < 1e-9);
+
+    let mut section = Sketch::new(Plane::XZ);
+    rectangle(
+        &mut section,
+        Point2::new(0.0, 20.0),
+        Point2::new(10.0, 30.0),
+    );
+    let section = harness.add_sketch(section);
+    harness.select([Pickable::Datum(axis)]);
+    harness.click("⟳ Revolve");
+    harness.settle();
+    let revolve = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the revolution is open");
+    let definition = harness.solid(revolve);
+    assert_eq!(definition.sketch(), section);
+    assert_eq!(
+        definition
+            .axis()
+            .and_then(caditor_document::RevolveAxis::model),
+        Some(&caditor_document::AxisReference::Datum(axis))
+    );
+    assert_eq!(
+        harness
+            .model
+            .evaluation()
+            .feature(revolve)
+            .map(|status| &status.state),
+        Some(&caditor_document::FeatureState::UpToDate)
+    );
 }

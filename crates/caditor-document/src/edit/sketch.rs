@@ -184,16 +184,15 @@ impl Document {
         feature: FeatureId,
         id: EntityId,
     ) -> Result<Edit, EditError> {
-        let axis_users: Vec<String> = self
-            .features()
-            .filter(|other| {
-                other
-                    .kind
-                    .solid()
-                    .is_some_and(|solid| solid.sketch() == feature && solid.axis() == Some(id))
-            })
-            .map(|other| other.name.clone())
-            .collect();
+        let axis_users: Vec<String> =
+            self.features()
+                .filter(|other| {
+                    other.kind.solid().is_some_and(|solid| {
+                        solid.sketch() == feature && solid.axis_line() == Some(id)
+                    })
+                })
+                .map(|other| other.name.clone())
+                .collect();
         if !axis_users.is_empty() {
             let (name, sketch) = self.sketch_mut(feature)?;
             return Err(EditError::EntityInUse {

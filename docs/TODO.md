@@ -23,18 +23,6 @@ These need an answer before the milestone that depends on them starts.
 
 - [ ] **Distribution** (blocks M8): Flatpak, AUR and/or plain release binaries.
 
-## M5: Solid modelling
-
-`caditor-kernel` already has the geometry, topology, validation, tessellation, planar profiles,
-the extrude and revolve builders, frozen face and edge names, face and edge references that
-resolve through those names, intersections, point classification, booleans, fillets and
-chamfers, and a shell. The app draws bodies as shaded meshes, creates and edits extrude,
-revolve, fillet, chamfer and shell features with property panels, region, edge and face choice
-in the view, selects faces and edges, and places sketches on flat faces that they follow through
-upstream edits.
-
-- [ ] Datum planes and axes
-
 ## M6: Interop
 
 - [ ] STL and 3MF export

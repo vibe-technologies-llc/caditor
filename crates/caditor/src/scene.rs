@@ -1,10 +1,10 @@
 use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
-    Document, Evaluation, Feature, FeatureId, FeatureKind, FeatureResult, FeatureState,
-    RegionChoice, SketchRegion, SolidFeature,
+    DatumResult, Document, Evaluation, Feature, FeatureId, FeatureKind, FeatureResult,
+    FeatureState, RegionChoice, RevolveAxis, SketchRegion, SolidFeature, displayed_axis,
 };
-use caditor_geometry::{Aabb, Plane, Point2, Point3};
+use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray};
 use caditor_kernel::RegionKey;
 use caditor_render::{
     Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId, PickResult,
@@ -17,6 +17,7 @@ use caditor_sketch::{
 use crate::{
     blend_tools,
     bodies::{self, BodyBefore, BodyMesh, BodyMeshes},
+    datum_tools,
     drawing::Preview,
     editing::Context,
     selection::{self, Axis, Pickable, PrincipalPlane, Selection},
@@ -66,6 +67,12 @@ const REVOLVE_AXIS: Color = Color::from_rgb8(255, 150, 60);
 const CHOSEN_EDGE: Color = Color::from_rgb8(86, 170, 255);
 const FOLLOWED_EDGE: Color = Color::from_rgb8(150, 200, 250);
 const OPENED_FACE: Color = Color::from_rgb8(86, 170, 255);
+const DATUM_EDGE: Color = Color::from_rgba8(236, 178, 92, 220);
+const DATUM_FILL: Color = Color::from_rgba8(236, 178, 92, 26);
+const FAILED_DATUM_EDGE: Color = Color::from_rgba8(214, 120, 110, 220);
+const FAILED_DATUM_FILL: Color = Color::from_rgba8(214, 120, 110, 26);
+const DATUM_PLANE_SCALE: f64 = 0.75;
+const OPENED_DATUM_EXTRA_WIDTH: f32 = 1.0;
 
 const CURVE_WIDTH: f32 = 2.0;
 const BODY_EDGE_WIDTH: f32 = 1.5;
@@ -286,6 +293,12 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
                 builder.axis(axis, reference_size);
             }
             builder.origin();
+            for feature in document.features() {
+                if feature.kind.datum().is_some() {
+                    let opened = context.solid == Some(feature.id());
+                    builder.datum(evaluation, feature.id(), opened, reference_size);
+                }
+            }
         }
     }
     for feature in document.features() {
@@ -456,6 +469,60 @@ impl Builder<'_> {
         ));
     }
 
+    fn datum(&mut self, evaluation: &Evaluation, feature: FeatureId, opened: bool, size: f64) {
+        let pickable = Pickable::Datum(feature);
+        let failed = matches!(
+            evaluation.feature(feature).map(|status| &status.state),
+            Some(FeatureState::Failed(_) | FeatureState::Outdated)
+        );
+        let (edge, fill) = if failed {
+            (FAILED_DATUM_EDGE, FAILED_DATUM_FILL)
+        } else {
+            (DATUM_EDGE, DATUM_FILL)
+        };
+        let extra = if opened {
+            OPENED_DATUM_EXTRA_WIDTH
+        } else {
+            0.0
+        };
+        let width =
+            PLANE_EDGE_WIDTH + extra + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
+        let color = self.highlight.color(pickable, edge);
+        let pick = self.picks.register(pickable, PickPriority::Curve);
+        let line = |start: Point3, end: Point3, width: f32| Line {
+            start,
+            end,
+            color,
+            width,
+            layer: Layer::Reference,
+            pick,
+        };
+        match datum_tools::result(evaluation, feature) {
+            Some(DatumResult::Plane(plane)) => {
+                let corners = datum_plane_corners(plane, size);
+                let next = corners.iter().cycle().skip(1);
+                let outline: Vec<Line> = corners
+                    .iter()
+                    .zip(next)
+                    .map(|(start, end)| line(*start, *end, width))
+                    .collect();
+                self.scene.lines.extend(outline);
+                self.scene.fills.push(Fill::convex(
+                    &corners,
+                    self.highlight.fill_color(pickable, fill),
+                    Layer::Reference,
+                    self.picks.register(pickable, PickPriority::Surface),
+                ));
+            }
+            Some(DatumResult::Axis(ray)) => {
+                let [start, end] = axis_ends(ray, Point3::ZERO, size);
+                let axis = line(start, end, width + AXIS_WIDTH - PLANE_EDGE_WIDTH);
+                self.scene.lines.push(axis);
+            }
+            None => {}
+        }
+    }
+
     fn body(&mut self, body: FeatureId, mesh: &BodyMesh, color: Option<Color>) {
         let faces = mesh
             .faces
@@ -618,12 +685,16 @@ impl Builder<'_> {
             let displayed = document
                 .feature(solid.sketch())
                 .and_then(|sketch| displayed_sketch(evaluation, sketch));
-            let ends = match revolve.axis.reference() {
-                Some(reference) => Some(reference_points(plane, reference, reference_size)),
-                None => displayed
-                    .as_deref()
-                    .and_then(|sketch| sketch.line_endpoints(revolve.axis))
-                    .map(|(start, end)| [plane.to_world(start), plane.to_world(end)]),
+            let ends = match &revolve.axis {
+                RevolveAxis::Sketch(line) => match line.reference() {
+                    Some(reference) => Some(reference_points(plane, reference, reference_size)),
+                    None => displayed
+                        .as_deref()
+                        .and_then(|sketch| sketch.line_endpoints(*line))
+                        .map(|(start, end)| [plane.to_world(start), plane.to_world(end)]),
+                },
+                RevolveAxis::Model(axis) => displayed_axis(evaluation, axis)
+                    .map(|ray| axis_ends(ray, plane.origin(), reference_size)),
             };
             if let Some([start, end]) = ends {
                 self.scene.lines.push(Line {
@@ -980,6 +1051,7 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
             .and_then(|mesh| mesh.edge_points(edge))
             .map(<[Point3]>::to_vec)
             .unwrap_or_default(),
+        Pickable::Datum(feature) => datum_points(evaluation, feature, reference_size),
         Pickable::ShellFace { feature, face } => bodies
             .body_before()
             .filter(|open| open.feature == feature)
@@ -1040,6 +1112,25 @@ fn reference_size(model: Option<Aabb>) -> f64 {
         })
         .unwrap_or(0.0)
         .max(MIN_REFERENCE_SIZE)
+}
+
+fn axis_ends(ray: Ray, near: Point3, size: f64) -> [Point3; 2] {
+    let middle = (near - ray.origin()).dot(ray.direction());
+    [ray.at(middle - size), ray.at(middle + size)]
+}
+
+fn datum_plane_corners(plane: Plane, size: f64) -> [Point3; 4] {
+    let centre = plane.origin() - plane.normal() * plane.signed_distance(Point3::ZERO);
+    let centred = Plane::from_frame(centre, plane.normal(), plane.x_axis()).unwrap_or(plane);
+    plane_corners(centred, size * DATUM_PLANE_SCALE)
+}
+
+fn datum_points(evaluation: &Evaluation, feature: FeatureId, size: f64) -> Vec<Point3> {
+    match datum_tools::result(evaluation, feature) {
+        Some(DatumResult::Plane(plane)) => datum_plane_corners(plane, size).to_vec(),
+        Some(DatumResult::Axis(ray)) => axis_ends(ray, Point3::ZERO, size).to_vec(),
+        None => Vec::new(),
+    }
 }
 
 fn plane_corners(plane: Plane, size: f64) -> [Point3; 4] {

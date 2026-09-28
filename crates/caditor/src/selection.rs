@@ -1,12 +1,16 @@
 use std::collections::BTreeSet;
 
-use caditor_document::{Document, Evaluation, FeatureId, FeatureResult, SketchRegion};
-use caditor_geometry::{Plane, Vector3};
+pub use caditor_document::PrincipalPlane;
+use caditor_document::{
+    Document, Evaluation, FeatureId, FeatureResult, PrincipalAxis, SketchRegion,
+};
+use caditor_geometry::Vector3;
 use caditor_kernel::{EdgeName, RegionKey};
 use caditor_sketch::{ConstraintId, EntityId};
 
 use crate::{
     bodies::{self, FaceKey},
+    datum_tools,
     editing::Context,
 };
 
@@ -45,37 +49,14 @@ impl Axis {
     }
 
     pub fn name(self) -> &'static str {
-        match self {
-            Self::X => "X axis",
-            Self::Y => "Y axis",
-            Self::Z => "Z axis",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PrincipalPlane {
-    Xy,
-    Xz,
-    Yz,
-}
-
-impl PrincipalPlane {
-    pub const ALL: [Self; 3] = [Self::Xy, Self::Xz, Self::Yz];
-
-    pub fn plane(self) -> Plane {
-        match self {
-            Self::Xy => Plane::XY,
-            Self::Xz => Plane::XZ,
-            Self::Yz => Plane::YZ,
-        }
+        self.principal().name()
     }
 
-    pub fn name(self) -> &'static str {
+    pub fn principal(self) -> PrincipalAxis {
         match self {
-            Self::Xy => "XY plane",
-            Self::Xz => "XZ plane",
-            Self::Yz => "YZ plane",
+            Self::X => PrincipalAxis::X,
+            Self::Y => PrincipalAxis::Y,
+            Self::Z => PrincipalAxis::Z,
         }
     }
 }
@@ -113,6 +94,7 @@ pub enum Pickable {
         feature: FeatureId,
         face: FaceKey,
     },
+    Datum(FeatureId),
 }
 
 pub fn swept_regions<'a>(
@@ -205,6 +187,9 @@ impl Pickable {
                 );
                 format!("{described}: click to add to {owner} or leave it out")
             }
+            Self::Datum(feature) => document
+                .feature(feature)
+                .map_or_else(|| "A deleted datum".to_owned(), |datum| datum.name.clone()),
             Self::ShellFace { feature, face } => {
                 let owner = document
                     .feature(feature)
@@ -297,6 +282,13 @@ impl Pickable {
                 context.solid == Some(feature)
                     && bodies::input_solid(evaluation, feature)
                         .is_some_and(|solid| bodies::find_edge(solid, edge).is_some())
+            }
+            Self::Datum(feature) => {
+                editing.is_none()
+                    && document
+                        .feature(feature)
+                        .is_some_and(|datum| datum.kind.datum().is_some())
+                    && datum_tools::result(evaluation, feature).is_some()
             }
             Self::ShellFace { feature, face } => {
                 context.solid == Some(feature)

@@ -8,8 +8,9 @@ use caditor_expression::{Expression, ParameterId, ParseError};
 use caditor_sketch::Sketch;
 
 use crate::{
-    attachment::{FaceAttachment, SketchFeature},
+    attachment::{SketchAttachment, SketchFeature},
     blend::Blend,
+    datum::Datum,
     shell::Shell,
     solid::{BodyOperation, SolidFeature},
 };
@@ -60,6 +61,7 @@ pub enum FeatureKind {
     Solid(SolidFeature),
     Blend(Blend),
     Shell(Shell),
+    Datum(Datum),
 }
 
 impl From<Sketch> for FeatureKind {
@@ -72,30 +74,62 @@ impl FeatureKind {
     pub fn sketch(&self) -> Option<&Sketch> {
         match self {
             Self::Sketch(sketch) => Some(&sketch.sketch),
-            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) => None,
+            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) | Self::Datum(_) => None,
         }
     }
 
     pub fn sketch_mut(&mut self) -> Option<&mut Sketch> {
         match self {
             Self::Sketch(sketch) => Some(&mut sketch.sketch),
-            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) => None,
+            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) | Self::Datum(_) => None,
         }
     }
 
-    pub fn attachment(&self) -> Option<&FaceAttachment> {
+    pub fn attachment(&self) -> Option<&SketchAttachment> {
         match self {
             Self::Sketch(sketch) => sketch.attachment.as_ref(),
-            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) => None,
+            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) | Self::Datum(_) => None,
         }
     }
 
     pub fn body_input(&self) -> Option<FeatureId> {
         match self {
-            Self::Sketch(sketch) => sketch.attachment.as_ref().map(|attachment| attachment.body),
+            Self::Sketch(sketch) => sketch.attachment.as_ref().and_then(SketchAttachment::body),
             Self::Solid(solid) => solid.operation().target(),
             Self::Blend(blend) => Some(blend.body),
             Self::Shell(shell) => Some(shell.body),
+            Self::Datum(_) => None,
+        }
+    }
+
+    pub fn bodies_used(&self) -> BTreeSet<FeatureId> {
+        let mut used: BTreeSet<FeatureId> = self.body_input().into_iter().collect();
+        match self {
+            Self::Solid(solid) => used.extend(solid.axis_body()),
+            Self::Datum(datum) => used.extend(datum.bodies()),
+            Self::Sketch(_) | Self::Blend(_) | Self::Shell(_) => {}
+        }
+        used
+    }
+
+    pub fn planes_used(&self) -> BTreeSet<FeatureId> {
+        match self {
+            Self::Sketch(sketch) => sketch
+                .attachment
+                .as_ref()
+                .and_then(SketchAttachment::datum)
+                .into_iter()
+                .collect(),
+            Self::Datum(datum) => datum.plane_datums(),
+            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) => BTreeSet::new(),
+        }
+    }
+
+    pub fn axes_used(&self) -> BTreeSet<FeatureId> {
+        match self {
+            Self::Solid(solid) => solid.axis_datum().into_iter().collect(),
+            Self::Datum(datum) => datum.axis_datums(),
+            Self::Sketch(_) | Self::Blend(_) | Self::Shell(_) => BTreeSet::new(),
         }
     }
 
@@ -106,21 +140,28 @@ impl FeatureKind {
     pub fn solid(&self) -> Option<&SolidFeature> {
         match self {
             Self::Solid(solid) => Some(solid),
-            Self::Sketch(_) | Self::Blend(_) | Self::Shell(_) => None,
+            Self::Sketch(_) | Self::Blend(_) | Self::Shell(_) | Self::Datum(_) => None,
         }
     }
 
     pub fn blend(&self) -> Option<&Blend> {
         match self {
             Self::Blend(blend) => Some(blend),
-            Self::Sketch(_) | Self::Solid(_) | Self::Shell(_) => None,
+            Self::Sketch(_) | Self::Solid(_) | Self::Shell(_) | Self::Datum(_) => None,
         }
     }
 
     pub fn shell(&self) -> Option<&Shell> {
         match self {
             Self::Shell(shell) => Some(shell),
-            Self::Sketch(_) | Self::Solid(_) | Self::Blend(_) => None,
+            Self::Sketch(_) | Self::Solid(_) | Self::Blend(_) | Self::Datum(_) => None,
+        }
+    }
+
+    pub fn datum(&self) -> Option<&Datum> {
+        match self {
+            Self::Datum(datum) => Some(datum),
+            Self::Sketch(_) | Self::Solid(_) | Self::Blend(_) | Self::Shell(_) => None,
         }
     }
 
@@ -130,6 +171,7 @@ impl FeatureKind {
             Self::Solid(solid) => solid.parameters(),
             Self::Blend(blend) => blend.parameters(),
             Self::Shell(shell) => shell.parameters(),
+            Self::Datum(datum) => datum.parameters(),
         }
     }
 
@@ -139,16 +181,22 @@ impl FeatureKind {
             Self::Solid(solid) => solid.uses_parameter(parameter),
             Self::Blend(blend) => blend.uses_parameter(parameter),
             Self::Shell(shell) => shell.uses_parameter(parameter),
+            Self::Datum(datum) => datum.uses_parameter(parameter),
         }
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
-        match self {
-            Self::Sketch(_) => self.body_input().into_iter().collect(),
+        let mut used = match self {
+            Self::Sketch(_) => BTreeSet::new(),
             Self::Solid(solid) => solid.features(),
             Self::Blend(blend) => blend.features(),
             Self::Shell(shell) => shell.features(),
-        }
+            Self::Datum(datum) => datum.features(),
+        };
+        used.extend(self.bodies_used());
+        used.extend(self.planes_used());
+        used.extend(self.axes_used());
+        used
     }
 }
 
@@ -173,7 +221,7 @@ impl Feature {
             FeatureKind::Solid(solid) => Some(solid.operation().target().unwrap_or(self.id)),
             FeatureKind::Blend(blend) => Some(blend.body),
             FeatureKind::Shell(shell) => Some(shell.body),
-            FeatureKind::Sketch(_) => None,
+            FeatureKind::Sketch(_) | FeatureKind::Datum(_) => None,
         }
     }
 

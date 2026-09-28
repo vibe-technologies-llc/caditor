@@ -330,12 +330,14 @@ meshes.
     `BodyOperation`: `NewBody`, or `Add`, `Remove` or `Intersect` on the body of the feature
     that made it. A body is named by that feature's ID. Extents are expressions (lengths, or
     angles in degrees) that must be above zero; one-sided extents flip with `reversed`, and a
-    revolve's axis is a line of its sketch or one of the sketch axes. Inserting one checks that
+    revolve's axis (`RevolveAxis`) is a line of its sketch, one of the sketch axes, or an
+    `AxisReference` to a model axis that must lie in the sketch plane. Inserting one checks that
     its sketch is a sketch and its target makes a body; `SetFeatureKind` replaces its settings
     but never its kind, and a feature whose body others change keeps making a new body. A sketch
     line used as a revolve axis cannot be deleted.
-  - Sketches (`FeatureKind::Sketch(SketchFeature)`) keep their `Sketch` and, when they lie on
-    a body, a `FaceAttachment` (`attachment.rs`: the body's feature ID and a `FaceReference`).
+  - Sketches (`FeatureKind::Sketch(SketchFeature)`) keep their `Sketch` and optionally a
+    `SketchAttachment`: a datum plane they lie on and follow, or, when they lie on a body, a
+    `FaceAttachment` (`attachment.rs`: the body's feature ID and a `FaceReference`).
     The stored plane is where the sketch was placed; recompute resolves the reference in the
     body's state at the sketch's place in the tree (`FeatureKind::body_input`, shared with solid
     features that change a body) and gives the solved geometry the face's plane, outward normal
@@ -344,6 +346,19 @@ meshes.
     pointing at it. `SetSketchPlacement` sets the plane and attachment together (attach, move
     to another face, or detach where it is); a body with attached sketches cannot be deleted or
     stop making a body.
+  - Datums (`datum.rs`, `FeatureKind::Datum`) are planes and axes with a `DatumResult` (a
+    `Plane` or a `Ray`). References to model geometry are a `PlaneReference` (principal plane,
+    datum plane, or flat face as a `FaceAttachment`) and an `AxisReference` (principal axis,
+    datum axis, straight edge as an `EdgeReference`, or the axis of a cylindrical, conical,
+    toroidal or revolved face as a `FaceReference`), resolved in each body's state at the
+    feature's place in the tree; pieces of a split edge or face count when they lie on one line.
+    A `DatumPlane` starts from its base plane, optionally moves it to pass through an axis and
+    turns it about the axis by an angle, then offsets it along its normal; a `DatumAxis` runs
+    along an axis reference or where two planes meet. Plane stays plane and axis stays axis
+    under `SetFeatureKind`, and edits refuse a sketch or plane based on something that is not a
+    datum plane (`NotAPlane`) or an axis reference to something that is not a datum axis
+    (`NotAnAxis`). `FeatureKind::bodies_used`, `planes_used` and `axes_used` extend
+    `features()`, so dependents, moves and deletions account for them.
   - Recompute: `ParameterValues` evaluates parameters in dependency order and reports cycles
     rather than following them. `Recompute` walks the features in tree order and reuses a
     cached result when the feature definition (an `Arc`, compared by pointer first), the values
@@ -352,8 +367,8 @@ meshes.
     keeps its last good result. Its dependents fail with a pointer back to it, and everything
     else is unaffected. A panic inside an `Evaluator` is caught and becomes that feature's
     error. Each body's latest good state is carried through the tree and is part of the next
-    change's upstream: a feature that changes a body gets its current solid through
-    `Inputs::body`, and a failing one is skipped, so later features of the body build on the
+    change's upstream of every feature that uses the body (`bodies_used`): a feature that
+    changes a body gets its current solid through `Inputs::body`, and a failing one is skipped, so later features of the body build on the
     state before it. `Evaluation::body` gives each body's final solid and `body_result` the
     shared result holding it. Solid features map profile, sweep and boolean errors to sentences
     naming the sketch curves involved.
@@ -380,7 +395,12 @@ meshes.
   stored plane with a report. Version 5 added `fillet` and `chamfer` features (body, size and
   edges as name, face and end digests); an unreadable edge is left out with a report. Version 6
   added `shell` features (body, thickness and opened faces stored like an attachment's face);
-  an unreadable face is left closed with a report.
+  an unreadable face is left closed with a report. Version 7 added `plane` and `axis` features
+  (references as tagged records, faces and edges stored like attachments and blend edges), a
+  sketch's `datum`, which older readers ignore so the sketch stays on its stored plane, and a
+  revolve `axis` that is either a sketch entity ID or an axis reference, which older readers
+  cannot read, so they leave that revolve out with a report rather than turn it about the
+  wrong axis. A sketch whose datum plane could not be restored stays where it was.
   - Saving writes a temporary sibling, fsyncs it, renames it over the target and fsyncs the
     directory, keeping the target's permissions. Overwriting a file that loaded with problems
     first keeps the original as `<name>.damaged.caditor`.
@@ -452,7 +472,9 @@ meshes.
     a sketch is edited, bodies are dimmed and not pickable.
   - Solid modelling (`solid_tools.rs`, `solid_panel.rs`): the toolbar's Extrude and Revolve
     take the edited sketch, else the sketch of the selected entities, else the last sketch, and
-    a selected line or sketch axis as the revolve axis (the vertical axis otherwise). A new
+    a selected line or sketch axis as the revolve axis, else a selected principal axis, datum
+    axis, straight edge or round face (the vertical axis otherwise); the panel's Use selected
+    axis does the same for an existing revolve. A new
     feature is one-sided 10 mm or a full turn and adds to the last body, or makes a new one
     when there is none. It then opens: `SketchEditing` holds at most one open solid feature,
     never together with an edited sketch, and `editing::Context` carries both to the scene and
@@ -472,11 +494,21 @@ meshes.
     the body is drawn as it was before the feature (`BodyMeshes::body_before`, shared with
     blends) with its flat faces as `Pickable::ShellFace`, opened ones highlighted, and a click
     opens a face or closes it again. The panel edits the thickness and lists the open faces.
-  - Sketches on faces (`sketch_placement.rs`): New sketch starts on a selected flat face, and
-    while choosing a plane a click on a flat face does the same. The attachment is captured from
+  - Datums (`datum_tools.rs`, `datum_panel.rs`): the toolbar's Plane starts from the selected
+    plane or flat face (the XY plane otherwise), turned 45° about the selected axis, straight
+    edge or round face when there is one (offset 0 mm), else offset 10 mm; Axis runs along the
+    selected axis, straight edge or round face, or where two selected planes or flat faces
+    meet. The new feature opens, and its panel has Use selected for its base and rotation axis
+    (or for the whole axis) and fields for the angle and offset. Datums are drawn outside
+    sketch editing as translucent squares and lines centred where the world origin projects
+    onto them, picked as `Pickable::Datum`, tinted when failed, and double-clicking one opens
+    it.
+  - Sketches on faces and planes (`sketch_placement.rs`): New sketch starts on a selected
+    principal plane, datum plane or flat face, and while choosing a plane a click on any of them
+    does the same. The attachment is captured from
     the body's state where the sketch sits in the tree, so a face made further down is refused
-    with the reason. A sketch's row says which face it lies on and offers Detach, and Place on
-    selected face when one is selected. Everything that draws or maps onto a sketch takes its
+    with the reason. A sketch's row says which face or plane it lies on and offers Detach, and
+    Place on selected plane or Place on selected face when one is selected. Everything that draws or maps onto a sketch takes its
     plane from the solved result (`scene::sketch_plane`, `displayed_sketch`), since an attached
     sketch's stored plane is only where it was placed.
   - `Model` also owns the file session: the path, the last saved document (the model is

@@ -1,6 +1,6 @@
 use caditor_document::{
-    Document, Edit, FaceAttachment, FeatureId, FeatureKind, FeatureState, SketchFeature,
-    Transaction, face_plane,
+    Document, Edit, FaceAttachment, FeatureId, FeatureKind, FeatureState, SketchAttachment,
+    SketchFeature, Transaction, face_plane,
 };
 use caditor_geometry::Plane;
 use caditor_kernel::{FaceReference, Solid};
@@ -8,7 +8,7 @@ use caditor_sketch::Sketch;
 
 use crate::{
     bodies::{self, FaceKey},
-    editing,
+    datum_tools, editing,
     model::Model,
     scene,
     selection::{Pickable, Selection},
@@ -41,7 +41,7 @@ pub fn is_flat(model: &Model, choice: FaceChoice) -> bool {
     })
 }
 
-fn body_state_before(model: &Model, body: FeatureId, index: usize) -> Option<&Solid> {
+pub fn body_state_before(model: &Model, body: FeatureId, index: usize) -> Option<&Solid> {
     let evaluation = model.evaluation();
     model
         .document()
@@ -58,7 +58,7 @@ fn body_state_before(model: &Model, body: FeatureId, index: usize) -> Option<&So
         })
 }
 
-fn attachment_at(
+pub fn attachment_at(
     model: &Model,
     choice: FaceChoice,
     index: usize,
@@ -108,6 +108,7 @@ pub fn place(
     if document
         .feature(sketch)
         .and_then(|feature| feature.kind.attachment())
+        .and_then(SketchAttachment::face)
         == Some(&attachment)
     {
         return Err("The sketch already lies on the selected face");
@@ -118,7 +119,7 @@ pub fn place(
         Edit::SetSketchPlacement {
             feature: sketch,
             plane,
-            attachment: Some(attachment),
+            attachment: Some(SketchAttachment::Face(attachment)),
         },
     );
     document
@@ -129,11 +130,14 @@ pub fn place(
 
 pub fn detach(model: &Model, sketch: FeatureId) -> Option<Transaction> {
     let document = model.document();
-    document.feature(sketch)?.kind.attachment()?;
+    let what = match document.feature(sketch)?.kind.attachment()? {
+        SketchAttachment::Face(_) => "face",
+        SketchAttachment::Datum(_) => "plane",
+    };
     let plane = scene::sketch_plane(document, model.evaluation(), sketch)?;
     let name = feature_name(document, sketch);
     Some(Transaction::single(
-        format!("Detach {name} from its face"),
+        format!("Detach {name} from its {what}"),
         Edit::SetSketchPlacement {
             feature: sketch,
             plane,
@@ -142,8 +146,57 @@ pub fn detach(model: &Model, sketch: FeatureId) -> Option<Transaction> {
     ))
 }
 
-pub fn describe(document: &Document, attachment: &FaceAttachment) -> String {
-    bodies::describe_origin(document, attachment.face.origin())
+pub fn describe(document: &Document, attachment: &SketchAttachment) -> String {
+    match attachment {
+        SketchAttachment::Face(face) => bodies::describe_origin(document, face.face.origin()),
+        SketchAttachment::Datum(datum) => feature_name(document, *datum),
+    }
+}
+
+pub fn new_sketch_on_datum(model: &Model, datum: FeatureId) -> Option<(Transaction, FeatureId)> {
+    let document = model.document();
+    let plane = datum_tools::result(model.evaluation(), datum)?.plane()?;
+    let name = editing::next_sketch_name(document);
+    let mut transaction = document.transaction(format!("Create {name}"));
+    let feature = transaction.add_feature(
+        name,
+        FeatureKind::Sketch(SketchFeature::on_datum(Sketch::new(plane), datum)),
+    );
+    let transaction = transaction.finish();
+    document.check(&transaction).ok()?;
+    Some((transaction, feature))
+}
+
+pub fn place_on_datum(
+    model: &Model,
+    sketch: FeatureId,
+    datum: FeatureId,
+) -> Result<Transaction, &'static str> {
+    let document = model.document();
+    let attachment = SketchAttachment::Datum(datum);
+    if document
+        .feature(sketch)
+        .and_then(|feature| feature.kind.attachment())
+        == Some(&attachment)
+    {
+        return Err("The sketch already lies on the selected plane");
+    }
+    let plane = datum_tools::result(model.evaluation(), datum)
+        .and_then(|result| result.plane())
+        .ok_or("The selected plane has no position yet")?;
+    let name = feature_name(document, sketch);
+    let transaction = Transaction::single(
+        format!("Place {name} on {}", feature_name(document, datum)),
+        Edit::SetSketchPlacement {
+            feature: sketch,
+            plane,
+            attachment: Some(attachment),
+        },
+    );
+    document
+        .check(&transaction)
+        .map_err(|_| "The selected plane comes after this sketch in the tree")?;
+    Ok(transaction)
 }
 
 fn feature_name(document: &Document, feature: FeatureId) -> String {

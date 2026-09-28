@@ -8,7 +8,7 @@ use egui::{
 };
 
 use crate::{
-    blend_panel,
+    blend_panel, datum_panel, datum_tools,
     editing::{EditingCommand, SketchEditing},
     field::{self, DimensionTarget},
     model::{Action, Model},
@@ -27,6 +27,8 @@ const OPEN_SOLID_LABEL: &str = "Edit feature and choose its regions in the view"
 const CLOSE_SOLID_LABEL: &str = "Done editing this feature";
 const OPEN_BLEND_LABEL: &str = "Edit feature and choose its edges in the view";
 const OPEN_SHELL_LABEL: &str = "Edit feature and choose its open faces in the view";
+const OPEN_DATUM_LABEL: &str = "Edit this plane or axis";
+const PLACE_ON_PLANE_LABEL: &str = "Place on selected plane";
 const PLACE_ON_FACE_LABEL: &str = "Place on selected face";
 const DETACH_LABEL: &str = "Detach";
 const EDIT_ICON: &str = "🖊";
@@ -122,7 +124,15 @@ fn feature_row(
             sketch_body(ui, model, state, actions, feature, &sketch.sketch);
         }
         FeatureKind::Solid(solid) => {
-            solid_panel::show(ui, model, actions, feature, solid, row.edited);
+            solid_panel::show(
+                ui,
+                model,
+                row.selection,
+                actions,
+                feature,
+                solid,
+                row.edited,
+            );
             body_display(ui, model, feature);
         }
         FeatureKind::Blend(blend) => {
@@ -132,6 +142,9 @@ fn feature_row(
         FeatureKind::Shell(shell) => {
             shell_panel::show(ui, model, actions, feature, shell, row.edited);
             body_display(ui, model, feature);
+        }
+        FeatureKind::Datum(datum) => {
+            datum_panel::show(ui, model, row.selection, actions, feature, datum);
         }
     });
     let mut header = header.inner;
@@ -186,12 +199,17 @@ fn edit_command(row: &Row<'_>) -> (&'static str, EditingCommand) {
     match (&row.feature.kind, row.edited) {
         (FeatureKind::Sketch(_), true) => (FINISH_SKETCH_LABEL, EditingCommand::Finish),
         (FeatureKind::Sketch(_), false) => (EDIT_SKETCH_LABEL, EditingCommand::Enter(id)),
-        (FeatureKind::Solid(_) | FeatureKind::Blend(_) | FeatureKind::Shell(_), true) => {
-            (CLOSE_SOLID_LABEL, EditingCommand::CloseSolid)
-        }
+        (
+            FeatureKind::Solid(_)
+            | FeatureKind::Blend(_)
+            | FeatureKind::Shell(_)
+            | FeatureKind::Datum(_),
+            true,
+        ) => (CLOSE_SOLID_LABEL, EditingCommand::CloseSolid),
         (FeatureKind::Solid(_), false) => (OPEN_SOLID_LABEL, EditingCommand::OpenSolid(id)),
         (FeatureKind::Blend(_), false) => (OPEN_BLEND_LABEL, EditingCommand::OpenSolid(id)),
         (FeatureKind::Shell(_), false) => (OPEN_SHELL_LABEL, EditingCommand::OpenSolid(id)),
+        (FeatureKind::Datum(_), false) => (OPEN_DATUM_LABEL, EditingCommand::OpenSolid(id)),
     }
 }
 
@@ -380,14 +398,32 @@ fn placement(
                 sketch_placement::describe(model.document(), attachment)
             ));
             if let Some(transaction) = sketch_placement::detach(model, feature.id()) {
-                let detach = ui
-                    .small_button(DETACH_LABEL)
-                    .on_hover_text("Keep the sketch where it is and stop following the face");
+                let detach = ui.small_button(DETACH_LABEL).on_hover_text(
+                    "Keep the sketch where it is and stop following what it lies on",
+                );
                 if detach.clicked() {
                     actions.push(Action::Apply(transaction));
                 }
             }
         });
+    }
+    if let Some(datum) = datum_tools::selected_datum_plane(model.document(), selection) {
+        match sketch_placement::place_on_datum(model, feature.id(), datum) {
+            Ok(transaction) => {
+                let place = ui.button(PLACE_ON_PLANE_LABEL).on_hover_text(
+                    "Move this sketch onto the selected plane; it follows the plane when the \
+                     model changes",
+                );
+                if place.clicked() {
+                    actions.push(Action::Apply(transaction));
+                }
+            }
+            Err(reason) => {
+                ui.add_enabled(false, Button::new(PLACE_ON_PLANE_LABEL))
+                    .on_disabled_hover_text(reason);
+            }
+        }
+        return;
     }
     let Some(face) = sketch_placement::selected_face(selection) else {
         return;

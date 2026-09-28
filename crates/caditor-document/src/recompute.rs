@@ -11,6 +11,7 @@ use caditor_sketch::{ConstraintId, DimensionError, Sketch, SketchError, SketchSo
 
 use crate::{
     attachment, blend,
+    datum::{self, DatumResult},
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult},
@@ -102,20 +103,28 @@ impl SketchResult {
 pub enum FeatureResult {
     Sketch(SketchResult),
     Solid(SolidResult),
+    Datum(DatumResult),
 }
 
 impl FeatureResult {
     pub fn sketch(&self) -> Option<&SketchResult> {
         match self {
             Self::Sketch(sketch) => Some(sketch),
-            Self::Solid(_) => None,
+            Self::Solid(_) | Self::Datum(_) => None,
         }
     }
 
     pub fn solid(&self) -> Option<&SolidResult> {
         match self {
-            Self::Sketch(_) => None,
             Self::Solid(solid) => Some(solid),
+            Self::Sketch(_) | Self::Datum(_) => None,
+        }
+    }
+
+    pub fn datum(&self) -> Option<&DatumResult> {
+        match self {
+            Self::Datum(datum) => Some(datum),
+            Self::Sketch(_) | Self::Solid(_) => None,
         }
     }
 }
@@ -275,12 +284,12 @@ impl Recompute {
                 .into_iter()
                 .map(|used| (used, current.get(&used).cloned()))
                 .collect();
-            if let Some((state, result)) =
-                feature.kind.body_input().and_then(|body| bodies.get(&body))
-            {
-                upstream.push((*state, Some(Arc::clone(result))));
-                if feature.kind.modifies_body() {
-                    inputs_before.insert(id, *state);
+            for body in feature.kind.bodies_used() {
+                if let Some((state, result)) = bodies.get(&body) {
+                    upstream.push((*state, Some(Arc::clone(result))));
+                    if feature.kind.modifies_body() && feature.kind.body_input() == Some(body) {
+                        inputs_before.insert(id, *state);
+                    }
                 }
             }
             let previous = self.cache.get(&id);
@@ -511,6 +520,7 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::Solid(solid) => solid::evaluate(feature, solid, inputs, cancel),
             FeatureKind::Blend(definition) => blend::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Shell(definition) => shell::evaluate(feature, definition, inputs, cancel),
+            FeatureKind::Datum(definition) => datum::evaluate(feature, definition, inputs),
         }
     }
 }

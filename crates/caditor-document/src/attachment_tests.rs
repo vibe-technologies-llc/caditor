@@ -200,7 +200,7 @@ fn a_lost_face_fails_the_sketch_and_its_users_only() {
             Edit::SetSketchPlacement {
                 feature: stack.top,
                 plane,
-                attachment: Some(lost),
+                attachment: Some(SketchAttachment::Face(lost)),
             },
         ))
         .unwrap();
@@ -235,6 +235,7 @@ fn placement_edits_are_checked_and_undone() {
         .unwrap()
         .kind
         .attachment()
+        .and_then(SketchAttachment::face)
         .cloned();
     let lifted = Plane::from_frame(
         caditor_geometry::Point3::new(0.0, 0.0, 20.0),
@@ -265,9 +266,11 @@ fn placement_edits_are_checked_and_undone() {
         Edit::SetSketchPlacement {
             feature: stack.top,
             plane: lifted,
-            attachment: attachment.clone().map(|attachment| FaceAttachment {
-                body: outline,
-                ..attachment
+            attachment: attachment.clone().map(|attachment| {
+                SketchAttachment::Face(FaceAttachment {
+                    body: outline,
+                    ..attachment
+                })
             }),
         },
     );

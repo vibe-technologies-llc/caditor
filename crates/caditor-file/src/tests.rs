@@ -166,7 +166,7 @@ fn a_saved_model_loads_back_exactly() {
     assert_eq!(loaded.document.next_parameter_id(), 3);
     assert_eq!(loaded.document.next_feature_id(), 3);
     let text = fs::read_to_string(&path).unwrap();
-    assert!(text.starts_with("{\"format\":\"caditor\",\"version\":6}\n"));
+    assert!(text.starts_with("{\"format\":\"caditor\",\"version\":7}\n"));
     assert!(text.contains("\"expression\":\"$0 / 2 + 0.1 mm\""));
     assert_eq!(text.lines().count(), 1 + 2 + 2 + 1);
     assert_eq!(files_in(dir.path()), ["model.caditor"]);
@@ -262,7 +262,7 @@ fn a_lost_parameter_is_replaced_by_a_stand_in_that_keeps_its_name_when_known() {
 fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
     let document = sample();
     let mut lines = lines_of(&document);
-    lines[0] = "{\"format\":\"caditor\",\"version\":7}".to_owned();
+    lines[0] = "{\"format\":\"caditor\",\"version\":8}".to_owned();
     let base = lines
         .iter()
         .position(|line| line.contains("Base sketch"))
@@ -285,7 +285,7 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
     assert_eq!(
         loaded.issues,
         [
-            "This model was made by a newer version of caditor (format 7). Anything this version \
+            "This model was made by a newer version of caditor (format 8). Anything this version \
              does not understand was left out.",
             "The feature “Pad” is a kind this version of caditor does not know (loft), so it \
              was left out. It may come from a newer version.",
@@ -362,7 +362,7 @@ fn a_damaged_header_still_recovers_the_records() {
     let loaded = decode_lines(&lines);
     assert_eq!(
         loaded.issues,
-        ["The start of the file is damaged; the rest was read as a version 6 model."]
+        ["The start of the file is damaged; the rest was read as a version 7 model."]
     );
     assert_eq!(loaded.document, sample());
 }
@@ -974,7 +974,8 @@ fn an_edit_kind_this_version_does_not_know_stops_replay_at_its_line() {
 
 fn solid_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{
-        BodyOperation, Extrude, ExtrudeExtent, RegionChoice, Revolve, RevolveExtent, SolidFeature,
+        BodyOperation, Extrude, ExtrudeExtent, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
+        SolidFeature,
     };
     let mut document = Document::default();
     let mut transaction = document.transaction("Solids");
@@ -1005,7 +1006,7 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
         FeatureKind::Solid(SolidFeature::Revolve(Revolve {
             sketch,
             regions: RegionChoice::All,
-            axis: EntityId::HORIZONTAL_AXIS,
+            axis: RevolveAxis::Sketch(EntityId::HORIZONTAL_AXIS),
             extent: RevolveExtent::OneSide {
                 angle: transaction.parse("90 deg").unwrap(),
                 reversed: true,
@@ -1211,7 +1212,7 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
 fn fillets_and_chamfers_are_saved_and_loaded() {
     let (document, _, _) = blended_model();
     let text = encode(&document).unwrap();
-    assert!(text.contains("\"version\":6"));
+    assert!(text.contains("\"version\":7"));
     assert!(text.contains(
         "\"fillet\":{\"body\":1,\"size\":\"$0 / 3\",\"edges\":[{\"name\":\
          \"0000000000000000000000000000abcd\",\"faces\":[\"00000000000000000000000000000001\",\
@@ -1278,7 +1279,7 @@ fn shelled_model() -> (Document, FeatureId) {
 fn shells_are_saved_and_loaded() {
     let (document, shell) = shelled_model();
     let text = encode(&document).unwrap();
-    assert!(text.contains("\"version\":6"));
+    assert!(text.contains("\"version\":7"));
     assert!(text.contains(
         "\"shell\":{\"body\":1,\"thickness\":\"$0 / 4\",\"open\":[{\"face\":\
          \"0000000000000000000000000000beef\",\"origin\":{\"end_cap\":{\"feature\":1}},\
@@ -1309,4 +1310,128 @@ fn an_unreadable_opened_face_is_left_closed_and_reported() {
     );
     let restored = loaded.document.feature(shell).unwrap();
     assert!(restored.kind.shell().unwrap().open.is_empty());
+}
+
+fn datum_model() -> (Document, FeatureId, FeatureId) {
+    use caditor_document::{
+        AxisReference, BodyOperation, Datum, DatumAxis, DatumPlane, PlaneReference, PlaneRotation,
+        PrincipalAxis, PrincipalPlane, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
+        SketchFeature, SolidFeature,
+    };
+    use caditor_kernel::{EdgeName, EdgeReference, FaceName, FaceReference, VertexName};
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Datums");
+    let plane = transaction.add_feature(
+        "Plane 1",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xz),
+            rotation: Some(PlaneRotation {
+                axis: AxisReference::Edge {
+                    body: base,
+                    edge: EdgeReference::new(
+                        EdgeName::from_digest(0xed),
+                        [FaceName::from_digest(1), FaceName::from_digest(2)],
+                        [VertexName::from_digest(3), VertexName::from_digest(4)],
+                    ),
+                },
+                angle: transaction.parse("depth * 10 deg / 1 mm").unwrap(),
+            }),
+            offset: transaction.parse("2 mm").unwrap(),
+        })),
+    );
+    let axis = transaction.add_feature(
+        "Axis 1",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::Intersection(
+            PlaneReference::Datum(plane),
+            PlaneReference::Principal(PrincipalPlane::Xy),
+        ))),
+    );
+    transaction.add_feature(
+        "Axis 2",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Face {
+            body: base,
+            face: FaceReference::new(FaceName::from_digest(9), None, []),
+        }))),
+    );
+    transaction.add_feature(
+        "Axis 3",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Principal(
+            PrincipalAxis::Y,
+        )))),
+    );
+    let sketch = transaction.add_feature(
+        "On plane",
+        FeatureKind::Sketch(SketchFeature::on_datum(
+            dimensioned_line(Plane::XZ, 2.0, Expression::Number(2.0)),
+            plane,
+        )),
+    );
+    transaction.add_feature(
+        "Spun",
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Model(AxisReference::Datum(axis)),
+            extent: RevolveExtent::Full,
+            operation: BodyOperation::NewBody,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, plane, sketch)
+}
+
+#[test]
+fn datum_planes_and_axes_are_saved_and_loaded() {
+    let (document, plane, sketch) = datum_model();
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"version\":7"));
+    assert!(text.contains(
+        "\"plane\":{\"base\":{\"principal\":\"xz\"},\"rotation\":{\"axis\":{\"edge\":{\"body\":1,"
+    ));
+    assert!(text.contains("\"axis\":{\"intersection\":[{\"datum\":"));
+    assert!(text.contains("\"axis\":{\"along\":{\"principal\":\"y\"}}"));
+    assert!(text.contains(&format!("\"datum\":{}", plane.raw())));
+    assert!(text.contains("\"axis\":{\"datum\":"));
+    let loaded = decode(text.as_bytes()).unwrap();
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(sketch).unwrap().kind.clone();
+    let FeatureKind::Sketch(placed) = kind else {
+        panic!("the sketch is a sketch");
+    };
+    let transaction = Transaction::single(
+        "Place",
+        Edit::SetSketchPlacement {
+            feature: sketch,
+            plane: Plane::XY,
+            attachment: placed.attachment,
+        },
+    );
+    assert!(document.check(&transaction).is_ok());
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = serde_json::from_str(&text).unwrap();
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn a_sketch_on_a_lost_plane_stays_where_it_was() {
+    let (document, plane, sketch) = datum_model();
+    let text = encode(&document).unwrap();
+    let damaged: String = text
+        .lines()
+        .filter(|line| !line.contains("\"name\":\"Plane 1\""))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    let loaded = decode(damaged.as_bytes()).unwrap();
+    assert!(loaded.document.feature(plane).is_none());
+    let restored = loaded.document.feature(sketch).unwrap();
+    assert!(restored.kind.attachment().is_none());
+    assert!(
+        loaded
+            .issues
+            .contains(&"“On plane” lay on a plane that could not be restored, so the sketch now stays where it was.".to_owned()),
+        "{:?}",
+        loaded.issues
+    );
 }

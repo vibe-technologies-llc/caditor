@@ -4,6 +4,8 @@ mod app;
 mod blend_panel;
 mod blend_tools;
 mod bodies;
+mod datum_panel;
+mod datum_tools;
 mod drawing;
 mod editing;
 mod feature_tree;

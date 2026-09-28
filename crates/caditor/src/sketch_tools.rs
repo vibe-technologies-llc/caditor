@@ -291,7 +291,8 @@ pub fn selected_entities(selection: &Selection, feature: FeatureId) -> Vec<Entit
             | Pickable::Edge { .. }
             | Pickable::Region { .. }
             | Pickable::BlendEdge { .. }
-            | Pickable::ShellFace { .. } => None,
+            | Pickable::ShellFace { .. }
+            | Pickable::Datum(_) => None,
         })
         .collect()
 }
@@ -313,7 +314,8 @@ pub fn selected_constraints(selection: &Selection, feature: FeatureId) -> Vec<Co
             | Pickable::Edge { .. }
             | Pickable::Region { .. }
             | Pickable::BlendEdge { .. }
-            | Pickable::ShellFace { .. } => None,
+            | Pickable::ShellFace { .. }
+            | Pickable::Datum(_) => None,
         })
         .collect()
 }

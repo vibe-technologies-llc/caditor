@@ -108,6 +108,7 @@ pub struct ActiveSketch {
 pub enum EditingCommand {
     NewSketch(Option<PrincipalPlane>),
     NewSketchOnFace(FaceChoice),
+    NewSketchOnDatum(FeatureId),
     CancelNewSketch,
     Enter(FeatureId),
     Finish,
@@ -170,6 +171,7 @@ impl SketchEditing {
         match command {
             EditingCommand::NewSketch(Some(plane)) => self.create(plane, model),
             EditingCommand::NewSketchOnFace(face) => self.create_on_face(face, model),
+            EditingCommand::NewSketchOnDatum(datum) => self.create_on_datum(datum, model),
             EditingCommand::NewSketch(None) => {
                 self.active = None;
                 self.solid = None;
@@ -223,6 +225,16 @@ impl SketchEditing {
         self.enter(feature, model.document());
     }
 
+    fn create_on_datum(&mut self, datum: FeatureId, model: &mut Model) {
+        let Some((transaction, feature)) = sketch_placement::new_sketch_on_datum(model, datum)
+        else {
+            return;
+        };
+        self.choosing_plane = false;
+        model.perform(Action::Apply(transaction));
+        self.enter(feature, model.document());
+    }
+
     fn create_on_face(&mut self, face: FaceChoice, model: &mut Model) {
         let Some((transaction, feature)) = sketch_placement::new_sketch(model, face) else {
             return;
@@ -253,6 +265,7 @@ fn opened_solid(document: &Document, feature: FeatureId) -> bool {
         feature.kind.solid().is_some()
             || feature.kind.blend().is_some()
             || feature.kind.shell().is_some()
+            || feature.kind.datum().is_some()
     })
 }
 

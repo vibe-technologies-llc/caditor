@@ -7,7 +7,8 @@ use caditor_geometry::Plane;
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
 
 use crate::{
-    attachment::FaceAttachment,
+    attachment::SketchAttachment,
+    datum::Datum,
     document::{Document, Feature, FeatureId, FeatureKind, Parameter, list_names},
     solid::BodyOperation,
 };
@@ -51,7 +52,7 @@ pub enum Edit {
     SetSketchPlacement {
         feature: FeatureId,
         plane: Plane,
-        attachment: Option<FaceAttachment>,
+        attachment: Option<SketchAttachment>,
     },
     SetDimension {
         feature: FeatureId,
@@ -146,6 +147,10 @@ pub enum EditError {
     NotASketch(String),
     #[error("{0} does not make a body")]
     NotABody(String),
+    #[error("{0} is not a plane")]
+    NotAPlane(String),
+    #[error("{0} is not an axis")]
+    NotAnAxis(String),
     #[error("{0} cannot become a different kind of feature")]
     KindChange(String),
     #[error("{name} makes the body that {users} use, so it must keep making a new body")]
@@ -336,10 +341,22 @@ impl Document {
                 _ => return Err(EditError::MissingFeature),
             }
         }
-        if let Some(body) = kind.body_input() {
+        for body in kind.bodies_used() {
             let body = self.feature(body).ok_or(EditError::MissingFeature)?;
             if !body.makes_body() {
                 return Err(EditError::NotABody(body.name.clone()));
+            }
+        }
+        for plane in kind.planes_used() {
+            let plane = self.feature(plane).ok_or(EditError::MissingFeature)?;
+            if !plane.kind.datum().is_some_and(Datum::is_plane) {
+                return Err(EditError::NotAPlane(plane.name.clone()));
+            }
+        }
+        for axis in kind.axes_used() {
+            let axis = self.feature(axis).ok_or(EditError::MissingFeature)?;
+            if !axis.kind.datum().is_some_and(|datum| !datum.is_plane()) {
+                return Err(EditError::NotAnAxis(axis.name.clone()));
             }
         }
         let Some(solid) = kind.solid() else {
@@ -360,6 +377,7 @@ impl Document {
         let name = existing.name.clone();
         let same_kind = match (&existing.kind, &kind) {
             (FeatureKind::Solid(old), FeatureKind::Solid(new)) => old.same_kind(new),
+            (FeatureKind::Datum(old), FeatureKind::Datum(new)) => old.same_kind(new),
             (FeatureKind::Blend(_), FeatureKind::Blend(_))
             | (FeatureKind::Shell(_), FeatureKind::Shell(_)) => true,
             _ => false,
@@ -374,7 +392,7 @@ impl Document {
         if !keeps_body {
             let users: Vec<String> = self
                 .features()
-                .filter(|other| other.kind.body_input() == Some(id))
+                .filter(|other| other.kind.bodies_used().contains(&id))
                 .map(|other| other.name.clone())
                 .collect();
             if !users.is_empty() {
@@ -393,7 +411,7 @@ impl Document {
         &mut self,
         id: FeatureId,
         plane: Plane,
-        attachment: Option<FaceAttachment>,
+        attachment: Option<SketchAttachment>,
     ) -> Result<Edit, EditError> {
         let index = self.feature_position(id)?;
         let existing = self.feature(id).ok_or(EditError::MissingFeature)?;

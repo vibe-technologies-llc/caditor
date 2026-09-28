@@ -228,27 +228,33 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
         let name = feature.name.clone();
         let raw_id = feature.id().raw();
         let detached = detached(&feature);
+        let on_datum = feature
+            .kind
+            .attachment()
+            .is_some_and(|attachment| attachment.datum().is_some());
         let edit = Edit::InsertFeature {
             index: document.features().len(),
             feature: Arc::new(feature),
         };
-        let inserted = match (document.apply(Transaction::single("Load", edit)), detached) {
-            (Err(_), Some(detached)) => {
-                let edit = Edit::InsertFeature {
-                    index: document.features().len(),
-                    feature: Arc::new(detached),
-                };
-                let retried = document.apply(Transaction::single("Load", edit));
-                if retried.is_ok() {
-                    issues.push(format!(
-                        "“{name}” lay on a face of a body that could not be restored, so the \
-                         sketch now stays where it was."
+        let inserted =
+            match (document.apply(Transaction::single("Load", edit)), detached) {
+                (Err(_), Some(detached)) => {
+                    let edit = Edit::InsertFeature {
+                        index: document.features().len(),
+                        feature: Arc::new(detached),
+                    };
+                    let retried = document.apply(Transaction::single("Load", edit));
+                    if retried.is_ok() {
+                        issues.push(format!(
+                        "“{name}” lay on {} that could not be restored, so the sketch now stays \
+                         where it was.",
+                        if on_datum { "a plane" } else { "a face of a body" }
                     ));
+                    }
+                    retried
                 }
-                retried
-            }
-            (first, _) => first,
-        };
+                (first, _) => first,
+            };
         match inserted {
             Ok(_) => {}
             Err(EditError::DuplicateId) => issues.push(format!(

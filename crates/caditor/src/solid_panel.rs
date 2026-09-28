@@ -1,24 +1,28 @@
 use caditor_document::{
     BodyOperation, Document, Extrude, ExtrudeExtent, Feature, FeatureId, RegionChoice, Revolve,
-    RevolveExtent, SolidFeature, Transaction,
+    RevolveAxis, RevolveExtent, SolidFeature, Transaction,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_sketch::{Entity, EntityId, Reference};
 use egui::{Button, ComboBox, Grid, Id, Ui};
 
 use crate::{
+    datum_tools,
     editing::EditingCommand,
     field::{self, Expected},
     model::{Action, Model},
-    scene, selection,
+    scene,
+    selection::{self, Selection},
     solid_tools::{self, DEFAULT_PARTIAL_ANGLE},
 };
 
 const FIELD_WIDTH: f32 = 110.0;
 const FULL_TURN_DEGREES: f64 = 360.0;
+const USE_SELECTED_AXIS: &str = "Use selected axis";
 
 struct Panel<'a> {
     model: &'a Model,
+    selection: &'a Selection,
     feature: &'a Feature,
     solid: &'a SolidFeature,
     actions: &'a mut Vec<Action>,
@@ -344,6 +348,42 @@ impl Panel<'_> {
         }
     }
 
+    fn selected_axis_button(&mut self, ui: &mut Ui, revolve: &Revolve) {
+        let document = self.document();
+        let index = document.feature_index(self.id()).unwrap_or(0);
+        let chosen = self
+            .selection
+            .iter()
+            .find_map(|pickable| datum_tools::axis_reference(self.model, pickable, index));
+        let change = match chosen {
+            Some(axis) if revolve.axis.model() == Some(&axis) => {
+                Err("The revolve already turns about the selected axis".to_owned())
+            }
+            Some(axis) => self.change(SolidFeature::Revolve(Revolve {
+                axis: RevolveAxis::Model(axis),
+                ..revolve.clone()
+            })),
+            None => Err(
+                "Select an axis, a straight edge or a round face made before this feature"
+                    .to_owned(),
+            ),
+        };
+        let response = ui.add_enabled(change.is_ok(), Button::new(USE_SELECTED_AXIS).small());
+        match change {
+            Ok(transaction) => {
+                if response
+                    .on_hover_text("Turn about the selected axis, edge or round face")
+                    .clicked()
+                {
+                    self.actions.push(Action::Apply(transaction));
+                }
+            }
+            Err(reason) => {
+                response.on_disabled_hover_text(reason);
+            }
+        }
+    }
+
     fn revolve_rows(&mut self, ui: &mut Ui, revolve: &Revolve) {
         ui.label("Axis");
         let model = self.model;
@@ -351,29 +391,35 @@ impl Panel<'_> {
             .document()
             .feature(revolve.sketch)
             .and_then(|feature| feature.kind.sketch());
-        let axis_name = sketch.map_or_else(
-            || "a missing line".to_owned(),
-            |sketch| sketch.entity_label(revolve.axis),
-        );
-        self.combo(ui, "axis", &axis_name, |panel| {
-            let Some(sketch) = sketch else {
-                return Vec::new();
-            };
-            let lines = sketch
-                .entities()
-                .filter_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id));
-            [Reference::HorizontalAxis.id(), Reference::VerticalAxis.id()]
-                .into_iter()
-                .chain(lines)
-                .map(|axis| Choice {
-                    label: sketch.entity_label(axis),
-                    selected: axis == revolve.axis,
-                    change: panel.change(SolidFeature::Revolve(Revolve {
-                        axis,
-                        ..revolve.clone()
-                    })),
-                })
-                .collect()
+        let axis_name = solid_tools::axis_name(model.document(), revolve.sketch, &revolve.axis);
+        ui.horizontal(|ui| {
+            self.combo(ui, "axis", &axis_name, |panel| {
+                let Some(sketch) = sketch else {
+                    return Vec::new();
+                };
+                let lines = sketch
+                    .entities()
+                    .filter_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id));
+                let model_axis = revolve.axis.model().map(|_| Choice {
+                    label: axis_name.clone(),
+                    selected: true,
+                    change: Err(String::new()),
+                });
+                [Reference::HorizontalAxis.id(), Reference::VerticalAxis.id()]
+                    .into_iter()
+                    .chain(lines)
+                    .map(|axis| Choice {
+                        label: sketch.entity_label(axis),
+                        selected: revolve.axis == RevolveAxis::Sketch(axis),
+                        change: panel.change(SolidFeature::Revolve(Revolve {
+                            axis: RevolveAxis::Sketch(axis),
+                            ..revolve.clone()
+                        })),
+                    })
+                    .chain(model_axis)
+                    .collect()
+            });
+            self.selected_axis_button(ui, revolve);
         });
         ui.end_row();
 
@@ -547,10 +593,11 @@ fn with_sketch(solid: &SolidFeature, sketch: FeatureId) -> SolidFeature {
         SolidFeature::Revolve(revolve) => SolidFeature::Revolve(Revolve {
             sketch,
             regions: RegionChoice::All,
-            axis: if revolve.axis.is_reference() {
-                revolve.axis
-            } else {
-                EntityId::VERTICAL_AXIS
+            axis: match &revolve.axis {
+                RevolveAxis::Sketch(line) if !line.is_reference() => {
+                    RevolveAxis::Sketch(EntityId::VERTICAL_AXIS)
+                }
+                RevolveAxis::Sketch(_) | RevolveAxis::Model(_) => revolve.axis.clone(),
             },
             ..revolve.clone()
         }),
@@ -585,6 +632,7 @@ fn operation_name(operation: BodyOperation) -> &'static str {
 pub fn show(
     ui: &mut Ui,
     model: &Model,
+    selection: &Selection,
     actions: &mut Vec<Action>,
     feature: &Feature,
     solid: &SolidFeature,
@@ -592,6 +640,7 @@ pub fn show(
 ) {
     let mut panel = Panel {
         model,
+        selection,
         feature,
         solid,
         actions,

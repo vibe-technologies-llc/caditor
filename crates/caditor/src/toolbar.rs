@@ -1,10 +1,11 @@
 use std::time::Duration;
 
+use caditor_document::Datum;
 use egui::{Button, Color32, Key, KeyboardShortcut, Modifiers, Ui};
 
 use crate::{
-    blend_panel, blend_tools,
-    editing::{self, EditingCommand, SketchEditing},
+    blend_panel, blend_tools, datum_tools,
+    editing::{EditingCommand, SketchEditing},
     feature_tree::count,
     files::{self, Files},
     model::{Action, Model, NoticeKind, RecomputeStatus},
@@ -41,6 +42,8 @@ pub fn show(ui: &mut Ui, model: &Model, context: &ToolbarContext<'_>, actions: &
             solid_buttons(ui, model, context, actions);
             blend_buttons(ui, model, context, actions);
             shell_button(ui, model, context, actions);
+            ui.separator();
+            datum_buttons(ui, model, context, actions);
             ui.separator();
             recompute_status(ui, model, actions);
             if let Some(notice) = model.notice() {
@@ -89,21 +92,33 @@ fn sketch_buttons(
         | Pickable::Edge { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
-        | Pickable::ShellFace { .. } => None,
+        | Pickable::ShellFace { .. }
+        | Pickable::Datum(_) => None,
     });
+    let datum = datum_tools::selected_datum_plane(model.document(), selection);
     let face = sketch_placement::selected_face(selection)
         .filter(|face| sketch_placement::is_flat(model, *face));
-    let (hover, command) = match (plane, face) {
-        (Some(plane), _) => (
+    let (hover, command) = match (plane, datum, face) {
+        (Some(plane), _, _) => (
             format!("Start a sketch on the selected {}", plane.name()),
             EditingCommand::NewSketch(Some(plane)),
         ),
-        (None, Some(face)) => (
+        (None, Some(datum), _) => (
+            format!(
+                "Start a sketch on {}; it follows the plane when the model changes",
+                model
+                    .document()
+                    .feature(datum)
+                    .map_or("the selected plane", |datum| datum.name.as_str())
+            ),
+            EditingCommand::NewSketchOnDatum(datum),
+        ),
+        (None, None, Some(face)) => (
             "Start a sketch on the selected face; it follows the face when the model changes"
                 .to_owned(),
             EditingCommand::NewSketchOnFace(face),
         ),
-        (None, None) => (
+        (None, None, None) => (
             "Start a sketch on the plane or flat face you click next".to_owned(),
             EditingCommand::NewSketch(None),
         ),
@@ -120,27 +135,25 @@ fn solid_buttons(
     actions: &mut Vec<Action>,
 ) {
     let document = model.document();
-    let source = solid_tools::sweep_source(document, context.selection, context.editing);
+    let source = solid_tools::sweep_source(document, context.selection, context.editing)
+        .map(|source| solid_tools::with_model_axis(model, context.selection, source));
     for sweep in Sweep::ALL {
         let text = format!("{} {}", sweep.icon(), sweep.label());
         let response = ui.add_enabled(source.is_some(), Button::new(text));
-        let response = match source {
+        let response = match &source {
             Some(source) => {
                 let sketch = document
                     .feature(source.sketch)
                     .map_or("the sketch", |feature| feature.name.as_str());
-                let hover = match (sweep, source.axis) {
+                let hover = match (sweep, &source.axis) {
                     (Sweep::Extrude, _) => format!("Extrude the closed regions of {sketch}"),
                     (Sweep::Revolve, Some(axis)) => {
-                        let axis = editing::edited_sketch(document, source.sketch).map_or_else(
-                            || "the chosen line".to_owned(),
-                            |sketch| sketch.entity_label(axis),
-                        );
+                        let axis = solid_tools::axis_name(document, source.sketch, axis);
                         format!("Revolve the closed regions of {sketch} about {axis}")
                     }
                     (Sweep::Revolve, None) => format!(
                         "Revolve the closed regions of {sketch} about its vertical axis, or about \
-                         a line you select first"
+                         a line or axis you select first"
                     ),
                 };
                 response.on_hover_text(hover)
@@ -148,9 +161,9 @@ fn solid_buttons(
             None => response.on_disabled_hover_text("Draw a sketch with a closed outline first"),
         };
         if response.clicked()
-            && let Some(source) = source
+            && let Some(source) = &source
         {
-            actions.extend(solid_tools::create_actions(document, sweep, source));
+            actions.extend(solid_tools::create_actions(document, sweep, source.clone()));
         }
     }
 }
@@ -186,6 +199,49 @@ fn blend_buttons(
                 source,
             ));
         }
+    }
+}
+
+fn datum_buttons(
+    ui: &mut Ui,
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let document = model.document();
+    let end = document.features().len();
+    let plane = datum_tools::plane_from_selection(model, context.selection, end);
+    let text = format!("{} Plane", datum_tools::PLANE_ICON);
+    let response = ui.add_enabled(plane.is_ok(), Button::new(text));
+    let response = match &plane {
+        Ok(_) => response.on_hover_text(
+            "Add a plane offset from the selected plane or flat face (the XY plane when none is \
+             selected), turned about the selected axis or straight edge if there is one",
+        ),
+        Err(reason) => response.on_disabled_hover_text(format!("{reason}.")),
+    };
+    if response.clicked()
+        && let Ok(plane) = plane
+    {
+        actions.extend(datum_tools::create_actions(document, Datum::Plane(plane)));
+    }
+
+    let axis = datum_tools::axis_from_selection(model, context.selection, end);
+    let text = format!("{} Axis", datum_tools::AXIS_ICON);
+    let response = ui.add_enabled(axis.is_ok(), Button::new(text));
+    let response = match &axis {
+        Ok(_) => response.on_hover_text(
+            "Add an axis along the selected edge, round face or axis, or where the two selected \
+             planes meet",
+        ),
+        Err(reason) => {
+            response.on_disabled_hover_text(format!("Add an axis. {reason}, then click here."))
+        }
+    };
+    if response.clicked()
+        && let Ok(axis) = axis
+    {
+        actions.extend(datum_tools::create_actions(document, Datum::Axis(axis)));
     }
 }
 

@@ -1,12 +1,13 @@
 use caditor_document::{
     BodyOperation, Document, Edit, Extrude, ExtrudeExtent, FeatureId, FeatureKind, RegionChoice,
-    Revolve, RevolveExtent, SolidFeature, Transaction,
+    Revolve, RevolveAxis, RevolveExtent, SolidFeature, Transaction, describe_axis,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_kernel::RegionKey;
 use caditor_sketch::{Entity, EntityId, Reference};
 
 use crate::{
+    datum_tools,
     editing::{self, EditingCommand, SketchEditing},
     model::{Action, Model},
     scene,
@@ -40,10 +41,10 @@ impl Sweep {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SweepSource {
     pub sketch: FeatureId,
-    pub axis: Option<EntityId>,
+    pub axis: Option<RevolveAxis>,
 }
 
 pub fn sweep_source(
@@ -61,7 +62,8 @@ pub fn sweep_source(
         | Pickable::Edge { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
-        | Pickable::ShellFace { .. } => None,
+        | Pickable::ShellFace { .. }
+        | Pickable::Datum(_) => None,
     });
     let opened_sketch = editing
         .solid()
@@ -86,7 +88,7 @@ pub fn sweep_source(
                 Some(Reference::Origin) => false,
                 None => matches!(definition.entity(entity), Some(Entity::Line { .. })),
             };
-            is_axis.then_some(entity)
+            is_axis.then_some(RevolveAxis::Sketch(entity))
         }
         Pickable::Origin
         | Pickable::Axis(_)
@@ -97,9 +99,32 @@ pub fn sweep_source(
         | Pickable::Edge { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
-        | Pickable::ShellFace { .. } => None,
+        | Pickable::ShellFace { .. }
+        | Pickable::Datum(_) => None,
     });
     Some(SweepSource { sketch, axis })
+}
+
+pub fn with_model_axis(model: &Model, selection: &Selection, source: SweepSource) -> SweepSource {
+    if source.axis.is_some() {
+        return source;
+    }
+    let end = model.document().features().len();
+    let axis = selection
+        .iter()
+        .find_map(|pickable| datum_tools::axis_reference(model, pickable, end))
+        .map(RevolveAxis::Model);
+    SweepSource { axis, ..source }
+}
+
+pub fn axis_name(document: &Document, sketch: FeatureId, axis: &RevolveAxis) -> String {
+    match axis {
+        RevolveAxis::Sketch(line) => editing::edited_sketch(document, sketch).map_or_else(
+            || "the chosen line".to_owned(),
+            |sketch| sketch.entity_label(*line),
+        ),
+        RevolveAxis::Model(axis) => describe_axis(document, axis),
+    }
 }
 
 fn last_body(document: &Document, before: Option<FeatureId>) -> Option<FeatureId> {
@@ -152,7 +177,9 @@ pub fn create(document: &Document, sweep: Sweep, source: SweepSource) -> (Transa
         Sweep::Revolve => SolidFeature::Revolve(Revolve {
             sketch: source.sketch,
             regions: RegionChoice::All,
-            axis: source.axis.unwrap_or(EntityId::VERTICAL_AXIS),
+            axis: source
+                .axis
+                .unwrap_or(RevolveAxis::Sketch(EntityId::VERTICAL_AXIS)),
             extent: RevolveExtent::Full,
             operation,
         }),
@@ -263,7 +290,7 @@ mod tests {
             sweep_source(&document, &selection, &SketchEditing::editing(side)),
             Some(SweepSource {
                 sketch: side,
-                axis: Some(line)
+                axis: Some(RevolveAxis::Sketch(line))
             })
         );
         assert_eq!(
@@ -289,7 +316,7 @@ mod tests {
             Sweep::Revolve,
             SweepSource {
                 sketch: side,
-                axis: Some(line),
+                axis: Some(RevolveAxis::Sketch(line)),
             },
         );
         assert_eq!(transaction.label(), "Create Revolve 1");
@@ -303,6 +330,6 @@ mod tests {
         );
         let second = document.feature(second).unwrap().kind.solid().unwrap();
         assert_eq!(second.operation(), BodyOperation::Add(first.id()));
-        assert_eq!(second.axis(), Some(line));
+        assert_eq!(second.axis_line(), Some(line));
     }
 }
