@@ -13,7 +13,7 @@ pub use self::mass::MassProperties;
 use crate::{
     interrupt::{self, Interrupted},
     tolerance::SamplingTolerance,
-    topology::{EdgeId, FaceId, Solid},
+    topology::{Edge, EdgeId, FaceId, Solid},
 };
 
 const MIN_CLOSED_EDGE_SEGMENTS: usize = 3;
@@ -147,36 +147,76 @@ pub(crate) struct EdgeSampling {
     pub positions: Vec<u32>,
 }
 
+struct Tolerances {
+    base: SamplingTolerance,
+    faces: BTreeMap<FaceId, SamplingTolerance>,
+}
+
+impl Tolerances {
+    fn face(&self, face: FaceId) -> SamplingTolerance {
+        self.faces.get(&face).copied().unwrap_or(self.base)
+    }
+
+    fn edge(&self, solid: &Solid, edge: &Edge) -> SamplingTolerance {
+        edge.coedges()
+            .iter()
+            .filter_map(|coedge| solid.coedge_face(*coedge))
+            .map(|face| self.face(face))
+            .fold(self.base, |finest, face| {
+                SamplingTolerance::new(
+                    finest.chord().min(face.chord()),
+                    finest.angle().min(face.angle()),
+                )
+                .unwrap_or(finest)
+            })
+    }
+
+    fn refine(&mut self, faces: &[FaceId]) -> bool {
+        let mut refined = false;
+        for face in faces {
+            let current = self.face(*face);
+            let finer =
+                SamplingTolerance::new(current.chord() * REFINEMENT, current.angle() * REFINEMENT)
+                    .filter(|finer| *finer != current);
+            if let Some(finer) = finer {
+                self.faces.insert(*face, finer);
+                refined = true;
+            }
+        }
+        refined
+    }
+}
+
+enum Attempt {
+    Meshed(Mesh),
+    Crossed {
+        faces: Vec<FaceId>,
+        first: TessellationError,
+    },
+}
+
 pub(crate) fn tessellate(
     solid: &Solid,
     tolerance: &SamplingTolerance,
 ) -> Result<Mesh, TessellationError> {
-    let mut current = *tolerance;
-    for _ in 0..MAX_REFINEMENTS {
-        match tessellate_once(solid, &current) {
-            Err(
-                TessellationError::SelfIntersectingBoundary(_)
-                | TessellationError::DuplicateBoundaryPoint(_),
-            ) => {
-                let Some(finer) = SamplingTolerance::new(
-                    current.chord() * REFINEMENT,
-                    current.angle() * REFINEMENT,
-                )
-                .filter(|finer| *finer != current) else {
-                    break;
-                };
-                current = finer;
+    let mut tolerances = Tolerances {
+        base: *tolerance,
+        faces: BTreeMap::new(),
+    };
+    for attempt in 0..=MAX_REFINEMENTS {
+        match tessellate_once(solid, &tolerances)? {
+            Attempt::Meshed(mesh) => return Ok(mesh),
+            Attempt::Crossed { faces, first } => {
+                if attempt == MAX_REFINEMENTS || !tolerances.refine(&faces) {
+                    return Err(first);
+                }
             }
-            result => return result,
         }
     }
-    tessellate_once(solid, &current)
+    Err(TessellationError::MissingEntity)
 }
 
-fn tessellate_once(
-    solid: &Solid,
-    tolerance: &SamplingTolerance,
-) -> Result<Mesh, TessellationError> {
+fn tessellate_once(solid: &Solid, tolerances: &Tolerances) -> Result<Attempt, TessellationError> {
     let mut mesh = Mesh::default();
     let mut vertex_positions = Vec::new();
     for (_, vertex) in solid.vertices() {
@@ -184,14 +224,16 @@ fn tessellate_once(
     }
     let mut least_segments: BTreeMap<EdgeId, usize> = BTreeMap::new();
     for (id, _) in solid.faces() {
-        for (edge, segments) in face::pole_edge_segments(solid, id, tolerance)? {
+        for (edge, segments) in face::pole_edge_segments(solid, id, &tolerances.face(id))? {
             let least = least_segments.entry(edge).or_default();
             *least = (*least).max(segments);
         }
     }
     let mut samplings = Vec::new();
     for (id, edge) in solid.edges() {
-        let mut samples = edge.curve().sample(edge.interval(), tolerance);
+        let mut samples = edge
+            .curve()
+            .sample(edge.interval(), &tolerances.edge(solid, edge));
         let pieces = if edge.is_closed() {
             MIN_CLOSED_EDGE_SEGMENTS
         } else {
@@ -238,14 +280,32 @@ fn tessellate_once(
             positions,
         });
     }
+    let mut crossed = Vec::new();
+    let mut first = None;
     for (id, _) in solid.faces() {
         interrupt::check()?;
-        let first = mesh.triangles.len();
-        face::triangulate(solid, id, &samplings, tolerance, &mut mesh)?;
-        mesh.faces.push(FaceTriangles {
-            face: id,
-            triangles: first..mesh.triangles.len(),
-        });
+        let start = mesh.triangles.len();
+        match face::triangulate(solid, id, &samplings, &tolerances.face(id), &mut mesh) {
+            Ok(()) => mesh.faces.push(FaceTriangles {
+                face: id,
+                triangles: start..mesh.triangles.len(),
+            }),
+            Err(
+                error @ (TessellationError::SelfIntersectingBoundary(_)
+                | TessellationError::DuplicateBoundaryPoint(_)),
+            ) => {
+                crossed.push(id);
+                first.get_or_insert(error);
+            }
+            Err(error) if first.is_none() => return Err(error),
+            Err(_) => break,
+        }
     }
-    Ok(mesh)
+    Ok(match first {
+        Some(first) => Attempt::Crossed {
+            faces: crossed,
+            first,
+        },
+        None => Attempt::Meshed(mesh),
+    })
 }

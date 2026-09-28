@@ -37,8 +37,6 @@ within a category run from most to least important.
 
 - B-spline surface projection of a point off the surface refines four seeds every call, which is
   most of its cost.
-- A failing face re-meshes the whole solid up to five times, and validation retries that three
-  times. Retry only the failing face.
 - The profile arrangement is quadratic in curves (`arrangement.rs` `split` scans every event per
   source), about 1e9 comparisons at `MAX_DRAWING_CURVES`.
 - Blend corners look up loops quadratically (`blend/corner.rs`).

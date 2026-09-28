@@ -290,7 +290,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     per-face vertices with exact surface normals, triangles, each face's triangle range and each
     edge's polyline, and computes volume, area and centroid by the divergence theorem. When a face
     boundary crosses itself at the requested tolerance (loops closer than the sampling error),
-    tessellation retries with halved chord and angle a few times before failing.
+    tessellation retries a few times before failing, halving chord and angle for every face that
+    crossed and for the edges they bound (an edge takes the finest tolerance of its faces).
   - Naming (`naming/`): `FaceName`, `EdgeName` and `VertexName` are 128-bit FNV-1a digests over a
     canonical little-endian encoding with a tag byte per constructor; they are stored in files, so
     the encoding and the pinned digests in `naming/tests.rs` never change. Faces: `side(feature,

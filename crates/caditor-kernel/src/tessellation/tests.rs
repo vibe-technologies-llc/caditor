@@ -309,3 +309,57 @@ fn a_cone_meshes_without_slivers_at_its_apex_at_any_tolerance() {
         }
     }
 }
+
+#[test]
+fn only_faces_whose_boundary_crosses_itself_are_meshed_finer() {
+    use caditor_geometry::Plane;
+
+    use crate::{
+        build::{LinearExtent, extrude},
+        profile::{Profile, Selection},
+        test_support::circle,
+    };
+
+    let sweep = |curves: &[crate::profile::ProfileCurve]| {
+        let regions = Profile::new(curves)
+            .unwrap()
+            .select(&Selection::EvenDepth)
+            .unwrap();
+        extrude(
+            &Plane::XY,
+            &regions,
+            LinearExtent::one_side(1.0).unwrap(),
+            1,
+        )
+        .unwrap()
+    };
+    let post = [circle(1, (30.0, 0.0), 3.0)];
+    let mut curves = post.to_vec();
+    curves.push(circle(5, (0.0, 0.0), 10.0));
+    let (sin, cos) = 0.07_f64.sin_cos();
+    curves.push(circle(6, (8.999 * cos, 8.999 * sin), 1.0));
+    let both = sweep(&curves);
+    let tolerance = SamplingTolerance::new(0.05, 0.5).unwrap();
+    let tolerances = Tolerances {
+        base: tolerance,
+        faces: BTreeMap::new(),
+    };
+    assert!(matches!(
+        tessellate_once(&both, &tolerances),
+        Ok(Attempt::Crossed { .. })
+    ));
+    let mesh = both.tessellate(&tolerance).unwrap();
+    assert_watertight("ring and post", &mesh);
+    let alone = sweep(&post).tessellate(&tolerance).unwrap();
+    let counts = |mesh: &Mesh| {
+        let mut counts: Vec<usize> = mesh
+            .faces()
+            .iter()
+            .map(|face| face.triangles.len())
+            .collect();
+        counts.sort_unstable();
+        counts
+    };
+    let found = counts(&mesh);
+    assert!(counts(&alone).iter().all(|count| found.contains(count)));
+}
