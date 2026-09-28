@@ -6,7 +6,6 @@ use caditor_file::{
     drawing_transaction,
 };
 use caditor_geometry::Plane;
-use egui::{KeyboardShortcut, Modifiers};
 
 use crate::{
     editing::{self, EditingCommand, SketchEditing},
@@ -14,7 +13,6 @@ use crate::{
     model::{Action, Model, Notice, display_name},
 };
 
-pub const IMPORT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::I);
 pub const IMPORT_HINT: &str = "Add a DXF drawing to the sketch you are editing or to a new sketch \
                                on the XY plane, or the bodies of a STEP model to the model";
 const STEP_SIGNATURE: &[u8] = b"ISO-10303-21";

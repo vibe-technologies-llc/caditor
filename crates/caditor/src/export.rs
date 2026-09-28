@@ -11,7 +11,7 @@ use std::{
 
 use caditor_document::{CancelToken, FeatureId, FeatureResult};
 use caditor_file::{ExportBody, ExportError, ExportFormat, Exported, MeshResolution};
-use egui::{Button, Id, KeyboardShortcut, Modal, Modifiers, RichText, Ui};
+use egui::{Button, Id, Modal, RichText, Ui};
 use parking_lot::Mutex;
 
 use crate::{
@@ -21,7 +21,6 @@ use crate::{
     units::LengthUnit,
 };
 
-pub const EXPORT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::E);
 const DIALOG_WIDTH: f32 = 420.0;
 const NO_BODIES: &str =
     "There are no bodies to export yet. Extrude or revolve a sketch to make one.";

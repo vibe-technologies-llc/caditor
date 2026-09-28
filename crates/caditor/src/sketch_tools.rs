@@ -2,7 +2,6 @@ use caditor_document::{FeatureId, Transaction, TransactionBuilder};
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Reference, Sketch};
-use egui::Key;
 
 use crate::{
     field::sentence,
@@ -15,7 +14,7 @@ const DISPLAY_DECIMALS: f64 = 3.0;
 const SIGNIFICANT_DIGITS: f64 = 6.0;
 const DEGENERATE_LENGTH: f64 = 1e-12;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstraintTool {
     Coincident,
     Horizontal,
@@ -65,21 +64,6 @@ impl ConstraintTool {
             Self::Distance => "Distance",
             Self::Angle => "Angle",
             Self::Radius => "Radius",
-        }
-    }
-
-    pub fn key(self) -> Key {
-        match self {
-            Self::Coincident => Key::C,
-            Self::Horizontal => Key::H,
-            Self::Vertical => Key::V,
-            Self::Parallel => Key::P,
-            Self::Perpendicular => Key::L,
-            Self::Tangent => Key::T,
-            Self::Equal => Key::E,
-            Self::Distance => Key::D,
-            Self::Angle => Key::A,
-            Self::Radius => Key::R,
         }
     }
 

@@ -1,10 +1,11 @@
 use caditor_file::Settings;
-use egui::{Id, KeyboardShortcut, Modal, Modifiers, RichText, ThemePreference, Ui};
+use egui::{Id, KeyboardShortcut, Modal, RichText, ThemePreference, Ui};
 
-use crate::units::LengthUnit;
+use crate::{
+    commands::{Command, Keymap},
+    units::LengthUnit,
+};
 
-pub const PREFERENCES: KeyboardShortcut =
-    KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::Comma);
 pub const MIN_SPEED: f64 = 0.25;
 pub const MAX_SPEED: f64 = 4.0;
 const UNIT_KEY: &str = "units.length";
@@ -76,6 +77,8 @@ pub struct Preferences {
     pub unit: LengthUnit,
     pub theme: Theme,
     pub navigation: Navigation,
+    pub keymap: Keymap,
+    loaded_keymap: Keymap,
     raw: Settings,
 }
 
@@ -86,6 +89,10 @@ pub enum PreferenceChange {
     OrbitSpeed(f64),
     ZoomSpeed(f64),
     InvertZoom(bool),
+    Bind(Command, KeyboardShortcut),
+    Unbind(Command, KeyboardShortcut),
+    ResetShortcut(Command),
+    ResetShortcuts,
     Defaults,
 }
 
@@ -93,6 +100,8 @@ pub enum PreferenceChange {
 pub enum PreferencesCommand {
     Show,
     Hide,
+    ShowShortcuts,
+    HideShortcuts,
     Change(PreferenceChange),
 }
 
@@ -116,6 +125,8 @@ impl Preferences {
                 zoom_speed: speed(raw.number(ZOOM_KEY)),
                 invert_zoom: raw.flag(INVERT_ZOOM_KEY).unwrap_or(false),
             },
+            keymap: Keymap::from_settings(&raw),
+            loaded_keymap: Keymap::from_settings(&raw),
             raw,
         }
     }
@@ -127,6 +138,7 @@ impl Preferences {
         settings.set_number(ORBIT_KEY, self.navigation.orbit_speed);
         settings.set_number(ZOOM_KEY, self.navigation.zoom_speed);
         settings.set_flag(INVERT_ZOOM_KEY, self.navigation.invert_zoom);
+        self.keymap.write(&self.loaded_keymap, &mut settings);
         settings
     }
 
@@ -141,6 +153,10 @@ impl Preferences {
                 self.navigation.zoom_speed = value.clamp(MIN_SPEED, MAX_SPEED);
             }
             PreferenceChange::InvertZoom(invert) => self.navigation.invert_zoom = invert,
+            PreferenceChange::Bind(command, shortcut) => self.keymap.bind(command, shortcut),
+            PreferenceChange::Unbind(command, shortcut) => self.keymap.unbind(command, shortcut),
+            PreferenceChange::ResetShortcut(command) => self.keymap.reset(command),
+            PreferenceChange::ResetShortcuts => self.keymap.reset_all(),
             PreferenceChange::Defaults => {
                 self.unit = LengthUnit::default();
                 self.theme = Theme::default();
@@ -158,6 +174,7 @@ pub fn dialog(ctx: &egui::Context, preferences: &Preferences) -> Option<Preferen
         units(ui, preferences, &mut command);
         appearance(ui, preferences, &mut command);
         navigation(ui, preferences, &mut command);
+        keyboard(ui, &mut command);
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             if ui.button("Close").clicked() {
@@ -212,6 +229,17 @@ fn appearance(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
         }
     });
     ui.weak("Panels and menus follow the theme; the 3D view keeps its dark background.");
+}
+
+fn keyboard(ui: &mut Ui, command: &mut Option<PreferencesCommand>) {
+    section(ui, "Keyboard");
+    if ui
+        .button("Keyboard shortcuts…")
+        .on_hover_text("See every shortcut and change any of them")
+        .clicked()
+    {
+        *command = Some(PreferencesCommand::ShowShortcuts);
+    }
 }
 
 fn navigation(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {

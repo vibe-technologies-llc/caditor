@@ -303,6 +303,17 @@ impl Harness {
         }
     }
 
+    fn type_text(&mut self, text: &str) {
+        self.events.push(Event::Text(text.to_owned()));
+        self.frame();
+        self.frame();
+    }
+
+    fn replace_text(&mut self, text: &str) {
+        self.key(Key::A, Modifiers::COMMAND);
+        self.type_text(text);
+    }
+
     fn focus(&mut self, focus: Focus) {
         self.workspace.panels.request_focus(focus);
         for _ in 0..10 {
@@ -2617,4 +2628,94 @@ fn an_axis_from_a_selected_edge_turns_a_plane_and_a_revolve() {
             .map(|status| &status.state),
         Some(&caditor_document::FeatureState::UpToDate)
     );
+}
+
+#[test]
+fn the_command_palette_runs_what_fits_the_context_and_explains_the_rest() {
+    let mut harness = Harness::new();
+    harness.edit_width("50 mm");
+    harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.show_new_windows();
+    assert!(harness.workspace.palette.is_open());
+
+    harness.type_text("fillet");
+    assert!(harness.shows("Model: Fillet is not available: Select the edges of a body first."));
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(harness.workspace.palette.is_open());
+
+    harness.replace_text("draw line");
+    assert!(
+        harness
+            .shows("No command matches. Commands that do not fit what you are doing are left out.")
+    );
+
+    harness.replace_text("undo");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(!harness.workspace.palette.is_open());
+    assert_eq!(harness.expression_text("width"), "40 mm");
+
+    let base = harness.document().features().next().unwrap().id();
+    harness.edit(base);
+    harness.click("🔍 Commands");
+    assert!(harness.workspace.palette.is_open());
+    harness.type_text("draw line");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    assert_eq!(harness.tool(), Some(Tool::Line));
+}
+
+#[test]
+fn a_shortcut_recorded_in_the_editor_runs_its_command_and_is_remembered() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.edit_width("50 mm");
+    harness.key(Key::Comma, Modifiers::COMMAND);
+    harness.show_new_windows();
+    harness.frame();
+    harness.click("Keyboard shortcuts…");
+    assert!(harness.shows("Keyboard Shortcuts"));
+    harness.type_text("undo");
+    assert!(!harness.shows("Redo"));
+    harness.click("Keyboard Shortcuts");
+
+    harness.click("Add…");
+    assert!(harness.shows("Press the keys… (Esc cancels)"));
+    harness.key(Key::U, Modifiers::ALT);
+    harness.show_new_windows();
+    assert!(harness.shows("Alt+U  ✕"));
+
+    harness.click("Add…");
+    harness.key(Key::F, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(harness.shows("F is already used by Fit view. Use it for Undo instead?"));
+    harness.click("Keep it where it is");
+    assert!(!harness.shows("F  ✕"));
+
+    harness.click("Add…");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(harness.shows(
+        "Esc, Enter and Tab keep their meaning everywhere (back out, confirm, move between \
+         fields), so they cannot be shortcuts."
+    ));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(harness.workspace.shortcut_editor.is_none());
+    assert!(harness.workspace.preferences_open);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(!harness.workspace.preferences_open);
+
+    harness.key(Key::U, Modifiers::ALT);
+    harness.frame();
+    assert_eq!(harness.expression_text("width"), "40 mm");
+    harness.wait_until("the shortcut is saved", |_| {
+        caditor_file::Settings::load(&dir.path().join("config")).texts("keys.edit.undo")
+            == Some(vec!["Ctrl+Z".to_owned(), "Alt+U".to_owned()])
+    });
+    harness.hover("⟳ Redo");
+    assert!(harness.shows("Redo Edit width (Ctrl+Shift+Z)"));
 }

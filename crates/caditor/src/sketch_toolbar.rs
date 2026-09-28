@@ -1,11 +1,12 @@
 use caditor_document::Feature;
 use caditor_sketch::{Constraint, ConstraintId, EntityId, Sketch};
-use egui::{Button, Key, KeyboardShortcut, Modifiers, Ui};
+use egui::{Button, Ui};
 
 use crate::{
+    commands::{Command, CommandFrame},
     editing::{ActiveSketch, EditingCommand, SketchEditing, Tool},
     feature_tree::count,
-    model::{Action, Model, Notice},
+    model::{Action, Model},
     panels::{Focus, PanelState},
     scene,
     selection::Selection,
@@ -13,23 +14,18 @@ use crate::{
     sketch_tools::{self, ConstraintTool},
 };
 
-const DELETE_KEYS: [Key; 2] = [Key::Delete, Key::Backspace];
 const FINISH_LABEL: &str = "Finish sketch";
 const SELECT_KEY: &str = "Esc";
+const NOTHING_TO_DELETE: &str = "Select sketch geometry or constraints to delete them";
 
 type Offer = (ConstraintTool, Result<Vec<Constraint>, String>);
-
-pub struct SketchInput<'a> {
-    pub selection: &'a Selection,
-    pub keys_free: bool,
-    pub drawing: bool,
-}
 
 pub fn show(
     ui: &mut Ui,
     model: &Model,
     editing: &SketchEditing,
-    input: &SketchInput<'_>,
+    selection: &Selection,
+    commands: &mut CommandFrame<'_>,
     panels: &mut PanelState,
     actions: &mut Vec<Action>,
 ) {
@@ -45,7 +41,7 @@ pub fn show(
     ) else {
         return;
     };
-    let selected = sketch_tools::selected_entities(input.selection, feature.id());
+    let selected = sketch_tools::selected_entities(selection, feature.id());
     let offers: Vec<Offer> = ConstraintTool::ALL
         .into_iter()
         .map(|tool| {
@@ -61,24 +57,21 @@ pub fn show(
             .copied()
             .filter(|entity| !entity.is_reference())
             .collect(),
-        constraints: sketch_tools::selected_constraints(input.selection, feature.id()),
+        constraints: sketch_tools::selected_constraints(selection, feature.id()),
     };
 
     let mut request = Request::default();
     egui::Panel::top("sketch-toolbar").show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            header(ui, model, feature, panels, actions);
+            header(ui, model, feature, commands, panels, actions);
             ui.separator();
-            tools(ui, active, actions);
+            tools(ui, active, commands, actions);
             ui.separator();
-            constraint_buttons(ui, &offers, &mut request);
+            constraint_buttons(ui, &offers, commands, &mut request);
             ui.separator();
-            delete_button(ui, !deletable.is_empty(), &mut request);
+            delete_button(ui, !deletable.is_empty(), commands, &mut request);
         });
     });
-    if input.keys_free {
-        shortcuts(ui, &offers, input.drawing, &mut request, actions);
-    }
 
     if let Some((tool, constraints)) = request.constraints {
         let added = sketch_tools::add_constraints(model, feature.id(), tool, constraints);
@@ -136,14 +129,20 @@ fn header(
     ui: &mut Ui,
     model: &Model,
     feature: &Feature,
+    commands: &mut CommandFrame<'_>,
     panels: &mut PanelState,
     actions: &mut Vec<Action>,
 ) {
     ui.strong(format!("Editing {}", feature.name));
+    let invoked = commands.available(Command::FinishSketch);
+    let keys = commands
+        .keys(Command::FinishSketch)
+        .unwrap_or_else(|| "Esc with nothing selected".to_owned());
     if ui
         .button(FINISH_LABEL)
-        .on_hover_text("Leave the sketch. Everything is kept. (Esc with nothing selected)")
+        .on_hover_text(format!("Leave the sketch. Everything is kept. ({keys})"))
         .clicked()
+        || invoked
     {
         actions.push(Action::Editing(EditingCommand::Finish));
     }
@@ -153,31 +152,44 @@ fn header(
     }
 }
 
-fn tools(ui: &mut Ui, active: ActiveSketch, actions: &mut Vec<Action>) {
+fn tools(
+    ui: &mut Ui,
+    active: ActiveSketch,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
     for tool in Tool::ALL {
-        let keys = tool_shortcut(tool).map_or_else(
-            || SELECT_KEY.to_owned(),
-            |shortcut| ui.ctx().format_shortcut(&shortcut),
-        );
+        let command = Command::SketchTool(tool);
+        let invoked = commands.available(command);
+        let keys = commands
+            .keys(command)
+            .unwrap_or_else(|| SELECT_KEY.to_owned());
         let response = ui
             .add(Button::selectable(active.tool == tool, tool.button_text()))
             .on_hover_text(format!("{} ({keys})", tool.description()));
-        if response.clicked() {
+        if response.clicked() || invoked {
             actions.push(Action::Editing(EditingCommand::SetTool(tool)));
         }
     }
 }
 
-fn constraint_buttons(ui: &mut Ui, offers: &[Offer], request: &mut Request) {
+fn constraint_buttons(
+    ui: &mut Ui,
+    offers: &[Offer],
+    commands: &mut CommandFrame<'_>,
+    request: &mut Request,
+) {
     for (tool, offer) in offers {
-        let keys = ui.ctx().format_shortcut(&shortcut(*tool));
+        let command = Command::Constraint(*tool);
+        let invoked = commands.invoke(command, offer);
         let response = ui.add_enabled(offer.is_ok(), Button::new(tool.label()));
         let response = match offer {
-            Ok(_) => response.on_hover_text(format!("{} ({keys})", tool.description())),
-            Err(reason) => response
-                .on_disabled_hover_text(format!("{}. {reason} ({keys})", tool.description())),
+            Ok(_) => response.on_hover_text(commands.with_keys(command, tool.description())),
+            Err(reason) => response.on_disabled_hover_text(
+                commands.with_keys(command, &format!("{}. {reason}", tool.description())),
+            ),
         };
-        if response.clicked()
+        if (response.clicked() || invoked)
             && let Ok(constraints) = offer
         {
             request.constraints = Some((*tool, constraints.clone()));
@@ -185,63 +197,28 @@ fn constraint_buttons(ui: &mut Ui, offers: &[Offer], request: &mut Request) {
     }
 }
 
-fn delete_button(ui: &mut Ui, enabled: bool, request: &mut Request) {
+fn delete_button(
+    ui: &mut Ui,
+    enabled: bool,
+    commands: &mut CommandFrame<'_>,
+    request: &mut Request,
+) {
+    let availability = if enabled {
+        Ok(())
+    } else {
+        Err(NOTHING_TO_DELETE)
+    };
+    let invoked = commands.invoke(Command::DeleteSelection, &availability);
     let response = ui.add_enabled(enabled, Button::new("Delete"));
     let response = if enabled {
-        response.on_hover_text(
-            "Delete the selected geometry and constraints, and the constraints on that geometry \
-             (Del)",
-        )
+        response.on_hover_text(commands.with_keys(
+            Command::DeleteSelection,
+            "Delete the selected geometry and constraints, and the constraints on that geometry",
+        ))
     } else {
-        response.on_disabled_hover_text("Select sketch geometry or constraints to delete them")
+        response.on_disabled_hover_text(NOTHING_TO_DELETE)
     };
-    if response.clicked() {
+    if response.clicked() || invoked {
         request.delete = true;
     }
-}
-
-fn shortcuts(
-    ui: &mut Ui,
-    offers: &[Offer],
-    drawing: bool,
-    request: &mut Request,
-    actions: &mut Vec<Action>,
-) {
-    for (tool, offer) in offers {
-        if !ui.input_mut(|input| input.consume_shortcut(&shortcut(*tool))) {
-            continue;
-        }
-        match offer {
-            Ok(constraints) => request.constraints = Some((*tool, constraints.clone())),
-            Err(reason) => actions.push(Action::Inform(Notice::info(format!(
-                "{}: {reason}",
-                tool.label()
-            )))),
-        }
-    }
-    let delete = !drawing
-        && ui.input_mut(|input| {
-            DELETE_KEYS
-                .into_iter()
-                .any(|key| input.consume_key(Modifiers::NONE, key))
-        });
-    if delete {
-        request.delete = true;
-    }
-    for tool in Tool::ALL {
-        let pressed = tool_shortcut(tool)
-            .is_some_and(|shortcut| ui.input_mut(|input| input.consume_shortcut(&shortcut)));
-        if pressed {
-            actions.push(Action::Editing(EditingCommand::SetTool(tool)));
-        }
-    }
-}
-
-fn shortcut(tool: ConstraintTool) -> KeyboardShortcut {
-    KeyboardShortcut::new(Modifiers::SHIFT, tool.key())
-}
-
-fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
-    tool.key()
-        .map(|key| KeyboardShortcut::new(Modifiers::NONE, key))
 }

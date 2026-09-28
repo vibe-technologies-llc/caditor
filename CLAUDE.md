@@ -681,9 +681,32 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     reverts on Escape, and keeps invalid text with its error inline instead of discarding it.
     Expression fields parse, evaluate and check the dimension before building a transaction;
     sketch dimensions go through `field::dimension_transaction`, which also applies the
-    constraint's own rule (a radius above zero). Viewport and toolbar shortcuts run only when
-    no widget held keyboard focus at the start of the frame or the end of the previous one, so
-    Escape or Enter in a field never reaches the viewport.
+    constraint's own rule (a radius above zero). Plain-key shortcuts (and Escape, Enter and
+    Backspace in the viewport) run only when no widget held keyboard focus at the start of the
+    frame or the end of the previous one, so Escape or Enter in a field never reaches the
+    viewport; shortcuts with Ctrl or Alt need only that no text field has focus.
+  - Commands (`commands.rs`): every toolbar, menu and sketch-toolbar action is a `Command` with
+    a stable id, a title, a category, a `Scope` (anywhere, or only while a sketch is edited) and
+    default shortcuts. The `Keymap` in `Preferences` holds the user's bindings as overrides of
+    the defaults, stored as `keys.<id>` lists of text such as `Ctrl+Shift+Z` (only changed
+    commands are written, so unreadable or newer entries survive). Each frame `app::show`
+    dispatches key presses to commands (exact modifiers first; extra Shift or Alt is ignored only
+    for punctuation keys; sketch-scope bindings win while a sketch is edited; Backspace and
+    Delete are left to drawing while a shape is in progress) and hands a `CommandFrame` to the
+    toolbars and the viewport. Whoever draws a command's button calls `invoke` with its
+    availability, which records an `Offer` and says whether it was triggered; a triggered
+    command that is unavailable becomes a notice with the reason. Hover texts and menu items
+    show the current binding (`commands::display`). Esc, Enter and Tab are reserved and cannot
+    be bound.
+  - The command palette (`palette.rs`, Ctrl+Shift+P or the toolbar's Commands button) lists
+    this frame's offers, so only commands that fit the context appear: matches by title start,
+    word starts, substring, then scattered letters, available before unavailable, recently used
+    first; arrows move, Enter runs, and an unavailable highlighted command shows its reason. The
+    chosen command is triggered on the next frame. The shortcut editor (`shortcut_editor.rs`,
+    from Preferences, the File menu or the palette) lists every command by category with its
+    bindings: Add records the next key press (Esc cancels), a binding already used in an
+    overlapping scope asks before moving it, clicking a binding removes it, and Reset or Reset
+    all go back to the defaults.
   - Sketch editing is a context, not a mode: `editing.rs` holds which sketch is edited and the
     active `Tool`, changed by `Action::Editing` commands that `app::perform` routes after the UI
     pass; it ends by itself when the sketch disappears or another document is opened. The
@@ -708,9 +731,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     constraint. The preview, snap marker and snap label are drawn from this state, and the
     snap target replaces the GPU hover while a drawing tool is active.
   - `sketch_tools.rs` turns the selection into candidate constraints checked by
-    `Sketch::check_constraint`; `sketch_toolbar.rs` offers them as buttons and Shift+letter
-    shortcuts, disabled with what to select, and the drawing tools on plain letters (P, L, R,
-    C, A, S). Dimensions start at the value measured on the
+    `Sketch::check_constraint`; `sketch_toolbar.rs` offers them as buttons and commands
+    (Shift+letter by default), disabled with what to select, and the drawing tools on plain
+    letters (P, L, R, C, A, S). Dimensions start at the value measured on the
     displayed geometry. Every sketch transaction first settles the sketch to the last result,
     but only when that result is up to date (`Model::settled_sketch`). The UI never solves; it
     reads constraint states, degrees of freedom and redundancies from the last evaluation

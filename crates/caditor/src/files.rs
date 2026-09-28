@@ -16,16 +16,17 @@ use caditor_file::{
     STEP_IMPORT_EXTENSIONS, SavedState, Settings, journal_for, load, load_version, read_dxf,
     read_step_file, scan,
 };
-use egui::{Button, Id, KeyboardShortcut, Modal, Modifiers, RichText, Ui};
+use egui::{Button, Id, Modal, RichText, Ui};
 use parking_lot::Mutex;
 
 use crate::{
+    commands::{Command, CommandFrame},
     editing::SketchEditing,
-    export::{self, EXPORT, ExportCommand, Exporter},
+    export::{self, ExportCommand, Exporter},
     history::{self, HistoryCommand, VersionHistory},
-    import::{self, IMPORT, IMPORT_HINT},
+    import::{self, IMPORT_HINT},
     model::{Action, FileEvent, Model, Notice, WakerFactory, display_name},
-    preferences::{PREFERENCES, PreferencesCommand},
+    preferences::PreferencesCommand,
 };
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -34,12 +35,17 @@ const MODEL_KIND: &str = "caditor model";
 const DRAWING_KIND: &str = "DXF drawing";
 const MODEL_EXCHANGE_KIND: &str = "STEP model";
 const IMPORTABLE_KIND: &str = "Drawings and models";
-pub const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::N);
-pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::O);
-pub const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::S);
-pub const SAVE_AS: KeyboardShortcut =
-    KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), egui::Key::S);
-pub const QUIT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::Q);
+const FILE_COMMANDS: [Command; 9] = [
+    Command::New,
+    Command::Open,
+    Command::Save,
+    Command::SaveAs,
+    Command::VersionHistory,
+    Command::Import,
+    Command::Export,
+    Command::Preferences,
+    Command::Quit,
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileCommand {
@@ -915,17 +921,22 @@ pub fn menu(
     model: &Model,
     files: &Files,
     editing: &SketchEditing,
+    commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
+    let history = model
+        .path()
+        .map(|_| ())
+        .ok_or("Save the model to start keeping its versions");
+    let mut chosen = Vec::new();
     ui.menu_button("File", |ui| {
-        let mut command = None;
-        let mut item = |ui: &mut Ui, text: &str, shortcut: Option<KeyboardShortcut>, chosen| {
-            if menu_item(ui, text, shortcut).clicked() {
-                command = Some(chosen);
+        let item = |ui: &mut Ui, chosen: &mut Vec<Command>, command: Command| {
+            if menu_item(ui, commands, command).clicked() {
+                chosen.push(command);
             }
         };
-        item(ui, "New", Some(NEW), FileCommand::New);
-        item(ui, "Open…", Some(OPEN), FileCommand::Open);
+        item(ui, &mut chosen, Command::New);
+        item(ui, &mut chosen, Command::Open);
         ui.add_enabled_ui(!files.recent().is_empty(), |ui| {
             ui.menu_button("Open Recent", |ui| {
                 for path in files.recent() {
@@ -939,48 +950,67 @@ pub fn menu(
             });
         });
         ui.separator();
-        item(ui, "Save", Some(SAVE), FileCommand::Save);
-        item(ui, "Save As…", Some(SAVE_AS), FileCommand::SaveAs);
-        ui.add_enabled_ui(model.path().is_some(), |ui| {
-            item(
-                ui,
-                "Version History…",
-                None,
-                FileCommand::History(HistoryCommand::Show),
-            );
+        item(ui, &mut chosen, Command::Save);
+        item(ui, &mut chosen, Command::SaveAs);
+        ui.add_enabled_ui(history.is_ok(), |ui| {
+            item(ui, &mut chosen, Command::VersionHistory);
         })
         .response
         .on_disabled_hover_text("Save the model to start keeping its versions.");
         ui.separator();
-        let import = menu_item(ui, "Import…", Some(IMPORT))
-            .on_hover_text(IMPORT_HINT)
-            .clicked();
-        item(
-            ui,
-            "Export…",
-            Some(EXPORT),
-            FileCommand::Export(ExportCommand::Show),
-        );
+        let hints = [
+            (Command::Import, Some(IMPORT_HINT)),
+            (Command::Export, None),
+        ];
+        for (command, hint) in hints {
+            let response = menu_item(ui, commands, command);
+            let response = match hint {
+                Some(hint) => response.on_hover_text(hint),
+                None => response,
+            };
+            if response.clicked() {
+                chosen.push(command);
+            }
+        }
         if files.has_recoverable() {
             ui.separator();
-            item(ui, "Recover Unsaved Work…", None, FileCommand::ShowRecovery);
+            if ui.button("Recover Unsaved Work…").clicked() {
+                actions.push(Action::File(FileCommand::ShowRecovery));
+            }
         }
         ui.separator();
-        let preferences = menu_item(ui, "Preferences…", Some(PREFERENCES)).clicked();
+        item(ui, &mut chosen, Command::Preferences);
+        item(ui, &mut chosen, Command::KeyboardShortcuts);
         ui.separator();
-        item(ui, "Quit", Some(QUIT), FileCommand::Quit);
-        if import {
-            command = Some(FileCommand::Import {
-                into: editing.feature(),
-            });
-        }
-        if preferences {
-            actions.push(Action::Preferences(PreferencesCommand::Show));
-        }
-        if let Some(command) = command {
-            actions.push(Action::File(command));
-        }
+        item(ui, &mut chosen, Command::Quit);
     });
+    for command in FILE_COMMANDS {
+        let availability = match command {
+            Command::VersionHistory => history,
+            _ => Ok(()),
+        };
+        let invoked = commands.invoke(command, &availability);
+        if !invoked && !chosen.contains(&command) {
+            continue;
+        }
+        let action = match command {
+            Command::New => Action::File(FileCommand::New),
+            Command::Open => Action::File(FileCommand::Open),
+            Command::Save => Action::File(FileCommand::Save),
+            Command::SaveAs => Action::File(FileCommand::SaveAs),
+            Command::VersionHistory => Action::File(FileCommand::History(HistoryCommand::Show)),
+            Command::Import => Action::File(FileCommand::Import {
+                into: editing.feature(),
+            }),
+            Command::Export => Action::File(FileCommand::Export(ExportCommand::Show)),
+            Command::Preferences => Action::Preferences(PreferencesCommand::Show),
+            _ => Action::File(FileCommand::Quit),
+        };
+        actions.push(action);
+    }
+    if chosen.contains(&Command::KeyboardShortcuts) {
+        commands.trigger(Command::KeyboardShortcuts);
+    }
     if model.is_saving() {
         ui.spinner();
         ui.label("Saving…");
@@ -995,38 +1025,12 @@ pub fn menu(
     export::menu_status(ui, &files.exporter, actions);
 }
 
-fn menu_item(ui: &mut Ui, text: &str, shortcut: Option<KeyboardShortcut>) -> egui::Response {
-    let mut button = Button::new(text);
-    if let Some(shortcut) = shortcut {
-        button = button.shortcut_text(ui.ctx().format_shortcut(&shortcut));
+fn menu_item(ui: &mut Ui, commands: &CommandFrame<'_>, command: Command) -> egui::Response {
+    let mut button = Button::new(command.title());
+    if let Some(keys) = commands.keys(command) {
+        button = button.shortcut_text(keys);
     }
     ui.add(button)
-}
-
-pub fn shortcuts(ui: &mut Ui, editing: &SketchEditing, actions: &mut Vec<Action>) {
-    let commands = [
-        (SAVE_AS, FileCommand::SaveAs),
-        (SAVE, FileCommand::Save),
-        (NEW, FileCommand::New),
-        (OPEN, FileCommand::Open),
-        (EXPORT, FileCommand::Export(ExportCommand::Show)),
-        (
-            IMPORT,
-            FileCommand::Import {
-                into: editing.feature(),
-            },
-        ),
-        (QUIT, FileCommand::Quit),
-    ];
-    for (shortcut, command) in commands {
-        if ui.input_mut(|input| input.consume_shortcut(&shortcut)) {
-            actions.push(Action::File(command));
-            return;
-        }
-    }
-    if ui.input_mut(|input| input.consume_shortcut(&PREFERENCES)) {
-        actions.push(Action::Preferences(PreferencesCommand::Show));
-    }
 }
 
 pub fn show(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>) {

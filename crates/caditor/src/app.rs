@@ -11,13 +11,16 @@ use winit::{
 };
 
 use crate::{
+    commands::{self, Command, CommandFrame, Situation},
     editing::SketchEditing,
     files::{self, FileCommand, Files},
-    model::{Action, Model, WakerFactory},
+    model::{Action, Model, Notice, WakerFactory},
     overlay::Overlay,
+    palette::Palette,
     panels::{self, PanelState},
     preferences::{self, Preferences, PreferencesCommand, Theme},
-    sketch_toolbar::{self, SketchInput},
+    shortcut_editor::{self, ShortcutEditor},
+    sketch_toolbar,
     toolbar::{self, ToolbarContext},
     viewport::ViewportState,
 };
@@ -51,6 +54,8 @@ pub struct Workspace {
     pub editing: SketchEditing,
     pub preferences: Preferences,
     pub preferences_open: bool,
+    pub palette: Palette,
+    pub shortcut_editor: Option<ShortcutEditor>,
     applied_theme: Option<Theme>,
     keyboard_was_taken: bool,
 }
@@ -70,6 +75,8 @@ impl Workspace {
             editing: SketchEditing::default(),
             preferences,
             preferences_open: false,
+            palette: Palette::default(),
+            shortcut_editor: None,
             applied_theme: None,
             keyboard_was_taken: false,
         }
@@ -84,6 +91,11 @@ impl Workspace {
         match command {
             PreferencesCommand::Show => self.preferences_open = true,
             PreferencesCommand::Hide => self.preferences_open = false,
+            PreferencesCommand::ShowShortcuts => {
+                self.shortcut_editor
+                    .get_or_insert_with(ShortcutEditor::default);
+            }
+            PreferencesCommand::HideShortcuts => self.shortcut_editor = None,
             PreferencesCommand::Change(change) => {
                 self.preferences.apply(change);
                 model.set_length_unit(self.preferences.unit);
@@ -106,8 +118,12 @@ pub fn show(
         ui.ctx().set_theme(theme.egui());
         workspace.applied_theme = Some(theme);
     }
-    let keyboard_taken = ui.ctx().egui_wants_keyboard_input() || workspace.keyboard_was_taken;
-    let blocked = files.is_blocking() || workspace.preferences_open;
+    let text_focused = ui.ctx().egui_wants_keyboard_input();
+    let keyboard_taken = text_focused || workspace.keyboard_was_taken;
+    let dialog_open = workspace.preferences_open
+        || workspace.palette.is_open()
+        || workspace.shortcut_editor.is_some();
+    let blocked = files.is_blocking() || dialog_open;
     let keys_free = !keyboard_taken && !blocked;
     let Workspace {
         viewport,
@@ -115,32 +131,69 @@ pub fn show(
         editing,
         preferences,
         preferences_open,
+        palette,
+        shortcut_editor,
         keyboard_was_taken,
         ..
     } = workspace;
+    let situation = Situation {
+        editing_sketch: editing.active().is_some(),
+        drawing: viewport.is_drawing(),
+        text_focused,
+        keys_free,
+    };
+    let mut triggered = if blocked {
+        Vec::new()
+    } else {
+        commands::dispatch(ui.ctx(), &preferences.keymap, &situation)
+    };
+    triggered.extend(palette.take_chosen());
+    let mut commands = CommandFrame::new(&preferences.keymap, triggered);
     let toolbar = ToolbarContext {
         files,
         selection: viewport.selection(),
         editing,
-        blocked,
     };
-    toolbar::show(ui, model, &toolbar, actions);
-    let input = SketchInput {
-        selection: viewport.selection(),
-        keys_free,
-        drawing: viewport.is_drawing(),
-    };
-    sketch_toolbar::show(ui, model, editing, &input, panels, actions);
+    toolbar::show(ui, model, &toolbar, &mut commands, actions);
+    sketch_toolbar::show(
+        ui,
+        model,
+        editing,
+        viewport.selection(),
+        &mut commands,
+        panels,
+        actions,
+    );
     route_dimension_focus(panels, editing, viewport);
     panels::show(ui, model, viewport.selection(), editing, panels, actions);
     route_dimension_focus(panels, editing, viewport);
-    viewport.show(ui, model, editing, keys_free, actions);
+    viewport.show(ui, model, editing, keys_free, &mut commands, actions);
+    let open_palette = commands.available(Command::Palette);
+    let open_shortcuts = commands.available(Command::KeyboardShortcuts);
+    let (offers, refused) = commands.finish();
+    for (command, reason) in refused {
+        actions.push(Action::Inform(Notice::info(format!(
+            "{}: {reason}",
+            command.title()
+        ))));
+    }
+    if open_shortcuts {
+        actions.push(Action::Preferences(PreferencesCommand::ShowShortcuts));
+    }
     files::show(ui, model, files, actions);
-    if *preferences_open
-        && !files.is_blocking()
-        && let Some(command) = preferences::dialog(ui.ctx(), preferences)
-    {
-        actions.push(Action::Preferences(command));
+    if !files.is_blocking() {
+        if *preferences_open && let Some(command) = preferences::dialog(ui.ctx(), preferences) {
+            actions.push(Action::Preferences(command));
+        }
+        if let Some(editor) = shortcut_editor
+            && let Some(command) = shortcut_editor::dialog(ui.ctx(), editor, &preferences.keymap)
+        {
+            actions.push(Action::Preferences(command));
+        }
+        if open_palette && !dialog_open {
+            palette.open();
+        }
+        palette.show(ui.ctx(), &offers, &preferences.keymap);
     }
     *keyboard_was_taken = ui.ctx().egui_wants_keyboard_input();
 }

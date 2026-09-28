@@ -10,6 +10,7 @@ use crate::{
     annotations::{Annotations, Surface},
     blend_tools,
     bodies::{self, BodyMeshes},
+    commands::{Command, CommandFrame},
     datum_tools,
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
@@ -34,7 +35,7 @@ const HINT_COLOR: Color32 = Color32::from_rgba_premultiplied(120, 124, 132, 160)
 const PROMPT_COLOR: Color32 = Color32::from_rgb(255, 214, 120);
 const PROMPT_MARGIN: f32 = 16.0;
 const NAVIGATION_HINT: &str =
-    "Right-drag: orbit   Middle-drag or Shift+right-drag: pan   Scroll: zoom   F: fit";
+    "Right-drag: orbit   Middle-drag or Shift+right-drag: pan   Scroll: zoom";
 pub const CHOOSE_PLANE_PROMPT: &str = "Click a plane or a flat face to sketch on";
 const CHOOSE_PLANE_HINT: &str = "Esc: cancel";
 const CHOOSE_REGIONS_PROMPT: &str = "Click regions of the sketch to include or leave them out";
@@ -185,8 +186,16 @@ impl ViewportState {
         model: &Model,
         editing: &SketchEditing,
         keys_free: bool,
+        commands: &mut CommandFrame<'_>,
         actions: &mut Vec<Action>,
     ) {
+        if commands.available(Command::FitView) {
+            self.fit_requested = true;
+        }
+        let hint = match commands.keys(Command::FitView) {
+            Some(keys) => format!("{NAVIGATION_HINT}   {keys}: fit"),
+            None => NAVIGATION_HINT.to_owned(),
+        };
         egui::CentralPanel::no_frame().show(ui, |ui| {
             let rect = ui.max_rect();
             self.rect = Some(rect);
@@ -202,7 +211,7 @@ impl ViewportState {
                 self.handle_keys(ui, model, editing, actions);
             }
             self.annotate(ui, rect, model, editing, actions);
-            self.decorate(ui, rect, model, editing);
+            self.decorate(ui, rect, model, editing, &hint);
         });
     }
 
@@ -551,17 +560,13 @@ impl ViewportState {
         editing: &SketchEditing,
         actions: &mut Vec<Action>,
     ) {
-        let (fit, escape, finish, back) = ui.input(|input| {
+        let (escape, finish, back) = ui.input(|input| {
             (
-                input.key_pressed(Key::F),
                 input.key_pressed(Key::Escape),
                 input.key_pressed(Key::Enter),
                 input.key_pressed(Key::Backspace),
             )
         });
-        if fit {
-            self.fit_requested = true;
-        }
         if escape {
             self.escape(editing, actions);
         }
@@ -623,7 +628,14 @@ impl ViewportState {
             .show(ui, model, &surface, &mut self.selection, actions);
     }
 
-    fn decorate(&mut self, ui: &mut egui::Ui, rect: Rect, model: &Model, editing: &SketchEditing) {
+    fn decorate(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: Rect,
+        model: &Model,
+        editing: &SketchEditing,
+        hint: &str,
+    ) {
         let document = model.document();
         let orientation = self.camera.viewpoint().orientation;
         let fit_label = if self.selection.is_empty() {
@@ -659,7 +671,7 @@ impl ViewportState {
         painter.text(
             rect.right_bottom() - vec2(LABEL_MARGIN, LABEL_MARGIN),
             Align2::RIGHT_BOTTOM,
-            NAVIGATION_HINT,
+            hint,
             FontId::proportional(11.0),
             HINT_COLOR,
         );

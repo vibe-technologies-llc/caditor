@@ -1,6 +1,5 @@
 use caditor_document::{Document, FeatureId, FeatureKind};
 use caditor_sketch::Sketch;
-use egui::Key;
 
 use crate::{
     model::{Action, Model},
@@ -10,7 +9,7 @@ use crate::{
 
 const NEW_SKETCH_PREFIX: &str = "Sketch";
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Tool {
     #[default]
     Select,
@@ -59,18 +58,6 @@ impl Tool {
 
     pub fn button_text(self) -> String {
         format!("{} {}", self.icon(), self.label())
-    }
-
-    pub fn key(self) -> Option<Key> {
-        match self {
-            Self::Select => None,
-            Self::Point => Some(Key::P),
-            Self::Line => Some(Key::L),
-            Self::Rectangle => Some(Key::R),
-            Self::Circle => Some(Key::C),
-            Self::Arc => Some(Key::A),
-            Self::Spline => Some(Key::S),
-        }
     }
 
     pub fn description(self) -> &'static str {
