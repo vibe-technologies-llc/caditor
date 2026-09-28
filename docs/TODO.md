@@ -30,9 +30,6 @@ within a category run from most to least important.
 - Shell fails on convex faces with a radius below the thickness and at vertices of four or more
   faces whose offsets do not meet (both now reported as such). Drop collapsed faces, and split
   such vertices into edges.
-- Imports are checked for crossing faces only between faces that share no edge
-  (`Solid::find_crossing`), and the loops of one face are never checked against each other, so a
-  face folding over its neighbour or a hole crossing its outer loop still passes.
 - Untested blend and shell refusals that need contrived geometry: `BlendError::Lost` and
   `AfterFill`, and `ShellError::TooThick`, `EdgeCollapses` and `Opening`.
 

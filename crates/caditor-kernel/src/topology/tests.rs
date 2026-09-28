@@ -6,7 +6,8 @@ use super::*;
 use crate::{
     curve::{Circle, Line},
     fixtures::{self, Fixture, Tweak},
-    surface::PlaneSurface,
+    interval::Interval,
+    surface::{Cylinder, PlaneSurface},
 };
 
 #[test]
@@ -396,6 +397,152 @@ fn overlapping_lumps_cross_and_valid_solids_do_not() {
 
     for (name, solid) in crate::fixtures::every_solid() {
         assert_eq!(solid.find_crossing().unwrap(), None, "{name}");
+    }
+}
+
+#[test]
+fn a_face_folded_onto_its_neighbour_crosses_it() {
+    let mut fixture = Fixture::new();
+    let corners = [
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(4.0, 0.0, 0.0),
+        Point3::new(4.0, 4.0, 0.0),
+        Point3::new(0.0, 4.0, 0.0),
+        Point3::new(0.0, 2.0, 0.0),
+        Point3::new(4.0, 2.0, 0.0),
+    ]
+    .map(|point| fixture.vertex(point));
+    let base = fixture.polygon(&[corners[0], corners[1], corners[2], corners[3]], &[]);
+    let flap = fixture.polygon(&[corners[1], corners[0], corners[4], corners[5]], &[]);
+    let folded = fixture.build_unchecked();
+    let crossing = folded
+        .find_crossing()
+        .unwrap()
+        .expect("the flap lies on the base");
+    let mut faces = crossing.faces;
+    faces.sort();
+    assert_eq!(faces, [base, flap]);
+    assert!(crossing.point.z.abs() < 1e-9 && crossing.point.y > 1e-3);
+}
+
+#[test]
+fn a_curved_flap_passing_through_its_neighbour_crosses_it() {
+    let mut fixture = Fixture::new();
+    let radius = 2.0_f64.sqrt();
+    let rim =
+        |x: f64, angle: f64| Point3::new(x, 1.0 + radius * angle.cos(), 1.0 + radius * angle.sin());
+    let start = -PI / 3.0;
+    let end = 1.25 * PI;
+    let shared =
+        [Point3::new(0.0, 0.0, 0.0), Point3::new(4.0, 0.0, 0.0)].map(|point| fixture.vertex(point));
+    let outline = [
+        Point3::new(6.0, -1.0, 0.0),
+        Point3::new(6.0, 5.0, 0.0),
+        Point3::new(-2.0, 5.0, 0.0),
+        Point3::new(-2.0, -1.0, 0.0),
+    ]
+    .map(|point| fixture.vertex(point));
+    let base = fixture.polygon(
+        &[
+            shared[0], shared[1], outline[0], outline[1], outline[2], outline[3],
+        ],
+        &[],
+    );
+    let far = [rim(0.0, start), rim(4.0, start)].map(|point| fixture.vertex(point));
+    let arcs = [0.0, 4.0].map(|x| {
+        Circle::new(
+            Plane::from_frame(Point3::new(x, 1.0, 1.0), Vector3::X, Vector3::Y).unwrap(),
+            radius,
+        )
+        .unwrap()
+    });
+    let [first_arc, second_arc] = arcs;
+    let range = Interval::new(start, end).unwrap();
+    let near_arc = fixture.edge(first_arc, range, far[0], shared[0]);
+    let far_arc = fixture.edge(second_arc, range, far[1], shared[1]);
+    let back = fixture.line(shared[1], shared[0]);
+    let across = fixture.line(far[0], far[1]);
+    let flap = fixture.face(
+        Cylinder::new(
+            Plane::from_frame(Point3::new(0.0, 1.0, 1.0), Vector3::X, Vector3::Y).unwrap(),
+            radius,
+        )
+        .unwrap(),
+        Sense::Same,
+        &[vec![
+            back,
+            (near_arc, Sense::Reversed),
+            across,
+            (far_arc, Sense::Same),
+        ]],
+    );
+    let solid = fixture.build_unchecked();
+    let crossing = solid
+        .find_crossing()
+        .unwrap()
+        .expect("the flap passes through the base");
+    let mut faces = crossing.faces;
+    faces.sort();
+    assert_eq!(faces, [base, flap]);
+    assert!(
+        crossing.point.z.abs() < 1e-6 && (crossing.point.y - 2.0).abs() < 1e-6,
+        "{crossing:?}"
+    );
+}
+
+#[test]
+fn a_hole_crossing_its_outer_loop_crosses_its_own_face() {
+    let mut fixture = Fixture::new();
+    let outer = [
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(4.0, 0.0, 0.0),
+        Point3::new(4.0, 4.0, 0.0),
+        Point3::new(0.0, 4.0, 0.0),
+    ]
+    .map(|point| fixture.vertex(point));
+    let hole = [
+        Point3::new(3.0, 1.0, 0.0),
+        Point3::new(3.0, 2.0, 0.0),
+        Point3::new(5.0, 2.0, 0.0),
+        Point3::new(5.0, 1.0, 0.0),
+    ]
+    .map(|point| fixture.vertex(point));
+    let hole_loop = fixture.polygon_loop(&hole);
+    let plate = fixture.polygon(&outer, &[hole_loop]);
+    let solid = fixture.build_unchecked();
+    let crossing = solid
+        .find_crossing()
+        .unwrap()
+        .expect("the hole crosses the outer loop");
+    assert_eq!(crossing.faces, [plate, plate]);
+    assert!((crossing.point.x - 4.0).abs() < 1e-9, "{crossing:?}");
+}
+
+#[test]
+fn blended_solids_do_not_cross() {
+    let fillet = crate::blend::BlendShape::Fillet { radius: 0.5 };
+    let chamfer = crate::blend::BlendShape::Chamfer { distance: 0.5 };
+    for (name, solid, shape) in [
+        (
+            "rounded box",
+            fixtures::cuboid(Vector3::new(4.0, 3.0, 2.0)),
+            fillet,
+        ),
+        (
+            "bevelled box",
+            fixtures::cuboid(Vector3::new(4.0, 3.0, 2.0)),
+            chamfer,
+        ),
+        ("rounded drum", fixtures::cylinder(3.0, 4.0), fillet),
+        (
+            "rounded holed block",
+            fixtures::holed_block(6.0, 3.0, 1.0),
+            fillet,
+        ),
+    ] {
+        let edges: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
+        let blended = crate::blend::blend(&solid, &edges, shape, 7).unwrap();
+        assert_eq!(blended.find_crossing().unwrap(), None, "{name}");
     }
 }
 

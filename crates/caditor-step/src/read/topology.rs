@@ -130,6 +130,10 @@ impl<'g, 'a> Topology<'g, 'a> {
                 .faces
                 .map(|face| self.face_entities.get(face.index()).copied());
             let reason = match (first, second) {
+                (Some(first), Some(second)) if first == second => format!(
+                    "has face #{first} whose edges cross each other, so it does not enclose one \
+                     volume"
+                ),
                 (Some(first), Some(second)) => format!(
                     "has faces #{first} and #{second} that cross each other, so it does not \
                      enclose one volume"

@@ -117,7 +117,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     get a pole-to-pole seam (spheres and closed spline surfaces). Every solid then goes through
     `SolidBuilder::build`, so an import is valid or a sentence naming the entity; faces that meet
     only farther apart than `LINEAR_RESOLUTION` are refused in those words, and a solid whose faces
-    cross (`Solid::find_crossing`) is refused naming the two face entities.
+    cross (`Solid::find_crossing`) is refused naming the two face entities, or the one face whose
+    edges cross.
 - **caditor-geometry**: the math vocabulary, as f64 `glam` aliases (`Point3`, `Rotation3`, …)
   plus `Plane` (origin, normal and in-plane x axis, also used as the frame of every circle and
   rotational surface), `Ray`, `Aabb`, `Aabb2` and the rigid transforms `RigidTransform` and
@@ -262,11 +263,15 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     connectivity, Euler–Poincaré per shell, positive volume for lumps and voids inside a lump)
     and returns the first `ValidationError`, with ids. The volume checks run on a coarse mesh and
     retry finer before reporting a void outside its lump. Validation does not intersect faces
-    with each other, since every build runs it; `Solid::find_crossing` does, for importers:
-    every pair of faces that share no edge and whose boxes overlap is intersected, and a point
-    of a branch strictly inside both faces (or, for coincident faces, a sample strictly inside
-    both) is a `Crossing`. `bounding_box` covers the edges and,
-    for doubly curved faces, a grid of points inside each face plus a sphere's axis extremes.
+    with each other, since every build runs it; `Solid::find_crossing` does, for importers: the
+    edges of each face (seams aside) are intersected with each other, and a transversal point or
+    an overlap away from the vertices they share is a `Crossing` of that face with itself; then
+    every pair of faces whose boxes overlap is intersected, and a point of a branch strictly
+    inside both faces (or, for coincident faces, a sample strictly inside both) is a `Crossing`.
+    Neighbours skip the costly surface pair, whose branch along their shared edge is known: each
+    one's other edges are intersected with the other's surface, and a transversal point or an
+    overlap strictly inside the other face is a `Crossing`. `bounding_box` covers the edges and, for
+    doubly curved faces, a grid of points inside each face plus a sphere's axis extremes.
   - Tessellation samples each edge once and shares its positions between both faces. Each face is a
     constrained Delaunay triangulation (spade) of its loops in (u, v), scaled by the mean surface
     speeds, plus a uniform grid of interior points spaced by curvature (normal curvature and twist,

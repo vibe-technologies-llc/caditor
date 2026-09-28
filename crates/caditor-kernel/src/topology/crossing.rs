@@ -1,18 +1,20 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_geometry::{Aabb, Aabb2, Point2, Point3};
 
 use crate::{
     interrupt::{self, Interrupted},
     intersect::{
-        SurfaceIntersection, SurfacePatch, boxes_overlap, intersect_surfaces, patch_bounds,
+        SurfaceIntersection, SurfacePatch, boxes_overlap, intersect_curve_surface,
+        intersect_curves, intersect_surfaces, patch_bounds,
     },
-    tolerance::LINEAR_RESOLUTION,
-    topology::{FaceContainment, FaceId, Solid, SolidClassifier},
+    tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE},
+    topology::{Edge, EdgeId, Face, FaceContainment, FaceId, Solid, SolidClassifier},
 };
 
 const BRANCH_SAMPLES: usize = 9;
 const FACE_SAMPLES: usize = 7;
+const NEAR_SHARED_VERTEX: f64 = PCURVE_TOLERANCE;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Crossing {
@@ -58,16 +60,28 @@ impl Solid {
                 }
             }
         }
+        for (id, face) in self.faces() {
+            if let Some(point) = self.boundary_crossing(face)? {
+                return Ok(Some(Crossing {
+                    faces: [id, id],
+                    point,
+                }));
+            }
+        }
         let classifier = self.classifier();
         for (index, first) in extents.iter().enumerate() {
             for second in extents.iter().skip(index + 1) {
-                if neighbours.contains(&(first.id, second.id))
-                    || !boxes_overlap(&first.bounds, &second.bounds, LINEAR_RESOLUTION)
-                {
+                if !boxes_overlap(&first.bounds, &second.bounds, LINEAR_RESOLUTION) {
                     continue;
                 }
                 interrupt::check()?;
-                if let Some(point) = self.crossing_between(&classifier, first, second) {
+                let found = if neighbours.contains(&(first.id, second.id)) {
+                    self.edges_piercing(&classifier, first.id, second)?
+                        .or(self.edges_piercing(&classifier, second.id, first)?)
+                } else {
+                    self.crossing_between(&classifier, first, second)
+                };
+                if let Some(point) = found {
                     return Ok(Some(Crossing {
                         faces: [first.id, second.id],
                         point,
@@ -76,6 +90,118 @@ impl Solid {
             }
         }
         Ok(None)
+    }
+
+    fn edge_uses(&self, face: &Face) -> BTreeMap<EdgeId, usize> {
+        let mut uses: BTreeMap<EdgeId, usize> = BTreeMap::new();
+        for coedge in face
+            .loops()
+            .iter()
+            .filter_map(|loop_id| self.face_loop(*loop_id))
+            .flat_map(|face_loop| face_loop.coedges().iter())
+            .filter_map(|coedge| self.coedge(*coedge))
+        {
+            *uses.entry(coedge.edge()).or_default() += 1;
+        }
+        uses
+    }
+
+    fn edges_piercing(
+        &self,
+        classifier: &SolidClassifier<'_>,
+        source: FaceId,
+        target: &Extent,
+    ) -> Result<Option<Point3>, Interrupted> {
+        let (Some(source_face), Some(target_face)) = (self.face(source), self.face(target.id))
+        else {
+            return Ok(None);
+        };
+        let shared = self.edge_uses(target_face);
+        let surface = target_face.surface();
+        let inside =
+            |uv: Point2| classifier.point_in_face(target.id, uv) == Some(FaceContainment::Inside);
+        for edge in self
+            .edge_uses(source_face)
+            .keys()
+            .filter(|id| !shared.contains_key(id))
+            .filter_map(|id| self.edge(*id))
+        {
+            let bounds = edge.curve().bounding_box(edge.interval());
+            if !boxes_overlap(&bounds, &target.bounds, LINEAR_RESOLUTION) {
+                continue;
+            }
+            interrupt::check()?;
+            let Ok(found) =
+                intersect_curve_surface(edge.curve(), edge.interval(), surface, Some(target.uv))
+            else {
+                continue;
+            };
+            let piercing = found
+                .points
+                .iter()
+                .filter(|point| !point.tangent && inside(point.uv))
+                .map(|point| point.point);
+            let lying = found.overlaps.iter().filter_map(|overlap| {
+                let point = edge.curve().point(overlap.range.middle());
+                inside(surface.project(point, Some(overlap.start_uv))).then_some(point)
+            });
+            if let Some(point) = piercing.chain(lying).next() {
+                return Ok(Some(point));
+            }
+        }
+        Ok(None)
+    }
+
+    fn boundary_crossing(&self, face: &Face) -> Result<Option<Point3>, Interrupted> {
+        let uses = self.edge_uses(face);
+        let edges: Vec<(&Edge, Aabb)> = uses
+            .iter()
+            .filter(|(_, count)| **count == 1)
+            .filter_map(|(id, _)| self.edge(*id))
+            .map(|edge| (edge, edge.curve().bounding_box(edge.interval())))
+            .collect();
+        for (index, (first, first_bounds)) in edges.iter().enumerate() {
+            for (second, second_bounds) in edges.iter().skip(index + 1) {
+                if !boxes_overlap(first_bounds, second_bounds, LINEAR_RESOLUTION) {
+                    continue;
+                }
+                interrupt::check()?;
+                if let Some(point) = self.edges_cross(first, second) {
+                    return Ok(Some(point));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn edges_cross(&self, first: &Edge, second: &Edge) -> Option<Point3> {
+        let found = intersect_curves(
+            first.curve(),
+            first.interval(),
+            second.curve(),
+            second.interval(),
+        )
+        .ok()?;
+        let shared: Vec<Point3> = [first.start(), first.end()]
+            .into_iter()
+            .filter(|vertex| [second.start(), second.end()].contains(vertex))
+            .filter_map(|vertex| self.vertex(vertex))
+            .map(|vertex| vertex.point())
+            .collect();
+        let transversal = found
+            .points
+            .iter()
+            .filter(|point| !point.tangent)
+            .map(|point| point.point);
+        let overlapping = found
+            .overlaps
+            .iter()
+            .map(|overlap| first.curve().point(overlap.first.middle()));
+        transversal.chain(overlapping).find(|point| {
+            shared
+                .iter()
+                .all(|vertex| vertex.distance(*point) > NEAR_SHARED_VERTEX)
+        })
     }
 
     fn crossing_between(
