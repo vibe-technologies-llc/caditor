@@ -67,14 +67,15 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   size, and decompression refuses a frame larger than the caller's limit or one that decodes to
   a different size than it records.
 - **caditor-step**: STEP (ISO 10303-21, AP214 `AUTOMOTIVE_DESIGN`). `write_step` writes named kernel
-  solids as one product whose `ADVANCED_BREP_SHAPE_REPRESENTATION` holds one `MANIFOLD_SOLID_BREP`
-  per lump, or a `BREP_WITH_VOIDS` whose voids are `ORIENTED_CLOSED_SHELL`s of inverted faces;
-  shells are told apart by the sign of their meshed volume (only bodies with several shells are
-  meshed, and one whose shells cannot be sorted is refused as `WriteError::Shells`). Millimetres and
-  radians, uncertainty `LINEAR_RESOLUTION`, no author or organisation. Every kernel surface and
-  curve has an exact STEP form: planes, cylinders, spheres and tori as they are, cones with a
-  negative half angle on a flipped axis, extrusions and revolutions as `SURFACE_OF_LINEAR_EXTRUSION`
-  and `SURFACE_OF_REVOLUTION`, B-splines with knot runs (rational ones as the complex entity), and
+  solids as one product (named after the model, or after the body when there is only one) whose
+  `ADVANCED_BREP_SHAPE_REPRESENTATION` holds one `MANIFOLD_SOLID_BREP` per lump, or a
+  `BREP_WITH_VOIDS` whose voids are `ORIENTED_CLOSED_SHELL`s of inverted faces; shells are told
+  apart by the sign of their meshed volume (only bodies with several shells are meshed, and one
+  whose shells cannot be sorted is refused as `WriteError::Shells`). Millimetres and radians,
+  uncertainty `LINEAR_RESOLUTION`, no author or organisation. Every kernel surface and curve has an
+  exact STEP form: planes, cylinders, spheres and tori as they are, cones with a negative half angle
+  on a flipped axis, extrusions and revolutions as `SURFACE_OF_LINEAR_EXTRUSION` and
+  `SURFACE_OF_REVOLUTION`, B-splines with knot runs (rational ones as the complex entity), and
   intersection curves as the cubic B-spline of their Hermite segments over the edge. Face
   `same_sense` is the face sense, since the kernel's normals are STEP's. Reals print as the shortest
   round-tripping decimal with a point, and text escapes quotes, backslashes and non-ASCII (`\X2\`).
@@ -86,27 +87,31 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     context (SI prefixes and conversion-based units such as inches and degrees, whose factor may be
     a simple or a complex `MEASURE_WITH_UNIT`), and a note names every length unit other than
     millimetres that was converted. Assemblies are followed from each solid's representation up to
-    the roots through `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION` (child and parent told apart
-    by `NEXT_ASSEMBLY_USAGE_OCCURRENCE` when present), untransformed relationships and
-    `MAPPED_ITEM`s, giving one solid per placement, named after its product. Placements are memoised
-    per representation (so layered assemblies cost one visit per part), assemblies deeper than
-    `MAX_DEPTH` or placing a part only inside itself leave that solid out with a note, and the whole
-    file yields at most `MAX_INSTANCES` solids. Spline degrees above the kernel's
-    `MAX_SPLINE_DEGREE` are refused as they are read, and knot multiplicities must sum to points
-    plus degree plus one (with checked arithmetic) before any knot is expanded. Geometry covers
-    every kernel surface and curve including B-spline surfaces and curves in all their forms
-    (Bézier ones with the standard piecewise knots, degree-fold at every joint; uniform and other
-    unclamped ones clamped by knot insertion), trimmed and surface curves by their basis, and
-    polylines. Topology is surveyed first (which faces use each edge and vertex), then vertices off
-    their faces are moved onto all of them by damped least squares, edges not within a quarter of
-    the resolution of both faces are rebuilt with `IntersectionCurve::through`, loops take their
-    orientation from bounds, oriented edges and `same_sense` (voids from `ORIENTED_CLOSED_SHELL`),
-    the outer loop is the `FACE_OUTER_BOUND`, else the one using a seam, else the largest by area,
-    and faces bounded only by `VERTEX_LOOP`s get a pole-to-pole seam (spheres and closed spline
-    surfaces). Every solid then goes through `SolidBuilder::build`, so an import is valid or a
-    sentence naming the entity; faces that meet only farther apart than `LINEAR_RESOLUTION` are
-    refused in those words, and a solid whose faces cross (`Solid::find_crossing`) is refused naming
-    the two face entities.
+    the roots through `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION` (the child is the
+    representation of the occurrence's child definition, found through
+    `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` and `NEXT_ASSEMBLY_USAGE_OCCURRENCE`, else guessed from
+    which side is some assembly's child; `rep_1` is carried into `rep_2`, so the transform is
+    inverted when the parent is listed first), untransformed relationships and `MAPPED_ITEM`s,
+    giving one solid per placement. A product's only body takes the product's name and several
+    bodies keep their own; placements of one solid take their occurrences' names when each has a
+    distinct one, else a number. Placements are memoised per representation (so layered assemblies
+    cost one visit per part), assemblies deeper than `MAX_DEPTH` or placing a part only inside
+    itself leave that solid out with a note, and the whole file yields at most `MAX_INSTANCES`
+    solids. Spline degrees above the kernel's `MAX_SPLINE_DEGREE` are refused as they are read, and
+    knot multiplicities must sum to points plus degree plus one (with checked arithmetic) before any
+    knot is expanded. Geometry covers every kernel surface and curve including B-spline surfaces and
+    curves in all their forms (Bézier ones with the standard piecewise knots, degree-fold at every
+    joint; uniform and other unclamped ones clamped by knot insertion), trimmed and surface curves
+    by their basis, and polylines. Topology is surveyed first (which faces use each edge and
+    vertex), then vertices off their faces are moved onto all of them by damped least squares, edges
+    not within a quarter of the resolution of both faces are rebuilt with
+    `IntersectionCurve::through`, loops take their orientation from bounds, oriented edges and
+    `same_sense` (voids from `ORIENTED_CLOSED_SHELL`), the outer loop is the `FACE_OUTER_BOUND`,
+    else the one using a seam, else the largest by area, and faces bounded only by `VERTEX_LOOP`s
+    get a pole-to-pole seam (spheres and closed spline surfaces). Every solid then goes through
+    `SolidBuilder::build`, so an import is valid or a sentence naming the entity; faces that meet
+    only farther apart than `LINEAR_RESOLUTION` are refused in those words, and a solid whose faces
+    cross (`Solid::find_crossing`) is refused naming the two face entities.
 - **caditor-geometry**: the math vocabulary, as f64 `glam` aliases (`Point3`, `Rotation3`, …)
   plus `Plane` (origin, normal and in-plane x axis, also used as the frame of every circle and
   rotational surface), `Ray`, `Aabb`, `Aabb2` and the rigid transforms `RigidTransform` and

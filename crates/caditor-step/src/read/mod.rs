@@ -7,6 +7,8 @@ mod tests;
 mod topology;
 mod units;
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use caditor_geometry::RigidTransform;
 use caditor_kernel::Solid;
 
@@ -68,6 +70,12 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
         .entities()
         .filter(|entity| matches!(entity.kind(), "SHELL_BASED_SURFACE_MODEL" | "FACETED_BREP"))
         .count();
+    let mut solids_per_representation: BTreeMap<u64, usize> = BTreeMap::new();
+    for entity in &solids {
+        if let Some(representation) = structure.representation_of(entity.id) {
+            *solids_per_representation.entry(representation).or_default() += 1;
+        }
+    }
     let mut budget = MAX_PLACEMENTS;
     let mut unplaced = Vec::new();
     for (index, entity) in solids.iter().enumerate() {
@@ -79,11 +87,18 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
         if units.named && (units.length - 1.0).abs() > UNIT_SLACK {
             converted.push(units.length);
         }
-        let name = solid_name(entity, &structure, representation, index);
+        let siblings = representation.map_or(1, |representation| {
+            solids_per_representation
+                .get(&representation)
+                .copied()
+                .unwrap_or(1)
+        });
+        let name = solid_name(entity, &structure, representation, index, siblings);
         let placements = match representation {
             Some(representation) => structure.placements(representation),
             None => Placements {
                 transforms: vec![RigidTransform::IDENTITY],
+                occurrences: vec![None],
                 unplaced: None,
             },
         };
@@ -94,17 +109,32 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
         if placements.transforms.len() > budget {
             structure.truncated = true;
         }
-        let transforms: Vec<RigidTransform> =
-            placements.transforms.into_iter().take(budget).collect();
+        let transforms: Vec<(RigidTransform, Option<String>)> = placements
+            .transforms
+            .into_iter()
+            .zip(
+                placements
+                    .occurrences
+                    .into_iter()
+                    .chain(std::iter::repeat(None)),
+            )
+            .take(budget)
+            .collect();
         if transforms.is_empty() {
             continue;
         }
+        let named_occurrences: BTreeSet<&str> = transforms
+            .iter()
+            .filter_map(|(_, occurrence)| occurrence.as_deref())
+            .collect();
+        let occurrences_name_each =
+            transforms.len() > 1 && named_occurrences.len() == transforms.len();
         match build(&graph, units, entity.id) {
             Ok((solid, healed)) => {
                 repaired += healed;
                 let count = transforms.len();
                 let mut misplaced = false;
-                for (instance, placement) in transforms.into_iter().enumerate() {
+                for (instance, (placement, occurrence)) in transforms.into_iter().enumerate() {
                     let placed = if placement == RigidTransform::IDENTITY {
                         Ok(solid.clone())
                     } else {
@@ -114,10 +144,10 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
                         misplaced = true;
                         continue;
                     };
-                    let name = if count > 1 && instance > 0 {
-                        format!("{name} {}", instance + 1)
-                    } else {
-                        name.clone()
+                    let name = match occurrence {
+                        Some(occurrence) if occurrences_name_each => occurrence,
+                        _ if count > 1 && instance > 0 => format!("{name} {}", instance + 1),
+                        _ => name.clone(),
                     };
                     budget = budget.saturating_sub(1);
                     model.solids.push(StepSolid {
@@ -254,15 +284,16 @@ fn solid_name(
     structure: &Structure,
     representation: Option<u64>,
     index: usize,
+    siblings: usize,
 ) -> String {
     let own = entity
         .fields()
         .map(|fields| fields.text(0).trim().to_owned())
         .unwrap_or_default();
-    if !own.is_empty() {
-        return own;
+    let product = representation.and_then(|representation| structure.name_of(representation));
+    match product {
+        Some(product) if own.is_empty() || siblings <= 1 => product.to_owned(),
+        _ if !own.is_empty() => own,
+        _ => format!("Body {}", index + 1),
     }
-    representation
-        .and_then(|representation| structure.name_of(representation))
-        .map_or_else(|| format!("Body {}", index + 1), str::to_owned)
 }

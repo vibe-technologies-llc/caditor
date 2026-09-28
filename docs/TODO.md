@@ -55,10 +55,6 @@ within a category run from most to least important.
 
 ## STEP import and export
 
-- Nested sub-assemblies can be placed upside down, since parent and child are guessed from
-  `children` and `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` is never read.
-- Product names lose to body names such as "Body1", and `NEXT_ASSEMBLY_USAGE_OCCURRENCE`
-  instance names are ignored.
 - Unsupported entities: `OFFSET_SURFACE`, `DEGENERATE_TOROIDAL_SURFACE` (the kernel refuses
   spindle tori), `COMPOSITE_CURVE`, `OFFSET_CURVE_3D`, `POLY_LOOP` (so `FACETED_BREP`, which
   is also misreported as an open surface body), `CLOSED_SHELL`s inside

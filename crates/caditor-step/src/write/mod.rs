@@ -128,7 +128,11 @@ pub fn write_step(
         "APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2000,{application})"
     ));
     let product_context = data.add(format!("PRODUCT_CONTEXT('',{application},'mechanical')"));
-    let name = text(model_name);
+    let product_name = match bodies {
+        [only] => only.name,
+        _ => model_name,
+    };
+    let name = text(product_name);
     let product = data.add(format!("PRODUCT({name},{name},'',({product_context}))"));
     data.add(format!(
         "PRODUCT_RELATED_PRODUCT_CATEGORY('part',$,({product}))"

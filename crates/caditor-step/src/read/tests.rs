@@ -241,3 +241,47 @@ fn bezier_and_uniform_curves_and_surfaces_are_read_with_the_standard_knots() {
     }
     assert!(matches!(geometry.surface(30), Ok(Surface::BSpline(_))));
 }
+
+#[test]
+fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
+    let solid = fixtures::plate_with_hole();
+    let single = write_step(
+        &[StepBody {
+            name: "Body1",
+            solid: &solid,
+        }],
+        "Bracket",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+    assert_eq!(sample(&single).solids[0].name, "Body1");
+    let from_elsewhere = single.replace(
+        "MANIFOLD_SOLID_BREP('Body1'",
+        "MANIFOLD_SOLID_BREP('Solid 7'",
+    );
+    assert_eq!(sample(&from_elsewhere).solids[0].name, "Body1");
+    let product_named = single.replace("PRODUCT('Body1','Body1'", "PRODUCT('Bracket','Bracket'");
+    assert!(product_named.contains("PRODUCT('Bracket'"));
+    assert_eq!(sample(&product_named).solids[0].name, "Bracket");
+    let pair = write_step(
+        &[
+            StepBody {
+                name: "Left",
+                solid: &solid,
+            },
+            StepBody {
+                name: "Right",
+                solid: &solid,
+            },
+        ],
+        "Bracket",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+    let names: Vec<String> = sample(&pair)
+        .solids
+        .into_iter()
+        .map(|solid| solid.name)
+        .collect();
+    assert_eq!(names, ["Left", "Right"]);
+}

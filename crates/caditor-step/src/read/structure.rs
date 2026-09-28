@@ -11,12 +11,24 @@ use crate::read::{
 pub(crate) const MAX_INSTANCES: usize = 1000;
 pub(crate) const MAX_DEPTH: usize = 32;
 
+#[derive(Debug, Clone, PartialEq)]
+struct Parent {
+    representation: u64,
+    transform: RigidTransform,
+    occurrence: Option<String>,
+}
+
+struct Occurrence {
+    child: u64,
+    name: Option<String>,
+}
+
 pub(crate) struct Structure {
     item_representation: BTreeMap<u64, u64>,
     contexts: BTreeMap<u64, u64>,
     names: BTreeMap<u64, String>,
     identical: BTreeMap<u64, BTreeSet<u64>>,
-    parents: BTreeMap<u64, Vec<(u64, RigidTransform)>>,
+    parents: BTreeMap<u64, Vec<Parent>>,
     units: BTreeMap<u64, Units>,
     walked: BTreeMap<u64, Walk>,
     pub truncated: bool,
@@ -40,8 +52,14 @@ impl Structure {
         let definitions = definition_representations(graph);
         structure.names = product_names(graph, &definitions);
         let children = assembly_children(graph, &definitions);
+        let occurrences = occurrences(graph);
+        let context = Context {
+            children: &children,
+            definitions: &definitions,
+            occurrences: &occurrences,
+        };
         for entity in graph.entities() {
-            structure.relationship(graph, entity, &children);
+            structure.relationship(graph, entity, &context);
             structure.mapped_items(graph, entity);
         }
         structure
@@ -88,7 +106,7 @@ impl Structure {
             .map(String::as_str)
     }
 
-    fn relationship(&mut self, graph: &Graph<'_>, entity: Entity<'_>, children: &BTreeSet<u64>) {
+    fn relationship(&mut self, graph: &Graph<'_>, entity: Entity<'_>, context: &Context<'_>) {
         let Ok(relation) = entity
             .record("REPRESENTATION_RELATIONSHIP")
             .or_else(|_| entity.record("SHAPE_REPRESENTATION_RELATIONSHIP"))
@@ -107,18 +125,37 @@ impl Structure {
             self.identical.entry(second).or_default().insert(first);
             return;
         };
-        let (child, parent) = if children.contains(&second) && !children.contains(&first) {
-            (second, first)
-        } else {
-            (first, second)
+        let occurrence = context.occurrences.get(&entity.id);
+        let owned_by = |representation: u64, definition: u64| {
+            context
+                .definitions
+                .get(&definition)
+                .is_some_and(|representations| {
+                    representations
+                        .iter()
+                        .any(|owned| self.class(*owned).contains(&representation))
+                })
         };
-        let Some(transform) = self.item_transform(graph, transformation, parent) else {
+        let child_is_first = match occurrence {
+            Some(occurrence) if owned_by(first, occurrence.child) => true,
+            Some(occurrence) if owned_by(second, occurrence.child) => false,
+            _ => !(context.children.contains(&second) && !context.children.contains(&first)),
+        };
+        let (child, parent) = if child_is_first {
+            (first, second)
+        } else {
+            (second, first)
+        };
+        let Some(transform) =
+            self.item_transform(graph, transformation, (first, second), child_is_first)
+        else {
             return;
         };
-        self.parents
-            .entry(child)
-            .or_default()
-            .push((parent, transform));
+        self.parents.entry(child).or_default().push(Parent {
+            representation: parent,
+            transform,
+            occurrence: occurrence.and_then(|occurrence| occurrence.name.clone()),
+        });
     }
 
     fn mapped_items(&mut self, graph: &Graph<'_>, entity: Entity<'_>) {
@@ -151,31 +188,39 @@ impl Structure {
         let (Some(from), Some(to)) = (frame(&geometry, origin), frame(&geometry, target)) else {
             return;
         };
-        self.parents
-            .entry(child)
-            .or_default()
-            .push((parent, from.inverse().then(&to)));
+        self.parents.entry(child).or_default().push(Parent {
+            representation: parent,
+            transform: from.inverse().then(&to),
+            occurrence: None,
+        });
     }
 
     fn item_transform(
         &mut self,
         graph: &Graph<'_>,
         transformation: u64,
-        parent: u64,
+        (first, second): (u64, u64),
+        child_is_first: bool,
     ) -> Option<RigidTransform> {
         let fields = graph
             .entity(transformation)
             .ok()?
             .record("ITEM_DEFINED_TRANSFORMATION")
             .ok()?;
-        let units = self.units_of(graph, parent);
-        let geometry = Geometry {
-            graph: *graph,
-            units,
+        let mut item = |representation: u64, index: usize| {
+            let geometry = Geometry {
+                graph: *graph,
+                units: self.units_of(graph, representation),
+            };
+            frame(&geometry, fields.reference(index).ok()?)
         };
-        let from = frame(&geometry, fields.reference(2).ok()?)?;
-        let to = frame(&geometry, fields.reference(3).ok()?)?;
-        Some(from.inverse().then(&to))
+        let in_first = item(first, 2)?;
+        let in_second = item(second, 3)?;
+        Some(if child_is_first {
+            in_first.inverse().then(&in_second)
+        } else {
+            in_second.inverse().then(&in_first)
+        })
     }
 
     fn class(&self, representation: u64) -> BTreeSet<u64> {
@@ -203,15 +248,16 @@ impl Structure {
             Some(Walk::InProgress) => return Placements::unplaced(Unplaced::InsideItself),
             None => {}
         }
-        let parents: Vec<(u64, RigidTransform)> = class
+        let parents: Vec<Parent> = class
             .iter()
             .flat_map(|member| self.parents.get(member).into_iter().flatten())
-            .filter(|(parent, _)| !class.contains(parent))
-            .copied()
+            .filter(|parent| !class.contains(&parent.representation))
+            .cloned()
             .collect();
         let placements = if parents.is_empty() {
             Placements {
                 transforms: vec![RigidTransform::IDENTITY],
+                occurrences: vec![None],
                 unplaced: None,
             }
         } else if depth >= MAX_DEPTH {
@@ -220,10 +266,11 @@ impl Structure {
             self.walked.insert(key, Walk::InProgress);
             let mut placed = Placements {
                 transforms: Vec::new(),
+                occurrences: Vec::new(),
                 unplaced: None,
             };
-            for (parent, transform) in parents {
-                let outer = self.walk(parent, depth + 1);
+            for parent in parents {
+                let outer = self.walk(parent.representation, depth + 1);
                 if outer.transforms.is_empty() {
                     placed.unplaced = placed.unplaced.or(outer.unplaced);
                 }
@@ -232,7 +279,8 @@ impl Structure {
                         self.truncated = true;
                         break;
                     }
-                    placed.transforms.push(transform.then(&outer));
+                    placed.transforms.push(parent.transform.then(&outer));
+                    placed.occurrences.push(parent.occurrence.clone());
                 }
             }
             if !placed.transforms.is_empty() {
@@ -254,6 +302,7 @@ pub(crate) enum Unplaced {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Placements {
     pub transforms: Vec<RigidTransform>,
+    pub occurrences: Vec<Option<String>>,
     pub unplaced: Option<Unplaced>,
 }
 
@@ -261,9 +310,52 @@ impl Placements {
     fn unplaced(reason: Unplaced) -> Self {
         Self {
             transforms: Vec::new(),
+            occurrences: Vec::new(),
             unplaced: Some(reason),
         }
     }
+}
+
+struct Context<'a> {
+    children: &'a BTreeSet<u64>,
+    definitions: &'a BTreeMap<u64, Vec<u64>>,
+    occurrences: &'a BTreeMap<u64, Occurrence>,
+}
+
+fn occurrences(graph: &Graph<'_>) -> BTreeMap<u64, Occurrence> {
+    let mut found = BTreeMap::new();
+    for entity in graph.entities() {
+        if entity.kind() != "CONTEXT_DEPENDENT_SHAPE_REPRESENTATION" {
+            continue;
+        }
+        let Ok(fields) = entity.fields() else {
+            continue;
+        };
+        let (Ok(relationship), Ok(shape)) = (fields.reference(0), fields.reference(1)) else {
+            continue;
+        };
+        let usage = graph
+            .entity(shape)
+            .ok()
+            .and_then(|shape| shape.fields().ok()?.reference(2).ok())
+            .and_then(|usage| graph.entity(usage).ok());
+        let Some(usage) = usage else {
+            continue;
+        };
+        let Ok(usage_fields) = usage.fields() else {
+            continue;
+        };
+        let Ok(child) = usage_fields.reference(4) else {
+            continue;
+        };
+        let name = [usage_fields.text(1), usage_fields.text(5)]
+            .into_iter()
+            .map(str::trim)
+            .find(|text| !text.is_empty())
+            .map(str::to_owned);
+        found.insert(relationship, Occurrence { child, name });
+    }
+    found
 }
 
 #[derive(Debug, Clone)]
@@ -437,5 +529,56 @@ mod tests {
         let placements = structure.placements(100);
         assert_eq!(placements.transforms, [RigidTransform::IDENTITY]);
         assert_eq!(placements.unplaced, None);
+    }
+
+    #[test]
+    fn a_nested_subassembly_is_placed_by_its_occurrences_whichever_way_it_is_listed() {
+        let data = "\
+            #20=CARTESIAN_POINT('',(10.,0.,0.));#21=AXIS2_PLACEMENT_3D('',#20,#3,#4);\
+            #22=CARTESIAN_POINT('',(0.,5.,0.));#23=AXIS2_PLACEMENT_3D('',#22,#3,#4);\
+            #30=ITEM_DEFINED_TRANSFORMATION('','',#1,#21);\
+            #31=ITEM_DEFINED_TRANSFORMATION('','',#23,#1);\
+            #100=SHAPE_REPRESENTATION('',(#1),#9);\
+            #101=SHAPE_REPRESENTATION('',(#1),#9);\
+            #102=SHAPE_REPRESENTATION('',(#1),#9);\
+            #400=PRODUCT_DEFINITION_SHAPE('','',#300);\
+            #401=PRODUCT_DEFINITION_SHAPE('','',#301);\
+            #402=PRODUCT_DEFINITION_SHAPE('','',#302);\
+            #410=SHAPE_DEFINITION_REPRESENTATION(#400,#100);\
+            #411=SHAPE_DEFINITION_REPRESENTATION(#401,#101);\
+            #412=SHAPE_DEFINITION_REPRESENTATION(#402,#102);\
+            #500=NEXT_ASSEMBLY_USAGE_OCCURRENCE('1','Frame:1','',#300,#301,$);\
+            #501=NEXT_ASSEMBLY_USAGE_OCCURRENCE('2','Bolt:1','',#301,#302,$);\
+            #510=PRODUCT_DEFINITION_SHAPE('','',#500);\
+            #511=PRODUCT_DEFINITION_SHAPE('','',#501);\
+            #600=(REPRESENTATION_RELATIONSHIP('','',#101,#100)\
+            REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#30)\
+            SHAPE_REPRESENTATION_RELATIONSHIP());\
+            #601=(REPRESENTATION_RELATIONSHIP('','',#101,#102)\
+            REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#31)\
+            SHAPE_REPRESENTATION_RELATIONSHIP());\
+            #700=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#600,#510);\
+            #701=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#601,#511);";
+        let exchange = parse(&file(data)).unwrap();
+        let graph = Graph::new(&exchange);
+        let mut structure = Structure::read(&graph);
+        let moved = |x: f64, y: f64| {
+            RigidTransform::translation(caditor_geometry::Vector3::new(x, y, 0.0)).unwrap()
+        };
+        let frame = structure.placements(101);
+        assert_eq!(frame.transforms, [moved(10.0, 0.0)]);
+        assert_eq!(frame.occurrences, [Some("Frame:1".to_owned())]);
+        let bolt = structure.placements(102);
+        assert_eq!(bolt.transforms.len(), 1);
+        let origin = bolt.transforms[0].apply_point(caditor_geometry::Point3::ZERO);
+        assert!(
+            origin.distance(caditor_geometry::Point3::new(10.0, 5.0, 0.0)) < 1e-12,
+            "{origin}"
+        );
+        assert_eq!(bolt.occurrences, [Some("Bolt:1".to_owned())]);
+        assert_eq!(
+            structure.placements(100).transforms,
+            [RigidTransform::IDENTITY]
+        );
     }
 }
