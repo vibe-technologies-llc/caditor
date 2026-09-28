@@ -3,14 +3,15 @@ use std::{
     f64::consts::{PI, TAU},
 };
 
-use caditor_geometry::{Aabb2, Point2, Vector2};
+use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector2};
 
 use crate::{
+    box_tree::BoxTree,
     curve2::{Curve2, Line2},
     interval::Interval,
     profile::{
         PieceBound, PieceId, ProfileCurve, ProfileError,
-        geometry::{area_under, overlaps, winding},
+        geometry::{area_under, winding},
         intersect::{self, Scale},
         source::Source,
     },
@@ -26,6 +27,11 @@ const PROBE_FRACTION: f64 = 0.05;
 const TANGENT_NUDGE: f64 = 1e-6;
 
 type Found<T> = Result<T, ProfileError>;
+
+fn flat(bounds: &Aabb2) -> Aabb {
+    let lift = |point: Point2| Point3::new(point.x, point.y, 0.0);
+    Aabb::from_point(lift(bounds.min())).including(lift(bounds.max()))
+}
 
 fn lookup<T: Copy>(items: &[T], index: usize) -> Found<T> {
     items.get(index).copied().ok_or(ProfileError::Unresolved)
@@ -209,6 +215,14 @@ impl Arrangement {
         Ok(())
     }
 
+    fn cycle_bounds(&self, cycle: &[usize]) -> Option<Aabb2> {
+        cycle
+            .iter()
+            .filter_map(|half_edge| self.pieces.get(piece_of(*half_edge).0))
+            .map(|piece| piece.curve.bounding_box(piece.range))
+            .reduce(Aabb2::union)
+    }
+
     fn cycle_area(&self, cycle: &[usize]) -> f64 {
         cycle
             .iter()
@@ -238,14 +252,25 @@ impl Arrangement {
                 outer.entry(component).or_insert(index);
             }
         }
+        let face_bounds: Vec<Aabb> = faces
+            .iter()
+            .map(|(cycle, _, _)| {
+                cycles
+                    .get(*cycle)
+                    .and_then(|cycle| self.cycle_bounds(cycle))
+                    .map_or_else(|| Aabb::from_point(Point3::ZERO), |bounds| flat(&bounds))
+            })
+            .collect();
+        let tree = BoxTree::new(face_bounds);
         let mut parent: BTreeMap<usize, usize> = BTreeMap::new();
         for (component, cycle) in &outer {
             let cycle = cycles.get(*cycle).ok_or(ProfileError::Unresolved)?;
             let first = *cycle.first().ok_or(ProfileError::Unresolved)?;
             let probe = lookup(&self.vertices, self.origin(first)?)?;
-            let container = faces
-                .iter()
-                .enumerate()
+            let container = tree
+                .overlapping(&flat(&Aabb2::from_point(probe)), self.tolerance)
+                .into_iter()
+                .filter_map(|face| Some((face, faces.get(face)?)))
                 .filter(|(_, (_, _, owner))| owner != component)
                 .filter(|(_, (face_cycle, _, _))| {
                     cycles
@@ -378,15 +403,19 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
         point,
         kind: EventKind::Cut,
     };
+    let tree = BoxTree::new(bounds.iter().map(flat));
     for (first, first_source) in sources.iter().enumerate() {
-        for (second, second_source) in sources.iter().enumerate().skip(first + 1) {
-            let (Some(first_bounds), Some(second_bounds)) = (bounds.get(first), bounds.get(second))
-            else {
+        let Some(first_bounds) = bounds.get(first) else {
+            continue;
+        };
+        let later = tree
+            .overlapping(&flat(first_bounds), 0.0)
+            .into_iter()
+            .filter(|second| *second > first);
+        for second in later {
+            let Some(second_source) = sources.get(second) else {
                 continue;
             };
-            if !overlaps(first_bounds, second_bounds) {
-                continue;
-            }
             let hits = intersect::between(
                 first_source,
                 segments.get(first).map_or(&[], Vec::as_slice),
@@ -436,12 +465,12 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
             source.point(source.range.start()),
             source.point(source.range.end()),
         ] {
-            for (other, target) in sources.iter().enumerate() {
-                if other == owner
-                    || !bounds
-                        .get(other)
-                        .is_some_and(|bounds| bounds.contains(point))
-                {
+            let near = tree.overlapping(&flat(&Aabb2::from_point(point)), 0.0);
+            for (other, target) in near
+                .into_iter()
+                .filter_map(|other| Some((other, sources.get(other)?)))
+            {
+                if other == owner {
                     continue;
                 }
                 let parameter = target.curve.closest_parameter(point, target.range);
@@ -451,8 +480,14 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
             }
         }
     }
-    for (index, source) in sources.iter().enumerate() {
-        if source.closed && !events.iter().any(|event| event.source == index) {
+    let mut has_events = vec![false; sources.len()];
+    for event in &events {
+        if let Some(flag) = has_events.get_mut(event.source) {
+            *flag = true;
+        }
+    }
+    for ((index, source), has_events) in sources.iter().enumerate().zip(has_events) {
+        if source.closed && !has_events {
             events.push(Event {
                 source: index,
                 parameter: source.range.start(),
@@ -574,15 +609,14 @@ fn split(
     for (index, vertex) in vertex_of.iter().enumerate() {
         at_vertex.entry(*vertex).or_default().push(index);
     }
+    let mut by_source: Vec<Vec<usize>> = vec![Vec::new(); sources.len()];
+    for (index, event) in events.iter().enumerate() {
+        if let Some(list) = by_source.get_mut(event.source) {
+            list.push(index);
+        }
+    }
     let mut pieces = Vec::new();
-    for (index, source) in sources.iter().enumerate() {
-        let mut own: Vec<usize> = (0..events.len())
-            .filter(|event| {
-                events
-                    .get(*event)
-                    .is_some_and(|event| event.source == index)
-            })
-            .collect();
+    for ((index, source), mut own) in sources.iter().enumerate().zip(by_source) {
         own.sort_by(|a, b| {
             let (Some(a), Some(b)) = (events.get(*a), events.get(*b)) else {
                 return std::cmp::Ordering::Equal;
@@ -856,26 +890,50 @@ fn settle(mut pieces: Vec<GraphPiece>, vertex_count: usize) -> Found<Vec<GraphPi
     Err(ProfileError::Unresolved)
 }
 
-fn pruned(mut pieces: Vec<GraphPiece>, vertex_count: usize) -> Vec<GraphPiece> {
-    loop {
-        let mut degree = vec![0usize; vertex_count];
-        for piece in &pieces {
-            for vertex in [piece.start, piece.end] {
-                if let Some(count) = degree.get_mut(vertex) {
-                    *count += 1;
+fn pruned(pieces: Vec<GraphPiece>, vertex_count: usize) -> Vec<GraphPiece> {
+    let mut degree = vec![0usize; vertex_count];
+    let mut incident: Vec<Vec<usize>> = vec![Vec::new(); vertex_count];
+    for (index, piece) in pieces.iter().enumerate() {
+        for vertex in [piece.start, piece.end] {
+            if let (Some(count), Some(list)) = (degree.get_mut(vertex), incident.get_mut(vertex)) {
+                *count += 1;
+                list.push(index);
+            }
+        }
+    }
+    let mut removed = vec![false; pieces.len()];
+    let mut pending: Vec<usize> = (0..vertex_count)
+        .filter(|vertex| degree.get(*vertex).is_some_and(|count| *count <= 1))
+        .collect();
+    while let Some(vertex) = pending.pop() {
+        let around = incident.get(vertex).cloned().unwrap_or_default();
+        for index in around {
+            let Some(flag) = removed.get_mut(index) else {
+                continue;
+            };
+            if *flag {
+                continue;
+            }
+            *flag = true;
+            let Some(piece) = pieces.get(index) else {
+                continue;
+            };
+            for end in [piece.start, piece.end] {
+                if let Some(count) = degree.get_mut(end) {
+                    *count = count.saturating_sub(1);
+                    if *count == 1 {
+                        pending.push(end);
+                    }
                 }
             }
         }
-        let before = pieces.len();
-        pieces.retain(|piece| {
-            [piece.start, piece.end]
-                .iter()
-                .all(|vertex| degree.get(*vertex).copied().unwrap_or(0) > 1)
-        });
-        if pieces.len() == before {
-            return pieces;
-        }
     }
+    pieces
+        .into_iter()
+        .zip(removed)
+        .filter(|(_, removed)| !removed)
+        .map(|(piece, _)| piece)
+        .collect()
 }
 
 fn components(pieces: &[GraphPiece], vertex_count: usize) -> Vec<usize> {

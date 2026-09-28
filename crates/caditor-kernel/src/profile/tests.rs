@@ -635,3 +635,30 @@ fn a_region_keeps_its_key_whatever_else_is_chosen() {
     expected.sort();
     assert_eq!(found, expected);
 }
+
+#[test]
+fn many_squares_and_a_long_dangling_chain() {
+    let mut curves = Vec::new();
+    let mut entity = 0;
+    let mut next = || {
+        entity += 1;
+        entity
+    };
+    for row in 0..10 {
+        for column in 0..20 {
+            let (x, y) = (f64::from(column) * 3.0, f64::from(row) * 3.0);
+            let corners = [(x, y), (x + 2.0, y), (x + 2.0, y + 2.0), (x, y + 2.0)];
+            for index in 0..4 {
+                curves.push(line(next(), corners[index], corners[(index + 1) % 4]));
+            }
+        }
+    }
+    let zigzag = |step: i32| (f64::from(step) * 0.5, -5.0 - f64::from(step % 2) * 0.1);
+    for step in 0..300 {
+        curves.push(line(next(), zigzag(step), zigzag(step + 1)));
+    }
+    let profile = Profile::new(&curves).unwrap();
+    let regions = profile.select(&Selection::EvenDepth).unwrap();
+    assert_eq!(regions.len(), 200);
+    assert!(regions.iter().all(|region| region.holes().is_empty()));
+}

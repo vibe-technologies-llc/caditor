@@ -318,7 +318,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Profiles (`profile/`): `Profile::new` takes `ProfileCurve`s (lines, circles, counter-clockwise
     arcs, clamped B-splines with an explicit knot vector) tagged with the sketch entity id as a
     plain u64, and builds the planar arrangement with tolerance 1e-7 of the profile size (at
-    least `LINEAR_RESOLUTION`): analytic line and circle intersections, subdivision on monotone
+    least `LINEAR_RESOLUTION`), finding candidate curve pairs, curves under endpoints and faces
+    around nested components through a box tree: analytic line and circle intersections,
+    subdivision on monotone
     spans (pairs pruned by their boxes before any budget is spent, running out of it is its own
     `TooIntricate` error) plus damped Newton from every leaf for splines (self-crossings
     included, crossings merged only within tolerance), endpoints landing on curves,
