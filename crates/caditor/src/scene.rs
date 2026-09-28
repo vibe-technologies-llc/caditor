@@ -159,7 +159,6 @@ impl PickTable {
             .and_then(PickId::from_index)
     }
 
-    #[cfg(test)]
     pub fn pickables(&self) -> impl Iterator<Item = Pickable> + '_ {
         self.entries.iter().map(|(pickable, _)| *pickable)
     }

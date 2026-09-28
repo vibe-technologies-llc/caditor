@@ -143,7 +143,10 @@ impl Harness {
     fn frame(&mut self) {
         self.time += FRAME_SECONDS;
         let input = RawInput {
-            screen_rect: Some(SCREEN),
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO,
+                SCREEN.size() / self.context.zoom_factor(),
+            )),
             time: Some(self.time),
             events: std::mem::take(&mut self.events),
             ..RawInput::default()
@@ -2718,4 +2721,154 @@ fn a_shortcut_recorded_in_the_editor_runs_its_command_and_is_remembered() {
     });
     harness.hover("⟳ Redo");
     assert!(harness.shows("Redo Edit width (Ctrl+Shift+Z)"));
+}
+
+fn run_from_palette(harness: &mut Harness, query: &str) {
+    harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.show_new_windows();
+    harness.type_text(query);
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+}
+
+fn type_point(harness: &mut Harness, text: &str) {
+    harness.type_text(text);
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    harness.settle();
+}
+
+#[test]
+fn a_part_can_be_modelled_from_the_keyboard_alone() {
+    let mut harness = Harness::new();
+    run_from_palette(&mut harness, "new sketch");
+    assert!(harness.workspace.editing.is_choosing_plane());
+
+    let xy = Pickable::Plane(PrincipalPlane::Xy);
+    for _ in 0..20 {
+        if harness.workspace.viewport.keyboard_highlight() == Some(xy) {
+            break;
+        }
+        harness.key(Key::N, Modifiers::NONE);
+        harness.frame();
+    }
+    assert_eq!(harness.workspace.viewport.keyboard_highlight(), Some(xy));
+    assert!(harness.shows("XY plane"));
+    harness.key(Key::Space, Modifiers::NONE);
+    harness.show_new_windows();
+    harness.settle();
+    let sketch = harness
+        .editing()
+        .expect("a sketch on the XY plane is being edited");
+
+    harness.use_tool(Key::R);
+    type_point(&mut harness, "5, 5");
+    assert!(harness.workspace.viewport.is_drawing());
+    assert!(!harness.shows("Point"));
+    type_point(&mut harness, "5, nowhere");
+    assert!(harness.shows("Point"));
+    assert!(
+        harness
+            .texts
+            .iter()
+            .any(|(shown, _)| shown.starts_with("y: "))
+    );
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(!harness.shows("Point"));
+    assert!(harness.workspace.viewport.is_drawing());
+    type_point(&mut harness, "@20 mm, width / 4");
+    assert_eq!(entities_of_kind(harness.sketch(sketch), "Line").len(), 4);
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+    assert_eq!(harness.editing(), None);
+
+    run_from_palette(&mut harness, "extrude");
+    harness.settle();
+    let extrude = harness
+        .document()
+        .features()
+        .find(|feature| feature.name == "Extrude 1")
+        .map(Feature::id)
+        .expect("the extrusion was created");
+    assert!((harness.body_volume(extrude) - 2000.0).abs() < 1.0);
+
+    harness.key(Key::Num2, Modifiers::ALT);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let forward = harness.workspace.viewport.viewpoint().forward();
+    assert!(
+        forward.dot(caditor_geometry::Vector3::NEG_Z) > 0.999,
+        "{forward:?}"
+    );
+    harness.key(Key::ArrowUp, Modifiers::NONE);
+    harness.frame();
+    let turned = harness.workspace.viewport.viewpoint().forward();
+    assert!(turned.dot(forward) < 0.9999);
+}
+
+#[test]
+fn the_interface_scales_from_the_keyboard_and_high_contrast_changes_the_colours() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let normal_panel = harness.context.global_style().visuals.panel_fill;
+    harness.key(Key::Plus, Modifiers::COMMAND);
+    harness.show_new_windows();
+    harness.frame();
+    assert_eq!(harness.workspace.preferences.appearance.scale, 1.125);
+    assert_eq!(harness.context.zoom_factor(), 1.125);
+    harness.key(Key::Num0, Modifiers::COMMAND);
+    harness.show_new_windows();
+    harness.frame();
+    assert_eq!(harness.context.zoom_factor(), 1.0);
+    for _ in 0..3 {
+        harness.key(Key::Minus, Modifiers::COMMAND);
+        harness.frame();
+    }
+    assert_eq!(harness.workspace.preferences.appearance.scale, 0.75);
+    harness.key(Key::Minus, Modifiers::COMMAND);
+    harness.frame();
+    assert_eq!(
+        harness.model.notice().map(|notice| notice.text.as_str()),
+        Some("Make the interface smaller: The interface is at its smallest, 75%")
+    );
+
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Scale(2.0),
+    )));
+    harness.frame();
+    harness.frame();
+    let visible = SCREEN.size() / 2.0;
+    for label in ["File", "⟋ Axis", "Up to date", "Features"] {
+        let rect = harness
+            .texts
+            .iter()
+            .find(|(shown, _)| shown == label)
+            .unwrap_or_else(|| panic!("{label} is not on screen"))
+            .1;
+        assert!(
+            rect.max.x <= visible.x && rect.max.y <= visible.y,
+            "{label} at {rect:?}"
+        );
+    }
+
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Scale(1.0),
+    )));
+    harness.key(Key::Comma, Modifiers::COMMAND);
+    harness.frame();
+    harness.show_new_windows();
+    harness.click("High contrast");
+    assert!(harness.workspace.preferences.appearance.high_contrast);
+    let panel = harness.context.global_style().visuals.panel_fill;
+    assert_ne!(panel, normal_panel);
+    assert!(panel == Color32::BLACK || panel == Color32::WHITE);
+    harness.wait_until("the appearance is saved", |_| {
+        caditor_file::Settings::load(&dir.path().join("config")).flag("appearance.high_contrast")
+            == Some(true)
+    });
 }

@@ -25,7 +25,6 @@ These need an answer before the milestone that depends on them starts.
 
 ## M7: Polish
 
-- [ ] Accessibility: keyboard-only operation, scalable UI and readable contrast
 - [ ] Onboarding: sample models and first-run hints
 
 ## M8: Release

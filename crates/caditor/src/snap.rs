@@ -68,7 +68,7 @@ pub fn resolve(
         .or_else(|| nearest(curves(sketch, pointer.sketch), CURVE_TOLERANCE))
 }
 
-fn points(sketch: &Sketch) -> Vec<Snapped> {
+pub fn points(sketch: &Sketch) -> Vec<Snapped> {
     let origin = Snapped {
         position: Point2::ZERO,
         target: Target::Point(EntityId::ORIGIN),

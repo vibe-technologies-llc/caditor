@@ -1,6 +1,7 @@
 mod annotation_layout;
 mod annotations;
 mod app;
+mod appearance;
 mod blend_panel;
 mod blend_tools;
 mod bodies;
@@ -34,6 +35,7 @@ mod snap;
 mod solid_panel;
 mod solid_tools;
 mod toolbar;
+mod typed_point;
 #[cfg(test)]
 mod ui_tests;
 mod units;

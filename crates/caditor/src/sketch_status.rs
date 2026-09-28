@@ -1,10 +1,8 @@
 use caditor_document::{Evaluation, FeatureId, FeatureState};
 use caditor_sketch::SketchSolution;
-use egui::{Color32, Label, RichText, Sense, Ui};
+use egui::{Label, RichText, Sense, Ui};
 
-use crate::{feature_tree::count, panels::Focus};
-
-pub const SUCCESS_COLOR: Color32 = Color32::from_rgb(104, 204, 120);
+use crate::{appearance, feature_tree::count, panels::Focus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SketchStatus {
@@ -97,7 +95,7 @@ pub fn show(ui: &mut Ui, summary: &SketchSummary) -> Option<Focus> {
     let text = RichText::new(summary.status_text());
     let text = match summary.status {
         SketchStatus::NotSolved => text.weak(),
-        SketchStatus::FullyConstrained => text.color(SUCCESS_COLOR),
+        SketchStatus::FullyConstrained => text.color(appearance::success_color(ui.visuals())),
         SketchStatus::Free(_) => text,
         SketchStatus::Conflicting | SketchStatus::Failed => text.color(error),
     };

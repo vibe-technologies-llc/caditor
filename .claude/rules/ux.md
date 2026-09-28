@@ -38,6 +38,16 @@ requirement to avoid.
 - Undo and redo cover every change to the document, including parameter edits and feature
   reordering, with no operation outside the history.
 
+## Accessibility
+
+- Everything can be done from the keyboard: every action is a command in the palette, and the
+  viewport has keyboard views, camera moves, highlighting and typed coordinates. A new action
+  that only a mouse can reach is not finished.
+- Text stays readable: every text colour in the panels meets 4.5:1 against its background in
+  both themes (7:1 for body text in high contrast), checked by the tests in `appearance.rs`.
+  Take colours from the current visuals, never fixed values, outside the dark 3D view.
+- The interface scales from 75% to 200%, and panels and toolbars wrap rather than clip.
+
 ## Units
 
 - caditor uses SI units only: lengths in micrometres, millimetres, centimetres and metres, and

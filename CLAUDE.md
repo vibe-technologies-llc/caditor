@@ -669,9 +669,16 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     version's, keeping ID counters) as one "Restore earlier version" change, so Undo brings back
     what was there and the next save keeps the replaced state as a version too.
   - Preferences (`preferences.rs`, `units.rs`): File › Preferences… (Ctrl+,) sets the length
-    unit (millimetres, centimetres or metres; SI only, see `.claude/rules/ux.md`), the theme
-    (system, dark or light; the 3D view keeps its dark canvas) and orbit and zoom speed with the
-    zoom direction. Changes apply at once and are saved on the files worker. `Workspace` owns the
+    unit (millimetres, centimetres or metres; SI only, see `.claude/rules/ux.md`), the
+    `Appearance` (theme: system, dark or light, the 3D view keeping its dark canvas; interface
+    size from 75% to 200% in eighths, also on Ctrl+Plus, Ctrl+Minus and Ctrl+0, applied as the
+    egui zoom factor, whose own keyboard zoom and quit shortcut are switched off; high
+    contrast), orbit and zoom speed with the zoom direction, and opens the shortcut editor.
+    `appearance.rs` builds the visuals of both themes with and without high contrast from
+    palettes whose every text colour is tested against its background (4.5:1, and 7:1 for body
+    text in high contrast, whose button and focus outlines reach 3:1), and gives the success
+    colour; panels use these visuals' colours rather than fixed ones. Changes apply at once and
+    are saved on the files worker. `Workspace` owns the
     `Preferences`, `Model` carries the length unit so every panel can use it, and
     `Action::Preferences` is performed with the workspace. The unit is for display and input
     only: models stay unit-explicit. Values and previews are shown in it (`LengthUnit::show`), a
@@ -707,6 +714,19 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     bindings: Add records the next key press (Esc cancels), a binding already used in an
     overlapping scope asks before moving it, clicking a binding removes it, and Reset or Reset
     all go back to the defaults.
+  - Keyboard-only operation: every command is in the palette; Tab moves between widgets and
+    Escape leaves them; each feature row has a "⋯" menu with what its right-click menu holds.
+    In the viewport, standard views (Alt+0 to Alt+6), orbit (arrows), pan (Shift+arrows) and
+    zoom (Page Up and Page Down) are commands; N and Shift+N step a keyboard highlight through
+    the scene's pickables in pick-table order (it is drawn and described like hover, a pointer
+    move or Escape clears it), Space acts on it as a click would (toggling it in the selection,
+    or a region, blend edge, shell face or sketch plane as in those modes, through
+    `pick_action`), and Enter opens what it belongs to as a double-click would. While a drawing
+    tool is active, typing a digit, sign, point or `@` opens the typed-point field
+    (`typed_point.rs`): two length expressions in the preferred unit, `@` for an offset from the
+    last placed point; Enter places the point through `Drawing::type_point` (landing exactly on
+    an existing point or the pending one snaps to it, like a click), an error keeps the field
+    open with the reason, and Escape closes it without touching the shape.
   - Sketch editing is a context, not a mode: `editing.rs` holds which sketch is edited and the
     active `Tool`, changed by `Action::Editing` commands that `app::perform` routes after the UI
     pass; it ends by itself when the sketch disappears or another document is opened. The

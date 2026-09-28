@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use caditor_file::Settings;
+use caditor_geometry::Vector3;
 use egui::{Event, Key, KeyboardShortcut, Modifiers};
 
 use crate::{editing::Tool, sketch_tools::ConstraintTool};
@@ -50,6 +51,148 @@ pub enum Command {
     DatumPlane,
     DatumAxis,
     FitView,
+    LargerInterface,
+    SmallerInterface,
+    NormalInterface,
+    View(StandardView),
+    Camera(CameraMove),
+    HighlightNext,
+    HighlightPrevious,
+    ActivateHighlighted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum StandardView {
+    Isometric,
+    Front,
+    Top,
+    Right,
+    Back,
+    Bottom,
+    Left,
+}
+
+impl StandardView {
+    pub const ALL: [Self; 7] = [
+        Self::Isometric,
+        Self::Front,
+        Self::Top,
+        Self::Right,
+        Self::Back,
+        Self::Bottom,
+        Self::Left,
+    ];
+
+    pub fn looking_from(self) -> Vector3 {
+        match self {
+            Self::Isometric => Vector3::new(1.0, -1.0, 1.0),
+            Self::Front => Vector3::NEG_Y,
+            Self::Top => Vector3::Z,
+            Self::Right => Vector3::X,
+            Self::Back => Vector3::Y,
+            Self::Bottom => Vector3::NEG_Z,
+            Self::Left => Vector3::NEG_X,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Isometric => "isometric",
+            Self::Front => "front",
+            Self::Top => "top",
+            Self::Right => "right",
+            Self::Back => "back",
+            Self::Bottom => "bottom",
+            Self::Left => "left",
+        }
+    }
+
+    fn key(self) -> Key {
+        match self {
+            Self::Isometric => Key::Num0,
+            Self::Front => Key::Num1,
+            Self::Top => Key::Num2,
+            Self::Right => Key::Num3,
+            Self::Back => Key::Num4,
+            Self::Bottom => Key::Num5,
+            Self::Left => Key::Num6,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CameraMove {
+    OrbitLeft,
+    OrbitRight,
+    OrbitUp,
+    OrbitDown,
+    PanLeft,
+    PanRight,
+    PanUp,
+    PanDown,
+    ZoomIn,
+    ZoomOut,
+}
+
+impl CameraMove {
+    pub const ALL: [Self; 10] = [
+        Self::OrbitLeft,
+        Self::OrbitRight,
+        Self::OrbitUp,
+        Self::OrbitDown,
+        Self::PanLeft,
+        Self::PanRight,
+        Self::PanUp,
+        Self::PanDown,
+        Self::ZoomIn,
+        Self::ZoomOut,
+    ];
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::OrbitLeft => "view.orbit_left",
+            Self::OrbitRight => "view.orbit_right",
+            Self::OrbitUp => "view.orbit_up",
+            Self::OrbitDown => "view.orbit_down",
+            Self::PanLeft => "view.pan_left",
+            Self::PanRight => "view.pan_right",
+            Self::PanUp => "view.pan_up",
+            Self::PanDown => "view.pan_down",
+            Self::ZoomIn => "view.zoom_in",
+            Self::ZoomOut => "view.zoom_out",
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::OrbitLeft => "Orbit left",
+            Self::OrbitRight => "Orbit right",
+            Self::OrbitUp => "Orbit up",
+            Self::OrbitDown => "Orbit down",
+            Self::PanLeft => "Pan left",
+            Self::PanRight => "Pan right",
+            Self::PanUp => "Pan up",
+            Self::PanDown => "Pan down",
+            Self::ZoomIn => "Zoom in",
+            Self::ZoomOut => "Zoom out",
+        }
+    }
+
+    fn shortcut(self) -> KeyboardShortcut {
+        let (modifiers, key) = match self {
+            Self::OrbitLeft => (Modifiers::NONE, Key::ArrowLeft),
+            Self::OrbitRight => (Modifiers::NONE, Key::ArrowRight),
+            Self::OrbitUp => (Modifiers::NONE, Key::ArrowUp),
+            Self::OrbitDown => (Modifiers::NONE, Key::ArrowDown),
+            Self::PanLeft => (Modifiers::SHIFT, Key::ArrowLeft),
+            Self::PanRight => (Modifiers::SHIFT, Key::ArrowRight),
+            Self::PanUp => (Modifiers::SHIFT, Key::ArrowUp),
+            Self::PanDown => (Modifiers::SHIFT, Key::ArrowDown),
+            Self::ZoomIn => (Modifiers::NONE, Key::PageUp),
+            Self::ZoomOut => (Modifiers::NONE, Key::PageDown),
+        };
+        KeyboardShortcut::new(modifiers, key)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -94,7 +237,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 24] = [
+const PLAIN_COMMANDS: [Command; 30] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -109,6 +252,12 @@ const PLAIN_COMMANDS: [Command; 24] = [
     Command::Undo,
     Command::Redo,
     Command::FitView,
+    Command::LargerInterface,
+    Command::SmallerInterface,
+    Command::NormalInterface,
+    Command::HighlightNext,
+    Command::HighlightPrevious,
+    Command::ActivateHighlighted,
     Command::NewSketch,
     Command::Extrude,
     Command::Revolve,
@@ -127,6 +276,8 @@ impl Command {
             .into_iter()
             .chain(Tool::ALL.into_iter().map(Self::SketchTool))
             .chain(ConstraintTool::ALL.into_iter().map(Self::Constraint))
+            .chain(StandardView::ALL.into_iter().map(Self::View))
+            .chain(CameraMove::ALL.into_iter().map(Self::Camera))
     }
 
     pub fn id(self) -> &'static str {
@@ -176,6 +327,22 @@ impl Command {
             Self::DatumPlane => "model.plane",
             Self::DatumAxis => "model.axis",
             Self::FitView => "view.fit",
+            Self::LargerInterface => "view.interface_larger",
+            Self::SmallerInterface => "view.interface_smaller",
+            Self::NormalInterface => "view.interface_normal",
+            Self::View(view) => match view {
+                StandardView::Isometric => "view.isometric",
+                StandardView::Front => "view.front",
+                StandardView::Top => "view.top",
+                StandardView::Right => "view.right",
+                StandardView::Back => "view.back",
+                StandardView::Bottom => "view.bottom",
+                StandardView::Left => "view.left",
+            },
+            Self::Camera(camera) => camera.id(),
+            Self::HighlightNext => "view.highlight_next",
+            Self::HighlightPrevious => "view.highlight_previous",
+            Self::ActivateHighlighted => "view.activate_highlighted",
         }
     }
 
@@ -208,6 +375,15 @@ impl Command {
             Self::DatumPlane => "Datum plane",
             Self::DatumAxis => "Datum axis",
             Self::FitView => "Fit view",
+            Self::LargerInterface => "Make the interface larger",
+            Self::SmallerInterface => "Make the interface smaller",
+            Self::NormalInterface => "Interface at normal size",
+            Self::View(StandardView::Isometric) => "Isometric view",
+            Self::View(view) => return format!("View from the {}", view.name()),
+            Self::Camera(camera) => camera.title(),
+            Self::HighlightNext => "Highlight the next item in the view",
+            Self::HighlightPrevious => "Highlight the previous item in the view",
+            Self::ActivateHighlighted => "Select the highlighted item",
         };
         fixed.to_owned()
     }
@@ -225,7 +401,15 @@ impl Command {
             | Self::KeyboardShortcuts
             | Self::Quit => Category::File,
             Self::Palette | Self::Undo | Self::Redo => Category::Edit,
-            Self::FitView => Category::View,
+            Self::FitView
+            | Self::LargerInterface
+            | Self::SmallerInterface
+            | Self::NormalInterface
+            | Self::View(_)
+            | Self::Camera(_)
+            | Self::HighlightNext
+            | Self::HighlightPrevious
+            | Self::ActivateHighlighted => Category::View,
             Self::NewSketch
             | Self::Extrude
             | Self::Revolve
@@ -266,6 +450,14 @@ impl Command {
             Self::Undo => vec![command(Key::Z)],
             Self::Redo => vec![command_shift(Key::Z), command(Key::Y)],
             Self::FitView => vec![plain(Key::F)],
+            Self::LargerInterface => vec![command(Key::Plus), command(Key::Equals)],
+            Self::SmallerInterface => vec![command(Key::Minus)],
+            Self::NormalInterface => vec![command(Key::Num0)],
+            Self::View(view) => vec![KeyboardShortcut::new(Modifiers::ALT, view.key())],
+            Self::Camera(camera) => vec![camera.shortcut()],
+            Self::HighlightNext => vec![plain(Key::N)],
+            Self::HighlightPrevious => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::N)],
+            Self::ActivateHighlighted => vec![plain(Key::Space)],
             Self::SketchTool(tool) => tool_key(tool).map(plain).into_iter().collect(),
             Self::Constraint(tool) => vec![KeyboardShortcut::new(
                 Modifiers::SHIFT,

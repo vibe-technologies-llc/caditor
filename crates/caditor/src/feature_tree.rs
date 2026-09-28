@@ -19,6 +19,8 @@ use crate::{
     sketch_tools, solid_panel,
 };
 
+const MORE_ICON: &str = "⋯";
+const MORE_HINT: &str = "Rename, move or delete (also on right-click)";
 const NAME_FIELD_WIDTH: f32 = 180.0;
 const DIMENSION_FIELD_WIDTH: f32 = 140.0;
 const EDIT_SKETCH_LABEL: &str = "Edit sketch";
@@ -113,6 +115,11 @@ fn feature_row(
         let label = ui.add(Label::new(text).selectable(false).sense(Sense::click()));
         toggle = label.clicked();
         edit_button(ui, row, actions);
+        ui.menu_button(MORE_ICON, |ui| {
+            context_menu(ui, document, state, actions, row);
+        })
+        .response
+        .on_hover_text(MORE_HINT);
         label
     });
     if toggle {

@@ -10,7 +10,7 @@ use crate::{
     annotations::{Annotations, Surface},
     blend_tools,
     bodies::{self, BodyMeshes},
-    commands::{Command, CommandFrame},
+    commands::{CameraMove, Command, CommandFrame, StandardView},
     datum_tools,
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
@@ -22,6 +22,7 @@ use crate::{
     sketch_placement::{self, FaceChoice},
     snap::{Pointer, Screen},
     solid_tools,
+    typed_point::{self, TypedPoint},
     view_cube::{self, CubeAction},
 };
 
@@ -46,6 +47,13 @@ const CHOOSE_REFERENCES_PROMPT: &str =
     "Select planes, faces, axes or edges, then use them from the feature's panel";
 const SNAP_LABEL_OFFSET: egui::Vec2 = vec2(14.0, 10.0);
 const SNAP_LABEL_COLOR: Color32 = Color32::from_rgb(80, 226, 236);
+const KEYBOARD_ORBIT_FRACTION: f64 = 1.0 / 12.0;
+const KEYBOARD_PAN_FRACTION: f64 = 0.1;
+const KEYBOARD_ZOOM_FACTOR: f64 = 1.25;
+const TYPED_POINT_OFFSET: f32 = 64.0;
+const TYPE_POINT_HINT: &str = "Type x, y for an exact point";
+const TYPED_POINT_HINT: &str = "@ for relative   Enter: place   Esc: cancel";
+const NOTHING_TO_HIGHLIGHT: &str = "Nothing in the view can be picked";
 
 struct SketchScreen {
     view: View,
@@ -100,6 +108,9 @@ pub struct ViewportState {
     annotations: Annotations,
     bodies: BodyMeshes,
     navigation: Navigation,
+    keyboard_highlight: Option<Pickable>,
+    highlightable: Vec<Pickable>,
+    typed_point: TypedPoint,
 }
 
 impl ViewportState {
@@ -130,6 +141,9 @@ impl ViewportState {
             annotations: Annotations::default(),
             bodies: BodyMeshes::default(),
             navigation: Navigation::default(),
+            keyboard_highlight: None,
+            highlightable: Vec::new(),
+            typed_point: TypedPoint::default(),
         }
     }
 
@@ -192,10 +206,21 @@ impl ViewportState {
         if commands.available(Command::FitView) {
             self.fit_requested = true;
         }
+        self.keyboard_commands(model, editing, commands, actions);
         let hint = match commands.keys(Command::FitView) {
             Some(keys) => format!("{NAVIGATION_HINT}   {keys}: fit"),
             None => NAVIGATION_HINT.to_owned(),
         };
+        let highlight_keys = [
+            (Command::ActivateHighlighted, "select or pick"),
+            (Command::HighlightNext, "next"),
+            (Command::HighlightPrevious, "previous"),
+        ]
+        .into_iter()
+        .filter_map(|(command, what)| Some(format!("{}: {what}", commands.keys(command)?)))
+        .chain(["Enter: open   Esc: stop highlighting".to_owned()])
+        .collect::<Vec<_>>()
+        .join("   ");
         egui::CentralPanel::no_frame().show(ui, |ui| {
             let rect = ui.max_rect();
             self.rect = Some(rect);
@@ -203,6 +228,7 @@ impl ViewportState {
             let response = ui.interact(rect, ui.id().with("viewport"), Sense::click_and_drag());
 
             self.track_cursor(ui, &response, rect);
+            self.type_points(ui, rect, model, editing, keys_free, actions);
             self.track_sketch_cursor(model, editing);
             self.track_drawing(model, editing);
             self.navigate(ui, &response, rect);
@@ -211,7 +237,7 @@ impl ViewportState {
                 self.handle_keys(ui, model, editing, actions);
             }
             self.annotate(ui, rect, model, editing, actions);
-            self.decorate(ui, rect, model, editing, &hint);
+            self.decorate(ui, rect, model, editing, &hint, &highlight_keys);
         });
     }
 
@@ -235,6 +261,7 @@ impl ViewportState {
         self.hovered = self
             .hovered
             .filter(|hovered| hovered.is_available(document, evaluation, context));
+        let highlighted = self.highlighted();
         let hovered: Vec<Pickable> = if self.drawing.is_active() {
             edited
                 .zip(self.drawing.snap_entity())
@@ -244,7 +271,7 @@ impl ViewportState {
         } else if let Some(annotation) = self.annotations.hovered() {
             annotation.constrained_entities(document)
         } else {
-            self.hovered.into_iter().collect()
+            highlighted.into_iter().collect()
         };
         let sources = Sources {
             document,
@@ -262,6 +289,10 @@ impl ViewportState {
         if let Some(sketch) = built.edited {
             scene::add_preview(&mut built.scene, sketch.plane, &self.drawing.preview());
         }
+        self.highlightable = built.picks.pickables().collect();
+        self.keyboard_highlight = self
+            .keyboard_highlight
+            .filter(|highlight| self.highlightable.contains(highlight));
         let Some(view) = self.view() else {
             return built;
         };
@@ -329,6 +360,16 @@ impl ViewportState {
     }
 
     #[cfg(test)]
+    pub fn viewpoint(&self) -> Viewpoint {
+        self.camera.viewpoint()
+    }
+
+    #[cfg(test)]
+    pub fn keyboard_highlight(&self) -> Option<Pickable> {
+        self.keyboard_highlight
+    }
+
+    #[cfg(test)]
     pub fn screen_position(&self, plane: Plane, point: Point2) -> Option<egui::Pos2> {
         let pixel = self.view()?.project(plane.to_world(point))? / f64::from(self.pixels_per_point);
         Some(self.rect?.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32))
@@ -360,12 +401,24 @@ impl ViewportState {
             .map(|hit| hit.position)
     }
 
+    fn highlighted(&self) -> Option<Pickable> {
+        self.keyboard_highlight.or(self.hovered)
+    }
+
     fn track_cursor(&mut self, ui: &egui::Ui, response: &Response, rect: Rect) {
-        let pointer = ui.input(|input| input.pointer.latest_pos());
+        let (pointer, moved) = ui.input(|input| {
+            (
+                input.pointer.latest_pos(),
+                input.pointer.delta() != egui::Vec2::ZERO,
+            )
+        });
         let inside = (response.hovered() || response.dragged())
             .then_some(pointer)
             .flatten()
             .filter(|position| rect.contains(*position));
+        if moved && inside.is_some() {
+            self.keyboard_highlight = None;
+        }
         self.cursor = inside.map(|position| self.to_pixels(position - rect.min));
         if self.cursor.is_none() {
             self.hovered = None;
@@ -477,59 +530,18 @@ impl ViewportState {
         editing: &SketchEditing,
         actions: &mut Vec<Action>,
     ) {
-        if response.double_clicked() && editing.feature().is_none() {
-            let command = match self.hovered {
-                Some(Pickable::SketchEntity { feature, .. }) => {
-                    Some(EditingCommand::Enter(feature))
-                }
-                Some(Pickable::Datum(datum)) => Some(EditingCommand::OpenSolid(datum)),
-                Some(Pickable::Face { body, face }) => model
-                    .evaluation()
-                    .body(body)
-                    .and_then(|solid| bodies::face_origin(solid, face))
-                    .map(|origin| EditingCommand::OpenSolid(bodies::origin_feature(origin))),
-                _ => None,
-            };
-            if let Some(command) = command {
-                actions.push(Action::Editing(command));
-                return;
-            }
+        if response.double_clicked()
+            && editing.feature().is_none()
+            && let Some(command) = open_command(self.hovered, model)
+        {
+            actions.push(Action::Editing(command));
+            return;
         }
         if !response.clicked_by(PointerButton::Primary) {
             return;
         }
-        if let Some(Pickable::Region { feature, region }) = self.hovered {
-            if let Some(transaction) = solid_tools::toggle_region(model, feature, region) {
-                actions.push(Action::Apply(transaction));
-            }
-            return;
-        }
-        if let Some(Pickable::BlendEdge { feature, edge }) = self.hovered {
-            if let Some(transaction) = blend_tools::toggle_edge(model, feature, edge) {
-                actions.push(Action::Apply(transaction));
-            }
-            return;
-        }
-        if let Some(Pickable::ShellFace { feature, face }) = self.hovered {
-            if let Some(transaction) = shell_tools::toggle_face(model, feature, face) {
-                actions.push(Action::Apply(transaction));
-            }
-            return;
-        }
-        if editing.is_choosing_plane() {
-            let command = match self.hovered {
-                Some(Pickable::Plane(plane)) => Some(EditingCommand::NewSketch(Some(plane))),
-                Some(Pickable::Datum(datum)) if datum_tools::is_plane(model.document(), datum) => {
-                    Some(EditingCommand::NewSketchOnDatum(datum))
-                }
-                Some(pickable) => FaceChoice::of(pickable)
-                    .filter(|face| sketch_placement::is_flat(model, *face))
-                    .map(EditingCommand::NewSketchOnFace),
-                None => None,
-            };
-            if let Some(command) = command {
-                actions.push(Action::Editing(command));
-            }
+        if let Some(action) = pick_action(self.hovered, model, editing) {
+            actions.extend(action);
             return;
         }
         if let Some(active) = editing.active()
@@ -553,6 +565,140 @@ impl ViewportState {
         }
     }
 
+    fn keyboard_commands(
+        &mut self,
+        model: &Model,
+        editing: &SketchEditing,
+        commands: &mut CommandFrame<'_>,
+        actions: &mut Vec<Action>,
+    ) {
+        for view in StandardView::ALL {
+            if commands.available(Command::View(view)) {
+                let destination = self.camera.destination();
+                if let Some(viewpoint) = Viewpoint::looking_from(
+                    view.looking_from(),
+                    destination.target,
+                    destination.distance,
+                ) {
+                    self.camera.animate_to(viewpoint);
+                }
+            }
+        }
+        for step in CameraMove::ALL {
+            if commands.available(Command::Camera(step)) {
+                self.nudge(step);
+            }
+        }
+        let highlightable = if self.highlightable.is_empty() {
+            Err(NOTHING_TO_HIGHLIGHT)
+        } else {
+            Ok(())
+        };
+        let steps = [
+            (Command::HighlightNext, 1),
+            (Command::HighlightPrevious, -1),
+        ];
+        for (command, step) in steps {
+            if commands.invoke(command, &highlightable) {
+                self.step_highlight(step);
+            }
+        }
+        let activation = self
+            .keyboard_highlight
+            .ok_or("Highlight an item first, with Highlight the next item in the view");
+        if commands.invoke(Command::ActivateHighlighted, &activation)
+            && let Some(highlight) = self.keyboard_highlight
+        {
+            match pick_action(Some(highlight), model, editing) {
+                Some(action) => actions.extend(action),
+                None => self.selection.toggle(highlight),
+            }
+        }
+    }
+
+    fn step_highlight(&mut self, step: isize) {
+        let count = self.highlightable.len();
+        if count == 0 {
+            return;
+        }
+        let current = self
+            .keyboard_highlight
+            .or(self.hovered)
+            .and_then(|highlight| {
+                self.highlightable
+                    .iter()
+                    .position(|item| *item == highlight)
+            });
+        let next = match current {
+            Some(index) => (index as isize + step).rem_euclid(count as isize) as usize,
+            None if step < 0 => count - 1,
+            None => 0,
+        };
+        self.keyboard_highlight = self.highlightable.get(next).copied();
+    }
+
+    fn nudge(&mut self, step: CameraMove) {
+        let Some(view) = self.view() else {
+            return;
+        };
+        let height = view.size().y;
+        let target = view.viewpoint().target;
+        let orbit = height * KEYBOARD_ORBIT_FRACTION;
+        let pan = height * KEYBOARD_PAN_FRACTION;
+        let units_per_pixel = view.units_per_pixel_at(view.viewpoint().distance);
+        match step {
+            CameraMove::OrbitLeft => self.camera.orbit(target, Vector2::new(-orbit, 0.0), height),
+            CameraMove::OrbitRight => self.camera.orbit(target, Vector2::new(orbit, 0.0), height),
+            CameraMove::OrbitUp => self.camera.orbit(target, Vector2::new(0.0, -orbit), height),
+            CameraMove::OrbitDown => self.camera.orbit(target, Vector2::new(0.0, orbit), height),
+            CameraMove::PanLeft => self.camera.pan(Vector2::new(-pan, 0.0), units_per_pixel),
+            CameraMove::PanRight => self.camera.pan(Vector2::new(pan, 0.0), units_per_pixel),
+            CameraMove::PanUp => self.camera.pan(Vector2::new(0.0, -pan), units_per_pixel),
+            CameraMove::PanDown => self.camera.pan(Vector2::new(0.0, pan), units_per_pixel),
+            CameraMove::ZoomIn => self.camera.zoom(target, 1.0 / KEYBOARD_ZOOM_FACTOR),
+            CameraMove::ZoomOut => self.camera.zoom(target, KEYBOARD_ZOOM_FACTOR),
+        }
+    }
+
+    fn type_points(
+        &mut self,
+        ui: &egui::Ui,
+        rect: Rect,
+        model: &Model,
+        editing: &SketchEditing,
+        keys_free: bool,
+        actions: &mut Vec<Action>,
+    ) {
+        let drawing_sketch = editing
+            .active()
+            .filter(|active| active.tool.draws())
+            .and_then(|active| model.document().feature(active.feature))
+            .and_then(|feature| scene::displayed_sketch(model.evaluation(), feature));
+        let Some(sketch) = drawing_sketch else {
+            self.typed_point.close();
+            return;
+        };
+        if keys_free {
+            self.typed_point.open_from_typing(ui.ctx());
+        }
+        let hint = format!("in {}   {TYPED_POINT_HINT}", model.length_unit().symbol());
+        let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
+        let Some(typed) = self.typed_point.show(ui.ctx(), anchor, &hint) else {
+            return;
+        };
+        match typed_point::parse(model, &typed.text, self.drawing.last_placed()) {
+            Ok(position) => {
+                self.drawing.type_point(&sketch, position);
+                if let Some(transaction) = self.drawing.click(model) {
+                    actions.push(Action::Apply(transaction));
+                }
+            }
+            Err(error) => {
+                self.typed_point.open_with(typed.text, error);
+            }
+        }
+    }
+
     fn handle_keys(
         &mut self,
         ui: &egui::Ui,
@@ -570,8 +716,14 @@ impl ViewportState {
         if escape {
             self.escape(editing, actions);
         }
-        if finish && let Some(transaction) = self.drawing.finish(model) {
-            actions.push(Action::Apply(transaction));
+        if finish {
+            if let Some(transaction) = self.drawing.finish(model) {
+                actions.push(Action::Apply(transaction));
+            } else if editing.feature().is_none()
+                && let Some(command) = open_command(self.keyboard_highlight, model)
+            {
+                actions.push(Action::Editing(command));
+            }
         }
         if back && self.drawing.in_progress() {
             self.drawing.remove_last();
@@ -584,6 +736,8 @@ impl ViewportState {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
         } else if self.drawing.in_progress() {
             self.drawing.cancel();
+        } else if self.keyboard_highlight.is_some() {
+            self.keyboard_highlight = None;
         } else if let Some(active) = active
             && active.tool != Tool::Select
         {
@@ -635,6 +789,7 @@ impl ViewportState {
         model: &Model,
         editing: &SketchEditing,
         hint: &str,
+        highlight_keys: &str,
     ) {
         let document = model.document();
         let orientation = self.camera.viewpoint().orientation;
@@ -658,15 +813,24 @@ impl ViewportState {
         view_cube::show_axis_triad(ui, rect, orientation);
 
         let painter = ui.painter();
-        let hovered = self.annotations.hovered().or(self.hovered);
+        let hovered = self.annotations.hovered().or(self.highlighted());
         if let Some(hovered) = hovered.filter(|_| !self.drawing.is_active()) {
-            painter.text(
+            let label = painter.text(
                 rect.left_top() + vec2(LABEL_MARGIN, LABEL_MARGIN),
                 Align2::LEFT_TOP,
                 hovered.describe(document, model.evaluation()),
                 FontId::proportional(13.0),
                 LABEL_COLOR,
             );
+            if self.keyboard_highlight.is_some() {
+                painter.text(
+                    label.left_bottom() + vec2(0.0, LABEL_MARGIN / 3.0),
+                    Align2::LEFT_TOP,
+                    highlight_keys,
+                    FontId::proportional(11.0),
+                    HINT_COLOR,
+                );
+            }
         }
         painter.text(
             rect.right_bottom() - vec2(LABEL_MARGIN, LABEL_MARGIN),
@@ -676,7 +840,7 @@ impl ViewportState {
             HINT_COLOR,
         );
         let prompt = if editing.is_choosing_plane() {
-            Some((CHOOSE_PLANE_PROMPT, CHOOSE_PLANE_HINT))
+            Some((CHOOSE_PLANE_PROMPT, CHOOSE_PLANE_HINT.to_owned()))
         } else if let Some(feature) = editing.solid() {
             let kind = document.feature(feature).map(|feature| &feature.kind);
             let prompt = match kind {
@@ -685,11 +849,12 @@ impl ViewportState {
                 Some(FeatureKind::Datum(_)) => CHOOSE_REFERENCES_PROMPT,
                 _ => CHOOSE_REGIONS_PROMPT,
             };
-            Some((prompt, CHOOSE_REGIONS_HINT))
+            Some((prompt, CHOOSE_REGIONS_HINT.to_owned()))
         } else {
             self.drawing
                 .prompt()
-                .map(|prompt| (prompt.text, prompt.keys))
+                .filter(|_| !self.typed_point.is_open())
+                .map(|prompt| (prompt.text, format!("{}   {TYPE_POINT_HINT}", prompt.keys)))
         };
         if let Some((text, keys)) = prompt {
             let prompt = painter.text(
@@ -736,6 +901,52 @@ impl ViewportState {
             );
         }
     }
+}
+
+fn open_command(pickable: Option<Pickable>, model: &Model) -> Option<EditingCommand> {
+    match pickable? {
+        Pickable::SketchEntity { feature, .. } => Some(EditingCommand::Enter(feature)),
+        Pickable::Datum(datum) => Some(EditingCommand::OpenSolid(datum)),
+        Pickable::Face { body, face } => model
+            .evaluation()
+            .body(body)
+            .and_then(|solid| bodies::face_origin(solid, face))
+            .map(|origin| EditingCommand::OpenSolid(bodies::origin_feature(origin))),
+        _ => None,
+    }
+}
+
+fn pick_action(
+    pickable: Option<Pickable>,
+    model: &Model,
+    editing: &SketchEditing,
+) -> Option<Option<Action>> {
+    match pickable {
+        Some(Pickable::Region { feature, region }) => {
+            return Some(solid_tools::toggle_region(model, feature, region).map(Action::Apply));
+        }
+        Some(Pickable::BlendEdge { feature, edge }) => {
+            return Some(blend_tools::toggle_edge(model, feature, edge).map(Action::Apply));
+        }
+        Some(Pickable::ShellFace { feature, face }) => {
+            return Some(shell_tools::toggle_face(model, feature, face).map(Action::Apply));
+        }
+        _ => {}
+    }
+    if !editing.is_choosing_plane() {
+        return None;
+    }
+    let command = match pickable {
+        Some(Pickable::Plane(plane)) => Some(EditingCommand::NewSketch(Some(plane))),
+        Some(Pickable::Datum(datum)) if datum_tools::is_plane(model.document(), datum) => {
+            Some(EditingCommand::NewSketchOnDatum(datum))
+        }
+        Some(pickable) => FaceChoice::of(pickable)
+            .filter(|face| sketch_placement::is_flat(model, *face))
+            .map(EditingCommand::NewSketchOnFace),
+        None => None,
+    };
+    Some(command.map(Action::Editing))
 }
 
 fn facing(view: &View, sketch: &EditedSketch) -> Viewpoint {

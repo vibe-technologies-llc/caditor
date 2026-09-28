@@ -11,6 +11,7 @@ use winit::{
 };
 
 use crate::{
+    appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     commands::{self, Command, CommandFrame, Situation},
     editing::SketchEditing,
     files::{self, FileCommand, Files},
@@ -18,7 +19,7 @@ use crate::{
     overlay::Overlay,
     palette::Palette,
     panels::{self, PanelState},
-    preferences::{self, Preferences, PreferencesCommand, Theme},
+    preferences::{self, Appearance, PreferenceChange, Preferences, PreferencesCommand},
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar,
     toolbar::{self, ToolbarContext},
@@ -56,7 +57,7 @@ pub struct Workspace {
     pub preferences_open: bool,
     pub palette: Palette,
     pub shortcut_editor: Option<ShortcutEditor>,
-    applied_theme: Option<Theme>,
+    applied_appearance: Option<Appearance>,
     keyboard_was_taken: bool,
 }
 
@@ -77,7 +78,7 @@ impl Workspace {
             preferences_open: false,
             palette: Palette::default(),
             shortcut_editor: None,
-            applied_theme: None,
+            applied_appearance: None,
             keyboard_was_taken: false,
         }
     }
@@ -113,11 +114,7 @@ pub fn show(
     workspace: &mut Workspace,
     actions: &mut Vec<Action>,
 ) {
-    let theme = workspace.preferences.theme;
-    if workspace.applied_theme != Some(theme) {
-        ui.ctx().set_theme(theme.egui());
-        workspace.applied_theme = Some(theme);
-    }
+    apply_appearance(ui.ctx(), workspace);
     let text_focused = ui.ctx().egui_wants_keyboard_input();
     let keyboard_taken = text_focused || workspace.keyboard_was_taken;
     let dialog_open = workspace.preferences_open
@@ -168,6 +165,7 @@ pub fn show(
     panels::show(ui, model, viewport.selection(), editing, panels, actions);
     route_dimension_focus(panels, editing, viewport);
     viewport.show(ui, model, editing, keys_free, &mut commands, actions);
+    interface_size(&preferences.appearance, &mut commands, actions);
     let open_palette = commands.available(Command::Palette);
     let open_shortcuts = commands.available(Command::KeyboardShortcuts);
     let (offers, refused) = commands.finish();
@@ -196,6 +194,65 @@ pub fn show(
         palette.show(ui.ctx(), &offers, &preferences.keymap);
     }
     *keyboard_was_taken = ui.ctx().egui_wants_keyboard_input();
+}
+
+fn apply_appearance(ctx: &egui::Context, workspace: &mut Workspace) {
+    let wanted = workspace.preferences.appearance;
+    if workspace.applied_appearance == Some(wanted) {
+        return;
+    }
+    if workspace.applied_appearance.is_none() {
+        ctx.options_mut(|options| {
+            options.zoom_with_keyboard = false;
+            options.quit_shortcuts.clear();
+        });
+    }
+    for (theme, dark) in [(egui::Theme::Dark, true), (egui::Theme::Light, false)] {
+        ctx.set_visuals_of(theme, appearance::visuals(dark, wanted.high_contrast));
+    }
+    ctx.set_theme(wanted.theme.egui());
+    ctx.set_zoom_factor(wanted.scale);
+    workspace.applied_appearance = Some(wanted);
+}
+
+fn interface_size(
+    current: &Appearance,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let largest = format!("The interface is at its largest, {:.0}%", MAX_SCALE * 100.0);
+    let smallest = format!(
+        "The interface is at its smallest, {:.0}%",
+        MIN_SCALE * 100.0
+    );
+    let steps = [
+        (
+            Command::LargerInterface,
+            current.scale + SCALE_STEP,
+            if current.scale < MAX_SCALE {
+                Ok(())
+            } else {
+                Err(largest)
+            },
+        ),
+        (
+            Command::SmallerInterface,
+            current.scale - SCALE_STEP,
+            if current.scale > MIN_SCALE {
+                Ok(())
+            } else {
+                Err(smallest)
+            },
+        ),
+        (Command::NormalInterface, 1.0, Ok(())),
+    ];
+    for (command, scale, availability) in steps {
+        if commands.invoke(command, &availability) {
+            actions.push(Action::Preferences(PreferencesCommand::Change(
+                PreferenceChange::Scale(scale),
+            )));
+        }
+    }
 }
 
 fn route_dimension_focus(

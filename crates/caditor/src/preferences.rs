@@ -2,6 +2,7 @@ use caditor_file::Settings;
 use egui::{Id, KeyboardShortcut, Modal, RichText, ThemePreference, Ui};
 
 use crate::{
+    appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     commands::{Command, Keymap},
     units::LengthUnit,
 };
@@ -10,6 +11,8 @@ pub const MIN_SPEED: f64 = 0.25;
 pub const MAX_SPEED: f64 = 4.0;
 const UNIT_KEY: &str = "units.length";
 const THEME_KEY: &str = "appearance.theme";
+const SCALE_KEY: &str = "appearance.scale";
+const HIGH_CONTRAST_KEY: &str = "appearance.high_contrast";
 const ORBIT_KEY: &str = "navigation.orbit_speed";
 const ZOOM_KEY: &str = "navigation.zoom_speed";
 const INVERT_ZOOM_KEY: &str = "navigation.invert_zoom";
@@ -72,10 +75,27 @@ impl Default for Navigation {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Appearance {
+    pub theme: Theme,
+    pub scale: f32,
+    pub high_contrast: bool,
+}
+
+impl Default for Appearance {
+    fn default() -> Self {
+        Self {
+            theme: Theme::default(),
+            scale: 1.0,
+            high_contrast: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Preferences {
     pub unit: LengthUnit,
-    pub theme: Theme,
+    pub appearance: Appearance,
     pub navigation: Navigation,
     pub keymap: Keymap,
     loaded_keymap: Keymap,
@@ -86,6 +106,8 @@ pub struct Preferences {
 pub enum PreferenceChange {
     Unit(LengthUnit),
     Theme(Theme),
+    Scale(f32),
+    HighContrast(bool),
     OrbitSpeed(f64),
     ZoomSpeed(f64),
     InvertZoom(bool),
@@ -116,10 +138,16 @@ impl Preferences {
                 .text(UNIT_KEY)
                 .and_then(LengthUnit::from_symbol)
                 .unwrap_or_default(),
-            theme: raw
-                .text(THEME_KEY)
-                .and_then(Theme::from_key)
-                .unwrap_or_default(),
+            appearance: Appearance {
+                theme: raw
+                    .text(THEME_KEY)
+                    .and_then(Theme::from_key)
+                    .unwrap_or_default(),
+                scale: raw
+                    .number(SCALE_KEY)
+                    .map_or(1.0, |scale| appearance::clamp_scale(scale as f32)),
+                high_contrast: raw.flag(HIGH_CONTRAST_KEY).unwrap_or(false),
+            },
             navigation: Navigation {
                 orbit_speed: speed(raw.number(ORBIT_KEY)),
                 zoom_speed: speed(raw.number(ZOOM_KEY)),
@@ -134,7 +162,9 @@ impl Preferences {
     pub fn settings(&self) -> Settings {
         let mut settings = self.raw.clone();
         settings.set_text(UNIT_KEY, self.unit.symbol());
-        settings.set_text(THEME_KEY, self.theme.key());
+        settings.set_text(THEME_KEY, self.appearance.theme.key());
+        settings.set_number(SCALE_KEY, f64::from(self.appearance.scale));
+        settings.set_flag(HIGH_CONTRAST_KEY, self.appearance.high_contrast);
         settings.set_number(ORBIT_KEY, self.navigation.orbit_speed);
         settings.set_number(ZOOM_KEY, self.navigation.zoom_speed);
         settings.set_flag(INVERT_ZOOM_KEY, self.navigation.invert_zoom);
@@ -145,7 +175,11 @@ impl Preferences {
     pub fn apply(&mut self, change: PreferenceChange) {
         match change {
             PreferenceChange::Unit(unit) => self.unit = unit,
-            PreferenceChange::Theme(theme) => self.theme = theme,
+            PreferenceChange::Theme(theme) => self.appearance.theme = theme,
+            PreferenceChange::Scale(scale) => {
+                self.appearance.scale = appearance::clamp_scale(scale);
+            }
+            PreferenceChange::HighContrast(on) => self.appearance.high_contrast = on,
             PreferenceChange::OrbitSpeed(value) => {
                 self.navigation.orbit_speed = value.clamp(MIN_SPEED, MAX_SPEED);
             }
@@ -159,7 +193,7 @@ impl Preferences {
             PreferenceChange::ResetShortcuts => self.keymap.reset_all(),
             PreferenceChange::Defaults => {
                 self.unit = LengthUnit::default();
-                self.theme = Theme::default();
+                self.appearance = Appearance::default();
                 self.navigation = Navigation::default();
             }
         }
@@ -182,7 +216,10 @@ pub fn dialog(ctx: &egui::Context, preferences: &Preferences) -> Option<Preferen
             }
             if ui
                 .button("Restore defaults")
-                .on_hover_text("Go back to millimetres, the system theme and normal speeds")
+                .on_hover_text(
+                    "Go back to millimetres, the system theme at normal size and contrast, and \
+                     normal speeds",
+                )
                 .clicked()
             {
                 command = Some(PreferencesCommand::Change(PreferenceChange::Defaults));
@@ -218,13 +255,50 @@ fn units(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Preference
 
 fn appearance(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
     section(ui, "Appearance");
-    ui.horizontal(|ui| {
+    let current = preferences.appearance;
+    ui.horizontal_wrapped(|ui| {
         for theme in Theme::ALL {
+            if ui.radio(current.theme == theme, theme.label()).clicked() {
+                *command = Some(PreferencesCommand::Change(PreferenceChange::Theme(theme)));
+            }
+        }
+    });
+    let mut high_contrast = current.high_contrast;
+    if ui
+        .checkbox(&mut high_contrast, "High contrast")
+        .on_hover_text("Stronger text, outlined buttons and a bright focus outline")
+        .changed()
+    {
+        *command = Some(PreferencesCommand::Change(PreferenceChange::HighContrast(
+            high_contrast,
+        )));
+    }
+    ui.horizontal(|ui| {
+        ui.label("Interface size");
+        let steps = [
+            (
+                "−",
+                current.scale - SCALE_STEP,
+                current.scale > MIN_SCALE,
+                "Smaller",
+            ),
+            (
+                "+",
+                current.scale + SCALE_STEP,
+                current.scale < MAX_SCALE,
+                "Larger",
+            ),
+        ];
+        for (index, (text, scale, enabled, hover)) in steps.into_iter().enumerate() {
+            if index == 1 {
+                ui.label(format!("{:.0}%", current.scale * 100.0));
+            }
             if ui
-                .radio(preferences.theme == theme, theme.label())
+                .add_enabled(enabled, egui::Button::new(text))
+                .on_hover_text(hover)
                 .clicked()
             {
-                *command = Some(PreferencesCommand::Change(PreferenceChange::Theme(theme)));
+                *command = Some(PreferencesCommand::Change(PreferenceChange::Scale(scale)));
             }
         }
     });
@@ -282,9 +356,13 @@ mod tests {
         raw.set_text(THEME_KEY, "light");
         raw.set_number(ORBIT_KEY, 100.0);
         raw.set_text("future.option", "kept");
+        raw.set_number(SCALE_KEY, 1.3);
+        raw.set_flag(HIGH_CONTRAST_KEY, true);
         let mut preferences = Preferences::from_settings(raw);
         assert_eq!(preferences.unit, LengthUnit::Centimetre);
-        assert_eq!(preferences.theme, Theme::Light);
+        assert_eq!(preferences.appearance.theme, Theme::Light);
+        assert_eq!(preferences.appearance.scale, 1.25);
+        assert!(preferences.appearance.high_contrast);
         assert_eq!(preferences.navigation.orbit_speed, MAX_SPEED);
         assert_eq!(preferences.navigation.zoom_speed, 1.0);
         preferences.apply(PreferenceChange::ZoomSpeed(0.5));
@@ -299,5 +377,6 @@ mod tests {
         preferences.apply(PreferenceChange::Defaults);
         assert_eq!(preferences.unit, LengthUnit::Millimetre);
         assert_eq!(preferences.navigation, Navigation::default());
+        assert_eq!(preferences.appearance, Appearance::default());
     }
 }

@@ -15,6 +15,7 @@ const ALIGN_ANGLE_DEGREES: f64 = 3.0;
 const ALIGN_TOLERANCE: f64 = 6.0;
 const MIN_ALIGN_LENGTH: f64 = 12.0;
 const DEGENERATE_LENGTH: f64 = 1e-9;
+const TYPED_TOLERANCE: f64 = 1e-6;
 const PREVIEW_SEGMENT_ANGLE: f64 = PI / 60.0;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
 
@@ -163,6 +164,37 @@ impl Drawing {
         self.hover = pointer.map(|pointer| self.place(tool, sketch, screen, pointer));
         if let (Some(sweep), Some(hover)) = (&mut self.sweep, self.hover) {
             sweep.follow(hover.position);
+        }
+    }
+
+    pub fn last_placed(&self) -> Option<Point2> {
+        self.placed.last().map(|placement| placement.position)
+    }
+
+    pub fn type_point(&mut self, sketch: &Sketch, position: Point2) {
+        let Some((_, tool)) = self.context else {
+            return;
+        };
+        let same = |candidate: Point2| candidate.distance(position) <= TYPED_TOLERANCE;
+        let pending = self
+            .pending(tool)
+            .into_iter()
+            .find(|(_, candidate)| same(*candidate))
+            .map(|(index, candidate)| (candidate, Target::Pending(index)));
+        let existing = snap::points(sketch)
+            .into_iter()
+            .find(|candidate| same(candidate.position))
+            .map(|candidate| (candidate.position, candidate.target));
+        let placement = match pending.or(existing) {
+            Some((position, target)) => Placement {
+                position,
+                snap: Snap::Target(target),
+            },
+            None => Placement::free(position),
+        };
+        self.hover = Some(placement);
+        if let Some(sweep) = &mut self.sweep {
+            sweep.follow(position);
         }
     }
 
@@ -394,16 +426,7 @@ impl Drawing {
         screen: &impl Screen,
         pointer: Pointer,
     ) -> Placement {
-        let pending: Vec<(usize, Point2)> = match tool {
-            Tool::Line => self.placed.first().map(|start| (0, start.position)),
-            Tool::Spline => self
-                .placed
-                .last()
-                .map(|last| (self.placed.len() - 1, last.position)),
-            Tool::Select | Tool::Point | Tool::Rectangle | Tool::Circle | Tool::Arc => None,
-        }
-        .into_iter()
-        .collect();
+        let pending = self.pending(tool);
         if let Some(snapped) = snap::resolve(sketch, screen, pointer, &pending) {
             return Placement {
                 position: snapped.position,
@@ -415,6 +438,21 @@ impl Drawing {
             _ => None,
         }
         .unwrap_or(Placement::free(pointer.sketch))
+    }
+}
+
+impl Drawing {
+    fn pending(&self, tool: Tool) -> Vec<(usize, Point2)> {
+        match tool {
+            Tool::Line => self.placed.first().map(|start| (0, start.position)),
+            Tool::Spline => self
+                .placed
+                .last()
+                .map(|last| (self.placed.len() - 1, last.position)),
+            Tool::Select | Tool::Point | Tool::Rectangle | Tool::Circle | Tool::Arc => None,
+        }
+        .into_iter()
+        .collect()
     }
 }
 
