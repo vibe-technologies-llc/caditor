@@ -138,6 +138,7 @@ pub enum PreferencesCommand {
     ShowAbout,
     CloseAbout,
     Change(PreferenceChange),
+    Preview(PreferenceChange),
 }
 
 fn speed(value: Option<f64>) -> f64 {
@@ -273,6 +274,22 @@ fn change(command: &mut Option<PreferencesCommand>, change: PreferenceChange) {
     *command = Some(PreferencesCommand::Change(change));
 }
 
+fn speed_slider(
+    ui: &mut Ui,
+    current: f64,
+    make: fn(f64) -> PreferenceChange,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let mut speed = current;
+    let response = ui.add(egui::Slider::new(&mut speed, MIN_SPEED..=MAX_SPEED).logarithmic(true));
+    let settled = response.drag_stopped() || !response.dragged();
+    if settled && (response.changed() || response.drag_stopped()) {
+        change(command, make(speed));
+    } else if response.changed() {
+        *command = Some(PreferencesCommand::Preview(make(speed)));
+    }
+}
+
 fn units(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
     let unit = preferences.unit.label().to_lowercase();
     let note = format!(
@@ -357,18 +374,20 @@ fn navigation(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
     let navigation = preferences.navigation;
     section(ui, "Navigation", "navigation", None, |ui| {
         widgets::property(ui, "Orbit speed", |ui| {
-            let mut orbit = navigation.orbit_speed;
-            let slider = egui::Slider::new(&mut orbit, MIN_SPEED..=MAX_SPEED).logarithmic(true);
-            if ui.add(slider).changed() {
-                change(command, PreferenceChange::OrbitSpeed(orbit));
-            }
+            speed_slider(
+                ui,
+                navigation.orbit_speed,
+                PreferenceChange::OrbitSpeed,
+                command,
+            );
         });
         widgets::property(ui, "Zoom speed", |ui| {
-            let mut zoom = navigation.zoom_speed;
-            let slider = egui::Slider::new(&mut zoom, MIN_SPEED..=MAX_SPEED).logarithmic(true);
-            if ui.add(slider).changed() {
-                change(command, PreferenceChange::ZoomSpeed(zoom));
-            }
+            speed_slider(
+                ui,
+                navigation.zoom_speed,
+                PreferenceChange::ZoomSpeed,
+                command,
+            );
         });
         widgets::property(ui, "Scrolling", |ui| {
             let mut invert = navigation.invert_zoom;

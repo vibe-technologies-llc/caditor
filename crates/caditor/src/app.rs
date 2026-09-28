@@ -104,6 +104,12 @@ impl Workspace {
         }
     }
 
+    fn preview_preference(&mut self, change: PreferenceChange, model: &mut Model) {
+        self.preferences.apply(change);
+        model.set_length_unit(self.preferences.unit);
+        self.viewport.set_navigation(self.preferences.navigation);
+    }
+
     fn preferences_command(
         &mut self,
         command: PreferencesCommand,
@@ -129,11 +135,10 @@ impl Workspace {
             PreferencesCommand::ShowAbout => self.about_open = true,
             PreferencesCommand::CloseAbout => self.about_open = false,
             PreferencesCommand::Change(change) => {
-                self.preferences.apply(change);
-                model.set_length_unit(self.preferences.unit);
-                self.viewport.set_navigation(self.preferences.navigation);
+                self.preview_preference(change, model);
                 files.store_settings(self.preferences.settings());
             }
+            PreferencesCommand::Preview(change) => self.preview_preference(change, model),
         }
     }
 }

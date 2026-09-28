@@ -1920,6 +1920,33 @@ fn chained_lines_are_joined_and_clicking_the_last_point_again_stops() {
 }
 
 #[test]
+fn a_line_chain_stops_when_it_closes_on_its_start() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(40.0, 10.0));
+    harness.click_at(Point2::new(25.0, 35.0));
+    harness.click_at(Point2::new(10.2, 10.1));
+    assert!(harness.shows("Click the start of the line"));
+
+    let sketch = harness.sketch(feature);
+    let lines = entities_of_kind(sketch, "Line");
+    assert_eq!(lines.len(), 3);
+    let (first_start, _) = line_ends(sketch, lines[0]);
+    let (_, last_end) = line_ends(sketch, lines[2]);
+    assert!(
+        constraints_of_kind(sketch, "Coincident")
+            .contains(&Constraint::Coincident(last_end, first_start))
+    );
+
+    harness.click_at(Point2::new(60.0, 10.0));
+    harness.click_at(Point2::new(60.0, 40.0));
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 4);
+    assert!(!harness.shows("Click the start of the line"));
+}
+
+#[test]
 fn a_rectangle_is_four_joined_lines_with_four_degrees_of_freedom() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
@@ -3484,4 +3511,52 @@ fn a_curved_face_or_a_round_edge_says_why_it_cannot_be_used() {
         ),
         Err("The selected edge is not straight, so it gives no axis")
     );
+}
+
+#[test]
+fn dragging_a_speed_slider_applies_at_once_and_is_saved_when_released() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.key(Key::Comma, Modifiers::COMMAND);
+    harness.frame();
+    harness.show_new_windows();
+    let label = harness.position_of("Orbit speed");
+    let value = harness.position_of("1.00");
+    let start = Pos2::new(value.x - 60.0, label.y);
+    let button = |pressed| Event::PointerButton {
+        pos: start,
+        button: PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    harness.events.push(Event::PointerMoved(start));
+    harness.frame();
+    harness.events.push(button(true));
+    harness.frame();
+    for step in 1..=4 {
+        harness.events.push(Event::PointerMoved(Pos2::new(
+            start.x + 10.0 * step as f32,
+            start.y,
+        )));
+        harness.frame();
+    }
+    let dragged = harness.workspace.preferences.navigation.orbit_speed;
+    assert!(dragged > 1.0, "{dragged}");
+    let config = dir.path().join("config");
+    assert_eq!(
+        caditor_file::Settings::load(&config).number("navigation.orbit_speed"),
+        None
+    );
+
+    harness.events.push(Event::PointerButton {
+        pos: Pos2::new(start.x + 40.0, start.y),
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    let released = harness.workspace.preferences.navigation.orbit_speed;
+    harness.wait_until("the orbit speed is saved", |_| {
+        caditor_file::Settings::load(&config).number("navigation.orbit_speed") == Some(released)
+    });
 }

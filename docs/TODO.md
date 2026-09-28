@@ -128,14 +128,12 @@ within a category run from most to least important.
 - An open fillet panel reruns `blend_chain` and edge descriptions every frame.
 - An expanded sketch in the tree formats and evaluates every constraint every frame with an
   O(n²) `involved` check; virtualise and cache.
-- Dragging a navigation slider writes and fsyncs `preferences.json` every frame.
 - Sketch curves are faceted at a fixed 3° regardless of size or zoom.
 
 ## Sketching
 
 - The arc end snaps to a target not on its circle and keeps the `Coincident`, so the solver
   moves it away from the preview; the circle rim shows "On Line N" but adds nothing.
-- The line chain keeps going after it closes back on its start.
 - No dragging of sketch geometry and no window selection: primary drag is never handled.
 - No construction geometry: every curve becomes profile curves, so a centreline splits regions
   and changes their keys.

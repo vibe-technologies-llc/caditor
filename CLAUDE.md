@@ -904,7 +904,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     whose own keyboard zoom and quit shortcut are switched off; high contrast), orbit and zoom speed
     with the zoom direction, and opens the shortcut editor. Every text colour of the theme is tested
     against its background (4.5:1, and 7:1 for body text and pills in high contrast, whose button
-    and focus outlines reach 3:1). Changes apply at once and are saved on the files worker.
+    and focus outlines reach 3:1). Changes apply at once and are saved on the files worker, a
+    dragged slider only when it is released (`PreferencesCommand::Preview` until then).
     `Workspace` owns the `Preferences`, `Model` carries the length unit so every panel can use it,
     and `Action::Preferences` is performed with the workspace. The unit is for display and input
     only: models stay unit-explicit. Values and previews are shown in it (`LengthUnit::show`), a
@@ -972,7 +973,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Drawing tools (`drawing.rs`: point, line, rectangle, circle, arc, spline) keep their clicked
     points, hover and arc sweep as viewport UI state and build one transaction per finished
     shape (`Draw line`, …), settled first like any sketch transaction. Lines chain, each new
-    line joined to the last end by `Coincident`, until Escape or a click on the last point;
+    line joined to the last end by `Coincident`, until Escape, a click on the last point or a line
+    ending on the chain's first point (or the point it snapped to), which closes the outline;
     splines finish on Enter or a click on the last control point. An arc runs the way the
     pointer swept around its centre, and its end is projected onto the circle through its
     start. Every inferred constraint is checked with `Sketch::check_constraint` on a shadow of

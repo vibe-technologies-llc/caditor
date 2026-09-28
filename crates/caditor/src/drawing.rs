@@ -87,6 +87,13 @@ impl Sweep {
     }
 }
 
+fn point_target(snap: Snap) -> Option<EntityId> {
+    match snap {
+        Snap::Target(Target::Point(point)) => Some(point),
+        Snap::Free | Snap::Aligned(_) | Snap::Target(_) => None,
+    }
+}
+
 fn angle_of(direction: Vector2) -> f64 {
     direction.y.atan2(direction.x)
 }
@@ -118,6 +125,7 @@ pub struct Drawing {
     placed: Vec<Placement>,
     hover: Option<Placement>,
     sweep: Option<Sweep>,
+    chain_start: Vec<EntityId>,
 }
 
 impl Drawing {
@@ -205,12 +213,16 @@ impl Drawing {
     pub fn cancel(&mut self) {
         self.placed.clear();
         self.sweep = None;
+        self.chain_start.clear();
     }
 
     pub fn remove_last(&mut self) {
         self.placed.pop();
         if self.placed.len() < 2 {
             self.sweep = None;
+        }
+        if self.placed.is_empty() {
+            self.chain_start.clear();
         }
     }
 
@@ -244,11 +256,21 @@ impl Drawing {
                     return None;
                 }
                 let mut draft = draft()?;
-                let end = draft.line(start, placement);
-                self.placed = vec![Placement {
-                    position: placement.position,
-                    snap: Snap::Target(Target::Point(end)),
-                }];
+                let (first, end) = draft.line(start, placement);
+                if self.chain_start.is_empty() {
+                    self.chain_start.push(first);
+                    self.chain_start.extend(point_target(start.snap));
+                }
+                let closed = point_target(placement.snap)
+                    .is_some_and(|target| self.chain_start.contains(&target));
+                if closed {
+                    self.cancel();
+                } else {
+                    self.placed = vec![Placement {
+                        position: placement.position,
+                        snap: Snap::Target(Target::Point(end)),
+                    }];
+                }
                 Some(draft.finish())
             }
             (Tool::Rectangle, &[corner]) => {
@@ -397,7 +419,7 @@ impl Drawing {
             (Tool::Line, 0) => prompt("Click the start of the line", BACK_TO_SELECT),
             (Tool::Line, _) => prompt(
                 "Click to end the line, Escape to stop",
-                "Click the last point again or double-click to stop",
+                "Click the start to close, or the last point again to stop",
             ),
             (Tool::Rectangle, 0) => prompt("Click the rectangle's first corner", BACK_TO_SELECT),
             (Tool::Rectangle, _) => {
@@ -547,7 +569,7 @@ impl<'a> Draft<'a> {
         point
     }
 
-    fn line(&mut self, start: Placement, end: Placement) -> EntityId {
+    fn line(&mut self, start: Placement, end: Placement) -> (EntityId, EntityId) {
         let start = self.point(start);
         let end_point = self.point(end);
         let line = self.entity(Entity::Line {
@@ -559,7 +581,7 @@ impl<'a> Draft<'a> {
             Snap::Aligned(Direction::Vertical) => self.constrain(Constraint::Vertical(line)),
             Snap::Free | Snap::Target(_) => {}
         }
-        end_point
+        (start, end_point)
     }
 
     fn rectangle(&mut self, corner: Placement, opposite: Placement) {
