@@ -9,7 +9,7 @@ use caditor_document::{
     RegionChoice, SolidFeature, SolidResult, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Unit};
-use caditor_file::{JournalEntry, Start, Storage, StorageConfig};
+use caditor_file::{JournalEntry, MeshFormat, Start, Storage, StorageConfig};
 use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 use egui::{
@@ -23,6 +23,7 @@ use crate::{
     annotations,
     app::{self, Workspace},
     editing::{EditingCommand, Tool},
+    export::ExportCommand,
     files::{Dialogs, FileCommand, Files, FilesConfig, Respond},
     model::{Action, Model, RecomputeStatus, Services, WakerFactory},
     panels::Focus,
@@ -50,6 +51,16 @@ impl Dialogs for ScriptedDialogs {
     }
 
     fn pick_save_path(&self, _directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+        respond(self.answer.lock().clone());
+    }
+
+    fn pick_export_path(
+        &self,
+        _directory: Option<PathBuf>,
+        _file_name: String,
+        _format: MeshFormat,
+        respond: Respond,
+    ) {
         respond(self.answer.lock().clone());
     }
 }
@@ -651,6 +662,61 @@ fn save_as_names_the_document_and_a_new_edit_marks_it_unsaved_again() {
     harness.wait_until("the change is saved", |harness| !harness.model.is_dirty());
     let saved = caditor_file::load(&path).unwrap().document;
     assert_eq!(saved, *harness.model.document());
+}
+
+#[test]
+fn exporting_writes_the_chosen_bodies_in_the_chosen_format_beside_the_model() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    assert!(
+        harness
+            .shows("There are no bodies to export yet. Extrude or revolve a sketch to make one.")
+    );
+    harness.click("Close");
+    assert!(!harness.files.is_blocking());
+
+    let (extrude, _) = extruded_plate(&mut harness);
+    harness.key(Key::E, Modifiers::COMMAND);
+    harness.frame();
+    harness.show_new_windows();
+    assert!(harness.shows("Export"));
+    harness.click("3MF");
+    harness.answer_dialog(Some(dir.path().join("plate")));
+    harness.click("Export…");
+    harness.wait_until("the 3MF is written", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Exported 1 body to “plate.3mf”"))
+    });
+    let package = std::fs::read(dir.path().join("plate.3mf")).unwrap();
+    assert!(package.starts_with(b"PK\x03\x04"));
+
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.click("STL");
+    harness.command(FileCommand::Export(ExportCommand::Include {
+        body: extrude,
+        included: false,
+    }));
+    assert!(harness.shows("Choose at least one body to export."));
+    harness.command(FileCommand::Export(ExportCommand::Include {
+        body: extrude,
+        included: true,
+    }));
+    harness.answer_dialog(Some(dir.path().join("plate.caditor")));
+    harness.click("Export…");
+    harness.wait_until("the STL is written", |harness| {
+        harness.model.notice().is_some_and(|notice| {
+            notice
+                .text
+                .starts_with("Exported 1 body to “plate.caditor.stl”")
+        })
+    });
+    let stl = std::fs::read(dir.path().join("plate.caditor.stl")).unwrap();
+    let triangles = u32::from_le_bytes(stl[80..84].try_into().unwrap()) as usize;
+    assert_eq!(stl.len(), 84 + 50 * triangles);
+    assert!(!dir.path().join("plate.caditor").exists());
 }
 
 #[test]

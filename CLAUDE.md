@@ -427,6 +427,14 @@ meshes.
   - Recovery (`scan`, `journal_for`) inspects unlocked journals in the recovery directory and
     next to recent files, deletes those with nothing to recover (no net change, or already in
     the file) and returns the rest with a replayed `Editor`.
+  - Mesh export (`export/`): `export_mesh` tessellates each `ExportBody` (a name and a solid) at
+    a `MeshResolution` (coarse, standard or fine: a chord that is a fraction of the largest
+    body's diagonal, and 20°, 10° or 5° between triangles), keeps only the positions the
+    triangles use and drops collapsed triangles, then writes binary STL (every body in one
+    surface, facet normals from the winding) or 3MF (one named object per body, millimetres) and
+    saves it atomically like a model. Cancellation is checked between bodies and before writing,
+    and failures are sentences naming the body. The 3MF package is written by a small ZIP writer
+    (`zip.rs`: deflate through `miniz_oxide` unless storing is smaller, CRC32, no ZIP64).
 - **caditor-render**: wgpu device and surface ownership, the camera and the viewport. It does
   not depend on winit or on the document: it takes any `Arc<dyn WindowTarget>` and draws a
   `Scene` of shaded meshes, lines, markers, triangle fills and a grid built by the app.
@@ -518,6 +526,12 @@ meshes.
     thread, loading and recovery scans on a background worker, the unsaved-changes prompt before
     New, Open, Restore and Quit, the recovery offer and the load report. `main.rs` installs the
     panic hook that flushes the journal.
+  - Export (`export.rs`): File › Export… (Ctrl+E) opens a dialog with the format, resolution
+    (showing the resulting deviation in millimetres) and a checkbox per body, all on by default.
+    It waits for a running recompute, warns when features failed (each body is exported as its
+    last good state), and after the save dialog runs on its own thread, shown beside the File
+    menu with a Cancel button. A path without the format's extension gets it appended, so an
+    export never replaces a model file. The outcome is a notice with the body and triangle count.
   - Every numeric input is a `field::commit_field`: it commits on Enter or loss of focus,
     reverts on Escape, and keeps invalid text with its error inline instead of discarding it.
     Expression fields parse, evaluate and check the dimension before building a transaction;

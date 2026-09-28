@@ -17,6 +17,7 @@ caditor-sketch.workspace = true
 
 crc32fast.workspace = true
 log.workspace = true
+miniz_oxide.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["float_roundtrip", "raw_value"] }
 thiserror.workspace = true

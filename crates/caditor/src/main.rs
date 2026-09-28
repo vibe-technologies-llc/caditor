@@ -8,6 +8,7 @@ mod datum_panel;
 mod datum_tools;
 mod drawing;
 mod editing;
+mod export;
 mod feature_tree;
 mod field;
 mod files;

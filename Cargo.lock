@@ -358,6 +358,7 @@ dependencies = [
  "caditor-sketch",
  "crc32fast",
  "log",
+ "miniz_oxide 0.9.1",
  "serde",
  "serde_json",
  "tempfile",

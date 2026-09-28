@@ -1,3 +1,4 @@
+mod export;
 mod format;
 mod journal;
 mod load;
@@ -9,6 +10,7 @@ mod save;
 mod storage;
 
 pub use crate::{
+    export::{ExportBody, ExportError, Exported, MeshFormat, MeshResolution, export_mesh},
     format::FORMAT_VERSION,
     journal::JournalEntry,
     load::{LoadError, Loaded, decode, load},

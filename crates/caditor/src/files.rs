@@ -11,15 +11,20 @@ use std::{
 
 use caditor_document::Document;
 use caditor_file::{
-    FILE_EXTENSION, FileJournal, LoadError, Loaded, RecentFiles, Recovered, journal_for, load, scan,
+    ExportError, Exported, FILE_EXTENSION, FileJournal, LoadError, Loaded, MeshFormat, RecentFiles,
+    Recovered, journal_for, load, scan,
 };
 use egui::{Button, Id, KeyboardShortcut, Modal, Modifiers, RichText, Ui};
 use parking_lot::Mutex;
 
-use crate::model::{Action, FileEvent, Model, Notice, WakerFactory, display_name};
+use crate::{
+    export::{self, EXPORT, ExportCommand, Exporter},
+    model::{Action, FileEvent, Model, Notice, WakerFactory, display_name},
+};
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const DIALOG_WIDTH: f32 = 420.0;
+const MODEL_KIND: &str = "caditor model";
 pub const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::N);
 pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::O);
 pub const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::S);
@@ -43,6 +48,7 @@ pub enum FileCommand {
     KeepRecovered,
     Discard(PathBuf),
     DismissReport,
+    Export(ExportCommand),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +63,13 @@ pub type Respond = Box<dyn FnOnce(Option<PathBuf>) + Send>;
 pub trait Dialogs {
     fn pick_model(&self, directory: Option<PathBuf>, respond: Respond);
     fn pick_save_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond);
+    fn pick_export_path(
+        &self,
+        directory: Option<PathBuf>,
+        file_name: String,
+        format: MeshFormat,
+        respond: Respond,
+    );
 }
 
 pub struct NativeDialogs;
@@ -81,8 +94,8 @@ impl NativeDialogs {
         }
     }
 
-    fn dialog(directory: Option<PathBuf>) -> rfd::FileDialog {
-        let dialog = rfd::FileDialog::new().add_filter("caditor model", &[FILE_EXTENSION]);
+    fn dialog(directory: Option<PathBuf>, kind: &str, extension: &str) -> rfd::FileDialog {
+        let dialog = rfd::FileDialog::new().add_filter(kind, &[extension]);
         match directory {
             Some(directory) => dialog.set_directory(directory),
             None => dialog,
@@ -93,14 +106,31 @@ impl NativeDialogs {
 impl Dialogs for NativeDialogs {
     fn pick_model(&self, directory: Option<PathBuf>, respond: Respond) {
         Self::spawn(respond, move || {
-            Self::dialog(directory).set_title("Open Model").pick_file()
+            Self::dialog(directory, MODEL_KIND, FILE_EXTENSION)
+                .set_title("Open Model")
+                .pick_file()
         });
     }
 
     fn pick_save_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
         Self::spawn(respond, move || {
-            Self::dialog(directory)
+            Self::dialog(directory, MODEL_KIND, FILE_EXTENSION)
                 .set_title("Save Model")
+                .set_file_name(file_name)
+                .save_file()
+        });
+    }
+
+    fn pick_export_path(
+        &self,
+        directory: Option<PathBuf>,
+        file_name: String,
+        format: MeshFormat,
+        respond: Respond,
+    ) {
+        Self::spawn(respond, move || {
+            Self::dialog(directory, format.name(), format.extension())
+                .set_title(format!("Export {}", format.name()))
                 .set_file_name(file_name)
                 .save_file()
         });
@@ -117,6 +147,7 @@ pub struct FilesConfig {
 enum Purpose {
     Open,
     SaveAs,
+    Export(MeshFormat),
 }
 
 enum OpenOutcome {
@@ -149,6 +180,10 @@ enum Event {
     Discarded {
         journal: PathBuf,
         error: Option<String>,
+    },
+    Exported {
+        path: PathBuf,
+        result: Result<Exported, ExportError>,
     },
 }
 
@@ -187,6 +222,7 @@ pub struct Files {
     after_save: Option<Intent>,
     report: Option<LoadReport>,
     opening: Option<PathBuf>,
+    exporter: Exporter,
     picking: bool,
     quit: bool,
 }
@@ -209,6 +245,7 @@ impl Files {
             after_save: None,
             report: None,
             opening: None,
+            exporter: Exporter::default(),
             picking: false,
             quit: false,
         }
@@ -239,6 +276,7 @@ impl Files {
             || self.opening.is_some()
             || self.report.is_some()
             || self.showing_recovery()
+            || self.exporter.is_open()
             || self.picking
     }
 
@@ -293,6 +331,12 @@ impl Files {
                 });
             }
             FileCommand::DismissReport => self.report = None,
+            FileCommand::Export(command) => {
+                self.exporter.perform(command);
+                if command == ExportCommand::Choose {
+                    self.pick(Purpose::Export(self.exporter.format()), model);
+                }
+            }
         }
     }
 
@@ -324,6 +368,7 @@ impl Files {
                 match (purpose, path) {
                     (Purpose::Open, Some(path)) => self.open(path, model),
                     (Purpose::SaveAs, Some(path)) => model.save_to(with_extension(path)),
+                    (Purpose::Export(format), Some(path)) => self.export(path, format, model),
                     (_, None) => self.after_save = None,
                 }
             }
@@ -362,7 +407,30 @@ impl Files {
                     (None, _) => {}
                 }
             }
+            Event::Exported { path, result } => {
+                let notice = self.exporter.finished(&path, result);
+                model.set_notice(notice);
+            }
         }
+    }
+
+    fn export(&mut self, path: PathBuf, format: MeshFormat, model: &mut Model) {
+        if self.exporter.is_running() {
+            model.set_notice(Notice::info("An export is already running."));
+            return;
+        }
+        let events = self.events.clone();
+        let wake = (self.make_waker)();
+        self.exporter.start(
+            path,
+            format,
+            model,
+            Box::new(move |path, result| {
+                if events.send(Event::Exported { path, result }).is_ok() {
+                    wake();
+                }
+            }),
+        );
     }
 
     fn opened(&mut self, path: PathBuf, revision: u64, outcome: OpenOutcome, model: &mut Model) {
@@ -485,6 +553,11 @@ impl Files {
                     None => format!("{}.{FILE_EXTENSION}", model.display_name()),
                 };
                 self.dialogs.pick_save_path(directory, file_name, respond);
+            }
+            Purpose::Export(format) => {
+                let file_name = self.exporter.file_name(model);
+                self.dialogs
+                    .pick_export_path(directory, file_name, format, respond);
             }
         }
     }
@@ -635,6 +708,12 @@ pub fn menu(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>
         ui.separator();
         item(ui, "Save", Some(SAVE), FileCommand::Save);
         item(ui, "Save As…", Some(SAVE_AS), FileCommand::SaveAs);
+        item(
+            ui,
+            "Export…",
+            Some(EXPORT),
+            FileCommand::Export(ExportCommand::Show),
+        );
         if files.has_recoverable() {
             ui.separator();
             item(ui, "Recover Unsaved Work…", None, FileCommand::ShowRecovery);
@@ -649,6 +728,7 @@ pub fn menu(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>
         ui.spinner();
         ui.label("Saving…");
     }
+    export::menu_status(ui, &files.exporter, actions);
 }
 
 fn menu_item(ui: &mut Ui, text: &str, shortcut: Option<KeyboardShortcut>) -> bool {
@@ -665,6 +745,7 @@ pub fn shortcuts(ui: &mut Ui, actions: &mut Vec<Action>) {
         (SAVE, FileCommand::Save),
         (NEW, FileCommand::New),
         (OPEN, FileCommand::Open),
+        (EXPORT, FileCommand::Export(ExportCommand::Show)),
         (QUIT, FileCommand::Quit),
     ];
     for (shortcut, command) in commands {
@@ -691,6 +772,8 @@ pub fn show(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>
         command = load_report(&ctx, report);
     } else if files.showing_recovery() {
         command = recovery(&ctx, files);
+    } else if files.exporter.is_open() {
+        command = export::dialog(&ctx, model, &files.exporter).map(FileCommand::Export);
     }
     if let Some(command) = command {
         actions.push(Action::File(command));
