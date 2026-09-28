@@ -1,6 +1,8 @@
 mod annotation_layout;
 mod annotations;
 mod app;
+mod blend_panel;
+mod blend_tools;
 mod bodies;
 mod drawing;
 mod editing;

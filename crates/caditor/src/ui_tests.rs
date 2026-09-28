@@ -1877,3 +1877,126 @@ fn the_tree_places_a_sketch_on_the_selected_face_and_detaches_it() {
     assert_eq!(attached_body(&harness, sketch), None);
     assert_eq!(plane_height(&harness, sketch), 0.0);
 }
+
+fn top_edge_along_x(harness: &Harness, body: FeatureId, y: f64) -> caditor_kernel::EdgeName {
+    let solid = harness.model.evaluation().body(body).unwrap();
+    solid
+        .edges()
+        .find(|(_, edge)| {
+            let middle = edge.curve().point(edge.interval().middle());
+            (middle - caditor_geometry::Point3::new(20.0, y, 10.0)).length() < 1e-6
+        })
+        .map(|(_, edge)| edge.name())
+        .expect("the plate has that top edge")
+}
+
+fn removed_about(harness: &Harness, body: FeatureId, expected: f64) -> bool {
+    let removed = 16000.0 - harness.body_volume(body);
+    (removed - expected).abs() < 0.1 * expected
+}
+
+fn blend_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Blend {
+    harness
+        .document()
+        .feature(feature)
+        .and_then(|feature| feature.kind.blend())
+        .unwrap()
+}
+
+#[test]
+fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_view() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    let back = top_edge_along_x(&harness, plate, 40.0);
+    let spandrel = |radius: f64| (1.0 - std::f64::consts::PI / 4.0) * radius * radius;
+
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click("◜ Fillet");
+    harness.settle();
+    let fillet = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the fillet is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Fillet 1"));
+    assert_eq!(blend_of(&harness, fillet).edges.len(), 1);
+    assert!(removed_about(&harness, plate, 40.0 * spandrel(1.0)));
+    assert!(harness.shows("Click edges to add them or leave them out"));
+    assert!(harness.shows("Radius"));
+
+    let built = harness.built();
+    assert_eq!(built.scene.meshes.len(), 1);
+    assert_eq!(built.scene.meshes[0].mesh.face_count(), 6);
+    let blend_edges = built
+        .picks
+        .pickables()
+        .filter(|pickable| matches!(pickable, Pickable::BlendEdge { .. }))
+        .count();
+    assert_eq!(blend_edges, 12);
+
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(20.0, 20.0),
+        Pickable::BlendEdge {
+            feature: fillet,
+            edge: back,
+        },
+    );
+    harness.settle();
+    assert_eq!(blend_of(&harness, fillet).edges.len(), 2);
+    assert_eq!(harness.model.undo_label(), Some("Add an edge to Fillet 1"));
+    assert!(removed_about(&harness, plate, 80.0 * spandrel(1.0)));
+
+    harness.type_into_field(Id::new(("blend-size", fillet)), "2 mm");
+    harness.settle();
+    assert!(removed_about(&harness, plate, 80.0 * spandrel(2.0)));
+
+    harness.type_into_field(Id::new(("blend-size", fillet)), "0 mm");
+    assert!(harness.shows("Enter a radius above zero"));
+    assert_eq!(harness.workspace.editing.solid(), Some(fillet));
+
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(20.0, 20.0),
+        Pickable::BlendEdge {
+            feature: fillet,
+            edge: front,
+        },
+    );
+    harness.settle();
+    assert_eq!(blend_of(&harness, fillet).edges.len(), 1);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Leave an edge out of Fillet 1")
+    );
+
+    harness.click("Fillet");
+    harness.click("Chamfer");
+    harness.settle();
+    assert_eq!(
+        blend_of(&harness, fillet).kind,
+        caditor_document::BlendKind::Chamfer
+    );
+    assert!(removed_about(&harness, plate, 40.0 * 2.0));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    assert_eq!(harness.workspace.editing.solid(), None);
+    let chamfer_face = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            pickable.describe(harness.document(), harness.model.evaluation())
+                == "Extrude 1 › Fillet 1 face"
+        })
+        .expect("the chamfer face is pickable and named after its feature");
+    assert!(matches!(chamfer_face, Pickable::Face { .. }));
+}

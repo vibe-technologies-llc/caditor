@@ -251,7 +251,7 @@ pub fn edited_sketch(document: &Document, feature: FeatureId) -> Option<&Sketch>
 fn opened_solid(document: &Document, feature: FeatureId) -> bool {
     document
         .feature(feature)
-        .is_some_and(|feature| feature.kind.solid().is_some())
+        .is_some_and(|feature| feature.kind.solid().is_some() || feature.kind.blend().is_some())
 }
 
 pub fn next_sketch_name(document: &Document) -> String {

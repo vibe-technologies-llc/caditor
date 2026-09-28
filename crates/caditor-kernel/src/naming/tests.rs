@@ -55,6 +55,18 @@ fn digests_of_fixed_generators_never_change() {
         EdgeName::occurrence(EdgeName::seam(side), 2).digest(),
         0x5309_f12b_64b1_f0ae_ecb3_6705_e055_2354
     );
+    assert_eq!(
+        FaceName::blend(7, EdgeName::seam(side)).digest(),
+        0xc444_3fb2_438b_d42f_d809_707a_7f9a_16d4
+    );
+    assert_eq!(
+        FaceName::corner(7, from).digest(),
+        0x8288_425b_fc4f_dc2d_2748_c778_a522_373d
+    );
+    assert_eq!(
+        FaceName::shell(7, side).digest(),
+        0x9b1d_2291_bd8f_e7c6_4bcf_c06d_1486_7a90
+    );
     let region = Profile::new(&rectangle(1, (0.0, 0.0), (4.0, 3.0))).unwrap();
     assert_eq!(
         region.regions()[0].key().digest(),

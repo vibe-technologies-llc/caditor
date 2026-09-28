@@ -59,7 +59,8 @@ pub fn sweep_source(
         | Pickable::SketchConstraint { .. }
         | Pickable::Face { .. }
         | Pickable::Edge { .. }
-        | Pickable::Region { .. } => None,
+        | Pickable::Region { .. }
+        | Pickable::BlendEdge { .. } => None,
     });
     let opened_sketch = editing
         .solid()
@@ -93,7 +94,8 @@ pub fn sweep_source(
         | Pickable::SketchConstraint { .. }
         | Pickable::Face { .. }
         | Pickable::Edge { .. }
-        | Pickable::Region { .. } => None,
+        | Pickable::Region { .. }
+        | Pickable::BlendEdge { .. } => None,
     });
     Some(SweepSource { sketch, axis })
 }

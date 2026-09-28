@@ -1,4 +1,6 @@
 mod attachment;
+mod blend;
+mod describe;
 mod document;
 mod edit;
 mod editor;
@@ -9,6 +11,8 @@ mod worker;
 
 pub use crate::{
     attachment::{AttachmentError, FaceAttachment, SketchFeature, face_plane},
+    blend::{Blend, BlendKind},
+    describe::{describe_edge, describe_origin, edge_faces, origin_feature},
     document::{Document, Feature, FeatureId, FeatureKind, Parameter},
     edit::{Edit, EditError, Transaction, TransactionBuilder},
     editor::Editor,
@@ -26,6 +30,8 @@ pub use crate::{
 
 #[cfg(test)]
 mod attachment_tests;
+#[cfg(test)]
+mod blend_tests;
 #[cfg(test)]
 mod sketch_tests;
 #[cfg(test)]

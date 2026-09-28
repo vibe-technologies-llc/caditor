@@ -12,6 +12,9 @@ use crate::profile::{PieceId, RegionKey};
 const SIDE_FACE: u8 = 0x01;
 const START_CAP: u8 = 0x02;
 const END_CAP: u8 = 0x03;
+const BLEND_FACE: u8 = 0x04;
+const CORNER_FACE: u8 = 0x05;
+const SHELL_FACE: u8 = 0x06;
 const EDGE_BETWEEN: u8 = 0x10;
 const EDGE_BETWEEN_AT: u8 = 0x11;
 const SEAM_EDGE: u8 = 0x12;
@@ -49,6 +52,27 @@ impl FaceName {
 
     pub fn end_cap(feature: u64, region: RegionKey) -> Self {
         Self::cap(END_CAP, feature, region)
+    }
+
+    pub fn blend(feature: u64, edge: EdgeName) -> Self {
+        let mut digest = Digest::new(BLEND_FACE);
+        digest.u64(feature);
+        digest.u128(edge.0);
+        Self(digest.finish())
+    }
+
+    pub fn corner(feature: u64, vertex: VertexName) -> Self {
+        let mut digest = Digest::new(CORNER_FACE);
+        digest.u64(feature);
+        digest.u128(vertex.0);
+        Self(digest.finish())
+    }
+
+    pub fn shell(feature: u64, original: FaceName) -> Self {
+        let mut digest = Digest::new(SHELL_FACE);
+        digest.u64(feature);
+        digest.u128(original.0);
+        Self(digest.finish())
     }
 
     fn cap(tag: u8, feature: u64, region: RegionKey) -> Self {
@@ -147,21 +171,31 @@ pub enum FaceOrigin {
     Side { feature: u64, entity: u64 },
     StartCap { feature: u64 },
     EndCap { feature: u64 },
+    Fillet { feature: u64 },
+    Chamfer { feature: u64 },
+    Shell { feature: u64 },
 }
 
 impl FaceOrigin {
     pub fn feature(&self) -> u64 {
         match self {
-            Self::Side { feature, .. } | Self::StartCap { feature } | Self::EndCap { feature } => {
-                *feature
-            }
+            Self::Side { feature, .. }
+            | Self::StartCap { feature }
+            | Self::EndCap { feature }
+            | Self::Fillet { feature }
+            | Self::Chamfer { feature }
+            | Self::Shell { feature } => *feature,
         }
     }
 
     pub fn entity(&self) -> Option<u64> {
         match self {
             Self::Side { entity, .. } => Some(*entity),
-            Self::StartCap { .. } | Self::EndCap { .. } => None,
+            Self::StartCap { .. }
+            | Self::EndCap { .. }
+            | Self::Fillet { .. }
+            | Self::Chamfer { .. }
+            | Self::Shell { .. } => None,
         }
     }
 }

@@ -8,6 +8,7 @@ use egui::{
 };
 
 use crate::{
+    blend_panel,
     editing::{EditingCommand, SketchEditing},
     field::{self, DimensionTarget},
     model::{Action, Model},
@@ -24,6 +25,7 @@ const EDIT_SKETCH_LABEL: &str = "Edit sketch";
 const FINISH_SKETCH_LABEL: &str = "Finish sketch";
 const OPEN_SOLID_LABEL: &str = "Edit feature and choose its regions in the view";
 const CLOSE_SOLID_LABEL: &str = "Done editing this feature";
+const OPEN_BLEND_LABEL: &str = "Edit feature and choose its edges in the view";
 const PLACE_ON_FACE_LABEL: &str = "Place on selected face";
 const DETACH_LABEL: &str = "Detach";
 const EDIT_ICON: &str = "🖊";
@@ -122,6 +124,10 @@ fn feature_row(
             solid_panel::show(ui, model, actions, feature, solid, row.edited);
             body_display(ui, model, feature);
         }
+        FeatureKind::Blend(blend) => {
+            blend_panel::show(ui, model, actions, feature, blend, row.edited);
+            body_display(ui, model, feature);
+        }
     });
     let mut header = header.inner;
     if state.take_focus(Focus::Feature(id)) {
@@ -175,8 +181,11 @@ fn edit_command(row: &Row<'_>) -> (&'static str, EditingCommand) {
     match (&row.feature.kind, row.edited) {
         (FeatureKind::Sketch(_), true) => (FINISH_SKETCH_LABEL, EditingCommand::Finish),
         (FeatureKind::Sketch(_), false) => (EDIT_SKETCH_LABEL, EditingCommand::Enter(id)),
-        (FeatureKind::Solid(_), true) => (CLOSE_SOLID_LABEL, EditingCommand::CloseSolid),
+        (FeatureKind::Solid(_) | FeatureKind::Blend(_), true) => {
+            (CLOSE_SOLID_LABEL, EditingCommand::CloseSolid)
+        }
         (FeatureKind::Solid(_), false) => (OPEN_SOLID_LABEL, EditingCommand::OpenSolid(id)),
+        (FeatureKind::Blend(_), false) => (OPEN_BLEND_LABEL, EditingCommand::OpenSolid(id)),
     }
 }
 

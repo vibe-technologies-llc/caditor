@@ -348,6 +348,37 @@ impl Solid {
         })
     }
 
+    pub(crate) fn renamed(
+        mut self,
+        rename: impl Fn(FaceName, Option<FaceOrigin>) -> (FaceName, Option<FaceOrigin>),
+    ) -> Self {
+        for face in &mut self.faces {
+            (face.name, face.origin) = rename(face.name, face.origin);
+        }
+        let names: Vec<EdgeName> = self
+            .edges
+            .iter()
+            .map(|edge| {
+                let faces: Vec<FaceName> = edge
+                    .coedges
+                    .iter()
+                    .filter_map(|coedge| self.coedge_face(*coedge))
+                    .filter_map(|face| self.face(face))
+                    .map(Face::name)
+                    .collect();
+                match faces.as_slice() {
+                    [first, second] if first != second => EdgeName::between(*first, *second),
+                    [first, ..] => EdgeName::seam(*first),
+                    [] => edge.name,
+                }
+            })
+            .collect();
+        for (edge, name) in self.edges.iter_mut().zip(names) {
+            edge.name = name;
+        }
+        self
+    }
+
     pub fn validate(&self) -> Result<(), ValidationError> {
         validate::validate(self)
     }

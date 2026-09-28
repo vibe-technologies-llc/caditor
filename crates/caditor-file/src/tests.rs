@@ -166,7 +166,7 @@ fn a_saved_model_loads_back_exactly() {
     assert_eq!(loaded.document.next_parameter_id(), 3);
     assert_eq!(loaded.document.next_feature_id(), 3);
     let text = fs::read_to_string(&path).unwrap();
-    assert!(text.starts_with("{\"format\":\"caditor\",\"version\":4}\n"));
+    assert!(text.starts_with("{\"format\":\"caditor\",\"version\":5}\n"));
     assert!(text.contains("\"expression\":\"$0 / 2 + 0.1 mm\""));
     assert_eq!(text.lines().count(), 1 + 2 + 2 + 1);
     assert_eq!(files_in(dir.path()), ["model.caditor"]);
@@ -362,7 +362,7 @@ fn a_damaged_header_still_recovers_the_records() {
     let loaded = decode_lines(&lines);
     assert_eq!(
         loaded.issues,
-        ["The start of the file is damaged; the rest was read as a version 4 model."]
+        ["The start of the file is damaged; the rest was read as a version 5 model."]
     );
     assert_eq!(loaded.document, sample());
 }
@@ -1156,4 +1156,98 @@ fn a_placement_change_round_trips_through_the_journal() {
         let record = serde_json::from_str(&text).unwrap();
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
+}
+
+fn blended_model() -> (Document, FeatureId, FeatureId) {
+    use caditor_document::{Blend, BlendKind, FaceAttachment, SketchFeature};
+    use caditor_kernel::{
+        EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, VertexName,
+    };
+    let (mut document, base, _) = solid_model();
+    let edge = EdgeReference::new(
+        EdgeName::from_digest(0xabcd),
+        [FaceName::from_digest(1), FaceName::from_digest(2)],
+        [VertexName::from_digest(3), VertexName::from_digest(4)],
+    );
+    let mut transaction = document.transaction("Blends");
+    let fillet = transaction.add_feature(
+        "Fillet 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: base,
+            edges: vec![edge],
+            size: transaction.parse("depth / 3").unwrap(),
+        }),
+    );
+    transaction.add_feature(
+        "Chamfer 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Chamfer,
+            body: base,
+            edges: vec![edge, edge],
+            size: transaction.parse("0.5 mm").unwrap(),
+        }),
+    );
+    let top = Plane::from_frame(Point3::new(0.0, 0.0, 3.0), Vector3::Z, Vector3::X).unwrap();
+    let sketch = transaction.add_feature(
+        "On chamfer",
+        FeatureKind::Sketch(SketchFeature::on_face(
+            dimensioned_line(top, 2.0, Expression::Number(2.0)),
+            FaceAttachment {
+                body: base,
+                face: FaceReference::new(
+                    FaceName::from_digest(5),
+                    Some(FaceOrigin::Chamfer { feature: 7 }),
+                    [FaceName::from_digest(6)],
+                ),
+            },
+        )),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, fillet, sketch)
+}
+
+#[test]
+fn fillets_and_chamfers_are_saved_and_loaded() {
+    let (document, _, _) = blended_model();
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"version\":5"));
+    assert!(text.contains(
+        "\"fillet\":{\"body\":1,\"size\":\"$0 / 3\",\"edges\":[{\"name\":\
+         \"0000000000000000000000000000abcd\",\"faces\":[\"00000000000000000000000000000001\",\
+         \"00000000000000000000000000000002\"],\"ends\":[\"00000000000000000000000000000003\",\
+         \"00000000000000000000000000000004\"]}]}"
+    ));
+    assert!(text.contains("\"chamfer\":{\"body\":1"));
+    assert!(text.contains("\"origin\":{\"chamfer\":{\"feature\":7}}"));
+    let loaded = decode(text.as_bytes()).unwrap();
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn an_unreadable_blend_edge_is_left_out_and_reported() {
+    let (document, fillet, _) = blended_model();
+    let text =
+        encode(&document)
+            .unwrap()
+            .replacen("0000000000000000000000000000abcd", "not a digest", 1);
+    let loaded = decode(text.as_bytes()).unwrap();
+    assert_eq!(
+        loaded.issues,
+        ["Some edges chosen for “Fillet 1” could not be read and were left out."]
+    );
+    let restored = loaded.document.feature(fillet).unwrap();
+    assert!(restored.kind.blend().unwrap().edges.is_empty());
+}
+
+#[test]
+fn a_changed_blend_round_trips_through_the_journal() {
+    let (document, fillet, _) = blended_model();
+    let kind = document.feature(fillet).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: fillet, kind });
+    assert!(document.check(&transaction).is_ok());
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = serde_json::from_str(&text).unwrap();
+    assert_eq!(format::restore_transaction(record), Some(transaction));
 }

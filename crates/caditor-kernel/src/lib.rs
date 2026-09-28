@@ -1,3 +1,4 @@
+mod blend;
 mod boolean;
 mod bspline;
 mod build;
@@ -15,6 +16,7 @@ mod numeric;
 mod parametric;
 mod profile;
 mod sense;
+mod shell;
 mod surface;
 mod tessellation;
 #[cfg(test)]
@@ -23,6 +25,7 @@ mod tolerance;
 mod topology;
 
 pub use crate::{
+    blend::{BlendError, BlendShape, blend, blend_chain},
     boolean::{BooleanError, BooleanOperation, boolean},
     bspline::{BSpline, MAX_SPLINE_DEGREE},
     build::{AngularExtent, Axis2, LinearExtent, SweepError, extrude, revolve},
@@ -48,6 +51,7 @@ pub use crate::{
         Region, RegionKey, RegionMesh, Selection, Side,
     },
     sense::Sense,
+    shell::{ShellError, shell},
     surface::{
         Cone, Cylinder, Extrusion, PlaneSurface, Pole, Revolution, Sphere, Surface,
         SurfaceDerivatives, Torus,

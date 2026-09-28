@@ -10,7 +10,7 @@ use caditor_kernel::{ProfileError, Solid};
 use caditor_sketch::{ConstraintId, DimensionError, Sketch, SketchError, SketchSolution, Solved};
 
 use crate::{
-    attachment,
+    attachment, blend,
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     solid::{self, SketchRegion, SolidFeature, SolidResult},
     values::ParameterValues,
@@ -163,9 +163,15 @@ pub struct Evaluation {
     features: BTreeMap<FeatureId, FeatureStatus>,
     recomputed: Vec<FeatureId>,
     bodies: BTreeMap<FeatureId, FeatureId>,
+    inputs_before: BTreeMap<FeatureId, FeatureId>,
 }
 
 impl Evaluation {
+    pub fn body_before(&self, feature: FeatureId) -> Option<&Arc<FeatureResult>> {
+        let state = self.inputs_before.get(&feature)?;
+        self.features.get(state)?.result.as_ref()
+    }
+
     pub fn bodies(&self) -> impl Iterator<Item = (FeatureId, FeatureId)> + '_ {
         self.bodies.iter().map(|(body, state)| (*body, *state))
     }
@@ -255,6 +261,7 @@ impl Recompute {
         let mut current: BTreeMap<FeatureId, Arc<FeatureResult>> = BTreeMap::new();
         let mut bodies: BodyStates = BTreeMap::new();
         let mut recomputed = Vec::new();
+        let mut inputs_before = BTreeMap::new();
         let mut cancelled = false;
 
         for (index, feature) in features.iter().enumerate() {
@@ -271,6 +278,9 @@ impl Recompute {
                 feature.kind.body_input().and_then(|body| bodies.get(&body))
             {
                 upstream.push((*state, Some(Arc::clone(result))));
+                if feature.kind.modifies_body() {
+                    inputs_before.insert(id, *state);
+                }
             }
             let previous = self.cache.get(&id);
 
@@ -375,6 +385,21 @@ impl Recompute {
             }
         }
 
+        for (feature, state) in &inputs_before {
+            if cancel.is_cancelled() {
+                break;
+            }
+            let meshable = statuses
+                .get(state)
+                .and_then(|status: &FeatureStatus| status.result.as_deref())
+                .and_then(FeatureResult::solid);
+            if let Some(solid) = meshable {
+                let name = document
+                    .feature(*feature)
+                    .map_or("a feature", |feature| feature.name.as_str());
+                solid.tessellate(name);
+            }
+        }
         let alive: BTreeSet<FeatureId> = features.iter().map(|feature| feature.id()).collect();
         self.cache.retain(|id, _| alive.contains(id));
         Evaluation {
@@ -385,6 +410,7 @@ impl Recompute {
                 .into_iter()
                 .map(|(body, (state, _))| (body, state))
                 .collect(),
+            inputs_before,
         }
     }
 }
@@ -482,6 +508,7 @@ impl Evaluator for ModelEvaluator {
                 }
             }
             FeatureKind::Solid(solid) => solid::evaluate(feature, solid, inputs, cancel),
+            FeatureKind::Blend(definition) => blend::evaluate(feature, definition, inputs, cancel),
         }
     }
 }

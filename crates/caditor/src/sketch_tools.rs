@@ -289,7 +289,8 @@ pub fn selected_entities(selection: &Selection, feature: FeatureId) -> Vec<Entit
             | Pickable::Plane(_)
             | Pickable::Face { .. }
             | Pickable::Edge { .. }
-            | Pickable::Region { .. } => None,
+            | Pickable::Region { .. }
+            | Pickable::BlendEdge { .. } => None,
         })
         .collect()
 }
@@ -309,7 +310,8 @@ pub fn selected_constraints(selection: &Selection, feature: FeatureId) -> Vec<Co
             | Pickable::Plane(_)
             | Pickable::Face { .. }
             | Pickable::Edge { .. }
-            | Pickable::Region { .. } => None,
+            | Pickable::Region { .. }
+            | Pickable::BlendEdge { .. } => None,
         })
         .collect()
 }

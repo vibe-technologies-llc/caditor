@@ -1,10 +1,10 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use caditor_document::{Document, Evaluation, FeatureId, FeatureResult};
+pub use caditor_document::{describe_origin, origin_feature};
 use caditor_geometry::{Aabb, Point3};
 use caditor_kernel::{EdgeId, EdgeName, FaceId, FaceName, FaceOrigin, Mesh, Solid};
 use caditor_render::{MeshFace, MeshPoint, ShadedMesh};
-use caditor_sketch::EntityId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FaceKey {
@@ -166,12 +166,44 @@ fn local_corner(
     Some(index)
 }
 
+#[derive(Debug, Clone)]
+pub struct OpenBlend {
+    pub feature: FeatureId,
+    pub body: FeatureId,
+    pub before: BodyMesh,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BodyMeshes {
     bodies: BTreeMap<FeatureId, BodyMesh>,
+    open: Option<OpenBlend>,
 }
 
 impl BodyMeshes {
+    pub fn open_blend(&self) -> Option<&OpenBlend> {
+        self.open.as_ref()
+    }
+
+    pub fn update_open(&mut self, evaluation: &Evaluation, feature: Option<FeatureId>) {
+        let previous = self
+            .open
+            .take()
+            .filter(|open| Some(open.feature) == feature);
+        self.open = feature.and_then(|feature| {
+            let input = evaluation.body_before(feature)?;
+            let solid = input.solid()?;
+            let before = match previous {
+                Some(open) if Arc::ptr_eq(&open.before.source, input) => open.before,
+                _ => BodyMesh::build(input, &solid.solid, solid.mesh()?),
+            };
+            Some(OpenBlend {
+                feature,
+                body: solid.body,
+                before,
+            })
+        });
+    }
+
     pub fn update(&mut self, evaluation: &Evaluation) {
         let mut next = BTreeMap::new();
         for (body, _) in evaluation.bodies() {
@@ -208,36 +240,6 @@ impl BodyMeshes {
             .values()
             .filter_map(BodyMesh::bounds)
             .reduce(Aabb::union)
-    }
-}
-
-pub fn origin_feature(origin: FaceOrigin) -> FeatureId {
-    FeatureId::from_raw(origin.feature())
-}
-
-pub fn describe_origin(document: &Document, origin: Option<FaceOrigin>) -> String {
-    let Some(origin) = origin else {
-        return "Face".to_owned();
-    };
-    let Some(feature) = document.feature(origin_feature(origin)) else {
-        return "Face of a deleted feature".to_owned();
-    };
-    let name = &feature.name;
-    match origin {
-        FaceOrigin::Side { entity, .. } => {
-            let curve = feature
-                .kind
-                .solid()
-                .and_then(|solid| document.feature(solid.sketch()))
-                .and_then(|sketch| sketch.kind.sketch())
-                .map_or_else(
-                    || "a sketch curve".to_owned(),
-                    |sketch| sketch.entity_label(EntityId::from_raw(entity)),
-                );
-            format!("{name} side from {curve}")
-        }
-        FaceOrigin::StartCap { .. } => format!("{name} start face"),
-        FaceOrigin::EndCap { .. } => format!("{name} end face"),
     }
 }
 

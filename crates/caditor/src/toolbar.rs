@@ -3,6 +3,7 @@ use std::time::Duration;
 use egui::{Button, Color32, Key, KeyboardShortcut, Modifiers, Ui};
 
 use crate::{
+    blend_panel, blend_tools,
     editing::{self, EditingCommand, SketchEditing},
     feature_tree::count,
     files::{self, Files},
@@ -38,6 +39,7 @@ pub fn show(ui: &mut Ui, model: &Model, context: &ToolbarContext<'_>, actions: &
             ui.separator();
             sketch_buttons(ui, model, context.selection, context.editing, actions);
             solid_buttons(ui, model, context, actions);
+            blend_buttons(ui, model, context, actions);
             ui.separator();
             recompute_status(ui, model, actions);
             if let Some(notice) = model.notice() {
@@ -84,7 +86,8 @@ fn sketch_buttons(
         | Pickable::SketchConstraint { .. }
         | Pickable::Face { .. }
         | Pickable::Edge { .. }
-        | Pickable::Region { .. } => None,
+        | Pickable::Region { .. }
+        | Pickable::BlendEdge { .. } => None,
     });
     let face = sketch_placement::selected_face(selection)
         .filter(|face| sketch_placement::is_flat(model, *face));
@@ -146,6 +149,40 @@ fn solid_buttons(
             && let Some(source) = source
         {
             actions.extend(solid_tools::create_actions(document, sweep, source));
+        }
+    }
+}
+
+fn blend_buttons(
+    ui: &mut Ui,
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = blend_tools::selected_edges(context.selection);
+    for kind in blend_tools::KINDS {
+        let text = format!("{} {}", blend_tools::icon(kind), kind.title());
+        let response = ui.add_enabled(source.is_ok(), Button::new(text));
+        let response = match &source {
+            Ok(source) => response.on_hover_text(format!(
+                "{} ({})",
+                blend_panel::describe_kind(kind),
+                count(source.edges.len(), "edge", "edges")
+            )),
+            Err(reason) => response.on_disabled_hover_text(format!(
+                "{}. {reason}, then click here.",
+                blend_panel::describe_kind(kind)
+            )),
+        };
+        if response.clicked()
+            && let Ok(source) = &source
+        {
+            actions.extend(blend_tools::create_actions(
+                model.document(),
+                model.evaluation(),
+                kind,
+                source,
+            ));
         }
     }
 }

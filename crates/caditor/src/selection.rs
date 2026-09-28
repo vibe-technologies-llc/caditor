@@ -6,6 +6,7 @@ use caditor_kernel::{EdgeName, RegionKey};
 use caditor_sketch::{ConstraintId, EntityId};
 
 use crate::{
+    blend_tools,
     bodies::{self, FaceKey},
     editing::Context,
 };
@@ -105,6 +106,10 @@ pub enum Pickable {
         feature: FeatureId,
         region: RegionKey,
     },
+    BlendEdge {
+        feature: FeatureId,
+        edge: EdgeName,
+    },
 }
 
 pub fn swept_regions<'a>(
@@ -187,6 +192,16 @@ impl Pickable {
                     .map_or("the sketch", |sketch| sketch.name.as_str());
                 format!("Region of {sketch}: click to choose or leave out")
             }
+            Self::BlendEdge { feature, edge } => {
+                let owner = document
+                    .feature(feature)
+                    .map_or("the feature", |owner| owner.name.as_str());
+                let described = blend_tools::input_solid(evaluation, feature).map_or_else(
+                    || "Edge".to_owned(),
+                    |solid| bodies::describe_edge(document, solid, edge),
+                );
+                format!("{described}: click to add to {owner} or leave it out")
+            }
         }
     }
 
@@ -264,6 +279,11 @@ impl Pickable {
                             .iter()
                             .any(|candidate| candidate.region.key() == region)
                     })
+            }
+            Self::BlendEdge { feature, edge } => {
+                context.solid == Some(feature)
+                    && blend_tools::input_solid(evaluation, feature)
+                        .is_some_and(|solid| bodies::find_edge(solid, edge).is_some())
             }
         }
     }

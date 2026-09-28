@@ -15,7 +15,8 @@ use caditor_sketch::{
 };
 
 use crate::{
-    bodies::{BodyMesh, BodyMeshes},
+    blend_tools,
+    bodies::{BodyMesh, BodyMeshes, OpenBlend},
     drawing::Preview,
     editing::Context,
     selection::{self, Axis, Pickable, PrincipalPlane, Selection},
@@ -61,10 +62,13 @@ const CHOSEN_REGION: Color = Color::from_rgba8(86, 170, 255, 90);
 const OPEN_REGION: Color = Color::from_rgba8(210, 214, 224, 26);
 const HOVERED_REGION_ALPHA: f32 = 0.4;
 const REVOLVE_AXIS: Color = Color::from_rgb8(255, 150, 60);
+const CHOSEN_EDGE: Color = Color::from_rgb8(86, 170, 255);
+const FOLLOWED_EDGE: Color = Color::from_rgb8(150, 200, 250);
 
 const CURVE_WIDTH: f32 = 2.0;
 const BODY_EDGE_WIDTH: f32 = 1.5;
 const REVOLVE_AXIS_WIDTH: f32 = 2.5;
+const CHOSEN_EDGE_EXTRA_WIDTH: f32 = 1.5;
 const AXIS_WIDTH: f32 = 2.0;
 const SKETCH_AXIS_WIDTH: f32 = 1.5;
 const PLANE_EDGE_WIDTH: f32 = 1.25;
@@ -296,12 +300,21 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
         };
         builder.sketch(feature.id(), &displayed, &states, presence);
     }
+    let open = bodies
+        .open_blend()
+        .filter(|open| context.solid == Some(open.feature) && editing.is_none());
     for (body, mesh) in bodies.iter() {
+        if open.is_some_and(|open| open.body == body) {
+            continue;
+        }
         let color = match editing {
             Some(_) => None,
             None => Some(body_color(document, evaluation, body)),
         };
         builder.body(body, mesh, color);
+    }
+    if let Some(open) = open {
+        builder.open_blend(document, evaluation, open);
     }
     if let Some(feature) = context.solid {
         builder.swept(document, evaluation, feature, reference_size);
@@ -479,6 +492,59 @@ impl Builder<'_> {
                 ),
                 None => (BACKGROUND_BODY_EDGE, BODY_EDGE_WIDTH, None),
             };
+            let segments = edge.points.windows(2).filter_map(|pair| match pair {
+                [start, end] => Some(Line {
+                    start: *start,
+                    end: *end,
+                    color,
+                    width,
+                    layer: Layer::Model,
+                    pick,
+                }),
+                _ => None,
+            });
+            self.scene.lines.extend(segments);
+        }
+    }
+
+    fn open_blend(&mut self, document: &Document, evaluation: &Evaluation, open: &OpenBlend) {
+        let chosen = document
+            .feature(open.feature)
+            .and_then(|feature| feature.kind.blend())
+            .zip(blend_tools::input_solid(evaluation, open.feature))
+            .map(|(blend, solid)| blend_tools::chosen_edges(solid, blend))
+            .unwrap_or_default();
+        let color = body_color(document, evaluation, open.body);
+        let faces = open
+            .before
+            .faces
+            .iter()
+            .map(|_| FaceStyle { color, pick: None })
+            .collect();
+        self.scene.meshes.push(MeshInstance {
+            mesh: std::sync::Arc::clone(&open.before.mesh),
+            faces,
+        });
+        for edge in &open.before.edges {
+            let pickable = Pickable::BlendEdge {
+                feature: open.feature,
+                edge: edge.name,
+            };
+            let (base, extra) = if chosen.explicit.contains(&edge.name) {
+                (CHOSEN_EDGE, CHOSEN_EDGE_EXTRA_WIDTH)
+            } else if chosen.followed.contains(&edge.name) {
+                (FOLLOWED_EDGE, CHOSEN_EDGE_EXTRA_WIDTH)
+            } else {
+                (BODY_EDGE, 0.0)
+            };
+            let color = if self.highlight.is_hovered(pickable) {
+                HOVERED
+            } else {
+                base
+            };
+            let width =
+                BODY_EDGE_WIDTH + extra + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
+            let pick = self.picks.register(pickable, PickPriority::Curve);
             let segments = edge.points.windows(2).filter_map(|pair| match pair {
                 [start, end] => Some(Line {
                     start: *start,
@@ -874,6 +940,12 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
         Pickable::Edge { body, edge } => bodies
             .get(body)
             .and_then(|mesh| mesh.edge_points(edge))
+            .map(<[Point3]>::to_vec)
+            .unwrap_or_default(),
+        Pickable::BlendEdge { feature, edge } => bodies
+            .open_blend()
+            .filter(|open| open.feature == feature)
+            .and_then(|open| open.before.edge_points(edge))
             .map(<[Point3]>::to_vec)
             .unwrap_or_default(),
         Pickable::Region { feature, region } => {

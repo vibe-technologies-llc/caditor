@@ -1,18 +1,20 @@
 use std::sync::Arc;
 
 use caditor_document::{
-    BodyOperation, Document, Edit, Extrude, ExtrudeExtent, FaceAttachment, Feature, FeatureId,
-    FeatureKind, Parameter, RegionChoice, Revolve, RevolveExtent, SketchFeature, SolidFeature,
-    Transaction,
+    Blend, BlendKind, BodyOperation, Document, Edit, Extrude, ExtrudeExtent, FaceAttachment,
+    Feature, FeatureId, FeatureKind, Parameter, RegionChoice, Revolve, RevolveExtent,
+    SketchFeature, SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
-use caditor_kernel::{FaceName, FaceOrigin, FaceReference, RegionKey};
+use caditor_kernel::{
+    EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, RegionKey, VertexName,
+};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
-pub const FORMAT_VERSION: u32 = 4;
+pub const FORMAT_VERSION: u32 = 5;
 pub(crate) const FORMAT_NAME: &str = "caditor";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -61,9 +63,25 @@ pub(crate) enum FeatureKindRecord {
     Sketch(SketchRecord),
     Extrude(ExtrudeRecord),
     Revolve(RevolveRecord),
+    Fillet(BlendRecord),
+    Chamfer(BlendRecord),
 }
 
-pub(crate) const FEATURE_KINDS: [&str; 3] = ["sketch", "extrude", "revolve"];
+pub(crate) const FEATURE_KINDS: [&str; 5] = ["sketch", "extrude", "revolve", "fillet", "chamfer"];
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct BlendRecord {
+    pub body: u64,
+    pub size: String,
+    pub edges: Vec<Lenient<EdgeRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct EdgeRecord {
+    pub name: String,
+    pub faces: [String; 2],
+    pub ends: [String; 2],
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -138,6 +156,9 @@ pub(crate) enum FaceOriginRecord {
     Side { feature: u64, entity: u64 },
     StartCap { feature: u64 },
     EndCap { feature: u64 },
+    Fillet { feature: u64 },
+    Chamfer { feature: u64 },
+    Shell { feature: u64 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -408,6 +429,31 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 operation: operation_record(revolve.operation),
             })
         }
+        FeatureKind::Blend(blend) => {
+            let record = BlendRecord {
+                body: blend.body.raw(),
+                size: blend.size.to_stored_text(),
+                edges: blend
+                    .edges
+                    .iter()
+                    .map(|edge| Lenient::Read(edge_record(edge)))
+                    .collect(),
+            };
+            match blend.kind {
+                BlendKind::Fillet => FeatureKindRecord::Fillet(record),
+                BlendKind::Chamfer => FeatureKindRecord::Chamfer(record),
+            }
+        }
+    }
+}
+
+fn edge_record(edge: &EdgeReference) -> EdgeRecord {
+    let [first, second] = edge.faces();
+    let [from, to] = edge.ends();
+    EdgeRecord {
+        name: hex(edge.name().digest()),
+        faces: [hex(first.digest()), hex(second.digest())],
+        ends: [hex(from.digest()), hex(to.digest())],
     }
 }
 
@@ -450,6 +496,9 @@ fn attachment_record(attachment: &FaceAttachment) -> AttachmentRecord {
             FaceOrigin::Side { feature, entity } => FaceOriginRecord::Side { feature, entity },
             FaceOrigin::StartCap { feature } => FaceOriginRecord::StartCap { feature },
             FaceOrigin::EndCap { feature } => FaceOriginRecord::EndCap { feature },
+            FaceOrigin::Fillet { feature } => FaceOriginRecord::Fillet { feature },
+            FaceOrigin::Chamfer { feature } => FaceOriginRecord::Chamfer { feature },
+            FaceOrigin::Shell { feature } => FaceOriginRecord::Shell { feature },
         }),
         neighbours: face
             .neighbours()
@@ -834,7 +883,53 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
                 operation: restore_operation(revolve.operation),
             }))
         }
+        FeatureKindRecord::Fillet(record) => {
+            FeatureKind::Blend(restore_blend(record, BlendKind::Fillet, name, issues))
+        }
+        FeatureKindRecord::Chamfer(record) => {
+            FeatureKind::Blend(restore_blend(record, BlendKind::Chamfer, name, issues))
+        }
     }
+}
+
+fn restore_blend(
+    record: &BlendRecord,
+    kind: BlendKind,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Blend {
+    let size = restore_value(&record.size, kind.size_name(), "1 mm", feature, issues);
+    let edges: Vec<EdgeReference> = record
+        .edges
+        .iter()
+        .filter_map(|edge| match edge {
+            Lenient::Read(edge) => restore_edge(edge),
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if edges.len() < record.edges.len() {
+        issues.push(format!(
+            "Some edges chosen for “{feature}” could not be read and were left out."
+        ));
+    }
+    Blend {
+        kind,
+        body: FeatureId::from_raw(record.body),
+        edges,
+        size,
+    }
+}
+
+fn restore_edge(record: &EdgeRecord) -> Option<EdgeReference> {
+    let face = |text: &str| restore_digest(text).map(FaceName::from_digest);
+    let vertex = |text: &str| restore_digest(text).map(VertexName::from_digest);
+    let [first, second] = &record.faces;
+    let [from, to] = &record.ends;
+    Some(EdgeReference::new(
+        EdgeName::from_digest(restore_digest(&record.name)?),
+        [face(first)?, face(second)?],
+        [vertex(from)?, vertex(to)?],
+    ))
 }
 
 fn restore_value(
@@ -974,6 +1069,9 @@ fn restore_attachment(record: &AttachmentRecord) -> Option<FaceAttachment> {
         FaceOriginRecord::Side { feature, entity } => FaceOrigin::Side { feature, entity },
         FaceOriginRecord::StartCap { feature } => FaceOrigin::StartCap { feature },
         FaceOriginRecord::EndCap { feature } => FaceOrigin::EndCap { feature },
+        FaceOriginRecord::Fillet { feature } => FaceOrigin::Fillet { feature },
+        FaceOriginRecord::Chamfer { feature } => FaceOrigin::Chamfer { feature },
+        FaceOriginRecord::Shell { feature } => FaceOrigin::Shell { feature },
     });
     Some(FaceAttachment {
         body: FeatureId::from_raw(record.body),
