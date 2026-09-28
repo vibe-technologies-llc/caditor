@@ -687,3 +687,176 @@ fn short_curves_and_closed_arcs_are_tidied_before_they_reach_the_sketch() {
         .count();
     assert_eq!(circles, 1);
 }
+
+mod step {
+    use std::time::SystemTime;
+
+    use caditor_document::{
+        Blend, BlendKind, CancelToken, Document, FeatureKind, ModelEvaluator, Recompute,
+    };
+    use caditor_expression::Expression;
+    use caditor_geometry::{Plane, Point2, Point3};
+    use caditor_kernel::{
+        EdgeReference, LinearExtent, Profile, ProfileCurve, SamplingTolerance, Selection, Solid,
+        extrude,
+    };
+    use caditor_step::{StepBody, write_step};
+
+    use crate::{
+        decode, encode,
+        import::{ImportError, bodies_transaction, parse_step},
+    };
+
+    fn block() -> Solid {
+        let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)];
+        let curves: Vec<ProfileCurve> = (0..4)
+            .map(|index| {
+                let (a, b) = (corners[index], corners[(index + 1) % 4]);
+                ProfileCurve::line(
+                    index as u64 + 1,
+                    Point2::new(a.0, a.1),
+                    Point2::new(b.0, b.1),
+                )
+            })
+            .collect();
+        let regions = Profile::new(&curves)
+            .unwrap()
+            .select(&Selection::EvenDepth)
+            .unwrap();
+        extrude(
+            &Plane::XY,
+            &regions,
+            LinearExtent::one_side(4.0).unwrap(),
+            1,
+        )
+        .unwrap()
+    }
+
+    fn volume(solid: &Solid) -> f64 {
+        solid
+            .tessellate(&SamplingTolerance::new(1e-3, 0.05).unwrap())
+            .unwrap()
+            .mass_properties()
+            .volume
+    }
+
+    fn step_text() -> String {
+        let solid = block();
+        write_step(
+            &[StepBody {
+                name: "Block",
+                solid: &solid,
+            }],
+            "block",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn an_imported_body_can_be_filleted_saved_and_loaded() {
+        let import = parse_step(&step_text(), "block.step").unwrap();
+        assert!(import.notes.is_empty(), "{:?}", import.notes);
+        assert_eq!(import.bodies.len(), 1);
+        let mut document = Document::default();
+        let transaction = bodies_transaction(&document, &import.bodies, "Import block.step");
+        document.apply(transaction).unwrap();
+        let body = document.features().next().unwrap().id();
+        assert_eq!(document.feature(body).unwrap().name, "Block");
+
+        let mut engine = Recompute::default();
+        let evaluation = engine.run(
+            &document,
+            &ModelEvaluator,
+            &CancelToken::never(),
+            &|_, _| {},
+        );
+        assert_eq!(evaluation.failed_count(), 0);
+        let solid = evaluation.body(body).unwrap();
+        assert!((volume(solid) - 320.0).abs() < 1e-6);
+        let top_edge = solid
+            .edges()
+            .find(|(_, edge)| {
+                let middle = edge.curve().point(edge.interval().middle());
+                middle.distance(Point3::new(5.0, 0.0, 4.0)) < 1e-9
+            })
+            .map(|(id, _)| id)
+            .unwrap();
+        let mut transaction = document.transaction("Fillet");
+        let fillet = transaction.add_feature(
+            "Fillet 1",
+            FeatureKind::Blend(Blend {
+                kind: BlendKind::Fillet,
+                body,
+                edges: vec![EdgeReference::capture(solid, top_edge).unwrap()],
+                size: Expression::parse_stored("1 mm").unwrap(),
+            }),
+        );
+        document.apply(transaction.finish()).unwrap();
+        let evaluation = engine.run(
+            &document,
+            &ModelEvaluator,
+            &CancelToken::never(),
+            &|_, _| {},
+        );
+        assert_eq!(evaluation.failed_count(), 0);
+        let rounded = volume(evaluation.body(body).unwrap());
+        let spandrel = (1.0 - std::f64::consts::PI / 4.0) * 10.0;
+        assert!((rounded - (320.0 - spandrel)).abs() < 1e-2, "{rounded}");
+
+        let loaded = decode(&encode(&document).unwrap()).unwrap();
+        assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
+        assert_eq!(loaded.document, document);
+        let mut fresh = Recompute::default();
+        let evaluation = fresh.run(
+            &loaded.document,
+            &ModelEvaluator,
+            &CancelToken::never(),
+            &|_, _| {},
+        );
+        assert_eq!(evaluation.failed_count(), 0);
+        assert!((volume(evaluation.body(body).unwrap()) - rounded).abs() < 1e-9);
+        assert!(evaluation.feature(fillet).is_some());
+    }
+
+    #[test]
+    fn several_bodies_get_distinct_names_and_other_files_are_refused() {
+        let solid = block();
+        let text = write_step(
+            &[
+                StepBody {
+                    name: "Part",
+                    solid: &solid,
+                },
+                StepBody {
+                    name: "Part",
+                    solid: &solid,
+                },
+            ],
+            "parts",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let import = parse_step(&text, "parts.stp").unwrap();
+        let mut document = Document::default();
+        document
+            .apply(bodies_transaction(&document, &import.bodies, "Import"))
+            .unwrap();
+        let names: Vec<&str> = document
+            .features()
+            .map(|feature| feature.name.as_str())
+            .collect();
+        assert_eq!(names, ["Part", "Part 2"]);
+        assert_eq!(
+            parse_step("0\nSECTION\n", "x.step"),
+            Err(ImportError::NotStep)
+        );
+        assert!(matches!(
+            parse_step(
+                "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n",
+                "x.step"
+            ),
+            Err(ImportError::Model(_))
+        ));
+    }
+}

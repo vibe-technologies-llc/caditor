@@ -23,10 +23,6 @@ These need an answer before the milestone that depends on them starts.
 
 - [ ] **Distribution** (blocks M8): Flatpak, AUR and/or plain release binaries.
 
-## M6: Interop
-
-- [ ] STEP import
-
 ## M7: Polish
 
 - [ ] Command palette and customisable keyboard shortcuts

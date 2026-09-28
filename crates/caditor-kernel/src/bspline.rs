@@ -309,7 +309,7 @@ fn ratio(numerator: f64, denominator: f64) -> f64 {
     }
 }
 
-fn clamped_domain(knots: &[f64], degree: usize) -> Option<Interval> {
+pub(crate) fn clamped_domain(knots: &[f64], degree: usize) -> Option<Interval> {
     if !knots.iter().all(|knot| knot.is_finite()) {
         return None;
     }

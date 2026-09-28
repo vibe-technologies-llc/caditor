@@ -266,3 +266,41 @@ fn constructors_reject_degenerate_and_non_finite_input() {
     let broken = Plane::new(Point3::new(f64::INFINITY, 0.0, 0.0), Vector3::Z).unwrap();
     assert_eq!(Circle::new(broken, 1.0), Err(GeometryError::NonFinite));
 }
+
+#[test]
+fn an_intersection_curve_rebuilt_through_rough_points_lies_on_both_surfaces() {
+    use crate::{
+        IntersectionCurve,
+        surface::{Cylinder, Surface},
+    };
+
+    let upright: Surface = Cylinder::new(Plane::XY, 8.0).unwrap().into();
+    let across: Surface = Cylinder::new(
+        Plane::from_frame(Point3::new(-20.0, 0.0, 0.0), Vector3::X, Vector3::Y).unwrap(),
+        5.0,
+    )
+    .unwrap()
+    .into();
+    let rough: Vec<Point3> = (0..=24)
+        .map(|index| {
+            let angle = std::f64::consts::TAU * index as f64 / 24.0;
+            let (y, z) = (5.0 * angle.cos(), 5.0 * angle.sin());
+            let x = (64.0 - y * y).sqrt();
+            Point3::new(x + 1e-4 * angle.sin(), y, z + 1e-4)
+        })
+        .collect();
+    let curve =
+        IntersectionCurve::through([upright.clone(), across.clone()], &rough, true).unwrap();
+    assert!(curve.is_closed());
+    let domain = curve.domain();
+    for step in 0..=200 {
+        let point = curve.point(domain.at(step as f64 / 200.0));
+        assert!(
+            upright.distance(point) < 1e-6,
+            "{}",
+            upright.distance(point)
+        );
+        assert!(across.distance(point) < 1e-6, "{}", across.distance(point));
+    }
+    assert!(IntersectionCurve::through([upright, across], &[Point3::ZERO], false).is_none());
+}

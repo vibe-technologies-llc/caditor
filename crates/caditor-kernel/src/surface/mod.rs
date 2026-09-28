@@ -1,5 +1,6 @@
 mod coincidence;
 mod elementary;
+mod nurbs;
 mod projection;
 mod swept;
 #[cfg(test)]
@@ -12,6 +13,7 @@ use caditor_geometry::{Point2, Point3, RigidTransform, Vector3};
 pub(crate) use self::projection::{periodic_near, refine as refine_projection};
 pub use self::{
     elementary::{Cone, Cylinder, PlaneSurface, Sphere, Torus},
+    nurbs::BSplineSurface,
     swept::{Extrusion, Revolution},
 };
 use crate::{
@@ -24,6 +26,7 @@ use crate::{
 const LATITUDE: Interval = Interval::constant(-FRAC_PI_2, FRAC_PI_2);
 const POLE_PARAMETER_TOLERANCE: f64 = 1e-6;
 const NORMAL_NUDGE: f64 = 1e-7;
+const HINT_PREFERENCE: f64 = 1e-3 * LINEAR_RESOLUTION;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SurfaceDerivatives {
@@ -57,6 +60,7 @@ pub enum Surface {
     Torus(Torus),
     Extrusion(Extrusion),
     Revolution(Revolution),
+    BSpline(BSplineSurface),
 }
 
 impl Surface {
@@ -69,6 +73,7 @@ impl Surface {
             Self::Torus(torus) => torus.evaluate(u, v),
             Self::Extrusion(extrusion) => extrusion.evaluate(u, v),
             Self::Revolution(revolution) => revolution.evaluate(u, v),
+            Self::BSpline(spline) => spline.evaluate(u, v),
         }
     }
 
@@ -87,7 +92,7 @@ impl Surface {
             Self::Cone(cone) => Some(cone.normal(u)),
             Self::Sphere(sphere) => Some(sphere.normal(u, v)),
             Self::Torus(torus) => Some(torus.normal(u, v)),
-            Self::Extrusion(_) | Self::Revolution(_) => self
+            Self::Extrusion(_) | Self::Revolution(_) | Self::BSpline(_) => self
                 .evaluate(u, v)
                 .normal()
                 .or_else(|| self.nudged_normal(u, v)),
@@ -125,6 +130,7 @@ impl Surface {
             | Self::Torus(_)
             | Self::Revolution(_) => Some(TAU),
             Self::Extrusion(extrusion) => extrusion.profile().period(),
+            Self::BSpline(spline) => spline.u_period(),
         }
     }
 
@@ -132,6 +138,7 @@ impl Surface {
         match self {
             Self::Torus(_) => Some(TAU),
             Self::Revolution(revolution) => revolution.profile().period(),
+            Self::BSpline(spline) => spline.v_period(),
             Self::Plane(_)
             | Self::Cylinder(_)
             | Self::Cone(_)
@@ -149,6 +156,7 @@ impl Surface {
             | Self::Torus(_)
             | Self::Revolution(_) => Domain::from(Interval::FULL_TURN),
             Self::Extrusion(extrusion) => extrusion.profile().domain(),
+            Self::BSpline(spline) => Domain::from(spline.u_domain()),
         }
     }
 
@@ -167,6 +175,7 @@ impl Surface {
             Self::Sphere(_) => Domain::from(LATITUDE),
             Self::Torus(_) => Domain::from(Interval::FULL_TURN),
             Self::Revolution(revolution) => revolution.profile().domain(),
+            Self::BSpline(spline) => Domain::from(spline.v_domain()),
         }
     }
 
@@ -204,6 +213,7 @@ impl Surface {
                         .collect()
                 })
                 .unwrap_or_default(),
+            Self::BSpline(spline) => spline.poles(),
             Self::Plane(_)
             | Self::Cylinder(_)
             | Self::Torus(_)
@@ -245,6 +255,32 @@ impl Surface {
                 match (self.pole_at(uv), hint) {
                     (Some(_), Some(hint)) => Point2::new(hint.x, v),
                     _ => uv,
+                }
+            }
+            Self::BSpline(spline) => {
+                let mut best: Option<(f64, Point2)> = None;
+                let mut from_hint: Option<(f64, Point2)> = None;
+                for (index, seed) in spline.project_seed(point, hint).into_iter().enumerate() {
+                    let refined = projection::refine(self, point, seed);
+                    let distance = self.point_at(refined).distance(point);
+                    if index == 0 && hint.is_some() {
+                        from_hint = Some((distance, refined));
+                    }
+                    if best.is_none_or(|(closest, _)| distance < closest) {
+                        best = Some((distance, refined));
+                    }
+                }
+                let chosen = match (from_hint, best) {
+                    (Some((near, uv)), Some((closest, _))) if near <= closest + HINT_PREFERENCE => {
+                        uv
+                    }
+                    (_, Some((_, uv))) => uv,
+                    (_, None) => hint.unwrap_or(Point2::ZERO),
+                };
+                let placed = spline.place(chosen, hint);
+                match (self.pole_at(placed), hint) {
+                    (Some(_), Some(hint)) => Point2::new(hint.x, placed.y),
+                    _ => placed,
                 }
             }
         }
@@ -290,6 +326,7 @@ impl Surface {
                 transform.apply_point(revolution.axis_origin()),
                 transform.apply_vector(revolution.axis_direction()),
             )?),
+            Self::BSpline(spline) => Self::BSpline(spline.transformed(transform)?),
         })
     }
 }
@@ -333,5 +370,11 @@ impl From<Extrusion> for Surface {
 impl From<Revolution> for Surface {
     fn from(revolution: Revolution) -> Self {
         Self::Revolution(revolution)
+    }
+}
+
+impl From<BSplineSurface> for Surface {
+    fn from(spline: BSplineSurface) -> Self {
+        Self::BSpline(spline)
     }
 }

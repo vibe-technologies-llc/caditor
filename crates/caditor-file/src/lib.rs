@@ -19,8 +19,9 @@ pub use crate::{
     },
     format::FORMAT_VERSION,
     import::{
-        DXF_EXTENSION, Drawing, DrawingCurve, DrawingImport, ImportError, MAX_DRAWING_CURVES,
-        SketchTarget, drawing_transaction, parse_dxf, read_dxf,
+        DXF_EXTENSION, Drawing, DrawingCurve, DrawingImport, ImportError, ImportedBody,
+        MAX_DRAWING_CURVES, ModelImport, STEP_IMPORT_EXTENSIONS, SketchTarget, bodies_transaction,
+        drawing_transaction, parse_dxf, parse_step, read_dxf, read_step_file,
     },
     journal::JournalEntry,
     load::{LoadError, Loaded, decode, history, load, load_version},

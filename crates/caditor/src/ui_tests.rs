@@ -813,6 +813,56 @@ fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
     assert_eq!(harness.document().features().len(), features + 1);
 }
 
+#[test]
+fn a_step_export_imports_back_as_a_body_that_later_features_can_use() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    let exported = dir.path().join("plate.step");
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.click("STEP");
+    harness.answer_dialog(Some(exported.clone()));
+    harness.click("Export…");
+    harness.wait_until("the STEP file is written", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Exported 1 body"))
+    });
+    harness.command(FileCommand::New);
+    harness.frame();
+    if harness.shows("Continue Without Saving") {
+        harness.click("Continue Without Saving");
+    }
+    harness.settle();
+    let before = harness.document().features().len();
+    harness.answer_dialog(Some(exported));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_until("the body is imported", |harness| {
+        harness.document().features().len() == before + 1
+    });
+    assert_eq!(
+        harness.model.notice().unwrap().text,
+        "Imported 1 body from “plate.step”."
+    );
+    let body = harness.document().features().last().unwrap().id();
+    assert!(
+        harness
+            .document()
+            .feature(body)
+            .unwrap()
+            .kind
+            .import()
+            .is_some()
+    );
+    harness.settle();
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    let solid = harness.model.evaluation().body(body).unwrap();
+    assert_eq!(solid.faces().count(), 6);
+    harness.perform(Action::Undo);
+    assert_eq!(harness.document().features().len(), before);
+}
+
 fn damage_chunk(bytes: &[u8], chunk: usize) -> Vec<u8> {
     let starts: Vec<usize> = bytes
         .windows(4)

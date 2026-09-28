@@ -113,7 +113,7 @@ impl Offsets<'_> {
             )
             .map_err(too_thick)?
             .into(),
-            Surface::Extrusion(_) | Surface::Revolution(_) => {
+            Surface::Extrusion(_) | Surface::Revolution(_) | Surface::BSpline(_) => {
                 return Err(ShellError::UnsupportedFace(face));
             }
         })

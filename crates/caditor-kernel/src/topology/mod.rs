@@ -7,6 +7,8 @@ mod pcurve;
 mod tests;
 mod validate;
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use caditor_geometry::{Aabb, Point3, RigidTransform};
 
 pub use self::{
@@ -23,7 +25,7 @@ use crate::{
     curve::Curve,
     error::GeometryError,
     interval::Interval,
-    naming::{EdgeName, FaceName, FaceOrigin},
+    naming::{EdgeName, FaceName, FaceOrigin, VertexName},
     sense::Sense,
     surface::Surface,
     tessellation::{self, Mesh, TessellationError},
@@ -377,6 +379,110 @@ impl Solid {
             edge.name = name;
         }
         self
+    }
+
+    #[must_use]
+    pub fn imported(mut self, feature: u64) -> Self {
+        for (index, face) in self.faces.iter_mut().enumerate() {
+            let index = u32::try_from(index).unwrap_or(u32::MAX);
+            face.name = FaceName::imported(feature, index);
+            face.origin = Some(FaceOrigin::Imported {
+                feature,
+                face: index,
+            });
+        }
+        let names = self.derived_edge_names();
+        for (edge, name) in self.edges.iter_mut().zip(names) {
+            edge.name = name;
+        }
+        self
+    }
+
+    fn derived_edge_names(&self) -> Vec<EdgeName> {
+        let sides: Vec<[FaceName; 2]> = self
+            .edges
+            .iter()
+            .map(|edge| {
+                let side = |same: bool| {
+                    edge.coedges
+                        .iter()
+                        .filter_map(|coedge| self.coedge(*coedge))
+                        .find(|coedge| coedge.sense.is_same() == same)
+                        .and_then(|coedge| self.face(self.face_loop(coedge.owner)?.face))
+                        .map_or(FaceName::NONE, Face::name)
+                };
+                [side(true), side(false)]
+            })
+            .collect();
+        let mut names: Vec<EdgeName> = sides
+            .iter()
+            .map(|[left, right]| {
+                if left == right {
+                    EdgeName::seam(*left)
+                } else {
+                    EdgeName::between(*left, *right)
+                }
+            })
+            .collect();
+        let mut around: Vec<BTreeSet<FaceName>> = vec![BTreeSet::new(); self.vertices.len()];
+        for (edge, faces) in self.edges.iter().zip(&sides) {
+            for vertex in [edge.start, edge.end] {
+                if let Some(set) = around.get_mut(vertex.index()) {
+                    set.extend(faces.iter().copied());
+                }
+            }
+        }
+        let vertex_names: Vec<VertexName> = around.into_iter().map(VertexName::of_faces).collect();
+        let mut groups: BTreeMap<EdgeName, Vec<usize>> = BTreeMap::new();
+        for (index, name) in names.iter().enumerate() {
+            groups.entry(*name).or_default().push(index);
+        }
+        for members in groups.values().filter(|members| members.len() > 1) {
+            let mut named: Vec<(usize, EdgeName, Point3)> = members
+                .iter()
+                .filter_map(|index| {
+                    let edge = self.edges.get(*index)?;
+                    let [left, right] = *sides.get(*index)?;
+                    let from = vertex_names
+                        .get(edge.start.index())
+                        .copied()
+                        .unwrap_or_default();
+                    let to = vertex_names
+                        .get(edge.end.index())
+                        .copied()
+                        .unwrap_or_default();
+                    Some((
+                        *index,
+                        EdgeName::between_at(left, right, from, to),
+                        edge.curve.point(edge.interval.middle()),
+                    ))
+                })
+                .collect();
+            let mut counts: BTreeMap<EdgeName, usize> = BTreeMap::new();
+            for (_, name, _) in &named {
+                *counts.entry(*name).or_default() += 1;
+            }
+            named.sort_by(|(_, _, a), (_, _, b)| {
+                a.x.total_cmp(&b.x)
+                    .then(a.y.total_cmp(&b.y))
+                    .then(a.z.total_cmp(&b.z))
+            });
+            let mut occurrences: BTreeMap<EdgeName, u32> = BTreeMap::new();
+            for (index, name, _) in named {
+                let unique = if counts.get(&name).copied().unwrap_or(0) > 1 {
+                    let occurrence = occurrences.entry(name).or_insert(0);
+                    let unique = EdgeName::occurrence(name, *occurrence);
+                    *occurrence += 1;
+                    unique
+                } else {
+                    name
+                };
+                if let Some(slot) = names.get_mut(index) {
+                    *slot = unique;
+                }
+            }
+        }
+        names
     }
 
     pub fn validate(&self) -> Result<(), ValidationError> {

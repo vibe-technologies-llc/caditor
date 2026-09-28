@@ -1,4 +1,6 @@
-use crate::{Point2, Point3, Rotation3, Vector2, Vector3};
+use glam::DMat3;
+
+use crate::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 
 const UNIT_TOLERANCE: f64 = 1e-9;
 
@@ -25,6 +27,11 @@ impl RigidTransform {
 
     pub fn translation(offset: Vector3) -> Option<Self> {
         Self::new(Rotation3::IDENTITY, offset)
+    }
+
+    pub fn from_frame(frame: &Plane) -> Option<Self> {
+        let basis = DMat3::from_cols(frame.x_axis(), frame.y_axis(), frame.normal());
+        Self::new(Rotation3::from_mat3(&basis), frame.origin())
     }
 
     pub fn rotation_about(axis_origin: Point3, axis: Vector3, angle: f64) -> Option<Self> {
@@ -130,6 +137,16 @@ mod tests {
     use super::*;
 
     const EPSILON: f64 = 1e-12;
+
+    #[test]
+    fn a_frame_maps_its_own_axes_onto_the_world() {
+        let frame = Plane::with_x_axis(Point3::new(1.0, 2.0, 3.0), Vector3::Y, Vector3::Z).unwrap();
+        let placed = RigidTransform::from_frame(&frame).unwrap();
+        assert!(placed.apply_point(Point3::ZERO).distance(frame.origin()) < EPSILON);
+        assert!(placed.apply_vector(Vector3::X).distance(frame.x_axis()) < EPSILON);
+        assert!(placed.apply_vector(Vector3::Y).distance(frame.y_axis()) < EPSILON);
+        assert!(placed.apply_vector(Vector3::Z).distance(frame.normal()) < EPSILON);
+    }
 
     #[test]
     fn rotation_about_an_axis_keeps_the_axis_fixed() {

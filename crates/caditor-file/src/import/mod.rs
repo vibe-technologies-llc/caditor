@@ -1,4 +1,5 @@
 mod dxf;
+mod model;
 mod sketch;
 #[cfg(test)]
 mod tests;
@@ -9,6 +10,10 @@ use caditor_geometry::Point2;
 
 pub use crate::import::{
     dxf::parse_dxf,
+    model::{
+        ImportedBody, ModelImport, STEP_IMPORT_EXTENSIONS, bodies_transaction, parse_step,
+        read_step_file,
+    },
     sketch::{DrawingImport, SketchTarget, drawing_transaction},
 };
 use crate::reason;
@@ -101,6 +106,10 @@ pub enum ImportError {
     Reading(String),
     #[error("it is not a DXF drawing")]
     NotDxf,
+    #[error("it is not a STEP file")]
+    NotStep,
+    #[error("{0}")]
+    Model(String),
     #[error("the drawing is damaged near line {0}")]
     DamagedAt(usize),
     #[error("the drawing is damaged")]

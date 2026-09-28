@@ -14,11 +14,12 @@ use crate::{
         EdgeSampling, Mesh, MeshVertex, TessellationError,
         density::{Density, density},
     },
-    tolerance::SamplingTolerance,
+    tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
     topology::{Face, FaceId, Solid},
 };
 
 const UV_MERGE: f64 = 1e-9;
+const JOINT_PARAMETER_GAP: f64 = 1e-6;
 const GRID_CLEARANCE: f64 = 0.3;
 const TINY_COORDINATE: f64 = 1e-30;
 const MAX_GAP_PIECES: f64 = 4096.0;
@@ -140,6 +141,7 @@ fn boundary_loops(
                     surface.project(*point, Some(pcurve.uv_at(*parameter)))
                 };
                 push_distinct(
+                    surface,
                     &mut points,
                     BoundaryPoint {
                         uv,
@@ -150,7 +152,7 @@ fn boundary_loops(
         }
         if points.len() > 1
             && let (Some(first), Some(last)) = (points.first(), points.last())
-            && coincide(first, last)
+            && (coincide(first, last) || joined(surface, last, first))
         {
             points.pop();
         }
@@ -164,8 +166,25 @@ fn coincide(a: &BoundaryPoint, b: &BoundaryPoint) -> bool {
         && (a.uv - b.uv).abs().max_element() <= UV_MERGE * (1.0 + a.uv.abs().max_element())
 }
 
-fn push_distinct(points: &mut Vec<BoundaryPoint>, point: BoundaryPoint) {
-    if points.last().is_none_or(|last| !coincide(last, &point)) {
+fn joined(surface: &Surface, a: &BoundaryPoint, b: &BoundaryPoint) -> bool {
+    if a.position != b.position {
+        return false;
+    }
+    let gap = b.uv - a.uv;
+    let limit = JOINT_PARAMETER_GAP * (1.0 + a.uv.abs().max_element());
+    if gap.abs().max_element() > limit {
+        return false;
+    }
+    let derivatives = surface.evaluate(a.uv.x, a.uv.y);
+    gap.x.abs() * derivatives.du.length() + gap.y.abs() * derivatives.dv.length()
+        <= LINEAR_RESOLUTION
+}
+
+fn push_distinct(surface: &Surface, points: &mut Vec<BoundaryPoint>, point: BoundaryPoint) {
+    if points
+        .last()
+        .is_none_or(|last| !coincide(last, &point) && !joined(surface, last, &point))
+    {
         points.push(point);
     }
 }

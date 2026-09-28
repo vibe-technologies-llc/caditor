@@ -44,7 +44,7 @@ fn axis_kind(surface: &Surface) -> Option<AxisKind> {
             direction: revolution.axis_direction(),
         }),
         Surface::Sphere(sphere) => Some(AxisKind::Center(sphere.center())),
-        Surface::Extrusion(_) => None,
+        Surface::Extrusion(_) | Surface::BSpline(_) => None,
     }
 }
 
@@ -225,7 +225,7 @@ fn meridian(
             };
             meridian_of_profile(revolution.profile(), axis, range)
         }
-        Surface::Extrusion(_) => None,
+        Surface::Extrusion(_) | Surface::BSpline(_) => None,
     }
 }
 
@@ -236,7 +236,9 @@ fn reference_of(surface: &Surface, direction: Vector3) -> Option<Vector3> {
         Surface::Cone(cone) => cone.frame().x_axis(),
         Surface::Sphere(sphere) => sphere.frame().x_axis(),
         Surface::Torus(torus) => torus.frame().x_axis(),
-        Surface::Revolution(_) | Surface::Extrusion(_) => direction.any_orthonormal_vector(),
+        Surface::Revolution(_) | Surface::Extrusion(_) | Surface::BSpline(_) => {
+            direction.any_orthonormal_vector()
+        }
     };
     (x_axis - direction * x_axis.dot(direction)).try_normalize()
 }

@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use caditor_geometry::{Plane, Point3, Vector3};
 use caditor_kernel::{
-    BSpline, Curve, EdgeId, FaceId, IntersectionCurve, Interval, ShellId, Solid, Surface, VertexId,
+    BSpline, BSplineSurface, Curve, EdgeId, FaceId, IntersectionCurve, Interval, ShellId, Solid,
+    Surface, VertexId,
 };
 
 use crate::write::{Data, Ref, list, logical, text};
@@ -126,7 +127,13 @@ impl<'a> Shapes<'a> {
         let edge = solid.edge(id).ok_or(Unsupported)?;
         let start = self.vertex(solid, edge.start())?;
         let end = self.vertex(solid, edge.end())?;
-        let curve = self.curve(edge.curve(), Some(edge.interval()))?;
+        let ends = [edge.start(), edge.end()]
+            .map(|vertex| solid.vertex(vertex).map(|vertex| vertex.point()));
+        let ends = match ends {
+            [Some(start), Some(end)] => Some((start, end)),
+            _ => None,
+        };
+        let curve = self.curve(edge.curve(), Some(edge.interval()), ends)?;
         let written = self
             .data
             .add(format!("EDGE_CURVE('',{start},{end},{curve},.T.)"));
@@ -134,7 +141,12 @@ impl<'a> Shapes<'a> {
         Ok(written)
     }
 
-    fn curve(&mut self, curve: &Curve, interval: Option<Interval>) -> Result<Ref, Unsupported> {
+    fn curve(
+        &mut self,
+        curve: &Curve,
+        interval: Option<Interval>,
+        ends: Option<(Point3, Point3)>,
+    ) -> Result<Ref, Unsupported> {
         Ok(match curve {
             Curve::Line(line) => {
                 let origin = point(self.data, line.origin());
@@ -158,7 +170,7 @@ impl<'a> Shapes<'a> {
             Curve::Intersection(intersection) => {
                 let range = interval.unwrap_or_else(|| intersection.domain());
                 let trimmed = intersection.trimmed(range).ok_or(Unsupported)?;
-                let spline = hermite_spline(&trimmed).ok_or(Unsupported)?;
+                let spline = hermite_spline(&trimmed, ends).ok_or(Unsupported)?;
                 self.spline(&spline)
             }
             _ => return Err(Unsupported),
@@ -186,6 +198,48 @@ impl<'a> Shapes<'a> {
                     "(BOUNDED_CURVE() B_SPLINE_CURVE({degree},{points},.UNSPECIFIED.,.F.,.F.) B_SPLINE_CURVE_WITH_KNOTS({multiplicities},{knots},.UNSPECIFIED.) CURVE() GEOMETRIC_REPRESENTATION_ITEM() RATIONAL_B_SPLINE_CURVE({weights}) REPRESENTATION_ITEM(''))"
                 ))
             }
+        }
+    }
+
+    fn spline_surface(&mut self, spline: &BSplineSurface) -> Ref {
+        let mut grid = Vec::with_capacity(spline.columns());
+        let mut weights = Vec::with_capacity(spline.columns());
+        for column in 0..spline.columns() {
+            let mut row = Vec::with_capacity(spline.rows());
+            let mut row_weights = Vec::with_capacity(spline.rows());
+            for index in 0..spline.rows() {
+                let control = spline.control_point(column, index).unwrap_or(Point3::ZERO);
+                row.push(point(self.data, control));
+                row_weights.push(
+                    spline
+                        .weights()
+                        .and_then(|weights| weights.get(index * spline.columns() + column))
+                        .copied()
+                        .unwrap_or(1.0),
+                );
+            }
+            grid.push(list(row));
+            weights.push(self.data.reals(row_weights));
+        }
+        let (u_multiplicities, u_knots) = knot_runs(spline.u_knots());
+        let (v_multiplicities, v_knots) = knot_runs(spline.v_knots());
+        let (u_degree, v_degree) = (spline.u_degree(), spline.v_degree());
+        let grid = list(grid);
+        let knots = format!(
+            "{},{},{},{}",
+            list(u_multiplicities),
+            list(v_multiplicities),
+            self.data.reals(u_knots),
+            self.data.reals(v_knots)
+        );
+        match spline.weights() {
+            None => self.data.add(format!(
+                "B_SPLINE_SURFACE_WITH_KNOTS('',{u_degree},{v_degree},{grid},.UNSPECIFIED.,.F.,.F.,.F.,{knots},.UNSPECIFIED.)"
+            )),
+            Some(_) => self.data.add(format!(
+                "(BOUNDED_SURFACE() B_SPLINE_SURFACE({u_degree},{v_degree},{grid},.UNSPECIFIED.,.F.,.F.,.F.) B_SPLINE_SURFACE_WITH_KNOTS({knots},.UNSPECIFIED.) GEOMETRIC_REPRESENTATION_ITEM() RATIONAL_B_SPLINE_SURFACE({}) REPRESENTATION_ITEM('') SURFACE())",
+                list(weights)
+            )),
         }
     }
 
@@ -233,15 +287,16 @@ impl<'a> Shapes<'a> {
                     .add(format!("TOROIDAL_SURFACE('',{frame},{major},{minor})"))
             }
             Surface::Extrusion(extrusion) => {
-                let profile = self.curve(extrusion.profile(), None)?;
+                let profile = self.curve(extrusion.profile(), None, None)?;
                 let direction = direction(self.data, extrusion.direction());
                 let vector = self.data.add(format!("VECTOR('',{direction},1.)"));
                 self.data.add(format!(
                     "SURFACE_OF_LINEAR_EXTRUSION('',{profile},{vector})"
                 ))
             }
+            Surface::BSpline(spline) => self.spline_surface(spline),
             Surface::Revolution(revolution) => {
-                let profile = self.curve(revolution.profile(), None)?;
+                let profile = self.curve(revolution.profile(), None, None)?;
                 let origin = point(self.data, revolution.axis_origin());
                 let axis = direction(self.data, revolution.axis_direction());
                 let placement = self
@@ -294,7 +349,10 @@ fn knot_runs(knots: &[f64]) -> (Vec<usize>, Vec<f64>) {
     (multiplicities, distinct)
 }
 
-fn hermite_spline(curve: &IntersectionCurve) -> Option<BSpline<Point3>> {
+fn hermite_spline(
+    curve: &IntersectionCurve,
+    ends: Option<(Point3, Point3)>,
+) -> Option<BSpline<Point3>> {
     let nodes = curve.nodes();
     let first = nodes.first()?;
     let mut points = vec![first.point];
@@ -312,6 +370,14 @@ fn hermite_spline(curve: &IntersectionCurve) -> Option<BSpline<Point3>> {
         knots.extend([end.parameter; 3]);
     }
     knots.push(nodes.last()?.parameter);
+    if let Some((start, end)) = ends {
+        if let Some(first) = points.first_mut() {
+            *first = start;
+        }
+        if let Some(last) = points.last_mut() {
+            *last = end;
+        }
+    }
     BSpline::new(3, knots, points).ok()
 }
 

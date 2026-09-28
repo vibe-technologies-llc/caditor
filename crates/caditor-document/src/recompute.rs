@@ -13,7 +13,7 @@ use crate::{
     attachment, blend,
     datum::{self, DatumResult},
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
-    shell,
+    import, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult},
     values::ParameterValues,
 };
@@ -521,6 +521,7 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::Blend(definition) => blend::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Shell(definition) => shell::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Datum(definition) => datum::evaluate(feature, definition, inputs),
+            FeatureKind::Import(definition) => import::evaluate(feature, definition),
         }
     }
 }

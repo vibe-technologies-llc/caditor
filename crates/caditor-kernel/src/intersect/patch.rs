@@ -257,6 +257,7 @@ pub(crate) fn patch_bounds(surface: &Surface, bounds: Aabb2) -> Aabb {
             translated(profile, direction * v_range.start())
                 .union(translated(profile, direction * v_range.end()))
         }
+        Surface::BSpline(spline) => spline.bounds(u_range, v_range),
     }
 }
 
@@ -271,6 +272,7 @@ pub(crate) fn rotational_ring(surface: &Surface, v: f64) -> (Point3, Vector3, Ve
         Surface::Revolution(revolution) => (revolution.axis_origin(), revolution.axis_direction()),
         Surface::Plane(plane) => (plane.frame().origin(), plane.frame().normal()),
         Surface::Extrusion(extrusion) => (at_zero.point, extrusion.direction()),
+        Surface::BSpline(_) => (at_zero.point, at_zero.normal().unwrap_or(Vector3::Z)),
     };
     let center = axis_origin + axis * (at_zero.point - axis_origin).dot(axis);
     let radial = at_zero.point - center;

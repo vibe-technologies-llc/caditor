@@ -250,7 +250,7 @@ fn around_curve(
                 radius: torus.minor_radius(),
             })
         }
-        Surface::Extrusion(_) | Surface::Revolution(_) => None,
+        Surface::Extrusion(_) | Surface::Revolution(_) | Surface::BSpline(_) => None,
     }
 }
 

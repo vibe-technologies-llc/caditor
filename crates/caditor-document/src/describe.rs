@@ -32,6 +32,7 @@ pub fn describe_origin(document: &Document, origin: Option<FaceOrigin>) -> Strin
         FaceOrigin::EndCap { .. } => format!("{name} end face"),
         FaceOrigin::Fillet { .. } | FaceOrigin::Chamfer { .. } => format!("{name} face"),
         FaceOrigin::Shell { .. } => format!("{name} inner face"),
+        FaceOrigin::Imported { face, .. } => format!("{name} face {}", u64::from(face) + 1),
     }
 }
 

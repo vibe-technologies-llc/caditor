@@ -16,6 +16,8 @@ const MAX_REFINE_DEPTH: usize = 40;
 const MAX_SEGMENT_TURN: f64 = 0.35;
 const MAX_UNROLLED_PERIODS: i64 = 8;
 const SMALL_TURN: f64 = 1e-6;
+const TOUCHING_ITERATIONS: usize = 12;
+const TOUCHING_GAP: f64 = LINEAR_RESOLUTION;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct IntersectionNode {
@@ -121,6 +123,15 @@ impl IntersectionCurve {
         contacts: &[Contact],
         closed: bool,
     ) -> Option<Self> {
+        Self::traced(surfaces, contacts, closed, Touching::Refuse)
+    }
+
+    fn traced(
+        surfaces: [Surface; 2],
+        contacts: &[Contact],
+        closed: bool,
+        touching: Touching,
+    ) -> Option<Self> {
         let traced = {
             let pair = {
                 let [a, b] = &surfaces;
@@ -148,7 +159,7 @@ impl IntersectionCurve {
                 });
             }
             traced.dedup_by(|b, a| a.contact.point.distance(b.contact.point) <= 1e-12);
-            refine_traced(pair, &traced)
+            refine_traced(pair, &traced, touching)
         };
         let mut nodes = Vec::with_capacity(traced.len());
         let mut parameter = 0.0;
@@ -170,6 +181,37 @@ impl IntersectionCurve {
         }
         nodes.dedup_by(|b, a| b.parameter <= a.parameter);
         Self::new(surfaces, nodes, closed).ok()
+    }
+
+    pub fn through(surfaces: [Surface; 2], points: &[Point3], closed: bool) -> Option<Self> {
+        let mut contacts: Vec<Contact> = Vec::with_capacity(points.len());
+        {
+            let [first, second] = &surfaces;
+            let pair = [first, second];
+            let mut hints: Option<[Point2; 2]> = None;
+            for (index, point) in points.iter().enumerate() {
+                let previous = index
+                    .checked_sub(1)
+                    .and_then(|before| points.get(before))
+                    .unwrap_or(point);
+                let next = points.get(index + 1).unwrap_or(point);
+                let tangent = (*next - *previous).try_normalize()?;
+                let start = [
+                    first.project(*point, hints.map(|[hint, _]| hint)),
+                    second.project(*point, hints.map(|[_, hint]| hint)),
+                ];
+                let contact = refine_on_plane(pair, start, *point, tangent)
+                    .or_else(|| touching_contact(pair, start, *point))?;
+                hints = Some(contact.uv);
+                contacts.push(contact);
+            }
+        }
+        if closed
+            && let (Some(first), Some(last)) = (contacts.first().copied(), contacts.last_mut())
+        {
+            *last = first;
+        }
+        Self::traced(surfaces, &contacts, closed, Touching::Follow)
     }
 
     pub fn surfaces(&self) -> &[Surface; 2] {
@@ -434,7 +476,37 @@ impl IntersectionCurve {
     }
 }
 
-fn refine_traced(surfaces: [&Surface; 2], traced: &[Traced]) -> Vec<Traced> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Touching {
+    Refuse,
+    Follow,
+}
+
+fn touching_contact(surfaces: [&Surface; 2], start: [Point2; 2], point: Point3) -> Option<Contact> {
+    let [first, second] = surfaces;
+    let [mut first_uv, mut second_uv] = start;
+    let mut current = point;
+    for _ in 0..TOUCHING_ITERATIONS {
+        first_uv = first.project(current, Some(first_uv));
+        let on_first = first.point_at(first_uv);
+        second_uv = second.project(on_first, Some(second_uv));
+        let on_second = second.point_at(second_uv);
+        let gap = on_first.distance(on_second);
+        current = on_first.lerp(on_second, 0.5);
+        if gap <= TOUCHING_GAP {
+            return Some(Contact {
+                uv: [
+                    first.project(current, Some(first_uv)),
+                    second.project(current, Some(second_uv)),
+                ],
+                point: current,
+            });
+        }
+    }
+    None
+}
+
+fn refine_traced(surfaces: [&Surface; 2], traced: &[Traced], touching: Touching) -> Vec<Traced> {
     let Some(first) = traced.first() else {
         return Vec::new();
     };
@@ -446,7 +518,7 @@ fn refine_traced(surfaces: [&Surface; 2], traced: &[Traced]) -> Vec<Traced> {
         let mut pending = vec![(*start, *end, 0usize)];
         while let Some((low, high, depth)) = pending.pop() {
             let split = (depth < MAX_REFINE_DEPTH && refined.len() + pending.len() < MAX_NODES)
-                .then(|| midpoint(surfaces, &low, &high))
+                .then(|| midpoint(surfaces, &low, &high, touching))
                 .flatten();
             match split {
                 Some(middle) => {
@@ -460,7 +532,12 @@ fn refine_traced(surfaces: [&Surface; 2], traced: &[Traced]) -> Vec<Traced> {
     refined
 }
 
-fn midpoint(surfaces: [&Surface; 2], low: &Traced, high: &Traced) -> Option<Traced> {
+fn midpoint(
+    surfaces: [&Surface; 2],
+    low: &Traced,
+    high: &Traced,
+    touching: Touching,
+) -> Option<Traced> {
     let span = arc_estimate(
         low.contact.point,
         low.tangent,
@@ -490,7 +567,11 @@ fn midpoint(surfaces: [&Surface; 2], low: &Traced, high: &Traced) -> Option<Trac
     let normal = derivative
         .try_normalize()
         .or_else(|| (high.contact.point - low.contact.point).try_normalize())?;
-    let contact = refine_on_plane(surfaces, hint, guess, normal)?;
+    let contact = match touching {
+        Touching::Refuse => refine_on_plane(surfaces, hint, guess, normal)?,
+        Touching::Follow => refine_on_plane(surfaces, hint, guess, normal)
+            .or_else(|| touching_contact(surfaces, hint, guess))?,
+    };
     let deviation = contact.point.distance(guess);
     if deviation <= INTERSECTION_TOLERANCE && turn <= MAX_SEGMENT_TURN {
         return None;

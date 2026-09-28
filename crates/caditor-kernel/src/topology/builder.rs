@@ -20,6 +20,7 @@ use crate::{
 };
 
 const INTERVAL_SLACK: f64 = 1e-9;
+const LOOP_PLACEMENT_SLACK: f64 = 1e-9;
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum BuildError {
@@ -198,9 +199,24 @@ impl SolidBuilder {
             hint = Some(pcurve.end());
             fitted.push((edge_id, sense, pcurve));
         }
-        let id = self.add_loop_with_pcurves(face, fitted)?;
+        let placed = place_loop(&surface, self.first_loop_bounds(face), fitted);
+        let id = self.add_loop_with_pcurves(face, placed)?;
         self.align_seams(face);
         Ok(id)
+    }
+
+    fn first_loop_bounds(&self, face: FaceId) -> Option<(Point2, Point2)> {
+        let first = *self.solid.face(face)?.loops.first()?;
+        let face_loop = self.solid.face_loop(first)?;
+        let mut samples = face_loop
+            .coedges
+            .iter()
+            .filter_map(|coedge| self.solid.coedge(*coedge))
+            .flat_map(|coedge| coedge.pcurve.samples().iter().map(|sample| sample.uv));
+        let start = samples.next()?;
+        Some(samples.fold((start, start), |(low, high), uv| {
+            (low.min(uv), high.max(uv))
+        }))
     }
 
     pub fn add_loop_with_pcurves(
@@ -323,6 +339,47 @@ fn check_interval(curve: &Curve, interval: Interval) -> Result<(), BuildError> {
     } else {
         Err(BuildError::IntervalOutsideDomain)
     }
+}
+
+fn place_loop(
+    surface: &Surface,
+    outer: Option<(Point2, Point2)>,
+    fitted: Vec<(EdgeId, Sense, Pcurve)>,
+) -> Vec<(EdgeId, Sense, Pcurve)> {
+    let uvs: Vec<Point2> = fitted
+        .iter()
+        .flat_map(|(_, _, pcurve)| pcurve.samples().iter().map(|sample| sample.uv))
+        .collect();
+    let Some(first) = uvs.first() else {
+        return fitted;
+    };
+    let (low, high) = uvs.iter().fold((*first, *first), |(low, high), uv| {
+        (low.min(*uv), high.max(*uv))
+    });
+    let middle = (low + high) * 0.5;
+    let shift = |period: Option<f64>, value: f64, target_low: f64| -> f64 {
+        match period.filter(|period| *period > 0.0 && period.is_finite()) {
+            Some(period) => -((value - target_low) / period).floor() * period,
+            None => 0.0,
+        }
+    };
+    let offset = match outer {
+        None => Vector2::new(
+            shift(surface.u_period(), low.x + LOOP_PLACEMENT_SLACK, 0.0),
+            shift(surface.v_period(), low.y + LOOP_PLACEMENT_SLACK, 0.0),
+        ),
+        Some((outer_low, _)) => Vector2::new(
+            shift(surface.u_period(), middle.x, outer_low.x),
+            shift(surface.v_period(), middle.y, outer_low.y),
+        ),
+    };
+    if offset == Vector2::ZERO {
+        return fitted;
+    }
+    fitted
+        .into_iter()
+        .map(|(edge, sense, pcurve)| (edge, sense, pcurve.shifted(offset)))
+        .collect()
 }
 
 fn mean_uv(pcurve: &Pcurve) -> Point2 {

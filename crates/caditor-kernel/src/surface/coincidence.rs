@@ -45,8 +45,10 @@ pub(crate) fn same_surface(a: &Surface, b: &Surface) -> Option<Sense> {
                 && same_length(first.minor_radius(), second.minor_radius());
             matching.then_some(Sense::Same)
         }
-        (Surface::Extrusion(_) | Surface::Revolution(_), _)
-        | (_, Surface::Extrusion(_) | Surface::Revolution(_)) => sampled(a, b),
+        (Surface::Extrusion(_) | Surface::Revolution(_) | Surface::BSpline(_), _)
+        | (_, Surface::Extrusion(_) | Surface::Revolution(_) | Surface::BSpline(_)) => {
+            sampled(a, b)
+        }
         _ => None,
     }
 }

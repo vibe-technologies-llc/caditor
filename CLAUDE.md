@@ -66,6 +66,27 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   STEP's. Reals print as the shortest round-tripping decimal with a point, and text escapes
   quotes, backslashes and non-ASCII (`\X2\`). The output was checked against OpenCascade
   (valid, closed, same volume) for every kind of face.
+  - Reading (`part21.rs`, `read/`): a Part 21 parser (header, data sections, complex instances
+    sorted by name, typed values, comments, the `\X\`, `\X2\`, `\X4\` and `\S\` encodings,
+    nesting limit) feeds `read_step`, which returns every `MANIFOLD_SOLID_BREP` and
+    `BREP_WITH_VOIDS` as named kernel solids plus notes, or a `ReadError` in words. Units come
+    from each representation's context (SI prefixes and conversion-based units such as inches
+    and degrees). Assemblies are followed from each solid's representation up to the roots
+    through `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION` (child and parent told apart by
+    `NEXT_ASSEMBLY_USAGE_OCCURRENCE` when present), untransformed relationships and
+    `MAPPED_ITEM`s, giving one solid per placement (at most `MAX_INSTANCES`), named after its
+    product. Geometry covers every kernel surface and curve including B-spline surfaces and
+    curves in all their forms (unclamped ones are clamped by knot insertion), trimmed and
+    surface curves by their basis, and polylines. Topology is surveyed first (which faces use
+    each edge and vertex), then vertices off their faces are moved onto all of them by damped
+    least squares, edges not within a quarter of the resolution of both faces are rebuilt with
+    `IntersectionCurve::through`, loops take their orientation from bounds, oriented edges and
+    `same_sense` (voids from `ORIENTED_CLOSED_SHELL`), the outer loop is the
+    `FACE_OUTER_BOUND`, else the one using a seam, else the largest by area, and faces bounded
+    only by `VERTEX_LOOP`s get a pole-to-pole seam (spheres and closed spline surfaces). Every
+    solid then goes through `SolidBuilder::build`, so an import is valid or a sentence naming the
+    entity; faces that meet only farther apart than `LINEAR_RESOLUTION` are refused in those
+    words.
 - **caditor-geometry**: the math vocabulary, as f64 `glam` aliases (`Point3`, `Rotation3`, …)
   plus `Plane` (origin, normal and in-plane x axis, also used as the frame of every circle and
   rotational surface), `Ray`, `Aabb`, `Aabb2` and the rigid transforms `RigidTransform` and
@@ -124,7 +145,19 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     (a quarter of `LINEAR_RESOLUTION`) of the true intersection, so edges built on it validate.
     A closed one is periodic over its length. `uv_at` and `refined_point` re-project onto both
     surfaces; `trimmed` returns a sub-range as a new curve with the same parameters and shape.
-  - `Surface`: plane, cylinder, cone, sphere, torus, extrusion and revolution. u is the angle
+    `IntersectionCurve::through` rebuilds one from rough points (an imported edge a little off
+    its faces): each point is solved onto both surfaces in its normal plane, and where the
+    surfaces only touch (a tangent fillet edge) by alternating projection, accepting the middle
+    of a gap up to `LINEAR_RESOLUTION`; only this path follows touching surfaces.
+  - `Surface`: plane, cylinder, cone, sphere, torus, extrusion, revolution and `BSplineSurface`
+    (tensor-product, clamped, optionally rational, degree up to 9, points stored row by row with
+    u along a row). A spline surface whose first and last rows or columns meet is periodic in
+    that direction over its knot range (C0 at the seam is enough), and a boundary row collapsed
+    to a point is a pole; a collapsed column cannot be a pole, so importers transpose such
+    surfaces and flip the face. It evaluates second derivatives exactly (rational by the
+    quotient rule), bounds a uv box by the control points of its spans, and projects from a
+    precomputed sample grid plus the hint, refined by Newton, keeping the hint's foot only when
+    it is as close as the best. u is the angle
     around the axis (the frame normal) on every rotational surface; the cone's v is slant
     distance from its reference circle, the sphere's v latitude, the torus's v the tube angle,
     and a revolution's v the profile parameter. An extrusion is (profile parameter, distance).
@@ -148,8 +181,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     hints and moves the second copy of a seam by a period when the chain put both on one side.
     Poles have no degenerate edges: the pole is a vertex, and the uv loop is closed along the
     pole line between the two coedges that meet there, a gap that validation and tessellation
-    both accept; a fitted pcurve end at a pole takes the pole's v exactly. Faces carry a
-    `FaceName` and an optional `FaceOrigin`, edges an `EdgeName`.
+    both accept; a fitted pcurve end at a pole takes the pole's v exactly. `add_loop` places the
+    first loop of a face with its lowest u and v in the principal period and shifts every later
+    loop by whole periods into the outer loop's range, so holes lie inside the outer loop in uv
+    whatever the fitting chain started from. Faces carry a `FaceName` and an optional
+    `FaceOrigin`, edges an `EdgeName`.
   - `Solid::validate` checks a closed, oriented 2-manifold whose geometry agrees with its
     topology (edge uses and senses, loop chaining in space and in uv, vertices on curve ends,
     edges on both surfaces, pcurves on their edges, loop winding and nesting, shell
@@ -161,7 +197,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     surface speeds, plus a uniform grid of interior points spaced by curvature and kept clear of
     the boundary (a direction without curvature gets cells at most four times longer than the
     curved one's, so no triangle spans far across a curved direction); triangles are kept by the
-    parity of constraint crossings from outside. Pole-line points share the pole's position and
+    parity of constraint crossings from outside. Consecutive boundary points at the same vertex
+    whose parameters differ by a spatially negligible gap (an edge ending within the resolution
+    of its vertex) are merged, so such joints do not become spikes. Pole-line points share the
+    pole's position and
     the triangles that collapse there are dropped, so the mesh stays watertight. `Mesh` holds
     shared positions, per-face vertices with exact surface normals, triangles, each face's
     triangle range and each edge's polyline, and computes volume, area and centroid by the
@@ -178,6 +217,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     resort. `FaceOrigin` (side of an entity, start or end cap, with the raw feature and entity
     ids) says in words what a face came from. Later generators (a fillet face named by the edge it
     replaced, boolean fragments that keep their name) are new constructors with new tags.
+    `Solid::imported(feature)` names an imported solid: `FaceName::imported(feature, index)` by
+    the face's position in the solid (its order in the stored STEP text, which never changes),
+    `FaceOrigin::Imported`, and edges `between` their faces, disambiguated like sweeps.
   - References (`naming/reference.rs`) are how later features keep hold of generated topology.
     A `FaceReference` is a face's name, origin and the set of its neighbours' names. It resolves
     to the one face with that name; among fragments of a split face, to the one whose neighbours
@@ -345,6 +387,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     deletion into constraints first, then curves, then points. Setting an entity changes only
     its value, never its kind or the points it uses. `settle_sketch` moves the definition to a
     solved shape so the next solve starts from what the user sees.
+  - Import features (`import.rs`, `FeatureKind::Import`) make a body from an imported solid:
+    they keep the source file's name, the solid and the canonical single-solid STEP text it was
+    read from, which is what the file stores; equality compares the text, not the solid. The
+    body is the solid named by `Solid::imported`, so later features (blends, shells, sketches on
+    faces, datums, adding and removing) hold its faces and edges like any other body's. An
+    import cannot change kind; one whose shape could not be read back fails with a sentence.
   - Blend features (`blend.rs`, `FeatureKind::Blend`) keep a `BlendKind` (fillet or chamfer,
     switchable through `SetFeatureKind`), the body, the chosen `EdgeReference`s and a size
     expression; recompute resolves the references in the body's state before the feature (a
@@ -487,6 +535,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     is `MAX_DRAWING_CURVES`. `drawing_transaction` turns a drawing into one transaction on an
     existing or new sketch, dropping curves shorter than the joint tolerance and joining ends closer
     than a millionth of the drawing's size with `Coincident` constraints.
+  - STEP import (`import/model.rs`): `read_step_file` reads a STEP file through `caditor-step`
+    and canonicalises each solid (written by caditor's own writer and read back, so what is
+    stored is exactly what later loads), giving one `ImportedBody` per solid plus notes;
+    `bodies_transaction` adds an `Import` feature per body under unique names. The model file
+    stores an import as its source name and STEP text (`import` records), and an unreadable one
+    loads as an empty import with a report.
   - Export (`export/`), the one place besides import that follows foreign formats:
     `export_bodies` writes each `ExportBody` (a name and a solid) as STEP through `caditor-step`
     (resolution ignored, no triangle count), or tessellates it at a `MeshResolution` (coarse,
@@ -596,12 +650,14 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     menu with a Cancel button. A path without the format's extension gets it appended, so an
     export never replaces a model file (`.stp` counts as STEP). The outcome is a notice with the
     body count and, for meshes, the triangle count.
-  - Import (`import.rs`): File › Import… (Ctrl+I) picks a DXF file, reads it on the files
-    worker and adds it as one "Import <file>" change to the sketch being edited when the command
-    was given, else to a new sketch on the XY plane named after the file, which is then entered.
-    The outcome is a notice with the curve count; the drawing's notes (units, left-out objects,
-    fitted curves) are shown in the same report dialog as a damaged file's problems. A result
-    that arrives after another document was opened is dropped.
+  - Import (`import.rs`): File › Import… (Ctrl+I) picks a DXF or STEP file (by extension, else
+    by whether it starts like STEP) and reads it on the files worker. A drawing becomes one
+    "Import <file>" change to the sketch being edited when the command was given, else to a new
+    sketch on the XY plane named after the file, which is then entered; a STEP model becomes one
+    change adding an import feature per body. The outcome is a notice with the curve or body
+    count; the file's notes (units, left-out objects, fitted curves, repaired edges) are shown in
+    the same report dialog as a damaged file's problems. A result that arrives after another
+    document was opened is dropped.
   - Version history (`history.rs`): File › Version History… (for a saved model) reads the
     versions from the file on the files worker and lists them newest first as "Saved 2 hours ago
     after “Edit width”", marking damaged ones. Restore loads that version in the background and

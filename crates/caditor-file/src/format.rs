@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use caditor_document::{
     AxisReference, Blend, BlendKind, BodyOperation, Datum, DatumAxis, DatumPlane, Document, Edit,
-    Extrude, ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Parameter,
+    Extrude, ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Import, Parameter,
     PlaneReference, PlaneRotation, PrincipalAxis, PrincipalPlane, RegionChoice, Revolve,
     RevolveAxis, RevolveExtent, Shell, SketchAttachment, SketchFeature, SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
-    EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, RegionKey, VertexName,
+    EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, RegionKey, Solid, VertexName,
 };
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
@@ -53,11 +53,18 @@ pub(crate) enum FeatureKindRecord {
     Shell(ShellRecord),
     Plane(Box<DatumPlaneRecord>),
     Axis(Box<DatumAxisRecord>),
+    Import(ImportRecord),
 }
 
-pub(crate) const FEATURE_KINDS: [&str; 8] = [
-    "sketch", "extrude", "revolve", "fillet", "chamfer", "shell", "plane", "axis",
+pub(crate) const FEATURE_KINDS: [&str; 9] = [
+    "sketch", "extrude", "revolve", "fillet", "chamfer", "shell", "plane", "axis", "import",
 ];
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ImportRecord {
+    pub source: String,
+    pub step: String,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -226,6 +233,7 @@ pub(crate) enum FaceOriginRecord {
     Fillet { feature: u64 },
     Chamfer { feature: u64 },
     Shell { feature: u64 },
+    Imported { feature: u64, face: u32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -542,6 +550,10 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 .map(|face| Lenient::Read(face_record(face)))
                 .collect(),
         }),
+        FeatureKind::Import(import) => FeatureKindRecord::Import(ImportRecord {
+            source: import.source.clone(),
+            step: import.step.to_string(),
+        }),
     }
 }
 
@@ -628,6 +640,7 @@ fn face_record(face: &FaceReference) -> FaceRecord {
             FaceOrigin::Fillet { feature } => FaceOriginRecord::Fillet { feature },
             FaceOrigin::Chamfer { feature } => FaceOriginRecord::Chamfer { feature },
             FaceOrigin::Shell { feature } => FaceOriginRecord::Shell { feature },
+            FaceOrigin::Imported { feature, face } => FaceOriginRecord::Imported { feature, face },
         }),
         neighbours: face
             .neighbours()
@@ -1073,7 +1086,26 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
         FeatureKindRecord::Axis(record) => {
             FeatureKind::Datum(Datum::Axis(restore_datum_axis(record, name, issues)))
         }
+        FeatureKindRecord::Import(record) => {
+            FeatureKind::Import(restore_import(record, name, issues))
+        }
     }
+}
+
+fn restore_import(record: &ImportRecord, name: &str, issues: &mut Vec<String>) -> Import {
+    let solid = match caditor_step::read_step(&record.step) {
+        Ok(mut model) if !model.solids.is_empty() => model.solids.swap_remove(0).solid,
+        Ok(_) => Solid::default(),
+        Err(error) => {
+            issues.push(format!(
+                "The shape of “{name}”, imported from “{}”, could not be read ({error}), so the \
+                 feature has no shape.",
+                record.source
+            ));
+            Solid::default()
+        }
+    };
+    Import::new(record.source.clone(), solid, record.step.as_str())
 }
 
 fn restore_plane_reference(record: &PlaneReferenceRecord) -> Option<PlaneReference> {
@@ -1372,6 +1404,7 @@ fn restore_face(
         FaceOriginRecord::Fillet { feature } => FaceOrigin::Fillet { feature },
         FaceOriginRecord::Chamfer { feature } => FaceOrigin::Chamfer { feature },
         FaceOriginRecord::Shell { feature } => FaceOrigin::Shell { feature },
+        FaceOriginRecord::Imported { feature, face } => FaceOrigin::Imported { feature, face },
     });
     Some(FaceReference::new(
         FaceName::from_digest(restore_digest(face)?),

@@ -53,7 +53,7 @@ pub use crate::{
     sense::Sense,
     shell::{ShellError, shell},
     surface::{
-        Cone, Cylinder, Extrusion, PlaneSurface, Pole, Revolution, Sphere, Surface,
+        BSplineSurface, Cone, Cylinder, Extrusion, PlaneSurface, Pole, Revolution, Sphere, Surface,
         SurfaceDerivatives, Torus,
     },
     tessellation::{

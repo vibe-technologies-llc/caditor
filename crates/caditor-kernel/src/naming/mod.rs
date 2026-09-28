@@ -15,6 +15,7 @@ const END_CAP: u8 = 0x03;
 const BLEND_FACE: u8 = 0x04;
 const CORNER_FACE: u8 = 0x05;
 const SHELL_FACE: u8 = 0x06;
+const IMPORTED_FACE: u8 = 0x07;
 const EDGE_BETWEEN: u8 = 0x10;
 const EDGE_BETWEEN_AT: u8 = 0x11;
 const SEAM_EDGE: u8 = 0x12;
@@ -72,6 +73,13 @@ impl FaceName {
         let mut digest = Digest::new(SHELL_FACE);
         digest.u64(feature);
         digest.u128(original.0);
+        Self(digest.finish())
+    }
+
+    pub fn imported(feature: u64, index: u32) -> Self {
+        let mut digest = Digest::new(IMPORTED_FACE);
+        digest.u64(feature);
+        digest.u32(index);
         Self(digest.finish())
     }
 
@@ -174,6 +182,7 @@ pub enum FaceOrigin {
     Fillet { feature: u64 },
     Chamfer { feature: u64 },
     Shell { feature: u64 },
+    Imported { feature: u64, face: u32 },
 }
 
 impl FaceOrigin {
@@ -184,7 +193,8 @@ impl FaceOrigin {
             | Self::EndCap { feature }
             | Self::Fillet { feature }
             | Self::Chamfer { feature }
-            | Self::Shell { feature } => *feature,
+            | Self::Shell { feature }
+            | Self::Imported { feature, .. } => *feature,
         }
     }
 
@@ -195,7 +205,8 @@ impl FaceOrigin {
             | Self::EndCap { .. }
             | Self::Fillet { .. }
             | Self::Chamfer { .. }
-            | Self::Shell { .. } => None,
+            | Self::Shell { .. }
+            | Self::Imported { .. } => None,
         }
     }
 }

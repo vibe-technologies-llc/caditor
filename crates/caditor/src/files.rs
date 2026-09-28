@@ -12,8 +12,9 @@ use std::{
 use caditor_document::{Document, FeatureId};
 use caditor_file::{
     DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported, FILE_EXTENSION, FileJournal,
-    History, ImportError, LoadError, Loaded, RecentFiles, Recovered, STEP_EXTENSIONS, SavedState,
-    journal_for, load, load_version, read_dxf, scan,
+    History, ImportError, LoadError, Loaded, ModelImport, RecentFiles, Recovered, STEP_EXTENSIONS,
+    STEP_IMPORT_EXTENSIONS, SavedState, journal_for, load, load_version, read_dxf, read_step_file,
+    scan,
 };
 use egui::{Button, Id, KeyboardShortcut, Modal, Modifiers, RichText, Ui};
 use parking_lot::Mutex;
@@ -30,6 +31,8 @@ const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const DIALOG_WIDTH: f32 = 420.0;
 const MODEL_KIND: &str = "caditor model";
 const DRAWING_KIND: &str = "DXF drawing";
+const MODEL_EXCHANGE_KIND: &str = "STEP model";
+const IMPORTABLE_KIND: &str = "Drawings and models";
 pub const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::N);
 pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::O);
 pub const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, egui::Key::S);
@@ -150,7 +153,12 @@ impl Dialogs for NativeDialogs {
 
     fn pick_import(&self, directory: Option<PathBuf>, respond: Respond) {
         Self::spawn(respond, move || {
-            Self::dialog(directory, DRAWING_KIND, &[DXF_EXTENSION])
+            let every: Vec<&str> = std::iter::once(DXF_EXTENSION)
+                .chain(STEP_IMPORT_EXTENSIONS)
+                .collect();
+            Self::dialog(directory, IMPORTABLE_KIND, &every)
+                .add_filter(DRAWING_KIND, &[DXF_EXTENSION])
+                .add_filter(MODEL_EXCHANGE_KIND, &STEP_IMPORT_EXTENSIONS)
                 .set_title("Import")
                 .pick_file()
         });
@@ -220,6 +228,11 @@ enum Event {
         session: u64,
         into: Option<FeatureId>,
         result: Result<Drawing, ImportError>,
+    },
+    ImportedModel {
+        path: PathBuf,
+        session: u64,
+        result: Result<ModelImport, ImportError>,
     },
 }
 
@@ -565,6 +578,23 @@ impl Files {
                     });
                 }
             }
+            Event::ImportedModel {
+                path,
+                session,
+                result,
+            } => {
+                self.importing = None;
+                if session != model.session() {
+                    return;
+                }
+                if let Some(report) = import::place_bodies(model, &path, result) {
+                    self.report = Some(Report {
+                        heading: report.heading,
+                        intro: None,
+                        issues: report.notes,
+                    });
+                }
+            }
         }
     }
 
@@ -575,11 +605,21 @@ impl Files {
             into,
         });
         let session = model.session();
-        self.spawn(move || Event::Imported {
-            result: read_dxf(&path),
-            path,
-            session,
-            into,
+        self.spawn(move || {
+            if import::is_model(&path) {
+                Event::ImportedModel {
+                    result: read_step_file(&path),
+                    path,
+                    session,
+                }
+            } else {
+                Event::Imported {
+                    result: read_dxf(&path),
+                    path,
+                    session,
+                    into,
+                }
+            }
         });
     }
 

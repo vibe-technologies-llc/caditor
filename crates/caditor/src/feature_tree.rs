@@ -146,6 +146,10 @@ fn feature_row(
         FeatureKind::Datum(datum) => {
             datum_panel::show(ui, model, row.selection, actions, feature, datum);
         }
+        FeatureKind::Import(import) => {
+            ui.label(format!("Imported from “{}”", import.source));
+            body_display(ui, model, feature);
+        }
     });
     let mut header = header.inner;
     if state.take_focus(Focus::Feature(id)) {
@@ -185,7 +189,9 @@ fn header_text(ui: &Ui, feature: &Feature, status: Option<&FeatureStatus>) -> Ri
 }
 
 fn edit_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
-    let (hover, command) = edit_command(row);
+    let Some((hover, command)) = edit_command(row) else {
+        return;
+    };
     let response = ui
         .add(Button::selectable(row.edited, EDIT_ICON).small())
         .on_hover_text(hover);
@@ -194,9 +200,9 @@ fn edit_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
     }
 }
 
-fn edit_command(row: &Row<'_>) -> (&'static str, EditingCommand) {
+fn edit_command(row: &Row<'_>) -> Option<(&'static str, EditingCommand)> {
     let id = row.feature.id();
-    match (&row.feature.kind, row.edited) {
+    Some(match (&row.feature.kind, row.edited) {
         (FeatureKind::Sketch(_), true) => (FINISH_SKETCH_LABEL, EditingCommand::Finish),
         (FeatureKind::Sketch(_), false) => (EDIT_SKETCH_LABEL, EditingCommand::Enter(id)),
         (
@@ -210,7 +216,8 @@ fn edit_command(row: &Row<'_>) -> (&'static str, EditingCommand) {
         (FeatureKind::Blend(_), false) => (OPEN_BLEND_LABEL, EditingCommand::OpenSolid(id)),
         (FeatureKind::Shell(_), false) => (OPEN_SHELL_LABEL, EditingCommand::OpenSolid(id)),
         (FeatureKind::Datum(_), false) => (OPEN_DATUM_LABEL, EditingCommand::OpenSolid(id)),
-    }
+        (FeatureKind::Import(_), _) => return None,
+    })
 }
 
 fn start_renaming(state: &mut PanelState, feature: &Feature) {
@@ -275,12 +282,13 @@ fn context_menu(
     let position = row.position;
     let id = feature.id();
     let name = &feature.name;
-    let (label, command) = edit_command(row);
-    if ui.button(label).clicked() {
-        actions.push(Action::Editing(command));
-        ui.close();
+    if let Some((label, command)) = edit_command(row) {
+        if ui.button(label).clicked() {
+            actions.push(Action::Editing(command));
+            ui.close();
+        }
+        ui.separator();
     }
-    ui.separator();
     if ui.button("Rename").clicked() {
         start_renaming(state, feature);
         ui.close();
