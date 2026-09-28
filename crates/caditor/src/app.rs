@@ -63,7 +63,7 @@ pub struct Workspace {
     pub shortcut_editor: Option<ShortcutEditor>,
     pub welcome_open: bool,
     pub about_open: bool,
-    last_offers: Vec<Offer>,
+    pub last_offers: Vec<Offer>,
     applied_appearance: Option<Appearance>,
     keyboard_was_taken: bool,
 }
@@ -203,11 +203,16 @@ pub fn show(
         selection: viewport.selection(),
         appearance: &preferences.appearance,
     };
-    status_bar::show(ui, model, &status, panels, actions);
+    status_bar::show(ui, model, &status, panels, &mut commands, actions);
+    panels::commands(model, editing, panels, &mut commands, actions);
     route_dimension_focus(panels, editing, viewport);
     panels::show(ui, model, viewport.selection(), editing, panels, actions);
     route_dimension_focus(panels, editing, viewport);
+    let selected_before = viewport.selection().clone();
     viewport.show(ui, model, editing, keys_free, &mut commands, actions);
+    if viewport.selection() != &selected_before && !viewport.selection().is_empty() {
+        panels.selected = None;
+    }
     interface_size(&preferences.appearance, &mut commands, actions);
     let open_palette = commands.available(Command::Palette);
     let open_shortcuts = commands.available(Command::KeyboardShortcuts);

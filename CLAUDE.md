@@ -727,6 +727,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     100%. The side panel has collapsible Features and Parameters sections; a feature row is its
     kind icon, name, state icon, edit and more buttons, highlighted with an accent bar while
     open, with failures and outdated states as callouts under it and its properties in a card.
+    Clicking or tabbing to a row's name selects it in the tree (`PanelState::selected`, cleared
+    when the view selection changes); Rename feature (F2), Move feature up or down and Delete
+    feature act on it, else on the open feature (`feature_tree::current_feature`), and Delete
+    selection (Delete) deletes it outside sketch editing. A section opens by itself when a
+    rename or a focus request needs something inside it.
   - `Model` (`model.rs`) owns the `Editor` and the `Recomputer`. The UI gets `&Model` and
     returns `Action`s, which the app performs after the UI pass, so the UI never mutates the
     document directly. Each change submits a snapshot to the worker. Feature geometry is drawn
@@ -859,7 +864,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     constraint's own rule (a radius above zero). Plain-key shortcuts (and Escape, Enter and
     Backspace in the viewport) run only when no widget held keyboard focus at the start of the
     frame or the end of the previous one, so Escape or Enter in a field never reaches the
-    viewport; shortcuts with Ctrl or Alt need only that no text field has focus.
+    viewport; shortcuts with Ctrl or Alt, and plain keys that widgets do not use (letters, Delete,
+    function keys; not Space, Enter, Tab, Escape, arrows, Page Up or Down, Home or End), need
+    only that no text field has focus.
   - Commands (`commands.rs`): every toolbar, menu and sketch-toolbar action is a `Command` with
     a stable id, a title, a category, a `Scope` (anywhere, or only while a sketch is edited) and
     default shortcuts. The `Keymap` in `Preferences` holds the user's bindings as overrides of
@@ -883,7 +890,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     bindings: Add records the next key press (Esc cancels), a binding already used in an
     overlapping scope asks before moving it, clicking a binding removes it, and Reset or Reset
     all go back to the defaults.
-  - Keyboard-only operation: every command is in the palette; Tab moves between widgets and Escape
+  - Keyboard-only operation: every command is in the palette, including recompute (F5) and its
+    cancel, adding a parameter, opening each recent model (an `Offer` may carry a detail, here
+    the file name, shown after the title), recovering unsaved work, cancelling an export and
+    dismissing the notice; Tab moves between widgets and Escape
     leaves them; each feature row has a "⋯" menu with what its right-click menu holds. In the
     viewport, standard views (Alt+0 to Alt+6), orbit (arrows), pan (Shift+arrows) and zoom (Page Up
     and Page Down) are commands; N and Shift+N step a keyboard highlight through the scene's

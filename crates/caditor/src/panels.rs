@@ -4,6 +4,7 @@ use caditor_sketch::ConstraintId;
 use egui::Id;
 
 use crate::{
+    commands::{Command, CommandFrame},
     editing::SketchEditing,
     feature_tree, icons,
     model::{Action, Model},
@@ -17,6 +18,8 @@ const SIDE_PANEL_MIN_WIDTH: f32 = 270.0;
 const SECTION_GAP: f32 = 10.0;
 pub const FEATURES_TITLE: &str = "Features";
 pub const PARAMETERS_TITLE: &str = "Parameters";
+const FEATURES_SECTION: &str = "features";
+const PARAMETERS_SECTION: &str = "parameters";
 const FOCUS_ATTEMPT_FRAMES: u8 = 30;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +89,7 @@ pub struct PanelState {
     focus: Option<PendingFocus>,
     pub renaming: Option<Renaming>,
     pub opened_for_editing: Option<FeatureId>,
+    pub selected: Option<FeatureId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,6 +138,21 @@ impl PanelState {
         })
     }
 
+    fn wants_features(&self) -> bool {
+        self.renaming.is_some()
+            || matches!(
+                self.focus.map(|pending| pending.target),
+                Some(Focus::Feature(_) | Focus::Dimension { .. } | Focus::Constraint { .. })
+            )
+    }
+
+    fn wants_parameters(&self) -> bool {
+        matches!(
+            self.focus.map(|pending| pending.target),
+            Some(Focus::ParameterName(_) | Focus::ParameterValue(_))
+        )
+    }
+
     pub fn focus_inside(&self, feature: FeatureId) -> bool {
         matches!(
             self.focus.map(|pending| pending.target),
@@ -170,12 +189,25 @@ pub fn show(
         .default_size(SIDE_PANEL_WIDTH)
         .min_size(SIDE_PANEL_MIN_WIDTH)
         .show(ui, |ui| {
+            if state.wants_features() {
+                widgets::reveal_section(ui.ctx(), FEATURES_SECTION);
+            }
+            if state.wants_parameters() {
+                widgets::reveal_section(ui.ctx(), PARAMETERS_SECTION);
+            }
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(SECTION_GAP / 2.0);
                 let features = model.document().features().len();
-                widgets::section(ui, "features", FEATURES_TITLE, Some(features), None, |ui| {
-                    feature_tree::show(ui, model, selection, editing, state, actions);
-                });
+                widgets::section(
+                    ui,
+                    FEATURES_SECTION,
+                    FEATURES_TITLE,
+                    Some(features),
+                    None,
+                    |ui| {
+                        feature_tree::show(ui, model, selection, editing, state, actions);
+                    },
+                );
                 ui.add_space(SECTION_GAP);
                 let parameters = model.document().parameters().len();
                 let add = SectionAction {
@@ -184,7 +216,7 @@ pub fn show(
                 };
                 let adding = widgets::section(
                     ui,
-                    "parameters",
+                    PARAMETERS_SECTION,
                     PARAMETERS_TITLE,
                     Some(parameters),
                     Some(add),
@@ -195,4 +227,17 @@ pub fn show(
                 }
             });
         });
+}
+
+pub fn commands(
+    model: &Model,
+    editing: &SketchEditing,
+    state: &mut PanelState,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    feature_tree::commands(model, editing, state, commands, actions);
+    if commands.available(Command::AddParameter) {
+        parameter_table::add(model, state, actions);
+    }
 }

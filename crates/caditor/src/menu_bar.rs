@@ -155,6 +155,25 @@ impl Menus<'_, '_> {
             self.items(ui, [Command::Fillet, Command::Chamfer, Command::Shell]);
             ui.separator();
             self.items(ui, [Command::DatumPlane, Command::DatumAxis]);
+            ui.separator();
+            self.items(
+                ui,
+                [
+                    Command::RenameFeature,
+                    Command::MoveFeatureUp,
+                    Command::MoveFeatureDown,
+                    Command::DeleteFeature,
+                ],
+            );
+            ui.separator();
+            self.items(
+                ui,
+                [
+                    Command::AddParameter,
+                    Command::Recompute,
+                    Command::CancelRecompute,
+                ],
+            );
         });
     }
 
@@ -170,7 +189,6 @@ impl Menus<'_, '_> {
                 "Constraints",
                 |ui| self.items(ui, ConstraintTool::ALL.map(Command::Constraint)),
             );
-            self.item(ui, Command::DeleteSelection);
         });
     }
 

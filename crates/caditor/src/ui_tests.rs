@@ -22,11 +22,12 @@ use tempfile::TempDir;
 use crate::{
     annotations,
     app::{self, Workspace},
+    commands::{Command, Offer, RecentSlot},
     editing::{EditingCommand, Tool},
     export::ExportCommand,
     files::{Dialogs, FileCommand, Files, FilesConfig, Respond},
     history::HistoryCommand,
-    model::{Action, Model, RecomputeStatus, Services, WakerFactory},
+    model::{Action, Model, Notice, RecomputeStatus, Services, WakerFactory},
     onboarding::Hint,
     panels::Focus,
     preferences::{PreferenceChange, Preferences, PreferencesCommand},
@@ -3217,4 +3218,76 @@ fn stepping_the_highlight_visits_a_datum_plane_once() {
     assert_eq!(datums, 1, "{visited:?}");
     let distinct: std::collections::BTreeSet<_> = visited.iter().collect();
     assert_eq!(distinct.len(), visited.len());
+}
+
+fn feature_names(harness: &Harness) -> Vec<String> {
+    harness
+        .document()
+        .features()
+        .map(|feature| feature.name.clone())
+        .collect()
+}
+
+#[test]
+fn a_feature_chosen_in_the_tree_is_moved_renamed_and_deleted_from_the_keyboard() {
+    let mut harness = Harness::new();
+    harness.click("Side sketch");
+    harness.frame();
+    run_from_palette(&mut harness, "move feature up");
+    harness.settle();
+    assert_eq!(feature_names(&harness), ["Side sketch", "Base sketch"]);
+
+    harness.key(Key::F2, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    harness.replace_text("Profile");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.settle();
+    assert_eq!(feature_names(&harness), ["Profile", "Base sketch"]);
+
+    harness.key(Key::Delete, Modifiers::NONE);
+    harness.settle();
+    assert_eq!(feature_names(&harness), ["Base sketch"]);
+    harness.key(Key::Delete, Modifiers::NONE);
+    harness.settle();
+    assert_eq!(feature_names(&harness), ["Base sketch"]);
+}
+
+#[test]
+fn recent_models_notices_and_recompute_are_commands() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("kept.caditor");
+    caditor_file::save(&sample_document().unwrap(), &path, false).unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.command(FileCommand::OpenPath(path.clone()));
+    harness.wait_until("the file is open", |harness| harness.model.path().is_some());
+    harness.command(FileCommand::New);
+    harness.settle();
+    assert_eq!(harness.model.path(), None);
+
+    let recent = harness
+        .workspace
+        .last_offers
+        .iter()
+        .find(|offer| offer.command == Command::OpenRecent(RecentSlot::ALL[0]))
+        .map(Offer::title);
+    assert_eq!(
+        recent.as_deref(),
+        Some("Open the most recent model: kept.caditor")
+    );
+    run_from_palette(&mut harness, "kept");
+    harness.wait_until("the recent model is open", |harness| {
+        harness.model.path() == Some(path.as_path())
+    });
+
+    harness.perform(Action::Inform(Notice::info("Something to read.")));
+    harness.frame();
+    assert!(harness.model.notice().is_some());
+    run_from_palette(&mut harness, "dismiss the notice");
+    harness.frame();
+    assert!(harness.model.notice().is_none());
+
+    run_from_palette(&mut harness, "recompute the model");
+    harness.settle();
+    assert_eq!(harness.model.status(), RecomputeStatus::UpToDate);
 }

@@ -15,6 +15,7 @@ use egui::Ui;
 use parking_lot::Mutex;
 
 use crate::{
+    commands::{Command, CommandFrame},
     feature_tree::count,
     files::FileCommand,
     model::{Action, Model, Notice, RecomputeStatus, display_name},
@@ -23,6 +24,7 @@ use crate::{
 };
 
 const SECTION_GAP: f32 = 10.0;
+const NOT_EXPORTING: &str = "No export is running";
 const NO_BODIES: &str =
     "There are no bodies to export yet. Extrude or revolve a sketch to make one.";
 
@@ -219,20 +221,29 @@ fn with_format_extension(path: PathBuf, format: ExportFormat) -> PathBuf {
     PathBuf::from(named)
 }
 
-pub fn activity(ui: &mut Ui, exporter: &Exporter, actions: &mut Vec<Action>) {
-    let Some(running) = &exporter.running else {
-        return;
-    };
-    ui.spinner();
-    ui.label(format!(
-        "Exporting “{}”…",
-        display_name(Some(&running.path))
-    ));
-    if ui
-        .small_button("Cancel")
-        .on_hover_text("Stop the export without writing the file")
-        .clicked()
-    {
+pub fn activity(
+    ui: &mut Ui,
+    exporter: &Exporter,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let running = exporter.running.as_ref().ok_or(NOT_EXPORTING);
+    let mut cancel = commands.invoke(Command::CancelExport, &running);
+    if let Ok(running) = running {
+        ui.spinner();
+        ui.label(format!(
+            "Exporting “{}”…",
+            display_name(Some(&running.path))
+        ));
+        cancel |= ui
+            .small_button("Cancel")
+            .on_hover_text(commands.with_keys(
+                Command::CancelExport,
+                "Stop the export without writing the file",
+            ))
+            .clicked();
+    }
+    if cancel {
         actions.push(Action::File(FileCommand::Export(ExportCommand::Cancel)));
     }
 }

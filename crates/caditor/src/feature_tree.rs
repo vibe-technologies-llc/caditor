@@ -10,7 +10,9 @@ use egui::{
 
 use crate::{
     appearance::{self, WIDGET_RADIUS},
-    blend_panel, datum_panel, datum_tools,
+    blend_panel,
+    commands::{Command, CommandFrame},
+    datum_panel, datum_tools,
     editing::{EditingCommand, SketchEditing},
     field::{self, DimensionTarget},
     icons,
@@ -23,6 +25,9 @@ use crate::{
     widgets::{self, NAME_FIELD_WIDTH, Tone},
 };
 
+const NO_FEATURE_CHOSEN: &str = "Select a feature in the tree, or open one, first";
+const NOTHING_SELECTED: &str =
+    "Select geometry in an edited sketch, or a feature in the tree, to delete it";
 const MORE_HINT: &str = "Rename, move or delete (also on right-click)";
 const DIMENSION_FIELD_WIDTH: f32 = 150.0;
 const EDIT_SKETCH_LABEL: &str = "Edit sketch";
@@ -66,6 +71,7 @@ pub fn show(
             position: Position { index, count },
             edited: editing.feature() == Some(feature.id())
                 || editing.solid() == Some(feature.id()),
+            selected: state.selected == Some(feature.id()),
         };
         ui.push_id(("feature", feature.id()), |ui| {
             feature_row(ui, model, state, actions, &row);
@@ -84,6 +90,7 @@ struct Row<'a> {
     selection: &'a Selection,
     position: Position,
     edited: bool,
+    selected: bool,
 }
 
 fn feature_row(
@@ -167,6 +174,8 @@ fn feature_row(
     let rect = prepared.content_ui.min_rect() + ROW_MARGIN;
     prepared.frame.fill = if row.edited {
         tokens.accent_subtle
+    } else if row.selected {
+        tokens.hover
     } else if ui.rect_contains_pointer(rect) {
         tokens.stripe
     } else {
@@ -180,6 +189,9 @@ fn feature_row(
     }
     if toggled || name.clicked() {
         collapsing.toggle(ui);
+    }
+    if name.clicked() || name.gained_focus() {
+        state.selected = Some(id);
     }
     let mut name = name;
     if state.take_focus(Focus::Feature(id)) {
@@ -409,8 +421,6 @@ fn context_menu(
 ) {
     let feature = row.feature;
     let position = row.position;
-    let id = feature.id();
-    let name = &feature.name;
     if let Some((label, command)) = edit_command(row) {
         if widgets::menu_item(ui, icons::EDIT, label, None).clicked() {
             actions.push(Action::Editing(command));
@@ -422,53 +432,184 @@ fn context_menu(
         start_renaming(state, feature);
         ui.close();
     }
-    let moves = [
-        ("Move up", icons::MOVE_UP, position.index.checked_sub(1)),
-        (
-            "Move down",
-            icons::MOVE_DOWN,
-            Some(position.index + 1).filter(|below| *below < position.count),
-        ),
-    ];
-    for (label, glyph, target) in moves {
-        let transaction = target.map(|index| {
-            Transaction::single(format!("{label} {name}"), Edit::MoveFeature { id, index })
-        });
-        let check = transaction.as_ref().map(|transaction| {
-            document
-                .check(transaction)
-                .map_err(|error| error.to_string())
-        });
-        let enabled = matches!(check, Some(Ok(())));
+    for direction in Direction::BOTH {
+        let transaction = direction.transaction(document, feature, position);
         let response = ui
-            .add_enabled_ui(enabled, |ui| widgets::menu_item(ui, glyph, label, None))
+            .add_enabled_ui(transaction.is_ok(), |ui| {
+                widgets::menu_item(ui, direction.glyph(), direction.label(), None)
+            })
             .inner;
-        let response = match check {
-            Some(Err(reason)) => response.on_disabled_hover_text(reason),
-            Some(Ok(())) | None => response,
+        let response = match &transaction {
+            Err(reason) => response.on_disabled_hover_text(reason),
+            Ok(_) => response,
         };
         if response.clicked()
-            && let Some(transaction) = transaction
+            && let Ok(transaction) = transaction
         {
             actions.push(Action::Apply(transaction));
             ui.close();
         }
     }
     ui.separator();
-    let delete = Transaction::single(format!("Delete {name}"), Edit::RemoveFeature { id });
-    let check = document.can_remove_feature(id);
+    let delete = delete_transaction(document, feature);
     let response = ui
-        .add_enabled_ui(check.is_ok(), |ui| {
+        .add_enabled_ui(delete.is_ok(), |ui| {
             widgets::menu_item(ui, icons::DELETE, "Delete", None)
         })
         .inner;
-    let response = match check {
-        Err(reason) => response.on_disabled_hover_text(reason.to_string()),
-        Ok(()) => response,
+    let response = match &delete {
+        Err(reason) => response.on_disabled_hover_text(reason),
+        Ok(_) => response,
     };
-    if response.clicked() {
+    if response.clicked()
+        && let Ok(delete) = delete
+    {
         actions.push(Action::Apply(delete));
         ui.close();
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Direction {
+    Up,
+    Down,
+}
+
+impl Direction {
+    const BOTH: [Self; 2] = [Self::Up, Self::Down];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Up => "Move up",
+            Self::Down => "Move down",
+        }
+    }
+
+    fn glyph(self) -> &'static str {
+        match self {
+            Self::Up => icons::MOVE_UP,
+            Self::Down => icons::MOVE_DOWN,
+        }
+    }
+
+    fn command(self) -> Command {
+        match self {
+            Self::Up => Command::MoveFeatureUp,
+            Self::Down => Command::MoveFeatureDown,
+        }
+    }
+
+    fn transaction(
+        self,
+        document: &Document,
+        feature: &Feature,
+        position: Position,
+    ) -> Result<Transaction, String> {
+        let name = &feature.name;
+        let index = match self {
+            Self::Up => position
+                .index
+                .checked_sub(1)
+                .ok_or_else(|| format!("{name} is already the first feature"))?,
+            Self::Down => Some(position.index + 1)
+                .filter(|below| *below < position.count)
+                .ok_or_else(|| format!("{name} is already the last feature"))?,
+        };
+        let transaction = Transaction::single(
+            format!("{} {name}", self.label()),
+            Edit::MoveFeature {
+                id: feature.id(),
+                index,
+            },
+        );
+        document
+            .check(&transaction)
+            .map_err(|error| error.to_string())?;
+        Ok(transaction)
+    }
+}
+
+fn delete_transaction(document: &Document, feature: &Feature) -> Result<Transaction, String> {
+    let id = feature.id();
+    document
+        .can_remove_feature(id)
+        .map_err(|error| error.to_string())?;
+    Ok(Transaction::single(
+        format!("Delete {}", feature.name),
+        Edit::RemoveFeature { id },
+    ))
+}
+
+pub fn current_feature<'a>(
+    document: &'a Document,
+    editing: &SketchEditing,
+    state: &PanelState,
+) -> Option<&'a Feature> {
+    state
+        .selected
+        .and_then(|id| document.feature(id))
+        .or_else(|| {
+            editing
+                .feature()
+                .or(editing.solid())
+                .and_then(|id| document.feature(id))
+        })
+}
+
+pub fn commands(
+    model: &Model,
+    editing: &SketchEditing,
+    state: &mut PanelState,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let document = model.document();
+    let current = current_feature(document, editing, state);
+    let chosen = current.ok_or(NO_FEATURE_CHOSEN);
+    if commands.invoke(Command::RenameFeature, &chosen)
+        && let Some(feature) = current
+    {
+        state.selected = Some(feature.id());
+        start_renaming(state, feature);
+    }
+    let position = current.and_then(|feature| {
+        Some(Position {
+            index: document.feature_index(feature.id())?,
+            count: document.features().len(),
+        })
+    });
+    for direction in Direction::BOTH {
+        let transaction = match current.zip(position) {
+            Some((feature, position)) => direction.transaction(document, feature, position),
+            None => Err(NO_FEATURE_CHOSEN.to_owned()),
+        };
+        if commands.invoke(direction.command(), &transaction)
+            && let Ok(transaction) = transaction
+        {
+            actions.push(Action::Apply(transaction));
+        }
+    }
+    let delete = current.map_or_else(
+        || Err(NO_FEATURE_CHOSEN.to_owned()),
+        |feature| delete_transaction(document, feature),
+    );
+    if commands.invoke(Command::DeleteFeature, &delete)
+        && let Ok(delete) = delete
+    {
+        actions.push(Action::Apply(delete));
+    }
+    if editing.active().is_none() {
+        let selected = state
+            .selected
+            .and_then(|id| document.feature(id))
+            .ok_or(NOTHING_SELECTED.to_owned())
+            .and_then(|feature| delete_transaction(document, feature));
+        if commands.invoke(Command::DeleteSelection, &selected)
+            && let Ok(delete) = selected
+        {
+            state.selected = None;
+            actions.push(Action::Apply(delete));
+        }
     }
 }
 

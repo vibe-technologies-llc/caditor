@@ -236,6 +236,14 @@ pub struct SectionAction<'a> {
     pub hover: &'a str,
 }
 
+pub fn reveal_section(ctx: &egui::Context, id: &str) {
+    let mut state = CollapsingState::load_with_default_open(ctx, Id::new(("section", id)), true);
+    if !state.is_open() {
+        state.set_open(true);
+        state.store(ctx);
+    }
+}
+
 pub fn section(
     ui: &mut Ui,
     id: &str,
@@ -279,6 +287,9 @@ pub fn section(
         .inner;
     if toggled {
         state.toggle(ui);
+    }
+    if acted {
+        state.set_open(true);
     }
     state.show_body_unindented(ui, body);
     state.store(ui.ctx());

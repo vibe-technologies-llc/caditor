@@ -5,6 +5,7 @@ use egui::{Align, Label, Layout, RichText, TextStyle, Ui};
 
 use crate::{
     appearance,
+    commands::{Command, CommandFrame},
     feature_tree::count,
     files::{self, Files},
     icons,
@@ -19,6 +20,8 @@ pub const UP_TO_DATE: &str = "Up to date";
 const SHOW_PROGRESS_AFTER: Duration = Duration::from_millis(150);
 const PROGRESS_REFRESH: Duration = Duration::from_millis(100);
 const NOTICE_GAP: f32 = 16.0;
+const NO_NOTICE: &str = "There is no notice to dismiss";
+const NOT_RECOMPUTING: &str = "Nothing is being recomputed";
 
 pub struct StatusContext<'a> {
     pub files: &'a Files,
@@ -31,12 +34,18 @@ pub fn show(
     model: &Model,
     context: &StatusContext<'_>,
     panels: &mut PanelState,
+    commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
+    recompute_commands(model, commands, actions);
+    let dismissible = model.notice().map(|_| ()).ok_or(NO_NOTICE);
+    if commands.invoke(Command::DismissNotice, &dismissible) {
+        actions.push(Action::DismissNotice);
+    }
     egui::Panel::bottom("status").show(ui, |ui| {
         ui.horizontal(|ui| {
             recompute_status(ui, model, panels, actions);
-            files::activity(ui, model, context.files, actions);
+            files::activity(ui, model, context.files, commands, actions);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 interface_size(ui, context.appearance, actions);
                 unit(ui, model, actions);
@@ -48,6 +57,21 @@ pub fn show(
             });
         });
     });
+}
+
+fn recompute_commands(model: &Model, commands: &mut CommandFrame<'_>, actions: &mut Vec<Action>) {
+    if commands.available(Command::Recompute) {
+        actions.push(Action::Recompute);
+    }
+    let running = match model.status() {
+        RecomputeStatus::Running { .. } => Ok(()),
+        RecomputeStatus::UpToDate | RecomputeStatus::Cancelled | RecomputeStatus::Stopped => {
+            Err(NOT_RECOMPUTING)
+        }
+    };
+    if commands.invoke(Command::CancelRecompute, &running) {
+        actions.push(Action::CancelRecompute);
+    }
 }
 
 fn recompute_status(

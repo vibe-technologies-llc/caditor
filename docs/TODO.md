@@ -167,9 +167,6 @@ within a category run from most to least important.
 
 ## Keyboard, accessibility and look
 
-- Not commands, so neither in the palette nor bindable: recompute and cancel, rename, move and
-  delete feature, add parameter, open recent, recover unsaved work, cancel export, dismiss
-  notice. Delete does nothing outside sketches, as the tree has no selection.
 - Red and amber dimension labels on the dark canvas are about 3:1 in light and 1.9:1 in light
   high contrast (`annotations.rs` uses the theme's `error_fg_color`). Give the canvas its own
   tested colours.

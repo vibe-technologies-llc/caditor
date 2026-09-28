@@ -69,11 +69,11 @@ impl Palette {
             .enumerate()
             .filter(|(_, offer)| offer.command != Command::Palette)
             .filter_map(|(order, offer)| {
-                let text = entry_text(offer.command);
+                let text = entry_text(offer);
                 let (fit, length) = if query.is_empty() {
                     (Fit::Start, 0)
                 } else {
-                    let title = offer.command.title().to_lowercase();
+                    let title = offer.title().to_lowercase();
                     (fit(&query, &title, &text.to_lowercase())?, title.len())
                 };
                 let recent = self
@@ -158,7 +158,7 @@ impl Palette {
                             highlighted,
                             (
                                 widgets::icon(icons::command(command)).color(muted),
-                                command.title(),
+                                entry.offer.title(),
                                 Atom::grow(),
                                 small(command.category().label().to_owned()),
                                 small(keys),
@@ -181,17 +181,11 @@ impl Palette {
                     }
                 });
             let highlighted = entries.get(self.highlighted);
-            if let Some(Entry {
-                offer:
-                    Offer {
-                        command,
-                        availability: Err(reason),
-                    },
-                ..
-            }) = highlighted
+            if let Some(Entry { offer }) = highlighted
+                && let Err(reason) = &offer.availability
             {
                 widgets::callout(ui, Tone::Info, |ui| {
-                    ui.label(format!("{} is not available: {reason}.", command.title()));
+                    ui.label(format!("{} is not available: {reason}.", offer.title()));
                 });
             }
             let entered = highlighted
@@ -208,8 +202,8 @@ impl Palette {
     }
 }
 
-pub fn entry_text(command: Command) -> String {
-    format!("{}: {}", command.category().label(), command.title())
+pub fn entry_text(offer: &Offer) -> String {
+    format!("{}: {}", offer.command.category().label(), offer.title())
 }
 
 fn fit(query: &str, title: &str, text: &str) -> Option<Fit> {
@@ -247,6 +241,7 @@ mod tests {
             } else {
                 Err("Select edges".to_owned())
             },
+            detail: None,
         }
     }
 

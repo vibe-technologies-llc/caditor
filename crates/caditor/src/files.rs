@@ -23,7 +23,7 @@ use parking_lot::Mutex;
 
 use crate::{
     appearance,
-    commands::{Command, CommandFrame},
+    commands::{Command, CommandFrame, RecentSlot},
     editing::SketchEditing,
     export::{self, ExportCommand, Exporter},
     history::{self, HistoryCommand, VersionHistory},
@@ -1206,9 +1206,7 @@ pub fn menu(
         }
         if files.has_recoverable() {
             ui.separator();
-            if widgets::menu_item(ui, icons::RECOVER, "Recover Unsaved Work…", None).clicked() {
-                actions.push(Action::File(FileCommand::ShowRecovery));
-            }
+            item(ui, &mut chosen, Command::RecoverUnsaved);
         }
         ui.separator();
         item(ui, &mut chosen, Command::Preferences);
@@ -1216,6 +1214,35 @@ pub fn menu(
         ui.separator();
         item(ui, &mut chosen, Command::Quit);
     });
+    let recoverable = if files.has_recoverable() {
+        Ok(())
+    } else {
+        Err("There is no unsaved work to recover")
+    };
+    if commands.invoke(Command::RecoverUnsaved, &recoverable)
+        || chosen.contains(&Command::RecoverUnsaved)
+    {
+        actions.push(Action::File(FileCommand::ShowRecovery));
+    }
+    for slot in RecentSlot::ALL {
+        let command = Command::OpenRecent(slot);
+        match files.recent().get(slot.index()) {
+            Some(path) => {
+                let detail = Some(display_name(Some(path)));
+                if commands.invoke_detailed(command, detail, &Ok::<(), String>(())) {
+                    actions.push(Action::File(FileCommand::OpenPath(path.clone())));
+                }
+            }
+            None => {
+                if commands.take(command) {
+                    actions.push(Action::Inform(Notice::info(format!(
+                        "{}: there are not that many recent models",
+                        command.title()
+                    ))));
+                }
+            }
+        }
+    }
     for sample in Sample::ALL {
         let command = Command::OpenSample(sample);
         if commands.available(command) || chosen.contains(&command) {
@@ -1251,7 +1278,13 @@ pub fn menu(
     }
 }
 
-pub fn activity(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>) {
+pub fn activity(
+    ui: &mut Ui,
+    model: &Model,
+    files: &Files,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
     if let Some(reason) = model.unprotected() {
         widgets::pill(ui, Tone::Warning, "Not protected").on_hover_text(format!(
             "Unsaved changes are not protected against a crash: {reason}. caditor keeps trying; \
@@ -1269,7 +1302,7 @@ pub fn activity(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Act
         ui.spinner();
         ui.label(format!("Importing “{}”…", display_name(Some(path))));
     }
-    export::activity(ui, &files.exporter, actions);
+    export::activity(ui, &files.exporter, commands, actions);
 }
 
 fn menu_item(ui: &mut Ui, commands: &CommandFrame<'_>, command: Command) -> egui::Response {

@@ -18,6 +18,20 @@ const MODIFIER_KEYS: [Key; 8] = [
     Key::SuperLeft,
     Key::SuperRight,
 ];
+const WIDGET_KEYS: [Key; 12] = [
+    Key::Space,
+    Key::Enter,
+    Key::Tab,
+    Key::Escape,
+    Key::ArrowUp,
+    Key::ArrowDown,
+    Key::ArrowLeft,
+    Key::ArrowRight,
+    Key::PageUp,
+    Key::PageDown,
+    Key::Home,
+    Key::End,
+];
 const KEPT_WHILE_DRAWING: [Key; 2] = [Key::Backspace, Key::Delete];
 const CTRL: &str = "Ctrl";
 const ALT: &str = "Alt";
@@ -60,6 +74,17 @@ pub enum Command {
     HighlightPrevious,
     ActivateHighlighted,
     OpenSample(Sample),
+    OpenRecent(RecentSlot),
+    RecoverUnsaved,
+    CancelExport,
+    Recompute,
+    CancelRecompute,
+    RenameFeature,
+    MoveFeatureUp,
+    MoveFeatureDown,
+    DeleteFeature,
+    AddParameter,
+    DismissNotice,
     Welcome,
     About,
 }
@@ -76,6 +101,52 @@ impl Command {
                 | Self::LargerInterface
                 | Self::SmallerInterface
         )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RecentSlot(usize);
+
+const RECENT_IDS: [&str; 10] = [
+    "file.recent_1",
+    "file.recent_2",
+    "file.recent_3",
+    "file.recent_4",
+    "file.recent_5",
+    "file.recent_6",
+    "file.recent_7",
+    "file.recent_8",
+    "file.recent_9",
+    "file.recent_10",
+];
+
+impl RecentSlot {
+    pub const ALL: [Self; 10] = [
+        Self(0),
+        Self(1),
+        Self(2),
+        Self(3),
+        Self(4),
+        Self(5),
+        Self(6),
+        Self(7),
+        Self(8),
+        Self(9),
+    ];
+
+    pub fn index(self) -> usize {
+        self.0
+    }
+
+    fn id(self) -> &'static str {
+        RECENT_IDS.get(self.0).copied().unwrap_or("file.recent")
+    }
+
+    fn title(self) -> String {
+        match self.0 {
+            0 => "Open the most recent model".to_owned(),
+            index => format!("Open recent model {}", index + 1),
+        }
     }
 }
 
@@ -257,7 +328,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 32] = [
+const PLAIN_COMMANDS: [Command; 42] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -290,6 +361,16 @@ const PLAIN_COMMANDS: [Command; 32] = [
     Command::DatumAxis,
     Command::FinishSketch,
     Command::DeleteSelection,
+    Command::RecoverUnsaved,
+    Command::CancelExport,
+    Command::Recompute,
+    Command::CancelRecompute,
+    Command::RenameFeature,
+    Command::MoveFeatureUp,
+    Command::MoveFeatureDown,
+    Command::DeleteFeature,
+    Command::AddParameter,
+    Command::DismissNotice,
 ];
 
 impl Command {
@@ -301,6 +382,7 @@ impl Command {
             .chain(StandardView::ALL.into_iter().map(Self::View))
             .chain(CameraMove::ALL.into_iter().map(Self::Camera))
             .chain(Sample::ALL.into_iter().map(Self::OpenSample))
+            .chain(RecentSlot::ALL.into_iter().map(Self::OpenRecent))
     }
 
     pub fn id(self) -> &'static str {
@@ -341,7 +423,7 @@ impl Command {
                 ConstraintTool::Angle => "constraint.angle",
                 ConstraintTool::Radius => "constraint.radius",
             },
-            Self::DeleteSelection => "sketch.delete",
+            Self::DeleteSelection => "edit.delete",
             Self::Extrude => "model.extrude",
             Self::Revolve => "model.revolve",
             Self::Fillet => "model.fillet",
@@ -371,6 +453,17 @@ impl Command {
                 Sample::Spool => "file.sample.spool",
                 Sample::Bracket => "file.sample.bracket",
             },
+            Self::OpenRecent(slot) => slot.id(),
+            Self::RecoverUnsaved => "file.recover",
+            Self::CancelExport => "file.cancel_export",
+            Self::Recompute => "model.recompute",
+            Self::CancelRecompute => "model.cancel_recompute",
+            Self::RenameFeature => "model.rename_feature",
+            Self::MoveFeatureUp => "model.move_feature_up",
+            Self::MoveFeatureDown => "model.move_feature_down",
+            Self::DeleteFeature => "model.delete_feature",
+            Self::AddParameter => "model.add_parameter",
+            Self::DismissNotice => "edit.dismiss_notice",
             Self::Welcome => "help.welcome",
             Self::About => "help.about",
         }
@@ -396,7 +489,7 @@ impl Command {
             Self::SketchTool(Tool::Select) => "Select tool",
             Self::SketchTool(tool) => return format!("Draw {}", tool.label().to_lowercase()),
             Self::Constraint(tool) => return tool.label().to_owned(),
-            Self::DeleteSelection => "Delete selected geometry",
+            Self::DeleteSelection => "Delete selection",
             Self::Extrude => "Extrude",
             Self::Revolve => "Revolve",
             Self::Fillet => "Fillet",
@@ -415,6 +508,17 @@ impl Command {
             Self::HighlightPrevious => "Highlight the previous item in the view",
             Self::ActivateHighlighted => "Select the highlighted item",
             Self::OpenSample(sample) => return format!("Open the {} sample", sample.title()),
+            Self::OpenRecent(slot) => return slot.title(),
+            Self::RecoverUnsaved => "Recover Unsaved Work…",
+            Self::CancelExport => "Cancel the export",
+            Self::Recompute => "Recompute the model",
+            Self::CancelRecompute => "Cancel the recompute",
+            Self::RenameFeature => "Rename feature",
+            Self::MoveFeatureUp => "Move feature up",
+            Self::MoveFeatureDown => "Move feature down",
+            Self::DeleteFeature => "Delete feature",
+            Self::AddParameter => "Add parameter",
+            Self::DismissNotice => "Dismiss the notice",
             Self::Welcome => "Welcome and samples…",
             Self::About => "About caditor",
         };
@@ -433,9 +537,16 @@ impl Command {
             | Self::Preferences
             | Self::KeyboardShortcuts
             | Self::Quit
-            | Self::OpenSample(_) => Category::File,
+            | Self::OpenSample(_)
+            | Self::OpenRecent(_)
+            | Self::RecoverUnsaved
+            | Self::CancelExport => Category::File,
             Self::Welcome | Self::About => Category::Help,
-            Self::Palette | Self::Undo | Self::Redo => Category::Edit,
+            Self::Palette
+            | Self::Undo
+            | Self::Redo
+            | Self::DeleteSelection
+            | Self::DismissNotice => Category::Edit,
             Self::FitView
             | Self::LargerInterface
             | Self::SmallerInterface
@@ -452,18 +563,22 @@ impl Command {
             | Self::Chamfer
             | Self::Shell
             | Self::DatumPlane
-            | Self::DatumAxis => Category::Model,
-            Self::FinishSketch | Self::SketchTool(_) | Self::DeleteSelection => Category::Sketch,
+            | Self::DatumAxis
+            | Self::Recompute
+            | Self::CancelRecompute
+            | Self::RenameFeature
+            | Self::MoveFeatureUp
+            | Self::MoveFeatureDown
+            | Self::DeleteFeature
+            | Self::AddParameter => Category::Model,
+            Self::FinishSketch | Self::SketchTool(_) => Category::Sketch,
             Self::Constraint(_) => Category::Constraint,
         }
     }
 
     pub fn scope(self) -> Scope {
         match self {
-            Self::FinishSketch
-            | Self::SketchTool(_)
-            | Self::Constraint(_)
-            | Self::DeleteSelection => Scope::Sketch,
+            Self::FinishSketch | Self::SketchTool(_) | Self::Constraint(_) => Scope::Sketch,
             _ => Scope::Anywhere,
         }
     }
@@ -499,6 +614,8 @@ impl Command {
                 constraint_key(tool),
             )],
             Self::DeleteSelection => vec![plain(Key::Delete), plain(Key::Backspace)],
+            Self::RenameFeature => vec![plain(Key::F2)],
+            Self::Recompute => vec![plain(Key::F5)],
             Self::VersionHistory
             | Self::KeyboardShortcuts
             | Self::NewSketch
@@ -511,6 +628,15 @@ impl Command {
             | Self::DatumPlane
             | Self::DatumAxis
             | Self::OpenSample(_)
+            | Self::OpenRecent(_)
+            | Self::RecoverUnsaved
+            | Self::CancelExport
+            | Self::CancelRecompute
+            | Self::MoveFeatureUp
+            | Self::MoveFeatureDown
+            | Self::DeleteFeature
+            | Self::AddParameter
+            | Self::DismissNotice
             | Self::Welcome
             | Self::About => Vec::new(),
         }
@@ -813,8 +939,10 @@ impl Situation {
         }
         if modifiers.command || modifiers.alt {
             !self.text_focused
-        } else {
+        } else if WIDGET_KEYS.contains(&shortcut.logical_key) {
             self.keys_free
+        } else {
+            self.keys_free || !self.text_focused
         }
     }
 }
@@ -860,6 +988,16 @@ pub fn dispatch(ctx: &egui::Context, keymap: &Keymap, situation: &Situation) -> 
 pub struct Offer {
     pub command: Command,
     pub availability: Result<(), String>,
+    pub detail: Option<String>,
+}
+
+impl Offer {
+    pub fn title(&self) -> String {
+        match &self.detail {
+            Some(detail) => format!("{}: {detail}", self.command.title()),
+            None => self.command.title(),
+        }
+    }
 }
 
 pub struct CommandFrame<'a> {
@@ -897,6 +1035,15 @@ impl<'a> CommandFrame<'a> {
         command: Command,
         availability: &Result<T, E>,
     ) -> bool {
+        self.invoke_detailed(command, None, availability)
+    }
+
+    pub fn invoke_detailed<T, E: ToString>(
+        &mut self,
+        command: Command,
+        detail: Option<String>,
+        availability: &Result<T, E>,
+    ) -> bool {
         let availability = availability
             .as_ref()
             .map(|_| ())
@@ -910,6 +1057,7 @@ impl<'a> CommandFrame<'a> {
         self.offers.push(Offer {
             command,
             availability,
+            detail,
         });
         triggered && ready
     }
@@ -958,6 +1106,23 @@ mod tests {
                 assert_eq!(parse_stored(&stored_text(&shortcut)), Some(shortcut));
             }
         }
+    }
+
+    #[test]
+    fn plain_keys_that_widgets_ignore_work_while_a_button_has_focus() {
+        let button_focused = Situation {
+            keys_free: false,
+            ..Situation::default()
+        };
+        let text_focused = Situation {
+            text_focused: true,
+            ..button_focused
+        };
+        let delete = press(Key::Delete, Modifiers::NONE);
+        let space = press(Key::Space, Modifiers::NONE);
+        assert!(button_focused.accepts(&delete));
+        assert!(!button_focused.accepts(&space));
+        assert!(!text_focused.accepts(&delete));
     }
 
     #[test]
