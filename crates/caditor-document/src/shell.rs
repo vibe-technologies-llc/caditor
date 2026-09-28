@@ -4,6 +4,7 @@ use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_kernel::{FaceId, FaceReference, ReferenceError, ShellError, Solid, shell};
 
 use crate::{
+    datum::capitalized,
     describe::{describe_edge, describe_origin},
     document::{Feature, FeatureId},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
@@ -145,6 +146,42 @@ impl Context<'_> {
                 "Try a different thickness, or shell the body before the feature that made \
                  this edge."
                     .to_owned(),
+            ),
+            ShellError::TooCurved(face) => self.error(
+                format!(
+                    "{} curves more tightly than the thickness, so its wall would vanish.",
+                    capitalized(&self.describe_face(solid, *face))
+                ),
+                "Enter a thickness below the smallest radius of that face.".to_owned(),
+            ),
+            ShellError::Corner(_) => self.error(
+                format!(
+                    "The walls of the body of {} cannot meet at one of its corners, where four or \
+                     more faces come together.",
+                    self.body_name
+                ),
+                "Change the thickness, or open one of the faces at that corner.".to_owned(),
+            ),
+            ShellError::EdgeCollapses(edge) => self.error(
+                format!(
+                    "The wall along {} shrinks to nothing at this thickness.",
+                    describe_edge(self.inputs.document, solid, *edge)
+                ),
+                "Enter a smaller thickness.".to_owned(),
+            ),
+            ShellError::Opening(face) => self.error(
+                format!(
+                    "The opening in {} could not be cut at this thickness.",
+                    self.describe_face(solid, *face)
+                ),
+                "Enter a smaller thickness, or leave this face closed.".to_owned(),
+            ),
+            ShellError::Walls => self.error(
+                format!(
+                    "The walls of the body of {} would cross each other at this thickness.",
+                    self.body_name
+                ),
+                "Enter a smaller thickness.".to_owned(),
             ),
             ShellError::TooThick => self.error(
                 format!(

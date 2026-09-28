@@ -43,6 +43,16 @@ pub enum ShellError {
     UnsupportedEdge(EdgeId),
     #[error("the thickness is too large for the body")]
     TooThick,
+    #[error("face {0:?} curves more tightly than the thickness")]
+    TooCurved(FaceId),
+    #[error("the walls cannot meet at vertex {0:?}")]
+    Corner(VertexId),
+    #[error("the wall along edge {0:?} shrinks to nothing")]
+    EdgeCollapses(EdgeId),
+    #[error("the opening in face {0:?} could not be cut")]
+    Opening(FaceId),
+    #[error("the offset walls do not form a valid solid")]
+    Walls,
     #[error(transparent)]
     Boolean(#[from] BooleanError),
 }
@@ -79,7 +89,7 @@ impl Offsets<'_> {
     fn surface(&self, face: FaceId) -> Result<Surface, ShellError> {
         let definition = self.solid.face(face).ok_or(ShellError::MissingFace(face))?;
         let along_normal = -self.distance(face) * definition.sense().sign();
-        let too_thick = |_| ShellError::TooThick;
+        let too_thick = |_| ShellError::TooCurved(face);
         Ok(match definition.surface() {
             Surface::Plane(plane) => {
                 let frame = plane.frame();
@@ -88,7 +98,7 @@ impl Offsets<'_> {
                     frame.normal(),
                     frame.x_axis(),
                 )
-                .ok_or(ShellError::TooThick)?;
+                .ok_or(ShellError::TooCurved(face))?;
                 PlaneSurface::new(moved).map_err(too_thick)?.into()
             }
             Surface::Cylinder(cylinder) => {
@@ -229,8 +239,9 @@ fn offset_curve(
     let definition = solid.edge(edge).ok_or_else(unsupported)?;
     match definition.curve() {
         Curve::Line(_) => {
-            let line = Line::through(start, end).map_err(|_| ShellError::TooThick)?;
-            let interval = Interval::new(0.0, start.distance(end)).ok_or(ShellError::TooThick)?;
+            let line = Line::through(start, end).map_err(|_| ShellError::EdgeCollapses(edge))?;
+            let interval =
+                Interval::new(0.0, start.distance(end)).ok_or(ShellError::EdgeCollapses(edge))?;
             Ok((line.into(), interval))
         }
         Curve::Circle(circle) => {
@@ -238,8 +249,11 @@ fn offset_curve(
             let center = circle.center() + axis * (start - circle.center()).dot(axis);
             let radial = start - center;
             let radius = radial.length();
-            let x_axis = radial.try_normalize().ok_or(ShellError::TooThick)?;
-            let frame = Plane::from_frame(center, axis, x_axis).ok_or(ShellError::TooThick)?;
+            let x_axis = radial
+                .try_normalize()
+                .ok_or(ShellError::EdgeCollapses(edge))?;
+            let frame =
+                Plane::from_frame(center, axis, x_axis).ok_or(ShellError::EdgeCollapses(edge))?;
             let sweep = if definition.is_closed() {
                 TAU
             } else {
@@ -251,8 +265,8 @@ fn offset_curve(
                     .rem_euclid(TAU);
                 if angle <= f64::EPSILON { TAU } else { angle }
             };
-            let circle = Circle::new(frame, radius).map_err(|_| ShellError::TooThick)?;
-            let interval = Interval::new(0.0, sweep).ok_or(ShellError::TooThick)?;
+            let circle = Circle::new(frame, radius).map_err(|_| ShellError::EdgeCollapses(edge))?;
+            let interval = Interval::new(0.0, sweep).ok_or(ShellError::EdgeCollapses(edge))?;
             Ok((circle.into(), interval))
         }
         _ => Err(unsupported()),
@@ -272,12 +286,15 @@ fn edge_faces(solid: &Solid, edge: EdgeId) -> Vec<FaceId> {
 
 fn inner_solid(offsets: &Offsets<'_>, feature: u64) -> Result<Solid, ShellError> {
     let solid = offsets.solid;
+    for (id, _) in solid.faces() {
+        offsets.surface(id)?;
+    }
     let around = faces_at(solid);
     let mut plan = Plan::default();
     let mut vertices = BTreeMap::new();
     for (id, vertex) in solid.vertices() {
         let faces = around.get(&id).cloned().unwrap_or_default();
-        let moved = offset_vertex(offsets, &faces, vertex.point()).ok_or(ShellError::TooThick)?;
+        let moved = offset_vertex(offsets, &faces, vertex.point()).ok_or(ShellError::Corner(id))?;
         vertices.insert(id, plan.vertex(moved));
     }
     let mut edges = BTreeMap::new();
@@ -326,7 +343,7 @@ fn inner_solid(offsets: &Offsets<'_>, feature: u64) -> Result<Solid, ShellError>
             loops,
         });
     }
-    let built = plan.build().map_err(|_| ShellError::TooThick)?;
+    let built = plan.build().map_err(|_| ShellError::Walls)?;
     Ok(built.renamed(|name, origin| (name, origin)))
 }
 
@@ -378,7 +395,7 @@ fn opening(
         .find(|(_, face)| {
             face.name() == offset_name && face.surface().same_surface(&expected).is_some()
         })
-        .ok_or(ShellError::TooThick)?;
+        .ok_or(ShellError::Opening(open))?;
     let Surface::Plane(surface) = offset.surface() else {
         return Err(ShellError::UnsupportedFace(open));
     };
@@ -391,10 +408,11 @@ fn opening(
         planar_curves(inner, offset_face, &plane).ok_or(ShellError::UnsupportedFace(open))?;
     let regions = Profile::new(&curves)
         .and_then(|profile| profile.select(&Selection::EvenDepth))
-        .map_err(|_| ShellError::TooThick)?;
+        .map_err(|_| ShellError::Opening(open))?;
     let extent = LinearExtent::one_side(OPENING_REACH * offsets.thickness)
-        .map_err(|_| ShellError::TooThick)?;
-    let prism = extrude(&plane, &regions, extent, feature).map_err(|_| ShellError::TooThick)?;
+        .map_err(|_| ShellError::Opening(open))?;
+    let prism =
+        extrude(&plane, &regions, extent, feature).map_err(|_| ShellError::Opening(open))?;
     Ok(prism.renamed(|_, _| (offset_name, Some(FaceOrigin::Shell { feature }))))
 }
 

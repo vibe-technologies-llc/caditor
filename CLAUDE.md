@@ -434,7 +434,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     face's inner face survives the subtraction. Otherwise (or when it fails) every face is
     offset inward and a prism swept outward from the offset copy of each opened face is
     unioned before subtracting, which needs the thickness below half the body in every
-    direction. Inner faces are `FaceName::shell(feature, original)` with `FaceOrigin::Shell`.
+    direction. Inner faces are `FaceName::shell(feature, original)` with `FaceOrigin::Shell`. Failures
+    are told apart: a face curving more tightly than the thickness (`TooCurved`), a corner
+    whose walls cannot meet (`Corner`), an edge whose wall shrinks to nothing, an opening that
+    cannot be cut, walls that cross (`Walls`) and a thickness too large for the body.
 - **caditor-document**: the parametric model: parameters, the ordered feature tree and
   everything that changes or recomputes it.
   - Every mutation is a `Transaction` of `Edit`s passed to `Document::apply`, the only public

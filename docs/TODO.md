@@ -37,10 +37,9 @@ within a category run from most to least important.
   points anywhere (`tessellation/face.rs`); it shows once the cone's grid is refined, which is
   why measured refinement is limited to spline, revolution and extrusion faces. Keep grid points
   off the apex's rulings or drop such triangles without leaving a T-junction.
-- Shell blames every failure on the thickness (`plan.build`, profile and extrude errors map to
-  `TooThick`), and fails on convex faces with a radius below the thickness and at vertices of
-  four or more faces whose offsets do not meet. Add distinct errors, drop collapsed faces, and
-  split such vertices into edges.
+- Shell fails on convex faces with a radius below the thickness and at vertices of four or more
+  faces whose offsets do not meet (both now reported as such). Drop collapsed faces, and split
+  such vertices into edges.
 - Spline surfaces that coincide over only part of their extent are not seen as coincident
   (`coincidence.rs` samples the whole domain), so booleans march between identical surfaces.
 - Validation does not check faces or loops against each other, so self-intersecting imports pass

@@ -225,9 +225,29 @@ fn opened_faces_move_outward_so_the_body_only_needs_room_across_its_walls() {
 fn walls_thicker_than_the_body_are_refused() {
     let solid = cuboid(Vector3::splat(10.0));
     let top = face_facing(&solid, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
-    assert_eq!(shell(&solid, &[top], 6.0, 1), Err(ShellError::TooThick));
+    assert_eq!(shell(&solid, &[top], 6.0, 1), Err(ShellError::Walls));
     assert_eq!(
         shell(&solid, &[top], 0.0, 1),
         Err(ShellError::InvalidThickness)
     );
+}
+
+#[test]
+fn a_round_face_tighter_than_the_thickness_is_named() {
+    let solid = crate::fixtures::cylinder(1.0, 10.0);
+    let (top, _) = solid
+        .faces()
+        .find(|(_, face)| {
+            matches!(face.surface(), Surface::Plane(plane)
+                if plane.frame().origin().z > 5.0)
+        })
+        .unwrap();
+    let (round, _) = solid
+        .faces()
+        .find(|(_, face)| matches!(face.surface(), Surface::Cylinder(_)))
+        .unwrap();
+    match shell(&solid, &[top], 1.5, 70) {
+        Err(ShellError::TooCurved(face)) => assert_eq!(face, round),
+        other => panic!("expected the round face to be named, got {other:?}"),
+    }
 }
