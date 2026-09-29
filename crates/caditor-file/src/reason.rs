@@ -14,6 +14,7 @@ pub(crate) fn reading(error: &Error) -> String {
         ErrorKind::PermissionDenied => "you do not have permission to read it".to_owned(),
         ErrorKind::IsADirectory => "it is a folder, not a file".to_owned(),
         ErrorKind::OutOfMemory => "there is not enough memory to read it".to_owned(),
+        ErrorKind::InvalidFilename => "its name is longer than the system allows".to_owned(),
         _ => format!("the system reported an error ({error})"),
     }
 }
@@ -30,6 +31,7 @@ pub(crate) fn writing(error: &Error) -> String {
         ErrorKind::ReadOnlyFilesystem => "its folder is on a read-only drive".to_owned(),
         ErrorKind::StorageFull | ErrorKind::QuotaExceeded => "the disk is full".to_owned(),
         ErrorKind::IsADirectory => "a folder with that name already exists".to_owned(),
+        ErrorKind::InvalidFilename => "its name is longer than the system allows".to_owned(),
         _ => format!("the system reported an error ({error})"),
     }
 }

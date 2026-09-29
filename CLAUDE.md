@@ -660,8 +660,13 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Saving writes a temporary sibling, fsyncs it, renames it over the target and fsyncs the
     directory, keeping the target's permissions. A symbolic link is followed to the file it
     names, which is what gets replaced. A failed directory fsync after the rename is logged, not
-    reported as a failed save, and temporary siblings left by processes that no longer exist are
-    removed after each write. A save refuses to go ahead when the earlier versions in the file
+    reported as a failed save. Temporary siblings are named
+    `.<name>.<boot>-<pid>-<n>.tmp`, `<boot>` being the start of the kernel's `boot_id`, and those
+    of this boot whose process no longer exists are removed after each write, so another
+    machine's save in progress on a shared folder is left alone. Names that would pass the
+    file system's 255 bytes (temporaries, `.damaged` copies) are cut and end in a hash
+    (`paths::fitting`), and a model whose name leaves no room for `.<name>.journal` keeps its
+    journal in the recovery directory. A save refuses to go ahead when the earlier versions in the file
     it replaces cannot be read, since it would drop them. Overwriting a file that loaded with
     problems first keeps the original as `<name>.damaged.caditor` (`keep_copy`, shared with the
     preferences: a hard link, or where links are unsupported a copy synced under a temporary name

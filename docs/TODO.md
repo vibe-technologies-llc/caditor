@@ -34,12 +34,6 @@ within a category run from most to least important.
   snapshot and the journal snapshot are each one chunk (`MAX_CONTENT`). Chunk per record.
 - Saving keeps the mode but not the owner group, ACLs or extended attributes, and the temporary
   sibling exists at umask mode before `set_permissions` (`save.rs` `write_and_sync`).
-- A name near `NAME_MAX` opens but cannot be saved or journaled next to the file, since the
-  temporary `.<name>.<pid>-<n>.tmp` and `.<name>.journal` exceed it; the save reports only that
-  the system reported an error.
-- Orphaned temporaries are removed when their pid is missing from the local `/proc`
-  (`save.rs`), which deletes another host's in-flight save on a shared folder. Put a host or boot
-  identifier in the name.
 - Deltas set no zstd window or long-distance matching (`caditor-zstd` `compress_after`), so
   versions above the default window are close to full copies. Size the window to prefix plus
   data, raise the decoder's `windowLogMax`, and test with a prefix of several MiB.

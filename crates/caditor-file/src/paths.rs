@@ -1,5 +1,6 @@
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
+    os::unix::ffi::OsStringExt,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -33,12 +34,33 @@ pub fn recovery_dir(state_dir: &Path) -> PathBuf {
 }
 
 pub(crate) fn adjacent_journal(file: &Path) -> Option<PathBuf> {
-    let name = file.file_name()?;
+    let name = file
+        .file_name()
+        .filter(|name| name.len() + ADJACENT_JOURNAL_ROOM <= MAX_NAME_BYTES)?;
     let mut journal = OsString::from(".");
     journal.push(name);
     journal.push(".");
     journal.push(JOURNAL_EXTENSION);
     Some(file.with_file_name(journal))
+}
+
+pub(crate) const MAX_NAME_BYTES: usize = 255;
+const ADJACENT_JOURNAL_ROOM: usize = 40;
+
+pub(crate) fn fitting(name: &OsStr, limit: usize) -> OsString {
+    let bytes = name.as_encoded_bytes();
+    if bytes.len() <= limit {
+        return name.to_os_string();
+    }
+    let hash = format!("~{:016x}", path_hash(Path::new(name)));
+    let room = limit.saturating_sub(hash.len());
+    let cut = match name.to_str() {
+        Some(text) => text.floor_char_boundary(room),
+        None => room,
+    };
+    let mut shortened = OsString::from_vec(bytes.get(..cut).unwrap_or_default().to_vec());
+    shortened.push(hash);
+    shortened
 }
 
 fn path_hash(path: &Path) -> u64 {

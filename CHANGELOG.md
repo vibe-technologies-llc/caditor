@@ -47,6 +47,8 @@ The first release of caditor.
   where.
 - Save As adds `.caditor` to names such as "Bracket v1.2", asks before replacing a file the
   dialog did not name, and refuses a model open in another window.
+- Models whose names are as long as the file system allows can be saved, and saving in a folder
+  shared with another computer never removes that computer's save in progress.
 - Opening, importing or saving over a device, pipe or file larger than 2 GiB is refused with
   the reason instead of hanging or closing caditor.
 - Import of DXF drawings into sketches and of STEP models as bodies; export of bodies as STEP,

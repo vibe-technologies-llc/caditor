@@ -15,7 +15,7 @@ use super::{
     binary::testing::{
         corrupt_chunk, current_model_from_json, model_from_json, records_as_json, rewrite_journal,
     },
-    *,
+    save, *,
 };
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -1738,20 +1738,60 @@ fn a_save_that_cannot_read_the_earlier_versions_fails_and_changes_nothing() {
 fn orphaned_temporary_files_are_removed_by_the_next_save() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
-    let orphan = dir.path().join(".model.caditor.4294967295-3.tmp");
-    let ours = dir
+    let tag = save::boot_tag();
+    let orphan = dir
         .path()
-        .join(format!(".model.caditor.{}-999.tmp", std::process::id()));
+        .join(format!(".model.caditor.{tag}-4294967295-3.tmp"));
+    let ours = dir.path().join(format!(
+        ".model.caditor.{tag}-{}-999.tmp",
+        std::process::id()
+    ));
+    let other_host = dir
+        .path()
+        .join(".model.caditor.0123456789abcdef-4294967295-3.tmp");
     let unrelated = dir.path().join(".model.caditor.notes.tmp");
-    for file in [&orphan, &ours, &unrelated] {
+    for file in [&orphan, &ours, &other_host, &unrelated] {
         fs::write(file, "partial").unwrap();
     }
 
     save(&sample(), &path, false).unwrap();
 
-    assert!(!orphan.exists());
+    assert_eq!(!orphan.exists(), tag != "unknown");
     assert!(ours.exists());
+    assert!(other_host.exists());
     assert!(unrelated.exists());
+}
+
+#[test]
+fn a_model_whose_name_fills_the_limit_is_saved_backed_up_and_journaled() {
+    let dir = TempDir::new().unwrap();
+    let name = format!("{}.caditor", "é".repeat(123));
+    assert_eq!(name.len(), 254);
+    let path = dir.path().join(&name);
+    fs::write(&path, "damaged original").unwrap();
+
+    let backup = save(&sample(), &path, true).unwrap().unwrap();
+    assert_eq!(fs::read_to_string(&backup).unwrap(), "damaged original");
+    assert!(backup.file_name().unwrap().len() <= 255);
+    assert!(backup.to_str().unwrap().ends_with(".damaged.caditor"));
+    save(&sample(), &path, false).unwrap();
+    assert_eq!(load(&path).unwrap().document, sample());
+
+    let start = Start {
+        file: Some(path.clone()),
+        ..untitled(&sample())
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    let mut editor = Editor::new(sample());
+    record_session(&storage, &mut editor);
+    assert!(storage.poll().unwrap().is_empty());
+    crash(storage);
+    let FileJournal::Recoverable(recovered) =
+        journal_for(&path, Some(&dir.path().join("recovery")))
+    else {
+        panic!("the journal should be kept in the recovery folder");
+    };
+    assert_eq!(recovered.editor.document(), editor.document());
 }
 
 #[test]

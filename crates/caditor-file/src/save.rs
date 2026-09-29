@@ -1,9 +1,12 @@
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fs::{self, File},
     io::{self, Write},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
     time::SystemTime,
 };
 
@@ -11,6 +14,7 @@ use caditor_document::Document;
 
 use crate::{
     binary,
+    paths::{MAX_NAME_BYTES, fitting},
     read::{ensure_regular, read_file},
     reason,
 };
@@ -20,6 +24,11 @@ const MAX_BACKUP_ATTEMPTS: u32 = 1000;
 const MAX_LINK_DEPTH: usize = 40;
 const TEMPORARY_SUFFIX: &str = ".tmp";
 const PROCESSES: &str = "/proc";
+const BOOT_ID: &str = "/proc/sys/kernel/random/boot_id";
+const BOOT_TAG_LENGTH: usize = 16;
+const UNKNOWN_BOOT: &str = "unknown";
+const TEMPORARY_STEM_LIMIT: usize = 190;
+const BACKUP_ROOM: usize = 16;
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -179,7 +188,8 @@ pub(crate) fn remove_orphaned_temporaries(path: &Path) {
         return;
     };
     let processes = Path::new(PROCESSES);
-    if !processes.join("self").exists() {
+    let tag = boot_tag();
+    if tag == UNKNOWN_BOOT || !processes.join("self").exists() {
         return;
     }
     let parent = if parent.as_os_str().is_empty() {
@@ -190,9 +200,7 @@ pub(crate) fn remove_orphaned_temporaries(path: &Path) {
     let Ok(entries) = fs::read_dir(parent) else {
         return;
     };
-    let mut prefix = OsString::from(".");
-    prefix.push(name);
-    prefix.push(".");
+    let prefix = temporary_prefix(name);
     let prefix = prefix.as_encoded_bytes();
     let ours = std::process::id();
     for entry in entries.filter_map(Result::ok) {
@@ -200,7 +208,7 @@ pub(crate) fn remove_orphaned_temporaries(path: &Path) {
         let Some(owner) = file_name
             .as_encoded_bytes()
             .strip_prefix(prefix)
-            .and_then(temporary_owner)
+            .and_then(|suffix| temporary_owner(suffix, tag))
         else {
             continue;
         };
@@ -214,9 +222,13 @@ pub(crate) fn remove_orphaned_temporaries(path: &Path) {
     }
 }
 
-fn temporary_owner(suffix: &[u8]) -> Option<u32> {
+fn temporary_owner(suffix: &[u8], tag: &str) -> Option<u32> {
     let suffix = std::str::from_utf8(suffix).ok()?;
-    let (owner, counter) = suffix.strip_suffix(TEMPORARY_SUFFIX)?.split_once('-')?;
+    let rest = suffix
+        .strip_suffix(TEMPORARY_SUFFIX)?
+        .strip_prefix(tag)?
+        .strip_prefix('-')?;
+    let (owner, counter) = rest.split_once('-')?;
     let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
     (digits(owner) && digits(counter))
         .then(|| owner.parse().ok())
@@ -236,14 +248,37 @@ pub(crate) fn temporary_sibling(path: &Path) -> io::Result<PathBuf> {
     let name = path
         .file_name()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "the path has no file name"))?;
-    let mut temporary = OsString::from(".");
-    temporary.push(name);
+    let mut temporary = temporary_prefix(name);
     temporary.push(format!(
-        ".{}-{}{TEMPORARY_SUFFIX}",
+        "{}-{}-{}{TEMPORARY_SUFFIX}",
+        boot_tag(),
         std::process::id(),
         TEMPORARY_COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
     Ok(path.with_file_name(temporary))
+}
+
+fn temporary_prefix(name: &OsStr) -> OsString {
+    let mut prefix = OsString::from(".");
+    prefix.push(fitting(name, TEMPORARY_STEM_LIMIT));
+    prefix.push(".");
+    prefix
+}
+
+pub(crate) fn boot_tag() -> &'static str {
+    static TAG: OnceLock<String> = OnceLock::new();
+    TAG.get_or_init(|| {
+        fs::read_to_string(BOOT_ID)
+            .ok()
+            .map(|id| {
+                id.chars()
+                    .filter(char::is_ascii_hexdigit)
+                    .take(BOOT_TAG_LENGTH)
+                    .collect::<String>()
+            })
+            .filter(|tag| tag.len() == BOOT_TAG_LENGTH)
+            .unwrap_or_else(|| UNKNOWN_BOOT.to_owned())
+    })
 }
 
 pub(crate) fn sync_parent(path: &Path) -> io::Result<()> {
@@ -255,8 +290,14 @@ pub(crate) fn sync_parent(path: &Path) -> io::Result<()> {
 }
 
 fn keep_backup(path: &Path) -> io::Result<PathBuf> {
-    let stem = path.file_stem().unwrap_or_default().to_os_string();
     let extension = path.extension().map(|extension| extension.to_os_string());
+    let extension_room = extension
+        .as_ref()
+        .map_or(0, |extension| extension.len() + 1);
+    let stem = fitting(
+        path.file_stem().unwrap_or_default(),
+        MAX_NAME_BYTES.saturating_sub(extension_room + BACKUP_ROOM),
+    );
     let candidates = (1..=MAX_BACKUP_ATTEMPTS).map(|attempt| {
         let mut name = stem.clone();
         name.push(match attempt {
