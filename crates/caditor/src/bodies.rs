@@ -1,10 +1,21 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
-use caditor_document::{Document, Evaluation, FeatureId, FeatureResult};
+use caditor_document::{Document, Evaluation, FeatureId, FeatureKind, FeatureResult};
 pub use caditor_document::{describe_origin, origin_feature};
 use caditor_geometry::{Aabb, Point3};
-use caditor_kernel::{EdgeId, EdgeName, FaceId, FaceName, FaceOrigin, Mesh, Solid, Surface};
+use caditor_kernel::{
+    EdgeId, EdgeName, EdgeReference, FaceId, FaceName, FaceOrigin, FaceReference, Mesh, Solid,
+    Surface,
+};
 use caditor_render::{MeshFace, MeshPoint, ShadedMesh};
+
+use crate::{
+    blend_tools::{self, ChosenEdges},
+    shell_tools,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FaceKey {
@@ -174,11 +185,51 @@ fn local_corner(
     Some(index)
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum OpenChoice {
+    Edges {
+        references: Vec<EdgeReference>,
+        chosen: ChosenEdges,
+    },
+    Faces {
+        references: Vec<FaceReference>,
+        opened: BTreeSet<FaceKey>,
+    },
+    Nothing,
+}
+
+impl OpenChoice {
+    fn of(kind: Option<&FeatureKind>, solid: &Solid, previous: Option<Self>) -> Self {
+        match kind {
+            Some(FeatureKind::Blend(blend)) => match previous {
+                Some(Self::Edges { references, chosen }) if references == blend.edges => {
+                    Self::Edges { references, chosen }
+                }
+                _ => Self::Edges {
+                    references: blend.edges.clone(),
+                    chosen: blend_tools::chosen_edges(solid, blend),
+                },
+            },
+            Some(FeatureKind::Shell(shell)) => match previous {
+                Some(Self::Faces { references, opened }) if references == shell.open => {
+                    Self::Faces { references, opened }
+                }
+                _ => Self::Faces {
+                    references: shell.open.clone(),
+                    opened: shell_tools::opened_faces(solid, shell),
+                },
+            },
+            Some(_) | None => Self::Nothing,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BodyBefore {
     pub feature: FeatureId,
     pub body: FeatureId,
     pub before: BodyMesh,
+    pub choice: OpenChoice,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -192,7 +243,12 @@ impl BodyMeshes {
         self.open.as_ref()
     }
 
-    pub fn update_open(&mut self, evaluation: &Evaluation, feature: Option<FeatureId>) {
+    pub fn update_open(
+        &mut self,
+        document: &Document,
+        evaluation: &Evaluation,
+        feature: Option<FeatureId>,
+    ) {
         let previous = self
             .open
             .take()
@@ -200,14 +256,22 @@ impl BodyMeshes {
         self.open = feature.and_then(|feature| {
             let input = evaluation.body_before(feature)?;
             let solid = input.solid()?;
-            let before = match previous {
-                Some(open) if Arc::ptr_eq(&open.before.source, input) => open.before,
-                _ => BodyMesh::build(input, &solid.solid, solid.mesh()?),
+            let kind = document.feature(feature).map(|owner| &owner.kind);
+            let (before, choice) = match previous {
+                Some(open) if Arc::ptr_eq(&open.before.source, input) => {
+                    let choice = OpenChoice::of(kind, &solid.solid, Some(open.choice));
+                    (open.before, choice)
+                }
+                _ => (
+                    BodyMesh::build(input, &solid.solid, solid.mesh()?),
+                    OpenChoice::of(kind, &solid.solid, None),
+                ),
             };
             Some(BodyBefore {
                 feature,
                 body: solid.body,
                 before,
+                choice,
             })
         });
     }
@@ -251,7 +315,7 @@ impl BodyMeshes {
     }
 }
 
-fn describe_face_id(document: &Document, solid: &Solid, face: FaceId) -> String {
+pub fn describe_face_id(document: &Document, solid: &Solid, face: FaceId) -> String {
     let Some(definition) = solid.face(face) else {
         return "Missing face".to_owned();
     };
@@ -279,9 +343,13 @@ pub fn describe_face(document: &Document, solid: &Solid, key: FaceKey) -> String
 }
 
 pub fn describe_edge(document: &Document, solid: &Solid, name: EdgeName) -> String {
-    let Some(edge) = find_edge(solid, name) else {
-        return "Missing edge".to_owned();
-    };
+    match find_edge(solid, name) {
+        Some(edge) => describe_edge_id(document, solid, edge),
+        None => "Missing edge".to_owned(),
+    }
+}
+
+pub fn describe_edge_id(document: &Document, solid: &Solid, edge: EdgeId) -> String {
     match edge_faces(solid, edge).as_slice() {
         [first, second] => format!(
             "Edge between {} and {}",

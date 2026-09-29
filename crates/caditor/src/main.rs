@@ -29,6 +29,7 @@ mod palette;
 mod panels;
 mod parameter_table;
 mod preferences;
+mod reference_rows;
 mod samples;
 mod scene;
 mod selection;

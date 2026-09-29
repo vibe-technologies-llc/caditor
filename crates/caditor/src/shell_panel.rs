@@ -1,5 +1,6 @@
-use caditor_document::{Feature, FeatureId, Shell, Transaction};
+use caditor_document::{Document, Feature, FeatureId, Resolution, Shell, Transaction};
 use caditor_expression::Dimension;
+use caditor_kernel::{FaceId, Solid};
 use egui::{Id, Ui};
 
 use crate::{
@@ -8,6 +9,7 @@ use crate::{
     feature_tree::count,
     field::{self, Expected},
     model::{Action, Model, Notice},
+    reference_rows::{ReferenceRows, RowCache},
     shell_tools,
     widgets::{self, FIELD_WIDTH},
 };
@@ -82,33 +84,71 @@ fn thickness_row(
     }
 }
 
+const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
+const GONE: &str = "A face that is no longer there";
+
+fn face_row(document: &Document, solid: &Solid, resolution: &Resolution<FaceId>) -> String {
+    match resolution {
+        Resolution::One(face) => bodies::describe_face_id(document, solid, *face),
+        Resolution::Pieces(pieces) => match pieces.first().and_then(|face| solid.face(*face)) {
+            Some(first) => format!(
+                "{}, split into {} pieces",
+                bodies::describe_origin(document, first.origin()),
+                pieces.len()
+            ),
+            None => GONE.to_owned(),
+        },
+        Resolution::Tied(candidates) => format!(
+            "A face that now matches {} separate faces; close it and choose it again",
+            candidates.len()
+        ),
+        Resolution::Missing => GONE.to_owned(),
+    }
+}
+
+fn face_rows(document: &Document, solid: Option<&Solid>, shell: &Shell) -> ReferenceRows {
+    let summary = count(shell.open.len(), "face", "faces");
+    let rows = match solid {
+        Some(solid) => shell
+            .resolutions(solid)
+            .iter()
+            .map(|resolution| face_row(document, solid, resolution))
+            .collect(),
+        None => vec![NO_SHAPE_YET.to_owned(); shell.open.len()],
+    };
+    ReferenceRows { summary, rows }
+}
+
 fn faces_row(
     ui: &mut Ui,
     model: &Model,
+    cache: &mut RowCache,
     feature: FeatureId,
     shell: &Shell,
     opened: bool,
     actions: &mut Vec<Action>,
 ) {
     widgets::caption(ui, "Open faces");
-    let document = model.document();
-    let solid = bodies::input_solid(model.evaluation(), feature);
+    let evaluation = model.evaluation();
+    let listed = cache.rows(
+        feature,
+        evaluation.body_before(feature),
+        model.revision(),
+        || {
+            face_rows(
+                model.document(),
+                bodies::input_solid(evaluation, feature),
+                shell,
+            )
+        },
+    );
     ui.vertical(|ui| {
         if shell.open.is_empty() {
             ui.label(widgets::muted("None: the body is hollow and closed", ui));
         } else {
-            ui.label(count(shell.open.len(), "face", "faces"));
+            ui.label(&listed.summary);
         }
-        for (index, reference) in shell.open.iter().enumerate() {
-            let text = solid
-                .and_then(|solid| {
-                    let face = *shell_tools::resolved(solid, reference).first()?;
-                    let key = bodies::face_keys(solid)
-                        .into_iter()
-                        .find_map(|(id, key)| (id == face).then_some(key))?;
-                    Some(bodies::describe_face(document, solid, key))
-                })
-                .unwrap_or_else(|| "A face that is no longer there".to_owned());
+        for (index, text) in listed.rows.iter().enumerate() {
             let text = widgets::muted(text, ui);
             if widgets::removable_row(ui, text, "Close this face") {
                 let mut changed = shell.clone();
@@ -136,6 +176,7 @@ fn faces_row(
 pub fn show(
     ui: &mut Ui,
     model: &Model,
+    cache: &mut RowCache,
     actions: &mut Vec<Action>,
     feature: &Feature,
     shell: &Shell,
@@ -144,7 +185,7 @@ pub fn show(
     let id = feature.id();
     widgets::properties(ui, ("shell-properties", id), |ui| {
         thickness_row(ui, model, id, shell, actions);
-        faces_row(ui, model, id, shell, opened, actions);
+        faces_row(ui, model, cache, id, shell, opened, actions);
         widgets::caption(ui, "Body");
         ui.label(
             model

@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use caditor_document::{
     Document, Edit, Evaluation, FeatureId, FeatureKind, Shell, Transaction, face_plane,
 };
-use caditor_kernel::{FaceId, FaceReference, ReferenceError, Solid};
+use caditor_kernel::{FaceId, FaceReference, Solid};
 
 use crate::{
     bodies::{self, FaceKey},
@@ -105,19 +105,11 @@ pub fn edit(document: &Document, feature: FeatureId, shell: Shell) -> Option<Tra
     ))
 }
 
-pub fn resolved(solid: &Solid, reference: &FaceReference) -> Vec<FaceId> {
-    match reference.resolve(solid) {
-        Ok(face) => vec![face],
-        Err(ReferenceError::Ambiguous(pieces)) => pieces,
-        Err(ReferenceError::Missing) => Vec::new(),
-    }
-}
-
 pub fn opened_faces(solid: &Solid, shell: &Shell) -> BTreeSet<FaceKey> {
     let opened: BTreeSet<FaceId> = shell
-        .open
+        .resolutions(solid)
         .iter()
-        .flat_map(|reference| resolved(solid, reference))
+        .flat_map(|resolution| resolution.found().iter().copied())
         .collect();
     bodies::face_keys(solid)
         .into_iter()
@@ -133,9 +125,13 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
     let clicked = bodies::find_face(solid, face)?;
     face_plane(solid, clicked)?;
     let mut changed = shell.clone();
-    changed
+    changed.open = shell
         .open
-        .retain(|reference| !resolved(solid, reference).contains(&clicked));
+        .iter()
+        .zip(shell.resolutions(solid))
+        .filter(|(_, resolution)| !resolution.found().contains(&clicked))
+        .map(|(reference, _)| reference.clone())
+        .collect();
     let label = if changed.open.len() == shell.open.len() {
         changed.open.push(FaceReference::capture(solid, clicked)?);
         format!("Open a face of {}", owner.name)

@@ -1,5 +1,5 @@
 use caditor_geometry::Ray;
-use caditor_kernel::{Curve, Edge, EdgeId, FaceId, Sense, Solid};
+use caditor_kernel::{Curve, Edge, EdgeId, FaceId, ReferenceError, Sense, Solid};
 
 use crate::tolerance;
 
@@ -9,48 +9,57 @@ pub enum Unresolved {
     Unrelated(usize),
 }
 
-pub(crate) struct Tally<T> {
-    found: Vec<T>,
-    missing: usize,
-    unrelated: usize,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Resolution<T> {
+    One(T),
+    Pieces(Vec<T>),
+    Tied(Vec<T>),
+    Missing,
 }
 
-impl<T: Ord> Tally<T> {
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
-        Self {
-            found: Vec::with_capacity(capacity),
-            missing: 0,
-            unrelated: 0,
+impl<T> Resolution<T> {
+    pub(crate) fn of(
+        resolved: Result<T, ReferenceError<T>>,
+        related: impl FnOnce(&[T]) -> bool,
+    ) -> Self {
+        match resolved {
+            Ok(item) => Self::One(item),
+            Err(ReferenceError::Ambiguous(pieces)) if related(&pieces) => Self::Pieces(pieces),
+            Err(ReferenceError::Ambiguous(pieces)) => Self::Tied(pieces),
+            Err(ReferenceError::Missing) => Self::Missing,
         }
     }
 
-    pub(crate) fn found(&mut self, item: T) {
-        self.found.push(item);
-    }
-
-    pub(crate) fn pieces(&mut self, pieces: Vec<T>, related: bool) {
-        if related {
-            self.found.extend(pieces);
-        } else {
-            self.unrelated += 1;
+    pub fn found(&self) -> &[T] {
+        match self {
+            Self::One(item) => std::slice::from_ref(item),
+            Self::Pieces(items) | Self::Tied(items) => items,
+            Self::Missing => &[],
         }
     }
+}
 
-    pub(crate) fn missing(&mut self) {
-        self.missing += 1;
-    }
-
-    pub(crate) fn finish(mut self) -> Result<Vec<T>, Unresolved> {
-        if self.missing > 0 {
-            return Err(Unresolved::Missing(self.missing));
+pub(crate) fn tally<T: Ord>(resolutions: Vec<Resolution<T>>) -> Result<Vec<T>, Unresolved> {
+    let mut found = Vec::with_capacity(resolutions.len());
+    let mut missing = 0;
+    let mut unrelated = 0_usize;
+    for resolution in resolutions {
+        match resolution {
+            Resolution::One(item) => found.push(item),
+            Resolution::Pieces(pieces) => found.extend(pieces),
+            Resolution::Tied(_) => unrelated += 1,
+            Resolution::Missing => missing += 1,
         }
-        if self.unrelated > 0 {
-            return Err(Unresolved::Unrelated(self.unrelated));
-        }
-        self.found.sort_unstable();
-        self.found.dedup();
-        Ok(self.found)
     }
+    if missing > 0 {
+        return Err(Unresolved::Missing(missing));
+    }
+    if unrelated > 0 {
+        return Err(Unresolved::Unrelated(unrelated));
+    }
+    found.sort_unstable();
+    found.dedup();
+    Ok(found)
 }
 
 pub(crate) fn pieces_of_one_edge(solid: &Solid, pieces: &[EdgeId]) -> bool {

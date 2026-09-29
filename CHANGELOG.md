@@ -24,6 +24,8 @@ The first release of caditor.
   failed to solve and offers to go to its newest constraint.
 - Extrude and revolve sketch regions into new bodies or add to, remove from or intersect
   existing ones; fillet and chamfer edges; shell bodies with open faces; datum planes and axes.
+- A fillet or chamfer whose edge was split by an earlier cut lists it as that edge in pieces
+  instead of as an edge that is no longer there, and a shell lists a split opening the same way.
 - Shells whose walls are thicker than a rounded edge or corner leave that rounding out of the
   cavity, corners where four or more faces meet become a short ridge inside it, and a thickness
   that would shrink a wall past nothing names the edge where it happens.

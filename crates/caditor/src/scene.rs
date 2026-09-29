@@ -1,8 +1,8 @@
 use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
-    DatumResult, Document, Evaluation, Feature, FeatureId, FeatureKind, FeatureResult,
-    FeatureState, RegionChoice, RevolveAxis, SketchRegion, SolidFeature, displayed_axis,
+    DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
+    RegionChoice, RevolveAxis, SketchRegion, SolidFeature, displayed_axis,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray};
 use caditor_kernel::RegionKey;
@@ -15,13 +15,11 @@ use caditor_sketch::{
 };
 
 use crate::{
-    blend_tools,
-    bodies::{self, BodyBefore, BodyMesh, BodyMeshes},
+    bodies::{BodyBefore, BodyMesh, BodyMeshes, OpenChoice},
     datum_tools,
     drawing::Preview,
     editing::Context,
     selection::{self, Axis, Pickable, PrincipalPlane, Selection},
-    shell_tools,
 };
 
 const MIN_REFERENCE_SIZE: f64 = 20.0;
@@ -585,16 +583,11 @@ impl Builder<'_> {
     }
 
     fn open_before(&mut self, document: &Document, evaluation: &Evaluation, open: &BodyBefore) {
-        let kind = document.feature(open.feature).map(|feature| &feature.kind);
-        let solid = bodies::input_solid(evaluation, open.feature);
-        let chosen = kind
-            .and_then(FeatureKind::blend)
-            .zip(solid)
-            .map(|(blend, solid)| blend_tools::chosen_edges(solid, blend));
-        let opened = kind
-            .and_then(FeatureKind::shell)
-            .zip(solid)
-            .map(|(shell, solid)| shell_tools::opened_faces(solid, shell));
+        let (chosen, opened) = match &open.choice {
+            OpenChoice::Edges { chosen, .. } => (Some(chosen), None),
+            OpenChoice::Faces { opened, .. } => (None, Some(opened)),
+            OpenChoice::Nothing => (None, None),
+        };
         let color = body_color(document, evaluation, open.body);
         let faces = open
             .before

@@ -1,13 +1,13 @@
 use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
-use caditor_kernel::{FaceId, FaceReference, ReferenceError, ShellError, Solid, shell};
+use caditor_kernel::{FaceId, FaceReference, ShellError, Solid, shell};
 
 use crate::{
     datum::capitalized,
     describe::{describe_edge, describe_origin},
     document::{Feature, FeatureId},
-    pieces::{Tally, Unresolved, pieces_of_one_face},
+    pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
 };
@@ -32,19 +32,19 @@ impl Shell {
         BTreeSet::from([self.body])
     }
 
+    pub fn resolutions(&self, solid: &Solid) -> Vec<Resolution<FaceId>> {
+        self.open
+            .iter()
+            .map(|reference| {
+                Resolution::of(reference.resolve(solid), |pieces| {
+                    pieces_of_one_face(solid, pieces)
+                })
+            })
+            .collect()
+    }
+
     pub fn resolve(&self, solid: &Solid) -> Result<Vec<FaceId>, Unresolved> {
-        let mut tally = Tally::with_capacity(self.open.len());
-        for reference in &self.open {
-            match reference.resolve(solid) {
-                Ok(face) => tally.found(face),
-                Err(ReferenceError::Ambiguous(pieces)) => {
-                    let related = pieces_of_one_face(solid, &pieces);
-                    tally.pieces(pieces, related);
-                }
-                Err(ReferenceError::Missing) => tally.missing(),
-            }
-        }
-        tally.finish()
+        tally(self.resolutions(solid))
     }
 }
 

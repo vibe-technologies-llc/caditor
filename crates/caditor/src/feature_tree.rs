@@ -257,11 +257,27 @@ fn body(
             body_display(ui, model, feature);
         }
         FeatureKind::Blend(blend) => {
-            blend_panel::show(ui, model, actions, feature, blend, row.edited);
+            blend_panel::show(
+                ui,
+                model,
+                &mut state.reference_rows,
+                actions,
+                feature,
+                blend,
+                row.edited,
+            );
             body_display(ui, model, feature);
         }
         FeatureKind::Shell(shell) => {
-            shell_panel::show(ui, model, actions, feature, shell, row.edited);
+            shell_panel::show(
+                ui,
+                model,
+                &mut state.reference_rows,
+                actions,
+                feature,
+                shell,
+                row.edited,
+            );
             body_display(ui, model, feature);
         }
         FeatureKind::Datum(datum) => {

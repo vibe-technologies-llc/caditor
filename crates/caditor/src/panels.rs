@@ -9,6 +9,7 @@ use crate::{
     feature_tree, icons,
     model::{Action, Model},
     parameter_table,
+    reference_rows::RowCache,
     selection::{Pickable, Selection},
     widgets::{self, SectionAction},
 };
@@ -93,6 +94,7 @@ pub struct PanelState {
     pub parameter: Option<ParameterId>,
     pub hovered_in_tree: Option<Pickable>,
     pub chosen_in_tree: Option<Pickable>,
+    pub reference_rows: RowCache,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,6 +172,7 @@ impl PanelState {
     }
 
     fn begin_frame(&mut self) {
+        self.reference_rows.begin_frame();
         self.focus = self.focus.and_then(|pending| {
             pending
                 .frames_left

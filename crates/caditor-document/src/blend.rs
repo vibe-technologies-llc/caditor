@@ -1,14 +1,12 @@
 use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
-use caditor_kernel::{
-    BlendError, BlendShape, EdgeId, EdgeNaming, EdgeReference, ReferenceError, Solid, blend,
-};
+use caditor_kernel::{BlendError, BlendShape, EdgeId, EdgeNaming, EdgeReference, Solid, blend};
 
 use crate::{
     describe::describe_edge,
     document::{Feature, FeatureId},
-    pieces::{Tally, Unresolved, pieces_of_one_edge},
+    pieces::{Resolution, Unresolved, pieces_of_one_edge, tally},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
 };
@@ -70,20 +68,20 @@ impl Blend {
         BTreeSet::from([self.body])
     }
 
-    pub fn resolve(&self, solid: &Solid) -> Result<Vec<EdgeId>, Unresolved> {
+    pub fn resolutions(&self, solid: &Solid) -> Vec<Resolution<EdgeId>> {
         let naming = EdgeNaming::new(solid);
-        let mut tally = Tally::with_capacity(self.edges.len());
-        for reference in &self.edges {
-            match reference.resolve_in(&naming) {
-                Ok(edge) => tally.found(edge),
-                Err(ReferenceError::Ambiguous(pieces)) => {
-                    let related = pieces_of_one_edge(solid, &pieces);
-                    tally.pieces(pieces, related);
-                }
-                Err(ReferenceError::Missing) => tally.missing(),
-            }
-        }
-        tally.finish()
+        self.edges
+            .iter()
+            .map(|reference| {
+                Resolution::of(reference.resolve_in(&naming), |pieces| {
+                    pieces_of_one_edge(solid, pieces)
+                })
+            })
+            .collect()
+    }
+
+    pub fn resolve(&self, solid: &Solid) -> Result<Vec<EdgeId>, Unresolved> {
+        tally(self.resolutions(solid))
     }
 }
 

@@ -96,7 +96,6 @@ within a category run from most to least important.
   selection and panels call it and capture references for each selected face every frame.
   Cache a `FaceKey` index per result and compute offers when the selection changes.
 - Every mesh's face style table is uploaded every frame although only the eye offset changes.
-- An open fillet panel reruns `blend_chain` and edge descriptions every frame.
 - An expanded sketch in the tree formats and evaluates every constraint every frame with an
   O(n²) `involved` check; virtualise and cache.
 - Sketch curves are faceted at a fixed 3° regardless of size or zoom.
@@ -126,8 +125,6 @@ within a category run from most to least important.
   points.
 - Dimensions all sit at one fixed offset, so collinear chains overlap, and labels cannot be
   dragged.
-- The fillet panel calls a split edge "no longer there" although recompute fillets all its
-  pieces.
 
 ## Modelling features
 

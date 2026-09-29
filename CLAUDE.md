@@ -632,10 +632,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     import cannot change kind; one whose shape could not be read back fails with a sentence.
   - Blend features (`blend.rs`, `FeatureKind::Blend`) keep a `BlendKind` (fillet or chamfer,
     switchable through `SetFeatureKind`), the body, the chosen `EdgeReference`s and a size
-    expression; recompute resolves the references in the body's state before the feature (a
-    split edge contributes all its pieces when they lie on one line or circle, `pieces.rs`; a lost
-    one, or one tied between separate edges, fails the feature) and maps kernel errors
-    to sentences naming the edge by its faces (`describe.rs`). The state each blend starts from
+    expression; recompute resolves the references in the body's state before the feature (each
+    to a `Resolution`: one edge, the pieces of a split edge when they lie on one line or circle,
+    tied between separate edges, or missing, `pieces.rs`, which the panel lists in the same
+    terms; a lost reference, or one tied between separate edges, fails the feature) and maps
+    kernel errors to sentences naming the edge by its faces (`describe.rs`). The state each blend starts from
     is kept (`Evaluation::body_before`) and meshed so the app can show it while choosing edges.
   - Shell features (`shell.rs`, `FeatureKind::Shell`) keep the body, the opened faces as
     `FaceReference`s (possibly none, for a closed hollow body) and a thickness expression.
@@ -1084,7 +1085,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     body is drawn as it was before the feature with its edges as `Pickable::BlendEdge`: chosen
     edges and the chains they pull in are highlighted, and a click adds an edge or removes the
     references whose chain contains it. The panel switches between fillet and chamfer, edits
-    the size and lists the edges in words.
+    the size and lists the edges in words (a split edge as its pieces). The chains and opened
+    faces of the open feature are kept in `BodyBefore::choice` until its references change, and
+    each blend and shell panel's list in `PanelState::reference_rows` (`reference_rows.rs`) until
+    the state before it or the model's revision changes, so neither is rebuilt every frame.
   - Shells (`shell_tools.rs`, `shell_panel.rs`): the toolbar's Shell takes the selected flat
     faces of one body as the faces to open and creates a 1 mm feature that opens. While open,
     the body is drawn as it was before the feature (`BodyMeshes::body_before`, shared with

@@ -1,6 +1,6 @@
-use caditor_document::{Blend, BlendKind, Feature, FeatureId, Transaction};
+use caditor_document::{Blend, BlendKind, Document, Feature, FeatureId, Resolution, Transaction};
 use caditor_expression::Dimension;
-use caditor_kernel::EdgeNaming;
+use caditor_kernel::{EdgeId, Solid};
 use egui::{Button, ComboBox, Id, Ui};
 
 use crate::{
@@ -10,6 +10,7 @@ use crate::{
     feature_tree::count,
     field::{self, Expected},
     model::{Action, Model, Notice},
+    reference_rows::{ReferenceRows, RowCache},
     widgets::{self, FIELD_WIDTH},
 };
 
@@ -139,44 +140,79 @@ fn size_row(
     }
 }
 
+const NO_SHAPE_YET: &str = "An edge of a body that has no shape yet";
+const GONE: &str = "An edge that is no longer there";
+
+fn edge_row(document: &Document, solid: &Solid, resolution: &Resolution<EdgeId>) -> String {
+    match resolution {
+        Resolution::One(edge) => bodies::describe_edge_id(document, solid, *edge),
+        Resolution::Pieces(pieces) => match pieces.first() {
+            Some(first) => format!(
+                "{}, split into {} pieces",
+                bodies::describe_edge_id(document, solid, *first),
+                pieces.len()
+            ),
+            None => GONE.to_owned(),
+        },
+        Resolution::Tied(candidates) => format!(
+            "An edge that now matches {} separate edges; leave it out and choose it again",
+            candidates.len()
+        ),
+        Resolution::Missing => GONE.to_owned(),
+    }
+}
+
+fn edge_rows(document: &Document, solid: Option<&Solid>, blend: &Blend) -> ReferenceRows {
+    let mut summary = count(blend.edges.len(), "edge", "edges");
+    let Some(solid) = solid else {
+        return ReferenceRows {
+            summary,
+            rows: vec![NO_SHAPE_YET.to_owned(); blend.edges.len()],
+        };
+    };
+    let chosen = blend_tools::chosen_edges(solid, blend);
+    let extra = chosen.followed.len().saturating_sub(chosen.explicit.len());
+    if extra > 0 {
+        summary.push_str(&format!(
+            ", and {} that {} smoothly",
+            count(extra, "edge", "edges"),
+            if extra == 1 { "continues" } else { "continue" }
+        ));
+    }
+    let rows = blend
+        .resolutions(solid)
+        .iter()
+        .map(|resolution| edge_row(document, solid, resolution))
+        .collect();
+    ReferenceRows { summary, rows }
+}
+
 fn edges_row(
     ui: &mut Ui,
     model: &Model,
+    cache: &mut RowCache,
     feature: FeatureId,
     blend: &Blend,
     opened: bool,
     actions: &mut Vec<Action>,
 ) {
     widgets::caption(ui, "Edges");
-    let document = model.document();
-    let solid = bodies::input_solid(model.evaluation(), feature);
-    let chosen = solid.map(|solid| blend_tools::chosen_edges(solid, blend));
+    let evaluation = model.evaluation();
+    let listed = cache.rows(
+        feature,
+        evaluation.body_before(feature),
+        model.revision(),
+        || {
+            edge_rows(
+                model.document(),
+                bodies::input_solid(evaluation, feature),
+                blend,
+            )
+        },
+    );
     ui.vertical(|ui| {
-        let mut summary = count(blend.edges.len(), "edge", "edges");
-        if let Some(chosen) = &chosen {
-            let extra = chosen.followed.len().saturating_sub(chosen.explicit.len());
-            if extra > 0 {
-                summary.push_str(&format!(
-                    ", and {} that {} smoothly",
-                    count(extra, "edge", "edges"),
-                    if extra == 1 { "continues" } else { "continue" }
-                ));
-            }
-        }
-        ui.label(summary);
-        let naming = solid.map(EdgeNaming::new);
-        for (index, reference) in blend.edges.iter().enumerate() {
-            let text = solid
-                .zip(naming.as_ref())
-                .and_then(|(solid, naming)| {
-                    let edge = reference.resolve_in(naming).ok()?;
-                    Some(bodies::describe_edge(
-                        document,
-                        solid,
-                        solid.edge(edge)?.name(),
-                    ))
-                })
-                .unwrap_or_else(|| "An edge that is no longer there".to_owned());
+        ui.label(&listed.summary);
+        for (index, text) in listed.rows.iter().enumerate() {
             let text = widgets::muted(text, ui);
             if widgets::removable_row(ui, text, "Leave this edge out") {
                 let mut changed = blend.clone();
@@ -199,6 +235,7 @@ fn edges_row(
 pub fn show(
     ui: &mut Ui,
     model: &Model,
+    cache: &mut RowCache,
     actions: &mut Vec<Action>,
     feature: &Feature,
     blend: &Blend,
@@ -208,7 +245,7 @@ pub fn show(
     widgets::properties(ui, ("blend-properties", id), |ui| {
         kind_row(ui, model, id, blend, actions);
         size_row(ui, model, id, blend, actions);
-        edges_row(ui, model, id, blend, opened, actions);
+        edges_row(ui, model, cache, id, blend, opened, actions);
         widgets::caption(ui, "Body");
         ui.label(
             model

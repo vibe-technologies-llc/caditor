@@ -28,7 +28,7 @@ pub use crate::{
     edit::{Edit, EditError, Transaction, TransactionBuilder},
     editor::Editor,
     import::Import,
-    pieces::Unresolved,
+    pieces::{Resolution, Unresolved},
     recompute::{
         CancelToken, Evaluation, Evaluator, Failure, FeatureError, FeatureResult, FeatureState,
         FeatureStatus, FixTarget, Inputs, ModelEvaluator, Recompute, SketchResult,

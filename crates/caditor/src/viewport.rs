@@ -302,7 +302,7 @@ impl ViewportState {
             self.last_pick = None;
         }
         self.bodies.update(evaluation);
-        self.bodies.update_open(evaluation, context.solid);
+        self.bodies.update_open(document, evaluation, context.solid);
         self.selection
             .retain_available(document, evaluation, context);
         self.hovered = self

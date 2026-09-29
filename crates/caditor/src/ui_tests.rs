@@ -3010,6 +3010,80 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
     assert!(matches!(chamfer_face, Pickable::Face { .. }));
 }
 
+#[test]
+fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click("Fillet");
+    harness.settle();
+    let fillet = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the fillet is open");
+    let whole = crate::bodies::describe_edge(
+        harness.document(),
+        crate::bodies::input_solid(harness.model.evaluation(), fillet).unwrap(),
+        front,
+    );
+    let listed_whole = harness.shows(&whole);
+
+    let top = Plane::from_frame(
+        caditor_geometry::Point3::new(0.0, 0.0, 10.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .unwrap();
+    let mut slot = Sketch::new(top);
+    rectangle(&mut slot, Point2::new(18.0, -5.0), Point2::new(22.0, 45.0));
+    let last = harness.document().features().len() + 1;
+    let mut transaction = harness.document().transaction("Cut a slot");
+    let sketch = transaction.add_feature("Slot sketch", FeatureKind::from(slot));
+    transaction.add_feature(
+        "Slot",
+        FeatureKind::Solid(SolidFeature::Extrude(caditor_document::Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::OneSide {
+                distance: Expression::parse_stored("2 mm").unwrap(),
+                reversed: true,
+            },
+            operation: BodyOperation::Remove(plate),
+        })),
+    );
+    transaction.edit(Edit::MoveFeature {
+        id: fillet,
+        index: last,
+    });
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    let input = crate::bodies::input_solid(harness.model.evaluation(), fillet).unwrap();
+    let pieces = blend_of(&harness, fillet).resolutions(input);
+    let [caditor_document::Resolution::Pieces(pieces)] = pieces.as_slice() else {
+        panic!("the slot splits the chosen edge in two: {pieces:?}");
+    };
+    let split = format!(
+        "{}, split into 2 pieces",
+        crate::bodies::describe_edge_id(harness.document(), input, pieces[0])
+    );
+
+    assert!(listed_whole);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert_eq!(pieces.len(), 2);
+    assert!(harness.shows(&split), "{split} is listed");
+    assert!(!harness.shows("An edge that is no longer there"));
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(harness.shows(&whole));
+    assert!(!harness.shows(&split));
+}
+
 fn shell_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Shell {
     harness
         .document()

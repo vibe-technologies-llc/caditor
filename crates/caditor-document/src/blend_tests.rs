@@ -425,9 +425,18 @@ fn ambiguous_edges_and_faces_count_only_when_their_pieces_are_one_edge_or_face()
         size: Expression::parse_stored("1 mm").unwrap(),
     };
     let pieces = blend.resolve(solid).unwrap();
-    let back_top = edge_at(solid, Point3::new(2.0, 8.0, 4.0))
-        .resolve(solid)
-        .unwrap();
+    let back_top_reference = edge_at(solid, Point3::new(2.0, 8.0, 4.0));
+    let back_top = back_top_reference.resolve(solid).unwrap();
+    let lost = FaceName::from_digest(5);
+    let gone = EdgeReference::new(
+        EdgeName::from_digest(9),
+        [lost, lost],
+        [VertexName::from_digest(1), VertexName::from_digest(2)],
+    );
+    let listed = Blend {
+        edges: vec![blend.edges[0], back_top_reference, gone],
+        ..blend.clone()
+    };
     let face_at = |z: f64| {
         solid
             .faces()
@@ -443,6 +452,29 @@ fn ambiguous_edges_and_faces_count_only_when_their_pieces_are_one_edge_or_face()
     let bottoms = face_at(0.0);
 
     assert_eq!(pieces.len(), 2);
+    assert_eq!(
+        listed.resolutions(solid),
+        vec![
+            Resolution::Pieces(pieces.clone()),
+            Resolution::One(back_top),
+            Resolution::Missing,
+        ]
+    );
+    assert_eq!(
+        crate::pieces::tally(vec![
+            Resolution::One(back_top),
+            Resolution::Tied(pieces.clone())
+        ]),
+        Err(Unresolved::Unrelated(1))
+    );
+    assert_eq!(
+        crate::pieces::tally(vec![
+            Resolution::Pieces(pieces.clone()),
+            Resolution::One(back_top)
+        ])
+        .map(|found| found.len()),
+        Ok(3)
+    );
     assert!(crate::pieces::pieces_of_one_edge(solid, &pieces));
     assert!(!crate::pieces::pieces_of_one_edge(
         solid,
