@@ -29,6 +29,7 @@ const DIALOG_MARGIN: i8 = 20;
 const DIALOG_FOOTER_GAP: f32 = 14.0;
 const UNDERLINE_WIDTH: f32 = 1.0;
 const CAPTION_KEY: &str = "property-caption";
+const WIDTH_CHANGE: f32 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
@@ -531,6 +532,19 @@ pub fn dialog<T>(
     DialogResponse {
         inner: response.inner,
         close,
+    }
+}
+
+pub fn remembered_width(ui: &Ui, id: Id) -> f32 {
+    ui.data(|data| data.get_temp::<f32>(id)).unwrap_or(0.0)
+}
+
+pub fn remember_width(ui: &Ui, id: Id, width: f32) {
+    let known = ui.data(|data| data.get_temp::<f32>(id));
+    if known.is_none_or(|known| (known - width).abs() > WIDTH_CHANGE) {
+        ui.data_mut(|data| data.insert_temp(id, width));
+        ui.ctx()
+            .request_discard("a bar's trailing items changed width");
     }
 }
 

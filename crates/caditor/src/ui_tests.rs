@@ -36,7 +36,7 @@ use crate::{
     preferences::{PreferenceChange, Preferences, PreferencesCommand},
     scene,
     selection::{Pickable, PrincipalPlane},
-    typed_point,
+    status_bar, typed_point,
     units::LengthUnit,
 };
 
@@ -4479,4 +4479,107 @@ fn the_welcome_dialog_and_tips_are_readable_by_screen_readers() {
     harness.settle();
     assert!(harness.shows("Got it"));
     assert_readable(&harness, "A tip");
+}
+
+fn drag_screen(harness: &mut Harness, from: Pos2, to: Pos2) {
+    harness.events.push(Event::PointerMoved(from));
+    harness.frame();
+    harness.events.push(Event::PointerButton {
+        pos: from,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    for step in 1..=4 {
+        let position = from + (to - from) * (step as f32 / 4.0);
+        harness.events.push(Event::PointerMoved(position));
+        harness.frame();
+    }
+    harness.events.push(Event::PointerButton {
+        pos: to,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    harness.frame();
+}
+
+#[test]
+fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_percent() {
+    let mut harness = Harness::new();
+    let document = harness.document().clone();
+    let name = "Bracket for the front suspension, revised after the second test.caditor";
+    harness
+        .model
+        .replace(document, Some(PathBuf::from(name)), false);
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Scale(2.0),
+    )));
+    let notice = "The sketch could not be placed on the selected face, because the face is curved; \
+                  choose a flat face or a plane";
+    harness.perform(Action::Inform(Notice::error(notice)));
+    harness.frame();
+    harness.frame();
+    let panel_id = Id::new("model");
+    let panel = egui::containers::panel::PanelState::load(&harness.context, panel_id)
+        .unwrap()
+        .outer_rect;
+    drag_screen(
+        &mut harness,
+        Pos2::new(panel.max.x - 1.0, 300.0),
+        Pos2::new(60.0, 300.0),
+    );
+    let narrowed = egui::containers::panel::PanelState::load(&harness.context, panel_id)
+        .unwrap()
+        .outer_rect;
+    for _ in 0..5 {
+        harness.frame();
+    }
+    let settled = egui::containers::panel::PanelState::load(&harness.context, panel_id)
+        .unwrap()
+        .outer_rect;
+    let visible = Rect::from_min_size(Pos2::ZERO, SCREEN.size() / 2.0);
+    let rect_of = |label: &str| {
+        harness
+            .texts
+            .iter()
+            .find(|(shown, _)| shown == label)
+            .unwrap_or_else(|| panic!("{label} is not on screen"))
+            .1
+    };
+    let line = rect_of(status_bar::UP_TO_DATE).height();
+    let overlapping: Vec<(&str, &str)> = harness
+        .texts
+        .iter()
+        .enumerate()
+        .flat_map(|(index, (first, a))| {
+            harness.texts[index + 1..]
+                .iter()
+                .filter(move |(_, b)| a.shrink(0.5).intersects(b.shrink(0.5)))
+                .map(move |(second, _)| (first.as_str(), second.as_str()))
+        })
+        .collect();
+    let outside: Vec<&str> = harness
+        .texts
+        .iter()
+        .filter(|(_, rect)| !visible.expand(0.5).contains_rect(*rect))
+        .map(|(shown, _)| shown.as_str())
+        .collect();
+    let deletes: Vec<Rect> = harness
+        .texts
+        .iter()
+        .filter(|(shown, _)| shown == crate::icons::DELETE)
+        .map(|(_, rect)| *rect)
+        .collect();
+
+    assert!(narrowed.width() < panel.width(), "{narrowed:?}");
+    assert_eq!(settled, narrowed);
+    assert!(overlapping.is_empty(), "{overlapping:#?}");
+    assert!(outside.is_empty(), "{outside:#?}");
+    assert!(rect_of(notice).height() > 1.5 * line, "the notice wraps");
+    assert!(rect_of(name).max.x <= rect_of("Search commands").min.x);
+    assert_eq!(deletes.len(), 2);
+    assert!(deletes.iter().all(|rect| rect.max.x <= narrowed.max.x));
 }

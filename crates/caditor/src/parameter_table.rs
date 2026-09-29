@@ -1,5 +1,5 @@
 use caditor_document::{Document, Edit, Parameter, Transaction};
-use egui::{Grid, Ui};
+use egui::{Grid, Label, RichText, Ui};
 
 use crate::{
     commands::{Command, CommandFrame},
@@ -10,10 +10,14 @@ use crate::{
 };
 
 pub const ADD_LABEL: &str = "Add parameter";
-const COLUMNS: usize = 3;
+const COLUMNS: usize = 4;
 const SPACING: [f32; 2] = [6.0, 4.0];
-const NAME_FIELD_WIDTH: f32 = 84.0;
-const EXPRESSION_FIELD_WIDTH: f32 = 116.0;
+const VALUE_WIDTH: f32 = 72.0;
+const FIELD_MARGIN: f32 = 8.0;
+const SLACK: f32 = 2.0;
+const NAME_SHARE: f32 = 0.42;
+const MIN_NAME_WIDTH: f32 = 48.0;
+const MIN_EXPRESSION_WIDTH: f32 = 64.0;
 const NEW_PARAMETER_NAME: &str = "parameter";
 const NEW_PARAMETER_MILLIMETRES: f64 = 10.0;
 const NO_PARAMETER_CHOSEN: &str =
@@ -32,6 +36,7 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
         }
         return;
     }
+    let widths = FieldWidths::fitting(ui.available_width(), ui.spacing().interact_size.y);
     Grid::new("parameters")
         .num_columns(COLUMNS)
         .striped(true)
@@ -40,14 +45,16 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
             for caption in ["Name", "Expression", "Value"] {
                 widgets::column_caption(ui, caption);
             }
+            ui.label("");
             ui.end_row();
             for parameter in document.parameters() {
-                let error = row(ui, model, state, actions, parameter);
+                let error = row(ui, model, state, actions, parameter, widths);
                 ui.end_row();
                 if let Some(error) = error {
                     ui.label("");
                     let color = ui.visuals().error_fg_color;
                     ui.horizontal_wrapped(|ui| {
+                        ui.set_max_width(widths.expression);
                         widgets::icon_label(ui, icons::FAILED, color);
                         ui.colored_label(color, error);
                     });
@@ -55,6 +62,25 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
                 }
             }
         });
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct FieldWidths {
+    name: f32,
+    expression: f32,
+    value: f32,
+}
+
+impl FieldWidths {
+    fn fitting(available: f32, delete: f32) -> Self {
+        let gaps = (COLUMNS - 1) as f32 * SPACING[0];
+        let fields = available - VALUE_WIDTH - delete - gaps - 2.0 * FIELD_MARGIN - SLACK;
+        Self {
+            name: (fields * NAME_SHARE).max(MIN_NAME_WIDTH),
+            expression: (fields * (1.0 - NAME_SHARE)).max(MIN_EXPRESSION_WIDTH),
+            value: VALUE_WIDTH,
+        }
+    }
 }
 
 pub fn add(model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
@@ -77,6 +103,7 @@ fn row(
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     parameter: &Parameter,
+    widths: FieldWidths,
 ) -> Option<String> {
     let document = model.document();
     let id = parameter.id();
@@ -86,7 +113,7 @@ fn row(
         ui,
         name_focus.field_id(),
         &parameter.name,
-        NAME_FIELD_WIDTH,
+        widths.name,
         state.wants_focus(name_focus),
         |text| {
             field::checked(
@@ -106,7 +133,7 @@ fn row(
         ui,
         value_focus.field_id(),
         &document.expression_text(&parameter.expression),
-        EXPRESSION_FIELD_WIDTH,
+        widths.expression,
         state.wants_focus(value_focus),
         |text| {
             let current = match model.parameters().get(id) {
@@ -138,10 +165,13 @@ fn row(
         actions.push(Action::Apply(transaction));
     }
 
-    ui.horizontal(|ui| {
-        match model.parameters().get(id) {
+    ui.scope(|ui| {
+        ui.set_width(widths.value);
+        ui.horizontal(|ui| match model.parameters().get(id) {
             Some(Ok(value)) => {
-                ui.label(widgets::muted(model.length_unit().show(*value), ui));
+                let shown = model.length_unit().show(*value);
+                ui.add(Label::new(widgets::muted(&shown, ui)).truncate())
+                    .on_hover_text(shown);
             }
             Some(Err(error)) => {
                 let color = ui.visuals().error_fg_color;
@@ -149,14 +179,12 @@ fn row(
                     "{} cannot be evaluated: {error}. Edit its expression.",
                     parameter.name
                 ));
-                ui.colored_label(color, "Error");
+                ui.add(Label::new(RichText::new("Error").color(color)).truncate());
             }
             None => {}
-        }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            delete_button(ui, document, actions, parameter);
         });
     });
+    delete_button(ui, document, actions, parameter);
     name.error.or(expression.error)
 }
 

@@ -1048,8 +1048,15 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     and Finish sketch. The status bar shows recompute progress (or Up to date, or a failed pill
     that focuses the first failed feature), saving, importing and exporting, the current notice
     (an edit clears info and refused-edit notices, never a `Notice::failure` from saving, opening,
-    importing, exporting or the journal), the selection, the length unit (opening Preferences) and the interface size when it is not
-    100%. The side panel has collapsible Features and Parameters sections; a feature row is its
+    importing, exporting or the journal), the selection, the length unit (opening Preferences) and
+    the interface size when it is not 100%. Neither bar clips at large sizes or in narrow
+    windows: the menu bar's search field and model name (which truncates, its path on hover), and
+    the status bar's selection, unit and size, take a row of their own when the width they
+    needed last frame does not fit (`widgets::remembered_width`); the selection gets a fixed
+    share and truncates (all of it on hover), so selecting never moves the 3D view; and a notice
+    too long for the row takes a row of its own and wraps. The parameter table's name and
+    expression fields share the panel's width beside a fixed value column, since content wider
+    than a side panel widens it the next frame. The side panel has collapsible Features and Parameters sections; a feature row is its
     kind icon, name, state icon, edit and more buttons, highlighted with an accent bar while
     open, with failures and outdated states as callouts under it and its properties in a card.
     Clicking or tabbing to a row's name selects it in the tree (`PanelState::selected`, cleared

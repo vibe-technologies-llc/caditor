@@ -12,6 +12,8 @@ const MIN_LABEL_FACING: f64 = 0.3;
 const FIT_BUTTON_HEIGHT: f32 = 22.0;
 const TRIAD_LENGTH: f32 = 26.0;
 const TRIAD_OFFSET: f32 = 34.0;
+const TRIAD_LABEL_REACH: f32 = 1.35;
+const TRIAD_LABEL_ROOM: f32 = 8.0;
 
 const FACE_FILL: [u8; 3] = [58, 64, 76];
 const FACE_HOVER: Color32 = Color32::from_rgb(255, 196, 84);
@@ -181,6 +183,9 @@ pub fn show(
     }
 }
 
+pub const TRIAD_WIDTH: f32 =
+    MARGIN + TRIAD_OFFSET + TRIAD_LENGTH * TRIAD_LABEL_REACH + TRIAD_LABEL_ROOM;
+
 pub fn show_axis_triad(ui: &egui::Ui, viewport: Rect, orientation: Rotation3) {
     let projector = Projector {
         to_view: orientation.inverse(),
@@ -201,7 +206,7 @@ pub fn show_axis_triad(ui: &egui::Ui, viewport: Rect, orientation: Rotation3) {
         let [red, green, blue] = axis.rgb();
         let color = Color32::from_rgb(red, green, blue);
         let tip = projector.project(axis.direction());
-        let label = projector.project(axis.direction() * 1.35);
+        let label = projector.project(axis.direction() * f64::from(TRIAD_LABEL_REACH));
         painter.line_segment([projector.center, tip], Stroke::new(2.0, color));
         painter.text(
             label,

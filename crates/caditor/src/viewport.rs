@@ -944,13 +944,14 @@ impl ViewportState {
                 );
             }
         }
-        canvas::label(
+        canvas::wrapped_label(
             painter,
             rect.right_bottom() - vec2(LABEL_MARGIN, LABEL_MARGIN),
             Align2::RIGHT_BOTTOM,
             &key_hints.navigation,
             FontId::proportional(11.0),
             canvas::MUTED,
+            rect.width() - view_cube::TRIAD_WIDTH - LABEL_MARGIN,
         );
         let prompt = if editing.is_choosing_plane() {
             Some((CHOOSE_PLANE_PROMPT, CHOOSE_PLANE_HINT.to_owned()))

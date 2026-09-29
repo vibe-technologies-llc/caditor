@@ -1,4 +1,4 @@
-use egui::{Button, RichText, TextStyle, Ui, vec2};
+use egui::{Align, Button, Id, Label, Layout, RichText, TextStyle, Ui, vec2};
 
 use crate::{
     appearance,
@@ -13,6 +13,7 @@ use crate::{
 
 pub const SEARCH_LABEL: &str = "Search commands";
 const SEARCH_WIDTH: f32 = 240.0;
+const NAME_ROOM: f32 = 160.0;
 const SKETCH_ONLY: &str = "Only while a sketch is being edited";
 const NOT_HERE: &str = "Not available right now";
 
@@ -29,9 +30,11 @@ pub fn show(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
+    let trailing_id = Id::new("menu-bar-trailing");
     egui::Panel::top("menu-bar")
         .show_separator_line(false)
         .show(ui, |ui| {
+            let mut wrapped = false;
             egui::MenuBar::new().ui(ui, |ui| {
                 files::menu(ui, model, context.files, context.editing, commands, actions);
                 let mut menus = Menus {
@@ -48,12 +51,24 @@ pub fn show(
                 for command in chosen {
                     commands.trigger(command);
                 }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    search(ui, commands);
-                    document_name(ui, model);
-                });
+                if ui.available_width() >= widgets::remembered_width(ui, trailing_id) {
+                    trailing(ui, model, commands, trailing_id);
+                } else {
+                    wrapped = true;
+                }
             });
+            if wrapped {
+                trailing(ui, model, commands, trailing_id);
+            }
         });
+}
+
+fn trailing(ui: &mut Ui, model: &Model, commands: &mut CommandFrame<'_>, id: Id) {
+    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        search(ui, commands);
+        widgets::remember_width(ui, id, ui.min_rect().width() + NAME_ROOM);
+        document_name(ui, model);
+    });
 }
 
 struct Menus<'a, 'b> {
@@ -244,5 +259,9 @@ fn document_name(ui: &mut Ui, model: &Model) {
     if model.is_dirty() {
         widgets::pill(ui, Tone::Neutral, "Unsaved");
     }
-    ui.label(model.display_name());
+    let name = model.display_name();
+    let shown = ui.add(Label::new(&name).truncate());
+    if let Some(path) = model.path() {
+        shown.on_hover_text(path.display().to_string());
+    }
 }

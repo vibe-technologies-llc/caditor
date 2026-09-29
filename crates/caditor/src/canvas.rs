@@ -22,7 +22,20 @@ pub fn label(
     font: FontId,
     color: Color32,
 ) -> Rect {
-    let galley = painter.layout_no_wrap(text.to_string(), font, color);
+    wrapped_label(painter, anchor, align, text, font, color, f32::INFINITY)
+}
+
+pub fn wrapped_label(
+    painter: &Painter,
+    anchor: Pos2,
+    align: Align2,
+    text: impl ToString,
+    font: FontId,
+    color: Color32,
+    max_width: f32,
+) -> Rect {
+    let wrap_width = (max_width - PADDING.x * 2.0).max(0.0);
+    let galley = painter.layout(text.to_string(), font, color, wrap_width);
     let rect = align.anchor_size(anchor, galley.size() + PADDING * 2.0);
     painter.rect_filled(rect, CORNER_RADIUS, BACKDROP);
     painter.galley(rect.min + PADDING, galley, color);

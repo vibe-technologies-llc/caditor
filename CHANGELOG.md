@@ -131,6 +131,9 @@ The first release of caditor.
   it is what gets saved. Copy, paste, undo and the other editing keys stay with the field.
 - Dark, light and high-contrast themes, interface sizes from 75% to 200%, and a choice of
   micrometres, millimetres, centimetres or metres.
+- At large interface sizes and in narrow windows the menu bar, status bar and parameter table
+  wrap or shrink instead of overlapping, long notices wrap instead of being cut off, and the
+  navigation hint wraps clear of the axis triad.
 - Edges, sketch curves, points and the grid keep their size at larger interface sizes and on
   high-resolution screens, and picking them is as forgiving as at 100%.
 - A body or drawing too large for the graphics card's buffers is drawn in parts, or as much of
