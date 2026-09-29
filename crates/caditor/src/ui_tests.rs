@@ -1235,6 +1235,30 @@ fn opening_a_damaged_file_reports_what_was_lost_and_keeps_the_original_on_save()
 }
 
 #[test]
+fn an_unreadable_journal_is_kept_aside_and_reported_when_its_model_opens() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("plate.caditor");
+    caditor_file::save(&sample_document().unwrap(), &path, false).unwrap();
+    let journal = dir.path().join(".plate.caditor.journal");
+    std::fs::write(&journal, b"\x89CJL\r\n\x1a\n\xff\xff\xff\xff").unwrap();
+
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.command(FileCommand::OpenPath(path.clone()));
+    harness.wait_until("the file is open", |harness| harness.model.path().is_some());
+    assert!(harness.shows("Unsaved changes to “plate.caditor” could not be recovered"));
+    let kept: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".unreadable"))
+        .collect();
+    assert_eq!(kept.len(), 1);
+    let note = caditor_file::describe_set_aside(&dir.path().join(&kept[0]));
+    assert!(harness.shows(&note), "{note}");
+    harness.click("OK");
+    assert!(!harness.model.is_dirty());
+}
+
+#[test]
 fn unsaved_work_from_a_crash_is_offered_and_restored_with_its_history() {
     let dir = TempDir::new().unwrap();
     let base = sample_document().unwrap();

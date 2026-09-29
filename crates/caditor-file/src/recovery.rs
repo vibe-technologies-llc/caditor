@@ -14,6 +14,7 @@ use crate::{
     journal::{JournalEntry, decode_journal, replay},
     load::load,
     paths::{self, JOURNAL_EXTENSION},
+    save::sync_parent,
 };
 
 #[derive(Debug, Clone)]
@@ -40,9 +41,20 @@ pub enum Inspection {
     Removed,
     InUse,
     Damaged,
+    SetAside(PathBuf),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unreadable {
+    Keep,
+    SetAside,
 }
 
 pub fn inspect(journal: &Path) -> io::Result<Inspection> {
+    inspect_as(journal, Unreadable::Keep)
+}
+
+fn inspect_as(journal: &Path, unreadable: Unreadable) -> io::Result<Inspection> {
     let mut file = File::open(journal)?;
     match file.try_lock() {
         Ok(()) => {}
@@ -58,7 +70,10 @@ pub fn inspect(journal: &Path) -> io::Result<Inspection> {
 
     let Ok(contents) = decode_journal(&bytes) else {
         log::warn!("{} is damaged and cannot be recovered", journal.display());
-        return Ok(Inspection::Damaged);
+        return match unreadable {
+            Unreadable::Keep => Ok(Inspection::Damaged),
+            Unreadable::SetAside => set_aside_locked(&file, journal),
+        };
     };
     let replayed = replay(contents.base.clone(), contents.entries);
     let document = replayed.editor.document();
@@ -118,7 +133,12 @@ pub fn scan(recovery_dir: Option<&Path>, recent: &[PathBuf]) -> Vec<Recovered> {
         .iter()
         .filter_map(|journal| match inspect(journal) {
             Ok(Inspection::Recoverable(recovered)) => Some(*recovered),
-            Ok(Inspection::Removed | Inspection::InUse | Inspection::Damaged) => None,
+            Ok(
+                Inspection::Removed
+                | Inspection::InUse
+                | Inspection::Damaged
+                | Inspection::SetAside(_),
+            ) => None,
             Err(error) => {
                 log::warn!("could not inspect {}: {error}", journal.display());
                 None
@@ -134,24 +154,63 @@ pub enum FileJournal {
     None,
     InUse,
     Recoverable(Box<Recovered>),
+    SetAside(Vec<PathBuf>),
 }
 
 pub fn journal_for(file: &Path, recovery_dir: Option<&Path>) -> FileJournal {
+    let mut set_aside = Vec::new();
     for journal in paths::journals_for(file, recovery_dir) {
         if !journal.is_file() {
             continue;
         }
-        match inspect(&journal) {
+        match inspect_as(&journal, Unreadable::SetAside) {
             Ok(Inspection::Recoverable(mut recovered)) => {
                 recovered.file = Some(file.to_path_buf());
                 return FileJournal::Recoverable(recovered);
             }
             Ok(Inspection::InUse) => return FileJournal::InUse,
-            Ok(Inspection::Removed | Inspection::Damaged) => {}
+            Ok(Inspection::SetAside(kept)) => set_aside.push(kept),
+            Ok(Inspection::Damaged) => {}
+            Ok(Inspection::Removed) => {}
             Err(error) => log::warn!("could not inspect {}: {error}", journal.display()),
         }
     }
-    FileJournal::None
+    if set_aside.is_empty() {
+        FileJournal::None
+    } else {
+        FileJournal::SetAside(set_aside)
+    }
+}
+
+pub fn describe_set_aside(kept: &Path) -> String {
+    let name = kept.file_name().map_or_else(
+        || kept.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    let place = kept
+        .parent()
+        .map(|dir| format!(" in {}", dir.display()))
+        .unwrap_or_default();
+    format!(
+        "Unsaved changes from an earlier session could not be read, perhaps because a newer \
+         version of caditor wrote them. They were kept as “{name}”{place}, and the model opened \
+         as it was last saved."
+    )
+}
+
+fn set_aside_locked(file: &File, journal: &Path) -> io::Result<Inspection> {
+    match location(file, journal)? {
+        Location::Gone => Ok(Inspection::Removed),
+        Location::Replaced => Ok(Inspection::InUse),
+        Location::Here => {
+            let kept = paths::unreadable_journal(journal);
+            fs::rename(journal, &kept)?;
+            if let Err(error) = sync_parent(&kept) {
+                log::warn!("could not sync the folder of {}: {error}", kept.display());
+            }
+            Ok(Inspection::SetAside(kept))
+        }
+    }
 }
 
 pub fn discard(journal: &Path) -> io::Result<()> {
@@ -167,15 +226,32 @@ pub fn discard(journal: &Path) -> io::Result<()> {
 }
 
 fn remove_locked(file: &File, journal: &Path) -> io::Result<Inspection> {
+    match location(file, journal)? {
+        Location::Gone => Ok(Inspection::Removed),
+        Location::Replaced => Ok(Inspection::InUse),
+        Location::Here => {
+            fs::remove_file(journal)?;
+            Ok(Inspection::Removed)
+        }
+    }
+}
+
+enum Location {
+    Gone,
+    Replaced,
+    Here,
+}
+
+fn location(file: &File, journal: &Path) -> io::Result<Location> {
     let locked = file.metadata()?;
     let current = match fs::symlink_metadata(journal) {
         Ok(current) => current,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Inspection::Removed),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Location::Gone),
         Err(error) => return Err(error),
     };
-    if (locked.dev(), locked.ino()) != (current.dev(), current.ino()) {
-        return Ok(Inspection::InUse);
+    if (locked.dev(), locked.ino()) == (current.dev(), current.ino()) {
+        Ok(Location::Here)
+    } else {
+        Ok(Location::Replaced)
     }
-    fs::remove_file(journal)?;
-    Ok(Inspection::Removed)
 }

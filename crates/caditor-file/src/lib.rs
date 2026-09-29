@@ -30,7 +30,9 @@ pub use crate::{
     load::{LoadError, Loaded, decode, history, load, load_version},
     paths::{recovery_dir, state_dir},
     recent::{RECENT_LIMIT, RecentFiles},
-    recovery::{FileJournal, Inspection, Recovered, discard, inspect, journal_for, scan},
+    recovery::{
+        FileJournal, Inspection, Recovered, describe_set_aside, discard, inspect, journal_for, scan,
+    },
     save::{SaveError, SaveOptions, encode, save, save_with, write_atomically},
     settings::{Settings, config_dir},
     storage::{

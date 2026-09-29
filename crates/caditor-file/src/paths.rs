@@ -5,6 +5,8 @@ use std::{
 };
 
 pub(crate) const JOURNAL_EXTENSION: &str = "journal";
+const UNREADABLE_EXTENSION: &str = "unreadable";
+const UNREADABLE_ATTEMPTS: u32 = 100;
 const APPLICATION: &str = "caditor";
 const RECOVERY: &str = "recovery";
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
@@ -65,4 +67,22 @@ pub(crate) fn journals_for(file: &Path, recovery_dir: Option<&Path>) -> Vec<Path
         .into_iter()
         .chain(recovery_dir.map(|dir| fallback_journal(file, dir)))
         .collect()
+}
+
+pub(crate) fn unreadable_journal(journal: &Path) -> PathBuf {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or_default();
+    let base = journal.file_name().unwrap_or_default();
+    let named = |suffix: String| {
+        let mut name = base.to_os_string();
+        name.push(format!(".{seconds}{suffix}.{UNREADABLE_EXTENSION}"));
+        journal.with_file_name(name)
+    };
+    std::iter::once(String::new())
+        .chain((1..UNREADABLE_ATTEMPTS).map(|attempt| format!("-{attempt}")))
+        .map(named)
+        .find(|candidate| !candidate.exists())
+        .unwrap_or_else(|| named(format!("-{UNREADABLE_ATTEMPTS}")))
 }

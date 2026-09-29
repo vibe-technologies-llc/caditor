@@ -487,6 +487,54 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
 }
 
 #[test]
+fn an_unreadable_journal_is_set_aside_before_a_new_one_replaces_it() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let base = sample();
+    save(&base, &path, false).unwrap();
+    let start = Start {
+        file: Some(path.clone()),
+        ..untitled(&base)
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    let mut editor = Editor::new(base.clone());
+    record_session(&storage, &mut editor);
+    crash(storage);
+    let journal = dir.path().join(".model.caditor.journal");
+    let mut newer = fs::read(&journal).unwrap();
+    newer[8] = 99;
+    fs::write(&journal, &newer).unwrap();
+    let recovery = dir.path().join("recovery");
+
+    let FileJournal::SetAside(kept) = journal_for(&path, Some(&recovery)) else {
+        panic!("the unreadable journal should be set aside");
+    };
+    assert_eq!(kept.len(), 1);
+    assert_eq!(fs::read(&kept[0]).unwrap(), newer);
+    assert!(!journal.exists());
+    let name = kept[0].file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.starts_with(".model.caditor.journal."));
+    assert!(name.ends_with(".unreadable"));
+    assert!(describe_set_aside(&kept[0]).contains(&name));
+
+    let start = Start {
+        file: Some(path.clone()),
+        ..untitled(&base)
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    assert!(storage.flusher().flush(WAIT));
+    assert!(journal.exists());
+    assert_eq!(fs::read(&kept[0]).unwrap(), newer);
+    crash(storage);
+    assert!(matches!(
+        journal_for(&path, Some(&recovery)),
+        FileJournal::None
+    ));
+    assert!(scan(Some(&recovery), &[path]).is_empty());
+    assert!(kept[0].exists());
+}
+
+#[test]
 fn a_journal_whose_changes_reached_the_file_is_tidied_away() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");

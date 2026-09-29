@@ -15,8 +15,8 @@ use caditor_document::{Document, FeatureId};
 use caditor_file::{
     Closing, DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported, FILE_EXTENSION,
     FileJournal, History, ImportError, LoadError, Loaded, ModelImport, RecentFiles, Recovered,
-    STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings, journal_for, load, load_version,
-    read_dxf, read_step_file, scan,
+    STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings, describe_set_aside, journal_for,
+    load, load_version, read_dxf, read_step_file, scan,
 };
 use egui::{Id, Modal, RichText, Ui};
 use parking_lot::Mutex;
@@ -198,7 +198,7 @@ enum Purpose {
 }
 
 enum OpenOutcome {
-    Loaded(Loaded),
+    Loaded { loaded: Loaded, notes: Vec<String> },
     Recoverable(Box<Recovered>),
     AlreadyOpen,
     InUse,
@@ -208,6 +208,7 @@ enum OpenOutcome {
 struct Opened {
     path: PathBuf,
     loaded: Loaded,
+    notes: Vec<String>,
 }
 
 enum SaveTarget {
@@ -747,8 +748,12 @@ impl Files {
     fn opened(&mut self, path: PathBuf, revision: u64, outcome: OpenOutcome, model: &mut Model) {
         let name = display_name(Some(&path));
         match outcome {
-            OpenOutcome::Loaded(loaded) => {
-                let opened = Opened { path, loaded };
+            OpenOutcome::Loaded { loaded, notes } => {
+                let opened = Opened {
+                    path,
+                    loaded,
+                    notes,
+                };
                 if model.revision() != revision && model.is_dirty() {
                     self.guard = Some(Intent::Replace(Box::new(opened)));
                 } else {
@@ -954,16 +959,27 @@ impl Files {
     }
 
     fn finish_open(&mut self, opened: Opened, model: &mut Model) {
-        let Opened { path, loaded } = opened;
+        let Opened {
+            path,
+            loaded,
+            notes,
+        } = opened;
         let damaged = !loaded.issues.is_empty();
+        let name = display_name(Some(&path));
         if damaged {
             self.report = Some(Report {
-                heading: format!("Parts of “{}” could not be read", display_name(Some(&path))),
+                heading: format!("Parts of “{name}” could not be read"),
                 intro: Some(
                     "The rest of the model was opened. When you save it, the original file is \
                      kept next to it as a backup.",
                 ),
-                issues: loaded.issues,
+                issues: loaded.issues.into_iter().chain(notes).collect(),
+            });
+        } else if !notes.is_empty() {
+            self.report = Some(Report {
+                heading: format!("Unsaved changes to “{name}” could not be recovered"),
+                intro: None,
+                issues: notes,
             });
         }
         self.remember(path.clone());
@@ -1050,15 +1066,23 @@ fn open_file(path: &Path, current: Option<&Path>, recovery_dir: Option<&Path>) -
     if current == Some(path) {
         return OpenOutcome::AlreadyOpen;
     }
-    match journal_for(path, recovery_dir) {
-        FileJournal::InUse => OpenOutcome::InUse,
-        FileJournal::Recoverable(recovered) => OpenOutcome::Recoverable(recovered),
-        FileJournal::None => match load(path) {
-            Ok(loaded) => OpenOutcome::Loaded(loaded),
-            Err(error) => OpenOutcome::Failed {
-                error,
-                missing: !path.exists(),
-            },
+    let set_aside = match journal_for(path, recovery_dir) {
+        FileJournal::InUse => return OpenOutcome::InUse,
+        FileJournal::Recoverable(recovered) => return OpenOutcome::Recoverable(recovered),
+        FileJournal::None => Vec::new(),
+        FileJournal::SetAside(kept) => kept,
+    };
+    match load(path) {
+        Ok(loaded) => OpenOutcome::Loaded {
+            loaded,
+            notes: set_aside
+                .iter()
+                .map(|kept| describe_set_aside(kept))
+                .collect(),
+        },
+        Err(error) => OpenOutcome::Failed {
+            error,
+            missing: !path.exists(),
         },
     }
 }
@@ -1118,6 +1142,11 @@ fn check_save_target(
         FileJournal::InUse => return SaveTarget::InUse(target),
         FileJournal::Recoverable(_) => return SaveTarget::HasRecovery(target),
         FileJournal::None => {}
+        FileJournal::SetAside(kept) => {
+            for kept in kept {
+                log::warn!("an unreadable journal was kept as {}", kept.display());
+            }
+        }
     }
     if named != picked && target.exists() {
         SaveTarget::Confirm(target)

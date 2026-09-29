@@ -40,6 +40,9 @@ The first release of caditor.
   file keeps the versions its saves replaced so they can be restored later.
 - Unsaved work is flushed to the recovery journal when caditor is stopped by logout or a signal,
   and a status bar pill says when it cannot be protected while caditor keeps retrying.
+- Unsaved changes that cannot be read, such as ones written by a newer version, are kept in a
+  file of their own next to the model instead of being overwritten, and opening the model says
+  where.
 - Save As adds `.caditor` to names such as "Bracket v1.2", asks before replacing a file the
   dialog did not name, and refuses a model open in another window.
 - Import of DXF drawings into sketches and of STEP models as bodies; export of bodies as STEP,

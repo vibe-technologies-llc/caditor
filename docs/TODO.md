@@ -28,10 +28,6 @@ within a category run from most to least important.
 
 ## File format and storage
 
-- A journal that cannot be read at all (bad header or snapshot, or written by a newer version)
-  makes `journal_for` return `FileJournal::None`, and the new `Storage` then renames its own
-  journal over it (`storage.rs` `write_locked`). Move an unreadable journal aside and mention it
-  in the recovery report, as "offered, never deleted" promises.
 - A failed directory fsync after the journal rename (`storage.rs` `write_locked`) returns an
   error after the new journal is already in place and drops its lock, so the adjacent journal is
   orphaned and a second one is written in the recovery directory. Log it as `save.rs` does.

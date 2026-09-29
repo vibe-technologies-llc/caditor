@@ -701,7 +701,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     the file, and every entry read) and returns the rest with a replayed `Editor`. A journal
     with entries it could not read (damaged, or from a newer version) is offered, never deleted.
     Before deleting, the locked file is compared with the path by inode, so a journal an owner
-    renamed into place meanwhile is left alone.
+    renamed into place meanwhile is left alone. A journal of a model that cannot be read at all
+    (bad header or snapshot, or a newer journal version) is renamed aside by `journal_for` to
+    `<journal>.<seconds>.unreadable`, which no scan picks up, before the new session's journal
+    takes its place (`FileJournal::SetAside`), and opening the model reports where it was kept.
   - DXF import (`import/`): `parse_dxf` reads ASCII and binary DXF (group codes with typed values,
     UTF-8 or single-byte text) into a `Drawing` of 2D `DrawingCurve`s in millimetres plus notes in
     plain language. It reads `$INSUNITS` (none is read as millimetres, with a note, unless
