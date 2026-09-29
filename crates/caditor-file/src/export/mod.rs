@@ -11,7 +11,7 @@ use std::{
 };
 
 use caditor_document::CancelToken;
-use caditor_geometry::Point3;
+use caditor_geometry::{Aabb, Point3};
 use caditor_kernel::{Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_step::{StepBody, WriteError, write_step};
 
@@ -106,7 +106,11 @@ impl MeshResolution {
     }
 
     pub fn tolerance<'a>(self, solids: impl IntoIterator<Item = &'a Solid>) -> SamplingTolerance {
-        let extent = extent(solids);
+        self.tolerance_within(solids.into_iter().filter_map(Solid::bounding_box))
+    }
+
+    pub fn tolerance_within(self, bounds: impl IntoIterator<Item = Aabb>) -> SamplingTolerance {
+        let extent = extent(bounds);
         SamplingTolerance::new(
             extent * self.chord_fraction(),
             self.angle_degrees().to_radians(),
@@ -115,10 +119,9 @@ impl MeshResolution {
     }
 }
 
-fn extent<'a>(solids: impl IntoIterator<Item = &'a Solid>) -> f64 {
-    solids
+fn extent(bounds: impl IntoIterator<Item = Aabb>) -> f64 {
+    bounds
         .into_iter()
-        .filter_map(Solid::bounding_box)
         .map(|bounds| bounds.diagonal())
         .filter(|diagonal| diagonal.is_finite())
         .fold(SMALLEST_EXTENT, f64::max)

@@ -5,7 +5,7 @@ use std::{
 };
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
-use caditor_geometry::{Aabb2, Plane, Point2, Vector2};
+use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector2};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, GeometryError, LinearExtent, MAX_SIZE,
     Mesh, Profile, ProfileCurve, ProfileError, Region, RegionKey, RegionMesh, SamplingTolerance,
@@ -242,6 +242,7 @@ pub struct SolidResult {
     pub body: FeatureId,
     pub solid: Solid,
     mesh: OnceLock<Option<Mesh>>,
+    bounds: OnceLock<Option<Aabb>>,
 }
 
 impl SolidResult {
@@ -250,7 +251,12 @@ impl SolidResult {
             body,
             solid,
             mesh: OnceLock::new(),
+            bounds: OnceLock::new(),
         }
+    }
+
+    pub fn bounding_box(&self) -> Option<Aabb> {
+        *self.bounds.get_or_init(|| self.solid.bounding_box())
     }
 
     pub fn mesh(&self) -> Option<&Mesh> {
@@ -270,6 +276,7 @@ impl SolidResult {
             return;
         }
         let tessellated = panic::catch_unwind(AssertUnwindSafe(|| {
+            self.bounding_box();
             self.solid.tessellate(&self.solid.default_tolerance())
         }));
         let mesh = match tessellated {

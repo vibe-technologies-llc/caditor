@@ -680,7 +680,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     errors to sentences naming the sketch curves involved.
   - Display data is computed on the worker at the end of each run and cached inside the shared
     results (`OnceLock`), so the UI only reads it: each body's final state is tessellated
-    (`SolidResult::mesh`; intermediate states are not), and every sketch that a solid feature
+    (`SolidResult::mesh`; intermediate states are not) after its bounding box is found
+    (`SolidResult::bounding_box`, which the export dialog's deviation reads), and every sketch that a solid feature
     sweeps gets its regions with a triangulation each (`SketchResult::regions`). A sketch's
     profile arrangement is built once per result and shared by every feature that sweeps it and
     by the display; a build or triangulation cancelled midway is not kept, so the next run

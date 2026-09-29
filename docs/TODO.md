@@ -129,8 +129,6 @@ within a category run from most to least important.
   Cache geometry per result and key picks on a generation.
 - Body mesh conversion and GPU upload run on the UI thread (`bodies.rs` `BodyMesh::build`),
   against `ux.md`. Build `ShadedMesh` and edge polylines on the worker.
-- The Export dialog calls `Solid::bounding_box` for every body on every repaint to show the
-  deviation (`export.rs`, `MeshResolution::tolerance`).
 - A DXF drawing of up to 20,000 curves is turned into a transaction and applied on the UI thread
   (`import.rs`, `drawing_transaction`); only parsing is on the worker.
 - Snapping collects every point and curve of the sketch into new vectors and projects onto each

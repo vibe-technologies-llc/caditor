@@ -368,11 +368,11 @@ fn resolution_choice(
             }
         }
     });
-    let solids = bodies
+    let bounds = bodies
         .iter()
         .filter(|body| !exporter.left_out.contains(&body.id))
-        .filter_map(|body| body.result.solid().map(|result| &result.solid));
-    let tolerance = exporter.resolution.tolerance(solids);
+        .filter_map(|body| body.result.solid()?.bounding_box());
+    let tolerance = exporter.resolution.tolerance_within(bounds);
     ui.label(widgets::muted(
         format!(
             "Curved faces stay within {} of the model, with at most {}° between neighbouring \
