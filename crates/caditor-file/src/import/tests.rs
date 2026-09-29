@@ -142,6 +142,60 @@ fn a_closed_polyline_with_bulges_becomes_lines_and_arcs() {
     assert!((left.start_angle - FRAC_PI_2).abs() < 1e-12);
 }
 
+#[test]
+fn a_closed_polyline_of_two_bulged_vertices_is_a_whole_circle() {
+    let circle = entity(
+        "LWPOLYLINE",
+        "Outline",
+        &[
+            (90, 2.0),
+            (70, 1.0),
+            (10, 0.0),
+            (20, 0.0),
+            (42, 1.0),
+            (10, 10.0),
+            (20, 0.0),
+            (42, 1.0),
+        ],
+    );
+    let lens = entity(
+        "LWPOLYLINE",
+        "Outline",
+        &[
+            (90, 2.0),
+            (70, 1.0),
+            (10, 0.0),
+            (20, 20.0),
+            (42, 0.5),
+            (10, 10.0),
+            (20, 20.0),
+        ],
+    );
+    let flat = entity(
+        "LWPOLYLINE",
+        "Outline",
+        &[
+            (90, 2.0),
+            (70, 1.0),
+            (10, 0.0),
+            (20, 40.0),
+            (10, 10.0),
+            (20, 40.0),
+        ],
+    );
+
+    let drawing = millimetre_drawing(vec![circle, lens, flat]);
+    let halves: Vec<ArcGeometry> = arcs(&drawing)
+        .into_iter()
+        .filter(|arc| near(arc.center, Point2::new(5.0, 0.0)))
+        .collect();
+
+    assert_eq!(halves.len(), 2);
+    assert!(halves.iter().all(|arc| (arc.sweep - PI).abs() < 1e-12));
+    assert_eq!(arcs(&drawing).len(), 3);
+    assert_eq!(lines(&drawing).len(), 2);
+}
+
 fn evaluate(document: &Document) -> Evaluation {
     Recompute::default().run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
 }

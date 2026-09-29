@@ -175,8 +175,6 @@ within a category run from most to least important.
 - Block content is cloned per instance and only curves are counted (`dxf/mod.rs` `add`), so one
   heavy SPLINE inserted as a large array can reach tens of gigabytes. Cap total points and share
   block shapes between instances.
-- A closed LWPOLYLINE or POLYLINE of two vertices with bulges (a circle or lens drawn as a
-  polyline) gets only one arc, since `polyline_segments` closes only above two vertices.
 - A SPLINE whose weight count differs from its control points silently becomes non-rational
   (`Nurbs::new`).
 - HATCH boundaries, SOLID, TRACE, 3DFACE and MLINE are dropped; HATCH boundaries are often the

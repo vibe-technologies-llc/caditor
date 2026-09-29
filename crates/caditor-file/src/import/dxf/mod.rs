@@ -660,7 +660,10 @@ fn polyline(record: &Record, vertices: &[&Record]) -> Option<Vec<Shape>> {
 
 fn polyline_segments(vertices: &[(Point2, f64)], closed: bool, elevation: f64) -> Vec<Shape> {
     let count = vertices.len();
-    let segments = if closed && count > 2 {
+    let bulged = vertices
+        .iter()
+        .any(|(_, bulge)| bulge.abs() >= BULGE_EPSILON);
+    let segments = if closed && (count > 2 || (count == 2 && bulged)) {
         count
     } else {
         count.saturating_sub(1)
