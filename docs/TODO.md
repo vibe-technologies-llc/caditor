@@ -28,10 +28,6 @@ within a category run from most to least important.
 
 ## File format and storage
 
-- A model cut cleanly between chunks (interrupted copy, sync tool) loads as complete with no
-  issue: `binary/model.rs` `decode` never checks the head digest against the records, so lost
-  trailing features and a lost `NextIds` go unreported, no `.damaged` copy is kept, and later IDs
-  can be reused. Verify the head digest on load and report the file as incomplete.
 - A journal that cannot be read at all (bad header or snapshot, or written by a newer version)
   makes `journal_for` return `FileJournal::None`, and the new `Storage` then renames its own
   journal over it (`storage.rs` `write_locked`). Move an unreadable journal aside and mention it

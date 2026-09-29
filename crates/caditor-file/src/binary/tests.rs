@@ -287,3 +287,24 @@ fn forged_chunk_headers_cannot_make_the_resync_scan_quadratic() {
     assert_eq!(container.chunks().count(), 0);
     assert_eq!(container.damaged(), 1);
 }
+
+#[test]
+fn a_model_cut_between_chunks_is_reported_as_incomplete() {
+    let mut document = with_width(10);
+    let mut transaction = document.transaction("More");
+    transaction.add_parameter("depth", transaction.parse("5 mm").unwrap());
+    document.apply(transaction.finish()).unwrap();
+    let bytes = save_bytes(&document, None, at(1_000), None).unwrap();
+    assert_eq!(decode(&bytes).unwrap().issues, Vec::<String>::new());
+
+    let container = parse(&bytes, &MODEL_MAGIC).unwrap();
+    let Piece::Chunk(last) = container.pieces[container.pieces.len() - 2] else {
+        panic!("the record is whole");
+    };
+    let cut = last.whole.as_ptr() as usize - bytes.as_ptr() as usize;
+    let loaded = decode(&bytes[..cut]).unwrap();
+    assert!(loaded.document.parameter_named("width").is_some());
+    assert!(loaded.document.parameter_named("depth").is_none());
+    assert_eq!(loaded.issues.len(), 1);
+    assert!(loaded.issues[0].starts_with("The file ends early"));
+}

@@ -663,7 +663,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     document invariants. Damaged or unknown (newer) records are left out, a lost parameter that
     something still uses becomes a stand-in with value 0, unusable or duplicate names are
     renamed, a parameter cycle is broken at the parameter that closes it, and an unreadable
-    dimension takes its drawn length. Each of these is reported in plain language.
+    dimension takes its drawn length. Each of these is reported in plain language. When no chunk
+    is damaged but the records do not match the head's digest (a file cut cleanly between
+    chunks), the file is reported as ending early, so it loads with problems and keeps its
+    `.damaged` copy on the next save.
   - The recovery journal uses the same container: a header chunk naming the file, a snapshot of
     the last saved state, then one chunk per change (`apply`, `undo` or `redo` with the
     transaction that was applied). The header also carries the path as raw bytes (so

@@ -174,6 +174,23 @@ impl<'a> Parsed<'a> {
         head.holds(&snapshot).then_some(snapshot)
     }
 
+    fn holds_every_record(&self, contents: &[Option<Vec<u8>>]) -> bool {
+        let Some(head) = &self.head else {
+            return false;
+        };
+        let mut hasher = blake3::Hasher::new();
+        for content in contents {
+            let Some(content) = content else {
+                return false;
+            };
+            let mut length = Vec::new();
+            push_varint(&mut length, content.len() as u64);
+            hasher.update(&length);
+            hasher.update(content);
+        }
+        head.digest == hasher.finalize().to_hex().to_string()
+    }
+
     fn walk_versions(
         &self,
         from: usize,
@@ -352,10 +369,19 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
         });
     }
     let mut budget = Budget::default();
-    let records = parsed
+    let contents: Vec<Option<Vec<u8>>> = parsed
         .records
         .iter()
-        .map(|chunk| budget.unpack(chunk, None).map(Cow::Owned));
+        .map(|chunk| budget.unpack(chunk, None))
+        .collect();
+    if parsed.damaged == 0 && !parsed.holds_every_record(&contents) {
+        issues.push(
+            "The file ends early, probably because it was not copied or synced completely: \
+             parts of the model saved in it are missing. Everything that remained was loaded."
+                .to_owned(),
+        );
+    }
+    let records = contents.into_iter().map(|content| content.map(Cow::Owned));
     let parts = read_records(records, &mut issues);
     let document = assemble(parts, &mut issues);
     Ok(Loaded { document, issues })
