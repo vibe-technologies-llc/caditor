@@ -13,6 +13,7 @@ use caditor_geometry::{Point3, Vector3};
 use thiserror::Error;
 
 pub use self::mass::MassProperties;
+pub(crate) use self::mass::triangles_contain;
 use crate::{
     interrupt::{self, Interrupted},
     tolerance::SamplingTolerance,

@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Aabb, Point2, Point3, Vector2};
 use thiserror::Error;
 
 use crate::{
     sense::Sense,
     surface::Surface,
-    tessellation::TessellationError,
+    tessellation::{MassProperties, TessellationError, triangles_contain},
     tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
     topology::{CoedgeId, EdgeId, Face, FaceId, LoopId, ShellId, Solid, VertexId},
 };
@@ -535,45 +535,56 @@ fn volumes(solid: &Solid) -> Checked<()> {
 
 fn volumes_at(solid: &Solid, tolerance: &SamplingTolerance) -> Checked<()> {
     let mesh = solid.tessellate(tolerance)?;
+    let mut by_shell: BTreeMap<ShellId, Vec<[Point3; 3]>> = BTreeMap::new();
+    for face in mesh.faces() {
+        let Some(shell) = solid.face(face.face).map(Face::shell) else {
+            continue;
+        };
+        let list = by_shell.entry(shell).or_default();
+        let triangles = mesh
+            .triangles()
+            .get(face.triangles.clone())
+            .unwrap_or_default();
+        list.extend(
+            triangles
+                .iter()
+                .filter_map(|triangle| mesh.corner_points(*triangle)),
+        );
+    }
+    let triangles_of = |shell: ShellId| by_shell.get(&shell).map_or(&[][..], Vec::as_slice);
     let mut outward = Vec::new();
     let mut inward = Vec::new();
     for (id, _) in solid.shells() {
-        let in_shell = |face: FaceId| solid.face(face).is_some_and(|face| face.shell() == id);
-        let volume = mesh.mass_properties_where(in_shell).volume;
+        let volume = MassProperties::of(triangles_of(id)).volume;
         if !volume.is_finite() || volume == 0.0 {
             return Err(ValidationError::EmptyVolume(id));
         }
         if volume > 0.0 {
-            outward.push(id);
+            let triangles = triangles_of(id);
+            let bounds = Aabb::from_points(triangles.iter().flatten().copied());
+            outward.push((triangles, bounds));
         } else {
             inward.push(id);
         }
     }
     for void in inward {
-        let probes: Vec<_> = mesh
-            .faces()
+        let probes = triangles_of(void)
             .iter()
-            .filter(|face| {
-                solid
-                    .face(face.face)
-                    .is_some_and(|face| face.shell() == void)
-            })
-            .flat_map(|face| {
-                mesh.triangles()
-                    .get(face.triangles.clone())
-                    .unwrap_or_default()
-            })
-            .filter_map(|triangle| mesh.corner_points(*triangle))
-            .map(|[a, b, c]| (a + b + c) / 3.0)
-            .take(VOID_PROBES)
-            .collect();
-        let enclosed = probes.iter().find_map(|probe| {
+            .map(|[a, b, c]| (*a + *b + *c) / 3.0)
+            .take(VOID_PROBES);
+        let enclosed = probes.into_iter().find_map(|probe| {
             let answers: Vec<Option<bool>> = outward
                 .iter()
-                .map(|shell| {
-                    mesh.contains(*probe, |face| {
-                        solid.face(face).is_some_and(|face| face.shell() == *shell)
-                    })
+                .map(|(triangles, bounds)| {
+                    let near = bounds.is_some_and(|bounds| {
+                        let bounds = bounds.expanded(LINEAR_RESOLUTION);
+                        probe.cmpge(bounds.min()).all() && probe.cmple(bounds.max()).all()
+                    });
+                    if near {
+                        triangles_contain(triangles, probe)
+                    } else {
+                        Some(false)
+                    }
                 })
                 .collect();
             if answers.contains(&None) {

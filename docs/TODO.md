@@ -47,8 +47,6 @@ within a category run from most to least important.
 
 ## Kernel performance
 
-- Validation computes mass properties once per shell and probes voids over the whole mesh per
-  shell, O(lumps × triangles); `Mesh::contains` copies every triangle on each call.
 - `EdgeReference::resolve` and `capture` rebuild the vertex-name map over the whole solid per
   reference, O(references × edges) per blend.
 - `prune_dangling` rebuilds its incidence map each round (`boolean/faces.rs`).

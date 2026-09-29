@@ -30,7 +30,7 @@ pub struct MassProperties {
 }
 
 impl MassProperties {
-    fn of(triangles: &[[Point3; 3]]) -> Self {
+    pub(crate) fn of(triangles: &[[Point3; 3]]) -> Self {
         let reference = Aabb::from_points(triangles.iter().flatten().copied())
             .map_or(Point3::ZERO, |bounds| bounds.center());
         let mut volume = 0.0;
@@ -67,19 +67,32 @@ impl Mesh {
     }
 
     pub fn contains(&self, point: Point3, keep: impl Fn(FaceId) -> bool) -> Option<bool> {
-        let triangles: Vec<[Point3; 3]> = self.face_triangles(keep).collect();
-        RAY_DIRECTIONS.iter().find_map(|direction| {
-            let mut crossings = 0usize;
-            for triangle in &triangles {
-                match crossing(point, *direction, triangle) {
-                    Crossing::Miss => {}
-                    Crossing::Hit => crossings += 1,
-                    Crossing::Ambiguous => return None,
-                }
-            }
-            Some(crossings % 2 == 1)
-        })
+        RAY_DIRECTIONS
+            .iter()
+            .find_map(|direction| parity(point, *direction, self.face_triangles(&keep)))
     }
+}
+
+pub(crate) fn triangles_contain(triangles: &[[Point3; 3]], point: Point3) -> Option<bool> {
+    RAY_DIRECTIONS
+        .iter()
+        .find_map(|direction| parity(point, *direction, triangles.iter().copied()))
+}
+
+fn parity(
+    point: Point3,
+    direction: Vector3,
+    triangles: impl IntoIterator<Item = [Point3; 3]>,
+) -> Option<bool> {
+    let mut crossings = 0usize;
+    for triangle in triangles {
+        match crossing(point, direction, &triangle) {
+            Crossing::Miss => {}
+            Crossing::Hit => crossings += 1,
+            Crossing::Ambiguous => return None,
+        }
+    }
+    Some(crossings % 2 == 1)
 }
 
 enum Crossing {
