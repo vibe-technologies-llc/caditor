@@ -113,6 +113,8 @@ The first release of caditor.
   it is what gets saved. Copy, paste, undo and the other editing keys stay with the field.
 - Dark, light and high-contrast themes, interface sizes from 75% to 200%, and a choice of
   micrometres, millimetres, centimetres or metres.
+- Edges, sketch curves, points and the grid keep their size at larger interface sizes and on
+  high-resolution screens, and picking them is as forgiving as at 100%.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.
 - An arc over half a turn can be typed: a typed end goes the shorter way round, and X (Reverse
   the arc) sends the arc, typed or drawn, the other way.

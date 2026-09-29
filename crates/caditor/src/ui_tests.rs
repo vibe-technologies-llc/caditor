@@ -242,7 +242,7 @@ impl Harness {
             .and_then(|(_, pickable)| built.picks.id_of(pickable))
             .map(|id| caditor_render::PickHit {
                 id,
-                offset_px: 0.0,
+                offset_points: 0.0,
                 position: caditor_geometry::Point3::ZERO,
             })
             .into_iter()

@@ -30,7 +30,7 @@ use crate::{
 const INITIAL_LOOK_FROM: Vector3 = Vector3::new(1.0, -1.0, 1.0);
 const INITIAL_DISTANCE: f64 = 200.0;
 const ZOOM_PER_SCROLL_POINT: f64 = 0.0025;
-const HIT_CURSOR_TOLERANCE_PX: f64 = 1.5;
+const HIT_CURSOR_TOLERANCE_POINTS: f64 = 1.5;
 const LABEL_MARGIN: f32 = 12.0;
 const PROMPT_MARGIN: f32 = 16.0;
 const NAVIGATION_HINT: &str =
@@ -96,6 +96,7 @@ pub struct ViewportRequest {
     pub view: View,
     pub rect: ViewportRect,
     pub pick_at: Option<Vector2>,
+    pub pixels_per_point: f32,
 }
 
 pub struct ViewportState {
@@ -398,6 +399,7 @@ impl ViewportState {
                 height: rect.height() * scale,
             },
             pick_at,
+            pixels_per_point: scale,
         })
     }
 
@@ -440,7 +442,7 @@ impl ViewportState {
             cursor,
             hits: vec![caditor_render::PickHit {
                 id,
-                offset_px: 0.0,
+                offset_points: 0.0,
                 position: Point3::ZERO,
             }],
         });
@@ -452,7 +454,10 @@ impl ViewportState {
 
     fn hit_under(&self, cursor: Vector2) -> Option<Point3> {
         self.pointer_hit
-            .filter(|hit| hit.cursor.distance(cursor) <= HIT_CURSOR_TOLERANCE_PX)
+            .filter(|hit| {
+                hit.cursor.distance(cursor)
+                    <= HIT_CURSOR_TOLERANCE_POINTS * f64::from(self.pixels_per_point)
+            })
             .map(|hit| hit.position)
     }
 
@@ -1158,7 +1163,7 @@ mod tests {
             cursor,
             hits: vec![PickHit {
                 id: PickId::from_index(ORIGIN_PICK_INDEX).unwrap(),
-                offset_px: 2.0,
+                offset_points: 2.0,
                 position: Point3::ZERO,
             }],
         });

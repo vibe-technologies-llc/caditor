@@ -126,7 +126,7 @@ pub enum PickPriority {
 }
 
 impl PickPriority {
-    fn tolerance_px(self) -> f32 {
+    fn tolerance_points(self) -> f32 {
         match self {
             Self::Point => 7.5,
             Self::Curve => 5.0,
@@ -169,9 +169,13 @@ impl PickTable {
             .iter()
             .filter_map(|hit| {
                 let (pickable, priority) = self.resolve(hit.id)?;
-                (hit.offset_px <= priority.tolerance_px()).then_some((priority, pickable, *hit))
+                (hit.offset_points <= priority.tolerance_points())
+                    .then_some((priority, pickable, *hit))
             })
-            .min_by(|a, b| a.0.cmp(&b.0).then(a.2.offset_px.total_cmp(&b.2.offset_px)))
+            .min_by(|a, b| {
+                a.0.cmp(&b.0)
+                    .then(a.2.offset_points.total_cmp(&b.2.offset_points))
+            })
             .map(|(_, pickable, hit)| (pickable, hit))
     }
 }
@@ -1198,10 +1202,10 @@ mod tests {
         }
     }
 
-    fn hit(id: PickId, offset_px: f32) -> PickHit {
+    fn hit(id: PickId, offset_points: f32) -> PickHit {
         PickHit {
             id,
-            offset_px,
+            offset_points,
             position: Point3::ZERO,
         }
     }

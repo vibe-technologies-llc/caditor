@@ -62,6 +62,10 @@ fn finish(clip: vec4<f32>, depth_bias: f32) -> vec4<f32> {
     );
 }
 
+fn pixels_per_point() -> f32 {
+    return view.viewport.z;
+}
+
 fn pixels_to_ndc(pixels: vec2<f32>) -> vec2<f32> {
     return pixels * 2.0 / view.viewport.xy;
 }
@@ -132,7 +136,7 @@ fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
 
     let corner = quad_corner(vertex);
     let at_end = corner.x > 0.0;
-    let half_width = line.width * 0.5;
+    let half_width = line.width * pixels_per_point() * 0.5;
     let offset = normal * corner.y * half_width;
     var clip = select(start_clip, end_clip, at_end);
     clip = vec4<f32>(clip.xy + pixels_to_ndc(offset) * clip.w, clip.zw);
@@ -160,7 +164,8 @@ fn vs_marker(@builtin(vertex_index) vertex: u32, marker: MarkerInstance) -> Vary
         return empty_varyings();
     }
     let corner = quad_corner(vertex);
-    let radius = marker.diameter * 0.5 + 1.0;
+    let diameter = marker.diameter * pixels_per_point();
+    let radius = diameter * 0.5 + 1.0;
     let center = to_clip(marker.position);
     let clip = vec4<f32>(center.xy + pixels_to_ndc(corner * radius) * center.w, center.zw);
 
@@ -170,7 +175,7 @@ fn vs_marker(@builtin(vertex_index) vertex: u32, marker: MarkerInstance) -> Vary
     out.pick = marker.pick;
     out.depth = depth;
     out.local = corner * radius;
-    out.diameter = marker.diameter;
+    out.diameter = diameter;
     return out;
 }
 
@@ -274,11 +279,11 @@ fn fs_marker(in: Varyings) -> @location(0) vec4<f32> {
 
 fn grid_level(coordinate: vec2<f32>, spacing: f32) -> f32 {
     let cell = coordinate / spacing;
-    let cells_per_pixel = max(fwidth(cell), vec2<f32>(1e-6));
-    let pixels_to_line = abs(fract(cell - 0.5) - 0.5) / cells_per_pixel;
-    let line = 1.0 - clamp(min(pixels_to_line.x, pixels_to_line.y), 0.0, 1.0);
-    let cell_pixels = 1.0 / max(cells_per_pixel.x, cells_per_pixel.y);
-    return line * smoothstep(4.0, 16.0, cell_pixels);
+    let cells_per_point = max(fwidth(cell) * pixels_per_point(), vec2<f32>(1e-6));
+    let points_to_line = abs(fract(cell - 0.5) - 0.5) / cells_per_point;
+    let line = 1.0 - clamp(min(points_to_line.x, points_to_line.y), 0.0, 1.0);
+    let cell_points = 1.0 / max(cells_per_point.x, cells_per_point.y);
+    return line * smoothstep(4.0, 16.0, cell_points);
 }
 
 @fragment

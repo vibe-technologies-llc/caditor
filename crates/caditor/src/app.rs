@@ -714,6 +714,7 @@ impl Session {
             view: &request.view,
             scene: &built.scene,
             pick_at: request.pick_at,
+            pixels_per_point: request.pixels_per_point,
         });
 
         let repaint_after = ui.repaint_after;

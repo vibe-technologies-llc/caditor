@@ -7,7 +7,7 @@ use crate::{
     camera::View,
     gpu::{Bytes, GrowableBuffer},
     mesh::{MESH_VERTEX_STRIDE, MeshCache},
-    picking::{self, PickTargets, Picking},
+    picking::{self, PickTargets, PickWindow, Picking},
     scene::{Fill, Grid, Layer, PickId, Primitive, Scene, ViewportRect},
 };
 
@@ -36,6 +36,7 @@ pub struct ViewportFrame<'a> {
     pub view: &'a View,
     pub scene: &'a Scene,
     pub pick_at: Option<DVec2>,
+    pub pixels_per_point: f32,
 }
 
 pub struct SurfaceTarget<'a> {
@@ -314,11 +315,10 @@ impl ViewportRenderer {
         cursor: DVec2,
         counts: &Counts,
     ) {
-        if !self.picking.is_idle() {
+        let Some(targets) = self.picking.prepared() else {
             return;
-        }
+        };
         let fills = &counts.pick_fills;
-        let targets = self.picking.targets();
         let mut behind = begin_pick_pass(encoder, targets, "pick reference fills", true);
         behind.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
         self.draw_pick_fills(
@@ -404,10 +404,20 @@ impl ViewportRenderer {
         let scene = viewport.scene;
         let eye = view.eye();
 
-        view_uniform(&mut self.staging, view, None);
+        let pixels_per_point = valid_scale(viewport.pixels_per_point);
+        view_uniform(&mut self.staging, view, pixels_per_point, None);
         queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
-        if let Some(cursor) = viewport.pick_at {
-            view_uniform(&mut self.staging, view, Some(cursor));
+        if let Some(cursor) = viewport.pick_at
+            && let Some(window) = self
+                .picking
+                .prepare(device, PickWindow::for_scale(pixels_per_point))
+        {
+            view_uniform(
+                &mut self.staging,
+                view,
+                pixels_per_point,
+                Some((cursor, window)),
+            );
             queue.write_buffer(&self.pick_view_uniform.buffer, 0, self.staging.as_slice());
         }
         if let Some(grid) = &scene.grid {
@@ -719,17 +729,30 @@ pub fn relative_to_eye(point: Point3, eye: Point3) -> Vec3 {
     (point - eye).as_vec3()
 }
 
-fn view_uniform(bytes: &mut Bytes, view: &View, pick_cursor: Option<DVec2>) {
+fn valid_scale(pixels_per_point: f32) -> f32 {
+    if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
+        pixels_per_point
+    } else {
+        1.0
+    }
+}
+
+fn view_uniform(
+    bytes: &mut Bytes,
+    view: &View,
+    pixels_per_point: f32,
+    pick: Option<(DVec2, PickWindow)>,
+) {
     let size = view.size();
-    let pick_transform = match pick_cursor {
-        Some(cursor) => picking::pick_transform(cursor, size),
+    let pick_transform = match pick {
+        Some((cursor, window)) => picking::pick_transform(cursor, size, window),
         None => [1.0, 1.0, 0.0, 0.0],
     };
     bytes.clear();
     bytes
         .mat4(view.rotation_projection().as_mat4())
         .vec4(view.forward().as_vec3(), view.near_plane() as f32)
-        .floats(&[size.x as f32, size.y as f32, 0.0, 0.0])
+        .floats(&[size.x as f32, size.y as f32, pixels_per_point, 0.0])
         .floats(&pick_transform)
         .vec4(key_light(view).as_vec3(), 0.0);
 }

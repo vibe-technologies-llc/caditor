@@ -929,8 +929,15 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     or snorm format an HDR setup lists first), else the first non-sRGB one. Model geometry draws
     over reference geometry (datum planes, axes) through a per-`Layer` depth bias, and model-layer
     fills (sketch regions) over the faces they lie on.
-  - Picking renders a small window around the cursor into ID and depth targets and reads it
-    back asynchronously, so hover never blocks the UI thread; `poll_pick` says `Pending`, `Ready`
+  - Sizes on screen are in logical points: `ViewportFrame::pixels_per_point` (egui's, so the
+    window scale times the interface size) goes into the view uniform, and the shaders scale line
+    widths, marker diameters and the grid's line width and fade by it, so they look the same at
+    every interface size, like the app's snapping and annotations.
+  - Picking renders a window of `PICK_RADIUS_POINTS` (7.5) around the cursor, sized in physical
+    pixels from the scale (`PickWindow`, its targets and readback recreated when it changes),
+    into ID and depth targets and reads it back asynchronously, so hover never blocks the UI
+    thread; hits report their distance from the cursor in points (`offset_points`), which the
+    app's pick tolerances compare against; `poll_pick` says `Pending`, `Ready`
     or `Failed` (a failed readback, or a pick whose frame was dropped before `submit`, which the
     next `begin_frame` abandons), and the app asks again after a failure. Hits carry their world position,
     which navigation uses as the orbit pivot, pan grab point and zoom anchor. Reference-layer

@@ -98,8 +98,6 @@ within a category run from most to least important.
 
 ## Rendering robustness
 
-- Line widths, marker sizes, pick tolerances and the pick window are in physical pixels, so at
-  200% edges are 0.75 logical px and picks half as forgiving, while snapping scales.
 - GPU device loss is never handled: no device-lost callback, and the UI shares the dead encoder.
 - The device uses default limits with no retry, so windows wider than 8192 px fail and GL or
   downlevel adapters (the mesh shader needs vertex storage) fail at startup; the high-performance

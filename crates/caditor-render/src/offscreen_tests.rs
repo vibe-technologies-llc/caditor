@@ -76,6 +76,21 @@ struct Rendered {
     pixels: Vec<u8>,
 }
 
+fn full_frame<'a>(view: &'a View, scene: &'a Scene, pick_at: DVec2) -> ViewportFrame<'a> {
+    ViewportFrame {
+        rect: ViewportRect {
+            x: 0.0,
+            y: 0.0,
+            width: SIZE as f32,
+            height: SIZE as f32,
+        },
+        view,
+        scene,
+        pick_at: Some(pick_at),
+        pixels_per_point: 1.0,
+    }
+}
+
 fn render(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -83,6 +98,10 @@ fn render(
     scene: &Scene,
     pick_at: DVec2,
 ) -> Rendered {
+    render_frame(device, queue, &full_frame(view, scene, pick_at))
+}
+
+fn render_frame(device: &wgpu::Device, queue: &wgpu::Queue, frame: &ViewportFrame<'_>) -> Rendered {
     let mut renderer = ViewportRenderer::new(device, FORMAT, 4);
     let target = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("offscreen target"),
@@ -116,17 +135,7 @@ fn render(
             width: SIZE,
             height: SIZE,
         },
-        Some(&ViewportFrame {
-            rect: ViewportRect {
-                x: 0.0,
-                y: 0.0,
-                width: SIZE as f32,
-                height: SIZE as f32,
-            },
-            view,
-            scene,
-            pick_at: Some(pick_at),
-        }),
+        Some(frame),
     );
     encoder.copy_texture_to_buffer(
         target.as_image_copy(),
@@ -157,6 +166,122 @@ fn pixel(rendered: &Rendered, at: DVec2) -> [u8; 4] {
     rendered.pixels[offset..offset + 4].try_into().unwrap()
 }
 
+fn channel_coverage(
+    rendered: &Rendered,
+    channel: usize,
+    pixels: impl Iterator<Item = DVec2>,
+) -> f64 {
+    let background = (crate::viewport::BACKGROUND.g * 255.0).round();
+    pixels
+        .map(|at| {
+            (f64::from(pixel(rendered, at)[channel]) - background).max(0.0) / (255.0 - background)
+        })
+        .sum()
+}
+
+fn column(x: f64, around: f64, reach: f64) -> impl Iterator<Item = DVec2> {
+    let rows = (around - reach).floor() as i64..=(around + reach).ceil() as i64;
+    rows.map(move |row| DVec2::new(x, row as f64))
+}
+
+fn row(y: f64, around: f64, reach: f64) -> impl Iterator<Item = DVec2> {
+    let columns = (around - reach).floor() as i64..=(around + reach).ceil() as i64;
+    columns.map(move |column| DVec2::new(column as f64, y))
+}
+
+fn line_and_marker() -> Scene {
+    Scene {
+        lines: vec![Line {
+            start: Point3::new(-20.0, 0.0, 0.0),
+            end: Point3::new(20.0, 0.0, 0.0),
+            color: LINE_COLOR,
+            width: 3.0,
+            layer: Layer::Model,
+            pick: PickId::from_index(0),
+        }],
+        markers: vec![Marker {
+            position: Point3::new(10.0, 20.0, 0.0),
+            color: Color::from_rgb8(255, 255, 255),
+            diameter: 7.0,
+            layer: Layer::Model,
+            pick: PickId::from_index(1),
+        }],
+        ..Scene::default()
+    }
+}
+
+#[test]
+fn lines_and_markers_keep_their_size_in_points_at_every_scale() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let scene = line_and_marker();
+    let across_line = view.project(Point3::new(-10.0, 0.0, 0.0)).unwrap();
+    let marker = view.project(Point3::new(10.0, 20.0, 0.0)).unwrap();
+    let measure = |pixels_per_point: f32| {
+        let rendered = render_frame(
+            &device,
+            &queue,
+            &ViewportFrame {
+                pixels_per_point,
+                ..full_frame(&view, &scene, across_line)
+            },
+        );
+        let line_width = channel_coverage(
+            &rendered,
+            0,
+            column(across_line.x.floor(), across_line.y, 12.0),
+        );
+        let marker_width = channel_coverage(&rendered, 1, row(marker.y.floor(), marker.x, 20.0));
+        (line_width, marker_width)
+    };
+
+    let (line_at_one, marker_at_one) = measure(1.0);
+    let (line_at_two, marker_at_two) = measure(2.0);
+
+    assert!((line_at_one - 3.0).abs() < 0.6, "{line_at_one}");
+    assert!((line_at_two - 6.0).abs() < 0.8, "{line_at_two}");
+    assert!((marker_at_one - 7.0).abs() < 1.0, "{marker_at_one}");
+    assert!((marker_at_two - 14.0).abs() < 1.5, "{marker_at_two}");
+}
+
+#[test]
+fn picks_reach_as_far_in_points_at_a_doubled_scale() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let scene = line_and_marker();
+    let above_line = view.project(Point3::new(-10.0, 0.0, 0.0)).unwrap() - DVec2::new(0.0, 12.0);
+    let line = PickId::from_index(0).unwrap();
+    let pick = |pixels_per_point: f32| {
+        render_frame(
+            &device,
+            &queue,
+            &ViewportFrame {
+                pixels_per_point,
+                ..full_frame(&view, &scene, above_line)
+            },
+        )
+        .pick
+    };
+
+    let at_one = pick(1.0);
+    let at_two = pick(2.0);
+    let hit = at_two.hits.iter().find(|hit| hit.id == line).unwrap();
+
+    assert!(at_one.hits.iter().all(|hit| hit.id != line), "{at_one:?}");
+    assert!(
+        (3.5..=5.5).contains(&hit.offset_points),
+        "{}",
+        hit.offset_points
+    );
+    assert!(hit.position.distance(Point3::new(-10.0, 0.0, 0.0)) < 1.0);
+}
+
 #[test]
 fn draws_and_picks_a_line_over_a_fill() {
     let Some((device, queue)) = gpu() else {
@@ -171,7 +296,7 @@ fn draws_and_picks_a_line_over_a_fill() {
 
     let nearest = rendered.pick.hits[0];
     assert_eq!(nearest.id, PickId::from_index(0).unwrap());
-    assert_eq!(nearest.offset_px, 0.0);
+    assert_eq!(nearest.offset_points, 0.0);
     assert!(nearest.position.distance(Point3::new(5.0, 0.0, 0.0)) < 0.5);
     assert!(
         rendered
@@ -209,7 +334,7 @@ fn draws_and_picks_a_line_over_a_fill() {
         .iter()
         .find(|hit| hit.id == PickId::from_index(2).unwrap())
         .unwrap();
-    assert!(marker.offset_px > 0.0 && marker.offset_px < 7.5);
+    assert!(marker.offset_points > 0.0 && marker.offset_points < 7.5);
 }
 
 fn box_mesh(half: f64) -> ShadedMesh {
@@ -279,7 +404,7 @@ fn draws_shaded_faces_that_hide_what_is_behind_them_and_picks_the_face_in_front(
 
     let nearest = rendered.pick.hits[0];
     assert_eq!(nearest.id, PickId::from_index(14).unwrap());
-    assert_eq!(nearest.offset_px, 0.0);
+    assert_eq!(nearest.offset_points, 0.0);
     assert!(nearest.position.distance(Point3::new(0.0, 10.0, 20.0)) < 0.5);
     let [red, green, blue, _] = pixel(&rendered, on_top);
     assert!(
@@ -451,6 +576,7 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_is_read() {
                 view: &view,
                 scene: &scene,
                 pick_at: Some(on_line),
+                pixels_per_point: 1.0,
             }),
         );
         encoder
@@ -515,6 +641,7 @@ fn a_viewport_of_no_size_keeps_its_meshes_until_the_scene_drops_them() {
                 view: &view,
                 scene,
                 pick_at: None,
+                pixels_per_point: 1.0,
             }),
         );
         queue.submit([encoder.finish()]);

@@ -157,7 +157,7 @@ pub struct Scene {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PickHit {
     pub id: PickId,
-    pub offset_px: f32,
+    pub offset_points: f32,
     pub position: Point3,
 }
 
