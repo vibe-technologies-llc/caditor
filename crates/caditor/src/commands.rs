@@ -751,6 +751,37 @@ pub fn display(shortcut: &KeyboardShortcut) -> String {
     .join("+")
 }
 
+pub fn is_named_by(shortcut: &KeyboardShortcut, query: &str) -> bool {
+    let modifiers = normalized(shortcut.modifiers);
+    let held = [
+        (modifiers.command, CTRL),
+        (modifiers.alt, ALT),
+        (modifiers.shift, SHIFT),
+    ];
+    let key = shortcut.logical_key;
+    let names_part = |part: &str| {
+        part.eq_ignore_ascii_case(key.name())
+            || part.eq_ignore_ascii_case(key.symbol_or_name())
+            || held
+                .iter()
+                .any(|(pressed, name)| *pressed && part.eq_ignore_ascii_case(name))
+    };
+    let parts = query_keys(query);
+    !parts.is_empty() && parts.into_iter().all(names_part)
+}
+
+fn query_keys(query: &str) -> Vec<&str> {
+    let query = query.trim();
+    let mut parts: Vec<&str> = query
+        .split(|character: char| character == '+' || character.is_whitespace())
+        .filter(|part| !part.is_empty())
+        .collect();
+    if query == "+" || query.ends_with("++") {
+        parts.push("+");
+    }
+    parts
+}
+
 pub fn parse_stored(text: &str) -> Option<KeyboardShortcut> {
     let mut parts: Vec<&str> = text.split('+').map(str::trim).collect();
     let key = Key::from_name(parts.pop()?)?;
@@ -1108,6 +1139,22 @@ mod tests {
                 );
                 assert_eq!(parse_stored(&stored_text(&shortcut)), Some(shortcut));
             }
+        }
+    }
+
+    #[test]
+    fn shortcuts_are_found_by_any_of_their_keys_in_any_order_and_case() {
+        let redo = press(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT);
+        let zoom_in = press(Key::Plus, Modifiers::COMMAND);
+
+        for query in ["Ctrl+Shift+Z", "shift ctrl z", "z", "ctrl+", " SHIFT "] {
+            assert!(is_named_by(&redo, query), "{query}");
+        }
+        for query in ["", "+", "alt+z", "s", "ctrl+y"] {
+            assert!(!is_named_by(&redo, query), "{query}");
+        }
+        for query in ["Ctrl++", "ctrl plus", "+"] {
+            assert!(is_named_by(&zoom_in, query), "{query}");
         }
     }
 

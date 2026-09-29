@@ -123,7 +123,7 @@ pub fn dialog(
                     widgets::icon_label(ui, icons::SEARCH, muted);
                     ui.add(
                         TextEdit::singleline(&mut editor.query)
-                            .hint_text("Filter commands")
+                            .hint_text("Filter by command or keys")
                             .desired_width(f32::INFINITY),
                     )
                 })
@@ -199,6 +199,10 @@ fn list(
                 query.is_empty()
                     || listed.title().to_lowercase().contains(&query)
                     || category.label().to_lowercase().contains(&query)
+                    || keymap
+                        .shortcuts(*listed)
+                        .iter()
+                        .any(|shortcut| commands::is_named_by(shortcut, &query))
             })
             .collect();
         let Some(first) = shown.first() else {

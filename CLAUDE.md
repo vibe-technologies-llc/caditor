@@ -1136,9 +1136,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     first; arrows move, Enter runs, and an unavailable highlighted command shows its reason. The
     chosen command is triggered on the next frame. The shortcut editor (`shortcut_editor.rs`,
     from Preferences, the File menu or the palette) lists every command by category with its
-    bindings: Add records the next key press (Esc cancels), a binding already used in an
-    overlapping scope asks before moving it, clicking a binding removes it, and Reset or Reset
-    all go back to the defaults.
+    bindings, filtered by title, category or keys (`commands::is_named_by`: every key named in the
+    filter, in any order and case, is held by the binding): Add records the next key press (Esc
+    cancels), a binding already used in an overlapping scope asks before moving it, clicking a
+    binding removes it, and Reset or Reset all go back to the defaults.
   - Keyboard-only operation: every command is in the palette, including recompute (F5) and its
     cancel, adding a parameter, opening each recent model (an `Offer` may carry a detail, here
     the file name, shown after the title), recovering unsaved work, cancelling an export and

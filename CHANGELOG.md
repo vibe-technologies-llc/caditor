@@ -92,6 +92,8 @@ The first release of caditor.
   and the edited sketch.
 - A command palette, customisable keyboard shortcuts, and keyboard operation of everything,
   including views, highlighting in the viewport and typed points.
+- The shortcut editor finds commands by their keys as well as their names: typing `ctrl+z` or
+  just `z` lists what those keys do.
 - Dark, light and high-contrast themes, interface sizes from 75% to 200%, and a choice of
   micrometres, millimetres, centimetres or metres.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.
