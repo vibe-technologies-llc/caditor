@@ -938,8 +938,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     into ID and depth targets and reads it back asynchronously, so hover never blocks the UI
     thread; hits report their distance from the cursor in points (`offset_points`), which the
     app's pick tolerances compare against; `poll_pick` says `Pending`, `Ready`
-    or `Failed` (a failed readback, or a pick whose frame was dropped before `submit`, which the
-    next `begin_frame` abandons), and the app asks again after a failure. Hits carry their world position,
+    or `Failed` (a failed readback, after which the pick targets and buffer are made anew, or a
+    pick whose frame was dropped before `submit`, which the next `begin_frame` abandons), and the
+    app asks again after a failure. Hits carry their world position,
     which navigation uses as the orbit pivot, pan grab point and zoom anchor. Reference-layer
     fills (principal and datum planes) are drawn in a pass of their own first, nearest winning,
     and everything else is drawn over them, so a translucent plane owns a pixel only where no

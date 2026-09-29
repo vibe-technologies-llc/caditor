@@ -104,8 +104,6 @@ within a category run from most to least important.
   preference also wakes discrete GPUs.
 - One buffer over the device limits breaks every frame including the UI; check sizes and split
   meshes.
-- Offscreen tests draw only at a zero-offset viewport and never cover markers, the grid,
-  near-plane clipping of lines, unpickable faces or a failed readback.
 
 ## Interface performance
 

@@ -137,6 +137,7 @@ impl WindowResources {
 pub struct Picking {
     depth_buffer_format: wgpu::TextureFormat,
     resources: WindowResources,
+    readback_failed: bool,
     in_flight: Option<InFlight>,
 }
 
@@ -146,6 +147,7 @@ impl Picking {
         Self {
             depth_buffer_format,
             resources: WindowResources::new(device, depth_buffer_format, window),
+            readback_failed: false,
             in_flight: None,
         }
     }
@@ -158,10 +160,11 @@ impl Picking {
         if self.is_pending() {
             return None;
         }
-        if self.resources.window.same_size(window) {
+        if self.resources.window.same_size(window) && !self.readback_failed {
             self.resources.window = window;
         } else {
             self.resources = WindowResources::new(device, self.depth_buffer_format, window);
+            self.readback_failed = false;
         }
         Some(window)
     }
@@ -200,6 +203,11 @@ impl Picking {
             cursor,
             stage: Stage::Encoded,
         });
+    }
+
+    #[cfg(test)]
+    pub fn destroy_readback(&self) {
+        self.resources.readback.destroy();
     }
 
     pub fn abandon_unsubmitted(&mut self) {
@@ -258,9 +266,14 @@ impl Picking {
         self.read(outcome, &in_flight)
     }
 
-    fn read(&self, outcome: Result<(), wgpu::BufferAsyncError>, in_flight: &InFlight) -> PickPoll {
+    fn read(
+        &mut self,
+        outcome: Result<(), wgpu::BufferAsyncError>,
+        in_flight: &InFlight,
+    ) -> PickPoll {
         if let Err(error) = outcome {
             log::warn!("reading back the pick buffer failed: {error}");
+            self.readback_failed = true;
             return PickPoll::Failed;
         }
         let readback = &self.resources.readback;
@@ -274,6 +287,7 @@ impl Picking {
             Err(error) => {
                 log::warn!("could not read the pick buffer: {error}");
                 readback.unmap();
+                self.readback_failed = true;
                 return PickPoll::Failed;
             }
         };
