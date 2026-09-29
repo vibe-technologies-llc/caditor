@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     Chunk, ChunkKind, Codec, MODEL_MAGIC, PackError, Piece, has_magic, parse, push_packed,
-    push_packed_after, start_file,
+    push_packed_after,
+    retention::retained,
+    start_file,
     value::{self, ValueError, push_varint, read_varint},
 };
 use crate::{
@@ -69,13 +71,16 @@ struct StateRecord {
     digest: String,
 }
 
+fn seconds_since_epoch(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 impl StateRecord {
     fn new(saved_at: SystemTime, label: Option<&str>, snapshot: &[u8]) -> Self {
         Self {
-            saved_at: saved_at
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            saved_at: seconds_since_epoch(saved_at),
             label: label.map(str::to_owned),
             digest: digest(snapshot),
         }
@@ -406,29 +411,182 @@ pub(crate) fn save_bytes(
             bytes.extend_from_slice(foreign.whole);
         }
     }
-    if !unchanged && let Some((info, old)) = &prior_head {
-        push_packed(&mut bytes, ChunkKind::VersionInfo, &value::to_bytes(info)?)?;
-        let leading_deltas = prior.as_ref().map_or(0, Parsed::leading_deltas);
-        if leading_deltas + 1 >= KEYFRAME_SPACING {
-            push_packed(&mut bytes, ChunkKind::VersionData, old)?;
-        } else {
-            push_packed_after(&mut bytes, ChunkKind::VersionData, old, &snapshot)?;
-        }
-    }
-    if let Some(prior) = &prior {
-        let unreachable = if prior_head.is_some() {
-            0
-        } else {
-            prior.leading_deltas()
-        };
-        for version in prior.versions.iter().skip(unreachable) {
-            if let Some(info) = &version.info {
-                bytes.extend_from_slice(info.chunk.whole);
-            }
-            bytes.extend_from_slice(version.data.whole);
-        }
-    }
+    write_versions(
+        &mut bytes,
+        prior.as_ref(),
+        prior_head.as_ref(),
+        !unchanged,
+        &snapshot,
+        now,
+    )?;
     Ok(bytes)
+}
+
+enum Candidate<'p, 'a> {
+    Replaced {
+        info: &'p StateRecord,
+        snapshot: &'p [u8],
+        whole: bool,
+    },
+    Stored {
+        index: usize,
+        version: &'p StoredVersion<'a>,
+    },
+}
+
+impl Candidate<'_, '_> {
+    fn saved_at(&self) -> Option<u64> {
+        match self {
+            Self::Replaced { info, .. } => Some(info.saved_at),
+            Self::Stored { version, .. } => version.info.as_ref().map(|info| info.record.saved_at),
+        }
+    }
+
+    fn is_keyframe(&self) -> bool {
+        match self {
+            Self::Replaced { whole, .. } => *whole,
+            Self::Stored { version, .. } => version.is_keyframe(),
+        }
+    }
+}
+
+fn thinned<'p, 'a>(
+    prior: Option<&'p Parsed<'a>>,
+    prior_head: Option<&'p (StateRecord, Vec<u8>)>,
+    adds_version: bool,
+    now: SystemTime,
+) -> Vec<(Candidate<'p, 'a>, bool)> {
+    let stored = prior.map_or(&[][..], |prior| prior.versions.as_slice());
+    let leading_deltas = prior.map_or(0, Parsed::leading_deltas);
+    let unreachable = if prior_head.is_some() {
+        0
+    } else {
+        leading_deltas
+    };
+    let replaced = prior_head
+        .filter(|_| adds_version)
+        .map(|(info, old)| Candidate::Replaced {
+            info,
+            snapshot: old,
+            whole: leading_deltas + 1 >= KEYFRAME_SPACING,
+        });
+    let candidates: Vec<Candidate<'p, 'a>> = replaced
+        .into_iter()
+        .chain(
+            stored
+                .iter()
+                .enumerate()
+                .skip(unreachable)
+                .map(|(index, version)| Candidate::Stored { index, version }),
+        )
+        .collect();
+    let keep = if adds_version {
+        let saved_at: Vec<Option<u64>> = candidates.iter().map(Candidate::saved_at).collect();
+        retained(&saved_at, seconds_since_epoch(now))
+    } else {
+        vec![true; candidates.len()]
+    };
+    candidates.into_iter().zip(keep).collect()
+}
+
+fn needing_content(
+    stored: &[StoredVersion<'_>],
+    candidates: &[(Candidate<'_, '_>, bool)],
+) -> Vec<bool> {
+    let mut needed = vec![false; stored.len()];
+    let mut after_thinning = false;
+    for (candidate, keep) in candidates {
+        if !keep {
+            after_thinning = true;
+            continue;
+        }
+        if let Candidate::Stored { index, version } = candidate
+            && after_thinning
+            && !version.is_keyframe()
+        {
+            let start = stored
+                .iter()
+                .take(index.saturating_add(1))
+                .rposition(StoredVersion::is_keyframe)
+                .unwrap_or(0);
+            for slot in needed.iter_mut().take(index.saturating_add(1)).skip(start) {
+                *slot = true;
+            }
+        }
+        after_thinning = false;
+    }
+    needed
+}
+
+fn write_versions(
+    bytes: &mut Vec<u8>,
+    prior: Option<&Parsed<'_>>,
+    prior_head: Option<&(StateRecord, Vec<u8>)>,
+    adds_version: bool,
+    snapshot: &[u8],
+    now: SystemTime,
+) -> Result<(), EncodeError> {
+    let stored = prior.map_or(&[][..], |prior| prior.versions.as_slice());
+    let candidates = thinned(prior, prior_head, adds_version, now);
+    let needed = needing_content(stored, &candidates);
+    let mut budget = Budget::default();
+    let mut previous: Option<Cow<'_, [u8]>> =
+        prior_head.map(|(_, old)| Cow::Borrowed(old.as_slice()));
+    let mut base: Option<Cow<'_, [u8]>> = Some(Cow::Borrowed(snapshot));
+    let mut after_thinning = false;
+    let mut thinned_keyframe = false;
+    for (candidate, keep) in &candidates {
+        let content = match candidate {
+            Candidate::Replaced { snapshot: old, .. } => Some(Cow::Borrowed(*old)),
+            Candidate::Stored { index, version } => needed
+                .get(*index)
+                .copied()
+                .unwrap_or(false)
+                .then(|| budget.unpack(&version.data, previous.as_deref()))
+                .flatten()
+                .map(Cow::Owned),
+        };
+        if !keep {
+            after_thinning = true;
+            thinned_keyframe |= candidate.is_keyframe();
+            previous = content;
+            continue;
+        }
+        match candidate {
+            Candidate::Replaced {
+                info,
+                snapshot: old,
+                whole,
+            } => {
+                push_packed(bytes, ChunkKind::VersionInfo, &value::to_bytes(info)?)?;
+                if *whole {
+                    push_packed(bytes, ChunkKind::VersionData, old)?;
+                } else {
+                    push_packed_after(bytes, ChunkKind::VersionData, old, snapshot)?;
+                }
+            }
+            Candidate::Stored { version, .. } => {
+                if let Some(info) = &version.info {
+                    bytes.extend_from_slice(info.chunk.whole);
+                }
+                let rewritten = (after_thinning && !version.is_keyframe())
+                    .then_some(content.as_deref())
+                    .flatten();
+                match (rewritten, base.as_deref()) {
+                    (Some(content), Some(base)) if !thinned_keyframe => {
+                        push_packed_after(bytes, ChunkKind::VersionData, content, base)?;
+                    }
+                    (Some(content), _) => push_packed(bytes, ChunkKind::VersionData, content)?,
+                    (None, _) => bytes.extend_from_slice(version.data.whole),
+                }
+            }
+        }
+        base.clone_from(&content);
+        previous = content;
+        after_thinning = false;
+        thinned_keyframe = false;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 mod model;
+mod retention;
 #[cfg(test)]
 pub(crate) mod testing;
 #[cfg(test)]

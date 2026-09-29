@@ -698,7 +698,14 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     offered. `history` lists the versions (with whether each can still be rebuilt), keeping only the
     rolling newer snapshot, and `load_version` rebuilds one starting from the nearest whole version
     at or after it. When the head cannot be rebuilt, the next save drops the deltas that depended on
-    it and keeps the rest.
+    it and keeps the rest. Each save that adds a version thins the history (`retention.rs`): the ten
+    newest listed versions stay, and older ones keep only the newest of each hour for a day, each
+    day for thirty days, each week for a year and each thirty days beyond (slots by absolute time,
+    so a kept version stays kept until it ages into a coarser tier); unlisted ones always stay. A
+    delta whose newer neighbour was dropped is decoded (each version at most once per save, only
+    along the runs that need it) and compressed again against the newest kept version before it,
+    or stored whole when a dropped version was a whole one, so runs of deltas never grow; one
+    that cannot be decoded is copied as it was, already lost.
   - Saving writes a temporary sibling, fsyncs it, renames it over the target and fsyncs the
     directory, keeping the target's permissions, group and extended attributes (ACLs included;
     through `xattr`, each one that cannot be set is skipped), with the temporary created

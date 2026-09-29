@@ -31,7 +31,9 @@ tests only.
 - Install a panic hook that flushes the journal before the process ends.
 - Version the file format, and keep every format that has shipped readable forever.
 - Keep the versions a save replaces inside the file, so earlier states can be restored after a
-  restart, and make restoring one an ordinary undoable change.
+  restart, and make restoring one an ordinary undoable change. Older versions thin out by age
+  (`binary/retention.rs`) so the file does not grow with every save, and thinning never breaks
+  a version it keeps.
 - Our own formats use zstd for compression, xxh3 for checksums and blake3 for content digests.
   Legacy codecs and checksums (deflate, CRC32) appear only where a foreign format requires them,
   such as the ZIP container of 3MF.

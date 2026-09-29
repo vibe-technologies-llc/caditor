@@ -28,8 +28,9 @@ within a category run from most to least important.
 
 ## File format and storage
 
-- Version history is never pruned and every save rewrites and fsyncs all of it
-  (`binary/model.rs`). Add a retention policy and write history append-only.
+- Every save rewrites and fsyncs the whole version history (`binary/model.rs`); where the file
+  system can share extents (`copy_file_range` on Btrfs or XFS), clone the unchanged versions from
+  the previous file instead of writing them again.
 
 ## Kernel correctness
 

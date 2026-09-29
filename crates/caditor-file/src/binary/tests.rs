@@ -105,27 +105,36 @@ fn edited(document: &Document, millimetres: u32) -> Document {
     document
 }
 
+const SAVE_SPACING: u64 = 3_600;
+
+fn later(count: u32) -> SystemTime {
+    at(1_000 + u64::from(count) * SAVE_SPACING)
+}
+
 fn at(seconds: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(seconds)
 }
 
 fn saved_series(count: u32) -> (Vec<Document>, Vec<u8>) {
+    saved_series_every(count, SAVE_SPACING)
+}
+
+fn saved_series_every(count: u32, spacing: u64) -> (Vec<Document>, Vec<u8>) {
     let first = with_width(10);
     let mut documents = vec![first.clone()];
     let mut bytes = save_bytes(&first, None, at(1_000), Some("First")).unwrap();
     for step in 1..count {
         let next = edited(documents.last().unwrap(), 10 + step);
-        let label = format!("Step {step}");
-        bytes = save_bytes(
-            &next,
-            Some(&bytes),
-            at(1_000 + u64::from(step)),
-            Some(&label),
-        )
-        .unwrap();
+        bytes = save_step(&next, &bytes, step, spacing);
         documents.push(next);
     }
     (documents, bytes)
+}
+
+fn save_step(document: &Document, previous: &[u8], step: u32, spacing: u64) -> Vec<u8> {
+    let label = format!("Step {step}");
+    let time = at(1_000 + u64::from(step) * spacing);
+    save_bytes(document, Some(previous), time, Some(&label)).unwrap()
 }
 
 #[test]
@@ -149,7 +158,10 @@ fn every_save_keeps_the_previous_state_as_a_version_that_loads_back_exactly() {
         let loaded = load_version(&bytes, index).unwrap();
         assert!(loaded.issues.is_empty());
         assert_eq!(loaded.document, *expected);
-        assert_eq!(version.state.saved_at, at(1_000 + (18 - index) as u64));
+        assert_eq!(
+            version.state.saved_at,
+            at(1_000 + (18 - index) as u64 * SAVE_SPACING)
+        );
     }
     assert_eq!(listed.versions[18].state.label.as_deref(), Some("First"));
     assert!(matches!(
@@ -203,7 +215,7 @@ fn a_damaged_part_loses_only_what_depends_on_it() {
         documents[documents.len() - 2 - keyframe]
     );
 
-    let resaved = save_bytes(&documents[0], Some(&head_record), at(5_000), None).unwrap();
+    let resaved = save_bytes(&documents[0], Some(&head_record), later(12), None).unwrap();
     let after = history(&resaved);
     assert!(after.versions.iter().all(|version| version.available));
     assert_eq!(after.versions.len(), listed.versions.len() - keyframe);
@@ -336,7 +348,7 @@ fn a_damaged_version_info_is_never_paired_with_another_versions_data() {
     let listed = check_listed_versions(&lost_info, &documents);
     assert_eq!(listed.versions.len(), 4);
     assert!(listed.versions.iter().all(|version| version.available));
-    let resaved = save_bytes(&documents[0], Some(&lost_info), at(5_000), None).unwrap();
+    let resaved = save_bytes(&documents[0], Some(&lost_info), later(6), None).unwrap();
     let after = check_listed_versions(&resaved, &documents);
     assert_eq!(after.versions.len(), 5);
     assert!(after.versions.iter().all(|version| version.available));
@@ -356,7 +368,7 @@ fn a_damaged_version_info_is_never_paired_with_another_versions_data() {
     let resaved = save_bytes(
         &documents[0],
         Some(&lost_data_and_next_info),
-        at(5_000),
+        later(6),
         None,
     )
     .unwrap();
@@ -536,4 +548,72 @@ fn a_model_larger_than_a_chunk_keeps_saving_its_history() {
         assert_eq!(listed.versions.len(), 10);
         assert!(listed.versions.iter().any(|version| version.available));
     });
+}
+
+fn longest_delta_run(bytes: &[u8]) -> usize {
+    let container = parse(bytes, &MODEL_MAGIC).unwrap();
+    let mut longest = 0;
+    let mut run = 0;
+    for chunk in container.chunks() {
+        match (chunk.kind, chunk.codec) {
+            (Some(ChunkKind::VersionData), Some(Codec::ZstdAfterNewer)) => {
+                run += 1;
+                longest = longest.max(run);
+            }
+            (Some(ChunkKind::VersionData), _) => run = 0,
+            _ => {}
+        }
+    }
+    longest
+}
+
+#[test]
+fn older_versions_thin_out_and_every_kept_one_loads_back_exactly() {
+    const TEN_MINUTES: u64 = 600;
+    let (documents, bytes) = saved_series_every(60, TEN_MINUTES);
+    let listed = check_listed_versions(&bytes, &documents);
+    assert!(
+        (10 + 8..=10 + 10).contains(&listed.versions.len()),
+        "{}",
+        listed.versions.len()
+    );
+    assert!(listed.versions.iter().all(|version| version.available));
+    assert!(longest_delta_run(&bytes) < 8);
+    assert_eq!(decode(&bytes).unwrap().document, documents[59]);
+}
+
+#[test]
+fn thinning_across_weeks_keeps_whole_versions_often_enough() {
+    const SIX_HOURS: u64 = 6 * 3_600;
+    let (documents, bytes) = saved_series_every(240, SIX_HOURS);
+    let listed = check_listed_versions(&bytes, &documents);
+    assert!(listed.versions.iter().all(|version| version.available));
+    assert!(listed.versions.len() < 60, "{}", listed.versions.len());
+    assert!(longest_delta_run(&bytes) < 8);
+    let oldest = listed.versions.last().unwrap();
+    assert!(oldest.state.saved_at <= at(1_000 + 30 * 24 * 3_600));
+}
+
+#[test]
+fn thinning_never_passes_off_a_damaged_version_as_another() {
+    const HALF_HOUR: u64 = 1_800;
+    let (mut documents, bytes) = saved_series_every(30, HALF_HOUR);
+    let container = parse(&bytes, &MODEL_MAGIC).unwrap();
+    let data: Vec<usize> = container
+        .pieces
+        .iter()
+        .enumerate()
+        .filter(|(_, piece)| {
+            matches!(piece, Piece::Chunk(chunk) if chunk.kind == Some(ChunkKind::VersionData))
+        })
+        .map(|(index, _)| index)
+        .collect();
+    let mut bytes = corrupt_chunk(&bytes, &MODEL_MAGIC, data[12]);
+    for step in 30..60 {
+        let next = edited(documents.last().unwrap(), 10 + step);
+        bytes = save_step(&next, &bytes, step, HALF_HOUR);
+        documents.push(next);
+        check_listed_versions(&bytes, &documents);
+    }
+    assert!(longest_delta_run(&bytes) < 8);
 }
