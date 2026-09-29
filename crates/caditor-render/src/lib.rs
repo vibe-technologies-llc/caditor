@@ -154,6 +154,7 @@ impl Renderer {
         &mut self,
         viewport: Option<&ViewportFrame<'_>>,
     ) -> Result<Option<Frame>, RenderError> {
+        self.viewport.picking().abandon_unsubmitted();
         if self.needs_reconfigure {
             self.resize(self.size());
         }

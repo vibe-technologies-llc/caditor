@@ -822,7 +822,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     fills (sketch regions) over the faces they lie on.
   - Picking renders a small window around the cursor into ID and depth targets and reads it
     back asynchronously, so hover never blocks the UI thread; `poll_pick` says `Pending`, `Ready`
-    or `Failed`, and the app asks again after a failed readback. Hits carry their world position,
+    or `Failed` (a failed readback, or a pick whose frame was dropped before `submit`, which the
+    next `begin_frame` abandons), and the app asks again after a failure. Hits carry their world position,
     which navigation uses as the orbit pivot, pan grab point and zoom anchor. Reference-layer
     fills (principal and datum planes) are drawn in a pass of their own first, nearest winning,
     and everything else is drawn over them, so a translucent plane owns a pixel only where no

@@ -365,3 +365,69 @@ fn reference_fills_are_picked_only_where_nothing_else_is() {
     assert_eq!(id, PickId::from_index(1).unwrap());
     assert!((position.z - 40.0).abs() < 0.5, "{position:?}");
 }
+
+#[test]
+fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_is_read() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let on_line = view.project(Point3::new(5.0, 0.0, 0.0)).unwrap();
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("offscreen target"),
+        size: wgpu::Extent3d {
+            width: SIZE,
+            height: SIZE,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let scene = scene();
+    let draw = |renderer: &mut ViewportRenderer| {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        renderer.draw(
+            &device,
+            &queue,
+            &mut encoder,
+            &SurfaceTarget {
+                view: &target_view,
+                width: SIZE,
+                height: SIZE,
+            },
+            Some(&ViewportFrame {
+                rect: ViewportRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: SIZE as f32,
+                    height: SIZE as f32,
+                },
+                view: &view,
+                scene: &scene,
+                pick_at: Some(on_line),
+            }),
+        );
+        encoder
+    };
+
+    drop(draw(&mut renderer));
+    let pending = renderer.picking().poll(&device);
+    renderer.picking().abandon_unsubmitted();
+    let abandoned = renderer.picking().poll(&device);
+    let encoder = draw(&mut renderer);
+    queue.submit([encoder.finish()]);
+    renderer.picking().after_submit();
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    let read = renderer.picking().poll(&device);
+
+    assert_eq!(pending, crate::PickPoll::Pending);
+    assert_eq!(abandoned, crate::PickPoll::Failed);
+    assert!(matches!(read, crate::PickPoll::Ready(pick) if !pick.hits.is_empty()));
+}

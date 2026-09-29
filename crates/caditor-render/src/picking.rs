@@ -21,6 +21,7 @@ type MapOutcome = Arc<Mutex<Option<Result<(), wgpu::BufferAsyncError>>>>;
 
 enum Stage {
     Encoded,
+    Abandoned,
     Mapping(MapOutcome),
 }
 
@@ -115,6 +116,14 @@ impl Picking {
         });
     }
 
+    pub fn abandon_unsubmitted(&mut self) {
+        if let Some(in_flight) = self.in_flight.as_mut()
+            && matches!(in_flight.stage, Stage::Encoded)
+        {
+            in_flight.stage = Stage::Abandoned;
+        }
+    }
+
     pub fn after_submit(&mut self) {
         let Some(in_flight) = self.in_flight.as_mut() else {
             return;
@@ -132,12 +141,23 @@ impl Picking {
     }
 
     pub fn poll(&mut self, device: &wgpu::Device) -> PickPoll {
-        let Some(InFlight {
-            stage: Stage::Mapping(outcome),
-            ..
-        }) = &self.in_flight
-        else {
-            return PickPoll::Pending;
+        let outcome = match &self.in_flight {
+            Some(InFlight {
+                stage: Stage::Mapping(outcome),
+                ..
+            }) => outcome,
+            Some(InFlight {
+                stage: Stage::Abandoned,
+                ..
+            }) => {
+                self.in_flight = None;
+                return PickPoll::Failed;
+            }
+            Some(InFlight {
+                stage: Stage::Encoded,
+                ..
+            })
+            | None => return PickPoll::Pending,
         };
         if let Err(error) = device.poll(wgpu::PollType::Poll) {
             log::warn!("could not poll the graphics device for picking: {error}");

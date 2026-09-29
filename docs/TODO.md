@@ -233,8 +233,6 @@ within a category run from most to least important.
   preference also wakes discrete GPUs.
 - One buffer over the device limits breaks every frame including the UI; check sizes and split
   meshes.
-- A pick encoded in `begin_frame` is started only by `submit`, so a dropped `Frame` leaves
-  picking stuck in `Encoded` forever.
 - A zero-size viewport drops every GPU mesh, re-uploaded when it returns.
 - The 4x MSAA colour target is stored every frame although it is only resolved; `GrowableBuffer`
   never shrinks from its peak.
