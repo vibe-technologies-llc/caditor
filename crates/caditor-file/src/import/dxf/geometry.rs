@@ -220,7 +220,208 @@ pub(super) enum Shape {
         sweep: f64,
     },
     Spline(Nurbs),
-    Interpolated(Vec<Point3>),
+    Interpolated(FitPoints),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct FitPoints {
+    pub points: Vec<Point3>,
+    pub start_tangent: Option<Vector3>,
+    pub end_tangent: Option<Vector3>,
+}
+
+impl FitPoints {
+    pub fn new(
+        points: Vec<Point3>,
+        start_tangent: Option<Vector3>,
+        end_tangent: Option<Vector3>,
+    ) -> Self {
+        let direction = |tangent: Option<Vector3>| tangent.filter(|tangent| tangent.length() > 0.0);
+        Self {
+            points,
+            start_tangent: direction(start_tangent),
+            end_tangent: direction(end_tangent),
+        }
+    }
+
+    pub fn has_tangents(&self) -> bool {
+        self.start_tangent.is_some() || self.end_tangent.is_some()
+    }
+
+    fn transformed(&self, transform: &Affine) -> Self {
+        Self {
+            points: self
+                .points
+                .iter()
+                .map(|point| transform.point(*point))
+                .collect(),
+            start_tangent: self.start_tangent.map(|tangent| transform.vector(tangent)),
+            end_tangent: self.end_tangent.map(|tangent| transform.vector(tangent)),
+        }
+    }
+
+    pub fn cubic(&self) -> Option<Nurbs> {
+        let mut points = self.points.clone();
+        points.dedup();
+
+        let chords = ChordParameters::along(&points)?;
+        let (first, last) = (*points.first()?, *points.last()?);
+        let spans = chords.spans();
+        let slope = |tangent: Option<Vector3>| {
+            tangent
+                .and_then(|tangent| tangent.try_normalize())
+                .map(|direction| direction * chords.length)
+        };
+
+        let mut rows = Vec::with_capacity(spans + 1);
+        rows.push(chords.start_row(first, slope(self.start_tangent)));
+        for (index, point) in points.iter().enumerate().take(spans).skip(1) {
+            rows.push(chords.interior_row(isize::try_from(index).ok()?, *point));
+        }
+        rows.push(chords.end_row(last, slope(self.end_tangent))?);
+
+        let mut control_points = vec![first];
+        control_points.extend(solve_tridiagonal(&rows)?);
+        control_points.push(last);
+        let mut knots = vec![0.0; CUBIC + 1];
+        knots.extend(chords.values.iter().take(spans).skip(1));
+        knots.extend([1.0; CUBIC + 1]);
+        Nurbs::new(CUBIC, knots, control_points, None)
+    }
+}
+
+const CUBIC: usize = 3;
+
+struct ChordParameters {
+    values: Vec<f64>,
+    length: f64,
+}
+
+impl ChordParameters {
+    fn along(points: &[Point3]) -> Option<Self> {
+        let chords: Vec<f64> = points
+            .windows(2)
+            .map(|pair| match pair {
+                [from, to] => from.distance(*to),
+                _ => 0.0,
+            })
+            .collect();
+        let length: f64 = chords.iter().sum();
+        if chords.is_empty() || !length.is_finite() || length <= 0.0 {
+            return None;
+        }
+
+        let mut values = vec![0.0];
+        let mut travelled = 0.0;
+        for chord in chords.iter().take(chords.len() - 1) {
+            travelled += chord;
+            values.push(travelled / length);
+        }
+        values.push(1.0);
+
+        let increasing = values
+            .windows(2)
+            .all(|pair| matches!(pair, [low, high] if low < high));
+        increasing.then_some(Self { values, length })
+    }
+
+    fn spans(&self) -> usize {
+        self.values.len() - 1
+    }
+
+    fn at(&self, index: isize) -> f64 {
+        let clamped = usize::try_from(index.max(0))
+            .unwrap_or_default()
+            .min(self.spans());
+        self.values.get(clamped).copied().unwrap_or(1.0)
+    }
+
+    fn start_row(&self, first: Point3, slope: Option<Vector3>) -> Row {
+        let (near, far) = (self.at(1), self.at(2));
+        match slope {
+            Some(slope) => Row::fixed(first + slope * (near / 3.0)),
+            None => Row {
+                below: 0.0,
+                diagonal: 1.0 / near + 1.0 / far,
+                above: -1.0 / far,
+                value: first / near,
+            },
+        }
+    }
+
+    fn interior_row(&self, index: isize, point: Point3) -> Row {
+        let (before, here, after) = (self.at(index - 1), self.at(index), self.at(index + 1));
+        let below = (after - here).powi(2) / ((after - self.at(index - 2)) * (after - before));
+        let above = (here - before).powi(2) / ((self.at(index + 2) - before) * (after - before));
+        Row {
+            below,
+            diagonal: 1.0 - below - above,
+            above,
+            value: point,
+        }
+    }
+
+    fn end_row(&self, last: Point3, slope: Option<Vector3>) -> Option<Row> {
+        let spans = isize::try_from(self.spans()).ok()?;
+        let (near, far) = (1.0 - self.at(spans - 1), 1.0 - self.at(spans - 2));
+        Some(match slope {
+            Some(slope) => Row::fixed(last - slope * (near / 3.0)),
+            None => Row {
+                below: -1.0 / far,
+                diagonal: 1.0 / near + 1.0 / far,
+                above: 0.0,
+                value: last / near,
+            },
+        })
+    }
+}
+
+struct Row {
+    below: f64,
+    diagonal: f64,
+    above: f64,
+    value: Point3,
+}
+
+impl Row {
+    fn fixed(value: Point3) -> Self {
+        Self {
+            below: 0.0,
+            diagonal: 1.0,
+            above: 0.0,
+            value,
+        }
+    }
+}
+
+fn solve_tridiagonal(rows: &[Row]) -> Option<Vec<Point3>> {
+    let mut reduced: Vec<(f64, f64, Point3)> = Vec::with_capacity(rows.len());
+    for row in rows {
+        let (diagonal, value) = match reduced.last() {
+            Some((previous_diagonal, previous_above, previous_value)) => {
+                let factor = row.below / previous_diagonal;
+                (
+                    row.diagonal - factor * previous_above,
+                    row.value - *previous_value * factor,
+                )
+            }
+            None => (row.diagonal, row.value),
+        };
+        if diagonal == 0.0 || !diagonal.is_finite() {
+            return None;
+        }
+        reduced.push((diagonal, row.above, value));
+    }
+    let mut solution: Vec<Point3> = Vec::with_capacity(reduced.len());
+    for (diagonal, above, value) in reduced.iter().rev() {
+        let next = solution.last().map_or(Vector3::ZERO, |next| *next * *above);
+        solution.push((*value - next) / *diagonal);
+    }
+    solution.reverse();
+    solution
+        .iter()
+        .all(|point| point.is_finite())
+        .then_some(solution)
 }
 
 impl Shape {
@@ -230,7 +431,7 @@ impl Shape {
             Self::Line(..) => 2,
             Self::Conic { .. } => 3,
             Self::Spline(nurbs) => nurbs.points.len() + nurbs.knots.len(),
-            Self::Interpolated(points) => points.len(),
+            Self::Interpolated(fit) => fit.points.len(),
         }
     }
 
@@ -252,9 +453,7 @@ impl Shape {
                 sweep: *sweep,
             },
             Self::Spline(nurbs) => Self::Spline(nurbs.transformed(transform)),
-            Self::Interpolated(points) => {
-                Self::Interpolated(points.iter().map(|point| transform.point(*point)).collect())
-            }
+            Self::Interpolated(fit) => Self::Interpolated(fit.transformed(transform)),
         }
     }
 
@@ -274,7 +473,7 @@ impl Shape {
                 *center - *minor,
             ],
             Self::Spline(nurbs) => nurbs.points.clone(),
-            Self::Interpolated(points) => points.clone(),
+            Self::Interpolated(fit) => fit.points.clone(),
         }
     }
 }
@@ -405,5 +604,66 @@ mod tests {
         let circle = planar_circle(Point3::ZERO, -Vector3::X, Vector3::Y).unwrap();
         assert!(!circle.counter_clockwise);
         assert!(planar_circle(Point3::ZERO, Vector3::X * 2.0, Vector3::Y).is_none());
+    }
+
+    fn fit_points() -> Vec<Point3> {
+        vec![
+            Point3::ZERO,
+            Point3::new(3.0, 4.0, 0.0),
+            Point3::new(9.0, 4.0, 1.0),
+            Point3::new(12.0, 0.0, 1.0),
+        ]
+    }
+
+    fn chord_parameters(points: &[Point3]) -> Vec<f64> {
+        let chords: Vec<f64> = points.windows(2).map(|w| w[0].distance(w[1])).collect();
+        let length: f64 = chords.iter().sum();
+        let mut travelled = 0.0;
+        let mut parameters = vec![0.0];
+        for chord in chords {
+            travelled += chord;
+            parameters.push(travelled / length);
+        }
+        parameters
+    }
+
+    #[test]
+    fn a_cubic_through_fit_points_leaves_along_its_tangents() {
+        let points = fit_points();
+        let length: f64 = points.windows(2).map(|w| w[0].distance(w[1])).sum();
+        let step = 1e-6;
+        let start = Vector3::new(0.0, 2.0, 0.0);
+        let end = Vector3::new(1.0, -1.0, 0.0);
+
+        let both = FitPoints::new(points.clone(), Some(start), Some(end))
+            .cubic()
+            .unwrap();
+        let starting = FitPoints::new(points.clone(), Some(start), None)
+            .cubic()
+            .unwrap();
+        let leaving = (both.point(step).unwrap() - both.point(0.0).unwrap()) / step;
+        let arriving = (both.point(1.0).unwrap() - both.point(1.0 - step).unwrap()) / step;
+        let curvature_step = 1e-4;
+        let bend = (starting.point(1.0).unwrap()
+            - starting.point(1.0 - curvature_step).unwrap() * 2.0
+            + starting.point(1.0 - 2.0 * curvature_step).unwrap())
+            / (curvature_step * curvature_step);
+
+        assert_eq!(both.degree, 3);
+        for (point, parameter) in points.iter().zip(chord_parameters(&points)) {
+            assert!(both.point(parameter).unwrap().distance(*point) < 1e-9);
+            assert!(starting.point(parameter).unwrap().distance(*point) < 1e-9);
+        }
+        assert!(leaving.distance(start.normalize() * length) < 1e-3 * length);
+        assert!(arriving.distance(end.normalize() * length) < 1e-3 * length);
+        assert!(bend.length() < 1e-2 * length, "{bend}");
+    }
+
+    #[test]
+    fn fit_points_that_all_coincide_have_no_cubic() {
+        let fit = FitPoints::new(vec![Point3::X; 3], Some(Vector3::Y), None);
+
+        assert!(fit.cubic().is_none());
+        assert!(!FitPoints::new(fit_points(), Some(Vector3::ZERO), None).has_tangents());
     }
 }

@@ -882,7 +882,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     points and knots in all, else `ImportError::TooDetailed`), and the entities
     LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE and POLYLINE (bulges become arcs, 3D polylines
     lines) and SPLINE (control points with knots up to degree 9 and a weight per control point or
-    none, else its fit points). HATCH boundaries (`hatch.rs`, the paths between code 91 and the
+    none, else its fit points; with an end tangent, codes 12 and 13, the fit points give the
+    cubic AutoCAD draws, `FitPoints::cubic`: chord-length parameters as knots, the tangent scaled
+    by the polyline's length as the end derivative and a zero second derivative at an end without
+    one, solved as one tridiagonal system, else they are rebuilt by `BSpline::through`). HATCH boundaries (`hatch.rs`, the paths between code 91 and the
     pattern data, so seed points are never read as geometry) become curves: polyline paths with
     bulges, always closed, and edge paths of lines, arcs, elliptic arcs (their angles read as
     angles and turned into ellipse parameters, as ezdxf does) and splines, clockwise edges by their

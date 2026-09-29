@@ -17,7 +17,7 @@ use crate::import::{
     Drawing, ImportError, MAX_DRAWING_CURVES, MAX_DRAWING_POINTS, MAX_EXPANDED_OBJECTS,
     dxf::{
         flatten::flatten,
-        geometry::{Affine, Nurbs, Shape, conic_arc},
+        geometry::{Affine, FitPoints, Nurbs, Shape, conic_arc},
         hatch::boundaries,
         mline::mline,
         outline::{face_outline, filled_outline},
@@ -970,7 +970,13 @@ fn spline(record: &Record) -> Option<Vec<Shape>> {
         return Some(vec![Shape::Spline(nurbs)]);
     }
     let fit_points = record.points(11);
-    (fit_points.len() >= 2).then(|| vec![Shape::Interpolated(fit_points)])
+    (fit_points.len() >= 2).then(|| {
+        vec![Shape::Interpolated(FitPoints::new(
+            fit_points,
+            record.point(12),
+            record.point(13),
+        ))]
+    })
 }
 
 fn unit_note(units: HeaderUnits, notes: &mut Vec<String>) -> f64 {

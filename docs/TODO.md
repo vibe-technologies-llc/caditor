@@ -73,7 +73,6 @@ within a category run from most to least important.
 
 ## DXF import
 
-- Fit-point splines ignore their end tangents.
 - `$DWGCODEPAGE` is ignored, so non-UTF-8 names come out garbled.
 - `Nurbs::point` finds the knot span linearly for each of up to 16,384 samples, and each visited
   entity rescans its record for codes 67, 60 and 8.

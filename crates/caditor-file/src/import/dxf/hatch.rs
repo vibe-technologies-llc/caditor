@@ -2,7 +2,7 @@ use caditor_geometry::{Point2, Point3, Vector3};
 
 use crate::import::dxf::{
     Fields, Record,
-    geometry::{Affine, Nurbs, Shape, conic_arc},
+    geometry::{Affine, FitPoints, Nurbs, Shape, conic_arc},
     pairs::Pair,
     polyline_segments,
 };
@@ -193,5 +193,13 @@ fn spline_edge(fields: &[Pair], elevation: f64) -> Option<Shape> {
         return Some(Shape::Spline(nurbs));
     }
     let fit_points: Vec<Point3> = fields.points(11).into_iter().map(at_elevation).collect();
-    (fit_points.len() >= 2).then_some(Shape::Interpolated(fit_points))
+    let tangent = |code: i32| {
+        Some(Vector3::new(
+            fields.real(code)?,
+            fields.real(code + 10)?,
+            0.0,
+        ))
+    };
+    (fit_points.len() >= 2)
+        .then(|| Shape::Interpolated(FitPoints::new(fit_points, tangent(12), tangent(13))))
 }

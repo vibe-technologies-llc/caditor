@@ -510,3 +510,90 @@ fn a_drawing_whose_only_outline_is_a_hatch_extrudes_into_a_solid() {
     assert_eq!(evaluation.failed_count(), 0);
     assert!((volume - expected).abs() < 0.05, "{volume} vs {expected}");
 }
+
+fn leaves_along(spline: &BSpline, start: Point2, end: Point2) -> bool {
+    let points = spline.control_points();
+    let direction = |from: Point2, to: Point2| (to - from).normalize();
+    let first = direction(points[0], points[1]);
+    let last = direction(points[points.len() - 2], points[points.len() - 1]);
+    first.distance(start) < 1e-2 && last.distance(end) < 1e-2
+}
+
+#[test]
+fn fit_point_splines_honour_their_end_tangents() {
+    let mut arch = vec![pair(0, "SPLINE"), pair(8, "0"), pair(70, 8), pair(71, 3)];
+    for (x, y) in [(0.0, 0.0), (10.0, 0.0)] {
+        arch.extend([pair(11, x), pair(21, y), pair(31, 0.0)]);
+    }
+    arch.extend([
+        pair(12, 0.0),
+        pair(22, 1.0),
+        pair(32, 0.0),
+        pair(13, 0.0),
+        pair(23, -1.0),
+        pair(33, 0.0),
+    ]);
+    let mut edge = vec![
+        pair(72, 4),
+        pair(94, 3),
+        pair(73, 0),
+        pair(74, 0),
+        pair(95, 0),
+        pair(96, 0),
+        pair(97, 3),
+    ];
+    for (x, y) in [(20.0, 0.0), (25.0, 2.0), (30.0, 0.0)] {
+        edge.extend([pair(11, x), pair(21, y)]);
+    }
+    edge.extend([pair(12, 1.0), pair(22, 1.0), pair(13, 1.0), pair(23, -1.0)]);
+
+    let drawing = millimetre_drawing(vec![arch, hatch(vec![edge_path(vec![edge])])]);
+    let found = splines(&drawing);
+    let arched = found
+        .iter()
+        .find(|spline| spline.point_at(0.0).x < 15.0)
+        .unwrap();
+    let edged = found
+        .iter()
+        .find(|spline| spline.point_at(0.0).x > 15.0)
+        .unwrap();
+    let diagonal = std::f64::consts::FRAC_1_SQRT_2;
+
+    let lift = 10.0 / 3.0;
+    let bezier = |t: f64| {
+        let s = 1.0 - t;
+        Point2::new(0.0, lift) * (3.0 * s * s * t)
+            + Point2::new(10.0, lift) * (3.0 * s * t * t)
+            + Point2::new(10.0, 0.0) * (t * t * t)
+    };
+    let traced: Vec<Point2> = (0..=4000)
+        .map(|step| arched.point_at(f64::from(step) / 4000.0))
+        .collect();
+    let farthest = (0..=100)
+        .map(|step| {
+            let expected = bezier(f64::from(step) / 100.0);
+            traced
+                .iter()
+                .map(|point| point.distance(expected))
+                .fold(f64::INFINITY, f64::min)
+        })
+        .fold(0.0, f64::max);
+
+    assert!(near(arched.point_at(0.0), Point2::ZERO));
+    assert!(near(arched.point_at(1.0), Point2::new(10.0, 0.0)));
+    assert!(farthest < 1e-2, "{farthest}");
+    assert!(leaves_along(arched, Point2::Y, -Point2::Y));
+    assert!(leaves_along(
+        edged,
+        Point2::new(diagonal, diagonal),
+        Point2::new(diagonal, -diagonal)
+    ));
+    assert!(
+        drawing
+            .notes
+            .iter()
+            .any(|note| note.starts_with("2 splines given only by points on the curve")),
+        "{:?}",
+        drawing.notes
+    );
+}

@@ -87,6 +87,8 @@ The first release of caditor.
 - Drawings bring in the outlines of their hatches, filled solids, traces, 3D faces and
   multilines, so a profile drawn only as a hatch can be extruded; a hatch tied to the lines it
   fills does not repeat them.
+- A drawing's spline given by fit points and end tangents leaves and arrives along those
+  tangents, as in the program that drew it.
 - A drawing's spline through fit points that repeat, or nearly repeat, is imported instead of
   left out.
 - A STEP file with a damaged or unknown entry, or one defined twice, still imports what does not

@@ -126,8 +126,15 @@ fn flatten_shape(shape: &Shape, tolerance: f64, tally: &mut Tally) -> Option<Dra
             curve
         }
         Shape::Spline(nurbs) => spline(nurbs, tolerance, tally),
-        Shape::Interpolated(points) => {
-            let mut points: Vec<Point2> = points.iter().map(|point| point2(*point)).collect();
+        Shape::Interpolated(fit) => {
+            if fit.has_tangents()
+                && let Some(nurbs) = fit.cubic()
+                && let Some(curve) = sampled(&nurbs, tolerance, tally)
+            {
+                tally.rebuilt += 1;
+                return Some(curve);
+            }
+            let mut points: Vec<Point2> = fit.points.iter().map(|point| point2(*point)).collect();
             points.dedup();
             match points.as_slice() {
                 [] | [_] => {
@@ -174,6 +181,14 @@ fn spline(nurbs: &Nurbs, tolerance: f64, tally: &mut Tally) -> Option<DrawingCur
             _ => DrawingCurve::Spline { control_points },
         });
     }
+    let curve = sampled(nurbs, tolerance, tally);
+    if curve.is_some() {
+        tally.splines += 1;
+    }
+    curve
+}
+
+fn sampled(nurbs: &Nurbs, tolerance: f64, tally: &mut Tally) -> Option<DrawingCurve> {
     let (start, end) = nurbs.domain()?;
     let count = (nurbs.spans() * SAMPLES_PER_SPAN).clamp(MIN_SAMPLES, MAX_SAMPLES);
     let samples: Vec<Point2> = (0..=count)
@@ -184,11 +199,7 @@ fn spline(nurbs: &Nurbs, tolerance: f64, tally: &mut Tally) -> Option<DrawingCur
                 .map(|point| Point2::new(point.x, point.y))
         })
         .collect::<Option<_>>()?;
-    let curve = fitted(&samples, tolerance, tally);
-    if curve.is_some() {
-        tally.splines += 1;
-    }
-    curve
+    fitted(&samples, tolerance, tally)
 }
 
 fn same_knots(native: &[f64], given: &[f64]) -> bool {
