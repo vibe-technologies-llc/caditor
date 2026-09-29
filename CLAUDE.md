@@ -1009,7 +1009,7 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     its error, and one that arrives after another model was opened says it was not restored), so Undo brings back
     what was there and the next save keeps the replaced state as a version too.
   - Preferences (`preferences.rs`, `units.rs`): File › Preferences… (Ctrl+,) sets the length unit
-    (millimetres, centimetres or metres; SI only, see `.claude/rules/ux.md`), the `Appearance`
+    (micrometres, millimetres, centimetres or metres; SI only, see `.claude/rules/ux.md`), the `Appearance`
     (theme: system, dark or light, the 3D view keeping its dark canvas; interface size from 75% to
     200% in eighths, also on Ctrl+Plus, Ctrl+Minus and Ctrl+0, applied as the egui zoom factor,
     whose own keyboard zoom and quit shortcut are switched off; high contrast), orbit and zoom speed
@@ -1022,8 +1022,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     only: models stay unit-explicit. Values and previews are shown in it (`LengthUnit::show`), a
     plain number typed where a length is expected gets it attached (`2` becomes `2 cm`), as does a
     plain value typed for a parameter that holds a length (one holding an angle gets degrees,
-    `field::parameter_expression`), measured dimensions are written in it and new features start
-    from round numbers in it.
+    `field::parameter_expression`), measured dimensions are written in it, new features start
+    from round numbers in it, and the cursor readout resolves a hundredth of a millimetre in it.
   - Every numeric input is a `field::commit_field`: it commits on Enter or loss of focus,
     reverts on Escape, and keeps invalid text with its error inline instead of discarding it.
     Expression fields parse, evaluate and check the dimension before building a transaction;

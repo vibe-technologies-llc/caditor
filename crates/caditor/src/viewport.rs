@@ -972,8 +972,8 @@ impl ViewportState {
                 Align2::LEFT_BOTTOM,
                 format!(
                     "x {}   y {}",
-                    model.length_unit().length_text(position.x, 2),
-                    model.length_unit().length_text(position.y, 2)
+                    model.length_unit().readout_text(position.x),
+                    model.length_unit().readout_text(position.y)
                 ),
                 FontId::monospace(11.0),
                 canvas::TEXT,

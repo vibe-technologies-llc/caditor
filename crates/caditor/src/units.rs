@@ -2,8 +2,11 @@ use caditor_expression::{Dimension, Expression, Quantity, Unit, format_number};
 
 use crate::sketch_tools::rounded_for_display;
 
+const READOUT_DECIMALS_IN_MILLIMETRES: f64 = 2.0;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LengthUnit {
+    Micrometre,
     #[default]
     Millimetre,
     Centimetre,
@@ -11,10 +14,16 @@ pub enum LengthUnit {
 }
 
 impl LengthUnit {
-    pub const ALL: [Self; 3] = [Self::Millimetre, Self::Centimetre, Self::Metre];
+    pub const ALL: [Self; 4] = [
+        Self::Micrometre,
+        Self::Millimetre,
+        Self::Centimetre,
+        Self::Metre,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
+            Self::Micrometre => "Micrometres",
             Self::Millimetre => "Millimetres",
             Self::Centimetre => "Centimetres",
             Self::Metre => "Metres",
@@ -23,6 +32,7 @@ impl LengthUnit {
 
     pub fn unit(self) -> Unit {
         match self {
+            Self::Micrometre => Unit::Micrometre,
             Self::Millimetre => Unit::Millimetre,
             Self::Centimetre => Unit::Centimetre,
             Self::Metre => Unit::Metre,
@@ -63,7 +73,10 @@ impl LengthUnit {
         format!("{value:.digits$} {}", self.symbol())
     }
 
-    pub fn length_text(self, millimetres: f64, decimals: usize) -> String {
+    pub fn readout_text(self, millimetres: f64) -> String {
+        let decimals = (READOUT_DECIMALS_IN_MILLIMETRES + self.millimetres().log10())
+            .round()
+            .max(0.0) as usize;
         format!(
             "{:.decimals$} {}",
             millimetres / self.millimetres(),
@@ -130,7 +143,18 @@ mod tests {
         );
         assert_eq!(LengthUnit::Metre.show(Quantity::angle(30.0)), "30°");
         assert_eq!(LengthUnit::Metre.show(Quantity::plain(3.0)), "3");
-        assert_eq!(LengthUnit::Metre.length_text(1250.0, 2), "1.25 m");
+        assert_eq!(
+            LengthUnit::Micrometre.show(Quantity::length(0.25)),
+            "250 um"
+        );
+    }
+
+    #[test]
+    fn the_cursor_readout_resolves_a_hundredth_of_a_millimetre_in_every_unit() {
+        assert_eq!(LengthUnit::Millimetre.readout_text(12.345), "12.35 mm");
+        assert_eq!(LengthUnit::Centimetre.readout_text(12.345), "1.235 cm");
+        assert_eq!(LengthUnit::Metre.readout_text(1250.004), "1.25000 m");
+        assert_eq!(LengthUnit::Micrometre.readout_text(0.0123), "12 um");
     }
 
     #[test]
@@ -173,6 +197,7 @@ mod tests {
         assert!(!LengthUnit::Millimetre.applies_to(Some(Dimension::LENGTH), Dimension::NONE));
         assert!(!LengthUnit::Metre.applies_to(Some(Dimension::ANGLE), Dimension::NONE));
         assert_eq!(LengthUnit::from_symbol("cm"), Some(LengthUnit::Centimetre));
+        assert_eq!(LengthUnit::from_symbol("um"), Some(LengthUnit::Micrometre));
         assert_eq!(LengthUnit::from_symbol("in"), None);
     }
 }

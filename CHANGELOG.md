@@ -70,7 +70,7 @@ The first release of caditor.
 - A command palette, customisable keyboard shortcuts, and keyboard operation of everything,
   including views, highlighting in the viewport and typed points.
 - Dark, light and high-contrast themes, interface sizes from 75% to 200%, and a choice of
-  millimetres, centimetres or metres.
+  micrometres, millimetres, centimetres or metres.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.
 - A welcome dialog with three sample models and first-run tips.
 - Help › About caditor shows the version; `caditor --version` prints it.
