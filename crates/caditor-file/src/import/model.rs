@@ -1,6 +1,7 @@
 use std::{path::Path, time::SystemTime};
 
 use caditor_document::{Document, FeatureKind, Import, Transaction};
+use caditor_kernel::Solid;
 use caditor_step::{ReadError, StepBody, read_step, write_step};
 
 use crate::{import::ImportError, read::read_file, reason};
@@ -39,10 +40,12 @@ pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> 
     let mut lost = Vec::new();
     for solid in model.solids {
         match canonical(&solid.name, &solid.solid) {
-            Some((stored, step)) => imported.bodies.push(ImportedBody {
-                import: Import::new(source, stored, step),
-                name: solid.name,
-            }),
+            Some(lumps) => imported
+                .bodies
+                .extend(lumps.into_iter().map(|(stored, step)| ImportedBody {
+                    import: Import::new(source, stored, step),
+                    name: solid.name.clone(),
+                })),
             None => lost.push(solid.name),
         }
     }
@@ -59,11 +62,29 @@ pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> 
     Ok(imported)
 }
 
-fn canonical(name: &str, solid: &caditor_kernel::Solid) -> Option<(caditor_kernel::Solid, String)> {
+fn canonical(name: &str, solid: &Solid) -> Option<Vec<(Solid, String)>> {
+    let (step, mut again) = written_and_read(name, solid)?;
+    match again.len() {
+        0 => return None,
+        1 => return Some(vec![(again.swap_remove(0), step)]),
+        _ => {}
+    }
+    again
+        .iter()
+        .map(|lump| {
+            let (step, mut alone) = written_and_read(name, lump)?;
+            (alone.len() == 1).then(|| (alone.swap_remove(0), step))
+        })
+        .collect()
+}
+
+fn written_and_read(name: &str, solid: &Solid) -> Option<(String, Vec<Solid>)> {
     let step = write_step(&[StepBody { name, solid }], name, SystemTime::UNIX_EPOCH).ok()?;
-    let mut again = read_step(&step).ok()?;
-    let stored = (again.solids.len() == 1).then(|| again.solids.swap_remove(0).solid)?;
-    Some((stored, step))
+    let again = read_step(&step).ok()?;
+    Some((
+        step,
+        again.solids.into_iter().map(|read| read.solid).collect(),
+    ))
 }
 
 pub fn bodies_transaction(

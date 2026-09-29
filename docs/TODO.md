@@ -77,9 +77,6 @@ within a category run from most to least important.
 
 ## STEP import and export
 
-- A body with several closed shells (a `SHELL_BASED_SURFACE_MODEL` read as one multi-lump solid)
-  round-trips to several solids, and `import/model.rs` `canonical` requires exactly one, so the
-  body is dropped as "could not be stored".
 - Assembly parts whose placement is a `CARTESIAN_TRANSFORMATION_OPERATOR_3D` or anything but an
   `AXIS2_PLACEMENT_3D` pair are silently left at the origin with no note
   (`read/structure.rs` `relationship`, `mapped_items`).

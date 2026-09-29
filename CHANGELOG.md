@@ -70,6 +70,8 @@ The first release of caditor.
   STL and 3MF.
 - Importing a drawing with nothing caditor can draw, such as only text or hatches, says so and
   lists what was left out.
+- A STEP surface model made of several closed shells is imported as one body per shell instead
+  of being left out as one that could not be stored.
 - A STEP body whose faces could not all be checked for crossing each other is still imported,
   with a note naming the faces, instead of passing the check unnoticed.
 - STEP files whose curves are nested many times over, or whose bodies share shells and

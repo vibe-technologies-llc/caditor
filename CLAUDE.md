@@ -851,7 +851,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `Coincident` constraints.
   - STEP import (`import/model.rs`): `read_step_file` reads a STEP file through `caditor-step`
     and canonicalises each solid (written by caditor's own writer and read back, so what is
-    stored is exactly what later loads), giving one `ImportedBody` per solid plus notes;
+    stored is exactly what later loads), giving one `ImportedBody` per solid (or per lump, each
+    canonicalised alone, when a solid of several lumps reads back as several) plus notes;
     `bodies_transaction` adds an `Import` feature per body under unique names. The model file
     stores an import as its source name and STEP text (`import` records), and an unreadable one
     loads as an empty import with a report.

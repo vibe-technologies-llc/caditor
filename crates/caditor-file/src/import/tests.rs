@@ -931,6 +931,74 @@ mod step {
     }
 
     #[test]
+    fn a_surface_model_of_several_closed_shells_is_imported_as_a_body_per_shell() {
+        let square = |first: u64, x: f64| -> Vec<ProfileCurve> {
+            let corners = [(x, 0.0), (x + 2.0, 0.0), (x + 2.0, 2.0), (x, 2.0)];
+            (0..4)
+                .map(|index| {
+                    let (a, b) = (corners[index], corners[(index + 1) % 4]);
+                    ProfileCurve::line(
+                        first + index as u64,
+                        Point2::new(a.0, a.1),
+                        Point2::new(b.0, b.1),
+                    )
+                })
+                .collect()
+        };
+        let curves: Vec<ProfileCurve> = square(1, 0.0).into_iter().chain(square(5, 5.0)).collect();
+        let regions = Profile::new(&curves)
+            .unwrap()
+            .select(&Selection::EvenDepth)
+            .unwrap();
+        let pair = extrude(
+            &Plane::XY,
+            &regions,
+            LinearExtent::one_side(1.0).unwrap(),
+            1,
+        )
+        .unwrap();
+        let written = write_step(
+            &[StepBody {
+                name: "Pair",
+                solid: &pair,
+            }],
+            "pair",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let breps: Vec<(String, String)> = written
+            .lines()
+            .filter_map(|line| {
+                let (id, rest) = line.split_once("=MANIFOLD_SOLID_BREP('Pair',")?;
+                Some((id.to_owned(), rest.trim_end_matches(");").to_owned()))
+            })
+            .collect();
+        let [(first, first_shell), (second, second_shell)] = breps.as_slice() else {
+            panic!("expected two breps in {written}");
+        };
+        let text = written
+            .replace(
+                &format!("{first}=MANIFOLD_SOLID_BREP('Pair',{first_shell});"),
+                &format!(
+                    "{first}=SHELL_BASED_SURFACE_MODEL('Pair',({first_shell},{second_shell}));"
+                ),
+            )
+            .replace(
+                &format!("{second}=MANIFOLD_SOLID_BREP('Pair',{second_shell});"),
+                &format!("{second}=CARTESIAN_POINT('',(0.,0.,0.));"),
+            );
+
+        let import = parse_step(&text, "pair.step").unwrap();
+
+        assert!(import.notes.is_empty(), "{:?}", import.notes);
+        assert_eq!(import.bodies.len(), 2);
+        for body in &import.bodies {
+            assert!((volume(&body.import.solid) - 4.0).abs() < 1e-6);
+            assert_eq!(body.import.solid.shells().count(), 1);
+        }
+    }
+
+    #[test]
     fn several_bodies_get_distinct_names_and_other_files_are_refused() {
         let solid = block();
         let text = write_step(
