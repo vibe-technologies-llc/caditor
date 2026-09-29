@@ -61,6 +61,9 @@ pub fn create(
     if edges.is_empty() {
         return Err("The selected edges are no longer part of the model");
     }
+    if edges.len() < source.edges.len() {
+        return Err("Some of the selected edges are no longer part of the model");
+    }
     let name = editing::next_feature_name(document, kind.title());
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(
@@ -160,4 +163,48 @@ pub fn toggle_edge(model: &Model, feature: FeatureId, edge: EdgeName) -> Option<
             kind: FeatureKind::Blend(changed),
         },
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use caditor_document::{CancelToken, ModelEvaluator, Recompute};
+
+    use super::*;
+    use crate::samples::Sample;
+
+    #[test]
+    fn a_fillet_is_refused_when_any_selected_edge_is_gone() {
+        let document = Sample::Plate.document().unwrap();
+
+        let evaluation = Recompute::default().run(
+            &document,
+            &ModelEvaluator,
+            &CancelToken::never(),
+            &|_, _| {},
+        );
+        let (body, _) = evaluation.bodies().next().unwrap();
+        let solid = evaluation.body(body).unwrap();
+        let present = solid.edges().next().map(|(_, edge)| edge.name()).unwrap();
+        let gone = EdgeName::from_digest(7);
+        let create = |edges: Vec<EdgeName>| {
+            create(
+                &document,
+                &evaluation,
+                BlendKind::Fillet,
+                &EdgeSource { body, edges },
+                LengthUnit::Millimetre,
+            )
+            .map(|_| ())
+        };
+
+        assert_eq!(create(vec![present]), Ok(()));
+        assert_eq!(
+            create(vec![present, gone]),
+            Err("Some of the selected edges are no longer part of the model")
+        );
+        assert_eq!(
+            create(vec![gone]),
+            Err("The selected edges are no longer part of the model")
+        );
+    }
 }

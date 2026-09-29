@@ -250,8 +250,6 @@ within a category run from most to least important.
   reacts to a session change (`viewport.rs`), so Extrude can pick a sketch the user never
   selected and Delete can hit a stale row. Export exclusions (`Exporter.left_out`) carry over
   the same way.
-- Fillet creation drops selected edges that can no longer be found and fillets the rest, while
-  Shell refuses when any face is missing.
 - Zero-size lines, rectangles, circles and arcs are refused silently, including from the
   typed-point field.
 - Constraint rows in the sketch tree are styled as links but clicking or hovering them does
