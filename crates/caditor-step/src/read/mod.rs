@@ -15,10 +15,10 @@ use caditor_kernel::Solid;
 use crate::{
     part21::{SyntaxError, parse},
     read::{
-        geometry::Geometry,
+        geometry::{Geometry, MAX_WORK, Work},
         graph::{Entity, Graph, Problem},
         structure::{MAX_DEPTH, MAX_INSTANCES as MAX_PLACEMENTS, Placements, Structure, Unplaced},
-        topology::{Built, Topology},
+        topology::{Built, SolidShells, Topology},
         units::Units,
     },
 };
@@ -93,6 +93,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
     }
     let mut budget = MAX_PLACEMENTS;
     let mut unplaced = Vec::new();
+    let mut builder = Builder::new(graph);
     for (index, entity) in solids.iter().enumerate() {
         let representation = structure.representation_of(entity.id);
         let units = representation
@@ -144,7 +145,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
             .collect();
         let occurrences_name_each =
             transforms.len() > 1 && named_occurrences.len() == transforms.len();
-        match build(&graph, units, entity.id) {
+        match builder.build(units, entity.id) {
             Ok(Built {
                 solid,
                 healed,
@@ -306,12 +307,59 @@ fn unchecked_note(name: &str, [first, second]: [u64; 2]) -> String {
     )
 }
 
-fn build(graph: &Graph<'_>, units: Units, id: u64) -> Result<Built, Problem> {
-    let geometry = Geometry {
-        graph: *graph,
-        units,
-    };
-    Topology::new(&geometry).solid(id)
+type Builds = BTreeMap<(SolidShells, [u64; 2]), (u64, Result<Built, Problem>)>;
+
+struct Builder<'a> {
+    graph: Graph<'a>,
+    work: Work,
+    geometries: Vec<Geometry<'a>>,
+    builds: Builds,
+}
+
+impl<'a> Builder<'a> {
+    fn new(graph: Graph<'a>) -> Self {
+        Self {
+            graph,
+            work: Work::new(MAX_WORK),
+            geometries: Vec::new(),
+            builds: BTreeMap::new(),
+        }
+    }
+
+    fn build(&mut self, units: Units, id: u64) -> Result<Built, Problem> {
+        let shells = SolidShells::of(&self.graph, id)?;
+        let key = (shells, [units.length.to_bits(), units.angle.to_bits()]);
+        if let Some((first, built)) = self.builds.get(&key) {
+            let first = *first;
+            return built.clone().map_err(|problem| {
+                if problem.entity == first {
+                    Problem::new(id, problem.reason)
+                } else {
+                    problem
+                }
+            });
+        }
+        self.work.charge(id)?;
+        let position = match self
+            .geometries
+            .iter()
+            .position(|geometry| geometry.units == units)
+        {
+            Some(position) => position,
+            None => {
+                self.geometries
+                    .push(Geometry::new(self.graph, units, self.work.clone()));
+                self.geometries.len() - 1
+            }
+        };
+        let geometry = self
+            .geometries
+            .get(position)
+            .ok_or_else(|| Problem::new(id, "could not be read"))?;
+        let built = Topology::new(geometry).solid(id, &key.0);
+        self.builds.insert(key, (id, built.clone()));
+        built
+    }
 }
 
 fn solid_name(

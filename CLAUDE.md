@@ -116,7 +116,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `MAX_DEPTH` or placing a part only inside itself leave that solid out with a note, and the whole
     file yields at most `MAX_INSTANCES` solids. Spline degrees above the kernel's
     `MAX_SPLINE_DEGREE` are refused as they are read, and knot multiplicities must sum to points
-    plus degree plus one (with checked arithmetic) before any knot is expanded. Geometry covers
+    plus degree plus one (with checked arithmetic) before any knot is expanded. Curves and
+    surfaces are memoised by entity per units context (failures only when met at the top, since
+    deeper ones depend on the nesting limit), a solid is built once per set of shells and units
+    however many breps name them, and every curve, surface, composite piece, face and solid built
+    is charged to one `MAX_WORK` budget per file, past which the rest is refused as too intricate.
+    Geometry covers
     every kernel surface and curve including B-spline surfaces and curves in all their forms (Bézier
     ones with the standard piecewise knots, degree-fold at every joint; uniform and other unclamped
     ones clamped by knot insertion), trimmed and surface curves by their basis, polylines, and

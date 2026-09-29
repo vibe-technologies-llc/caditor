@@ -178,7 +178,11 @@ fn bezier_and_uniform_curves_and_surfaces_are_read_with_the_standard_knots() {
 
     use crate::{
         part21::parse,
-        read::{geometry::Geometry, graph::Graph, units::Units},
+        read::{
+            geometry::{Geometry, MAX_WORK, Work},
+            graph::Graph,
+            units::Units,
+        },
     };
 
     let points: Vec<(f64, f64, f64)> = (0..7)
@@ -220,10 +224,7 @@ fn bezier_and_uniform_curves_and_surfaces_are_read_with_the_standard_knots() {
         data.join("\n")
     );
     let exchange = parse(&text).unwrap();
-    let geometry = Geometry {
-        graph: Graph::new(&exchange),
-        units: Units::default(),
-    };
+    let geometry = Geometry::new(Graph::new(&exchange), Units::default(), Work::new(MAX_WORK));
     let point = |index: usize| {
         let (x, y, z) = points[index];
         Point3::new(x, y, z)
@@ -371,7 +372,11 @@ fn a_composite_curve_follows_its_trimmed_segments() {
 
     use crate::{
         part21::parse,
-        read::{geometry::Geometry, graph::Graph, units::Units},
+        read::{
+            geometry::{Geometry, MAX_WORK, Work},
+            graph::Graph,
+            units::Units,
+        },
     };
 
     let text = "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n\
@@ -385,10 +390,7 @@ fn a_composite_curve_follows_its_trimmed_segments() {
         #13=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.F.,#11);\n\
         #14=COMPOSITE_CURVE('',(#12,#13),.F.);\nENDSEC;\nEND-ISO-10303-21;\n";
     let exchange = parse(text).unwrap();
-    let geometry = Geometry {
-        graph: Graph::new(&exchange),
-        units: Units::default(),
-    };
+    let geometry = Geometry::new(Graph::new(&exchange), Units::default(), Work::new(MAX_WORK));
     let curve = geometry.curve(14).unwrap();
     let range = curve.domain().bounded().unwrap();
     let ends = [curve.point(range.start()), curve.point(range.end())];
@@ -403,6 +405,52 @@ fn a_composite_curve_follows_its_trimmed_segments() {
         corner.distance(Point3::new(10.0, 0.0, 0.0)) < 1e-9,
         "{corner}"
     );
+}
+
+#[test]
+fn composite_curves_nested_many_times_are_built_once_each_within_the_budget() {
+    use crate::{
+        part21::parse,
+        read::{
+            geometry::{Geometry, MAX_WORK, Work},
+            graph::Graph,
+            units::Units,
+        },
+    };
+
+    const LEVELS: u64 = 6;
+    const SEGMENTS: usize = 20;
+    let mut data = vec![
+        "#1=CARTESIAN_POINT('',(0.,0.,0.));#2=DIRECTION('',(1.,0.,0.));".to_owned(),
+        "#3=VECTOR('',#2,1.);#4=LINE('',#1,#3);".to_owned(),
+        "#5=TRIMMED_CURVE('',#4,(PARAMETER_VALUE(0.)),(PARAMETER_VALUE(5.)),.T.,.PARAMETER.);"
+            .to_owned(),
+    ];
+    for level in 1..=LEVELS {
+        let next = if level == LEVELS { 5 } else { 100 + level + 1 };
+        let segments = vec![format!("#{}", 200 + level); SEGMENTS].join(",");
+        data.push(format!(
+            "#{}=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#{next});",
+            200 + level
+        ));
+        data.push(format!(
+            "#{}=COMPOSITE_CURVE('',({segments}),.F.);",
+            100 + level
+        ));
+    }
+    let text = format!(
+        "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n{}\nENDSEC;\nEND-ISO-10303-21;\n",
+        data.join("\n")
+    );
+    let exchange = parse(&text).unwrap();
+    let geometry =
+        |budget: usize| Geometry::new(Graph::new(&exchange), Units::default(), Work::new(budget));
+
+    let curve = geometry(MAX_WORK).curve(101).unwrap();
+    let starved = geometry(10).curve(101).unwrap_err();
+
+    assert!(curve.domain().bounded().is_some());
+    assert!(starved.reason.contains("too intricate"), "{starved}");
 }
 
 fn spindle(major: f64, minor: f64, outer: bool) -> String {

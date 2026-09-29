@@ -1,4 +1,9 @@
-use std::f64::consts::FRAC_PI_2;
+use std::{
+    cell::{Cell, RefCell},
+    collections::BTreeMap,
+    f64::consts::FRAC_PI_2,
+    rc::Rc,
+};
 
 use caditor_geometry::{Plane, Point3, Vector3};
 use caditor_kernel::{
@@ -17,6 +22,7 @@ const MAX_CURVE_DEPTH: usize = 8;
 const PIECE_SAMPLES: usize = 64;
 const OFFSET_SAMPLES: usize = 256;
 const JOINT_GAP: f64 = 1e-6;
+pub(crate) const MAX_WORK: usize = 4_000_000;
 
 fn sampled(curve: &Curve, range: Interval) -> Vec<Point3> {
     range
@@ -53,12 +59,50 @@ fn spline_degree(value: i64, id: u64) -> Read<usize> {
     Ok(degree)
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct Work(Rc<Cell<usize>>);
+
+impl Work {
+    pub fn new(budget: usize) -> Self {
+        Self(Rc::new(Cell::new(budget)))
+    }
+
+    pub fn charge(&self, id: u64) -> Read<()> {
+        let left = self.0.get();
+        if left == 0 {
+            return Err(Problem::new(
+                id,
+                "is part of a model too intricate to import in one go",
+            ));
+        }
+        self.0.set(left - 1);
+        Ok(())
+    }
+}
+
 pub(crate) struct Geometry<'a> {
     pub graph: Graph<'a>,
     pub units: Units,
+    work: Work,
+    curves: RefCell<BTreeMap<u64, Read<Curve>>>,
+    surfaces: RefCell<BTreeMap<u64, Read<Surface>>>,
 }
 
 impl<'a> Geometry<'a> {
+    pub fn new(graph: Graph<'a>, units: Units, work: Work) -> Self {
+        Self {
+            graph,
+            units,
+            work,
+            curves: RefCell::new(BTreeMap::new()),
+            surfaces: RefCell::new(BTreeMap::new()),
+        }
+    }
+
+    pub fn charge(&self, id: u64) -> Read<()> {
+        self.work.charge(id)
+    }
+
     pub fn point(&self, id: u64) -> Read<Point3> {
         let fields = self.graph.entity(id)?.record("CARTESIAN_POINT")?;
         let coordinates = fields.reals(1)?;
@@ -118,9 +162,21 @@ impl<'a> Geometry<'a> {
     }
 
     fn curve_at(&self, id: u64, depth: usize) -> Read<Curve> {
+        if let Some(known) = self.curves.borrow().get(&id) {
+            return known.clone();
+        }
         if depth > MAX_CURVE_DEPTH {
             return Err(Problem::new(id, "refers to itself"));
         }
+        self.charge(id)?;
+        let built = self.build_curve(id, depth);
+        if built.is_ok() || depth == 0 {
+            self.curves.borrow_mut().insert(id, built.clone());
+        }
+        built
+    }
+
+    fn build_curve(&self, id: u64, depth: usize) -> Read<Curve> {
         let entity = self.graph.entity(id)?;
         let kernel =
             |error: GeometryError| Problem::new(id, format!("is not a usable curve ({error})"));
@@ -223,6 +279,7 @@ impl<'a> Geometry<'a> {
         if depth > MAX_CURVE_DEPTH {
             return Err(Problem::new(id, "refers to itself"));
         }
+        self.charge(id)?;
         let entity = self.graph.entity(id)?;
         if entity.kind() != "TRIMMED_CURVE" {
             let curve = self.curve_at(id, depth)?;
@@ -399,9 +456,21 @@ impl<'a> Geometry<'a> {
     }
 
     fn surface_at(&self, id: u64, depth: usize) -> Read<Surface> {
+        if let Some(known) = self.surfaces.borrow().get(&id) {
+            return known.clone();
+        }
         if depth > MAX_CURVE_DEPTH {
             return Err(Problem::new(id, "refers to itself"));
         }
+        self.charge(id)?;
+        let built = self.build_surface(id, depth);
+        if built.is_ok() || depth == 0 {
+            self.surfaces.borrow_mut().insert(id, built.clone());
+        }
+        built
+    }
+
+    fn build_surface(&self, id: u64, depth: usize) -> Read<Surface> {
         let entity = self.graph.entity(id)?;
         let kernel =
             |error: GeometryError| Problem::new(id, format!("is not a usable surface ({error})"));

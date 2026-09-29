@@ -77,13 +77,6 @@ within a category run from most to least important.
 
 ## STEP import and export
 
-- `COMPOSITE_CURVE` pieces are rebuilt for every reference with only a depth limit of 8
-  (`read/geometry.rs`), so composites whose segments point at the next composite cost about
-  segments^8 evaluations from a few hundred bytes. Memoise curves by entity and charge a work
-  budget.
-- Surfaces and curves are rebuilt per face and failed solids per referencing entity with no
-  budget (`read/mod.rs` decrements it only on success), so many faces sharing one large spline
-  surface, or many breps pointing at one bad shell, repeat the work.
 - A body with several closed shells (a `SHELL_BASED_SURFACE_MODEL` read as one multi-lump solid)
   round-trips to several solids, and `import/model.rs` `canonical` requires exactly one, so the
   body is dropped as "could not be stored".

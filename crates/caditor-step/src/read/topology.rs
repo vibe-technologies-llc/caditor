@@ -37,6 +37,50 @@ pub(crate) struct Topology<'g, 'a> {
     healed: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct SolidShells {
+    outer: u64,
+    lumps: Vec<u64>,
+    voids: Vec<u64>,
+}
+
+impl SolidShells {
+    pub fn of(graph: &Graph<'_>, id: u64) -> Read<Self> {
+        let entity = graph.entity(id)?;
+        let (outer, voids, lumps) = match entity.kind() {
+            "MANIFOLD_SOLID_BREP" => (
+                entity.record("MANIFOLD_SOLID_BREP")?.reference(1)?,
+                Vec::new(),
+                Vec::new(),
+            ),
+            "FACETED_BREP" => (entity.fields()?.reference(1)?, Vec::new(), Vec::new()),
+            "BREP_WITH_VOIDS" => {
+                let fields = entity.record("BREP_WITH_VOIDS")?;
+                (fields.reference(1)?, fields.references(2)?, Vec::new())
+            }
+            "SHELL_BASED_SURFACE_MODEL" => {
+                let mut closed = closed_shells(graph, entity)?.into_iter();
+                let first = closed
+                    .next()
+                    .ok_or_else(|| Problem::new(id, "has no closed shell, so it is not a solid"))?;
+                (first, Vec::new(), closed.collect())
+            }
+            other => {
+                return Err(Problem::new(
+                    id,
+                    format!("is a {}, which caditor cannot import yet", friendly(other)),
+                ));
+            }
+        };
+        Ok(Self {
+            outer,
+            lumps,
+            voids,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct Built {
     pub solid: Solid,
     pub healed: usize,
@@ -77,39 +121,18 @@ impl<'g, 'a> Topology<'g, 'a> {
         }
     }
 
-    pub fn solid(mut self, id: u64) -> Read<Built> {
+    pub fn solid(mut self, id: u64, shells: &SolidShells) -> Read<Built> {
         let graph = self.geometry.graph;
-        let entity = graph.entity(id)?;
-        let (outer, voids, lumps) = match entity.kind() {
-            "MANIFOLD_SOLID_BREP" => (
-                entity.record("MANIFOLD_SOLID_BREP")?.reference(1)?,
-                Vec::new(),
-                Vec::new(),
-            ),
-            "FACETED_BREP" => (entity.fields()?.reference(1)?, Vec::new(), Vec::new()),
-            "BREP_WITH_VOIDS" => {
-                let fields = entity.record("BREP_WITH_VOIDS")?;
-                (fields.reference(1)?, fields.references(2)?, Vec::new())
-            }
-            "SHELL_BASED_SURFACE_MODEL" => {
-                let mut closed = closed_shells(&graph, entity)?.into_iter();
-                let first = closed
-                    .next()
-                    .ok_or_else(|| Problem::new(id, "has no closed shell, so it is not a solid"))?;
-                (first, Vec::new(), closed.collect())
-            }
-            other => {
-                return Err(Problem::new(
-                    id,
-                    format!("is a {}, which caditor cannot import yet", friendly(other)),
-                ));
-            }
-        };
-        let mut shells = vec![self.plan_shell(outer, false)?];
+        let SolidShells {
+            outer,
+            lumps,
+            voids,
+        } = shells;
+        let mut shells = vec![self.plan_shell(*outer, false)?];
         for lump in lumps {
-            shells.push(self.plan_shell(lump, false)?);
+            shells.push(self.plan_shell(*lump, false)?);
         }
-        for void in voids {
+        for void in voids.iter().copied() {
             let void_entity = graph.entity(void)?;
             shells.push(match void_entity.kind() {
                 "ORIENTED_CLOSED_SHELL" => {
@@ -176,6 +199,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         };
         let mut planned = Vec::with_capacity(faces.len());
         for face in faces {
+            self.geometry.charge(face)?;
             let mut entity = graph.entity(face)?;
             let mut face_flipped = flipped;
             if entity.kind() == "ORIENTED_FACE" {

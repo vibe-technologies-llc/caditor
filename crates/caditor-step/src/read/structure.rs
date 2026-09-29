@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use caditor_geometry::{Plane, RigidTransform};
 
 use crate::read::{
-    geometry::Geometry,
+    geometry::{Geometry, MAX_WORK, Work},
     graph::{Entity, Graph},
     units::{Units, context_units},
 };
@@ -181,10 +181,7 @@ impl Structure {
             return;
         };
         let units = self.units_of(graph, parent);
-        let geometry = Geometry {
-            graph: *graph,
-            units,
-        };
+        let geometry = Geometry::new(*graph, units, Work::new(MAX_WORK));
         let (Some(from), Some(to)) = (frame(&geometry, origin), frame(&geometry, target)) else {
             return;
         };
@@ -208,10 +205,11 @@ impl Structure {
             .record("ITEM_DEFINED_TRANSFORMATION")
             .ok()?;
         let mut item = |representation: u64, index: usize| {
-            let geometry = Geometry {
-                graph: *graph,
-                units: self.units_of(graph, representation),
-            };
+            let geometry = Geometry::new(
+                *graph,
+                self.units_of(graph, representation),
+                Work::new(MAX_WORK),
+            );
             frame(&geometry, fields.reference(index).ok()?)
         };
         let in_first = item(first, 2)?;
