@@ -42,6 +42,11 @@ egui-wgpu = "0.36.2"
 egui-winit = "0.36.2"
 env_logger = "0.11.11"
 glam = "0.33.11"
+jiff = {
+    version = "0.2.37",
+    default-features = false,
+    features = ["std", "tz-system", "tzdb-zoneinfo"]
+}
 libzstd-rs-sys = "0.0.1-prerelease.2"
 log = "0.4.34"
 miniz_oxide = "0.9.1"

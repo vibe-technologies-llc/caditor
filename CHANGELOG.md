@@ -58,6 +58,8 @@ The first release of caditor.
 - Save As adds `.caditor` to names such as "Bracket v1.2", asks before replacing a file the
   dialog did not name, and refuses a model open in another window.
 - Saving keeps the model file's group, access control lists and other extended attributes.
+- Version History shows the date and time each version was saved alongside how long ago, and
+  keeps the capitals of the change's name when a version is restored.
 - Earlier versions thin out as they age: the ten newest are always kept, then one per hour for
   a day, one per day for a month, one per week for a year and one per month beyond, so a model
   file no longer grows with every save.

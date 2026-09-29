@@ -541,7 +541,6 @@ impl Files {
             )));
             return;
         }
-        let described = history::describe(state);
         match result {
             Ok(loaded) if loaded.document.same_content(model.document()) => {
                 model.set_notice(Notice::info("That version is the same as the model now."));
@@ -557,8 +556,8 @@ impl Files {
                 }
                 self.history.close();
                 model.set_notice(Notice::info(format!(
-                    "Restored the version {}. Undo brings back what you had.",
-                    described.to_lowercase()
+                    "Restored the version saved {}. Undo brings back what you had.",
+                    history::when_saved(state)
                 )));
             }
             Err(error) => model.set_notice(Notice::failure(format!(

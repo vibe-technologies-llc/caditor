@@ -617,6 +617,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "env_logger",
+ "jiff",
  "log",
  "parking_lot",
  "pollster 1.0.1",
@@ -1754,6 +1755,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde_core",
+ "windows-link",
 ]
 
 [[package]]

@@ -2,6 +2,7 @@ use std::{path::PathBuf, time::SystemTime};
 
 use caditor_file::{History, LoadError, SavedState};
 use egui::{RichText, Ui};
+use jiff::{Timestamp, tz::TimeZone};
 
 use crate::{
     appearance, icons,
@@ -78,10 +79,28 @@ impl VersionHistory {
 }
 
 pub fn describe(state: &SavedState) -> String {
+    format!("Saved {}", when_saved(state))
+}
+
+pub fn when_saved(state: &SavedState) -> String {
+    let when = match absolute(state.saved_at, &TimeZone::system()) {
+        Some(date) => format!("{} ({date})", ago(state.saved_at)),
+        None => ago(state.saved_at),
+    };
     match &state.label {
-        Some(label) => format!("Saved {} after “{label}”", ago(state.saved_at)),
-        None => format!("Saved {}", ago(state.saved_at)),
+        Some(label) => format!("{when} after “{label}”"),
+        None => when,
     }
+}
+
+fn absolute(time: SystemTime, zone: &TimeZone) -> Option<String> {
+    let timestamp = Timestamp::try_from(time).ok()?;
+    Some(
+        timestamp
+            .to_zoned(zone.clone())
+            .strftime("%-d %b %Y at %H:%M")
+            .to_string(),
+    )
 }
 
 pub fn dialog(
@@ -194,5 +213,26 @@ pub fn ago(time: SystemTime) -> String {
     match count {
         1 => format!("1 {unit} ago"),
         count => format!("{count} {unit}s ago"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, UNIX_EPOCH};
+
+    use super::*;
+
+    #[test]
+    fn versions_show_the_date_and_time_they_were_saved_in_the_given_zone() {
+        let saved = UNIX_EPOCH + Duration::from_secs(1_790_000_000);
+
+        assert_eq!(
+            absolute(saved, &TimeZone::UTC).as_deref(),
+            Some("21 Sep 2026 at 14:13")
+        );
+        assert_eq!(
+            absolute(saved, &TimeZone::fixed(jiff::tz::offset(3))).as_deref(),
+            Some("21 Sep 2026 at 17:13")
+        );
     }
 }

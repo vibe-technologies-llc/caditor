@@ -1083,7 +1083,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     document was opened is dropped.
   - Version history (`history.rs`): File › Version History… (for a saved model) reads the
     versions from the file on the files worker and lists them newest first as "Saved 2 hours ago
-    after “Edit width”", marking damaged ones. Restore loads that version in the background and
+    (29 Sep 2026 at 14:03) after “Edit width”", the date in the system's time zone through `jiff`,
+    marking damaged ones. Restore loads that version in the background and
     applies `Document::transaction_to` (remove every feature and parameter, then insert the
     version's, keeping ID counters) as one "Restore earlier version" change (a refused one keeps
     its error, and one that arrives after another model was opened says it was not restored), so Undo brings back

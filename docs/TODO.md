@@ -231,5 +231,4 @@ within a category run from most to least important.
 - Window size, position and panel state are not remembered.
 - One document per process.
 - No clipboard for sketch geometry or features, no parameter import or export.
-- Version history shows only relative times.
 - No localisation.
