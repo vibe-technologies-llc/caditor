@@ -5,8 +5,8 @@ use std::{
 };
 
 use caditor_document::{
-    Document, Editor, Evaluation, FeatureId, FeatureResult, FeatureState, ModelEvaluator, Outcome,
-    ParameterValues, Progress, Recomputer, Transaction,
+    Base, Document, Editor, Evaluation, FeatureId, FeatureResult, FeatureState, ModelEvaluator,
+    Outcome, ParameterValues, Prepared, Progress, Recomputer, Stale, Transaction,
 };
 use caditor_file::{
     Closing, Flusher, JournalEntry, Recovered, Report, SaveRequest, Start, Storage, StorageConfig,
@@ -96,6 +96,12 @@ pub struct Services {
     pub make_waker: WakerFactory,
     pub storage: StorageConfig,
     pub panic_flush: PanicFlush,
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionBase {
+    pub base: Base,
+    pub session: u64,
 }
 
 struct Session {
@@ -372,16 +378,36 @@ impl Model {
             }
         };
         match changed {
-            Ok(Some(entry)) => {
-                self.notice.take_if(|notice| !notice.outlasts_edits);
-                self.record(entry);
-                self.dirty = !self.editor.document().same_content(&self.saved);
-                self.parameters = ParameterValues::evaluate(self.editor.document());
-                self.recompute();
-            }
+            Ok(Some(entry)) => self.changed(entry),
             Ok(None) => {}
             Err(message) => self.set_notice(Notice::error(message)),
         }
+    }
+
+    pub fn base(&self) -> SessionBase {
+        SessionBase {
+            base: self.editor.base(),
+            session: self.session(),
+        }
+    }
+
+    pub fn commit(&mut self, session: u64, prepared: Prepared) -> Result<(), Stale> {
+        if session != self.session() {
+            return Err(Stale);
+        }
+        let transaction = self.editor.commit(prepared)?;
+        if !transaction.is_empty() {
+            self.changed(JournalEntry::Apply(transaction));
+        }
+        Ok(())
+    }
+
+    fn changed(&mut self, entry: JournalEntry) {
+        self.notice.take_if(|notice| !notice.outlasts_edits);
+        self.record(entry);
+        self.dirty = !self.editor.document().same_content(&self.saved);
+        self.parameters = ParameterValues::evaluate(self.editor.document());
+        self.recompute();
     }
 
     pub fn poll(&mut self) -> bool {

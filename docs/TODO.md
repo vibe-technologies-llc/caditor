@@ -69,8 +69,6 @@ within a category run from most to least important.
 - The whole scene is rebuilt every frame and cloned into `PickKey` for comparison, every line and
   fill vertex is rewritten, and fills are re-sorted (`app.rs` `build_scene`, `viewport.rs`).
   Cache geometry per result and key picks on a generation.
-- A DXF drawing of up to 20,000 curves is turned into a transaction and applied on the UI thread
-  (`import.rs`, `drawing_transaction`); only parsing is on the worker.
 - Snapping collects every point and curve of the sketch into new vectors and projects onto each
   on every hover frame (`snap.rs`).
 - `displayed_sketch` clones and compares whole sketches five or more times per frame, and

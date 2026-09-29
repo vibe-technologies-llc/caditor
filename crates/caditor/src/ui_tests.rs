@@ -1264,6 +1264,58 @@ fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
 }
 
 #[test]
+fn a_drawing_read_while_the_model_changes_is_placed_on_the_changed_model() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let square = dir.path().join("square.dxf");
+    write_drawing(
+        &square,
+        Some(4),
+        "0\nLWPOLYLINE\n8\n0\n90\n4\n70\n1\n\
+         10\n0\n20\n0\n10\n30\n20\n0\n10\n30\n20\n30\n10\n0\n20\n30\n",
+    );
+    let features = harness.document().features().len();
+    let width = harness.parameter("width");
+    harness.answer_dialog(Some(square));
+
+    app::perform(
+        vec![Action::File(FileCommand::Import { into: None })],
+        &mut harness.model,
+        &mut harness.files,
+        &mut harness.workspace,
+    );
+    harness
+        .files
+        .poll(&mut harness.model, &mut harness.workspace.editing);
+    harness.model.perform(Action::Apply(Transaction::single(
+        "Edit width",
+        Edit::SetParameterExpression {
+            id: width,
+            expression: Expression::parse_stored("42 mm").unwrap(),
+        },
+    )));
+    harness.wait_until("the drawing is imported", |harness| {
+        harness.document().features().len() == features + 1
+    });
+
+    let sketch = harness.document().features().last().unwrap().id();
+    assert_eq!(harness.document().feature(sketch).unwrap().name, "square");
+    assert_eq!(harness.sketch(sketch).entities().len(), 12);
+    assert_eq!(harness.expression_text("width"), "42 mm");
+    assert_eq!(harness.model.undo_label(), Some("Import square.dxf"));
+    assert_eq!(
+        harness.model.notice().unwrap().text,
+        "Imported 4 curves from “square.dxf” into square."
+    );
+    assert!(!harness.files.is_blocking());
+
+    harness.perform(Action::Undo);
+    assert_eq!(harness.document().features().len(), features);
+    assert_eq!(harness.expression_text("width"), "42 mm");
+    assert_eq!(harness.model.undo_label(), Some("Edit width"));
+}
+
+#[test]
 fn dropped_drawings_are_imported_one_after_another_and_a_dropped_model_opens() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));

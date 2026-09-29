@@ -64,6 +64,47 @@ pub struct Editor {
     revision: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct Base {
+    document: Document,
+    revision: u64,
+}
+
+impl Base {
+    pub fn document(&self) -> &Document {
+        &self.document
+    }
+
+    pub fn prepare(self, transaction: Transaction) -> Result<Prepared, EditError> {
+        let mut document = self.document;
+        let inverse = document.apply(transaction.clone())?;
+        Ok(Prepared {
+            document,
+            transaction,
+            inverse,
+            revision: self.revision,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Prepared {
+    document: Document,
+    transaction: Transaction,
+    inverse: Transaction,
+    revision: u64,
+}
+
+impl Prepared {
+    pub fn transaction(&self) -> &Transaction {
+        &self.transaction
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the model changed while the change was being prepared")]
+pub struct Stale;
+
 impl Editor {
     pub fn new(document: Document) -> Self {
         Self {
@@ -105,6 +146,27 @@ impl Editor {
         self.redo.clear();
         self.revision += 1;
         Ok(())
+    }
+
+    pub fn base(&self) -> Base {
+        Base {
+            document: self.document.clone(),
+            revision: self.revision,
+        }
+    }
+
+    pub fn commit(&mut self, prepared: Prepared) -> Result<Transaction, Stale> {
+        if prepared.revision != self.revision {
+            return Err(Stale);
+        }
+        if prepared.transaction.is_empty() {
+            return Ok(prepared.transaction);
+        }
+        self.document = prepared.document;
+        self.undo.push(prepared.inverse);
+        self.redo.clear();
+        self.revision += 1;
+        Ok(prepared.transaction)
     }
 
     pub fn undo(&mut self) -> Result<Option<String>, EditError> {
@@ -242,5 +304,62 @@ mod tests {
         assert_eq!(undone, MAX_UNDO_STEPS);
         assert_eq!(value, Expression::Number(20.0));
         assert_eq!(editor.redo_label(), Some("Set 21"));
+    }
+
+    fn add_parameter(document: &Document, name: &str) -> Transaction {
+        let mut transaction = document.transaction(format!("Add {name}"));
+        transaction.add_parameter(name, Expression::Number(1.0));
+        transaction.finish()
+    }
+
+    #[test]
+    fn a_change_prepared_elsewhere_commits_like_one_applied_here_and_undoes() {
+        let mut editor = Editor::new(Document::default());
+        let base = editor.base();
+        let transaction = add_parameter(base.document(), "width");
+
+        let prepared = base.prepare(transaction.clone()).unwrap();
+        let committed = editor.commit(prepared).unwrap();
+        let mut applied = Editor::new(Document::default());
+        applied.apply(transaction.clone()).unwrap();
+
+        assert_eq!(committed, transaction);
+        assert_eq!(editor.revision(), 1);
+        assert!(editor.document().same_content(applied.document()));
+        assert_eq!(editor.undo_label(), Some("Add width"));
+        assert_eq!(editor.undo().unwrap().as_deref(), Some("Add width"));
+        assert!(editor.document().parameter_named("width").is_none());
+        assert_eq!(editor.redo().unwrap().as_deref(), Some("Add width"));
+        assert!(editor.document().parameter_named("width").is_some());
+    }
+
+    #[test]
+    fn a_change_prepared_on_an_older_model_is_refused_as_stale() {
+        let mut editor = Editor::new(Document::default());
+        let base = editor.base();
+        let late = add_parameter(base.document(), "width");
+        editor
+            .apply(add_parameter(editor.document(), "height"))
+            .unwrap();
+
+        let prepared = base.prepare(late).unwrap();
+        let refused = editor.commit(prepared);
+
+        assert_eq!(refused.unwrap_err(), Stale);
+        assert_eq!(editor.revision(), 1);
+        assert!(editor.document().parameter_named("width").is_none());
+        assert_eq!(editor.undo_label(), Some("Add height"));
+    }
+
+    #[test]
+    fn preparing_a_refused_change_reports_its_error() {
+        let editor = Editor::new(Document::default());
+        let base = editor.base();
+        let mut transaction = base.document().transaction("Twice");
+        transaction.add_parameter("width", Expression::Number(1.0));
+        transaction.add_parameter("width", Expression::Number(2.0));
+        let twice = transaction.finish();
+
+        assert!(base.prepare(twice).is_err());
     }
 }

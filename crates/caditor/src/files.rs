@@ -29,7 +29,7 @@ use crate::{
     export::{self, ExportCommand, Exporter},
     history::{self, HistoryCommand, VersionHistory},
     icons,
-    import::{self, IMPORT_HINT},
+    import::{self, DrawingPlan, IMPORT_HINT, Placement},
     model::{Action, FileEvent, Model, Notice, WakerFactory, display_name},
     preferences::PreferencesCommand,
     samples::Sample,
@@ -265,7 +265,7 @@ enum Event {
         path: PathBuf,
         session: u64,
         into: Option<FeatureId>,
-        result: Result<Drawing, ImportError>,
+        result: Result<DrawingPlan, ImportError>,
     },
     ImportedModel {
         path: PathBuf,
@@ -743,12 +743,16 @@ impl Files {
                 if session != model.session() {
                     return;
                 }
-                if let Some(report) = import::place_drawing(model, editing, &path, into, result) {
-                    self.report = Some(Report {
-                        heading: report.heading,
-                        intro: None,
-                        issues: report.notes,
-                    });
+                match import::place_drawing(model, editing, &path, result) {
+                    Placement::Done(Some(report)) => {
+                        self.report = Some(Report {
+                            heading: report.heading,
+                            intro: None,
+                            issues: report.notes,
+                        });
+                    }
+                    Placement::Done(None) => {}
+                    Placement::Stale(drawing) => self.plan_again(path, into, drawing, model),
                 }
             }
             Event::ImportedModel {
@@ -777,6 +781,7 @@ impl Files {
             into,
         });
         let session = model.session();
+        let base = model.base();
         let failed = path.clone();
         self.spawn(
             move || {
@@ -788,12 +793,43 @@ impl Files {
                     }
                 } else {
                     Event::Imported {
-                        result: read_dxf(&path),
+                        result: read_dxf(&path)
+                            .map(|drawing| import::plan_drawing(base, &path, into, drawing)),
                         path,
                         session,
                         into,
                     }
                 }
+            },
+            move || Event::Imported {
+                path: failed,
+                session,
+                into,
+                result: Err(ImportError::Reading(INTERNAL_ERROR.to_owned())),
+            },
+        );
+    }
+
+    fn plan_again(
+        &mut self,
+        path: PathBuf,
+        into: Option<FeatureId>,
+        drawing: Drawing,
+        model: &Model,
+    ) {
+        self.importing = Some(Importing {
+            path: Some(path.clone()),
+            into,
+        });
+        let session = model.session();
+        let base = model.base();
+        let failed = path.clone();
+        self.spawn(
+            move || Event::Imported {
+                result: Ok(import::plan_drawing(base, &path, into, drawing)),
+                path,
+                session,
+                into,
             },
             move || Event::Imported {
                 path: failed,

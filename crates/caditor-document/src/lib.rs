@@ -27,7 +27,7 @@ pub use crate::{
     describe::{describe_edge, describe_origin, edge_faces, origin_feature},
     document::{Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter},
     edit::{Edit, EditError, Transaction, TransactionBuilder},
-    editor::Editor,
+    editor::{Base, Editor, Prepared, Stale},
     import::Import,
     pieces::{Resolution, Unresolved},
     recompute::{

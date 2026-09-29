@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use caditor_document::{Document, FeatureId};
+use caditor_document::{Document, EditError, FeatureId, Prepared};
 use caditor_file::{
     Drawing, ImportError, ModelImport, STEP_IMPORT_EXTENSIONS, SketchTarget, bodies_transaction,
     drawing_transaction,
@@ -10,7 +10,7 @@ use caditor_geometry::Plane;
 use crate::{
     editing::{self, EditingCommand, SketchEditing},
     feature_tree::count,
-    model::{Action, Model, Notice, display_name},
+    model::{Action, Model, Notice, SessionBase, display_name},
 };
 
 pub const IMPORT_HINT: &str = "Add a DXF drawing to the sketch you are editing or to a new sketch \
@@ -27,31 +27,29 @@ pub struct ImportReport {
     pub notes: Vec<String>,
 }
 
-pub fn place_drawing(
-    model: &mut Model,
-    editing: &mut SketchEditing,
+#[derive(Debug)]
+pub struct DrawingPlan {
+    drawing: Drawing,
+    sketch: FeatureId,
+    curves: usize,
+    session: u64,
+    prepared: Result<Prepared, EditError>,
+}
+
+#[derive(Debug)]
+pub enum Placement {
+    Done(Option<ImportReport>),
+    Stale(Drawing),
+}
+
+pub fn plan_drawing(
+    base: SessionBase,
     path: &Path,
     into: Option<FeatureId>,
-    result: Result<Drawing, ImportError>,
-) -> Option<ImportReport> {
-    let file = display_name(Some(path));
-    let drawing = match result {
-        Ok(drawing) => drawing,
-        Err(error @ ImportError::Empty { .. }) => {
-            let reason = error.to_string();
-            let ImportError::Empty { left_out } = error else {
-                return None;
-            };
-            return nothing_imported(model, &file, &reason, left_out);
-        }
-        Err(error) => {
-            model.set_notice(Notice::failure(format!(
-                "Could not import “{file}”: {error}."
-            )));
-            return None;
-        }
-    };
-    let document = model.document();
+    drawing: Drawing,
+) -> DrawingPlan {
+    let SessionBase { base, session } = base;
+    let document = base.document();
     let target = match into.filter(|feature| editing::edited_sketch(document, *feature).is_some()) {
         Some(feature) => SketchTarget::Existing(feature),
         None => SketchTarget::New {
@@ -59,28 +57,75 @@ pub fn place_drawing(
             plane: Plane::XY,
         },
     };
-    let import = drawing_transaction(document, &drawing, target, format!("Import {file}"));
-    if import.curves == 0 {
-        return nothing_imported(model, &file, TOO_SHORT, drawing.notes);
+    let label = format!("Import {}", display_name(Some(path)));
+    let import = drawing_transaction(document, &drawing, target, label);
+    DrawingPlan {
+        drawing,
+        sketch: import.sketch,
+        curves: import.curves,
+        session,
+        prepared: base.prepare(import.transaction),
     }
-    let revision = model.revision();
-    model.perform(Action::Apply(import.transaction));
-    if model.revision() == revision {
-        return None;
+}
+
+pub fn place_drawing(
+    model: &mut Model,
+    editing: &mut SketchEditing,
+    path: &Path,
+    result: Result<DrawingPlan, ImportError>,
+) -> Placement {
+    let file = display_name(Some(path));
+    let plan = match result {
+        Ok(plan) => plan,
+        Err(error @ ImportError::Empty { .. }) => {
+            let reason = error.to_string();
+            let ImportError::Empty { left_out } = error else {
+                return Placement::Done(None);
+            };
+            return Placement::Done(nothing_imported(model, &file, &reason, left_out));
+        }
+        Err(error) => {
+            model.set_notice(Notice::failure(format!(
+                "Could not import “{file}”: {error}."
+            )));
+            return Placement::Done(None);
+        }
+    };
+    let DrawingPlan {
+        drawing,
+        sketch,
+        curves,
+        session,
+        prepared,
+    } = plan;
+    if curves == 0 {
+        return Placement::Done(nothing_imported(model, &file, TOO_SHORT, drawing.notes));
     }
-    editing.perform(EditingCommand::Enter(import.sketch), model);
+    let prepared = match prepared {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            model.set_notice(Notice::failure(format!(
+                "Could not import “{file}”: {error}."
+            )));
+            return Placement::Done(None);
+        }
+    };
+    if model.commit(session, prepared).is_err() {
+        return Placement::Stale(drawing);
+    }
+    editing.perform(EditingCommand::Enter(sketch), model);
     let sketch = model
         .document()
-        .feature(import.sketch)
+        .feature(sketch)
         .map_or_else(|| "the sketch".to_owned(), |feature| feature.name.clone());
     model.set_notice(Notice::info(format!(
         "Imported {} from “{file}” into {sketch}.",
-        count(import.curves, "curve", "curves")
+        count(curves, "curve", "curves")
     )));
-    (!drawing.notes.is_empty()).then(|| ImportReport {
+    Placement::Done((!drawing.notes.is_empty()).then(|| ImportReport {
         heading: format!("Imported “{file}” into {sketch}"),
         notes: drawing.notes,
-    })
+    }))
 }
 
 pub fn is_model(path: &Path) -> bool {

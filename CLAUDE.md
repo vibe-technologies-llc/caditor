@@ -667,7 +667,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     stay near linear in the parameter count. `Document::transaction_to` (which keeps every sketch's
     ID counter at least where it is, so restoring never reuses IDs) builds the transaction that
     turns one document into another (every feature and parameter removed, then the target's inserted
-    with their IDs), which is how an earlier version is restored as one undoable change.
+    with their IDs), which is how an earlier version is restored as one undoable change. A large
+    change can be applied off the UI thread: `Editor::base` hands out the document with the
+    editor's revision, `Base::prepare` applies a transaction to that copy on any thread, and
+    `Editor::commit` swaps the prepared document in and pushes its inverse only when the revision
+    is still the same, else refuses it as `Stale`, so a change prepared on an older model is never
+    committed.
   - A feature carries a `hidden` flag, changed by `Edit::SetFeatureHidden` (undoable, saved as a
     `hidden` field written only when set, journaled like any edit); recompute ignores it. The
     principal planes, axes and origin (`PrincipalGeometry`) are not features, but which of them
@@ -1312,7 +1317,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Import (`import.rs`): File › Import… (Ctrl+I) picks a DXF or STEP file (by extension, else
     by whether it starts like STEP) and reads it on the files worker. A drawing becomes one
     "Import <file>" change to the sketch being edited when the command was given, else to a new
-    sketch on the XY plane named after the file, which is then entered; a STEP model becomes one
+    sketch on the XY plane named after the file, which is then entered; the files worker also
+    builds that change and applies it to the model as it was when the import started
+    (`import::plan_drawing`, through `Model::base`), so the UI thread only commits the prepared
+    document (`Model::commit`), and when the model changed meanwhile the plan is made again on
+    the current model (`Placement::Stale`); a STEP model becomes one
     change adding an import feature per body. The outcome is a notice with the curve or body
     count; the file's notes (units, left-out objects, fitted curves, repaired edges) are shown in
     the same report dialog as a damaged file's problems, also when nothing could be imported. A result that arrives after another

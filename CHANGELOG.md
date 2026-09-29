@@ -169,6 +169,8 @@ The first release of caditor.
   and uses the power-saving graphics card of a laptop rather than waking the discrete one.
 - Changed bodies are prepared for display in the background, so the window stays responsive
   while a large body is redrawn after an edit.
+- A large drawing is added to its sketch in the background, so importing thousands of curves no
+  longer holds up the window, and an edit made while it is read is kept alongside it.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.
 - An arc's end snaps only to points on its circle and to where its circle crosses other curves,
   and a circle's rim only to points, so the arc stays where it was drawn and every "On …" label
