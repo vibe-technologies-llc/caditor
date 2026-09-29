@@ -61,3 +61,5 @@ The first release of caditor.
 
 - Release archives for 64-bit Linux with an installer that adds the menu entry, icon and the
   `.caditor` file type.
+- The installer works in folders whose names hold `&`, `%` or `|`, and an install that fails
+  part way removes what it had copied.

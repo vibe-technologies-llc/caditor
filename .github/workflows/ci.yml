@@ -5,22 +5,32 @@ on:
     branches:
       - master
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
   RUST_TOOLCHAIN: 1.98.1
   FUZZ_TOOLCHAIN: nightly-2026-09-27
   CARGO_DENY_VERSION: 0.20.2
+  CARGO_DENY_SHA256: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
   CARGO_FUZZ_VERSION: 0.13.2
+  CARGO_FUZZ_SHA256: b5b704018b63e0f151c17a057ac53b5111e1db545d1b9f72fee79f08a545931c
+  CARGO_ABOUT_VERSION: 0.9.2
+  CARGO_ABOUT_SHA256: 9099a59e820c38a68b9d65f300662a567d56562f9a10f6aa4c7e86c17c2566af
   FUZZ_SECONDS: 60
 
 jobs:
   check:
     runs-on: ubuntu-latest
     container: ubuntu:22.04
+    timeout-minutes: 45
     steps:
       - name: Install build tools and a software Vulkan driver
         env:
@@ -51,14 +61,64 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-      - name: Check dependencies
+      - name: Install cargo-deny
         run: |
-          cargo install --locked cargo-deny --version "$CARGO_DENY_VERSION"
-          cargo deny --locked check
+          name="cargo-deny-$CARGO_DENY_VERSION-x86_64-unknown-linux-musl"
+          curl --proto '=https' --tlsv1.2 -sSfLO \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/$CARGO_DENY_VERSION/$name.tar.gz"
+          echo "$CARGO_DENY_SHA256  $name.tar.gz" | sha256sum -c -
+          tar -xzf "$name.tar.gz" -C "$HOME/.cargo/bin" --strip-components=1 "$name/cargo-deny"
+          rm "$name.tar.gz"
+
+      - name: Check dependencies
+        run: cargo deny --locked check
+
+  package:
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    timeout-minutes: 45
+    steps:
+      - name: Install build tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            appstream build-essential ca-certificates curl desktop-file-utils git zstd
+
+      - name: Check out (actions/checkout v7.0.1)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install cargo-about
+        run: |
+          name="cargo-about-$CARGO_ABOUT_VERSION-x86_64-unknown-linux-musl"
+          curl --proto '=https' --tlsv1.2 -sSfLO \
+            "https://github.com/EmbarkStudios/cargo-about/releases/download/$CARGO_ABOUT_VERSION/$name.tar.gz"
+          echo "$CARGO_ABOUT_SHA256  $name.tar.gz" | sha256sum -c -
+          tar -xzf "$name.tar.gz" -C "$HOME/.cargo/bin" --strip-components=1 "$name/cargo-about"
+          rm "$name.tar.gz"
+
+      - name: Build a snapshot archive
+        run: packaging/build-release.sh --snapshot
+
+      - name: Install and uninstall the snapshot
+        run: packaging/check-install.sh target/dist/caditor-*-snapshot-linux-x86_64.tar.zst
 
   fuzz:
     runs-on: ubuntu-latest
     container: ubuntu:22.04
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -89,7 +149,13 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Install cargo-fuzz
-        run: cargo install --locked cargo-fuzz --version "$CARGO_FUZZ_VERSION"
+        run: |
+          name="cargo-fuzz-$CARGO_FUZZ_VERSION-x86_64-unknown-linux-musl"
+          curl --proto '=https' --tlsv1.2 -sSfLO \
+            "https://github.com/rust-fuzz/cargo-fuzz/releases/download/$CARGO_FUZZ_VERSION/$name.tar.gz"
+          echo "$CARGO_FUZZ_SHA256  $name.tar.gz" | sha256sum -c -
+          tar -xzf "$name.tar.gz" -C "$HOME/.cargo/bin" cargo-fuzz
+          rm "$name.tar.gz"
 
       - name: Fuzz
         working-directory: fuzz

@@ -22,16 +22,7 @@ within a category run from most to least important.
 
 ## Checks and CI
 
-- CI never runs `packaging/build-release.sh --snapshot`, `desktop-file-validate`,
-  `appstreamcli validate`, `cargo about` or `install.sh`, so packaging breakage first shows on a
-  tag push. Add a job that builds the snapshot and installs and uninstalls it into a temporary
-  prefix.
-- `release.yml` runs the tests without `CADITOR_REQUIRE_GPU=1` or lavapipe (the offscreen tests
-  skip silently), skips `cargo deny`, and publishes whatever commit is tagged without checking it
-  passed CI. Reuse the CI job through `workflow_call` before building.
 - `rust-formatter --check` is required by `docs/RELEASING.md` but no CI job runs it.
-- Neither workflow sets `timeout-minutes` or `concurrency`, and `cargo-deny` and `cargo-fuzz` are
-  compiled from source on every run (five times for the fuzz matrix) with no cache.
 - Slow tests to keep an eye on: STEP `every_fixture_survives_a_round_trip` (7 s),
   `blend::every_edge_of_assorted_prisms` (6 s) and about 40 UI tests at over a second each.
 
@@ -482,6 +473,3 @@ within a category run from most to least important.
 - No clipboard for sketch geometry or features, no parameter import or export.
 - Version history shows only relative times.
 - No localisation.
-- `install.sh` builds the desktop entry's `Exec` line with `sed`, so a prefix containing `&` or
-  `%` produces a broken entry, and a failed install leaves its temporary file and a half-copied
-  tree.

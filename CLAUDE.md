@@ -22,17 +22,21 @@ rust-formatter --check
 cargo deny check
 (cd fuzz && cargo +nightly fuzz run <target> corpus/<target> seeds/<kind> -- -dict=dictionaries/<kind>.dict -max_total_time=60)
 packaging/build-release.sh --snapshot
+packaging/check-install.sh target/dist/caditor-<version>-snapshot-linux-x86_64.tar.zst
 ```
 
 `rust-formatter` formats both `.rs` and `.toml` files. It replaces `cargo fmt` and `rustfmt`
 entirely; see `.claude/rules/rust-style.md`.
 
-`.github/workflows/ci.yml` runs on every push to `master` and every pull request, in an Ubuntu
-22.04 container on the toolchain pinned by `RUST_TOOLCHAIN` (shared with the release workflow;
-actions are pinned by commit): the tests with `--locked` and `CADITOR_REQUIRE_GPU=1` on the
-lavapipe software Vulkan driver (without that variable the offscreen render tests skip when no
-adapter exists), clippy, `cargo deny` (`deny.toml`: licences, sources and advisories, each
-ignored advisory with its reason), and a minute of fuzzing per target. `fuzz/` is its own cargo
+`.github/workflows/ci.yml` runs on every push to `master` and every pull request, and is called
+by the release workflow before it builds, in Ubuntu 22.04 containers on the toolchain pinned by
+`RUST_TOOLCHAIN` (shared with the release workflow; actions are pinned by commit, and
+`cargo-deny`, `cargo-fuzz` and `cargo-about` are their release binaries checked against pinned
+SHA-256 sums): the tests with `--locked` and `CADITOR_REQUIRE_GPU=1` on the lavapipe software
+Vulkan driver (without that variable the offscreen render tests skip when no adapter exists),
+clippy, `cargo deny` (`deny.toml`: licences, sources and advisories, each ignored advisory with
+its reason), a snapshot archive checked by `packaging/check-install.sh`, and a minute of fuzzing
+per target. Every job has a timeout, and a newer push to a pull request cancels its older run. `fuzz/` is its own cargo
 workspace for `cargo fuzz` on nightly, with targets for the expression parser (`expression`),
 DXF (`dxf`), model files as they are (`model`, which mostly exercises the container's damage
 scan) and with every chunk checksum recomputed (`model_sealed`, which reaches the value decoder,

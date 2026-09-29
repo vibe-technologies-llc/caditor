@@ -53,7 +53,7 @@ case "$prefix" in
     *) fail "the prefix must be an absolute path, not $prefix" ;;
 esac
 case "$prefix" in
-    *[\"\`\$\\\|]*) fail "the prefix cannot contain quotes, backslashes, \$ or |" ;;
+    *[\"\`\$\\]*) fail "the prefix cannot contain quotes, backslashes or \$" ;;
 esac
 prefix=${prefix%/}
 
@@ -63,23 +63,43 @@ packaged_files() {
 
 desktop_entry="share/applications/caditor.desktop"
 
+menu_entry() {
+    program="$prefix/bin/caditor"
+    EXEC_PROGRAM=$(printf '%s' "$program" | sed 's/%/%%/g') TRY_PROGRAM="$program" awk '
+        /^Exec=caditor / {
+            sub(/^Exec=caditor /, "")
+            print "Exec=\"" ENVIRON["EXEC_PROGRAM"] "\" " $0
+            next
+        }
+        /^TryExec=caditor$/ { print "TryExec=" ENVIRON["TRY_PROGRAM"]; next }
+        { print }
+    ' "$here/$desktop_entry"
+}
+
+roll_back() {
+    [ -s "$work/installed" ] || return 0
+    while IFS= read -r file; do
+        rm -f "$prefix/$file"
+    done <"$work/installed"
+    echo "install.sh: the install failed, so the files it had copied were removed again." >&2
+}
+
 install_files() {
-    packaged_files | while IFS= read -r file; do
+    packaged_files >"$work/packaged"
+    : >"$work/installed"
+    while IFS= read -r file; do
         case "$file" in
             bin/*) mode=755 ;;
             *) mode=644 ;;
         esac
+        source="$here/$file"
         if [ "$file" = "$desktop_entry" ]; then
-            entry=$(mktemp)
-            sed -e "s|^Exec=caditor |Exec=\"$prefix/bin/caditor\" |" \
-                -e "s|^TryExec=caditor\$|TryExec=$prefix/bin/caditor|" \
-                "$here/$file" >"$entry"
-            install -D -m "$mode" "$entry" "$prefix/$file"
-            rm -f "$entry"
-        else
-            install -D -m "$mode" "$here/$file" "$prefix/$file"
+            source="$work/caditor.desktop"
+            menu_entry >"$source"
         fi
-    done
+        printf '%s\n' "$file" >>"$work/installed"
+        install -D -m "$mode" "$source" "$prefix/$file"
+    done <"$work/packaged"
 }
 
 uninstall_files() {
@@ -110,7 +130,17 @@ if [ "$action" = uninstall ]; then
     exit 0
 fi
 
+work=$(mktemp -d)
+finished=false
+finish() {
+    [ "$finished" = true ] || roll_back
+    rm -rf "$work"
+}
+trap finish EXIT
+trap 'exit 1' HUP INT TERM
+
 install_files
+finished=true
 refresh_caches
 echo "Installed caditor $("$prefix/bin/caditor" --version | cut -d' ' -f2) into $prefix."
 case ":$PATH:" in

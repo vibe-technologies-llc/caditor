@@ -43,15 +43,20 @@ differently, what they must do), not as a commit message.
 3. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [<version>] - <YYYY-MM-DD>` and open a new,
    empty `## [Unreleased]` above it.
 4. Preview the archive with `packaging/build-release.sh --snapshot` (it needs `cargo-about`,
-   `desktop-file-utils`, `appstream` and `zstd`), extract it, and try `./install.sh --prefix`
-   into a temporary directory.
+   `desktop-file-utils`, `appstream` and `zstd`) and check it with
+   `packaging/check-install.sh target/dist/caditor-<version>-snapshot-linux-x86_64.tar.zst`,
+   which installs it into a temporary prefix whose name holds a space, `&` and `%`, checks every
+   file, the menu entry and the program, uninstalls it, and checks that a failed install leaves
+   nothing behind. CI runs both on every push.
 5. Commit as `Release <version>`, tag it `v<version>` with `git tag -a`, and push `master` and
    the tag.
-6. The `Release` workflow (`.github/workflows/release.yml`) runs the tests and clippy in an
-   Ubuntu 22.04 container on the toolchain pinned by `RUST_TOOLCHAIN` (kept equal in `ci.yml`
-   and raised in both at once), builds the archive with `packaging/build-release.sh`, and
-   publishes the GitHub release with the archive, its checksum and the changelog section as
-   notes. GitHub attaches the tagged source, which is the corresponding source the AGPL asks
+6. The `Release` workflow (`.github/workflows/release.yml`) first runs the whole CI workflow
+   on the tagged commit (tests on lavapipe, clippy, `cargo deny`, the packaging check and the
+   fuzzing, through `workflow_call`), and only when it passes builds the archive with
+   `packaging/build-release.sh` in an Ubuntu 22.04 container on the toolchain pinned by
+   `RUST_TOOLCHAIN` (kept equal in `ci.yml` and raised in both at once), checks it with
+   `packaging/check-install.sh`, and publishes the GitHub release with the archive, its
+   checksum and the changelog section as notes. GitHub attaches the tagged source, which is the corresponding source the AGPL asks
    for.
 
 `packaging/build-release.sh` refuses to build a release from a dirty tree, from a commit that
