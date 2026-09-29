@@ -97,6 +97,14 @@ fn names_are_canonical_in_their_unordered_inputs() {
         EdgeName::between_at(a, b, from, to),
         EdgeName::between_at(b, a, from, to)
     );
+    assert_eq!(
+        EdgeName::between_at(a, b, from, from),
+        EdgeName::between_at(b, a, from, from)
+    );
+    assert_ne!(
+        EdgeName::between_at(a, b, from, from),
+        EdgeName::between_at(a, c, from, from)
+    );
 }
 
 #[test]

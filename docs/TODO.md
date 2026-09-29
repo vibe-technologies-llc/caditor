@@ -49,8 +49,6 @@ within a category run from most to least important.
   generic errors.
 - Extrusions of a line profile nearly parallel to the direction pass the `parallel` check
   (1e-10) and then project by dividing by `1 - tilt²` (`surface/swept.rs`).
-- `EdgeName::between_at` orders its faces only when the end vertex names differ, so an edge
-  whose ends have equal names (a closed edge) is named differently depending on its direction.
 - `ProfileError::Unresolved`, produced by about thirty internal paths in `profile/`, names no
   curves, so the sketch error can only say to simplify where curves meet.
 - Shell cannot drop collapsing cones or faces whose edges run neither around nor along their

@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 mod digest;
 mod reference;
 #[cfg(test)]
@@ -147,10 +149,10 @@ impl EdgeName {
     }
 
     pub fn between_at(left: FaceName, right: FaceName, from: VertexName, to: VertexName) -> Self {
-        let (left, right, from, to) = if from <= to {
-            (left, right, from, to)
-        } else {
-            (right, left, to, from)
+        let (left, right, from, to) = match from.cmp(&to) {
+            Ordering::Less => (left, right, from, to),
+            Ordering::Greater => (right, left, to, from),
+            Ordering::Equal => (left.min(right), left.max(right), from, to),
         };
         let mut digest = Digest::new(EDGE_BETWEEN_AT);
         digest.u128(left.0);

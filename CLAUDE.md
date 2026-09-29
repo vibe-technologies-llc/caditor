@@ -326,7 +326,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     PieceId)`, `start_cap` and `end_cap(feature, RegionKey)`. Edges: `between` (unordered face
     pair), `seam(face)` for the profile seam of a full revolution, and, when several edges share a
     name, `between_at(left, right, from, to)` with the vertex names (sets of faces around each end)
-    and the faces oriented by the edge, then `occurrence` ordered by position (midpoints on a grid
+    and the faces oriented by the edge (in a fixed order when both ends have the same name, as on a
+    closed edge, so reversing it keeps its name), then `occurrence` ordered by position (midpoints on a grid
     of a hundred resolutions, so rounding noise cannot swap them) as a last resort. `FaceOrigin`
     (side of an entity, start or end cap, with the raw feature and entity ids) says in words what a
     face came from. Later generators (a fillet face named by the edge it replaced, boolean fragments
