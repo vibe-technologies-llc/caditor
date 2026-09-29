@@ -1,0 +1,1 @@
+-(2 ^ 3) * 1 mm + exp(ln(4)) * 1 mm + mod(width, 3 mm) * sign(-1)

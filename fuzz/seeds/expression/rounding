@@ -1,0 +1,1 @@
+round(width, 0.5 mm) + floor(2.7) * ceil(1.2, 0.25) * 1 mm

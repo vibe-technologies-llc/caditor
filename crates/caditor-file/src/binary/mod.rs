@@ -19,6 +19,7 @@ const SYNC: [u8; 4] = *b"CDCK";
 const VERSION_LENGTH: usize = 4;
 const CHUNK_HEADER_LENGTH: usize = 24;
 const CHECKED_HEADER: std::ops::Range<usize> = 4..16;
+const CHECKSUM: std::ops::Range<usize> = 16..CHUNK_HEADER_LENGTH;
 const MAX_CONTENT: usize = 1 << 28;
 const HASHING_ALLOWANCE: usize = 4;
 const LEVEL: Level = Level::BALANCED;
@@ -215,7 +216,7 @@ fn chunk_at(body: &[u8], position: usize) -> Option<(Chunk<'_>, usize, &[u8], u6
     let codec = *header.get(5)?;
     let stored_length = u32::from_le_bytes(header.get(8..12)?.try_into().ok()?) as usize;
     let content_length = u32::from_le_bytes(header.get(12..16)?.try_into().ok()?) as usize;
-    let checksum = u64::from_le_bytes(header.get(16..24)?.try_into().ok()?);
+    let checksum = u64::from_le_bytes(header.get(CHECKSUM)?.try_into().ok()?);
     if content_length > MAX_CONTENT {
         return None;
     }
@@ -310,10 +311,38 @@ fn push_chunk(
         *slot = byte;
     }
     let checksum = checksum_of(header.get(CHECKED_HEADER).unwrap_or_default(), payload);
-    for (slot, byte) in header.iter_mut().skip(16).zip(checksum.to_le_bytes()) {
-        *slot = byte;
-    }
+    write_checksum(&mut header, checksum);
     bytes.extend_from_slice(&header);
     bytes.extend_from_slice(payload);
     Ok(())
+}
+
+fn write_checksum(header: &mut [u8], checksum: u64) {
+    let slots = header.get_mut(CHECKSUM).unwrap_or_default();
+    for (slot, byte) in slots.iter_mut().zip(checksum.to_le_bytes()) {
+        *slot = byte;
+    }
+}
+
+#[cfg(any(test, feature = "fuzzing"))]
+pub(crate) fn reseal(bytes: &[u8]) -> Vec<u8> {
+    let mut sealed = bytes.to_vec();
+    let start = size_of::<Magic>() + VERSION_LENGTH;
+    let Some(body) = sealed.get_mut(start..) else {
+        return sealed;
+    };
+    let mut position = 0;
+    while position < body.len() {
+        let Some((end, checksum)) = chunk_at(body, position)
+            .map(|(chunk, end, header, _)| (end, checksum_of(header, chunk.payload)))
+        else {
+            position += 1;
+            continue;
+        };
+        if let Some(header) = body.get_mut(position..position + CHUNK_HEADER_LENGTH) {
+            write_checksum(header, checksum);
+        }
+        position = end;
+    }
+    sealed
 }

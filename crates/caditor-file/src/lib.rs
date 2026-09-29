@@ -1,6 +1,8 @@
 mod binary;
 mod export;
 mod format;
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing;
 mod import;
 mod journal;
 mod load;

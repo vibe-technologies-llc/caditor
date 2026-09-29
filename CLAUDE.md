@@ -20,7 +20,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 rust-formatter
 rust-formatter --check
 cargo deny check
-(cd fuzz && cargo +nightly fuzz run <target> -- -max_total_time=60)
+(cd fuzz && cargo +nightly fuzz run <target> corpus/<target> seeds/<kind> -- -dict=dictionaries/<kind>.dict -max_total_time=60)
 packaging/build-release.sh --snapshot
 ```
 
@@ -34,8 +34,17 @@ lavapipe software Vulkan driver (without that variable the offscreen render test
 adapter exists), clippy, `cargo deny` (`deny.toml`: licences, sources and advisories, each
 ignored advisory with its reason), and a minute of fuzzing per target. `fuzz/` is its own cargo
 workspace for `cargo fuzz` on nightly, with targets for the expression parser (`expression`),
-DXF (`dxf`), model files (`model`, which covers the container and value decoder), `read_step`
-(`step`, which covers the Part 21 parser) and STEP import end to end (`step_import`).
+DXF (`dxf`), model files as they are (`model`, which mostly exercises the container's damage
+scan) and with every chunk checksum recomputed (`model_sealed`, which reaches the value decoder,
+the record loaders and the version history), the recovery journal and its replay (`journal`,
+also resealed), `caditor-zstd` with and without a prefix (`zstd`, which also checks that frames
+round-trip), `read_step` (`step`, which covers the Part 21 parser) and STEP import end to end
+(`step_import`). The byte-based entry points they need are `caditor_file::fuzzing`, behind
+`caditor-file`'s `fuzzing` feature. Seeds are committed in `fuzz/seeds/<kind>` and dictionaries
+in `fuzz/dictionaries/<kind>.dict`, shared by targets reading the same kind of input; the
+model, journal and zstd seeds are written by `CADITOR_WRITE_FUZZ_SEEDS=1 cargo test -p
+caditor-file write_fuzz_seeds -- --ignored`, and tests keep every seed loading cleanly.
+`fuzz/corpus` stays local.
 
 ## Architecture
 

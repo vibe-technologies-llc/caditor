@@ -1,8 +1,8 @@
 use serde_json::Value;
 
 use super::{
-    ChunkKind, JOURNAL_MAGIC, MODEL_MAGIC, Magic, Piece, model::file_from_records, parse,
-    push_packed, start_file, value,
+    ChunkKind, Codec, JOURNAL_MAGIC, MODEL_MAGIC, Magic, Piece, model::file_from_records, parse,
+    push_chunk, push_packed, start_file, value,
 };
 use crate::format::FORMAT_VERSION;
 
@@ -60,4 +60,25 @@ pub(crate) fn corrupt_chunk(bytes: &[u8], magic: &Magic, index: usize) -> Vec<u8
 
 pub(crate) fn model_chunk_count(bytes: &[u8]) -> usize {
     parse(bytes, &MODEL_MAGIC).unwrap().pieces.len()
+}
+
+pub(crate) fn stored_copy(bytes: &[u8], magic: &Magic) -> Vec<u8> {
+    let container = parse(bytes, magic).unwrap();
+    let mut stored = start_file(magic, container.version);
+    for chunk in container.chunks() {
+        if chunk.codec == Some(Codec::ZstdAfterNewer) {
+            stored.extend_from_slice(chunk.whole);
+            continue;
+        }
+        let content = chunk.unpack(None).unwrap();
+        push_chunk(
+            &mut stored,
+            chunk.kind.unwrap(),
+            Codec::Stored,
+            content.len(),
+            &content,
+        )
+        .unwrap();
+    }
+    stored
 }

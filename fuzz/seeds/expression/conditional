@@ -1,0 +1,1 @@
+if(width > 10 mm, hypot(3 mm, 4 mm), clamp(width, 1 mm, 5 mm))

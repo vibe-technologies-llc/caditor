@@ -22,14 +22,6 @@ within a category run from most to least important.
 
 ## Checks and CI
 
-- Fuzzing barely passes the front door: `fuzz/corpus` is git-ignored and there are no
-  dictionaries, so every CI run starts empty for 60 s, and the `model` target cannot get a
-  mutated payload past the per-chunk xxh3, leaving the value decoder and record loaders
-  unfuzzed. Commit small seeds (a model, a journal, a STEP and a DXF file) and a dictionary per
-  target, and add a target that recomputes chunk checksums before decoding.
-- The recovery journal (`decode_journal`, `replay`), version history (`binary::history`,
-  `load_version`) and `caditor-zstd::decompress_after` have no fuzz target; the first two are
-  `pub(crate)` behind path-taking wrappers. Expose byte-based entry points and fuzz them.
 - CI never runs `packaging/build-release.sh --snapshot`, `desktop-file-validate`,
   `appstreamcli validate`, `cargo about` or `install.sh`, so packaging breakage first shows on a
   tag push. Add a job that builds the snapshot and installs and uninstalls it into a temporary

@@ -62,7 +62,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [expression, dxf, model, step, step_import]
+        include:
+          - { target: expression, seeds: expression, dictionary: expression }
+          - { target: dxf, seeds: dxf, dictionary: dxf }
+          - { target: model, seeds: model, dictionary: model }
+          - { target: model_sealed, seeds: model, dictionary: model }
+          - { target: journal, seeds: journal, dictionary: model }
+          - { target: zstd, seeds: zstd, dictionary: zstd }
+          - { target: step, seeds: step, dictionary: step }
+          - { target: step_import, seeds: step, dictionary: step }
     steps:
       - name: Install build tools
         env:
@@ -86,7 +94,10 @@ jobs:
       - name: Fuzz
         working-directory: fuzz
         run: |
-          cargo fuzz run "${{ matrix.target }}" -- \
+          mkdir -p "corpus/${{ matrix.target }}"
+          cargo fuzz run "${{ matrix.target }}" \
+            "corpus/${{ matrix.target }}" "seeds/${{ matrix.seeds }}" -- \
+            -dict="dictionaries/${{ matrix.dictionary }}.dict" \
             -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=2048 -timeout=10
 
       - name: Keep the failing input (actions/upload-artifact v7.0.1)

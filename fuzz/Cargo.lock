@@ -114,6 +114,7 @@ dependencies = [
  "caditor-expression",
  "caditor-file",
  "caditor-step",
+ "caditor-zstd",
  "libfuzzer-sys",
 ]
 

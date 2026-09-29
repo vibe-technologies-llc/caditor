@@ -1651,3 +1651,5 @@ fn features_that_share_a_name_are_loaded_under_distinct_names() {
         ["Two features were named “Base sketch”, so one of them is now “Base sketch 2”."]
     );
 }
+
+mod seeds;

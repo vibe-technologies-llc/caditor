@@ -10,8 +10,9 @@ cargo-fuzz = true
 
 [dependencies]
 caditor-expression.path = "../crates/caditor-expression"
-caditor-file.path = "../crates/caditor-file"
+caditor-file = { path = "../crates/caditor-file", features = ["fuzzing"] }
 caditor-step.path = "../crates/caditor-step"
+caditor-zstd.path = "../crates/caditor-zstd"
 
 libfuzzer-sys = "0.4.13"
 
@@ -49,6 +50,27 @@ bench = false
 [[bin]]
 name = "step_import"
 path = "fuzz_targets/step_import.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "model_sealed"
+path = "fuzz_targets/model_sealed.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "journal"
+path = "fuzz_targets/journal.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "zstd"
+path = "fuzz_targets/zstd.rs"
 test = false
 doc = false
 bench = false
