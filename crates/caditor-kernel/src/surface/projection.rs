@@ -1,12 +1,14 @@
-use caditor_geometry::{Point2, Point3};
+use caditor_geometry::{Point2, Point3, Vector3};
 
-use crate::surface::Surface;
+use crate::{surface::Surface, tolerance::LINEAR_RESOLUTION};
 
 pub(crate) const AXIS_EPSILON: f64 = 1e-14;
 const PERIODIC_SNAP: f64 = 1e-12;
 const MAX_REFINE_ITERATIONS: usize = 40;
 const MAX_HALVINGS: usize = 30;
 const STEP_EPSILON: f64 = 1e-15;
+const SETTLING_STEPS: usize = 2;
+const ROUNDING: f64 = 64.0 * f64::EPSILON;
 
 pub(crate) fn periodic_near(value: f64, period: f64, hint: Option<f64>) -> f64 {
     match hint.filter(|hint| hint.is_finite()) {
@@ -23,6 +25,15 @@ pub(crate) fn periodic_near(value: f64, period: f64, hint: Option<f64>) -> f64 {
 }
 
 pub(crate) fn refine(surface: &Surface, point: Point3, start: Point2) -> Point2 {
+    refine_among(surface, point, start, &[])
+}
+
+pub(crate) fn refine_among(
+    surface: &Surface,
+    point: Point3,
+    start: Point2,
+    known_feet: &[Point2],
+) -> Point2 {
     let clamp = |uv: Point2| {
         let u = match surface.u_period() {
             Some(_) => uv.x,
@@ -35,19 +46,32 @@ pub(crate) fn refine(surface: &Surface, point: Point3, start: Point2) -> Point2 
         Point2::new(u, v)
     };
     let distance = |uv: Point2| surface.point(uv.x, uv.y).distance_squared(point);
+    let magnitude = point.length();
     let mut uv = clamp(start);
     let mut current = distance(uv);
+    let mut settling_steps = 0;
     for _ in 0..MAX_REFINE_ITERATIONS {
         if !current.is_finite() || current == 0.0 {
             break;
         }
-        let Some(step) = newton_step(surface, point, uv) else {
+        let Some(newton) = newton_step(surface, point, uv) else {
             break;
         };
+        if let Some(foot) = known_feet
+            .iter()
+            .find(|foot| newton.reach(surface, **foot - uv) <= LINEAR_RESOLUTION)
+        {
+            return *foot;
+        }
+        let noise = ROUNDING * (current + current.sqrt() * magnitude);
+        let smallest_move = STEP_EPSILON * (1.0 + uv.length());
         let mut scale = 1.0;
         let mut accepted = None;
         for _ in 0..MAX_HALVINGS {
-            let candidate = clamp(uv + step * scale);
+            if (newton.step * scale).length() <= smallest_move || newton.decrease(scale) <= noise {
+                break;
+            }
+            let candidate = clamp(uv + newton.step * scale);
             let value = distance(candidate);
             if value < current {
                 accepted = Some((candidate, value));
@@ -55,20 +79,55 @@ pub(crate) fn refine(surface: &Surface, point: Point3, start: Point2) -> Point2 
             }
             scale *= 0.5;
         }
-        let Some((next, value)) = accepted else {
-            break;
+        let (next, value) = match accepted {
+            Some(accepted) => accepted,
+            None if settling_steps < SETTLING_STEPS => {
+                settling_steps += 1;
+                let candidate = clamp(uv + newton.step);
+                let value = distance(candidate);
+                if value > current + noise {
+                    break;
+                }
+                (candidate, value.min(current))
+            }
+            None => break,
         };
         let moved = (next - uv).length();
         uv = next;
         current = value;
-        if moved <= STEP_EPSILON * (1.0 + uv.length()) {
+        if moved <= smallest_move {
             break;
         }
     }
     uv
 }
 
-fn newton_step(surface: &Surface, point: Point3, uv: Point2) -> Option<Point2> {
+struct NewtonStep {
+    step: Point2,
+    gradient: Point2,
+    du: Vector3,
+    dv: Vector3,
+}
+
+impl NewtonStep {
+    fn decrease(&self, scale: f64) -> f64 {
+        -2.0 * scale * self.gradient.dot(self.step)
+    }
+
+    fn reach(&self, surface: &Surface, offset: Point2) -> f64 {
+        let nearest = |value: f64, period: Option<f64>| match period {
+            Some(period) => periodic_near(value, period, Some(0.0)),
+            None => value,
+        };
+        let (du, dv) = (
+            nearest(offset.x, surface.u_period()),
+            nearest(offset.y, surface.v_period()),
+        );
+        (self.du * du + self.dv * dv).length()
+    }
+}
+
+fn newton_step(surface: &Surface, point: Point3, uv: Point2) -> Option<NewtonStep> {
     let derivatives = surface.evaluate(uv.x, uv.y);
     let offset = derivatives.point - point;
     let gradient = Point2::new(derivatives.du.dot(offset), derivatives.dv.dot(offset));
@@ -82,7 +141,14 @@ fn newton_step(surface: &Surface, point: Point3, uv: Point2) -> Option<Point2> {
         uv_ + derivatives.duv.dot(offset),
         vv + derivatives.dvv.dot(offset),
     );
-    solve_positive(full, gradient).or_else(|| solve_positive((uu, uv_, vv), gradient))
+    solve_positive(full, gradient)
+        .or_else(|| solve_positive((uu, uv_, vv), gradient))
+        .map(|step| NewtonStep {
+            step,
+            gradient,
+            du: derivatives.du,
+            dv: derivatives.dv,
+        })
 }
 
 fn solve_positive((a, b, c): (f64, f64, f64), gradient: Point2) -> Option<Point2> {

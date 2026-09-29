@@ -78,7 +78,10 @@ impl Surface {
     }
 
     pub fn point(&self, u: f64, v: f64) -> Point3 {
-        self.evaluate(u, v).point
+        match self {
+            Self::BSpline(spline) => spline.point(u, v),
+            _ => self.evaluate(u, v).point,
+        }
     }
 
     pub fn point_at(&self, uv: Point2) -> Point3 {
@@ -244,9 +247,7 @@ impl Surface {
             Self::Sphere(sphere) => self.at_pole(sphere.project(point, hint), hint),
             Self::Torus(torus) => torus.project(point, hint),
             Self::Extrusion(extrusion) => extrusion.project(point, hint),
-            Self::Revolution(_) | Self::BSpline(_)
-                if let Some(on_surface) = self.project_on_surface(point, hint) =>
-            {
+            Self::Revolution(_) if let Some(on_surface) = self.project_on_surface(point, hint) => {
                 on_surface
             }
             Self::Revolution(revolution) => {
@@ -259,29 +260,43 @@ impl Surface {
                 };
                 self.at_pole(Point2::new(u, v), hint)
             }
-            Self::BSpline(spline) => {
-                let mut best: Option<(f64, Point2)> = None;
-                let mut from_hint: Option<(f64, Point2)> = None;
-                for (index, seed) in spline.project_seed(point, hint).into_iter().enumerate() {
-                    let refined = projection::refine(self, point, seed);
-                    let distance = self.point_at(refined).distance(point);
-                    if index == 0 && hint.is_some() {
-                        from_hint = Some((distance, refined));
-                    }
-                    if best.is_none_or(|(closest, _)| distance < closest) {
-                        best = Some((distance, refined));
-                    }
-                }
-                let chosen = match (from_hint, best) {
-                    (Some((near, uv)), Some((closest, _))) if near <= closest + HINT_PREFERENCE => {
-                        uv
-                    }
-                    (_, Some((_, uv))) => uv,
-                    (_, None) => hint.unwrap_or(Point2::ZERO),
-                };
-                self.at_pole(spline.place(chosen, hint), hint)
+            Self::BSpline(spline) => self.project_on_spline(spline, point, hint),
+        }
+    }
+
+    fn project_on_spline(
+        &self,
+        spline: &BSplineSurface,
+        point: Point3,
+        hint: Option<Point2>,
+    ) -> Point2 {
+        let foot = |seed: Point2, known: &[Point2]| {
+            let refined = projection::refine_among(self, point, seed, known);
+            (self.point_at(refined).distance(point), refined)
+        };
+        let from_hint = hint
+            .map(|hint| foot(hint, &[]))
+            .filter(|(distance, uv)| distance.is_finite() && uv.is_finite());
+        if let (Some(hint), Some((distance, refined))) = (hint, from_hint)
+            && distance <= LINEAR_RESOLUTION
+        {
+            return self.at_pole(spline.place(refined, Some(hint)), Some(hint));
+        }
+        let mut known: Vec<Point2> = from_hint.iter().map(|(_, uv)| *uv).collect();
+        let mut best = from_hint;
+        for seed in spline.project_seed(point) {
+            let (distance, refined) = foot(seed, &known);
+            known.push(refined);
+            if best.is_none_or(|(closest, _)| distance < closest) {
+                best = Some((distance, refined));
             }
         }
+        let chosen = match (from_hint, best) {
+            (Some((near, uv)), Some((closest, _))) if near <= closest + HINT_PREFERENCE => uv,
+            (_, Some((_, uv))) => uv,
+            (_, None) => hint.unwrap_or(Point2::ZERO),
+        };
+        self.at_pole(spline.place(chosen, hint), hint)
     }
 
     fn project_on_surface(&self, point: Point3, hint: Option<Point2>) -> Option<Point2> {
@@ -290,18 +305,12 @@ impl Surface {
         if !refined.is_finite() || self.point_at(refined).distance(point) > LINEAR_RESOLUTION {
             return None;
         }
-        let placed = match self {
-            Self::BSpline(spline) => spline.place(refined, Some(hint)),
-            _ => {
-                let u = periodic_near(refined.x, TAU, Some(hint.x));
-                let v = match self.v_period() {
-                    Some(period) => periodic_near(refined.y, period, Some(hint.y)),
-                    None => refined.y,
-                };
-                Point2::new(u, v)
-            }
+        let u = periodic_near(refined.x, TAU, Some(hint.x));
+        let v = match self.v_period() {
+            Some(period) => periodic_near(refined.y, period, Some(hint.y)),
+            None => refined.y,
         };
-        Some(self.at_pole(placed, Some(hint)))
+        Some(self.at_pole(Point2::new(u, v), Some(hint)))
     }
 
     fn at_pole(&self, uv: Point2, hint: Option<Point2>) -> Point2 {

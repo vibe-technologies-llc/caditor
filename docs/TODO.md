@@ -42,11 +42,6 @@ within a category run from most to least important.
 - Tests missing for a boolean that fails with `Split`, `Intersection` or `Invalid` on real
   solids; only their conversions and messages are tested.
 
-## Kernel performance
-
-- B-spline surface projection of a point off the surface refines four seeds every call, which is
-  most of its cost.
-
 ## Document and recompute
 
 - Undo entries keep removed features alive, imports with their solids and STEP text included;

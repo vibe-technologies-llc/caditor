@@ -15,6 +15,16 @@ const MAX_GRID_SAMPLES: usize = 48;
 const PROJECTION_SEEDS: usize = 3;
 const BLOCK_SIZE: usize = 8;
 
+#[cfg(test)]
+pub(crate) mod counting {
+    use std::cell::Cell;
+
+    thread_local! {
+        pub(crate) static DERIVATIVES: Cell<usize> = const { Cell::new(0) };
+        pub(crate) static POINTS: Cell<usize> = const { Cell::new(0) };
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BSplineSurface {
     u_degree: usize,
@@ -147,6 +157,18 @@ impl SampleGrid {
             .filter_map(|(_, index)| self.samples.get(index).map(|(uv, _)| *uv))
             .collect()
     }
+}
+
+type Table = [[f64; MAX_SPLINE_DEGREE + 1]; MAX_SPLINE_DEGREE + 1];
+
+struct BasisTable {
+    span: usize,
+    table: Table,
+}
+
+struct BasisValues {
+    first: usize,
+    values: [f64; MAX_SPLINE_DEGREE + 1],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -447,7 +469,38 @@ impl BSplineSurface {
         )
     }
 
+    pub(crate) fn point(&self, u: f64, v: f64) -> Point3 {
+        #[cfg(test)]
+        counting::POINTS.with(|count| count.set(count.get() + 1));
+        let (u, v) = self.wrap(u, v);
+        let (Some(along_u), Some(along_v)) = (
+            basis_values(&self.u_knots, self.u_degree, self.columns, u),
+            basis_values(&self.v_knots, self.v_degree, self.rows, v),
+        ) else {
+            return Point3::ZERO;
+        };
+        let (mut sum, mut weight_sum) = (Vector3::ZERO, 0.0);
+        for (j, v_value) in along_v.values.iter().take(self.v_degree + 1).enumerate() {
+            let row = along_v.first + j;
+            for (i, u_value) in along_u.values.iter().take(self.u_degree + 1).enumerate() {
+                let index = row * self.columns + along_u.first + i;
+                let Some(point) = self.control_points.get(index) else {
+                    continue;
+                };
+                let factor = u_value * v_value * self.weight(index);
+                sum += *point * factor;
+                weight_sum += factor;
+            }
+        }
+        if weight_sum <= 0.0 {
+            return Point3::ZERO;
+        }
+        sum / weight_sum
+    }
+
     pub(crate) fn evaluate(&self, u: f64, v: f64) -> SurfaceDerivatives {
+        #[cfg(test)]
+        counting::DERIVATIVES.with(|count| count.set(count.get() + 1));
         let (u, v) = self.wrap(u, v);
         let (Some(along_u), Some(along_v)) = (
             basis(&self.u_knots, self.u_degree, self.columns, u),
@@ -522,13 +575,8 @@ impl BSplineSurface {
         }
     }
 
-    pub(crate) fn project_seed(&self, point: Point3, hint: Option<Point2>) -> Vec<Point2> {
-        let mut chosen = self.grid.nearest(point, PROJECTION_SEEDS);
-        if let Some(hint) = hint.filter(|hint| hint.is_finite()) {
-            let (u, v) = self.wrap(hint.x, hint.y);
-            chosen.insert(0, Point2::new(u, v));
-        }
-        chosen
+    pub(crate) fn project_seed(&self, point: Point3) -> Vec<Point2> {
+        self.grid.nearest(point, PROJECTION_SEEDS)
     }
 
     pub(crate) fn place(&self, uv: Point2, hint: Option<Point2>) -> Point2 {
@@ -774,7 +822,7 @@ fn span_of(knots: &[f64], degree: usize, count: usize, parameter: f64) -> usize 
         .clamp(degree, count - 1)
 }
 
-fn basis(knots: &[f64], degree: usize, count: usize, parameter: f64) -> Option<Basis> {
+fn basis_table(knots: &[f64], degree: usize, count: usize, parameter: f64) -> Option<BasisTable> {
     let span = span_of(knots, degree, count, parameter);
     let knot = |index: usize| knots.get(index).copied().unwrap_or(0.0);
     let mut table = [[0.0f64; MAX_SPLINE_DEGREE + 1]; MAX_SPLINE_DEGREE + 1];
@@ -798,6 +846,23 @@ fn basis(knots: &[f64], degree: usize, count: usize, parameter: f64) -> Option<B
         }
         *table.get_mut(j)?.get_mut(j)? = saved;
     }
+    Some(BasisTable { span, table })
+}
+
+fn basis_values(knots: &[f64], degree: usize, count: usize, parameter: f64) -> Option<BasisValues> {
+    let BasisTable { span, table } = basis_table(knots, degree, count, parameter)?;
+    let mut values = [0.0f64; MAX_SPLINE_DEGREE + 1];
+    for (j, value) in values.iter_mut().enumerate().take(degree + 1) {
+        *value = *table.get(j)?.get(degree)?;
+    }
+    Some(BasisValues {
+        first: span - degree,
+        values,
+    })
+}
+
+fn basis(knots: &[f64], degree: usize, count: usize, parameter: f64) -> Option<Basis> {
+    let BasisTable { span, table } = basis_table(knots, degree, count, parameter)?;
     let mut values = [[0.0f64; MAX_SPLINE_DEGREE + 1]; 3];
     for j in 0..=degree {
         *values.get_mut(0)?.get_mut(j)? = *table.get(j)?.get(degree)?;
@@ -867,7 +932,10 @@ fn basis(knots: &[f64], degree: usize, count: usize, parameter: f64) -> Option<B
 
 #[cfg(test)]
 mod tests {
-    use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2};
+    use std::{
+        cell::Cell,
+        f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2},
+    };
 
     use super::*;
     use crate::surface::Surface;
@@ -920,6 +988,106 @@ mod tests {
             Some(weights),
         )
         .unwrap()
+    }
+
+    fn bumpy(rational: bool) -> BSplineSurface {
+        let size = 14;
+        let mut points = Vec::new();
+        for row in 0..size {
+            for column in 0..size {
+                let (x, y) = (column as f64 * 4.0, row as f64 * 4.0);
+                points.push(Point3::new(x, y, 3.0 * (x * 0.21).sin() * (y * 0.17).cos()));
+            }
+        }
+        let knots: Vec<f64> = std::iter::repeat_n(0.0, 4)
+            .chain((1..size - 3).map(|index| index as f64 / (size - 3) as f64))
+            .chain(std::iter::repeat_n(1.0, 4))
+            .collect();
+        let weights = rational.then(|| {
+            (0..size * size)
+                .map(|index| 1.0 + (index % 5) as f64 * 0.2)
+                .collect()
+        });
+        BSplineSurface::new(3, 3, knots.clone(), knots, size, points, weights).unwrap()
+    }
+
+    fn lifted_points(surface: &Surface, seed: u64, count: usize) -> Vec<(Point3, Point2)> {
+        let mut random = crate::test_support::Random::new(seed);
+        (0..count)
+            .map(|_| {
+                let uv = Point2::new(
+                    surface
+                        .u_domain()
+                        .clipped(1.0)
+                        .at(random.between(0.05, 0.95)),
+                    surface
+                        .v_domain()
+                        .clipped(1.0)
+                        .at(random.between(0.05, 0.95)),
+                );
+                let at = surface.evaluate(uv.x, uv.y);
+                let lift = random.between(-0.5, 0.5);
+                (at.point + at.normal().unwrap() * lift, uv)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_point_alone_is_the_point_of_the_full_evaluation() {
+        let mut random = crate::test_support::Random::new(21);
+        for spline in [wavy(), quarter_cylinder(), bumpy(false), bumpy(true)] {
+            let (u, v) = (spline.u_domain, spline.v_domain);
+            for _ in 0..200 {
+                let (s, t) = (random.between(-0.2, 1.2), random.between(-0.2, 1.2));
+                let (s, t) = (u.at(s), v.at(t));
+                assert_eq!(
+                    spline.point(s, t),
+                    spline.evaluate(s, t).point,
+                    "at ({s}, {t})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn projection_lands_on_the_foot_to_rounding() {
+        for surface in [wavy(), bumpy(false), bumpy(true)].map(Surface::BSpline) {
+            for (point, uv) in lifted_points(&surface, 5, 400) {
+                for hint in [None, Some(uv + Point2::new(0.01, -0.01))] {
+                    let found = surface.project(point, hint);
+                    let at = surface.evaluate(found.x, found.y);
+                    let offset = at.point - point;
+                    let tangential = offset
+                        .dot(at.du.normalize())
+                        .abs()
+                        .max(offset.dot(at.dv.normalize()).abs());
+                    assert!(tangential < 1e-12, "{point} with {hint:?}: {tangential}");
+                    assert!((found - uv).length() < 1e-9, "{point}: {found} vs {uv}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn projection_evaluates_the_surface_sparingly() {
+        for surface in [wavy(), quarter_cylinder(), bumpy(true)].map(Surface::BSpline) {
+            let points = lifted_points(&surface, 11, 500);
+            for hinted in [false, true] {
+                counting::DERIVATIVES.with(|count| count.set(0));
+                counting::POINTS.with(|count| count.set(0));
+                for (point, uv) in &points {
+                    surface.project(*point, hinted.then_some(*uv + Point2::splat(0.01)));
+                }
+                let per_projection = |count: usize| count as f64 / points.len() as f64;
+                let derivatives = per_projection(counting::DERIVATIVES.with(Cell::get));
+                let evaluated_points = per_projection(counting::POINTS.with(Cell::get));
+                assert!(derivatives < 20.0, "{derivatives} derivative evaluations");
+                assert!(
+                    evaluated_points < 26.0,
+                    "{evaluated_points} point evaluations"
+                );
+            }
+        }
     }
 
     #[test]
