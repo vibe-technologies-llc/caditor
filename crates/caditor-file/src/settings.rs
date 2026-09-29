@@ -6,7 +6,7 @@ use std::{
 
 use serde_json::Value;
 
-use crate::save::write_atomically;
+use crate::{read::read_file, save::write_atomically};
 
 const APPLICATION: &str = "caditor";
 const SETTINGS_FILE: &str = "preferences.json";
@@ -36,7 +36,7 @@ pub struct Settings {
 impl Settings {
     pub fn load(dir: &Path) -> Self {
         let path = dir.join(SETTINGS_FILE);
-        let Ok(bytes) = std::fs::read(&path) else {
+        let Ok(bytes) = read_file(&path) else {
             return Self::default();
         };
         match serde_json::from_slice::<BTreeMap<String, Value>>(&bytes) {
@@ -57,7 +57,7 @@ impl Settings {
 
     pub fn save_changes(&self, dir: &Path, since: &Self) -> io::Result<()> {
         let path = dir.join(SETTINGS_FILE);
-        let mut values = match std::fs::read(&path) {
+        let mut values = match read_file(&path) {
             Ok(bytes) => match serde_json::from_slice::<BTreeMap<String, Value>>(&bytes) {
                 Ok(values) => values,
                 Err(error) => {

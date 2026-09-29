@@ -2,7 +2,7 @@ use std::{
     cmp::Reverse,
     collections::BTreeSet,
     fs::{self, File},
-    io::{self, Read},
+    io,
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -14,6 +14,7 @@ use crate::{
     load::load,
     lock::{Location, in_use, location, lock_existing},
     paths::{self, JOURNAL_EXTENSION},
+    read::read_open,
     save::sync_parent,
 };
 
@@ -55,11 +56,10 @@ pub fn inspect(journal: &Path) -> io::Result<Inspection> {
 }
 
 fn inspect_as(journal: &Path, unreadable: Unreadable) -> io::Result<Inspection> {
-    let Some(mut file) = lock_existing(journal)? else {
+    let Some(file) = lock_existing(journal)? else {
         return Ok(Inspection::InUse);
     };
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
+    let bytes = read_open(&file)?;
     let modified = file
         .metadata()
         .and_then(|metadata| metadata.modified())

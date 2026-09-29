@@ -9,7 +9,11 @@ use std::{
 
 use caditor_document::Document;
 
-use crate::{binary, reason};
+use crate::{
+    binary,
+    read::{ensure_regular, read_file},
+    reason,
+};
 
 const BACKUP_MARKER: &str = "damaged";
 const MAX_BACKUP_ATTEMPTS: u32 = 1000;
@@ -72,6 +76,8 @@ pub fn save_with(
     path: &Path,
     options: &SaveOptions<'_>,
 ) -> Result<Option<PathBuf>, SaveError> {
+    let target = resolve_links(path).map_err(|error| SaveError::writing(&error))?;
+    ensure_replaceable(&target).map_err(|error| SaveError::writing(&error))?;
     let previous = options
         .history_from
         .map(read_previous)
@@ -84,7 +90,6 @@ pub fn save_with(
         options.label,
     )
     .map_err(|error| SaveError::encoding(&error))?;
-    let target = resolve_links(path).map_err(|error| SaveError::writing(&error))?;
     let backup = if options.keep_original && target.exists() {
         Some(keep_backup(&target).map_err(|error| SaveError::writing(&error))?)
     } else {
@@ -95,7 +100,7 @@ pub fn save_with(
 }
 
 fn read_previous(path: &Path) -> Result<Option<Vec<u8>>, SaveError> {
-    match fs::read(path) {
+    match read_file(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => {
@@ -117,6 +122,7 @@ fn read_previous(path: &Path) -> Result<Option<Vec<u8>>, SaveError> {
 
 pub fn write_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
     let target = resolve_links(path)?;
+    ensure_replaceable(&target)?;
     let temporary = temporary_sibling(&target)?;
     let written = write_and_sync(&temporary, &target, contents)
         .and_then(|()| fs::rename(&temporary, &target));
@@ -132,6 +138,14 @@ pub fn write_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
     }
     remove_orphaned_temporaries(&target);
     Ok(())
+}
+
+fn ensure_replaceable(target: &Path) -> io::Result<()> {
+    match fs::metadata(target) {
+        Ok(metadata) => ensure_regular(&metadata),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 pub(crate) fn resolve_links(path: &Path) -> io::Result<PathBuf> {

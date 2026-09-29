@@ -7,7 +7,7 @@ use std::{
 
 use serde_json::Value;
 
-use crate::save::write_atomically;
+use crate::{read::read_file, save::write_atomically};
 
 fn storable(path: &Path) -> Value {
     match path.to_str() {
@@ -44,7 +44,7 @@ pub struct RecentFiles {
 
 impl RecentFiles {
     pub fn load(state_dir: &Path) -> Self {
-        let stored = std::fs::read(state_dir.join(RECENT_FILE))
+        let stored = read_file(&state_dir.join(RECENT_FILE))
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Vec<Value>>(&bytes).ok())
             .unwrap_or_default();

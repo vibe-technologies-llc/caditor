@@ -3,7 +3,7 @@ use std::{path::Path, time::SystemTime};
 use caditor_document::{Document, FeatureKind, Import, Transaction};
 use caditor_step::{ReadError, StepBody, read_step, write_step};
 
-use crate::{import::ImportError, reason};
+use crate::{import::ImportError, read::read_file, reason};
 
 pub const STEP_IMPORT_EXTENSIONS: [&str; 2] = ["step", "stp"];
 
@@ -20,8 +20,7 @@ pub struct ModelImport {
 }
 
 pub fn read_step_file(path: &Path) -> Result<ModelImport, ImportError> {
-    let bytes =
-        std::fs::read(path).map_err(|error| ImportError::Reading(reason::reading(&error)))?;
+    let bytes = read_file(path).map_err(|error| ImportError::Reading(reason::reading(&error)))?;
     let source = path
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());

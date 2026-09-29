@@ -16,7 +16,7 @@ pub use crate::import::{
     },
     sketch::{DrawingImport, SketchTarget, drawing_transaction},
 };
-use crate::reason;
+use crate::{read::read_file, reason};
 
 pub const DXF_EXTENSION: &str = "dxf";
 pub const MAX_DRAWING_CURVES: usize = 20_000;
@@ -130,7 +130,6 @@ pub enum ImportError {
 }
 
 pub fn read_dxf(path: &Path) -> Result<Drawing, ImportError> {
-    let bytes =
-        std::fs::read(path).map_err(|error| ImportError::Reading(reason::reading(&error)))?;
+    let bytes = read_file(path).map_err(|error| ImportError::Reading(reason::reading(&error)))?;
     parse_dxf(&bytes)
 }

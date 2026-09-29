@@ -213,6 +213,51 @@ fn a_failed_save_reports_a_plain_reason_and_leaves_the_folder_clean() {
     assert_eq!(files_in(dir.path()), Vec::<String>::new());
 }
 
+fn make_fifo(path: &Path) {
+    let made = std::process::Command::new("mkfifo")
+        .arg(path)
+        .status()
+        .unwrap();
+    assert!(made.success());
+}
+
+#[test]
+fn pipes_devices_folders_and_huge_files_are_refused_without_reading_them() {
+    let dir = TempDir::new().unwrap();
+    let fifo = dir.path().join("pipe.caditor");
+    make_fifo(&fifo);
+    let huge = dir.path().join("huge.caditor");
+    fs::File::create(&huge)
+        .unwrap()
+        .set_len(read::MAX_FILE_SIZE + 1)
+        .unwrap();
+
+    let refusal = |path: &Path| match load(path) {
+        Err(LoadError::Unreadable(reason)) => reason,
+        other => panic!("expected a refusal, got {other:?}"),
+    };
+    assert_eq!(refusal(&fifo), "it is a device, pipe or socket, not a file");
+    assert_eq!(
+        refusal(Path::new("/dev/zero")),
+        "it is a device, pipe or socket, not a file"
+    );
+    assert_eq!(refusal(dir.path()), "it is a folder, not a file");
+    assert_eq!(refusal(&huge), "it is larger than the 2 GiB caditor reads");
+    assert!(crate::history(&fifo).is_err());
+    assert!(read_step_file(&fifo).is_err());
+    assert!(read_dxf(&fifo).is_err());
+
+    let journal = dir.path().join(".pipe.caditor.journal");
+    make_fifo(&journal);
+    assert!(matches!(journal_for(&fifo, None), FileJournal::None));
+
+    let error = save(&sample(), &fifo, false).unwrap_err();
+    assert_eq!(
+        error.reason,
+        "a device, pipe or socket with that name already exists"
+    );
+}
+
 #[test]
 fn overwriting_a_damaged_file_keeps_the_original_as_a_backup() {
     let dir = TempDir::new().unwrap();

@@ -40,9 +40,6 @@ within a category run from most to least important.
   and resolves names by linear scans (`load.rs` `assemble`, `unique_feature_name`), so a file of
   many tiny records makes open, recovery and replay quadratic or worse with no cancel. Cap the
   record count and index names.
-- Files are read whole with `fs::read` without checking they are regular files or bounding their
-  size (`load.rs`, `save.rs` `read_previous`, `recovery.rs`), so `caditor /dev/zero` aborts on
-  allocation and a FIFO hangs the files worker.
 - Stored document ID counters are not clamped on load (`Document::reserve_ids_below`, unlike the
   sketch's `FIRST_UNSTORABLE_ID`), so a counter of `u64::MAX` wraps in release and reissues IDs.
 - A damaged `VersionInfo` followed by a valid `VersionData` pairs the data with the previous

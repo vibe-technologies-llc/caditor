@@ -5,6 +5,8 @@ use std::{
     path::Path,
 };
 
+use crate::read::ensure_regular;
+
 pub(crate) enum Location {
     Gone,
     Replaced,
@@ -30,6 +32,7 @@ pub(crate) fn holds(file: &File, path: &Path) -> bool {
 }
 
 pub(crate) fn lock_existing(path: &Path) -> io::Result<Option<File>> {
+    ensure_regular(&fs::metadata(path)?)?;
     let writable = OpenOptions::new().read(true).write(true).open(path);
     let (file, exclusive) = match writable {
         Ok(file) => (file, true),

@@ -13,6 +13,7 @@ use crate::{
         FEATURE_KINDS, FeatureRecord, NextIdsRecord, ParameterRecord, RECORD_KINDS, Record,
         Unreadable, restore_feature,
     },
+    read::read_file,
     reason,
 };
 
@@ -35,8 +36,7 @@ pub enum LoadError {
 }
 
 pub fn load(path: &Path) -> Result<Loaded, LoadError> {
-    let bytes =
-        std::fs::read(path).map_err(|error| LoadError::Unreadable(reason::reading(&error)))?;
+    let bytes = read_file(path).map_err(|error| LoadError::Unreadable(reason::reading(&error)))?;
     decode(&bytes)
 }
 
@@ -45,14 +45,12 @@ pub fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
 }
 
 pub fn history(path: &Path) -> Result<History, LoadError> {
-    let bytes =
-        std::fs::read(path).map_err(|error| LoadError::Unreadable(reason::reading(&error)))?;
+    let bytes = read_file(path).map_err(|error| LoadError::Unreadable(reason::reading(&error)))?;
     Ok(binary::history(&bytes))
 }
 
 pub fn load_version(path: &Path, index: usize) -> Result<Loaded, LoadError> {
-    let bytes =
-        std::fs::read(path).map_err(|error| LoadError::Unreadable(reason::reading(&error)))?;
+    let bytes = read_file(path).map_err(|error| LoadError::Unreadable(reason::reading(&error)))?;
     binary::load_version(&bytes, index)
 }
 

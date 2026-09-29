@@ -658,6 +658,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     removed after each write. A save refuses to go ahead when the earlier versions in the file
     it replaces cannot be read, since it would drop them. Overwriting a file that loaded with
     problems first keeps the original as `<name>.damaged.caditor`.
+  - Every file caditor reads (models, journals, imports, preferences, recent files) goes through
+    `read.rs`: only regular files, at most `MAX_FILE_SIZE` (2 GiB), reserved fallibly, so a
+    device, a pipe or a huge sparse file is refused in words instead of hanging or aborting on
+    allocation; saving over anything but a regular file is refused too.
   - Loading is partial. Each record and each sketch item is read on its own (`Lenient`), and the
     pieces are assembled through `Document::apply`, so a loaded model always satisfies the
     document invariants. Damaged or unknown (newer) records are left out, a lost parameter that

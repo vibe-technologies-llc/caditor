@@ -81,6 +81,9 @@ pub fn is_model(path: &Path) -> bool {
 }
 
 fn starts_like_step(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
     let Ok(mut file) = std::fs::File::open(path) else {
         return false;
     };
