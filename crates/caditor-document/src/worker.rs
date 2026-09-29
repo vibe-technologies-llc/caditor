@@ -1,4 +1,5 @@
 use std::{
+    panic::{self, AssertUnwindSafe},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -7,6 +8,7 @@ use std::{
     thread,
 };
 
+use caditor_kernel::interruptible;
 use parking_lot::Mutex;
 
 use crate::{
@@ -26,6 +28,7 @@ pub struct Progress {
 pub enum Outcome {
     Finished,
     Cancelled,
+    Failed,
 }
 
 #[derive(Debug, Clone)]
@@ -62,7 +65,7 @@ struct Shared {
 impl Shared {
     fn is_cancelled(&self, sequence: u64) -> bool {
         self.latest.load(Ordering::SeqCst) != sequence
-            || self.cancelled.load(Ordering::SeqCst) == sequence
+            || (sequence != NO_JOB && self.cancelled.load(Ordering::SeqCst) == sequence)
     }
 }
 
@@ -145,6 +148,11 @@ impl Recomputer {
     }
 }
 
+struct PendingMesh {
+    result: Arc<FeatureResult>,
+    name: String,
+}
+
 fn work(
     evaluator: &dyn Evaluator,
     queue: &mpsc::Receiver<Message>,
@@ -153,49 +161,106 @@ fn work(
     wake: &dyn Fn(),
 ) {
     let mut recompute = Recompute::default();
+    let mut reported = Evaluation::default();
+    let mut meshes: Vec<PendingMesh> = Vec::new();
     while let Ok(first) = queue.recv() {
         let mut latest = None;
-        let mut meshes = Vec::new();
         for message in std::iter::once(first).chain(std::iter::from_fn(|| queue.try_recv().ok())) {
             match message {
                 Message::Recompute(job) => latest = Some(job),
-                Message::Mesh { result, name } => meshes.push((result, name)),
+                Message::Mesh { result, name } => {
+                    if !meshes
+                        .iter()
+                        .any(|pending| Arc::ptr_eq(&pending.result, &result))
+                    {
+                        meshes.push(PendingMesh { result, name });
+                    }
+                }
             }
         }
-        for (result, name) in meshes {
-            if let Some(solid) = result.solid() {
-                solid.tessellate(&name);
-                wake();
+        if let Some(job) = latest {
+            let Some(ran) = run_contained(&mut recompute, &job, evaluator, shared) else {
+                continue;
+            };
+            let (outcome, evaluation) = match ran {
+                Ok(evaluation) => {
+                    reported = evaluation.clone();
+                    let outcome = if evaluation.is_complete() {
+                        Outcome::Finished
+                    } else {
+                        Outcome::Cancelled
+                    };
+                    (outcome, evaluation)
+                }
+                Err(Panicked) => (Outcome::Failed, reported.clone()),
+            };
+            let update = Update {
+                revision: job.revision,
+                outcome,
+                evaluation,
+            };
+            if updates.send(update).is_err() {
+                break;
             }
+            wake();
         }
-        let Some(job) = latest else {
-            continue;
-        };
-        let sequence = job.sequence;
-        let watched = Arc::clone(shared);
-        let cancel = CancelToken::new(move || watched.is_cancelled(sequence));
-        let evaluation = recompute.run(&job.document, evaluator, &cancel, &|done, total| {
-            *shared.progress.lock() = Some(Progress { done, total });
-        });
-        *shared.progress.lock() = None;
+        mesh_pending(&mut meshes, shared, wake);
+    }
+}
 
-        if shared.latest.load(Ordering::SeqCst) != sequence {
-            continue;
+struct Panicked;
+
+fn run_contained(
+    recompute: &mut Recompute,
+    job: &Job,
+    evaluator: &dyn Evaluator,
+    shared: &Arc<Shared>,
+) -> Option<Result<Evaluation, Panicked>> {
+    let sequence = job.sequence;
+    let watched = Arc::clone(shared);
+    let cancel = CancelToken::new(move || watched.is_cancelled(sequence));
+    let report = |done, total| *shared.progress.lock() = Some(Progress { done, total });
+    let evaluation = contained(recompute, |recompute| {
+        recompute.run(&job.document, evaluator, &cancel, &report)
+    });
+    *shared.progress.lock() = None;
+
+    (shared.latest.load(Ordering::SeqCst) == sequence).then_some(evaluation)
+}
+
+fn contained(
+    recompute: &mut Recompute,
+    run: impl Fn(&mut Recompute) -> Evaluation,
+) -> Result<Evaluation, Panicked> {
+    let attempt = |recompute: &mut Recompute| {
+        panic::catch_unwind(AssertUnwindSafe(|| run(recompute))).map_err(|_| Panicked)
+    };
+    attempt(recompute).or_else(|Panicked| {
+        log::error!("recompute panicked, so it runs again without its cache");
+        *recompute = Recompute::default();
+        attempt(recompute).inspect_err(|Panicked| {
+            log::error!("recompute panicked again");
+            *recompute = Recompute::default();
+        })
+    })
+}
+
+fn mesh_pending(meshes: &mut Vec<PendingMesh>, shared: &Arc<Shared>, wake: &dyn Fn()) {
+    let sequence = shared.latest.load(Ordering::SeqCst);
+    let watched = Arc::clone(shared);
+    let cancel = CancelToken::new(move || watched.is_cancelled(sequence));
+    while let Some(pending) = meshes.first() {
+        if cancel.is_cancelled() {
+            return;
         }
-        let outcome = if evaluation.is_complete() {
-            Outcome::Finished
-        } else {
-            Outcome::Cancelled
-        };
-        let update = Update {
-            revision: job.revision,
-            outcome,
-            evaluation,
-        };
-        if updates.send(update).is_err() {
-            break;
+        if let Some(solid) = pending.result.solid() {
+            interruptible(cancel.interrupt(), || solid.tessellate(&pending.name));
+            if !solid.is_meshed() {
+                return;
+            }
+            wake();
         }
-        wake();
+        meshes.remove(0);
     }
 }
 
@@ -340,5 +405,38 @@ mod tests {
 
         worker.submit(document, 2).unwrap();
         assert_eq!(worker.wait().revision, 2);
+    }
+
+    #[test]
+    fn a_recompute_that_panics_runs_again_without_its_cache_and_fails_alone() {
+        let (document, _) = sample();
+        let runs = AtomicUsize::new(0);
+
+        let mut recompute = Recompute::default();
+        let once = contained(&mut recompute, |recompute| {
+            if runs.fetch_add(1, Ordering::SeqCst) == 0 {
+                panic!("stale cache");
+            }
+            recompute.run(
+                &document,
+                &ModelEvaluator,
+                &CancelToken::never(),
+                &|_, _| {},
+            )
+        });
+        let always = contained(&mut recompute, |_| panic!("bug in parameter evaluation"));
+        let after = contained(&mut recompute, |recompute| {
+            recompute.run(
+                &document,
+                &ModelEvaluator,
+                &CancelToken::never(),
+                &|_, _| {},
+            )
+        });
+
+        assert!(once.is_ok_and(|evaluation| evaluation.failed_count() == 0));
+        assert_eq!(runs.load(Ordering::SeqCst), 2);
+        assert!(always.is_err());
+        assert!(after.is_ok());
     }
 }

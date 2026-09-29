@@ -109,12 +109,6 @@ within a category run from most to least important.
   (`blend.rs`, `shell.rs` `found.extend(pieces)`) without checking they are pieces of one edge or
   face, so an upstream edit that ties unrelated edges fillets or opens all of them silently.
   Datums and attachments already check (`one_line`, equal planes).
-- Meshing requested for an open blend or shell (`Recomputer::mesh`) runs before the queued
-  recompute and outside `interruptible` (`worker.rs`), so a heavy body delays every edit and
-  ignores Cancel.
-- The worker runs `Recompute::run` without `catch_unwind`; a panic in parameter evaluation,
-  `Names::of` or stale-body bookkeeping kills the thread and the model never recomputes again.
-  Contain each job or respawn the worker.
 - Undo and redo stacks are unbounded (`editor.rs`), and entries keep removed features alive,
   imports with their solids and STEP text included.
 - Cached failure messages refresh only when the names of `features()` change, but blend, shell

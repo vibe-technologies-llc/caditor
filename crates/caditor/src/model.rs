@@ -360,6 +360,7 @@ impl Model {
                     self.status = match update.outcome {
                         Outcome::Finished => RecomputeStatus::UpToDate,
                         Outcome::Cancelled => RecomputeStatus::Cancelled,
+                        Outcome::Failed => RecomputeStatus::Stopped,
                     };
                 }
                 self.evaluation = update.evaluation;

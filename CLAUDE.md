@@ -625,7 +625,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - `Recomputer` runs recompute on a worker thread. A newer submission or `cancel` stops the
     running job between features (evaluators also receive a `CancelToken`), and features that
     were not reached are reported as `Outdated`. The worker calls a wake callback after each
-    report so the UI can redraw.
+    report so the UI can redraw. Each run is contained: a panic outside any evaluator runs it
+    again without the cache, and a second panic reports `Outcome::Failed` with the last good
+    evaluation (shown as stopped, with Restart), so the worker lives on. Requested meshes run
+    after the queued recompute under a token that a newer submission or `cancel` trips, and stay
+    queued until they finish.
 - **caditor-file**: persistence. Our own formats are binary, compressed with zstd and checked
   with xxh3; there is no text model format. The format number restarted at 1 with this design,
   and from here on every version that ships stays readable.

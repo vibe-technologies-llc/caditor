@@ -188,6 +188,43 @@ fn the_body_before_a_blend_is_kept_and_meshed_only_when_asked() {
 }
 
 #[test]
+fn a_requested_mesh_waits_while_recompute_is_cancelled_and_follows_the_next_one() {
+    let model = model();
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+    let input = evaluation.body_before(model.fillet).unwrap();
+    let solid = input.solid().unwrap();
+    let (wake, woken) = std::sync::mpsc::channel();
+    let mut recomputer = Recomputer::spawn(ModelEvaluator, move || {
+        let _ = wake.send(());
+    })
+    .unwrap();
+    let wait = || {
+        woken
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap()
+    };
+
+    recomputer.submit(model.document.clone(), 1).unwrap();
+    recomputer.cancel();
+    wait();
+    recomputer
+        .mesh(std::sync::Arc::clone(input), "Fillet".to_owned())
+        .unwrap();
+    assert!(
+        woken
+            .recv_timeout(std::time::Duration::from_millis(300))
+            .is_err()
+    );
+    assert!(!solid.is_meshed());
+
+    recomputer.submit(model.document.clone(), 2).unwrap();
+    wait();
+    wait();
+    assert!(solid.is_meshed());
+}
+
+#[test]
 fn blend_errors_name_the_edge_and_the_fix() {
     let mut model = model();
     let id = model.radius;
