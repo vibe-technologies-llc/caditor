@@ -693,6 +693,30 @@ fn a_plate_with_thousands_of_holes_is_divided_and_selected() {
 }
 
 #[test]
+fn a_column_of_squares_sharing_their_x_is_divided() {
+    let mut curves = Vec::new();
+    let mut entity = 0;
+    for row in 0..1000 {
+        let y = f64::from(row) * 3.0;
+        let corners = [(0.0, y), (2.0, y), (2.0, y + 2.0), (0.0, y + 2.0)];
+        for index in 0..4 {
+            entity += 1;
+            curves.push(line(entity, corners[index], corners[(index + 1) % 4]));
+        }
+    }
+
+    let profile = profile(&curves);
+
+    assert_eq!(profile.regions().len(), 1000);
+    assert!(
+        profile
+            .regions()
+            .iter()
+            .all(|region| close(region.area(), 4.0))
+    );
+}
+
+#[test]
 fn unresolved_curves_are_narrowed_to_those_failing_together() {
     let curves: Vec<ProfileCurve> = (1..=20)
         .map(|entity| {

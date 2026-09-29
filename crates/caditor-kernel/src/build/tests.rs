@@ -244,6 +244,21 @@ fn separate_regions_become_separate_lumps() {
 }
 
 #[test]
+fn hundreds_of_regions_sharing_their_x_become_as_many_lumps() {
+    let curves: Vec<ProfileCurve> = (0..300_u32)
+        .flat_map(|row| {
+            let y = f64::from(row) * 3.0;
+            rectangle(1 + u64::from(row) * 4, (0.0, y), (2.0, y + 2.0))
+        })
+        .collect();
+
+    let solid = extrude(&Plane::XY, &regions(&curves), one_side(1.0), FEATURE).unwrap();
+
+    assert_eq!(solid.shells().count(), 300);
+    assert_eq!(solid.vertices().count(), 300 * 8);
+}
+
+#[test]
 fn adjacent_regions_extrude_as_one_lump() {
     let mut curves = rectangle(1, (0.0, 0.0), (10.0, 4.0));
     curves.push(line(5, (4.0, -1.0), (4.0, 5.0)));

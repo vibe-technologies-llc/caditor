@@ -47,8 +47,6 @@ within a category run from most to least important.
 
 ## Kernel performance
 
-- `Plan::merge_coincident_vertices` refilters every edge per shell, O(shells × edges) on every
-  build, and it and `arrangement::cluster` degrade to O(n²) when many points share an x.
 - Every `Solid::build` computes `bounding_box`, which builds a full classifier and runs 169
   `point_in_face` queries per curved face only to size the sampling tolerance.
 - `face_data` counts seam uses quadratically per face (`classify.rs`), `point_in_face` rebuilds

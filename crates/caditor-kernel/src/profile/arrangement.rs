@@ -577,20 +577,25 @@ fn cluster(
     tolerance: f64,
 ) -> Found<(Vec<Point2>, Vec<usize>)> {
     let mut sets = UnionFind::new(events.len());
-    let mut by_x: Vec<usize> = (0..events.len()).collect();
-    let x_of = |index: usize| events.get(index).map_or(0.0, |event| event.point.x);
-    by_x.sort_by(|a, b| x_of(*a).total_cmp(&x_of(*b)));
-    for (rank, first) in by_x.iter().enumerate() {
-        let a = lookup(events, *first)?;
-        for second in by_x.iter().skip(rank + 1) {
-            let b = lookup(events, *second)?;
-            if b.point.x - a.point.x > tolerance {
-                break;
-            }
-            if a.point.distance(b.point) <= tolerance {
-                sets.union(*first, *second);
+    let cell_of = |point: Point2| {
+        let index = |value: f64| (value / tolerance).floor() as i64;
+        (index(point.x), index(point.y))
+    };
+    let mut cells: BTreeMap<(i64, i64), Vec<usize>> = BTreeMap::new();
+    for (index, event) in events.iter().enumerate() {
+        let (x, y) = cell_of(event.point);
+        for column in [x.saturating_sub(1), x, x.saturating_add(1)] {
+            for (_, members) in
+                cells.range((column, y.saturating_sub(1))..=(column, y.saturating_add(1)))
+            {
+                for other in members {
+                    if lookup(events, *other)?.point.distance(event.point) <= tolerance {
+                        sets.union(index, *other);
+                    }
+                }
             }
         }
+        cells.entry((x, y)).or_default().push(index);
     }
     let mut dense: BTreeMap<usize, usize> = BTreeMap::new();
     let mut vertex_of = Vec::with_capacity(events.len());
