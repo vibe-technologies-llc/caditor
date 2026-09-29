@@ -4,7 +4,7 @@ use caditor_geometry::{Point2, Point3, Vector3};
 use glam::{DVec2, Vec3};
 
 use crate::{
-    camera::View,
+    camera::{Projection, View},
     gpu::{Bytes, GrowableBuffer},
     mesh::{MESH_VERTEX_STRIDE, MeshCache},
     picking::{self, PickTargets, PickWindow, Picking},
@@ -769,7 +769,12 @@ fn view_uniform(
     bytes
         .mat4(view.rotation_projection().as_mat4())
         .vec4(view.forward().as_vec3(), view.near_plane() as f32)
-        .floats(&[size.x as f32, size.y as f32, pixels_per_point, 0.0])
+        .floats(&[
+            size.x as f32,
+            size.y as f32,
+            pixels_per_point,
+            if view.is_orthographic() { 1.0 } else { 0.0 },
+        ])
         .floats(&pick_transform)
         .vec4(key_light(view).as_vec3(), 0.0);
 }
@@ -787,10 +792,13 @@ pub fn grid_spacing(scale: f64) -> f64 {
 fn grid_uniform(bytes: &mut Bytes, grid: &Grid, view: &View) {
     let plane = grid.plane;
     let eye = view.eye();
-    let scale = plane
-        .signed_distance(eye)
-        .abs()
-        .max(view.viewpoint().distance * GRID_MIN_SCALE_PER_DISTANCE)
+    let distance = view.viewpoint().distance;
+    let height = match view.projection() {
+        Projection::Perspective => plane.signed_distance(eye).abs(),
+        Projection::Orthographic => distance,
+    };
+    let scale = height
+        .max(distance * GRID_MIN_SCALE_PER_DISTANCE)
         .max(f64::MIN_POSITIVE);
     let spacing = grid_spacing(scale);
     let snap = spacing * 100.0;

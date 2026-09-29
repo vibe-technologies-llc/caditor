@@ -124,6 +124,7 @@ impl Menus<'_, '_> {
     fn view(&mut self, ui: &mut Ui) {
         ui.menu_button("View", |ui| {
             self.item(ui, Command::FitView);
+            self.item(ui, Command::ToggleProjection);
             self.items(
                 ui,
                 [

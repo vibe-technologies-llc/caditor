@@ -4,7 +4,7 @@ use std::{
 };
 
 use caditor_geometry::{Aabb, Plane, Point3, Ray, Rotation3, Vector3};
-use glam::{DMat3, DMat4, DVec2, DVec3, dcamera::rh::proj::directx};
+use glam::{DMat3, DMat4, DVec2, DVec3, DVec4, dcamera::rh::proj::directx};
 
 const FIELD_OF_VIEW_Y: f64 = 30.0 * PI / 180.0;
 const NEAR_PLANE_FRACTION: f64 = 1e-3;
@@ -15,6 +15,26 @@ const LEVELLING_RATE: f64 = 2.0;
 const VERTICAL_TOLERANCE: f64 = 1e-9;
 const FIT_MARGIN: f64 = 1.15;
 const TRANSITION_DURATION: Duration = Duration::from_millis(350);
+const ORTHOGRAPHIC_REACH_PER_DISTANCE: f64 = 40.0;
+const ORTHOGRAPHIC_SCENE_MARGIN: f64 = 1.1;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum Projection {
+    #[default]
+    Perspective,
+    Orthographic,
+}
+
+impl Projection {
+    pub const ALL: [Self; 2] = [Self::Perspective, Self::Orthographic];
+
+    pub fn other(self) -> Self {
+        match self {
+            Self::Perspective => Self::Orthographic,
+            Self::Orthographic => Self::Perspective,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Viewpoint {
@@ -111,6 +131,8 @@ impl Viewpoint {
 pub struct View {
     viewpoint: Viewpoint,
     size: DVec2,
+    projection: Projection,
+    scene_reach: f64,
 }
 
 impl View {
@@ -118,7 +140,40 @@ impl View {
         Self {
             viewpoint,
             size: DVec2::new(width.max(1.0), height.max(1.0)),
+            projection: Projection::Perspective,
+            scene_reach: 0.0,
         }
+    }
+
+    #[must_use]
+    pub fn with_projection(self, projection: Projection) -> Self {
+        Self { projection, ..self }
+    }
+
+    #[must_use]
+    pub fn reaching(self, scene: Aabb) -> Self {
+        let target = self.viewpoint.target;
+        let reach = scene
+            .corners()
+            .into_iter()
+            .map(|corner| corner.distance(target))
+            .fold(self.scene_reach, f64::max);
+        Self {
+            scene_reach: if reach.is_finite() {
+                reach
+            } else {
+                self.scene_reach
+            },
+            ..self
+        }
+    }
+
+    pub fn projection(&self) -> Projection {
+        self.projection
+    }
+
+    pub fn is_orthographic(&self) -> bool {
+        self.projection == Projection::Orthographic
     }
 
     pub fn viewpoint(&self) -> &Viewpoint {
@@ -138,7 +193,47 @@ impl View {
     }
 
     pub fn near_plane(&self) -> f64 {
-        self.viewpoint.distance * NEAR_PLANE_FRACTION
+        match self.projection {
+            Projection::Perspective => self.viewpoint.distance * NEAR_PLANE_FRACTION,
+            Projection::Orthographic => self.viewpoint.distance - self.orthographic_reach(),
+        }
+    }
+
+    pub fn far_plane(&self) -> f64 {
+        match self.projection {
+            Projection::Perspective => f64::INFINITY,
+            Projection::Orthographic => self.viewpoint.distance + self.orthographic_reach(),
+        }
+    }
+
+    fn orthographic_reach(&self) -> f64 {
+        (self.scene_reach * ORTHOGRAPHIC_SCENE_MARGIN)
+            .max(self.viewpoint.distance * ORTHOGRAPHIC_REACH_PER_DISTANCE)
+    }
+
+    fn half_height_at(&self, depth: f64) -> f64 {
+        match self.projection {
+            Projection::Perspective => depth * tan_half_fov_y(),
+            Projection::Orthographic => self.viewpoint.distance * tan_half_fov_y(),
+        }
+    }
+
+    fn ndc_of(&self, pixel: DVec2) -> DVec2 {
+        DVec2::new(
+            pixel.x / self.size.x * 2.0 - 1.0,
+            1.0 - pixel.y / self.size.y * 2.0,
+        )
+    }
+
+    fn orthographic_offset(&self, pixel: DVec2) -> Vector3 {
+        let ndc = self.ndc_of(pixel);
+        let half_height = self.half_height_at(self.viewpoint.distance);
+        self.viewpoint.orientation
+            * DVec3::new(
+                ndc.x * half_height * self.aspect(),
+                ndc.y * half_height,
+                0.0,
+            )
     }
 
     pub fn aspect(&self) -> f64 {
@@ -150,20 +245,38 @@ impl View {
     }
 
     pub fn units_per_pixel_at(&self, depth: f64) -> f64 {
-        2.0 * depth * tan_half_fov_y() / self.size.y
+        2.0 * self.half_height_at(depth) / self.size.y
     }
 
     pub fn ray_through(&self, pixel: DVec2) -> Option<Ray> {
-        let ndc = DVec2::new(
-            pixel.x / self.size.x * 2.0 - 1.0,
-            1.0 - pixel.y / self.size.y * 2.0,
-        );
-        let direction = DVec3::new(
-            ndc.x * tan_half_fov_y() * self.aspect(),
-            ndc.y * tan_half_fov_y(),
-            -1.0,
-        );
-        Ray::new(self.eye(), self.viewpoint.orientation * direction)
+        match self.projection {
+            Projection::Perspective => {
+                let ndc = self.ndc_of(pixel);
+                let direction = DVec3::new(
+                    ndc.x * tan_half_fov_y() * self.aspect(),
+                    ndc.y * tan_half_fov_y(),
+                    -1.0,
+                );
+                Ray::new(self.eye(), self.viewpoint.orientation * direction)
+            }
+            Projection::Orthographic => Ray::new(
+                self.eye() + self.orthographic_offset(pixel) + self.forward() * self.near_plane(),
+                self.forward(),
+            ),
+        }
+    }
+
+    pub fn unproject(&self, pixel: DVec2, depth: f64) -> Option<Point3> {
+        match self.projection {
+            Projection::Perspective => {
+                let ray = self.ray_through(pixel)?;
+                let facing = ray.direction().dot(self.forward());
+                (facing > 0.0).then(|| ray.at(depth / facing))
+            }
+            Projection::Orthographic => {
+                Some(self.eye() + self.orthographic_offset(pixel) + self.forward() * depth)
+            }
+        }
     }
 
     pub fn project(&self, point: Point3) -> Option<DVec2> {
@@ -172,9 +285,10 @@ impl View {
         if depth <= self.near_plane() {
             return None;
         }
+        let half_height = self.half_height_at(depth);
         let ndc = DVec2::new(
-            local.x / (depth * tan_half_fov_y() * self.aspect()),
-            local.y / (depth * tan_half_fov_y()),
+            local.x / (half_height * self.aspect()),
+            local.y / half_height,
         );
         Some(DVec2::new(
             (ndc.x + 1.0) * 0.5 * self.size.x,
@@ -183,17 +297,29 @@ impl View {
     }
 
     pub fn focal_point_under(&self, pixel: DVec2) -> Option<Point3> {
-        let ray = self.ray_through(pixel)?;
-        let facing = ray.direction().dot(self.forward());
-        (facing > 0.0).then(|| ray.at(self.viewpoint.distance / facing))
+        self.unproject(pixel, self.viewpoint.distance)
     }
 
     pub fn rotation_projection(&self) -> DMat4 {
-        let projection = directx::perspective_infinite_reverse(
-            FIELD_OF_VIEW_Y,
-            self.aspect(),
-            self.near_plane(),
-        );
+        let projection = match self.projection {
+            Projection::Perspective => directx::perspective_infinite_reverse(
+                FIELD_OF_VIEW_Y,
+                self.aspect(),
+                self.near_plane(),
+            ),
+            Projection::Orthographic => {
+                let half_height = self.half_height_at(self.viewpoint.distance);
+                let near = self.near_plane();
+                let far = self.far_plane();
+                let depth = far - near;
+                DMat4::from_cols(
+                    DVec4::new(1.0 / (half_height * self.aspect()), 0.0, 0.0, 0.0),
+                    DVec4::new(0.0, 1.0 / half_height, 0.0, 0.0),
+                    DVec4::new(0.0, 0.0, 1.0 / depth, 0.0),
+                    DVec4::new(0.0, 0.0, far / depth, 1.0),
+                )
+            }
+        };
         projection * DMat4::from_quat(self.viewpoint.orientation.inverse())
     }
 
@@ -201,8 +327,12 @@ impl View {
         let radius = bounds.bounding_radius();
         let half_fov_x = (tan_half_fov_y() * self.aspect()).atan();
         let narrowest_half_fov = half_fov_x.min(FIELD_OF_VIEW_Y * 0.5);
+        let reach = match self.projection {
+            Projection::Perspective => narrowest_half_fov.sin(),
+            Projection::Orthographic => narrowest_half_fov.tan(),
+        };
         let distance = if radius > 0.0 {
-            radius / narrowest_half_fov.sin() * FIT_MARGIN
+            radius / reach * FIT_MARGIN
         } else {
             self.viewpoint.distance
         };
@@ -243,6 +373,7 @@ struct Transition {
 pub struct Camera {
     viewpoint: Viewpoint,
     transition: Option<Transition>,
+    projection: Projection,
 }
 
 impl Camera {
@@ -250,7 +381,16 @@ impl Camera {
         Self {
             viewpoint,
             transition: None,
+            projection: Projection::Perspective,
         }
+    }
+
+    pub fn projection(&self) -> Projection {
+        self.projection
+    }
+
+    pub fn set_projection(&mut self, projection: Projection) {
+        self.projection = projection;
     }
 
     pub fn viewpoint(&self) -> Viewpoint {
@@ -263,7 +403,7 @@ impl Camera {
     }
 
     pub fn view(&self, width: f64, height: f64) -> View {
-        View::new(self.viewpoint, width, height)
+        View::new(self.viewpoint, width, height).with_projection(self.projection)
     }
 
     pub fn is_animating(&self) -> bool {
@@ -606,5 +746,182 @@ mod tests {
         camera.advance(TRANSITION_DURATION / 4);
         camera.pan(DVec2::new(1.0, 0.0), 1.0);
         assert!(!camera.is_animating());
+    }
+
+    fn orthographic(viewpoint: Viewpoint) -> View {
+        View::new(viewpoint, WIDTH, HEIGHT).with_projection(Projection::Orthographic)
+    }
+
+    fn orthographic_camera() -> Camera {
+        let mut camera = Camera::new(isometric());
+        camera.set_projection(Projection::Orthographic);
+        camera
+    }
+
+    fn clip_to_pixel(clip: DVec4) -> DVec3 {
+        let ndc = clip.truncate() / clip.w;
+        DVec3::new(
+            (ndc.x + 1.0) * 0.5 * WIDTH,
+            (1.0 - ndc.y) * 0.5 * HEIGHT,
+            ndc.z,
+        )
+    }
+
+    #[test]
+    fn orthographic_rays_are_parallel_and_agree_with_projection_and_unprojection() {
+        let view = orthographic(isometric());
+        let point = Point3::new(12.0, -7.0, 3.0);
+        let behind_the_eye = view.eye() - view.forward() * 30.0 + view.viewpoint().up() * 4.0;
+
+        let pixel = view.project(point).unwrap();
+        let ray = view.ray_through(pixel).unwrap();
+        let along = (point - ray.origin()).dot(ray.direction());
+        let corner_ray = view.ray_through(DVec2::ZERO).unwrap();
+        let behind = view.project(behind_the_eye).unwrap();
+
+        assert_close(ray.direction(), view.forward(), 1e-12);
+        assert_close(corner_ray.direction(), view.forward(), 1e-12);
+        assert_close(ray.at(along), point, 1e-9);
+        assert!(ray.origin().distance(point) > view.viewpoint().distance);
+        assert_close(
+            view.unproject(pixel, view.view_depth(point)).unwrap(),
+            point,
+            1e-9,
+        );
+        assert_close(
+            view.unproject(behind, view.view_depth(behind_the_eye))
+                .unwrap(),
+            behind_the_eye,
+            1e-9,
+        );
+        assert_close(
+            view.project(view.viewpoint().target).unwrap().extend(0.0),
+            DVec3::new(WIDTH / 2.0, HEIGHT / 2.0, 0.0),
+            1e-9,
+        );
+    }
+
+    #[test]
+    fn unprojecting_a_depth_finds_the_point_in_both_projections() {
+        for view in [
+            View::new(isometric(), WIDTH, HEIGHT),
+            orthographic(isometric()),
+        ] {
+            let point = Point3::new(-3.0, 8.0, 14.0);
+            let pixel = view.project(point).unwrap();
+
+            let found = view.unproject(pixel, view.view_depth(point)).unwrap();
+
+            assert_close(found, point, 1e-9);
+        }
+    }
+
+    #[test]
+    fn an_orthographic_view_draws_things_the_same_size_at_every_depth() {
+        let view = orthographic(isometric());
+        let near = view.viewpoint().target - view.forward() * 50.0;
+        let far = view.viewpoint().target + view.forward() * 500.0;
+        let offset = view.viewpoint().right() * 10.0;
+
+        let near_width = view.project(near + offset).unwrap().x - view.project(near).unwrap().x;
+        let far_width = view.project(far + offset).unwrap().x - view.project(far).unwrap().x;
+        let perspective = View::new(isometric(), WIDTH, HEIGHT);
+        let target = perspective.viewpoint().target;
+        let target_width = perspective.project(target + offset).unwrap().x
+            - perspective.project(target).unwrap().x;
+
+        assert!((near_width - far_width).abs() < 1e-9);
+        assert!((near_width - target_width).abs() < 1e-9);
+        assert!(
+            (view.units_per_pixel_at(1.0) - perspective.units_per_pixel_at(120.0)).abs() < 1e-12
+        );
+    }
+
+    #[test]
+    fn the_orthographic_matrix_matches_projection_and_maps_its_depth_range_in_reverse() {
+        let bounds = Aabb::from_points([
+            Point3::new(-4000.0, -10.0, 0.0),
+            Point3::new(10.0, 10.0, 5.0),
+        ])
+        .unwrap();
+        let view = orthographic(isometric()).reaching(bounds);
+        let matrix = view.rotation_projection();
+        let clip = |point: Point3| matrix * (point - view.eye()).extend(1.0);
+        let point = Point3::new(12.0, -7.0, 3.0);
+        let at_near = view.eye() + view.forward() * view.near_plane();
+        let at_far = view.eye() + view.forward() * view.far_plane();
+
+        let pixel = clip_to_pixel(clip(point));
+
+        assert_close(
+            pixel.truncate().extend(0.0),
+            view.project(point).unwrap().extend(0.0),
+            1e-9,
+        );
+        assert!(pixel.z > 0.0 && pixel.z < 1.0);
+        assert!((clip(at_near).z - 1.0).abs() < 1e-9);
+        assert!(clip(at_far).z.abs() < 1e-9);
+        assert!(view.near_plane() < 0.0);
+        for corner in bounds.corners() {
+            let depth = view.view_depth(corner);
+            assert!(depth > view.near_plane() && depth < view.far_plane());
+        }
+    }
+
+    #[test]
+    fn orthographic_navigation_keeps_the_anchor_pivot_and_grab_under_the_cursor() {
+        let mut camera = orthographic_camera();
+        let cursor = DVec2::new(610.0, 145.0);
+        let anchor = camera.view(WIDTH, HEIGHT).unproject(cursor, 95.0).unwrap();
+
+        camera.zoom(anchor, 0.4);
+        let zoomed = camera.view(WIDTH, HEIGHT);
+        let pivot = Point3::new(8.0, 0.0, 4.0);
+        let pivot_pixel = zoomed.project(pivot).unwrap();
+        camera.orbit(pivot, DVec2::new(140.0, -60.0), HEIGHT);
+        let orbited = camera.view(WIDTH, HEIGHT);
+        let grabbed = Point3::new(3.0, 1.0, 9.0);
+        let grab_pixel = orbited.project(grabbed).unwrap();
+        let drag = DVec2::new(-35.0, 20.0);
+        camera.pan(
+            drag,
+            orbited.units_per_pixel_at(orbited.view_depth(grabbed)),
+        );
+        let panned = camera.view(WIDTH, HEIGHT);
+
+        assert!(zoomed.is_orthographic());
+        assert_close(
+            zoomed.project(anchor).unwrap().extend(0.0),
+            cursor.extend(0.0),
+            1e-6,
+        );
+        assert_close(
+            orbited.project(pivot).unwrap().extend(0.0),
+            pivot_pixel.extend(0.0),
+            1e-6,
+        );
+        assert_close(
+            panned.project(grabbed).unwrap().extend(0.0),
+            (grab_pixel + drag).extend(0.0),
+            1e-6,
+        );
+    }
+
+    #[test]
+    fn an_orthographic_fit_contains_every_corner_and_fills_more_of_the_view() {
+        let bounds =
+            Aabb::from_points([Point3::new(-40.0, 10.0, 0.0), Point3::new(60.0, 30.0, 25.0)])
+                .unwrap();
+        let view = orthographic(isometric());
+        let fitted = orthographic(view.fitted(bounds));
+        let perspective = View::new(isometric(), WIDTH, HEIGHT).fitted(bounds);
+
+        for corner in bounds.corners() {
+            let pixel = fitted.project(corner).unwrap();
+            assert!((0.0..=WIDTH).contains(&pixel.x) && (0.0..=HEIGHT).contains(&pixel.y));
+        }
+        assert!(fitted.viewpoint().distance < perspective.distance);
+        assert_eq!(Projection::Perspective.other(), Projection::Orthographic);
+        assert_eq!(Projection::Orthographic.other(), Projection::Perspective);
     }
 }

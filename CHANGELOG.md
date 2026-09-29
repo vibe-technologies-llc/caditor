@@ -137,6 +137,9 @@ The first release of caditor.
   it is what gets saved. Copy, paste, undo and the other editing keys stay with the field.
 - Dark, light and high-contrast themes, interface sizes from 75% to 200%, and a choice of
   micrometres, millimetres, centimetres or metres.
+- An orthographic view, switched on and off with O, from the View menu or in Preferences, which
+  remember the choice. Zooming, orbiting, panning, fitting and picking work the same way in both
+  views.
 - Bodies, sketches and datum planes and axes can be hidden and shown again from the feature
   tree, with H for the selection and Alt+H for everything; a sketch is hidden once it is extruded
   or revolved, so it no longer covers the faces it made or takes their clicks.

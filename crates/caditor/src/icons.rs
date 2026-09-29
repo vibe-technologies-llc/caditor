@@ -71,6 +71,7 @@ pub fn command(command: Command) -> &'static str {
         Command::DatumPlane => PLANE,
         Command::DatumAxis => AXIS,
         Command::FitView => phosphor::FRAME_CORNERS,
+        Command::ToggleProjection => phosphor::PERSPECTIVE,
         Command::LargerInterface => phosphor::MAGNIFYING_GLASS_PLUS,
         Command::SmallerInterface => phosphor::MAGNIFYING_GLASS_MINUS,
         Command::NormalInterface => phosphor::TEXT_AA,

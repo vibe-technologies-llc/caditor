@@ -5007,3 +5007,40 @@ fn principal_planes_axes_and_origin_hide_and_planes_return_while_choosing_one() 
     assert_eq!(harness.model.undo_label(), Some("Hide XY plane"));
     assert!(harness.workspace.viewport.selection().is_empty());
 }
+
+#[test]
+fn o_switches_the_view_to_orthographic_and_back_and_the_preference_remembers_it() {
+    let mut harness = Harness::new();
+    harness.settle();
+    let view = |harness: &Harness| harness.workspace.viewport.current_view().unwrap();
+    let before = view(&harness);
+
+    harness.key(Key::O, Modifiers::NONE);
+    harness.settle();
+    let switched = view(&harness);
+    let remembered = harness.workspace.preferences.navigation.projection;
+    let offered = harness
+        .workspace
+        .last_offers
+        .iter()
+        .any(|offer| offer.command == Command::ToggleProjection);
+    harness.key(Key::O, Modifiers::NONE);
+    harness.settle();
+    let back = view(&harness);
+
+    assert!(!before.is_orthographic());
+    assert!(switched.is_orthographic());
+    assert_eq!(remembered, caditor_render::Projection::Orthographic);
+    assert!(offered);
+    assert_eq!(switched.viewpoint(), before.viewpoint());
+    assert!(
+        (switched.units_per_pixel_at(1.0) - before.units_per_pixel_at(before.viewpoint().distance))
+            .abs()
+            < 1e-9
+    );
+    assert!(!back.is_orthographic());
+    assert_eq!(
+        harness.workspace.preferences.navigation.projection,
+        caditor_render::Projection::Perspective
+    );
+}

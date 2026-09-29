@@ -1036,6 +1036,21 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     or snorm format an HDR setup lists first), else the first non-sRGB one. Model geometry draws
     over reference geometry (datum planes, axes) through a per-`Layer` depth bias, and model-layer
     fills (sketch regions) over the faces they lie on.
+  - Projection (`camera::Projection`, held by the `Camera` and carried by each `View`) is
+    perspective (30° vertical field of view) or orthographic. An orthographic view shows at every
+    depth the scale a perspective one shows at its target (half height `distance · tan 15°`), so
+    switching keeps the model's size on screen, and zoom still changes `distance`. Its eye stays
+    `distance` in front of the target, so relative-to-eye precision is unchanged, but its depth
+    range is finite and centred on the target: `View::reaching` widens it to the scene's bounds
+    (the app passes `BuiltScene::everything`), and it spans at least forty distances either way,
+    so geometry behind the eye is drawn and the grid fades before the range ends. Rays start at
+    the near plane and run along the view direction, picks are placed by `View::unproject` (the
+    point at a pixel and view depth, in either projection), fitting uses the tangent of the half
+    angle rather than its sine, and the grid's spacing follows the distance rather than the eye's
+    height. The view uniform flags orthographic views: the shaders then light faces from the view
+    direction and turn each layer's depth bias into a fixed offset of the depth
+    (`ORTHOGRAPHIC_DEPTH_BIAS`), since depth is linear there and a factor would push edges far
+    through faces.
   - Sizes on screen are in logical points: `ViewportFrame::pixels_per_point` (egui's, so the
     window scale times the interface size) goes into the view uniform, and the shaders scale line
     widths, marker diameters and the grid's line width and fade by it, so they look the same at
@@ -1285,7 +1300,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     (theme: system, dark or light, the 3D view keeping its dark canvas; interface size from 75% to
     200% in eighths, also on Ctrl+Plus, Ctrl+Minus and Ctrl+0, applied as the egui zoom factor,
     whose own keyboard zoom and quit shortcut are switched off; high contrast), orbit and zoom speed
-    with the zoom direction, and opens the shortcut editor. Every text colour of the theme is tested
+    with the zoom direction, the projection (`navigation.projection`, perspective by default,
+    also switched by Switch between perspective and orthographic, O, in the View menu and the
+    palette; standard views and sketching never switch it by themselves, so the view only changes
+    when asked), and opens the shortcut editor. Every text colour of the theme is tested
     against its background (4.5:1, and 7:1 for body text and pills in high contrast, whose button
     and focus outlines reach 3:1). Changes apply at once and are saved on the files worker, a
     dragged slider only when it is released (`PreferencesCommand::Preview` until then).
@@ -1349,8 +1367,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     selected axis (`datum_panel::base_change`, `rotation_change`), each sharing its availability
     with the panel's button. Tab moves between widgets and Escape
     leaves them; each feature row has a "⋯" menu with what its right-click menu holds. In the
-    viewport, standard views (Alt+0 to Alt+6), orbit (arrows), pan (Shift+arrows) and zoom (Page Up
-    and Page Down) are commands; N and Shift+N step a keyboard highlight through the scene's
+    viewport, standard views (Alt+0 to Alt+6), the projection (O), orbit (arrows), pan
+    (Shift+arrows) and zoom (Page Up and Page Down) are commands; N and Shift+N step a keyboard highlight through the scene's
     pickables in pick-table order, each once (it is drawn and described like hover, a pointer move
     or Escape clears it), Space acts on it as a click would (toggling it in the selection, or a
     region, blend edge, shell face or sketch plane as in those modes, through `pick_action`), and

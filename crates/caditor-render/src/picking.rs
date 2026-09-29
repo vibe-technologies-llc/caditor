@@ -369,17 +369,13 @@ fn decode_hits(bytes: &[u8], window: PickWindow, view: &View, cursor: DVec2) -> 
                 (i64::from(column) - radius) as f64,
                 (i64::from(row) - radius) as f64,
             );
-            let Some(ray) = view.ray_through(center + delta) else {
+            let Some(position) = view.unproject(center + delta, f64::from(depth)) else {
                 continue;
             };
-            let facing = ray.direction().dot(view.forward());
-            if facing <= 0.0 {
-                continue;
-            }
             let hit = PickHit {
                 id,
                 offset_points: (delta.length() / window.pixels_per_point) as f32,
-                position: ray.at(f64::from(depth) / facing),
+                position,
             };
             nearest
                 .entry(id)

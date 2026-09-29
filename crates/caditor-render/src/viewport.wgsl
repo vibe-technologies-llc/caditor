@@ -24,6 +24,7 @@ struct MeshPlacement {
 @group(1) @binding(2) var<uniform> mesh: MeshPlacement;
 
 const CULLED: vec4<f32> = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+const ORTHOGRAPHIC_DEPTH_BIAS: f32 = 0.03;
 
 struct Varyings {
     @builtin(position) position: vec4<f32>,
@@ -49,13 +50,31 @@ fn to_clip(position: vec3<f32>) -> vec4<f32> {
     return view.rotation_projection * vec4<f32>(position, 1.0);
 }
 
+fn is_orthographic() -> bool {
+    return view.viewport.w > 0.5;
+}
+
+fn biased_depth(clip: vec4<f32>, depth_bias: f32) -> f32 {
+    if is_orthographic() {
+        return clip.z + (depth_bias - 1.0) * ORTHOGRAPHIC_DEPTH_BIAS * clip.w;
+    }
+    return clip.z * depth_bias;
+}
+
 fn finish(clip: vec4<f32>, depth_bias: f32) -> vec4<f32> {
     return vec4<f32>(
         clip.x * view.pick_transform.x + view.pick_transform.z * clip.w,
         clip.y * view.pick_transform.y + view.pick_transform.w * clip.w,
-        clip.z * depth_bias,
+        biased_depth(clip, depth_bias),
         clip.w,
     );
+}
+
+fn toward_eye(relative: vec3<f32>) -> vec3<f32> {
+    if is_orthographic() {
+        return -view.forward_near.xyz;
+    }
+    return normalize(-relative);
 }
 
 fn pixels_per_point() -> f32 {
@@ -248,19 +267,19 @@ const SHININESS: f32 = 40.0;
 
 @fragment
 fn fs_mesh(in: Varyings) -> @location(0) vec4<f32> {
-    let toward_eye = normalize(-in.relative);
+    let eye = toward_eye(in.relative);
     var normal = in.normal;
     if dot(normal, normal) < 1e-12 {
-        normal = toward_eye;
+        normal = eye;
     }
     normal = normalize(normal);
-    if dot(normal, toward_eye) < 0.0 {
+    if dot(normal, eye) < 0.0 {
         normal = -normal;
     }
     let toward_light = view.light.xyz;
     let key = max(dot(normal, toward_light), 0.0);
-    let head = max(dot(normal, toward_eye), 0.0);
-    let halfway = normalize(toward_light + toward_eye);
+    let head = max(dot(normal, eye), 0.0);
+    let halfway = normalize(toward_light + eye);
     let shine = pow(max(dot(normal, halfway), 0.0), SHININESS) * SPECULAR;
     let shade = AMBIENT + KEY_LIGHT * key + HEADLIGHT * head;
     return vec4<f32>(in.color.rgb * shade + vec3<f32>(shine), in.color.a);

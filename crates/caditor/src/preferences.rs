@@ -1,4 +1,5 @@
 use caditor_file::Settings;
+use caditor_render::Projection;
 use egui::{KeyboardShortcut, ThemePreference, Ui};
 
 use crate::{
@@ -20,6 +21,7 @@ const HIGH_CONTRAST_KEY: &str = "appearance.high_contrast";
 const ORBIT_KEY: &str = "navigation.orbit_speed";
 const ZOOM_KEY: &str = "navigation.zoom_speed";
 const INVERT_ZOOM_KEY: &str = "navigation.invert_zoom";
+const PROJECTION_KEY: &str = "navigation.projection";
 const SECTION_GAP: f32 = 12.0;
 const BODY_HEIGHT_SHARE: f32 = 0.75;
 
@@ -63,11 +65,32 @@ impl Theme {
     }
 }
 
+pub fn projection_label(projection: Projection) -> &'static str {
+    match projection {
+        Projection::Perspective => "Perspective",
+        Projection::Orthographic => "Orthographic",
+    }
+}
+
+fn projection_key(projection: Projection) -> &'static str {
+    match projection {
+        Projection::Perspective => "perspective",
+        Projection::Orthographic => "orthographic",
+    }
+}
+
+fn projection_from_key(key: &str) -> Option<Projection> {
+    Projection::ALL
+        .into_iter()
+        .find(|projection| projection_key(*projection) == key)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Navigation {
     pub orbit_speed: f64,
     pub zoom_speed: f64,
     pub invert_zoom: bool,
+    pub projection: Projection,
 }
 
 impl Default for Navigation {
@@ -76,6 +99,7 @@ impl Default for Navigation {
             orbit_speed: 1.0,
             zoom_speed: 1.0,
             invert_zoom: false,
+            projection: Projection::default(),
         }
     }
 }
@@ -119,6 +143,7 @@ pub enum PreferenceChange {
     OrbitSpeed(f64),
     ZoomSpeed(f64),
     InvertZoom(bool),
+    Projection(Projection),
     Bind(Command, KeyboardShortcut),
     Unbind(Command, KeyboardShortcut),
     ResetShortcut(Command),
@@ -169,6 +194,10 @@ impl Preferences {
                 orbit_speed: speed(raw.number(ORBIT_KEY)),
                 zoom_speed: speed(raw.number(ZOOM_KEY)),
                 invert_zoom: raw.flag(INVERT_ZOOM_KEY).unwrap_or(false),
+                projection: raw
+                    .text(PROJECTION_KEY)
+                    .and_then(projection_from_key)
+                    .unwrap_or_default(),
             },
             onboarding: Onboarding::from_settings(&raw),
             keymap: Keymap::from_settings(&raw),
@@ -188,6 +217,7 @@ impl Preferences {
         settings.set_number(ORBIT_KEY, self.navigation.orbit_speed);
         settings.set_number(ZOOM_KEY, self.navigation.zoom_speed);
         settings.set_flag(INVERT_ZOOM_KEY, self.navigation.invert_zoom);
+        settings.set_text(PROJECTION_KEY, projection_key(self.navigation.projection));
         self.keymap.write(&self.loaded_keymap, &mut settings);
         self.onboarding.write(&mut settings);
         self.window.write(&mut settings);
@@ -210,6 +240,7 @@ impl Preferences {
                 self.navigation.zoom_speed = value.clamp(MIN_SPEED, MAX_SPEED);
             }
             PreferenceChange::InvertZoom(invert) => self.navigation.invert_zoom = invert,
+            PreferenceChange::Projection(projection) => self.navigation.projection = projection,
             PreferenceChange::Bind(command, shortcut) => self.keymap.bind(command, shortcut),
             PreferenceChange::Unbind(command, shortcut) => self.keymap.unbind(command, shortcut),
             PreferenceChange::ResetShortcut(command) => self.keymap.reset(command),
@@ -387,6 +418,22 @@ fn appearance(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
 fn navigation(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
     let navigation = preferences.navigation;
     section(ui, "Navigation", "navigation", None, |ui| {
+        widgets::property(ui, "Projection", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for projection in Projection::ALL {
+                    if ui
+                        .selectable_label(
+                            navigation.projection == projection,
+                            projection_label(projection),
+                        )
+                        .on_hover_text(Command::ToggleProjection.title())
+                        .clicked()
+                    {
+                        change(command, PreferenceChange::Projection(projection));
+                    }
+                }
+            });
+        });
         widgets::property(ui, "Orbit speed", |ui| {
             speed_slider(
                 ui,
@@ -474,9 +521,17 @@ mod tests {
         assert_eq!(preferences.navigation.zoom_speed, 1.0);
         preferences.apply(PreferenceChange::ZoomSpeed(0.5));
         preferences.apply(PreferenceChange::InvertZoom(true));
+        preferences.apply(PreferenceChange::Projection(Projection::Orthographic));
         let settings = preferences.settings();
         assert_eq!(settings.text("future.option"), Some("kept"));
         assert_eq!(settings.number(ZOOM_KEY), Some(0.5));
+        assert_eq!(settings.text(PROJECTION_KEY), Some("orthographic"));
+        assert_eq!(
+            Preferences::from_settings(settings.clone())
+                .navigation
+                .projection,
+            Projection::Orthographic
+        );
         assert_eq!(
             Preferences::from_settings(settings.clone()).settings(),
             settings

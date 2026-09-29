@@ -94,6 +94,7 @@ pub enum Command {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    ToggleProjection,
     OpenSample(Sample),
     OpenRecent(RecentSlot),
     RecoverUnsaved,
@@ -360,7 +361,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 58] = [
+const PLAIN_COMMANDS: [Command; 59] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -377,6 +378,7 @@ const PLAIN_COMMANDS: [Command; 58] = [
     Command::Undo,
     Command::Redo,
     Command::FitView,
+    Command::ToggleProjection,
     Command::LargerInterface,
     Command::SmallerInterface,
     Command::NormalInterface,
@@ -501,6 +503,7 @@ impl Command {
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
+            Self::ToggleProjection => "view.toggle_projection",
             Self::OpenSample(sample) => match sample {
                 Sample::Plate => "file.sample.plate",
                 Sample::Spool => "file.sample.spool",
@@ -576,6 +579,7 @@ impl Command {
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
+            Self::ToggleProjection => "Switch between perspective and orthographic",
             Self::OpenSample(sample) => return format!("Open the {} sample", sample.title()),
             Self::OpenRecent(slot) => return slot.title(),
             Self::RecoverUnsaved => "Recover Unsaved Work…",
@@ -639,7 +643,8 @@ impl Command {
             | Self::HideSelection
             | Self::ToggleVisibility
             | Self::ShowAll
-            | Self::TogglePrincipal => Category::View,
+            | Self::TogglePrincipal
+            | Self::ToggleProjection => Category::View,
             Self::NewSketch
             | Self::Extrude
             | Self::Revolve
@@ -695,6 +700,7 @@ impl Command {
             Self::Undo => vec![command(Key::Z)],
             Self::Redo => vec![command_shift(Key::Z), command(Key::Y)],
             Self::FitView => vec![plain(Key::F)],
+            Self::ToggleProjection => vec![plain(Key::O)],
             Self::LargerInterface => vec![command(Key::Plus), command(Key::Equals)],
             Self::SmallerInterface => vec![command(Key::Minus)],
             Self::NormalInterface => vec![command(Key::Num0)],

@@ -122,7 +122,6 @@ within a category run from most to least important.
 
 ## Viewer
 
-- Orthographic projection for standard views.
 - Silhouette edges on curved bodies.
 - Section planes.
 - Transparent or X-ray bodies.

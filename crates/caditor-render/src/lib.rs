@@ -12,7 +12,7 @@ use std::{fmt::Debug, sync::Arc};
 use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 
 pub use crate::{
-    camera::{Camera, View, Viewpoint},
+    camera::{Camera, Projection, View, Viewpoint},
     gpu::Wake,
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     picking::PickPoll,

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use caditor_document::{Document, Evaluation, FeatureId, FeatureKind};
-use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
+use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{Camera, PickResult, Scene, View, Viewpoint, ViewportRect};
 use caditor_sketch::ConstraintId;
 use egui::{Align2, FontId, Key, PointerButton, Rect, Response, Sense, vec2};
@@ -16,7 +16,7 @@ use crate::{
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
     model::{Action, Model, Notice, RecomputeStatus},
-    preferences::Navigation,
+    preferences::{Navigation, PreferenceChange, PreferencesCommand},
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
     selection::{Pickable, Selection},
     shell_tools,
@@ -127,6 +127,7 @@ pub struct ViewportState {
     hovered_in_tree: Option<Pickable>,
     session: u64,
     fit_when_computed: bool,
+    scene_bounds: Option<Aabb>,
 }
 
 impl ViewportState {
@@ -165,6 +166,7 @@ impl ViewportState {
             hovered_in_tree: None,
             session: 0,
             fit_when_computed: false,
+            scene_bounds: None,
         }
     }
 
@@ -193,6 +195,7 @@ impl ViewportState {
 
     pub fn set_navigation(&mut self, navigation: Navigation) {
         self.navigation = navigation;
+        self.camera.set_projection(navigation.projection);
     }
 
     pub fn edit_dimension(&mut self, feature: FeatureId, constraint: ConstraintId) {
@@ -350,6 +353,7 @@ impl ViewportState {
         self.keyboard_highlight = self
             .keyboard_highlight
             .filter(|highlight| self.highlightable.contains(highlight));
+        self.scene_bounds = Some(built.everything);
         let Some(view) = self.view() else {
             return built;
         };
@@ -413,13 +417,22 @@ impl ViewportState {
 
     fn view(&self) -> Option<View> {
         let size = self.rect?.size() * self.pixels_per_point;
-        (size.x >= 1.0 && size.y >= 1.0)
-            .then(|| self.camera.view(f64::from(size.x), f64::from(size.y)))
+        let view = (size.x >= 1.0 && size.y >= 1.0)
+            .then(|| self.camera.view(f64::from(size.x), f64::from(size.y)))?;
+        Some(match self.scene_bounds {
+            Some(bounds) => view.reaching(bounds),
+            None => view,
+        })
     }
 
     #[cfg(test)]
     pub fn viewpoint(&self) -> Viewpoint {
         self.camera.viewpoint()
+    }
+
+    #[cfg(test)]
+    pub fn current_view(&self) -> Option<View> {
+        self.view()
     }
 
     #[cfg(test)]
@@ -692,6 +705,11 @@ impl ViewportState {
             if commands.available(Command::Camera(step)) {
                 self.nudge(step);
             }
+        }
+        if commands.available(Command::ToggleProjection) {
+            actions.push(Action::Preferences(PreferencesCommand::Change(
+                PreferenceChange::Projection(self.navigation.projection.other()),
+            )));
         }
         let highlightable = if self.highlightable.is_empty() {
             Err(NOTHING_TO_HIGHLIGHT)
@@ -1086,7 +1104,9 @@ fn facing(view: &View, sketch: &EditedSketch) -> Viewpoint {
         sketch.bounds.center(),
         view.viewpoint().distance,
     );
-    View::new(facing, size.x, size.y).fitted(sketch.bounds)
+    View::new(facing, size.x, size.y)
+        .with_projection(view.projection())
+        .fitted(sketch.bounds)
 }
 
 struct KeyHints {

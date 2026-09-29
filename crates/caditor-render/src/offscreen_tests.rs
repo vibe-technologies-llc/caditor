@@ -7,7 +7,7 @@ use caditor_geometry::{Plane, Point3, Vector3};
 use glam::DVec2;
 
 use crate::{
-    camera::{View, Viewpoint},
+    camera::{Projection, View, Viewpoint},
     gpu::{self, Bytes, DeviceLoss, GrowableBuffer},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     scene::{Color, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Scene, ViewportRect},
@@ -1283,4 +1283,74 @@ fn a_scene_larger_than_a_buffer_draws_what_fits_and_splits_its_meshes() {
     let [red, green, _, _] = pixel(&on_the_lines, view.project(on_lines).unwrap());
     assert!(red > 200 && green < 80, "the lines were {red} {green}");
     assert!(on_the_lines.pick.hits[0].id.index() < many);
+}
+
+#[test]
+fn an_orthographic_view_draws_and_picks_faces_behind_its_eye_with_edges_over_them() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let styles: Vec<FaceStyle> = (0..6)
+        .map(|index| FaceStyle {
+            color: Color::from_rgb8(40, 200, 40),
+            pick: PickId::from_index(10 + index),
+        })
+        .collect();
+    let line = |start: Point3, end: Point3, index: usize| Line {
+        start,
+        end,
+        color: LINE_COLOR,
+        width: 3.0,
+        layer: Layer::Model,
+        pick: PickId::from_index(index),
+    };
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(box_mesh(20.0)),
+            faces: styles,
+        }],
+        lines: vec![
+            line(
+                Point3::new(-50.0, 0.0, 20.0),
+                Point3::new(50.0, 0.0, 20.0),
+                0,
+            ),
+            line(
+                Point3::new(0.0, -50.0, -20.0),
+                Point3::new(0.0, 50.0, -20.0),
+                1,
+            ),
+        ],
+        ..Scene::default()
+    };
+    let viewpoint =
+        Viewpoint::looking_from(Vector3::Z, Point3::new(0.0, 0.0, -100.0), 112.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE))
+        .with_projection(Projection::Orthographic);
+    let top = Point3::new(0.0, 10.0, 20.0);
+    let on_top = view.project(top).unwrap();
+    let edge_on_top = view.project(Point3::new(10.0, 0.0, 20.0)).unwrap();
+    let edge_beside = view.project(Point3::new(26.0, 0.0, 20.0)).unwrap();
+    let under_the_box = view.project(Point3::new(0.0, 10.0, -20.0)).unwrap();
+    let beside_the_box = view.project(Point3::new(0.0, 26.0, -20.0)).unwrap();
+    let greenish =
+        |[red, green, blue, _]: [u8; 4]| green > 60 && green > 2 * red && green > 2 * blue;
+    let reddish = |[red, green, _, _]: [u8; 4]| red > 200 && green < 80;
+
+    let rendered = render(&device, &queue, &view, &scene, on_top);
+
+    let nearest = rendered.pick.hits[0];
+    assert!(view.view_depth(top) < 0.0);
+    assert_eq!(nearest.id, PickId::from_index(14).unwrap());
+    assert!(
+        nearest.position.distance(top) < 0.5,
+        "{:?}",
+        nearest.position
+    );
+    assert!(greenish(pixel(&rendered, on_top)));
+    assert!(reddish(pixel(&rendered, edge_on_top)));
+    assert!(reddish(pixel(&rendered, edge_beside)));
+    assert!(greenish(pixel(&rendered, under_the_box)));
+    assert!(reddish(pixel(&rendered, beside_the_box)));
+    assert!(on_top.distance(under_the_box) < 1e-9);
 }
