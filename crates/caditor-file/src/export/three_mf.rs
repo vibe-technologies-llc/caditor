@@ -89,6 +89,10 @@ fn object_ids<'a, 'b>(
         .map(|(index, body)| (index + 1, body))
 }
 
+fn xml_character(character: char) -> bool {
+    !character.is_control() && !matches!(character, '\u{FFFE}' | '\u{FFFF}')
+}
+
 struct Escaped<'a>(&'a str);
 
 impl fmt::Display for Escaped<'_> {
@@ -100,7 +104,7 @@ impl fmt::Display for Escaped<'_> {
                 '>' => formatter.write_str("&gt;")?,
                 '"' => formatter.write_str("&quot;")?,
                 '\'' => formatter.write_str("&apos;")?,
-                character if character.is_control() => formatter.write_char(' ')?,
+                character if !xml_character(character) => formatter.write_char(' ')?,
                 character => formatter.write_char(character)?,
             }
         }

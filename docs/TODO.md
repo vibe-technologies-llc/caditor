@@ -190,8 +190,6 @@ within a category run from most to least important.
 
 - STL uses absolute f32 coordinates, which lose about 0.06 mm at 10^6 mm, and merges all bodies
   into one surface.
-- 3MF object names escape only control characters, so noncharacters such as U+FFFE make invalid
-  XML 1.0.
 - 3MF has no colours, materials or thumbnail, builds everything in memory and cannot exceed
   4 GiB without ZIP64.
 

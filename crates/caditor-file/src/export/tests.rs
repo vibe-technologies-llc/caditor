@@ -270,7 +270,7 @@ fn a_3mf_is_a_valid_package_with_one_named_object_per_body() {
         mesh_of(&pin, MeshResolution::Coarse),
     ];
     meshes[0].name = "Plate & <\"Pin\">";
-    meshes[1].name = "Pin 'rod'";
+    meshes[1].name = "Pin 'rod'\u{FFFE}\u{FFFF}\u{7}é";
     let entries = unzip(&three_mf::encode(&meshes).unwrap());
     assert_eq!(
         entries.keys().map(String::as_str).collect::<Vec<_>>(),
@@ -287,7 +287,7 @@ fn a_3mf_is_a_valid_package_with_one_named_object_per_body() {
     let objects = objects(&model);
     assert_eq!(objects.len(), 2);
     assert_eq!(objects[0].name, "Plate &amp; &lt;&quot;Pin&quot;&gt;");
-    assert_eq!(objects[1].name, "Pin &apos;rod&apos;");
+    assert_eq!(objects[1].name, "Pin &apos;rod&apos;   é");
     for (object, mesh) in objects.iter().zip(&meshes) {
         assert_eq!(object.positions, mesh.positions);
         assert_eq!(object.triangles, mesh.triangles);
