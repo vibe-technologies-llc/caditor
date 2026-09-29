@@ -156,35 +156,39 @@ fn half_edges(
 }
 
 fn prune_dangling(arrangement: &Arrangement, boundary: &[HalfEdge], cuts: &mut BTreeSet<usize>) {
-    loop {
-        let mut incidence: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
-        let pieces = boundary
-            .iter()
-            .map(|half_edge| half_edge.piece)
-            .chain(cuts.iter().copied());
-        for piece in pieces {
-            if let Some(data) = arrangement.piece(piece) {
-                incidence.entry(data.start).or_default().insert(piece);
-                incidence.entry(data.end).or_default().insert(piece);
+    let mut incidence: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+    let pieces = boundary
+        .iter()
+        .map(|half_edge| half_edge.piece)
+        .chain(cuts.iter().copied());
+    for piece in pieces {
+        if let Some(data) = arrangement.piece(piece) {
+            incidence.entry(data.start).or_default().insert(piece);
+            incidence.entry(data.end).or_default().insert(piece);
+        }
+    }
+    let mut pending: Vec<usize> = cuts.iter().copied().collect();
+    while let Some(piece) = pending.pop() {
+        if !cuts.contains(&piece) {
+            continue;
+        }
+        let Some(data) = arrangement.piece(piece) else {
+            continue;
+        };
+        let ends = [data.start, data.end];
+        let dangling = !data.is_closed()
+            && ends
+                .iter()
+                .any(|vertex| incidence.get(vertex).is_none_or(|around| around.len() < 2));
+        if !dangling {
+            continue;
+        }
+        cuts.remove(&piece);
+        for vertex in ends {
+            if let Some(around) = incidence.get_mut(&vertex) {
+                around.remove(&piece);
+                pending.extend(around.iter().copied().filter(|other| cuts.contains(other)));
             }
-        }
-        let dangling: Vec<usize> = cuts
-            .iter()
-            .copied()
-            .filter(|piece| {
-                arrangement.piece(*piece).is_some_and(|data| {
-                    !data.is_closed()
-                        && [data.start, data.end].iter().any(|vertex| {
-                            incidence.get(vertex).is_none_or(|around| around.len() < 2)
-                        })
-                })
-            })
-            .collect();
-        if dangling.is_empty() {
-            return;
-        }
-        for piece in dangling {
-            cuts.remove(&piece);
         }
     }
 }

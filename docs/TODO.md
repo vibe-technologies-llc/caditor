@@ -47,7 +47,6 @@ within a category run from most to least important.
 
 ## Kernel performance
 
-- `prune_dangling` rebuilds its incidence map each round (`boolean/faces.rs`).
 - B-spline surface projection of a point off the surface refines four seeds every call, which is
   most of its cost.
 
