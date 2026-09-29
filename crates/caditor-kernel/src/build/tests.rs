@@ -13,7 +13,7 @@ use crate::{
     profile::{Profile, ProfileCurve, Region, Selection},
     tessellation::Mesh,
     test_support::{Random, arc, assert_watertight, circle, line, rectangle, spline},
-    tolerance::SamplingTolerance,
+    tolerance::{MAX_SIZE, SamplingTolerance},
     topology::Solid,
 };
 
@@ -523,4 +523,18 @@ fn a_hole_close_to_the_outline_still_validates_and_tessellates() {
         2.0 * face + TAU * (outer + inner),
         inner,
     );
+}
+
+#[test]
+fn extents_reaching_beyond_the_largest_size_are_refused() {
+    assert_eq!(
+        LinearExtent::one_side(-2.0 * MAX_SIZE),
+        Err(SweepError::TooLong)
+    );
+    assert_eq!(
+        LinearExtent::two_sided(1.0, 2.0 * MAX_SIZE),
+        Err(SweepError::TooLong)
+    );
+    assert!(LinearExtent::symmetric(2.0 * MAX_SIZE).is_ok());
+    assert!(LinearExtent::one_side(MAX_SIZE).is_ok());
 }

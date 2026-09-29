@@ -7,9 +7,9 @@ use std::{
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_geometry::{Aabb2, Plane, Point2, Vector2};
 use caditor_kernel::{
-    AngularExtent, Axis2, BooleanError, BooleanOperation, LinearExtent, Mesh, Profile,
-    ProfileCurve, ProfileError, Region, RegionKey, RegionMesh, SamplingTolerance, Selection, Solid,
-    SweepError, TessellationError, boolean, extrude, revolve,
+    AngularExtent, Axis2, BooleanError, BooleanOperation, GeometryError, LinearExtent, MAX_SIZE,
+    Mesh, Profile, ProfileCurve, ProfileError, Region, RegionKey, RegionMesh, SamplingTolerance,
+    Selection, Solid, SweepError, TessellationError, boolean, extrude, revolve,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -520,6 +520,10 @@ fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
             let curves = context.curves(&error.entities());
             let problem = match error {
                 ProfileError::Degenerate { .. } => "has no length",
+                ProfileError::InvalidCurve {
+                    error: GeometryError::BeyondMaximum(_),
+                    ..
+                } => "reaches farther than caditor models",
                 ProfileError::SelfOverlap { .. } => "runs back over itself",
                 ProfileError::Overlap { .. } => "run along each other",
                 ProfileError::TooIntricate { .. } => "cross too often to be divided into regions",
@@ -545,6 +549,11 @@ fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Fail
         SweepError::NonFinite | SweepError::ZeroLength => context.error(
             format!("The {shape} has no length."),
             "Enter a distance other than zero.".to_owned(),
+            context.own(),
+        ),
+        SweepError::TooLong => context.error(
+            format!("The {shape} reaches farther than {} m.", MAX_SIZE / 1_000.0),
+            "Enter a shorter distance.".to_owned(),
             context.own(),
         ),
         SweepError::ZeroAngle => context.error(
@@ -706,6 +715,18 @@ fn positive(context: &Context<'_>, value: f64, what: &str) -> Result<f64, Failur
     }
 }
 
+fn within_reach(context: &Context<'_>, value: f64, what: &str) -> Result<f64, Failure> {
+    if value <= MAX_SIZE {
+        return Ok(value);
+    }
+    let most = MAX_SIZE / 1_000.0;
+    Err(context.error(
+        format!("The {what} cannot be more than {most} m."),
+        format!("Enter a {what} of at most {most} m."),
+        context.own(),
+    ))
+}
+
 fn linear_extent(
     context: &Context<'_>,
     extent: &ExtrudeExtent,
@@ -714,6 +735,7 @@ fn linear_extent(
     let length = |expression: &Expression, what: &str| {
         evaluate_value(context, expression, Dimension::LENGTH, what, parameters)
             .and_then(|value| positive(context, value, what))
+            .and_then(|value| within_reach(context, value, what))
     };
     let built = match extent {
         ExtrudeExtent::OneSide { distance, reversed } => {

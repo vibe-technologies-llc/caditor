@@ -3,7 +3,7 @@ use std::f64::consts::{PI, TAU};
 use caditor_geometry::{Aabb2, Point2, Vector2};
 
 use crate::{
-    checks::{finite_point2, positive, unit2},
+    checks::{finite_point2, size, unit2},
     error::GeometryError,
     interval::Interval,
 };
@@ -80,7 +80,7 @@ impl Circle2 {
         };
         Ok(Self {
             center: finite_point2(center)?,
-            radius: positive(radius)?,
+            radius: size(radius)?,
             x_axis,
             y_axis,
         })

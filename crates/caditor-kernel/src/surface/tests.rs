@@ -7,6 +7,7 @@ use crate::{
     bspline::BSpline,
     curve::{Circle, Curve, Line},
     test_support::Random,
+    tolerance::{LINEAR_RESOLUTION, MAX_SIZE},
 };
 
 fn tilted() -> Plane {
@@ -426,6 +427,20 @@ fn constructors_reject_degenerate_surfaces() {
         Cone::new(Plane::XY, -1.0, 0.3),
         Err(GeometryError::NonPositive(_))
     ));
+    assert!(matches!(
+        Cone::new(Plane::XY, 2.0 * MAX_SIZE, 0.3),
+        Err(GeometryError::BeyondMaximum(_))
+    ));
+    assert!(matches!(
+        Sphere::new(Plane::XY, 0.1 * LINEAR_RESOLUTION),
+        Err(GeometryError::BelowResolution(_))
+    ));
+    assert!(matches!(
+        Torus::new(Plane::XY, 2.0 * MAX_SIZE, 1.0),
+        Err(GeometryError::BeyondMaximum(_))
+    ));
+    assert!(Cylinder::new(Plane::XY, MAX_SIZE).is_ok());
+    assert!(Cylinder::new(Plane::XY, LINEAR_RESOLUTION).is_ok());
     assert!(matches!(
         Torus::new(Plane::XY, 1.0, 1.0),
         Err(GeometryError::SelfIntersectingTorus { .. })

@@ -43,10 +43,6 @@ within a category run from most to least important.
   only within 1e-14 relative (`surface/projection.rs` `AXIS_EPSILON`), so a pole vertex of a
   model far from the origin gets an arbitrary u, unlike revolutions and splines, which reuse the
   hint's u through `pole_at`.
-- Radii are only required to be positive (`curve/conic.rs`, `curve2/primitives.rs`,
-  `surface/elementary.rs`), and sweep extents only finite (`LinearExtent::new`), so values far
-  below `LINEAR_RESOLUTION` or far above `MODEL_EXTENT` reach the kernel and fail later with
-  generic errors.
 - Extrusions of a line profile nearly parallel to the direction pass the `parallel` check
   (1e-10) and then project by dividing by `1 - tilt²` (`surface/swept.rs`).
 - `ProfileError::Unresolved`, produced by about thirty internal paths in `profile/`, names no

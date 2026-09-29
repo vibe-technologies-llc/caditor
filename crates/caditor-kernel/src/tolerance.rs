@@ -4,6 +4,7 @@ use caditor_geometry::{Point3, Vector3};
 
 pub const LINEAR_RESOLUTION: f64 = 1e-6;
 pub const MODEL_EXTENT: f64 = 1e4;
+pub const MAX_SIZE: f64 = 1e6;
 pub const ANGULAR_RESOLUTION: f64 = LINEAR_RESOLUTION / MODEL_EXTENT;
 pub const PCURVE_TOLERANCE: f64 = 1e-4;
 pub const INTERSECTION_TOLERANCE: f64 = 0.25 * LINEAR_RESOLUTION;

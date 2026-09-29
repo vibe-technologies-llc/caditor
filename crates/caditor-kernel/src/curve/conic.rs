@@ -3,7 +3,7 @@ use std::f64::consts::{PI, TAU};
 use caditor_geometry::{Aabb, Plane, Point3};
 
 use crate::{
-    checks::{checked_frame, positive},
+    checks::{checked_frame, size},
     error::GeometryError,
     interval::Interval,
 };
@@ -20,7 +20,7 @@ impl Circle {
     pub fn new(frame: Plane, radius: f64) -> Result<Self, GeometryError> {
         Ok(Self {
             frame: checked_frame(frame)?,
-            radius: positive(radius)?,
+            radius: size(radius)?,
         })
     }
 
@@ -91,8 +91,8 @@ impl Ellipse {
     pub fn new(frame: Plane, major_radius: f64, minor_radius: f64) -> Result<Self, GeometryError> {
         Ok(Self {
             frame: checked_frame(frame)?,
-            major_radius: positive(major_radius)?,
-            minor_radius: positive(minor_radius)?,
+            major_radius: size(major_radius)?,
+            minor_radius: size(minor_radius)?,
         })
     }
 

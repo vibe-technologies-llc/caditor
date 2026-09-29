@@ -63,7 +63,7 @@ pub use crate::{
         EdgePolyline, FaceTriangles, MassProperties, Mesh, MeshVertex, TessellationError,
     },
     tolerance::{
-        ANGULAR_RESOLUTION, INTERSECTION_TOLERANCE, LINEAR_RESOLUTION, MODEL_EXTENT,
+        ANGULAR_RESOLUTION, INTERSECTION_TOLERANCE, LINEAR_RESOLUTION, MAX_SIZE, MODEL_EXTENT,
         PCURVE_TOLERANCE, SamplingTolerance, parallel, same_direction, same_point,
     },
     topology::{

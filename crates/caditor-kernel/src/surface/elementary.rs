@@ -3,12 +3,13 @@ use std::f64::consts::FRAC_PI_2;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 
 use crate::{
-    checks::{checked_frame, positive},
+    checks::{checked_frame, size},
     error::GeometryError,
     surface::{
         SurfaceDerivatives,
         projection::{AXIS_EPSILON, periodic_near},
     },
+    tolerance::MAX_SIZE,
 };
 
 const MIN_CONE_ANGLE: f64 = 1e-6;
@@ -96,7 +97,7 @@ impl Cylinder {
     pub fn new(frame: Plane, radius: f64) -> Result<Self, GeometryError> {
         Ok(Self {
             frame: checked_frame(frame)?,
-            radius: positive(radius)?,
+            radius: size(radius)?,
         })
     }
 
@@ -151,6 +152,9 @@ impl Cone {
         }
         if radius < 0.0 {
             return Err(GeometryError::NonPositive(radius));
+        }
+        if radius > MAX_SIZE {
+            return Err(GeometryError::BeyondMaximum(radius));
         }
         if half_angle.abs() < MIN_CONE_ANGLE || half_angle.abs() > FRAC_PI_2 - MIN_CONE_ANGLE {
             return Err(GeometryError::ConeAngle(half_angle));
@@ -238,7 +242,7 @@ impl Sphere {
     pub fn new(frame: Plane, radius: f64) -> Result<Self, GeometryError> {
         Ok(Self {
             frame: checked_frame(frame)?,
-            radius: positive(radius)?,
+            radius: size(radius)?,
         })
     }
 
@@ -296,8 +300,8 @@ pub struct Torus {
 
 impl Torus {
     pub fn new(frame: Plane, major_radius: f64, minor_radius: f64) -> Result<Self, GeometryError> {
-        let major_radius = positive(major_radius)?;
-        let minor_radius = positive(minor_radius)?;
+        let major_radius = size(major_radius)?;
+        let minor_radius = size(minor_radius)?;
         if minor_radius >= major_radius {
             return Err(GeometryError::SelfIntersectingTorus {
                 major: major_radius,

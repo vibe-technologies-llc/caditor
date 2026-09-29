@@ -1,6 +1,9 @@
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 
-use crate::error::GeometryError;
+use crate::{
+    error::GeometryError,
+    tolerance::{LINEAR_RESOLUTION, MAX_SIZE},
+};
 
 pub(crate) fn finite_point(point: Point3) -> Result<Point3, GeometryError> {
     if point.is_finite() {
@@ -36,11 +39,15 @@ pub(crate) fn unit2(direction: Vector2) -> Result<Vector2, GeometryError> {
         .ok_or(GeometryError::ZeroDirection)
 }
 
-pub(crate) fn positive(value: f64) -> Result<f64, GeometryError> {
+pub(crate) fn size(value: f64) -> Result<f64, GeometryError> {
     if !value.is_finite() {
         Err(GeometryError::NonFinite)
     } else if value <= 0.0 {
         Err(GeometryError::NonPositive(value))
+    } else if value < LINEAR_RESOLUTION {
+        Err(GeometryError::BelowResolution(value))
+    } else if value > MAX_SIZE {
+        Err(GeometryError::BeyondMaximum(value))
     } else {
         Ok(value)
     }

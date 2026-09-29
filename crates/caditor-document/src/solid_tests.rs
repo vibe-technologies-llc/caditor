@@ -720,3 +720,20 @@ fn a_revolve_with_regions_on_both_sides_names_the_curves_apart_from_the_rest() {
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(body)));
 }
+
+#[test]
+fn a_distance_beyond_a_kilometre_is_refused_in_words() {
+    let (document, body) = single_body(
+        extruded(ExtrudeExtent::OneSide {
+            distance: stored("2000 m"),
+            reversed: false,
+        }),
+        rectangle(Plane::XY, (0.0, 0.0), (2.0, 2.0)),
+    );
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let FeatureState::Failed(error) = &evaluation.feature(body).unwrap().state else {
+        panic!("a two-kilometre extrusion should be refused");
+    };
+    assert_eq!(error.reason, "The distance cannot be more than 1000 m.");
+    assert_eq!(error.remedy, "Enter a distance of at most 1000 m.");
+}

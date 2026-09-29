@@ -14,7 +14,7 @@ use crate::{
     error::GeometryError,
     profile::Piece,
     sense::Sense,
-    tolerance::{ANGULAR_RESOLUTION, LINEAR_RESOLUTION},
+    tolerance::{ANGULAR_RESOLUTION, LINEAR_RESOLUTION, MAX_SIZE},
     topology::BuildError,
 };
 
@@ -58,6 +58,8 @@ pub enum SweepError {
     NonFinite,
     #[error("the extrusion has no length")]
     ZeroLength,
+    #[error("the extrusion reaches farther than {MAX_SIZE} mm")]
+    TooLong,
     #[error("the revolution has no angle")]
     ZeroAngle,
     #[error("the revolution turns more than once")]
@@ -86,6 +88,7 @@ impl SweepError {
             Self::NoRegions
             | Self::NonFinite
             | Self::ZeroLength
+            | Self::TooLong
             | Self::ZeroAngle
             | Self::BeyondFullTurn
             | Self::DegenerateAxis
@@ -110,6 +113,9 @@ impl LinearExtent {
         }
         if (end - start).abs() <= LINEAR_RESOLUTION {
             return Err(SweepError::ZeroLength);
+        }
+        if start.abs().max(end.abs()) > MAX_SIZE {
+            return Err(SweepError::TooLong);
         }
         Ok(Self { start, end })
     }

@@ -225,8 +225,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Tolerances live in `tolerance.rs`: `LINEAR_RESOLUTION` is 1e-6 mm and `ANGULAR_RESOLUTION`
     is the angle that moves a point at `MODEL_EXTENT` (10 m) by it. `SamplingTolerance` (chord
     and angle) drives every sampling, and `Solid::default_tolerance` derives one from the size.
-    Constructors reject non-finite and degenerate input, every iteration has a fixed bound, and
-    failures are errors, never panics.
+    Constructors reject non-finite and degenerate input (radii below `LINEAR_RESOLUTION` or above
+    `MAX_SIZE`, a kilometre like the sketch's `MAX_LENGTH`, and linear extents reaching beyond
+    it, each with an error of its own that the document puts in words), every iteration has a
+    fixed bound, and failures are errors, never panics.
   - `Curve` (line, circle, ellipse, B-spline, intersection) and `Curve2` (line, circle, B-spline)
     share one `BSpline<P>` (clamped, optionally rational, degree up to 9) and generic sampling,
     length and closest-point code. Lines run by arc length along a unit direction, circles and

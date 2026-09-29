@@ -28,7 +28,9 @@ impl Source {
         let entity = curve.entity;
         let degenerate = || ProfileError::Degenerate { entity };
         let invalid = |error: GeometryError| match error {
-            GeometryError::ZeroDirection | GeometryError::NonPositive(_) => degenerate(),
+            GeometryError::ZeroDirection
+            | GeometryError::NonPositive(_)
+            | GeometryError::BelowResolution(_) => degenerate(),
             error => ProfileError::InvalidCurve { entity, error },
         };
         let non_finite = ProfileError::InvalidCurve {

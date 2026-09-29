@@ -1,9 +1,9 @@
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
-use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector3};
 
 use super::*;
-use crate::test_support::Random;
+use crate::{curve2::Circle2, test_support::Random};
 
 fn tilted_frame() -> Plane {
     Plane::with_x_axis(
@@ -262,6 +262,18 @@ fn constructors_reject_degenerate_and_non_finite_input() {
     assert_eq!(
         Ellipse::new(Plane::XY, 1.0, -1.0),
         Err(GeometryError::NonPositive(-1.0))
+    );
+    assert_eq!(
+        Circle::new(Plane::XY, 1e-9),
+        Err(GeometryError::BelowResolution(1e-9))
+    );
+    assert_eq!(
+        Circle::new(Plane::XY, 1e7),
+        Err(GeometryError::BeyondMaximum(1e7))
+    );
+    assert_eq!(
+        Circle2::new(Point2::ZERO, 1e7),
+        Err(GeometryError::BeyondMaximum(1e7))
     );
     let broken = Plane::new(Point3::new(f64::INFINITY, 0.0, 0.0), Vector3::Z).unwrap();
     assert_eq!(Circle::new(broken, 1.0), Err(GeometryError::NonFinite));
