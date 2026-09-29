@@ -643,7 +643,16 @@ fn files_that_are_not_usable_drawings_are_refused_in_words() {
         "ENTITIES",
         vec![vec![pair(0, "TEXT"), pair(8, "0"), pair(1, "Hello")]],
     )]);
-    assert_eq!(parse_dxf(&only_text), Err(ImportError::Empty));
+    assert_eq!(
+        parse_dxf(&only_text),
+        Err(ImportError::Empty {
+            left_out: vec![
+                "1 text was left out, because sketches hold only points, lines, arcs, circles \
+                 and splines."
+                    .to_owned()
+            ]
+        })
+    );
     let many: Vec<Pairs> = (0..=MAX_DRAWING_CURVES)
         .map(|index| line((index as f64, 0.0), (index as f64, 1.0)))
         .collect();

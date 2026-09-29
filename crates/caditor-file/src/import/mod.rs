@@ -116,7 +116,7 @@ pub enum ImportError {
     #[error("the drawing is damaged")]
     Damaged,
     #[error("the drawing has no lines, arcs, circles or splines to import")]
-    Empty,
+    Empty { left_out: Vec<String> },
     #[error(
         "the drawing has more than {MAX_DRAWING_CURVES} curves, more than one sketch can hold; \
          split it into smaller drawings"

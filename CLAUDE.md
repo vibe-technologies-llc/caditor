@@ -987,7 +987,7 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     sketch on the XY plane named after the file, which is then entered; a STEP model becomes one
     change adding an import feature per body. The outcome is a notice with the curve or body
     count; the file's notes (units, left-out objects, fitted curves, repaired edges) are shown in
-    the same report dialog as a damaged file's problems. A result that arrives after another
+    the same report dialog as a damaged file's problems, also when nothing could be imported. A result that arrives after another
     document was opened is dropped.
   - Version history (`history.rs`): File › Version History… (for a saved model) reads the
     versions from the file on the files worker and lists them newest first as "Saved 2 hours ago

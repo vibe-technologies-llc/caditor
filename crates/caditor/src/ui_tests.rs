@@ -1069,6 +1069,23 @@ fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
     harness.perform(Action::Undo);
     assert_eq!(harness.sketch(sketch).entities().len(), before);
 
+    let label = dir.path().join("label.dxf");
+    write_drawing(&label, Some(4), "0\nTEXT\n8\n0\n1\nNote\n");
+    harness.answer_dialog(Some(label));
+    harness.command(FileCommand::Import {
+        into: harness.editing(),
+    });
+    harness.wait_until("the empty import is reported", |harness| {
+        harness.shows("Nothing was imported from “label.dxf”")
+    });
+    assert_eq!(
+        harness.model.notice().unwrap().text,
+        "Nothing in “label.dxf” could be imported: the drawing has no lines, arcs, circles or \
+         splines to import."
+    );
+    assert_eq!(harness.sketch(sketch).entities().len(), before);
+    harness.click("OK");
+
     let picture = dir.path().join("photo.dxf");
     std::fs::write(&picture, b"\x89PNG\r\n\x1a\n").unwrap();
     harness.answer_dialog(Some(picture));

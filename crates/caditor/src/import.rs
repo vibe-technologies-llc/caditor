@@ -18,6 +18,8 @@ pub const IMPORT_HINT: &str = "Add a DXF drawing to the sketch you are editing o
 const STEP_SIGNATURE: &[u8] = b"ISO-10303-21";
 const SNIFFED_BYTES: usize = 256;
 const MAX_NAME_CHARACTERS: usize = 60;
+const TOO_SHORT: &str = "every curve in it is too short to draw";
+const NO_BODIES: &str = "it holds no solid bodies";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportReport {
@@ -35,6 +37,13 @@ pub fn place_drawing(
     let file = display_name(Some(path));
     let drawing = match result {
         Ok(drawing) => drawing,
+        Err(error @ ImportError::Empty { .. }) => {
+            let reason = error.to_string();
+            let ImportError::Empty { left_out } = error else {
+                return None;
+            };
+            return nothing_imported(model, &file, &reason, left_out);
+        }
         Err(error) => {
             model.set_notice(Notice::error(format!(
                 "Could not import “{file}”: {error}."
@@ -51,6 +60,9 @@ pub fn place_drawing(
         },
     };
     let import = drawing_transaction(document, &drawing, target, format!("Import {file}"));
+    if import.curves == 0 {
+        return nothing_imported(model, &file, TOO_SHORT, drawing.notes);
+    }
     let revision = model.revision();
     model.perform(Action::Apply(import.transaction));
     if model.revision() == revision {
@@ -113,6 +125,9 @@ pub fn place_bodies(
             return None;
         }
     };
+    if imported.bodies.is_empty() {
+        return nothing_imported(model, &file, NO_BODIES, imported.notes);
+    }
     let transaction =
         bodies_transaction(model.document(), &imported.bodies, format!("Import {file}"));
     let revision = model.revision();
@@ -127,6 +142,21 @@ pub fn place_bodies(
     (!imported.notes.is_empty()).then(|| ImportReport {
         heading: format!("Imported “{file}”"),
         notes: imported.notes,
+    })
+}
+
+fn nothing_imported(
+    model: &mut Model,
+    file: &str,
+    reason: &str,
+    notes: Vec<String>,
+) -> Option<ImportReport> {
+    model.set_notice(Notice::error(format!(
+        "Nothing in “{file}” could be imported: {reason}."
+    )));
+    (!notes.is_empty()).then(|| ImportReport {
+        heading: format!("Nothing was imported from “{file}”"),
+        notes,
     })
 }
 

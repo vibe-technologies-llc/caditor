@@ -446,6 +446,7 @@ impl<'a> Interpreter<'a> {
     }
 
     fn report(self, mut drawing: Drawing) -> Result<Drawing, ImportError> {
+        let earlier = drawing.notes.len();
         if !self.left_out.is_empty() {
             let kinds: Vec<String> = self
                 .left_out
@@ -499,7 +500,9 @@ impl<'a> Interpreter<'a> {
             ));
         }
         if drawing.curves.is_empty() {
-            return Err(ImportError::Empty);
+            return Err(ImportError::Empty {
+                left_out: drawing.notes.split_off(earlier),
+            });
         }
         Ok(drawing)
     }
