@@ -67,6 +67,7 @@ fn snap(value: f64) -> f64 {
 pub(crate) struct Budget {
     pub limit: usize,
     pub tolerance: SamplingTolerance,
+    pub density: Option<Density>,
 }
 
 pub(crate) fn triangulate(
@@ -85,7 +86,9 @@ pub(crate) fn triangulate(
     let Some(bounds) = Aabb2::from_points(loops.iter().flatten().map(|point| point.uv)) else {
         return Ok(());
     };
-    let density = density(surface, bounds, tolerance);
+    let density = budget
+        .density
+        .unwrap_or_else(|| density(surface, bounds, tolerance));
     let steps = Point2::new(
         bounds.size().x / density.u_segments as f64,
         bounds.size().y / density.v_segments as f64,
@@ -116,18 +119,23 @@ pub(crate) fn triangulate(
     triangulation.emit(surface, face.sense(), mesh)
 }
 
-pub(crate) fn pole_edge_segments(
+pub(crate) struct PoleSampling {
+    pub density: Density,
+    pub edges: Vec<(EdgeId, usize)>,
+}
+
+pub(crate) fn pole_sampling(
     solid: &Solid,
     face_id: FaceId,
     tolerance: &SamplingTolerance,
-) -> Result<Vec<(EdgeId, usize)>, TessellationError> {
+) -> Result<Option<PoleSampling>, TessellationError> {
     let face = solid
         .face(face_id)
         .ok_or(TessellationError::MissingEntity)?;
     let surface = face.surface();
     let poles = surface.poles();
     if poles.is_empty() {
-        return Ok(Vec::new());
+        return Ok(None);
     }
     let mut coedges = Vec::new();
     for loop_id in face.loops() {
@@ -146,14 +154,17 @@ pub(crate) fn pole_edge_segments(
         .iter()
         .flat_map(|coedge| coedge.pcurve().samples().iter().map(|sample| sample.uv));
     let Some(bounds) = Aabb2::from_points(uvs) else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
-    let rows = density(surface, bounds, tolerance).v_segments;
-    let row_height = bounds.size().y / rows as f64;
-    if row_height.is_nan() || row_height <= 0.0 {
-        return Ok(Vec::new());
-    }
+    let density = density(surface, bounds, tolerance);
+    let row_height = bounds.size().y / density.v_segments as f64;
     let mut segments = Vec::new();
+    if row_height.is_nan() || row_height <= 0.0 {
+        return Ok(Some(PoleSampling {
+            density,
+            edges: segments,
+        }));
+    }
     for coedge in coedges {
         let edge = solid
             .edge(coedge.edge())
@@ -178,7 +189,10 @@ pub(crate) fn pole_edge_segments(
             segments.push((coedge.edge(), (pieces as usize).min(MAX_POLE_EDGE_PIECES)));
         }
     }
-    Ok(segments)
+    Ok(Some(PoleSampling {
+        density,
+        edges: segments,
+    }))
 }
 
 fn boundary_loops(

@@ -47,9 +47,6 @@ within a category run from most to least important.
 
 ## Kernel cancellation and limits
 
-- A face whose boundary crosses itself re-tessellates the whole solid up to five times
-  (`tessellation/mod.rs`), redoing every other face and edge; `density()` also runs twice for
-  every face with a pole (`pole_edge_segments` and `triangulate`).
 
 ## Kernel performance
 

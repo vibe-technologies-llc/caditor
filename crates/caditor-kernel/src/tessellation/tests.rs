@@ -343,14 +343,33 @@ fn only_faces_whose_boundary_crosses_itself_are_meshed_finer() {
     curves.push(circle(6, (8.999 * cos, 8.999 * sin), 1.0));
     let both = sweep(&curves);
     let tolerance = SamplingTolerance::new(0.05, 0.5).unwrap();
-    let tolerances = Tolerances {
-        base: tolerance,
-        faces: BTreeMap::new(),
-    };
-    assert!(matches!(
-        tessellate_once(&both, &tolerances, MAX_POINTS),
-        Ok(Attempt::Crossed { .. })
-    ));
+    let mut tessellator = Tessellator::new(&both, &tolerance, MAX_POINTS).unwrap();
+    let mut crossed = tessellator.first_pass().unwrap().faces().unwrap();
+    let before = tessellator.triangles.clone();
+    let mut refined_faces: Vec<FaceId> = Vec::new();
+    while !crossed.is_empty() {
+        assert!(tessellator.tolerances.refine(&crossed));
+        refined_faces.extend(&crossed);
+        crossed = tessellator.refine(&crossed).unwrap().faces;
+    }
+    let untouched: Vec<FaceId> = both
+        .faces()
+        .map(|(id, _)| id)
+        .filter(|id| !refined_faces.contains(id) && tessellator.triangles.get(id) == before.get(id))
+        .collect();
+    assert!(untouched.len() >= 3, "{untouched:?}");
+    let refined = tessellator.finish();
+    let mut used = vec![false; refined.positions().len()];
+    for position in refined.position_triangles().flatten().chain(
+        refined
+            .edges()
+            .iter()
+            .flat_map(|edge| edge.positions.iter().copied()),
+    ) {
+        used[position as usize] = true;
+    }
+    assert!(used.iter().all(|used| *used));
+    assert_watertight("refined ring and post", &refined);
     let mesh = both.tessellate(&tolerance).unwrap();
     assert_watertight("ring and post", &mesh);
     let alone = sweep(&post).tessellate(&tolerance).unwrap();

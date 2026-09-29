@@ -335,7 +335,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     edge's polyline, and computes volume, area and centroid by the divergence theorem. When a face
     boundary crosses itself at the requested tolerance (loops closer than the sampling error),
     tessellation retries a few times before failing, halving chord and angle for every face that
-    crossed and for the edges they bound (an edge takes the finest tolerance of its faces). A
+    crossed and for the edges they bound (an edge takes the finest tolerance of its faces); a
+    retry samples again only the edges whose tolerance or least count changed and triangulates
+    only the faces that crossed or bound such an edge, keeping every other face's triangles, and
+    the points left unused are dropped at the end. A face with a pole computes its density once
+    per tolerance, for its pole edges and its grid alike. A
     solid's mesh holds at most `MAX_POINTS` (2^22) points: edges and each face's interior grid
     are counted before they are inserted, and a mesh that would need more fails as `TooLarge`,
     which export names as a body too fine for the resolution. Cancellation is polled per edge,
