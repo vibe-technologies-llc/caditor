@@ -109,7 +109,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     occurrence's child definition, found through `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` and
     `NEXT_ASSEMBLY_USAGE_OCCURRENCE`, else guessed from which side is some assembly's child; `rep_1`
     is carried into `rep_2`, so the transform is inverted when the parent is listed first),
-    untransformed relationships and `MAPPED_ITEM`s, giving one solid per placement. A product's only
+    untransformed relationships and `MAPPED_ITEM`s, giving one solid per placement. A placement is
+    an `ITEM_DEFINED_TRANSFORMATION` between two `AXIS2_PLACEMENT_3D`s or a
+    `CARTESIAN_TRANSFORMATION_OPERATOR_3D` (simple or complex, refused unless of unit scale and
+    right-handed); a part whose placement cannot be read is left out with a note, and so are its
+    copies placed that way while the others are imported. A product's only
     body takes the product's name and several bodies keep their own; placements of one solid take
     their occurrences' names when each has a distinct one, else a number. Placements are memoised
     per representation (so layered assemblies cost one visit per part), assemblies deeper than

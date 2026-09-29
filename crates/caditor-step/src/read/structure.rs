@@ -1,20 +1,22 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::{Plane, RigidTransform};
+use caditor_geometry::{Plane, RigidTransform, Vector3};
 
 use crate::read::{
     geometry::{Geometry, MAX_WORK, Work},
-    graph::{Entity, Graph},
+    graph::{Entity, Fields, Graph},
     units::{Units, context_units},
 };
 
 pub(crate) const MAX_INSTANCES: usize = 1000;
 pub(crate) const MAX_DEPTH: usize = 32;
+const OPERATOR_FIELDS: usize = 8;
+const RIGID_SLACK: f64 = 1e-9;
 
 #[derive(Debug, Clone, PartialEq)]
 struct Parent {
     representation: u64,
-    transform: RigidTransform,
+    transform: Option<RigidTransform>,
     occurrence: Option<String>,
 }
 
@@ -146,11 +148,7 @@ impl Structure {
         } else {
             (second, first)
         };
-        let Some(transform) =
-            self.item_transform(graph, transformation, (first, second), child_is_first)
-        else {
-            return;
-        };
+        let transform = self.item_transform(graph, transformation, (first, second), child_is_first);
         self.parents.entry(child).or_default().push(Parent {
             representation: parent,
             transform,
@@ -182,12 +180,13 @@ impl Structure {
         };
         let units = self.units_of(graph, parent);
         let geometry = Geometry::new(*graph, units, Work::new(MAX_WORK));
-        let (Some(from), Some(to)) = (frame(&geometry, origin), frame(&geometry, target)) else {
-            return;
-        };
+        let to = frame(&geometry, target).or_else(|| operator(&geometry, target));
+        let transform = frame(&geometry, origin)
+            .zip(to)
+            .map(|(from, to)| from.inverse().then(&to));
         self.parents.entry(child).or_default().push(Parent {
             representation: parent,
-            transform: from.inverse().then(&to),
+            transform,
             occurrence: None,
         });
     }
@@ -199,11 +198,17 @@ impl Structure {
         (first, second): (u64, u64),
         child_is_first: bool,
     ) -> Option<RigidTransform> {
-        let fields = graph
-            .entity(transformation)
-            .ok()?
-            .record("ITEM_DEFINED_TRANSFORMATION")
-            .ok()?;
+        let entity = graph.entity(transformation).ok()?;
+        if entity.is("CARTESIAN_TRANSFORMATION_OPERATOR_3D") {
+            let geometry = Geometry::new(*graph, self.units_of(graph, second), Work::new(MAX_WORK));
+            let carried = operator(&geometry, transformation)?;
+            return Some(if child_is_first {
+                carried
+            } else {
+                carried.inverse()
+            });
+        }
+        let fields = entity.record("ITEM_DEFINED_TRANSFORMATION").ok()?;
         let mut item = |representation: u64, index: usize| {
             let geometry = Geometry::new(
                 *graph,
@@ -253,11 +258,7 @@ impl Structure {
             .cloned()
             .collect();
         let placements = if parents.is_empty() {
-            Placements {
-                transforms: vec![RigidTransform::IDENTITY],
-                occurrences: vec![None],
-                unplaced: None,
-            }
+            Placements::at_origin()
         } else if depth >= MAX_DEPTH {
             Placements::unplaced(Unplaced::TooDeep)
         } else {
@@ -266,9 +267,15 @@ impl Structure {
                 transforms: Vec::new(),
                 occurrences: Vec::new(),
                 unplaced: None,
+                left_out: false,
             };
             for parent in parents {
+                let Some(transform) = parent.transform else {
+                    placed.left_out = true;
+                    continue;
+                };
                 let outer = self.walk(parent.representation, depth + 1);
+                placed.left_out |= outer.left_out;
                 if outer.transforms.is_empty() {
                     placed.unplaced = placed.unplaced.or(outer.unplaced);
                 }
@@ -277,12 +284,14 @@ impl Structure {
                         self.truncated = true;
                         break;
                     }
-                    placed.transforms.push(parent.transform.then(&outer));
+                    placed.transforms.push(transform.then(&outer));
                     placed.occurrences.push(parent.occurrence.clone());
                 }
             }
             if !placed.transforms.is_empty() {
                 placed.unplaced = None;
+            } else if placed.unplaced.is_none() && placed.left_out {
+                placed.unplaced = Some(Unplaced::Unreadable);
             }
             placed
         };
@@ -295,6 +304,7 @@ impl Structure {
 pub(crate) enum Unplaced {
     InsideItself,
     TooDeep,
+    Unreadable,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -302,14 +312,25 @@ pub(crate) struct Placements {
     pub transforms: Vec<RigidTransform>,
     pub occurrences: Vec<Option<String>>,
     pub unplaced: Option<Unplaced>,
+    pub left_out: bool,
 }
 
 impl Placements {
+    pub fn at_origin() -> Self {
+        Self {
+            transforms: vec![RigidTransform::IDENTITY],
+            occurrences: vec![None],
+            unplaced: None,
+            left_out: false,
+        }
+    }
+
     fn unplaced(reason: Unplaced) -> Self {
         Self {
             transforms: Vec::new(),
             occurrences: Vec::new(),
             unplaced: Some(reason),
+            left_out: false,
         }
     }
 }
@@ -365,6 +386,74 @@ enum Walk {
 fn frame(geometry: &Geometry<'_>, id: u64) -> Option<RigidTransform> {
     let plane: Plane = geometry.placement(id).ok()?;
     RigidTransform::from_frame(&plane)
+}
+
+struct Operator {
+    axis1: Option<u64>,
+    axis2: Option<u64>,
+    origin: u64,
+    scale: Option<f64>,
+    axis3: Option<u64>,
+}
+
+fn operator_fields(graph: &Graph<'_>, entity: Entity<'_>) -> Option<Operator> {
+    let scale = |fields: &Fields<'_>, index: usize| fields.get(index).ok()?.real();
+    if let (Ok(base), Ok(spatial)) = (
+        entity.record("CARTESIAN_TRANSFORMATION_OPERATOR"),
+        entity.record("CARTESIAN_TRANSFORMATION_OPERATOR_3D"),
+    ) {
+        return Some(Operator {
+            axis1: base.optional_reference(0),
+            axis2: base.optional_reference(1),
+            origin: base.reference(2).ok()?,
+            scale: scale(&base, 3),
+            axis3: spatial.optional_reference(0),
+        });
+    }
+    let fields = entity.record("CARTESIAN_TRANSFORMATION_OPERATOR_3D").ok()?;
+    let is_point = |index: usize| {
+        fields
+            .optional_reference(index)
+            .and_then(|id| graph.entity(id).ok())
+            .is_some_and(|point| point.kind() == "CARTESIAN_POINT")
+    };
+    let origin = (2..OPERATOR_FIELDS).find(|index| is_point(*index))?;
+    Some(Operator {
+        axis1: fields.optional_reference(origin - 2),
+        axis2: fields.optional_reference(origin - 1),
+        origin: fields.reference(origin).ok()?,
+        scale: scale(&fields, origin + 1),
+        axis3: fields.optional_reference(origin + 2),
+    })
+}
+
+fn operator(geometry: &Geometry<'_>, id: u64) -> Option<RigidTransform> {
+    let entity = geometry.graph.entity(id).ok()?;
+    let fields = operator_fields(&geometry.graph, entity)?;
+    if fields
+        .scale
+        .is_some_and(|scale| (scale - 1.0).abs() > RIGID_SLACK)
+    {
+        return None;
+    }
+    let direction = |id: Option<u64>| match id {
+        Some(id) => geometry.direction(id).ok().map(Some),
+        None => Some(None),
+    };
+    let z = direction(fields.axis3)?.unwrap_or(Vector3::Z);
+    let x = direction(fields.axis1)?
+        .unwrap_or(Vector3::X)
+        .reject_from_normalized(z)
+        .try_normalize()
+        .or_else(|| Vector3::Y.reject_from_normalized(z).try_normalize())?;
+    if let Some(y) = direction(fields.axis2)? {
+        let y = y.reject_from_normalized(x).reject_from_normalized(z);
+        if y.dot(z.cross(x)) <= 0.0 {
+            return None;
+        }
+    }
+    let origin = geometry.point(fields.origin).ok()?;
+    RigidTransform::from_frame(&Plane::with_x_axis(origin, z, x)?)
 }
 
 fn definition_representations(graph: &Graph<'_>) -> BTreeMap<u64, Vec<u64>> {
@@ -578,5 +667,57 @@ mod tests {
             structure.placements(100).transforms,
             [RigidTransform::IDENTITY]
         );
+    }
+
+    fn operated(operator: &str) -> Placements {
+        let data = format!(
+            "#20=CARTESIAN_POINT('',(5.,0.,0.));#21=DIRECTION('',(0.,1.,0.));\
+             #22=DIRECTION('',(-1.,0.,0.));#30={operator};\
+             #100=SHAPE_REPRESENTATION('',(#1),#9);\
+             #101=SHAPE_REPRESENTATION('',(#1),#9);\
+             #600=(REPRESENTATION_RELATIONSHIP('','',#100,#101)\
+             REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#30)\
+             SHAPE_REPRESENTATION_RELATIONSHIP());"
+        );
+        let exchange = parse(&file(&data)).unwrap();
+        let graph = Graph::new(&exchange);
+        Structure::read(&graph).placements(100)
+    }
+
+    #[test]
+    fn a_part_placed_by_a_transformation_operator_is_turned_and_moved() {
+        use caditor_geometry::Point3;
+
+        let simple = operated("CARTESIAN_TRANSFORMATION_OPERATOR_3D('','',$,#21,#22,#20,1.,#3)");
+        let complex = operated(
+            "(CARTESIAN_TRANSFORMATION_OPERATOR(#21,$,#20,$)\
+             CARTESIAN_TRANSFORMATION_OPERATOR_3D(#3)\
+             FUNCTIONALLY_DEFINED_TRANSFORMATION('','')\
+             GEOMETRIC_REPRESENTATION_ITEM()REPRESENTATION_ITEM(''))",
+        );
+
+        for placements in [simple, complex] {
+            assert_eq!(placements.unplaced, None);
+            assert!(!placements.left_out);
+            let [transform] = placements.transforms.as_slice() else {
+                panic!("expected one placement, found {placements:?}");
+            };
+            let moved = transform.apply_point(Point3::X);
+            assert!(
+                moved.distance(Point3::new(5.0, 1.0, 0.0)) < 1e-12,
+                "{moved}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_part_placed_by_a_scaling_or_mirroring_operator_is_left_out_with_the_reason() {
+        let scaled = operated("CARTESIAN_TRANSFORMATION_OPERATOR_3D('','',$,#21,$,#20,2.,#3)");
+        let mirrored = operated("CARTESIAN_TRANSFORMATION_OPERATOR_3D('','',$,#21,#4,#20,1.,#3)");
+
+        for placements in [scaled, mirrored] {
+            assert!(placements.transforms.is_empty());
+            assert_eq!(placements.unplaced, Some(Unplaced::Unreadable));
+        }
     }
 }

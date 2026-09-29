@@ -112,15 +112,17 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
         let name = solid_name(entity, &structure, representation, index, siblings);
         let placements = match representation {
             Some(representation) => structure.placements(representation),
-            None => Placements {
-                transforms: vec![RigidTransform::IDENTITY],
-                occurrences: vec![None],
-                unplaced: None,
-            },
+            None => Placements::at_origin(),
         };
         if let Some(reason) = placements.unplaced {
             unplaced.push(unplaced_note(&name, reason));
             continue;
+        }
+        if placements.left_out {
+            unplaced.push(format!(
+                "Some copies of “{name}” were left out, because their placement in the assembly \
+                 could not be read or is not a rigid move."
+            ));
         }
         if placements.transforms.len() > budget {
             structure.truncated = true;
@@ -288,6 +290,10 @@ fn unplaced_note(name: &str, reason: Unplaced) -> String {
         Unplaced::InsideItself => {
             format!("“{name}” was left out, because the assembly places it inside itself.")
         }
+        Unplaced::Unreadable => format!(
+            "“{name}” was left out, because its placement in the assembly could not be read or \
+             is not a rigid move."
+        ),
         Unplaced::TooDeep => format!(
             "“{name}” was left out, because the assembly nests it more than {MAX_DEPTH} levels \
              deep."

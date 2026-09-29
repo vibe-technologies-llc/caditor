@@ -77,9 +77,6 @@ within a category run from most to least important.
 
 ## STEP import and export
 
-- Assembly parts whose placement is a `CARTESIAN_TRANSFORMATION_OPERATOR_3D` or anything but an
-  `AXIS2_PLACEMENT_3D` pair are silently left at the origin with no note
-  (`read/structure.rs` `relationship`, `mapped_items`).
 - One unrecognised byte or an integer beyond i64 rejects the whole file, a repeated entity id
   silently overwrites the earlier one, and `\P` and `\X\` followed by a multi-byte character
   drop the rest of the string (`part21.rs`).
