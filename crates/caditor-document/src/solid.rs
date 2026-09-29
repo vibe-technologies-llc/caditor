@@ -483,7 +483,7 @@ fn chosen_regions(
     };
     sketch
         .profile()
-        .map_err(|error| profile_failure(context, error))?
+        .map_err(|error| profile_failure(context, &error))?
         .select(&selection)
         .map_err(|error| profile_failure(context, &error))
 }
@@ -491,6 +491,7 @@ fn chosen_regions(
 fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
     let sketch = &context.sketch_name;
     match error {
+        ProfileError::Cancelled(_) => Failure::Cancelled,
         ProfileError::NoClosedProfile => context.error(
             format!("{sketch} has no closed shape to sweep."),
             format!("Close the outline in {sketch}, for example by joining the ends of its lines."),
@@ -549,6 +550,7 @@ fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
 fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Failure {
     let sketch = &context.sketch_name;
     match error {
+        SweepError::Cancelled(_) => Failure::Cancelled,
         SweepError::NoRegions => context.error(
             "No region of the sketch is chosen.".to_owned(),
             "Choose at least one region.".to_owned(),

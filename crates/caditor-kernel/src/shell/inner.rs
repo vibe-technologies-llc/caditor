@@ -7,8 +7,9 @@ use caditor_geometry::{Plane, Point2, Point3, Vector3};
 
 use super::{EDGE_SAMPLES, OFFSET_TOLERANCE, Offsets, ShellError};
 use crate::{
-    build::plan::{Plan, PlanCoedge, PlanFace},
+    build::plan::{Plan, PlanCoedge, PlanError, PlanFace},
     curve::{Circle, Curve, Line},
+    interrupt,
     interval::Interval,
     naming::{EdgeName, FaceName, FaceOrigin},
     sense::Sense,
@@ -603,6 +604,7 @@ fn place_corners(
     let around = faces_at(solid);
     let mut corners = Corners::default();
     for (root, members) in clusters.members() {
+        interrupt::check()?;
         let every: BTreeSet<FaceId> = members
             .iter()
             .filter_map(|vertex| around.get(vertex))
@@ -679,6 +681,7 @@ fn place_edges(
     let mut placed = BTreeMap::new();
     let mut halves: BTreeMap<(usize, usize), Vec<Half>> = BTreeMap::new();
     for (id, edge) in solid.edges() {
+        interrupt::check()?;
         if vanishing.contains(&id) {
             continue;
         }
@@ -866,6 +869,12 @@ pub(super) fn inner_solid(offsets: &Offsets<'_>, feature: u64) -> Result<Solid, 
             loops: loops(solid, id, &placed, &vanishing, &corners)?,
         });
     }
-    let built = plan.build().map_err(|_| ShellError::Walls)?;
+    let built = plan.build().map_err(|error| match error {
+        PlanError::Build(error) => match error.interrupted() {
+            Some(interrupted) => ShellError::Cancelled(interrupted),
+            None => ShellError::Walls,
+        },
+        PlanError::Unassembled => ShellError::Walls,
+    })?;
     Ok(built.renamed(|name, origin| (name, origin)))
 }

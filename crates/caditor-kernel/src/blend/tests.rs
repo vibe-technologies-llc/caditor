@@ -8,7 +8,7 @@ use crate::{
     fixtures::{cuboid, cylinder, hollow_cuboid},
     naming::FaceOrigin,
     profile::{Profile, ProfileCurve, Selection},
-    test_support::{arc, assert_watertight, line},
+    test_support::{arc, assert_cancelled_anywhere, assert_watertight, line},
     tolerance::SamplingTolerance,
 };
 
@@ -630,4 +630,19 @@ fn edges_of_a_body_and_of_its_void_are_blended() {
 
     let bevelled = run(&hollow, &[inner], BlendShape::Chamfer { distance: 0.5 });
     check("void edge chamfer", &bevelled, material + 2.0 * 0.125);
+}
+
+#[test]
+fn a_blend_cancelled_anywhere_stops_with_cancelled() {
+    let block = cuboid(Vector3::new(10.0, 8.0, 6.0));
+    let edges = [
+        edge_through(&block, (10.0, 8.0, 3.0)),
+        edge_through(&block, (5.0, 8.0, 6.0)),
+    ];
+
+    assert_cancelled_anywhere(
+        "rounded block",
+        || blend(&block, &edges, fillet(1.0), 50),
+        |error| matches!(error, BlendError::Cancelled(_)),
+    );
 }

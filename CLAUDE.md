@@ -219,9 +219,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Cancellation (`interrupt.rs`): `interruptible(interrupt, work)` installs a check for the
     current thread while `work` runs, and intersections (per subdivision pair and march step),
     booleans (per edge, face pair, face, fragment, edge split, branch and healing step, and
-    between phases) and tessellation (per face) poll it, failing with a `Cancelled` variant of
-    their error. A boolean that fails for any reason while its interrupt is set reports
-    `Cancelled`, so a step that swallowed the cancellation (a ray given up in classification, say)
+    between phases), profiles (per curve, curve pair, spline segment, 256 box tests and face),
+    sweeps and `Plan::build` (per region and face), shell offsets (per corner and edge), blends
+    (per edge fitted, tool and corner) and tessellation (per face) poll it, failing with a
+    `Cancelled` variant of their error; a nested error's cancellation becomes the outer one's
+    `Cancelled`. A boolean, shell or blend that fails for any reason while its interrupt is set
+    reports `Cancelled`, so a step that swallowed the cancellation (a ray given up in classification, say)
     cannot surface as another error, and one cancelled while validating its result says so too
     (`BuildError::interrupted`). `Solid::find_crossing` polls once more before answering, so an
     intersection it gave up as inconclusive because it was cancelled is not taken for a result.
@@ -652,7 +655,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     (`SolidResult::mesh`; intermediate states are not), and every sketch that a solid feature
     sweeps gets its regions with a triangulation each (`SketchResult::regions`). A sketch's
     profile arrangement is built once per result and shared by every feature that sweeps it and
-    by the display. The state before an open blend or shell is meshed only when the app asks
+    by the display; a build or triangulation cancelled midway is not kept, so the next run
+    builds it again (regions are found under the run's cancel token too). The state before an open blend or shell is meshed only when the app asks
     (`Recomputer::mesh`, sent by `Model::mesh_before` for the open feature). A panic or
     failure while meshing leaves the body without a mesh (`mesh_failed`) but keeps its shape for
     later features, and a run cancelled before every shown body was meshed is not complete.

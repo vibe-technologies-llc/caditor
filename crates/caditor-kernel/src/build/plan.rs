@@ -7,6 +7,7 @@ use crate::{
     build::SweepError,
     curve::{Curve, Line},
     error::GeometryError,
+    interrupt,
     interval::Interval,
     naming::{EdgeName, FaceName, FaceOrigin, VertexName, occurrence_order},
     sense::Sense,
@@ -36,7 +37,7 @@ impl From<PlanError> for SweepError {
     fn from(error: PlanError) -> Self {
         match error {
             PlanError::Unassembled => Self::Unassembled,
-            PlanError::Build(error) => Self::Invalid(error),
+            PlanError::Build(error) => error.into(),
         }
     }
 }
@@ -338,6 +339,7 @@ impl Plan {
         for shell_faces in self.shells() {
             let shell = builder.shell()?;
             for index in shell_faces {
+                interrupt::check().map_err(BuildError::from)?;
                 let Some(face) = self.faces.get(index) else {
                     continue;
                 };

@@ -111,6 +111,7 @@ impl Context<'_> {
 
     fn failure(&self, solid: &Solid, open: &[FaceId], error: &ShellError) -> Failure {
         match error {
+            ShellError::Cancelled(_) => Failure::Cancelled,
             ShellError::InvalidThickness => self.error(
                 "The thickness must be more than zero.".to_owned(),
                 "Enter a thickness above zero.".to_owned(),

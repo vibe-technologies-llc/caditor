@@ -12,6 +12,7 @@ use thiserror::Error;
 pub use self::{extrude::extrude, revolve::revolve};
 use crate::{
     error::GeometryError,
+    interrupt::Interrupted,
     profile::Piece,
     sense::Sense,
     tolerance::{ANGULAR_RESOLUTION, LINEAR_RESOLUTION, MAX_SIZE},
@@ -77,7 +78,18 @@ pub enum SweepError {
     #[error("the swept geometry cannot be built: {0}")]
     Geometry(#[from] GeometryError),
     #[error("the swept solid is not valid: {0}")]
-    Invalid(#[from] BuildError),
+    Invalid(BuildError),
+    #[error(transparent)]
+    Cancelled(#[from] Interrupted),
+}
+
+impl From<BuildError> for SweepError {
+    fn from(error: BuildError) -> Self {
+        match error.interrupted() {
+            Some(interrupted) => Self::Cancelled(interrupted),
+            None => Self::Invalid(error),
+        }
+    }
 }
 
 impl SweepError {
@@ -95,7 +107,8 @@ impl SweepError {
             | Self::OnAxis
             | Self::Unassembled
             | Self::Geometry(_)
-            | Self::Invalid(_) => Vec::new(),
+            | Self::Invalid(_)
+            | Self::Cancelled(_) => Vec::new(),
         }
     }
 }

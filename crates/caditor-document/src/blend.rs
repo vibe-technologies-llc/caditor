@@ -148,6 +148,7 @@ impl Context<'_> {
             |edge| describe_edge(self.inputs.document, solid, edge),
         );
         match error {
+            BlendError::Cancelled(_) => Failure::Cancelled,
             BlendError::InvalidSize => self.error(
                 format!("The {what} must be more than zero."),
                 format!("Enter a {what} above zero."),

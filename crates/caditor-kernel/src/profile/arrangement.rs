@@ -8,6 +8,7 @@ use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector2};
 use crate::{
     box_tree::BoxTree,
     curve2::{Curve2, Line2},
+    interrupt,
     interval::Interval,
     profile::{
         PieceBound, PieceId, ProfileCurve, ProfileError,
@@ -416,6 +417,7 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
     };
     let tree = BoxTree::new(bounds.iter().map(flat));
     for (first, first_source) in sources.iter().enumerate() {
+        interrupt::check()?;
         let Some(first_bounds) = bounds.get(first) else {
             continue;
         };
@@ -442,6 +444,7 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
                 intersect::Unresolved::TooIntricate => ProfileError::TooIntricate {
                     entities: vec![first_source.entity, second_source.entity],
                 },
+                intersect::Unresolved::Cancelled(interrupted) => interrupted.into(),
             })?;
             for hit in hits {
                 events.push(cut(first, hit.first, hit.point));
@@ -461,6 +464,7 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
                 intersect::Unresolved::TooIntricate => ProfileError::TooIntricate {
                     entities: vec![first_source.entity],
                 },
+                intersect::Unresolved::Cancelled(interrupted) => interrupted.into(),
             })?;
             for hit in hits {
                 events.push(cut(first, hit.first, hit.point));
@@ -628,6 +632,7 @@ fn split(
     }
     let mut pieces = Vec::new();
     for ((index, source), mut own) in sources.iter().enumerate().zip(by_source) {
+        interrupt::check()?;
         own.sort_by(|a, b| {
             let (Some(a), Some(b)) = (events.get(*a), events.get(*b)) else {
                 return std::cmp::Ordering::Equal;
@@ -870,6 +875,7 @@ fn merge_overlaps(
 fn settle(mut pieces: Vec<GraphPiece>, vertex_count: usize) -> Found<Vec<GraphPiece>> {
     let limit = pieces.len() + 1;
     for _ in 0..limit {
+        interrupt::check()?;
         pieces = pruned(pieces, vertex_count);
         let probe = Arrangement {
             vertices: Vec::new(),

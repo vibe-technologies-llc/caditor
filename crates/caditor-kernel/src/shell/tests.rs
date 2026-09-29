@@ -8,7 +8,7 @@ use crate::{
     build::{AngularExtent, Axis2, LinearExtent, extrude, revolve},
     fixtures::{cuboid, cylinder, hollow_cuboid},
     profile::{Profile, ProfileCurve, Selection},
-    test_support::{arc, assert_watertight, line},
+    test_support::{arc, assert_cancelled_anywhere, assert_watertight, line},
     tolerance::SamplingTolerance,
 };
 
@@ -606,4 +606,16 @@ fn a_body_with_a_void_keeps_a_wall_around_it() {
         material - (8.0 * 8.0 * 9.0 - around_void),
     );
     assert_eq!(open.shells().count(), 3);
+}
+
+#[test]
+fn a_shell_cancelled_anywhere_stops_with_cancelled() {
+    let cup = cylinder(5.0, 10.0);
+    let top = face_facing(&cup, Vector3::Z, Point3::new(0.0, 0.0, 10.0));
+
+    assert_cancelled_anywhere(
+        "cup",
+        || shell(&cup, &[top], 1.0, 70),
+        |error| matches!(error, ShellError::Cancelled(_)),
+    );
 }

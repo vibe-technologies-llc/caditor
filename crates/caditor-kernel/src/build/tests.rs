@@ -12,7 +12,9 @@ use crate::{
     numeric::integrate,
     profile::{Profile, ProfileCurve, Region, Selection},
     tessellation::Mesh,
-    test_support::{Random, arc, assert_watertight, circle, line, rectangle, spline},
+    test_support::{
+        Random, arc, assert_cancelled_anywhere, assert_watertight, circle, line, rectangle, spline,
+    },
     tolerance::{MAX_SIZE, SamplingTolerance},
     topology::Solid,
 };
@@ -665,5 +667,24 @@ fn a_circle_tangent_to_the_axis_revolves_into_a_horn_torus() {
         4.0 * PI * PI,
         4.0 * PI * PI + 8.0 * PI,
         2.0,
+    );
+}
+
+#[test]
+fn sweeps_cancelled_anywhere_stop_with_cancelled() {
+    let mut curves = rectangle(1, (2.0, 0.0), (10.0, 8.0));
+    curves.push(circle(5, (6.0, 4.0), 2.0));
+    let profile = regions(&curves);
+    let cancelled = |error: &SweepError| matches!(error, SweepError::Cancelled(_));
+
+    assert_cancelled_anywhere(
+        "extrude",
+        || extrude(&Plane::XY, &profile, one_side(3.0), FEATURE),
+        cancelled,
+    );
+    assert_cancelled_anywhere(
+        "revolve",
+        || revolve(&Plane::XY, &profile, y_axis(), full(), FEATURE),
+        cancelled,
     );
 }

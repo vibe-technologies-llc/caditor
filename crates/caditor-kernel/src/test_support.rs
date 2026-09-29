@@ -1,8 +1,43 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    fmt::Debug,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 use caditor_geometry::{Point2, Point3};
 
 use crate::{profile::ProfileCurve, tessellation::Mesh};
+
+pub(crate) fn cancelled_after<T>(allowed: usize, work: impl FnOnce() -> T) -> (T, usize) {
+    let polls = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&polls);
+    let stop = Arc::new(move || counter.fetch_add(1, Ordering::SeqCst) >= allowed);
+    let result = crate::interruptible(stop, work);
+    (result, polls.load(Ordering::SeqCst))
+}
+
+pub(crate) fn assert_cancelled_anywhere<T, E: Debug>(
+    name: &str,
+    work: impl Fn() -> Result<T, E>,
+    cancelled: impl Fn(&E) -> bool,
+) -> usize {
+    let (finished, total) = cancelled_after(usize::MAX, &work);
+    assert!(finished.is_ok(), "{name}: {:?}", finished.err());
+    let mut allowed = 0;
+    while allowed < total {
+        let (result, _) = cancelled_after(allowed, &work);
+        match result {
+            Err(error) if cancelled(&error) => {}
+            Err(error) => panic!("{name} stopped after {allowed} of {total} polls: {error:?}"),
+            Ok(_) => panic!("{name} finished after {allowed} of {total} polls"),
+        }
+        allowed = allowed * 5 / 4 + 1;
+    }
+    total
+}
 
 pub(crate) struct Random(u64);
 

@@ -4,6 +4,7 @@ use caditor_geometry::{Aabb2, Point2};
 
 use crate::{
     curve2::{Circle2, Curve2, Line2},
+    interrupt::{self, Interrupted},
     interval::Interval,
     profile::{geometry::overlaps, source::Source},
 };
@@ -12,6 +13,7 @@ const PARALLEL: f64 = 1e-14;
 const LEAF_FRACTION: f64 = 1e-3;
 const LEAF_TOLERANCES: f64 = 4.0;
 const MAX_BOX_TESTS: usize = 100_000;
+const POLL_EVERY: usize = 256;
 const MAX_LEAVES: usize = 2048;
 const MAX_SOLVER_STEPS: usize = 80;
 const MAX_DAMPING_TRIES: usize = 24;
@@ -30,6 +32,13 @@ pub(crate) struct Hit {
 pub(crate) enum Unresolved {
     Overlapping,
     TooIntricate,
+    Cancelled(Interrupted),
+}
+
+impl From<Interrupted> for Unresolved {
+    fn from(interrupted: Interrupted) -> Self {
+        Self::Cancelled(interrupted)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -80,6 +89,7 @@ pub(crate) fn between(
             let first_boxes = segment_boxes(first, first_segments);
             let second_boxes = segment_boxes(second, second_segments);
             for (first_segment, first_box) in first_segments.iter().zip(&first_boxes) {
+                interrupt::check()?;
                 for (second_segment, second_box) in second_segments.iter().zip(&second_boxes) {
                     if !near(first_box, second_box, scale.tolerance) {
                         continue;
@@ -106,6 +116,7 @@ pub(crate) fn within(
     let mut budget = MAX_BOX_TESTS;
     let boxes = segment_boxes(source, segments);
     for (index, first) in segments.iter().enumerate() {
+        interrupt::check()?;
         for (offset, second) in segments.iter().enumerate().skip(index + 1) {
             let (Some(first_box), Some(second_box)) = (boxes.get(index), boxes.get(offset)) else {
                 continue;
@@ -325,6 +336,9 @@ fn subdivide(
             continue;
         }
         *budget = budget.checked_sub(1).ok_or(Unresolved::TooIntricate)?;
+        if budget.is_multiple_of(POLL_EVERY) {
+            interrupt::check()?;
+        }
         let (a_size, b_size) = (largest_side(&a_box), largest_side(&b_box));
         let split_first = a_size >= b_size;
         let halves = if a_size <= leaf && b_size <= leaf {

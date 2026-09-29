@@ -19,7 +19,9 @@ use self::{
     region::{base_keys, lumps, shared_keys, with_keys},
 };
 pub use self::{error::ProfileError, triangulate::RegionMesh};
-use crate::{curve2::Curve2, interval::Interval, naming::Digest, tolerance::SamplingTolerance};
+use crate::{
+    curve2::Curve2, interrupt, interval::Interval, naming::Digest, tolerance::SamplingTolerance,
+};
 
 const REGION_KEY: u8 = 0x30;
 const REGION_TIEBREAK: u8 = 0x31;
@@ -377,26 +379,28 @@ pub struct Profile {
 
 impl Profile {
     pub fn new(curves: &[ProfileCurve]) -> Result<Self, ProfileError> {
-        let arrangement = Arrangement::new(curves).map_err(|error| match error {
-            ProfileError::Unresolved { entities } if entities.is_empty() => {
-                ProfileError::Unresolved {
-                    entities: culprits(curves, |subset| {
-                        matches!(
-                            Arrangement::new(subset),
-                            Err(ProfileError::Unresolved { .. })
-                        )
-                    }),
-                }
+        let arrangement = match Arrangement::new(curves) {
+            Err(ProfileError::Unresolved { entities }) if entities.is_empty() => {
+                let entities = culprits(curves, |subset| {
+                    matches!(
+                        Arrangement::new(subset),
+                        Err(ProfileError::Unresolved { .. })
+                    )
+                });
+                interrupt::check()?;
+                return Err(ProfileError::Unresolved { entities });
             }
-            other => other,
-        })?;
-        let drafts: Vec<_> = (0..arrangement.face_count())
-            .filter_map(|face| {
+            built => built?,
+        };
+        let mut drafts = Vec::with_capacity(arrangement.face_count());
+        for face in 0..arrangement.face_count() {
+            interrupt::check()?;
+            drafts.extend(
                 lumps(&arrangement, &BTreeSet::from([face]))
                     .into_iter()
-                    .next()
-            })
-            .collect();
+                    .next(),
+            );
+        }
         let ambiguous = shared_keys(&base_keys(&drafts));
         let (regions, region_faces) = with_keys(drafts, &ambiguous).into_iter().unzip();
         Ok(Self {

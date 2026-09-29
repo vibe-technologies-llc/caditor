@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{error::GeometryError, profile::RegionKey};
+use crate::{error::GeometryError, interrupt::Interrupted, profile::RegionKey};
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum ProfileError {
@@ -24,6 +24,8 @@ pub enum ProfileError {
     TooIntricate { entities: Vec<u64> },
     #[error("curves {entities:?} could not be split into closed regions")]
     Unresolved { entities: Vec<u64> },
+    #[error(transparent)]
+    Cancelled(#[from] Interrupted),
 }
 
 impl ProfileError {
@@ -41,7 +43,10 @@ impl ProfileError {
             | Self::SelfOverlap { entity } => vec![*entity],
             Self::Overlap { first, second } => vec![*first, *second],
             Self::TooIntricate { entities } | Self::Unresolved { entities } => entities.clone(),
-            Self::NoClosedProfile | Self::EmptySelection | Self::MissingRegion(_) => Vec::new(),
+            Self::NoClosedProfile
+            | Self::EmptySelection
+            | Self::MissingRegion(_)
+            | Self::Cancelled(_) => Vec::new(),
         }
     }
 }

@@ -15,6 +15,7 @@ use crate::{
     curve::Circle,
     curve2::{BSplineCurve2, Circle2, Curve2, Line2},
     error::GeometryError,
+    interrupt,
     interval::Interval,
     naming::{EdgeName, FaceName, FaceOrigin},
     profile::{Piece, Region},
@@ -122,6 +123,7 @@ pub fn revolve(
     };
     let mut plan = Plan::default();
     for region in regions {
+        interrupt::check()?;
         let start_cap = (
             FaceName::start_cap(feature, region.key()),
             FaceOrigin::StartCap { feature },

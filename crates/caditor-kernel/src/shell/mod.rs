@@ -11,6 +11,7 @@ use crate::{
     boolean::{BooleanError, BooleanOperation, boolean},
     build::{LinearExtent, extrude},
     curve::Curve,
+    interrupt::{self, Interrupted},
     naming::{FaceName, FaceOrigin},
     profile::{Profile, ProfileCurve, Selection},
     surface::{Cone, Cylinder, PlaneSurface, Sphere, Surface, Torus},
@@ -46,7 +47,18 @@ pub enum ShellError {
     #[error("the offset walls do not form a valid solid")]
     Walls,
     #[error(transparent)]
-    Boolean(#[from] BooleanError),
+    Boolean(BooleanError),
+    #[error(transparent)]
+    Cancelled(#[from] Interrupted),
+}
+
+impl From<BooleanError> for ShellError {
+    fn from(error: BooleanError) -> Self {
+        match error {
+            BooleanError::Cancelled(interrupted) => Self::Cancelled(interrupted),
+            other => Self::Boolean(other),
+        }
+    }
 }
 
 struct Offsets<'a> {
@@ -270,6 +282,18 @@ pub fn shell(
     thickness: f64,
     feature: u64,
 ) -> Result<Solid, ShellError> {
+    hollow_out(solid, open, thickness, feature).or_else(|error| {
+        interrupt::check()?;
+        Err(error)
+    })
+}
+
+fn hollow_out(
+    solid: &Solid,
+    open: &[FaceId],
+    thickness: f64,
+    feature: u64,
+) -> Result<Solid, ShellError> {
     if !thickness.is_finite() || thickness <= LINEAR_RESOLUTION {
         return Err(ShellError::InvalidThickness);
     }
@@ -296,6 +320,7 @@ pub fn shell(
     let first = match hollow(&extended, open, feature) {
         Ok(result) if keeps_every_wall(&extended, open, &result, feature) => return Ok(result),
         Ok(_) => ShellError::TooThick,
+        Err(error @ ShellError::Cancelled(_)) => return Err(error),
         Err(error) => error,
     };
     hollow(&inward, open, feature).map_err(|_| first)

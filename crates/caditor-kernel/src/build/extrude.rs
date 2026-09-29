@@ -8,6 +8,7 @@ use crate::{
     },
     curve2::Curve2,
     error::GeometryError,
+    interrupt,
     naming::{EdgeName, FaceName, FaceOrigin},
     profile::{Piece, Region},
     sense::Sense,
@@ -45,6 +46,7 @@ pub fn extrude(
     let top = offset_plane(plane, high)?;
     let mut plan = Plan::default();
     for region in regions {
+        interrupt::check()?;
         let start = (
             FaceName::start_cap(feature, region.key()),
             FaceOrigin::StartCap { feature },

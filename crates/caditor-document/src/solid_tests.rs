@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
-use caditor_sketch::{EntityId, Sketch};
+use caditor_kernel::{Interrupt, ProfileError, interruptible};
+use caditor_sketch::{EntityId, Sketch, SketchSolution};
 
 use crate::*;
 
@@ -736,4 +737,22 @@ fn a_distance_beyond_a_kilometre_is_refused_in_words() {
     };
     assert_eq!(error.reason, "The distance cannot be more than 1000 m.");
     assert_eq!(error.remedy, "Enter a distance of at most 1000 m.");
+}
+
+#[test]
+fn a_profile_cancelled_while_it_is_built_is_built_again_later() {
+    let result = SketchResult::new(
+        rectangle(Plane::XY, (0.0, 0.0), (4.0, 3.0)),
+        SketchSolution::default(),
+    );
+    let stop = || -> Interrupt { Arc::new(|| true) };
+
+    let stopped = interruptible(stop(), || result.profile().map(|_| ()));
+    interruptible(stop(), || result.find_regions());
+
+    assert!(matches!(stopped, Err(ProfileError::Cancelled(_))));
+    assert!(result.regions().is_none());
+    assert_eq!(result.profile().map(|profile| profile.regions().len()), Ok(1));
+    result.find_regions();
+    assert!(matches!(result.regions(), Some(Ok(regions)) if regions.len() == 1));
 }

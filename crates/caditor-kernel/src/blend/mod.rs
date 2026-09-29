@@ -19,6 +19,7 @@ use crate::{
     boolean::{BooleanError, BooleanOperation, boolean},
     build::{AngularExtent, Axis2, LinearExtent, SweepError, extrude, revolve},
     curve::{Circle, Curve, Line},
+    interrupt::{self, Interrupted},
     intersect::intersect_curves,
     interval::Interval,
     naming::{EdgeReference, FaceName, FaceOrigin, ReferenceError},
@@ -88,11 +89,40 @@ pub enum BlendError {
     #[error("after the concave edges were filled: {0}")]
     AfterFill(Box<BlendError>),
     #[error("the blend shape could not be built: {0}")]
-    Profile(#[from] ProfileError),
+    Profile(ProfileError),
     #[error("the blend shape could not be swept: {0}")]
-    Sweep(#[from] SweepError),
+    Sweep(SweepError),
     #[error(transparent)]
-    Boolean(#[from] BooleanError),
+    Boolean(BooleanError),
+    #[error(transparent)]
+    Cancelled(#[from] Interrupted),
+}
+
+impl From<ProfileError> for BlendError {
+    fn from(error: ProfileError) -> Self {
+        match error {
+            ProfileError::Cancelled(interrupted) => Self::Cancelled(interrupted),
+            other => Self::Profile(other),
+        }
+    }
+}
+
+impl From<SweepError> for BlendError {
+    fn from(error: SweepError) -> Self {
+        match error {
+            SweepError::Cancelled(interrupted) => Self::Cancelled(interrupted),
+            other => Self::Sweep(other),
+        }
+    }
+}
+
+impl From<BooleanError> for BlendError {
+    fn from(error: BooleanError) -> Self {
+        match error {
+            BooleanError::Cancelled(interrupted) => Self::Cancelled(interrupted),
+            other => Self::Boolean(other),
+        }
+    }
 }
 
 impl BlendError {
@@ -128,7 +158,8 @@ impl BlendError {
             | Self::NoEdges
             | Self::Profile(_)
             | Self::Sweep(_)
-            | Self::Boolean(_) => None,
+            | Self::Boolean(_)
+            | Self::Cancelled(_) => None,
         }
     }
 }
@@ -854,6 +885,18 @@ pub fn blend(
     shape: BlendShape,
     feature: u64,
 ) -> Result<Solid, BlendError> {
+    blend_edges(solid, edges, shape, feature).or_else(|error| {
+        interrupt::check()?;
+        Err(error)
+    })
+}
+
+fn blend_edges(
+    solid: &Solid,
+    edges: &[EdgeId],
+    shape: BlendShape,
+    feature: u64,
+) -> Result<Solid, BlendError> {
     let size = shape.size();
     if !size.is_finite() || size <= LINEAR_RESOLUTION {
         return Err(BlendError::InvalidSize);
@@ -942,6 +985,7 @@ fn apply_analysed(
     let classifier = solid.classifier();
     let mut planned = Vec::with_capacity(chosen.len());
     for geometry in geometries {
+        interrupt::check()?;
         let geometry = *geometry;
         let edge = geometry.edge;
         let blend = match shape {
@@ -985,6 +1029,7 @@ fn apply_analysed(
     let mut tools = Vec::with_capacity(planned.len() + corners.len());
     let mut blend_names = BTreeMap::new();
     for (geometry, blend, reach) in &planned {
+        interrupt::check()?;
         let ends = ends(&around, geometry, *reach)?;
         let edge_name = solid
             .edge(geometry.edge)
@@ -994,6 +1039,7 @@ fn apply_analysed(
         tools.push(tool(solid, geometry, blend, &ends, shape, feature)?);
     }
     for corner in corners.values() {
+        interrupt::check()?;
         tools.push(Tool {
             solid: corner.tool(solid, feature, &blend_names)?,
             convex: true,

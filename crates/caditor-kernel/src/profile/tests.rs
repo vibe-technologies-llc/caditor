@@ -6,7 +6,7 @@ use std::{
 use caditor_geometry::Point2;
 
 use super::*;
-use crate::test_support::{arc, circle, line, rectangle, spline};
+use crate::test_support::{arc, assert_cancelled_anywhere, circle, line, rectangle, spline};
 
 fn profile(curves: &[ProfileCurve]) -> Profile {
     Profile::new(curves).unwrap()
@@ -739,4 +739,41 @@ fn digests_of_piece_ids_and_tiebroken_keys_never_change() {
             0xff95_3a0f_ce4e_e7c9_5c24_9c4f_1997_ce0c,
         ])
     );
+}
+
+#[test]
+fn a_profile_cancelled_anywhere_stops_with_cancelled() {
+    let curves = [
+        spline(
+            1,
+            &[
+                (0.0, 0.0),
+                (2.0, 3.0),
+                (4.0, -3.0),
+                (6.0, 3.0),
+                (8.0, -3.0),
+                (10.0, 0.0),
+            ],
+        ),
+        spline(
+            2,
+            &[
+                (0.0, 1.0),
+                (3.0, -2.0),
+                (5.0, 4.0),
+                (7.0, -2.0),
+                (10.0, 1.0),
+            ],
+        ),
+        line(3, (0.0, 0.0), (10.0, 0.0)),
+        circle(4, (5.0, 0.0), 2.5),
+    ];
+
+    let polls = assert_cancelled_anywhere(
+        "profile",
+        || Profile::new(&curves),
+        |error| matches!(error, ProfileError::Cancelled(_)),
+    );
+
+    assert!(polls > 10, "only {polls} polls");
 }

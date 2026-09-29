@@ -114,32 +114,41 @@ impl SketchResult {
         self.regions.get()
     }
 
-    pub(crate) fn profile(&self) -> Result<&Profile, &ProfileError> {
+    pub(crate) fn profile(&self) -> Result<&Profile, ProfileError> {
+        if let Some(built) = self.profile.get() {
+            return built.as_ref().as_ref().map_err(Clone::clone);
+        }
+        let built = panic::catch_unwind(AssertUnwindSafe(|| {
+            Profile::new(&solid::profile_curves(&self.geometry))
+        }))
+        .unwrap_or_else(|_| {
+            log::error!("dividing a sketch into regions panicked");
+            Err(ProfileError::unresolved())
+        });
+        if let Err(cancelled @ ProfileError::Cancelled(_)) = built {
+            return Err(cancelled);
+        }
         self.profile
-            .get_or_init(|| {
-                Box::new(
-                    panic::catch_unwind(AssertUnwindSafe(|| {
-                        Profile::new(&solid::profile_curves(&self.geometry))
-                    }))
-                    .unwrap_or_else(|_| {
-                        log::error!("dividing a sketch into regions panicked");
-                        Err(ProfileError::unresolved())
-                    }),
-                )
-            })
+            .get_or_init(|| Box::new(built))
             .as_ref()
             .as_ref()
+            .map_err(Clone::clone)
     }
 
     pub(crate) fn find_regions(&self) {
-        self.regions.get_or_init(|| {
-            let profile = self.profile().map_err(Clone::clone)?;
+        if self.regions.get().is_some() {
+            return;
+        }
+        let found = self.profile().and_then(|profile| {
             panic::catch_unwind(AssertUnwindSafe(|| solid::display_regions(profile)))
                 .unwrap_or_else(|_| {
                     log::error!("triangulating the regions of a sketch panicked");
                     Err(ProfileError::unresolved())
                 })
         });
+        if !matches!(found, Err(ProfileError::Cancelled(_))) {
+            self.regions.get_or_init(|| found);
+        }
     }
 }
 
@@ -525,7 +534,7 @@ impl Recompute {
                 .and_then(|status: &FeatureStatus| status.result.as_deref())
                 .and_then(FeatureResult::sketch)
             {
-                result.find_regions();
+                interruptible(cancel.interrupt(), || result.find_regions());
             }
         }
         let mut shown: BTreeMap<FeatureId, FeatureId> = bodies

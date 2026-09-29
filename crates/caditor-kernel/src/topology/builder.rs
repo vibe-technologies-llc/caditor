@@ -52,6 +52,8 @@ pub enum BuildError {
     Geometry(#[from] GeometryError),
     #[error("the solid is invalid: {0}")]
     Invalid(#[from] ValidationError),
+    #[error(transparent)]
+    Cancelled(#[from] Interrupted),
 }
 
 impl BuildError {
@@ -59,7 +61,8 @@ impl BuildError {
         match self {
             Self::Invalid(ValidationError::Tessellation(TessellationError::Cancelled(
                 interrupted,
-            ))) => Some(*interrupted),
+            )))
+            | Self::Cancelled(interrupted) => Some(*interrupted),
             _ => None,
         }
     }

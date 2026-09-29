@@ -47,9 +47,6 @@ within a category run from most to least important.
 
 ## Kernel cancellation and limits
 
-- Profile building, sweeps, shell offsets and blend tool construction never poll the interrupt:
-  `profile/arrangement.rs` `events` runs up to 100k box tests per curve pair and `within` is
-  O(S²) in spline segments, all uncancellable.
 - Tessellation polls once per face, and nothing caps a solid's total size: each face may take
   2^19 grid points and 65536 points per edge into one spade triangulation. Poll inside the grid
   and insertion loops and fail beyond a solid-wide budget.
