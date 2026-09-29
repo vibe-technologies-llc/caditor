@@ -1,9 +1,6 @@
 mod sketch;
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, sync::Arc};
 
 use caditor_expression::{Expression, NameError, ParameterId, ParseError, check_name};
 use caditor_geometry::Plane;
@@ -12,9 +9,9 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
 use crate::{
     attachment::SketchAttachment,
     datum::Datum,
+    dependencies::DependencyGraph,
     document::{
         Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, list_names,
-        path_to,
     },
     solid::BodyOperation,
 };
@@ -181,12 +178,11 @@ fn check_storable(raw: u64) -> Result<(), EditError> {
 }
 
 #[derive(Default)]
-struct ParameterGraph(Option<BTreeMap<ParameterId, BTreeSet<ParameterId>>>);
+struct ParameterGraph(Option<DependencyGraph>);
 
 impl ParameterGraph {
-    fn of(&mut self, document: &Document) -> &mut BTreeMap<ParameterId, BTreeSet<ParameterId>> {
-        self.0
-            .get_or_insert_with(|| document.parameter_dependencies())
+    fn of(&mut self, document: &Document) -> &mut DependencyGraph {
+        self.0.get_or_insert_with(|| DependencyGraph::of(document))
     }
 
     fn invalidate(&mut self) {
@@ -538,7 +534,7 @@ impl Document {
         self.parameter_position(id)?;
         self.check_references(&expression)?;
         let dependencies = graph.of(self);
-        if let Some(cycle) = path_to(id, expression.parameters(), dependencies) {
+        if let Some(cycle) = dependencies.cycle(id, &expression) {
             let names: Vec<&str> = cycle
                 .iter()
                 .map(|step| self.parameter_name(*step).unwrap_or("?"))
@@ -548,7 +544,7 @@ impl Document {
                 path: names.join(" → "),
             });
         }
-        dependencies.insert(id, expression.parameters());
+        dependencies.set(id, &expression);
         let parameter = self.parameter_mut(id)?;
         let previous = std::mem::replace(&mut parameter.expression, expression);
         Ok(Edit::SetParameterExpression {

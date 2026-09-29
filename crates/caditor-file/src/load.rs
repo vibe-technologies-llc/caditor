@@ -4,7 +4,10 @@ use std::{
     sync::Arc,
 };
 
-use caditor_document::{Document, Edit, EditError, Feature, FeatureKind, Parameter, Transaction};
+use ahash::{AHashMap, AHashSet};
+use caditor_document::{
+    DependencyGraph, Document, Edit, EditError, Feature, FeatureKind, Parameter, Transaction,
+};
 use caditor_expression::{Expression, ParameterId, check_name};
 
 use crate::{
@@ -82,12 +85,15 @@ pub(crate) fn describe_unreadable_record(place: &str, item: &Unreadable<'_>) -> 
     }
 }
 
+pub const MAX_RECORDS: usize = 10_000;
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Parts {
     pub parameters: Vec<ParameterRecord>,
     pub features: Vec<FeatureRecord>,
     pub next_ids: Option<NextIdsRecord>,
     pub lost_parameter_names: BTreeMap<u64, String>,
+    pub beyond_limit: usize,
 }
 
 impl Parts {
@@ -101,7 +107,9 @@ impl Parts {
     }
 
     pub(crate) fn add(&mut self, record: Record) {
+        let full = self.parameters.len() + self.features.len() >= MAX_RECORDS;
         match record {
+            Record::Parameter(_) | Record::Feature(_) if full => self.beyond_limit += 1,
             Record::Parameter(parameter) => self.parameters.push(parameter),
             Record::Feature(feature) => self.features.push(feature),
             Record::NextIds(next_ids) => self.next_ids = Some(next_ids),
@@ -109,28 +117,144 @@ impl Parts {
     }
 }
 
+#[derive(Default)]
+struct TakenNames {
+    names: AHashSet<String>,
+    next_suffix: AHashMap<String, u32>,
+}
+
+impl TakenNames {
+    fn contains(&self, name: &str) -> bool {
+        self.names.contains(name)
+    }
+
+    fn take(&mut self, name: &str) {
+        self.names.insert(name.to_owned());
+    }
+
+    fn numbered(&mut self, base: &str, separator: &str) -> String {
+        let suffix = self.next_suffix.entry(base.to_owned()).or_insert(2);
+        loop {
+            let candidate = format!("{base}{separator}{suffix}");
+            *suffix = suffix.saturating_add(1);
+            if !self.names.contains(&candidate) {
+                self.names.insert(candidate.clone());
+                return candidate;
+            }
+        }
+    }
+
+    fn unique_parameter(&mut self, base: &str) -> String {
+        if self.contains(base) {
+            self.numbered(base, "_")
+        } else {
+            self.take(base);
+            base.to_owned()
+        }
+    }
+}
+
+fn apply_each<T>(
+    document: &mut Document,
+    items: &[T],
+    edit: &impl Fn(&Document, usize, &T) -> Edit,
+    failed: &mut impl FnMut(&mut Document, &T, EditError),
+) {
+    let edits = items
+        .iter()
+        .enumerate()
+        .map(|(offset, item)| edit(document, offset, item))
+        .collect();
+    let Err(error) = document.apply(Transaction::new("Load", edits)) else {
+        return;
+    };
+    if let [item] = items {
+        failed(document, item, error);
+        return;
+    }
+    let (left, right) = items.split_at(items.len() / 2);
+    apply_each(document, left, edit, failed);
+    apply_each(document, right, edit, failed);
+}
+
+fn insert_parameters(
+    document: &mut Document,
+    parameters: &[Parameter],
+    issues: &mut Vec<String>,
+) -> AHashSet<ParameterId> {
+    let mut failed = AHashSet::new();
+    apply_each(
+        document,
+        parameters,
+        &|document, offset, parameter| Edit::InsertParameter {
+            index: document.parameters().len() + offset,
+            parameter: parameter.clone(),
+        },
+        &mut |_, parameter, error| {
+            issues.push(format!(
+                "The parameter “{}” could not be restored and was left out: {error}.",
+                parameter.name
+            ));
+            failed.insert(parameter.id());
+        },
+    );
+    parameters
+        .iter()
+        .map(Parameter::id)
+        .filter(|id| !failed.contains(id))
+        .collect()
+}
+
 pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
     let mut document = Document::default();
-    let mut expressions = Vec::new();
+    if parts.beyond_limit > 0 {
+        issues.push(format!(
+            "The model holds more parameters and features than caditor loads ({MAX_RECORDS}), so \
+             the last {} were left out.",
+            parts.beyond_limit
+        ));
+    }
 
+    let mut parameter_names = TakenNames::default();
+    let mut seen = AHashSet::new();
+    let mut read = Vec::new();
     for record in &parts.parameters {
-        let id = ParameterId::from_raw(record.id);
-        if document.parameter(id).is_some() {
+        if !seen.insert(record.id) {
             issues.push(format!(
                 "Two parameters share the ID {}, so “{}” was left out.",
                 record.id, record.name
             ));
             continue;
         }
-        let name = usable_name(&document, &record.name, record.id, issues);
-        if insert_placeholder(&mut document, id, name.clone(), issues) {
-            match Expression::parse_stored(&record.expression) {
-                Ok(expression) => expressions.push((id, name, expression)),
-                Err(_) => issues.push(format!(
-                    "The value of “{name}” could not be read, so it was set to 0. Enter its \
-                     value again."
-                )),
+        let name = usable_name(&mut parameter_names, &record.name, record.id, issues);
+        read.push((
+            record,
+            Parameter::new(
+                ParameterId::from_raw(record.id),
+                name,
+                Expression::Number(0.0),
+            ),
+        ));
+    }
+    let placeholders: Vec<Parameter> = read
+        .iter()
+        .map(|(_, parameter)| parameter.clone())
+        .collect();
+    let mut inserted = insert_parameters(&mut document, &placeholders, issues);
+
+    let mut expressions = Vec::new();
+    for (record, parameter) in &read {
+        if !inserted.contains(&parameter.id()) {
+            continue;
+        }
+        match Expression::parse_stored(&record.expression) {
+            Ok(expression) => {
+                expressions.push((parameter.id(), parameter.name.clone(), expression))
             }
+            Err(_) => issues.push(format!(
+                "The value of “{}” could not be read, so it was set to 0. Enter its value again.",
+                parameter.name
+            )),
         }
     }
 
@@ -148,95 +272,170 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
                 .iter()
                 .flat_map(|feature| feature.kind.parameters()),
         )
+        .filter(|id| !inserted.contains(id))
         .collect();
-    for id in referenced {
-        if document.parameter(id).is_some() {
-            continue;
-        }
-        let base = parts
-            .lost_parameter_names
-            .get(&id.raw())
-            .filter(|name| check_name(name).is_ok())
-            .cloned()
-            .unwrap_or_else(|| format!("lost_{id}"));
-        let name = unique_name(&document, &base);
-        if insert_placeholder(&mut document, id, name.clone(), issues) {
-            issues.push(format!(
-                "A parameter used elsewhere in the model could not be read. It was replaced by \
-                 “{name}” = 0; enter its correct value."
-            ));
-        }
+    let stand_ins: Vec<Parameter> = referenced
+        .into_iter()
+        .map(|id| {
+            let base = parts
+                .lost_parameter_names
+                .get(&id.raw())
+                .filter(|name| check_name(name).is_ok())
+                .cloned()
+                .unwrap_or_else(|| format!("lost_{id}"));
+            let name = parameter_names.unique_parameter(&base);
+            Parameter::new(id, name, Expression::Number(0.0))
+        })
+        .collect();
+    let stood_in = insert_parameters(&mut document, &stand_ins, issues);
+    for stand_in in stand_ins
+        .iter()
+        .filter(|stand_in| stood_in.contains(&stand_in.id()))
+    {
+        issues.push(format!(
+            "A parameter used elsewhere in the model could not be read. It was replaced by \
+             “{}” = 0; enter its correct value.",
+            stand_in.name
+        ));
     }
+    inserted.extend(stood_in);
 
-    for (id, name, expression) in expressions {
-        let text = document.expression_text(&expression);
-        let edit = Edit::SetParameterExpression { id, expression };
-        match document.apply(Transaction::single("Load", edit)) {
-            Ok(_) => {}
-            Err(EditError::Cycle { path, .. }) => issues.push(format!(
-                "“{name}” depended on itself ({path}), so it was set to 0. Its value was {text}."
-            )),
-            Err(error) => issues.push(format!(
+    let expressions = without_cycles(&document, expressions, issues);
+    apply_each(
+        &mut document,
+        &expressions,
+        &|_, _, (id, _, expression)| Edit::SetParameterExpression {
+            id: *id,
+            expression: expression.clone(),
+        },
+        &mut |document, (_, name, expression), error| {
+            let text = document.expression_text(expression);
+            issues.push(format!(
                 "The value of “{name}” could not be restored ({error}), so it was set to 0. Its \
                  value was {text}."
-            )),
-        }
-    }
-
-    for mut feature in features {
-        if document.features().any(|other| other.name == feature.name) {
-            let renamed = unique_feature_name(&document, &feature.name);
-            issues.push(format!(
-                "Two features were named “{}”, so one of them is now “{renamed}”.",
-                feature.name
             ));
-            feature.name = renamed;
-        }
-        let name = feature.name.clone();
-        let raw_id = feature.id().raw();
-        let detached = detached(&feature);
-        let on_datum = feature
-            .kind
-            .attachment()
-            .is_some_and(|attachment| attachment.datum().is_some());
-        let edit = Edit::InsertFeature {
-            index: document.features().len(),
-            feature: Arc::new(feature),
-        };
-        let inserted =
-            match (document.apply(Transaction::single("Load", edit)), detached) {
-                (Err(_), Some(detached)) => {
-                    let edit = Edit::InsertFeature {
-                        index: document.features().len(),
-                        feature: Arc::new(detached),
-                    };
-                    let retried = document.apply(Transaction::single("Load", edit));
-                    if retried.is_ok() {
-                        issues.push(format!(
-                        "“{name}” lay on {} that could not be restored, so the sketch now stays \
-                         where it was.",
-                        if on_datum { "a plane" } else { "a face of a body" }
-                    ));
-                    }
-                    retried
-                }
-                (first, _) => first,
-            };
-        match inserted {
-            Ok(_) => {}
-            Err(EditError::DuplicateId) => issues.push(format!(
-                "Two features share the ID {raw_id}, so “{name}” was left out."
-            )),
-            Err(error) => issues.push(format!(
-                "“{name}” could not be restored and was left out: {error}."
-            )),
-        }
-    }
+        },
+    );
+
+    let features = with_unique_names(features, issues);
+    apply_each(
+        &mut document,
+        &features,
+        &|document, offset, feature| Edit::InsertFeature {
+            index: document.features().len() + offset,
+            feature: Arc::clone(feature),
+        },
+        &mut |document, feature, error| insert_alone(document, feature, error, issues),
+    );
 
     if let Some(next) = parts.next_ids {
         document.reserve_ids_below(next.parameter, next.feature);
     }
     document
+}
+
+fn with_unique_names(features: Vec<Feature>, issues: &mut Vec<String>) -> Vec<Arc<Feature>> {
+    let mut names = TakenNames::default();
+    let mut seen = AHashSet::new();
+    let mut unique = Vec::with_capacity(features.len());
+    for mut feature in features {
+        if !seen.insert(feature.id()) {
+            issues.push(format!(
+                "Two features share the ID {}, so “{}” was left out.",
+                feature.id().raw(),
+                feature.name
+            ));
+            continue;
+        }
+        if names.contains(&feature.name) {
+            let renamed = names.numbered(&feature.name, " ");
+            issues.push(format!(
+                "Two features were named “{}”, so one of them is now “{renamed}”.",
+                feature.name
+            ));
+            feature.name = renamed;
+        } else {
+            names.take(&feature.name);
+        }
+        unique.push(Arc::new(feature));
+    }
+    unique
+}
+
+fn without_cycles(
+    document: &Document,
+    expressions: Vec<(ParameterId, String, Expression)>,
+    issues: &mut Vec<String>,
+) -> Vec<(ParameterId, String, Expression)> {
+    let names: AHashMap<ParameterId, &str> = document
+        .parameters()
+        .iter()
+        .map(|parameter| (parameter.id(), parameter.name.as_str()))
+        .collect();
+    let mut graph = DependencyGraph::of(document);
+    let mut acyclic = Vec::with_capacity(expressions.len());
+    for (id, name, expression) in expressions {
+        match graph.cycle(id, &expression) {
+            Some(cycle) => {
+                let path: Vec<&str> = cycle
+                    .iter()
+                    .map(|step| names.get(step).copied().unwrap_or("?"))
+                    .collect();
+                let text = document.expression_text(&expression);
+                issues.push(format!(
+                    "“{name}” depended on itself ({}), so it was set to 0. Its value was {text}.",
+                    path.join(" → ")
+                ));
+            }
+            None => {
+                graph.set(id, &expression);
+                acyclic.push((id, name, expression));
+            }
+        }
+    }
+    acyclic
+}
+
+fn insert_alone(
+    document: &mut Document,
+    feature: &Feature,
+    error: EditError,
+    issues: &mut Vec<String>,
+) {
+    let name = &feature.name;
+    let inserted =
+        match detached(feature) {
+            Some(detached) => {
+                let edit = Edit::InsertFeature {
+                    index: document.features().len(),
+                    feature: Arc::new(detached),
+                };
+                let retried = document.apply(Transaction::single("Load", edit));
+                if retried.is_ok() {
+                    let on_datum = feature
+                        .kind
+                        .attachment()
+                        .is_some_and(|attachment| attachment.datum().is_some());
+                    issues.push(format!(
+                    "“{name}” lay on {} that could not be restored, so the sketch now stays where \
+                     it was.",
+                    if on_datum { "a plane" } else { "a face of a body" }
+                ));
+                }
+                retried.map(|_| ())
+            }
+            None => Err(error),
+        };
+    match inserted {
+        Ok(()) => {}
+        Err(EditError::DuplicateId) => issues.push(format!(
+            "Two features share the ID {}, so “{name}” was left out.",
+            feature.id().raw()
+        )),
+        Err(error) => issues.push(format!(
+            "“{name}” could not be restored and was left out: {error}."
+        )),
+    }
 }
 
 fn detached(feature: &Feature) -> Option<Feature> {
@@ -251,55 +450,19 @@ fn detached(feature: &Feature) -> Option<Feature> {
     ))
 }
 
-fn insert_placeholder(
-    document: &mut Document,
-    id: ParameterId,
-    name: String,
-    issues: &mut Vec<String>,
-) -> bool {
-    let edit = Edit::InsertParameter {
-        index: document.parameters().len(),
-        parameter: Parameter::new(id, name.clone(), Expression::Number(0.0)),
-    };
-    match document.apply(Transaction::single("Load", edit)) {
-        Ok(_) => true,
-        Err(error) => {
-            issues.push(format!(
-                "The parameter “{name}” could not be restored and was left out: {error}."
-            ));
-            false
-        }
-    }
-}
-
-fn usable_name(document: &Document, name: &str, id: u64, issues: &mut Vec<String>) -> String {
+fn usable_name(names: &mut TakenNames, name: &str, id: u64, issues: &mut Vec<String>) -> String {
     let problem = match check_name(name) {
         Err(error) => Some(format!("“{name}” is not a usable name ({error})")),
-        Ok(()) if document.parameter_named(name).is_some() => {
-            Some(format!("two parameters are named “{name}”"))
-        }
+        Ok(()) if names.contains(name) => Some(format!("two parameters are named “{name}”")),
         Ok(()) => None,
     };
     let Some(problem) = problem else {
+        names.take(name);
         return name.to_owned();
     };
-    let renamed = unique_name(document, &format!("parameter_{id}"));
+    let renamed = names.unique_parameter(&format!("parameter_{id}"));
     issues.push(format!(
         "A parameter was renamed to “{renamed}” because {problem}."
     ));
     renamed
-}
-
-fn unique_feature_name(document: &Document, base: &str) -> String {
-    (2_u32..)
-        .map(|suffix| format!("{base} {suffix}"))
-        .find(|candidate| document.features().all(|other| other.name != *candidate))
-        .unwrap_or_else(|| base.to_owned())
-}
-
-fn unique_name(document: &Document, base: &str) -> String {
-    std::iter::once(base.to_owned())
-        .chain((2_u32..).map(|suffix| format!("{base}_{suffix}")))
-        .find(|candidate| document.parameter_named(candidate).is_none())
-        .unwrap_or_else(|| base.to_owned())
 }

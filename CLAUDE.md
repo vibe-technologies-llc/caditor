@@ -520,7 +520,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     counters, which is what decides whether a model is unsaved. `Document::check` runs a transaction
     on a clone so the UI can report the error before committing; `can_remove_parameter` and
     `can_remove_feature` answer the common case without one. Parameter dependencies are built once
-    per `apply`, and evaluation orders parameters topologically before looking for cycles, so both
+    per `apply` as a `DependencyGraph` that also knows each parameter's users, so a cycle check
+    searches back from the edited parameter (nothing to search while no one uses it), and
+    evaluation orders parameters topologically before looking for cycles, so both
     stay near linear in the parameter count. `Document::transaction_to` (which keeps every sketch's
     ID counter at least where it is, so restoring never reuses IDs) builds the transaction that
     turns one document into another (every feature and parameter removed, then the target's inserted
@@ -674,7 +676,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     dimension takes its drawn length. Each of these is reported in plain language. When no chunk
     is damaged but the records do not match the head's digest (a file cut cleanly between
     chunks), the file is reported as ending early, so it loads with problems and keeps its
-    `.damaged` copy on the next save.
+    `.damaged` copy on the next save. Assembly stays near linear on hostile files: names are
+    indexed, duplicate IDs and cycles (through `DependencyGraph`) are found before applying, each
+    kind of record is applied as one transaction that is halved only where it fails, and at most
+    `MAX_RECORDS` (10 000) parameters and features are loaded, the rest reported.
   - The recovery journal uses the same container: a header chunk naming the file, a snapshot of
     the last saved state, then one chunk per change (`apply`, `undo` or `redo` with the
     transaction that was applied). The header also carries the path as raw bytes (so

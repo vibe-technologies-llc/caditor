@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     binary::{ChunkKind, EncodeError, JOURNAL_MAGIC, Piece, parse, push_packed, start_file, value},
     format::{
-        FeatureRecord, Lenient, NextIdsRecord, ParameterRecord, TransactionRecord, feature_record,
-        next_ids_record, parameter_record, restore_transaction, transaction_record,
+        FeatureRecord, Lenient, NextIdsRecord, ParameterRecord, Record, TransactionRecord,
+        feature_record, next_ids_record, parameter_record, restore_transaction, transaction_record,
     },
     load::{Parts, assemble},
 };
@@ -189,7 +189,7 @@ fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {
     };
     for parameter in snapshot.parameters {
         match parameter {
-            Lenient::Read(parameter) => parts.parameters.push(parameter),
+            Lenient::Read(parameter) => parts.add(Record::Parameter(parameter)),
             Lenient::Unreadable(_) => {
                 issues.push("A parameter in the recovered model was damaged.".to_owned());
             }
@@ -197,7 +197,7 @@ fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {
     }
     for feature in snapshot.features {
         match feature {
-            Lenient::Read(feature) => parts.features.push(feature),
+            Lenient::Read(feature) => parts.add(Record::Feature(feature)),
             Lenient::Unreadable(_) => {
                 issues.push("A feature in the recovered model was damaged.".to_owned());
             }

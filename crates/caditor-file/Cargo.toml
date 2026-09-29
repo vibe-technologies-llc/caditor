@@ -20,6 +20,7 @@ caditor-sketch.workspace = true
 caditor-step.workspace = true
 caditor-zstd.workspace = true
 
+ahash.workspace = true
 blake3.workspace = true
 crc32fast.workspace = true
 log.workspace = true

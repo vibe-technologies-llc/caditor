@@ -1,6 +1,7 @@
 mod attachment;
 mod blend;
 mod datum;
+mod dependencies;
 mod describe;
 mod document;
 mod edit;
@@ -19,6 +20,7 @@ pub use crate::{
         AxisReference, Datum, DatumAxis, DatumPlane, DatumResult, PlaneReference, PlaneRotation,
         PrincipalAxis, PrincipalPlane, capitalized, describe_axis, describe_plane, displayed_axis,
     },
+    dependencies::DependencyGraph,
     describe::{describe_edge, describe_origin, edge_faces, origin_feature},
     document::{Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter},
     edit::{Edit, EditError, Transaction, TransactionBuilder},

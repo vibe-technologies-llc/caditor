@@ -1868,3 +1868,55 @@ fn features_that_share_a_name_are_loaded_under_distinct_names() {
 }
 
 mod seeds;
+
+fn parameter_line(id: usize, expression: &str) -> String {
+    format!(r#"{{"parameter":{{"expression":"{expression}","id":{id},"name":"p"}}}}"#)
+}
+
+fn empty_sketch_line(id: usize, name: &str) -> String {
+    format!(
+        r#"{{"feature":{{"id":{id},"name":"{name}","sketch":{{"constraints":[],"entities":[],"next_id":0,"plane":{{"normal":[0.0,0.0,1.0],"origin":[0.0,0.0,0.0],"x_axis":[1.0,0.0,0.0]}}}}}}}}"#
+    )
+}
+
+#[test]
+fn many_repeated_names_cycles_and_duplicate_ids_load_quickly() {
+    let half = MAX_RECORDS / 2;
+    let mut lines: Vec<String> = (0..half)
+        .map(|id| parameter_line(id, &format!("${id} + 1 mm")))
+        .collect();
+    lines.extend((0..half).map(|index| empty_sketch_line(index % 2, "F")));
+
+    let started = Instant::now();
+    let loaded = decode_lines(&lines);
+
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
+    let document = &loaded.document;
+    assert_eq!(document.parameters().len(), half);
+    assert!(document.parameter_named("parameter_9").is_some());
+    let names: Vec<&str> = document.features().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, ["F", "F 2"]);
+    assert!(issues_mention(
+        &loaded,
+        "“parameter_7” depended on itself (parameter_7 → parameter_7)"
+    ));
+    assert!(issues_mention(&loaded, "Two features share the ID 1"));
+}
+
+#[test]
+fn records_beyond_the_limit_are_left_out_and_reported() {
+    let lines: Vec<String> = (0..MAX_RECORDS + 3)
+        .map(|id| parameter_line(id, "1 mm"))
+        .collect();
+    let loaded = decode_lines(&lines);
+    assert_eq!(loaded.document.parameters().len(), MAX_RECORDS);
+    assert!(issues_mention(
+        &loaded,
+        "The model holds more parameters and features than caditor loads (10000), so the last 3 \
+         were left out."
+    ));
+}

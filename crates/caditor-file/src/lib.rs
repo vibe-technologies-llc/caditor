@@ -29,7 +29,7 @@ pub use crate::{
         drawing_transaction, parse_dxf, parse_step, read_dxf, read_step_file,
     },
     journal::JournalEntry,
-    load::{LoadError, Loaded, decode, history, load, load_version},
+    load::{LoadError, Loaded, MAX_RECORDS, decode, history, load, load_version},
     paths::{recovery_dir, state_dir},
     recent::{RECENT_LIMIT, RecentChange, RecentFiles},
     recovery::{

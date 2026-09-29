@@ -32,10 +32,6 @@ within a category run from most to least important.
   (`binary/model.rs`). Add a retention policy and write history append-only.
 - A model whose records total more than 256 MiB saves once and never again, since the previous
   snapshot and the journal snapshot are each one chunk (`MAX_CONTENT`). Chunk per record.
-- Loading applies one transaction per parameter and feature, each cloning the whole document,
-  and resolves names by linear scans (`load.rs` `assemble`, `unique_feature_name`), so a file of
-  many tiny records makes open, recovery and replay quadratic or worse with no cancel. Cap the
-  record count and index names.
 - Saving keeps the mode but not the owner group, ACLs or extended attributes, and the temporary
   sibling exists at umask mode before `set_permissions` (`save.rs` `write_and_sync`).
 - A name near `NAME_MAX` opens but cannot be saved or journaled next to the file, since the
