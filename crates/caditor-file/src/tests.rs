@@ -321,6 +321,39 @@ fn a_lost_parameter_is_replaced_by_a_stand_in_that_keeps_its_name_when_known() {
 }
 
 #[test]
+fn stored_id_counters_and_ids_beyond_the_storable_range_are_clamped_or_left_out() {
+    let document = sample();
+    let mut lines = lines_of(&document);
+    let next_ids = lines
+        .iter_mut()
+        .find(|line| line.contains("\"next_ids\""))
+        .unwrap();
+    *next_ids = format!(
+        r#"{{"next_ids":{{"parameter":{max},"feature":{max}}}}}"#,
+        max = u64::MAX
+    );
+    lines.insert(
+        0,
+        format!(
+            r#"{{"parameter":{{"expression":"1 mm","id":{},"name":"far"}}}}"#,
+            u64::MAX
+        ),
+    );
+
+    let loaded = decode_lines(&lines);
+
+    assert!(issues_mention(
+        &loaded,
+        &format!("Its ID {} is beyond the range caditor stores", u64::MAX)
+    ));
+    assert!(loaded.document.parameter_named("far").is_none());
+    assert_eq!(loaded.document.parameters().len(), 2);
+    let limit = caditor_document::FIRST_UNSTORABLE_ID;
+    assert_eq!(loaded.document.next_parameter_id(), limit);
+    assert_eq!(loaded.document.next_feature_id(), limit);
+}
+
+#[test]
 fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
     let document = sample();
     let mut lines = lines_of(&document);

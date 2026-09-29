@@ -12,7 +12,10 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
 use crate::{
     attachment::SketchAttachment,
     datum::Datum,
-    document::{Document, Feature, FeatureId, FeatureKind, Parameter, list_names, path_to},
+    document::{
+        Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, list_names,
+        path_to,
+    },
     solid::BodyOperation,
 };
 
@@ -126,6 +129,8 @@ pub enum EditError {
     MissingFeature,
     #[error("That item already exists")]
     DuplicateId,
+    #[error("Its ID {0} is beyond the range caditor stores")]
+    ReservedId(u64),
     #[error("The list has changed, so that place in it no longer exists")]
     OutOfRange(usize),
     #[error(transparent)]
@@ -166,6 +171,13 @@ pub enum EditError {
         name: String,
         users: String,
     },
+}
+
+fn check_storable(raw: u64) -> Result<(), EditError> {
+    if raw >= FIRST_UNSTORABLE_ID {
+        return Err(EditError::ReservedId(raw));
+    }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -211,7 +223,7 @@ impl TransactionBuilder<'_> {
         expression: Expression,
     ) -> ParameterId {
         let id = ParameterId::from_raw(self.next_parameter_id);
-        self.next_parameter_id += 1;
+        self.next_parameter_id = self.next_parameter_id.saturating_add(1);
         let name = name.into();
         self.added_parameters.push((name.clone(), id));
         self.edits.push(Edit::InsertParameter {
@@ -224,7 +236,7 @@ impl TransactionBuilder<'_> {
 
     pub fn add_feature(&mut self, name: impl Into<String>, kind: FeatureKind) -> FeatureId {
         let id = FeatureId::from_raw(self.next_feature_id);
-        self.next_feature_id += 1;
+        self.next_feature_id = self.next_feature_id.saturating_add(1);
         self.edits.push(Edit::InsertFeature {
             index: self.feature_count,
             feature: Arc::new(Feature::new(id, name.into(), kind)),
@@ -491,6 +503,7 @@ impl Document {
         if self.parameter(parameter.id()).is_some() {
             return Err(EditError::DuplicateId);
         }
+        check_storable(parameter.id().raw())?;
         if index > self.parameters.len() {
             return Err(EditError::OutOfRange(index));
         }
@@ -577,6 +590,7 @@ impl Document {
         if self.feature(feature.id()).is_some() {
             return Err(EditError::DuplicateId);
         }
+        check_storable(feature.id().raw())?;
         if index > self.features.len() {
             return Err(EditError::OutOfRange(index));
         }

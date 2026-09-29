@@ -17,6 +17,8 @@ use crate::{
     solid::{BodyOperation, SolidFeature},
 };
 
+pub const FIRST_UNSTORABLE_ID: u64 = 1 << 63;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FeatureId(u64);
 
@@ -419,8 +421,12 @@ impl Document {
     }
 
     pub fn reserve_ids_below(&mut self, next_parameter_id: u64, next_feature_id: u64) {
-        self.next_parameter_id = self.next_parameter_id.max(next_parameter_id);
-        self.next_feature_id = self.next_feature_id.max(next_feature_id);
+        self.next_parameter_id = self
+            .next_parameter_id
+            .max(next_parameter_id.min(FIRST_UNSTORABLE_ID));
+        self.next_feature_id = self
+            .next_feature_id
+            .max(next_feature_id.min(FIRST_UNSTORABLE_ID));
     }
 
     pub fn parse(&self, text: &str) -> Result<Expression, ParseError> {

@@ -20,7 +20,7 @@ pub use crate::{
         PrincipalAxis, PrincipalPlane, capitalized, describe_axis, describe_plane, displayed_axis,
     },
     describe::{describe_edge, describe_origin, edge_faces, origin_feature},
-    document::{Document, Feature, FeatureId, FeatureKind, Parameter},
+    document::{Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter},
     edit::{Edit, EditError, Transaction, TransactionBuilder},
     editor::Editor,
     import::Import,
@@ -168,6 +168,50 @@ mod tests {
 
         editor.undo().unwrap();
         assert!(editor.document().same_content(&later));
+    }
+
+    #[test]
+    fn id_counters_stop_below_the_storable_range_instead_of_wrapping() {
+        let mut document = Document::default();
+        document.reserve_ids_below(u64::MAX, u64::MAX);
+        assert_eq!(document.next_parameter_id(), FIRST_UNSTORABLE_ID);
+        assert_eq!(document.next_feature_id(), FIRST_UNSTORABLE_ID);
+
+        let mut transaction = document.transaction("Add");
+        let first = transaction.add_parameter("a", Expression::Number(1.0));
+        let second = transaction.add_parameter("b", Expression::Number(2.0));
+        assert_eq!(first, ParameterId::from_raw(FIRST_UNSTORABLE_ID));
+        assert_eq!(second, ParameterId::from_raw(FIRST_UNSTORABLE_ID + 1));
+        assert_eq!(
+            document.apply(transaction.finish()).unwrap_err(),
+            EditError::ReservedId(FIRST_UNSTORABLE_ID)
+        );
+
+        let mut transaction = document.transaction("Add");
+        transaction.add_feature("Sketch", FeatureKind::from(Sketch::new(Plane::XY)));
+        assert_eq!(
+            document.apply(transaction.finish()).unwrap_err(),
+            EditError::ReservedId(FIRST_UNSTORABLE_ID)
+        );
+        assert_eq!(document.parameters().len(), 0);
+        assert_eq!(document.next_parameter_id(), FIRST_UNSTORABLE_ID);
+
+        let mut fresh = Document::default();
+        let edit = Edit::InsertParameter {
+            index: 0,
+            parameter: Parameter::new(
+                ParameterId::from_raw(u64::MAX),
+                "top".to_owned(),
+                Expression::Number(0.0),
+            ),
+        };
+        assert_eq!(
+            fresh
+                .apply(Transaction::single("Insert", edit))
+                .unwrap_err(),
+            EditError::ReservedId(u64::MAX)
+        );
+        assert_eq!(fresh.next_parameter_id(), 0);
     }
 
     #[test]
