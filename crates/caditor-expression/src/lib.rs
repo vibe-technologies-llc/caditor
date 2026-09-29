@@ -241,6 +241,14 @@ mod tests {
         );
         assert_eq!(evaluate("(2 mm) ^ 200"), Err(EvalError::TooComplex));
         assert_eq!(
+            evaluate("max(width / gap, log10(0)) + and(1 mm, 1)"),
+            Err(EvalError::DivisionByZero)
+        );
+        assert_eq!(
+            evaluate("if(gap > 0 mm, width / gap, -width)"),
+            Ok(Quantity::length(-40.0))
+        );
+        assert_eq!(
             error_kind("and(1)"),
             ParseErrorKind::WrongArgumentCount {
                 function: Function::And,
@@ -406,6 +414,64 @@ mod tests {
             error_kind(&"1".repeat(MAX_LENGTH + 1)),
             ParseErrorKind::TooLong
         );
+    }
+
+    #[test]
+    fn the_deepest_stored_expressions_are_used_on_a_worker_with_the_default_stack() {
+        const DEFAULT_WORKER_STACK: usize = 2 * 1024 * 1024;
+        let terms = [
+            "$0",
+            "if($1 > $2, $0, $1)",
+            "max($0, 1 mm)",
+            "-hypot($0, $2)",
+            "($1 / 1 mm + 2) mm",
+            "$0 * 3 / 3",
+        ];
+        let chain = |count: usize| -> String {
+            let mut text =
+                terms
+                    .iter()
+                    .cycle()
+                    .take(count)
+                    .fold(String::new(), |mut text, term| {
+                        text.push_str(term);
+                        text.push_str(" + ");
+                        text
+                    });
+            text.truncate(text.len() - " + ".len());
+            text
+        };
+        let deeper_than_its_terms = crate::parse::MAX_TREE_DEPTH - 2;
+        let deepest = chain(deeper_than_its_terms);
+        let too_deep = chain(deeper_than_its_terms + 1);
+
+        let worker = std::thread::Builder::new()
+            .stack_size(DEFAULT_WORKER_STACK)
+            .spawn(move || {
+                let expression = Expression::parse_stored(&deepest).unwrap();
+                let depth = expression.depth();
+                let value = expression
+                    .evaluate_as(Dimension::LENGTH, &value_of)
+                    .unwrap();
+                let printed = expression.to_text(&name_of);
+                let stored = expression.to_stored_text();
+                let reparsed = Expression::parse_stored(&stored).unwrap();
+                let same = reparsed == expression;
+                let copy = expression.clone();
+                drop(expression);
+                drop(reparsed);
+                drop(copy);
+                let refused = Expression::parse_stored(&too_deep).unwrap_err().kind;
+                (depth, value, printed, same, refused)
+            })
+            .unwrap();
+        let (depth, value, printed, same, refused) = worker.join().unwrap();
+
+        assert_eq!(depth, crate::parse::MAX_TREE_DEPTH);
+        assert_eq!(value, 166.0 * 142.0 + 80.0);
+        assert!(printed.starts_with("width + if(height > gap, width, height) + max(width, 1 mm)"));
+        assert!(same);
+        assert_eq!(refused, ParseErrorKind::TooDeep);
     }
 
     #[test]

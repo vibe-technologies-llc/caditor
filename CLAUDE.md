@@ -173,7 +173,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   parameters by `ParameterId`, never by name, so renaming a parameter rewrites every
   expression's text. Parsing limits length, nesting and the depth of the tree it builds (checked
   as each operator is added, so long chains stop at the limit) so that hostile input cannot
-  overflow the stack, and errors are plain-language clauses.
+  overflow the stack, and errors are plain-language clauses. Evaluation walks the tree with an
+  explicit stack of pending nodes and their gathered operands, so even the deepest stored
+  expression evaluates on a worker's default 2 MiB stack in a debug build; printing, cloning,
+  comparing and dropping recurse but stay well within it, which a test holds.
 - **caditor-sketch**: 2D sketches on a `Plane` and caditor's own constraint solver.
   - Entities are points, lines, circles (centre point and radius), arcs (centre, start and end
     points, counter-clockwise) and clamped B-splines through control points. Every sketch also

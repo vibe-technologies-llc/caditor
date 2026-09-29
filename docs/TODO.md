@@ -63,8 +63,7 @@ within a category run from most to least important.
   that reading, so changing it needs a new spelling or a format change.
 - Tests missing for: dense and sparse paths giving the same rank and fixed sets across the
   48-variable boundary; minimal conflict sets and two independent conflicts in a large part;
-  arcs with tangent, equal and angle constraints; expressions at
-  `MAX_TREE_DEPTH` evaluated, printed and dropped on a worker's default stack.
+  arcs with tangent, equal and angle constraints.
 
 ## STEP import and export
 

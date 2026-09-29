@@ -436,68 +436,96 @@ impl Expression {
     where
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
-        let result = self.evaluate_step(value_of)?;
-        if result.value.is_finite() {
-            Ok(result)
-        } else {
-            Err(EvalError::NotFinite)
+        let mut current = Pending {
+            node: self,
+            first_operand: 0,
+        };
+        let mut parents: Vec<Pending<'_>> = Vec::new();
+        let mut operands: Vec<Quantity> = Vec::new();
+        loop {
+            let gathered = operands.get(current.first_operand..).unwrap_or_default();
+            match current.node.next_step(gathered, value_of) {
+                Step::Descend(child) => {
+                    parents.push(current);
+                    current = Pending {
+                        node: child,
+                        first_operand: operands.len(),
+                    };
+                }
+                Step::Done(result) => {
+                    let value = finite(result?)?;
+                    operands.truncate(current.first_operand);
+                    let Some(parent) = parents.pop() else {
+                        return Ok(value);
+                    };
+                    operands.push(value);
+                    current = parent;
+                }
+            }
         }
     }
 
-    fn evaluate_step<F>(&self, value_of: &F) -> Result<Quantity, EvalError>
+    fn next_step<'a, F>(&'a self, gathered: &[Quantity], value_of: &F) -> Step<'a>
     where
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
         match self {
-            Self::Number(value) => Ok(Quantity::plain(*value)),
-            Self::Measure(amount, unit) => Ok(unit.quantity(*amount)),
-            Self::Constant(constant) => Ok(constant.value()),
-            Self::Parameter(id) => value_of(*id),
-            Self::Negate(inner) => {
-                let value = inner.evaluate_unchecked(value_of)?;
-                Ok(Quantity::new(-value.value, value.dimension))
-            }
-            Self::Binary(operator, left, right) => binary(
-                *operator,
-                left.evaluate_unchecked(value_of)?,
-                right.evaluate_unchecked(value_of)?,
-            ),
+            Self::Number(value) => Step::Done(Ok(Quantity::plain(*value))),
+            Self::Measure(amount, unit) => Step::Done(Ok(unit.quantity(*amount))),
+            Self::Constant(constant) => Step::Done(Ok(constant.value())),
+            Self::Parameter(id) => Step::Done(value_of(*id)),
+            Self::Negate(inner) => match gathered {
+                [] => Step::Descend(inner),
+                [value, ..] => Step::Done(Ok(Quantity::new(-value.value, value.dimension))),
+            },
+            Self::Binary(operator, left, right) => match gathered {
+                [] => Step::Descend(left),
+                [_] => Step::Descend(right),
+                [left, right, ..] => Step::Done(binary(*operator, *left, *right)),
+            },
             Self::Call(Function::If, arguments) => {
                 let [condition, chosen, otherwise] = arguments.as_slice() else {
-                    return Err(EvalError::WrongArgumentCount {
+                    return Step::Done(Err(EvalError::WrongArgumentCount {
                         function: Function::If,
-                    });
+                    }));
                 };
-                let condition = condition.evaluate_unchecked(value_of)?;
-                let holds = plain_number(Function::If, condition)? != 0.0;
-                if holds {
-                    chosen.evaluate_unchecked(value_of)
-                } else {
-                    otherwise.evaluate_unchecked(value_of)
+                match gathered {
+                    [] => Step::Descend(condition),
+                    [condition] => match plain_number(Function::If, *condition) {
+                        Ok(holds) if holds != 0.0 => Step::Descend(chosen),
+                        Ok(_) => Step::Descend(otherwise),
+                        Err(error) => Step::Done(Err(error)),
+                    },
+                    [_, value, ..] => Step::Done(Ok(*value)),
                 }
             }
             Self::Call(function @ (Function::And | Function::Or), arguments) => {
                 let deciding = *function == Function::Or;
-                for argument in arguments {
-                    let value = argument.evaluate_unchecked(value_of)?;
-                    if (plain_number(*function, value)? != 0.0) == deciding {
-                        return Ok(truth(deciding));
+                if let Some(latest) = gathered.last() {
+                    match plain_number(*function, *latest) {
+                        Ok(value) if (value != 0.0) == deciding => {
+                            return Step::Done(Ok(truth(deciding)));
+                        }
+                        Ok(_) => {}
+                        Err(error) => return Step::Done(Err(error)),
                     }
                 }
-                Ok(truth(!deciding))
+                match arguments.get(gathered.len()) {
+                    Some(next) => Step::Descend(next),
+                    None => Step::Done(Ok(truth(!deciding))),
+                }
             }
-            Self::Call(function, arguments) => {
-                let values = arguments
-                    .iter()
-                    .map(|argument| argument.evaluate_unchecked(value_of))
-                    .collect::<Result<Vec<_>, _>>()?;
-                call(*function, &values)
-            }
-            Self::WithUnit(inner, unit, exponent) => {
-                let value = inner.evaluate_unchecked(value_of)?;
-                let unit = power(unit.quantity(1.0), Quantity::plain(f64::from(*exponent)))?;
-                binary(BinaryOperator::Multiply, value, unit)
-            }
+            Self::Call(function, arguments) => match arguments.get(gathered.len()) {
+                Some(next) => Step::Descend(next),
+                None => Step::Done(call(*function, gathered)),
+            },
+            Self::WithUnit(inner, unit, exponent) => match gathered {
+                [] => Step::Descend(inner),
+                [value, ..] => Step::Done(
+                    power(unit.quantity(1.0), Quantity::plain(f64::from(*exponent)))
+                        .and_then(|unit| binary(BinaryOperator::Multiply, *value, unit)),
+                ),
+            },
         }
     }
 
@@ -896,6 +924,24 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
             unify(Operation::Compare, first, x)?;
             Ok(Quantity::angle(first.value.atan2(x.value).to_degrees()))
         }
+    }
+}
+
+struct Pending<'a> {
+    node: &'a Expression,
+    first_operand: usize,
+}
+
+enum Step<'a> {
+    Descend(&'a Expression),
+    Done(Result<Quantity, EvalError>),
+}
+
+fn finite(value: Quantity) -> Result<Quantity, EvalError> {
+    if value.value.is_finite() {
+        Ok(value)
+    } else {
+        Err(EvalError::NotFinite)
     }
 }
 

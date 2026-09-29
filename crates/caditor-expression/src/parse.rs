@@ -8,7 +8,7 @@ use crate::{
 
 pub const MAX_LENGTH: usize = 1000;
 const MAX_STORED_LENGTH: usize = 64 * MAX_LENGTH;
-const MAX_TREE_DEPTH: usize = MAX_LENGTH;
+pub(crate) const MAX_TREE_DEPTH: usize = MAX_LENGTH;
 const MAX_DEPTH: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
