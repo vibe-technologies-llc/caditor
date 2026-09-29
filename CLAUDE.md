@@ -568,7 +568,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `AxisReference` to a model axis that must lie in the sketch plane. Inserting one checks that
     its sketch is a sketch and its target makes a body; `SetFeatureKind` replaces its settings
     but never its kind, and a feature whose body others change keeps making a new body. A sketch
-    line used as a revolve axis cannot be deleted.
+    line used as a revolve axis cannot be deleted, and edits refuse an axis that is not a line or
+    axis of the revolve's own sketch (`AxisNotALine`).
   - Sketches (`FeatureKind::Sketch(SketchFeature)`) keep their `Sketch` and optionally a
     `SketchAttachment`: a datum plane they lie on and follow, or, when they lie on a body, a
     `FaceAttachment` (`attachment.rs`: the body's feature ID and a `FaceReference`).
@@ -662,8 +663,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     as canonical text that refers to parameters as `$<id>` (`Expression::to_stored_text` and
     `parse_stored`), region keys and topology names as 32-digit hex digests, and numbers as
     exact f64. An unreadable extent falls back to 10 mm or 360°, an unreadable blend edge is left
-    out, an unreadable opened face is left closed, and a sketch whose face or datum plane cannot
-    be restored stays on its stored plane, each with a report.
+    out, an unreadable opened face is left closed, a sketch whose face or datum plane cannot
+    be restored stays on its stored plane, and a revolve whose axis line is gone turns about its
+    sketch's vertical axis, each with a report.
   - Version history: every save that changes the model keeps the state it replaces as a version
     inside the file (`save_with` reads the earlier versions from the session's own file, so Save As
     carries them along; saving an unchanged model adds none). A version is an info chunk (time, last

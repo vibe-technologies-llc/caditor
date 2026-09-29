@@ -158,6 +158,8 @@ pub enum EditError {
     NotAPlane(String),
     #[error("{0} is not an axis")]
     NotAnAxis(String),
+    #[error("The revolution axis is not a line of {0}")]
+    AxisNotALine(String),
     #[error("{0} cannot become a different kind of feature")]
     KindChange(String),
     #[error("{name} makes the body that {users} use, so it must keep making a new body")]
@@ -399,8 +401,13 @@ impl Document {
         let sketch = self
             .feature(solid.sketch())
             .ok_or(EditError::MissingFeature)?;
-        if sketch.kind.sketch().is_none() {
+        let Some(definition) = sketch.kind.sketch() else {
             return Err(EditError::NotASketch(sketch.name.clone()));
+        };
+        if let Some(axis) = solid.axis_line()
+            && definition.line_direction(axis).is_none()
+        {
+            return Err(EditError::AxisNotALine(sketch.name.clone()));
         }
         Ok(())
     }

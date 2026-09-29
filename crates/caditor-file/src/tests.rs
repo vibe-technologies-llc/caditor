@@ -1965,6 +1965,49 @@ fn feature_names_padded_with_spaces_are_loaded_trimmed() {
     assert_eq!(names, ["Base sketch", "Base sketch 2"]);
 }
 
+#[test]
+fn a_revolve_whose_axis_line_is_gone_loads_turning_about_the_vertical_axis() {
+    let mut document = Document::default();
+
+    let mut section = Sketch::new(Plane::XZ);
+    let pivot = section.add_line(Point2::new(0.0, 0.0), Point2::new(0.0, 3.0));
+    section.add_line(Point2::new(2.0, 0.0), Point2::new(4.0, 3.0));
+    let mut transaction = document.transaction("Build");
+    let section = transaction.add_feature("Section", FeatureKind::from(section));
+    let ring = transaction.add_feature(
+        "Ring",
+        FeatureKind::Solid(caditor_document::SolidFeature::Revolve(
+            caditor_document::Revolve {
+                sketch: section,
+                regions: caditor_document::RegionChoice::All,
+                axis: caditor_document::RevolveAxis::Sketch(pivot),
+                extent: caditor_document::RevolveExtent::Full,
+                operation: caditor_document::BodyOperation::NewBody,
+            },
+        )),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut lines = lines_of(&document);
+    let axis = format!("\"axis\":{},", pivot.raw());
+    let revolve = lines.iter_mut().find(|line| line.contains(&axis)).unwrap();
+    *revolve = revolve.replace(&axis, "\"axis\":999,");
+    let loaded = decode_lines(&lines);
+    let axis = loaded
+        .document
+        .feature(ring)
+        .and_then(|feature| feature.kind.solid())
+        .and_then(|solid| solid.axis_line());
+
+    assert_eq!(axis, Some(EntityId::VERTICAL_AXIS));
+    assert_eq!(
+        loaded.issues,
+        [
+            "“Ring” turned about a line of its sketch that could not be restored, so it now turns \
+             about the sketch's vertical axis."
+        ]
+    );
+}
+
 mod seeds;
 
 fn parameter_line(id: usize, expression: &str) -> String {

@@ -272,6 +272,50 @@ fn a_revolve_uses_a_sketch_axis_and_keeps_it() {
 }
 
 #[test]
+fn a_revolve_axis_must_be_a_line_of_its_own_sketch() {
+    let mut document = Document::default();
+
+    let mut section = rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0));
+    let pivot = section.add_line(Point2::new(0.0, 0.0), Point2::new(0.0, 3.0));
+    let mut marks = Sketch::new(Plane::XZ);
+    let mark = marks.add_point(Point2::new(1.0, 1.0));
+    let mut transaction = document.transaction("Build");
+    let section = transaction.add_feature("Section", FeatureKind::from(section));
+    let marks = transaction.add_feature("Marks", FeatureKind::from(marks));
+    document.apply(transaction.finish()).unwrap();
+    let revolve = |sketch, axis| {
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Sketch(axis),
+            extent: RevolveExtent::Full,
+            operation: BodyOperation::NewBody,
+        }))
+    };
+    let mut transaction = document.transaction("Revolve");
+    let ring = transaction.add_feature("Ring", revolve(section, pivot));
+    document.apply(transaction.finish()).unwrap();
+    let moved = |kind| Transaction::single("Edit", Edit::SetFeatureKind { id: ring, kind });
+
+    assert_eq!(
+        document.check(&moved(revolve(marks, pivot))),
+        Err(EditError::AxisNotALine("Marks".to_owned()))
+    );
+    assert_eq!(
+        document.check(&moved(revolve(section, EntityId::ORIGIN))),
+        Err(EditError::AxisNotALine("Section".to_owned()))
+    );
+    assert_eq!(
+        document.check(&moved(revolve(marks, mark))),
+        Err(EditError::AxisNotALine("Marks".to_owned()))
+    );
+    assert_eq!(
+        document.check(&moved(revolve(marks, EntityId::HORIZONTAL_AXIS))),
+        Ok(())
+    );
+}
+
+#[test]
 fn an_open_sketch_is_reported_against_the_sketch() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Build");

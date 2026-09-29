@@ -6,9 +6,11 @@ use std::{
 
 use ahash::{AHashMap, AHashSet};
 use caditor_document::{
-    DependencyGraph, Document, Edit, EditError, Feature, FeatureKind, Parameter, Transaction,
+    DependencyGraph, Document, Edit, EditError, Feature, FeatureKind, Parameter, Revolve,
+    RevolveAxis, SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, check_name};
+use caditor_sketch::EntityId;
 
 use crate::{
     binary::{self, History},
@@ -407,29 +409,20 @@ fn insert_alone(
     issues: &mut Vec<String>,
 ) {
     let name = &feature.name;
-    let inserted =
-        match detached(feature) {
-            Some(detached) => {
-                let edit = Edit::InsertFeature {
-                    index: document.features().len(),
-                    feature: Arc::new(detached),
-                };
-                let retried = document.apply(Transaction::single("Load", edit));
-                if retried.is_ok() {
-                    let on_datum = feature
-                        .kind
-                        .attachment()
-                        .is_some_and(|attachment| attachment.datum().is_some());
-                    issues.push(format!(
-                    "“{name}” lay on {} that could not be restored, so the sketch now stays where \
-                     it was.",
-                    if on_datum { "a plane" } else { "a face of a body" }
-                ));
-                }
-                retried.map(|_| ())
+    let inserted = match repaired(feature) {
+        Some((repair, note)) => {
+            let edit = Edit::InsertFeature {
+                index: document.features().len(),
+                feature: Arc::new(repair),
+            };
+            let retried = document.apply(Transaction::single("Load", edit));
+            if retried.is_ok() {
+                issues.push(note);
             }
-            None => Err(error),
-        };
+            retried.map(|_| ())
+        }
+        None => Err(error),
+    };
     match inserted {
         Ok(()) => {}
         Err(EditError::DuplicateId) => issues.push(format!(
@@ -442,16 +435,48 @@ fn insert_alone(
     }
 }
 
-fn detached(feature: &Feature) -> Option<Feature> {
-    let FeatureKind::Sketch(sketch) = &feature.kind else {
-        return None;
-    };
-    sketch.attachment.as_ref()?;
-    Some(Feature::new(
-        feature.id(),
-        feature.name.clone(),
-        FeatureKind::from(sketch.sketch.clone()),
-    ))
+fn repaired(feature: &Feature) -> Option<(Feature, String)> {
+    let name = &feature.name;
+    match &feature.kind {
+        FeatureKind::Sketch(sketch) => {
+            let attachment = sketch.attachment.as_ref()?;
+            let lay_on = if attachment.datum().is_some() {
+                "a plane"
+            } else {
+                "a face of a body"
+            };
+            Some((
+                Feature::new(
+                    feature.id(),
+                    name.clone(),
+                    FeatureKind::from(sketch.sketch.clone()),
+                ),
+                format!(
+                    "“{name}” lay on {lay_on} that could not be restored, so the sketch now stays \
+                     where it was."
+                ),
+            ))
+        }
+        FeatureKind::Solid(SolidFeature::Revolve(revolve)) if matches!(revolve.axis, RevolveAxis::Sketch(line) if line != EntityId::VERTICAL_AXIS) =>
+        {
+            let turned = Revolve {
+                axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
+                ..revolve.clone()
+            };
+            Some((
+                Feature::new(
+                    feature.id(),
+                    name.clone(),
+                    FeatureKind::Solid(SolidFeature::Revolve(turned)),
+                ),
+                format!(
+                    "“{name}” turned about a line of its sketch that could not be restored, so it \
+                     now turns about the sketch's vertical axis."
+                ),
+            ))
+        }
+        _ => None,
+    }
 }
 
 fn usable_name(names: &mut TakenNames, name: &str, id: u64, issues: &mut Vec<String>) -> String {
