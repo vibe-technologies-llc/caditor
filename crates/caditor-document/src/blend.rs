@@ -6,6 +6,7 @@ use caditor_kernel::{BlendError, BlendShape, EdgeId, EdgeReference, ReferenceErr
 use crate::{
     describe::describe_edge,
     document::{Feature, FeatureId},
+    pieces::{Tally, Unresolved, pieces_of_one_edge},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
 };
@@ -67,22 +68,19 @@ impl Blend {
         BTreeSet::from([self.body])
     }
 
-    pub fn resolve(&self, solid: &Solid) -> Result<Vec<EdgeId>, usize> {
-        let mut found = Vec::with_capacity(self.edges.len());
-        let mut missing = 0;
+    pub fn resolve(&self, solid: &Solid) -> Result<Vec<EdgeId>, Unresolved> {
+        let mut tally = Tally::with_capacity(self.edges.len());
         for reference in &self.edges {
             match reference.resolve(solid) {
-                Ok(edge) => found.push(edge),
-                Err(ReferenceError::Ambiguous(pieces)) => found.extend(pieces),
-                Err(ReferenceError::Missing) => missing += 1,
+                Ok(edge) => tally.found(edge),
+                Err(ReferenceError::Ambiguous(pieces)) => {
+                    let related = pieces_of_one_edge(solid, &pieces);
+                    tally.pieces(pieces, related);
+                }
+                Err(ReferenceError::Missing) => tally.missing(),
             }
         }
-        if missing > 0 {
-            return Err(missing);
-        }
-        found.sort_unstable();
-        found.dedup();
-        Ok(found)
+        tally.finish()
     }
 }
 
@@ -245,17 +243,21 @@ pub(crate) fn evaluate(
             constraints: Vec::new(),
         }));
     };
-    let edges = definition.resolve(solid).map_err(|missing| {
-        let reason = if missing == 1 {
-            format!(
-                "A chosen edge is no longer part of the body of {}.",
-                context.body_name
-            )
-        } else {
-            format!(
-                "{missing} chosen edges are no longer part of the body of {}.",
-                context.body_name
-            )
+    let edges = definition.resolve(solid).map_err(|unresolved| {
+        let body = &context.body_name;
+        let reason = match unresolved {
+            Unresolved::Missing(1) => {
+                format!("A chosen edge is no longer part of the body of {body}.")
+            }
+            Unresolved::Missing(missing) => {
+                format!("{missing} chosen edges are no longer part of the body of {body}.")
+            }
+            Unresolved::Unrelated(1) => {
+                format!("A chosen edge now matches several separate edges of the body of {body}.")
+            }
+            Unresolved::Unrelated(unrelated) => format!(
+                "{unrelated} chosen edges now match several separate edges of the body of {body}."
+            ),
         };
         context.error(
             reason,

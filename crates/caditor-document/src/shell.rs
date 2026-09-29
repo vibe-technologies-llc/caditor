@@ -7,6 +7,7 @@ use crate::{
     datum::capitalized,
     describe::{describe_edge, describe_origin},
     document::{Feature, FeatureId},
+    pieces::{Tally, Unresolved, pieces_of_one_face},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
 };
@@ -31,22 +32,19 @@ impl Shell {
         BTreeSet::from([self.body])
     }
 
-    pub fn resolve(&self, solid: &Solid) -> Result<Vec<FaceId>, usize> {
-        let mut found = Vec::with_capacity(self.open.len());
-        let mut missing = 0;
+    pub fn resolve(&self, solid: &Solid) -> Result<Vec<FaceId>, Unresolved> {
+        let mut tally = Tally::with_capacity(self.open.len());
         for reference in &self.open {
             match reference.resolve(solid) {
-                Ok(face) => found.push(face),
-                Err(ReferenceError::Ambiguous(pieces)) => found.extend(pieces),
-                Err(ReferenceError::Missing) => missing += 1,
+                Ok(face) => tally.found(face),
+                Err(ReferenceError::Ambiguous(pieces)) => {
+                    let related = pieces_of_one_face(solid, &pieces);
+                    tally.pieces(pieces, related);
+                }
+                Err(ReferenceError::Missing) => tally.missing(),
             }
         }
-        if missing > 0 {
-            return Err(missing);
-        }
-        found.sort_unstable();
-        found.dedup();
-        Ok(found)
+        tally.finish()
     }
 }
 
@@ -230,17 +228,22 @@ pub(crate) fn evaluate(
             constraints: Vec::new(),
         }));
     };
-    let open = definition.resolve(solid).map_err(|missing| {
-        let reason = if missing == 1 {
-            format!(
-                "A face to open is no longer part of the body of {}.",
-                context.body_name
-            )
-        } else {
-            format!(
-                "{missing} faces to open are no longer part of the body of {}.",
-                context.body_name
-            )
+    let open = definition.resolve(solid).map_err(|unresolved| {
+        let body = &context.body_name;
+        let reason = match unresolved {
+            Unresolved::Missing(1) => {
+                format!("A face to open is no longer part of the body of {body}.")
+            }
+            Unresolved::Missing(missing) => {
+                format!("{missing} faces to open are no longer part of the body of {body}.")
+            }
+            Unresolved::Unrelated(1) => {
+                format!("A face to open now matches several separate faces of the body of {body}.")
+            }
+            Unresolved::Unrelated(unrelated) => format!(
+                "{unrelated} faces to open now match several separate faces of the body of \
+                 {body}."
+            ),
         };
         context.error(
             reason,

@@ -105,10 +105,6 @@ within a category run from most to least important.
 
 ## Document and recompute
 
-- Blend and shell features accept every candidate of an `Ambiguous` reference
-  (`blend.rs`, `shell.rs` `found.extend(pieces)`) without checking they are pieces of one edge or
-  face, so an upstream edit that ties unrelated edges fillets or opens all of them silently.
-  Datums and attachments already check (`one_line`, equal planes).
 - Undo and redo stacks are unbounded (`editor.rs`), and entries keep removed features alive,
   imports with their solids and STEP text included.
 - Cached failure messages refresh only when the names of `features()` change, but blend, shell
@@ -120,7 +116,7 @@ within a category run from most to least important.
   face attachments compare planes exactly, so a slightly noisy imported edge works for one and
   is refused by another.
 - Tests missing for `transaction_to` with datums, attached sketches and imports, moves to an
-  out-of-range index, and `Ambiguous` resolution in blends and shells.
+  out-of-range index.
 
 ## Sketch solver and expressions
 

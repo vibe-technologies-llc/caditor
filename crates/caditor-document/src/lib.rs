@@ -7,6 +7,7 @@ mod document;
 mod edit;
 mod editor;
 mod import;
+mod pieces;
 mod recompute;
 mod shell;
 mod solid;
@@ -26,6 +27,7 @@ pub use crate::{
     edit::{Edit, EditError, Transaction, TransactionBuilder},
     editor::Editor,
     import::Import,
+    pieces::Unresolved,
     recompute::{
         CancelToken, Evaluation, Evaluator, Failure, FeatureError, FeatureResult, FeatureState,
         FeatureStatus, FixTarget, Inputs, ModelEvaluator, Recompute, SketchResult,

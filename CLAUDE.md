@@ -554,13 +554,15 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Blend features (`blend.rs`, `FeatureKind::Blend`) keep a `BlendKind` (fillet or chamfer,
     switchable through `SetFeatureKind`), the body, the chosen `EdgeReference`s and a size
     expression; recompute resolves the references in the body's state before the feature (a
-    split edge contributes all its pieces, a lost one fails the feature) and maps kernel errors
+    split edge contributes all its pieces when they lie on one line or circle, `pieces.rs`; a lost
+    one, or one tied between separate edges, fails the feature) and maps kernel errors
     to sentences naming the edge by its faces (`describe.rs`). The state each blend starts from
     is kept (`Evaluation::body_before`) and meshed so the app can show it while choosing edges.
   - Shell features (`shell.rs`, `FeatureKind::Shell`) keep the body, the opened faces as
     `FaceReference`s (possibly none, for a closed hollow body) and a thickness expression.
     Like blends they modify a body, resolve their references in the state before them (a
-    reference tied between fragments opens all of them, a lost one fails the feature) and have
+    reference tied between fragments of one face, on one surface with one sense, opens all of
+    them; a lost one, or one tied between separate faces, fails the feature) and have
     that state meshed; kernel errors become sentences naming the face or edge involved.
   - Solid features (`solid.rs`, `FeatureKind::Solid`) are an `Extrude` or a `Revolve` of a
     sketch's regions (`RegionChoice::All` for even depth, or chosen `RegionKey`s) with a

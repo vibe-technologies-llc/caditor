@@ -327,3 +327,90 @@ fn a_blend_switches_between_fillet_and_chamfer_but_nothing_else() {
         Err(EditError::FeatureInUse { .. })
     ));
 }
+
+#[test]
+fn ambiguous_edges_and_faces_count_only_when_their_pieces_are_one_edge_or_face() {
+    let mut document = Document::default();
+
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
+    );
+    let base = transaction.add_feature(
+        "Base",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::OneSide {
+                distance: Expression::parse_stored("4 mm").unwrap(),
+                reversed: false,
+            },
+            operation: BodyOperation::NewBody,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let plain = evaluate(&document, &mut Recompute::default());
+    let front_top = edge_at(plain.body(base).unwrap(), Point3::new(5.0, 0.0, 4.0));
+    let top = Plane::from_frame(
+        Point3::new(0.0, 0.0, 4.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .unwrap();
+    let mut slot = rectangle((4.0, -1.0), (6.0, 9.0));
+    slot.set_plane(top);
+    let mut transaction = document.transaction("Slot");
+    let slot = transaction.add_feature("Slot sketch", FeatureKind::from(slot));
+    transaction.add_feature(
+        "Slot",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: slot,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::OneSide {
+                distance: Expression::parse_stored("2 mm").unwrap(),
+                reversed: true,
+            },
+            operation: BodyOperation::Remove(base),
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let slotted = evaluate(&document, &mut Recompute::default());
+    let solid = slotted.body(base).unwrap();
+    let blend = Blend {
+        kind: BlendKind::Fillet,
+        body: base,
+        edges: vec![front_top],
+        size: Expression::parse_stored("1 mm").unwrap(),
+    };
+    let pieces = blend.resolve(solid).unwrap();
+    let back_top = edge_at(solid, Point3::new(2.0, 8.0, 4.0))
+        .resolve(solid)
+        .unwrap();
+    let face_at = |z: f64| {
+        solid
+            .faces()
+            .filter(|(_, face)| {
+                matches!(face.surface(), caditor_kernel::Surface::Plane(plane)
+                    if (plane.frame().origin().z - z).abs() < 1e-9
+                        && plane.frame().normal().z.abs() > 0.99)
+            })
+            .map(|(id, _)| id)
+            .collect::<Vec<_>>()
+    };
+    let tops = face_at(4.0);
+    let bottoms = face_at(0.0);
+
+    assert_eq!(pieces.len(), 2);
+    assert!(crate::pieces::pieces_of_one_edge(solid, &pieces));
+    assert!(!crate::pieces::pieces_of_one_edge(
+        solid,
+        &[pieces[0], back_top]
+    ));
+    assert_eq!(tops.len(), 2);
+    assert!(crate::pieces::pieces_of_one_face(solid, &tops));
+    assert!(!crate::pieces::pieces_of_one_face(
+        solid,
+        &[tops[0], bottoms[0]]
+    ));
+}
