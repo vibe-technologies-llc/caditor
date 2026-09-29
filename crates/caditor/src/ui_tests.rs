@@ -4265,6 +4265,23 @@ fn a_parameter_is_deleted_and_a_failed_feature_found_from_the_keyboard() {
 }
 
 #[test]
+fn a_parameter_that_cannot_be_deleted_names_what_uses_it() {
+    let mut harness = Harness::new();
+    let (_, trash) = harness
+        .texts
+        .iter()
+        .find(|(shown, _)| shown == crate::icons::DELETE)
+        .expect("the first parameter has a delete button")
+        .clone();
+    harness.events.push(Event::PointerMoved(trash.center()));
+    for _ in 0..TOOLTIP_FRAMES {
+        harness.frame();
+    }
+
+    assert!(harness.shows("width is used by height and Base sketch. Remove those uses first."));
+}
+
+#[test]
 fn tips_are_dismissed_and_hidden_from_the_palette() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::first_run(dir.path());

@@ -143,8 +143,7 @@ within a category run from most to least important.
 - Revolve cannot keep the part of a region on one side of the axis.
 - No live preview of a fillet, chamfer or shell while its panel is open, and no viewport handles
   for extents.
-- Parameters cannot be reordered or given a note, and a disabled delete does not say what uses
-  the parameter.
+- Parameters cannot be reordered or given a note.
 
 ## Viewer
 
