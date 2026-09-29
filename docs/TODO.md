@@ -71,11 +71,6 @@ within a category run from most to least important.
 - The writer puts all bodies in one product with no colours, holding the output twice in memory.
 - Imports cannot be positioned: `Import` has no placement.
 
-## DXF import
-
-- Parsing keeps an owned `String` per value and clones every record, two to three times the
-  file size, with no size limit.
-
 ## Mesh export
 
 - STL uses absolute f32 coordinates, which lose about 0.06 mm at 10^6 mm, and merges all bodies

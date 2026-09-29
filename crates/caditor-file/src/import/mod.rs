@@ -24,6 +24,7 @@ pub const DXF_EXTENSION: &str = "dxf";
 pub const MAX_DRAWING_CURVES: usize = 20_000;
 pub const MAX_EXPANDED_OBJECTS: usize = 1_000_000;
 pub const MAX_DRAWING_POINTS: usize = 2_000_000;
+pub const MAX_DRAWING_VALUES: usize = 16_000_000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawingCurve {
@@ -135,6 +136,11 @@ pub enum ImportError {
          from one drawing"
     )]
     TooDetailed,
+    #[error(
+        "its blocks and entities hold more than {MAX_DRAWING_VALUES} values, more than caditor \
+         reads from one drawing; split it into smaller drawings"
+    )]
+    TooManyValues,
 }
 
 pub fn read_dxf(path: &Path) -> Result<Drawing, ImportError> {

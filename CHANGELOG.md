@@ -79,6 +79,8 @@ The first release of caditor.
   STL and 3MF.
 - Dropping a model on the window opens it, and dropping drawings or STEP files imports them one
   after another (under X11).
+- Large drawings import in a fraction of the memory and time they took, and one whose blocks
+  and entities hold more than 16 million values is refused with that reason.
 - Drawings whose blocks repeat heavy splines are refused with the reason before they exhaust
   memory, and a large array of a block that draws nothing, such as labels, no longer refuses the
   drawing.

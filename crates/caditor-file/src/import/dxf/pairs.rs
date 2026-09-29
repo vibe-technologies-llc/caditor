@@ -1,4 +1,4 @@
-use std::{iter::Enumerate, slice::Split};
+use std::{borrow::Cow, iter::Enumerate, slice::Split};
 
 use crate::import::{ImportError, dxf::code_page::CodePage};
 
@@ -7,23 +7,23 @@ const EXTENDED_CODE: u8 = 255;
 const CODE_PAGE_VARIABLE: &[u8] = b"$DWGCODEPAGE";
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) enum Value {
-    Text(String),
+pub(super) enum Value<'a> {
+    Text(Cow<'a, str>),
     Real(f64),
     Integer(i64),
     Bytes,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct Pair {
+pub(super) struct Pair<'a> {
     pub code: i32,
-    pub value: Value,
+    pub value: Value<'a>,
 }
 
-impl Pair {
+impl Pair<'_> {
     pub fn text(&self) -> &str {
         match &self.value {
-            Value::Text(text) => text.as_str(),
+            Value::Text(text) => text,
             Value::Real(_) | Value::Integer(_) | Value::Bytes => "",
         }
     }
@@ -53,22 +53,20 @@ impl Pair {
     }
 }
 
-pub(super) fn read_pairs(bytes: &[u8]) -> Result<Vec<Pair>, ImportError> {
+pub(super) fn read_pairs(bytes: &[u8]) -> impl Iterator<Item = Result<Pair<'_>, ImportError>> {
     let page = declared_code_page(tokens(bytes));
-    tokens(bytes)
-        .map(|token| {
-            let Token { code, value } = token?;
-            Ok(Pair {
-                code,
-                value: match value {
-                    Raw::Text(text) => Value::Text(page.decode(text).into_owned()),
-                    Raw::Real(value) => Value::Real(value),
-                    Raw::Integer(value) => Value::Integer(value),
-                    Raw::Bytes => Value::Bytes,
-                },
-            })
+    tokens(bytes).map(move |token| {
+        let Token { code, value } = token?;
+        Ok(Pair {
+            code,
+            value: match value {
+                Raw::Text(text) => Value::Text(page.decode(text)),
+                Raw::Real(value) => Value::Real(value),
+                Raw::Integer(value) => Value::Integer(value),
+                Raw::Bytes => Value::Bytes,
+            },
         })
-        .collect()
+    })
 }
 
 fn declared_code_page<'a>(

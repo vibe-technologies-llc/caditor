@@ -875,7 +875,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     1250 to 1258 and ISO 8859-1 are tables in `code_page.rs`, and any other page, or none, reads
     as 1252, bytes a page leaves undefined becoming U+FFFD; `\U+XXXX` escapes become their
     characters) into a `Drawing` of 2D `DrawingCurve`s in millimetres plus notes in
-    plain language. It reads `$INSUNITS` (every code up to the US survey units; an unknown code
+    plain language. Tokens are read lazily, their text borrowed from the file unless it has to be
+    decoded, and grouped into records one at a time; only the header, layers, MLINESTYLEs,
+    blocks and entities are kept (records are moved, never copied, and extended data, codes 1000
+    to 1071, is dropped), at most `MAX_DRAWING_VALUES` values in all and in any one record, else
+    `ImportError::TooManyValues`, so memory stays near the size of the file. It reads `$INSUNITS` (every code up to the US survey units; an unknown code
     is read as millimetres with a note naming it, and none is read as millimetres, with a note, unless
     `$MEASUREMENT` is 0, imperial, when it is read as inches, also with a note), layers (entities on
     off or frozen layers are left out), blocks and INSERTs (base point, scale, rotation, column and

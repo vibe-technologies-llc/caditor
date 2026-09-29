@@ -64,7 +64,7 @@ pub(super) fn boundaries(record: &Record) -> Option<Vec<Boundary>> {
     Some(boundaries)
 }
 
-fn groups(pairs: &[Pair], leader: i32) -> Vec<&[Pair]> {
+fn groups<'a>(pairs: &'a [Pair<'a>], leader: i32) -> Vec<&'a [Pair<'a>]> {
     let starts: Vec<usize> = pairs
         .iter()
         .enumerate()
@@ -81,7 +81,7 @@ fn groups(pairs: &[Pair], leader: i32) -> Vec<&[Pair]> {
         .collect()
 }
 
-fn split_sources(path: &[Pair]) -> (&[Pair], Vec<String>) {
+fn split_sources<'a>(path: &'a [Pair<'a>]) -> (&'a [Pair<'a>], Vec<String>) {
     let handles = path
         .iter()
         .rev()

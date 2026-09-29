@@ -9,13 +9,16 @@ mod pairs;
 use std::{
     collections::{BTreeMap, BTreeSet},
     f64::consts::TAU,
+    iter::Peekable,
+    ops::RangeInclusive,
     rc::Rc,
 };
 
 use caditor_geometry::{Point2, Point3, Vector3};
 
 use crate::import::{
-    Drawing, ImportError, MAX_DRAWING_CURVES, MAX_DRAWING_POINTS, MAX_EXPANDED_OBJECTS,
+    Drawing, ImportError, MAX_DRAWING_CURVES, MAX_DRAWING_POINTS, MAX_DRAWING_VALUES,
+    MAX_EXPANDED_OBJECTS,
     dxf::{
         flatten::flatten,
         geometry::{Affine, FitPoints, Nurbs, Shape, conic_arc},
@@ -38,13 +41,15 @@ const EXTERNAL_BLOCK: i64 = 4 | 32;
 const PAPER_SPACE: i64 = 1;
 const INVISIBLE: i64 = 1;
 const SHOWN: bool = false;
+const COMMENT: i32 = 999;
+const EXTENDED_DATA: RangeInclusive<i32> = 1000..=1071;
 
 pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
     if !looks_like_dxf(bytes) {
         return Err(ImportError::NotDxf);
     }
-    let records = records(read_pairs(bytes)?)?;
-    let file = DxfFile::read(&records)?;
+    let records = Records::new(read_pairs(bytes), MAX_DRAWING_VALUES);
+    let file = DxfFile::read(records, MAX_DRAWING_VALUES)?;
     let mut interpreter = Interpreter::new(&file);
     let entities = prepare(&file, &items(&file.entities));
     interpreter.add(
@@ -77,15 +82,15 @@ fn looks_like_dxf(bytes: &[u8]) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct Record {
+struct Record<'a> {
     kind: String,
-    pairs: Vec<Pair>,
+    pairs: Vec<Pair<'a>>,
 }
 
 trait Fields {
-    fn pairs(&self) -> &[Pair];
+    fn pairs(&self) -> &[Pair<'_>];
 
-    fn field(&self, code: i32) -> Option<&Pair> {
+    fn field(&self, code: i32) -> Option<&Pair<'_>> {
         self.pairs().iter().find(|pair| pair.code == code)
     }
 
@@ -151,43 +156,76 @@ trait Fields {
     }
 }
 
-impl Fields for Record {
-    fn pairs(&self) -> &[Pair] {
+impl Fields for Record<'_> {
+    fn pairs(&self) -> &[Pair<'_>] {
         &self.pairs
     }
 }
 
-impl Fields for [Pair] {
-    fn pairs(&self) -> &[Pair] {
+impl Fields for [Pair<'_>] {
+    fn pairs(&self) -> &[Pair<'_>] {
         self
     }
 }
 
-fn records(pairs: Vec<Pair>) -> Result<Vec<Record>, ImportError> {
-    let mut records: Vec<Record> = Vec::new();
-    for pair in pairs {
-        if pair.code == 0 {
-            records.push(Record {
-                kind: pair.text().trim().to_ascii_uppercase(),
-                pairs: Vec::new(),
-            });
-        } else if let Some(current) = records.last_mut() {
-            current.pairs.push(pair);
-        } else if pair.code != 999 {
-            return Err(ImportError::NotDxf);
+struct Records<I: Iterator> {
+    pairs: Peekable<I>,
+    limit: usize,
+}
+
+impl<'a, I: Iterator<Item = Result<Pair<'a>, ImportError>>> Records<I> {
+    fn new(pairs: I, limit: usize) -> Self {
+        Self {
+            pairs: pairs.peekable(),
+            limit,
         }
     }
-    Ok(records)
+
+    fn next_record(&mut self) -> Result<Option<Record<'a>>, ImportError> {
+        let kind = loop {
+            match self.pairs.next().transpose()? {
+                None => return Ok(None),
+                Some(pair) if pair.code == 0 => break pair.text().trim().to_ascii_uppercase(),
+                Some(pair) if pair.code == COMMENT => continue,
+                Some(_) => return Err(ImportError::NotDxf),
+            }
+        };
+        let mut pairs = Vec::new();
+        while let Some(pair) = self
+            .pairs
+            .next_if(|pair| pair.as_ref().is_ok_and(|pair| pair.code != 0))
+            .transpose()?
+        {
+            if !EXTENDED_DATA.contains(&pair.code) {
+                pairs.push(pair);
+            }
+            if pairs.len() > self.limit {
+                return Err(ImportError::TooManyValues);
+            }
+        }
+        if let Some(Err(error)) = self.pairs.next_if(Result::is_err) {
+            return Err(error);
+        }
+        Ok(Some(Record { kind, pairs }))
+    }
+}
+
+impl<'a, I: Iterator<Item = Result<Pair<'a>, ImportError>>> Iterator for Records<I> {
+    type Item = Result<Record<'a>, ImportError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_record().transpose()
+    }
 }
 
 struct Layer {
     hidden: bool,
 }
 
-struct Block {
+struct Block<'a> {
     base: Point3,
     external: bool,
-    records: Vec<Record>,
+    records: Vec<Record<'a>>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -196,11 +234,11 @@ struct HeaderUnits {
     imperial: bool,
 }
 
-struct DxfFile {
+struct DxfFile<'a> {
     units: HeaderUnits,
     layers: BTreeMap<String, Layer>,
-    blocks: BTreeMap<String, Block>,
-    entities: Vec<Record>,
+    blocks: BTreeMap<String, Block<'a>>,
+    entities: Vec<Record<'a>>,
     line_styles: LineStyles,
 }
 
@@ -211,7 +249,7 @@ struct LineStyles {
 }
 
 impl LineStyles {
-    fn add(&mut self, style: &Record) {
+    fn add(&mut self, style: &Record<'_>) {
         let flags = style.flags(70);
         if let Some(handle) = style.text(5) {
             self.by_handle.insert(handle.to_ascii_uppercase(), flags);
@@ -221,7 +259,7 @@ impl LineStyles {
         }
     }
 
-    fn of(&self, line: &Record) -> i64 {
+    fn of(&self, line: &Record<'_>) -> i64 {
         let by_handle = line
             .text(340)
             .and_then(|handle| self.by_handle.get(&handle.to_ascii_uppercase()));
@@ -233,14 +271,17 @@ impl LineStyles {
     }
 }
 
-impl DxfFile {
+impl<'a> DxfFile<'a> {
     fn hides(&self, layer: &str) -> bool {
         self.layers
             .get(&layer.to_ascii_uppercase())
             .is_some_and(|layer| layer.hidden)
     }
 
-    fn read(records: &[Record]) -> Result<Self, ImportError> {
+    fn read(
+        records: impl Iterator<Item = Result<Record<'a>, ImportError>>,
+        limit: usize,
+    ) -> Result<Self, ImportError> {
         let mut file = Self {
             units: HeaderUnits::default(),
             layers: BTreeMap::new(),
@@ -250,14 +291,16 @@ impl DxfFile {
         };
         let mut section = None;
         let mut sections = 0;
-        let mut block: Option<(String, Block)> = None;
+        let mut block: Option<(String, Block<'a>)> = None;
+        let mut kept: usize = 0;
         for record in records {
+            let record = record?;
             match record.kind.as_str() {
                 "SECTION" => {
                     sections += 1;
                     let name = record.text(2).unwrap_or_default().to_ascii_uppercase();
                     if name == "HEADER" {
-                        file.units = header_units(record);
+                        file.units = header_units(&record);
                     }
                     section = Some(name);
                     continue;
@@ -299,13 +342,20 @@ impl DxfFile {
                     }
                     _ => {
                         if let Some((_, open)) = &mut block {
-                            open.records.push(record.clone());
+                            kept = kept.saturating_add(record.pairs.len());
+                            open.records.push(record);
                         }
                     }
                 },
-                Some("ENTITIES") => file.entities.push(record.clone()),
-                Some("OBJECTS") if record.kind == "MLINESTYLE" => file.line_styles.add(record),
+                Some("ENTITIES") => {
+                    kept = kept.saturating_add(record.pairs.len());
+                    file.entities.push(record);
+                }
+                Some("OBJECTS") if record.kind == "MLINESTYLE" => file.line_styles.add(&record),
                 _ => {}
+            }
+            if kept > limit {
+                return Err(ImportError::TooManyValues);
             }
         }
         if sections == 0 {
@@ -333,11 +383,11 @@ fn header_units(header: &Record) -> HeaderUnits {
 }
 
 struct Item<'a> {
-    record: &'a Record,
-    vertices: Vec<&'a Record>,
+    record: &'a Record<'a>,
+    vertices: Vec<&'a Record<'a>>,
 }
 
-fn items(records: &[Record]) -> Vec<Item<'_>> {
+fn items<'a>(records: &'a [Record<'a>]) -> Vec<Item<'a>> {
     let mut items = Vec::new();
     let mut records = records.iter().peekable();
     while let Some(record) = records.next() {
@@ -512,7 +562,7 @@ impl Tally {
 }
 
 struct Interpreter<'a> {
-    file: &'a DxfFile,
+    file: &'a DxfFile<'a>,
     shapes: Vec<Shape>,
     points: usize,
     tally: Tally,
@@ -1114,5 +1164,53 @@ fn capitalized(text: &str) -> String {
     match characters.next() {
         Some(first) => first.to_uppercase().chain(characters).collect(),
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+
+    use super::*;
+    use crate::import::dxf::pairs::Value;
+
+    fn read(text: &str, limit: usize) -> Result<DxfFile<'_>, ImportError> {
+        DxfFile::read(Records::new(read_pairs(text.as_bytes()), limit), limit)
+    }
+
+    fn drawing(entities: usize, objects: usize) -> String {
+        let mut text = String::from("0\nSECTION\n2\nENTITIES\n");
+        for _ in 0..entities {
+            text.push_str("0\nPOINT\n8\n0\n10\n1.0\n20\n2.0\n1001\nAPP\n1000\nnote\n");
+        }
+        text.push_str("0\nENDSEC\n0\nSECTION\n2\nOBJECTS\n");
+        for _ in 0..objects {
+            text.push_str("0\nXRECORD\n5\nA\n1\nstored\n40\n1.5\n");
+        }
+        text.push_str("0\nENDSEC\n0\nEOF\n");
+        text
+    }
+
+    #[test]
+    fn only_kept_values_count_towards_the_limit() {
+        let text = drawing(10, 1000);
+
+        let file = read(&text, 30).unwrap();
+        let point = file.entities.first().unwrap();
+
+        assert_eq!(file.entities.len(), 10);
+        assert_eq!(point.pairs.len(), 3);
+        assert!(matches!(
+            point.pairs.first().unwrap().value,
+            Value::Text(Cow::Borrowed("0"))
+        ));
+        assert!(matches!(
+            read(&drawing(11, 0), 30),
+            Err(ImportError::TooManyValues)
+        ));
+        assert!(matches!(
+            read(&drawing(0, 1), 1),
+            Err(ImportError::TooManyValues)
+        ));
     }
 }
