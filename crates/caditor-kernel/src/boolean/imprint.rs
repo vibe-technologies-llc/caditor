@@ -20,6 +20,10 @@ use crate::{
 const SAME_EDGE: f64 = 10.0 * TOLERANCE;
 const EDGE_SAMPLES: [f64; 3] = [0.25, 0.5, 0.75];
 const RANGE_SLACK: f64 = 1e-9;
+const CELLS_ACROSS: f64 = 256.0;
+const CELL_TOLERANCES: f64 = 4.0;
+const CELLS_PER_PIECE: f64 = 2.0;
+const MAX_CURVE_PIECES: f64 = 256.0;
 
 type Mark = (f64, Option<usize>);
 
@@ -128,16 +132,14 @@ impl Arrangement {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+type Cell = (i64, i64, i64);
+
+#[derive(Debug, Clone)]
 struct Pool {
     points: Vec<Point3>,
     owners: Vec<[bool; 2]>,
-    by_x: BTreeMap<i64, Vec<usize>>,
-}
-
-fn order_key(value: f64) -> i64 {
-    let bits = value.to_bits() as i64;
-    bits ^ ((((bits >> 63) as u64) >> 1) as i64)
+    cell: f64,
+    cells: BTreeMap<Cell, Vec<usize>>,
 }
 
 fn owner_index(operand: Operand) -> usize {
@@ -148,15 +150,58 @@ fn owner_index(operand: Operand) -> usize {
 }
 
 impl Pool {
-    fn within_x(&self, low: f64, high: f64) -> impl Iterator<Item = usize> + '_ {
-        self.by_x
-            .range(order_key(low)..=order_key(high))
-            .flat_map(|(_, indices)| indices.iter().copied())
+    fn new(extent: f64) -> Self {
+        Self {
+            points: Vec::new(),
+            owners: Vec::new(),
+            cell: (extent / CELLS_ACROSS).max(CELL_TOLERANCES * TOLERANCE),
+            cells: BTreeMap::new(),
+        }
+    }
+
+    fn cell_of(&self, point: Point3) -> Cell {
+        let index = |value: f64| (value / self.cell).floor() as i64;
+        (index(point.x), index(point.y), index(point.z))
+    }
+
+    fn in_box(&self, bounds: &Aabb) -> Vec<usize> {
+        let (low, high) = (self.cell_of(bounds.min()), self.cell_of(bounds.max()));
+        let span = |from: i64, to: i64| u128::from(to.abs_diff(from)) + 1;
+        let cells = span(low.0, high.0) * span(low.1, high.1) * span(low.2, high.2);
+        let inside = |cell: &Cell| {
+            (low.0..=high.0).contains(&cell.0)
+                && (low.1..=high.1).contains(&cell.1)
+                && (low.2..=high.2).contains(&cell.2)
+        };
+        let mut found: Vec<usize> = if cells > self.cells.len() as u128 {
+            self.cells
+                .iter()
+                .filter(|(cell, _)| inside(cell))
+                .flat_map(|(_, members)| members.iter().copied())
+                .collect()
+        } else {
+            let mut found = Vec::new();
+            for x in low.0..=high.0 {
+                for y in low.1..=high.1 {
+                    for (_, members) in self.cells.range((x, y, low.2)..=(x, y, high.2)) {
+                        found.extend(members.iter().copied());
+                    }
+                }
+            }
+            found
+        };
+        found.retain(|index| {
+            self.points.get(*index).is_some_and(|point| {
+                point.cmpge(bounds.min()).all() && point.cmple(bounds.max()).all()
+            })
+        });
+        found
     }
 
     fn insert(&mut self, point: Point3, owner: Option<Operand>) -> usize {
         let existing = self
-            .within_x(point.x - TOLERANCE, point.x + TOLERANCE)
+            .in_box(&Aabb::from_point(point).expanded(TOLERANCE))
+            .into_iter()
             .filter_map(|index| {
                 let known = self.points.get(index)?;
                 Some((index, known.distance_squared(point)))
@@ -168,7 +213,10 @@ impl Pool {
             self.points.push(point);
             self.owners.push([false; 2]);
             let index = self.points.len() - 1;
-            self.by_x.entry(order_key(point.x)).or_default().push(index);
+            self.cells
+                .entry(self.cell_of(point))
+                .or_default()
+                .push(index);
             index
         });
         if let Some(owner) = owner
@@ -188,15 +236,24 @@ impl Pool {
             .unwrap_or(false)
     }
 
-    fn near(&self, bounds: &Aabb) -> impl Iterator<Item = (usize, Point3)> + '_ {
-        let bounds = bounds.expanded(TOLERANCE);
-        let mut found: Vec<usize> = self.within_x(bounds.min().x, bounds.max().x).collect();
+    fn near(&self, curve: &Curve, interval: Interval) -> Vec<(usize, Point3)> {
+        let whole = curve.bounding_box(interval);
+        let pieces = (whole.diagonal() / (CELLS_PER_PIECE * self.cell))
+            .ceil()
+            .clamp(1.0, MAX_CURVE_PIECES) as usize;
+        let mut found: Vec<usize> = interval
+            .split(pieces)
+            .collect::<Vec<f64>>()
+            .windows(2)
+            .filter_map(|pair| Interval::new(*pair.first()?, *pair.get(1)?))
+            .flat_map(|piece| self.in_box(&curve.bounding_box(piece).expanded(TOLERANCE)))
+            .collect();
         found.sort_unstable();
-        found.into_iter().filter_map(move |index| {
-            let point = *self.points.get(index)?;
-            (point.cmpge(bounds.min()).all() && point.cmple(bounds.max()).all())
-                .then_some((index, point))
-        })
+        found.dedup();
+        found
+            .into_iter()
+            .filter_map(|index| Some((index, *self.points.get(index)?)))
+            .collect()
     }
 }
 
@@ -235,7 +292,13 @@ fn boundary_edges(solid: &Solid, face: FaceId) -> Vec<EdgeId> {
 }
 
 pub(super) fn imprint(input: &Input) -> Result<Arrangement, BooleanError> {
-    let mut pool = Pool::default();
+    let extent = Operand::BOTH
+        .iter()
+        .flat_map(|operand| input.faces(*operand))
+        .map(|face| face.bounds)
+        .reduce(Aabb::union)
+        .map_or(1.0, |bounds| bounds.diagonal());
+    let mut pool = Pool::new(extent);
     let vertex_ids = Operand::BOTH.map(|operand| {
         input
             .solid(operand)
@@ -433,7 +496,7 @@ fn split_edges(
             return Err(BooleanError::Split);
         };
         let mut stops = vec![(interval.start(), start), (interval.end(), end)];
-        for (vertex, point) in pool.near(&curve.bounding_box(interval)) {
+        for (vertex, point) in pool.near(curve, interval) {
             if pool.owned_by(vertex, operand) {
                 continue;
             }
@@ -541,7 +604,7 @@ fn inside_both(input: &Input, branch: &Branch, parameter: f64) -> bool {
 
 fn branch_stops(curve: &Curve, range: Interval, closed: bool, pool: &Pool) -> Vec<(f64, usize)> {
     let mut stops: Vec<(f64, usize)> = Vec::new();
-    for (vertex, point) in pool.near(&curve.bounding_box(range)) {
+    for (vertex, point) in pool.near(curve, range) {
         let parameter = curve.closest_parameter(point, range);
         if curve.point(parameter).distance(point) > TOLERANCE {
             continue;

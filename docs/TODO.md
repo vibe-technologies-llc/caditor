@@ -50,9 +50,6 @@ within a category run from most to least important.
 
 ## Kernel performance
 
-- The boolean vertex pool buckets by exact x bits (`boolean/imprint.rs` `Pool`), so axis-aligned
-  models put every vertex on a plane in one bucket and `near` returns whole x-slabs: O(n²)
-  inserts and O(edges × points) splits. Index by a 3D grid of the tolerance.
 - Profile keys and faces cost O(R²) and O(F·P): `shared_keys` and `with_keys` count equal keys
   with nested scans, `base_keys` clones every piece, and `lumps` scans every half-edge per face.
   The largest test has 200 regions; a big DXF freezes the worker.

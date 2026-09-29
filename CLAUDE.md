@@ -475,7 +475,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     id. `build::plan::Plan` is also how booleans emit their result, with explicit pcurves.
   - Booleans (`boolean/`): `boolean(first, second, BooleanOperation)` for union, difference and
     intersection, valid or an error (`BooleanError`), never a bad solid.
-    - Imprinting pools vertices within `LINEAR_RESOLUTION`: those of both solids, edge–face hits
+    - Imprinting pools vertices within `LINEAR_RESOLUTION` (indexed by a grid of 256 cells
+      across both solids, and looked up along a curve piece by piece): those of both solids, edge–face hits
       inside or on the face, the ends of an edge lying in a face's surface and its crossings with
       that face's edges, and the tangent points of face pairs. Each edge is split at the pooled
       vertices of the other solid lying on it (the ends of a piece shorter than the resolution
