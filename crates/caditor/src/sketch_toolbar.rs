@@ -228,7 +228,8 @@ fn constraint_buttons(
                 ))
                 .frame_when_inactive(false)
                 .min_size(egui::vec2(CONSTRAINT_WIDTH, 0.0));
-                let response = ui.add_enabled(offer.is_ok(), button);
+                let response =
+                    ui.add_enabled(offer.is_ok(), widgets::Named::new(button, tool.label()));
                 let response = match offer {
                     Ok(_) => {
                         response.on_hover_text(commands.with_keys(command, tool.description()))

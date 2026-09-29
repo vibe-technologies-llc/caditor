@@ -38,7 +38,7 @@ fn kind_row(
 ) {
     widgets::caption(ui, "Shape");
     let mut chosen = None;
-    ComboBox::from_id_salt(("blend-kind", feature))
+    let combo = ComboBox::from_id_salt(("blend-kind", feature))
         .selected_text(blend.kind.title())
         .show_ui(ui, |ui| {
             for kind in KINDS {
@@ -64,6 +64,7 @@ fn kind_row(
                 }
             }
         });
+    widgets::tie_to_caption(ui, &combo.response);
     ui.end_row();
     if let Some(change) = chosen {
         apply(actions, change);

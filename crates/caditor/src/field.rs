@@ -3,7 +3,10 @@ use caditor_expression::{Dimension, Expression, Unit};
 use caditor_sketch::{Constraint, ConstraintId};
 use egui::{Align, Id, Key, Response, Stroke, StrokeKind, TextEdit, Ui, vec2};
 
-use crate::units::{LengthUnit, attach_unit};
+use crate::{
+    units::{LengthUnit, attach_unit},
+    widgets,
+};
 
 const ERROR_OUTLINE_WIDTH: f32 = 1.5;
 const ERROR_OUTLINE_RADIUS: f32 = 2.0;
@@ -42,6 +45,7 @@ pub fn commit_field<T>(
             .desired_width(width)
             .min_size(vec2(width, 0.0)),
     );
+    widgets::tie_to_caption(ui, &response);
     if focus {
         response.request_focus();
         response.scroll_to_me(Some(Align::Center));

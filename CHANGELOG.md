@@ -108,6 +108,9 @@ The first release of caditor.
 - Dark, light and high-contrast themes, interface sizes from 75% to 200%, and a choice of
   micrometres, millimetres, centimetres or metres.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.
+- Screen readers name icon buttons by what they do instead of reading a symbol, read each
+  property's caption with its field, and tell the shortcut editor's Add and Reset buttons apart
+  by the command they change.
 - A welcome dialog with three sample models and first-run tips.
 - Help › About caditor shows the version; `caditor --version` prints it.
 - Hovering a constraint in the feature tree highlights what it constrains, and clicking it edits

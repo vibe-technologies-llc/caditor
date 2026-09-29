@@ -951,7 +951,13 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `dialog`/`footer` (a titled modal with a close button and the primary action rightmost); dialog
     widths and list heights are clamped to the screen (`fitting_width`, `list_height`) so nothing
     clips at 200%. Icons and labels are separate text atoms, so tests find a button by its bare
-    label. The 3D view keeps a dark canvas in every theme, so text drawn on it takes its colours
+    label. Screen readers never meet a glyph: every button drawn with one takes a name without it
+    (`Named`, `named`: an icon button its hover text, small buttons, menu items and section
+    headers their label, a tree row's chevron, edit and "⋯" buttons the action and the feature's
+    name, the shortcut editor's chips, Add… and Reset the command they act on), decorative glyphs
+    are hidden from the AccessKit tree (`icon_label`, `decorative`) and meaningful ones described
+    (`described_icon`), and a property `caption` labels the text field, combo box or slider after
+    it in its grid (`tie_to_caption`, called by `field::commit_field`). The 3D view keeps a dark canvas in every theme, so text drawn on it takes its colours
     from `canvas.rs` and sits on its translucent backdrop (`canvas::label`); a test holds every
     canvas colour to 4.5:1 (body text 7:1) over that backdrop on black, white and highlight colours.
   - Layout: the menu bar holds File, Edit, View, Model, Sketch and Help, built from the
@@ -1241,7 +1247,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     with synthetic input; picking needs the GPU, so the harness answers each pick request as the
     renderer would, with nothing under the cursor unless a test hovers a chosen `Pickable`
     (`hover_pickable`, through `hover_through_pick`) until the pointer moves, and can hold answers
-    back like a slow GPU (`picks_held`). Tests also set the viewport selection directly, drawing
+    back like a slow GPU (`picks_held`). With `enable_accesskit` it keeps each frame's AccessKit
+    nodes, so tests check names, captions and that no visible node shows a private-use glyph.
+    Tests also set the viewport selection directly, drawing
     tests click sketch positions mapped to the screen through the view and annotation tests click
     the painted labels and glyphs.
 

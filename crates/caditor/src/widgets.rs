@@ -28,6 +28,7 @@ const FOCUS_WIDTH: f32 = 2.0;
 const DIALOG_MARGIN: i8 = 20;
 const DIALOG_FOOTER_GAP: f32 = 14.0;
 const UNDERLINE_WIDTH: f32 = 1.0;
+const CAPTION_KEY: &str = "property-caption";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
@@ -78,20 +79,71 @@ pub fn muted(text: impl Into<String>, ui: &Ui) -> RichText {
 }
 
 pub fn icon_label(ui: &mut Ui, glyph: &str, color: Color32) -> Response {
-    ui.add(Label::new(icon(glyph).color(color)).selectable(false))
+    let response = ui.add(Label::new(icon(glyph).color(color)).selectable(false));
+    decorative(ui, &response);
+    response
+}
+
+pub fn described_icon(ui: &mut Ui, glyph: &str, color: Color32, description: &str) -> Response {
+    let response = ui.add(Label::new(icon(glyph).color(color)).selectable(false));
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, description));
+    response.on_hover_text(description)
+}
+
+pub fn named(response: Response, name: &str) -> Response {
+    name_button(response, name, None)
+}
+
+pub fn decorative(ui: &Ui, response: &Response) {
+    ui.ctx()
+        .accesskit_node_builder(response.id, |node| node.set_hidden());
+}
+
+fn name_button(response: Response, name: &str, selected: Option<bool>) -> Response {
+    let enabled = response.enabled();
+    response.widget_info(|| match selected {
+        Some(selected) => WidgetInfo::selected(WidgetType::Button, enabled, selected, name),
+        None => WidgetInfo::labeled(WidgetType::Button, enabled, name),
+    });
+    response
+}
+
+pub struct Named<W> {
+    widget: W,
+    name: String,
+    selected: Option<bool>,
+}
+
+impl<W> Named<W> {
+    pub fn new(widget: W, name: impl Into<String>) -> Self {
+        Self {
+            widget,
+            name: name.into(),
+            selected: None,
+        }
+    }
+
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = Some(selected);
+        self
+    }
+}
+
+impl<W: Widget> Widget for Named<W> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        name_button(self.widget.ui(ui), &self.name, self.selected)
+    }
 }
 
 pub fn icon_button(ui: &mut Ui, glyph: &str, hover: &str) -> Response {
     let muted = appearance::tokens(ui).text_muted;
-    ui.add(
-        Button::new(icon(glyph).color(muted))
-            .frame_when_inactive(false)
-            .min_size(vec2(
-                ui.spacing().interact_size.y,
-                ui.spacing().interact_size.y,
-            )),
-    )
-    .on_hover_text(hover)
+    let button = Button::new(icon(glyph).color(muted))
+        .frame_when_inactive(false)
+        .min_size(vec2(
+            ui.spacing().interact_size.y,
+            ui.spacing().interact_size.y,
+        ));
+    ui.add(Named::new(button, hover)).on_hover_text(hover)
 }
 
 pub fn removable_row(ui: &mut Ui, text: RichText, hover: &str) -> bool {
@@ -106,12 +158,13 @@ pub fn removable_row(ui: &mut Ui, text: RichText, hover: &str) -> bool {
         .1
 }
 
-pub fn small_button(ui: &mut Ui, glyph: &str, text: &str) -> Button<'static> {
+pub fn small_button(ui: &mut Ui, glyph: &str, text: &str) -> Named<Button<'static>> {
     let muted = appearance::tokens(ui).text_muted;
-    Button::new((
+    let button = Button::new((
         icon(glyph).color(muted),
         RichText::new(text.to_owned()).text_style(TextStyle::Body),
-    ))
+    ));
+    Named::new(button, text)
 }
 
 pub fn primary_button(ui: &Ui, text: impl Into<String>) -> Button<'static> {
@@ -196,11 +249,23 @@ pub fn column_caption(ui: &mut Ui, text: &str) {
 
 pub fn caption(ui: &mut Ui, text: &str) {
     let tokens = appearance::tokens(ui);
-    ui.add(
+    let label = ui.add(
         Label::new(RichText::new(text).color(tokens.text_muted))
             .selectable(false)
             .wrap_mode(TextWrapMode::Extend),
     );
+    let key = ui.unique_id().with(CAPTION_KEY);
+    ui.data_mut(|data| data.insert_temp(key, label.id));
+}
+
+pub fn tie_to_caption(ui: &Ui, field: &Response) {
+    let caption = ui
+        .stack()
+        .iter()
+        .find_map(|level| ui.data(|data| data.get_temp::<Id>(level.id.with(CAPTION_KEY))));
+    if let Some(caption) = caption {
+        field.clone().labelled_by(caption);
+    }
 }
 
 pub fn section_title(text: &str) -> RichText {
@@ -278,10 +343,11 @@ pub fn section(
             } else {
                 icons::COLLAPSED
             };
-            let header = ui.add(
+            let header = ui.add(Named::new(
                 Button::new((icon(chevron).color(tokens.text_muted), section_title(title)))
                     .frame_when_inactive(false),
-            );
+                title,
+            ));
             if let Some(count) = count {
                 ui.add(
                     Label::new(
@@ -318,7 +384,7 @@ pub fn menu_item(ui: &mut Ui, glyph: &str, title: &str, keys: Option<String>) ->
     if let Some(keys) = keys {
         button = button.shortcut_text(RichText::new(keys).text_style(TextStyle::Small));
     }
-    ui.add(button)
+    ui.add(Named::new(button, title))
 }
 
 pub struct ToolButton<'a> {

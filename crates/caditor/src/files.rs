@@ -36,6 +36,8 @@ use crate::{
     widgets::{self, DialogWidth, Tone},
 };
 
+const OPEN_RECENT: &str = "Open Recent";
+const OPEN_SAMPLE: &str = "Open Sample";
 const QUIT_ANYWAY_AFTER: Duration = Duration::from_secs(5);
 const INTERNAL_ERROR: &str = "caditor ran into an internal error while reading it";
 const REPORT_HEIGHT: f32 = 280.0;
@@ -1265,7 +1267,7 @@ pub fn menu(
         item(ui, &mut chosen, Command::New);
         item(ui, &mut chosen, Command::Open);
         ui.add_enabled_ui(!files.recent().is_empty(), |ui| {
-            ui.menu_button(submenu_label(ui, icons::RECENT, "Open Recent"), |ui| {
+            let recent = ui.menu_button(submenu_label(ui, icons::RECENT, OPEN_RECENT), |ui| {
                 for path in files.recent() {
                     let response = ui
                         .button(display_name(Some(path)))
@@ -1275,8 +1277,9 @@ pub fn menu(
                     }
                 }
             });
+            widgets::named(recent.response, OPEN_RECENT);
         });
-        ui.menu_button(submenu_label(ui, icons::SAMPLE, "Open Sample"), |ui| {
+        let samples = ui.menu_button(submenu_label(ui, icons::SAMPLE, OPEN_SAMPLE), |ui| {
             for sample in Sample::ALL {
                 let response = ui
                     .button(sample.title())
@@ -1286,6 +1289,7 @@ pub fn menu(
                 }
             }
         });
+        widgets::named(samples.response, OPEN_SAMPLE);
         ui.separator();
         item(ui, &mut chosen, Command::Save);
         item(ui, &mut chosen, Command::SaveAs);

@@ -167,7 +167,9 @@ impl Palette {
                         .frame_when_inactive(highlighted)
                         .min_size(vec2(ui.available_width(), ROW_HEIGHT));
                         let ready = entry.offer.availability.is_ok();
-                        let row = ui.add_enabled(ready, button);
+                        let named =
+                            widgets::Named::new(button, entry.offer.title()).selected(highlighted);
+                        let row = ui.add_enabled(ready, named);
                         if highlighted && (up || down) {
                             row.scroll_to_me(None);
                         }

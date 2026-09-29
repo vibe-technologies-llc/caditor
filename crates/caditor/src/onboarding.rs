@@ -3,7 +3,8 @@ use std::collections::BTreeSet;
 use caditor_document::FeatureKind;
 use caditor_file::Settings;
 use egui::{
-    Align2, Area, CornerRadius, Frame, Id, Margin, Order, Rect, RichText, Sense, Stroke, Ui, vec2,
+    Align2, Area, CornerRadius, Frame, Id, Label, Margin, Order, Rect, RichText, Sense, Stroke, Ui,
+    vec2,
 };
 
 use crate::{
@@ -344,11 +345,15 @@ fn sample_card(ui: &mut Ui, sample: Sample) -> bool {
         let ui = &mut prepared.content_ui;
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(icons::SAMPLE)
-                    .font(egui::FontId::new(SAMPLE_ICON_SIZE, fonts::icons()))
-                    .color(tokens.accent_text),
+            let glyph = ui.add(
+                Label::new(
+                    RichText::new(icons::SAMPLE)
+                        .font(egui::FontId::new(SAMPLE_ICON_SIZE, fonts::icons()))
+                        .color(tokens.accent_text),
+                )
+                .selectable(false),
             );
+            widgets::decorative(ui, &glyph);
             ui.vertical(|ui| {
                 ui.label(RichText::new(sample.title()).strong());
                 ui.label(widgets::muted(sample.description(), ui));
@@ -361,6 +366,7 @@ fn sample_card(ui: &mut Ui, sample: Sample) -> bool {
         .end(ui)
         .interact(Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand);
+    let response = widgets::named(response, &Command::OpenSample(sample).title());
     if response.has_focus() {
         ui.painter().rect_stroke(
             response.rect,

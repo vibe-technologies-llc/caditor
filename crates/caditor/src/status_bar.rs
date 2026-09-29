@@ -211,14 +211,17 @@ fn selection(ui: &mut Ui, model: &Model, selection: &Selection) {
 
 fn unit(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>) {
     let muted = appearance::tokens(ui).text_muted;
+    let button = egui::Button::new((
+        widgets::icon(icons::UNIT).color(muted),
+        RichText::new(model.length_unit().symbol()).text_style(TextStyle::Body),
+    ))
+    .frame_when_inactive(false);
+    let name = format!(
+        "Length unit: {}",
+        model.length_unit().label().to_lowercase()
+    );
     let response = ui
-        .add(
-            egui::Button::new((
-                widgets::icon(icons::UNIT).color(muted),
-                RichText::new(model.length_unit().symbol()).text_style(TextStyle::Body),
-            ))
-            .frame_when_inactive(false),
-        )
+        .add(widgets::Named::new(button, name))
         .on_hover_text(format!(
             "Lengths are shown in {}. Click to change it in Preferences.",
             model.length_unit().label().to_lowercase()

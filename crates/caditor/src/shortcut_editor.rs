@@ -252,9 +252,10 @@ fn row(
                 RichText::new(keys.clone()).text_style(egui::TextStyle::Small),
                 widgets::icon(icons::REMOVE).color(muted),
             ));
+            let name = format!("Remove {keys} from {}", listed.title());
             let removed = ui
-                .add(chip)
-                .on_hover_text(format!("Remove {keys} from {}", listed.title()))
+                .add(widgets::Named::new(chip, name.clone()))
+                .on_hover_text(name)
                 .clicked();
             if removed {
                 *command = Some(PreferencesCommand::Change(PreferenceChange::Unbind(
@@ -268,17 +269,28 @@ fn row(
             widgets::pill(ui, Tone::Warning, RECORDING_TEXT);
             return;
         }
+        let add_name = format!("Record a new shortcut for {}", listed.title());
         let add = ui
-            .button("Add…")
-            .on_hover_text(format!("Record a new shortcut for {}", listed.title()));
+            .add(widgets::Named::new(
+                egui::Button::new("Add…"),
+                add_name.clone(),
+            ))
+            .on_hover_text(add_name);
         if add.clicked() {
             editor.recording = Some(listed);
             editor.pending = None;
             editor.message = None;
         }
+        let reset_name = format!(
+            "Reset {} to the shortcut caditor starts with",
+            listed.title()
+        );
         let reset = ui
-            .add_enabled(!keymap.is_default(listed), egui::Button::new("Reset"))
-            .on_hover_text("Go back to the shortcut caditor starts with");
+            .add_enabled(
+                !keymap.is_default(listed),
+                widgets::Named::new(egui::Button::new("Reset"), reset_name.clone()),
+            )
+            .on_hover_text(reset_name);
         if reset.clicked() {
             *command = Some(PreferencesCommand::Change(PreferenceChange::ResetShortcut(
                 listed,

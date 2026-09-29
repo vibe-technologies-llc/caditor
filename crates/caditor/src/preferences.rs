@@ -282,6 +282,7 @@ fn speed_slider(
 ) {
     let mut speed = current;
     let response = ui.add(egui::Slider::new(&mut speed, MIN_SPEED..=MAX_SPEED).logarithmic(true));
+    widgets::tie_to_caption(ui, &response);
     let settled = response.drag_stopped() || !response.dragged();
     if settled && (response.changed() || response.drag_stopped()) {
         change(command, make(speed));
@@ -348,7 +349,10 @@ fn appearance(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
                     let smaller = ui
                         .add_enabled(
                             current.scale > MIN_SCALE,
-                            egui::Button::new(widgets::icon(icons::SUBTRACT)),
+                            widgets::Named::new(
+                                egui::Button::new(widgets::icon(icons::SUBTRACT)),
+                                Command::SmallerInterface.title(),
+                            ),
                         )
                         .on_hover_text("Smaller");
                     if smaller.clicked() {
@@ -358,7 +362,10 @@ fn appearance(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
                     let larger = ui
                         .add_enabled(
                             current.scale < MAX_SCALE,
-                            egui::Button::new(widgets::icon(icons::ADD)),
+                            widgets::Named::new(
+                                egui::Button::new(widgets::icon(icons::ADD)),
+                                Command::LargerInterface.title(),
+                            ),
                         )
                         .on_hover_text("Larger");
                     if larger.clicked() {

@@ -63,7 +63,7 @@ impl Panel<'_> {
         options: impl FnOnce(&Self) -> Vec<Choice>,
     ) {
         let mut chosen = None;
-        ComboBox::from_id_salt((salt, self.id()))
+        let combo = ComboBox::from_id_salt((salt, self.id()))
             .selected_text(selected)
             .show_ui(ui, |ui| {
                 for option in options(self) {
@@ -82,6 +82,7 @@ impl Panel<'_> {
                     }
                 }
             });
+        widgets::tie_to_caption(ui, &combo.response);
         if let Some(transaction) = chosen {
             self.actions.push(Action::Apply(transaction));
         }

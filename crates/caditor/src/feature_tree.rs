@@ -146,10 +146,11 @@ fn feature_row(
                     };
                     let hint = if open { "Hide details" } else { "Show details" };
                     let toggle = ui
-                        .add(
+                        .add(widgets::Named::new(
                             Button::new(widgets::icon(chevron).color(tokens.text_muted))
                                 .frame(false),
-                        )
+                            format!("{hint} of {}", feature.name),
+                        ))
                         .on_hover_text(hint);
                     let kind_color = if row.edited {
                         tokens.accent_text
@@ -308,7 +309,7 @@ fn status_icon(ui: &mut Ui, status: Option<&FeatureStatus>) {
         None => (icons::PENDING, tokens.text_muted, "Waiting to be computed"),
         Some(FeatureState::UpToDate) => return,
     };
-    widgets::icon_label(ui, glyph, color).on_hover_text(hint);
+    widgets::described_icon(ui, glyph, color, hint);
 }
 
 fn more_menu(
@@ -323,7 +324,8 @@ fn more_menu(
     let (response, _) = MenuButton::from_button(button).ui(ui, |ui| {
         context_menu(ui, document, state, actions, row);
     });
-    response.on_hover_text(MORE_HINT);
+    widgets::named(response, &format!("More actions for {}", row.feature.name))
+        .on_hover_text(MORE_HINT);
 }
 
 fn edit_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
@@ -336,8 +338,12 @@ fn edit_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
     } else {
         (icons::EDIT, tokens.text_muted)
     };
+    let name = format!("{hover} ({})", row.feature.name);
     let response = ui
-        .add(Button::new(widgets::icon(glyph).color(color)).frame_when_inactive(false))
+        .add(widgets::Named::new(
+            Button::new(widgets::icon(glyph).color(color)).frame_when_inactive(false),
+            name,
+        ))
         .on_hover_text(hover);
     if response.clicked() {
         actions.push(Action::Editing(command));

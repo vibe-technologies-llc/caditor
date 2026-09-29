@@ -213,7 +213,8 @@ impl Menus<'_, '_> {
 
 fn submenu(ui: &mut Ui, glyph: &str, title: &str, add: impl FnOnce(&mut Ui)) {
     let muted = appearance::tokens(ui).text_muted;
-    ui.menu_button((widgets::icon(glyph).color(muted), title.to_owned()), add);
+    let submenu = ui.menu_button((widgets::icon(glyph).color(muted), title.to_owned()), add);
+    widgets::named(submenu.response, title);
 }
 
 fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) {
@@ -229,7 +230,11 @@ fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) {
         button = button.shortcut_text(RichText::new(keys).text_style(TextStyle::Small));
     }
     let hover = commands.with_keys(Command::Palette, "Search every command by name");
-    if ui.add(button).on_hover_text(hover).clicked() {
+    if ui
+        .add(widgets::Named::new(button, SEARCH_LABEL))
+        .on_hover_text(hover)
+        .clicked()
+    {
         commands.trigger(Command::Palette);
     }
 }

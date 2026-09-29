@@ -14,6 +14,7 @@ use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 use egui::{
     Color32, Event, Id, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape,
+    accesskit::{Node, NodeId, Role},
     epaint::ClippedShape,
 };
 use parking_lot::Mutex;
@@ -93,6 +94,7 @@ struct Harness {
     time: f64,
     forced_hover: Option<(Pos2, Pickable)>,
     picks_held: bool,
+    accessible: Vec<(NodeId, Node)>,
 }
 
 impl Harness {
@@ -143,6 +145,7 @@ impl Harness {
             time: 0.0,
             forced_hover: None,
             picks_held: false,
+            accessible: Vec::new(),
         };
         harness.settle();
         harness
@@ -196,6 +199,9 @@ impl Harness {
             app::show(ui, model, files, workspace, &mut actions);
         });
         output.textures_delta.clear();
+        if let Some(update) = output.platform_output.accesskit_update.take() {
+            self.accessible = update.nodes;
+        }
         app::perform(
             actions,
             &mut self.model,
@@ -590,6 +596,62 @@ impl Harness {
 
     fn error_color(&self) -> Color32 {
         self.context.global_style().visuals.error_fg_color
+    }
+
+    fn accessible_named(&self, role: Role, name: &str) -> bool {
+        self.accessible
+            .iter()
+            .any(|(_, node)| node.role() == role && node.label() == Some(name))
+    }
+
+    fn unreadable_nodes(&self) -> Vec<String> {
+        let private_use = |text: &str| {
+            text.chars()
+                .any(|character| ('\u{E000}'..='\u{F8FF}').contains(&character))
+        };
+        let mut hidden: Vec<NodeId> = self
+            .accessible
+            .iter()
+            .filter(|(_, node)| node.is_hidden())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut index = 0;
+        while let Some(parent) = hidden.get(index).copied() {
+            if let Some((_, node)) = self.accessible.iter().find(|(id, _)| *id == parent) {
+                hidden.extend_from_slice(node.children());
+            }
+            index += 1;
+        }
+        self.accessible
+            .iter()
+            .filter(|(id, _)| !hidden.contains(id))
+            .filter(|(_, node)| {
+                let unnamed_button = node.role() == Role::Button
+                    && node.label().is_none_or(|label| label.trim().is_empty());
+                let glyph = [node.label(), node.value()]
+                    .into_iter()
+                    .flatten()
+                    .any(private_use);
+                unnamed_button || glyph
+            })
+            .map(|(_, node)| format!("{node:?}"))
+            .collect()
+    }
+
+    fn captioned(&self, role: Role, caption: &str) -> bool {
+        let captions: Vec<NodeId> = self
+            .accessible
+            .iter()
+            .filter(|(_, node)| node.role() == Role::Label && node.value() == Some(caption))
+            .map(|(id, _)| *id)
+            .collect();
+        self.accessible.iter().any(|(_, node)| {
+            node.role() == role
+                && node
+                    .labelled_by()
+                    .iter()
+                    .any(|label| captions.contains(label))
+        })
     }
 }
 
@@ -4089,4 +4151,100 @@ fn tips_are_dismissed_and_hidden_from_the_palette() {
     assert!(!harness.shows("Tip"));
     assert!(!harness.workspace.preferences.onboarding.hints);
     assert!(offer(&harness, Command::DismissTip).availability.is_err());
+}
+
+fn assert_readable(harness: &Harness, screen: &str) {
+    let unreadable = harness.unreadable_nodes();
+    assert!(
+        unreadable.is_empty(),
+        "{screen} exposes glyphs or unnamed buttons: {unreadable:#?}"
+    );
+}
+
+#[test]
+fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+    harness.frame();
+    harness.frame();
+    assert_readable(&harness, "The empty window");
+    assert!(harness.accessible_named(Role::Button, "More actions for Side sketch"));
+    assert!(harness.accessible_named(Role::Button, "Show details of Base sketch"));
+    assert!(harness.accessible_named(Role::Button, "Edit sketch (Base sketch)"));
+    assert!(harness.accessible_named(Role::Button, "Add parameter"));
+    assert!(harness.accessible_named(Role::Button, "Length unit: millimetres"));
+
+    harness.click("File");
+    assert_readable(&harness, "The File menu");
+    assert!(harness.accessible_named(Role::Button, "Open Sample"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+
+    let (extrude, _) = extruded_plate(&mut harness);
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
+    harness.settle();
+    assert_readable(&harness, "An open extrusion");
+    assert!(harness.captioned(Role::TextInput, "Distance"));
+    assert!(harness.captioned(Role::ComboBox, "Extent"));
+
+    harness.select([]);
+    harness.click("Plane");
+    harness.settle();
+    assert_readable(&harness, "An open datum plane");
+    assert!(harness.captioned(Role::TextInput, "Offset"));
+    assert!(harness.accessible_named(Role::Button, "Use selected"));
+
+    harness.key(Key::Comma, Modifiers::COMMAND);
+    harness.show_new_windows();
+    assert_readable(&harness, "Preferences");
+    assert!(harness.accessible_named(Role::Button, "Make the interface smaller"));
+    assert!(harness.accessible_named(Role::Button, "Make the interface larger"));
+    assert!(harness.captioned(Role::Slider, "Orbit speed"));
+
+    harness.perform(Action::Preferences(PreferencesCommand::ShowShortcuts));
+    harness.show_new_windows();
+    assert_readable(&harness, "The shortcut editor");
+    assert!(harness.accessible_named(Role::Button, "Record a new shortcut for Undo"));
+    assert!(harness.accessible_named(Role::Button, "Record a new shortcut for Redo"));
+    assert!(harness.accessible_named(Role::Button, "Remove Ctrl+Z from Undo"));
+    assert!(harness.accessible_named(
+        Role::Button,
+        "Reset Undo to the shortcut caditor starts with"
+    ));
+    assert!(!harness.accessible_named(Role::Button, "Add…"));
+    assert!(!harness.accessible_named(Role::Button, "Reset"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+
+    harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.show_new_windows();
+    assert_readable(&harness, "The command palette");
+    assert!(harness.accessible_named(Role::Button, "Fit view"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+
+    let base = feature_named(&harness, "Base sketch");
+    harness.edit(base);
+    assert_readable(&harness, "An edited sketch");
+    assert!(harness.accessible_named(Role::Button, "Horizontal"));
+}
+
+#[test]
+fn the_welcome_dialog_and_tips_are_readable_by_screen_readers() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::first_run(dir.path());
+    harness.context.enable_accesskit();
+    harness.frame();
+    harness.frame();
+    assert!(harness.shows("Welcome to caditor"));
+    assert_readable(&harness, "The welcome dialog");
+    assert!(harness.accessible_named(Role::Button, "Close (Esc)"));
+    assert!(harness.accessible_named(Role::Button, "Open the Flanged spool sample"));
+
+    harness.click("Flanged spool");
+    harness.settle();
+    assert!(harness.shows("Got it"));
+    assert_readable(&harness, "A tip");
 }
