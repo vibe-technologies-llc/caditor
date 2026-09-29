@@ -1,7 +1,9 @@
 use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
-use caditor_kernel::{BlendError, BlendShape, EdgeId, EdgeReference, ReferenceError, Solid, blend};
+use caditor_kernel::{
+    BlendError, BlendShape, EdgeId, EdgeNaming, EdgeReference, ReferenceError, Solid, blend,
+};
 
 use crate::{
     describe::describe_edge,
@@ -69,9 +71,10 @@ impl Blend {
     }
 
     pub fn resolve(&self, solid: &Solid) -> Result<Vec<EdgeId>, Unresolved> {
+        let naming = EdgeNaming::new(solid);
         let mut tally = Tally::with_capacity(self.edges.len());
         for reference in &self.edges {
-            match reference.resolve(solid) {
+            match reference.resolve_in(&naming) {
                 Ok(edge) => tally.found(edge),
                 Err(ReferenceError::Ambiguous(pieces)) => {
                     let related = pieces_of_one_edge(solid, &pieces);

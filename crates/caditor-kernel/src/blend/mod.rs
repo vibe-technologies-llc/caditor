@@ -22,7 +22,7 @@ use crate::{
     interrupt::{self, Interrupted},
     intersect::intersect_curves,
     interval::Interval,
-    naming::{EdgeReference, FaceName, FaceOrigin, ReferenceError},
+    naming::{EdgeNaming, EdgeReference, FaceName, FaceOrigin, ReferenceError},
     profile::{Profile, ProfileCurve, ProfileError, ProfileShape, Selection},
     surface::Surface,
     tolerance::LINEAR_RESOLUTION,
@@ -919,10 +919,11 @@ fn blend_edges(
         let geometries: Vec<EdgeGeometry> = analysed.into_values().collect();
         return apply_analysed(solid, &topology, &geometries, shape, feature);
     }
+    let naming = EdgeNaming::new(solid);
     let references: Vec<(EdgeId, EdgeReference)> = convex
         .iter()
         .map(|edge| {
-            EdgeReference::capture(solid, *edge)
+            EdgeReference::capture_in(&naming, *edge)
                 .map(|reference| (*edge, reference))
                 .ok_or(BlendError::MissingEdge(*edge))
         })
@@ -945,9 +946,10 @@ fn find_again(
     filled: &Solid,
     references: &[(EdgeId, EdgeReference)],
 ) -> Result<BTreeMap<EdgeId, EdgeId>, BlendError> {
+    let naming = EdgeNaming::new(filled);
     let mut original = BTreeMap::new();
     for (edge, reference) in references {
-        let found = match reference.resolve(filled) {
+        let found = match reference.resolve_in(&naming) {
             Ok(found) => vec![found],
             Err(ReferenceError::Ambiguous(candidates)) => candidates,
             Err(ReferenceError::Missing) => return Err(BlendError::Lost(*edge)),

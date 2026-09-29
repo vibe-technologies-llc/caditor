@@ -142,16 +142,12 @@ impl EdgeReference {
     }
 
     pub fn capture(solid: &Solid, edge: EdgeId) -> Option<Self> {
-        let definition = solid.edge(edge)?;
-        let around = faces_around_vertices(solid);
-        Some(Self::new(
-            definition.name(),
-            edge_face_names(solid, edge)?,
-            [
-                vertex_name(&around, definition.start()),
-                vertex_name(&around, definition.end()),
-            ],
-        ))
+        Self::capture_in(&EdgeNaming::new(solid), edge)
+    }
+
+    pub fn capture_in(naming: &EdgeNaming, edge: EdgeId) -> Option<Self> {
+        let entry = naming.edges.get(&edge)?;
+        Some(Self::new(entry.name, entry.faces?, entry.ends))
     }
 
     pub fn name(&self) -> EdgeName {
@@ -167,32 +163,26 @@ impl EdgeReference {
     }
 
     pub fn resolve(&self, solid: &Solid) -> Result<EdgeId, ReferenceError<EdgeId>> {
-        let named: Vec<EdgeId> = solid
-            .edges()
-            .filter(|(_, edge)| edge.name() == self.name)
-            .map(|(id, _)| id)
-            .collect();
-        if let [only] = named.as_slice() {
+        self.resolve_in(&EdgeNaming::new(solid))
+    }
+
+    pub fn resolve_in(&self, naming: &EdgeNaming) -> Result<EdgeId, ReferenceError<EdgeId>> {
+        let named = naming.named(self.name);
+        if let [only] = named {
             return Ok(*only);
         }
-        let between: Vec<EdgeId> = solid
-            .edges()
-            .map(|(id, _)| id)
-            .filter(|id| edge_face_names(solid, *id) == Some(self.faces))
-            .collect();
-        let candidates = if named.is_empty() { between } else { named };
-        if let [only] = candidates.as_slice() {
+        let candidates = if named.is_empty() {
+            naming.between(self.faces)
+        } else {
+            named
+        };
+        if let [only] = candidates {
             return Ok(*only);
         }
-        let around = faces_around_vertices(solid);
         let scored: Vec<(EdgeId, usize)> = candidates
             .iter()
             .filter_map(|id| {
-                let edge = solid.edge(*id)?;
-                let ends = [
-                    vertex_name(&around, edge.start()),
-                    vertex_name(&around, edge.end()),
-                ];
+                let ends = naming.edges.get(id)?.ends;
                 let matching = ends.iter().filter(|end| self.ends.contains(end)).count();
                 Some((*id, matching))
             })
@@ -215,6 +205,61 @@ impl EdgeReference {
             [only] => Ok(*only),
             tied => Err(ReferenceError::Ambiguous(tied.to_vec())),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct NamedEdge {
+    name: EdgeName,
+    faces: Option<[FaceName; 2]>,
+    ends: [VertexName; 2],
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct EdgeNaming {
+    edges: BTreeMap<EdgeId, NamedEdge>,
+    by_name: BTreeMap<EdgeName, Vec<EdgeId>>,
+    by_faces: BTreeMap<[FaceName; 2], Vec<EdgeId>>,
+}
+
+impl EdgeNaming {
+    pub fn new(solid: &Solid) -> Self {
+        let around = faces_around_vertices(solid);
+        let vertex_names: BTreeMap<VertexId, VertexName> = around
+            .iter()
+            .map(|(vertex, faces)| (*vertex, VertexName::of_faces(faces.iter().copied())))
+            .collect();
+        let vertex_name = |vertex: VertexId| {
+            vertex_names
+                .get(&vertex)
+                .copied()
+                .unwrap_or_else(|| VertexName::of_faces([]))
+        };
+        let mut naming = Self::default();
+        for (id, edge) in solid.edges() {
+            let faces = edge_face_names(solid, id);
+            naming.edges.insert(
+                id,
+                NamedEdge {
+                    name: edge.name(),
+                    faces,
+                    ends: [vertex_name(edge.start()), vertex_name(edge.end())],
+                },
+            );
+            naming.by_name.entry(edge.name()).or_default().push(id);
+            if let Some(faces) = faces {
+                naming.by_faces.entry(faces).or_default().push(id);
+            }
+        }
+        naming
+    }
+
+    fn named(&self, name: EdgeName) -> &[EdgeId] {
+        self.by_name.get(&name).map_or(&[], Vec::as_slice)
+    }
+
+    fn between(&self, faces: [FaceName; 2]) -> &[EdgeId] {
+        self.by_faces.get(&faces).map_or(&[], Vec::as_slice)
     }
 }
 
@@ -277,8 +322,4 @@ fn faces_around_vertices(solid: &Solid) -> BTreeMap<VertexId, BTreeSet<FaceName>
         }
     }
     around
-}
-
-fn vertex_name(around: &BTreeMap<VertexId, BTreeSet<FaceName>>, vertex: VertexId) -> VertexName {
-    VertexName::of_faces(around.get(&vertex).into_iter().flatten().copied())
 }

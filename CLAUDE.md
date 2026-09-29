@@ -368,7 +368,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     same origin sharing at least one neighbour. An `EdgeReference` is an edge's name, its two face
     names and its end vertex names, resolved by name, else among the edges between the same faces by
     matching ends (an edge sharing no end with the reference is never taken for it). A tie is `ReferenceError::Ambiguous` with the candidates and no match is
-    `Missing`: resolution never guesses between equals.
+    `Missing`: resolution never guesses between equals. `EdgeNaming` indexes a solid's edges by
+    name, face pair and end vertex names in one pass; `capture_in` and `resolve_in` use it, so
+    code handling many references (a blend's edges) builds it once per solid.
   - Profiles (`profile/`): `Profile::new` takes `ProfileCurve`s (lines, circles, counter-clockwise
     arcs, clamped B-splines with an explicit knot vector) tagged with the sketch entity id as a
     plain u64, and builds the planar arrangement with tolerance 1e-7 of the profile size (at

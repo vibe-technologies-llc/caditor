@@ -3,7 +3,9 @@ use std::collections::BTreeSet;
 use caditor_document::{
     Blend, BlendKind, Document, Edit, Evaluation, FeatureId, FeatureKind, Transaction,
 };
-use caditor_kernel::{EdgeId, EdgeName, EdgeReference, ReferenceError, Solid, blend_chain};
+use caditor_kernel::{
+    EdgeId, EdgeName, EdgeNaming, EdgeReference, ReferenceError, Solid, blend_chain,
+};
 
 use crate::{
     bodies,
@@ -50,12 +52,13 @@ pub fn create(
     unit: LengthUnit,
 ) -> Result<(Transaction, FeatureId), &'static str> {
     let solid = evaluation.body(source.body).ok_or(NO_SHAPE)?;
+    let naming = EdgeNaming::new(solid);
     let edges: Vec<EdgeReference> = source
         .edges
         .iter()
         .filter_map(|name| {
             let edge = bodies::find_edge(solid, *name)?;
-            EdgeReference::capture(solid, edge)
+            EdgeReference::capture_in(&naming, edge)
         })
         .collect();
     if edges.is_empty() {
@@ -108,8 +111,8 @@ pub fn edit(document: &Document, feature: FeatureId, blend: Blend) -> Option<Tra
     ))
 }
 
-fn resolved(solid: &Solid, reference: &EdgeReference) -> Vec<EdgeId> {
-    match reference.resolve(solid) {
+fn resolved(naming: &EdgeNaming, reference: &EdgeReference) -> Vec<EdgeId> {
+    match reference.resolve_in(naming) {
         Ok(edge) => vec![edge],
         Err(ReferenceError::Ambiguous(pieces)) => pieces,
         Err(ReferenceError::Missing) => Vec::new(),
@@ -124,10 +127,11 @@ pub struct ChosenEdges {
 
 pub fn chosen_edges(solid: &Solid, blend: &Blend) -> ChosenEdges {
     let name = |edge: &EdgeId| solid.edge(*edge).map(|edge| edge.name());
+    let naming = EdgeNaming::new(solid);
     let explicit: Vec<EdgeId> = blend
         .edges
         .iter()
-        .flat_map(|reference| resolved(solid, reference))
+        .flat_map(|reference| resolved(&naming, reference))
         .collect();
     let followed = blend_chain(solid, &explicit)
         .iter()
@@ -145,13 +149,16 @@ pub fn toggle_edge(model: &Model, feature: FeatureId, edge: EdgeName) -> Option<
     let blend = owner.kind.blend()?;
     let solid = bodies::input_solid(model.evaluation(), feature)?;
     let clicked = bodies::find_edge(solid, edge)?;
+    let naming = EdgeNaming::new(solid);
     let mut changed = blend.clone();
     changed.edges.retain(|reference| {
-        let chain = blend_chain(solid, &resolved(solid, reference));
+        let chain = blend_chain(solid, &resolved(&naming, reference));
         !chain.contains(&clicked)
     });
     let label = if changed.edges.len() == blend.edges.len() {
-        changed.edges.push(EdgeReference::capture(solid, clicked)?);
+        changed
+            .edges
+            .push(EdgeReference::capture_in(&naming, clicked)?);
         format!("Add an edge to {}", owner.name)
     } else {
         format!("Leave an edge out of {}", owner.name)

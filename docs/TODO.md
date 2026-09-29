@@ -47,8 +47,6 @@ within a category run from most to least important.
 
 ## Kernel performance
 
-- `EdgeReference::resolve` and `capture` rebuild the vertex-name map over the whole solid per
-  reference, O(references × edges) per blend.
 - `prune_dangling` rebuilds its incidence map each round (`boolean/faces.rs`).
 - B-spline surface projection of a point off the surface refines four seeds every call, which is
   most of its cost.

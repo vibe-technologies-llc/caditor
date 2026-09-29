@@ -1,5 +1,6 @@
 use caditor_document::{Blend, BlendKind, Feature, FeatureId, Transaction};
 use caditor_expression::Dimension;
+use caditor_kernel::EdgeNaming;
 use egui::{Button, ComboBox, Id, Ui};
 
 use crate::{
@@ -163,10 +164,12 @@ fn edges_row(
             }
         }
         ui.label(summary);
+        let naming = solid.map(EdgeNaming::new);
         for (index, reference) in blend.edges.iter().enumerate() {
             let text = solid
-                .and_then(|solid| {
-                    let edge = reference.resolve(solid).ok()?;
+                .zip(naming.as_ref())
+                .and_then(|(solid, naming)| {
+                    let edge = reference.resolve_in(naming).ok()?;
                     Some(bodies::describe_edge(
                         document,
                         solid,

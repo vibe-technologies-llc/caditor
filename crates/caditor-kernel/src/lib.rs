@@ -47,7 +47,8 @@ pub use crate::{
     },
     interval::{Domain, Interval},
     naming::{
-        EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, ReferenceError, VertexName,
+        EdgeName, EdgeNaming, EdgeReference, FaceName, FaceOrigin, FaceReference, ReferenceError,
+        VertexName,
     },
     profile::{
         Piece, PieceBound, PieceId, Profile, ProfileCurve, ProfileError, ProfileLoop, ProfileShape,
