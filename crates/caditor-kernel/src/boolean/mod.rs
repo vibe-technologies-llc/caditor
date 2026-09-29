@@ -43,16 +43,25 @@ pub enum BooleanError {
     #[error("the result would have solids that meet only along an edge")]
     NonManifold,
     #[error("the result is not a valid solid: {0}")]
-    Invalid(#[from] BuildError),
+    Invalid(BuildError),
     #[error(transparent)]
     Cancelled(#[from] Interrupted),
+}
+
+impl From<BuildError> for BooleanError {
+    fn from(error: BuildError) -> Self {
+        match error.interrupted() {
+            Some(interrupted) => Self::Cancelled(interrupted),
+            None => Self::Invalid(error),
+        }
+    }
 }
 
 impl From<PlanError> for BooleanError {
     fn from(error: PlanError) -> Self {
         match error {
             PlanError::Unassembled => Self::Open,
-            PlanError::Build(error) => Self::Invalid(error),
+            PlanError::Build(error) => error.into(),
         }
     }
 }

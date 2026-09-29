@@ -35,9 +35,6 @@ within a category run from most to least important.
 
 ## Kernel correctness
 
-- Cancelling during a boolean's final validation surfaces as `BooleanError::Invalid`
-  (`Tessellation(Cancelled)` wrapped by `PlanError::Build`), so blends retry tool by tool or
-  report a false invalid result instead of stopping.
 - Blends check that they fit on both faces only at a quarter, half and three quarters of the
   edge (`FIT_FRACTIONS`), so a hole or notch between samples lets the tool bite into the next
   face.

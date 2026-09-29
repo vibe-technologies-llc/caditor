@@ -213,7 +213,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Cancellation (`interrupt.rs`): `interruptible(interrupt, work)` installs a check for the
     current thread while `work` runs, and booleans (per edge, face pair, face and fragment and
     between phases) and tessellation (per face) poll it, failing with a `Cancelled` variant of
-    their error. The document installs its `CancelToken` around every evaluation and meshing,
+    their error; a boolean cancelled while validating its result says so too
+    (`BuildError::interrupted`), rather than reporting an invalid solid. The document installs its `CancelToken` around every evaluation and meshing,
     and export around its meshing and STEP writing.
   - Tolerances live in `tolerance.rs`: `LINEAR_RESOLUTION` is 1e-6 mm and `ANGULAR_RESOLUTION`
     is the angle that moves a point at `MODEL_EXTENT` (10 m) by it. `SamplingTolerance` (chord

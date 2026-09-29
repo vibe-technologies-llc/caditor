@@ -565,6 +565,35 @@ fn an_interrupted_boolean_and_tessellation_stop_with_cancelled() {
 }
 
 #[test]
+fn a_boolean_cancelled_at_any_poll_stops_with_cancelled() {
+    let first = block((0.0, 0.0, 0.0), (4.0, 4.0, 4.0));
+    let second = moved(cylinder(1.0, 6.0), (2.0, 2.0, -1.0));
+
+    let mut finished = false;
+    for allowed in 0..10_000 {
+        let polls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&polls);
+        let stop = std::sync::Arc::new(move || {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= allowed
+        });
+        match crate::interruptible(stop, || {
+            boolean(&first, &second, BooleanOperation::Difference)
+        }) {
+            Ok(_) => {
+                finished = true;
+                break;
+            }
+            Err(error) => assert!(
+                matches!(error, BooleanError::Cancelled(_)),
+                "stopped after {allowed} polls: {error:?}"
+            ),
+        }
+    }
+
+    assert!(finished);
+}
+
+#[test]
 fn a_cut_through_a_cone_apex_leaves_half_the_cone() {
     let cone = crate::fixtures::cone(3.0, 4.0);
     let half = block((0.0, -5.0, -1.0), (5.0, 5.0, 5.0));

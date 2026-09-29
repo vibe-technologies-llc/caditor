@@ -6,10 +6,12 @@ use thiserror::Error;
 use crate::{
     curve::{Curve, Line},
     error::GeometryError,
+    interrupt::Interrupted,
     interval::Interval,
     naming::{EdgeName, FaceName, FaceOrigin},
     sense::Sense,
     surface::Surface,
+    tessellation::TessellationError,
     tolerance::LINEAR_RESOLUTION,
     topology::{
         Coedge, CoedgeId, Edge, EdgeId, Face, FaceId, Loop, LoopId, Shell, ShellId, Solid, Vertex,
@@ -50,6 +52,17 @@ pub enum BuildError {
     Geometry(#[from] GeometryError),
     #[error("the solid is invalid: {0}")]
     Invalid(#[from] ValidationError),
+}
+
+impl BuildError {
+    pub fn interrupted(&self) -> Option<Interrupted> {
+        match self {
+            Self::Invalid(ValidationError::Tessellation(TessellationError::Cancelled(
+                interrupted,
+            ))) => Some(*interrupted),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
