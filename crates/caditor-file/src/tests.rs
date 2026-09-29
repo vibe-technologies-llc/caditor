@@ -1943,6 +1943,25 @@ fn features_that_share_a_name_are_loaded_under_distinct_names() {
     );
 }
 
+#[test]
+fn feature_names_padded_with_spaces_are_loaded_trimmed() {
+    let mut lines = lines_of(&sample());
+
+    let side = lines
+        .iter_mut()
+        .find(|line| line.contains("\"Side sketch\""))
+        .unwrap();
+    *side = side.replace("\"Side sketch\"", "\" Base sketch \"");
+    let loaded = decode_lines(&lines);
+    let names: Vec<&str> = loaded
+        .document
+        .features()
+        .map(|feature| feature.name.as_str())
+        .collect();
+
+    assert_eq!(names, ["Base sketch", "Base sketch 2"]);
+}
+
 mod seeds;
 
 fn parameter_line(id: usize, expression: &str) -> String {

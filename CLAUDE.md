@@ -524,7 +524,7 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     edits refuse larger ones as `ReservedId` and `reserve_ids_below` clamps to it, so a stored
     counter can never wrap. Edits refuse to break invariants: unknown references, parameter cycles, deleting
     something still in use, moving a feature past one it depends on, or two features sharing a name
-    (loading renames the second with a report). `same_content` compares documents without their ID
+    (names are trimmed on every insert and rename; loading renames the second with a report). `same_content` compares documents without their ID
     counters, which is what decides whether a model is unsaved. `Document::check` runs a transaction
     on a clone so the UI can report the error before committing; `can_remove_parameter` and
     `can_remove_feature` answer the common case without one. Parameter dependencies are built once

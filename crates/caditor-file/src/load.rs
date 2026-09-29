@@ -347,6 +347,10 @@ fn with_unique_names(features: Vec<Feature>, issues: &mut Vec<String>) -> Vec<Ar
             ));
             continue;
         }
+        let trimmed = feature.name.trim();
+        if !trimmed.is_empty() && trimmed.len() != feature.name.len() {
+            feature.name = trimmed.to_owned();
+        }
         if names.contains(&feature.name) {
             let renamed = names.numbered(&feature.name, " ");
             issues.push(format!(

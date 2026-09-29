@@ -121,8 +121,6 @@ within a category run from most to least important.
 - Edits do not check that a revolve's `RevolveAxis::Sketch` line exists in its sketch, so
   `SetFeatureKind` can point the revolve at another sketch with a dangling axis, and the "axis
   cannot be deleted" guarantee does not hold for the new sketch.
-- `insert_feature` stores names untrimmed while `rename_feature` trims, so " Extrude 1" and
-  "Extrude 1" can coexist.
 - Axis-in-plane tolerances disagree: a revolve accepts 1e-6, a datum rotation axis 1e-9, and
   face attachments compare planes exactly, so a slightly noisy imported edge works for one and
   is refused by another.

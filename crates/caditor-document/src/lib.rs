@@ -418,8 +418,22 @@ mod tests {
         transaction.add_feature(taken.clone(), FeatureKind::from(Sketch::new(Plane::XY)));
         assert_eq!(
             document.apply(transaction.finish()),
+            Err(EditError::DuplicateFeatureName(taken.clone()))
+        );
+
+        let mut transaction = document.transaction("Add");
+        transaction.add_feature(
+            format!(" {taken}\t"),
+            FeatureKind::from(Sketch::new(Plane::XY)),
+        );
+        assert_eq!(
+            document.apply(transaction.finish()),
             Err(EditError::DuplicateFeatureName(taken))
         );
+        let mut transaction = document.transaction("Add");
+        let padded = transaction.add_feature("  Top  ", FeatureKind::from(Sketch::new(Plane::XY)));
+        document.apply(transaction.finish()).unwrap();
+        assert_eq!(document.feature(padded).unwrap().name, "Top");
     }
 
     #[test]

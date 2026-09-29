@@ -582,7 +582,11 @@ impl Document {
         })
     }
 
-    fn insert_feature(&mut self, index: usize, feature: Arc<Feature>) -> Result<Edit, EditError> {
+    fn insert_feature(
+        &mut self,
+        index: usize,
+        mut feature: Arc<Feature>,
+    ) -> Result<Edit, EditError> {
         if self.feature(feature.id()).is_some() {
             return Err(EditError::DuplicateId);
         }
@@ -590,8 +594,13 @@ impl Document {
         if index > self.features.len() {
             return Err(EditError::OutOfRange(index));
         }
-        if feature.name.trim().is_empty() {
+        let trimmed = feature.name.trim();
+        if trimmed.is_empty() {
             return Err(EditError::EmptyFeatureName);
+        }
+        if trimmed.len() != feature.name.len() {
+            let trimmed = trimmed.to_owned();
+            Arc::make_mut(&mut feature).name = trimmed;
         }
         self.check_feature_name(&feature.name, feature.id())?;
         self.check_feature_references(&feature.kind, index)?;
