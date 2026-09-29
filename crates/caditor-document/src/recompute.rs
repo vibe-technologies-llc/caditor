@@ -293,21 +293,35 @@ impl Evaluation {
 
 type ParameterFingerprint = Vec<(ParameterId, Option<Quantity>)>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 struct Names {
     feature: String,
     features: Vec<String>,
     parameters: Vec<String>,
+    tree: Arc<[String]>,
+    earlier: usize,
+}
+
+impl PartialEq for Names {
+    fn eq(&self, other: &Self) -> bool {
+        self.feature == other.feature
+            && self.features == other.features
+            && self.parameters == other.parameters
+            && self.tree.get(..self.earlier) == other.tree.get(..other.earlier)
+    }
 }
 
 impl Names {
     fn of(
         document: &Document,
-        feature: &Feature,
+        (feature, earlier): (&Feature, usize),
+        tree: &Arc<[String]>,
         parameters: &ParameterValues,
         used: &BTreeSet<ParameterId>,
     ) -> Self {
         Self {
+            tree: Arc::clone(tree),
+            earlier,
             feature: feature.name.clone(),
             features: feature
                 .kind
@@ -382,6 +396,10 @@ impl Recompute {
     ) -> Evaluation {
         let parameters = ParameterValues::evaluate(document);
         let features = document.feature_handles();
+        let tree: Arc<[String]> = features
+            .iter()
+            .map(|feature| feature.name.clone())
+            .collect();
         let mut statuses = BTreeMap::new();
         let mut current: BTreeMap<FeatureId, Arc<FeatureResult>> = BTreeMap::new();
         let mut bodies: BodyStates = BTreeMap::new();
@@ -395,7 +413,13 @@ impl Recompute {
             let id = feature.id();
             let used_parameters = feature.kind.parameters();
             let parameter_fingerprint = parameters.fingerprint(&used_parameters);
-            let names = Names::of(document, feature, &parameters, &used_parameters);
+            let names = Names::of(
+                document,
+                (feature, index),
+                &tree,
+                &parameters,
+                &used_parameters,
+            );
             let mut upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)> = feature
                 .kind
                 .features()

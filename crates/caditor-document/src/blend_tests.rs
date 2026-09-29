@@ -414,3 +414,80 @@ fn ambiguous_edges_and_faces_count_only_when_their_pieces_are_one_edge_or_face()
         &[tops[0], bottoms[0]]
     ));
 }
+
+#[test]
+fn a_failure_message_follows_the_renaming_of_a_feature_that_made_a_face() {
+    let mut document = Document::default();
+
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
+    );
+    let base = transaction.add_feature(
+        "Base",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::OneSide {
+                distance: Expression::parse_stored("4 mm").unwrap(),
+                reversed: false,
+            },
+            operation: BodyOperation::NewBody,
+        })),
+    );
+    let mut hole = rectangle((3.0, 3.0), (7.0, 5.0));
+    hole.set_plane(
+        Plane::from_frame(
+            Point3::new(0.0, 0.0, 4.0),
+            caditor_geometry::Vector3::Z,
+            caditor_geometry::Vector3::X,
+        )
+        .unwrap(),
+    );
+    let hole = transaction.add_feature("Hole", FeatureKind::from(hole));
+    let cut = transaction.add_feature(
+        "Cut",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: hole,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::OneSide {
+                distance: Expression::parse_stored("2 mm").unwrap(),
+                reversed: true,
+            },
+            operation: BodyOperation::Remove(base),
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let evaluation = evaluate(&document, &mut engine);
+    let rim = edge_at(evaluation.body(base).unwrap(), Point3::new(5.0, 3.0, 4.0));
+    let mut transaction = document.transaction("Fillet");
+    let fillet = transaction.add_feature(
+        "Fillet 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: base,
+            edges: vec![rim],
+            size: Expression::parse_stored("5 mm").unwrap(),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let before = failure(&evaluate(&document, &mut engine), fillet).reason;
+    document
+        .apply(Transaction::single(
+            "Rename",
+            Edit::RenameFeature {
+                id: cut,
+                name: "Pocket".to_owned(),
+            },
+        ))
+        .unwrap();
+    let after = failure(&evaluate(&document, &mut engine), fillet).reason;
+
+    assert!(before.contains("Cut"), "{before}");
+    assert!(
+        after.contains("Pocket") && !after.contains("Cut"),
+        "{after}"
+    );
+}

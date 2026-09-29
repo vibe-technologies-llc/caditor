@@ -605,7 +605,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     than following them. `Recompute` walks the features in tree order and reuses a cached result
     when the feature's content (an `Arc`, compared by pointer first, then its ID and kind by
     `same_content`, so a sketch's ID counter does not count, but not its name), the values of the parameters it uses and its upstream results are unchanged; a failed
-    result is also recomputed when the names in its message changed. Upstream results count as
+    result is also recomputed when a name its message could hold changed (its own, those of the
+    parameters and features it uses, and those of every feature before it, which name the faces
+    it works on). Upstream results count as
     unchanged when they are the same `Arc` or, for sketches, have the same plane and entities
     (datums: the same result), so an edit that leaves geometry alone (a satisfied constraint, a
     settle) stops there. A failing feature is `Failed` with a `FeatureError` (reason, remedy and a

@@ -107,9 +107,6 @@ within a category run from most to least important.
 
 - Undo entries keep removed features alive, imports with their solids and STEP text included;
   `MAX_UNDO_STEPS` bounds how many there are, not how large they are.
-- Cached failure messages refresh only when the names of `features()` change, but blend, shell
-  and datum errors name the features that made each face ("Cut 2 end face"), so renaming those
-  keeps the old name in the message.
 - Solid results count as unchanged only when they are the same `Arc`, so any edit to a solid
   feature reruns every downstream boolean, blend and shell even when the shape is identical.
 - Axis-in-plane tolerances disagree: a revolve accepts 1e-6, a datum rotation axis 1e-9, and
