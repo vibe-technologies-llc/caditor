@@ -257,7 +257,7 @@ pub(crate) fn sync_parent(path: &Path) -> io::Result<()> {
 fn keep_backup(path: &Path) -> io::Result<PathBuf> {
     let stem = path.file_stem().unwrap_or_default().to_os_string();
     let extension = path.extension().map(|extension| extension.to_os_string());
-    for attempt in 1..=MAX_BACKUP_ATTEMPTS {
+    let candidates = (1..=MAX_BACKUP_ATTEMPTS).map(|attempt| {
         let mut name = stem.clone();
         name.push(match attempt {
             1 => format!(".{BACKUP_MARKER}"),
@@ -267,27 +267,99 @@ fn keep_backup(path: &Path) -> io::Result<PathBuf> {
             name.push(".");
             name.push(extension);
         }
-        let backup = path.with_file_name(name);
-        match fs::hard_link(path, &backup) {
+        path.with_file_name(name)
+    });
+    keep_copy(path, candidates.collect())?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "too many backups of this file already exist",
+        )
+    })
+}
+
+pub(crate) fn keep_copy(source: &Path, candidates: Vec<PathBuf>) -> io::Result<Option<PathBuf>> {
+    for (index, candidate) in candidates.iter().enumerate() {
+        match fs::hard_link(source, candidate) {
             Ok(()) => {
-                sync_parent(&backup)?;
-                return Ok(backup);
+                sync_parent(candidate)?;
+                return Ok(Some(candidate.clone()));
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(_) => match File::create_new(&backup) {
-                Ok(mut copy) => {
-                    io::copy(&mut File::open(path)?, &mut copy)?;
-                    copy.sync_all()?;
-                    sync_parent(&backup)?;
-                    return Ok(backup);
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-                Err(error) => return Err(error),
-            },
+            Err(error) => {
+                log::debug!("could not link {}: {error}", candidate.display());
+                return keep_by_copying(source, candidates.get(index..).unwrap_or_default());
+            }
         }
     }
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "too many backups of this file already exist",
-    ))
+    Ok(None)
+}
+
+fn keep_by_copying(source: &Path, candidates: &[PathBuf]) -> io::Result<Option<PathBuf>> {
+    let Some(first) = candidates.first() else {
+        return Ok(None);
+    };
+    let temporary = temporary_sibling(first)?;
+    let kept = copy_then_place(source, &temporary, candidates);
+    if !matches!(kept, Ok(Some(_))) {
+        let _ = fs::remove_file(&temporary);
+    }
+    kept
+}
+
+fn copy_then_place(
+    source: &Path,
+    temporary: &Path,
+    candidates: &[PathBuf],
+) -> io::Result<Option<PathBuf>> {
+    fs::copy(source, temporary)?;
+    File::open(temporary)?.sync_all()?;
+    for candidate in candidates {
+        match File::create_new(candidate) {
+            Ok(_) => {
+                if let Err(error) = fs::rename(temporary, candidate) {
+                    let _ = fs::remove_file(candidate);
+                    return Err(error);
+                }
+                sync_parent(candidate)?;
+                return Ok(Some(candidate.clone()));
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn a_copy_is_placed_whole_under_the_first_free_name_or_not_at_all() {
+        let dir = TempDir::new().unwrap();
+        let source = dir.path().join("model.caditor");
+        fs::write(&source, "original").unwrap();
+        let taken = dir.path().join("model.damaged.caditor");
+        fs::write(&taken, "earlier").unwrap();
+        let free = dir.path().join("model.damaged-2.caditor");
+
+        let kept = keep_by_copying(&source, &[taken.clone(), free.clone()]).unwrap();
+
+        assert_eq!(kept, Some(free.clone()));
+        assert_eq!(fs::read_to_string(&free).unwrap(), "original");
+        assert_eq!(fs::read_to_string(&taken).unwrap(), "earlier");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 3);
+
+        let folder = dir.path().join("folder");
+        fs::create_dir(&folder).unwrap();
+        let wanted = dir.path().join("folder.damaged");
+        assert!(keep_by_copying(&folder, std::slice::from_ref(&wanted)).is_err());
+        assert!(!wanted.exists());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 4);
+
+        assert_eq!(keep_by_copying(&source, &[taken, free]).unwrap(), None);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 4);
+    }
 }

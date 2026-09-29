@@ -663,7 +663,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     reported as a failed save, and temporary siblings left by processes that no longer exist are
     removed after each write. A save refuses to go ahead when the earlier versions in the file
     it replaces cannot be read, since it would drop them. Overwriting a file that loaded with
-    problems first keeps the original as `<name>.damaged.caditor`.
+    problems first keeps the original as `<name>.damaged.caditor` (`keep_copy`, shared with the
+    preferences: a hard link, or where links are unsupported a copy synced under a temporary name
+    and moved into place whole, so a failed copy leaves nothing behind).
   - Every file caditor reads (models, journals, imports, preferences, recent files) goes through
     `read.rs`: only regular files, at most `MAX_FILE_SIZE` (2 GiB), reserved fallibly, so a
     device, a pipe or a huge sparse file is refused in words instead of hanging or aborting on

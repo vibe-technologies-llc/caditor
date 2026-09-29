@@ -40,9 +40,6 @@ within a category run from most to least important.
 - Orphaned temporaries are removed when their pid is missing from the local `/proc`
   (`save.rs`), which deletes another host's in-flight save on a shared folder. Put a host or boot
   identifier in the name.
-- `settings.rs` `keep_unreadable` has no copy fallback when hard links are unsupported, so
-  preferences are never written there, and a `keep_backup` copy that fails midway leaves a
-  truncated `.damaged.caditor`.
 - Deltas set no zstd window or long-distance matching (`caditor-zstd` `compress_after`), so
   versions above the default window are close to full copies. Size the window to prefix plus
   data, raise the decoder's `windowLogMax`, and test with a prefix of several MiB.

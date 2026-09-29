@@ -6,7 +6,10 @@ use std::{
 
 use serde_json::Value;
 
-use crate::{read::read_file, save::write_atomically};
+use crate::{
+    read::read_file,
+    save::{keep_copy, write_atomically},
+};
 
 const APPLICATION: &str = "caditor";
 const SETTINGS_FILE: &str = "preferences.json";
@@ -146,21 +149,18 @@ impl Settings {
 }
 
 fn keep_unreadable(path: &Path) -> io::Result<PathBuf> {
-    for attempt in 1..=MAX_KEPT {
-        let kept = path.with_file_name(match attempt {
+    let candidates = (1..=MAX_KEPT).map(|attempt| {
+        path.with_file_name(match attempt {
             1 => format!("{UNREADABLE_STEM}.json"),
             _ => format!("{UNREADABLE_STEM}-{attempt}.json"),
-        });
-        match std::fs::hard_link(path, &kept) {
-            Ok(()) => return Ok(kept),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error),
-        }
-    }
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "too many unreadable copies of the preferences already exist",
-    ))
+        })
+    });
+    keep_copy(path, candidates.collect())?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "too many unreadable copies of the preferences already exist",
+        )
+    })
 }
 
 #[cfg(test)]
