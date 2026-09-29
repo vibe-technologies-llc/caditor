@@ -566,3 +566,25 @@ fn a_blend_around_an_almost_full_circle_with_slanted_ends_names_the_edge() {
         Err(BlendError::WrapsAround(edge))
     );
 }
+
+#[test]
+fn a_hole_between_the_sampled_points_of_a_foot_refuses_the_blend() {
+    let block = cuboid(Vector3::splat(10.0));
+    let near = moved(cylinder(0.3, 3.0), (1.5, 2.0, 8.0));
+    let pierced = boolean(&block, &near, BooleanOperation::Difference).unwrap();
+    let edge = edge_through(&pierced, (5.0, 0.0, 10.0));
+    assert_eq!(
+        blend(&pierced, &[edge], fillet(2.0), 50),
+        Err(BlendError::TooLarge(edge))
+    );
+
+    let far = moved(cylinder(0.3, 3.0), (1.5, 5.0, 8.0));
+    let clear = boolean(&block, &far, BooleanOperation::Difference).unwrap();
+    let edge = edge_through(&clear, (5.0, 0.0, 10.0));
+    let hole = PI * 0.3 * 0.3 * 2.0;
+    check(
+        "clear of the hole",
+        &run(&clear, &[edge], fillet(2.0)),
+        1000.0 - hole - 10.0 * spandrel(2.0),
+    );
+}

@@ -494,7 +494,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     smooth edges are dropped. Supported edges are straight ones whose faces run along them (planes,
     parallel cylinders), swept by extrusion, and circles whose faces share their axis (planes,
     cylinders, cones, spheres, tori), swept by revolution; the blend must fit on both faces at a
-    quarter, half and three quarters of the edge, and the cross-section is solved in 2D
+    quarter, half and three quarters of the edge, and its foot on each face (the line or circle it
+    runs along) must cross no edge of that face other than seams and the edges at the blended
+    edge's ends, so a hole or notch between the samples refuses it as `TooLarge`, and the cross-section is solved in 2D
     (`section.rs`: fillet circle from the offset curves, chamfer points at equal distance). Convex
     tools are lifted clear of the faces they cut and subtracted; concave ones are flush and added,
     all concave edges first, then the convex ones re-found by reference in the filled solid (one

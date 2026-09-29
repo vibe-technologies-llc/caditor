@@ -34,9 +34,6 @@ within a category run from most to least important.
 
 ## Kernel correctness
 
-- Blends check that they fit on both faces only at a quarter, half and three quarters of the
-  edge (`FIT_FRACTIONS`), so a hole or notch between samples lets the tool bite into the next
-  face.
 - `ProfileError::Unresolved`, produced by about thirty internal paths in `profile/`, names no
   curves, so the sketch error can only say to simplify where curves meet.
 - Shell cannot drop collapsing cones or faces whose edges run neither around nor along their

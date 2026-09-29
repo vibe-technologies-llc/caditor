@@ -18,7 +18,9 @@ use self::{
 use crate::{
     boolean::{BooleanError, BooleanOperation, boolean},
     build::{AngularExtent, Axis2, LinearExtent, SweepError, extrude, revolve},
-    curve::Curve,
+    curve::{Circle, Curve, Line},
+    intersect::intersect_curves,
+    interval::Interval,
     naming::{EdgeReference, FaceName, FaceOrigin, ReferenceError},
     profile::{Profile, ProfileCurve, ProfileError, ProfileShape, Selection},
     surface::Surface,
@@ -601,6 +603,70 @@ fn ends(
 }
 
 const FIT_FRACTIONS: [f64; 3] = [0.25, 0.5, 0.75];
+const CROSSING_CLEARANCE: f64 = 10.0 * LINEAR_RESOLUTION;
+
+fn foot_path(geometry: &EdgeGeometry, foot: Point2) -> Option<(Curve, Interval)> {
+    let start = geometry.place(foot, 0.0)?;
+    match geometry.sweep {
+        Sweep::Along { length } => Some((
+            Line::new(start, geometry.frame.normal()).ok()?.into(),
+            Interval::new(0.0, length)?,
+        )),
+        Sweep::Around { angle, .. } => {
+            let axis = geometry.frame.y_axis();
+            let origin = geometry.frame.origin();
+            let center = origin + axis * (start - origin).dot(axis);
+            let radial = start - center;
+            let frame = Plane::with_x_axis(center, axis, radial)?;
+            Some((
+                Circle::new(frame, radial.length()).ok()?.into(),
+                Interval::new(0.0, angle)?,
+            ))
+        }
+    }
+}
+
+fn crosses_boundary(solid: &Solid, face: FaceId, edge: EdgeId, foot: &(Curve, Interval)) -> bool {
+    let (path, range) = foot;
+    let Some(definition) = solid.edge(edge) else {
+        return false;
+    };
+    let ends = [definition.start(), definition.end()];
+    let path_ends = [path.point(range.start()), path.point(range.end())];
+    let inside = |point: Point3| {
+        path_ends
+            .iter()
+            .all(|end| end.distance(point) > CROSSING_CLEARANCE)
+    };
+    let boundary: Vec<EdgeId> = solid
+        .face(face)
+        .into_iter()
+        .flat_map(|face| face.loops())
+        .filter_map(|id| solid.face_loop(*id))
+        .flat_map(|face_loop| face_loop.coedges())
+        .filter_map(|coedge| solid.coedge(*coedge).map(|coedge| coedge.edge()))
+        .collect();
+    let uses = |other: EdgeId| boundary.iter().filter(|used| **used == other).count();
+    boundary.iter().any(|other| {
+        let Some(other_definition) = solid.edge(*other) else {
+            return false;
+        };
+        let incident =
+            ends.contains(&other_definition.start()) || ends.contains(&other_definition.end());
+        if *other == edge || incident || uses(*other) > 1 {
+            return false;
+        }
+        let Ok(found) = intersect_curves(
+            path,
+            *range,
+            other_definition.curve(),
+            other_definition.interval(),
+        ) else {
+            return false;
+        };
+        !found.overlaps.is_empty() || found.points.iter().any(|hit| inside(hit.point))
+    })
+}
 
 fn fits(
     classifier: &SolidClassifier<'_>,
@@ -612,22 +678,25 @@ fn fits(
         let Some(surface) = solid.face(*face).map(|face| face.surface()) else {
             return false;
         };
-        FIT_FRACTIONS.iter().all(|fraction| {
-            let Some(point) = geometry.place(foot, *fraction) else {
-                return false;
-            };
-            let uv = surface.project(point, None);
-            let contained = classifier.point_in_face(*face, uv);
-            let accepted = if *fraction == 0.5 {
-                contained == Some(FaceContainment::Inside)
-            } else {
-                matches!(
-                    contained,
-                    Some(FaceContainment::Inside | FaceContainment::OnBoundary)
-                )
-            };
-            surface.point_at(uv).distance(point) <= LINEAR_RESOLUTION && accepted
-        })
+        let crossed = foot_path(geometry, foot)
+            .is_some_and(|path| crosses_boundary(solid, *face, geometry.edge, &path));
+        !crossed
+            && FIT_FRACTIONS.iter().all(|fraction| {
+                let Some(point) = geometry.place(foot, *fraction) else {
+                    return false;
+                };
+                let uv = surface.project(point, None);
+                let contained = classifier.point_in_face(*face, uv);
+                let accepted = if *fraction == 0.5 {
+                    contained == Some(FaceContainment::Inside)
+                } else {
+                    matches!(
+                        contained,
+                        Some(FaceContainment::Inside | FaceContainment::OnBoundary)
+                    )
+                };
+                surface.point_at(uv).distance(point) <= LINEAR_RESOLUTION && accepted
+            })
     })
 }
 
