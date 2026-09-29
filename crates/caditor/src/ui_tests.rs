@@ -30,6 +30,7 @@ use crate::{
     export::ExportCommand,
     files::{Dialogs, FileCommand, Files, FilesConfig, Respond},
     history::HistoryCommand,
+    import::{self, Placement},
     model::{Action, Model, Notice, RecomputeStatus, Services, WakerFactory},
     onboarding::Hint,
     panels::Focus,
@@ -1274,17 +1275,9 @@ fn a_drawing_read_while_the_model_changes_is_placed_on_the_changed_model() {
     );
     let features = harness.document().features().len();
     let width = harness.parameter("width");
-    harness.answer_dialog(Some(square));
+    let drawing = caditor_file::read_dxf(&square).unwrap();
+    let plan = import::plan_drawing(harness.model.base(), &square, None, drawing);
 
-    app::perform(
-        vec![Action::File(FileCommand::Import { into: None })],
-        &mut harness.model,
-        &mut harness.files,
-        &mut harness.workspace,
-    );
-    harness
-        .files
-        .poll(&mut harness.model, &mut harness.workspace.editing);
     harness.model.perform(Action::Apply(Transaction::single(
         "Edit width",
         Edit::SetParameterExpression {
@@ -1292,9 +1285,26 @@ fn a_drawing_read_while_the_model_changes_is_placed_on_the_changed_model() {
             expression: Expression::parse_stored("42 mm").unwrap(),
         },
     )));
-    harness.wait_until("the drawing is imported", |harness| {
-        harness.document().features().len() == features + 1
-    });
+    let placement = import::place_drawing(
+        &mut harness.model,
+        &mut harness.workspace.editing,
+        &square,
+        Ok(plan),
+    );
+    let Placement::Stale(drawing) = placement else {
+        panic!("a drawing planned before the edit was placed on the changed model");
+    };
+    assert_eq!(harness.document().features().len(), features);
+
+    let plan = import::plan_drawing(harness.model.base(), &square, None, drawing);
+    let placement = import::place_drawing(
+        &mut harness.model,
+        &mut harness.workspace.editing,
+        &square,
+        Ok(plan),
+    );
+    assert!(matches!(placement, Placement::Done(None)));
+    harness.frame();
 
     let sketch = harness.document().features().last().unwrap().id();
     assert_eq!(harness.document().feature(sketch).unwrap().name, "square");
@@ -1305,7 +1315,6 @@ fn a_drawing_read_while_the_model_changes_is_placed_on_the_changed_model() {
         harness.model.notice().unwrap().text,
         "Imported 4 curves from “square.dxf” into square."
     );
-    assert!(!harness.files.is_blocking());
 
     harness.perform(Action::Undo);
     assert_eq!(harness.document().features().len(), features);
