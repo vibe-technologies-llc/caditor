@@ -4,11 +4,15 @@ use caditor_zstd::Level;
 
 use super::*;
 use crate::{
-    binary::{JOURNAL_MAGIC, MODEL_MAGIC, reseal, save_bytes, testing::stored_copy},
+    binary::{
+        JOURNAL_MAGIC, MODEL_MAGIC, reseal, save_bytes,
+        testing::{stored_copy, with_slices_of},
+    },
     journal::{decode_journal, encode_journal, replay},
 };
 
 const WRITE_SEEDS: &str = "CADITOR_WRITE_FUZZ_SEEDS";
+const SEED_SLICE: usize = 512;
 
 fn seeds_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds")
@@ -91,8 +95,16 @@ fn write_fuzz_seeds() {
         ("model/stored.caditor", stored_copy(&model, &MODEL_MAGIC)),
         ("journal/plate.journal", journal.clone()),
         (
+            "model/sliced.caditor",
+            with_slices_of(SEED_SLICE, seed_model),
+        ),
+        (
             "journal/stored.journal",
             stored_copy(&journal, &JOURNAL_MAGIC),
+        ),
+        (
+            "journal/sliced.journal",
+            with_slices_of(SEED_SLICE, seed_journal),
         ),
         ("zstd/plain", seed_frame(&[], text)),
         ("zstd/after-prefix", seed_frame(&text[..32], text)),

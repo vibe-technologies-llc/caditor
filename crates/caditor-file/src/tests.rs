@@ -2061,3 +2061,19 @@ fn records_beyond_the_limit_are_left_out_and_reported() {
          were left out."
     ));
 }
+
+#[test]
+fn a_journal_larger_than_a_chunk_replays_whole() {
+    let base = sample();
+    let change = edit_width(&base, "50 mm");
+    let entries = [JournalEntry::Apply(change)];
+    let bytes = binary::testing::with_slices_of(64, || {
+        journal::encode_journal(None, false, &base, &entries).unwrap()
+    });
+
+    let contents = journal::decode_journal(&bytes).unwrap();
+    assert_eq!(contents.issues, Vec::<String>::new());
+    assert_eq!(contents.base, base);
+    assert_eq!(contents.entries, entries);
+    assert_eq!(contents.unreadable_entries, 0);
+}

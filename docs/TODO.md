@@ -30,8 +30,6 @@ within a category run from most to least important.
 
 - Version history is never pruned and every save rewrites and fsyncs all of it
   (`binary/model.rs`). Add a retention policy and write history append-only.
-- A model whose records total more than 256 MiB saves once and never again, since the previous
-  snapshot and the journal snapshot are each one chunk (`MAX_CONTENT`). Chunk per record.
 
 ## Kernel correctness
 

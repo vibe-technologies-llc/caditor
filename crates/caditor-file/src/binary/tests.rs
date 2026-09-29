@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     model::{decode, history, load_version, save_bytes},
-    testing::{corrupt_chunk, model_chunk_count, push_foreign, records_as_json},
+    testing::{corrupt_chunk, model_chunk_count, push_foreign, records_as_json, with_slices_of},
     value::{from_bytes, to_bytes},
     *,
 };
@@ -419,4 +419,121 @@ fn unknown_chunks_are_kept_unless_they_must_be_understood() {
     let resaved = save_bytes(&loaded.document, Some(&bytes), at(2_000), None).unwrap();
     assert!(resaved.windows(8).any(|window| window == b"optional"));
     assert!(!resaved.windows(8).any(|window| window == b"required"));
+}
+
+fn scrambled(length: usize) -> Vec<u8> {
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    (0..length)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state.to_le_bytes()[0]
+        })
+        .collect()
+}
+
+fn raw_chunk_count(bytes: &[u8]) -> usize {
+    bytes
+        .windows(SYNC.len())
+        .filter(|window| *window == SYNC)
+        .count()
+}
+
+#[test]
+fn content_longer_than_a_chunk_holds_continues_in_the_next_ones() {
+    let noise = scrambled(1_000);
+    let repetitive = b"width = 10 mm; ".repeat(100);
+    let mut bytes = start_file(&MODEL_MAGIC, 1);
+    with_slices_of(64, || {
+        push_packed(&mut bytes, ChunkKind::Record, &noise).unwrap();
+        push_packed_after(&mut bytes, ChunkKind::VersionData, &repetitive, &noise).unwrap();
+        push_packed(&mut bytes, ChunkKind::Record, b"").unwrap();
+    });
+
+    assert_eq!(raw_chunk_count(&bytes), 16 + 24 + 1);
+    let container = parse(&bytes, &MODEL_MAGIC).unwrap();
+    let chunks: Vec<Chunk<'_>> = container.chunks().collect();
+    assert_eq!(container.pieces.len(), 3);
+    assert_eq!(chunks[0].content_length(), noise.len());
+    assert_eq!(chunks[0].unpack(None).unwrap(), noise);
+    assert_eq!(chunks[1].codec, Some(Codec::ZstdAfterNewer));
+    assert_eq!(chunks[1].unpack(Some(&noise)).unwrap(), repetitive);
+    assert_eq!(chunks[2].unpack(None).unwrap(), b"");
+
+    let middle_part = start_of(&bytes, &chunks[0]) + 5 * (CHUNK_HEADER_LENGTH + 64);
+    let last_part = start_of(&bytes, &chunks[1]) - 1;
+    let mut damaged = bytes.clone();
+    damaged[middle_part] ^= 0x55;
+    let container = parse(&damaged, &MODEL_MAGIC).unwrap();
+    assert_eq!(container.pieces[0], Piece::Damaged);
+    let chunks: Vec<Chunk<'_>> = container.chunks().collect();
+    assert_eq!(chunks.len(), 2);
+    assert_eq!(chunks[0].unpack(Some(&noise)).unwrap(), repetitive);
+
+    let cut = parse(&bytes[..last_part], &MODEL_MAGIC).unwrap();
+    assert_eq!(cut.pieces, [Piece::Damaged]);
+}
+
+fn start_of(bytes: &[u8], chunk: &Chunk<'_>) -> usize {
+    chunk.whole.as_ptr() as usize - bytes.as_ptr() as usize
+}
+
+#[test]
+fn a_continued_chunk_followed_by_another_kind_is_damaged_and_the_other_kept() {
+    let mut bytes = start_file(&MODEL_MAGIC, 1);
+    with_slices_of(4, || {
+        push_packed(&mut bytes, ChunkKind::Record, b"12345678").unwrap();
+    });
+    let second_part = raw_positions(&bytes)[1];
+    bytes.truncate(second_part);
+    push_packed(&mut bytes, ChunkKind::Head, b"head").unwrap();
+
+    let container = parse(&bytes, &MODEL_MAGIC).unwrap();
+    assert_eq!(container.pieces.len(), 2);
+    assert_eq!(container.pieces[0], Piece::Damaged);
+    let head = container.chunks().next().unwrap();
+    assert_eq!(head.kind, Some(ChunkKind::Head));
+    assert_eq!(head.unpack(None).unwrap(), b"head");
+}
+
+fn raw_positions(bytes: &[u8]) -> Vec<usize> {
+    bytes
+        .windows(SYNC.len())
+        .enumerate()
+        .filter(|(_, window)| *window == SYNC)
+        .map(|(position, _)| position)
+        .collect()
+}
+
+#[test]
+fn a_model_larger_than_a_chunk_keeps_saving_its_history() {
+    with_slices_of(40, || {
+        let (documents, bytes) = saved_series(12);
+        assert!(raw_chunk_count(&bytes) > model_chunk_count(&bytes));
+        assert_eq!(decode(&bytes).unwrap().issues, Vec::<String>::new());
+        assert_eq!(decode(&bytes).unwrap().document, *documents.last().unwrap());
+        let listed = check_listed_versions(&bytes, &documents);
+        assert_eq!(listed.versions.len(), 11);
+        assert!(listed.versions.iter().all(|version| version.available));
+
+        let container = parse(&bytes, &MODEL_MAGIC).unwrap();
+        let data = container
+            .pieces
+            .iter()
+            .enumerate()
+            .filter(|(_, piece)| {
+                matches!(piece, Piece::Chunk(chunk) if chunk.kind == Some(ChunkKind::VersionData))
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let damaged = corrupt_chunk(&bytes, &MODEL_MAGIC, data[2]);
+        assert_eq!(
+            decode(&damaged).unwrap().document,
+            *documents.last().unwrap()
+        );
+        let listed = check_listed_versions(&damaged, &documents);
+        assert_eq!(listed.versions.len(), 10);
+        assert!(listed.versions.iter().any(|version| version.available));
+    });
 }

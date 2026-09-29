@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use serde_json::Value;
 
 use super::{
@@ -75,6 +77,7 @@ pub(crate) fn stored_copy(bytes: &[u8], magic: &Magic) -> Vec<u8> {
             &mut stored,
             chunk.kind.unwrap(),
             Codec::Stored,
+            0,
             content.len(),
             &content,
         )
@@ -91,4 +94,19 @@ pub(crate) fn push_foreign(bytes: &mut Vec<u8>, kind: u8, flags: u8, content: &[
         content,
     )
     .unwrap();
+}
+
+thread_local! {
+    static SLICE_LENGTH: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+pub(crate) fn slice_length() -> Option<usize> {
+    SLICE_LENGTH.get()
+}
+
+pub(crate) fn with_slices_of<T>(length: usize, work: impl FnOnce() -> T) -> T {
+    let before = SLICE_LENGTH.replace(Some(length));
+    let result = work();
+    SLICE_LENGTH.set(before);
+    result
 }

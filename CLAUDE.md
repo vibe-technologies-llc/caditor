@@ -651,14 +651,21 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Container (`binary/`): an 8-byte magic (`\x89CAD\r\n\x1a\n` for models, `\x89CJL…` for
     journals), a little-endian `u32` format version, then chunks. A chunk is the sync marker
     `CDCK`, its kind, its codec (stored, zstd, or zstd against the next newer version as a raw
-    prefix), a flags byte (`MUST_UNDERSTAND`; unknown bits are ignored) and a reserved zero byte,
-    stored and content lengths and an xxh3-64 of the header fields and payload, followed
-    by the payload. A reader that meets a bad chunk scans forward to the next marker whose
-    checksum holds, so damage loses only the chunks it touches; the payload bytes hashed while
-    scanning are capped at four times the file size, so forged headers cannot make the scan
-    quadratic. Content is capped at 256 MiB per chunk, records are decoded one at a time, and
-    one load, listing or restore decompresses at most 2 GiB in all, so a hostile file cannot
-    force a huge allocation or endless work.
+    prefix), a flags byte (`MUST_UNDERSTAND`, `CONTINUED`, `CONTINUATION`; unknown bits are
+    ignored) and a reserved zero byte, stored and content lengths and an xxh3-64 of the header
+    fields and payload, followed by the payload. A reader that meets a bad chunk scans forward
+    to the next marker whose checksum holds, so damage loses only the chunks it touches; the
+    payload bytes hashed while scanning are capped at four times the file size, so forged
+    headers cannot make the scan quadratic. A chunk holds at most 256 MiB of content, so longer
+    content (a large record, version or journal snapshot) is written as slices of that size,
+    each its own frame compressed against the same prefix: every slice but the last is
+    `CONTINUED` and every one but the first a `CONTINUATION`, and the parser joins such a run of
+    one kind into one logical chunk of at most 2 GiB (`Chunk::unpack` decodes the parts in turn).
+    A run broken by damage or by another kind, and a continuation with no run to join, is one
+    damaged piece, so a resync into the middle of a run never yields part of a content. Older
+    readers see only the first slice, which fails to decode or to match its digest, so nothing is
+    misread. Records are decoded one at a time, and one load, listing or restore decompresses at
+    most 2 GiB in all, so a hostile file cannot force a huge allocation or endless work.
   - Values (`binary/value.rs`) are a self-describing serde encoding: tagged null, booleans,
     LEB128 unsigned and negative integers, little-endian f64, strings, bytes, and sequences and
     maps closed by an end tag, with nesting limited. Enums are encoded like JSON (a unit variant

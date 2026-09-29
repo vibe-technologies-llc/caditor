@@ -21,9 +21,12 @@ const CHUNK_HEADER_LENGTH: usize = 24;
 const CHECKED_HEADER: std::ops::Range<usize> = 4..16;
 const CHECKSUM: std::ops::Range<usize> = 16..CHUNK_HEADER_LENGTH;
 const MAX_CONTENT: usize = 1 << 28;
+const MAX_JOINED_CONTENT: usize = 1 << 31;
 const HASHING_ALLOWANCE: usize = 4;
 const LEVEL: Level = Level::BALANCED;
 pub(crate) const MUST_UNDERSTAND: u8 = 1;
+const CONTINUED: u8 = 2;
+const CONTINUATION: u8 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -78,6 +81,8 @@ pub(crate) struct Chunk<'a> {
     pub kind: Option<ChunkKind>,
     pub codec: Option<Codec>,
     pub flags: u8,
+    tag: u8,
+    parts: usize,
     content_length: usize,
     payload: &'a [u8],
     pub whole: &'a [u8],
@@ -93,9 +98,13 @@ pub(crate) enum UnpackError {
     Zstd(#[from] ZstdError),
     #[error("the chunk holds {actual} bytes instead of {expected}")]
     WrongLength { expected: usize, actual: usize },
+    #[error("a part of the chunk could not be found again")]
+    MissingPart,
+    #[error("there is not enough memory to unpack the chunk")]
+    OutOfMemory,
 }
 
-impl Chunk<'_> {
+impl<'a> Chunk<'a> {
     pub fn content_length(&self) -> usize {
         self.content_length
     }
@@ -104,7 +113,53 @@ impl Chunk<'_> {
         self.flags & MUST_UNDERSTAND != 0
     }
 
+    fn continues(&self) -> bool {
+        self.flags & CONTINUED != 0
+    }
+
+    fn is_continuation(&self) -> bool {
+        self.flags & CONTINUATION != 0
+    }
+
+    fn followed_by(&self, next: &Self, whole: Option<&'a [u8]>) -> Option<Self> {
+        let content_length = self
+            .content_length
+            .checked_add(next.content_length)
+            .filter(|length| *length <= MAX_JOINED_CONTENT)?;
+        (next.tag == self.tag && next.is_continuation()).then_some(Self {
+            flags: (self.flags & !CONTINUED) | (next.flags & CONTINUED),
+            parts: self.parts.checked_add(1)?,
+            content_length,
+            whole: whole?,
+            ..*self
+        })
+    }
+
     pub fn unpack(&self, newer: Option<&[u8]>) -> Result<Vec<u8>, UnpackError> {
+        if self.parts == 1 {
+            return self.unpack_part(newer);
+        }
+        let mut content = Vec::new();
+        content
+            .try_reserve_exact(self.content_length)
+            .map_err(|_| UnpackError::OutOfMemory)?;
+        let mut position = 0;
+        while position < self.whole.len() {
+            let (part, end, _, _) =
+                chunk_at(self.whole, position).ok_or(UnpackError::MissingPart)?;
+            content.extend_from_slice(&part.unpack_part(newer)?);
+            position = end;
+        }
+        if content.len() != self.content_length {
+            return Err(UnpackError::WrongLength {
+                expected: self.content_length,
+                actual: content.len(),
+            });
+        }
+        Ok(content)
+    }
+
+    fn unpack_part(&self, newer: Option<&[u8]>) -> Result<Vec<u8>, UnpackError> {
         let content = match self.codec {
             Some(Codec::Stored) => self.payload.to_vec(),
             Some(Codec::Zstd) => caditor_zstd::decompress(self.payload, self.content_length)?,
@@ -162,30 +217,71 @@ pub(crate) fn parse<'a>(bytes: &'a [u8], magic: &Magic) -> Option<Container<'a>>
     let rest = bytes.strip_prefix(magic)?;
     let version = u32::from_le_bytes(rest.get(..VERSION_LENGTH)?.try_into().ok()?);
     let body = rest.get(VERSION_LENGTH..)?;
-    let mut pieces = Vec::new();
+    let mut pieces = Pieces::default();
     let mut position = 0;
     let mut hashing_budget = body.len().saturating_mul(HASHING_ALLOWANCE);
     while position < body.len() {
         match read_chunk(body, position, &mut hashing_budget) {
             Ok((chunk, next)) => {
-                pieces.push(Piece::Chunk(chunk));
+                pieces.add(body, position, chunk, next);
                 position = next;
             }
             Err(Rejected::Chunk) => {
-                if pieces.last() != Some(&Piece::Damaged) {
-                    pieces.push(Piece::Damaged);
-                }
+                pieces.damaged();
                 position = next_sync(body, position + 1);
             }
             Err(Rejected::OverBudget) => {
-                if pieces.last() != Some(&Piece::Damaged) {
-                    pieces.push(Piece::Damaged);
-                }
+                pieces.damaged();
                 break;
             }
         }
     }
-    Some(Container { version, pieces })
+    Some(Container {
+        version,
+        pieces: pieces.finish(),
+    })
+}
+
+#[derive(Default)]
+struct Pieces<'a> {
+    done: Vec<Piece<'a>>,
+    open: Option<(usize, Chunk<'a>)>,
+}
+
+impl<'a> Pieces<'a> {
+    fn add(&mut self, body: &'a [u8], start: usize, chunk: Chunk<'a>, end: usize) {
+        let (start, chunk) = match self.open.take() {
+            Some((open_start, open)) => match open.followed_by(&chunk, body.get(open_start..end)) {
+                Some(joined) => (open_start, joined),
+                None => {
+                    self.damaged();
+                    (start, chunk)
+                }
+            },
+            None => (start, chunk),
+        };
+        if chunk.parts == 1 && chunk.is_continuation() {
+            self.damaged();
+        } else if chunk.continues() {
+            self.open = Some((start, chunk));
+        } else {
+            self.done.push(Piece::Chunk(chunk));
+        }
+    }
+
+    fn damaged(&mut self) {
+        self.open = None;
+        if self.done.last() != Some(&Piece::Damaged) {
+            self.done.push(Piece::Damaged);
+        }
+    }
+
+    fn finish(mut self) -> Vec<Piece<'a>> {
+        if self.open.is_some() {
+            self.damaged();
+        }
+        self.done
+    }
 }
 
 fn next_sync(body: &[u8], from: usize) -> usize {
@@ -236,6 +332,8 @@ fn chunk_at(body: &[u8], position: usize) -> Option<(Chunk<'_>, usize, &[u8], u6
             kind: ChunkKind::from_byte(kind),
             codec: Codec::from_byte(codec),
             flags,
+            tag: kind,
+            parts: 1,
             content_length,
             payload,
             whole: body.get(position..end)?,
@@ -272,12 +370,14 @@ pub(crate) fn push_packed(
     kind: ChunkKind,
     content: &[u8],
 ) -> Result<(), PackError> {
-    let compressed = caditor_zstd::compress(content, LEVEL)?;
-    if compressed.len() < content.len() {
-        push_chunk(bytes, kind, Codec::Zstd, content.len(), &compressed)
-    } else {
-        push_chunk(bytes, kind, Codec::Stored, content.len(), content)
-    }
+    push_slices(bytes, content, |slice, flags, bytes| {
+        let compressed = caditor_zstd::compress(slice, LEVEL)?;
+        if compressed.len() < slice.len() {
+            push_chunk(bytes, kind, Codec::Zstd, flags, slice.len(), &compressed)
+        } else {
+            push_chunk(bytes, kind, Codec::Stored, flags, slice.len(), slice)
+        }
+    })
 }
 
 pub(crate) fn push_packed_after(
@@ -286,24 +386,66 @@ pub(crate) fn push_packed_after(
     content: &[u8],
     newer: &[u8],
 ) -> Result<(), PackError> {
-    let compressed = caditor_zstd::compress_after(content, newer, LEVEL)?;
-    push_chunk(
-        bytes,
-        kind,
-        Codec::ZstdAfterNewer,
-        content.len(),
-        &compressed,
-    )
+    push_slices(bytes, content, |slice, flags, bytes| {
+        let compressed = caditor_zstd::compress_after(slice, newer, LEVEL)?;
+        push_chunk(
+            bytes,
+            kind,
+            Codec::ZstdAfterNewer,
+            flags,
+            slice.len(),
+            &compressed,
+        )
+    })
+}
+
+fn push_slices(
+    bytes: &mut Vec<u8>,
+    content: &[u8],
+    mut push: impl FnMut(&[u8], u8, &mut Vec<u8>) -> Result<(), PackError>,
+) -> Result<(), PackError> {
+    if content.len() > MAX_JOINED_CONTENT {
+        return Err(PackError::TooLarge);
+    }
+    let mut slices = content.chunks(slice_length()).peekable();
+    if slices.peek().is_none() {
+        return push(content, 0, bytes);
+    }
+    let mut follows = 0;
+    while let Some(slice) = slices.next() {
+        let continued = if slices.peek().is_some() {
+            CONTINUED
+        } else {
+            0
+        };
+        push(slice, follows | continued, bytes)?;
+        follows = CONTINUATION;
+    }
+    Ok(())
+}
+
+fn slice_length() -> usize {
+    #[cfg(test)]
+    if let Some(length) = testing::slice_length() {
+        return length;
+    }
+    MAX_CONTENT
 }
 
 fn push_chunk(
     bytes: &mut Vec<u8>,
     kind: ChunkKind,
     codec: Codec,
+    flags: u8,
     content_length: usize,
     payload: &[u8],
 ) -> Result<(), PackError> {
-    push_raw(bytes, [kind as u8, codec as u8, 0], content_length, payload)
+    push_raw(
+        bytes,
+        [kind as u8, codec as u8, flags],
+        content_length,
+        payload,
+    )
 }
 
 fn push_raw(
