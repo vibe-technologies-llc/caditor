@@ -21,6 +21,7 @@ use crate::{read::read_file, reason};
 pub const DXF_EXTENSION: &str = "dxf";
 pub const MAX_DRAWING_CURVES: usize = 20_000;
 pub const MAX_EXPANDED_OBJECTS: usize = 1_000_000;
+pub const MAX_DRAWING_POINTS: usize = 2_000_000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawingCurve {
@@ -127,6 +128,11 @@ pub enum ImportError {
          from one drawing"
     )]
     TooManyObjects,
+    #[error(
+        "its curves hold more than {MAX_DRAWING_POINTS} points in all, more than caditor reads \
+         from one drawing"
+    )]
+    TooDetailed,
 }
 
 pub fn read_dxf(path: &Path) -> Result<Drawing, ImportError> {

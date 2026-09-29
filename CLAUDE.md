@@ -844,7 +844,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `$MEASUREMENT` is 0, imperial, when it is read as inches, also with a note), layers (entities on
     off or frozen layers are left out), blocks and INSERTs (base point, scale, rotation, column and
     row arrays, nested with cycle and depth limits and at most `MAX_EXPANDED_OBJECTS` objects and
-    cells visited in all, block content on layer 0 taking the insert's layer), and the entities
+    cells visited in all, block content on layer 0 taking the insert's layer, each block's
+    content decoded once and shared by its instances, an array of a block that draws nothing
+    visited once with what it leaves out counted per cell, and at most `MAX_DRAWING_POINTS`
+    points and knots in all, else `ImportError::TooDetailed`), and the entities
     LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE and POLYLINE (bulges become arcs, 3D polylines
     lines) and SPLINE (control points with knots up to degree 9 and a weight per control point or
     none, else its fit points). Object coordinate systems follow the arbitrary axis algorithm. Everything becomes a 3D shape (point,

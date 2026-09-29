@@ -224,6 +224,16 @@ pub(super) enum Shape {
 }
 
 impl Shape {
+    pub fn size(&self) -> usize {
+        match self {
+            Self::Point(_) => 1,
+            Self::Line(..) => 2,
+            Self::Conic { .. } => 3,
+            Self::Spline(nurbs) => nurbs.points.len() + nurbs.knots.len(),
+            Self::Interpolated(points) => points.len(),
+        }
+    }
+
     pub fn transformed(&self, transform: &Affine) -> Self {
         match self {
             Self::Point(point) => Self::Point(transform.point(*point)),

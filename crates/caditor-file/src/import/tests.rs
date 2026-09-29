@@ -1065,6 +1065,70 @@ fn blocks_that_fan_out_into_millions_of_objects_are_refused_quickly() {
 }
 
 #[test]
+fn a_heavy_spline_repeated_in_a_large_array_is_refused_by_its_points() {
+    const POINTS: usize = 1000;
+    let mut spline = vec![pair(0, "SPLINE"), pair(8, "0"), pair(70, 8), pair(71, 3)];
+    let knots = (0..POINTS + 4).map(|index| index.saturating_sub(3).min(POINTS - 3));
+    spline.extend(knots.map(|knot| pair(40, knot)));
+    for index in 0..POINTS {
+        let x = index as f64;
+        spline.extend([pair(10, x), pair(20, (x * 0.1).sin()), pair(30, 0.0)]);
+    }
+    let bytes = text(vec![
+        header(Some(4)),
+        section("BLOCKS", vec![block("Wave", (0.0, 0.0), vec![spline])]),
+        section(
+            "ENTITIES",
+            vec![insert(
+                "Wave",
+                "0",
+                &[(10, 0.0), (20, 0.0), (70, 100.0), (71, 100.0), (45, 10.0)],
+            )],
+        ),
+    ]);
+
+    assert_eq!(parse_dxf(&bytes), Err(ImportError::TooDetailed));
+}
+
+#[test]
+fn a_large_array_of_a_block_that_draws_nothing_is_counted_without_repeating_it() {
+    let bytes = text(vec![
+        header(Some(4)),
+        section(
+            "BLOCKS",
+            vec![block(
+                "Label",
+                (0.0, 0.0),
+                vec![vec![pair(0, "TEXT"), pair(8, "0"), pair(1, "note")]],
+            )],
+        ),
+        section(
+            "ENTITIES",
+            vec![
+                line((0.0, 0.0), (1.0, 0.0)),
+                insert(
+                    "Label",
+                    "0",
+                    &[(10, 0.0), (20, 0.0), (70, 1000.0), (71, 100.0)],
+                ),
+            ],
+        ),
+    ]);
+
+    let drawing = parse_dxf(&bytes).unwrap();
+
+    assert_eq!(drawing.curves.len(), 1);
+    assert!(
+        drawing
+            .notes
+            .iter()
+            .any(|note| note.starts_with("100000 texts were left out")),
+        "{:?}",
+        drawing.notes
+    );
+}
+
+#[test]
 fn a_spline_with_bad_control_data_uses_its_fit_points_or_is_left_out() {
     let mut mismatched = vec![pair(0, "SPLINE"), pair(8, "0"), pair(70, 12), pair(71, 2)];
     for knot in [0.0, 0.0, 0.0, 1.0, 1.0, 1.0] {

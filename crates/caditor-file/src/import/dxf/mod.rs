@@ -5,12 +5,13 @@ mod pairs;
 use std::{
     collections::{BTreeMap, BTreeSet},
     f64::consts::TAU,
+    rc::Rc,
 };
 
 use caditor_geometry::{Point2, Point3, Vector3};
 
 use crate::import::{
-    Drawing, ImportError, MAX_DRAWING_CURVES, MAX_EXPANDED_OBJECTS,
+    Drawing, ImportError, MAX_DRAWING_CURVES, MAX_DRAWING_POINTS, MAX_EXPANDED_OBJECTS,
     dxf::{
         flatten::flatten,
         geometry::{Affine, Nurbs, Shape, conic_arc},
@@ -37,7 +38,7 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
     let records = records(read_pairs(bytes)?)?;
     let file = DxfFile::read(&records)?;
     let mut interpreter = Interpreter::new(&file);
-    let entities = items(&file.entities);
+    let entities = prepare(&items(&file.entities));
     interpreter.add(&entities, &Affine::IDENTITY, DEFAULT_LAYER, &mut Vec::new())?;
     let mut notes = Vec::new();
     let scale = unit_note(file.units, &mut notes);
@@ -297,16 +298,61 @@ fn items(records: &[Record]) -> Vec<Item<'_>> {
     items
 }
 
-struct Interpreter<'a> {
-    file: &'a DxfFile,
-    shapes: Vec<Shape>,
+struct Prepared<'a> {
+    record: &'a Record,
+    decoded: Decoded,
+}
+
+fn prepare<'a>(items: &[Item<'a>]) -> Vec<Prepared<'a>> {
+    items
+        .iter()
+        .map(|item| Prepared {
+            record: item.record,
+            decoded: if item.record.kind == "INSERT" {
+                Decoded::Insert
+            } else {
+                shapes(item)
+            },
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Tally {
     left_out: BTreeMap<(&'static str, &'static str), usize>,
     hidden: usize,
     unreadable: usize,
     too_deep: usize,
+}
+
+impl Tally {
+    fn add_repeated(&mut self, since: &Self, repeats: usize) {
+        for (category, count) in &self.left_out.clone() {
+            let before = since.left_out.get(category).copied().unwrap_or(0);
+            let extra = count.saturating_sub(before).saturating_mul(repeats);
+            if let Some(slot) = self.left_out.get_mut(category) {
+                *slot = slot.saturating_add(extra);
+            }
+        }
+        let repeat = |now: usize, before: usize| {
+            now.saturating_add(now.saturating_sub(before).saturating_mul(repeats))
+        };
+        self.hidden = repeat(self.hidden, since.hidden);
+        self.unreadable = repeat(self.unreadable, since.unreadable);
+        self.too_deep = repeat(self.too_deep, since.too_deep);
+    }
+}
+
+struct Interpreter<'a> {
+    file: &'a DxfFile,
+    shapes: Vec<Shape>,
+    points: usize,
+    tally: Tally,
     visited: usize,
     external: BTreeSet<String>,
     missing: BTreeSet<String>,
+    contents: BTreeMap<String, Rc<Vec<Prepared<'a>>>>,
+    drawing: BTreeMap<String, Option<bool>>,
 }
 
 impl<'a> Interpreter<'a> {
@@ -314,19 +360,61 @@ impl<'a> Interpreter<'a> {
         Self {
             file,
             shapes: Vec::new(),
-            left_out: BTreeMap::new(),
-            hidden: 0,
-            unreadable: 0,
-            too_deep: 0,
+            points: 0,
+            tally: Tally::default(),
             visited: 0,
             external: BTreeSet::new(),
             missing: BTreeSet::new(),
+            contents: BTreeMap::new(),
+            drawing: BTreeMap::new(),
         }
+    }
+
+    fn contents(&mut self, name: &str) -> Option<Rc<Vec<Prepared<'a>>>> {
+        if let Some(known) = self.contents.get(name) {
+            return Some(Rc::clone(known));
+        }
+        let file = self.file;
+        let block = file.blocks.get(name)?;
+        let prepared = Rc::new(prepare(&items(&block.records)));
+        self.contents.insert(name.to_owned(), Rc::clone(&prepared));
+        Some(prepared)
+    }
+
+    fn draws(&mut self, name: &str, depth: usize) -> bool {
+        if let Some(known) = self.drawing.get(name) {
+            return known.unwrap_or(true);
+        }
+        let external = self
+            .file
+            .blocks
+            .get(name)
+            .is_none_or(|block| block.external);
+        if external {
+            return false;
+        }
+        if depth > MAX_BLOCK_DEPTH {
+            return true;
+        }
+        let Some(contents) = self.contents(name) else {
+            return false;
+        };
+        self.drawing.insert(name.to_owned(), None);
+        let draws = contents.iter().any(|item| match &item.decoded {
+            Decoded::Shapes(shapes) => !shapes.is_empty(),
+            Decoded::Insert => {
+                let inner = item.record.text(2).unwrap_or_default().to_ascii_uppercase();
+                self.draws(&inner, depth + 1)
+            }
+            Decoded::Unreadable | Decoded::LeftOut(_) | Decoded::Ignored => false,
+        });
+        self.drawing.insert(name.to_owned(), Some(draws));
+        draws
     }
 
     fn add(
         &mut self,
-        items: &[Item<'_>],
+        items: &[Prepared<'a>],
         transform: &Affine,
         inherited_layer: &str,
         blocks: &mut Vec<String>,
@@ -347,24 +435,27 @@ impl<'a> Interpreter<'a> {
                 .get(&layer.to_ascii_uppercase())
                 .is_some_and(|layer| layer.hidden)
             {
-                self.hidden += 1;
+                self.tally.hidden += 1;
                 continue;
             }
-            if record.kind == "INSERT" {
-                self.insert(record, transform, layer, blocks)?;
-                continue;
-            }
-            match shapes(item) {
+            match &item.decoded {
+                Decoded::Insert => self.insert(record, transform, layer, blocks)?,
                 Decoded::Shapes(shapes) => {
                     for shape in shapes {
+                        self.points = self.points.saturating_add(shape.size());
+                        if self.points > MAX_DRAWING_POINTS {
+                            return Err(ImportError::TooDetailed);
+                        }
                         self.shapes.push(shape.transformed(transform));
                     }
                     if self.shapes.len() > MAX_DRAWING_CURVES {
                         return Err(ImportError::TooLarge);
                     }
                 }
-                Decoded::Unreadable => self.unreadable += 1,
-                Decoded::LeftOut(category) => *self.left_out.entry(category).or_default() += 1,
+                Decoded::Unreadable => self.tally.unreadable += 1,
+                Decoded::LeftOut(category) => {
+                    *self.tally.left_out.entry(*category).or_default() += 1;
+                }
                 Decoded::Ignored => {}
             }
         }
@@ -388,7 +479,7 @@ impl<'a> Interpreter<'a> {
     ) -> Result<(), ImportError> {
         let file = self.file;
         let name = record.text(2).unwrap_or_default().to_ascii_uppercase();
-        let Some(block) = file.blocks.get(&name) else {
+        let (Some(block), Some(contents)) = (file.blocks.get(&name), self.contents(&name)) else {
             self.missing
                 .insert(record.text(2).unwrap_or_default().to_owned());
             return Ok(());
@@ -399,18 +490,16 @@ impl<'a> Interpreter<'a> {
             return Ok(());
         }
         if blocks.len() >= MAX_BLOCK_DEPTH || blocks.contains(&name) {
-            self.too_deep += 1;
+            self.tally.too_deep += 1;
             return Ok(());
         }
         let Some(system) = Affine::object_system(record.normal()) else {
-            self.unreadable += 1;
+            self.tally.unreadable += 1;
             return Ok(());
         };
         let columns = record.flags(70).max(1);
         let rows = record.flags(71).max(1);
-        if columns.saturating_mul(rows) > MAX_DRAWING_CURVES as i64 {
-            return Err(ImportError::TooLarge);
-        }
+        let draws = self.draws(&name, blocks.len());
         let scale = Vector3::new(
             record.real_or(41, 1.0),
             record.real_or(42, 1.0),
@@ -423,8 +512,16 @@ impl<'a> Interpreter<'a> {
             .then(&system)
             .then(transform);
         let local = Affine::translation(-block.base).then(&Affine::scale(scale));
-        let contents = items(&block.records);
         blocks.push(name);
+        if !draws {
+            let before = self.tally.clone();
+            self.visit()?;
+            self.add(&contents, &local.then(&placement), layer, blocks)?;
+            let cells = usize::try_from(columns.saturating_mul(rows)).unwrap_or(usize::MAX);
+            self.tally.add_repeated(&before, cells.saturating_sub(1));
+            blocks.pop();
+            return Ok(());
+        }
         for row in 0..rows {
             for column in 0..columns {
                 let offset = Vector3::new(
@@ -435,7 +532,7 @@ impl<'a> Interpreter<'a> {
                 self.visit()?;
                 let cell = local.then(&Affine::translation(offset)).then(&placement);
                 if !cell.is_finite() {
-                    self.unreadable += 1;
+                    self.tally.unreadable += 1;
                     continue;
                 }
                 self.add(&contents, &cell, layer, blocks)?;
@@ -447,8 +544,9 @@ impl<'a> Interpreter<'a> {
 
     fn report(self, mut drawing: Drawing) -> Result<Drawing, ImportError> {
         let earlier = drawing.notes.len();
-        if !self.left_out.is_empty() {
-            let kinds: Vec<String> = self
+        let tally = self.tally;
+        if !tally.left_out.is_empty() {
+            let kinds: Vec<String> = tally
                 .left_out
                 .iter()
                 .map(|((singular, plural), count)| counted(*count, singular, plural))
@@ -457,14 +555,19 @@ impl<'a> Interpreter<'a> {
                 "{} {} left out, because sketches hold only points, lines, arcs, circles and \
                  splines.",
                 capitalized(&list(&kinds)),
-                were(self.left_out.values().sum())
+                were(
+                    tally
+                        .left_out
+                        .values()
+                        .fold(0, |sum, count| sum.saturating_add(*count))
+                )
             ));
         }
-        if self.hidden > 0 {
+        if tally.hidden > 0 {
             drawing.notes.push(format!(
                 "{} on hidden or frozen layers {} left out.",
-                capitalized(&counted(self.hidden, "object", "objects")),
-                were(self.hidden)
+                capitalized(&counted(tally.hidden, "object", "objects")),
+                were(tally.hidden)
             ));
         }
         if !self.external.is_empty() {
@@ -481,22 +584,22 @@ impl<'a> Interpreter<'a> {
                 list(&names)
             ));
         }
-        if self.too_deep > 0 {
+        if tally.too_deep > 0 {
             drawing.notes.push(format!(
                 "{} nested too deeply or inside themselves {} left out.",
-                capitalized(&counted(self.too_deep, "block", "blocks")),
-                were(self.too_deep)
+                capitalized(&counted(tally.too_deep, "block", "blocks")),
+                were(tally.too_deep)
             ));
         }
-        if self.unreadable > 0 {
+        if tally.unreadable > 0 {
             drawing.notes.push(format!(
                 "{} could not be read and {} left out.",
                 capitalized(&counted(
-                    self.unreadable,
+                    tally.unreadable,
                     "damaged object",
                     "damaged objects"
                 )),
-                were(self.unreadable)
+                were(tally.unreadable)
             ));
         }
         if drawing.curves.is_empty() {
@@ -513,6 +616,7 @@ enum Decoded {
     Unreadable,
     LeftOut((&'static str, &'static str)),
     Ignored,
+    Insert,
 }
 
 fn shapes(item: &Item<'_>) -> Decoded {
