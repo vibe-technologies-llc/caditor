@@ -73,12 +73,7 @@ impl BSpline {
         if count < 2 {
             return None;
         }
-        let degree = MAX_SPLINE_DEGREE.min(count - 1);
-        let spans = count - degree;
-        let knots = std::iter::repeat_n(0.0, degree + 1)
-            .chain((1..spans).map(|index| index as f64 / spans as f64))
-            .chain(std::iter::repeat_n(1.0, degree + 1))
-            .collect();
+        let (degree, knots) = clamped_knots(count);
         Some(Self {
             control_points,
             degree,
@@ -107,6 +102,18 @@ impl BSpline {
         self.de_boor(parameter)
             .or_else(|| self.control_points.first().copied())
             .unwrap_or(Point2::ZERO)
+    }
+
+    pub fn derivatives(&self, parameter: f64) -> [Vector2; 2] {
+        let count = self.control_points.len();
+        [1, 2].map(|order| {
+            let (first, weights) =
+                basis_derivatives(self.degree, &self.knots, count, parameter, order);
+            weights
+                .iter()
+                .zip(self.control_points.iter().skip(first))
+                .fold(Vector2::ZERO, |sum, (weight, point)| sum + *point * *weight)
+        })
     }
 
     pub fn polyline(&self, max_segment_angle: f64) -> Vec<Point2> {
@@ -168,6 +175,117 @@ impl BSpline {
     }
 }
 
+pub(crate) fn basis_values(
+    degree: usize,
+    knots: &[f64],
+    count: usize,
+    parameter: f64,
+) -> (usize, Vec<f64>) {
+    let parameter = parameter.clamp(0.0, 1.0);
+    let span = span_of(degree, knots, count, parameter);
+    (span - degree, local_basis(degree, knots, span, parameter))
+}
+
+pub(crate) fn basis_derivatives(
+    degree: usize,
+    knots: &[f64],
+    count: usize,
+    parameter: f64,
+    order: usize,
+) -> (usize, Vec<f64>) {
+    let parameter = parameter.clamp(0.0, 1.0);
+    let span = span_of(degree, knots, count, parameter);
+    (
+        span - degree,
+        local_derivatives(degree, knots, span, parameter, order),
+    )
+}
+
+pub(crate) fn clamped_knots(count: usize) -> (usize, Vec<f64>) {
+    let degree = MAX_SPLINE_DEGREE.min(count.saturating_sub(1));
+    let spans = count.saturating_sub(degree).max(1);
+    let knots = std::iter::repeat_n(0.0, degree + 1)
+        .chain((1..spans).map(|index| index as f64 / spans as f64))
+        .chain(std::iter::repeat_n(1.0, degree + 1))
+        .collect();
+    (degree, knots)
+}
+
+fn span_of(degree: usize, knots: &[f64], count: usize, parameter: f64) -> usize {
+    let last = count.saturating_sub(1);
+    let above = knots.partition_point(|knot| *knot <= parameter);
+    above
+        .saturating_sub(1)
+        .clamp(degree.min(last), last)
+        .max(degree)
+}
+
+fn local_derivatives(
+    degree: usize,
+    knots: &[f64],
+    span: usize,
+    parameter: f64,
+    order: usize,
+) -> Vec<f64> {
+    if order == 0 {
+        return local_basis(degree, knots, span, parameter);
+    }
+    let Some(lower_degree) = degree.checked_sub(1) else {
+        return vec![0.0];
+    };
+    let lower = local_derivatives(lower_degree, knots, span, parameter, order - 1);
+    let knot = |index: usize| knots.get(index).copied().unwrap_or(0.0);
+    let share = |value: f64, low: usize, high: usize| {
+        let width = knot(high) - knot(low);
+        if width > 0.0 { value / width } else { 0.0 }
+    };
+    (0..=degree)
+        .map(|offset| {
+            let index = span + offset - degree;
+            let own = offset
+                .checked_sub(1)
+                .and_then(|below| lower.get(below))
+                .copied()
+                .unwrap_or(0.0);
+            let next = lower.get(offset).copied().unwrap_or(0.0);
+            degree as f64
+                * (share(own, index, index + degree) - share(next, index + 1, index + degree + 1))
+        })
+        .collect()
+}
+
+fn local_basis(degree: usize, knots: &[f64], span: usize, parameter: f64) -> Vec<f64> {
+    let knot = |index: usize| knots.get(index).copied().unwrap_or(0.0);
+    let mut values = vec![0.0; degree + 1];
+    let mut left = vec![0.0; degree + 1];
+    let mut right = vec![0.0; degree + 1];
+    if let Some(first) = values.first_mut() {
+        *first = 1.0;
+    }
+    for level in 1..=degree {
+        if let (Some(slot_left), Some(slot_right)) = (left.get_mut(level), right.get_mut(level)) {
+            *slot_left = parameter - knot((span + 1).saturating_sub(level));
+            *slot_right = knot(span + level) - parameter;
+        }
+        let mut saved = 0.0;
+        for index in 0..level {
+            let low = right.get(index + 1).copied().unwrap_or(0.0);
+            let high = left.get(level - index).copied().unwrap_or(0.0);
+            let width = low + high;
+            let value = values.get(index).copied().unwrap_or(0.0);
+            let share = if width != 0.0 { value / width } else { 0.0 };
+            if let Some(slot) = values.get_mut(index) {
+                *slot = saved + low * share;
+            }
+            saved = high * share;
+        }
+        if let Some(slot) = values.get_mut(level) {
+            *slot = saved;
+        }
+    }
+    values
+}
+
 fn segments_for(angle: f64, max_segment_angle: f64) -> usize {
     let step = if max_segment_angle.is_finite() && max_segment_angle > 0.0 {
         max_segment_angle.clamp(MIN_SEGMENT_ANGLE, FRAC_PI_2)
@@ -220,6 +338,36 @@ mod tests {
             let points = collapsed.polyline(angle);
             assert!(points.len() >= 2);
             assert!(points.iter().all(|point| point.is_finite()));
+        }
+    }
+
+    #[test]
+    fn spline_derivatives_match_finite_differences() {
+        let step = 1e-5;
+        for count in 2..=6 {
+            let control: Vec<Point2> = (0..count)
+                .map(|index| {
+                    let x = index as f64;
+                    Point2::new(3.0 * x, (x * 1.7).sin() * 4.0)
+                })
+                .collect();
+            let spline = BSpline::clamped(control).unwrap();
+            for parameter in [0.05, 0.3, 0.5, 0.71, 0.95] {
+                let [tangent, bend] = spline.derivatives(parameter);
+                let ahead = spline.point_at(parameter + step);
+                let behind = spline.point_at(parameter - step);
+                let here = spline.point_at(parameter);
+                let slope = (ahead - behind) / (2.0 * step);
+                let curvature = (ahead - here * 2.0 + behind) / (step * step);
+                assert!(
+                    tangent.distance(slope) < 1e-5 * (1.0 + slope.length()),
+                    "{count} points at {parameter}: {tangent} against {slope}"
+                );
+                assert!(
+                    bend.distance(curvature) < 1e-2 * (1.0 + curvature.length()),
+                    "{count} points at {parameter}: {bend} against {curvature}"
+                );
+            }
         }
     }
 

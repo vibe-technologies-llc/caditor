@@ -538,3 +538,154 @@ fn new_kinds_survive_degenerate_starts_without_nan() {
         ),
     }
 }
+
+fn arch(sketch: &mut Sketch) -> EntityId {
+    let spline = sketch.add_spline(&[
+        Point2::ZERO,
+        Point2::new(10.0, 10.0),
+        Point2::new(20.0, 0.0),
+    ]);
+    let Some(Entity::Spline { control_points }) = sketch.entity(spline).cloned() else {
+        panic!("expected a spline");
+    };
+    for point in control_points {
+        fix(sketch, point);
+    }
+    spline
+}
+
+fn arch_height(x: f64) -> f64 {
+    x * (20.0 - x) / 20.0
+}
+
+#[test]
+fn a_point_on_a_spline_slides_along_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = arch(&mut sketch);
+    let point = sketch.add_point(Point2::new(5.0, 9.0));
+    let guide = sketch.add_point(Point2::new(5.0, -3.0));
+    fix(&mut sketch, guide);
+    add(&mut sketch, Constraint::VerticalPoints(point, guide));
+    add(&mut sketch, Constraint::Coincident(point, spline));
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_near(at(&solved, point), Point2::new(5.0, arch_height(5.0)));
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    assert_eq!(
+        solved.solution.entity_state(point),
+        Some(EntityState::FullyConstrained)
+    );
+
+    let mut loose = Sketch::new(Plane::XY);
+    let free = loose.add_spline(&[
+        Point2::ZERO,
+        Point2::new(10.0, 10.0),
+        Point2::new(20.0, 0.0),
+    ]);
+    let rider = loose.add_point(Point2::new(3.0, 1.0));
+    add(&mut loose, Constraint::Coincident(free, rider));
+    assert_eq!(solve(&loose).unwrap().solution.degrees_of_freedom(), 8 - 1);
+}
+
+#[test]
+fn a_point_already_on_a_spline_does_not_move() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = arch(&mut sketch);
+    let point = sketch.add_point(Point2::new(6.0, arch_height(6.0)));
+    add(&mut sketch, Constraint::Coincident(point, spline));
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_eq!(solved.geometry, sketch);
+    assert_eq!(solved.solution.degrees_of_freedom(), 1);
+}
+
+#[test]
+fn a_point_held_beyond_the_end_of_a_spline_conflicts_with_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = arch(&mut sketch);
+    let point = sketch.add_point(Point2::new(30.0, -2.0));
+    fix(&mut sketch, point);
+    let on = add(&mut sketch, Constraint::Coincident(point, spline));
+
+    let Err(SketchError::Conflict { constraints }) = solve(&sketch) else {
+        panic!("a point beyond the spline cannot lie on it");
+    };
+    assert!(constraints.contains(&on), "{constraints:?}");
+}
+
+#[test]
+fn a_line_and_a_circle_touch_a_spline_where_it_bulges() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = arch(&mut sketch);
+    let line = sketch.add_line(Point2::new(4.0, 6.5), Point2::new(15.0, 6.0));
+    add(&mut sketch, Constraint::Horizontal(line));
+    add(&mut sketch, Constraint::Tangent(line, spline));
+    let circle = sketch.add_circle(Point2::new(10.0, 14.0), 3.0);
+    let middle = center(&sketch, circle);
+    add(
+        &mut sketch,
+        Constraint::Fix {
+            point: middle,
+            at: Point2::new(10.0, 14.0),
+        },
+    );
+    add(&mut sketch, Constraint::Tangent(spline, circle));
+
+    let solved = solve(&sketch).unwrap();
+
+    let (start, end) = ends(&sketch, line);
+    assert_close(at(&solved, start).y, 5.0);
+    assert_close(at(&solved, end).y, 5.0);
+    assert_close(solved.geometry.circle(circle).unwrap().1, 9.0);
+    assert_eq!(solved.solution.degrees_of_freedom(), 2);
+    assert!(solved.solution.redundancies().is_empty());
+}
+
+#[test]
+fn a_line_joined_to_a_spline_end_turns_along_its_first_leg() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = arch(&mut sketch);
+    let line = sketch.add_line(Point2::new(-8.0, -5.0), Point2::new(0.5, 0.2));
+    let (start, end) = ends(&sketch, line);
+    let Some(Entity::Spline { control_points }) = sketch.entity(spline).cloned() else {
+        panic!("expected a spline");
+    };
+    add(&mut sketch, Constraint::Coincident(end, control_points[0]));
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: start,
+            to: end,
+            value: mm(10.0),
+        },
+    );
+    add(&mut sketch, Constraint::Tangent(spline, line));
+
+    let solved = solve(&sketch).unwrap();
+
+    let expected = Point2::new(-10.0, -10.0) / 2.0_f64.sqrt();
+    assert_near(at(&solved, start), expected);
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    assert!(solved.solution.redundancies().is_empty());
+}
+
+#[test]
+fn a_settled_spline_tangency_is_remembered_by_the_next_solve() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = arch(&mut sketch);
+    let line = sketch.add_line(Point2::new(4.0, 6.5), Point2::new(15.0, 6.0));
+    add(&mut sketch, Constraint::Horizontal(line));
+    add(&mut sketch, Constraint::Tangent(line, spline));
+
+    let fresh = solve(&sketch).unwrap();
+    let settled = fresh.geometry.clone();
+    let again = settled
+        .solve_from(&no_parameters, &|| false, &[], Some(&fresh.memo))
+        .unwrap();
+
+    assert!(again.memo.recalled() > 0);
+    assert_eq!(again.solution, fresh.solution);
+    assert_eq!(again.geometry, fresh.geometry);
+}

@@ -20,6 +20,8 @@ The first release of caditor.
   hold a point away from a circle or two lines apart. Parallel, equal, collinear, concentric,
   horizontal and vertical apply to every selected item at once, and fix locks every point of the
   selected curves.
+- A point can be put on a spline, and a line, circle or arc made tangent to one, either where
+  they touch along it or where the spline ends on them.
 - Angles at a corner of a chain of lines are measured inside the corner, tangents where a line
   meets an arc count fully towards a constrained sketch, and a constraint that would shrink a
   line to nothing is reported as a conflict.

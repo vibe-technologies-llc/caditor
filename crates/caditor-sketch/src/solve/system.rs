@@ -26,6 +26,8 @@ pub(crate) struct System {
     pub points: BTreeMap<EntityId, usize>,
     pub radii: BTreeMap<EntityId, usize>,
     pub radius_variables: BTreeSet<usize>,
+    pub parameters: BTreeMap<ConstraintId, usize>,
+    pub parameter_variables: BTreeSet<usize>,
     pub entity_variables: BTreeMap<EntityId, Vec<usize>>,
     pub spans: Vec<(EntityId, PointHandle, PointHandle)>,
 }
@@ -54,6 +56,8 @@ impl System {
             equations: Vec::new(),
             points,
             radii,
+            parameters: BTreeMap::new(),
+            parameter_variables: BTreeSet::new(),
             entity_variables: BTreeMap::new(),
             spans: Vec::new(),
         };
@@ -87,6 +91,14 @@ impl System {
             }
         }
         let joints = OnceCell::new();
+        for (id, constraint) in sketch.constraints() {
+            if let Some(start) = system.parameter_start(sketch, &joints, constraint)? {
+                let index = system.values.len();
+                system.values.push(start);
+                system.parameters.insert(id, index);
+                system.parameter_variables.insert(index);
+            }
+        }
         for (id, constraint) in sketch.constraints() {
             let forms = system.forms(sketch, &joints, id, constraint, dimensions)?;
             system
@@ -125,7 +137,7 @@ impl System {
         }
     }
 
-    fn point(&self, id: EntityId) -> Result<PointHandle, SketchError> {
+    pub(super) fn point(&self, id: EntityId) -> Result<PointHandle, SketchError> {
         if id == EntityId::ORIGIN {
             return Ok(PointHandle::Fixed(Point2::ZERO));
         }
@@ -135,7 +147,7 @@ impl System {
             .ok_or(SketchError::NotAPoint(id))
     }
 
-    fn line(&self, sketch: &Sketch, id: EntityId) -> Result<LineHandle, SketchError> {
+    pub(super) fn line(&self, sketch: &Sketch, id: EntityId) -> Result<LineHandle, SketchError> {
         let axis = |direction: Vector2| LineHandle {
             start: PointHandle::Fixed(Point2::ZERO),
             end: PointHandle::Fixed(direction),
@@ -157,7 +169,11 @@ impl System {
         })
     }
 
-    fn circle(&self, sketch: &Sketch, id: EntityId) -> Result<CircleHandle, SketchError> {
+    pub(super) fn circle(
+        &self,
+        sketch: &Sketch,
+        id: EntityId,
+    ) -> Result<CircleHandle, SketchError> {
         match sketch.entity(id) {
             Some(&Entity::Circle { center, .. }) => Ok(CircleHandle {
                 center: self.point(center)?,
@@ -184,7 +200,7 @@ impl System {
         Context::at_scale(scale_of([from.x, from.y, to.x, to.y, value]))
     }
 
-    fn initial_direction(&self, from: PointHandle, to: PointHandle) -> Vector2 {
+    pub(super) fn initial_direction(&self, from: PointHandle, to: PointHandle) -> Vector2 {
         fallback_direction(to.at(&self.values) - from.at(&self.values))
     }
 
@@ -247,6 +263,12 @@ impl System {
                 (Role::Line, Role::Point) => vec![self.on_line(sketch, b, a)?],
                 (Role::Point, Role::Circular) => vec![self.on_circle(sketch, a, b)?],
                 (Role::Circular, Role::Point) => vec![self.on_circle(sketch, b, a)?],
+                (Role::Point, Role::Spline) => {
+                    self.on_spline(sketch, a, b, self.parameter_of(id)?)?
+                }
+                (Role::Spline, Role::Point) => {
+                    self.on_spline(sketch, b, a, self.parameter_of(id)?)?
+                }
                 _ => return Err(not_applicable(a, b)),
             },
             Constraint::Horizontal(line) => vec![Form::Horizontal(self.line(sketch, line)?)],
@@ -348,6 +370,16 @@ impl System {
                 (Role::Circular, Role::Circular) => {
                     let joints = joints.get_or_init(|| Joints::of(sketch));
                     vec![self.circle_tangent(sketch, joints, a, b)?]
+                }
+                (Role::Spline, Role::Line | Role::Circular) => {
+                    let joints = joints.get_or_init(|| Joints::of(sketch));
+                    let parameter = self.parameters.get(&id).copied();
+                    self.spline_tangent(sketch, joints, (a, b), parameter)?
+                }
+                (Role::Line | Role::Circular, Role::Spline) => {
+                    let joints = joints.get_or_init(|| Joints::of(sketch));
+                    let parameter = self.parameters.get(&id).copied();
+                    self.spline_tangent(sketch, joints, (b, a), parameter)?
                 }
                 _ => return Err(not_applicable(a, b)),
             },
@@ -549,7 +581,7 @@ impl System {
         })
     }
 
-    fn radius_line(&self, point: PointHandle, center: PointHandle) -> LineHandle {
+    pub(super) fn radius_line(&self, point: PointHandle, center: PointHandle) -> LineHandle {
         LineHandle {
             start: point,
             end: center,
@@ -588,13 +620,13 @@ fn scale_of(magnitudes: impl IntoIterator<Item = f64>) -> f64 {
     }
 }
 
-struct Joints {
+pub(super) struct Joints {
     parents: BTreeMap<EntityId, EntityId>,
     on_curve: BTreeMap<EntityId, BTreeSet<EntityId>>,
 }
 
 impl Joints {
-    fn of(sketch: &Sketch) -> Self {
+    pub(super) fn of(sketch: &Sketch) -> Self {
         let mut joints = Self {
             parents: BTreeMap::new(),
             on_curve: BTreeMap::new(),
@@ -633,7 +665,7 @@ impl Joints {
             .find(|point| on_second.contains(&self.class(*point)))
     }
 
-    fn points_on(&self, sketch: &Sketch, curve: EntityId) -> BTreeSet<EntityId> {
+    pub(super) fn points_on(&self, sketch: &Sketch, curve: EntityId) -> BTreeSet<EntityId> {
         let mut points: BTreeSet<EntityId> = match sketch.entity(curve) {
             Some(Entity::Line { start, end } | Entity::Arc { start, end, .. }) => {
                 BTreeSet::from([*start, *end])
@@ -648,7 +680,7 @@ impl Joints {
         points
     }
 
-    fn class(&self, point: EntityId) -> EntityId {
+    pub(super) fn class(&self, point: EntityId) -> EntityId {
         let mut current = point;
         let mut steps = 0;
         while let Some(parent) = self.parents.get(&current)

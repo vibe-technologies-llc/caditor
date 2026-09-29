@@ -24,6 +24,7 @@ const CIRCLE_LEADER_DIRECTION: Vector2 = Vector2::new(FRAC_1_SQRT_2, FRAC_1_SQRT
 const CIRCLE_GLYPH_DIRECTION: Vector2 = Vector2::new(-FRAC_1_SQRT_2, -FRAC_1_SQRT_2);
 const ARC_LEADER_FRACTION: f64 = 0.5;
 const ARC_GLYPH_FRACTION: f64 = 0.25;
+const SPLINE_GLYPH_ANGLE: f64 = PI / 18.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LineSpan {
@@ -672,7 +673,17 @@ pub fn glyph_anchor(
                 arc.point_at(arc.start_angle + arc.sweep * ARC_GLYPH_FRACTION),
             )
         }
-        Entity::Spline { .. } => None,
+        Entity::Spline { .. } => {
+            let points = sketch.polyline(entity, SPLINE_GLYPH_ANGLE)?;
+            let middle = points.len() / 2;
+            let (before, at) = (*points.get(middle.checked_sub(1)?)?, *points.get(middle)?);
+            let at = screen.to_screen(at)?;
+            let before = screen.to_screen(before)?;
+            Some(GlyphAnchor::Curve {
+                at,
+                outward: (at - before).try_normalize()?.perp(),
+            })
+        }
     }
 }
 

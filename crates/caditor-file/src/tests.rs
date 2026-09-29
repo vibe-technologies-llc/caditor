@@ -1056,6 +1056,12 @@ fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
     let middle = sketch.add_point(Point2::new(15.0, 0.0));
     let mirrored = sketch.add_point(Point2::new(-5.0, 20.0));
     let lone = sketch.add_point(Point2::new(5.0, 20.0));
+    let spline = sketch.add_spline(&[
+        Point2::new(0.0, 30.0),
+        Point2::new(10.0, 40.0),
+        Point2::new(20.0, 30.0),
+    ]);
+    let rider = sketch.add_point(Point2::new(10.0, 35.0));
     let mut add = |constraint| sketch.add_constraint(constraint).unwrap();
     add(Constraint::HorizontalPoints(start, end));
     add(Constraint::VerticalPoints(start, EntityId::ORIGIN));
@@ -1098,6 +1104,8 @@ fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
         to: other,
         value: Expression::Parameter(width),
     });
+    add(Constraint::Coincident(rider, spline));
+    add(Constraint::Tangent(other, spline));
     transaction.add_feature("Added kinds", FeatureKind::from(sketch));
     document.apply(transaction.finish()).unwrap();
     (
@@ -1129,6 +1137,8 @@ fn added_constraint_kinds_round_trip() {
         "\"diameter\":{\"entity\":7,\"value\":\"10 mm\"}",
         "\"distance\":{\"from\":14,\"to\":7,",
         "\"distance\":{\"from\":2,\"to\":5,\"value\":\"$0\"}",
+        "\"coincident\":[19,18]",
+        "\"tangent\":[5,18]",
     ] {
         assert!(text.contains(record), "{record} is missing from {text}");
     }

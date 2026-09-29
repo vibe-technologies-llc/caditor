@@ -2,7 +2,7 @@ use caditor_geometry::{Point2, Vector2};
 
 use crate::{
     banded::Banded,
-    curve::{BSpline, MAX_SPLINE_DEGREE},
+    curve::{BSpline, MAX_SPLINE_DEGREE, basis_values},
 };
 
 const MIN_CONTROL_POINTS: usize = 4;
@@ -292,42 +292,6 @@ fn template_basis(template: &BSpline, parameter: f64) -> (usize, Vec<f64>) {
         template.control_points().len(),
         parameter,
     )
-}
-
-fn basis_values(degree: usize, knots: &[f64], count: usize, parameter: f64) -> (usize, Vec<f64>) {
-    let parameter = parameter.clamp(0.0, 1.0);
-    let last = count.saturating_sub(1);
-    let above = knots.partition_point(|knot| *knot <= parameter);
-    let span = above.saturating_sub(1).clamp(degree.min(last), last);
-    let knot = |index: usize| knots.get(index).copied().unwrap_or(0.0);
-    let mut values = vec![0.0; degree + 1];
-    let mut left = vec![0.0; degree + 1];
-    let mut right = vec![0.0; degree + 1];
-    if let Some(first) = values.first_mut() {
-        *first = 1.0;
-    }
-    for level in 1..=degree {
-        if let (Some(slot_left), Some(slot_right)) = (left.get_mut(level), right.get_mut(level)) {
-            *slot_left = parameter - knot((span + 1).saturating_sub(level));
-            *slot_right = knot(span + level) - parameter;
-        }
-        let mut saved = 0.0;
-        for index in 0..level {
-            let low = right.get(index + 1).copied().unwrap_or(0.0);
-            let high = left.get(level - index).copied().unwrap_or(0.0);
-            let width = low + high;
-            let value = values.get(index).copied().unwrap_or(0.0);
-            let share = if width != 0.0 { value / width } else { 0.0 };
-            if let Some(slot) = values.get_mut(index) {
-                *slot = saved + low * share;
-            }
-            saved = high * share;
-        }
-        if let Some(slot) = values.get_mut(level) {
-            *slot = saved;
-        }
-    }
-    (span - degree, values)
 }
 
 #[cfg(test)]

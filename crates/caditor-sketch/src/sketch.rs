@@ -451,7 +451,17 @@ impl Sketch {
             });
         }
         match *constraint {
-            Constraint::Coincident(a, b) => self.check_point_on_curve(constraint, a, b),
+            Constraint::Coincident(a, b) => {
+                let spline = match (self.role(a), self.role(b)) {
+                    (Some(Role::Point), Some(Role::Spline)) => Some((a, b)),
+                    (Some(Role::Spline), Some(Role::Point)) => Some((b, a)),
+                    _ => None,
+                };
+                match spline {
+                    Some((point, curve)) => self.check_not_own_point(point, curve),
+                    None => self.check_point_on_curve(constraint, a, b),
+                }
+            }
             Constraint::Horizontal(line) | Constraint::Vertical(line) => {
                 self.expect(line, &[Role::Line], "a line")?;
                 self.check_not_only_reference(&entities)
@@ -473,10 +483,13 @@ impl Sketch {
                 self.check_not_only_reference(&entities)
             }
             Constraint::Tangent(a, b) => {
-                let needed = "a line, a circle or an arc";
-                let first = self.expect(a, &[Role::Line, Role::Circular], needed)?;
-                let second = self.expect(b, &[Role::Line, Role::Circular], needed)?;
-                if first == Role::Line && second == Role::Line {
+                let needed = "a line, a circle, an arc or a spline";
+                let kinds = [Role::Line, Role::Circular, Role::Spline];
+                let first = self.expect(a, &kinds, needed)?;
+                let second = self.expect(b, &kinds, needed)?;
+                let same_straight_or_spline =
+                    first == second && matches!(first, Role::Line | Role::Spline);
+                if same_straight_or_spline {
                     return Err(self.not_applicable(constraint, a, b));
                 }
                 Ok(())
@@ -1211,8 +1224,33 @@ mod tests {
             "Point 0 is part of Line 2"
         );
         assert_eq!(
-            refused(Constraint::Coincident(spline, start)),
-            "Coincident does not apply to Spline 14 and Point 0"
+            refused(Constraint::Coincident(spline, EntityId::HORIZONTAL_AXIS)),
+            "Coincident does not apply to Spline 14 and Horizontal axis"
+        );
+        let Some(Entity::Spline { control_points }) = sketch.entity(spline).cloned() else {
+            panic!("expected a spline");
+        };
+        assert_eq!(
+            refused(Constraint::Coincident(control_points[1], spline)),
+            "Point 13 is part of Spline 14"
+        );
+        assert_eq!(
+            refused(Constraint::Tangent(spline, spline)),
+            "it uses Spline 14 twice"
+        );
+        let other_spline = Entity::Spline {
+            control_points: vec![start, control_points[1]],
+        };
+        let mut two_splines = sketch.clone();
+        two_splines
+            .insert_entity(EntityId::from_raw(30), other_spline)
+            .unwrap();
+        assert_eq!(
+            two_splines
+                .check_constraint(&Constraint::Tangent(spline, EntityId::from_raw(30)))
+                .unwrap_err()
+                .to_string(),
+            "Tangent does not apply to Spline 14 and Spline 30"
         );
         assert_eq!(
             refused(Constraint::Horizontal(EntityId::HORIZONTAL_AXIS)),
@@ -1235,6 +1273,9 @@ mod tests {
             Constraint::Tangent(arc, line),
             Constraint::Tangent(circle, arc),
             Constraint::Tangent(EntityId::HORIZONTAL_AXIS, circle),
+            Constraint::Coincident(spline, start),
+            Constraint::Tangent(line, spline),
+            Constraint::Tangent(spline, arc),
             Constraint::Equal(arc, circle),
             Constraint::Equal(line, other),
             Constraint::Distance {

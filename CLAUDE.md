@@ -210,9 +210,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     points, counter-clockwise) and clamped B-splines through control points. Every sketch also
     has a fixed origin and two axes under reserved IDs (`EntityId::ORIGIN`, `HORIZONTAL_AXIS`,
     `VERTICAL_AXIS`) that the counter never reaches; stored IDs stay below 2^63.
-  - Constraints have stable `ConstraintId`s: coincident (point–point or point on a curve),
-    horizontal and vertical (a line, or two points as `HorizontalPoints` and `VerticalPoints`),
-    parallel, perpendicular, tangent, equal, midpoint (a point halfway along a line), concentric
+  - Constraints have stable `ConstraintId`s: coincident (point–point or point on a curve,
+    splines included), horizontal and vertical (a line, or two points as `HorizontalPoints` and
+    `VerticalPoints`), parallel, perpendicular, tangent (a spline with a line, circle or arc
+    too), equal, midpoint (a point halfway along a line), concentric
     (two circles or arcs, or a point at one's centre), collinear, symmetric (two points about a
     line or a point), fix (a point held at a stored position), and the dimensions distance
     (between points, a point and a line or circle, or two lines, which holds both ends of the
@@ -256,8 +257,18 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     whose curves share a point (directly or through point–point coincidences) is written as
     the radius there being perpendicular to the line (or both radii along one line), which
     keeps full rank where the distance form has none, and a zero distance between points is
-    solved as a coincidence. A solve that would collapse a line or an arc's radius to nothing
-    counts as not converged, so it is reported as a conflict, unless the line or arc already had
+    solved as a coincidence. A point on a spline, and a tangent between a spline and a line,
+    circle or arc that do not share one of the spline's end points, get a parameter of their own
+    along the spline (`solve/spline.rs`): an extra variable after the geometry's, which counts
+    towards the degrees of freedom, is never perturbed, is clamped to the spline's range in the
+    line search (so a point beyond the spline's end is a conflict) and is remembered in the
+    `SolveMemo`; it starts at the closest point, or at the stationary point of the distance to the
+    other curve nearest touching, refined by Newton so geometry that already holds does not move.
+    Splines evaluate their basis and its first two derivatives exactly (`curve.rs`). A tangent at a
+    spline end joined to the other curve is written as the end's control leg along the line (or
+    across the radius), like the line–arc joint. A solve that would collapse a line or an arc's
+    radius to nothing counts as not converged, so it is reported as a conflict, unless the line
+    or arc already had
     no length before solving, which is reported as `SketchError::NoLength` naming it. Retries perturb each part by a
     fraction of its own extent.
     Degrees of freedom and each entity's constraint state come from the rank and null space

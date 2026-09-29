@@ -4,6 +4,7 @@ mod kind_tests;
 mod memo;
 mod numeric;
 mod sparse;
+mod spline;
 mod system;
 #[cfg(test)]
 mod tests;

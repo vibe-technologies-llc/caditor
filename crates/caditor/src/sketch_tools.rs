@@ -123,7 +123,7 @@ impl ConstraintTool {
 
     pub fn selection_hint(self) -> &'static str {
         match self {
-            Self::Coincident => "Select two points, or a point and a line, circle or arc",
+            Self::Coincident => "Select two points, or a point and a line, circle, arc or spline",
             Self::Midpoint => "Select a point and a line",
             Self::Concentric => {
                 "Select two or more circles or arcs, or a point and a circle or arc"
@@ -132,7 +132,9 @@ impl ConstraintTool {
             Self::Fix => "Select the points or curves to lock",
             Self::Horizontal | Self::Vertical => "Select one or more lines, or two or more points",
             Self::Perpendicular | Self::Angle => "Select two lines",
-            Self::Tangent => "Select a line and a circle or arc, or two circles or arcs",
+            Self::Tangent => {
+                "Select a line, circle or arc, and a circle, arc or spline to touch it"
+            }
             Self::Equal => "Select two or more lines, or two or more circles or arcs",
             Self::Symmetric => {
                 "Select two points or two lines, and the line or point to mirror them about"
@@ -184,10 +186,10 @@ impl ConstraintTool {
         shown: &Sketch,
         items: &[Item],
     ) -> Option<Vec<Constraint>> {
-        use Shape::{Circular, Line, Point};
+        use Shape::{Circular, Line, Point, Spline};
         match (self, items) {
-            (Self::Coincident, &[(a, Point), (b, Point | Line | Circular)])
-            | (Self::Coincident, &[(a, Line | Circular), (b, Point)]) => {
+            (Self::Coincident, &[(a, Point), (b, Point | Line | Circular | Spline)])
+            | (Self::Coincident, &[(a, Line | Circular | Spline), (b, Point)]) => {
                 Some(vec![Constraint::Coincident(a, b)])
             }
             (Self::Midpoint, &[(point, Point), (line, Line)] | &[(line, Line), (point, Point)]) => {
@@ -212,8 +214,9 @@ impl ConstraintTool {
             (Self::Perpendicular, &[(a, Line), (b, Line)]) => {
                 Some(vec![Constraint::Perpendicular(a, b)])
             }
-            (Self::Tangent, &[(a, Line | Circular), (b, Circular)])
-            | (Self::Tangent, &[(a, Circular), (b, Line)]) => Some(vec![Constraint::Tangent(a, b)]),
+            (Self::Tangent, &[(a, Line | Circular | Spline), (b, Line | Circular | Spline)]) => {
+                Some(vec![Constraint::Tangent(a, b)])
+            }
             (Self::Equal, _) => chained(items, Line, Constraint::Equal)
                 .or_else(|| chained(items, Circular, Constraint::Equal)),
             (Self::Symmetric, _) => symmetric(definition, shown, items),
@@ -785,7 +788,7 @@ mod tests {
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Coincident, &[f.horizontal, f.slanted]),
-            Err("Select two points, or a point and a line, circle or arc".to_owned())
+            Err("Select two points, or a point and a line, circle, arc or spline".to_owned())
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Tangent, &[f.slanted, f.circle]),
@@ -797,7 +800,18 @@ mod tests {
             Ok(vec![Constraint::Equal(f.arc, f.circle)])
         );
         assert!(candidates(&f, ConstraintTool::Equal, &[f.slanted, f.circle]).is_err());
-        assert!(candidates(&f, ConstraintTool::Coincident, &[f.lone, f.spline]).is_err());
+        assert_eq!(
+            candidates(&f, ConstraintTool::Coincident, &[f.lone, f.spline]),
+            Ok(vec![Constraint::Coincident(f.lone, f.spline)])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Tangent, &[f.spline, f.slanted]),
+            Ok(vec![Constraint::Tangent(f.spline, f.slanted)])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Tangent, &[f.slanted, f.horizontal]),
+            Err("Tangent does not apply to Line 5 and Line 2.".to_owned())
+        );
     }
 
     #[test]

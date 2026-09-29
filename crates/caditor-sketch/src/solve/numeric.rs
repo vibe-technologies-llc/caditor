@@ -184,7 +184,9 @@ impl Solver<'_> {
         }
         let offset = magnitude * self.extent(part, values);
         for (order, variable) in part.component.variables.iter().enumerate() {
-            if self.system.radius_variables.contains(variable) {
+            if self.system.radius_variables.contains(variable)
+                || self.system.parameter_variables.contains(variable)
+            {
                 continue;
             }
             let pattern = ((order + 1) as f64 * GOLDEN_RATIO_FRACTION).fract() * 2.0 - 1.0;
@@ -198,7 +200,7 @@ impl Solver<'_> {
         let (mut low, mut high, mut radius) = (f64::INFINITY, f64::NEG_INFINITY, 0.0_f64);
         for variable in &part.component.variables {
             let current = value(values, *variable);
-            if !current.is_finite() {
+            if !current.is_finite() || self.system.parameter_variables.contains(variable) {
                 continue;
             }
             if self.system.radius_variables.contains(variable) {
@@ -360,7 +362,12 @@ impl Solver<'_> {
             for (variable, delta) in component.variables.iter().zip(step) {
                 if let (Some(slot), Some(start)) = (trial.get_mut(*variable), values.get(*variable))
                 {
-                    *slot = start + fraction * delta;
+                    let moved = start + fraction * delta;
+                    *slot = if self.system.parameter_variables.contains(variable) {
+                        moved.clamp(0.0, 1.0)
+                    } else {
+                        moved
+                    };
                 }
             }
             let candidate = cost(&trial);

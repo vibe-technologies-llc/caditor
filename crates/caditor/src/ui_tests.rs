@@ -2226,6 +2226,55 @@ fn equal_and_parallel_take_several_lines_in_one_undoable_step() {
 }
 
 #[test]
+fn a_point_goes_onto_a_spline_and_a_line_touches_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline(&[
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 10.0),
+        Point2::new(20.0, 0.0),
+    ]);
+    let point = sketch.add_point(Point2::new(4.0, 9.0));
+    let line = sketch.add_line(Point2::new(2.0, 7.0), Point2::new(18.0, 6.0));
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.select(entity_pickables(feature, &[spline, point]));
+
+    harness.click("Coincident");
+    harness.settle();
+    harness.select(entity_pickables(feature, &[spline, line]));
+    harness.click("Tangent");
+    harness.settle();
+
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Coincident"),
+        vec![Constraint::Coincident(spline, point)]
+    );
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Tangent"),
+        vec![Constraint::Tangent(spline, line)]
+    );
+    let shown = harness.shown(feature);
+    let curve = shown.spline(spline).unwrap();
+    let on_curve = shown.point(point).unwrap();
+    let nearest = (0..=2000)
+        .map(|step| curve.point_at(f64::from(step) / 2000.0).distance(on_curve))
+        .fold(f64::INFINITY, f64::min);
+    assert!(nearest < 1e-2, "{on_curve} is {nearest} from the spline");
+    let (start, end) = shown.line_endpoints(line).unwrap();
+    let highest = (0..=2000)
+        .map(|step| {
+            let at = curve.point_at(f64::from(step) / 2000.0);
+            (end - start).normalize().perp_dot(at - start)
+        })
+        .fold(f64::NEG_INFINITY, f64::max);
+    assert!(highest.abs() < 1e-3, "the line is {highest} from touching");
+    assert!(harness.shows("Coincident Spline 3 and Point 4"));
+    assert!(harness.shows("Tangent Spline 3 and Line 7"));
+    assert!(!harness.shows("Conflicting constraints"));
+}
+
+#[test]
 fn symmetric_mirrors_two_points_about_the_selected_line_from_the_palette() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

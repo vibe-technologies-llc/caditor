@@ -15,6 +15,7 @@ enum Variable {
     X(EntityId),
     Y(EntityId),
     Radius(EntityId),
+    Parameter(ConstraintId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -72,6 +73,9 @@ impl<'a> Recall<'a> {
         }
         for (entity, radius) in &system.radii {
             names.insert(*radius, Variable::Radius(*entity));
+        }
+        for (constraint, parameter) in &system.parameters {
+            names.insert(*parameter, Variable::Parameter(*constraint));
         }
         let indices = names.iter().map(|(index, name)| (*name, *index)).collect();
         let mut owners: BTreeMap<usize, Vec<EntityId>> = BTreeMap::new();

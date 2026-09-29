@@ -1,8 +1,11 @@
-use std::f64::consts::{PI, TAU};
+use std::{
+    f64::consts::{PI, TAU},
+    sync::Arc,
+};
 
 use caditor_geometry::{Point2, Vector2};
 
-use crate::id::ConstraintId;
+use crate::{curve::basis_derivatives, id::ConstraintId};
 
 pub(crate) type Gradient = Vec<(usize, f64)>;
 
@@ -120,6 +123,61 @@ impl CircleHandle {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SplineHandle {
+    pub points: Vec<PointHandle>,
+    pub degree: usize,
+    pub knots: Vec<f64>,
+}
+
+struct SplineAt {
+    point: Point2,
+    tangent: Vector2,
+    bend: Vector2,
+    first: usize,
+    weights: Vec<f64>,
+    slopes: Vec<f64>,
+}
+
+impl SplineHandle {
+    fn at(&self, values: &[f64], parameter: usize) -> SplineAt {
+        let parameter = value(values, parameter);
+        let count = self.points.len();
+        let [(first, weights), (_, slopes), (_, bends)] = [0, 1, 2]
+            .map(|order| basis_derivatives(self.degree, &self.knots, count, parameter, order));
+        let combine = |weights: &[f64]| {
+            weights
+                .iter()
+                .zip(self.points.iter().skip(first))
+                .fold(Vector2::ZERO, |sum, (weight, point)| {
+                    sum + point.at(values) * *weight
+                })
+        };
+        SplineAt {
+            point: combine(&weights),
+            tangent: combine(&slopes),
+            bend: combine(&bends),
+            first,
+            weights,
+            slopes,
+        }
+    }
+
+    fn push(&self, gradient: &mut Gradient, first: usize, weights: &[f64], partial: Vector2) {
+        for (weight, point) in weights.iter().zip(self.points.iter().skip(first)) {
+            point.push(gradient, partial * *weight);
+        }
+    }
+
+    fn push_point(&self, at: &SplineAt, gradient: &mut Gradient, partial: Vector2) {
+        self.push(gradient, at.first, &at.weights, partial);
+    }
+
+    fn push_tangent(&self, at: &SplineAt, gradient: &mut Gradient, partial: Vector2) {
+        self.push(gradient, at.first, &at.slopes, partial);
+    }
+}
+
 struct Direction {
     unit: Vector2,
     length: f64,
@@ -159,7 +217,7 @@ pub(crate) enum Contact {
     Internal { larger_first: f64 },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Form {
     SameX(PointHandle, PointHandle),
     SameY(PointHandle, PointHandle),
@@ -240,9 +298,38 @@ pub(crate) enum Form {
         side: f64,
         value: f64,
     },
+    OnSpline {
+        point: PointHandle,
+        spline: Arc<SplineHandle>,
+        parameter: usize,
+        along: Vector2,
+    },
+    SplineOnLine {
+        spline: Arc<SplineHandle>,
+        parameter: usize,
+        line: LineHandle,
+    },
+    SplineAlongLine {
+        spline: Arc<SplineHandle>,
+        parameter: usize,
+        line: LineHandle,
+        fallback: Vector2,
+    },
+    SplineOnCircle {
+        spline: Arc<SplineHandle>,
+        parameter: usize,
+        circle: CircleHandle,
+        fallback: Vector2,
+    },
+    SplineAcrossRadius {
+        spline: Arc<SplineHandle>,
+        parameter: usize,
+        circle: CircleHandle,
+        fallbacks: (Vector2, Vector2),
+    },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Equation {
     pub owner: Option<ConstraintId>,
     pub form: Form,
@@ -291,12 +378,97 @@ impl Form {
             | Self::Angle { .. }
             | Self::Middle { .. }
             | Self::MirrorMiddle { .. }
-            | Self::MirrorAcross { .. } => None,
+            | Self::MirrorAcross { .. }
+            | Self::OnSpline { .. }
+            | Self::SplineOnLine { .. }
+            | Self::SplineAlongLine { .. }
+            | Self::SplineOnCircle { .. }
+            | Self::SplineAcrossRadius { .. } => None,
         }
     }
 
     fn evaluate(&self, values: &[f64], context: &Context, gradient: &mut Gradient) -> f64 {
         match *self {
+            Self::OnSpline {
+                point,
+                ref spline,
+                parameter,
+                along,
+            } => {
+                let at = spline.at(values, parameter);
+                point.push(gradient, along);
+                spline.push_point(&at, gradient, -along);
+                gradient.push((parameter, -along.dot(at.tangent)));
+                along.dot(point.at(values) - at.point)
+            }
+            Self::SplineOnLine {
+                ref spline,
+                parameter,
+                line,
+            } => {
+                let at = spline.at(values, parameter);
+                let direction = line.direction(values, context);
+                let offset = at.point - line.start.at(values);
+                let normal = direction.unit.perp();
+                spline.push_point(&at, gradient, normal);
+                gradient.push((parameter, normal.dot(at.tangent)));
+                line.start.push(gradient, -normal);
+                line.push_vector(gradient, direction.back_from_unit(-offset.perp()));
+                direction.unit.perp_dot(offset)
+            }
+            Self::SplineAlongLine {
+                ref spline,
+                parameter,
+                line,
+                fallback,
+            } => {
+                let at = spline.at(values, parameter);
+                let first = line.direction(values, context);
+                let second = Direction::of(at.tangent, fallback, context);
+                let scale = context.scale;
+                line.push_vector(gradient, first.back_from_unit(-second.unit.perp() * scale));
+                let turning = second.back_from_unit(first.unit.perp() * scale);
+                spline.push_tangent(&at, gradient, turning);
+                gradient.push((parameter, turning.dot(at.bend)));
+                first.unit.perp_dot(second.unit) * scale
+            }
+            Self::SplineOnCircle {
+                ref spline,
+                parameter,
+                circle,
+                fallback,
+            } => {
+                let at = spline.at(values, parameter);
+                let direction =
+                    Direction::of(at.point - circle.center.at(values), fallback, context);
+                spline.push_point(&at, gradient, direction.unit);
+                gradient.push((parameter, direction.unit.dot(at.tangent)));
+                circle.center.push(gradient, -direction.unit);
+                circle.push_radius(values, context, gradient, -1.0);
+                direction.length - circle.radius(values)
+            }
+            Self::SplineAcrossRadius {
+                ref spline,
+                parameter,
+                circle,
+                fallbacks: (radial_fallback, tangent_fallback),
+            } => {
+                let at = spline.at(values, parameter);
+                let radial = Direction::of(
+                    at.point - circle.center.at(values),
+                    radial_fallback,
+                    context,
+                );
+                let tangent = Direction::of(at.tangent, tangent_fallback, context);
+                let scale = context.scale;
+                let across = radial.back_from_unit(tangent.unit * scale);
+                let turning = tangent.back_from_unit(radial.unit * scale);
+                spline.push_point(&at, gradient, across);
+                circle.center.push(gradient, -across);
+                spline.push_tangent(&at, gradient, turning);
+                gradient.push((parameter, across.dot(at.tangent) + turning.dot(at.bend)));
+                radial.unit.dot(tangent.unit) * scale
+            }
             Self::SameX(a, b) => {
                 a.push(gradient, Vector2::X);
                 b.push(gradient, -Vector2::X);
@@ -584,7 +756,17 @@ mod tests {
     fn values() -> Vec<f64> {
         vec![
             0.3, -1.2, 4.1, 0.7, 2.2, 3.9, -1.5, 2.8, 1.1, 5.3, 1.7, 2.4, -0.6, 0.9, 3.3, -2.1,
+            0.37, 0.81,
         ]
+    }
+
+    fn spline(first: usize, count: usize) -> Arc<SplineHandle> {
+        let (degree, knots) = crate::curve::clamped_knots(count);
+        Arc::new(SplineHandle {
+            points: (0..count).map(|index| point(first + 2 * index)).collect(),
+            degree,
+            knots,
+        })
     }
 
     fn forms() -> Vec<Form> {
@@ -710,6 +892,41 @@ mod tests {
                 side: 1.0,
                 value: 2.0,
             },
+            Form::OnSpline {
+                point: point(14),
+                spline: spline(0, 5),
+                parameter: 16,
+                along: Vector2::X,
+            },
+            Form::OnSpline {
+                point: point(14),
+                spline: spline(2, 3),
+                parameter: 17,
+                along: Vector2::Y,
+            },
+            Form::SplineOnLine {
+                spline: spline(0, 4),
+                parameter: 16,
+                line: line(10, 12),
+            },
+            Form::SplineAlongLine {
+                spline: spline(0, 6),
+                parameter: 17,
+                line: line(12, 14),
+                fallback: Vector2::X,
+            },
+            Form::SplineOnCircle {
+                spline: spline(0, 4),
+                parameter: 16,
+                circle: circle(12, 10),
+                fallback: Vector2::X,
+            },
+            Form::SplineAcrossRadius {
+                spline: spline(0, 5),
+                parameter: 17,
+                circle: arc(12, 14),
+                fallbacks: (Vector2::X, Vector2::Y),
+            },
         ]
     }
 
@@ -717,7 +934,10 @@ mod tests {
     fn every_gradient_matches_central_finite_differences() {
         let base = values();
         for form in forms() {
-            let equation = Equation { owner: None, form };
+            let equation = Equation {
+                owner: None,
+                form: form.clone(),
+            };
             let mut gradient = Vec::new();
             equation.linearize(&base, &CONTEXT, &mut gradient);
             let mut analytic = vec![0.0; base.len()];
@@ -743,9 +963,12 @@ mod tests {
 
     #[test]
     fn degenerate_geometry_gives_finite_residuals_and_gradients() {
-        let collapsed = vec![1.0; 16];
+        let collapsed = vec![1.0; 18];
         for form in forms() {
-            let equation = Equation { owner: None, form };
+            let equation = Equation {
+                owner: None,
+                form: form.clone(),
+            };
             let mut gradient = Vec::new();
             let residual = equation.linearize(&collapsed, &CONTEXT, &mut gradient);
             assert!(residual.is_finite(), "{form:?}");
