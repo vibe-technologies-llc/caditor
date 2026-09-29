@@ -153,8 +153,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   when one is misspelled. Every intermediate value must be finite and real, and a literal too large for an f64 is refused
   as it is parsed (it could not be stored). Besides the
   arithmetic and trigonometry there are comparisons (plain 1 or 0, equality within 1e-9) with
-  a lazy `if`, `mod`, `hypot`, `exp`, `ln`, `sign`, `clamp`, `round`, `floor` and `ceil` with
-  an optional step, and the constants `pi`, `tau` and `e`. An `Expression` refers to
+  a lazy `if`, lazy `and` and `or`, `not`, `mod`, `hypot`, `exp`, `ln`, `log10`, `log2`,
+  `cbrt`, `sign`, `clamp`, `round`, `floor`, `ceil` and `trunc` with an optional step (the
+  quotient snapped to a whole number within the comparison tolerance, so `floor(0.3, 0.1)` is
+  0.3), and the constants `pi`, `tau` and `e`. Chained comparisons, decimal commas, `mm2` and
+  `width²` get messages of their own, and names that read as units (`mm²`) are refused. An `Expression` refers to
   parameters by `ParameterId`, never by name, so renaming a parameter rewrites every
   expression's text. Parsing limits length, nesting and the depth of the tree it builds (checked
   as each operator is added, so long chains stop at the limit) so that hostile input cannot

@@ -57,6 +57,11 @@ impl Dimension {
         even.then(|| Self::new(self.length / 2, self.angle / 2))
     }
 
+    pub fn cube_root(self) -> Option<Self> {
+        let whole = self.length % 3 == 0 && self.angle % 3 == 0;
+        whole.then(|| Self::new(self.length / 3, self.angle / 3))
+    }
+
     pub fn unit_symbol(self) -> String {
         let length = match self.length {
             0 => None,

@@ -60,6 +60,12 @@ pub enum ParseErrorKind {
     },
     #[error("'{found}' is not a unit; {hint}")]
     UnknownUnit { found: String, hint: String },
+    #[error("Comparisons cannot be chained; write and(a < b, b < c) instead")]
+    ChainedComparison,
+    #[error("Decimals are written with a point, as in {0}")]
+    DecimalComma(String),
+    #[error("'{found}' is not a name; write {suggestion} for a power")]
+    PowerSpelling { found: String, suggestion: String },
 }
 
 const PLURAL_LENGTH: usize = 3;
@@ -89,7 +95,7 @@ fn spelled_unit(name: &str) -> Option<Unit> {
     })
 }
 
-fn unit_with_power(name: &str) -> Option<(Unit, i8)> {
+pub(crate) fn unit_with_power(name: &str) -> Option<(Unit, i8)> {
     let (stem, exponent) = match name.strip_suffix('²') {
         Some(stem) => (stem, 2),
         None => match name.strip_suffix('³') {
@@ -99,6 +105,30 @@ fn unit_with_power(name: &str) -> Option<(Unit, i8)> {
     };
     let unit = Unit::from_symbol(stem)?;
     (exponent == 1 || unit.dimension() == crate::Dimension::LENGTH).then_some((unit, exponent))
+}
+
+fn power_spelling(name: &str, resolve: &dyn Fn(&str) -> Option<ParameterId>) -> Option<String> {
+    let superscript = |exponent: char| match exponent {
+        '2' => Some('²'),
+        '3' => Some('³'),
+        _ => None,
+    };
+    let mut characters = name.chars();
+    let last = characters.next_back()?;
+    let stem = characters.as_str();
+    if let Some(power) = superscript(last)
+        && unit_with_power(stem).is_some_and(|(unit, exponent)| {
+            exponent == 1 && unit.dimension() == crate::Dimension::LENGTH
+        })
+    {
+        return Some(format!("{stem}{power}"));
+    }
+    let exponent = match last {
+        '²' => 2,
+        '³' => 3,
+        _ => return None,
+    };
+    resolve(stem).map(|_| format!("{stem}^{exponent}"))
 }
 
 const OPERAND: &str = "a number, name or '('";
@@ -174,7 +204,9 @@ fn parse_with(
     };
     let expression = parser.expression()?;
     match parser.peek() {
-        Some(token) => Err(parser.unexpected(token.clone(), OPERATOR)),
+        Some(token) => Err(parser
+            .decimal_comma()
+            .unwrap_or_else(|| parser.unexpected(token.clone(), OPERATOR))),
         None => Ok(expression),
     }
 }
@@ -402,7 +434,38 @@ impl Parser<'_> {
         self.advance();
         let right = self.sum()?;
         deepened(left.depth(), &right, span)?;
+        if let Some(Token {
+            kind: TokenKind::Compare(_),
+            span,
+        }) = self.peek().cloned()
+        {
+            return Err(ParseError {
+                kind: ParseErrorKind::ChainedComparison,
+                span,
+            });
+        }
         Ok(Expression::binary(operator, left, right))
+    }
+
+    fn decimal_comma(&self) -> Option<ParseError> {
+        let before = self.tokens.get(self.position.checked_sub(1)?)?;
+        let comma = self.tokens.get(self.position)?;
+        let after = self.tokens.get(self.position + 1)?;
+        let adjacent = before.span.end == comma.span.start && comma.span.end == after.span.start;
+        let (TokenKind::Number(_), TokenKind::Comma, TokenKind::Number(_)) =
+            (&before.kind, &comma.kind, &after.kind)
+        else {
+            return None;
+        };
+        if !adjacent {
+            return None;
+        }
+        let whole = self.text.get(before.span.clone())?;
+        let fraction = self.text.get(after.span.clone())?;
+        Some(ParseError {
+            kind: ParseErrorKind::DecimalComma(format!("{whole}.{fraction}")),
+            span: before.span.start..after.span.end,
+        })
     }
 
     fn sum(&mut self) -> Result<Expression, ParseError> {
@@ -519,6 +582,15 @@ impl Parser<'_> {
             let known = Function::from_name(&name).is_some()
                 || Constant::from_name(&name).is_some()
                 || (self.resolve)(&name).is_some();
+            if !known && let Some(suggestion) = power_spelling(&name, self.resolve) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::PowerSpelling {
+                        found: name,
+                        suggestion,
+                    },
+                    span,
+                });
+            }
             return match spelled_unit(&name) {
                 Some(unit) if !known => Err(ParseError {
                     kind: ParseErrorKind::UnknownUnit {
@@ -565,9 +637,16 @@ impl Parser<'_> {
         if let Some(function) = Function::from_name(name) {
             return Err(error(ParseErrorKind::MissingArguments(function)));
         }
-        (self.resolve)(name)
-            .map(Expression::Parameter)
-            .ok_or_else(|| error(ParseErrorKind::UnknownParameter(name.to_owned())))
+        if let Some(id) = (self.resolve)(name) {
+            return Ok(Expression::Parameter(id));
+        }
+        Err(error(match power_spelling(name, self.resolve) {
+            Some(suggestion) => ParseErrorKind::PowerSpelling {
+                found: name.to_owned(),
+                suggestion,
+            },
+            None => ParseErrorKind::UnknownParameter(name.to_owned()),
+        }))
     }
 
     fn call(&mut self, function: Function, span: Range<usize>) -> Result<Expression, ParseError> {

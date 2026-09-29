@@ -117,10 +117,17 @@ pub enum Function {
     Sign,
     Clamp,
     If,
+    Cbrt,
+    Log10,
+    Log2,
+    Trunc,
+    And,
+    Or,
+    Not,
 }
 
 impl Function {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 28] = [
         Self::Sqrt,
         Self::Abs,
         Self::Floor,
@@ -142,6 +149,13 @@ impl Function {
         Self::Sign,
         Self::Clamp,
         Self::If,
+        Self::Cbrt,
+        Self::Log10,
+        Self::Log2,
+        Self::Trunc,
+        Self::And,
+        Self::Or,
+        Self::Not,
     ];
 
     pub fn name(self) -> &'static str {
@@ -167,6 +181,13 @@ impl Function {
             Self::Sign => "sign",
             Self::Clamp => "clamp",
             Self::If => "if",
+            Self::Cbrt => "cbrt",
+            Self::Log10 => "log10",
+            Self::Log2 => "log2",
+            Self::Trunc => "trunc",
+            Self::And => "and",
+            Self::Or => "or",
+            Self::Not => "not",
         }
     }
 
@@ -179,13 +200,18 @@ impl Function {
     pub fn arity(self) -> Arity {
         match self {
             Self::Min | Self::Max => Arity::AtLeast(1),
-            Self::Floor | Self::Ceil | Self::Round => Arity::Between(1, 2),
+            Self::And | Self::Or => Arity::AtLeast(2),
+            Self::Floor | Self::Ceil | Self::Round | Self::Trunc => Arity::Between(1, 2),
             Self::Atan2 | Self::Mod | Self::Hypot => Arity::Exactly(2),
             Self::Clamp | Self::If => Arity::Exactly(3),
             Self::Sqrt
+            | Self::Cbrt
             | Self::Abs
             | Self::Exp
             | Self::Ln
+            | Self::Log10
+            | Self::Log2
+            | Self::Not
             | Self::Sign
             | Self::Sin
             | Self::Cos
@@ -285,8 +311,11 @@ pub enum EvalError {
     DimensionedExponent { found: Dimension },
     #[error("{base} can only be raised to a whole power")]
     FractionalPower { base: Dimension },
-    #[error("the square root of {found} cannot be expressed in units")]
-    UnitlessRoot { found: Dimension },
+    #[error("the {} root of {found} cannot be expressed in units", if *.function == Function::Cbrt { "cube" } else { "square" })]
+    UnitlessRoot {
+        function: Function,
+        found: Dimension,
+    },
     #[error("it takes the square root of a negative number")]
     NegativeRoot,
     #[error("the units of the result are too complex")]
@@ -446,6 +475,16 @@ impl Expression {
                 } else {
                     otherwise.evaluate_unchecked(value_of)
                 }
+            }
+            Self::Call(function @ (Function::And | Function::Or), arguments) => {
+                let deciding = *function == Function::Or;
+                for argument in arguments {
+                    let value = argument.evaluate_unchecked(value_of)?;
+                    if (plain_number(*function, value)? != 0.0) == deciding {
+                        return Ok(truth(deciding));
+                    }
+                }
+                Ok(truth(!deciding))
             }
             Self::Call(function, arguments) => {
                 let values = arguments
@@ -708,6 +747,9 @@ fn power(base: Quantity, exponent: Quantity) -> Result<Quantity, EvalError> {
     let whole = exponent.value.fract() == 0.0
         && exponent.value >= f64::from(i8::MIN)
         && exponent.value <= f64::from(i8::MAX);
+    if exponent.value.fract() == 0.0 && !whole {
+        return Err(EvalError::TooComplex);
+    }
     if !whole {
         return Err(EvalError::FractionalPower {
             base: base.dimension,
@@ -736,6 +778,7 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
                 .dimension
                 .square_root()
                 .ok_or(EvalError::UnitlessRoot {
+                    function,
                     found: first.dimension,
                 })?;
             if first.value < 0.0 {
@@ -743,11 +786,19 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
             }
             Ok(Quantity::new(first.value.sqrt(), dimension))
         }
+        Function::Cbrt => {
+            let dimension = first.dimension.cube_root().ok_or(EvalError::UnitlessRoot {
+                function,
+                found: first.dimension,
+            })?;
+            Ok(Quantity::new(first.value.cbrt(), dimension))
+        }
         Function::Abs => keep_dimension(first.value.abs()),
-        Function::Floor | Function::Ceil | Function::Round => {
+        Function::Floor | Function::Ceil | Function::Round | Function::Trunc => {
             let round = |value: f64| match function {
                 Function::Floor => value.floor(),
                 Function::Ceil => value.ceil(),
+                Function::Trunc => value.trunc(),
                 _ => value.round(),
             };
             match arguments.get(1) {
@@ -757,7 +808,7 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
                         return Err(EvalError::InvalidStep { function });
                     }
                     Ok(Quantity::new(
-                        round(first.value / step.value) * step.value,
+                        round(snapped(first.value / step.value)) * step.value,
                         dimension,
                     ))
                 }
@@ -783,13 +834,18 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
             Ok(Quantity::new(first.value.hypot(other.value), dimension))
         }
         Function::Exp => Ok(Quantity::plain(plain_number(function, first)?.exp())),
-        Function::Ln => {
+        Function::Ln | Function::Log10 | Function::Log2 => {
             let value = plain_number(function, first)?;
             if value <= 0.0 {
                 return Err(EvalError::NotPositive { function });
             }
-            Ok(Quantity::plain(value.ln()))
+            Ok(Quantity::plain(match function {
+                Function::Log10 => value.log10(),
+                Function::Log2 => value.log2(),
+                _ => value.ln(),
+            }))
         }
+        Function::Not => Ok(truth(plain_number(function, first)? == 0.0)),
         Function::Sign => Ok(Quantity::plain(if first.value > 0.0 {
             1.0
         } else if first.value < 0.0 {
@@ -811,7 +867,9 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
                 dimension,
             ))
         }
-        Function::If => Err(EvalError::WrongArgumentCount { function }),
+        Function::If | Function::And | Function::Or => {
+            Err(EvalError::WrongArgumentCount { function })
+        }
         Function::Min | Function::Max => extreme(function, first, arguments),
         Function::Sin => Ok(Quantity::plain(radians(function, first)?.sin())),
         Function::Cos => Ok(Quantity::plain(radians(function, first)?.cos())),
@@ -838,6 +896,19 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
             unify(Operation::Compare, first, x)?;
             Ok(Quantity::angle(first.value.atan2(x.value).to_degrees()))
         }
+    }
+}
+
+fn truth(holds: bool) -> Quantity {
+    Quantity::plain(if holds { 1.0 } else { 0.0 })
+}
+
+fn snapped(quotient: f64) -> f64 {
+    let nearest = quotient.round();
+    if (quotient - nearest).abs() <= EQUALITY_TOLERANCE * quotient.abs().max(1.0) {
+        nearest
+    } else {
+        quotient
     }
 }
 

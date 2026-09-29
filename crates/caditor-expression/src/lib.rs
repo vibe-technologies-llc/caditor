@@ -69,7 +69,7 @@ pub fn check_name(name: &str) -> Result<(), NameError> {
     {
         return Err(NameError::InvalidCharacter(invalid));
     }
-    if Unit::from_symbol(name).is_some() {
+    if Unit::from_symbol(name).is_some() || parse::unit_with_power(name).is_some() {
         return Err(NameError::Unit(name.to_owned()));
     }
     if Function::from_name(name).is_some() {
@@ -191,6 +191,107 @@ mod tests {
         assert_eq!(evaluate("width + 5"), Ok(Quantity::length(45.0)));
         assert_eq!(evaluate("5 - width"), Ok(Quantity::length(-35.0)));
         assert_eq!(evaluate("30 deg + 15"), Ok(Quantity::angle(45.0)));
+    }
+
+    #[test]
+    fn roots_logarithms_truncation_and_logic_evaluate() {
+        let near = |text: &str, expected: Quantity| {
+            let found = evaluate(text).unwrap();
+            assert_eq!(found.dimension, expected.dimension, "{text}");
+            assert!(
+                (found.value - expected.value).abs() < 1e-12,
+                "{text}: {found:?}"
+            );
+        };
+
+        near("cbrt(27 mm³)", Quantity::length(3.0));
+        near("cbrt(-8)", Quantity::plain(-2.0));
+        near("log10(1000)", Quantity::plain(3.0));
+        near("log2(8)", Quantity::plain(3.0));
+        near("trunc(-2.7 mm)", Quantity::length(-2.0));
+        near("trunc(-2.7 mm, 0.5 mm)", Quantity::length(-2.5));
+        near("floor(0.3, 0.1)", Quantity::plain(0.3));
+        near("ceil(0.7 mm, 0.1 mm)", Quantity::length(0.7));
+        near("floor(0.35, 0.1)", Quantity::plain(0.3));
+        near("and(width > 1 mm, height > 1 mm)", Quantity::plain(1.0));
+        near("and(gap != 0 mm, width / gap > 2)", Quantity::plain(0.0));
+        near("or(gap == 0 mm, width / gap > 2)", Quantity::plain(1.0));
+        near("or(0, 0, 3)", Quantity::plain(1.0));
+        near("not(width < height)", Quantity::plain(1.0));
+
+        assert_eq!(
+            evaluate("cbrt(4 mm²)"),
+            Err(EvalError::UnitlessRoot {
+                function: Function::Cbrt,
+                found: Dimension::new(2, 0),
+            })
+        );
+        assert_eq!(
+            evaluate("log10(0)"),
+            Err(EvalError::NotPositive {
+                function: Function::Log10
+            })
+        );
+        assert_eq!(
+            evaluate("and(1 mm, 1)"),
+            Err(EvalError::NeedsPlainNumber {
+                function: Function::And,
+                found: Dimension::LENGTH,
+            })
+        );
+        assert_eq!(evaluate("(2 mm) ^ 200"), Err(EvalError::TooComplex));
+        assert_eq!(
+            error_kind("and(1)"),
+            ParseErrorKind::WrongArgumentCount {
+                function: Function::And,
+                expected: Arity::AtLeast(2)
+            }
+        );
+    }
+
+    #[test]
+    fn common_slips_get_their_own_messages() {
+        assert_eq!(
+            error_kind("1 < width < 5 mm"),
+            ParseErrorKind::ChainedComparison
+        );
+        assert_eq!(
+            error_kind("0,5 mm"),
+            ParseErrorKind::DecimalComma("0.5".to_owned())
+        );
+        assert_eq!(
+            error_kind("10 mm2"),
+            ParseErrorKind::PowerSpelling {
+                found: "mm2".to_owned(),
+                suggestion: "mm²".to_owned()
+            }
+        );
+        assert_eq!(
+            error_kind("cm3 + 1"),
+            ParseErrorKind::PowerSpelling {
+                found: "cm3".to_owned(),
+                suggestion: "cm³".to_owned()
+            }
+        );
+        assert_eq!(
+            error_kind("width² / 2"),
+            ParseErrorKind::PowerSpelling {
+                found: "width²".to_owned(),
+                suggestion: "width^2".to_owned()
+            }
+        );
+        assert_eq!(
+            error_kind("depth²"),
+            ParseErrorKind::UnknownParameter("depth²".to_owned())
+        );
+        assert!(parse("max(0,5)").is_ok());
+        assert_eq!(check_name("mm²"), Err(NameError::Unit("mm²".to_owned())));
+        assert_eq!(check_name("cm³"), Err(NameError::Unit("cm³".to_owned())));
+        assert_eq!(
+            check_name("cbrt"),
+            Err(NameError::Function("cbrt".to_owned()))
+        );
+        assert_eq!(check_name("area²"), Ok(()));
     }
 
     #[test]

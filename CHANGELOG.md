@@ -33,6 +33,9 @@ The first release of caditor.
   and names (`(2 + 3) mm`), areas and volumes such as `mm²`, and a clear message for a
   misspelled unit or a computed angle without deg or rad. A number too large to store, such as
   `1e999`, is refused as it is typed instead of being lost on the next save.
+- `cbrt`, `log10`, `log2`, `trunc` and the logical `and`, `or` and `not` in expressions; rounding
+  to a step no longer falls one step short (`floor(0.3, 0.1)` is 0.3), and chained comparisons,
+  decimal commas and `mm2` are explained rather than reported as a missing operator or name.
 
 ### Files
 

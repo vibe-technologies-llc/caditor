@@ -135,18 +135,10 @@ within a category run from most to least important.
   (`system.rs` `joint`, `points_on`), quadratic in tangents per solve.
 - A zero-length line (two distinct points at one position) makes its part inadmissible and is
   reported as a conflict of its own constraints; say that the line has no length.
-- `10 mm^2` means (10 mm)², and `mm2` or `width²` fail with "no parameter named"; hint at `mm²`.
-- Parameters may be named `mm²` or `cm³`, which `check_name` accepts but expressions always read
-  as units.
-- `floor`, `ceil` and `round` with a step use exact division, so `floor(0.3, 0.1)` is 0.2;
-  snap within the comparison tolerance.
-- An integral exponent outside the i8 range reports "can only be raised to a whole power".
-- A chained comparison (`1 < x < 5`) and a decimal comma (`0,5 mm`) both say "Expected an
-  operator"; give each its own message.
+- `10 mm^2` means (10 mm)², since a power binds to the measure before it; stored text relies on
+  that reading, so changing it needs a new spelling or a format change.
 - Dimension values are unbounded above, so 1e200 mm overflows the scale and fails as the generic
   unsolvable error, and labels print hundreds of digits.
-- Missing functions: `cbrt` (a length from a volume is otherwise impossible), `log10`, `log2`,
-  `trunc`, and logical `and`, `or` and `not`.
 - `BSpline::through` returns `None` on consecutive equal points (singular collocation); only
   tests use it today.
 - Tests missing for: dense and sparse paths giving the same rank and fixed sets across the
