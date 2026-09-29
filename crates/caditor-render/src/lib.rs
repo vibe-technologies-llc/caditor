@@ -42,6 +42,12 @@ pub struct SurfaceSize {
     pub height: u32,
 }
 
+pub enum FrameStart {
+    Ready(Box<Frame>),
+    Hidden,
+    Skipped,
+}
+
 pub struct Frame {
     surface_texture: wgpu::SurfaceTexture,
     pub view: wgpu::TextureView,
@@ -152,11 +158,12 @@ impl Renderer {
 
     pub fn begin_frame(
         &mut self,
+        window_size: SurfaceSize,
         viewport: Option<&ViewportFrame<'_>>,
-    ) -> Result<Option<Frame>, RenderError> {
+    ) -> Result<FrameStart, RenderError> {
         self.viewport.picking().abandon_unsubmitted();
-        if self.needs_reconfigure {
-            self.resize(self.size());
+        if self.needs_reconfigure || clamp_size(window_size) != self.size() {
+            self.resize(window_size);
         }
 
         let surface_texture = match self.surface.get_current_texture() {
@@ -166,15 +173,15 @@ impl Renderer {
                 texture
             }
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                return Ok(None);
+                return Ok(FrameStart::Hidden);
             }
             wgpu::CurrentSurfaceTexture::Outdated => {
-                self.resize(self.size());
-                return Ok(None);
+                self.needs_reconfigure = true;
+                return Ok(FrameStart::Skipped);
             }
             wgpu::CurrentSurfaceTexture::Lost => {
                 self.recreate_surface()?;
-                return Ok(None);
+                return Ok(FrameStart::Skipped);
             }
             wgpu::CurrentSurfaceTexture::Validation => {
                 return Err(RenderError::SurfaceValidation);
@@ -201,11 +208,11 @@ impl Renderer {
             viewport,
         );
 
-        Ok(Some(Frame {
+        Ok(FrameStart::Ready(Box::new(Frame {
             surface_texture,
             view,
             encoder,
-        }))
+        })))
     }
 
     pub fn submit(

@@ -883,8 +883,14 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
 - **caditor-render**: wgpu device and surface ownership, the camera and the viewport. It does
   not depend on winit or on the document: it takes any `Arc<dyn WindowTarget>` and draws a
   `Scene` of shaded meshes, lines, markers, triangle fills and a grid built by the app.
-  `begin_frame` draws the 3D viewport into its rect and hands back a `Frame` whose encoder the
-  app draws the UI into; `submit` presents it.
+  `begin_frame` takes the window's current size (reconfiguring the surface when it differs or
+  was outdated), draws the 3D viewport into its rect and hands back `FrameStart::Ready` with a
+  `Frame` whose encoder the app draws the UI into, `submit` presenting it; an acquire that timed
+  out or was occluded is `Hidden`, an outdated or lost surface `Skipped`. The app then stops
+  drawing (still running the UI and workers) until the window is shown again (`Occluded(false)`,
+  a resize, focus, the cursor entering) or five seconds pass, so a window hidden on Wayland
+  does not block the UI thread for the acquire timeout every frame, and retries skipped or
+  failed frames after 16 ms doubling up to a second instead of in a tight loop.
   - Precision: every position is converted relative to the eye in f64 before the cast to f32,
     and the view matrix is rotation only, so geometry far from the origin stays exact. Meshes
     are the exception that keeps the rule: a `ShadedMesh` stores f32 positions relative to its

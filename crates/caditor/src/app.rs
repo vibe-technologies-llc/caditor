@@ -1,7 +1,11 @@
-use std::{path::PathBuf, sync::Arc, time::Instant};
+use std::{
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result};
-use caditor_render::{PickPoll, Renderer, SurfaceSize, ViewportFrame, WindowTarget};
+use caditor_render::{FrameStart, PickPoll, Renderer, SurfaceSize, ViewportFrame, WindowTarget};
 use egui_winit::accesskit_winit;
 use winit::{
     application::ApplicationHandler,
@@ -60,6 +64,11 @@ pub fn window_title(model: &Model) -> String {
     let marker = if model.is_dirty() { "*" } else { "" };
     format!("{marker}{} — {}", model.display_name(), about::NAME)
 }
+
+const FIRST_RETRY: Duration = Duration::from_millis(16);
+const MAX_RETRY: Duration = Duration::from_secs(1);
+const MAX_RETRY_DOUBLINGS: u32 = 6;
+const HIDDEN_PROBE: Duration = Duration::from_secs(5);
 
 pub struct Workspace {
     pub viewport: ViewportState,
@@ -518,7 +527,14 @@ impl ApplicationHandler<AppEvent> for App {
             session.window.request_redraw();
         }
 
+        if shows_the_window(&event) {
+            session.hidden_until = None;
+            session.window.request_redraw();
+        }
         match event {
+            WindowEvent::Occluded(true) => {
+                session.hidden_until = Instant::now().checked_add(HIDDEN_PROBE);
+            }
             WindowEvent::CloseRequested => {
                 self.files.perform(FileCommand::Quit, &mut self.model);
                 session.window.request_redraw();
@@ -566,6 +582,8 @@ struct Session {
     last_redraw: Option<Instant>,
     next_repaint: Option<Instant>,
     dropped: Vec<PathBuf>,
+    hidden_until: Option<Instant>,
+    failed_frames: u32,
     title: String,
 }
 
@@ -597,8 +615,16 @@ impl Session {
             last_redraw: None,
             next_repaint: None,
             dropped: Vec::new(),
+            hidden_until: None,
+            failed_frames: 0,
             title: title.to_owned(),
         })
+    }
+
+    fn retry_delay(&mut self) -> Duration {
+        let delay = retry_delay(self.failed_frames);
+        self.failed_frames = self.failed_frames.saturating_add(1);
+        delay
     }
 
     fn redraw(&mut self, model: &mut Model, files: &mut Files) {
@@ -660,28 +686,49 @@ impl Session {
         });
 
         let repaint_after = ui.repaint_after;
-        match self.renderer.begin_frame(viewport_frame.as_ref()) {
-            Ok(Some(mut frame)) => {
-                let command_buffers = self.overlay.paint(&self.renderer, Some(&mut frame), ui);
-                self.renderer.submit(frame, command_buffers);
+        let hidden = self.hidden_until.filter(|until| now < *until);
+        let started = match hidden {
+            Some(_) => Ok(FrameStart::Hidden),
+            None => self.renderer.begin_frame(
+                surface_size(self.window.inner_size()),
+                viewport_frame.as_ref(),
+            ),
+        };
+        let wait = match started {
+            Ok(FrameStart::Ready(mut frame)) => {
+                let command_buffers = self.overlay.paint(&self.renderer, Some(&mut *frame), ui);
+                self.renderer.submit(*frame, command_buffers);
+                self.failed_frames = 0;
+                self.hidden_until = None;
+                None
             }
-            Ok(None) => {
+            Ok(FrameStart::Hidden) => {
                 self.overlay.paint(&self.renderer, None, ui);
-                self.window.request_redraw();
+                let until = hidden.or_else(|| now.checked_add(HIDDEN_PROBE));
+                self.hidden_until = until;
+                Some(until.map_or(HIDDEN_PROBE, |until| until.saturating_duration_since(now)))
+            }
+            Ok(FrameStart::Skipped) => {
+                self.overlay.paint(&self.renderer, None, ui);
+                Some(self.retry_delay())
             }
             Err(error) => {
                 log::error!("skipping frame: {error}");
                 self.overlay.paint(&self.renderer, None, ui);
-                self.window.request_redraw();
+                Some(self.retry_delay())
             }
-        }
+        };
         if pick_requested && !self.renderer.is_pick_pending() {
             self.workspace.viewport.pick_was_not_issued();
         }
 
         let repaint_now = changed || repaint_after.is_some_and(|delay| delay.is_zero());
         self.next_repaint = None;
-        if repaint_now || self.workspace.viewport.is_animating() || self.renderer.is_pick_pending()
+        if let Some(wait) = wait {
+            self.next_repaint = now.checked_add(wait);
+        } else if repaint_now
+            || self.workspace.viewport.is_animating()
+            || self.renderer.is_pick_pending()
         {
             self.window.request_redraw();
         } else {
@@ -691,9 +738,41 @@ impl Session {
     }
 }
 
+fn retry_delay(failures: u32) -> Duration {
+    FIRST_RETRY
+        .saturating_mul(1 << failures.min(MAX_RETRY_DOUBLINGS))
+        .min(MAX_RETRY)
+}
+
+fn shows_the_window(event: &WindowEvent) -> bool {
+    matches!(
+        event,
+        WindowEvent::Occluded(false)
+            | WindowEvent::Resized(_)
+            | WindowEvent::Focused(true)
+            | WindowEvent::CursorEntered { .. }
+            | WindowEvent::ScaleFactorChanged { .. }
+    )
+}
+
 fn surface_size(size: PhysicalSize<u32>) -> SurfaceSize {
     SurfaceSize {
         width: size.width,
         height: size.height,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_frames_are_retried_later_and_later_up_to_a_second() {
+        let delays: Vec<Duration> = (0..10).map(retry_delay).collect();
+
+        assert_eq!(delays[0], FIRST_RETRY);
+        assert!(delays.windows(2).all(|pair| pair[1] >= pair[0]));
+        assert_eq!(delays[9], MAX_RETRY);
+        assert_eq!(retry_delay(u32::MAX), MAX_RETRY);
     }
 }

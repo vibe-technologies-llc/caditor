@@ -108,9 +108,6 @@ within a category run from most to least important.
 - Line widths, marker sizes, pick tolerances and the pick window are in physical pixels, so at
   200% edges are 0.75 logical px and picks half as forgiving, while snapping scales.
 - GPU device loss is never handled: no device-lost callback, and the UI shares the dead encoder.
-- Frame failures redraw in a tight loop, and a hidden window blocks the UI thread for the 1 s
-  acquire timeout per frame. Back off and stop drawing while occluded.
-- Surface recovery reconfigures with the stale size, which can spin on `Outdated`.
 - The device uses default limits with no retry, so windows wider than 8192 px fail and GL or
   downlevel adapters (the mesh shader needs vertex storage) fail at startup; the high-performance
   preference also wakes discrete GPUs.
