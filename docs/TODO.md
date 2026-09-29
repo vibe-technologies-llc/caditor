@@ -175,15 +175,12 @@ within a category run from most to least important.
 - Block content is cloned per instance and only curves are counted (`dxf/mod.rs` `add`), so one
   heavy SPLINE inserted as a large array can reach tens of gigabytes. Cap total points and share
   block shapes between instances.
-- A SPLINE whose weight count differs from its control points silently becomes non-rational
-  (`Nurbs::new`).
 - HATCH boundaries, SOLID, TRACE, 3DFACE and MLINE are dropped; HATCH boundaries are often the
   only closed profile.
 - An INSERT array above 20,000 cells refuses the whole import before checking whether its block
   draws anything.
 - `$INSUNITS` codes above 20 read as millimetres with a "does not say" note.
-- Fit-point splines ignore their end tangents, and a SPLINE with bad control points is refused
-  even when it has fit points.
+- Fit-point splines ignore their end tangents.
 - `$DWGCODEPAGE` is ignored, so non-UTF-8 names come out garbled.
 - `Nurbs::point` finds the knot span linearly for each of up to 16,384 samples, and each visited
   entity rescans its record for codes 67, 60 and 8.

@@ -104,8 +104,10 @@ impl Nurbs {
         points: Vec<Point3>,
         weights: Option<Vec<f64>>,
     ) -> Option<Self> {
-        let weights = weights.filter(|weights| weights.len() == points.len());
         let valid = (1..=MAX_SPLINE_DEGREE).contains(&degree)
+            && weights
+                .as_ref()
+                .is_none_or(|weights| weights.len() == points.len())
             && points.len() > degree
             && knots.len() == points.len() + degree + 1
             && knots.iter().all(|knot| knot.is_finite())

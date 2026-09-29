@@ -707,13 +707,15 @@ fn bulge_segment(start: Point2, end: Point2, bulge: f64, elevation: f64) -> Opti
 }
 
 fn spline(record: &Record) -> Option<Vec<Shape>> {
-    let degree = usize::try_from(record.flags(71)).ok()?;
     let control_points = record.points(10);
-    if !control_points.is_empty() {
-        let weights = record.reals(41);
-        let weights = (!weights.is_empty()).then_some(weights);
-        return Nurbs::new(degree, record.reals(40), control_points, weights)
-            .map(|nurbs| vec![Shape::Spline(nurbs)]);
+    let weights = record.reals(41);
+    let weights = (!weights.is_empty()).then_some(weights);
+    let controlled = usize::try_from(record.flags(71))
+        .ok()
+        .filter(|_| !control_points.is_empty())
+        .and_then(|degree| Nurbs::new(degree, record.reals(40), control_points, weights));
+    if let Some(nurbs) = controlled {
+        return Some(vec![Shape::Spline(nurbs)]);
     }
     let fit_points = record.points(11);
     (fit_points.len() >= 2).then(|| vec![Shape::Interpolated(fit_points)])

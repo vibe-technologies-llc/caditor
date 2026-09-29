@@ -980,6 +980,50 @@ fn blocks_that_fan_out_into_millions_of_objects_are_refused_quickly() {
 }
 
 #[test]
+fn a_spline_with_bad_control_data_uses_its_fit_points_or_is_left_out() {
+    let mut mismatched = vec![pair(0, "SPLINE"), pair(8, "0"), pair(70, 12), pair(71, 2)];
+    for knot in [0.0, 0.0, 0.0, 1.0, 1.0, 1.0] {
+        mismatched.push(pair(40, knot));
+    }
+    for weight in [1.0, 0.5] {
+        mismatched.push(pair(41, weight));
+    }
+    for (x, y) in [(10.0, 0.0), (10.0, 10.0), (0.0, 10.0)] {
+        mismatched.extend([pair(10, x), pair(20, y)]);
+    }
+    let mut with_fit = mismatched.clone();
+    for (x, y) in [(0.0, 20.0), (5.0, 25.0), (10.0, 20.0)] {
+        with_fit.extend([pair(11, x), pair(21, y)]);
+    }
+
+    let bytes = text(vec![
+        header(Some(4)),
+        section(
+            "ENTITIES",
+            vec![mismatched, with_fit, line((0.0, 0.0), (1.0, 0.0))],
+        ),
+    ]);
+    let drawing = parse_dxf(&bytes).unwrap();
+    let splines: Vec<&Vec<Point2>> = drawing
+        .curves
+        .iter()
+        .filter_map(|curve| match curve {
+            DrawingCurve::Spline { control_points } => Some(control_points),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(splines.len(), 1);
+    let through = BSpline::clamped(splines[0].clone()).unwrap();
+    assert!(near(through.point_at(0.0), Point2::new(0.0, 20.0)));
+    assert!(
+        drawing.notes.join(" ").contains("could not be read"),
+        "{:?}",
+        drawing.notes
+    );
+}
+
+#[test]
 fn splines_of_a_degree_above_the_kernel_limit_are_left_out() {
     let degree = 12;
     let count = degree + 1;

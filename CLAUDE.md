@@ -781,8 +781,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     row arrays, nested with cycle and depth limits and at most `MAX_EXPANDED_OBJECTS` objects and
     cells visited in all, block content on layer 0 taking the insert's layer), and the entities
     LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE and POLYLINE (bulges become arcs, 3D polylines
-    lines) and SPLINE (control points with knots and weights up to degree 9, or fit points). Object
-    coordinate systems follow the arbitrary axis algorithm. Everything becomes a 3D shape (point,
+    lines) and SPLINE (control points with knots up to degree 9 and a weight per control point or
+    none, else its fit points). Object coordinate systems follow the arbitrary axis algorithm. Everything becomes a 3D shape (point,
     line, parametric conic, NURBS or fit points), is transformed, then flattened onto XY: conics
     that project to circles become circles and arcs (counter-clockwise), other conics and splines
     that are not already in the sketch's uniform form are fitted within a millionth of the drawing's
