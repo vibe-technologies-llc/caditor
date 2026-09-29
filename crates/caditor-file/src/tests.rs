@@ -1,6 +1,6 @@
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
+    os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -201,6 +201,42 @@ fn saving_over_a_file_keeps_its_permissions_and_leaves_no_temporary_files() {
     let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o640);
     assert_eq!(files_in(dir.path()), ["model.caditor"]);
+    assert_eq!(load(&path).unwrap().document, sample());
+}
+
+fn supplementary_group() -> Option<u32> {
+    let status = fs::read_to_string("/proc/self/status").ok()?;
+    let primary = fs::metadata("/proc/self").ok()?.gid();
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("Groups:"))?
+        .split_whitespace()
+        .filter_map(|group| group.parse().ok())
+        .find(|group| *group != primary)
+}
+
+#[test]
+fn saving_over_a_file_keeps_its_group_and_extended_attributes() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    fs::write(&path, "old").unwrap();
+    let group = supplementary_group();
+    if let Some(group) = group {
+        std::os::unix::fs::chown(&path, None, Some(group)).unwrap();
+    }
+    let tagged = xattr::set(&path, "user.caditor.note", b"kept").is_ok();
+
+    save(&sample(), &path, false).unwrap();
+
+    if let Some(group) = group {
+        assert_eq!(fs::metadata(&path).unwrap().gid(), group);
+    }
+    if tagged {
+        assert_eq!(
+            xattr::get(&path, "user.caditor.note").unwrap().as_deref(),
+            Some(&b"kept"[..])
+        );
+    }
     assert_eq!(load(&path).unwrap().document, sample());
 }
 

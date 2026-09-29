@@ -32,8 +32,6 @@ within a category run from most to least important.
   (`binary/model.rs`). Add a retention policy and write history append-only.
 - A model whose records total more than 256 MiB saves once and never again, since the previous
   snapshot and the journal snapshot are each one chunk (`MAX_CONTENT`). Chunk per record.
-- Saving keeps the mode but not the owner group, ACLs or extended attributes, and the temporary
-  sibling exists at umask mode before `set_permissions` (`save.rs` `write_and_sync`).
 - Deltas set no zstd window or long-distance matching (`caditor-zstd` `compress_after`), so
   versions above the default window are close to full copies. Size the window to prefix plus
   data, raise the decoder's `windowLogMax`, and test with a prefix of several MiB.

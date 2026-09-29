@@ -658,7 +658,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     at or after it. When the head cannot be rebuilt, the next save drops the deltas that depended on
     it and keeps the rest.
   - Saving writes a temporary sibling, fsyncs it, renames it over the target and fsyncs the
-    directory, keeping the target's permissions. A symbolic link is followed to the file it
+    directory, keeping the target's permissions, group and extended attributes (ACLs included;
+    through `xattr`, each one that cannot be set is skipped), with the temporary created
+    owner-only until they are applied. A symbolic link is followed to the file it
     names, which is what gets replaced. A failed directory fsync after the rename is logged, not
     reported as a failed save. Temporary siblings are named
     `.<name>.<boot>-<pid>-<n>.tmp`, `<boot>` being the start of the kernel's `boot_id`, and those

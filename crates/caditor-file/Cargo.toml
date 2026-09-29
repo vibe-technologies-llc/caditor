@@ -28,6 +28,7 @@ miniz_oxide.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["float_roundtrip", "raw_value"] }
 thiserror.workspace = true
+xattr.workspace = true
 xxhash-rust.workspace = true
 
 [dev-dependencies]

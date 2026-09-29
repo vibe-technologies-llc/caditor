@@ -1,7 +1,8 @@
 use std::{
     ffi::{OsStr, OsString},
-    fs::{self, File},
+    fs::{self, File, Metadata, OpenOptions},
     io::{self, Write},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, fchown},
     path::{Path, PathBuf},
     sync::{
         OnceLock,
@@ -11,6 +12,7 @@ use std::{
 };
 
 use caditor_document::Document;
+use xattr::FileExt;
 
 use crate::{
     binary,
@@ -29,6 +31,7 @@ const BOOT_TAG_LENGTH: usize = 16;
 const UNKNOWN_BOOT: &str = "unknown";
 const TEMPORARY_STEM_LIMIT: usize = 190;
 const BACKUP_ROOM: usize = 16;
+const PRIVATE_MODE: u32 = 0o600;
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -236,12 +239,54 @@ fn temporary_owner(suffix: &[u8], tag: &str) -> Option<u32> {
 }
 
 fn write_and_sync(temporary: &Path, target: &Path, contents: &[u8]) -> io::Result<()> {
-    let mut file = File::create_new(temporary)?;
-    if let Ok(existing) = fs::metadata(target) {
-        file.set_permissions(existing.permissions())?;
-    }
+    let mut file = match fs::metadata(target) {
+        Ok(existing) => {
+            let file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(PRIVATE_MODE)
+                .open(temporary)?;
+            take_ownership_and_attributes(&file, target, &existing);
+            file.set_permissions(existing.permissions())?;
+            file
+        }
+        Err(_) => File::create_new(temporary)?,
+    };
     file.write_all(contents)?;
     file.sync_all()
+}
+
+fn take_ownership_and_attributes(file: &File, target: &Path, existing: &Metadata) {
+    let group_differs = file
+        .metadata()
+        .is_ok_and(|created| created.gid() != existing.gid());
+    if group_differs && let Err(error) = fchown(file, None, Some(existing.gid())) {
+        log::debug!(
+            "could not give the saved file the group of {}: {error}",
+            target.display()
+        );
+    }
+    let names = match xattr::list(target) {
+        Ok(names) => names,
+        Err(error) => {
+            log::debug!(
+                "could not list the attributes of {}: {error}",
+                target.display()
+            );
+            return;
+        }
+    };
+    for name in names {
+        let copied = xattr::get(target, &name)
+            .and_then(|value| value.map_or(Ok(()), |value| file.set_xattr(&name, &value)));
+        if let Err(error) = copied {
+            log::debug!(
+                "could not copy the attribute {} of {}: {error}",
+                name.display(),
+                target.display()
+            );
+        }
+    }
 }
 
 pub(crate) fn temporary_sibling(path: &Path) -> io::Result<PathBuf> {
