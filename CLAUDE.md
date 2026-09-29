@@ -1175,9 +1175,15 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     returns `Action`s, which the app performs after the UI pass, so the UI never mutates the
     document directly. Each change submits a snapshot to the worker. Feature geometry is drawn
     from the last good result, tinted when the feature failed or is outdated.
-  - Bodies (`bodies.rs`): `BodyMeshes` converts each body's final mesh into a `ShadedMesh` with
-    its edge polylines (seams left out) once per result, keyed by the result's `Arc`, and keeps
-    the previous one while a new mesh is not ready. A face is picked and selected as
+  - Bodies (`bodies.rs`): `BodyMeshing`, owned by `Model`, converts each body's final mesh (and
+    the state before the open blend or shell once `Model::mesh_before` finds it meshed) into a
+    `ShadedMesh` with its edge polylines (seams left out) on a worker thread of its own, once per
+    result keyed by the result's `Arc`; conversions are requested when an evaluation arrives and
+    pruned to the results still shown, a panic while converting leaves that body without a mesh,
+    and without a worker the conversion runs on the UI thread. `BodyMeshes` in the viewport takes
+    each conversion once it has arrived and keeps the previous mesh until then, so the UI thread
+    only uploads buffers, and the first fit of a newly opened model waits for them
+    (`Model::bodies_pending`). A face is picked and selected as
     `Pickable::Face` with a `FaceKey` (its `FaceName` and its occurrence among faces sharing
     the name, in solid order), an edge as `Pickable::Edge` with its `EdgeName`; both are
     described in words from the `FaceOrigin` (for example "Extrude 1 side from Line 3"). While

@@ -1,6 +1,11 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::Arc,
+    panic::{self, AssertUnwindSafe},
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, Sender},
+    },
+    thread,
 };
 
 use caditor_document::{Document, Evaluation, FeatureId, FeatureKind, FeatureResult};
@@ -14,6 +19,7 @@ use caditor_render::{MeshFace, MeshPoint, ShadedMesh};
 
 use crate::{
     blend_tools::{self, ChosenEdges},
+    model::Waker,
     shell_tools,
 };
 
@@ -94,6 +100,11 @@ pub struct BodyMesh {
 }
 
 impl BodyMesh {
+    fn of(source: &Arc<FeatureResult>) -> Option<Self> {
+        let solid = source.solid()?;
+        Some(Self::build(source, &solid.solid, solid.mesh()?))
+    }
+
     fn build(source: &Arc<FeatureResult>, solid: &Solid, mesh: &Mesh) -> Self {
         let keys: BTreeMap<FaceId, FaceKey> = face_keys(solid).into_iter().collect();
         let mut faces = Vec::new();
@@ -228,13 +239,13 @@ impl OpenChoice {
 pub struct BodyBefore {
     pub feature: FeatureId,
     pub body: FeatureId,
-    pub before: BodyMesh,
+    pub before: Arc<BodyMesh>,
     pub choice: OpenChoice,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct BodyMeshes {
-    bodies: BTreeMap<FeatureId, BodyMesh>,
+    bodies: BTreeMap<FeatureId, Arc<BodyMesh>>,
     open: Option<BodyBefore>,
 }
 
@@ -247,6 +258,7 @@ impl BodyMeshes {
         &mut self,
         document: &Document,
         evaluation: &Evaluation,
+        meshing: &BodyMeshing,
         feature: Option<FeatureId>,
     ) {
         let previous = self
@@ -257,15 +269,18 @@ impl BodyMeshes {
             let input = evaluation.body_before(feature)?;
             let solid = input.solid()?;
             let kind = document.feature(feature).map(|owner| &owner.kind);
-            let (before, choice) = match previous {
-                Some(open) if Arc::ptr_eq(&open.before.source, input) => {
+            let (before, choice) = match (previous, meshing.lookup(input)) {
+                (Some(open), _) if Arc::ptr_eq(&open.before.source, input) => {
                     let choice = OpenChoice::of(kind, &solid.solid, Some(open.choice));
                     (open.before, choice)
                 }
-                _ => (
-                    BodyMesh::build(input, &solid.solid, solid.mesh()?),
-                    OpenChoice::of(kind, &solid.solid, None),
-                ),
+                (_, Converted::Ready(mesh)) => {
+                    (Arc::clone(mesh), OpenChoice::of(kind, &solid.solid, None))
+                }
+                (Some(open), Converted::Pending) => {
+                    (open.before, OpenChoice::of(kind, &solid.solid, None))
+                }
+                (_, Converted::Pending | Converted::Missing) => return None,
             };
             Some(BodyBefore {
                 feature,
@@ -276,7 +291,7 @@ impl BodyMeshes {
         });
     }
 
-    pub fn update(&mut self, evaluation: &Evaluation) {
+    pub fn update(&mut self, evaluation: &Evaluation, meshing: &BodyMeshing) {
         let mut next = BTreeMap::new();
         for (body, _) in evaluation.bodies() {
             let Some(result) = evaluation.body_result(body) else {
@@ -285,11 +300,10 @@ impl BodyMeshes {
             let previous = self.bodies.remove(&body);
             let current = match previous {
                 Some(cached) if Arc::ptr_eq(&cached.source, result) => Some(cached),
-                previous => match result.solid() {
-                    Some(solid) if solid.is_meshed() => solid
-                        .mesh()
-                        .map(|mesh| BodyMesh::build(result, &solid.solid, mesh)),
-                    Some(_) | None => previous,
+                previous => match meshing.lookup(result) {
+                    Converted::Ready(mesh) => Some(Arc::clone(mesh)),
+                    Converted::Pending => previous,
+                    Converted::Missing => None,
                 },
             };
             if let Some(current) = current {
@@ -300,11 +314,137 @@ impl BodyMeshes {
     }
 
     pub fn get(&self, body: FeatureId) -> Option<&BodyMesh> {
-        self.bodies.get(&body)
+        self.bodies.get(&body).map(Arc::as_ref)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (FeatureId, &BodyMesh)> {
-        self.bodies.iter().map(|(body, mesh)| (*body, mesh))
+        self.bodies
+            .iter()
+            .map(|(body, mesh)| (*body, mesh.as_ref()))
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Converted<'a> {
+    Ready(&'a Arc<BodyMesh>),
+    Pending,
+    Missing,
+}
+
+struct Conversion {
+    source: Arc<FeatureResult>,
+    mesh: Option<Arc<BodyMesh>>,
+}
+
+struct Converter {
+    jobs: Sender<Arc<FeatureResult>>,
+    done: Receiver<Conversion>,
+}
+
+impl Converter {
+    fn spawn(wake: Waker) -> Option<Self> {
+        let (jobs, queue) = mpsc::channel::<Arc<FeatureResult>>();
+        let (sender, done) = mpsc::channel();
+        let spawned = thread::Builder::new()
+            .name("body meshes".to_owned())
+            .spawn(move || {
+                while let Ok(source) = queue.recv() {
+                    if sender.send(convert(source)).is_err() {
+                        break;
+                    }
+                    wake();
+                }
+            });
+        match spawned {
+            Ok(_) => Some(Self { jobs, done }),
+            Err(error) => {
+                log::error!("could not start the body mesh worker: {error}");
+                None
+            }
+        }
+    }
+}
+
+fn convert(source: Arc<FeatureResult>) -> Conversion {
+    let mesh = panic::catch_unwind(AssertUnwindSafe(|| BodyMesh::of(&source)))
+        .unwrap_or_else(|_| {
+            log::error!("preparing a body mesh for display panicked");
+            None
+        })
+        .map(Arc::new);
+    Conversion { source, mesh }
+}
+
+#[derive(Default)]
+pub struct BodyMeshing {
+    converter: Option<Converter>,
+    pending: Vec<Arc<FeatureResult>>,
+    converted: Vec<Conversion>,
+}
+
+impl BodyMeshing {
+    pub fn lookup(&self, source: &Arc<FeatureResult>) -> Converted<'_> {
+        let conversion = self
+            .converted
+            .iter()
+            .find(|conversion| Arc::ptr_eq(&conversion.source, source));
+        match (conversion, source.solid()) {
+            (Some(conversion), _) => conversion
+                .mesh
+                .as_ref()
+                .map_or(Converted::Missing, Converted::Ready),
+            (None, Some(solid)) if !solid.mesh_failed() => Converted::Pending,
+            (None, Some(_) | None) => Converted::Missing,
+        }
+    }
+
+    pub fn is_pending(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
+    pub fn request(&mut self, source: &Arc<FeatureResult>, wake: impl FnOnce() -> Waker) {
+        let meshed = source.solid().is_some_and(|solid| solid.mesh().is_some());
+        let known = self
+            .pending
+            .iter()
+            .chain(self.converted.iter().map(|conversion| &conversion.source))
+            .any(|known| Arc::ptr_eq(known, source));
+        if !meshed || known {
+            return;
+        }
+        if self.converter.is_none() {
+            self.converter = Converter::spawn(wake());
+        }
+        let sent = self
+            .converter
+            .as_ref()
+            .is_some_and(|converter| converter.jobs.send(Arc::clone(source)).is_ok());
+        if sent {
+            self.pending.push(Arc::clone(source));
+        } else {
+            log::error!("no body mesh worker, so the mesh is prepared on the UI thread");
+            self.converter = None;
+            self.converted.push(convert(Arc::clone(source)));
+        }
+    }
+
+    pub fn poll(&mut self) -> bool {
+        let Some(converter) = &self.converter else {
+            return false;
+        };
+        let mut arrived = false;
+        while let Ok(conversion) = converter.done.try_recv() {
+            self.pending
+                .retain(|pending| !Arc::ptr_eq(pending, &conversion.source));
+            self.converted.push(conversion);
+            arrived = true;
+        }
+        arrived
+    }
+
+    pub fn retain(&mut self, keep: impl Fn(&Arc<FeatureResult>) -> bool) {
+        self.pending.retain(|pending| keep(pending));
+        self.converted.retain(|conversion| keep(&conversion.source));
     }
 }
 
@@ -355,4 +495,111 @@ pub fn describe_edge_id(document: &Document, solid: &Solid, edge: EdgeId) -> Str
 
 pub fn face_origin(solid: &Solid, key: FaceKey) -> Option<FaceOrigin> {
     solid.face(find_face(solid, key)?)?.origin()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use caditor_document::{CancelToken, Edit, ModelEvaluator, Recompute, Transaction};
+    use caditor_expression::Expression;
+
+    use super::*;
+    use crate::samples::Sample;
+
+    const TIMEOUT: Duration = Duration::from_secs(20);
+
+    fn no_wake() -> Waker {
+        Box::new(|| {})
+    }
+
+    fn evaluate(recompute: &mut Recompute, document: &Document) -> Evaluation {
+        recompute.run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
+    }
+
+    fn only_body(evaluation: &Evaluation) -> (FeatureId, Arc<FeatureResult>) {
+        let (body, _) = evaluation.bodies().next().unwrap();
+        (body, Arc::clone(evaluation.body_result(body).unwrap()))
+    }
+
+    fn wait_for(meshing: &mut BodyMeshing) {
+        let deadline = Instant::now() + TIMEOUT;
+        while meshing.is_pending() {
+            assert!(
+                Instant::now() < deadline,
+                "the body mesh was never prepared"
+            );
+            meshing.poll();
+            thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn body_meshes_are_prepared_on_a_worker_and_shown_once_they_arrive() {
+        let document = Sample::Spool.document().unwrap();
+        let evaluation = evaluate(&mut Recompute::default(), &document);
+        let (body, source) = only_body(&evaluation);
+        let mut meshing = BodyMeshing::default();
+        let mut meshes = BodyMeshes::default();
+
+        meshing.request(&source, no_wake);
+        meshing.request(&source, no_wake);
+        meshes.update(&evaluation, &meshing);
+
+        assert!(meshing.is_pending());
+        assert_eq!(meshing.pending.len(), 1);
+        assert!(matches!(meshing.lookup(&source), Converted::Pending));
+        assert!(meshes.get(body).is_none());
+
+        wait_for(&mut meshing);
+        meshes.update(&evaluation, &meshing);
+        let shown = meshes.get(body).unwrap();
+        let direct = BodyMesh::of(&source).unwrap();
+
+        assert_eq!(shown.faces, direct.faces);
+        assert_eq!(shown.edges, direct.edges);
+        assert_eq!(shown.mesh.face_count(), direct.mesh.face_count());
+        assert_eq!(shown.bounds(), direct.bounds());
+    }
+
+    #[test]
+    fn a_changed_body_keeps_its_previous_mesh_until_the_new_one_is_ready() {
+        let mut document = Sample::Spool.document().unwrap();
+        let mut recompute = Recompute::default();
+        let first = evaluate(&mut recompute, &document);
+        let (body, old) = only_body(&first);
+        let mut meshing = BodyMeshing::default();
+        let mut meshes = BodyMeshes::default();
+        meshing.request(&old, no_wake);
+        wait_for(&mut meshing);
+        meshes.update(&first, &meshing);
+        let old_bounds = meshes.get(body).unwrap().bounds().unwrap();
+
+        let height = document.parameter_named("height").unwrap().id();
+        document
+            .apply(Transaction::single(
+                "Taller",
+                Edit::SetParameterExpression {
+                    id: height,
+                    expression: Expression::parse_stored("70 mm").unwrap(),
+                },
+            ))
+            .unwrap();
+        let second = evaluate(&mut recompute, &document);
+        let (_, new) = only_body(&second);
+        meshing.retain(|source| Arc::ptr_eq(source, &new));
+        meshing.request(&new, no_wake);
+        meshes.update(&second, &meshing);
+
+        assert!(!Arc::ptr_eq(&old, &new));
+        assert!(matches!(meshing.lookup(&old), Converted::Pending));
+        assert!(Arc::ptr_eq(&meshes.bodies[&body].source, &old));
+
+        wait_for(&mut meshing);
+        meshes.update(&second, &meshing);
+        let taller = meshes.get(body).unwrap().bounds().unwrap();
+
+        assert!(Arc::ptr_eq(&meshes.bodies[&body].source, &new));
+        assert!(taller.diagonal() > old_bounds.diagonal() + 10.0);
+    }
 }

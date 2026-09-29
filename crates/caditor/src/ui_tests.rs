@@ -215,6 +215,7 @@ impl Harness {
         let built = self.workspace.viewport.build_scene(
             self.model.document(),
             self.model.evaluation(),
+            self.model.meshing(),
             &self.workspace.editing,
         );
         self.answer_pick(&built);
@@ -255,7 +256,9 @@ impl Harness {
 
     fn settle(&mut self) {
         let deadline = Instant::now() + RECOMPUTE_TIMEOUT;
-        while matches!(self.model.status(), RecomputeStatus::Running { .. }) {
+        while matches!(self.model.status(), RecomputeStatus::Running { .. })
+            || self.model.bodies_pending()
+        {
             assert!(Instant::now() < deadline, "the recompute did not finish");
             self.model.poll();
             std::thread::yield_now();
@@ -586,6 +589,7 @@ impl Harness {
         self.workspace.viewport.build_scene(
             self.model.document(),
             self.model.evaluation(),
+            self.model.meshing(),
             &self.workspace.editing,
         )
     }

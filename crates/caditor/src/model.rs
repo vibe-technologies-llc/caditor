@@ -15,7 +15,8 @@ use caditor_sketch::Sketch;
 use parking_lot::Mutex;
 
 use crate::{
-    editing::EditingCommand, files::FileCommand, preferences::PreferencesCommand, units::LengthUnit,
+    bodies::BodyMeshing, editing::EditingCommand, files::FileCommand,
+    preferences::PreferencesCommand, units::LengthUnit,
 };
 
 pub type Waker = Box<dyn Fn() + Send>;
@@ -131,6 +132,8 @@ pub struct Model {
     file_events: Vec<FileEvent>,
     length_unit: LengthUnit,
     mesh_requested: Option<Arc<FeatureResult>>,
+    meshing: BodyMeshing,
+    shown_before: Option<Arc<FeatureResult>>,
 }
 
 impl Model {
@@ -156,6 +159,8 @@ impl Model {
             file_events: Vec::new(),
             length_unit: LengthUnit::default(),
             mesh_requested: None,
+            meshing: BodyMeshing::default(),
+            shown_before: None,
         };
         model.start_storage(None, None);
         model.recompute();
@@ -180,6 +185,14 @@ impl Model {
 
     pub fn evaluation(&self) -> &Evaluation {
         &self.evaluation
+    }
+
+    pub fn meshing(&self) -> &BodyMeshing {
+        &self.meshing
+    }
+
+    pub fn bodies_pending(&self) -> bool {
+        self.meshing.is_pending()
     }
 
     pub fn undo_label(&self) -> Option<&str> {
@@ -258,14 +271,20 @@ impl Model {
     }
 
     pub fn mesh_before(&mut self, feature: Option<FeatureId>) {
-        let Some((feature, result)) = feature.and_then(|feature| {
+        let open = feature.and_then(|feature| {
             self.evaluation
                 .body_before(feature)
                 .map(|result| (feature, Arc::clone(result)))
-        }) else {
+        });
+        self.shown_before = open.as_ref().map(|(_, result)| Arc::clone(result));
+        let Some((feature, result)) = open else {
             return;
         };
         let meshed = result.solid().is_none_or(|solid| solid.is_meshed());
+        if meshed {
+            self.meshing
+                .request(&result, || (self.services.make_waker)());
+        }
         let requested = self
             .mesh_requested
             .as_ref()
@@ -360,7 +379,7 @@ impl Model {
     }
 
     pub fn poll(&mut self) -> bool {
-        let stored = self.poll_storage();
+        let stored = self.poll_storage() | self.meshing.poll();
         let Some(recomputer) = &self.recomputer else {
             return stored;
         };
@@ -375,6 +394,7 @@ impl Model {
                     };
                 }
                 self.evaluation = update.evaluation;
+                self.mesh_bodies();
                 true
             }
             Ok(None) => stored,
@@ -483,8 +503,26 @@ impl Model {
         self.notice = None;
         self.parameters = ParameterValues::evaluate(self.editor.document());
         self.evaluation = Evaluation::default();
+        self.shown_before = None;
+        self.mesh_bodies();
         self.start_storage(replaces, predecessor);
         self.recompute();
+    }
+
+    fn mesh_bodies(&mut self) {
+        let shown: Vec<Arc<FeatureResult>> = self
+            .evaluation
+            .bodies()
+            .filter_map(|(body, _)| self.evaluation.body_result(body))
+            .chain(self.shown_before.as_ref())
+            .cloned()
+            .collect();
+        self.meshing
+            .retain(|source| shown.iter().any(|kept| Arc::ptr_eq(kept, source)));
+        for source in &shown {
+            self.meshing
+                .request(source, || (self.services.make_waker)());
+        }
     }
 
     fn start_storage(&mut self, replaces: Option<PathBuf>, after: Option<Closing>) {

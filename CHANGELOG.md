@@ -167,6 +167,8 @@ The first release of caditor.
   carries on drawing instead of freezing or closing, and no work is lost.
 - caditor starts on older and OpenGL-only graphics cards, draws windows wider than 8192 pixels,
   and uses the power-saving graphics card of a laptop rather than waking the discrete one.
+- Changed bodies are prepared for display in the background, so the window stays responsive
+  while a large body is redrawn after an edit.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.
 - An arc's end snaps only to points on its circle and to where its circle crosses other curves,
   and a circle's rim only to points, so the arc stays where it was drawn and every "On …" label

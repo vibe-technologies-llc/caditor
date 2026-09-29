@@ -9,7 +9,7 @@ use egui::{Align2, FontId, Key, PointerButton, Rect, Response, Sense, vec2};
 use crate::{
     annotations::{Annotations, Surface},
     blend_tools,
-    bodies::{self, BodyMeshes},
+    bodies::{self, BodyMeshes, BodyMeshing},
     canvas,
     commands::{CameraMove, Command, CommandFrame, StandardView},
     datum_tools,
@@ -265,7 +265,10 @@ impl ViewportState {
             self.session = model.session();
             self.fit_when_computed = true;
         }
-        if self.fit_when_computed && model.status() == RecomputeStatus::UpToDate {
+        if self.fit_when_computed
+            && model.status() == RecomputeStatus::UpToDate
+            && !model.bodies_pending()
+        {
             self.fit_requested = true;
             self.fit_when_computed = false;
         }
@@ -295,6 +298,7 @@ impl ViewportState {
         &mut self,
         document: &Document,
         evaluation: &Evaluation,
+        meshing: &BodyMeshing,
         editing: &SketchEditing,
     ) -> BuiltScene {
         let edited = editing.feature();
@@ -304,8 +308,9 @@ impl ViewportState {
             self.face_edited_sketch = edited.is_some();
             self.last_pick = None;
         }
-        self.bodies.update(evaluation);
-        self.bodies.update_open(document, evaluation, context.solid);
+        self.bodies.update(evaluation, meshing);
+        self.bodies
+            .update_open(document, evaluation, meshing, context.solid);
         self.selection
             .retain_available(document, evaluation, context);
         self.hovered = self
@@ -1163,7 +1168,12 @@ mod tests {
     fn picks_once_per_unchanged_state_and_retries_when_not_issued() {
         let document = Document::default();
         let mut state = state_with_cursor();
-        let built = state.build_scene(&document, &Evaluation::default(), &SketchEditing::default());
+        let built = state.build_scene(
+            &document,
+            &Evaluation::default(),
+            &BodyMeshing::default(),
+            &SketchEditing::default(),
+        );
 
         let first = state.request(&built, true).unwrap();
         assert_eq!(first.pick_at, Some(Vector2::new(120.0, 80.0)));
@@ -1179,7 +1189,12 @@ mod tests {
     fn a_pick_result_sets_the_hovered_item_and_the_hit_under_the_cursor() {
         let document = Document::default();
         let mut state = state_with_cursor();
-        let built = state.build_scene(&document, &Evaluation::default(), &SketchEditing::default());
+        let built = state.build_scene(
+            &document,
+            &Evaluation::default(),
+            &BodyMeshing::default(),
+            &SketchEditing::default(),
+        );
         state.request(&built, true);
 
         let cursor = Vector2::new(120.0, 80.0);
@@ -1207,7 +1222,12 @@ mod tests {
         document.apply(transaction.finish()).unwrap();
         let evaluation = Evaluation::default();
         let mut state = state_with_cursor();
-        state.build_scene(&document, &evaluation, &SketchEditing::default());
+        state.build_scene(
+            &document,
+            &evaluation,
+            &BodyMeshing::default(),
+            &SketchEditing::default(),
+        );
         let entity = Pickable::SketchEntity {
             feature,
             entity: line,
@@ -1216,7 +1236,7 @@ mod tests {
         state.selection.toggle(entity);
 
         let editing = SketchEditing::editing(feature);
-        let built = state.build_scene(&document, &evaluation, &editing);
+        let built = state.build_scene(&document, &evaluation, &BodyMeshing::default(), &editing);
         assert!(state.is_animating());
         assert_eq!(state.selection.iter().collect::<Vec<_>>(), vec![entity]);
         state.advance(Duration::from_secs(1));
@@ -1230,16 +1250,21 @@ mod tests {
             assert!(pixel.y >= 0.0 && pixel.y <= view.size().y);
         }
 
-        state.build_scene(&document, &evaluation, &editing);
+        state.build_scene(&document, &evaluation, &BodyMeshing::default(), &editing);
         assert!(!state.is_animating());
         let reference = Pickable::SketchEntity {
             feature,
             entity: caditor_sketch::EntityId::ORIGIN,
         };
         state.selection.toggle(reference);
-        state.build_scene(&document, &evaluation, &editing);
+        state.build_scene(&document, &evaluation, &BodyMeshing::default(), &editing);
         assert!(state.selection.contains(reference));
-        state.build_scene(&document, &evaluation, &SketchEditing::default());
+        state.build_scene(
+            &document,
+            &evaluation,
+            &BodyMeshing::default(),
+            &SketchEditing::default(),
+        );
         assert_eq!(state.selection.iter().collect::<Vec<_>>(), vec![entity]);
     }
 
@@ -1248,7 +1273,12 @@ mod tests {
         let document = Document::default();
         let mut state = state_with_cursor();
         let initial = state.camera.viewpoint();
-        state.build_scene(&document, &Evaluation::default(), &SketchEditing::default());
+        state.build_scene(
+            &document,
+            &Evaluation::default(),
+            &BodyMeshing::default(),
+            &SketchEditing::default(),
+        );
         assert_ne!(state.camera.viewpoint(), initial);
         assert!(!state.is_animating());
 
@@ -1256,7 +1286,12 @@ mod tests {
         state
             .selection
             .replace_with(Pickable::Axis(crate::selection::Axis::X));
-        state.build_scene(&document, &Evaluation::default(), &SketchEditing::default());
+        state.build_scene(
+            &document,
+            &Evaluation::default(),
+            &BodyMeshing::default(),
+            &SketchEditing::default(),
+        );
         assert!(state.is_animating());
         assert!(!state.fit_requested);
     }
