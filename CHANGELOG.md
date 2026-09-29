@@ -108,6 +108,8 @@ The first release of caditor.
 - Dark, light and high-contrast themes, interface sizes from 75% to 200%, and a choice of
   micrometres, millimetres, centimetres or metres.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.
+- An arc over half a turn can be typed: a typed end goes the shorter way round, and X (Reverse
+  the arc) sends the arc, typed or drawn, the other way.
 - Screen readers name icon buttons by what they do instead of reading a symbol, read each
   property's caption with its field, and tell the shortcut editor's Add and Reset buttons apart
   by the command they change.

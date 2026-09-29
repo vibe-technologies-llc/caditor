@@ -1,4 +1,5 @@
 use std::{
+    f64::consts::{FRAC_PI_2, PI},
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
@@ -2311,6 +2312,61 @@ fn circles_and_arcs_get_the_drawn_geometry() {
         center + Vector2::new(10.0, 0.0)
     ));
     assert_eq!(harness.model.undo_label(), Some("Draw arc"));
+}
+
+#[test]
+fn a_typed_arc_goes_the_shorter_way_and_x_sends_it_the_long_way() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::A);
+    assert!(offer(&harness, Command::ReverseArc).availability.is_err());
+    type_point(&mut harness, "0, 0");
+    type_point(&mut harness, "10 mm, 0");
+    assert!(harness.shows("X: the other way round   The arc follows your sweep around the centre, a typed end the shorter way   Esc: cancel the arc   Type x, y for an exact point"));
+    type_point(&mut harness, "0, -10 mm");
+    let arcs = entities_of_kind(harness.sketch(feature), "Arc");
+    let short = harness.sketch(feature).arc(arcs[0]).unwrap();
+    assert!((short.sweep - FRAC_PI_2).abs() < DRAWN, "{}", short.sweep);
+
+    type_point(&mut harness, "0, 0");
+    type_point(&mut harness, "10 mm, 0");
+    harness.key(Key::X, Modifiers::NONE);
+    harness.frame();
+    type_point(&mut harness, "0, -10 mm");
+    let arcs = entities_of_kind(harness.sketch(feature), "Arc");
+    let long = harness.sketch(feature).arc(arcs[1]).unwrap();
+    assert!(
+        (long.sweep - 3.0 * FRAC_PI_2).abs() < DRAWN,
+        "{}",
+        long.sweep
+    );
+    let Some(Entity::Arc { start, .. }) = harness.sketch(feature).entity(arcs[1]) else {
+        panic!("expected an arc");
+    };
+    assert!(near(
+        harness.sketch(feature).point(*start).unwrap(),
+        Point2::new(10.0, 0.0)
+    ));
+
+    type_point(&mut harness, "0, 0");
+    type_point(&mut harness, "10 mm, 0");
+    run_from_palette(&mut harness, "reverse the arc");
+    type_point(&mut harness, "0, -10 mm");
+    let arcs = entities_of_kind(harness.sketch(feature), "Arc");
+    let reversed = harness.sketch(feature).arc(arcs[2]).unwrap();
+    assert!(
+        (reversed.sweep - 3.0 * FRAC_PI_2).abs() < DRAWN,
+        "{}",
+        reversed.sweep
+    );
+
+    type_point(&mut harness, "0, 0");
+    type_point(&mut harness, "10 mm, 0");
+    type_point(&mut harness, "-10 mm, 0");
+    let arcs = entities_of_kind(harness.sketch(feature), "Arc");
+    let half = harness.sketch(feature).arc(arcs[3]).unwrap();
+    assert!((half.sweep - PI).abs() < DRAWN, "{}", half.sweep);
+    assert!(half.start_angle.abs() < DRAWN, "{}", half.start_angle);
 }
 
 #[test]

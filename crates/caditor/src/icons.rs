@@ -55,6 +55,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Redo => phosphor::ARROW_U_UP_RIGHT,
         Command::NewSketch => phosphor::PENCIL_LINE,
         Command::FinishSketch => phosphor::CHECK,
+        Command::ReverseArc => phosphor::ARROWS_COUNTER_CLOCKWISE,
         Command::SketchTool(tool) => self::tool(tool),
         Command::Constraint(tool) => constraint(tool),
         Command::DeleteSelection => DELETE,

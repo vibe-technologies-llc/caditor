@@ -1205,8 +1205,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     line joined to the last end by `Coincident`, until Escape, a click on the last point or a line
     ending on the chain's first point (or the point it snapped to), which closes the outline;
     splines finish on Enter or a click on the last control point. An arc runs the way the
-    pointer swept around its centre, and its end is projected onto the circle through its
-    start. Every inferred constraint is checked with `Sketch::check_constraint` on a shadow of
+    pointer swept around its centre, a typed end the shorter way round from its start
+    (counter-clockwise at exactly half a turn, `Sweep::aim`), and Reverse the arc (X, a sketch
+    command offered once the centre and start are placed, named in the prompt) sends either the
+    other way; its end is projected onto the circle through its start. Every inferred constraint is checked with `Sketch::check_constraint` on a shadow of
     the sketch and skipped if refused. A shape with no size (a flat rectangle, a line, circle or
     arc ending where it starts) is refused with a `Degenerate` reason: a notice for a click, the
     field's error for a typed point.

@@ -186,6 +186,7 @@ impl Menus<'_, '_> {
             self.item(ui, Command::FinishSketch);
             ui.separator();
             self.items(ui, Tool::ALL.map(Command::SketchTool));
+            self.item(ui, Command::ReverseArc);
             ui.separator();
             submenu(
                 ui,

@@ -699,6 +699,12 @@ impl ViewportState {
                 self.step_highlight(step);
             }
         }
+        if editing.active().is_some() {
+            let reversible = self.drawing.reversible();
+            if commands.invoke(Command::ReverseArc, &reversible) {
+                self.drawing.reverse_arc();
+            }
+        }
         let activation = self
             .keyboard_highlight
             .ok_or("Highlight an item first, with Highlight the next item in the view");
@@ -956,7 +962,18 @@ impl ViewportState {
             self.drawing
                 .prompt()
                 .filter(|_| !self.typed_point.is_open())
-                .map(|prompt| (prompt.text, format!("{}   {TYPE_POINT_HINT}", prompt.keys)))
+                .map(|prompt| {
+                    let reverse = key_hints
+                        .reverse
+                        .as_ref()
+                        .filter(|_| self.drawing.reversible().is_ok())
+                        .map(|reverse| format!("{reverse}   "))
+                        .unwrap_or_default();
+                    (
+                        prompt.text,
+                        format!("{reverse}{}   {TYPE_POINT_HINT}", prompt.keys),
+                    )
+                })
         };
         if let Some((text, keys)) = prompt {
             let prompt = canvas::label(
@@ -1067,6 +1084,7 @@ struct KeyHints {
     navigation: String,
     highlight: String,
     fit: String,
+    reverse: Option<String>,
 }
 
 impl KeyHints {
@@ -1089,6 +1107,9 @@ impl KeyHints {
             navigation,
             highlight,
             fit: commands.with_keys(Command::FitView, "Frame the view around it"),
+            reverse: commands
+                .keys(Command::ReverseArc)
+                .map(|keys| format!("{keys}: the other way round")),
         }
     }
 }

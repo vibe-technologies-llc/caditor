@@ -142,7 +142,6 @@ within a category run from most to least important.
 
 - The menu bar and status bar are single non-wrapping rows and the parameter grid is wider than
   the side panel's minimum; the 200% test checks four labels on an empty model.
-- Typed arc ends always take the shorter sweep, so an arc over 180° cannot be typed.
 - UI tests do not cover the parameter table's add, rename and delete, the extent, result, body,
   sketch and axis combos, the datum panel, or Move up and down.
 

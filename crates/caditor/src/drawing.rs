@@ -80,16 +80,21 @@ impl Placement {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sweep {
     center: Point2,
+    start_angle: f64,
     last_angle: f64,
     turned: f64,
+    reversed: bool,
 }
 
 impl Sweep {
     pub fn new(center: Point2, start: Point2) -> Self {
+        let start_angle = angle_of(start - center);
         Self {
             center,
-            last_angle: angle_of(start - center),
+            start_angle,
+            last_angle: start_angle,
             turned: 0.0,
+            reversed: false,
         }
     }
 
@@ -99,13 +104,32 @@ impl Sweep {
             return;
         }
         let angle = angle_of(offset);
-        self.turned += (angle - self.last_angle + PI).rem_euclid(TAU) - PI;
+        self.turned += shortest_turn(self.last_angle, angle);
         self.last_angle = angle;
     }
 
-    pub fn counter_clockwise(&self) -> bool {
-        self.turned >= 0.0
+    pub fn aim(&mut self, point: Point2) {
+        let offset = point - self.center;
+        if offset.length_squared() == 0.0 {
+            return;
+        }
+        let angle = angle_of(offset);
+        self.turned = shortest_turn(self.start_angle, angle);
+        self.last_angle = angle;
     }
+
+    pub fn reverse(&mut self) {
+        self.reversed = !self.reversed;
+    }
+
+    pub fn counter_clockwise(&self) -> bool {
+        (self.turned >= 0.0) != self.reversed
+    }
+}
+
+fn shortest_turn(from: f64, to: f64) -> f64 {
+    let turn = (to - from + PI).rem_euclid(TAU) - PI;
+    if turn <= -PI { PI } else { turn }
 }
 
 fn point_target(snap: Snap) -> Option<EntityId> {
@@ -223,7 +247,19 @@ impl Drawing {
         };
         self.hover = Some(placement);
         if let Some(sweep) = &mut self.sweep {
-            sweep.follow(position);
+            sweep.aim(placement.position);
+        }
+    }
+
+    pub fn reversible(&self) -> Result<(), &'static str> {
+        self.sweep
+            .map(|_| ())
+            .ok_or("Place an arc's centre and start first; then its end can go either way round")
+    }
+
+    pub fn reverse_arc(&mut self) {
+        if let Some(sweep) = &mut self.sweep {
+            sweep.reverse();
         }
     }
 
@@ -469,7 +505,8 @@ impl Drawing {
             (Tool::Arc, 1) => prompt("Click where the arc starts", "Esc: cancel the arc"),
             (Tool::Arc, _) => prompt(
                 "Click where the arc ends",
-                "The arc follows the way you sweep around the centre   Esc: cancel the arc",
+                "The arc follows your sweep around the centre, a typed end the shorter way   Esc: \
+                 cancel the arc",
             ),
             (Tool::Spline, 0) => prompt("Click the spline's first control point", BACK_TO_SELECT),
             (Tool::Spline, _) => prompt(
@@ -719,6 +756,29 @@ mod tests {
         assert!(sweep.counter_clockwise());
         let arc = ArcGeometry::from_points(Point2::ZERO, Point2::X, Point2::new(0.9, -0.4));
         assert!(arc.sweep > 1.5 * PI);
+    }
+
+    #[test]
+    fn a_typed_end_goes_the_shorter_way_round_unless_the_arc_is_reversed() {
+        let mut sweep = Sweep::new(Point2::ZERO, Point2::X);
+        for point in [Point2::new(0.5, 1.0), Point2::new(-1.0, 0.2)] {
+            sweep.follow(point);
+        }
+        sweep.aim(Point2::new(0.0, -1.0));
+        assert!(!sweep.counter_clockwise());
+
+        sweep.reverse();
+        assert!(sweep.counter_clockwise());
+        sweep.aim(Point2::Y);
+        assert!(!sweep.counter_clockwise());
+        sweep.follow(Point2::new(-1.0, 0.5));
+        assert!(!sweep.counter_clockwise());
+
+        let mut half_turn = Sweep::new(Point2::ZERO, Point2::X);
+        half_turn.aim(Point2::new(-1.0, 0.0));
+        assert!(half_turn.counter_clockwise());
+        half_turn.aim(Point2::new(-1.0, -0.0));
+        assert!(half_turn.counter_clockwise());
     }
 
     #[test]
