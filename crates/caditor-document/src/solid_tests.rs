@@ -690,3 +690,33 @@ fn an_import_makes_a_body_named_by_its_own_feature() {
         "The shape imported from “empty.step” could not be read back from the model file."
     );
 }
+
+#[test]
+fn a_revolve_with_regions_on_both_sides_names_the_curves_apart_from_the_rest() {
+    let mut section = rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0));
+    let stray = section.add_circle(Point2::new(-3.0, 1.0), 0.5);
+    let label = section.entity_label(stray);
+    let (document, body) = single_body(
+        revolved(RevolveExtent::OneSide {
+            angle: stored("360 deg"),
+            reversed: false,
+        }),
+        section,
+    );
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let FeatureState::Failed(error) = &evaluation.feature(body).unwrap().state else {
+        panic!("regions on both sides of the axis cannot revolve");
+    };
+    assert_eq!(
+        error.reason,
+        format!(
+            "In Section, {label} lies on the other side of the revolution axis from the rest of \
+             the profile."
+        )
+    );
+    assert_eq!(
+        error.remedy,
+        "Choose only the regions on one side of the axis, or choose another axis."
+    );
+    assert_eq!(error.fix, Some(FixTarget::Feature(body)));
+}

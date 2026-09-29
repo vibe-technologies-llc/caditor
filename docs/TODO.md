@@ -53,9 +53,6 @@ within a category run from most to least important.
   whose ends have equal names (a closed edge) is named differently depending on its direction.
 - `ProfileError::Unresolved`, produced by about thirty internal paths in `profile/`, names no
   curves, so the sketch error can only say to simplify where curves meet.
-- Revolve refuses a profile whose regions lie on both sides of the axis with the wording for a
-  curve crossing it (`BothSidesOfAxis` and `CrossesAxis` print the same sentence) and lists
-  every curve of the sketch.
 - Shell cannot drop collapsing cones or faces whose edges run neither around nor along their
   axis, and cannot split a vertex whose edges are partly convex and partly concave (both
   reported).

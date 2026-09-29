@@ -562,7 +562,25 @@ fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Fail
             "Choose a line as the axis.".to_owned(),
             context.own(),
         ),
-        SweepError::CrossesAxis { .. } | SweepError::BothSidesOfAxis { .. } => {
+        SweepError::BothSidesOfAxis { left, right } => {
+            let apart = if right.len() <= left.len() {
+                right
+            } else {
+                left
+            };
+            let verb = if apart.len() == 1 { "lies" } else { "lie" };
+            let curves = context.curves(apart);
+            context.error(
+                format!(
+                    "In {sketch}, {curves} {verb} on the other side of the revolution axis from the \
+                     rest of the profile."
+                ),
+                "Choose only the regions on one side of the axis, or choose another axis."
+                    .to_owned(),
+                context.own(),
+            )
+        }
+        SweepError::CrossesAxis { .. } => {
             let curves = context.curves(&error.entities());
             context.error(
                 format!("In {sketch}, {curves} would cut through the revolution axis."),
