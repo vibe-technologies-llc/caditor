@@ -38,15 +38,25 @@ fn assert_same_shape(name: &str, original: &caditor_kernel::Solid, read: &cadito
     );
     for (index, face) in mesh.faces().iter().enumerate() {
         let surface = surfaces[index];
-        for triangle in &mesh.triangles()[face.triangles.clone()] {
-            for corner in mesh.triangle_positions(*triangle).unwrap() {
-                let point = mesh.position(corner).unwrap();
-                let gap = surface.distance(point);
-                assert!(
-                    gap <= caditor_kernel::LINEAR_RESOLUTION,
-                    "{name}: face {index} is {gap} mm off the original at {point}"
-                );
-            }
+        let corners: std::collections::BTreeSet<u32> = mesh.triangles()[face.triangles.clone()]
+            .iter()
+            .flat_map(|triangle| mesh.triangle_positions(*triangle).unwrap())
+            .collect();
+        let mut hint = None;
+        for corner in corners {
+            let point = mesh.position(corner).unwrap();
+            let gap_from = |foot| surface.point_at(foot).distance(point);
+            let hinted = hint.map(|hint| surface.project(point, Some(hint)));
+            let foot = match hinted {
+                Some(foot) if gap_from(foot) <= caditor_kernel::LINEAR_RESOLUTION => foot,
+                _ => surface.project(point, None),
+            };
+            hint = Some(foot);
+            let gap = gap_from(foot);
+            assert!(
+                gap <= caditor_kernel::LINEAR_RESOLUTION,
+                "{name}: face {index} is {gap} mm off the original at {point}"
+            );
         }
     }
 }
