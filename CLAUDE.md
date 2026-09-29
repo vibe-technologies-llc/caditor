@@ -140,7 +140,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     when a plain `FACE` names no surface). Topology is surveyed first (which faces use each edge and
     vertex), then vertices off their faces are moved onto all of them by damped least squares, edges
     not within a quarter of the resolution of both faces are rebuilt with
-    `IntersectionCurve::through`, loops take their orientation from bounds, oriented edges and
+    `IntersectionCurve::through` (each sample is projected from the previous one's foot, and afresh
+    only where that foot is not within the quarter resolution), loops take their orientation from bounds, oriented edges and
     `same_sense` (voids from `ORIENTED_CLOSED_SHELL`), the outer loop is the `FACE_OUTER_BOUND`,
     else the one using a seam, else the largest by area, and faces bounded only by `VERTEX_LOOP`s
     get a pole-to-pole seam (spheres, closed spline surfaces and revolutions with two poles). Every solid then goes through

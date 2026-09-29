@@ -587,12 +587,11 @@ impl<'g, 'a> Topology<'g, 'a> {
         );
         let ends_fit = curve.point(interval.start()).distance(from) <= CLEAN
             && curve.point(interval.end()).distance(to) <= CLEAN;
-        let on_surfaces = interval.split(CHECK_SAMPLES).all(|parameter| {
-            let point = curve.point(parameter);
-            surfaces
-                .iter()
-                .all(|surface| surface.distance(point) <= CLEAN)
-        });
+        let samples: Vec<Point3> = interval
+            .split(CHECK_SAMPLES)
+            .map(|parameter| curve.point(parameter))
+            .collect();
+        let on_surfaces = surfaces.iter().all(|surface| lies_on(surface, &samples));
         if ends_fit && on_surfaces {
             return None;
         }
@@ -713,6 +712,19 @@ impl<'g, 'a> Topology<'g, 'a> {
         points.pop();
         points
     }
+}
+
+fn lies_on(surface: &Surface, samples: &[Point3]) -> bool {
+    let mut hint = None;
+    samples.iter().all(|point| {
+        let hinted = hint.map(|hint| surface.project(*point, Some(hint)));
+        let foot = match hinted {
+            Some(uv) if surface.point_at(uv).distance(*point) <= CLEAN => uv,
+            _ => surface.project(*point, None),
+        };
+        hint = Some(foot);
+        surface.point_at(foot).distance(*point) <= CLEAN
+    })
 }
 
 fn settle_on(point: Point3, surfaces: &[Surface]) -> (Point3, bool) {
@@ -870,4 +882,77 @@ pub(crate) fn describe_build(error: &BuildError) -> String {
 fn short(value: f64) -> String {
     let digits = (1.0 - value.log10().floor()).clamp(0.0, 12.0) as usize;
     format!("{value:.digits$}")
+}
+
+#[cfg(test)]
+mod tests {
+    use caditor_kernel::BSplineSurface;
+
+    use super::*;
+
+    fn bump() -> Surface {
+        let size = 7;
+        let mut points = Vec::new();
+        for row in 0..size {
+            for column in 0..size {
+                let (x, y) = (column as f64 * 5.0, row as f64 * 5.0);
+                points.push(Point3::new(x, y, 4.0 * (x * 0.2).sin() * (y * 0.15).cos()));
+            }
+        }
+        let knots: Vec<f64> = std::iter::repeat_n(0.0, 4)
+            .chain((1..size - 3).map(|index| index as f64 / (size - 3) as f64))
+            .chain(std::iter::repeat_n(1.0, 4))
+            .collect();
+        let weights = (0..size * size)
+            .map(|index| 1.0 + (index % 3) as f64 * 0.3)
+            .collect();
+        Surface::BSpline(
+            BSplineSurface::new(3, 3, knots.clone(), knots, size, points, Some(weights)).unwrap(),
+        )
+    }
+
+    fn on_every_sample(surface: &Surface, samples: &[Point3]) -> bool {
+        samples
+            .iter()
+            .all(|point| surface.distance(*point) <= CLEAN)
+    }
+
+    #[test]
+    fn chained_hints_decide_like_projecting_every_sample_afresh() {
+        let surfaces = [
+            bump(),
+            Surface::Sphere(caditor_kernel::Sphere::new(Plane::XY, 6.0).unwrap()),
+        ];
+        let mut decided = [0, 0];
+        for surface in &surfaces {
+            for path in 0..40 {
+                let turn = path as f64 * 0.37;
+                let (start, end) = (
+                    Point2::new(0.1 + 0.02 * turn.sin(), 0.2 + 0.1 * turn.cos()),
+                    Point2::new(0.9 - 0.03 * turn.cos(), 0.7 + 0.2 * turn.sin()),
+                );
+                let (u, v) = (
+                    surface.u_domain().bounded().unwrap_or(Interval::UNIT),
+                    surface.v_domain().bounded().unwrap_or(Interval::UNIT),
+                );
+                let lift = CLEAN * [0.0, 0.4, 0.8, 1.3, 2.0][path % 5];
+                let samples: Vec<Point3> = (0..=CHECK_SAMPLES)
+                    .map(|index| {
+                        let along = start.lerp(end, index as f64 / CHECK_SAMPLES as f64);
+                        let at = surface.evaluate(u.at(along.x), v.at(along.y));
+                        let bend = if index == CHECK_SAMPLES / 2 {
+                            lift
+                        } else {
+                            0.0
+                        };
+                        at.point + at.normal().unwrap() * bend
+                    })
+                    .collect();
+                let chained = lies_on(surface, &samples);
+                assert_eq!(chained, on_every_sample(surface, &samples), "path {path}");
+                decided[usize::from(chained)] += 1;
+            }
+        }
+        assert!(decided.iter().all(|count| *count > 10), "{decided:?}");
+    }
 }

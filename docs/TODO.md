@@ -66,8 +66,6 @@ within a category run from most to least important.
   each model load, journal replay and recovery scan, and stores every placement of a product as
   its own STEP text. Build each representation once, store each product once with placements,
   and cache solids by text digest.
-- The healing check projects every edge sample without hints (`read/topology.rs`), up to about
-  2400 surface evaluations per sample on spline faces.
 - The parse tree costs several times the file size with a `String` per token and a `BTreeMap`
   of instances, and the reader walks all entities about six times.
 - The writer puts all bodies in one product with no colours, holding the output twice in memory.
