@@ -263,7 +263,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     v isolines where du vanishes (sphere poles, cone apex, a revolution profile ending on its axis).
     `project` returns the periodic representative nearest a hint, else the principal one in [0,
     period); on spline profiles it keeps the closest point near the hint when no other is closer by
-    more than the resolution, so self-crossing profiles project consistently. `same_surface` gives
+    more than the resolution, so self-crossing profiles project consistently. A point within the
+    resolution of a pole (`pole_at`) takes the hint's u on every surface with poles, since its own
+    angle is only rounding noise. `same_surface` gives
     the `Sense` between the normals of two coincident surfaces whatever their frames and seams:
     analytic for elementary pairs, and by mutual sampled projection when an extrusion or revolution
     is involved.

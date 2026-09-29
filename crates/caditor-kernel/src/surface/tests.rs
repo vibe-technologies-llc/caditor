@@ -486,3 +486,21 @@ fn a_line_extruded_almost_along_itself_is_refused_and_a_steep_one_projects_exact
         );
     }
 }
+
+#[test]
+fn a_pole_far_from_the_origin_keeps_the_hints_angle() {
+    let far = Point3::new(9_000.0, -7_500.0, 8_250.0);
+    let frame = Plane::with_x_axis(far, Vector3::new(1.0, 2.0, 3.0), Vector3::X).unwrap();
+    let sphere: Surface = Sphere::new(frame, 5.0).unwrap().into();
+    let cone: Surface = Cone::new(frame, 5.0, 0.4).unwrap().into();
+    let hint = Point2::new(1.25, 0.0);
+    for (surface, pole) in [
+        (&sphere, far + frame.normal() * 5.0),
+        (&sphere, far - frame.normal() * 5.0),
+        (&cone, cone.pole_slots()[0].unwrap().point),
+    ] {
+        let found = surface.project(pole, Some(hint));
+        assert_eq!(found.x, hint.x, "{found:?}");
+        assert!(surface.pole_at(found).is_some());
+    }
+}

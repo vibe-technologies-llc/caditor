@@ -240,8 +240,8 @@ impl Surface {
         match self {
             Self::Plane(plane) => plane.project(point),
             Self::Cylinder(cylinder) => cylinder.project(point, hint),
-            Self::Cone(cone) => cone.project(point, hint),
-            Self::Sphere(sphere) => sphere.project(point, hint),
+            Self::Cone(cone) => self.at_pole(cone.project(point, hint), hint),
+            Self::Sphere(sphere) => self.at_pole(sphere.project(point, hint), hint),
             Self::Torus(torus) => torus.project(point, hint),
             Self::Extrusion(extrusion) => extrusion.project(point, hint),
             Self::Revolution(_) | Self::BSpline(_)
@@ -257,11 +257,7 @@ impl Surface {
                     Some(period) => periodic_near(refined.y, period, hint.map(|hint| hint.y)),
                     None => refined.y,
                 };
-                let uv = Point2::new(u, v);
-                match (self.pole_at(uv), hint) {
-                    (Some(_), Some(hint)) => Point2::new(hint.x, v),
-                    _ => uv,
-                }
+                self.at_pole(Point2::new(u, v), hint)
             }
             Self::BSpline(spline) => {
                 let mut best: Option<(f64, Point2)> = None;
@@ -283,11 +279,7 @@ impl Surface {
                     (_, Some((_, uv))) => uv,
                     (_, None) => hint.unwrap_or(Point2::ZERO),
                 };
-                let placed = spline.place(chosen, hint);
-                match (self.pole_at(placed), hint) {
-                    (Some(_), Some(hint)) => Point2::new(hint.x, placed.y),
-                    _ => placed,
-                }
+                self.at_pole(spline.place(chosen, hint), hint)
             }
         }
     }
@@ -309,10 +301,14 @@ impl Surface {
                 Point2::new(u, v)
             }
         };
-        Some(match self.pole_at(placed) {
-            Some(_) => Point2::new(hint.x, placed.y),
-            None => placed,
-        })
+        Some(self.at_pole(placed, Some(hint)))
+    }
+
+    fn at_pole(&self, uv: Point2, hint: Option<Point2>) -> Point2 {
+        match (self.pole_at(uv), hint) {
+            (Some(_), Some(hint)) => Point2::new(hint.x, uv.y),
+            _ => uv,
+        }
     }
 
     pub fn distance(&self, point: Point3) -> f64 {

@@ -39,10 +39,6 @@ within a category run from most to least important.
   face.
 - A blend on a nearly full circular edge whose ends need extensions exceeds a turn and fails as
   a generic `BlendError::Sweep` ("choose fewer edges"); clamp the extension or name the edge.
-- Sphere projection has no pole snapping and the analytic surfaces treat a point as on the axis
-  only within 1e-14 relative (`surface/projection.rs` `AXIS_EPSILON`), so a pole vertex of a
-  model far from the origin gets an arbitrary u, unlike revolutions and splines, which reuse the
-  hint's u through `pole_at`.
 - `ProfileError::Unresolved`, produced by about thirty internal paths in `profile/`, names no
   curves, so the sketch error can only say to simplify where curves meet.
 - Shell cannot drop collapsing cones or faces whose edges run neither around nor along their
