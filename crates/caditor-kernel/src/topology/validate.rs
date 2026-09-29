@@ -522,7 +522,7 @@ fn vertex_fans(solid: &Solid, faces: &[FaceId]) -> Checked<i64> {
 }
 
 fn volumes(solid: &Solid) -> Checked<()> {
-    let extent = solid.bounding_box().map_or(1.0, |bounds| bounds.diagonal());
+    let extent = solid.outline_box().map_or(1.0, |bounds| bounds.diagonal());
     let mut result = Ok(());
     for coarseness in VALIDATION_COARSENESS {
         result = volumes_at(solid, &SamplingTolerance::for_extent(extent * coarseness));

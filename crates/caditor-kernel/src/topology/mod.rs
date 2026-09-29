@@ -297,7 +297,7 @@ impl Solid {
         Some(self.face_loop(self.coedge(id)?.owner)?.face)
     }
 
-    pub fn bounding_box(&self) -> Option<Aabb> {
+    pub(crate) fn outline_box(&self) -> Option<Aabb> {
         let edges = self
             .edges
             .iter()
@@ -306,7 +306,11 @@ impl Solid {
             .vertices
             .iter()
             .map(|vertex| Aabb::from_point(vertex.point));
-        let outline = edges.chain(vertices).reduce(Aabb::union)?;
+        edges.chain(vertices).reduce(Aabb::union)
+    }
+
+    pub fn bounding_box(&self) -> Option<Aabb> {
+        let outline = self.outline_box()?;
         let curved: Vec<FaceId> = self
             .faces()
             .filter(|(_, face)| doubly_curved(face.surface()))

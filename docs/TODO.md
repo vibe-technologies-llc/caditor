@@ -47,8 +47,6 @@ within a category run from most to least important.
 
 ## Kernel performance
 
-- Every `Solid::build` computes `bounding_box`, which builds a full classifier and runs 169
-  `point_in_face` queries per curved face only to size the sampling tolerance.
 - `face_data` counts seam uses quadratically per face (`classify.rs`), `point_in_face` rebuilds
   it on every call, and `SolidClassifier::corner` searches every face linearly.
 - Validation computes mass properties once per shell and probes voids over the whole mesh per

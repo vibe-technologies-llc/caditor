@@ -300,8 +300,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     connectivity, Euler–Poincaré per shell, positive volume for lumps and voids inside a lump)
     and returns the first `ValidationError`, with ids. Euler–Poincaré counts each fan of faces
     around a vertex as a vertex, so a pinched shell (a hole touching its outline, swept) whose
-    merged vertex joins two fans has the characteristic of the surface it pinches. The volume checks run on a coarse mesh and
-    retry finer before reporting a void outside its lump. Validation does not intersect faces
+    merged vertex joins two fans has the characteristic of the surface it pinches. The volume
+    checks run on a coarse mesh (sized by the box of the edges and vertices, never the
+    classifier-based `bounding_box`) and retry finer before reporting a void outside its lump. Validation does not intersect faces
     with each other, since every build runs it; `Solid::find_crossing` does, for importers: the
     edges of each face (seams aside) are intersected with each other, and a transversal point or
     an overlap away from the vertices they share is a `Crossing` of that face with itself; then
