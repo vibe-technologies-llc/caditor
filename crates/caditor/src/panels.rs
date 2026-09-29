@@ -22,6 +22,7 @@ pub const PARAMETERS_TITLE: &str = "Parameters";
 const FEATURES_SECTION: &str = "features";
 const PARAMETERS_SECTION: &str = "parameters";
 const FOCUS_ATTEMPT_FRAMES: u8 = 30;
+const REVEAL_FRAMES: u8 = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -95,6 +96,13 @@ pub struct PanelState {
     pub hovered_in_tree: Option<Pickable>,
     pub chosen_in_tree: Option<Pickable>,
     pub reference_rows: RowCache,
+    revealing: Option<PendingReveal>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PendingReveal {
+    feature: FeatureId,
+    frames_left: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +121,18 @@ impl PanelState {
             target,
             frames_left: FOCUS_ATTEMPT_FRAMES,
         });
+    }
+
+    pub fn reveal(&mut self, feature: FeatureId) {
+        self.revealing = Some(PendingReveal {
+            feature,
+            frames_left: REVEAL_FRAMES,
+        });
+    }
+
+    pub fn revealing(&self, feature: FeatureId) -> bool {
+        self.revealing
+            .is_some_and(|pending| pending.feature == feature)
     }
 
     pub fn wants_focus(&self, focus: Focus) -> bool {
@@ -149,6 +169,7 @@ impl PanelState {
 
     fn wants_features(&self) -> bool {
         self.renaming.is_some()
+            || self.revealing.is_some()
             || matches!(
                 self.focus.map(|pending| pending.target),
                 Some(Focus::Feature(_) | Focus::Dimension { .. } | Focus::Constraint { .. })
@@ -173,6 +194,15 @@ impl PanelState {
 
     fn begin_frame(&mut self) {
         self.reference_rows.begin_frame();
+        self.revealing = self.revealing.and_then(|pending| {
+            pending
+                .frames_left
+                .checked_sub(1)
+                .map(|frames_left| PendingReveal {
+                    frames_left,
+                    ..pending
+                })
+        });
         self.focus = self.focus.and_then(|pending| {
             pending
                 .frames_left

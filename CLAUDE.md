@@ -1058,7 +1058,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     expression fields share the panel's width beside a fixed value column, since content wider
     than a side panel widens it the next frame. The side panel has collapsible Features and Parameters sections; a feature row is its
     kind icon, name, state icon, edit and more buttons, highlighted with an accent bar while
-    open, with failures and outdated states as callouts under it and its properties in a card.
+    open, with failures and outdated states as callouts under it and its properties in a card;
+    a feature that opens is scrolled into view while its card expands (`PanelState::reveal`).
     Clicking or tabbing to a row's name selects it in the tree (`PanelState::selected`, cleared
     when the view selection changes); Rename feature (F2), Move feature up or down and Delete
     feature act on it, else on the open feature (`feature_tree::current_feature`), and Delete

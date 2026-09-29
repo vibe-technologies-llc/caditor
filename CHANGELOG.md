@@ -131,6 +131,7 @@ The first release of caditor.
   it is what gets saved. Copy, paste, undo and the other editing keys stay with the field.
 - Dark, light and high-contrast themes, interface sizes from 75% to 200%, and a choice of
   micrometres, millimetres, centimetres or metres.
+- A feature opened from the toolbar or the view scrolls its panel into view in the feature tree.
 - At large interface sizes and in narrow windows the menu bar, status bar and parameter table
   wrap or shrink instead of overlapping, long notices wrap instead of being cut off, and the
   navigation hint wraps clear of the axis triad.

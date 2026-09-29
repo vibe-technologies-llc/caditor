@@ -44,6 +44,7 @@ const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));
 const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(10);
 const FRAME_SECONDS: f64 = 0.05;
 const ANIMATION_FRAMES: usize = 5;
+const STILL_FRAMES: usize = 60;
 const WINDOW_SETTLE_FRAMES: usize = 5;
 const FILE_TIMEOUT: Duration = Duration::from_secs(10);
 const TOOLTIP_FRAMES: usize = 20;
@@ -409,6 +410,17 @@ impl Harness {
         panic!("{focus:?} never received focus");
     }
 
+    fn hold_still(&mut self) {
+        for _ in 0..STILL_FRAMES {
+            let before = self.texts.clone();
+            self.frame();
+            if self.texts == before {
+                return;
+            }
+        }
+        panic!("the interface kept moving");
+    }
+
     fn let_animations_finish(&mut self) {
         for _ in 0..ANIMATION_FRAMES {
             self.frame();
@@ -492,6 +504,37 @@ impl Harness {
             .filter(|(shown, _)| shown == label)
             .map(|(_, rect)| rect.center())
             .min_by(|a, b| a.x.total_cmp(&b.x))
+            .unwrap_or_else(|| panic!("'{label}' is not on screen"));
+        self.click_screen(position);
+        self.show_new_windows();
+    }
+
+    fn click_beside(&mut self, glyph: &str, label: &str) {
+        let row = self
+            .texts
+            .iter()
+            .find(|(shown, _)| shown == label)
+            .unwrap_or_else(|| panic!("'{label}' is not on screen"))
+            .1;
+        let position = self
+            .texts
+            .iter()
+            .filter(|(shown, _)| shown == glyph)
+            .map(|(_, rect)| rect.center())
+            .filter(|center| center.y >= row.min.y)
+            .min_by(|a, b| a.y.total_cmp(&b.y))
+            .unwrap_or_else(|| panic!("no {glyph:?} beside '{label}'"));
+        self.click_screen(position);
+        self.show_new_windows();
+    }
+
+    fn click_lowest(&mut self, label: &str) {
+        let position = self
+            .texts
+            .iter()
+            .filter(|(shown, _)| shown == label)
+            .map(|(_, rect)| rect.center())
+            .max_by(|a, b| a.y.total_cmp(&b.y))
             .unwrap_or_else(|| panic!("'{label}' is not on screen"));
         self.click_screen(position);
         self.show_new_windows();
@@ -4582,4 +4625,250 @@ fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_per
     assert!(rect_of(name).max.x <= rect_of("Search commands").min.x);
     assert_eq!(deletes.len(), 2);
     assert!(deletes.iter().all(|rect| rect.max.x <= narrowed.max.x));
+}
+
+fn feature_order(harness: &Harness) -> Vec<String> {
+    harness
+        .document()
+        .features()
+        .map(|feature| feature.name.clone())
+        .collect()
+}
+
+#[test]
+fn parameters_are_added_renamed_given_expressions_and_deleted_in_their_table() {
+    let mut harness = Harness::new();
+    harness.click_beside(crate::icons::ADD, "Parameters");
+    harness.frame();
+    let added = harness.parameter("parameter");
+    let added_label = harness.model.undo_label().map(str::to_owned);
+    let focused_on_name = harness.focused() == Some(Focus::ParameterName(added).field_id());
+    harness.key(Key::A, Modifiers::COMMAND);
+    harness.events.push(Event::Text("depth".to_owned()));
+    harness.frame();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.settle();
+    let renamed = harness.document().parameter(added).map(|p| p.name.clone());
+    harness.type_into(Focus::ParameterValue(added), "width / 4");
+    harness.settle();
+    let quarter_shown = harness.shows("10 mm");
+    let width = harness.parameter("width");
+    harness.type_into(Focus::ParameterName(width), "span");
+    harness.settle();
+    let height_text = harness.expression_text("height");
+    let depth_text = harness.expression_text("depth");
+    harness.click_beside(crate::icons::DELETE, "depth");
+    harness.settle();
+    let deleted_label = harness.model.undo_label().map(str::to_owned);
+    let deleted = harness.document().parameter(added).is_none();
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(added_label.as_deref(), Some("Add parameter"));
+    assert!(focused_on_name);
+    assert_eq!(renamed.as_deref(), Some("depth"));
+    assert!(quarter_shown);
+    assert_eq!(height_text, "span / 2");
+    assert_eq!(depth_text, "span / 4");
+    assert!(harness.shows("span / 2"));
+    assert_eq!(deleted_label.as_deref(), Some("Delete depth"));
+    assert!(deleted);
+    assert_eq!(harness.expression_text("depth"), "span / 4");
+}
+
+#[test]
+fn features_move_up_and_down_from_their_menu() {
+    let mut harness = Harness::new();
+    harness.click_beside(crate::icons::MORE, "Side sketch");
+    harness.click("Move up");
+    harness.settle();
+    let moved_up = feature_order(&harness);
+    let up_label = harness.model.undo_label().map(str::to_owned);
+    harness.click_beside(crate::icons::MORE, "Side sketch");
+    let first_cannot_rise = harness.shows("Move up") && {
+        harness.click("Move up");
+        harness.settle();
+        feature_order(&harness) == moved_up
+    };
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.click_beside(crate::icons::MORE, "Side sketch");
+    harness.click("Move down");
+    harness.settle();
+
+    assert_eq!(moved_up, ["Side sketch", "Base sketch"]);
+    assert_eq!(up_label.as_deref(), Some("Move up Side sketch"));
+    assert!(first_cannot_rise);
+    assert_eq!(feature_order(&harness), ["Base sketch", "Side sketch"]);
+    assert_eq!(harness.model.undo_label(), Some("Move down Side sketch"));
+}
+
+fn open_solid(harness: &Harness) -> FeatureId {
+    harness
+        .workspace
+        .editing
+        .solid()
+        .expect("a solid feature is open")
+}
+
+fn extrude_extent(harness: &Harness, feature: FeatureId) -> &'static str {
+    match harness.solid(feature) {
+        SolidFeature::Extrude(extrude) => match extrude.extent {
+            ExtrudeExtent::OneSide { .. } => "one side",
+            ExtrudeExtent::Symmetric { .. } => "symmetric",
+            ExtrudeExtent::TwoSides { .. } => "two sides",
+        },
+        SolidFeature::Revolve(_) => "a revolve",
+    }
+}
+
+fn choose(harness: &mut Harness, current: &str, option: &str) {
+    harness.hold_still();
+    harness.click_lowest(current);
+    harness.click_lowest(option);
+    harness.settle();
+}
+
+#[test]
+fn a_solid_feature_changes_its_extent_result_body_sketch_and_axis_from_its_panel() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let mut boss = Sketch::new(Plane::XY);
+    rectangle(&mut boss, Point2::new(10.0, 10.0), Point2::new(20.0, 20.0));
+    let boss = harness.add_sketch(boss);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    let second = open_solid(&harness);
+    let starts_adding = harness.solid(second).operation() == BodyOperation::Add(plate);
+
+    choose(&mut harness, "One side", "Symmetric");
+    let symmetric = extrude_extent(&harness, second);
+    choose(&mut harness, "Symmetric", "Two sides");
+    let two_sides = extrude_extent(&harness, second);
+    choose(&mut harness, "Add to body", "Remove from body");
+    let removing = harness.solid(second).operation();
+    choose(&mut harness, "Remove from body", "New body");
+    let separate = harness.solid(second).operation();
+    choose(&mut harness, "Plate 1", "Plate");
+    let sketch = harness.solid(second).sketch();
+    choose(&mut harness, "Plate", "Plate 1");
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    let third = open_solid(&harness);
+    let adds_to_last = harness.solid(third).operation() == BodyOperation::Add(second);
+    harness.hold_still();
+    let third_card_in_view = harness.shows("Body");
+    choose(&mut harness, "Extrude 2", "Extrude 1");
+    let retargeted = harness.solid(third).operation();
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let mut section = Sketch::new(Plane::XZ);
+    rectangle(
+        &mut section,
+        Point2::new(50.0, 0.0),
+        Point2::new(60.0, 10.0),
+    );
+    harness.add_sketch(section);
+    harness.select([]);
+    harness.click("Revolve");
+    harness.settle();
+    let revolve = open_solid(&harness);
+    choose(&mut harness, "Vertical axis", "Horizontal axis");
+    let axis = harness.solid(revolve).axis().cloned();
+    choose(&mut harness, "Full turn", "Symmetric");
+    let turn = match harness.solid(revolve) {
+        SolidFeature::Revolve(revolve) => revolve.extent.clone(),
+        SolidFeature::Extrude(_) => panic!("expected a revolve"),
+    };
+
+    assert!(starts_adding);
+    assert_eq!(symmetric, "symmetric");
+    assert_eq!(two_sides, "two sides");
+    assert_eq!(removing, BodyOperation::Remove(plate));
+    assert_eq!(separate, BodyOperation::NewBody);
+    assert_eq!(sketch, feature_named(&harness, "Plate"));
+    assert_eq!(harness.solid(second).sketch(), boss);
+    assert!(adds_to_last);
+    assert!(third_card_in_view);
+    assert_eq!(retargeted, BodyOperation::Add(plate));
+    assert_eq!(
+        axis,
+        Some(caditor_document::RevolveAxis::Sketch(
+            caditor_sketch::Reference::HorizontalAxis.id()
+        ))
+    );
+    assert!(matches!(
+        turn,
+        caditor_document::RevolveExtent::Symmetric { .. }
+    ));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+fn datum_plane_of(harness: &Harness, feature: FeatureId) -> caditor_document::DatumPlane {
+    match datum_of(harness, feature) {
+        caditor_document::Datum::Plane(plane) => plane.clone(),
+        caditor_document::Datum::Axis(_) => panic!("expected a datum plane"),
+    }
+}
+
+#[test]
+fn a_datum_takes_its_base_and_turn_from_the_selection_in_its_panel() {
+    let mut harness = Harness::new();
+    harness.select([]);
+    harness.click("Plane");
+    harness.settle();
+    let plane = open_solid(&harness);
+    harness.hold_still();
+
+    harness.select([Pickable::Plane(PrincipalPlane::Xz)]);
+    harness.click_beside("Use selected", "Starts from");
+    harness.settle();
+    let based = datum_plane(&harness, plane).normal();
+    harness.select([Pickable::Axis(crate::selection::Axis::Z)]);
+    harness.click_beside("Use selected", "Turned about");
+    harness.settle();
+    let turned = datum_plane_of(&harness, plane).rotation.is_some();
+    harness.hold_still();
+    harness.type_into_field(Id::new(("datum-field", "angle", plane)), "90 deg");
+    harness.settle();
+    let quarter = datum_plane(&harness, plane).normal();
+    harness.click_beside(crate::icons::REMOVE, "Turned about");
+    harness.settle();
+    let unturned = datum_plane_of(&harness, plane).rotation.is_none();
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.select([
+        Pickable::Plane(PrincipalPlane::Xy),
+        Pickable::Plane(PrincipalPlane::Xz),
+    ]);
+    harness.click("Axis");
+    harness.settle();
+    let axis = open_solid(&harness);
+    harness.hold_still();
+    let meeting = matches!(
+        datum_of(&harness, axis),
+        caditor_document::Datum::Axis(caditor_document::DatumAxis::Intersection(..))
+    );
+    harness.select([Pickable::Axis(crate::selection::Axis::Z)]);
+    harness.click_beside("Use selected", "Where");
+    harness.settle();
+
+    assert!(based.y.abs() > 0.999, "{based}");
+    assert!(turned);
+    assert!(quarter.x.abs() > 0.999, "{quarter}");
+    assert!(unturned);
+    assert!(datum_plane(&harness, plane).normal().y.abs() > 0.999);
+    assert!(meeting);
+    assert!(matches!(
+        datum_of(&harness, axis),
+        caditor_document::Datum::Axis(caditor_document::DatumAxis::Along(_))
+    ));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
 }

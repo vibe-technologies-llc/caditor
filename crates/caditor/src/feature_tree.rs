@@ -120,6 +120,7 @@ fn feature_row(
     let editing_started = row.edited && state.opened_for_editing != Some(id);
     if editing_started {
         state.opened_for_editing = Some(id);
+        state.reveal(id);
     }
     if state.focus_inside(id) || editing_started {
         collapsing.set_open(true);
@@ -220,7 +221,7 @@ fn feature_row(
         Some(FeatureState::UpToDate) | None => {}
     }
 
-    collapsing.show_body_unindented(ui, |ui| {
+    let shown = collapsing.show_body_unindented(ui, |ui| {
         ui.horizontal(|ui| {
             ui.add_space(BODY_INDENT);
             ui.vertical(|ui| {
@@ -228,6 +229,10 @@ fn feature_row(
             });
         });
     });
+    if state.revealing(id) {
+        let card = shown.map_or(row_rect, |shown| row_rect.union(shown.response.rect));
+        ui.scroll_to_rect(card, None);
+    }
     collapsing.store(ui.ctx());
 }
 

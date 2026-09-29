@@ -94,11 +94,6 @@ within a category run from most to least important.
   O(n²) `involved` check; virtualise and cache.
 - Sketch curves are faceted at a fixed 3° regardless of size or zoom.
 
-## Keyboard and accessibility
-
-- UI tests do not cover the parameter table's add, rename and delete, the extent, result, body,
-  sketch and axis combos, the datum panel, or Move up and down.
-
 ## Sketching
 
 - No dragging of sketch geometry and no window selection: primary drag is never handled.
