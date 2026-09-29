@@ -306,6 +306,44 @@ fn draws_shaded_faces_that_hide_what_is_behind_them_and_picks_the_face_in_front(
     );
 }
 
+#[test]
+fn faces_that_cannot_be_picked_still_hide_what_is_behind_them_from_picking() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(box_mesh(20.0)),
+            faces: vec![
+                FaceStyle {
+                    color: Color::from_rgb8(90, 90, 90),
+                    pick: None,
+                };
+                6
+            ],
+        }],
+        lines: vec![Line {
+            start: Point3::new(-50.0, 0.0, 0.0),
+            end: Point3::new(50.0, 0.0, 0.0),
+            color: LINE_COLOR,
+            width: 3.0,
+            layer: Layer::Model,
+            pick: PickId::from_index(0),
+        }],
+        ..Scene::default()
+    };
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let hidden_line = view.project(Point3::new(5.0, 0.0, 20.0)).unwrap();
+    let visible_line = view.project(Point3::new(40.0, 0.0, 0.0)).unwrap();
+
+    let behind = render(&device, &queue, &view, &scene, hidden_line);
+    let beside = render(&device, &queue, &view, &scene, visible_line);
+
+    assert!(behind.pick.hits.is_empty(), "{:?}", behind.pick.hits);
+    assert_eq!(beside.pick.hits[0].id, PickId::from_index(0).unwrap());
+}
+
 fn square_fill(z: f64, half: f64, layer: Layer, index: usize) -> Fill {
     Fill::convex(
         &[

@@ -893,7 +893,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     storage buffer by face index, are rewritten each frame, so hover and selection cost nothing
     in geometry. Faces are lit two-sided by a key light above and to the left of the camera, a
     headlight and a small specular term, and write depth, so edges and sketches behind them are
-    hidden in the view and in picking alike.
+    hidden in the view and in picking alike (a face without a pick id writes id 0 with its depth in
+    the pick pass, `fs_mesh_pick`, rather than being discarded).
   - Depth is reverse-Z with an infinite far plane and `Depth32Float`, with 4x MSAA when the
     adapter supports it. The surface is `Bgra8Unorm` or `Rgba8Unorm` when offered (never a float
     or snorm format an HDR setup lists first), else the first non-sRGB one. Model geometry draws

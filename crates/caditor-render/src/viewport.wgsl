@@ -305,6 +305,11 @@ fn fs_pick(in: Varyings) -> PickOutput {
 }
 
 @fragment
+fn fs_mesh_pick(in: Varyings) -> PickOutput {
+    return PickOutput(in.pick, in.depth);
+}
+
+@fragment
 fn fs_marker_pick(in: Varyings) -> PickOutput {
     if in.pick == 0u || marker_coverage(in) <= 0.0 {
         discard;

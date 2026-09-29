@@ -667,7 +667,7 @@ impl Pipelines {
                 &mesh_pipeline_layout,
                 "vs_mesh",
                 &meshes,
-                "fs_pick",
+                "fs_mesh_pick",
                 true,
             ),
         }

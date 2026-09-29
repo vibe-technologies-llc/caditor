@@ -109,10 +109,6 @@ within a category run from most to least important.
 
 ## Rendering robustness
 
-- Faces without a pick id are discarded in `fs_pick` and write no depth, so while a sketch is
-  edited, or a fillet or shell panel chooses edges or faces, edges and curves behind the solid
-  are hovered and clicked through it, contrary to "hidden in the view and in picking alike".
-  Write id 0 with depth instead of discarding.
 - Orbit has no elevation limit, so dragging past the pole turns the model upside down and
   reverses horizontal drag, and entering a sketch on a rotated face starts with a rolled
   horizon that yaw about Z never removes (`camera.rs`).
