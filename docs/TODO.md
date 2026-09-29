@@ -140,8 +140,6 @@ within a category run from most to least important.
 
 ## Interface correctness
 
-- Constraint rows in the sketch tree are styled as links but clicking or hovering them does
-  nothing.
 
 ## Interface performance
 

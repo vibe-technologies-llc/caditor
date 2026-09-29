@@ -232,6 +232,10 @@ pub fn show(
     route_dimension_focus(panels, editing, viewport);
     panels::show(ui, model, viewport.selection(), editing, panels, actions);
     route_dimension_focus(panels, editing, viewport);
+    if let Some(chosen) = panels.chosen_in_tree.take() {
+        viewport.select_only(chosen);
+    }
+    viewport.hover_from_tree(panels.hovered_in_tree.take());
     let selected_before = viewport.selection().clone();
     viewport.show(ui, model, editing, keys_free, &mut commands, actions);
     if viewport.selection() != &selected_before && !viewport.selection().is_empty() {

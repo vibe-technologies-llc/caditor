@@ -9,7 +9,7 @@ use crate::{
     feature_tree, icons,
     model::{Action, Model},
     parameter_table,
-    selection::Selection,
+    selection::{Pickable, Selection},
     widgets::{self, SectionAction},
 };
 
@@ -90,6 +90,8 @@ pub struct PanelState {
     pub renaming: Option<Renaming>,
     pub opened_for_editing: Option<FeatureId>,
     pub selected: Option<FeatureId>,
+    pub hovered_in_tree: Option<Pickable>,
+    pub chosen_in_tree: Option<Pickable>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

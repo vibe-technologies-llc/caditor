@@ -123,6 +123,7 @@ pub struct ViewportState {
     keyboard_highlight: Option<Pickable>,
     highlightable: Vec<Pickable>,
     typed_point: TypedPoint,
+    hovered_in_tree: Option<Pickable>,
     session: u64,
     fit_when_computed: bool,
 }
@@ -160,9 +161,19 @@ impl ViewportState {
             keyboard_highlight: None,
             highlightable: Vec::new(),
             typed_point: TypedPoint::default(),
+            hovered_in_tree: None,
             session: 0,
             fit_when_computed: false,
         }
+    }
+
+    pub fn select_only(&mut self, pickable: Pickable) {
+        self.selection.clear();
+        self.selection.toggle(pickable);
+    }
+
+    pub fn hover_from_tree(&mut self, pickable: Option<Pickable>) {
+        self.hovered_in_tree = pickable;
     }
 
     pub fn forget_document(&mut self) {
@@ -305,6 +316,8 @@ impl ViewportState {
                 .collect()
         } else if let Some(annotation) = self.annotations.hovered() {
             annotation.constrained_entities(document)
+        } else if let Some(row) = self.hovered_in_tree {
+            row.constrained_entities(document)
         } else {
             highlighted.into_iter().collect()
         };

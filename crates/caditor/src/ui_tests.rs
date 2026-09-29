@@ -1416,6 +1416,38 @@ fn a_newly_opened_model_starts_with_nothing_selected_or_left_out_of_export() {
 }
 
 #[test]
+fn clicking_a_constraint_in_the_tree_edits_its_sketch_and_selects_it() {
+    let mut harness = Harness::new();
+    let base = harness.document().features().next().unwrap().id();
+    let (constraint, _) = harness
+        .sketch(base)
+        .constraints()
+        .find(|(_, constraint)| constraint.dimension().is_some())
+        .unwrap();
+    let description = harness.sketch(base).describe_constraint(constraint);
+    harness.edit(base);
+    harness.perform(Action::Editing(EditingCommand::Finish));
+    harness.settle();
+    let finished = harness.editing();
+
+    harness.click_leftmost(&description);
+    harness.settle();
+
+    assert_eq!(finished, None);
+    assert_eq!(harness.editing(), Some(base));
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .selection()
+            .contains(Pickable::SketchConstraint {
+                feature: base,
+                constraint,
+            })
+    );
+}
+
+#[test]
 fn a_constraint_conflict_is_named_and_leads_to_the_newest_constraint() {
     let mut harness = Harness::new();
     let base = harness.document().features().next().unwrap().clone();

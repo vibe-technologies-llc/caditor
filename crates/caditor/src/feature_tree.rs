@@ -18,7 +18,7 @@ use crate::{
     icons,
     model::{Action, Model},
     panels::{Focus, PanelState, Renaming},
-    selection::Selection,
+    selection::{Pickable, Selection},
     shell_panel, sketch_placement,
     sketch_status::{self, SketchSummary},
     sketch_tools, solid_panel,
@@ -784,6 +784,17 @@ fn sketch_body(
             |ui| widgets::link_label(ui, text),
             |ui| widgets::icon_button(ui, icons::DELETE, "Delete this constraint").clicked(),
         );
+        let pickable = Pickable::SketchConstraint {
+            feature: feature.id(),
+            constraint,
+        };
+        if row.hovered() {
+            state.hovered_in_tree = Some(pickable);
+        }
+        if row.clicked() {
+            actions.push(Action::Editing(EditingCommand::Enter(feature.id())));
+            state.chosen_in_tree = Some(pickable);
+        }
         let mut deleted = deleted;
         row.context_menu(|ui| {
             if widgets::menu_item(ui, icons::DELETE, "Delete", None).clicked() {

@@ -955,8 +955,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     Clicking or tabbing to a row's name selects it in the tree (`PanelState::selected`, cleared
     when the view selection changes); Rename feature (F2), Move feature up or down and Delete
     feature act on it, else on the open feature (`feature_tree::current_feature`), and Delete
-    selection (Delete) deletes it outside sketch editing. A section opens by itself when a
-    rename or a focus request needs something inside it.
+    selection (Delete) deletes it outside sketch editing. A sketch's constraint rows highlight
+    their entities in the view while hovered and, when clicked, edit the sketch and select the
+    constraint (`PanelState::hovered_in_tree` and `chosen_in_tree`, handed to the viewport after
+    the panels are drawn). A section opens by itself when a rename or a focus request needs
+    something inside it.
   - `Model` (`model.rs`) owns the `Editor` and the `Recomputer`. The UI gets `&Model` and
     returns `Action`s, which the app performs after the UI pass, so the UI never mutates the
     document directly. Each change submits a snapshot to the worker. Feature geometry is drawn
