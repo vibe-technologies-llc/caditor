@@ -710,9 +710,13 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     one's settings. `save_changes` re-reads the file and applies only the keys changed since the
     last save, so two windows keep each other's changes, and an unreadable file is kept as
     `preferences.unreadable.json` before it is replaced. Recent files store paths that are not
-    UTF-8 as byte arrays.
-  - Recovery (`scan`, `journal_for`) inspects unlocked journals in the recovery directory and
-    next to recent files, deletes those with nothing to recover (no net change, or already in
+    UTF-8 as byte arrays, and each window writes them as `RecentChange`s applied to what is on
+    disk (`RecentFiles::save_changes`), so windows keep each other's entries.
+  - Recovery (`scan`, `journal_for`) inspects unlocked journals in the recovery directory, next
+    to recent files and wherever a marker names one: a journal kept next to its model leaves an
+    `adjacent-<hash>.location` file holding its absolute path in the recovery directory, removed
+    with the journal (and pruned by the scan once the journal is gone), so a crashed model's
+    unsaved work is offered even when no recent file names it. The scan deletes those with nothing to recover (no net change, or already in
     the file, and every entry read) and returns the rest with a replayed `Editor`. A journal
     with entries it could not read (damaged, or from a newer version) is offered, never deleted.
     Before deleting, the locked file is compared with the path by inode, so a journal an owner

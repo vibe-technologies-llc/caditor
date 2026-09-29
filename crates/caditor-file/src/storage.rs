@@ -14,6 +14,7 @@ use crate::{
     journal::{JournalEntry, encode_entry, encode_journal},
     lock::{holds, install, locked_elsewhere, remove_held, remove_unheld},
     paths, reason,
+    recovery::{mark_journal, unmark_journal},
     save::{self, SaveOptions, remove_orphaned_temporaries, sync_parent, temporary_sibling},
 };
 
@@ -265,7 +266,7 @@ impl Worker {
                 if let Some(journal) = self.journal.take()
                     && discard
                 {
-                    remove_held(&journal.file, &journal.path);
+                    self.remove_own(&journal);
                 }
                 let _ = done.send(());
                 (self.wake)();
@@ -431,6 +432,7 @@ impl Worker {
             );
             match written {
                 Ok(file) => {
+                    self.mark_adjacent(&candidate);
                     let previous = self.journal.replace(OpenJournal {
                         path: candidate,
                         file,
@@ -438,7 +440,7 @@ impl Worker {
                     if let Some(previous) = previous
                         && self.journal_path() != Some(previous.path.as_path())
                     {
-                        remove_held(&previous.file, &previous.path);
+                        self.remove_own(&previous);
                     }
                     if let Some(replaced) = self.replaces.take()
                         && self.journal_path() != Some(replaced.as_path())
@@ -459,12 +461,39 @@ impl Worker {
             .journal
             .take_if(|previous| !candidates.contains(&previous.path))
         {
-            remove_held(&stale.file, &stale.path);
+            self.remove_own(&stale);
         }
         self.fail(failure.map_or_else(
             || "the recovery file is in use by another caditor window".to_owned(),
             |error| reason::writing(&error),
         ));
+    }
+
+    fn remove_own(&self, journal: &OpenJournal) {
+        if !holds(&journal.file, &journal.path) {
+            return;
+        }
+        remove_held(&journal.file, &journal.path);
+        if let Some(recovery_dir) = self.recovery_dir.as_deref()
+            && !journal.path.starts_with(recovery_dir)
+        {
+            unmark_journal(&journal.path, recovery_dir);
+        }
+    }
+
+    fn mark_adjacent(&self, journal: &Path) {
+        let Some(recovery_dir) = self.recovery_dir.as_deref() else {
+            return;
+        };
+        if journal.starts_with(recovery_dir) {
+            return;
+        }
+        if let Err(error) = mark_journal(journal, recovery_dir) {
+            log::warn!(
+                "could not remember where {} is kept: {error}",
+                journal.display()
+            );
+        }
     }
 
     fn retry_due(&self) -> bool {

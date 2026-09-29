@@ -28,10 +28,6 @@ within a category run from most to least important.
 
 ## File format and storage
 
-- Adjacent journals are found only through the recent-files list, which `RecentFiles::save`
-  overwrites whole, so two windows lose each other's entries and a crashed model's journal is
-  never offered. Merge recent files like `Settings::save_changes`, and remember journal paths in
-  the state directory.
 - Version history is never pruned and every save rewrites and fsyncs all of it
   (`binary/model.rs`). Add a retention policy and write history append-only.
 - A model whose records total more than 256 MiB saves once and never again, since the previous

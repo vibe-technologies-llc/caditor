@@ -519,6 +519,32 @@ fn a_torn_or_corrupted_tail_loses_only_the_changes_after_it() {
 }
 
 #[test]
+fn a_crashed_models_journal_is_offered_even_when_no_recent_file_names_it() {
+    let dir = TempDir::new().unwrap();
+    let recovery = dir.path().join("recovery");
+    let path = dir.path().join("model.caditor");
+    let base = sample();
+    save(&base, &path, false).unwrap();
+    let start = Start {
+        file: Some(path.clone()),
+        ..untitled(&base)
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    let mut editor = Editor::new(base);
+    record_session(&storage, &mut editor);
+    crash(storage);
+
+    let recovered = scan(Some(&recovery), &[]);
+    assert_eq!(recovered.len(), 1);
+    assert_eq!(recovered[0].file.as_deref(), Some(path.as_path()));
+    assert_eq!(recovered[0].editor.document(), editor.document());
+
+    discard(&recovered[0].journal).unwrap();
+    assert!(scan(Some(&recovery), &[]).is_empty());
+    assert_eq!(files_in(&recovery), Vec::<String>::new());
+}
+
+#[test]
 fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
     let dir = TempDir::new().unwrap();
     let base = sample();
@@ -546,7 +572,9 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
             backup: None
         }
     );
-    assert_eq!(files_in(&recovery), Vec::<String>::new());
+    let markers = files_in(&recovery);
+    assert_eq!(markers.len(), 1);
+    assert!(markers[0].ends_with(".location"), "{markers:?}");
     assert_eq!(
         files_in(dir.path()),
         [".model.caditor.journal", "model.caditor", "recovery"]
@@ -558,6 +586,7 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
 
     assert!(storage.close(true).wait(WAIT));
     assert_eq!(files_in(dir.path()), ["model.caditor", "recovery"]);
+    assert_eq!(files_in(&recovery), Vec::<String>::new());
     assert!(matches!(
         journal_for(&path, Some(&recovery)),
         FileJournal::None
@@ -695,7 +724,8 @@ fn a_journal_whose_changes_reached_the_file_is_tidied_away() {
 
     save(editor.document(), &path, false).unwrap();
     assert!(scan(Some(&recovery), &[path]).is_empty());
-    assert_eq!(files_in(dir.path()), ["model.caditor"]);
+    assert_eq!(files_in(dir.path()), ["model.caditor", "recovery"]);
+    assert_eq!(files_in(&recovery), Vec::<String>::new());
 }
 
 #[test]

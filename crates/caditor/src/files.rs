@@ -14,9 +14,9 @@ use std::{
 use caditor_document::{Document, FeatureId};
 use caditor_file::{
     Closing, DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported, FILE_EXTENSION,
-    FileJournal, History, ImportError, LoadError, Loaded, ModelImport, RecentFiles, Recovered,
-    STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings, describe_set_aside, journal_for,
-    load, load_version, read_dxf, read_step_file, scan,
+    FileJournal, History, ImportError, LoadError, Loaded, ModelImport, RecentChange, RecentFiles,
+    Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings, describe_set_aside,
+    journal_for, load, load_version, read_dxf, read_step_file, scan,
 };
 use egui::{Id, Modal, RichText, Ui};
 use parking_lot::Mutex;
@@ -987,13 +987,11 @@ impl Files {
     }
 
     fn remember(&mut self, path: PathBuf) {
-        self.recent.add(path);
-        self.store_recent();
+        self.change_recent(RecentChange::Opened(path));
     }
 
     fn forget(&mut self, path: &Path) {
-        self.recent.remove(path);
-        self.store_recent();
+        self.change_recent(RecentChange::Forgotten(path.to_path_buf()));
     }
 
     pub fn settings_loaded(&mut self, settings: Settings) {
@@ -1015,13 +1013,13 @@ impl Files {
         }));
     }
 
-    fn store_recent(&mut self) {
+    fn change_recent(&mut self, change: RecentChange) {
+        self.recent.apply(&change);
         let Some(state_dir) = self.config.state_dir.clone() else {
             return;
         };
-        let recent = self.recent.clone();
         self.run_job(Box::new(move || {
-            if let Err(error) = recent.save(&state_dir) {
+            if let Err(error) = RecentFiles::save_changes(&state_dir, &[change]) {
                 log::warn!("could not remember recent files: {error}");
             }
         }));

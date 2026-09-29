@@ -40,6 +40,8 @@ The first release of caditor.
   file keeps the versions its saves replaced so they can be restored later.
 - Unsaved work is flushed to the recovery journal when caditor is stopped by logout or a signal,
   and a status bar pill says when it cannot be protected while caditor keeps retrying.
+- Unsaved work in a model that crashed is offered at the next start even when the model has
+  dropped off the recent files, and two windows no longer erase each other's recent files.
 - Unsaved changes that cannot be read, such as ones written by a newer version, are kept in a
   file of their own next to the model instead of being overwritten, and opening the model says
   where.

@@ -31,7 +31,7 @@ pub use crate::{
     journal::JournalEntry,
     load::{LoadError, Loaded, decode, history, load, load_version},
     paths::{recovery_dir, state_dir},
-    recent::{RECENT_LIMIT, RecentFiles},
+    recent::{RECENT_LIMIT, RecentChange, RecentFiles},
     recovery::{
         FileJournal, Inspection, Recovered, describe_set_aside, discard, inspect, journal_for, scan,
     },

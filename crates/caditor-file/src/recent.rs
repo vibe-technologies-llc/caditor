@@ -37,6 +37,12 @@ fn stored_path(value: &Value) -> Option<PathBuf> {
 pub const RECENT_LIMIT: usize = 10;
 const RECENT_FILE: &str = "recent-files.json";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecentChange {
+    Opened(PathBuf),
+    Forgotten(PathBuf),
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RecentFiles {
     paths: Vec<PathBuf>,
@@ -53,6 +59,21 @@ impl RecentFiles {
             recent.add(path);
         }
         recent
+    }
+
+    pub fn save_changes(state_dir: &Path, changes: &[RecentChange]) -> io::Result<()> {
+        let mut stored = Self::load(state_dir);
+        for change in changes {
+            stored.apply(change);
+        }
+        stored.save(state_dir)
+    }
+
+    pub fn apply(&mut self, change: &RecentChange) {
+        match change {
+            RecentChange::Opened(path) => self.add(path.clone()),
+            RecentChange::Forgotten(path) => self.remove(path),
+        }
     }
 
     pub fn save(&self, state_dir: &Path) -> io::Result<()> {
@@ -93,5 +114,26 @@ mod tests {
         recent.add(plain.clone());
         recent.save(dir.path()).unwrap();
         assert_eq!(RecentFiles::load(dir.path()).paths(), [plain, odd]);
+    }
+
+    #[test]
+    fn two_windows_keep_each_others_recent_files() {
+        let dir = TempDir::new().unwrap();
+        let first = PathBuf::from("/models/first.caditor");
+        let second = PathBuf::from("/models/second.caditor");
+        let old = PathBuf::from("/models/old.caditor");
+        RecentFiles::save_changes(dir.path(), &[RecentChange::Opened(old.clone())]).unwrap();
+
+        RecentFiles::save_changes(dir.path(), &[RecentChange::Opened(first.clone())]).unwrap();
+        RecentFiles::save_changes(
+            dir.path(),
+            &[
+                RecentChange::Opened(second.clone()),
+                RecentChange::Forgotten(old),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(RecentFiles::load(dir.path()).paths(), [second, first]);
     }
 }

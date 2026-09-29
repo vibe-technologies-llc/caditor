@@ -5,6 +5,7 @@ use std::{
 };
 
 pub(crate) const JOURNAL_EXTENSION: &str = "journal";
+pub(crate) const MARKER_EXTENSION: &str = "location";
 const UNREADABLE_EXTENSION: &str = "unreadable";
 const UNREADABLE_ATTEMPTS: u32 = 100;
 const APPLICATION: &str = "caditor";
@@ -40,15 +41,23 @@ pub(crate) fn adjacent_journal(file: &Path) -> Option<PathBuf> {
     Some(file.with_file_name(journal))
 }
 
-pub(crate) fn fallback_journal(file: &Path, recovery_dir: &Path) -> PathBuf {
-    let hash = file
-        .as_os_str()
+fn path_hash(path: &Path) -> u64 {
+    path.as_os_str()
         .as_encoded_bytes()
         .iter()
         .fold(FNV_OFFSET, |hash, byte| {
             (hash ^ u64::from(*byte)).wrapping_mul(FNV_PRIME)
-        });
+        })
+}
+
+pub(crate) fn fallback_journal(file: &Path, recovery_dir: &Path) -> PathBuf {
+    let hash = path_hash(file);
     recovery_dir.join(format!("file-{hash:016x}.{JOURNAL_EXTENSION}"))
+}
+
+pub(crate) fn journal_marker(journal: &Path, recovery_dir: &Path) -> PathBuf {
+    let hash = path_hash(journal);
+    recovery_dir.join(format!("adjacent-{hash:016x}.{MARKER_EXTENSION}"))
 }
 
 pub(crate) fn untitled_journal(recovery_dir: &Path) -> PathBuf {

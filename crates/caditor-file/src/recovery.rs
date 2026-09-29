@@ -1,8 +1,10 @@
 use std::{
     cmp::Reverse,
     collections::BTreeSet,
+    ffi::OsString,
     fs::{self, File},
     io,
+    os::unix::ffi::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -13,9 +15,9 @@ use crate::{
     journal::{JournalEntry, decode_journal, replay},
     load::load,
     lock::{Location, in_use, location, lock_existing},
-    paths::{self, JOURNAL_EXTENSION},
-    read::read_open,
-    save::sync_parent,
+    paths::{self, JOURNAL_EXTENSION, MARKER_EXTENSION},
+    read::{read_file, read_open},
+    save::{sync_parent, write_atomically},
 };
 
 #[derive(Debug, Clone)]
@@ -121,8 +123,10 @@ pub fn scan(recovery_dir: Option<&Path>, recent: &[PathBuf]) -> Vec<Recovered> {
     let next_to_recent = recent
         .iter()
         .filter_map(|file| paths::adjacent_journal(file));
+    let marked = recovery_dir.map(marked_journals).unwrap_or_default();
     let candidates: BTreeSet<PathBuf> = in_recovery_dir
         .chain(next_to_recent)
+        .chain(marked)
         .filter(|path| path.is_file())
         .collect();
 
@@ -130,12 +134,13 @@ pub fn scan(recovery_dir: Option<&Path>, recent: &[PathBuf]) -> Vec<Recovered> {
         .iter()
         .filter_map(|journal| match inspect(journal) {
             Ok(Inspection::Recoverable(recovered)) => Some(*recovered),
-            Ok(
-                Inspection::Removed
-                | Inspection::InUse
-                | Inspection::Damaged
-                | Inspection::SetAside(_),
-            ) => None,
+            Ok(Inspection::Removed) => {
+                if let Some(dir) = recovery_dir {
+                    unmark_journal(journal, dir);
+                }
+                None
+            }
+            Ok(Inspection::InUse | Inspection::Damaged | Inspection::SetAside(_)) => None,
             Err(error) => {
                 log::warn!("could not inspect {}: {error}", journal.display());
                 None
@@ -144,6 +149,60 @@ pub fn scan(recovery_dir: Option<&Path>, recent: &[PathBuf]) -> Vec<Recovered> {
         .collect();
     recovered.sort_by_key(|recovered| Reverse(recovered.modified));
     recovered
+}
+
+pub(crate) fn mark_journal(journal: &Path, recovery_dir: &Path) -> io::Result<()> {
+    let journal = std::path::absolute(journal)?;
+    let marker = paths::journal_marker(&journal, recovery_dir);
+    if marker.exists() {
+        return Ok(());
+    }
+    fs::create_dir_all(recovery_dir)?;
+    write_atomically(&marker, journal.as_os_str().as_bytes())
+}
+
+pub(crate) fn unmark_journal(journal: &Path, recovery_dir: &Path) {
+    let Ok(journal) = std::path::absolute(journal) else {
+        return;
+    };
+    let marker = paths::journal_marker(&journal, recovery_dir);
+    match fs::remove_file(&marker) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => log::warn!("could not remove {}: {error}", marker.display()),
+    }
+}
+
+fn marked_journals(recovery_dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(recovery_dir) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == MARKER_EXTENSION)
+        })
+        .filter_map(|marker| {
+            let journal = PathBuf::from(OsString::from_vec(read_file(&marker).ok()?));
+            let usable = journal.is_absolute()
+                && journal
+                    .extension()
+                    .is_some_and(|extension| extension == JOURNAL_EXTENSION)
+                && paths::journal_marker(&journal, recovery_dir) == marker;
+            match fs::symlink_metadata(&journal) {
+                Ok(_) if usable => Some(journal),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    if let Err(error) = fs::remove_file(&marker) {
+                        log::warn!("could not remove {}: {error}", marker.display());
+                    }
+                    None
+                }
+                Ok(_) | Err(_) => None,
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone)]
