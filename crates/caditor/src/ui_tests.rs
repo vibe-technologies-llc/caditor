@@ -3133,6 +3133,10 @@ fn a_part_can_be_modelled_from_the_keyboard_alone() {
     harness.show_new_windows();
     assert!(!harness.shows(typed_point::FIELD_LABEL));
     assert!(harness.workspace.viewport.is_drawing());
+    type_point(&mut harness, "@2000 m, 5");
+    assert!(harness.shows("Keep the point within 1000 m of the sketch's origin"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
     type_point(&mut harness, "@20 mm, 0");
     assert!(harness.shows("A rectangle needs its corners apart in both directions"));
     assert!(entities_of_kind(harness.sketch(sketch), "Line").is_empty());

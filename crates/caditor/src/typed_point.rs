@@ -1,5 +1,6 @@
 use caditor_expression::Dimension;
 use caditor_geometry::Point2;
+use caditor_sketch::MAX_LENGTH;
 use egui::{
     Align2, Area, Event, Frame, Id, Key, Order, Pos2, RichText, TextEdit,
     text::{CCursor, CCursorRange},
@@ -205,11 +206,18 @@ pub fn parse(model: &Model, text: &str, last: Option<Point2>) -> Result<Point2, 
             .map_err(|error| format!("{name}: {}", field::sentence(&error.to_string())))
     };
     let offset = Point2::new(coordinate(x, "x")?, coordinate(y, "y")?);
-    if relative {
-        Ok(last.unwrap_or(Point2::ZERO) + offset)
+    let point = if relative {
+        last.unwrap_or(Point2::ZERO) + offset
     } else {
-        Ok(offset)
+        offset
+    };
+    if point.abs().max_element() > MAX_LENGTH {
+        return Err(format!(
+            "Keep the point within {} m of the sketch's origin",
+            MAX_LENGTH / 1_000.0
+        ));
     }
+    Ok(point)
 }
 
 #[cfg(test)]

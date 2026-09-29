@@ -287,7 +287,6 @@ within a category run from most to least important.
   spline, line–line spacing and point–circle distance; Equal and Parallel take only two items.
 - Tools missing: trim, extend, offset, mirror, sketch fillet, three-point and tangent arcs, slot,
   polygon, ellipse, and polar or length input in the typed-point field.
-- Typed coordinates are not range-checked, so points far beyond `MODEL_EXTENT` enter the model.
 - Snapping has no midpoints, intersections, spline targets, grid or inference lines to other
   points.
 - Dimensions all sit at one fixed offset, so collinear chains overlap, and labels cannot be

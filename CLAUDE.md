@@ -1073,7 +1073,7 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     Enter opens what it belongs to as a double-click would. While a drawing tool is active, typing a
     digit, sign, point, `(` or `@` opens the typed-point field (`typed_point.rs`): two length
     expressions in the preferred unit, split at top-level commas, `@` for an offset from the last
-    placed point; Enter places the point through `Drawing::type_point` (landing exactly on an
+    placed point, within `MAX_LENGTH` of the sketch's origin; Enter places the point through `Drawing::type_point` (landing exactly on an
     existing point or the pending one snaps to it, like a click), an error keeps the field open with
     the reason, and Escape closes it without touching the shape.
   - Sketch editing is a context, not a mode: `editing.rs` holds which sketch is edited and the
