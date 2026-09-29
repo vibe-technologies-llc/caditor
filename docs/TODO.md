@@ -61,8 +61,6 @@ within a category run from most to least important.
   sketches diagnose slowly and a reported conflict can be wrong or not minimal.
 - The solve memo key includes the global scale (the largest coordinate or dimension), so editing
   the outermost dimension or dragging the outermost point misses the memo for every part.
-- Each tangent constraint rebuilds the coincidence union-find and scans all constraints twice
-  (`system.rs` `joint`, `points_on`), quadratic in tangents per solve.
 - `10 mm^2` means (10 mm)², since a power binds to the measure before it; stored text relies on
   that reading, so changing it needs a new spelling or a format change.
 - `BSpline::through` returns `None` on consecutive equal points (singular collocation); only

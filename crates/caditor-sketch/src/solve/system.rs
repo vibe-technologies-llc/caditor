@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    cell::OnceCell,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use caditor_geometry::{Point2, Vector2};
 
@@ -104,8 +107,9 @@ impl System {
                 system.equations.push(Equation { owner: None, form });
             }
         }
+        let joints = OnceCell::new();
         for (id, constraint) in sketch.constraints() {
-            let forms = system.forms(sketch, id, constraint, dimensions)?;
+            let forms = system.forms(sketch, &joints, id, constraint, dimensions)?;
             system
                 .equations
                 .extend(forms.into_iter().map(|form| Equation {
@@ -217,6 +221,7 @@ impl System {
     fn forms(
         &self,
         sketch: &Sketch,
+        joints: &OnceCell<Joints>,
         id: ConstraintId,
         constraint: &Constraint,
         dimensions: &DimensionValues,
@@ -258,9 +263,18 @@ impl System {
                 self.line(sketch, b)?,
             )],
             Constraint::Tangent(a, b) => match (role(a)?, role(b)?) {
-                (Role::Line, Role::Circular) => vec![self.line_tangent(sketch, a, b)?],
-                (Role::Circular, Role::Line) => vec![self.line_tangent(sketch, b, a)?],
-                (Role::Circular, Role::Circular) => vec![self.circle_tangent(sketch, a, b)?],
+                (Role::Line, Role::Circular) => {
+                    let joints = joints.get_or_init(|| Joints::of(sketch));
+                    vec![self.line_tangent(sketch, joints, a, b)?]
+                }
+                (Role::Circular, Role::Line) => {
+                    let joints = joints.get_or_init(|| Joints::of(sketch));
+                    vec![self.line_tangent(sketch, joints, b, a)?]
+                }
+                (Role::Circular, Role::Circular) => {
+                    let joints = joints.get_or_init(|| Joints::of(sketch));
+                    vec![self.circle_tangent(sketch, joints, a, b)?]
+                }
                 _ => return Err(not_applicable(a, b)),
             },
             Constraint::Equal(a, b) => match (role(a)?, role(b)?) {
@@ -339,10 +353,11 @@ impl System {
     fn line_tangent(
         &self,
         sketch: &Sketch,
+        joints: &Joints,
         line: EntityId,
         circle: EntityId,
     ) -> Result<Form, SketchError> {
-        let joint = joint(sketch, line, circle);
+        let joint = joints.joint(sketch, line, circle);
         let (line, circle) = (self.line(sketch, line)?, self.circle(sketch, circle)?);
         if let Some(point) = joint {
             let point = self.point(point)?;
@@ -361,10 +376,11 @@ impl System {
     fn circle_tangent(
         &self,
         sketch: &Sketch,
+        joints: &Joints,
         a: EntityId,
         b: EntityId,
     ) -> Result<Form, SketchError> {
-        let joint = joint(sketch, a, b);
+        let joint = joints.joint(sketch, a, b);
         let (first, second) = (self.circle(sketch, a)?, self.circle(sketch, b)?);
         if let Some(point) = joint {
             let point = self.point(point)?;
@@ -406,63 +422,64 @@ impl System {
     }
 }
 
-fn joint(sketch: &Sketch, first: EntityId, second: EntityId) -> Option<EntityId> {
-    let classes = Coincidence::of(sketch);
-    let on_second: BTreeSet<EntityId> = points_on(sketch, second)
-        .into_iter()
-        .map(|point| classes.class(point))
-        .collect();
-    points_on(sketch, first)
-        .into_iter()
-        .find(|point| on_second.contains(&classes.class(*point)))
+struct Joints {
+    parents: BTreeMap<EntityId, EntityId>,
+    on_curve: BTreeMap<EntityId, BTreeSet<EntityId>>,
 }
 
-fn points_on(sketch: &Sketch, curve: EntityId) -> BTreeSet<EntityId> {
-    let mut points: BTreeSet<EntityId> = match sketch.entity(curve) {
-        Some(Entity::Line { start, end } | Entity::Arc { start, end, .. }) => {
-            BTreeSet::from([*start, *end])
-        }
-        Some(Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. }) | None => {
-            BTreeSet::new()
-        }
-    };
-    for (_, constraint) in sketch.constraints() {
-        if let Constraint::Coincident(a, b) = *constraint {
+impl Joints {
+    fn of(sketch: &Sketch) -> Self {
+        let mut joints = Self {
+            parents: BTreeMap::new(),
+            on_curve: BTreeMap::new(),
+        };
+        for (_, constraint) in sketch.constraints() {
+            let Constraint::Coincident(a, b) = *constraint else {
+                continue;
+            };
             match (sketch.role(a), sketch.role(b)) {
-                (Some(Role::Point), _) if b == curve => {
-                    points.insert(a);
+                (Some(Role::Point), Some(Role::Point)) => {
+                    let (a, b) = (joints.class(a), joints.class(b));
+                    if a != b {
+                        joints.parents.insert(a.max(b), a.min(b));
+                    }
                 }
-                (_, Some(Role::Point)) if a == curve => {
-                    points.insert(b);
+                (Some(Role::Point), Some(_)) => {
+                    joints.on_curve.entry(b).or_default().insert(a);
+                }
+                (Some(_), Some(Role::Point)) => {
+                    joints.on_curve.entry(a).or_default().insert(b);
                 }
                 _ => {}
             }
         }
+        joints
     }
-    points
-}
 
-struct Coincidence {
-    parents: BTreeMap<EntityId, EntityId>,
-}
+    fn joint(&self, sketch: &Sketch, first: EntityId, second: EntityId) -> Option<EntityId> {
+        let on_second: BTreeSet<EntityId> = self
+            .points_on(sketch, second)
+            .into_iter()
+            .map(|point| self.class(point))
+            .collect();
+        self.points_on(sketch, first)
+            .into_iter()
+            .find(|point| on_second.contains(&self.class(*point)))
+    }
 
-impl Coincidence {
-    fn of(sketch: &Sketch) -> Self {
-        let mut classes = Self {
-            parents: BTreeMap::new(),
-        };
-        for (_, constraint) in sketch.constraints() {
-            if let Constraint::Coincident(a, b) = *constraint
-                && sketch.role(a) == Some(Role::Point)
-                && sketch.role(b) == Some(Role::Point)
-            {
-                let (a, b) = (classes.class(a), classes.class(b));
-                if a != b {
-                    classes.parents.insert(a.max(b), a.min(b));
-                }
+    fn points_on(&self, sketch: &Sketch, curve: EntityId) -> BTreeSet<EntityId> {
+        let mut points: BTreeSet<EntityId> = match sketch.entity(curve) {
+            Some(Entity::Line { start, end } | Entity::Arc { start, end, .. }) => {
+                BTreeSet::from([*start, *end])
             }
+            Some(Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. }) | None => {
+                BTreeSet::new()
+            }
+        };
+        if let Some(on_curve) = self.on_curve.get(&curve) {
+            points.extend(on_curve);
         }
-        classes
+        points
     }
 
     fn class(&self, point: EntityId) -> EntityId {
