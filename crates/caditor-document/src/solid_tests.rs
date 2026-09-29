@@ -752,7 +752,10 @@ fn a_profile_cancelled_while_it_is_built_is_built_again_later() {
 
     assert!(matches!(stopped, Err(ProfileError::Cancelled(_))));
     assert!(result.regions().is_none());
-    assert_eq!(result.profile().map(|profile| profile.regions().len()), Ok(1));
+    assert_eq!(
+        result.profile().map(|profile| profile.regions().len()),
+        Ok(1)
+    );
     result.find_regions();
     assert!(matches!(result.regions(), Some(Ok(regions)) if regions.len() == 1));
 }

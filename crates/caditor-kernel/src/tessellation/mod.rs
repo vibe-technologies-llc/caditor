@@ -19,12 +19,14 @@ use crate::{
 const MIN_CLOSED_EDGE_SEGMENTS: usize = 3;
 const MAX_REFINEMENTS: usize = 4;
 const REFINEMENT: f64 = 0.5;
+pub(crate) const MAX_POINTS: usize = 1 << 22;
+const POLL_EVERY: usize = 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TessellationError {
     #[error("the solid refers to an entity it does not contain")]
     MissingEntity,
-    #[error("the mesh has more vertices than it can index")]
+    #[error("the mesh would need more than {} points", MAX_POINTS)]
     TooLarge,
     #[error("edge {0:?} could not be sampled")]
     EdgeSampling(EdgeId),
@@ -199,12 +201,20 @@ pub(crate) fn tessellate(
     solid: &Solid,
     tolerance: &SamplingTolerance,
 ) -> Result<Mesh, TessellationError> {
+    tessellate_within(solid, tolerance, MAX_POINTS)
+}
+
+pub(crate) fn tessellate_within(
+    solid: &Solid,
+    tolerance: &SamplingTolerance,
+    limit: usize,
+) -> Result<Mesh, TessellationError> {
     let mut tolerances = Tolerances {
         base: *tolerance,
         faces: BTreeMap::new(),
     };
     for attempt in 0..=MAX_REFINEMENTS {
-        match tessellate_once(solid, &tolerances)? {
+        match tessellate_once(solid, &tolerances, limit)? {
             Attempt::Meshed(mesh) => return Ok(mesh),
             Attempt::Crossed { faces, first } => {
                 if attempt == MAX_REFINEMENTS || !tolerances.refine(&faces) {
@@ -216,7 +226,11 @@ pub(crate) fn tessellate(
     Err(TessellationError::MissingEntity)
 }
 
-fn tessellate_once(solid: &Solid, tolerances: &Tolerances) -> Result<Attempt, TessellationError> {
+fn tessellate_once(
+    solid: &Solid,
+    tolerances: &Tolerances,
+    limit: usize,
+) -> Result<Attempt, TessellationError> {
     let mut mesh = Mesh::default();
     let mut vertex_positions = Vec::new();
     for (_, vertex) in solid.vertices() {
@@ -231,6 +245,7 @@ fn tessellate_once(solid: &Solid, tolerances: &Tolerances) -> Result<Attempt, Te
     }
     let mut samplings = Vec::new();
     for (id, edge) in solid.edges() {
+        interrupt::check()?;
         let mut samples = edge
             .curve()
             .sample(edge.interval(), &tolerances.edge(solid, edge));
@@ -270,6 +285,9 @@ fn tessellate_once(solid: &Solid, tolerances: &Tolerances) -> Result<Attempt, Te
             };
             positions.push(position);
         }
+        if mesh.positions.len() > limit {
+            return Err(TessellationError::TooLarge);
+        }
         mesh.edges.push(EdgePolyline {
             edge: id,
             positions: positions.clone(),
@@ -285,7 +303,11 @@ fn tessellate_once(solid: &Solid, tolerances: &Tolerances) -> Result<Attempt, Te
     for (id, _) in solid.faces() {
         interrupt::check()?;
         let start = mesh.triangles.len();
-        match face::triangulate(solid, id, &samplings, &tolerances.face(id), &mut mesh) {
+        let budget = face::Budget {
+            limit,
+            tolerance: tolerances.face(id),
+        };
+        match face::triangulate(solid, id, &samplings, &budget, &mut mesh) {
             Ok(()) => mesh.faces.push(FaceTriangles {
                 face: id,
                 triangles: start..mesh.triangles.len(),

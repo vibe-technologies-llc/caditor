@@ -4,7 +4,10 @@ use caditor_geometry::{Point3, Vector3};
 
 use super::*;
 use crate::{
-    fixtures, interval::Interval, numeric::integrate, test_support::assert_watertight,
+    fixtures,
+    interval::Interval,
+    numeric::integrate,
+    test_support::{assert_cancelled_anywhere, assert_watertight},
     topology::Solid,
 };
 
@@ -345,7 +348,7 @@ fn only_faces_whose_boundary_crosses_itself_are_meshed_finer() {
         faces: BTreeMap::new(),
     };
     assert!(matches!(
-        tessellate_once(&both, &tolerances),
+        tessellate_once(&both, &tolerances, MAX_POINTS),
         Ok(Attempt::Crossed { .. })
     ));
     let mesh = both.tessellate(&tolerance).unwrap();
@@ -362,4 +365,35 @@ fn only_faces_whose_boundary_crosses_itself_are_meshed_finer() {
     };
     let found = counts(&mesh);
     assert!(counts(&alone).iter().all(|count| found.contains(count)));
+}
+
+#[test]
+fn tessellation_cancelled_anywhere_stops_with_cancelled() {
+    let ball = fixtures::sphere(5.0);
+    let fine = SamplingTolerance::new(1e-3, 0.05).unwrap();
+
+    let polls = assert_cancelled_anywhere(
+        "ball",
+        || ball.tessellate(&fine),
+        |error| matches!(error, TessellationError::Cancelled(_)),
+    );
+
+    assert!(polls > 10, "only {polls} polls");
+}
+
+#[test]
+fn a_mesh_needing_more_points_than_the_budget_is_refused() {
+    let ball = fixtures::sphere(5.0);
+    let fine = SamplingTolerance::new(1e-3, 0.05).unwrap();
+    let points = ball.tessellate(&fine).unwrap().positions().len();
+
+    assert!(tessellate_within(&ball, &fine, points).is_ok());
+    assert_eq!(
+        tessellate_within(&ball, &fine, points / 2),
+        Err(TessellationError::TooLarge)
+    );
+    assert_eq!(
+        tessellate_within(&ball, &fine, 10).unwrap_err().to_string(),
+        format!("the mesh would need more than {MAX_POINTS} points")
+    );
 }

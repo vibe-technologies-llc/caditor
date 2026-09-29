@@ -147,6 +147,11 @@ pub enum ExportError {
          resolution"
     )]
     Meshing(String),
+    #[error(
+        "the body of “{0}” would need more points than caditor meshes at this resolution; try a \
+         coarser resolution"
+    )]
+    TooFine(String),
     #[error("the model has more triangles than the file format can hold; try a coarser resolution")]
     TooLarge,
     #[error("the model could not be converted to the file format")]
@@ -262,6 +267,7 @@ impl<'a> MeshBody<'a> {
         match tessellated {
             Ok(Ok(mesh)) => Self::compact(body.name, &mesh).ok_or(meshing),
             Ok(Err(TessellationError::Cancelled(_))) => Err(ExportError::Cancelled),
+            Ok(Err(TessellationError::TooLarge)) => Err(ExportError::TooFine(body.name.to_owned())),
             Ok(Err(error)) => {
                 log::warn!("exporting {} failed: {error}", body.name);
                 Err(meshing)

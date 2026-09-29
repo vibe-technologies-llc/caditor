@@ -9,10 +9,11 @@ use spade::{
 use crate::{
     coordinates::distance_to_segment,
     curve::Curve,
+    interrupt::{self, Interrupted},
     sense::Sense,
     surface::Surface,
     tessellation::{
-        EdgeSampling, Mesh, MeshVertex, TessellationError,
+        EdgeSampling, Mesh, MeshVertex, POLL_EVERY, TessellationError,
         density::{Density, density},
     },
     tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
@@ -63,13 +64,19 @@ fn snap(value: f64) -> f64 {
     }
 }
 
+pub(crate) struct Budget {
+    pub limit: usize,
+    pub tolerance: SamplingTolerance,
+}
+
 pub(crate) fn triangulate(
     solid: &Solid,
     face_id: FaceId,
     samplings: &[EdgeSampling],
-    tolerance: &SamplingTolerance,
+    budget: &Budget,
     mesh: &mut Mesh,
 ) -> Result<(), TessellationError> {
+    let tolerance = &budget.tolerance;
     let face = solid
         .face(face_id)
         .ok_or(TessellationError::MissingEntity)?;
@@ -96,7 +103,14 @@ pub(crate) fn triangulate(
     for points in &loops {
         triangulation.add_loop(points)?;
     }
-    for uv in grid_points(&loops, bounds, &density, &scaled) {
+    let grid = grid_points(&loops, bounds, &density, &scaled)?;
+    if mesh.positions.len().saturating_add(grid.len()) > budget.limit {
+        return Err(TessellationError::TooLarge);
+    }
+    for (index, uv) in grid.into_iter().enumerate() {
+        if index.is_multiple_of(POLL_EVERY) {
+            interrupt::check()?;
+        }
         triangulation.add_interior(uv)?;
     }
     triangulation.emit(surface, face.sense(), mesh)
@@ -308,10 +322,10 @@ fn grid_points(
     bounds: Aabb2,
     density: &Density,
     scaled: &Scaled,
-) -> Vec<Point2> {
+) -> Result<Vec<Point2>, Interrupted> {
     let (columns, rows) = (density.u_segments, density.v_segments);
     if columns < 2 || rows < 2 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let size = bounds.size();
     let cell = Point2::new(
@@ -319,7 +333,7 @@ fn grid_points(
         size.y * scaled.v_scale / rows as f64,
     );
     if cell.x <= 0.0 || cell.y <= 0.0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let clearance = GRID_CLEARANCE * cell.x.min(cell.y);
     let segments: Vec<(Point2, Point2)> = loops
@@ -353,6 +367,7 @@ fn grid_points(
     }
     let mut points = Vec::new();
     for row in 1..rows {
+        interrupt::check()?;
         for column in 1..columns {
             let local = Point2::new(column as f64 * cell.x, row as f64 * cell.y);
             let near = (column - 1..=column)
@@ -369,7 +384,7 @@ fn grid_points(
             }
         }
     }
-    points
+    Ok(points)
 }
 
 struct FaceTriangulation {
@@ -418,7 +433,10 @@ impl FaceTriangulation {
 
     fn add_loop(&mut self, points: &[BoundaryPoint]) -> Result<(), TessellationError> {
         let mut handles = Vec::with_capacity(points.len());
-        for point in points {
+        for (index, point) in points.iter().enumerate() {
+            if index.is_multiple_of(POLL_EVERY) {
+                interrupt::check()?;
+            }
             let (handle, _) = self.insert(LocalPoint {
                 uv: point.uv,
                 position: Some(point.position),
