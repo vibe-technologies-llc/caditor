@@ -205,7 +205,8 @@ fn shell_errors_name_the_problem_and_the_fix() {
     let error = failure(&evaluation, model.shell);
     assert_eq!(
         error.reason,
-        "The walls of the body of Base would cross each other at this thickness."
+        "The wall along the edge between Base side from Line 5 and Base start face shrinks to \
+         nothing at this thickness."
     );
     assert_eq!(error.remedy, "Enter a smaller thickness.");
     assert!(evaluation.body(model.base).is_some());

@@ -248,7 +248,10 @@ fn offset_curve(
     let unsupported = || ShellError::UnsupportedEdge(edge);
     let definition = solid.edge(edge).ok_or_else(unsupported)?;
     match definition.curve() {
-        Curve::Line(_) => {
+        Curve::Line(original) => {
+            if (end - start).dot(original.direction()) <= LINEAR_RESOLUTION {
+                return Err(ShellError::EdgeCollapses(edge));
+            }
             let line = Line::through(start, end).map_err(|_| ShellError::EdgeCollapses(edge))?;
             let interval =
                 Interval::new(0.0, start.distance(end)).ok_or(ShellError::EdgeCollapses(edge))?;
@@ -259,6 +262,9 @@ fn offset_curve(
             let center = circle.center() + axis * (start - circle.center()).dot(axis);
             let radial = start - center;
             let radius = radial.length();
+            if radius <= LINEAR_RESOLUTION {
+                return Err(ShellError::EdgeCollapses(edge));
+            }
             let x_axis = radial
                 .try_normalize()
                 .ok_or(ShellError::EdgeCollapses(edge))?;

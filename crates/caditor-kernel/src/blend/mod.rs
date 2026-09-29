@@ -801,8 +801,12 @@ pub fn blend(
     }
     let references: Vec<(EdgeId, EdgeReference)> = convex
         .iter()
-        .filter_map(|edge| Some((*edge, EdgeReference::capture(solid, *edge)?)))
-        .collect();
+        .map(|edge| {
+            EdgeReference::capture(solid, *edge)
+                .map(|reference| (*edge, reference))
+                .ok_or(BlendError::MissingEdge(*edge))
+        })
+        .collect::<Result<_, _>>()?;
     let filling = propagate(solid, &topology, &concave)?
         .iter()
         .map(|edge| match analysed.get(edge) {
@@ -811,15 +815,19 @@ pub fn blend(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let filled = apply_analysed(solid, &topology, &filling, shape, feature)?;
-    if let Some(lost) = convex
-        .iter()
-        .find(|edge| !references.iter().any(|(captured, _)| captured == *edge))
-    {
-        return Err(BlendError::Lost(*lost));
-    }
+    let original = find_again(&filled, &references)?;
+    let remaining: Vec<EdgeId> = original.keys().copied().collect();
+    apply(&filled, &remaining, shape, feature)
+        .map_err(|error| error.remapped(|edge| original.get(&edge).copied()))
+}
+
+fn find_again(
+    filled: &Solid,
+    references: &[(EdgeId, EdgeReference)],
+) -> Result<BTreeMap<EdgeId, EdgeId>, BlendError> {
     let mut original = BTreeMap::new();
-    for (edge, reference) in &references {
-        let found = match reference.resolve(&filled) {
+    for (edge, reference) in references {
+        let found = match reference.resolve(filled) {
             Ok(found) => vec![found],
             Err(ReferenceError::Ambiguous(candidates)) => candidates,
             Err(ReferenceError::Missing) => return Err(BlendError::Lost(*edge)),
@@ -828,9 +836,7 @@ pub fn blend(
             original.insert(piece, *edge);
         }
     }
-    let remaining: Vec<EdgeId> = original.keys().copied().collect();
-    apply(&filled, &remaining, shape, feature)
-        .map_err(|error| error.remapped(|edge| original.get(&edge).copied()))
+    Ok(original)
 }
 
 fn apply(

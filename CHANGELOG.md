@@ -21,7 +21,8 @@ The first release of caditor.
 - Extrude and revolve sketch regions into new bodies or add to, remove from or intersect
   existing ones; fillet and chamfer edges; shell bodies with open faces; datum planes and axes.
 - Shells whose walls are thicker than a rounded edge or corner leave that rounding out of the
-  cavity, and corners where four or more faces meet become a short ridge inside it.
+  cavity, corners where four or more faces meet become a short ridge inside it, and a thickness
+  that would shrink a wall past nothing names the edge where it happens.
 - References to faces and edges survive edits to earlier sketches and features. A feature that
   fails is marked in the tree with the reason and what to do, and everything that does not
   depend on it keeps working.

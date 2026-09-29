@@ -395,10 +395,46 @@ fn a_saddle_corner_whose_walls_do_not_meet_is_named() {
 }
 
 #[test]
+fn an_edge_whose_wall_shrinks_past_nothing_is_named() {
+    let ridge = swept(
+        &polygon(&[(0.0, 0.0), (10.0, 0.0), (5.25, 4.75), (4.75, 4.75)]),
+        10.0,
+    );
+    let narrow = |edge: EdgeId| {
+        let definition = ridge.edge(edge).unwrap();
+        let middle = definition.curve().point(definition.interval().middle());
+        (middle.x - 5.0).abs() < 1e-9 && (middle.y - 4.75).abs() < 1e-9
+    };
+    match shell(&ridge, &[], 1.0, 1) {
+        Err(ShellError::EdgeCollapses(edge)) => assert!(narrow(edge), "{edge:?}"),
+        other => panic!("expected the narrow top to collapse, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_opening_missing_from_the_offset_body_is_named() {
+    let solid = cuboid(Vector3::splat(10.0));
+    let top = face_facing(&solid, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
+    let offsets = Offsets {
+        solid: &solid,
+        thickness: 1.0,
+        outward: BTreeSet::new(),
+    };
+    let unrelated = cylinder(2.0, 3.0);
+    assert!(matches!(
+        opening(&unrelated, &offsets, top, 1),
+        Err(ShellError::Opening(face)) if face == top
+    ));
+}
+
+#[test]
 fn walls_thicker_than_the_body_are_refused() {
     let solid = cuboid(Vector3::splat(10.0));
     let top = face_facing(&solid, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
-    assert_eq!(shell(&solid, &[top], 6.0, 1), Err(ShellError::Walls));
+    assert!(matches!(
+        shell(&solid, &[top], 6.0, 1),
+        Err(ShellError::EdgeCollapses(_))
+    ));
     assert_eq!(
         shell(&solid, &[top], 0.0, 1),
         Err(ShellError::InvalidThickness)

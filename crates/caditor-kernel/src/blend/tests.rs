@@ -476,6 +476,54 @@ fn every_refusal_names_what_cannot_be_blended() {
 }
 
 #[test]
+fn an_edge_the_fill_swallowed_is_named_as_lost() {
+    let block = swept(
+        Plane::XY,
+        &polygon(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]),
+        10.0,
+    );
+    let edge = edge_through(&block, (5.0, 0.0, 10.0));
+    let reference = EdgeReference::capture(&block, edge).unwrap();
+    let filled = swept(
+        Plane::XY,
+        &polygon(&[(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)]),
+        10.0,
+    );
+    assert_eq!(
+        find_again(&filled, &[(edge, reference)]),
+        Err(BlendError::Lost(edge))
+    );
+    assert_eq!(
+        find_again(
+            &block,
+            &[(edge, EdgeReference::capture(&block, edge).unwrap())]
+        )
+        .unwrap()
+        .get(&edge),
+        Some(&edge)
+    );
+}
+
+#[test]
+fn an_error_on_an_edge_the_fill_made_is_reported_after_the_fill() {
+    let chosen = EdgeId::from_index(3).unwrap();
+    let made = EdgeId::from_index(40).unwrap();
+    let original = |edge: EdgeId| if edge == made { None } else { Some(chosen) };
+    assert_eq!(
+        BlendError::TooLarge(made).remapped(original),
+        BlendError::AfterFill(Box::new(BlendError::TooLarge(made)))
+    );
+    assert_eq!(
+        BlendError::Smooth(EdgeId::from_index(7).unwrap()).remapped(original),
+        BlendError::Smooth(chosen)
+    );
+    assert_eq!(
+        BlendError::InvalidSize.remapped(original),
+        BlendError::InvalidSize
+    );
+}
+
+#[test]
 fn every_rim_of_a_perforated_plate_is_rounded_at_once() {
     let mut curves = polygon(&[(0.0, 0.0), (44.0, 0.0), (44.0, 32.0), (0.0, 32.0)]);
     for row in 0..3 {
