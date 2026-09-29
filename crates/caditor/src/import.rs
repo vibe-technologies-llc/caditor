@@ -45,7 +45,7 @@ pub fn place_drawing(
             return nothing_imported(model, &file, &reason, left_out);
         }
         Err(error) => {
-            model.set_notice(Notice::error(format!(
+            model.set_notice(Notice::failure(format!(
                 "Could not import “{file}”: {error}."
             )));
             return None;
@@ -119,7 +119,7 @@ pub fn place_bodies(
     let imported = match result {
         Ok(imported) => imported,
         Err(error) => {
-            model.set_notice(Notice::error(format!(
+            model.set_notice(Notice::failure(format!(
                 "Could not import “{file}”: {error}."
             )));
             return None;
@@ -151,7 +151,7 @@ fn nothing_imported(
     reason: &str,
     notes: Vec<String>,
 ) -> Option<ImportReport> {
-    model.set_notice(Notice::error(format!(
+    model.set_notice(Notice::failure(format!(
         "Nothing in “{file}” could be imported: {reason}."
     )));
     (!notes.is_empty()).then(|| ImportReport {

@@ -56,6 +56,7 @@ pub enum NoticeKind {
 pub struct Notice {
     pub kind: NoticeKind,
     pub text: String,
+    pub outlasts_edits: bool,
 }
 
 impl Notice {
@@ -63,6 +64,7 @@ impl Notice {
         Self {
             kind: NoticeKind::Info,
             text: text.into(),
+            outlasts_edits: false,
         }
     }
 
@@ -70,6 +72,15 @@ impl Notice {
         Self {
             kind: NoticeKind::Error,
             text: text.into(),
+            outlasts_edits: false,
+        }
+    }
+
+    pub fn failure(text: impl Into<String>) -> Self {
+        Self {
+            kind: NoticeKind::Error,
+            text: text.into(),
+            outlasts_edits: true,
         }
     }
 }
@@ -337,7 +348,7 @@ impl Model {
         };
         match changed {
             Ok(Some(entry)) => {
-                self.notice = None;
+                self.notice.take_if(|notice| !notice.outlasts_edits);
                 self.record(entry);
                 self.dirty = !self.editor.document().same_content(&self.saved);
                 self.parameters = ParameterValues::evaluate(self.editor.document());
@@ -406,7 +417,7 @@ impl Model {
             });
         } else {
             self.storage = None;
-            self.set_notice(Notice::error(
+            self.set_notice(Notice::failure(
                 "Could not save, because the background writer stopped. Try saving again.",
             ));
             self.file_events.push(FileEvent::SaveFailed);
@@ -495,7 +506,7 @@ impl Model {
                 log::error!("could not start the storage worker: {error}");
                 *self.services.panic_flush.lock() = None;
                 self.unprotected = Some("the background writer could not start".to_owned());
-                self.set_notice(Notice::error(
+                self.set_notice(Notice::failure(
                     "Unsaved changes are not protected against a crash, because the background \
                      writer could not start. Save your work often.",
                 ));
@@ -518,7 +529,7 @@ impl Model {
         log::error!("the storage worker stopped; starting a new one");
         self.storage = None;
         if self.pending_save.take().is_some() {
-            self.set_notice(Notice::error(
+            self.set_notice(Notice::failure(
                 "The save did not finish, because the background writer stopped. Try saving \
                  again.",
             ));
@@ -579,14 +590,14 @@ impl Model {
             } => {
                 self.pending_save
                     .take_if(|pending| pending.ticket == ticket);
-                self.set_notice(Notice::error(format!(
+                self.set_notice(Notice::failure(format!(
                     "Could not save “{}”: {reason}. Use Save As to choose another location.",
                     display_name(Some(&path))
                 )));
                 self.file_events.push(FileEvent::SaveFailed);
             }
             Report::JournalFailed { reason } => {
-                self.set_notice(Notice::error(format!(
+                self.set_notice(Notice::failure(format!(
                     "Unsaved changes are not protected against a crash: {reason}. caditor keeps \
                      trying; save your work to keep it safe."
                 )));

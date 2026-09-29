@@ -535,6 +535,10 @@ impl Files {
     ) {
         self.history.finish_restoring();
         if model.path() != Some(path) {
+            model.set_notice(Notice::info(format!(
+                "The earlier version of “{}” was not restored, because another model is open now.",
+                display_name(Some(path))
+            )));
             return;
         }
         let described = history::describe(state);
@@ -546,14 +550,18 @@ impl Files {
                 let transaction = model
                     .document()
                     .transaction_to(&loaded.document, "Restore earlier version");
+                let revision = model.revision();
                 model.perform(Action::Apply(transaction));
+                if model.revision() == revision {
+                    return;
+                }
                 self.history.close();
                 model.set_notice(Notice::info(format!(
                     "Restored the version {}. Undo brings back what you had.",
                     described.to_lowercase()
                 )));
             }
-            Err(error) => model.set_notice(Notice::error(format!(
+            Err(error) => model.set_notice(Notice::failure(format!(
                 "Could not restore that version: {error}."
             ))),
         }
@@ -593,7 +601,7 @@ impl Files {
 
     fn handle(&mut self, event: Event, model: &mut Model, editing: &mut SketchEditing) {
         match event {
-            Event::ScanFailed => model.set_notice(Notice::error(
+            Event::ScanFailed => model.set_notice(Notice::failure(
                 "caditor could not look for unsaved work from an earlier session. It will look \
                  again the next time it starts.",
             )),
@@ -633,7 +641,7 @@ impl Files {
                     .position(|candidate| candidate.recovered.journal == journal);
                 let candidate = index.map(|index| self.recoverable.remove(index));
                 match (error, candidate) {
-                    (Some(error), _) => model.set_notice(Notice::error(format!(
+                    (Some(error), _) => model.set_notice(Notice::failure(format!(
                         "Could not discard the recovered changes: {error}."
                     ))),
                     (None, Some(candidate)) if candidate.open_file_on_discard => {
@@ -764,14 +772,16 @@ impl Files {
             OpenOutcome::AlreadyOpen => {
                 model.set_notice(Notice::info(format!("“{name}” is already open.")));
             }
-            OpenOutcome::InUse => model.set_notice(Notice::error(format!(
+            OpenOutcome::InUse => model.set_notice(Notice::failure(format!(
                 "“{name}” is already open in another caditor window."
             ))),
             OpenOutcome::Failed { error, missing } => {
                 if missing {
                     self.forget(&path);
                 }
-                model.set_notice(Notice::error(format!("Could not open “{name}”: {error}.")));
+                model.set_notice(Notice::failure(format!(
+                    "Could not open “{name}”: {error}."
+                )));
             }
         }
     }
@@ -807,7 +817,7 @@ impl Files {
                 Ok(document) => model.replace(document, None, false),
                 Err(error) => {
                     log::error!("could not build a sample: {error:#}");
-                    model.perform(Action::Inform(Notice::error(format!(
+                    model.perform(Action::Inform(Notice::failure(format!(
                         "The {} sample could not be opened. Your model was not changed.",
                         sample.title()
                     ))));
@@ -955,7 +965,7 @@ impl Files {
             ),
         };
         self.after_save = None;
-        model.set_notice(Notice::error(refusal));
+        model.set_notice(Notice::failure(refusal));
     }
 
     fn finish_open(&mut self, opened: Opened, model: &mut Model) {

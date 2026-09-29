@@ -250,9 +250,6 @@ within a category run from most to least important.
   reacts to a session change (`viewport.rs`), so Extrude can pick a sketch the user never
   selected and Delete can hit a stale row. Export exclusions (`Exporter.left_out`) carry over
   the same way.
-- Restoring a version always reports success, overwriting an error notice from the apply, and a
-  result for another path is dropped without a word (`files.rs`).
-- Every successful edit clears the notice (`model.rs`), including save and import failures.
 - Fillet creation drops selected edges that can no longer be found and fillets the rest, while
   Shell refuses when any face is missing.
 - Zero-size lines, rectangles, circles and arcs are refused silently, including from the

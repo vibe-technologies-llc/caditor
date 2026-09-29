@@ -866,8 +866,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     Plane and Axis as `ToolButton`s that wrap. While a sketch is edited a tinted sketch ribbon
     shows its name and state pill, the drawing tools, the constraints in a grid that wraps, Delete
     and Finish sketch. The status bar shows recompute progress (or Up to date, or a failed pill
-    that focuses the first failed feature), saving, importing and exporting, the current notice,
-    the selection, the length unit (opening Preferences) and the interface size when it is not
+    that focuses the first failed feature), saving, importing and exporting, the current notice
+    (an edit clears info and refused-edit notices, never a `Notice::failure` from saving, opening,
+    importing, exporting or the journal), the selection, the length unit (opening Preferences) and the interface size when it is not
     100%. The side panel has collapsible Features and Parameters sections; a feature row is its
     kind icon, name, state icon, edit and more buttons, highlighted with an accent bar while
     open, with failures and outdated states as callouts under it and its properties in a card.
@@ -993,7 +994,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     versions from the file on the files worker and lists them newest first as "Saved 2 hours ago
     after “Edit width”", marking damaged ones. Restore loads that version in the background and
     applies `Document::transaction_to` (remove every feature and parameter, then insert the
-    version's, keeping ID counters) as one "Restore earlier version" change, so Undo brings back
+    version's, keeping ID counters) as one "Restore earlier version" change (a refused one keeps
+    its error, and one that arrives after another model was opened says it was not restored), so Undo brings back
     what was there and the next save keeps the replaced state as a version too.
   - Preferences (`preferences.rs`, `units.rs`): File › Preferences… (Ctrl+,) sets the length unit
     (millimetres, centimetres or metres; SI only, see `.claude/rules/ux.md`), the `Appearance`

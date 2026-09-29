@@ -1096,6 +1096,12 @@ fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
         })
     });
     assert_eq!(harness.document().features().len(), features + 1);
+
+    harness.edit_width("41 mm");
+    assert_eq!(
+        harness.model.notice().map(|notice| notice.text.as_str()),
+        Some("Could not import “photo.dxf”: it is not a DXF drawing.")
+    );
 }
 
 #[test]

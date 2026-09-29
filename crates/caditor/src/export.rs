@@ -167,7 +167,7 @@ impl Exporter {
                 })
             }
             Err(ExportError::Cancelled) => Notice::info("The export was cancelled."),
-            Err(error) => Notice::error(format!("Could not export “{name}”: {error}.")),
+            Err(error) => Notice::failure(format!("Could not export “{name}”: {error}.")),
         }
     }
 
