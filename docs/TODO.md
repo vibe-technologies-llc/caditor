@@ -27,9 +27,9 @@ within a category run from most to least important.
 
 ## Kernel correctness
 
-- Shell fails on convex faces with a radius below the thickness and at vertices of four or more
-  faces whose offsets do not meet (both now reported as such). Drop collapsed faces, and split
-  such vertices into edges.
+- Shell cannot drop collapsing cones or faces whose edges run neither around nor along their
+  axis, and cannot split a vertex whose edges are partly convex and partly concave (both
+  reported).
 - Untested blend and shell refusals that need contrived geometry: `BlendError::Lost` and
   `AfterFill`, and `ShellError::TooThick`, `EdgeCollapses` and `Opening`.
 

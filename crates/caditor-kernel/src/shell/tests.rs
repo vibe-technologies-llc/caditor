@@ -221,6 +221,179 @@ fn opened_faces_move_outward_so_the_body_only_needs_room_across_its_walls() {
     );
 }
 
+fn convex_volume(planes: &[(Vector3, f64)]) -> f64 {
+    let mut corners: Vec<Point3> = Vec::new();
+    for (i, a) in planes.iter().enumerate() {
+        for (j, b) in planes.iter().enumerate().skip(i + 1) {
+            for c in planes.iter().skip(j + 1) {
+                let determinant = a.0.dot(b.0.cross(c.0));
+                if determinant.abs() < 1e-12 {
+                    continue;
+                }
+                let point = (b.0.cross(c.0) * a.1 + c.0.cross(a.0) * b.1 + a.0.cross(b.0) * c.1)
+                    / determinant;
+                let inside = planes
+                    .iter()
+                    .all(|(normal, offset)| normal.dot(point) <= offset + 1e-9);
+                if inside && corners.iter().all(|other| other.distance(point) > 1e-9) {
+                    corners.push(point);
+                }
+            }
+        }
+    }
+    let centre =
+        corners.iter().fold(Point3::ZERO, |sum, point| sum + *point) / corners.len() as f64;
+    planes
+        .iter()
+        .map(|(normal, offset)| {
+            let mut on: Vec<Point3> = corners
+                .iter()
+                .copied()
+                .filter(|point| (normal.dot(*point) - offset).abs() < 1e-9)
+                .collect();
+            if on.len() < 3 {
+                return 0.0;
+            }
+            let middle = on.iter().fold(Point3::ZERO, |sum, point| sum + *point) / on.len() as f64;
+            let u = (on[0] - middle).normalize();
+            let v = normal.cross(u);
+            on.sort_by(|a, b| {
+                let angle = |p: &Point3| (*p - middle).dot(v).atan2((*p - middle).dot(u));
+                angle(a).total_cmp(&angle(b))
+            });
+            let area: Vector3 = (0..on.len())
+                .map(|index| (on[index] - middle).cross(on[(index + 1) % on.len()] - middle) / 2.0)
+                .sum();
+            area.length() * (offset - normal.dot(centre)) / 3.0
+        })
+        .sum()
+}
+
+#[test]
+fn a_corner_of_four_faces_whose_walls_do_not_meet_becomes_an_edge() {
+    let mut fixture = crate::fixtures::Fixture::new();
+    let base = [(0.0, 0.0), (0.0, 10.0), (10.0, 10.0), (10.0, 0.0)]
+        .map(|(x, y)| fixture.vertex(Point3::new(x, y, 0.0)));
+    let apex = fixture.vertex(Point3::new(2.0, 3.0, 6.0));
+    fixture.polygon(&base, &[]);
+    for index in 0..4 {
+        fixture.polygon(&[base[(index + 1) % 4], base[index], apex], &[]);
+    }
+    let pyramid = fixture.build();
+    let floor = face_facing(&pyramid, Vector3::NEG_Z, Point3::ZERO);
+    let sides: Vec<(Vector3, f64)> = pyramid
+        .faces()
+        .filter(|(id, _)| *id != floor)
+        .map(|(_, face)| {
+            let Surface::Plane(plane) = face.surface() else {
+                panic!("the pyramid is flat")
+            };
+            let normal = plane.frame().normal() * face.sense().sign();
+            (normal, normal.dot(plane.frame().origin()))
+        })
+        .collect();
+    let thickness = 0.5;
+    let mut cavity: Vec<(Vector3, f64)> = sides
+        .iter()
+        .map(|(normal, offset)| (*normal, offset - thickness))
+        .collect();
+    cavity.push((Vector3::NEG_Z, 0.0));
+    let mut outer = sides.clone();
+    outer.push((Vector3::NEG_Z, 0.0));
+    let result = run(&pyramid, &[floor], thickness);
+    check(
+        "pyramid",
+        &result,
+        convex_volume(&outer) - convex_volume(&cavity),
+    );
+    let apex_point = Point3::new(2.0, 3.0, 6.0);
+    let ridge = result
+        .edges()
+        .filter(|(_, edge)| {
+            let middle = edge.curve().point(edge.interval().middle());
+            middle.distance(apex_point) < 1.0 && middle.distance(apex_point) > 0.1
+        })
+        .count();
+    assert_eq!(ridge, 1, "the cavity's apex is a short ridge");
+}
+
+#[test]
+fn fillets_tighter_than_the_thickness_disappear_from_the_cavity() {
+    let solid = cuboid(Vector3::splat(10.0));
+    let every: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
+    let rounded = blend(&solid, &every, BlendShape::Fillet { radius: 1.0 }, 5).unwrap();
+    let top = face_facing(&rounded, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
+    let flat: f64 = 8.0;
+    let rounded_volume = flat.powi(3) + 6.0 * flat * flat + 3.0 * PI * flat + 4.0 / 3.0 * PI;
+    let result = run(&rounded, &[top], 2.0);
+    check("rounded box", &result, rounded_volume - 6.0 * 6.0 * 8.0);
+    let cavity_faces = result
+        .faces()
+        .filter(|(_, face)| face.origin() == Some(FaceOrigin::Shell { feature: 70 }))
+        .count();
+    assert_eq!(cavity_faces, 5, "the cavity is a plain box open at the top");
+
+    let drum = cylinder(5.0, 10.0);
+    let rim = drum
+        .edges()
+        .find(|(_, edge)| edge.curve().point(0.0).z > 5.0)
+        .map(|(id, _)| id)
+        .unwrap();
+    let rounded_drum = blend(&drum, &[rim], BlendShape::Fillet { radius: 1.0 }, 5).unwrap();
+    let bottom = face_facing(&rounded_drum, Vector3::NEG_Z, Point3::ZERO);
+    let ring = 2.0 * PI * (25.0 / 6.0 - PI);
+    check(
+        "rounded drum",
+        &run(&rounded_drum, &[bottom], 2.0),
+        250.0 * PI - ring - 9.0 * PI * 8.0,
+    );
+}
+
+#[test]
+fn a_saddle_corner_whose_walls_do_not_meet_is_named() {
+    let l_shape = swept(
+        &polygon(&[
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 4.0),
+            (4.0, 4.0),
+            (4.0, 10.0),
+            (0.0, 10.0),
+        ]),
+        10.0,
+    );
+    let gable_regions = Profile::new(&polygon(&[
+        (-1.0, -1.0),
+        (11.0, -1.0),
+        (11.0, 5.0),
+        (4.0, 8.0),
+        (-1.0, 5.0),
+    ]))
+    .unwrap()
+    .select(&Selection::EvenDepth)
+    .unwrap();
+    let gable = extrude(
+        &Plane::YZ,
+        &gable_regions,
+        LinearExtent::one_side(12.0).unwrap(),
+        2,
+    )
+    .unwrap()
+    .transformed(&RigidTransform::translation(Vector3::new(-1.0, 0.0, 0.0)).unwrap())
+    .unwrap();
+    let roofed = boolean(&l_shape, &gable, BooleanOperation::Intersection).unwrap();
+    let saddle = roofed
+        .vertices()
+        .find(|(_, vertex)| vertex.point().distance(Point3::new(4.0, 4.0, 8.0)) < 1e-9)
+        .map(|(id, _)| id)
+        .expect("the ridge meets the inside corner");
+    let floor = face_facing(&roofed, Vector3::NEG_Z, Point3::ZERO);
+    assert_eq!(
+        shell(&roofed, &[floor], 0.5, 1),
+        Err(ShellError::Corner(saddle))
+    );
+}
+
 #[test]
 fn walls_thicker_than_the_body_are_refused() {
     let solid = cuboid(Vector3::splat(10.0));
@@ -289,21 +462,6 @@ fn every_refusal_names_what_cannot_be_shelled() {
     assert_eq!(
         shell(&bulged, &[bottom], 1.0, 1),
         Err(ShellError::UnsupportedFace(spline))
-    );
-
-    let mut fixture = crate::fixtures::Fixture::new();
-    let base = [(0.0, 0.0), (0.0, 10.0), (10.0, 10.0), (10.0, 0.0)]
-        .map(|(x, y)| fixture.vertex(Point3::new(x, y, 0.0)));
-    let apex = fixture.vertex(Point3::new(2.0, 3.0, 6.0));
-    fixture.polygon(&base, &[]);
-    for index in 0..4 {
-        fixture.polygon(&[base[(index + 1) % 4], base[index], apex], &[]);
-    }
-    let pyramid = fixture.build();
-    let floor = face_facing(&pyramid, Vector3::NEG_Z, Point3::ZERO);
-    assert_eq!(
-        shell(&pyramid, &[floor], 0.5, 1),
-        Err(ShellError::Corner(apex))
     );
 
     let regions = Profile::new(&polygon(&[

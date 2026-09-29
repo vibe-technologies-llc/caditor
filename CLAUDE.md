@@ -475,16 +475,22 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     mitre. Faces are named `FaceName::blend(feature, edge)` and `corner(feature, vertex)` with
     `FaceOrigin::Fillet` or `Chamfer`.
   - Shell (`shell/`): `shell(solid, open, thickness, feature)` offsets every face by the thickness
-    with the topology kept (each vertex solved by minimal-norm Newton on the offset surfaces, each
-    line or circle edge rebuilt through its offset ends and checked on both offset surfaces) and
-    subtracts the result. Only flat faces open. An opened face with no smooth edge to a closed face
+    (`inner.rs`: each vertex solved by minimal-norm Newton on the offset surfaces, each line or
+    circle edge rebuilt through its offset ends and checked on both offset surfaces) and subtracts
+    the result. The topology is kept except where the offset changes it: a cylinder, sphere or
+    torus curving more tightly than the thickness collapses and is dropped (edges around its axis,
+    centre or spine vanish and merge their vertices, whose position is solved on every surviving
+    face around them, and the two edges along it become one between the faces on either side), and
+    a vertex of four to eight faces whose offsets do not meet, all its edges convex or all concave,
+    is split along the triangulation of its cycle of faces whose corners lie inside (or outside)
+    every other offset, each diagonal a line between its two faces. Only flat faces open. An opened face with no smooth edge to a closed face
     is offset outward, so the inner solid passes through it and the body needs room only across its
     walls; this attempt counts only when every closed face's inner face survives the subtraction.
     Otherwise (or when it fails) every face is offset inward and a prism swept outward from the
     offset copy of each opened face is unioned before subtracting, which needs the thickness below
     half the body in every direction. Inner faces are `FaceName::shell(feature, original)` with
     `FaceOrigin::Shell`. Failures are told apart: a face curving more tightly than the thickness
-    (`TooCurved`), a corner whose walls cannot meet (`Corner`), an edge whose wall shrinks to
+    that cannot be dropped (`TooCurved`), a corner whose walls cannot meet (`Corner`), an edge whose wall shrinks to
     nothing, an opening that cannot be cut, walls that cross (`Walls`) and a thickness too large for
     the body.
 - **caditor-document**: the parametric model: parameters, the ordered feature tree and
