@@ -15,6 +15,7 @@ use crate::{
     naming::{FaceName, FaceOrigin},
     profile::{Profile, ProfileCurve, Selection},
     surface::{Cone, Cylinder, PlaneSurface, Sphere, Surface, Torus},
+    tessellation::TessellationError,
     tolerance::LINEAR_RESOLUTION,
     topology::{EdgeId, FaceId, Solid, VertexId},
 };
@@ -46,6 +47,8 @@ pub enum ShellError {
     Opening(FaceId),
     #[error("the offset walls do not form a valid solid")]
     Walls,
+    #[error("the body could not be meshed to tell its voids apart: {0}")]
+    Voids(TessellationError),
     #[error(transparent)]
     Boolean(BooleanError),
     #[error(transparent)]
@@ -172,6 +175,32 @@ fn planar_curves(solid: &Solid, face: FaceId, plane: &Plane) -> Option<Vec<Profi
     Some(curves)
 }
 
+fn opening_behind(offsets: &Offsets<'_>, open: FaceId, feature: u64) -> Result<Solid, ShellError> {
+    let definition = offsets
+        .solid
+        .face(open)
+        .ok_or(ShellError::MissingFace(open))?;
+    let Surface::Plane(surface) = definition.surface() else {
+        return Err(ShellError::UnsupportedFace(open));
+    };
+    let into_material = if definition.sense().is_same() {
+        surface.frame().flipped()
+    } else {
+        *surface.frame()
+    };
+    let curves = planar_curves(offsets.solid, open, &into_material)
+        .ok_or(ShellError::UnsupportedFace(open))?;
+    let regions = Profile::new(&curves)
+        .and_then(|profile| profile.select(&Selection::EvenDepth))
+        .map_err(|_| ShellError::Opening(open))?;
+    let extent =
+        LinearExtent::one_side(offsets.thickness).map_err(|_| ShellError::Opening(open))?;
+    let prism = extrude(&into_material, &regions, extent, feature)
+        .map_err(|_| ShellError::Opening(open))?;
+    let offset_name = FaceName::shell(feature, definition.name());
+    Ok(prism.renamed(|_, _| (offset_name, Some(FaceOrigin::Shell { feature }))))
+}
+
 fn opening(
     inner: &Solid,
     offsets: &Offsets<'_>,
@@ -241,9 +270,9 @@ fn meets_smoothly(solid: &Solid, edge: EdgeId, faces: &[FaceId]) -> bool {
     }
 }
 
-fn extendable(solid: &Solid, open: &[FaceId]) -> BTreeSet<FaceId> {
+fn extendable(solid: &Solid, open: &[FaceId], voids: &BTreeSet<FaceId>) -> BTreeSet<FaceId> {
     let opened: BTreeSet<FaceId> = open.iter().copied().collect();
-    let mut blocked = BTreeSet::new();
+    let mut blocked = voids.clone();
     for (edge, _) in solid.edges() {
         let faces = edge_faces(solid, edge);
         let closed_neighbour = faces.iter().any(|face| !opened.contains(face));
@@ -252,6 +281,25 @@ fn extendable(solid: &Solid, open: &[FaceId]) -> BTreeSet<FaceId> {
         }
     }
     opened.difference(&blocked).copied().collect()
+}
+
+fn void_faces(solid: &Solid, open: &[FaceId]) -> Result<BTreeSet<FaceId>, ShellError> {
+    let voids = match solid.void_shells() {
+        Ok(voids) => voids,
+        Err(TessellationError::Cancelled(interrupted)) => {
+            return Err(ShellError::Cancelled(interrupted));
+        }
+        Err(error) => return Err(ShellError::Voids(error)),
+    };
+    Ok(open
+        .iter()
+        .filter(|face| {
+            solid
+                .face(**face)
+                .is_some_and(|definition| voids.contains(&definition.shell()))
+        })
+        .copied()
+        .collect())
 }
 
 fn keeps_every_wall(offsets: &Offsets<'_>, open: &[FaceId], result: &Solid, feature: u64) -> bool {
@@ -263,10 +311,19 @@ fn keeps_every_wall(offsets: &Offsets<'_>, open: &[FaceId], result: &Solid, feat
         .all(|(_, face)| present.contains(&FaceName::shell(feature, face.name())))
 }
 
-fn hollow(offsets: &Offsets<'_>, open: &[FaceId], feature: u64) -> Result<Solid, ShellError> {
+fn hollow(
+    offsets: &Offsets<'_>,
+    open: &[FaceId],
+    voids: &BTreeSet<FaceId>,
+    feature: u64,
+) -> Result<Solid, ShellError> {
     let mut inner = inner::inner_solid(offsets, feature)?;
     for face in open.iter().filter(|face| !offsets.outward.contains(face)) {
-        let prism = opening(&inner, offsets, *face, feature)?;
+        let prism = if voids.contains(face) {
+            opening_behind(offsets, *face, feature)?
+        } else {
+            opening(&inner, offsets, *face, feature)?
+        };
         inner = boolean(&inner, &prism, BooleanOperation::Union)?;
     }
     Ok(boolean(
@@ -303,25 +360,26 @@ fn hollow_out(
             return Err(ShellError::UnsupportedFace(*face));
         }
     }
-    let outward = extendable(solid, open);
+    let voids = void_faces(solid, open)?;
+    let outward = extendable(solid, open, &voids);
     let inward = Offsets {
         solid,
         thickness,
         outward: BTreeSet::new(),
     };
     if outward.is_empty() {
-        return hollow(&inward, open, feature);
+        return hollow(&inward, open, &voids, feature);
     }
     let extended = Offsets {
         solid,
         thickness,
         outward,
     };
-    let first = match hollow(&extended, open, feature) {
+    let first = match hollow(&extended, open, &voids, feature) {
         Ok(result) if keeps_every_wall(&extended, open, &result, feature) => return Ok(result),
         Ok(_) => ShellError::TooThick,
         Err(error @ ShellError::Cancelled(_)) => return Err(error),
         Err(error) => error,
     };
-    hollow(&inward, open, feature).map_err(|_| first)
+    hollow(&inward, open, &voids, feature).map_err(|_| first)
 }

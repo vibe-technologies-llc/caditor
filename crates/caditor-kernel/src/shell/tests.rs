@@ -609,6 +609,32 @@ fn a_body_with_a_void_keeps_a_wall_around_it() {
 }
 
 #[test]
+fn opening_a_face_of_a_void_keeps_the_walls_beside_it_down_to_the_cavity() {
+    let hollow = hollow_cuboid(10.0, 4.0);
+    let outer_walls = 1000.0 - 8.0 * 8.0 * 8.0;
+    let around_void = 6.0 * 6.0 * 6.0 - 4.0 * 4.0 * 4.0;
+    let behind_floor = 4.0 * 4.0 * 1.0;
+
+    let floor = face_facing(&hollow, Vector3::Z, Point3::new(5.0, 5.0, 3.0));
+    let open = run(&hollow, &[floor], 1.0);
+    check(
+        "void open below",
+        &open,
+        outer_walls + around_void - behind_floor,
+    );
+    assert_eq!(open.shells().count(), 3);
+
+    let top = face_facing(&hollow, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
+    let both = run(&hollow, &[top, floor], 1.0);
+    check(
+        "void and top open",
+        &both,
+        outer_walls - 8.0 * 8.0 + around_void - behind_floor,
+    );
+    assert_eq!(both.shells().count(), 2);
+}
+
+#[test]
 fn a_shell_cancelled_anywhere_stops_with_cancelled() {
     let cup = cylinder(5.0, 10.0);
     let top = face_facing(&cup, Vector3::Z, Point3::new(0.0, 0.0, 10.0));

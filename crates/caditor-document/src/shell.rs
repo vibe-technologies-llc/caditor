@@ -189,6 +189,19 @@ impl Context<'_> {
                 ),
                 "Enter a smaller thickness.".to_owned(),
             ),
+            ShellError::Voids(_) => {
+                log::warn!("{} could not be built: {error}", self.feature.name);
+                self.error(
+                    format!(
+                        "The body of {} could not be divided into its outside and its hollows, \
+                         so it cannot be shelled.",
+                        self.body_name
+                    ),
+                    "Change the feature that made the body slightly, or shell it before that \
+                     feature."
+                        .to_owned(),
+                )
+            }
             ShellError::Boolean(_) => {
                 log::warn!("{} could not be built: {error}", self.feature.name);
                 self.error(

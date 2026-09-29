@@ -533,7 +533,10 @@ fn volumes(solid: &Solid) -> Checked<()> {
     result
 }
 
-fn volumes_at(solid: &Solid, tolerance: &SamplingTolerance) -> Checked<()> {
+fn shell_triangles(
+    solid: &Solid,
+    tolerance: &SamplingTolerance,
+) -> Result<BTreeMap<ShellId, Vec<[Point3; 3]>>, TessellationError> {
     let mesh = solid.tessellate(tolerance)?;
     let mut by_shell: BTreeMap<ShellId, Vec<[Point3; 3]>> = BTreeMap::new();
     for face in mesh.faces() {
@@ -551,6 +554,24 @@ fn volumes_at(solid: &Solid, tolerance: &SamplingTolerance) -> Checked<()> {
                 .filter_map(|triangle| mesh.corner_points(*triangle)),
         );
     }
+    Ok(by_shell)
+}
+
+impl Solid {
+    pub(crate) fn void_shells(&self) -> Result<BTreeSet<ShellId>, TessellationError> {
+        let extent = self.outline_box().map_or(1.0, |bounds| bounds.diagonal());
+        let coarseness = VALIDATION_COARSENESS.first().copied().unwrap_or(1.0);
+        let by_shell = shell_triangles(self, &SamplingTolerance::for_extent(extent * coarseness))?;
+        Ok(by_shell
+            .into_iter()
+            .filter(|(_, triangles)| MassProperties::of(triangles).volume < 0.0)
+            .map(|(shell, _)| shell)
+            .collect())
+    }
+}
+
+fn volumes_at(solid: &Solid, tolerance: &SamplingTolerance) -> Checked<()> {
+    let by_shell = shell_triangles(solid, tolerance)?;
     let triangles_of = |shell: ShellId| by_shell.get(&shell).map_or(&[][..], Vec::as_slice);
     let mut outward = Vec::new();
     let mut inward = Vec::new();
