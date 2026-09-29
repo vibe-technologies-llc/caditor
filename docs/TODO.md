@@ -116,8 +116,6 @@ within a category run from most to least important.
   keeps the old name in the message.
 - Solid results count as unchanged only when they are the same `Arc`, so any edit to a solid
   feature reruns every downstream boolean, blend and shell even when the shape is identical.
-- The cache compares sketch definitions with derived equality, which includes the ID counter and
-  use counts, so an add-then-undo re-solves the sketch; use `Sketch::same_content`.
 - Edits do not check that a revolve's `RevolveAxis::Sketch` line exists in its sketch, so
   `SetFeatureKind` can point the revolve at another sketch with a dangling axis, and the "axis
   cannot be deleted" guarantee does not hold for the new sketch.

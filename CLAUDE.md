@@ -596,8 +596,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `features()`, so dependents, moves and deletions account for them.
   - Recompute: `ParameterValues` evaluates parameters in dependency order and reports cycles rather
     than following them. `Recompute` walks the features in tree order and reuses a cached result
-    when the feature's content (an `Arc`, compared by pointer first, then its ID and kind but not
-    its name), the values of the parameters it uses and its upstream results are unchanged; a failed
+    when the feature's content (an `Arc`, compared by pointer first, then its ID and kind by
+    `same_content`, so a sketch's ID counter does not count, but not its name), the values of the parameters it uses and its upstream results are unchanged; a failed
     result is also recomputed when the names in its message changed. Upstream results count as
     unchanged when they are the same `Arc` or, for sketches, have the same plane and entities
     (datums: the same result), so an edit that leaves geometry alone (a satisfied constraint, a

@@ -344,7 +344,8 @@ impl CacheEntry {
         upstream: &[(FeatureId, Option<Arc<FeatureResult>>)],
     ) -> bool {
         let same_definition = Arc::ptr_eq(&self.definition, definition)
-            || (self.definition.id() == definition.id() && self.definition.kind == definition.kind);
+            || (self.definition.id() == definition.id()
+                && self.definition.kind.same_content(&definition.kind));
         let same_message = match self.state {
             FeatureState::Failed(_) => self.names == *names,
             FeatureState::UpToDate | FeatureState::Outdated => true,

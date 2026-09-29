@@ -437,6 +437,37 @@ mod tests {
     }
 
     #[test]
+    fn a_sketch_point_added_and_undone_before_recompute_reuses_the_result() {
+        let (document, ids) = sample();
+        let mut editor = Editor::new(document);
+        let mut engine = Recompute::default();
+
+        recompute(&mut engine, editor.document());
+        let point = caditor_sketch::EntityId::from_raw(
+            editor
+                .document()
+                .feature(ids.base)
+                .and_then(|feature| feature.kind.sketch())
+                .unwrap()
+                .next_id(),
+        );
+        editor
+            .apply(Transaction::single(
+                "Add point",
+                Edit::AddSketchEntity {
+                    feature: ids.base,
+                    id: point,
+                    entity: Entity::Point(Point2::ZERO),
+                },
+            ))
+            .unwrap();
+        editor.undo().unwrap();
+        let undone = recompute(&mut engine, editor.document());
+
+        assert!(undone.recomputed().is_empty());
+    }
+
+    #[test]
     fn check_reports_the_error_without_changing_the_document() {
         let (document, ids) = sample();
         let transaction =
