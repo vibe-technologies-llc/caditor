@@ -1080,7 +1080,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     change adding an import feature per body. The outcome is a notice with the curve or body
     count; the file's notes (units, left-out objects, fitted curves, repaired edges) are shown in
     the same report dialog as a damaged file's problems, also when nothing could be imported. A result that arrives after another
-    document was opened is dropped.
+    document was opened is dropped. Files dropped on the window (`WindowEvent::DroppedFile`,
+    gathered per frame into `FileCommand::Drop`) open when they are a single `.caditor` model,
+    and are otherwise queued as imports into what was being edited when they were dropped, each
+    starting once the previous one has finished and its report was closed; a mix of models and
+    other files, several models, or a drop while an import runs or a dialog is open is refused
+    with a notice.
   - Version history (`history.rs`): File › Version History… (for a saved model) reads the
     versions from the file on the files worker and lists them newest first as "Saved 2 hours ago
     (29 Sep 2026 at 14:03) after “Edit width”", the date in the system's time zone through `jiff`,

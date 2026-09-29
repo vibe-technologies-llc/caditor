@@ -71,6 +71,8 @@ The first release of caditor.
   the reason instead of hanging or closing caditor.
 - Import of DXF drawings into sketches and of STEP models as bodies; export of bodies as STEP,
   STL and 3MF.
+- Dropping a model on the window opens it, and dropping drawings or STEP files imports them one
+  after another (under X11).
 - Drawings whose blocks repeat heavy splines are refused with the reason before they exhaust
   memory, and a large array of a block that draws nothing, such as labels, no longer refuses the
   drawing.

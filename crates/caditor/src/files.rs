@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     ffi::OsString,
     fs,
     panic::{self, AssertUnwindSafe},
@@ -74,7 +75,13 @@ pub enum FileCommand {
     QuitAnyway,
     Export(ExportCommand),
     History(HistoryCommand),
-    Import { into: Option<FeatureId> },
+    Import {
+        into: Option<FeatureId>,
+    },
+    Drop {
+        paths: Vec<PathBuf>,
+        into: Option<FeatureId>,
+    },
     OpenSample(Sample),
 }
 
@@ -290,6 +297,12 @@ struct Importing {
     into: Option<FeatureId>,
 }
 
+struct Queued {
+    path: PathBuf,
+    into: Option<FeatureId>,
+    session: u64,
+}
+
 type Job = Box<dyn FnOnce() + Send>;
 
 pub struct Files {
@@ -308,6 +321,7 @@ pub struct Files {
     report: Option<Report>,
     opening: Option<PathBuf>,
     importing: Option<Importing>,
+    queued_imports: VecDeque<Queued>,
     exporter: Exporter,
     history: VersionHistory,
     picking: bool,
@@ -336,6 +350,7 @@ impl Files {
             report: None,
             opening: None,
             importing: None,
+            queued_imports: VecDeque::new(),
             exporter: Exporter::default(),
             history: VersionHistory::default(),
             picking: false,
@@ -475,6 +490,51 @@ impl Files {
                 self.importing = Some(Importing { path: None, into });
                 self.pick(Purpose::Import, model);
             }
+            FileCommand::Drop { paths, into } => self.dropped(paths, into, model),
+        }
+    }
+
+    fn dropped(&mut self, paths: Vec<PathBuf>, into: Option<FeatureId>, model: &mut Model) {
+        if self.is_blocking() {
+            model.set_notice(Notice::info(
+                "Finish with the open dialog before dropping files on caditor.",
+            ));
+            return;
+        }
+        let models = paths.iter().filter(|path| is_model_file(path)).count();
+        match (models, paths.as_slice()) {
+            (0, _) if self.importing.is_some() || !self.queued_imports.is_empty() => {
+                model.set_notice(Notice::info(
+                    "An import is already running. Drop the files again once it has finished.",
+                ));
+            }
+            (0, _) => {
+                let session = model.session();
+                self.queued_imports
+                    .extend(paths.into_iter().map(|path| Queued {
+                        path,
+                        into,
+                        session,
+                    }));
+                self.import_next(model);
+            }
+            (1, [path]) => self.request(Intent::Open(Some(path.clone())), model),
+            _ => model.set_notice(Notice::info(
+                "Drop a single model to open it, or drawings and STEP files to import them.",
+            )),
+        }
+    }
+
+    fn import_next(&mut self, model: &Model) {
+        if self.importing.is_some() || self.report.is_some() || self.picking {
+            return;
+        }
+        let session = model.session();
+        while let Some(queued) = self.queued_imports.pop_front() {
+            if queued.session == session {
+                self.import(queued.path, queued.into, model);
+                return;
+            }
         }
     }
 
@@ -601,6 +661,7 @@ impl Files {
             changed = true;
             self.handle(event, model, editing);
         }
+        self.import_next(model);
         changed
     }
 
@@ -617,7 +678,10 @@ impl Files {
                     (Purpose::Open, Some(path)) => self.open(path, model),
                     (Purpose::SaveAs, Some(path)) => self.save_as(path, model),
                     (Purpose::Export(format), Some(path)) => self.export(path, format, model),
-                    (Purpose::Import, Some(path)) => self.import(path, model),
+                    (Purpose::Import, Some(path)) => {
+                        let into = self.importing.as_ref().and_then(|importing| importing.into);
+                        self.import(path, into, model);
+                    }
                     (Purpose::Import, None) => self.importing = None,
                     (_, None) => self.after_save = None,
                 }
@@ -705,8 +769,7 @@ impl Files {
         }
     }
 
-    fn import(&mut self, path: PathBuf, model: &Model) {
-        let into = self.importing.as_ref().and_then(|importing| importing.into);
+    fn import(&mut self, path: PathBuf, into: Option<FeatureId>, model: &Model) {
         self.importing = Some(Importing {
             path: Some(path.clone()),
             into,
@@ -1345,6 +1408,11 @@ pub fn activity(
         ui.label(format!("Importing “{}”…", display_name(Some(path))));
     }
     export::activity(ui, &files.exporter, commands, actions);
+}
+
+fn is_model_file(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(FILE_EXTENSION))
 }
 
 fn menu_item(ui: &mut Ui, commands: &CommandFrame<'_>, command: Command) -> egui::Response {

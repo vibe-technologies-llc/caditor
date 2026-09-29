@@ -1125,6 +1125,68 @@ fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
 }
 
 #[test]
+fn dropped_drawings_are_imported_one_after_another_and_a_dropped_model_opens() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let square = dir.path().join("square.dxf");
+    write_drawing(
+        &square,
+        Some(4),
+        "0\nLWPOLYLINE\n8\n0\n90\n4\n70\n1\n\
+         10\n0\n20\n0\n10\n30\n20\n0\n10\n30\n20\n30\n10\n0\n20\n30\n",
+    );
+    let hole = dir.path().join("hole.dxf");
+    write_drawing(&hole, Some(4), "0\nCIRCLE\n8\n0\n10\n15\n20\n15\n40\n5\n");
+    let features = harness.document().features().len();
+
+    for paths in [vec![square.clone(), hole], vec![square.clone()]] {
+        app::perform(
+            vec![Action::File(FileCommand::Drop { paths, into: None })],
+            &mut harness.model,
+            &mut harness.files,
+            &mut harness.workspace,
+        );
+    }
+    assert_eq!(
+        harness.model.notice().unwrap().text,
+        "An import is already running. Drop the files again once it has finished."
+    );
+    harness.wait_until("both drawings are imported", |harness| {
+        harness.document().features().len() == features + 2
+    });
+    let names: Vec<&str> = harness
+        .document()
+        .features()
+        .skip(features)
+        .map(|feature| feature.name.as_str())
+        .collect();
+    assert_eq!(names, ["square", "hole"]);
+
+    let path = dir.path().join("plate.CADITOR");
+    caditor_file::save(&sample_document().unwrap(), &path, false).unwrap();
+    harness.command(FileCommand::Drop {
+        paths: vec![path.clone(), square],
+        into: None,
+    });
+    assert_eq!(
+        harness.model.notice().unwrap().text,
+        "Drop a single model to open it, or drawings and STEP files to import them."
+    );
+    assert_eq!(harness.model.path(), None);
+
+    harness.command(FileCommand::Drop {
+        paths: vec![path.clone()],
+        into: None,
+    });
+    harness.frame();
+    assert!(harness.shows("If you continue without saving, your changes will be lost."));
+    harness.click("Continue Without Saving");
+    harness.wait_until("the model is open", |harness| {
+        harness.model.path() == Some(path.as_path())
+    });
+}
+
+#[test]
 fn a_step_export_imports_back_as_a_body_that_later_features_can_use() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));

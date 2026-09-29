@@ -227,7 +227,8 @@ within a category run from most to least important.
   blocks Open behind a modal, and the opening modal is drawn before the unsaved-changes prompt,
   so closing the window during a load hides the prompt until the load ends. Give imports their
   own cancellable job. When a worker thread cannot be spawned the job runs on the UI thread.
-- Dropping a file on the window does nothing (`app.rs` handles no `DroppedFile`).
+- Dropping files on the window works only under X11, since winit 0.30 has no drag and drop on
+  Wayland, and nothing shows where a drop will go while files are dragged over the window.
 - Window size, position and panel state are not remembered.
 - One document per process.
 - No clipboard for sketch geometry or features, no parameter import or export.

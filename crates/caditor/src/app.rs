@@ -508,6 +508,10 @@ impl ApplicationHandler<AppEvent> for App {
                 session.window.request_redraw();
             }
             WindowEvent::RedrawRequested => session.redraw(&mut self.model, &mut self.files),
+            WindowEvent::DroppedFile(path) => {
+                session.dropped.push(path);
+                session.window.request_redraw();
+            }
             _ => {}
         }
         if self.files.should_quit() {
@@ -541,6 +545,7 @@ struct Session {
     workspace: Workspace,
     last_redraw: Option<Instant>,
     next_repaint: Option<Instant>,
+    dropped: Vec<PathBuf>,
     title: String,
 }
 
@@ -571,6 +576,7 @@ impl Session {
             workspace: Workspace::with_preferences(preferences),
             last_redraw: None,
             next_repaint: None,
+            dropped: Vec::new(),
             title: title.to_owned(),
         })
     }
@@ -599,6 +605,12 @@ impl Session {
         let ui = self.overlay.run(&self.window, |ui| {
             show(ui, view_model, view_files, workspace, &mut actions);
         });
+        if !self.dropped.is_empty() {
+            actions.push(Action::File(FileCommand::Drop {
+                paths: std::mem::take(&mut self.dropped),
+                into: self.workspace.editing.feature(),
+            }));
+        }
         let changed = !actions.is_empty();
         perform(actions, model, files, &mut self.workspace);
         let title = window_title(model);
