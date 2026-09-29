@@ -263,6 +263,8 @@ pub(crate) struct PlaneRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct EntityRecord {
     pub id: u64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub construction: bool,
     #[serde(flatten)]
     pub kind: EntityKindRecord,
 }
@@ -447,6 +449,11 @@ pub(crate) enum EditRecord {
     SetSketchEntity {
         feature: u64,
         entity: EntityRecord,
+    },
+    SetSketchConstruction {
+        feature: u64,
+        id: u64,
+        construction: bool,
     },
     AddSketchConstraint {
         feature: u64,
@@ -818,7 +825,9 @@ fn sketch_record(feature: &SketchFeature) -> SketchRecord {
             .map(FeatureId::raw),
         entities: sketch
             .entities()
-            .map(|(id, entity)| Lenient::Read(entity_record(id, entity)))
+            .map(|(id, entity)| {
+                Lenient::Read(entity_record(id, entity, sketch.is_construction(id)))
+            })
             .collect(),
         constraints: sketch
             .constraints()
@@ -828,9 +837,10 @@ fn sketch_record(feature: &SketchFeature) -> SketchRecord {
     }
 }
 
-fn entity_record(id: EntityId, entity: &Entity) -> EntityRecord {
+fn entity_record(id: EntityId, entity: &Entity, construction: bool) -> EntityRecord {
     EntityRecord {
         id: id.raw(),
+        construction,
         kind: entity_kind_record(entity),
     }
 }
@@ -1023,9 +1033,10 @@ fn edit_record(edit: &Edit) -> EditRecord {
             feature,
             id,
             entity,
+            construction,
         } => EditRecord::AddSketchEntity {
             feature: feature.raw(),
-            entity: entity_record(*id, entity),
+            entity: entity_record(*id, entity, *construction),
         },
         Edit::RemoveSketchEntity { feature, id } => EditRecord::RemoveSketchEntity {
             feature: feature.raw(),
@@ -1037,7 +1048,16 @@ fn edit_record(edit: &Edit) -> EditRecord {
             entity,
         } => EditRecord::SetSketchEntity {
             feature: feature.raw(),
-            entity: entity_record(*id, entity),
+            entity: entity_record(*id, entity, false),
+        },
+        Edit::SetSketchConstruction {
+            feature,
+            id,
+            construction,
+        } => EditRecord::SetSketchConstruction {
+            feature: feature.raw(),
+            id: id.raw(),
+            construction: *construction,
         },
         Edit::AddSketchConstraint {
             feature,
@@ -1153,6 +1173,7 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             feature: FeatureId::from_raw(feature),
             id: EntityId::from_raw(entity.id),
             entity: restore_entity(&entity.kind),
+            construction: entity.construction,
         },
         EditRecord::RemoveSketchEntity { feature, id } => Edit::RemoveSketchEntity {
             feature: FeatureId::from_raw(feature),
@@ -1162,6 +1183,15 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             feature: FeatureId::from_raw(feature),
             id: EntityId::from_raw(entity.id),
             entity: restore_entity(&entity.kind),
+        },
+        EditRecord::SetSketchConstruction {
+            feature,
+            id,
+            construction,
+        } => Edit::SetSketchConstruction {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+            construction,
         },
         EditRecord::AddSketchConstraint {
             feature,
@@ -1530,9 +1560,16 @@ fn restore_sketch(record: &SketchRecord, feature: &str, issues: &mut Vec<String>
     for record in points.into_iter().chain(others) {
         let entity = restore_entity(&record.kind);
         let label = format!("{} {}", entity.kind_name(), record.id);
-        if let Err(error) = sketch.insert_entity(EntityId::from_raw(record.id), entity) {
+        let id = EntityId::from_raw(record.id);
+        if let Err(error) = sketch.insert_entity(id, entity) {
             issues.push(format!(
                 "In “{feature}”, {label} was left out because {error}."
+            ));
+        } else if record.construction
+            && let Err(error) = sketch.set_construction(id, true)
+        {
+            issues.push(format!(
+                "In “{feature}”, {label} was kept as ordinary geometry because {error}."
             ));
         }
     }

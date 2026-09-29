@@ -22,6 +22,9 @@ The first release of caditor.
   selected curves.
 - A point can be put on a spline, and a line, circle or arc made tangent to one, either where
   they touch along it or where the spline ends on them.
+- Construction geometry: Q (or the Construction button) turns the selected curves into dashed
+  construction curves that guide a sketch, take constraints and can be revolved about, but never
+  split or add to its regions; with nothing selected it switches drawing to construction curves.
 - Angles at a corner of a chain of lines are measured inside the corner, tangents where a line
   meets an arc count fully towards a constrained sketch, and a constraint that would shrink a
   line to nothing is reported as a conflict.

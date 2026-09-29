@@ -20,7 +20,7 @@ pub const BACKGROUND: wgpu::Color = wgpu::Color {
 };
 const FAR_DEPTH: f32 = 0.0;
 const QUAD_VERTICES: u32 = 6;
-const LINE_STRIDE: u64 = 52;
+const LINE_STRIDE: u64 = 56;
 const MARKER_STRIDE: u64 = 40;
 const FILL_VERTEX_STRIDE: u64 = 36;
 const FILL_TRIANGLE_STRIDE: u64 = FILL_VERTEX_STRIDE * 3;
@@ -436,7 +436,8 @@ impl ViewportRenderer {
                 .floats(&line.color.to_array())
                 .f32(line.width)
                 .u32(PickId::raw(line.pick))
-                .f32(line.layer.depth_bias(Primitive::Line));
+                .f32(line.layer.depth_bias(Primitive::Line))
+                .f32(line.stroke.along());
         }
         let lines = self.lines.upload(device, queue, &self.staging, LINE_STRIDE);
 
@@ -553,7 +554,7 @@ impl Pipelines {
         let mesh_pipeline_layout =
             pipeline_layout("mesh", &[Some(layouts.view), Some(layouts.mesh)]);
 
-        let line_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32, 4 => Uint32, 5 => Float32];
+        let line_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32, 4 => Uint32, 5 => Float32, 6 => Float32];
         let marker_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Float32, 3 => Uint32, 4 => Float32];
         let fill_attributes =
             wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Uint32, 3 => Float32];
@@ -631,7 +632,7 @@ impl Pipelines {
                 "fs_mesh",
                 true,
             ),
-            lines: color("lines", &scene_layout, "vs_line", &lines, "fs_color", true),
+            lines: color("lines", &scene_layout, "vs_line", &lines, "fs_line", true),
             markers: color(
                 "markers",
                 &scene_layout,

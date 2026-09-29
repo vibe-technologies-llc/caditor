@@ -134,7 +134,8 @@ fn merge(definition: &Sketch, solved: &Sketch) -> Option<Sketch> {
             && definition.entities().zip(solved.entities()).all(
                 |((id, defined), (other, settled))| id == other && defined.same_structure(settled),
             );
-    if same_entities && definition.plane() == solved.plane() {
+    let same_construction = definition.construction().eq(solved.construction());
+    if same_entities && same_construction && definition.plane() == solved.plane() {
         return None;
     }
     let mut merged = definition.clone();
@@ -212,6 +213,7 @@ mod tests {
                     feature,
                     id: EntityId::from_raw(100),
                     entity: Entity::Point(Point2::new(5.0, 5.0)),
+                    construction: false,
                 },
             ))
             .unwrap();
@@ -234,6 +236,33 @@ mod tests {
         sketches.forget();
         sketches.get(&evaluation, owner).unwrap();
         assert_eq!(sketches.merges(), 2);
+    }
+
+    #[test]
+    fn a_curve_made_construction_since_the_solve_shows_as_construction() {
+        let (mut document, feature, evaluation) = sketched();
+        let line = solved(&evaluation, feature)
+            .entities()
+            .find(|(_, entity)| matches!(entity, Entity::Line { .. }))
+            .map(|(id, _)| id)
+            .unwrap();
+        document
+            .apply(caditor_document::Transaction::single(
+                "Make construction",
+                Edit::SetSketchConstruction {
+                    feature,
+                    id: line,
+                    construction: true,
+                },
+            ))
+            .unwrap();
+        let sketches = DisplayedSketches::default();
+        let owner = document.feature(feature).unwrap();
+
+        let shown = sketches.get(&evaluation, owner).unwrap();
+
+        assert!(shown.is_construction(line));
+        assert_eq!(sketches.merges(), 1);
     }
 
     #[test]

@@ -156,6 +156,7 @@ pub struct Preview {
     pub curves: Vec<Vec<Point2>>,
     pub points: Vec<Point2>,
     pub snap: Option<Point2>,
+    pub construction: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +168,7 @@ pub struct Prompt {
 #[derive(Debug, Clone, Default)]
 pub struct Drawing {
     context: Option<(FeatureId, Tool)>,
+    construction: bool,
     placed: Vec<Placement>,
     hover: Option<Placement>,
     sweep: Option<Sweep>,
@@ -196,6 +198,7 @@ impl Drawing {
                 ..Self::default()
             };
         }
+        self.construction = active.is_some_and(|active| active.construction);
         let lost_anchor = sketch.is_some_and(|sketch| {
             self.placed.iter().any(|placement| {
                 placement
@@ -311,7 +314,7 @@ impl Drawing {
         tool: Tool,
         placement: Placement,
     ) -> Result<Option<Transaction>, Degenerate> {
-        let draft = || Draft::new(model, feature, tool);
+        let draft = || Draft::new(model, feature, tool, self.construction);
         Ok(match (tool, self.placed.as_slice()) {
             (Tool::Select, _) => None,
             (Tool::Point, _) => draft().map(|mut draft| {
@@ -413,7 +416,7 @@ impl Drawing {
         if placed.len() < 2 {
             return None;
         }
-        let mut draft = Draft::new(model, feature, tool)?;
+        let mut draft = Draft::new(model, feature, tool, self.construction)?;
         draft.spline(&placed);
         Some(draft.finish())
     }
@@ -434,6 +437,7 @@ impl Drawing {
                 .hover
                 .filter(|hover| matches!(hover.snap, Snap::Target(_)))
                 .map(|hover| hover.position),
+            construction: self.construction,
             ..Preview::default()
         };
         let Some(cursor) = hover else {
@@ -612,16 +616,22 @@ struct Draft<'a> {
     feature: FeatureId,
     transaction: TransactionBuilder<'a>,
     shadow: Sketch,
+    construction: bool,
 }
 
 impl<'a> Draft<'a> {
-    fn new(model: &'a Model, feature: FeatureId, tool: Tool) -> Option<Self> {
+    fn new(model: &'a Model, feature: FeatureId, tool: Tool, construction: bool) -> Option<Self> {
         let shadow = editing::edited_sketch(model.document(), feature)?.clone();
-        let label = format!("Draw {}", tool.label().to_lowercase());
+        let kind = if construction {
+            format!("construction {}", tool.label().to_lowercase())
+        } else {
+            tool.label().to_lowercase()
+        };
         Some(Self {
             feature,
-            transaction: sketch_tools::settled_transaction(model, feature, label),
+            transaction: sketch_tools::settled_transaction(model, feature, format!("Draw {kind}")),
             shadow,
+            construction,
         })
     }
 
@@ -630,9 +640,10 @@ impl<'a> Draft<'a> {
     }
 
     fn entity(&mut self, entity: Entity) -> EntityId {
+        let construction = self.construction && !matches!(entity, Entity::Point(_));
         let id = self
             .transaction
-            .add_sketch_entity(self.feature, entity.clone());
+            .add_sketch_entity_as(self.feature, entity.clone(), construction);
         if let Err(error) = self.shadow.insert_entity(id, entity) {
             log::debug!("the drawing check does not see entity {id}: {error}");
         }

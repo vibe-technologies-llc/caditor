@@ -8,7 +8,7 @@ use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray};
 use caditor_kernel::RegionKey;
 use caditor_render::{
     Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId, PickResult,
-    Scene,
+    Scene, Stroke,
 };
 use caditor_sketch::{
     Constraint, ConstraintId, Entity, EntityId, EntityState, Reference, Sketch, SketchSolution,
@@ -483,6 +483,7 @@ impl Builder<'_> {
                 width,
                 layer: Layer::Reference,
                 pick,
+                stroke: Stroke::Solid,
             });
         }
         self.scene.fills.push(Fill::convex(
@@ -520,6 +521,7 @@ impl Builder<'_> {
             width,
             layer: Layer::Reference,
             pick,
+            stroke: Stroke::Solid,
         };
         match datum_tools::result(evaluation, feature) {
             Some(DatumResult::Plane(plane)) => {
@@ -593,6 +595,7 @@ impl Builder<'_> {
                     width,
                     layer: Layer::Model,
                     pick,
+                    stroke: Stroke::Solid,
                 }),
                 _ => None,
             });
@@ -677,6 +680,7 @@ impl Builder<'_> {
                     width,
                     layer: Layer::Model,
                     pick,
+                    stroke: Stroke::Solid,
                 }),
                 _ => None,
             });
@@ -723,6 +727,7 @@ impl Builder<'_> {
                     width: REVOLVE_AXIS_WIDTH,
                     layer: Layer::Model,
                     pick: None,
+                    stroke: Stroke::Solid,
                 });
             }
         }
@@ -778,6 +783,7 @@ impl Builder<'_> {
             width: AXIS_WIDTH + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
             layer: Layer::Reference,
             pick: self.picks.register(pickable, PickPriority::Curve),
+            stroke: Stroke::Solid,
         });
     }
 
@@ -811,6 +817,7 @@ impl Builder<'_> {
                     + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
                 layer: Layer::Reference,
                 pick: self.picks.register(pickable, PickPriority::Curve),
+                stroke: Stroke::Solid,
             });
         }
         let pickable = Pickable::SketchEntity {
@@ -873,38 +880,61 @@ impl Builder<'_> {
                     let width = CURVE_WIDTH + emphasis * HIGHLIGHT_EXTRA_WIDTH;
                     let pick = pickable
                         .and_then(|pickable| self.picks.register(pickable, PickPriority::Curve));
-                    let segments = points.windows(2).filter_map(|pair| match pair {
-                        [start, end] => Some(Line {
-                            start: plane.to_world(*start),
-                            end: plane.to_world(*end),
-                            color,
-                            width,
-                            layer: Layer::Model,
-                            pick,
-                        }),
-                        _ => None,
-                    });
-                    self.scene.lines.extend(segments);
+                    let style = CurveStyle {
+                        color,
+                        width,
+                        pick,
+                        dashed: sketch.is_construction(entity),
+                    };
+                    self.scene.lines.extend(curve_lines(plane, &points, style));
                 }
             }
         }
     }
 }
 
+struct CurveStyle {
+    color: Color,
+    width: f32,
+    pick: Option<PickId>,
+    dashed: bool,
+}
+
+fn curve_lines(plane: Plane, points: &[Point2], style: CurveStyle) -> impl Iterator<Item = Line> {
+    let mut along = 0.0;
+    points.windows(2).filter_map(move |pair| match *pair {
+        [start, end] => {
+            let stroke = if style.dashed {
+                Stroke::Dashed {
+                    along: along as f32,
+                }
+            } else {
+                Stroke::Solid
+            };
+            along += start.distance(end);
+            Some(Line {
+                start: plane.to_world(start),
+                end: plane.to_world(end),
+                color: style.color,
+                width: style.width,
+                layer: Layer::Model,
+                pick: style.pick,
+                stroke,
+            })
+        }
+        _ => None,
+    })
+}
+
 pub fn add_preview(scene: &mut Scene, plane: Plane, preview: &Preview) {
     for curve in &preview.curves {
-        let segments = curve.windows(2).filter_map(|pair| match pair {
-            [start, end] => Some(Line {
-                start: plane.to_world(*start),
-                end: plane.to_world(*end),
-                color: PREVIEW_CURVE,
-                width: CURVE_WIDTH,
-                layer: Layer::Model,
-                pick: None,
-            }),
-            _ => None,
-        });
-        scene.lines.extend(segments);
+        let style = CurveStyle {
+            color: PREVIEW_CURVE,
+            width: CURVE_WIDTH,
+            pick: None,
+            dashed: preview.construction,
+        };
+        scene.lines.extend(curve_lines(plane, curve, style));
     }
     let snap = preview.snap.map(|position| Marker {
         position: plane.to_world(position),

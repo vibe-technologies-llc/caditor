@@ -524,6 +524,7 @@ fn constraints_are_checked_by_the_sketch_and_the_document() {
                 feature,
                 id: shape.sides[0],
                 entity: Entity::Point(Point2::ZERO),
+                construction: false,
             },
         )),
         Err(EditError::Sketch {

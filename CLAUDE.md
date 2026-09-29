@@ -209,7 +209,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Entities are points, lines, circles (centre point and radius), arcs (centre, start and end
     points, counter-clockwise) and clamped B-splines through control points. Every sketch also
     has a fixed origin and two axes under reserved IDs (`EntityId::ORIGIN`, `HORIZONTAL_AXIS`,
-    `VERTICAL_AXIS`) that the counter never reaches; stored IDs stay below 2^63.
+    `VERTICAL_AXIS`) that the counter never reaches; stored IDs stay below 2^63. Any curve (never
+    a point or the reference geometry) can be construction geometry (`Sketch::set_construction`,
+    a set kept beside the entities, forgotten when the curve is removed and part of
+    `same_geometry`): it solves, snaps and takes constraints like any other curve but is left out
+    of profiles (`solid::profile_curves`), so a centreline neither splits regions nor changes
+    their keys, and it can still be a revolve axis.
   - Constraints have stable `ConstraintId`s: coincident (point–point or point on a curve,
     splines included), horizontal and vertical (a line, or two points as `HorizontalPoints` and
     `VerticalPoints`), parallel, perpendicular, tangent (a spline with a line, circle or arc
@@ -686,12 +691,14 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `same_content` and carried by `transaction_to`) rather than a view preference, so hiding a
     selection that mixes them with features, showing everything and undoing either are one change,
     and a model reopens looking as it was left.
-  - Sketch content changes only through sketch edits (add, remove or set an entity, add or
-    remove a constraint, set a dimension). Removing an entity that something still uses is
-    refused rather than cascaded; `TransactionBuilder::remove_sketch_items` expands a user's
-    deletion into constraints first, then curves, then points. Setting an entity changes only
-    its value, never its kind or the points it uses. `settle_sketch` moves the definition to a
-    solved shape so the next solve starts from what the user sees.
+  - Sketch content changes only through sketch edits (add, remove or set an entity, switch a
+    curve to or from construction geometry, add or remove a constraint, set a dimension).
+    `AddSketchEntity` carries whether the entity is construction geometry, so undoing the
+    removal of a construction curve restores it as one. Removing an entity that something still
+    uses is refused rather than cascaded; `TransactionBuilder::remove_sketch_items` expands a
+    user's deletion into constraints first, then curves, then points. Setting an entity changes
+    only its value, never its kind or the points it uses. `settle_sketch` moves the definition to
+    a solved shape so the next solve starts from what the user sees.
   - Import features (`import.rs`, `FeatureKind::Import`) make a body from an imported solid:
     they keep the source file's name, the solid and the canonical single-solid STEP text it was
     read from, which is what the file stores; equality compares the text, not the solid. The
@@ -834,7 +841,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     unchanged back exactly as it was stored (fields from newer versions included, and without
     compressing it again), and carries chunks of kinds it does not know unless they are flagged
     must-understand, which loading reports as left out (so the original is kept as `.damaged`).
-    Records carry their stable IDs; expressions are stored
+    Records carry their stable IDs (a construction curve's entity record adds
+    `"construction": true`, written only when set; one on a point loads as an ordinary point with
+    a report), and expressions are stored
     as canonical text that refers to parameters as `$<id>` (`Expression::to_stored_text` and
     `parse_stored`), region keys and topology names as 32-digit hex digests, and numbers as
     exact f64. An unreadable extent falls back to 10 mm or 360°, an unreadable blend edge is left
@@ -1070,6 +1079,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     or snorm format an HDR setup lists first), else the first non-sRGB one. Model geometry draws
     over reference geometry (datum planes, axes) through a per-`Layer` depth bias, and model-layer
     fills (sketch regions) over the faces they lie on.
+  - A `Line` has a `Stroke`. A `Stroke::Dashed` line carries the distance along its curve at its
+    start, which `vs_line` scales by the segment's on-screen length per model unit into points,
+    so `fs_line` draws dashes of `DASH_PERIOD_POINTS` (60% drawn) that run on across the segments
+    of a polyline at any zoom and interface size; the pick pass draws dashed lines whole, so a
+    gap still picks its curve.
   - Projection (`camera::Projection`, held by the `Camera` and carried by each `View`) is
     perspective (30° vertical field of view) or orthographic. An orthographic view shows at every
     depth the scale a perspective one shows at its target (half height `distance · tan 15°`), so
@@ -1451,6 +1465,14 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     if refused. A shape with no size (a flat rectangle, a line, circle or
     arc ending where it starts) is refused with a `Degenerate` reason: a notice for a click, the
     field's error for a typed point.
+  - Construction geometry: Switch to or from construction geometry (Q, the Construction button
+    after the drawing tools, `Command::Construction`) makes the selected curves construction
+    geometry in one transaction (`sketch_tools::ConstructionChange`), or ordinary again when all of
+    them already are; with no curve selected it switches drawing instead
+    (`ActiveSketch::construction`, the button shown pressed), so the curves each finished shape
+    adds are construction geometry while its points stay points. Construction curves, and the
+    preview while drawing them, are drawn dashed (`scene::curve_lines`), coloured by their
+    constraint state like any other curve.
   - Snapping (`snap.rs`) runs on the UI thread against the displayed sketch, in screen space
     through the view: the shape's own pending point first, then existing points and the origin
     within 8 logical pixels, then lines, circles, arcs and the axes within 6, projecting onto

@@ -12,7 +12,7 @@ use crate::{
     panels::{Focus, PanelState},
     selection::Selection,
     sketch_status::{self, SketchSummary},
-    sketch_tools::{self, ConstraintTool},
+    sketch_tools::{self, ConstraintTool, ConstructionChange},
     widgets::{self, ToolButton},
 };
 
@@ -24,6 +24,10 @@ const CONSTRAINT_WIDTH: f32 = 112.0;
 const FINISH_HEIGHT: f32 = 32.0;
 const SELECT_KEY: &str = "Esc";
 const NOTHING_TO_DELETE: &str = "Select sketch geometry or constraints to delete them";
+const CONSTRUCTION_LABEL: &str = "Construction";
+const START_CONSTRUCTION: &str =
+    "Draw construction geometry, which guides the sketch but makes no profile";
+const STOP_CONSTRUCTION: &str = "Draw ordinary geometry again";
 
 type Offer = (ConstraintTool, Result<Vec<Constraint>, String>);
 
@@ -64,6 +68,7 @@ pub fn show(
             .collect(),
         constraints: sketch_tools::selected_constraints(selection, feature.id()),
     };
+    let construction = ConstructionChange::of(definition, &selected);
 
     let mut request = Request::default();
     let tint = appearance::tokens(ui).accent_subtle;
@@ -76,6 +81,7 @@ pub fn show(
                 header(ui, model, feature, panels);
                 ui.separator();
                 tools(ui, active, commands, actions);
+                construction_button(ui, active, construction.as_ref(), commands, &mut request);
                 ui.separator();
                 constraint_buttons(ui, &offers, commands, &mut request);
                 ui.separator();
@@ -96,6 +102,12 @@ pub fn show(
             });
         }
         actions.push(Action::Apply(added.transaction));
+    }
+    if request.construction {
+        actions.push(match &construction {
+            Some(change) => Action::Apply(change.transaction(model, feature.id(), definition)),
+            None => Action::Editing(EditingCommand::DrawConstruction(!active.construction)),
+        });
     }
     if request.delete && !deletable.is_empty() {
         let label = deletable.label(definition);
@@ -134,6 +146,7 @@ impl Deletable {
 #[derive(Default)]
 struct Request {
     constraints: Option<(ConstraintTool, Vec<Constraint>)>,
+    construction: bool,
     delete: bool,
 }
 
@@ -188,6 +201,33 @@ fn tools(
         if response.clicked() || invoked {
             actions.push(Action::Editing(EditingCommand::SetTool(tool)));
         }
+    }
+}
+
+fn construction_button(
+    ui: &mut Ui,
+    active: ActiveSketch,
+    change: Option<&ConstructionChange>,
+    commands: &mut CommandFrame<'_>,
+    request: &mut Request,
+) {
+    let invoked = commands.available(Command::Construction);
+    let description = match change {
+        Some(change) if change.construction => {
+            "Make the selected curves construction geometry, which guides the sketch but makes no \
+             profile"
+        }
+        Some(_) => "Make the selected curves ordinary geometry again",
+        None if active.construction => STOP_CONSTRUCTION,
+        None => START_CONSTRUCTION,
+    };
+    let button =
+        ToolButton::new(icons::CONSTRUCTION, CONSTRUCTION_LABEL).selected(active.construction);
+    let response = ui
+        .add(button)
+        .on_hover_text(commands.with_keys(Command::Construction, description));
+    if response.clicked() || invoked {
+        request.construction = true;
     }
 }
 

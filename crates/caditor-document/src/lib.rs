@@ -539,6 +539,7 @@ mod tests {
                     feature: ids.base,
                     id: point,
                     entity: Entity::Point(Point2::ZERO),
+                    construction: false,
                 },
             ))
             .unwrap();

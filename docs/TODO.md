@@ -84,8 +84,6 @@ within a category run from most to least important.
 ## Sketching
 
 - No dragging of sketch geometry and no window selection: primary drag is never handled.
-- No construction geometry: every curve becomes profile curves, so a centreline splits regions
-  and changes their keys.
 - No projection of model edges or other sketches into a sketch, and bodies and other sketches
   are unpickable while editing.
 - Tools missing: trim, extend, offset, mirror, sketch fillet, three-point and tangent arcs, slot,

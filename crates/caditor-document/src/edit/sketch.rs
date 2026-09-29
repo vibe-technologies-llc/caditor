@@ -10,11 +10,21 @@ use crate::{
 
 impl TransactionBuilder<'_> {
     pub fn add_sketch_entity(&mut self, feature: FeatureId, entity: Entity) -> EntityId {
+        self.add_sketch_entity_as(feature, entity, false)
+    }
+
+    pub fn add_sketch_entity_as(
+        &mut self,
+        feature: FeatureId,
+        entity: Entity,
+        construction: bool,
+    ) -> EntityId {
         let id = EntityId::from_raw(self.allocate_sketch_id(feature));
         self.edits.push(Edit::AddSketchEntity {
             feature,
             id,
             entity,
+            construction,
         });
         id
     }
@@ -183,12 +193,33 @@ impl Document {
         feature: FeatureId,
         id: EntityId,
         entity: Entity,
+        construction: bool,
     ) -> Result<Edit, EditError> {
         let (name, sketch) = self.sketch_mut(feature)?;
-        sketch
-            .insert_entity(id, entity)
-            .map_err(|error| EditError::Sketch { name, error })?;
+        let inserted = sketch.insert_entity(id, entity).and_then(|()| {
+            construction
+                .then(|| sketch.set_construction(id, true))
+                .transpose()
+        });
+        inserted.map_err(|error| EditError::Sketch { name, error })?;
         Ok(Edit::RemoveSketchEntity { feature, id })
+    }
+
+    pub(super) fn set_sketch_construction(
+        &mut self,
+        feature: FeatureId,
+        id: EntityId,
+        construction: bool,
+    ) -> Result<Edit, EditError> {
+        let (name, sketch) = self.sketch_mut(feature)?;
+        let previous = sketch
+            .set_construction(id, construction)
+            .map_err(|error| EditError::Sketch { name, error })?;
+        Ok(Edit::SetSketchConstruction {
+            feature,
+            id,
+            construction: previous,
+        })
     }
 
     pub(super) fn remove_sketch_entity(
@@ -214,11 +245,13 @@ impl Document {
             });
         }
         let (name, sketch) = self.sketch_mut(feature)?;
+        let construction = sketch.is_construction(id);
         match sketch.remove_unused_entity(id) {
             Ok(entity) => Ok(Edit::AddSketchEntity {
                 feature,
                 id,
                 entity,
+                construction,
             }),
             Err(SketchError::InUse { entity, label }) => Err(EditError::EntityInUse {
                 feature: name,

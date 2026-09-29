@@ -92,7 +92,25 @@ pub struct Line {
     pub width: f32,
     pub layer: Layer,
     pub pick: Option<PickId>,
+    pub stroke: Stroke,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Stroke {
+    Solid,
+    Dashed { along: f32 },
+}
+
+impl Stroke {
+    pub(crate) fn along(self) -> f32 {
+        match self {
+            Self::Solid => SOLID,
+            Self::Dashed { along } => along.max(0.0),
+        }
+    }
+}
+
+const SOLID: f32 = -1.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Marker {

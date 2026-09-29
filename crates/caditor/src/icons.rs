@@ -40,6 +40,7 @@ pub const RENAME: &str = phosphor::TEXTBOX;
 pub const MOVE_UP: &str = phosphor::ARROW_UP;
 pub const MOVE_DOWN: &str = phosphor::ARROW_DOWN;
 pub const PRINCIPAL_GROUP: &str = PLANE;
+pub const CONSTRUCTION: &str = phosphor::CIRCLE_DASHED;
 const ORIGIN: &str = phosphor::CROSSHAIR;
 
 pub fn command(command: Command) -> &'static str {
@@ -60,6 +61,7 @@ pub fn command(command: Command) -> &'static str {
         Command::NewSketch => phosphor::PENCIL_LINE,
         Command::FinishSketch => phosphor::CHECK,
         Command::ReverseArc => phosphor::ARROWS_COUNTER_CLOCKWISE,
+        Command::Construction => CONSTRUCTION,
         Command::SketchTool(tool) => self::tool(tool),
         Command::Constraint(tool) => constraint(tool),
         Command::DeleteSelection => DELETE,

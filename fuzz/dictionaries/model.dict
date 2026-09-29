@@ -122,6 +122,8 @@
 "\x06\x05shell"
 "\x06\x06sketch"
 "\x06\x06spline"
+"\x06\x0cconstruction"
+"\x06\x17set_sketch_construction"
 "\x06\x05start"
 "\x06\x07tangent"
 "\x06\x09thickness"

@@ -74,6 +74,8 @@ pub enum SketchError {
     },
     #[error("{label} has no length")]
     NoLength { entity: EntityId, label: String },
+    #[error("{label} is a point, and only curves can be construction geometry")]
+    PointAsConstruction { entity: EntityId, label: String },
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -96,6 +98,7 @@ pub struct Sketch {
     plane: Plane,
     entities: BTreeMap<EntityId, Entity>,
     constraints: BTreeMap<ConstraintId, Constraint>,
+    construction: BTreeSet<EntityId>,
     uses: BTreeMap<EntityId, usize>,
     next_id: u64,
 }
@@ -106,6 +109,7 @@ impl Sketch {
             plane,
             entities: BTreeMap::new(),
             constraints: BTreeMap::new(),
+            construction: BTreeSet::new(),
             uses: BTreeMap::new(),
             next_id: 0,
         }
@@ -361,13 +365,41 @@ impl Sketch {
     }
 
     pub fn same_geometry(&self, other: &Self) -> bool {
-        self.plane == other.plane && self.entities == other.entities
+        self.plane == other.plane
+            && self.entities == other.entities
+            && self.construction == other.construction
     }
 
     pub fn same_content(&self, other: &Self) -> bool {
-        self.plane == other.plane
-            && self.entities == other.entities
-            && self.constraints == other.constraints
+        self.same_geometry(other) && self.constraints == other.constraints
+    }
+
+    pub fn is_construction(&self, id: EntityId) -> bool {
+        self.construction.contains(&id)
+    }
+
+    pub fn construction(&self) -> impl ExactSizeIterator<Item = EntityId> + '_ {
+        self.construction.iter().copied()
+    }
+
+    pub fn set_construction(
+        &mut self,
+        id: EntityId,
+        construction: bool,
+    ) -> Result<bool, SketchError> {
+        self.check_editable(id)?;
+        if matches!(self.entities.get(&id), Some(Entity::Point(_))) {
+            return Err(SketchError::PointAsConstruction {
+                entity: id,
+                label: self.entity_label(id),
+            });
+        }
+        let was = if construction {
+            !self.construction.insert(id)
+        } else {
+            self.construction.remove(&id)
+        };
+        Ok(was)
     }
 
     pub fn next_id(&self) -> u64 {
@@ -587,6 +619,7 @@ impl Sketch {
             .entities
             .remove(&id)
             .ok_or(SketchError::NoSuchEntity(id))?;
+        self.construction.remove(&id);
         self.count_uses(&removed.points(), false);
         Ok(removed)
     }
@@ -654,6 +687,7 @@ impl Sketch {
             self.count_uses(&entity.points(), false);
         }
         self.uses.retain(|used, _| !gone.contains(used));
+        self.construction.retain(|curve| !gone.contains(curve));
         Some(removed)
     }
 
@@ -1659,5 +1693,47 @@ mod tests {
             sketch.polyline(EntityId::HORIZONTAL_AXIS, segment_angle),
             None
         );
+    }
+
+    #[test]
+    fn curves_become_construction_geometry_and_points_never_do() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::ZERO, Point2::X);
+        let circle = sketch.add_circle(Point2::Y, 1.0);
+        let plain = sketch.clone();
+        let (start, _) = endpoints(&sketch, line);
+
+        assert_eq!(sketch.set_construction(line, true), Ok(false));
+        assert_eq!(sketch.set_construction(line, true), Ok(true));
+        assert!(sketch.is_construction(line));
+        assert!(!sketch.is_construction(circle));
+        assert!(!sketch.same_geometry(&plain));
+        assert!(!sketch.same_content(&plain));
+        assert!(matches!(
+            sketch.set_construction(start, true),
+            Err(SketchError::PointAsConstruction { .. })
+        ));
+        assert!(matches!(
+            sketch.set_construction(EntityId::HORIZONTAL_AXIS, true),
+            Err(SketchError::ReferenceGeometry { .. })
+        ));
+
+        assert_eq!(sketch.set_construction(line, false), Ok(true));
+        assert!(sketch.same_content(&plain));
+    }
+
+    #[test]
+    fn removing_a_construction_curve_forgets_it() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::ZERO, Point2::X);
+        let circle = sketch.add_circle(Point2::Y, 1.0);
+        let (start, _) = endpoints(&sketch, line);
+
+        sketch.set_construction(line, true).unwrap();
+        sketch.set_construction(circle, true).unwrap();
+        sketch.remove_unused_entity(circle).unwrap();
+        sketch.remove_entity(start);
+
+        assert_eq!(sketch.construction().len(), 0);
     }
 }

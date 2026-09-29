@@ -74,6 +74,7 @@ pub enum Edit {
         feature: FeatureId,
         id: EntityId,
         entity: Entity,
+        construction: bool,
     },
     RemoveSketchEntity {
         feature: FeatureId,
@@ -83,6 +84,11 @@ pub enum Edit {
         feature: FeatureId,
         id: EntityId,
         entity: Entity,
+    },
+    SetSketchConstruction {
+        feature: FeatureId,
+        id: EntityId,
+        construction: bool,
     },
     AddSketchConstraint {
         feature: FeatureId,
@@ -147,6 +153,7 @@ impl Transaction {
                 | Edit::AddSketchEntity { .. }
                 | Edit::RemoveSketchEntity { .. }
                 | Edit::SetSketchEntity { .. }
+                | Edit::SetSketchConstruction { .. }
                 | Edit::AddSketchConstraint { .. }
                 | Edit::RemoveSketchConstraint { .. } => 0,
             })
@@ -363,13 +370,19 @@ impl Document {
                 feature,
                 id,
                 entity,
-            } => self.add_sketch_entity(feature, id, entity),
+                construction,
+            } => self.add_sketch_entity(feature, id, entity, construction),
             Edit::RemoveSketchEntity { feature, id } => self.remove_sketch_entity(feature, id),
             Edit::SetSketchEntity {
                 feature,
                 id,
                 entity,
             } => self.set_sketch_entity(feature, id, entity),
+            Edit::SetSketchConstruction {
+                feature,
+                id,
+                construction,
+            } => self.set_sketch_construction(feature, id, construction),
             Edit::AddSketchConstraint {
                 feature,
                 id,

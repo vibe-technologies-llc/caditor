@@ -759,3 +759,90 @@ fn a_profile_cancelled_while_it_is_built_is_built_again_later() {
     result.find_regions();
     assert!(matches!(result.regions(), Some(Ok(regions)) if regions.len() == 1));
 }
+
+#[test]
+fn construction_curves_are_left_out_of_the_profile() {
+    let mut outline = rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0));
+    let circle = outline.add_circle(Point2::new(5.0, 4.0), 2.0);
+    let (mut document, body) = single_body(
+        extruded(ExtrudeExtent::OneSide {
+            distance: stored("1 mm"),
+            reversed: false,
+        }),
+        outline,
+    );
+    let section = document.features().next().unwrap().id();
+    let mut engine = Recompute::default();
+    let hole = 80.0 - std::f64::consts::PI * 4.0;
+    assert!((volume(&evaluate(&document, &mut engine), body) - hole).abs() < 0.05);
+
+    let ordinary = document
+        .apply(Transaction::single(
+            "Make construction",
+            Edit::SetSketchConstruction {
+                feature: section,
+                id: circle,
+                construction: true,
+            },
+        ))
+        .unwrap();
+    let solid = evaluate(&document, &mut engine);
+
+    assert_eq!(solid.recomputed(), &[section, body]);
+    assert!((volume(&solid, body) - 80.0).abs() < 0.05);
+    assert_eq!(
+        ordinary.edits(),
+        [Edit::SetSketchConstruction {
+            feature: section,
+            id: circle,
+            construction: false,
+        }]
+    );
+
+    document.apply(ordinary).unwrap();
+    assert!((volume(&evaluate(&document, &mut engine), body) - hole).abs() < 0.05);
+}
+
+#[test]
+fn a_revolve_turns_about_a_construction_centreline_and_undoing_its_deletion_keeps_it_construction()
+{
+    let mut section = rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0));
+    let centreline = section.add_line(Point2::new(0.0, -1.0), Point2::new(0.0, 5.0));
+    section.set_construction(centreline, true).unwrap();
+    let (mut document, ring) = single_body(
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch: FeatureId::from_raw(0),
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Sketch(centreline),
+            extent: RevolveExtent::Full,
+            operation: BodyOperation::NewBody,
+        })),
+        section,
+    );
+    let sketch = document.features().next().unwrap().id();
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let expected = std::f64::consts::PI * (16.0 - 4.0) * 3.0;
+    assert!((volume(&evaluation, ring) - expected).abs() < 0.1);
+
+    document
+        .apply(Transaction::single(
+            "Delete ring",
+            Edit::RemoveFeature { id: ring },
+        ))
+        .unwrap();
+    let mut transaction = document.transaction("Delete centreline");
+    transaction.remove_sketch_items(sketch, [centreline], []);
+    let restore = document.apply(transaction.finish()).unwrap();
+    let removed = document
+        .feature(sketch)
+        .unwrap()
+        .kind
+        .sketch()
+        .unwrap()
+        .clone();
+    document.apply(restore).unwrap();
+    let restored = document.feature(sketch).unwrap().kind.sketch().unwrap();
+
+    assert_eq!(removed.construction().len(), 0);
+    assert!(restored.is_construction(centreline));
+}

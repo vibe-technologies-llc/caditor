@@ -1106,6 +1106,8 @@ fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
     });
     add(Constraint::Coincident(rider, spline));
     add(Constraint::Tangent(other, spline));
+    let centreline = sketch.add_line(Point2::new(-10.0, 0.0), Point2::new(-10.0, 30.0));
+    sketch.set_construction(centreline, true).unwrap();
     transaction.add_feature("Added kinds", FeatureKind::from(sketch));
     document.apply(transaction.finish()).unwrap();
     (
@@ -1249,6 +1251,14 @@ fn every_sketch_edit(document: &Document, plate: FeatureId) -> Transaction {
         feature: plate,
         id: circle,
     });
+    let start = transaction.add_sketch_entity(plate, Entity::Point(Point2::ZERO));
+    let end = transaction.add_sketch_entity(plate, Entity::Point(Point2::X));
+    let centreline = transaction.add_sketch_entity_as(plate, Entity::Line { start, end }, true);
+    transaction.edit(Edit::SetSketchConstruction {
+        feature: plate,
+        id: centreline,
+        construction: false,
+    });
     transaction.finish()
 }
 
@@ -1266,6 +1276,8 @@ fn every_sketch_edit_record_round_trips() {
         "{\"set_sketch_entity\":{\"feature\":3,\"entity\":{\"id\":0,\"point\":[2.2250738585072014e-308,1e+300]}}}",
         "{\"remove_sketch_constraint\":{\"feature\":3,\"id\":2}}",
         "{\"remove_sketch_entity\":{\"feature\":3,\"id\":1}}",
+        "{\"add_sketch_entity\":{\"feature\":3,\"entity\":{\"id\":5,\"construction\":true,\"line\":{\"start\":3,\"end\":4}}}}",
+        "{\"set_sketch_construction\":{\"feature\":3,\"id\":5,\"construction\":false}}",
     ] {
         assert!(text.contains(record), "{record} is missing from {text}");
     }
@@ -1507,6 +1519,66 @@ fn a_changed_solid_feature_round_trips_through_the_journal() {
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
     assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn construction_geometry_stays_construction_through_saving() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let centreline = sketch.add_line(Point2::ZERO, Point2::Y);
+    let circle = sketch.add_circle(Point2::X, 0.5);
+    sketch.set_construction(centreline, true).unwrap();
+    let mut document = Document::default();
+    let mut transaction = document.transaction("New sketch");
+    let feature = transaction.add_feature("Profile", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let restored = loaded
+        .document
+        .feature(feature)
+        .unwrap()
+        .kind
+        .sketch()
+        .unwrap();
+
+    assert!(text.contains(&format!(
+        "\"construction\":true,\"id\":{}",
+        centreline.raw()
+    )));
+    assert_eq!(text.matches("construction").count(), 1);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert!(restored.is_construction(centreline));
+    assert!(!restored.is_construction(circle));
+    assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn a_point_stored_as_construction_geometry_loads_as_an_ordinary_point() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("New sketch");
+    let mut sketch = Sketch::new(Plane::XY);
+    let point = sketch.add_point(Point2::X);
+    let feature = transaction.add_feature("Points", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+    let stored = format!("{{\"id\":{},\"point\"", point.raw());
+    let text = encode(&document).unwrap().replace(
+        &stored,
+        &format!("{{\"construction\":true,\"id\":{},\"point\"", point.raw()),
+    );
+
+    let loaded = decode_text(&text);
+    let restored = loaded
+        .document
+        .feature(feature)
+        .unwrap()
+        .kind
+        .sketch()
+        .unwrap();
+
+    assert!(issues_mention(&loaded, "was kept as ordinary geometry"));
+    assert_eq!(restored.entity(point), Some(&Entity::Point(Point2::X)));
+    assert!(!restored.is_construction(point));
 }
 
 #[test]

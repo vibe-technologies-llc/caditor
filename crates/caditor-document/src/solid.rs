@@ -333,6 +333,7 @@ impl SolidResult {
 pub(crate) fn profile_curves(sketch: &Sketch) -> Vec<ProfileCurve> {
     sketch
         .entities()
+        .filter(|(id, _)| !sketch.is_construction(*id))
         .filter_map(|(id, entity)| {
             let raw = id.raw();
             match entity {

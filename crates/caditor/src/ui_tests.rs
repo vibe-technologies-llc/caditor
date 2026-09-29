@@ -2788,6 +2788,73 @@ fn an_arc_end_and_a_circle_rim_join_only_what_they_land_on() {
 }
 
 #[test]
+fn q_switches_the_selected_curves_or_new_drawing_to_construction_geometry() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    let construction = |harness: &Harness| {
+        harness
+            .workspace
+            .editing
+            .active()
+            .is_some_and(|active| active.construction)
+    };
+    let dashed = |harness: &mut Harness| {
+        harness
+            .built()
+            .scene
+            .lines
+            .iter()
+            .filter(|line| matches!(line.stroke, caditor_render::Stroke::Dashed { .. }))
+            .count()
+    };
+    harness.use_tool(Key::L);
+    type_point(&mut harness, "0, 0");
+    type_point(&mut harness, "20, 0");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let ordinary = entities_of_kind(harness.sketch(feature), "Line")[0];
+
+    harness.key(Key::Q, Modifiers::NONE);
+    harness.frame();
+    let drawing_construction = construction(&harness);
+    harness.use_tool(Key::L);
+    type_point(&mut harness, "0, 10");
+    type_point(&mut harness, "20, 10");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let guide = entities_of_kind(harness.sketch(feature), "Line")[1];
+    harness.key(Key::Q, Modifiers::NONE);
+    harness.frame();
+
+    assert!(drawing_construction);
+    assert!(!construction(&harness));
+    assert!(harness.sketch(feature).is_construction(guide));
+    assert!(!harness.sketch(feature).is_construction(ordinary));
+    assert_eq!(dashed(&mut harness), 1);
+
+    let line = |entity| Pickable::SketchEntity { feature, entity };
+    harness.select([line(ordinary)]);
+    harness.key(Key::Q, Modifiers::NONE);
+    harness.settle();
+    assert!(harness.sketch(feature).is_construction(ordinary));
+    assert_eq!(dashed(&mut harness), 2);
+
+    harness.select([line(ordinary), line(guide)]);
+    harness.key(Key::Q, Modifiers::NONE);
+    harness.settle();
+    assert_eq!(harness.sketch(feature).construction().len(), 0);
+    assert!(!construction(&harness));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.settle();
+    assert_eq!(harness.sketch(feature).construction().len(), 2);
+
+    harness.select([]);
+    harness.click("Construction");
+    assert!(construction(&harness));
+}
+
+#[test]
 fn a_typed_arc_goes_the_shorter_way_and_x_sends_it_the_long_way() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();

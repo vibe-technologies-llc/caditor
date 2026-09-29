@@ -10,7 +10,9 @@ use crate::{
     camera::{Projection, View, Viewpoint},
     gpu::{self, Bytes, DeviceLoss, GrowableBuffer},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
-    scene::{Color, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Scene, ViewportRect},
+    scene::{
+        Color, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Scene, Stroke, ViewportRect,
+    },
     viewport::{SurfaceTarget, ViewportFrame, ViewportRenderer},
 };
 
@@ -59,6 +61,7 @@ fn scene() -> Scene {
             width: 3.0,
             layer: Layer::Model,
             pick: PickId::from_index(0),
+            stroke: Stroke::Solid,
         }],
         fills: vec![Fill::convex(
             &[
@@ -218,6 +221,7 @@ fn line_and_marker() -> Scene {
             width: 3.0,
             layer: Layer::Model,
             pick: PickId::from_index(0),
+            stroke: Stroke::Solid,
         }],
         markers: vec![Marker {
             position: Point3::new(10.0, 20.0, 0.0),
@@ -265,6 +269,45 @@ fn lines_and_markers_keep_their_size_in_points_at_every_scale() {
     assert!((line_at_two - 6.0).abs() < 0.8, "{line_at_two}");
     assert!((marker_at_one - 7.0).abs() < 1.0, "{marker_at_one}");
     assert!((marker_at_two - 14.0).abs() < 1.5, "{marker_at_two}");
+}
+
+#[test]
+fn a_dashed_line_leaves_gaps_that_still_pick_it() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let mut scene = line_and_marker();
+    scene.markers.clear();
+    let from = view.project(Point3::new(-15.0, 0.0, 0.0)).unwrap();
+    let to = view.project(Point3::new(15.0, 0.0, 0.0)).unwrap();
+    let lit_along = |scene: &Scene, pick_at: DVec2| {
+        let rendered = render(&device, &queue, &view, scene, pick_at);
+        let lit: Vec<bool> = row(from.y.floor(), (from.x + to.x) / 2.0, (to.x - from.x) / 2.0)
+            .map(|at| pixel(&rendered, at)[0] > 128)
+            .collect();
+        (lit, rendered.pick)
+    };
+
+    let (solid, _) = lit_along(&scene, from);
+    scene.lines[0].stroke = Stroke::Dashed { along: 0.0 };
+    let (dashed, _) = lit_along(&scene, from);
+    let drawn = dashed.iter().filter(|lit| **lit).count() as f64 / dashed.len() as f64;
+    let dashes = dashed.windows(2).filter(|pair| pair[0] && !pair[1]).count();
+    let gap = dashed.iter().position(|lit| !lit).unwrap();
+    let in_gap = DVec2::new(from.x.floor() + gap as f64, from.y.floor());
+    let (_, pick) = lit_along(&scene, in_gap);
+    let hit = pick
+        .hits
+        .iter()
+        .find(|hit| Some(hit.id) == PickId::from_index(0))
+        .unwrap();
+
+    assert!(solid.iter().all(|lit| *lit));
+    assert!((0.5..0.7).contains(&drawn), "{drawn}");
+    assert!(dashes >= 8, "{dashes}");
+    assert!(hit.offset_points < 1.5, "{hit:?}");
 }
 
 #[test]
@@ -469,6 +512,7 @@ fn draws_and_picks_a_box(device: &wgpu::Device, queue: &wgpu::Queue) {
             width: 3.0,
             layer: Layer::Model,
             pick: PickId::from_index(0),
+            stroke: Stroke::Solid,
         }],
         ..Scene::default()
     };
@@ -585,6 +629,7 @@ fn faces_that_cannot_be_picked_still_hide_what_is_behind_them_from_picking() {
             width: 3.0,
             layer: Layer::Model,
             pick: PickId::from_index(0),
+            stroke: Stroke::Solid,
         }],
         ..Scene::default()
     };
@@ -1015,6 +1060,7 @@ fn lines_crossing_the_near_plane_are_cut_there_and_lines_behind_the_eye_vanish()
         width: 3.0,
         layer: Layer::Model,
         pick: PickId::from_index(index),
+        stroke: Stroke::Solid,
     };
     let scene = Scene {
         lines: vec![
@@ -1220,6 +1266,7 @@ fn a_scene_larger_than_a_buffer_draws_what_fits_and_splits_its_meshes() {
             width: 3.0,
             layer: Layer::Model,
             pick: PickId::from_index(index),
+            stroke: Stroke::Solid,
         })
         .collect();
     let fills = (0..many / 6)
@@ -1303,6 +1350,7 @@ fn an_orthographic_view_draws_and_picks_faces_behind_its_eye_with_edges_over_the
         width: 3.0,
         layer: Layer::Model,
         pick: PickId::from_index(index),
+        stroke: Stroke::Solid,
     };
     let scene = Scene {
         meshes: vec![MeshInstance {

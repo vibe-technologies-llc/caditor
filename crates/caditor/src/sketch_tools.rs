@@ -1,9 +1,10 @@
-use caditor_document::{FeatureId, Transaction, TransactionBuilder};
+use caditor_document::{Edit, FeatureId, Transaction, TransactionBuilder};
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Reference, Sketch};
 
 use crate::{
+    feature_tree::count,
     field::sentence,
     model::Model,
     selection::{Pickable, Selection},
@@ -668,6 +669,60 @@ pub fn remove_items(
     let mut transaction = settled_transaction(model, feature, label);
     transaction.remove_sketch_items(feature, entities, constraints);
     transaction.finish()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConstructionChange {
+    pub curves: Vec<EntityId>,
+    pub construction: bool,
+}
+
+impl ConstructionChange {
+    pub fn of(sketch: &Sketch, selected: &[EntityId]) -> Option<Self> {
+        let curves: Vec<EntityId> = selected
+            .iter()
+            .copied()
+            .filter(|id| {
+                sketch
+                    .entity(*id)
+                    .is_some_and(|entity| !matches!(entity, Entity::Point(_)))
+            })
+            .collect();
+        let construction = curves.iter().any(|curve| !sketch.is_construction(*curve));
+        let changed: Vec<EntityId> = curves
+            .into_iter()
+            .filter(|curve| sketch.is_construction(*curve) != construction)
+            .collect();
+        (!changed.is_empty()).then_some(Self {
+            curves: changed,
+            construction,
+        })
+    }
+
+    pub fn label(&self, sketch: &Sketch) -> String {
+        let subject = match self.curves.as_slice() {
+            [only] => sketch.entity_label(*only),
+            curves => count(curves.len(), "curve", "curves"),
+        };
+        let kind = if self.construction {
+            "construction"
+        } else {
+            "ordinary"
+        };
+        format!("Make {subject} {kind} geometry")
+    }
+
+    pub fn transaction(&self, model: &Model, feature: FeatureId, sketch: &Sketch) -> Transaction {
+        let mut transaction = settled_transaction(model, feature, self.label(sketch));
+        for curve in &self.curves {
+            transaction.edit(Edit::SetSketchConstruction {
+                feature,
+                id: *curve,
+                construction: self.construction,
+            });
+        }
+        transaction.finish()
+    }
 }
 
 pub fn settled_transaction(

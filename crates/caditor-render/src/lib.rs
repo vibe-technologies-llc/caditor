@@ -17,7 +17,8 @@ pub use crate::{
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     picking::PickPoll,
     scene::{
-        Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene, ViewportRect,
+        Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene, Stroke,
+        ViewportRect,
     },
     viewport::ViewportFrame,
 };

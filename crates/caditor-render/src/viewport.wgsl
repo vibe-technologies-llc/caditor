@@ -25,6 +25,8 @@ struct MeshPlacement {
 
 const CULLED: vec4<f32> = vec4<f32>(0.0, 0.0, 2.0, 1.0);
 const ORTHOGRAPHIC_DEPTH_BIAS: f32 = 0.03;
+const DASH_PERIOD_POINTS: f32 = 10.0;
+const DASH_DRAWN_FRACTION: f32 = 0.6;
 
 struct Varyings {
     @builtin(position) position: vec4<f32>,
@@ -35,6 +37,7 @@ struct Varyings {
     @location(4) @interpolate(flat) diameter: f32,
     @location(5) relative: vec3<f32>,
     @location(6) normal: vec3<f32>,
+    @location(7) dash_points: f32,
 }
 
 struct PickOutput {
@@ -99,6 +102,7 @@ fn empty_varyings() -> Varyings {
     out.diameter = 0.0;
     out.relative = vec3<f32>(0.0);
     out.normal = vec3<f32>(0.0);
+    out.dash_points = -1.0;
     return out;
 }
 
@@ -121,6 +125,7 @@ struct LineInstance {
     @location(3) width: f32,
     @location(4) pick: u32,
     @location(5) depth_bias: f32,
+    @location(6) along: f32,
 }
 
 @vertex
@@ -161,6 +166,12 @@ fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
     out.color = line.color;
     out.pick = line.pick;
     out.depth = select(view_depth(start), view_depth(end), at_end);
+    if line.along >= 0.0 {
+        let clipped_length = distance(start, end);
+        let points_per_unit = length(along_pixels) / (max(clipped_length, 1e-12) * pixels_per_point());
+        let along_start = line.along + distance(line.start, start);
+        out.dash_points = (along_start + select(0.0, clipped_length, at_end)) * points_per_unit;
+    }
     return out;
 }
 
@@ -256,6 +267,14 @@ fn vs_grid(@builtin(vertex_index) vertex: u32) -> Varyings {
 
 @fragment
 fn fs_color(in: Varyings) -> @location(0) vec4<f32> {
+    return in.color;
+}
+
+@fragment
+fn fs_line(in: Varyings) -> @location(0) vec4<f32> {
+    if in.dash_points >= 0.0 && fract(in.dash_points / DASH_PERIOD_POINTS) > DASH_DRAWN_FRACTION {
+        discard;
+    }
     return in.color;
 }
 

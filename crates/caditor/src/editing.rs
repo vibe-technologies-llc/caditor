@@ -74,6 +74,7 @@ impl Tool {
 pub struct ActiveSketch {
     pub feature: FeatureId,
     pub tool: Tool,
+    pub construction: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -85,6 +86,7 @@ pub enum EditingCommand {
     Enter(FeatureId),
     Finish,
     SetTool(Tool),
+    DrawConstruction(bool),
     OpenSolid(FeatureId),
     CloseSolid,
 }
@@ -135,6 +137,7 @@ impl SketchEditing {
             active: Some(ActiveSketch {
                 feature,
                 tool: Tool::Select,
+                construction: false,
             }),
             ..Self::default()
         }
@@ -157,6 +160,11 @@ impl SketchEditing {
             EditingCommand::SetTool(tool) => {
                 if let Some(active) = &mut self.active {
                     active.tool = tool;
+                }
+            }
+            EditingCommand::DrawConstruction(construction) => {
+                if let Some(active) = &mut self.active {
+                    active.construction = construction;
                 }
             }
             EditingCommand::OpenSolid(feature) => {
@@ -228,6 +236,7 @@ impl SketchEditing {
             self.active = Some(ActiveSketch {
                 feature,
                 tool: Tool::Select,
+                construction: false,
             });
         }
     }

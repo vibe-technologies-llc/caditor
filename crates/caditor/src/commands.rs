@@ -71,6 +71,7 @@ pub enum Command {
     NewSketch,
     FinishSketch,
     ReverseArc,
+    Construction,
     SketchTool(Tool),
     Constraint(ConstraintTool),
     DeleteSelection,
@@ -361,7 +362,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 59] = [
+const PLAIN_COMMANDS: [Command; 60] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -399,6 +400,7 @@ const PLAIN_COMMANDS: [Command; 59] = [
     Command::DatumAxis,
     Command::FinishSketch,
     Command::ReverseArc,
+    Command::Construction,
     Command::DeleteSelection,
     Command::RecoverUnsaved,
     Command::CancelExport,
@@ -453,6 +455,7 @@ impl Command {
             Self::NewSketch => "model.new_sketch",
             Self::FinishSketch => "sketch.finish",
             Self::ReverseArc => "sketch.reverse_arc",
+            Self::Construction => "sketch.construction",
             Self::SketchTool(tool) => match tool {
                 Tool::Select => "sketch.select",
                 Tool::Point => "sketch.point",
@@ -562,6 +565,7 @@ impl Command {
             Self::NewSketch => "New sketch",
             Self::FinishSketch => "Finish sketch",
             Self::ReverseArc => "Reverse the arc",
+            Self::Construction => "Switch to or from construction geometry",
             Self::SketchTool(Tool::Select) => "Select tool",
             Self::SketchTool(tool) => return format!("Draw {}", tool.label().to_lowercase()),
             Self::Constraint(tool) => return tool.label().to_owned(),
@@ -677,16 +681,20 @@ impl Command {
             | Self::AddParameter
             | Self::DeleteParameter
             | Self::ShowFirstFailed => Category::Model,
-            Self::FinishSketch | Self::ReverseArc | Self::SketchTool(_) => Category::Sketch,
+            Self::FinishSketch | Self::ReverseArc | Self::Construction | Self::SketchTool(_) => {
+                Category::Sketch
+            }
             Self::Constraint(_) => Category::Constraint,
         }
     }
 
     pub fn scope(self) -> Scope {
         match self {
-            Self::FinishSketch | Self::ReverseArc | Self::SketchTool(_) | Self::Constraint(_) => {
-                Scope::Sketch
-            }
+            Self::FinishSketch
+            | Self::ReverseArc
+            | Self::Construction
+            | Self::SketchTool(_)
+            | Self::Constraint(_) => Scope::Sketch,
             _ => Scope::Anywhere,
         }
     }
@@ -726,6 +734,7 @@ impl Command {
             )],
             Self::DeleteSelection => vec![plain(Key::Delete), plain(Key::Backspace)],
             Self::ReverseArc => vec![plain(Key::X)],
+            Self::Construction => vec![plain(Key::Q)],
             Self::RenameFeature => vec![plain(Key::F2)],
             Self::Recompute => vec![plain(Key::F5)],
             Self::EditFeature => vec![plain(Key::E)],
