@@ -159,6 +159,8 @@ impl Menus<'_, '_> {
             self.items(
                 ui,
                 [
+                    Command::EditFeature,
+                    Command::CloseFeature,
                     Command::RenameFeature,
                     Command::MoveFeatureUp,
                     Command::MoveFeatureDown,
@@ -166,12 +168,14 @@ impl Menus<'_, '_> {
                 ],
             );
             ui.separator();
+            self.items(ui, [Command::AddParameter, Command::DeleteParameter]);
+            ui.separator();
             self.items(
                 ui,
                 [
-                    Command::AddParameter,
                     Command::Recompute,
                     Command::CancelRecompute,
+                    Command::ShowFirstFailed,
                 ],
             );
         });

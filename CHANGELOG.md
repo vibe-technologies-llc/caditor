@@ -98,6 +98,9 @@ The first release of caditor.
   and the edited sketch.
 - A command palette, customisable keyboard shortcuts, and keyboard operation of everything,
   including views, highlighting in the viewport and typed points.
+- Editing a feature (E) and finishing it, detaching a sketch or placing it on the selected plane
+  or face, taking the selected axis or plane in a revolve or datum, deleting a parameter, going
+  to the first failed feature (F8) and dismissing or hiding tips are commands in the palette.
 - The shortcut editor finds commands by their keys as well as their names: typing `ctrl+z` or
   just `z` lists what those keys do.
 - Shortcuts such as Ctrl+S work while typing in a field: the typed value is committed first, so

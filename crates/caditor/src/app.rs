@@ -21,6 +21,7 @@ use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     commands::{self, Command, CommandFrame, Offer, Situation},
     editing::SketchEditing,
+    feature_tree,
     files::{self, FileCommand, Files},
     fonts,
     menu_bar::{self, MenuContext},
@@ -69,6 +70,7 @@ const FIRST_RETRY: Duration = Duration::from_millis(16);
 const MAX_RETRY: Duration = Duration::from_secs(1);
 const MAX_RETRY_DOUBLINGS: u32 = 6;
 const HIDDEN_PROBE: Duration = Duration::from_secs(5);
+const NO_TIP: &str = "No tip is shown";
 
 pub struct Workspace {
     pub viewport: ViewportState,
@@ -164,6 +166,26 @@ impl Workspace {
     }
 }
 
+fn tip_commands(
+    hint: Option<onboarding::Hint>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let shown = hint.ok_or(NO_TIP);
+    let mut change = None;
+    if commands.invoke(Command::DismissTip, &shown)
+        && let Ok(hint) = shown
+    {
+        change = Some(PreferenceChange::DismissHint(hint));
+    }
+    if commands.invoke(Command::HideTips, &shown) {
+        change = Some(PreferenceChange::ShowHints(false));
+    }
+    if let Some(change) = change {
+        actions.push(Action::Preferences(PreferencesCommand::Change(change)));
+    }
+}
+
 pub fn show(
     ui: &mut egui::Ui,
     model: &Model,
@@ -179,11 +201,12 @@ pub fn show(
     }
     let text_focused = ui.ctx().text_edit_focused();
     let keyboard_taken = ui.ctx().egui_wants_keyboard_input() || workspace.keyboard_was_taken;
-    let dialog_open = workspace.preferences_open
-        || workspace.palette.is_open()
+    let palette_open = workspace.palette.is_open();
+    let modal_open = workspace.preferences_open
         || workspace.shortcut_editor.is_some()
         || workspace.welcome_open
         || workspace.about_open;
+    let dialog_open = modal_open || palette_open;
     let blocked = files.is_blocking() || dialog_open;
     let keys_free = !keyboard_taken && !blocked;
     let Workspace {
@@ -248,7 +271,12 @@ pub fn show(
         appearance: &preferences.appearance,
     };
     status_bar::show(ui, model, &status, panels, &mut commands, actions);
-    panels::commands(model, editing, panels, &mut commands, actions);
+    let context = feature_tree::CommandContext {
+        model,
+        selection: viewport.selection(),
+        editing,
+    };
+    panels::commands(&context, panels, &mut commands, actions);
     route_dimension_focus(panels, editing, viewport);
     panels::show(ui, model, viewport.selection(), editing, panels, actions);
     route_dimension_focus(panels, editing, viewport);
@@ -270,6 +298,17 @@ pub fn show(
     if commands.available(Command::About) {
         actions.push(Action::Preferences(PreferencesCommand::ShowAbout));
     }
+    let hint = {
+        let situation = onboarding::Situation {
+            model,
+            editing,
+            offers: commands.offers(),
+        };
+        onboarding::current(&preferences.onboarding, &situation)
+            .filter(|_| !modal_open && !files.is_blocking())
+            .zip(viewport.rect())
+    };
+    tip_commands(hint.map(|(hint, _)| hint), &mut commands, actions);
     let (offers, refused) = commands.finish();
     for (command, reason) in refused {
         actions.push(Action::Inform(Notice::info(format!(
@@ -309,15 +348,7 @@ pub fn show(
         if *about_open && about::dialog(ui.ctx()) {
             actions.push(Action::Preferences(PreferencesCommand::CloseAbout));
         }
-        let situation = onboarding::Situation {
-            model,
-            editing,
-            offers: &offers,
-        };
-        let hint = onboarding::current(&preferences.onboarding, &situation)
-            .filter(|_| !dialog_open)
-            .zip(viewport.rect());
-        if let Some((hint, rect)) = hint
+        if let Some((hint, rect)) = hint.filter(|_| !palette_open)
             && let Some(choice) = onboarding::show_hint(ui.ctx(), rect, hint, &preferences.keymap)
         {
             let change = match choice {

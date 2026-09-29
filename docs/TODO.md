@@ -140,9 +140,6 @@ within a category run from most to least important.
 
 ## Keyboard and accessibility
 
-- Commands are missing for editing a sketch or opening a feature and finishing it, Detach and
-  Place on selected plane or face, Use selected axis and Use selected in the datum panel,
-  deleting a parameter, focusing the first failed feature, and dismissing tips.
 - Icon-only buttons (`widgets::icon_button`, the tree row's chevron, edit and "⋯" buttons, the
   size buttons) expose their private-use glyph as their accessible name, property captions are
   not tied to their fields, and the shortcut editor's many "Add…" and "Reset" buttons differ

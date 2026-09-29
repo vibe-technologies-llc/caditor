@@ -22,6 +22,7 @@ const PROGRESS_REFRESH: Duration = Duration::from_millis(100);
 const NOTICE_GAP: f32 = 16.0;
 const NO_NOTICE: &str = "There is no notice to dismiss";
 const NOT_RECOMPUTING: &str = "Nothing is being recomputed";
+const NOTHING_FAILED: &str = "No feature has failed";
 
 pub struct StatusContext<'a> {
     pub files: &'a Files,
@@ -38,6 +39,12 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     recompute_commands(model, commands, actions);
+    let failed = first_failed(model).ok_or(NOTHING_FAILED);
+    if commands.invoke(Command::ShowFirstFailed, &failed)
+        && let Ok(feature) = failed
+    {
+        panels.request_focus(Focus::Feature(feature));
+    }
     let dismissible = model.notice().map(|_| ()).ok_or(NO_NOTICE);
     if commands.invoke(Command::DismissNotice, &dismissible) {
         actions.push(Action::DismissNotice);

@@ -246,6 +246,31 @@ pub fn place_on_datum(
     Ok(transaction)
 }
 
+const NOTHING_TO_PLACE_ON: &str = "Select a datum plane or a flat face to place the sketch on";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlacementTarget {
+    Plane(FeatureId),
+    Face(FaceChoice),
+}
+
+pub fn placement_target(document: &Document, selection: &Selection) -> Option<PlacementTarget> {
+    datum_tools::selected_datum_plane(document, selection)
+        .map(PlacementTarget::Plane)
+        .or_else(|| selected_face(selection).map(PlacementTarget::Face))
+}
+
+pub fn place_on_selection(
+    model: &Model,
+    selection: &Selection,
+    sketch: FeatureId,
+) -> Result<Transaction, &'static str> {
+    match placement_target(model.document(), selection).ok_or(NOTHING_TO_PLACE_ON)? {
+        PlacementTarget::Plane(datum) => place_on_datum(model, sketch, datum),
+        PlacementTarget::Face(face) => place(model, sketch, face),
+    }
+}
+
 fn feature_name(document: &Document, feature: FeatureId) -> String {
     document
         .feature(feature)

@@ -2,6 +2,7 @@ use caditor_document::{Document, Edit, Parameter, Transaction};
 use egui::{Grid, Ui};
 
 use crate::{
+    commands::{Command, CommandFrame},
     field, icons,
     model::{Action, Model},
     panels::{Focus, PanelState},
@@ -15,6 +16,8 @@ const NAME_FIELD_WIDTH: f32 = 84.0;
 const EXPRESSION_FIELD_WIDTH: f32 = 116.0;
 const NEW_PARAMETER_NAME: &str = "parameter";
 const NEW_PARAMETER_MILLIMETRES: f64 = 10.0;
+const NO_PARAMETER_CHOSEN: &str =
+    "Click or tab into a parameter's name or expression in the Parameters section first";
 
 pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
     let document = model.document();
@@ -128,6 +131,9 @@ fn row(
     );
     state.focus_reached(name_focus, name.response.has_focus());
     state.focus_reached(value_focus, expression.response.has_focus());
+    if name.response.has_focus() || expression.response.has_focus() {
+        state.parameter = Some(id);
+    }
     for transaction in [name.committed, expression.committed].into_iter().flatten() {
         actions.push(Action::Apply(transaction));
     }
@@ -154,16 +160,49 @@ fn row(
     name.error.or(expression.error)
 }
 
+pub fn commands(
+    model: &Model,
+    state: &mut PanelState,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    if commands.available(Command::AddParameter) {
+        add(model, state, actions);
+    }
+    let document = model.document();
+    let chosen = state.parameter.and_then(|id| document.parameter(id));
+    let delete = chosen.map_or_else(
+        || Err(NO_PARAMETER_CHOSEN.to_owned()),
+        |parameter| {
+            document
+                .can_remove_parameter(parameter.id())
+                .map(|()| delete_transaction(parameter))
+                .map_err(|error| error.to_string())
+        },
+    );
+    let detail = chosen.map(|parameter| parameter.name.clone());
+    if commands.invoke_detailed(Command::DeleteParameter, detail, &delete)
+        && let Ok(delete) = delete
+    {
+        state.parameter = None;
+        actions.push(Action::Apply(delete));
+    }
+}
+
+fn delete_transaction(parameter: &Parameter) -> Transaction {
+    Transaction::single(
+        format!("Delete {}", parameter.name),
+        Edit::RemoveParameter { id: parameter.id() },
+    )
+}
+
 fn delete_button(
     ui: &mut Ui,
     document: &Document,
     actions: &mut Vec<Action>,
     parameter: &Parameter,
 ) {
-    let delete = Transaction::single(
-        format!("Delete {}", parameter.name),
-        Edit::RemoveParameter { id: parameter.id() },
-    );
+    let delete = delete_transaction(parameter);
     let check = document.can_remove_parameter(parameter.id());
     let hover = format!("Delete {}", parameter.name);
     let response = ui

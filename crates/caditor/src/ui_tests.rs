@@ -3855,3 +3855,238 @@ fn dragging_a_speed_slider_applies_at_once_and_is_saved_when_released() {
         caditor_file::Settings::load(&config).number("navigation.orbit_speed") == Some(released)
     });
 }
+
+fn offer(harness: &Harness, command: Command) -> Offer {
+    harness
+        .workspace
+        .last_offers
+        .iter()
+        .find(|offer| offer.command == command)
+        .cloned()
+        .unwrap_or_else(|| panic!("{command:?} is not offered"))
+}
+
+fn feature_named(harness: &Harness, name: &str) -> FeatureId {
+    harness
+        .document()
+        .features()
+        .find(|feature| feature.name == name)
+        .map(Feature::id)
+        .unwrap_or_else(|| panic!("there is no feature named {name}"))
+}
+
+#[test]
+fn features_are_opened_and_finished_from_the_keyboard() {
+    let mut harness = Harness::new();
+    let side = feature_named(&harness, "Side sketch");
+    assert!(offer(&harness, Command::EditFeature).availability.is_err());
+
+    harness.click("Side sketch");
+    harness.key(Key::E, Modifiers::NONE);
+    harness.settle();
+    assert_eq!(harness.editing(), Some(side));
+    run_from_palette(&mut harness, "finish sketch");
+    assert_eq!(harness.editing(), None);
+
+    let (extrude, _) = extruded_plate(&mut harness);
+    assert!(offer(&harness, Command::CloseFeature).availability.is_err());
+    harness.click("Extrude 1");
+    assert_eq!(
+        offer(&harness, Command::EditFeature).title(),
+        "Edit feature: Extrude 1"
+    );
+    harness.key(Key::E, Modifiers::NONE);
+    harness.settle();
+    assert_eq!(harness.workspace.editing.solid(), Some(extrude));
+    harness.key(Key::E, Modifiers::NONE);
+    harness.frame();
+    assert_eq!(
+        harness.model.notice().map(|notice| notice.text.as_str()),
+        Some("Edit feature: Extrude 1 is already being edited")
+    );
+
+    run_from_palette(&mut harness, "finish editing feature");
+    assert_eq!(harness.workspace.editing.solid(), None);
+}
+
+#[test]
+fn a_sketch_is_placed_on_the_selected_face_and_detached_from_the_palette() {
+    let mut harness = Harness::new();
+    let (extrude, top) = extruded_plate(&mut harness);
+    let mut transaction = harness.document().transaction("Add sketch");
+    let mut loose = Sketch::new(Plane::XY);
+    rectangle(&mut loose, Point2::new(5.0, 5.0), Point2::new(15.0, 15.0));
+    let sketch = transaction.add_feature("Loose", FeatureKind::from(loose));
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+
+    harness.click("Loose");
+    assert_eq!(
+        offer(&harness, Command::PlaceSketch).availability,
+        Err("Select a datum plane or a flat face to place the sketch on".to_owned())
+    );
+    assert_eq!(
+        offer(&harness, Command::DetachSketch).availability,
+        Err("Loose does not lie on a face or datum plane".to_owned())
+    );
+
+    harness.select([top]);
+    run_from_palette(&mut harness, "place sketch");
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Place Loose on a face"));
+    assert_eq!(attached_body(&harness, sketch), Some(extrude));
+    assert_eq!(plane_height(&harness, sketch), 10.0);
+
+    run_from_palette(&mut harness, "detach sketch");
+    harness.settle();
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Detach Loose from its face")
+    );
+    assert_eq!(attached_body(&harness, sketch), None);
+    assert_eq!(harness.sketch(sketch).plane().origin().z, 10.0);
+}
+
+#[test]
+fn a_revolve_and_a_datum_plane_take_the_selection_from_the_palette() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let edge = Pickable::Edge {
+        body: plate,
+        edge: top_edge_along_x(&harness, plate, 0.0),
+    };
+
+    let mut section = Sketch::new(Plane::XZ);
+    rectangle(
+        &mut section,
+        Point2::new(0.0, 20.0),
+        Point2::new(10.0, 30.0),
+    );
+    harness.add_sketch(section);
+    harness.select([]);
+    harness.click("Revolve");
+    harness.settle();
+    let revolve = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the revolve is open");
+    assert_eq!(
+        harness
+            .solid(revolve)
+            .axis()
+            .and_then(caditor_document::RevolveAxis::model),
+        None
+    );
+    harness.select([edge]);
+    run_from_palette(&mut harness, "revolve about selected axis");
+    harness.settle();
+    assert!(
+        harness
+            .solid(revolve)
+            .axis()
+            .and_then(caditor_document::RevolveAxis::model)
+            .is_some()
+    );
+
+    harness.select([]);
+    harness.click("Plane");
+    harness.settle();
+    let plane = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the plane is open");
+    assert!(datum_plane(&harness, plane).normal().z.abs() > 0.999);
+    assert_eq!(
+        offer(&harness, Command::DatumUseSelected).availability,
+        Err("Select a plane or flat face made before this plane".to_owned())
+    );
+    harness.select([Pickable::Plane(PrincipalPlane::Xz)]);
+    run_from_palette(&mut harness, "base datum on selection");
+    harness.settle();
+    assert!(datum_plane(&harness, plane).normal().y.abs() > 0.999);
+
+    harness.select([edge]);
+    run_from_palette(&mut harness, "turn datum plane about selected axis");
+    harness.settle();
+    let Some(caditor_document::Datum::Plane(turned)) = harness
+        .document()
+        .feature(plane)
+        .and_then(|feature| feature.kind.datum())
+    else {
+        panic!("the plane is a datum plane");
+    };
+    assert!(turned.rotation.is_some());
+}
+
+#[test]
+fn a_parameter_is_deleted_and_a_failed_feature_found_from_the_keyboard() {
+    let mut harness = Harness::new();
+    assert_eq!(
+        offer(&harness, Command::DeleteParameter).availability,
+        Err(
+            "Click or tab into a parameter's name or expression in the Parameters section first"
+                .to_owned()
+        )
+    );
+    let width = harness.parameter("width");
+    harness.focus(Focus::ParameterValue(width));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let refused = offer(&harness, Command::DeleteParameter);
+    assert_eq!(refused.title(), "Delete parameter: width");
+    assert!(refused.availability.is_err());
+
+    run_from_palette(&mut harness, "add parameter");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    assert!(harness.document().parameter_named("parameter").is_some());
+    run_from_palette(&mut harness, "delete parameter");
+    harness.settle();
+    assert!(harness.document().parameter_named("parameter").is_none());
+    assert_eq!(harness.model.undo_label(), Some("Delete parameter"));
+
+    assert!(
+        offer(&harness, Command::ShowFirstFailed)
+            .availability
+            .is_err()
+    );
+    let height = harness.parameter("height");
+    harness.type_into(
+        Focus::ParameterValue(height),
+        "400 mm * 1 mm / (width - 30 mm)",
+    );
+    harness.type_into(Focus::ParameterValue(width), "30 mm");
+    harness.settle();
+    assert!(harness.shows("1 feature failed"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::F8, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    assert_eq!(
+        harness.workspace.panels.selected,
+        Some(feature_named(&harness, "Side sketch"))
+    );
+}
+
+#[test]
+fn tips_are_dismissed_and_hidden_from_the_palette() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::first_run(dir.path());
+    harness.frame();
+    harness.click("Flanged spool");
+    harness.settle();
+    let keymap = harness.workspace.preferences.keymap.clone();
+    assert!(harness.shows(&Hint::Navigate.text(&keymap)));
+
+    run_from_palette(&mut harness, "dismiss the tip");
+    assert!(!harness.shows(&Hint::Navigate.text(&keymap)));
+    assert!(harness.shows(&Hint::Palette.text(&keymap)));
+    run_from_palette(&mut harness, "hide tips");
+    assert!(!harness.shows("Tip"));
+    assert!(!harness.workspace.preferences.onboarding.hints);
+    assert!(offer(&harness, Command::DismissTip).availability.is_err());
+}

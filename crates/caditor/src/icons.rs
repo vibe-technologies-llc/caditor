@@ -83,8 +83,18 @@ pub fn command(command: Command) -> &'static str {
         Command::MoveFeatureUp => MOVE_UP,
         Command::MoveFeatureDown => MOVE_DOWN,
         Command::DeleteFeature => DELETE,
+        Command::EditFeature => EDIT,
+        Command::CloseFeature => DONE,
+        Command::DetachSketch => phosphor::LINK_BREAK,
+        Command::PlaceSketch
+        | Command::UseSelectedAxis
+        | Command::DatumUseSelected
+        | Command::DatumTurnAboutSelected => USE_SELECTED,
         Command::AddParameter => ADD,
-        Command::DismissNotice => CLOSE,
+        Command::DeleteParameter => DELETE,
+        Command::ShowFirstFailed => FAILED,
+        Command::DismissNotice | Command::DismissTip => CLOSE,
+        Command::HideTips => phosphor::EYE_SLASH,
         Command::Welcome => phosphor::HAND_WAVING,
         Command::About => phosphor::INFO,
     }

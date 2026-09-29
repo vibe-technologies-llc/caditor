@@ -4,7 +4,7 @@ use caditor_sketch::ConstraintId;
 use egui::Id;
 
 use crate::{
-    commands::{Command, CommandFrame},
+    commands::CommandFrame,
     editing::SketchEditing,
     feature_tree, icons,
     model::{Action, Model},
@@ -90,6 +90,7 @@ pub struct PanelState {
     pub renaming: Option<Renaming>,
     pub opened_for_editing: Option<FeatureId>,
     pub selected: Option<FeatureId>,
+    pub parameter: Option<ParameterId>,
     pub hovered_in_tree: Option<Pickable>,
     pub chosen_in_tree: Option<Pickable>,
 }
@@ -236,14 +237,11 @@ pub fn show(
 }
 
 pub fn commands(
-    model: &Model,
-    editing: &SketchEditing,
+    context: &feature_tree::CommandContext<'_>,
     state: &mut PanelState,
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    feature_tree::commands(model, editing, state, commands, actions);
-    if commands.available(Command::AddParameter) {
-        parameter_table::add(model, state, actions);
-    }
+    feature_tree::commands(context, state, commands, actions);
+    parameter_table::commands(context.model, state, commands, actions);
 }

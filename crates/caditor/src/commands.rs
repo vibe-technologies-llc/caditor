@@ -99,8 +99,19 @@ pub enum Command {
     MoveFeatureUp,
     MoveFeatureDown,
     DeleteFeature,
+    EditFeature,
+    CloseFeature,
+    DetachSketch,
+    PlaceSketch,
+    UseSelectedAxis,
+    DatumUseSelected,
+    DatumTurnAboutSelected,
     AddParameter,
+    DeleteParameter,
+    ShowFirstFailed,
     DismissNotice,
+    DismissTip,
+    HideTips,
     Welcome,
     About,
 }
@@ -344,7 +355,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 42] = [
+const PLAIN_COMMANDS: [Command; 53] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -385,8 +396,19 @@ const PLAIN_COMMANDS: [Command; 42] = [
     Command::MoveFeatureUp,
     Command::MoveFeatureDown,
     Command::DeleteFeature,
+    Command::EditFeature,
+    Command::CloseFeature,
+    Command::DetachSketch,
+    Command::PlaceSketch,
+    Command::UseSelectedAxis,
+    Command::DatumUseSelected,
+    Command::DatumTurnAboutSelected,
     Command::AddParameter,
+    Command::DeleteParameter,
+    Command::ShowFirstFailed,
     Command::DismissNotice,
+    Command::DismissTip,
+    Command::HideTips,
 ];
 
 impl Command {
@@ -478,8 +500,19 @@ impl Command {
             Self::MoveFeatureUp => "model.move_feature_up",
             Self::MoveFeatureDown => "model.move_feature_down",
             Self::DeleteFeature => "model.delete_feature",
+            Self::EditFeature => "model.edit_feature",
+            Self::CloseFeature => "model.close_feature",
+            Self::DetachSketch => "model.detach_sketch",
+            Self::PlaceSketch => "model.place_sketch",
+            Self::UseSelectedAxis => "model.use_selected_axis",
+            Self::DatumUseSelected => "model.datum_use_selected",
+            Self::DatumTurnAboutSelected => "model.datum_turn_about_selected",
             Self::AddParameter => "model.add_parameter",
+            Self::DeleteParameter => "model.delete_parameter",
+            Self::ShowFirstFailed => "model.first_failed",
             Self::DismissNotice => "edit.dismiss_notice",
+            Self::DismissTip => "help.dismiss_tip",
+            Self::HideTips => "help.hide_tips",
             Self::Welcome => "help.welcome",
             Self::About => "help.about",
         }
@@ -533,8 +566,19 @@ impl Command {
             Self::MoveFeatureUp => "Move feature up",
             Self::MoveFeatureDown => "Move feature down",
             Self::DeleteFeature => "Delete feature",
+            Self::EditFeature => "Edit feature",
+            Self::CloseFeature => "Finish editing feature",
+            Self::DetachSketch => "Detach sketch",
+            Self::PlaceSketch => "Place sketch on selected plane or face",
+            Self::UseSelectedAxis => "Revolve about selected axis",
+            Self::DatumUseSelected => "Base datum on selection",
+            Self::DatumTurnAboutSelected => "Turn datum plane about selected axis",
             Self::AddParameter => "Add parameter",
+            Self::DeleteParameter => "Delete parameter",
+            Self::ShowFirstFailed => "Go to the first failed feature",
             Self::DismissNotice => "Dismiss the notice",
+            Self::DismissTip => "Dismiss the tip",
+            Self::HideTips => "Hide tips",
             Self::Welcome => "Welcome and samples…",
             Self::About => "About caditor",
         };
@@ -557,7 +601,7 @@ impl Command {
             | Self::OpenRecent(_)
             | Self::RecoverUnsaved
             | Self::CancelExport => Category::File,
-            Self::Welcome | Self::About => Category::Help,
+            Self::Welcome | Self::About | Self::DismissTip | Self::HideTips => Category::Help,
             Self::Palette
             | Self::Undo
             | Self::Redo
@@ -586,7 +630,16 @@ impl Command {
             | Self::MoveFeatureUp
             | Self::MoveFeatureDown
             | Self::DeleteFeature
-            | Self::AddParameter => Category::Model,
+            | Self::EditFeature
+            | Self::CloseFeature
+            | Self::DetachSketch
+            | Self::PlaceSketch
+            | Self::UseSelectedAxis
+            | Self::DatumUseSelected
+            | Self::DatumTurnAboutSelected
+            | Self::AddParameter
+            | Self::DeleteParameter
+            | Self::ShowFirstFailed => Category::Model,
             Self::FinishSketch | Self::SketchTool(_) => Category::Sketch,
             Self::Constraint(_) => Category::Constraint,
         }
@@ -632,6 +685,8 @@ impl Command {
             Self::DeleteSelection => vec![plain(Key::Delete), plain(Key::Backspace)],
             Self::RenameFeature => vec![plain(Key::F2)],
             Self::Recompute => vec![plain(Key::F5)],
+            Self::EditFeature => vec![plain(Key::E)],
+            Self::ShowFirstFailed => vec![plain(Key::F8)],
             Self::VersionHistory
             | Self::KeyboardShortcuts
             | Self::NewSketch
@@ -651,8 +706,17 @@ impl Command {
             | Self::MoveFeatureUp
             | Self::MoveFeatureDown
             | Self::DeleteFeature
+            | Self::CloseFeature
+            | Self::DetachSketch
+            | Self::PlaceSketch
+            | Self::UseSelectedAxis
+            | Self::DatumUseSelected
+            | Self::DatumTurnAboutSelected
             | Self::AddParameter
+            | Self::DeleteParameter
             | Self::DismissNotice
+            | Self::DismissTip
+            | Self::HideTips
             | Self::Welcome
             | Self::About => Vec::new(),
         }
@@ -1124,6 +1188,10 @@ impl<'a> CommandFrame<'a> {
         let before = self.triggered.len();
         self.triggered.retain(|triggered| *triggered != command);
         self.triggered.len() != before
+    }
+
+    pub fn offers(&self) -> &[Offer] {
+        &self.offers
     }
 
     pub fn finish(self) -> (Vec<Offer>, Vec<(Command, String)>) {

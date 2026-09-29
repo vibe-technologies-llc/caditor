@@ -1,6 +1,6 @@
 use caditor_document::{
-    Document, Edit, Feature, FeatureError, FeatureKind, FeatureState, FeatureStatus, FixTarget,
-    SketchFeature, SolidResult, Transaction,
+    Datum, Document, Edit, Feature, FeatureError, FeatureKind, FeatureState, FeatureStatus,
+    FixTarget, SketchFeature, SolidFeature, SolidResult, Transaction,
 };
 use caditor_sketch::{ConstraintId, Redundancy, Sketch};
 use egui::{
@@ -12,14 +12,15 @@ use crate::{
     appearance::{self, WIDGET_RADIUS},
     blend_panel,
     commands::{Command, CommandFrame},
-    datum_panel, datum_tools,
+    datum_panel,
     editing::{EditingCommand, SketchEditing},
     field::{self, DimensionTarget},
     icons,
     model::{Action, Model},
     panels::{Focus, PanelState, Renaming},
     selection::{Pickable, Selection},
-    shell_panel, sketch_placement,
+    shell_panel,
+    sketch_placement::{self, PlacementTarget},
     sketch_status::{self, SketchSummary},
     sketch_tools, solid_panel,
     widgets::{self, NAME_FIELD_WIDTH, Tone},
@@ -28,6 +29,7 @@ use crate::{
 const NO_FEATURE_CHOSEN: &str = "Select a feature in the tree, or open one, first";
 const NOTHING_SELECTED: &str =
     "Select geometry in an edited sketch, or a feature in the tree, to delete it";
+const NOTHING_OPEN: &str = "No feature is open; open one with Edit feature first";
 const MORE_HINT: &str = "Rename, move or delete (also on right-click)";
 const DIMENSION_FIELD_WIDTH: f32 = 150.0;
 const EDIT_SKETCH_LABEL: &str = "Edit sketch";
@@ -195,6 +197,7 @@ fn feature_row(
     }
     let mut name = name;
     if state.take_focus(Focus::Feature(id)) {
+        state.selected = Some(id);
         name.scroll_to_me(Some(Align::Center));
         name = name.highlight();
     }
@@ -324,7 +327,7 @@ fn more_menu(
 }
 
 fn edit_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
-    let Some((hover, command)) = edit_command(row) else {
+    let Some((hover, command)) = edit_command(row.feature, row.edited) else {
         return;
     };
     let tokens = appearance::tokens(ui);
@@ -341,9 +344,9 @@ fn edit_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
     }
 }
 
-fn edit_command(row: &Row<'_>) -> Option<(&'static str, EditingCommand)> {
-    let id = row.feature.id();
-    Some(match (&row.feature.kind, row.edited) {
+fn edit_command(feature: &Feature, edited: bool) -> Option<(&'static str, EditingCommand)> {
+    let id = feature.id();
+    Some(match (&feature.kind, edited) {
         (FeatureKind::Sketch(_), true) => (FINISH_SKETCH_LABEL, EditingCommand::Finish),
         (FeatureKind::Sketch(_), false) => (EDIT_SKETCH_LABEL, EditingCommand::Enter(id)),
         (
@@ -421,7 +424,7 @@ fn context_menu(
 ) {
     let feature = row.feature;
     let position = row.position;
-    if let Some((label, command)) = edit_command(row) {
+    if let Some((label, command)) = edit_command(row.feature, row.edited) {
         if widgets::menu_item(ui, icons::EDIT, label, None).clicked() {
             actions.push(Action::Editing(command));
             ui.close();
@@ -556,15 +559,149 @@ pub fn current_feature<'a>(
         })
 }
 
-pub fn commands(
+type FeatureChange<'a> = &'a dyn Fn(&Feature) -> Result<Transaction, String>;
+
+pub struct CommandContext<'a> {
+    pub model: &'a Model,
+    pub selection: &'a Selection,
+    pub editing: &'a SketchEditing,
+}
+
+fn is_edited(editing: &SketchEditing, feature: &Feature) -> bool {
+    let id = Some(feature.id());
+    editing.feature() == id || editing.solid() == id
+}
+
+fn edit_change(editing: &SketchEditing, feature: &Feature) -> Result<EditingCommand, String> {
+    let name = &feature.name;
+    if is_edited(editing, feature) {
+        return Err(format!("{name} is already being edited"));
+    }
+    edit_command(feature, false)
+        .map(|(_, command)| command)
+        .ok_or_else(|| format!("{name} is an imported body and has no settings to edit"))
+}
+
+fn detach_change(model: &Model, feature: &Feature) -> Result<Transaction, String> {
+    let name = &feature.name;
+    if feature.kind.sketch().is_none() {
+        return Err(format!("{name} is not a sketch"));
+    }
+    if feature.kind.attachment().is_none() {
+        return Err(format!("{name} does not lie on a face or datum plane"));
+    }
+    sketch_placement::detach(model, feature.id())
+        .ok_or_else(|| format!("{name} has no position yet; recompute the model first"))
+}
+
+fn place_change(
     model: &Model,
-    editing: &SketchEditing,
+    selection: &Selection,
+    feature: &Feature,
+) -> Result<Transaction, String> {
+    if feature.kind.sketch().is_none() {
+        return Err(format!("{} is not a sketch", feature.name));
+    }
+    sketch_placement::place_on_selection(model, selection, feature.id()).map_err(str::to_owned)
+}
+
+fn axis_change(
+    model: &Model,
+    selection: &Selection,
+    feature: &Feature,
+) -> Result<Transaction, String> {
+    match feature.kind.solid() {
+        Some(SolidFeature::Revolve(revolve)) => {
+            solid_panel::selected_axis_change(model, selection, feature.id(), revolve)
+        }
+        Some(SolidFeature::Extrude(_)) | None => Err(format!("{} is not a revolve", feature.name)),
+    }
+}
+
+fn datum_change(
+    feature: &Feature,
+    change: impl FnOnce(&Datum) -> Result<Transaction, String>,
+) -> Result<Transaction, String> {
+    feature
+        .kind
+        .datum()
+        .ok_or_else(|| format!("{} is not a datum plane or axis", feature.name))
+        .and_then(change)
+}
+
+fn invoke_on<T>(
+    commands: &mut CommandFrame<'_>,
+    command: Command,
+    current: Option<&Feature>,
+    change: impl FnOnce(&Feature) -> Result<T, String>,
+) -> Option<T> {
+    let result = current.map_or_else(|| Err(NO_FEATURE_CHOSEN.to_owned()), change);
+    let detail = current.map(|feature| feature.name.clone());
+    if commands.invoke_detailed(command, detail, &result) {
+        result.ok()
+    } else {
+        None
+    }
+}
+
+fn feature_commands(
+    context: &CommandContext<'_>,
+    current: Option<&Feature>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let CommandContext {
+        model,
+        selection,
+        editing,
+    } = *context;
+    if let Some(command) = invoke_on(commands, Command::EditFeature, current, |feature| {
+        edit_change(editing, feature)
+    }) {
+        actions.push(Action::Editing(command));
+    }
+    let open = editing.solid().ok_or(NOTHING_OPEN);
+    if commands.invoke(Command::CloseFeature, &open) {
+        actions.push(Action::Editing(EditingCommand::CloseSolid));
+    }
+    let changes: [(Command, FeatureChange<'_>); 5] = [
+        (Command::DetachSketch, &|feature| {
+            detach_change(model, feature)
+        }),
+        (Command::PlaceSketch, &|feature| {
+            place_change(model, selection, feature)
+        }),
+        (Command::UseSelectedAxis, &|feature| {
+            axis_change(model, selection, feature)
+        }),
+        (Command::DatumUseSelected, &|feature| {
+            datum_change(feature, |datum| {
+                datum_panel::base_change(model, selection, feature.id(), datum)
+            })
+        }),
+        (Command::DatumTurnAboutSelected, &|feature| {
+            datum_change(feature, |datum| {
+                datum_panel::rotation_change(model, selection, feature.id(), datum)
+            })
+        }),
+    ];
+    for (command, change) in changes {
+        if let Some(transaction) = invoke_on(commands, command, current, change) {
+            actions.push(Action::Apply(transaction));
+        }
+    }
+}
+
+pub fn commands(
+    context: &CommandContext<'_>,
     state: &mut PanelState,
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
+    let CommandContext { model, editing, .. } = *context;
     let document = model.document();
     let current = current_feature(document, editing, state);
+    feature_commands(context, current, commands, actions);
     let chosen = current.ok_or(NO_FEATURE_CHOSEN);
     if commands.invoke(Command::RenameFeature, &chosen)
         && let Some(feature) = current
@@ -695,41 +832,25 @@ fn placement(
             }
         });
     }
-    if let Some(datum) = datum_tools::selected_datum_plane(model.document(), selection) {
-        match sketch_placement::place_on_datum(model, feature.id(), datum) {
-            Ok(transaction) => {
-                let button = widgets::small_button(ui, icons::USE_SELECTED, PLACE_ON_PLANE_LABEL);
-                let place = ui.add(button).on_hover_text(
-                    "Move this sketch onto the selected plane; it follows the plane when the \
-                     model changes",
-                );
-                if place.clicked() {
-                    actions.push(Action::Apply(transaction));
-                }
-            }
-            Err(reason) => {
-                let button = widgets::small_button(ui, icons::USE_SELECTED, PLACE_ON_PLANE_LABEL);
-                ui.add_enabled(false, button).on_disabled_hover_text(reason);
-            }
-        }
-        return;
-    }
-    let Some(face) = sketch_placement::selected_face(selection) else {
-        return;
+    let (label, hover) = match sketch_placement::placement_target(model.document(), selection) {
+        Some(PlacementTarget::Plane(_)) => (
+            PLACE_ON_PLANE_LABEL,
+            "Move this sketch onto the selected plane; it follows the plane when the model changes",
+        ),
+        Some(PlacementTarget::Face(_)) => (
+            PLACE_ON_FACE_LABEL,
+            "Move this sketch onto the selected face; it follows the face when the model changes",
+        ),
+        None => return,
     };
-    match sketch_placement::place(model, feature.id(), face) {
+    let button = widgets::small_button(ui, icons::USE_SELECTED, label);
+    match sketch_placement::place_on_selection(model, selection, feature.id()) {
         Ok(transaction) => {
-            let button = widgets::small_button(ui, icons::USE_SELECTED, PLACE_ON_FACE_LABEL);
-            let place = ui.add(button).on_hover_text(
-                "Move this sketch onto the selected face; it follows the face when the model \
-                 changes",
-            );
-            if place.clicked() {
+            if ui.add(button).on_hover_text(hover).clicked() {
                 actions.push(Action::Apply(transaction));
             }
         }
         Err(reason) => {
-            let button = widgets::small_button(ui, icons::USE_SELECTED, PLACE_ON_FACE_LABEL);
             ui.add_enabled(false, button).on_disabled_hover_text(reason);
         }
     }

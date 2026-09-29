@@ -349,25 +349,7 @@ impl Panel<'_> {
     }
 
     fn selected_axis_button(&mut self, ui: &mut Ui, revolve: &Revolve) {
-        let document = self.document();
-        let index = document.feature_index(self.id()).unwrap_or(0);
-        let chosen = self
-            .selection
-            .iter()
-            .find_map(|pickable| datum_tools::axis_reference(self.model, pickable, index));
-        let change = match chosen {
-            Some(axis) if revolve.axis.model() == Some(&axis) => {
-                Err("The revolve already turns about the selected axis".to_owned())
-            }
-            Some(axis) => self.change(SolidFeature::Revolve(Revolve {
-                axis: RevolveAxis::Model(axis),
-                ..revolve.clone()
-            })),
-            None => Err(
-                "Select an axis, a straight edge or a round face made before this feature"
-                    .to_owned(),
-            ),
-        };
+        let change = selected_axis_change(self.model, self.selection, self.id(), revolve);
         let button = widgets::small_button(ui, icons::USE_SELECTED, USE_SELECTED);
         let response = ui.add_enabled(change.is_ok(), button);
         match change {
@@ -569,6 +551,34 @@ impl Panel<'_> {
             "{} was not changed: {reason}",
             self.feature.name
         ))));
+    }
+}
+
+pub fn selected_axis_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    revolve: &Revolve,
+) -> Result<Transaction, String> {
+    let index = model.document().feature_index(feature).unwrap_or(0);
+    let chosen = selection
+        .iter()
+        .find_map(|pickable| datum_tools::axis_reference(model, pickable, index));
+    match chosen {
+        Some(axis) if revolve.axis.model() == Some(&axis) => {
+            Err("The revolve already turns about the selected axis".to_owned())
+        }
+        Some(axis) => change(
+            model,
+            feature,
+            SolidFeature::Revolve(Revolve {
+                axis: RevolveAxis::Model(axis),
+                ..revolve.clone()
+            }),
+        ),
+        None => Err(
+            "Select an axis, a straight edge or a round face made before this feature".to_owned(),
+        ),
     }
 }
 

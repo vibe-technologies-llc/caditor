@@ -1161,9 +1161,18 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     cancels), a binding already used in an overlapping scope asks before moving it, clicking a
     binding removes it, and Reset or Reset all go back to the defaults.
   - Keyboard-only operation: every command is in the palette, including recompute (F5) and its
-    cancel, adding a parameter, opening each recent model (an `Offer` may carry a detail, here
-    the file name, shown after the title), recovering unsaved work, cancelling an export and
-    dismissing the notice; Tab moves between widgets and Escape
+    cancel, going to the first failed feature (F8, which also selects its row), adding a
+    parameter and deleting the one whose name or expression field last had focus
+    (`PanelState::parameter`), opening each recent model (an `Offer` may carry a detail, here the
+    file name, shown after the title), recovering unsaved work, cancelling an export, dismissing
+    the notice and dismissing or hiding the current tip (offered while the palette covers it).
+    What a feature row and its panel offer are commands on the tree's current feature
+    (`feature_tree::current_feature`, named as the offer's detail; `feature_tree::commands`): Edit
+    feature (E), Finish editing feature, Detach sketch, Place sketch on selected plane or face
+    (`sketch_placement::place_on_selection`), Revolve about selected axis
+    (`solid_panel::selected_axis_change`), and Base datum on selection and Turn datum plane about
+    selected axis (`datum_panel::base_change`, `rotation_change`), each sharing its availability
+    with the panel's button. Tab moves between widgets and Escape
     leaves them; each feature row has a "⋯" menu with what its right-click menu holds. In the
     viewport, standard views (Alt+0 to Alt+6), orbit (arrows), pan (Shift+arrows) and zoom (Page Up
     and Page Down) are commands; N and Shift+N step a keyboard highlight through the scene's

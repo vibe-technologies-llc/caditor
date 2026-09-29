@@ -25,12 +25,123 @@ struct Panel<'a> {
     actions: &'a mut Vec<Action>,
 }
 
-impl Panel<'_> {
+struct Chooser<'a> {
+    model: &'a Model,
+    selection: &'a Selection,
+    feature: FeatureId,
+    index: usize,
+}
+
+impl Chooser<'_> {
+    fn of<'a>(model: &'a Model, selection: &'a Selection, feature: FeatureId) -> Chooser<'a> {
+        Chooser {
+            model,
+            selection,
+            feature,
+            index: model.document().feature_index(feature).unwrap_or(0),
+        }
+    }
+
     fn change(&self, datum: Datum) -> Result<Transaction, String> {
         let document = self.model.document();
         let transaction = datum_tools::edit(document, self.feature, datum)
             .ok_or_else(|| "The feature no longer exists".to_owned())?;
         field::checked(document, transaction)
+    }
+
+    fn first_plane(&self) -> Option<PlaneReference> {
+        self.selection
+            .iter()
+            .find_map(|pickable| datum_tools::plane_reference(self.model, pickable, self.index))
+    }
+
+    fn first_axis(&self) -> Option<AxisReference> {
+        self.selection
+            .iter()
+            .find_map(|pickable| datum_tools::axis_reference(self.model, pickable, self.index))
+    }
+
+    fn base(&self, datum: &Datum) -> Result<Datum, &'static str> {
+        match datum {
+            Datum::Plane(plane) => match self.first_plane() {
+                Some(base) if base == plane.base => Err("It already starts from the selection"),
+                Some(base) => Ok(Datum::Plane(DatumPlane {
+                    base,
+                    ..plane.clone()
+                })),
+                None => Err("Select a plane or flat face made before this plane"),
+            },
+            Datum::Axis(axis) => {
+                match datum_tools::axis_from_selection(self.model, self.selection, self.index) {
+                    Ok(chosen) if &chosen == axis => Err("It already follows the selection"),
+                    Ok(chosen) => Ok(Datum::Axis(chosen)),
+                    Err(reason) => Err(reason),
+                }
+            }
+        }
+    }
+
+    fn rotation(&self, datum: &Datum) -> Result<Datum, &'static str> {
+        let Datum::Plane(plane) = datum else {
+            return Err("Only a datum plane turns about an axis");
+        };
+        match self.first_axis() {
+            Some(axis) if plane.rotation.as_ref().map(|rotation| &rotation.axis) == Some(&axis) => {
+                Err("It already turns about the selection")
+            }
+            Some(axis) => Ok(Datum::Plane(DatumPlane {
+                rotation: Some(PlaneRotation {
+                    axis,
+                    angle: plane.rotation.as_ref().map_or_else(
+                        || solid_tools::degrees(datum_tools::DEFAULT_ANGLE),
+                        |rotation| rotation.angle.clone(),
+                    ),
+                }),
+                ..plane.clone()
+            })),
+            None => Err("Select an axis, straight edge or round face made before this plane"),
+        }
+    }
+
+    fn checked(&self, datum: Result<Datum, &str>) -> Result<Transaction, String> {
+        datum
+            .map_err(str::to_owned)
+            .and_then(|datum| self.change(datum))
+    }
+}
+
+pub fn base_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    datum: &Datum,
+) -> Result<Transaction, String> {
+    let chooser = Chooser::of(model, selection, feature);
+    chooser.checked(chooser.base(datum))
+}
+
+pub fn rotation_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    datum: &Datum,
+) -> Result<Transaction, String> {
+    let chooser = Chooser::of(model, selection, feature);
+    chooser.checked(chooser.rotation(datum))
+}
+
+impl Panel<'_> {
+    fn chooser(&self) -> Chooser<'_> {
+        Chooser {
+            model: self.model,
+            selection: self.selection,
+            feature: self.feature,
+            index: self.index,
+        }
+    }
+
+    fn change(&self, datum: Datum) -> Result<Transaction, String> {
+        self.chooser().change(datum)
     }
 
     fn apply(&mut self, change: Result<Transaction, String>) {
@@ -42,10 +153,7 @@ impl Panel<'_> {
         }
     }
 
-    fn use_button(&mut self, ui: &mut Ui, hover: &str, change: Result<Datum, &str>) {
-        let change = change
-            .map_err(str::to_owned)
-            .and_then(|datum| self.change(datum));
+    fn use_button(&mut self, ui: &mut Ui, hover: &str, change: Result<Transaction, String>) {
         let button = widgets::small_button(ui, icons::USE_SELECTED, USE_SELECTED);
         let response = ui.add_enabled(change.is_ok(), button);
         match change {
@@ -112,31 +220,13 @@ impl Panel<'_> {
         }
     }
 
-    fn first_plane(&self) -> Option<PlaneReference> {
-        self.selection
-            .iter()
-            .find_map(|pickable| datum_tools::plane_reference(self.model, pickable, self.index))
-    }
-
-    fn first_axis(&self) -> Option<AxisReference> {
-        self.selection
-            .iter()
-            .find_map(|pickable| datum_tools::axis_reference(self.model, pickable, self.index))
-    }
-
     fn plane_rows(&mut self, ui: &mut Ui, plane: &DatumPlane) {
         let document = self.model.document();
         widgets::caption(ui, "Starts from");
         ui.horizontal_wrapped(|ui| {
             ui.label(capitalized(&describe_plane(document, &plane.base)));
-            let change = match self.first_plane() {
-                Some(base) if base == plane.base => Err("It already starts from the selection"),
-                Some(base) => Ok(Datum::Plane(DatumPlane {
-                    base,
-                    ..plane.clone()
-                })),
-                None => Err("Select a plane or flat face made before this plane"),
-            };
+            let chooser = self.chooser();
+            let change = chooser.checked(chooser.base(&Datum::Plane(plane.clone())));
             self.use_button(ui, "Start from the selected plane or flat face", change);
         });
         ui.end_row();
@@ -151,24 +241,8 @@ impl Panel<'_> {
                     ui.label(widgets::muted("Nothing", ui));
                 }
             }
-            let change = match self.first_axis() {
-                Some(axis)
-                    if plane.rotation.as_ref().map(|rotation| &rotation.axis) == Some(&axis) =>
-                {
-                    Err("It already turns about the selection")
-                }
-                Some(axis) => Ok(Datum::Plane(DatumPlane {
-                    rotation: Some(PlaneRotation {
-                        axis,
-                        angle: plane.rotation.as_ref().map_or_else(
-                            || solid_tools::degrees(datum_tools::DEFAULT_ANGLE),
-                            |rotation| rotation.angle.clone(),
-                        ),
-                    }),
-                    ..plane.clone()
-                })),
-                None => Err("Select an axis, straight edge or round face made before this plane"),
-            };
+            let chooser = self.chooser();
+            let change = chooser.checked(chooser.rotation(&Datum::Plane(plane.clone())));
             self.use_button(
                 ui,
                 "Pass through the selected axis and turn about it by the angle",
@@ -227,12 +301,8 @@ impl Panel<'_> {
         widgets::caption(ui, title);
         ui.horizontal_wrapped(|ui| {
             ui.label(text);
-            let change =
-                match datum_tools::axis_from_selection(self.model, self.selection, self.index) {
-                    Ok(chosen) if &chosen == axis => Err("It already follows the selection"),
-                    Ok(chosen) => Ok(Datum::Axis(chosen)),
-                    Err(reason) => Err(reason),
-                };
+            let chooser = self.chooser();
+            let change = chooser.checked(chooser.base(&Datum::Axis(axis.clone())));
             self.use_button(
                 ui,
                 "Run along the selected edge, round face or axis, or where the two selected \
