@@ -15,6 +15,7 @@ use crate::viewport::{DEPTH_FORMAT, SurfaceTarget, ViewportRenderer};
 pub use crate::{
     camera::{Camera, View, Viewpoint},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
+    picking::PickPoll,
     scene::{
         Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene, ViewportRect,
     },
@@ -217,7 +218,7 @@ impl Renderer {
         self.viewport.picking().after_submit();
     }
 
-    pub fn poll_pick(&mut self) -> Option<PickResult> {
+    pub fn poll_pick(&mut self) -> PickPoll {
         self.viewport.picking().poll(&self.device)
     }
 

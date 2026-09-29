@@ -217,8 +217,6 @@ within a category run from most to least important.
   edited, or a fillet or shell panel chooses edges or faces, edges and curves behind the solid
   are hovered and clicked through it, contrary to "hidden in the view and in picking alike".
   Write id 0 with depth instead of discarding.
-- A failed pick readback returns `None` (`picking.rs`) and the app's `last_pick` stays set, so
-  hover is stuck and a click waiting for a fresh result waits until the cursor or view moves.
 - Orbit has no elevation limit, so dragging past the pole turns the model upside down and
   reverses horizontal drag, and entering a sketch on a rotated face starts with a rolled
   horizon that yaw about Z never removes (`camera.rs`).

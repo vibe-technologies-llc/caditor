@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
-use caditor_render::{Renderer, SurfaceSize, ViewportFrame, WindowTarget};
+use caditor_render::{PickPoll, Renderer, SurfaceSize, ViewportFrame, WindowTarget};
 use egui_winit::accesskit_winit;
 use winit::{
     application::ApplicationHandler,
@@ -570,8 +570,10 @@ impl Session {
         model.poll();
         files.poll(model, &mut self.workspace.editing);
         self.workspace.editing.sync(model);
-        if let Some(result) = self.renderer.poll_pick() {
-            self.workspace.viewport.apply_pick(&result);
+        match self.renderer.poll_pick() {
+            PickPoll::Pending => {}
+            PickPoll::Ready(result) => self.workspace.viewport.apply_pick(&result),
+            PickPoll::Failed => self.workspace.viewport.pick_was_not_issued(),
         }
         self.workspace.viewport.advance(elapsed);
 

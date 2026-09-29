@@ -144,7 +144,9 @@ fn render(
     readback.map_async(wgpu::MapMode::Read, .., |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
 
-    let pick = renderer.picking().poll(device).unwrap();
+    let crate::PickPoll::Ready(pick) = renderer.picking().poll(device) else {
+        panic!("the pick should be read back");
+    };
     let pixels = readback.get_mapped_range(..).unwrap().to_vec();
     Rendered { pick, pixels }
 }

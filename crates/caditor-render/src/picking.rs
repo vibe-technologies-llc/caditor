@@ -30,6 +30,13 @@ struct InFlight {
     stage: Stage,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum PickPoll {
+    Pending,
+    Ready(PickResult),
+    Failed,
+}
+
 pub struct PickTargets {
     pub ids: wgpu::TextureView,
     pub depths: wgpu::TextureView,
@@ -124,29 +131,38 @@ impl Picking {
         in_flight.stage = Stage::Mapping(outcome);
     }
 
-    pub fn poll(&mut self, device: &wgpu::Device) -> Option<PickResult> {
-        let Stage::Mapping(outcome) = &self.in_flight.as_ref()?.stage else {
-            return None;
+    pub fn poll(&mut self, device: &wgpu::Device) -> PickPoll {
+        let Some(InFlight {
+            stage: Stage::Mapping(outcome),
+            ..
+        }) = &self.in_flight
+        else {
+            return PickPoll::Pending;
         };
         if let Err(error) = device.poll(wgpu::PollType::Poll) {
             log::warn!("could not poll the graphics device for picking: {error}");
         }
-        let outcome = outcome.lock().take()?;
-        let in_flight = self.in_flight.take()?;
+        let Some(outcome) = outcome.lock().take() else {
+            return PickPoll::Pending;
+        };
+        let Some(in_flight) = self.in_flight.take() else {
+            return PickPoll::Pending;
+        };
         if let Err(error) = outcome {
             log::warn!("reading back the pick buffer failed: {error}");
-            return None;
+            return PickPoll::Failed;
         }
 
         let hits = match self.readback.get_mapped_range(..) {
             Ok(bytes) => decode_hits(&bytes, &in_flight.view, in_flight.cursor),
             Err(error) => {
                 log::warn!("could not read the pick buffer: {error}");
-                Vec::new()
+                self.readback.unmap();
+                return PickPoll::Failed;
             }
         };
         self.readback.unmap();
-        Some(PickResult {
+        PickPoll::Ready(PickResult {
             cursor: in_flight.cursor,
             hits,
         })
