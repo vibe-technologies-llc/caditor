@@ -662,3 +662,30 @@ fn many_squares_and_a_long_dangling_chain() {
     assert_eq!(regions.len(), 200);
     assert!(regions.iter().all(|region| region.holes().is_empty()));
 }
+
+#[test]
+fn unresolved_curves_are_narrowed_to_those_failing_together() {
+    let curves: Vec<ProfileCurve> = (1..=20)
+        .map(|entity| {
+            let x = entity as f64;
+            line(entity, (x, 0.0), (x, 1.0))
+        })
+        .collect();
+    let together = |subset: &[ProfileCurve]| {
+        [7, 13]
+            .iter()
+            .all(|entity| subset.iter().any(|curve| curve.entity == *entity))
+    };
+    let never = |_: &[ProfileCurve]| false;
+
+    assert_eq!(culprits::culprits(&curves, together), vec![7, 13]);
+    assert!(culprits::culprits(&curves, never).is_empty());
+    assert_eq!(culprits::culprits(&curves[..3], never), vec![1, 2, 3]);
+    assert_eq!(
+        ProfileError::Unresolved {
+            entities: vec![7, 13]
+        }
+        .entities(),
+        vec![7, 13]
+    );
+}

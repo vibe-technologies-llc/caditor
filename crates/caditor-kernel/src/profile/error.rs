@@ -22,11 +22,17 @@ pub enum ProfileError {
     Overlap { first: u64, second: u64 },
     #[error("curves {entities:?} cross each other too often to be split into regions")]
     TooIntricate { entities: Vec<u64> },
-    #[error("the curves could not be split into closed regions")]
-    Unresolved,
+    #[error("curves {entities:?} could not be split into closed regions")]
+    Unresolved { entities: Vec<u64> },
 }
 
 impl ProfileError {
+    pub fn unresolved() -> Self {
+        Self::Unresolved {
+            entities: Vec::new(),
+        }
+    }
+
     pub fn entities(&self) -> Vec<u64> {
         match self {
             Self::DuplicateEntity { entity }
@@ -34,11 +40,8 @@ impl ProfileError {
             | Self::InvalidCurve { entity, .. }
             | Self::SelfOverlap { entity } => vec![*entity],
             Self::Overlap { first, second } => vec![*first, *second],
-            Self::TooIntricate { entities } => entities.clone(),
-            Self::NoClosedProfile
-            | Self::EmptySelection
-            | Self::MissingRegion(_)
-            | Self::Unresolved => Vec::new(),
+            Self::TooIntricate { entities } | Self::Unresolved { entities } => entities.clone(),
+            Self::NoClosedProfile | Self::EmptySelection | Self::MissingRegion(_) => Vec::new(),
         }
     }
 }

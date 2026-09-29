@@ -506,7 +506,7 @@ fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
             "Choose the regions again.".to_owned(),
             context.own(),
         ),
-        ProfileError::Unresolved => context.error(
+        ProfileError::Unresolved { entities } if entities.is_empty() => context.error(
             format!("The curves of {sketch} could not be divided into closed regions."),
             format!("Simplify where curves meet or cross in {sketch}."),
             context.in_sketch(),
@@ -516,8 +516,10 @@ fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
         | ProfileError::InvalidCurve { .. }
         | ProfileError::SelfOverlap { .. }
         | ProfileError::Overlap { .. }
-        | ProfileError::TooIntricate { .. } => {
-            let curves = context.curves(&error.entities());
+        | ProfileError::TooIntricate { .. }
+        | ProfileError::Unresolved { .. } => {
+            let entities = error.entities();
+            let curves = context.curves(&entities);
             let problem = match error {
                 ProfileError::Degenerate { .. } => "has no length",
                 ProfileError::InvalidCurve {
@@ -527,11 +529,17 @@ fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
                 ProfileError::SelfOverlap { .. } => "runs back over itself",
                 ProfileError::Overlap { .. } => "run along each other",
                 ProfileError::TooIntricate { .. } => "cross too often to be divided into regions",
+                ProfileError::Unresolved { .. } => "could not be divided into closed regions",
                 _ => "cannot be used",
+            };
+            let which = if entities.len() > 1 {
+                "one of them"
+            } else {
+                "it"
             };
             context.error(
                 format!("In {sketch}, {curves} {problem}."),
-                format!("Change or delete it in {sketch}."),
+                format!("Change or delete {which} in {sketch}."),
                 context.in_sketch(),
             )
         }

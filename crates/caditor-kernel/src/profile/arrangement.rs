@@ -34,7 +34,10 @@ fn flat(bounds: &Aabb2) -> Aabb {
 }
 
 fn lookup<T: Copy>(items: &[T], index: usize) -> Found<T> {
-    items.get(index).copied().ok_or(ProfileError::Unresolved)
+    items
+        .get(index)
+        .copied()
+        .ok_or_else(ProfileError::unresolved)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -139,7 +142,7 @@ impl Arrangement {
         Ok(self
             .pieces
             .get(piece)
-            .ok_or(ProfileError::Unresolved)?
+            .ok_or_else(ProfileError::unresolved)?
             .origin(forward))
     }
 
@@ -166,7 +169,10 @@ impl Arrangement {
 
     pub fn next_where(&self, half_edge: usize, kept: impl Fn(usize) -> bool) -> Found<usize> {
         let vertex = self.destination(half_edge)?;
-        let list = self.order.get(vertex).ok_or(ProfileError::Unresolved)?;
+        let list = self
+            .order
+            .get(vertex)
+            .ok_or_else(ProfileError::unresolved)?;
         let at = lookup(&self.position, half_edge ^ 1)?;
         let count = list.len();
         for step in 1..=count {
@@ -175,7 +181,7 @@ impl Arrangement {
                 return Ok(candidate);
             }
         }
-        Err(ProfileError::Unresolved)
+        Err(ProfileError::unresolved())
     }
 
     pub fn cycles(&self, kept: impl Fn(usize) -> bool) -> Found<Vec<Vec<usize>>> {
@@ -189,7 +195,9 @@ impl Arrangement {
             let mut cycle = Vec::new();
             let mut current = start;
             loop {
-                let seen = visited.get_mut(current).ok_or(ProfileError::Unresolved)?;
+                let seen = visited
+                    .get_mut(current)
+                    .ok_or_else(ProfileError::unresolved)?;
                 if *seen {
                     break;
                 }
@@ -197,11 +205,11 @@ impl Arrangement {
                 cycle.push(current);
                 current = self.next_where(current, &kept)?;
                 if cycle.len() > count {
-                    return Err(ProfileError::Unresolved);
+                    return Err(ProfileError::unresolved());
                 }
             }
             if current != start {
-                return Err(ProfileError::Unresolved);
+                return Err(ProfileError::unresolved());
             }
             cycles.push(cycle);
         }
@@ -234,7 +242,7 @@ impl Arrangement {
         let threshold = self.tolerance * self.tolerance;
         let components = components(&self.pieces, self.vertices.len());
         let component_of = |cycle: &[usize]| -> Found<usize> {
-            let first = *cycle.first().ok_or(ProfileError::Unresolved)?;
+            let first = *cycle.first().ok_or_else(ProfileError::unresolved)?;
             lookup(&components, self.origin(first)?)
         };
         let mut faces: Vec<(usize, f64, usize)> = Vec::new();
@@ -264,8 +272,8 @@ impl Arrangement {
         let tree = BoxTree::new(face_bounds);
         let mut parent: BTreeMap<usize, usize> = BTreeMap::new();
         for (component, cycle) in &outer {
-            let cycle = cycles.get(*cycle).ok_or(ProfileError::Unresolved)?;
-            let first = *cycle.first().ok_or(ProfileError::Unresolved)?;
+            let cycle = cycles.get(*cycle).ok_or_else(ProfileError::unresolved)?;
+            let first = *cycle.first().ok_or_else(ProfileError::unresolved)?;
             let probe = lookup(&self.vertices, self.origin(first)?)?;
             let container = tree
                 .overlapping(&flat(&Aabb2::from_point(probe)), self.tolerance)
@@ -312,7 +320,7 @@ impl Arrangement {
             match face_of_cycle.get(cycle).copied().flatten() {
                 Some(face) => Ok(Some(face)),
                 None => {
-                    let cycle = cycles.get(cycle).ok_or(ProfileError::Unresolved)?;
+                    let cycle = cycles.get(cycle).ok_or_else(ProfileError::unresolved)?;
                     Ok(parent.get(&component_of(cycle)?).copied())
                 }
             }
@@ -325,7 +333,10 @@ impl Arrangement {
             .zip(depths)
             .map(|((cycle, area, _), depth)| {
                 Ok(GraphFace {
-                    cycle: cycles.get(*cycle).ok_or(ProfileError::Unresolved)?.clone(),
+                    cycle: cycles
+                        .get(*cycle)
+                        .ok_or_else(ProfileError::unresolved)?
+                        .clone(),
                     area: *area,
                     depth,
                 })
@@ -673,7 +684,7 @@ fn split(
                 }
                 None => {
                     if let Some(period) = source.period() {
-                        let first = kept.first().ok_or(ProfileError::Unresolved)?;
+                        let first = kept.first().ok_or_else(ProfileError::unresolved)?;
                         let end = lookup(events, *first)?.parameter + period;
                         pairs.push((position, 0, start.parameter, end));
                     }
@@ -695,8 +706,14 @@ fn split(
             {
                 continue;
             }
-            let start_bound = bounds.get(from).cloned().ok_or(ProfileError::Unresolved)?;
-            let end_bound = bounds.get(to).cloned().ok_or(ProfileError::Unresolved)?;
+            let start_bound = bounds
+                .get(from)
+                .cloned()
+                .ok_or_else(ProfileError::unresolved)?;
+            let end_bound = bounds
+                .get(to)
+                .cloned()
+                .ok_or_else(ProfileError::unresolved)?;
             let id = PieceId::new(
                 source.entity,
                 match start_bound {
@@ -744,7 +761,7 @@ fn bounds_of(
     kept: &[usize],
 ) -> Found<Vec<PieceBound>> {
     let entity = |source: usize| sources.get(source).map(|source| source.entity);
-    let own_entity = entity(index).ok_or(ProfileError::Unresolved)?;
+    let own_entity = entity(index).ok_or_else(ProfileError::unresolved)?;
     let mut cutters: Vec<Option<Vec<u64>>> = Vec::with_capacity(kept.len());
     for event in kept {
         let current = lookup(events, *event)?;
@@ -887,7 +904,7 @@ fn settle(mut pieces: Vec<GraphPiece>, vertex_count: usize) -> Found<Vec<GraphPi
             .map(|(_, piece)| piece)
             .collect();
     }
-    Err(ProfileError::Unresolved)
+    Err(ProfileError::unresolved())
 }
 
 fn pruned(pieces: Vec<GraphPiece>, vertex_count: usize) -> Vec<GraphPiece> {
@@ -1006,7 +1023,7 @@ fn angular_order_positions(
             let half_edge = index * 2 + usize::from(!forward);
             let list = outgoing
                 .get_mut(piece.origin(forward))
-                .ok_or(ProfileError::Unresolved)?;
+                .ok_or_else(ProfileError::unresolved)?;
             list.push(leaving(piece, half_edge, forward));
         }
     }
@@ -1060,7 +1077,7 @@ fn angular_order_positions(
             for (entry, _) in run {
                 let (piece, forward) = piece_of(entry.half_edge);
                 let deviation = if run.len() > 1 {
-                    let piece = pieces.get(piece).ok_or(ProfileError::Unresolved)?;
+                    let piece = pieces.get(piece).ok_or_else(ProfileError::unresolved)?;
                     probe_angle(piece, entry, forward, PROBE_FRACTION * shortest, base_angle)
                 } else {
                     0.0

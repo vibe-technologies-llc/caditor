@@ -368,7 +368,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     ids. Depth counts nesting of connected components inside faces of others. `select` with
     `Selection::EvenDepth` (the default) or explicit keys returns the union of the chosen regions
     as new regions keyed the same way, so adjacent regions sweep as one lump. Errors name the
-    entity ids. Whether a key is tie-broken is decided once over the whole arrangement (any two
+    entity ids; an arrangement that fails without knowing which curves caused it is rebuilt from
+    fewer curves (`culprits.rs`, at most 64 attempts) until the failing set is small enough to
+    name. Whether a key is tie-broken is decided once over the whole arrangement (any two
     regions sharing it), so a region keeps its key whatever else is selected with it.
     `Region::triangulate` samples the loops and keeps the constrained Delaunay
     triangles inside by the parity of constraint crossings, for drawing regions as fills.

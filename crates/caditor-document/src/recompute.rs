@@ -123,7 +123,7 @@ impl SketchResult {
                     }))
                     .unwrap_or_else(|_| {
                         log::error!("dividing a sketch into regions panicked");
-                        Err(ProfileError::Unresolved)
+                        Err(ProfileError::unresolved())
                     }),
                 )
             })
@@ -137,7 +137,7 @@ impl SketchResult {
             panic::catch_unwind(AssertUnwindSafe(|| solid::display_regions(profile)))
                 .unwrap_or_else(|_| {
                     log::error!("triangulating the regions of a sketch panicked");
-                    Err(ProfileError::Unresolved)
+                    Err(ProfileError::unresolved())
                 })
         });
     }

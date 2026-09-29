@@ -1,4 +1,5 @@
 mod arrangement;
+mod culprits;
 mod error;
 mod geometry;
 mod intersect;
@@ -14,6 +15,7 @@ use caditor_geometry::{Aabb2, Point2};
 
 use self::{
     arrangement::Arrangement,
+    culprits::culprits,
     region::{base_keys, lumps, shared_keys, with_keys},
 };
 pub use self::{error::ProfileError, triangulate::RegionMesh};
@@ -375,7 +377,19 @@ pub struct Profile {
 
 impl Profile {
     pub fn new(curves: &[ProfileCurve]) -> Result<Self, ProfileError> {
-        let arrangement = Arrangement::new(curves)?;
+        let arrangement = Arrangement::new(curves).map_err(|error| match error {
+            ProfileError::Unresolved { entities } if entities.is_empty() => {
+                ProfileError::Unresolved {
+                    entities: culprits(curves, |subset| {
+                        matches!(
+                            Arrangement::new(subset),
+                            Err(ProfileError::Unresolved { .. })
+                        )
+                    }),
+                }
+            }
+            other => other,
+        })?;
         let drafts: Vec<_> = (0..arrangement.face_count())
             .filter_map(|face| {
                 lumps(&arrangement, &BTreeSet::from([face]))
