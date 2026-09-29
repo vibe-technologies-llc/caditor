@@ -964,9 +964,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `Arc` and dropped when the mesh leaves the scene (a frame with no viewport to draw keeps
     them); a mesh whose vertices or indices would pass the device's `max_buffer_size` is split
     by triangles into parts that each fit (`split_into_parts`), and the style buffer holds as
-    many faces as a storage binding allows (later faces take the last one's style). Only the
-    per-face styles, read from a storage buffer by face index, are rewritten each frame, so hover and selection cost nothing
-    in geometry. Faces are lit two-sided by a key light above and to the left of the camera, a
+    many faces as a storage binding allows (later faces take the last one's style). Each frame
+    writes only the eye's offset to the mesh centre at the head of that buffer; the per-face
+    styles after it, read by face index, are written when they differ from the last ones
+    written, so hover and selection cost nothing in geometry. Faces are lit two-sided by a key light above and to the left of the camera, a
     headlight and a small specular term, and write depth, so edges and sketches behind them are
     hidden in the view and in picking alike (a face without a pick id writes id 0 with its depth in
     the pick pass, `fs_mesh_pick`, rather than being discarded).

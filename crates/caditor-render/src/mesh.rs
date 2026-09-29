@@ -221,6 +221,7 @@ struct GpuMesh {
     parts: Vec<GpuPart>,
     styled_faces: usize,
     styles: wgpu::Buffer,
+    written: Option<Vec<FaceStyle>>,
     bind_group: wgpu::BindGroup,
 }
 
@@ -283,12 +284,13 @@ impl GpuMesh {
             parts,
             styled_faces,
             styles,
+            written: None,
             bind_group,
         }
     }
 
     fn write_styles(
-        &self,
+        &mut self,
         queue: &wgpu::Queue,
         bytes: &mut Bytes,
         instance: &MeshInstance,
@@ -296,6 +298,11 @@ impl GpuMesh {
     ) {
         bytes.clear();
         bytes.vec4(relative_to_eye(self.mesh.origin, eye), 0.0);
+        queue.write_buffer(&self.styles, 0, bytes.as_slice());
+        if self.written.as_deref() == Some(instance.faces.as_slice()) {
+            return;
+        }
+        bytes.clear();
         for face in 0..self.styled_faces {
             let style = instance.faces.get(face).copied().unwrap_or(UNSTYLED_FACE);
             bytes
@@ -305,7 +312,8 @@ impl GpuMesh {
                 .u32(0)
                 .u32(0);
         }
-        queue.write_buffer(&self.styles, 0, bytes.as_slice());
+        queue.write_buffer(&self.styles, STYLE_HEADER_BYTES, bytes.as_slice());
+        self.written = Some(instance.faces.clone());
     }
 }
 
@@ -357,7 +365,7 @@ impl MeshCache {
                 .iter()
                 .position(|cached| Arc::ptr_eq(&cached.mesh, &instance.mesh))
                 .map(|index| previous.swap_remove(index));
-            let gpu = reused
+            let mut gpu = reused
                 .unwrap_or_else(|| GpuMesh::new(device, &self.layout, Arc::clone(&instance.mesh)));
             gpu.write_styles(queue, &mut self.staging, instance, eye);
             self.meshes.push(gpu);

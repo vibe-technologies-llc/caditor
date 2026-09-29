@@ -111,6 +111,15 @@ fn render(
 
 fn render_frame(device: &wgpu::Device, queue: &wgpu::Queue, frame: &ViewportFrame<'_>) -> Rendered {
     let mut renderer = ViewportRenderer::new(device, FORMAT, 4);
+    render_with(&mut renderer, device, queue, frame)
+}
+
+fn render_with(
+    renderer: &mut ViewportRenderer,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    frame: &ViewportFrame<'_>,
+) -> Rendered {
     let target = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("offscreen target"),
         size: wgpu::Extent3d {
@@ -438,6 +447,58 @@ fn draws_shaded_faces_that_hide_what_is_behind_them_and_picks_the_face_in_front(
             .iter()
             .all(|hit| hit.id != PickId::from_index(0).unwrap())
     );
+}
+
+#[test]
+fn face_colours_and_the_eye_follow_every_frame_with_one_renderer() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mesh = Arc::new(box_mesh(20.0));
+    let painted = |color: Color| Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::clone(&mesh),
+            faces: vec![FaceStyle { color, pick: None }; 6],
+        }],
+        ..Scene::default()
+    };
+    let green = painted(Color::from_rgb8(40, 200, 40));
+    let red = painted(Color::from_rgb8(200, 40, 40));
+    let centred = View::new(
+        Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap(),
+        f64::from(SIZE),
+        f64::from(SIZE),
+    );
+    let aside = View::new(
+        Viewpoint::looking_from(Vector3::Z, Point3::new(60.0, 0.0, 0.0), 150.0).unwrap(),
+        f64::from(SIZE),
+        f64::from(SIZE),
+    );
+    let middle = DVec2::splat(f64::from(SIZE) / 2.0);
+    let mut shown = |view: &View, scene: &Scene| {
+        let rendered = render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(view, scene, middle),
+        );
+        pixel(&rendered, middle)
+    };
+    let greenish = |[red, green, blue, _]: [u8; 4]| green > 2 * red && green > 2 * blue;
+    let reddish = |[red, green, blue, _]: [u8; 4]| red > 2 * green && red > 2 * blue;
+
+    let first = shown(&centred, &green);
+    let repainted = shown(&centred, &red);
+    let again = shown(&centred, &red);
+    let moved_away = shown(&aside, &red);
+    let back = shown(&centred, &green);
+
+    assert!(greenish(first), "{first:?}");
+    assert!(reddish(repainted), "{repainted:?}");
+    assert!(reddish(again), "{again:?}");
+    assert!(is_background(moved_away), "{moved_away:?}");
+    assert!(greenish(back), "{back:?}");
 }
 
 #[test]

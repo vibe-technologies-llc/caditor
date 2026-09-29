@@ -90,7 +90,6 @@ within a category run from most to least important.
 - `find_face` rebuilds a map over every face on each call, and the toolbar, status bar,
   selection and panels call it and capture references for each selected face every frame.
   Cache a `FaceKey` index per result and compute offers when the selection changes.
-- Every mesh's face style table is uploaded every frame although only the eye offset changes.
 - An expanded sketch in the tree formats and evaluates every constraint every frame with an
   O(n²) `involved` check; virtualise and cache.
 - Sketch curves are faceted at a fixed 3° regardless of size or zoom.
