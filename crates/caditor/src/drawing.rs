@@ -20,6 +20,27 @@ const PREVIEW_SEGMENT_ANGLE: f64 = PI / 60.0;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Degenerate {
+    Line,
+    Rectangle,
+    Circle,
+    ArcRadius,
+    ArcSweep,
+}
+
+impl Degenerate {
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::Line => "A line needs its end away from its start",
+            Self::Rectangle => "A rectangle needs its corners apart in both directions",
+            Self::Circle => "A circle needs its rim away from its centre",
+            Self::ArcRadius => "An arc needs its start away from its centre",
+            Self::ArcSweep => "An arc needs its end away from its start",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Horizontal,
     Vertical,
@@ -226,11 +247,12 @@ impl Drawing {
         }
     }
 
-    pub fn click(&mut self, model: &Model) -> Option<Transaction> {
-        let (feature, tool) = self.context?;
-        let placement = self.hover?;
+    pub fn click(&mut self, model: &Model) -> Result<Option<Transaction>, Degenerate> {
+        let (Some((feature, tool)), Some(placement)) = (self.context, self.hover) else {
+            return Ok(None);
+        };
         if let Snap::Target(Target::Pending(_)) = placement.snap {
-            return match tool {
+            return Ok(match tool {
                 Tool::Spline => self.finish(model),
                 Tool::Select
                 | Tool::Point
@@ -241,21 +263,32 @@ impl Drawing {
                     self.cancel();
                     None
                 }
-            };
+            });
         }
+        self.drawn(model, feature, tool, placement)
+    }
+
+    fn drawn(
+        &mut self,
+        model: &Model,
+        feature: FeatureId,
+        tool: Tool,
+        placement: Placement,
+    ) -> Result<Option<Transaction>, Degenerate> {
         let draft = || Draft::new(model, feature, tool);
-        match (tool, self.placed.as_slice()) {
+        Ok(match (tool, self.placed.as_slice()) {
             (Tool::Select, _) => None,
-            (Tool::Point, _) => {
-                let mut draft = draft()?;
+            (Tool::Point, _) => draft().map(|mut draft| {
                 draft.point(placement);
-                Some(draft.finish())
-            }
+                draft.finish()
+            }),
             (Tool::Line, &[start]) => {
                 if start.position.distance(placement.position) < DEGENERATE_LENGTH {
-                    return None;
+                    return Err(Degenerate::Line);
                 }
-                let mut draft = draft()?;
+                let Some(mut draft) = draft() else {
+                    return Ok(None);
+                };
                 let (first, end) = draft.line(start, placement);
                 if self.chain_start.is_empty() {
                     self.chain_start.push(first);
@@ -276,37 +309,42 @@ impl Drawing {
             (Tool::Rectangle, &[corner]) => {
                 let size = (placement.position - corner.position).abs();
                 if size.min_element() < DEGENERATE_LENGTH {
-                    return None;
+                    return Err(Degenerate::Rectangle);
                 }
-                let mut draft = draft()?;
+                let Some(mut draft) = draft() else {
+                    return Ok(None);
+                };
                 draft.rectangle(corner, placement);
                 self.cancel();
                 Some(draft.finish())
             }
             (Tool::Circle, &[center]) => {
                 if center.position.distance(placement.position) < DEGENERATE_LENGTH {
-                    return None;
+                    return Err(Degenerate::Circle);
                 }
-                let mut draft = draft()?;
+                let Some(mut draft) = draft() else {
+                    return Ok(None);
+                };
                 draft.circle(center, placement);
                 self.cancel();
                 Some(draft.finish())
             }
             (Tool::Arc, &[center]) => {
                 if center.position.distance(placement.position) < DEGENERATE_LENGTH {
-                    return None;
+                    return Err(Degenerate::ArcRadius);
                 }
                 self.sweep = Some(Sweep::new(center.position, placement.position));
                 self.placed.push(placement);
                 None
             }
             (Tool::Arc, &[center, start]) => {
-                let end = arc_end(center.position, start.position, placement.position)?;
-                if end.distance(start.position) < DEGENERATE_LENGTH {
-                    return None;
-                }
+                let end = arc_end(center.position, start.position, placement.position)
+                    .filter(|end| end.distance(start.position) >= DEGENERATE_LENGTH)
+                    .ok_or(Degenerate::ArcSweep)?;
                 let counter_clockwise = self.sweep.is_none_or(|sweep| sweep.counter_clockwise());
-                let mut draft = draft()?;
+                let Some(mut draft) = draft() else {
+                    return Ok(None);
+                };
                 draft.arc(
                     center,
                     start,
@@ -323,7 +361,7 @@ impl Drawing {
                 self.placed.push(placement);
                 None
             }
-        }
+        })
     }
 
     pub fn finish(&mut self, model: &Model) -> Option<Transaction> {

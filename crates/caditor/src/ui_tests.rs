@@ -2245,6 +2245,23 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
 }
 
 #[test]
+fn a_flat_rectangle_is_refused_with_the_reason() {
+    let mut harness = Harness::new();
+    let sketch = harness.draw_on_new_sketch();
+
+    harness.use_tool(Key::R);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(40.0, 10.0));
+    harness.settle();
+
+    assert_eq!(harness.sketch(sketch).entities().len(), 0);
+    assert_eq!(
+        harness.model.notice().map(|notice| notice.text.as_str()),
+        Some("A rectangle needs its corners apart in both directions.")
+    );
+}
+
+#[test]
 fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
     let mut harness = Harness::new();
     harness.draw_on_new_sketch();
@@ -3115,6 +3132,12 @@ fn a_part_can_be_modelled_from_the_keyboard_alone() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.show_new_windows();
     assert!(!harness.shows(typed_point::FIELD_LABEL));
+    assert!(harness.workspace.viewport.is_drawing());
+    type_point(&mut harness, "@20 mm, 0");
+    assert!(harness.shows("A rectangle needs its corners apart in both directions"));
+    assert!(entities_of_kind(harness.sketch(sketch), "Line").is_empty());
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
     assert!(harness.workspace.viewport.is_drawing());
     type_point(&mut harness, "@20 mm, width / 4");
     assert_eq!(entities_of_kind(harness.sketch(sketch), "Line").len(), 4);

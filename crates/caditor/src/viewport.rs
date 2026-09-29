@@ -15,7 +15,7 @@ use crate::{
     datum_tools,
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
-    model::{Action, Model, RecomputeStatus},
+    model::{Action, Model, Notice, RecomputeStatus},
     preferences::Navigation,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
     selection::{Pickable, Selection},
@@ -610,8 +610,15 @@ impl ViewportState {
             return;
         }
         if drawing {
-            if let Some(transaction) = self.drawing.click(model) {
-                actions.push(Action::Apply(transaction));
+            match self.drawing.click(model) {
+                Ok(Some(transaction)) => actions.push(Action::Apply(transaction)),
+                Ok(None) => {}
+                Err(degenerate) => {
+                    actions.push(Action::Inform(Notice::info(format!(
+                        "{}.",
+                        degenerate.reason()
+                    ))));
+                }
             }
             return;
         }
@@ -751,8 +758,12 @@ impl ViewportState {
         match typed_point::parse(model, &typed.text, self.drawing.last_placed()) {
             Ok(position) => {
                 self.drawing.type_point(&sketch, position);
-                if let Some(transaction) = self.drawing.click(model) {
-                    actions.push(Action::Apply(transaction));
+                match self.drawing.click(model) {
+                    Ok(Some(transaction)) => actions.push(Action::Apply(transaction)),
+                    Ok(None) => {}
+                    Err(degenerate) => self
+                        .typed_point
+                        .open_with(typed.text, degenerate.reason().to_owned()),
                 }
             }
             Err(error) => {

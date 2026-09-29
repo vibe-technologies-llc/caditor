@@ -1079,7 +1079,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     splines finish on Enter or a click on the last control point. An arc runs the way the
     pointer swept around its centre, and its end is projected onto the circle through its
     start. Every inferred constraint is checked with `Sketch::check_constraint` on a shadow of
-    the sketch and skipped if refused.
+    the sketch and skipped if refused. A shape with no size (a flat rectangle, a line, circle or
+    arc ending where it starts) is refused with a `Degenerate` reason: a notice for a click, the
+    field's error for a typed point.
   - Snapping (`snap.rs`) runs on the UI thread against the displayed sketch, in screen space
     through the view: the shape's own pending point first, then existing points and the origin
     within 8 logical pixels, then lines, circles, arcs and the axes within 6, projecting onto
