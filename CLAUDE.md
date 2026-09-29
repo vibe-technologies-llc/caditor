@@ -881,7 +881,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     off or frozen layers are left out), blocks and INSERTs (base point, scale, rotation, column and
     row arrays, nested with cycle and depth limits and at most `MAX_EXPANDED_OBJECTS` objects and
     cells visited in all, block content on layer 0 taking the insert's layer, each block's
-    content decoded once and shared by its instances, an array of a block that draws nothing
+    content decoded once and shared by its instances, with each entity's space, visibility and
+    layer state and each INSERT's placement read then rather than on every visit, an array of a block that draws nothing
     visited once with what it leaves out counted per cell, and at most `MAX_DRAWING_POINTS`
     points and knots in all, else `ImportError::TooDetailed`), and the entities
     LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE and POLYLINE (bulges become arcs, 3D polylines
@@ -905,7 +906,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     line, parametric conic, NURBS or fit points), is transformed, then flattened onto XY: conics
     that project to circles become circles and arcs (counter-clockwise), other conics and splines
     that are not already in the sketch's uniform form are fitted within a millionth of the drawing's
-    size. Paper space and invisible entities are skipped silently; text, dimensions and other
+    size, sampled with knot spans found by binary search. Paper space and invisible entities are
+    skipped silently; text, dimensions and other
     annotations are counted in a note. The cap is `MAX_DRAWING_CURVES`. `drawing_transaction`
     turns a drawing into one transaction on an existing or new sketch, dropping curves shorter than
     the joint tolerance and joining ends closer than a millionth of the drawing's size with

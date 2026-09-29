@@ -37,6 +37,7 @@ const FROZEN_LAYER: i64 = 1;
 const EXTERNAL_BLOCK: i64 = 4 | 32;
 const PAPER_SPACE: i64 = 1;
 const INVISIBLE: i64 = 1;
+const SHOWN: bool = false;
 
 pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
     if !looks_like_dxf(bytes) {
@@ -46,7 +47,12 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
     let file = DxfFile::read(&records)?;
     let mut interpreter = Interpreter::new(&file);
     let entities = prepare(&file, &items(&file.entities));
-    interpreter.add(&entities, &Affine::IDENTITY, DEFAULT_LAYER, &mut Vec::new())?;
+    interpreter.add(
+        &entities,
+        &Affine::IDENTITY,
+        file.hides(DEFAULT_LAYER),
+        &mut Vec::new(),
+    )?;
     let mut notes = Vec::new();
     let scale = unit_note(file.units, &mut notes);
     let shapes: Vec<Shape> = interpreter
@@ -228,6 +234,12 @@ impl LineStyles {
 }
 
 impl DxfFile {
+    fn hides(&self, layer: &str) -> bool {
+        self.layers
+            .get(&layer.to_ascii_uppercase())
+            .is_some_and(|layer| layer.hidden)
+    }
+
     fn read(records: &[Record]) -> Result<Self, ImportError> {
         let mut file = Self {
             units: HeaderUnits::default(),
@@ -351,12 +363,43 @@ fn items(records: &[Record]) -> Vec<Item<'_>> {
     items
 }
 
-struct Prepared<'a> {
-    record: &'a Record,
+struct Prepared {
+    placement: Placement,
     decoded: Decoded,
 }
 
-fn prepare<'a>(file: &DxfFile, items: &[Item<'a>]) -> Vec<Prepared<'a>> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Placement {
+    Skipped,
+    OnHiddenLayer,
+    OnShownLayer,
+    OnInheritedLayer,
+}
+
+impl Placement {
+    fn of(file: &DxfFile, record: &Record) -> Self {
+        if record.flags(67) & PAPER_SPACE != 0 || record.flags(60) & INVISIBLE != 0 {
+            return Self::Skipped;
+        }
+        match record.layer() {
+            DEFAULT_LAYER => Self::OnInheritedLayer,
+            own if file.hides(own) => Self::OnHiddenLayer,
+            _ => Self::OnShownLayer,
+        }
+    }
+
+    fn visibility(self, inherited_hidden: bool) -> Visibility {
+        match self {
+            Self::Skipped => Visibility::Skipped,
+            Self::OnHiddenLayer => Visibility::Hidden,
+            Self::OnShownLayer => Visibility::Shown,
+            Self::OnInheritedLayer if inherited_hidden => Visibility::Hidden,
+            Self::OnInheritedLayer => Visibility::Shown,
+        }
+    }
+}
+
+fn prepare(file: &DxfFile, items: &[Item<'_>]) -> Vec<Prepared> {
     let handles: BTreeMap<String, usize> = items
         .iter()
         .enumerate()
@@ -365,9 +408,9 @@ fn prepare<'a>(file: &DxfFile, items: &[Item<'a>]) -> Vec<Prepared<'a>> {
     items
         .iter()
         .map(|item| Prepared {
-            record: item.record,
+            placement: Placement::of(file, item.record),
             decoded: match item.record.kind.as_str() {
-                "INSERT" => Decoded::Insert,
+                "INSERT" => Decoded::Insert(Insertion::read(item.record)),
                 "HATCH" => hatch(item.record, &handles),
                 _ => shapes(file, item),
             },
@@ -401,10 +444,43 @@ struct HatchBoundary {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Visibility<'r> {
+enum Visibility {
     Skipped,
     Hidden,
-    Shown(&'r str),
+    Shown,
+}
+
+struct Insertion {
+    block: String,
+    written_name: String,
+    normal: Vector3,
+    at: Point3,
+    scale: Vector3,
+    rotation: f64,
+    columns: i64,
+    rows: i64,
+    spacing: Vector3,
+}
+
+impl Insertion {
+    fn read(record: &Record) -> Self {
+        let written_name = record.text(2).unwrap_or_default().to_owned();
+        Self {
+            block: written_name.to_ascii_uppercase(),
+            written_name,
+            normal: record.normal(),
+            at: record.point(10).unwrap_or(Point3::ZERO),
+            scale: Vector3::new(
+                record.real_or(41, 1.0),
+                record.real_or(42, 1.0),
+                record.real_or(43, 1.0),
+            ),
+            rotation: record.real_or(50, 0.0).to_radians(),
+            columns: record.flags(70).max(1),
+            rows: record.flags(71).max(1),
+            spacing: Vector3::new(record.real_or(44, 0.0), record.real_or(45, 0.0), 0.0),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -443,7 +519,7 @@ struct Interpreter<'a> {
     visited: usize,
     external: BTreeSet<String>,
     missing: BTreeSet<String>,
-    contents: BTreeMap<String, Rc<Vec<Prepared<'a>>>>,
+    contents: BTreeMap<String, Rc<Vec<Prepared>>>,
     drawing: BTreeMap<String, Option<bool>>,
 }
 
@@ -462,7 +538,7 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn contents(&mut self, name: &str) -> Option<Rc<Vec<Prepared<'a>>>> {
+    fn contents(&mut self, name: &str) -> Option<Rc<Vec<Prepared>>> {
         if let Some(known) = self.contents.get(name) {
             return Some(Rc::clone(known));
         }
@@ -497,10 +573,7 @@ impl<'a> Interpreter<'a> {
             Decoded::Hatch(boundaries) => boundaries
                 .iter()
                 .any(|boundary| !boundary.shapes.is_empty()),
-            Decoded::Insert => {
-                let inner = item.record.text(2).unwrap_or_default().to_ascii_uppercase();
-                self.draws(&inner, depth + 1)
-            }
+            Decoded::Insert(insertion) => self.draws(&insertion.block, depth + 1),
             Decoded::Unreadable | Decoded::LeftOut(_) | Decoded::Ignored => false,
         });
         self.drawing.insert(name.to_owned(), Some(draws));
@@ -509,29 +582,28 @@ impl<'a> Interpreter<'a> {
 
     fn add(
         &mut self,
-        items: &[Prepared<'a>],
+        items: &[Prepared],
         transform: &Affine,
-        inherited_layer: &str,
+        inherited_hidden: bool,
         blocks: &mut Vec<String>,
     ) -> Result<(), ImportError> {
         for item in items {
             self.visit()?;
-            let record = item.record;
-            let layer = match self.visibility(record, inherited_layer) {
+            match item.placement.visibility(inherited_hidden) {
                 Visibility::Skipped => continue,
                 Visibility::Hidden => {
                     self.tally.hidden += 1;
                     continue;
                 }
-                Visibility::Shown(layer) => layer,
-            };
+                Visibility::Shown => {}
+            }
             match &item.decoded {
-                Decoded::Insert => self.insert(record, transform, layer, blocks)?,
+                Decoded::Insert(insertion) => self.insert(insertion, transform, blocks)?,
                 Decoded::Shapes(shapes) => self.push(shapes, transform)?,
                 Decoded::Hatch(boundaries) => {
                     let mut drawn = false;
                     for boundary in boundaries {
-                        if !self.traced(items, &boundary.traced_by, inherited_layer) {
+                        if !Self::traced(items, &boundary.traced_by, inherited_hidden) {
                             drawn |= !boundary.shapes.is_empty();
                             self.push(&boundary.shapes, transform)?;
                         }
@@ -550,34 +622,14 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn visibility<'r>(&self, record: &'r Record, inherited_layer: &'r str) -> Visibility<'r> {
-        if record.flags(67) & PAPER_SPACE != 0 || record.flags(60) & INVISIBLE != 0 {
-            return Visibility::Skipped;
-        }
-        let layer = match record.layer() {
-            DEFAULT_LAYER => inherited_layer,
-            own => own,
-        };
-        let hidden = self
-            .file
-            .layers
-            .get(&layer.to_ascii_uppercase())
-            .is_some_and(|layer| layer.hidden);
-        if hidden {
-            Visibility::Hidden
-        } else {
-            Visibility::Shown(layer)
-        }
-    }
-
-    fn traced(&self, items: &[Prepared<'a>], sources: &[usize], inherited_layer: &str) -> bool {
+    fn traced(items: &[Prepared], sources: &[usize], inherited_hidden: bool) -> bool {
         !sources.is_empty()
             && sources.iter().all(|source| {
                 items.get(*source).is_some_and(|source| {
                     matches!(&source.decoded, Decoded::Shapes(shapes) if !shapes.is_empty())
                         && matches!(
-                            self.visibility(source.record, inherited_layer),
-                            Visibility::Shown(_)
+                            source.placement.visibility(inherited_hidden),
+                            Visibility::Shown
                         )
                 })
             })
@@ -607,70 +659,55 @@ impl<'a> Interpreter<'a> {
 
     fn insert(
         &mut self,
-        record: &Record,
+        insertion: &Insertion,
         transform: &Affine,
-        layer: &str,
         blocks: &mut Vec<String>,
     ) -> Result<(), ImportError> {
         let file = self.file;
-        let name = record.text(2).unwrap_or_default().to_ascii_uppercase();
-        let (Some(block), Some(contents)) = (file.blocks.get(&name), self.contents(&name)) else {
-            self.missing
-                .insert(record.text(2).unwrap_or_default().to_owned());
+        let name = &insertion.block;
+        let (Some(block), Some(contents)) = (file.blocks.get(name), self.contents(name)) else {
+            self.missing.insert(insertion.written_name.clone());
             return Ok(());
         };
         if block.external {
-            self.external
-                .insert(record.text(2).unwrap_or_default().to_owned());
+            self.external.insert(insertion.written_name.clone());
             return Ok(());
         }
-        if blocks.len() >= MAX_BLOCK_DEPTH || blocks.contains(&name) {
+        if blocks.len() >= MAX_BLOCK_DEPTH || blocks.contains(name) {
             self.tally.too_deep += 1;
             return Ok(());
         }
-        let Some(system) = Affine::object_system(record.normal()) else {
+        let Some(system) = Affine::object_system(insertion.normal) else {
             self.tally.unreadable += 1;
             return Ok(());
         };
-        let columns = record.flags(70).max(1);
-        let rows = record.flags(71).max(1);
-        let draws = self.draws(&name, blocks.len());
-        let scale = Vector3::new(
-            record.real_or(41, 1.0),
-            record.real_or(42, 1.0),
-            record.real_or(43, 1.0),
-        );
-        let placement = Affine::rotation_z(record.real_or(50, 0.0).to_radians())
-            .then(&Affine::translation(
-                record.point(10).unwrap_or(Point3::ZERO),
-            ))
+        let draws = self.draws(name, blocks.len());
+        let placement = Affine::rotation_z(insertion.rotation)
+            .then(&Affine::translation(insertion.at))
             .then(&system)
             .then(transform);
-        let local = Affine::translation(-block.base).then(&Affine::scale(scale));
-        blocks.push(name);
+        let local = Affine::translation(-block.base).then(&Affine::scale(insertion.scale));
+        blocks.push(name.clone());
         if !draws {
             let before = self.tally.clone();
             self.visit()?;
-            self.add(&contents, &local.then(&placement), layer, blocks)?;
-            let cells = usize::try_from(columns.saturating_mul(rows)).unwrap_or(usize::MAX);
+            self.add(&contents, &local.then(&placement), SHOWN, blocks)?;
+            let cells = usize::try_from(insertion.columns.saturating_mul(insertion.rows))
+                .unwrap_or(usize::MAX);
             self.tally.add_repeated(&before, cells.saturating_sub(1));
             blocks.pop();
             return Ok(());
         }
-        for row in 0..rows {
-            for column in 0..columns {
-                let offset = Vector3::new(
-                    column as f64 * record.real_or(44, 0.0),
-                    row as f64 * record.real_or(45, 0.0),
-                    0.0,
-                );
+        for row in 0..insertion.rows {
+            for column in 0..insertion.columns {
+                let offset = Vector3::new(column as f64, row as f64, 0.0) * insertion.spacing;
                 self.visit()?;
                 let cell = local.then(&Affine::translation(offset)).then(&placement);
                 if !cell.is_finite() {
                     self.tally.unreadable += 1;
                     continue;
                 }
-                self.add(&contents, &cell, layer, blocks)?;
+                self.add(&contents, &cell, SHOWN, blocks)?;
             }
         }
         blocks.pop();
@@ -762,7 +799,7 @@ enum Decoded {
     Unreadable,
     LeftOut((&'static str, &'static str)),
     Ignored,
-    Insert,
+    Insert(Insertion),
 }
 
 fn shapes(file: &DxfFile, item: &Item<'_>) -> Decoded {

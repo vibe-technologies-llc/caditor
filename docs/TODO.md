@@ -73,8 +73,6 @@ within a category run from most to least important.
 
 ## DXF import
 
-- `Nurbs::point` finds the knot span linearly for each of up to 16,384 samples, and each visited
-  entity rescans its record for codes 67, 60 and 8.
 - Parsing keeps an owned `String` per value and clones every record, two to three times the
   file size, with no size limit.
 

@@ -11,8 +11,8 @@ use caditor_sketch::BSpline;
 use crate::import::{
     Drawing, DrawingCurve, SketchTarget, drawing_transaction, parse_dxf,
     tests::{
-        Pairs, arcs, entity, evaluate, header, layer, line, lines, millimetre_drawing, near, pair,
-        section, tables, text,
+        Pairs, arcs, block, entity, evaluate, header, insert, layer, line, lines,
+        millimetre_drawing, near, pair, section, tables, text,
     },
 };
 
@@ -684,4 +684,58 @@ fn names_are_read_in_the_code_page_the_drawing_declares() {
     assert_eq!(unicode, "Größe.");
     assert_eq!(escaped, "Бolt.");
     assert_eq!(binary, "Болт.");
+}
+
+#[test]
+fn block_content_on_layer_zero_takes_the_layer_of_its_insert() {
+    let mut own_hidden = line((0.0, 5.0), (1.0, 5.0));
+    own_hidden[1] = pair(8, "Off");
+    let mut paper = line((0.0, 6.0), (1.0, 6.0));
+    paper.push(pair(67, 1));
+    let bytes = text(vec![
+        header(Some(4)),
+        tables(vec![
+            layer("0", -7, 0),
+            layer("Off", -7, 0),
+            layer("Parts", 7, 0),
+        ]),
+        section(
+            "BLOCKS",
+            vec![block(
+                "Part",
+                (0.0, 0.0),
+                vec![line((0.0, 0.0), (1.0, 0.0)), own_hidden, paper],
+            )],
+        ),
+        section(
+            "ENTITIES",
+            vec![
+                line((0.0, 9.0), (1.0, 9.0)),
+                insert(
+                    "Part",
+                    "Parts",
+                    &[(10, 0.0), (20, 0.0), (70, 2.0), (44, 3.0)],
+                ),
+                insert("Part", "0", &[(10, 0.0), (20, 20.0)]),
+            ],
+        ),
+    ]);
+
+    let drawing = parse_dxf(&bytes).unwrap();
+
+    assert_eq!(
+        lines(&drawing),
+        vec![
+            (Point2::ZERO, Point2::X),
+            (Point2::new(3.0, 0.0), Point2::new(4.0, 0.0))
+        ]
+    );
+    assert!(
+        drawing
+            .notes
+            .iter()
+            .any(|note| note.starts_with("4 objects on hidden or frozen layers")),
+        "{:?}",
+        drawing.notes
+    );
 }

@@ -151,15 +151,7 @@ impl Nurbs {
         let (start, end) = self.domain()?;
         let parameter = parameter.clamp(start, end);
         let degree = self.degree;
-        let span = (degree..self.points.len())
-            .rev()
-            .find(
-                |span| match (self.knots.get(*span), self.knots.get(span + 1)) {
-                    (Some(low), Some(high)) => *low <= parameter && low < high,
-                    _ => false,
-                },
-            )
-            .unwrap_or(degree);
+        let span = self.span(parameter);
         let first = span.checked_sub(degree)?;
         let weight = |index: usize| {
             self.weights
@@ -192,6 +184,23 @@ impl Nurbs {
         }
         let (point, weight) = *local.get(degree)?;
         (weight > 0.0).then(|| point / weight)
+    }
+
+    fn span(&self, parameter: f64) -> usize {
+        let degree = self.degree;
+        let candidates = self
+            .knots
+            .get(degree..self.points.len())
+            .unwrap_or_default();
+        let at_or_before = degree + candidates.partition_point(|knot| *knot <= parameter);
+        let span = at_or_before.saturating_sub(1).max(degree);
+        match (self.knots.get(span), self.knots.get(span + 1)) {
+            (Some(low), Some(high)) if low == high => {
+                let before_run = self.knots.partition_point(|knot| knot < high);
+                before_run.saturating_sub(1).max(degree)
+            }
+            _ => span,
+        }
     }
 
     pub fn transformed(&self, transform: &Affine) -> Self {
@@ -604,6 +613,42 @@ mod tests {
         let circle = planar_circle(Point3::ZERO, -Vector3::X, Vector3::Y).unwrap();
         assert!(!circle.counter_clockwise);
         assert!(planar_circle(Point3::ZERO, Vector3::X * 2.0, Vector3::Y).is_none());
+    }
+
+    fn scanned_span(nurbs: &Nurbs, parameter: f64) -> usize {
+        (nurbs.degree..nurbs.points.len())
+            .rev()
+            .find(|span| {
+                nurbs.knots[*span] <= parameter && nurbs.knots[*span] < nurbs.knots[span + 1]
+            })
+            .unwrap_or(nurbs.degree)
+    }
+
+    #[test]
+    fn the_span_search_finds_the_last_nonempty_span_at_or_before_a_parameter() {
+        let knot_vectors = [
+            vec![0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0],
+            vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0],
+            vec![0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 2.5, 3.0, 3.0, 3.0, 3.0],
+            vec![0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 3.0, 3.0, 3.0, 3.0],
+        ];
+
+        for knots in knot_vectors {
+            let points = (0..8).map(|index| Point3::X * f64::from(index)).collect();
+            let nurbs = Nurbs::new(3, knots.clone(), points, None).unwrap();
+            let (start, end) = nurbs.domain().unwrap();
+            for step in 0..=300 {
+                let parameter = start + (end - start) * f64::from(step) / 300.0;
+                assert_eq!(
+                    nurbs.span(parameter),
+                    scanned_span(&nurbs, parameter),
+                    "{knots:?} at {parameter}"
+                );
+            }
+            for knot in knots.iter().filter(|knot| (start..=end).contains(*knot)) {
+                assert_eq!(nurbs.span(*knot), scanned_span(&nurbs, *knot));
+            }
+        }
     }
 
     fn fit_points() -> Vec<Point3> {
