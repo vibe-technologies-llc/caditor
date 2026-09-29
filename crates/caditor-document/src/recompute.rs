@@ -733,6 +733,15 @@ fn sketch_error(feature: FeatureId, sketch: &Sketch, error: &SketchError) -> Fea
             dimension_error(feature, sketch, *constraint, reason)
         }
         SketchError::Conflict { constraints } => conflict_error(feature, sketch, constraints),
+        SketchError::NoLength { label, .. } => FeatureError {
+            reason: format!("{label} has no length, so the sketch cannot be solved."),
+            remedy: format!(
+                "Delete {label}, or move its ends apart and remove any constraint that holds them \
+                 together."
+            ),
+            fix: Some(FixTarget::Feature(feature)),
+            constraints: Vec::new(),
+        },
         SketchError::Unsolvable => FeatureError {
             reason: "The sketch could not be solved from its current shape.".to_owned(),
             remedy: "Undo the last change, or remove constraints until the sketch solves."

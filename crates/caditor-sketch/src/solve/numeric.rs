@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use nalgebra::{DMatrix, DVector, SVD};
 
 use crate::{
-    id::ConstraintId,
+    id::{ConstraintId, EntityId},
     solve::{
         equation::{Equation, Gradient, PointHandle, value},
         sparse,
@@ -222,14 +222,26 @@ impl Solver<'_> {
     }
 
     fn collapses(&self, component: &Component, values: &[f64]) -> bool {
+        self.collapsed(component, values).next().is_some()
+    }
+
+    pub(crate) fn collapsed<'b>(
+        &'b self,
+        component: &'b Component,
+        values: &'b [f64],
+    ) -> impl Iterator<Item = EntityId> + 'b {
         let moves = |handle: &PointHandle| match handle {
             PointHandle::Variable(x) => component.variables.binary_search(x).is_ok(),
             PointHandle::Fixed(_) => false,
         };
-        self.system.spans.iter().any(|(from, to)| {
-            (moves(from) || moves(to))
-                && from.at(values).distance(to.at(values)) <= self.system.collapsed_length
-        })
+        self.system
+            .spans
+            .iter()
+            .filter(move |(_, from, to)| {
+                (moves(from) || moves(to))
+                    && from.at(values).distance(to.at(values)) <= self.system.collapsed_length
+            })
+            .map(|(entity, _, _)| *entity)
     }
 
     fn converged(&self, component: &Component, values: &[f64]) -> bool {

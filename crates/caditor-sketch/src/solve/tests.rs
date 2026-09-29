@@ -576,7 +576,9 @@ fn degenerate_geometry_never_produces_nan() {
         Err(error) => assert!(
             matches!(
                 error,
-                SketchError::Conflict { .. } | SketchError::Unsolvable
+                SketchError::Conflict { .. }
+                    | SketchError::Unsolvable
+                    | SketchError::NoLength { .. }
             ),
             "{error:?}"
         ),
@@ -1038,4 +1040,30 @@ fn an_edit_reanalyses_only_the_parts_it_touches() {
     assert_eq!(edited.solution, from_scratch.solution);
     assert_eq!(edited.geometry, from_scratch.geometry);
     assert_eq!(edited.geometry.circle(circle).unwrap().1, 6.0);
+}
+
+#[test]
+fn a_line_that_starts_with_no_length_is_named_instead_of_its_constraints() {
+    let mut pinned = Sketch::new(Plane::XY);
+    let line = pinned.add_line(Point2::ZERO, Point2::ZERO);
+    let (start, _) = ends(&pinned, line);
+    pinned
+        .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
+        .unwrap();
+    let mut free = Sketch::new(Plane::XY);
+    let free_line = free.add_line(Point2::new(1.0, 1.0), Point2::new(1.0, 1.0));
+    free.add_constraint(Constraint::Horizontal(free_line))
+        .unwrap();
+
+    let pinned = solve(&pinned).err();
+    let free = solve(&free);
+
+    assert_eq!(
+        pinned,
+        Some(SketchError::NoLength {
+            entity: line,
+            label: "Line 2".to_owned()
+        })
+    );
+    assert!(free.is_ok());
 }

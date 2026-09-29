@@ -67,6 +67,8 @@ pub enum SketchError {
     Conflict { constraints: Vec<ConstraintId> },
     #[error("the sketch could not be solved from its current shape")]
     Unsolvable,
+    #[error("{label} has no length")]
+    NoLength { entity: EntityId, label: String },
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

@@ -185,7 +185,7 @@ impl Sketch {
             values = start;
             let failed = solver.solve(&every_equation, &mut values)?;
             if !failed.is_empty() {
-                return Err(diagnose_failure(&solver, &failed)?);
+                return Err(diagnose_failure(self, &solver, &failed)?);
             }
         }
         let parts: Vec<_> = components(&system, &every_equation, &values)
@@ -216,7 +216,20 @@ impl Sketch {
     }
 }
 
-fn diagnose_failure(solver: &Solver<'_>, failed: &[Component]) -> Result<SketchError, SketchError> {
+fn diagnose_failure(
+    sketch: &Sketch,
+    solver: &Solver<'_>,
+    failed: &[Component],
+) -> Result<SketchError, SketchError> {
+    let collapsed = failed
+        .iter()
+        .find_map(|component| solver.collapsed(component, &solver.system.values).next());
+    if let Some(entity) = collapsed {
+        return Ok(SketchError::NoLength {
+            entity,
+            label: sketch.entity_label(entity),
+        });
+    }
     let scope: Vec<usize> = failed
         .iter()
         .flat_map(|component| component.equations.iter().copied())

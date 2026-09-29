@@ -199,7 +199,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     the radius there being perpendicular to the line (or both radii along one line), which
     keeps full rank where the distance form has none, and a zero distance between points is
     solved as a coincidence. A solve that would collapse a line or an arc's radius to nothing
-    counts as not converged, so it is reported as a conflict. Retries perturb each part by a
+    counts as not converged, so it is reported as a conflict, unless the line or arc already had
+    no length before solving, which is reported as `SketchError::NoLength` naming it. Retries perturb each part by a
     fraction of its own extent.
     Degrees of freedom and each entity's constraint state come from the rank and null space
     of the Jacobian at the solution; a constraint whose equations add no rank over older ones

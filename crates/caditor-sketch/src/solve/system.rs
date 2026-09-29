@@ -25,7 +25,7 @@ pub(crate) struct System {
     pub radii: BTreeMap<EntityId, usize>,
     pub radius_variables: BTreeSet<usize>,
     pub entity_variables: BTreeMap<EntityId, Vec<usize>>,
-    pub spans: Vec<(PointHandle, PointHandle)>,
+    pub spans: Vec<(EntityId, PointHandle, PointHandle)>,
     pub collapsed_length: f64,
 }
 
@@ -80,15 +80,16 @@ impl System {
             .map(|(id, entity)| (id, system.variables_of(id, entity)))
             .collect();
 
-        for (_, entity) in sketch.entities() {
+        for (id, entity) in sketch.entities() {
             let span = match *entity {
                 Entity::Line { start, end } => Some((start, end)),
                 Entity::Arc { center, start, .. } => Some((center, start)),
                 Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. } => None,
             };
             if let Some((from, to)) = span {
-                let handles = (system.point(from)?, system.point(to)?);
-                system.spans.push(handles);
+                system
+                    .spans
+                    .push((id, system.point(from)?, system.point(to)?));
             }
         }
         for (id, entity) in sketch.entities() {

@@ -123,8 +123,6 @@ within a category run from most to least important.
   the outermost dimension or dragging the outermost point misses the memo for every part.
 - Each tangent constraint rebuilds the coincidence union-find and scans all constraints twice
   (`system.rs` `joint`, `points_on`), quadratic in tangents per solve.
-- A zero-length line (two distinct points at one position) makes its part inadmissible and is
-  reported as a conflict of its own constraints; say that the line has no length.
 - `10 mm^2` means (10 mm)², since a power binds to the measure before it; stored text relies on
   that reading, so changing it needs a new spelling or a format change.
 - Dimension values are unbounded above, so 1e200 mm overflows the scale and fails as the generic
