@@ -110,3 +110,18 @@ pub(crate) fn with_slices_of<T>(length: usize, work: impl FnOnce() -> T) -> T {
     SLICE_LENGTH.set(before);
     result
 }
+
+thread_local! {
+    static WORTH_SHARING: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+pub(crate) fn worth_sharing() -> Option<usize> {
+    WORTH_SHARING.get()
+}
+
+pub(crate) fn sharing_from<T>(length: usize, work: impl FnOnce() -> T) -> T {
+    let before = WORTH_SHARING.replace(Some(length));
+    let result = work();
+    WORTH_SHARING.set(before);
+    result
+}

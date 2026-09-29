@@ -9,7 +9,11 @@ pub(crate) mod value;
 use caditor_zstd::{Level, ZstdError};
 use xxhash_rust::xxh3::Xxh3;
 
-pub(crate) use self::model::{EncodeError, decode, encode, history, load_version, save_bytes};
+#[cfg(test)]
+pub(crate) use self::model::save_bytes;
+pub(crate) use self::model::{
+    EncodeError, Encoded, Shared, decode, encode, encode_over, history, load_version,
+};
 pub use self::model::{History, SavedState, Version};
 
 pub(crate) type Magic = [u8; 8];
@@ -18,7 +22,7 @@ pub(crate) const MODEL_MAGIC: Magic = [0x89, b'C', b'A', b'D', b'\r', b'\n', 0x1
 pub(crate) const JOURNAL_MAGIC: Magic = [0x89, b'C', b'J', b'L', b'\r', b'\n', 0x1a, b'\n'];
 const SYNC: [u8; 4] = *b"CDCK";
 const VERSION_LENGTH: usize = 4;
-const CHUNK_HEADER_LENGTH: usize = 24;
+pub(crate) const CHUNK_HEADER_LENGTH: usize = 24;
 const CHECKED_HEADER: std::ops::Range<usize> = 4..16;
 const CHECKSUM: std::ops::Range<usize> = 16..CHUNK_HEADER_LENGTH;
 const MAX_CONTENT: usize = 1 << 28;
@@ -41,10 +45,11 @@ pub(crate) enum ChunkKind {
     Apply = 7,
     Undo = 8,
     Redo = 9,
+    Padding = 10,
 }
 
 impl ChunkKind {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::Head,
         Self::Record,
         Self::VersionInfo,
@@ -54,6 +59,7 @@ impl ChunkKind {
         Self::Apply,
         Self::Undo,
         Self::Redo,
+        Self::Padding,
     ];
 
     fn from_byte(byte: u8) -> Option<Self> {
@@ -398,6 +404,18 @@ pub(crate) fn push_packed_after(
             &compressed,
         )
     })
+}
+
+pub(crate) fn push_padding(bytes: &mut Vec<u8>, length: usize) -> Result<(), PackError> {
+    let zeros = vec![0; length.saturating_sub(CHUNK_HEADER_LENGTH)];
+    push_chunk(
+        bytes,
+        ChunkKind::Padding,
+        Codec::Stored,
+        0,
+        zeros.len(),
+        &zeros,
+    )
 }
 
 fn push_slices(

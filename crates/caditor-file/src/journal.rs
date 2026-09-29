@@ -178,7 +178,8 @@ fn decode_entry(piece: &Piece<'_>) -> Option<JournalEntry> {
         | ChunkKind::VersionInfo
         | ChunkKind::VersionData
         | ChunkKind::JournalHeader
-        | ChunkKind::Snapshot => None,
+        | ChunkKind::Snapshot
+        | ChunkKind::Padding => None,
     }
 }
 

@@ -26,12 +26,6 @@ within a category run from most to least important.
 - Slow tests to keep an eye on: STEP `every_fixture_survives_a_round_trip` (7 s),
   `blend::every_edge_of_assorted_prisms` (6 s) and about 40 UI tests at over a second each.
 
-## File format and storage
-
-- Every save rewrites and fsyncs the whole version history (`binary/model.rs`); where the file
-  system can share extents (`copy_file_range` on Btrfs or XFS), clone the unchanged versions from
-  the previous file instead of writing them again.
-
 ## Kernel correctness
 
 - Shell cannot drop collapsing cones or faces whose edges run neither around nor along their

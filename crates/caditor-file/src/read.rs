@@ -15,8 +15,12 @@ pub(crate) struct NotAFile;
 pub(crate) struct TooLarge;
 
 pub(crate) fn read_file(path: &Path) -> io::Result<Vec<u8>> {
+    read_open(&open_file(path)?)
+}
+
+pub(crate) fn open_file(path: &Path) -> io::Result<File> {
     ensure_regular(&fs::metadata(path)?)?;
-    read_open(&File::open(path)?)
+    File::open(path)
 }
 
 pub(crate) fn read_open(file: &File) -> io::Result<Vec<u8>> {

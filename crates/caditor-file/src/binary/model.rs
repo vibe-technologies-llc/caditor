@@ -8,8 +8,8 @@ use caditor_document::Document;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Chunk, ChunkKind, Codec, MODEL_MAGIC, PackError, Piece, has_magic, parse, push_packed,
-    push_packed_after,
+    CHUNK_HEADER_LENGTH, Chunk, ChunkKind, Codec, MODEL_MAGIC, PackError, Piece, has_magic, parse,
+    push_packed, push_packed_after, push_padding,
     retention::retained,
     start_file,
     value::{self, ValueError, push_varint, read_varint},
@@ -24,6 +24,8 @@ use crate::{
 
 const KEYFRAME_SPACING: usize = 8;
 const MAX_DECOMPRESSED: usize = 1 << 31;
+const SHARED_BLOCK: usize = 4096;
+const WORTH_SHARING: usize = 256 << 10;
 
 struct Budget {
     remaining: usize,
@@ -167,6 +169,7 @@ impl<'a> Parsed<'a> {
                 Some(ChunkKind::VersionData) => {
                     parsed.versions.push(StoredVersion { info, data: chunk });
                 }
+                Some(ChunkKind::Padding) => pending_info = info,
                 Some(
                     ChunkKind::Head
                     | ChunkKind::JournalHeader
@@ -333,7 +336,161 @@ fn split_snapshot(snapshot: &[u8]) -> Option<Vec<&[u8]>> {
 }
 
 pub(crate) fn encode(document: &Document) -> Result<Vec<u8>, EncodeError> {
-    save_bytes(document, None, SystemTime::now(), None)
+    Ok(encode_over(document, None, SystemTime::now(), None)?.bytes)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Encoded {
+    pub bytes: Vec<u8>,
+    pub shared: Vec<Shared>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Shared {
+    pub at: usize,
+    pub from: usize,
+    pub length: usize,
+}
+
+impl Shared {
+    fn within(at: usize, from: usize, length: usize, previous_length: usize) -> Option<Self> {
+        let start = from.checked_next_multiple_of(SHARED_BLOCK)?;
+        let end = from.checked_add(length)?;
+        let end = if end == previous_length {
+            end
+        } else {
+            end - end % SHARED_BLOCK
+        };
+        let skipped = start - from;
+        (end > start).then(|| Self {
+            at: at + skipped,
+            from: start,
+            length: end - start,
+        })
+    }
+}
+
+enum Part<'a> {
+    Fresh(Vec<u8>),
+    Kept { from: usize, bytes: &'a [u8] },
+}
+
+impl Part<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Fresh(bytes) => bytes.len(),
+            Self::Kept { bytes, .. } => bytes.len(),
+        }
+    }
+
+    fn shareable_from(&self, worth: usize) -> Option<usize> {
+        match self {
+            Self::Kept { from, bytes } if bytes.len() >= worth => Some(*from),
+            Self::Fresh(_) | Self::Kept { .. } => None,
+        }
+    }
+}
+
+fn worth_sharing() -> usize {
+    #[cfg(test)]
+    if let Some(length) = super::testing::worth_sharing() {
+        return length;
+    }
+    WORTH_SHARING
+}
+
+struct Section<'a> {
+    previous: &'a [u8],
+    parts: Vec<Part<'a>>,
+    fresh: Vec<u8>,
+}
+
+impl<'a> Section<'a> {
+    fn new(previous: &'a [u8]) -> Self {
+        Self {
+            previous,
+            parts: Vec::new(),
+            fresh: Vec::new(),
+        }
+    }
+
+    fn fresh(&mut self) -> &mut Vec<u8> {
+        &mut self.fresh
+    }
+
+    fn keep(&mut self, stored: &'a [u8]) {
+        let Some(from) = offset_within(self.previous, stored) else {
+            self.fresh.extend_from_slice(stored);
+            return;
+        };
+        self.end_fresh();
+        if let Some(Part::Kept {
+            from: start,
+            bytes: kept,
+        }) = self.parts.last_mut()
+            && *start + kept.len() == from
+            && let Some(joined) = self.previous.get(*start..from + stored.len())
+        {
+            *kept = joined;
+            return;
+        }
+        self.parts.push(Part::Kept {
+            from,
+            bytes: stored,
+        });
+    }
+
+    fn end_fresh(&mut self) {
+        if !self.fresh.is_empty() {
+            self.parts
+                .push(Part::Fresh(std::mem::take(&mut self.fresh)));
+        }
+    }
+
+    fn place(mut self, bytes: &mut Vec<u8>, shared: &mut Vec<Shared>) -> Result<(), PackError> {
+        self.end_fresh();
+        let worth = worth_sharing();
+        let first = self
+            .parts
+            .iter()
+            .enumerate()
+            .find_map(|(index, part)| Some((index, part.shareable_from(worth)?)));
+        if let Some((first, from)) = first {
+            let before: usize = self.parts.iter().take(first).map(Part::len).sum();
+            pad_to(bytes, from.wrapping_sub(before))?;
+        }
+        for part in self.parts {
+            if let Some(from) = part.shareable_from(worth) {
+                pad_to(bytes, from)?;
+                shared.extend(Shared::within(
+                    bytes.len(),
+                    from,
+                    part.len(),
+                    self.previous.len(),
+                ));
+            }
+            match part {
+                Part::Fresh(fresh) => bytes.extend_from_slice(&fresh),
+                Part::Kept { bytes: kept, .. } => bytes.extend_from_slice(kept),
+            }
+        }
+        Ok(())
+    }
+}
+
+fn pad_to(bytes: &mut Vec<u8>, congruent_to: usize) -> Result<(), PackError> {
+    let behind = congruent_to.wrapping_sub(bytes.len()) % SHARED_BLOCK;
+    let padding = match behind {
+        0 => return Ok(()),
+        short if short < CHUNK_HEADER_LENGTH => short + SHARED_BLOCK,
+        enough => enough,
+    };
+    push_padding(bytes, padding)
+}
+
+fn offset_within(whole: &[u8], part: &[u8]) -> Option<usize> {
+    let offset = part.as_ptr().addr().checked_sub(whole.as_ptr().addr())?;
+    (offset.checked_add(part.len())? <= whole.len()).then_some(offset)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -364,12 +521,22 @@ impl RecordToWrite<'_> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn save_bytes(
     document: &Document,
     previous: Option<&[u8]>,
     now: SystemTime,
     label: Option<&str>,
 ) -> Result<Vec<u8>, EncodeError> {
+    Ok(encode_over(document, previous, now, label)?.bytes)
+}
+
+pub(crate) fn encode_over(
+    document: &Document,
+    previous: Option<&[u8]>,
+    now: SystemTime,
+    label: Option<&str>,
+) -> Result<Encoded, EncodeError> {
     let prior = previous.and_then(Parsed::of);
     let prior_contents = prior
         .as_ref()
@@ -411,15 +578,18 @@ pub(crate) fn save_bytes(
             bytes.extend_from_slice(foreign.whole);
         }
     }
+    let mut versions = Section::new(previous.unwrap_or_default());
     write_versions(
-        &mut bytes,
+        &mut versions,
         prior.as_ref(),
         prior_head.as_ref(),
         !unchanged,
         &snapshot,
         now,
     )?;
-    Ok(bytes)
+    let mut shared = Vec::new();
+    versions.place(&mut bytes, &mut shared)?;
+    Ok(Encoded { bytes, shared })
 }
 
 enum Candidate<'p, 'a> {
@@ -518,9 +688,9 @@ fn needing_content(
     needed
 }
 
-fn write_versions(
-    bytes: &mut Vec<u8>,
-    prior: Option<&Parsed<'_>>,
+fn write_versions<'a>(
+    section: &mut Section<'a>,
+    prior: Option<&Parsed<'a>>,
     prior_head: Option<&(StateRecord, Vec<u8>)>,
     adds_version: bool,
     snapshot: &[u8],
@@ -558,6 +728,7 @@ fn write_versions(
                 snapshot: old,
                 whole,
             } => {
+                let bytes = section.fresh();
                 push_packed(bytes, ChunkKind::VersionInfo, &value::to_bytes(info)?)?;
                 if *whole {
                     push_packed(bytes, ChunkKind::VersionData, old)?;
@@ -567,17 +738,19 @@ fn write_versions(
             }
             Candidate::Stored { version, .. } => {
                 if let Some(info) = &version.info {
-                    bytes.extend_from_slice(info.chunk.whole);
+                    section.keep(info.chunk.whole);
                 }
                 let rewritten = (after_thinning && !version.is_keyframe())
                     .then_some(content.as_deref())
                     .flatten();
                 match (rewritten, base.as_deref()) {
                     (Some(content), Some(base)) if !thinned_keyframe => {
-                        push_packed_after(bytes, ChunkKind::VersionData, content, base)?;
+                        push_packed_after(section.fresh(), ChunkKind::VersionData, content, base)?;
                     }
-                    (Some(content), _) => push_packed(bytes, ChunkKind::VersionData, content)?,
-                    (None, _) => bytes.extend_from_slice(version.data.whole),
+                    (Some(content), _) => {
+                        push_packed(section.fresh(), ChunkKind::VersionData, content)?;
+                    }
+                    (None, _) => section.keep(version.data.whole),
                 }
             }
         }

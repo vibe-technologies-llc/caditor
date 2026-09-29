@@ -785,7 +785,14 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     delta whose newer neighbour was dropped is decoded (each version at most once per save, only
     along the runs that need it) and compressed again against the newest kept version before it,
     or stored whole when a dropped version was a whole one, so runs of deltas never grow; one
-    that cannot be decoded is copied as it was, already lost.
+    that cannot be decoded is copied as it was, already lost. Versions copied unchanged are placed
+    for sharing: each run of them at least 256 KiB long lands at the same offset modulo 4 KiB as
+    in the file being replaced (a zero-filled `Padding` chunk, which readers skip, goes at the
+    start of the versions for the first such run and before each later one), and the save clones
+    each run's whole blocks from that file with `copy_file_range` (`save.rs`), which shares their
+    extents on Btrfs and XFS and copies within the kernel elsewhere. Whatever could not be cloned
+    is written from memory, and so is every cloned range when the file changed (size or times)
+    after it was read.
   - Saving writes a temporary sibling, fsyncs it, renames it over the target and fsyncs the
     directory, keeping the target's permissions, group and extended attributes (ACLs included;
     through `xattr`, each one that cannot be set is skipped), with the temporary created

@@ -2,7 +2,7 @@ use std::{
     ffi::{OsStr, OsString},
     fs::{self, File, Metadata, OpenOptions},
     io::{self, Write},
-    os::unix::fs::{MetadataExt, OpenOptionsExt, fchown},
+    os::unix::fs::{FileExt, MetadataExt, OpenOptionsExt, fchown},
     path::{Path, PathBuf},
     sync::{
         OnceLock,
@@ -12,12 +12,13 @@ use std::{
 };
 
 use caditor_document::Document;
-use xattr::FileExt;
+use rustix::io::Errno;
+use xattr::FileExt as _;
 
 use crate::{
-    binary,
+    binary::{self, Encoded, Shared},
     paths::{MAX_NAME_BYTES, fitting},
-    read::{ensure_regular, read_file},
+    read::{ensure_regular, open_file, read_open},
     reason,
 };
 
@@ -95,9 +96,9 @@ pub fn save_with(
         .map(read_previous)
         .transpose()?
         .flatten();
-    let contents = binary::save_bytes(
+    let encoded = binary::encode_over(
         document,
-        previous.as_deref(),
+        previous.as_ref().map(|previous| previous.bytes.as_slice()),
         SystemTime::now(),
         options.label,
     )
@@ -107,13 +108,57 @@ pub fn save_with(
     } else {
         None
     };
-    write_atomically(&target, &contents).map_err(|error| SaveError::writing(&error))?;
+    let written = match &previous {
+        Some(previous) if !encoded.shared.is_empty() => {
+            replace_atomically(&target, |file| write_sharing(file, &encoded, previous))
+        }
+        _ => write_atomically(&target, &encoded.bytes),
+    };
+    written.map_err(|error| SaveError::writing(&error))?;
     Ok(backup)
 }
 
-fn read_previous(path: &Path) -> Result<Option<Vec<u8>>, SaveError> {
-    match read_file(path) {
-        Ok(bytes) => Ok(Some(bytes)),
+struct Previous {
+    file: File,
+    bytes: Vec<u8>,
+    stamp: Stamp,
+}
+
+impl Previous {
+    fn open(path: &Path) -> io::Result<Self> {
+        let file = open_file(path)?;
+        let stamp = Stamp::of(&file.metadata()?);
+        let bytes = read_open(&file)?;
+        Ok(Self { file, bytes, stamp })
+    }
+
+    fn changed_since_read(&self) -> bool {
+        self.file
+            .metadata()
+            .map_or(true, |metadata| Stamp::of(&metadata) != self.stamp)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Stamp {
+    length: u64,
+    modified: (i64, i64),
+    changed: (i64, i64),
+}
+
+impl Stamp {
+    fn of(metadata: &Metadata) -> Self {
+        Self {
+            length: metadata.size(),
+            modified: (metadata.mtime(), metadata.mtime_nsec()),
+            changed: (metadata.ctime(), metadata.ctime_nsec()),
+        }
+    }
+}
+
+fn read_previous(path: &Path) -> Result<Option<Previous>, SaveError> {
+    match Previous::open(path) {
+        Ok(previous) => Ok(Some(previous)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => {
             log::warn!(
@@ -132,12 +177,83 @@ fn read_previous(path: &Path) -> Result<Option<Vec<u8>>, SaveError> {
     }
 }
 
+fn write_sharing(file: &mut File, encoded: &Encoded, source: &Previous) -> io::Result<()> {
+    let bytes = encoded.bytes.as_slice();
+    let mut cloned = Vec::new();
+    for range in &encoded.shared {
+        let copied = copy_range(&source.file, file, range);
+        if copied > 0 {
+            cloned.push(Shared {
+                length: copied,
+                ..*range
+            });
+        }
+        let rest = range.at + copied;
+        write_range(file, bytes, rest, range.at + range.length)?;
+    }
+    let mut position = 0;
+    for range in &encoded.shared {
+        write_range(file, bytes, position, range.at)?;
+        position = range.at + range.length;
+    }
+    write_range(file, bytes, position, bytes.len())?;
+    file.set_len(bytes.len() as u64)?;
+    if source.changed_since_read() {
+        log::warn!("the previous file changed while saving, so its versions are written again");
+        for range in cloned {
+            write_range(file, bytes, range.at, range.at + range.length)?;
+        }
+    }
+    Ok(())
+}
+
+fn copy_range(source: &File, target: &File, range: &Shared) -> usize {
+    let mut from = range.from as u64;
+    let mut at = range.at as u64;
+    let mut copied = 0;
+    while copied < range.length {
+        match rustix::fs::copy_file_range(
+            source,
+            Some(&mut from),
+            target,
+            Some(&mut at),
+            range.length - copied,
+        ) {
+            Ok(0) => break,
+            Ok(count) => copied += count,
+            Err(Errno::INTR) => {}
+            Err(error) => {
+                log::debug!("could not share earlier versions with the previous file: {error}");
+                break;
+            }
+        }
+    }
+    copied.min(range.length)
+}
+
+fn write_range(file: &File, bytes: &[u8], start: usize, end: usize) -> io::Result<()> {
+    let range = bytes.get(start..end).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a shared range lies outside the saved content",
+        )
+    })?;
+    file.write_all_at(range, start as u64)
+}
+
 pub fn write_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
+    replace_atomically(path, |file| file.write_all(contents))
+}
+
+fn replace_atomically(
+    path: &Path,
+    fill: impl FnOnce(&mut File) -> io::Result<()>,
+) -> io::Result<()> {
     let target = resolve_links(path)?;
     ensure_replaceable(&target)?;
     let temporary = temporary_sibling(&target)?;
-    let written = write_and_sync(&temporary, &target, contents)
-        .and_then(|()| fs::rename(&temporary, &target));
+    let written =
+        write_and_sync(&temporary, &target, fill).and_then(|()| fs::rename(&temporary, &target));
     if written.is_err() {
         let _ = fs::remove_file(&temporary);
     }
@@ -238,7 +354,11 @@ fn temporary_owner(suffix: &[u8], tag: &str) -> Option<u32> {
         .flatten()
 }
 
-fn write_and_sync(temporary: &Path, target: &Path, contents: &[u8]) -> io::Result<()> {
+fn write_and_sync(
+    temporary: &Path,
+    target: &Path,
+    fill: impl FnOnce(&mut File) -> io::Result<()>,
+) -> io::Result<()> {
     let mut file = match fs::metadata(target) {
         Ok(existing) => {
             let file = OpenOptions::new()
@@ -252,7 +372,7 @@ fn write_and_sync(temporary: &Path, target: &Path, contents: &[u8]) -> io::Resul
         }
         Err(_) => File::create_new(temporary)?,
     };
-    file.write_all(contents)?;
+    fill(&mut file)?;
     file.sync_all()
 }
 
@@ -421,6 +541,74 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    const BLOCK: usize = 4096;
+
+    fn pattern(length: usize, seed: u8) -> Vec<u8> {
+        (0..length)
+            .map(|index| (index as u8).wrapping_mul(31).wrapping_add(seed) ^ (index >> 9) as u8)
+            .collect()
+    }
+
+    fn sharing_layout(previous: &[u8]) -> Encoded {
+        let mut bytes = pattern(BLOCK + 100, 7);
+        let middle = previous.len() / BLOCK / 2 * BLOCK;
+        let first_at = 2 * BLOCK;
+        bytes.resize(first_at, 1);
+        bytes.extend_from_slice(&previous[BLOCK..middle]);
+        bytes.extend_from_slice(&pattern(3 * BLOCK + 17, 9));
+        let second_at = bytes.len().next_multiple_of(BLOCK);
+        bytes.resize(second_at, 2);
+        bytes.extend_from_slice(&previous[middle..]);
+        bytes.extend_from_slice(&pattern(BLOCK / 2, 11));
+        Encoded {
+            shared: vec![
+                Shared {
+                    at: first_at,
+                    from: BLOCK,
+                    length: middle - BLOCK,
+                },
+                Shared {
+                    at: second_at,
+                    from: middle,
+                    length: previous.len() - middle,
+                },
+            ],
+            bytes,
+        }
+    }
+
+    #[test]
+    fn a_shared_save_writes_exactly_what_was_encoded() {
+        let dir = TempDir::new().unwrap();
+        let source = dir.path().join("before.caditor");
+        let target = dir.path().join("after.caditor");
+        fs::write(&source, pattern(9 * BLOCK + 1234, 3)).unwrap();
+        fs::write(&target, "old").unwrap();
+
+        let previous = Previous::open(&source).unwrap();
+        let encoded = sharing_layout(&previous.bytes);
+        replace_atomically(&target, |file| write_sharing(file, &encoded, &previous)).unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), encoded.bytes);
+        assert_eq!(fs::read(&source).unwrap(), previous.bytes);
+    }
+
+    #[test]
+    fn a_previous_file_changed_after_it_was_read_is_not_shared() {
+        let dir = TempDir::new().unwrap();
+        let source = dir.path().join("before.caditor");
+        let target = dir.path().join("after.caditor");
+        fs::write(&source, pattern(9 * BLOCK + 1234, 3)).unwrap();
+
+        let previous = Previous::open(&source).unwrap();
+        let encoded = sharing_layout(&previous.bytes);
+        fs::write(&source, pattern(10 * BLOCK, 5)).unwrap();
+        assert!(previous.changed_since_read());
+        replace_atomically(&target, |file| write_sharing(file, &encoded, &previous)).unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), encoded.bytes);
+    }
 
     #[test]
     fn a_copy_is_placed_whole_under_the_first_free_name_or_not_at_all() {

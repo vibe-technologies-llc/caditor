@@ -14,6 +14,7 @@ use tempfile::TempDir;
 use super::{
     binary::testing::{
         corrupt_chunk, current_model_from_json, model_from_json, records_as_json, rewrite_journal,
+        sharing_from,
     },
     save, *,
 };
@@ -187,6 +188,58 @@ fn a_saved_model_loads_back_exactly() {
     assert!(records[1].contains("\"expression\":\"$0 / 2 + 0.1 mm\""));
     assert_eq!(records.len(), 2 + 2 + 1);
     assert_eq!(files_in(dir.path()), ["model.caditor"]);
+}
+
+#[test]
+fn saves_sharing_earlier_versions_with_the_file_they_replace_keep_every_version() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let copy = dir.path().join("copy.caditor");
+    let mut editor = Editor::new(sample());
+    let mut bulk = editor.document().transaction("Bulk");
+    for index in 0..400_u64 {
+        let text = format!("{} mm", index.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 40);
+        bulk.add_parameter(format!("extra{index}"), bulk.parse(&text).unwrap());
+    }
+    editor.apply(bulk.finish()).unwrap();
+    let mut saved = Vec::new();
+
+    sharing_from(1, || {
+        for step in 0..10 {
+            let edit = edit_width(editor.document(), &format!("{} mm", 40 + step));
+            editor.apply(edit).unwrap();
+            save(editor.document(), &path, false).unwrap();
+            saved.push(editor.document().clone());
+        }
+        let options = SaveOptions {
+            history_from: Some(&path),
+            ..SaveOptions::default()
+        };
+        editor
+            .apply(edit_width(editor.document(), "99 mm"))
+            .unwrap();
+        save_with(editor.document(), &copy, &options).unwrap();
+        saved.push(editor.document().clone());
+    });
+
+    for (file, versions) in [(&path, 9), (&copy, 10)] {
+        let listed = crate::history(file).unwrap();
+        assert_eq!(listed.versions.len(), versions);
+        for version in &listed.versions {
+            assert!(version.available);
+            let loaded = load_version(file, version.index).unwrap();
+            assert_eq!(loaded.document, saved[versions - 1 - version.index]);
+        }
+        assert_eq!(load(file).unwrap().document, saved[versions]);
+        let bytes = fs::read(file).unwrap();
+        let container = binary::parse(&bytes, &binary::MODEL_MAGIC).unwrap();
+        assert!(
+            container
+                .chunks()
+                .any(|chunk| chunk.kind == Some(binary::ChunkKind::Padding))
+        );
+    }
+    assert_eq!(files_in(dir.path()), ["copy.caditor", "model.caditor"]);
 }
 
 #[test]

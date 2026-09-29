@@ -4,8 +4,11 @@ use caditor_document::{Document, Edit, Transaction};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    model::{decode, history, load_version, save_bytes},
-    testing::{corrupt_chunk, model_chunk_count, push_foreign, records_as_json, with_slices_of},
+    model::{decode, encode_over, history, load_version, save_bytes},
+    testing::{
+        corrupt_chunk, model_chunk_count, push_foreign, records_as_json, sharing_from,
+        with_slices_of,
+    },
     value::{from_bytes, to_bytes},
     *,
 };
@@ -616,4 +619,97 @@ fn thinning_never_passes_off_a_damaged_version_as_another() {
         check_listed_versions(&bytes, &documents);
     }
     assert!(longest_delta_run(&bytes) < 8);
+}
+
+fn bulky() -> Document {
+    let mut document = with_width(10);
+    let mut transaction = document.transaction("Bulk");
+    let mut state = 0x9e37_79b9_u64;
+    for index in 0..400 {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        let text = format!("{}.{} mm", state >> 44, (state >> 20) & 0xffff);
+        transaction.add_parameter(format!("extra{index}"), transaction.parse(&text).unwrap());
+    }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn padding_chunks(bytes: &[u8]) -> usize {
+    parse(bytes, &MODEL_MAGIC)
+        .unwrap()
+        .chunks()
+        .filter(|chunk| chunk.kind == Some(ChunkKind::Padding))
+        .count()
+}
+
+#[test]
+fn unchanged_versions_are_placed_where_the_previous_file_can_share_them() {
+    const TEN_MINUTES: u64 = 600;
+    sharing_from(1, || {
+        let mut documents = vec![bulky()];
+        let mut bytes = save_bytes(&documents[0], None, at(1_000), Some("First")).unwrap();
+        let mut shared = 0;
+        for step in 1..60 {
+            let next = edited(documents.last().unwrap(), 10 + step);
+            let label = format!("Step {step}");
+            let time = at(1_000 + u64::from(step) * TEN_MINUTES);
+            let encoded = encode_over(&next, Some(&bytes), time, Some(&label)).unwrap();
+            for range in &encoded.shared {
+                assert_eq!(range.at % 4096, 0);
+                assert_eq!(range.from % 4096, 0);
+                assert!(range.length % 4096 == 0 || range.from + range.length == bytes.len());
+                assert_eq!(
+                    encoded.bytes[range.at..range.at + range.length],
+                    bytes[range.from..range.from + range.length]
+                );
+            }
+            shared += encoded
+                .shared
+                .iter()
+                .map(|range| range.length)
+                .sum::<usize>();
+            bytes = encoded.bytes;
+            documents.push(next);
+            assert_eq!(decode(&bytes).unwrap().issues, Vec::<String>::new());
+        }
+        assert_eq!(decode(&bytes).unwrap().document, documents[59]);
+        let listed = check_listed_versions(&bytes, &documents);
+        assert!(listed.versions.iter().all(|version| version.available));
+        assert!(longest_delta_run(&bytes) < 8);
+        assert!(shared > 40 * 4096, "{shared} bytes shared");
+        assert!(
+            padding_chunks(&bytes) < listed.versions.len(),
+            "{} padding chunks for {} versions",
+            padding_chunks(&bytes),
+            listed.versions.len()
+        );
+    });
+}
+
+#[test]
+fn small_histories_are_written_without_padding() {
+    let (documents, bytes) = saved_series(20);
+    assert_eq!(padding_chunks(&bytes), 0);
+    let encoded = encode_over(documents.last().unwrap(), Some(&bytes), later(30), None).unwrap();
+    assert!(encoded.shared.is_empty());
+}
+
+#[test]
+fn padding_is_neither_a_version_nor_something_from_a_newer_version() {
+    sharing_from(1, || {
+        let (documents, bytes) = saved_series(12);
+        assert!(padding_chunks(&bytes) > 0);
+        let loaded = decode(&bytes).unwrap();
+        assert_eq!(loaded.issues, Vec::<String>::new());
+        assert_eq!(loaded.document, documents[11]);
+        let listed = check_listed_versions(&bytes, &documents);
+        assert_eq!(listed.versions.len(), 11);
+        assert!(listed.versions.iter().all(|version| version.available));
+    });
+    let (documents, bytes) = sharing_from(1, || saved_series(12));
+    let resaved = save_bytes(&documents[11], Some(&bytes), later(20), None).unwrap();
+    assert_eq!(padding_chunks(&resaved), 0);
+    assert_eq!(history(&resaved), history(&bytes));
 }
