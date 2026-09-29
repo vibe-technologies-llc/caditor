@@ -250,11 +250,14 @@ fn a_failed_save_reports_a_plain_reason_and_leaves_the_folder_clean() {
 }
 
 fn make_fifo(path: &Path) {
-    let made = std::process::Command::new("mkfifo")
-        .arg(path)
-        .status()
-        .unwrap();
-    assert!(made.success());
+    rustix::fs::mknodat(
+        rustix::fs::CWD,
+        path,
+        rustix::fs::FileType::Fifo,
+        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+        0,
+    )
+    .unwrap();
 }
 
 #[test]

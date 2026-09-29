@@ -721,7 +721,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     untitled documents keep theirs. Its owner holds an exclusive lock on it, which is how the
     startup scan and other instances tell a live journal from an orphan. Locks are taken on
     read-write handles (`lock.rs`; a read-only journal gets a shared lock), since NFS emulates
-    `flock` with byte-range locks that need a writable descriptor. A journal is only put in
+    `flock` with byte-range locks that need a writable descriptor. A spawned child shares every
+    locked descriptor until it execs, so a scan meanwhile takes a live journal for locked; tests
+    therefore never spawn processes (FIFOs are made in-process through `rustix`). A journal is only put in
     place by linking it where none exists, or by renaming over the inode the writer holds
     locked and has checked is still at that path, so two windows cannot take one path from each
     other; the owner also checks the path still names its file after every sync, and otherwise

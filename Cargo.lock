@@ -663,6 +663,7 @@ dependencies = [
  "crc32fast",
  "log",
  "miniz_oxide 0.9.1",
+ "rustix 1.1.5",
  "serde",
  "serde_json",
  "tempfile",

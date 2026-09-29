@@ -32,4 +32,5 @@ xattr.workspace = true
 xxhash-rust.workspace = true
 
 [dev-dependencies]
+rustix = { workspace = true, features = ["fs", "std"] }
 tempfile.workspace = true
