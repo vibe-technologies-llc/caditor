@@ -30,6 +30,8 @@ pub enum ParseErrorKind {
     UnexpectedCharacter(char),
     #[error("'{0}' is not a valid number")]
     InvalidNumber(String),
+    #[error("'{0}' is too large a number")]
+    NumberTooLarge(String),
     #[error("Expected {expected} but found '{found}'")]
     Unexpected {
         expected: &'static str,
@@ -192,6 +194,12 @@ fn lex(text: &str, references: References) -> Result<Vec<Token>, ParseError> {
                 kind: ParseErrorKind::InvalidNumber(literal.to_owned()),
                 span: start..position,
             })?;
+            if !value.is_finite() {
+                return Err(ParseError {
+                    kind: ParseErrorKind::NumberTooLarge(literal.to_owned()),
+                    span: start..position,
+                });
+            }
             TokenKind::Number(value)
         } else if character == STORED_REFERENCE && references == References::Stored {
             position = reference_end(text, start);

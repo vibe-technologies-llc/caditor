@@ -31,7 +31,8 @@ The first release of caditor.
 - Named parameters and unit-aware expressions in every field, with comparisons and `if`,
   `mod`, `hypot`, `exp`, `ln`, `sign`, `clamp`, rounding to a step, units after parentheses
   and names (`(2 + 3) mm`), areas and volumes such as `mm²`, and a clear message for a
-  misspelled unit or a computed angle without deg or rad.
+  misspelled unit or a computed angle without deg or rad. A number too large to store, such as
+  `1e999`, is refused as it is typed instead of being lost on the next save.
 
 ### Files
 

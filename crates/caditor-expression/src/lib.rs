@@ -273,6 +273,14 @@ mod tests {
             error_kind("1.2.3"),
             ParseErrorKind::InvalidNumber("1.2.3".to_owned())
         );
+        assert_eq!(
+            error_kind("if(0, 1e999, 1) mm"),
+            ParseErrorKind::NumberTooLarge("1e999".to_owned())
+        );
+        assert_eq!(
+            Expression::parse_stored("1e-999").map(|expression| expression.to_stored_text()),
+            Ok("0".to_owned())
+        );
         assert_eq!(error_kind("3 $"), ParseErrorKind::UnexpectedCharacter('$'));
         assert_eq!(
             error_kind("atan2(1)"),

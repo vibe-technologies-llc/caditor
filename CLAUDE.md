@@ -150,7 +150,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   or rad. A unit binds to the primary before it (a number, a parenthesised group, a name or a
   call, `Expression::WithUnit`), and `mm²` and `mm³` name areas and volumes. Typed text accepts
   SI units only (`in` and `ft` stay readable in stored text) and names the units that exist
-  when one is misspelled. Every intermediate value must be finite and real. Besides the
+  when one is misspelled. Every intermediate value must be finite and real, and a literal too large for an f64 is refused
+  as it is parsed (it could not be stored). Besides the
   arithmetic and trigonometry there are comparisons (plain 1 or 0, equality within 1e-9) with
   a lazy `if`, `mod`, `hypot`, `exp`, `ln`, `sign`, `clamp`, `round`, `floor` and `ceil` with
   an optional step, and the constants `pi`, `tau` and `e`. An `Expression` refers to

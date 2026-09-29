@@ -124,9 +124,6 @@ within a category run from most to least important.
 
 ## Sketch solver and expressions
 
-- The lexer accepts `1e999` as infinity (`f64::from_str`); inside an untaken `if` branch it
-  evaluates, then `exact_number` stores it as `inf`, which `parse_stored` cannot read, so the
-  expression is lost on load. Reject non-finite literals.
 - A solve that fails with no identifiable conflict reports "could not be solved from its current
   shape" with no entity and no next step (`diagnose_failure` returning `Unsolvable`).
 - Conflict diagnosis re-solves each probe over the whole failed scope with no probe budget, and
