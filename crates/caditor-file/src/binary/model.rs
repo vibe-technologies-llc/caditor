@@ -306,7 +306,7 @@ fn document_records(document: &Document) -> Result<Vec<Vec<u8>>, ValueError> {
         .map(|parameter| Record::Parameter(parameter_record(parameter)));
     let features = document
         .features()
-        .map(|feature| Record::Feature(feature_record(feature)));
+        .map(|feature| Record::Feature(Box::new(feature_record(feature))));
     parameters
         .chain(features)
         .chain(std::iter::once(Record::NextIds(next_ids_record(document))))

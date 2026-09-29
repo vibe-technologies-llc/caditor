@@ -32,6 +32,8 @@ pub const RECOVER: &str = phosphor::LIFEBUOY;
 pub const SAMPLE: &str = phosphor::CUBE;
 pub const CHOOSE_IN_VIEW: &str = phosphor::CURSOR_CLICK;
 pub const USE_SELECTED: &str = phosphor::ARROW_SQUARE_IN;
+pub const HIDE: &str = phosphor::EYE_SLASH;
+pub const SHOW: &str = phosphor::EYE;
 pub const FILE: &str = phosphor::FILE;
 pub const ATTACHED: &str = phosphor::PUSH_PIN;
 pub const RENAME: &str = phosphor::TEXTBOX;
@@ -75,6 +77,8 @@ pub fn command(command: Command) -> &'static str {
         Command::HighlightNext => phosphor::ARROW_RIGHT,
         Command::HighlightPrevious => phosphor::ARROW_LEFT,
         Command::ActivateHighlighted => phosphor::CURSOR_CLICK,
+        Command::HideSelection | Command::ToggleVisibility => HIDE,
+        Command::ShowAll => SHOW,
         Command::OpenSample(_) => SAMPLE,
         Command::OpenRecent(_) => RECENT,
         Command::RecoverUnsaved => RECOVER,

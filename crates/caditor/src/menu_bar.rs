@@ -124,6 +124,14 @@ impl Menus<'_, '_> {
     fn view(&mut self, ui: &mut Ui) {
         ui.menu_button("View", |ui| {
             self.item(ui, Command::FitView);
+            self.items(
+                ui,
+                [
+                    Command::HideSelection,
+                    Command::ToggleVisibility,
+                    Command::ShowAll,
+                ],
+            );
             submenu(
                 ui,
                 icons::command(Command::View(StandardView::Front)),

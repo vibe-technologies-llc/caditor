@@ -12,6 +12,7 @@ use crate::{
     bodies::{self, FaceKey},
     datum_tools,
     editing::Context,
+    visibility,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -245,7 +246,8 @@ impl Pickable {
                             sketch.entity(entity).is_some()
                         }
                     });
-                in_context && exists
+                let shown = editing == Some(feature) || visibility::is_shown(document, feature);
+                in_context && exists && shown
             }
             Self::SketchConstraint {
                 feature,
@@ -260,12 +262,14 @@ impl Pickable {
             Self::Origin | Self::Axis(_) | Self::Plane(_) => editing.is_none(),
             Self::Face { body, face } => {
                 editing.is_none()
+                    && visibility::is_shown(document, body)
                     && evaluation
                         .body(body)
                         .is_some_and(|solid| bodies::find_face(solid, face).is_some())
             }
             Self::Edge { body, edge } => {
                 editing.is_none()
+                    && visibility::is_shown(document, body)
                     && evaluation
                         .body(body)
                         .is_some_and(|solid| bodies::find_edge(solid, edge).is_some())
@@ -288,6 +292,7 @@ impl Pickable {
                     && document
                         .feature(feature)
                         .is_some_and(|datum| datum.kind.datum().is_some())
+                    && (context.solid == Some(feature) || visibility::is_shown(document, feature))
                     && datum_tools::result(evaluation, feature).is_some()
             }
             Self::ShellFace { feature, face } => {

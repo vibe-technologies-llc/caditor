@@ -21,7 +21,7 @@ pub const FORMAT_VERSION: u32 = 1;
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Record {
     Parameter(ParameterRecord),
-    Feature(FeatureRecord),
+    Feature(Box<FeatureRecord>),
     NextIds(NextIdsRecord),
 }
 
@@ -38,6 +38,8 @@ pub(crate) struct ParameterRecord {
 pub(crate) struct FeatureRecord {
     pub id: u64,
     pub name: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
     #[serde(flatten)]
     pub kind: FeatureKindRecord,
 }
@@ -355,6 +357,10 @@ pub(crate) enum EditRecord {
         id: u64,
         index: usize,
     },
+    SetFeatureHidden {
+        id: u64,
+        hidden: bool,
+    },
     SetFeatureKind {
         feature: FeatureRecord,
     },
@@ -472,6 +478,7 @@ pub(crate) fn feature_record(feature: &Feature) -> FeatureRecord {
     FeatureRecord {
         id: feature.id().raw(),
         name: feature.name.clone(),
+        hidden: feature.hidden,
         kind: feature_kind_record(&feature.kind),
     }
 }
@@ -814,10 +821,15 @@ fn edit_record(edit: &Edit) -> EditRecord {
             id: id.raw(),
             index: *index,
         },
+        Edit::SetFeatureHidden { id, hidden } => EditRecord::SetFeatureHidden {
+            id: id.raw(),
+            hidden: *hidden,
+        },
         Edit::SetFeatureKind { id, kind } => EditRecord::SetFeatureKind {
             feature: FeatureRecord {
                 id: id.raw(),
                 name: String::new(),
+                hidden: false,
                 kind: feature_kind_record(kind),
             },
         },
@@ -934,6 +946,10 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             id: FeatureId::from_raw(id),
             index,
         },
+        EditRecord::SetFeatureHidden { id, hidden } => Edit::SetFeatureHidden {
+            id: FeatureId::from_raw(id),
+            hidden,
+        },
         EditRecord::SetFeatureKind { feature } => {
             let mut issues = Vec::new();
             let kind = restore_kind(&feature.kind, "", &mut issues);
@@ -1008,7 +1024,9 @@ pub(crate) fn restore_feature(record: &FeatureRecord, issues: &mut Vec<String>) 
         record.name.clone()
     };
     let kind = restore_kind(&record.kind, &name, issues);
-    Feature::new(FeatureId::from_raw(record.id), name, kind)
+    let mut feature = Feature::new(FeatureId::from_raw(record.id), name, kind);
+    feature.hidden = record.hidden;
+    feature
 }
 
 fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>) -> FeatureKind {

@@ -13,6 +13,7 @@ use crate::{
     scene,
     selection::{self, Pickable, Selection},
     units::LengthUnit,
+    visibility,
 };
 
 pub const DEFAULT_DISTANCE: f64 = 10.0;
@@ -181,6 +182,12 @@ pub fn create(
     };
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(name, FeatureKind::Solid(solid));
+    if visibility::is_shown(document, source.sketch) {
+        transaction.edit(Edit::SetFeatureHidden {
+            id: source.sketch,
+            hidden: true,
+        });
+    }
     (transaction.finish(), feature)
 }
 

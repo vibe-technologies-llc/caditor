@@ -271,11 +271,17 @@ pub struct Feature {
     id: FeatureId,
     pub name: String,
     pub kind: FeatureKind,
+    pub hidden: bool,
 }
 
 impl Feature {
     pub fn new(id: FeatureId, name: String, kind: FeatureKind) -> Self {
-        Self { id, name, kind }
+        Self {
+            id,
+            name,
+            kind,
+            hidden: false,
+        }
     }
 
     pub fn id(&self) -> FeatureId {
@@ -283,7 +289,10 @@ impl Feature {
     }
 
     pub fn same_content(&self, other: &Self) -> bool {
-        self.id == other.id && self.name == other.name && self.kind.same_content(&other.kind)
+        self.id == other.id
+            && self.name == other.name
+            && self.hidden == other.hidden
+            && self.kind.same_content(&other.kind)
     }
 
     pub fn body(&self) -> Option<FeatureId> {

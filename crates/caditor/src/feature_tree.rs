@@ -22,7 +22,7 @@ use crate::{
     shell_panel,
     sketch_placement::{self, PlacementTarget},
     sketch_status::{self, SketchSummary},
-    sketch_tools, solid_panel,
+    sketch_tools, solid_panel, visibility,
     widgets::{self, NAME_FIELD_WIDTH, Tone},
 };
 
@@ -169,6 +169,7 @@ fn feature_row(
                 },
                 |ui| {
                     more_menu(ui, document, state, actions, row);
+                    visibility_button(ui, row, actions);
                     edit_button(ui, row, actions);
                     status_icon(ui, status);
                 },
@@ -309,12 +310,37 @@ fn state_color(ui: &Ui, status: Option<&FeatureStatus>) -> Option<Color32> {
 
 fn name_text(ui: &Ui, feature: &Feature, status: Option<&FeatureStatus>) -> RichText {
     let text = RichText::new(&feature.name);
+    if feature.hidden {
+        return text.color(appearance::tokens(ui).text_muted).italics();
+    }
     match status {
         None => text.color(appearance::tokens(ui).text_muted),
         Some(_) => match state_color(ui, status) {
             Some(color) => text.color(color),
             None => text,
         },
+    }
+}
+
+fn visibility_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
+    let feature = row.feature;
+    let Ok(transaction) = visibility::toggle(feature) else {
+        return;
+    };
+    let tokens = appearance::tokens(ui);
+    let (glyph, hover) = if feature.hidden {
+        (icons::HIDE, "Show")
+    } else {
+        (icons::SHOW, "Hide")
+    };
+    let response = ui
+        .add(widgets::Named::new(
+            Button::new(widgets::icon(glyph).color(tokens.text_muted)).frame_when_inactive(false),
+            format!("{hover} {}", feature.name),
+        ))
+        .on_hover_text(hover);
+    if response.clicked() {
+        actions.push(Action::Apply(transaction));
     }
 }
 
@@ -461,6 +487,17 @@ fn context_menu(
     if widgets::menu_item(ui, icons::RENAME, "Rename", None).clicked() {
         start_renaming(state, feature);
         ui.close();
+    }
+    if let Ok(transaction) = visibility::toggle(feature) {
+        let (glyph, label) = if feature.hidden {
+            (icons::SHOW, "Show")
+        } else {
+            (icons::HIDE, "Hide")
+        };
+        if widgets::menu_item(ui, glyph, label, None).clicked() {
+            actions.push(Action::Apply(transaction));
+            ui.close();
+        }
     }
     for direction in Direction::BOTH {
         let transaction = direction.transaction(document, feature, position);
@@ -690,6 +727,27 @@ fn feature_commands(
     let open = editing.solid().ok_or(NOTHING_OPEN);
     if commands.invoke(Command::CloseFeature, &open) {
         actions.push(Action::Editing(EditingCommand::CloseSolid));
+    }
+    if let Some(transaction) = invoke_on(
+        commands,
+        Command::ToggleVisibility,
+        current,
+        visibility::toggle,
+    ) {
+        actions.push(Action::Apply(transaction));
+    }
+    let document = model.document();
+    let hide = visibility::hide_selection(document, selection, editing.feature());
+    if commands.invoke(Command::HideSelection, &hide)
+        && let Ok(transaction) = hide
+    {
+        actions.push(Action::Apply(transaction));
+    }
+    let show = visibility::show_all(document);
+    if commands.invoke(Command::ShowAll, &show)
+        && let Ok(transaction) = show
+    {
+        actions.push(Action::Apply(transaction));
     }
     let changes: [(Command, FeatureChange<'_>); 5] = [
         (Command::DetachSketch, &|feature| {

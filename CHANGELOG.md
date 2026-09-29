@@ -131,6 +131,9 @@ The first release of caditor.
   it is what gets saved. Copy, paste, undo and the other editing keys stay with the field.
 - Dark, light and high-contrast themes, interface sizes from 75% to 200%, and a choice of
   micrometres, millimetres, centimetres or metres.
+- Bodies, sketches and datum planes and axes can be hidden and shown again from the feature
+  tree, with H for the selection and Alt+H for everything; a sketch is hidden once it is extruded
+  or revolved, so it no longer covers the faces it made or takes their clicks.
 - A feature opened from the toolbar or the view scrolls its panel into view in the feature tree.
 - At large interface sizes and in narrow windows the menu bar, status bar and parameter table
   wrap or shrink instead of overlapping, long notices wrap instead of being cut off, and the

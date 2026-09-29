@@ -113,7 +113,7 @@ impl Parts {
         match record {
             Record::Parameter(_) | Record::Feature(_) if full => self.beyond_limit += 1,
             Record::Parameter(parameter) => self.parameters.push(parameter),
-            Record::Feature(feature) => self.features.push(feature),
+            Record::Feature(feature) => self.features.push(*feature),
             Record::NextIds(next_ids) => self.next_ids = Some(next_ids),
         }
     }
@@ -436,6 +436,13 @@ fn insert_alone(
 }
 
 fn repaired(feature: &Feature) -> Option<(Feature, String)> {
+    let (kind, reason) = repaired_kind(feature)?;
+    let mut repaired = feature.clone();
+    repaired.kind = kind;
+    Some((repaired, reason))
+}
+
+fn repaired_kind(feature: &Feature) -> Option<(FeatureKind, String)> {
     let name = &feature.name;
     match &feature.kind {
         FeatureKind::Sketch(sketch) => {
@@ -446,11 +453,7 @@ fn repaired(feature: &Feature) -> Option<(Feature, String)> {
                 "a face of a body"
             };
             Some((
-                Feature::new(
-                    feature.id(),
-                    name.clone(),
-                    FeatureKind::from(sketch.sketch.clone()),
-                ),
+                FeatureKind::from(sketch.sketch.clone()),
                 format!(
                     "“{name}” lay on {lay_on} that could not be restored, so the sketch now stays \
                      where it was."
@@ -464,11 +467,7 @@ fn repaired(feature: &Feature) -> Option<(Feature, String)> {
                 ..revolve.clone()
             };
             Some((
-                Feature::new(
-                    feature.id(),
-                    name.clone(),
-                    FeatureKind::Solid(SolidFeature::Revolve(turned)),
-                ),
+                FeatureKind::Solid(SolidFeature::Revolve(turned)),
                 format!(
                     "“{name}” turned about a line of its sketch that could not be restored, so it \
                      now turns about the sketch's vertical axis."

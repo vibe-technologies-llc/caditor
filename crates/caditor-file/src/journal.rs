@@ -198,7 +198,7 @@ fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {
     }
     for feature in snapshot.features {
         match feature {
-            Lenient::Read(feature) => parts.add(Record::Feature(feature)),
+            Lenient::Read(feature) => parts.add(Record::Feature(Box::new(feature))),
             Lenient::Unreadable(_) => {
                 issues.push("A feature in the recovered model was damaged.".to_owned());
             }

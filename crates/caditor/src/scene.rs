@@ -20,6 +20,7 @@ use crate::{
     drawing::Preview,
     editing::Context,
     selection::{self, Axis, Pickable, PrincipalPlane, Selection},
+    visibility,
 };
 
 const MIN_REFERENCE_SIZE: f64 = 20.0;
@@ -299,8 +300,8 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
             }
             builder.origin();
             for feature in document.features() {
-                if feature.kind.datum().is_some() {
-                    let opened = context.solid == Some(feature.id());
+                let opened = context.solid == Some(feature.id());
+                if feature.kind.datum().is_some() && (opened || !feature.hidden) {
                     builder.datum(evaluation, feature.id(), opened, reference_size);
                 }
             }
@@ -308,8 +309,9 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
     }
     for feature in document.features() {
         let presence = match editing {
-            None => Presence::Normal,
             Some(edited) if edited == feature.id() => Presence::Edited,
+            _ if feature.hidden => continue,
+            None => Presence::Normal,
             Some(_) => Presence::Background,
         };
         let (Some(displayed), Some(states)) = (
@@ -324,7 +326,7 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
         .body_before()
         .filter(|open| context.solid == Some(open.feature) && editing.is_none());
     for (body, mesh) in bodies.iter() {
-        if open.is_some_and(|open| open.body == body) {
+        if open.is_some_and(|open| open.body == body) || !visibility::is_shown(document, body) {
             continue;
         }
         let color = match editing {
@@ -1090,7 +1092,7 @@ fn model_bounds(sources: &Sources<'_>) -> Option<Aabb> {
         bodies,
     } = *sources;
     let sketches = Aabb::from_points(document.features().flat_map(|feature| {
-        let Some(sketch) = displayed_sketch(evaluation, feature) else {
+        let Some(sketch) = displayed_sketch(evaluation, feature).filter(|_| !feature.hidden) else {
             return Vec::new();
         };
         sketch
@@ -1098,7 +1100,12 @@ fn model_bounds(sources: &Sources<'_>) -> Option<Aabb> {
             .flat_map(|(entity, _)| sketch_entity_points(&sketch, entity, 0.0))
             .collect::<Vec<_>>()
     }));
-    match (sketches, bodies.bounds()) {
+    let shown_bodies = bodies
+        .iter()
+        .filter(|(body, _)| visibility::is_shown(document, *body))
+        .filter_map(|(_, mesh)| mesh.bounds())
+        .reduce(Aabb::union);
+    match (sketches, shown_bodies) {
         (Some(sketches), Some(bodies)) => Some(sketches.union(bodies)),
         (Some(bounds), None) | (None, Some(bounds)) => Some(bounds),
         (None, None) => None,

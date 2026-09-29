@@ -51,6 +51,7 @@ mod ui_tests;
 mod units;
 mod view_cube;
 mod viewport;
+mod visibility;
 mod widgets;
 
 use std::{sync::Arc, thread, time::Duration};

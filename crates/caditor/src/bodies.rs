@@ -306,13 +306,6 @@ impl BodyMeshes {
     pub fn iter(&self) -> impl Iterator<Item = (FeatureId, &BodyMesh)> {
         self.bodies.iter().map(|(body, mesh)| (*body, mesh))
     }
-
-    pub fn bounds(&self) -> Option<Aabb> {
-        self.bodies
-            .values()
-            .filter_map(BodyMesh::bounds)
-            .reduce(Aabb::union)
-    }
 }
 
 pub fn describe_face_id(document: &Document, solid: &Solid, face: FaceId) -> String {

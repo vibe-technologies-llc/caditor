@@ -621,6 +621,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     ID counter at least where it is, so restoring never reuses IDs) builds the transaction that
     turns one document into another (every feature and parameter removed, then the target's inserted
     with their IDs), which is how an earlier version is restored as one undoable change.
+  - A feature carries a `hidden` flag, changed by `Edit::SetFeatureHidden` (undoable, saved as a
+    `hidden` field written only when set, journaled like any edit); recompute ignores it.
   - Sketch content changes only through sketch edits (add, remove or set an entity, add or
     remove a constraint, set a dimension). Removing an entity that something still uses is
     refused rather than cascaded; `TransactionBuilder::remove_sketch_items` expands a user's
@@ -1106,6 +1108,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     the body is drawn as it was before the feature (`BodyMeshes::body_before`, shared with
     blends) with its flat faces as `Pickable::ShellFace`, opened ones highlighted, and a click
     opens a face or closes it again. The panel edits the thickness and lists the open faces.
+  - Visibility (`visibility.rs`): sketches, datums and features that make a body can be hidden
+    (a body through the feature that made it). Hidden ones are not drawn, picked, kept selected
+    or counted in fitting, except the edited sketch and the open datum. Each such tree row has an
+    eye button and a Hide or Show menu item (Hide or show feature, on the tree's current
+    feature); H hides the bodies, sketches and datums of the selection and Alt+H shows
+    everything. Extrude and Revolve hide the sketch they sweep in the same transaction.
   - Datums (`datum_tools.rs`, `datum_panel.rs`): the toolbar's Plane starts from the selected plane
     or flat face (the XY plane otherwise), turned 45° about the selected axis, straight edge or
     round face when there is one (offset 0 mm), else offset 10 mm; Axis runs along the selected

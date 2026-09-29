@@ -132,8 +132,7 @@ within a category run from most to least important.
 
 ## Viewer
 
-- Hide and show for bodies, sketches and planes; consumed sketches currently cover the faces
-  they lie on and win picks.
+- The principal planes, axes and origin cannot be hidden.
 - Orthographic projection for standard views.
 - Silhouette edges on curved bodies.
 - Section planes.

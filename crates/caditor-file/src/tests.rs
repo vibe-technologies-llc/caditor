@@ -1339,6 +1339,38 @@ fn a_changed_solid_feature_round_trips_through_the_journal() {
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
+#[test]
+fn a_hidden_feature_stays_hidden_through_saving_and_the_journal() {
+    let (mut document, base, _) = solid_model();
+    let visible = encode(&document).unwrap();
+    let hide = Transaction::single(
+        "Hide Base",
+        Edit::SetFeatureHidden {
+            id: base,
+            hidden: true,
+        },
+    );
+    let shown = document.apply(hide.clone()).unwrap();
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&hide)).unwrap());
+
+    assert!(!visible.contains("hidden"));
+    assert!(text.contains("\"hidden\":true"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert!(loaded.document.feature(base).unwrap().hidden);
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(hide));
+    assert_eq!(
+        shown.edits(),
+        [Edit::SetFeatureHidden {
+            id: base,
+            hidden: false
+        }]
+    );
+}
+
 fn attached_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{FaceAttachment, SketchFeature};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};

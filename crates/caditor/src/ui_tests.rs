@@ -4872,3 +4872,55 @@ fn a_datum_takes_its_base_and_turn_from_the_selection_in_its_panel() {
     ));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
+
+fn hidden(harness: &Harness, feature: FeatureId) -> bool {
+    harness.document().feature(feature).unwrap().hidden
+}
+
+#[test]
+fn swept_sketches_hide_and_bodies_and_sketches_hide_and_show_again() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let sketch = feature_named(&harness, "Plate");
+    let sketch_hidden_by_extrude = hidden(&harness, sketch);
+    let pickables =
+        |harness: &mut Harness| -> Vec<Pickable> { harness.built().picks.pickables().collect() };
+    let sketch_pickable = pickables(&mut harness).iter().any(
+        |pickable| matches!(pickable, Pickable::SketchEntity { feature, .. } if *feature == sketch),
+    );
+
+    harness.let_animations_finish();
+    harness.click_beside(crate::icons::HIDE, "Plate");
+    harness.settle();
+    let shown_from_tree = !hidden(&harness, sketch);
+    let show_label = harness.model.undo_label().map(str::to_owned);
+
+    let face = pickables(&mut harness)
+        .into_iter()
+        .find(|pickable| matches!(pickable, Pickable::Face { .. }))
+        .expect("the body has faces");
+    harness.select([face]);
+    harness.key(Key::H, Modifiers::NONE);
+    harness.settle();
+    let body_hidden = hidden(&harness, plate);
+    let faces_left = pickables(&mut harness)
+        .iter()
+        .any(|pickable| matches!(pickable, Pickable::Face { .. }));
+    let selection_cleared = harness.workspace.viewport.selection().is_empty();
+
+    harness.key(Key::H, Modifiers::ALT);
+    harness.settle();
+
+    assert!(sketch_hidden_by_extrude);
+    assert!(!sketch_pickable);
+    assert!(shown_from_tree);
+    assert_eq!(show_label.as_deref(), Some("Show Plate"));
+    assert!(body_hidden);
+    assert!(!faces_left);
+    assert!(selection_cleared);
+    assert!(!hidden(&harness, plate) && !hidden(&harness, sketch));
+    assert_eq!(harness.model.undo_label(), Some("Show everything"));
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(hidden(&harness, plate));
+}

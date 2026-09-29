@@ -90,6 +90,9 @@ pub enum Command {
     HighlightNext,
     HighlightPrevious,
     ActivateHighlighted,
+    HideSelection,
+    ToggleVisibility,
+    ShowAll,
     OpenSample(Sample),
     OpenRecent(RecentSlot),
     RecoverUnsaved,
@@ -356,7 +359,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 54] = [
+const PLAIN_COMMANDS: [Command; 57] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -379,6 +382,9 @@ const PLAIN_COMMANDS: [Command; 54] = [
     Command::HighlightNext,
     Command::HighlightPrevious,
     Command::ActivateHighlighted,
+    Command::HideSelection,
+    Command::ToggleVisibility,
+    Command::ShowAll,
     Command::NewSketch,
     Command::Extrude,
     Command::Revolve,
@@ -489,6 +495,9 @@ impl Command {
             Self::HighlightNext => "view.highlight_next",
             Self::HighlightPrevious => "view.highlight_previous",
             Self::ActivateHighlighted => "view.activate_highlighted",
+            Self::HideSelection => "view.hide_selection",
+            Self::ToggleVisibility => "view.toggle_visibility",
+            Self::ShowAll => "view.show_all",
             Self::OpenSample(sample) => match sample {
                 Sample::Plate => "file.sample.plate",
                 Sample::Spool => "file.sample.spool",
@@ -560,6 +569,9 @@ impl Command {
             Self::HighlightNext => "Highlight the next item in the view",
             Self::HighlightPrevious => "Highlight the previous item in the view",
             Self::ActivateHighlighted => "Select the highlighted item",
+            Self::HideSelection => "Hide selection",
+            Self::ToggleVisibility => "Hide or show feature",
+            Self::ShowAll => "Show everything",
             Self::OpenSample(sample) => return format!("Open the {} sample", sample.title()),
             Self::OpenRecent(slot) => return slot.title(),
             Self::RecoverUnsaved => "Recover Unsaved Work…",
@@ -619,7 +631,10 @@ impl Command {
             | Self::Camera(_)
             | Self::HighlightNext
             | Self::HighlightPrevious
-            | Self::ActivateHighlighted => Category::View,
+            | Self::ActivateHighlighted
+            | Self::HideSelection
+            | Self::ToggleVisibility
+            | Self::ShowAll => Category::View,
             Self::NewSketch
             | Self::Extrude
             | Self::Revolve
@@ -683,6 +698,8 @@ impl Command {
             Self::HighlightNext => vec![plain(Key::N)],
             Self::HighlightPrevious => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::N)],
             Self::ActivateHighlighted => vec![plain(Key::Space)],
+            Self::HideSelection => vec![plain(Key::H)],
+            Self::ShowAll => vec![KeyboardShortcut::new(Modifiers::ALT, Key::H)],
             Self::SketchTool(tool) => tool_key(tool).map(plain).into_iter().collect(),
             Self::Constraint(tool) => vec![KeyboardShortcut::new(
                 Modifiers::SHIFT,
@@ -713,6 +730,7 @@ impl Command {
             | Self::MoveFeatureUp
             | Self::MoveFeatureDown
             | Self::DeleteFeature
+            | Self::ToggleVisibility
             | Self::CloseFeature
             | Self::DetachSketch
             | Self::PlaceSketch

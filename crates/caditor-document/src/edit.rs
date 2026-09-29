@@ -48,6 +48,10 @@ pub enum Edit {
         id: FeatureId,
         index: usize,
     },
+    SetFeatureHidden {
+        id: FeatureId,
+        hidden: bool,
+    },
     SetFeatureKind {
         id: FeatureId,
         kind: FeatureKind,
@@ -132,6 +136,7 @@ impl Transaction {
                 | Edit::SetParameterExpression { .. }
                 | Edit::RemoveFeature { .. }
                 | Edit::MoveFeature { .. }
+                | Edit::SetFeatureHidden { .. }
                 | Edit::SetSketchPlacement { .. }
                 | Edit::SetDimension { .. }
                 | Edit::AddSketchEntity { .. }
@@ -334,6 +339,7 @@ impl Document {
             Edit::RemoveFeature { id } => self.remove_feature(id),
             Edit::RenameFeature { id, name } => self.rename_feature(id, name),
             Edit::MoveFeature { id, index } => self.move_feature(id, index),
+            Edit::SetFeatureHidden { id, hidden } => self.set_feature_hidden(id, hidden),
             Edit::SetFeatureKind { id, kind } => self.set_feature_kind(id, kind),
             Edit::SetSketchPlacement {
                 feature,
@@ -660,6 +666,15 @@ impl Document {
         let feature = self.feature_mut(id)?;
         let previous = std::mem::replace(&mut feature.name, name);
         Ok(Edit::RenameFeature { id, name: previous })
+    }
+
+    fn set_feature_hidden(&mut self, id: FeatureId, hidden: bool) -> Result<Edit, EditError> {
+        let feature = self.feature_mut(id)?;
+        let previous = std::mem::replace(&mut feature.hidden, hidden);
+        Ok(Edit::SetFeatureHidden {
+            id,
+            hidden: previous,
+        })
     }
 
     fn check_feature_name(&self, name: &str, id: FeatureId) -> Result<(), EditError> {
