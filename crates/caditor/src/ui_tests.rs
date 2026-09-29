@@ -678,6 +678,26 @@ fn editing_parameters_breaking_a_feature_and_undoing_it_works_through_the_panels
 }
 
 #[test]
+fn a_rejected_draft_gives_way_to_a_value_changed_by_undo() {
+    let mut harness = Harness::new();
+    let height = harness.parameter("height");
+    let original = harness.expression_text("height");
+
+    harness.type_into(Focus::ParameterValue(height), "30 mm");
+    harness.settle();
+    harness.type_into(Focus::ParameterValue(height), "wdth");
+    let rejected = harness.shows("There is no parameter named 'wdth'");
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    harness.frame();
+
+    assert!(rejected);
+    assert_eq!(harness.expression_text("height"), original);
+    assert!(!harness.shows("There is no parameter named 'wdth'"));
+    assert!(!harness.shows("wdth"));
+}
+
+#[test]
 fn a_dimension_edited_in_the_tree_is_undoable_and_rejects_the_wrong_kind() {
     let mut harness = Harness::new();
     let base = harness.document().features().next().unwrap().id();

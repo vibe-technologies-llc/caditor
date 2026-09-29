@@ -12,6 +12,7 @@ const ERROR_OUTLINE_RADIUS: f32 = 2.0;
 struct Draft {
     text: String,
     error: Option<String>,
+    stored: String,
 }
 
 pub struct FieldResponse<T> {
@@ -28,7 +29,10 @@ pub fn commit_field<T>(
     focus: bool,
     validate: impl FnOnce(&str) -> Result<T, String>,
 ) -> FieldResponse<T> {
-    let mut draft = ui.data(|data| data.get_temp::<Draft>(id));
+    let editing = ui.memory(|memory| memory.has_focus(id));
+    let mut draft = ui
+        .data(|data| data.get_temp::<Draft>(id))
+        .filter(|draft| editing || draft.stored == stored);
     let mut text = draft
         .as_ref()
         .map_or_else(|| stored.to_owned(), |draft| draft.text.clone());
@@ -46,6 +50,7 @@ pub fn commit_field<T>(
         draft = Some(Draft {
             text: text.clone(),
             error: None,
+            stored: stored.to_owned(),
         });
     }
 
@@ -64,6 +69,7 @@ pub fn commit_field<T>(
                     draft = Some(Draft {
                         text,
                         error: Some(message),
+                        stored: stored.to_owned(),
                     });
                 }
             }

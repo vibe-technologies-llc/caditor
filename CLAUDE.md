@@ -1095,7 +1095,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `field::parameter_expression`), measured dimensions are written in it, new features start
     from round numbers in it, and the cursor readout resolves a hundredth of a millimetre in it.
   - Every numeric input is a `field::commit_field`: it commits on Enter or loss of focus,
-    reverts on Escape, and keeps invalid text with its error inline instead of discarding it.
+    reverts on Escape, and keeps invalid text with its error inline instead of discarding it,
+    until the stored value changes underneath it (an undo, say) while it is not being edited.
     Expression fields parse, evaluate and check the dimension before building a transaction;
     sketch dimensions go through `field::dimension_transaction`, which also applies the
     constraint's own rule (a radius above zero). Plain-key shortcuts (and Escape, Enter and

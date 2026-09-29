@@ -142,8 +142,6 @@ within a category run from most to least important.
 
 - Constraint rows in the sketch tree are styled as links but clicking or hovering them does
   nothing.
-- A rejected `commit_field` draft keeps showing its old text and error after the stored value
-  changes through undo.
 - Rows in the blend and shell panels are non-wrapping, so long edge descriptions can push the
   remove button off the panel.
 
