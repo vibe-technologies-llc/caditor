@@ -249,10 +249,6 @@ impl MeshCache {
         }
     }
 
-    pub fn clear(&mut self) {
-        self.meshes.clear();
-    }
-
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &wgpu::RenderPipeline) {
         if self.meshes.is_empty() {
             return;

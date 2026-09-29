@@ -192,20 +192,16 @@ impl ViewportRenderer {
         self.ensure_targets(device, surface.width, surface.height);
         let viewport =
             viewport.filter(|viewport| viewport.rect.width >= 1.0 && viewport.rect.height >= 1.0);
-        let counts = match viewport {
-            Some(viewport) => self.upload(device, queue, viewport),
-            None => {
-                self.meshes.clear();
-                Counts::default()
-            }
-        };
+        let counts = viewport.map_or_else(Counts::default, |viewport| {
+            self.upload(device, queue, viewport)
+        });
 
         let Some(targets) = self.targets.as_ref() else {
             return;
         };
-        let (color_view, resolve_target) = match &targets.multisampled_color {
-            Some(multisampled) => (multisampled, Some(surface.view)),
-            None => (surface.view, None),
+        let (color_view, resolve_target, store) = match &targets.multisampled_color {
+            Some(multisampled) => (multisampled, Some(surface.view), wgpu::StoreOp::Discard),
+            None => (surface.view, None, wgpu::StoreOp::Store),
         };
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -216,7 +212,7 @@ impl ViewportRenderer {
                 resolve_target,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(BACKGROUND),
-                    store: wgpu::StoreOp::Store,
+                    store,
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {

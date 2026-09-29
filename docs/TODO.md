@@ -116,9 +116,6 @@ within a category run from most to least important.
   preference also wakes discrete GPUs.
 - One buffer over the device limits breaks every frame including the UI; check sizes and split
   meshes.
-- A zero-size viewport drops every GPU mesh, re-uploaded when it returns.
-- The 4x MSAA colour target is stored every frame although it is only resolved; `GrowableBuffer`
-  never shrinks from its peak.
 - Offscreen tests draw only at a zero-offset viewport and never cover markers, the grid,
   near-plane clipping of lines, unpickable faces or a failed readback.
 

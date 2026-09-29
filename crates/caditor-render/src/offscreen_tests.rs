@@ -5,6 +5,7 @@ use glam::DVec2;
 
 use crate::{
     camera::{View, Viewpoint},
+    gpu::{Bytes, GrowableBuffer},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     scene::{Color, Fill, Layer, Line, Marker, PickId, PickResult, Scene, ViewportRect},
     viewport::{SurfaceTarget, ViewportFrame, ViewportRenderer},
@@ -468,4 +469,105 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_is_read() {
     assert_eq!(pending, crate::PickPoll::Pending);
     assert_eq!(abandoned, crate::PickPoll::Failed);
     assert!(matches!(read, crate::PickPoll::Ready(pick) if !pick.hits.is_empty()));
+}
+
+#[test]
+fn a_viewport_of_no_size_keeps_its_meshes_until_the_scene_drops_them() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("offscreen target"),
+        size: wgpu::Extent3d {
+            width: SIZE,
+            height: SIZE,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let mut draw = |scene: &Scene, size: f32| {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        renderer.draw(
+            &device,
+            &queue,
+            &mut encoder,
+            &SurfaceTarget {
+                view: &target_view,
+                width: SIZE,
+                height: SIZE,
+            },
+            Some(&ViewportFrame {
+                rect: ViewportRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: size,
+                    height: size,
+                },
+                view: &view,
+                scene,
+                pick_at: None,
+            }),
+        );
+        queue.submit([encoder.finish()]);
+    };
+    let mesh = Arc::new(box_mesh(20.0));
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::clone(&mesh),
+            faces: vec![
+                FaceStyle {
+                    color: Color::from_rgb8(40, 200, 40),
+                    pick: None,
+                };
+                6
+            ],
+        }],
+        ..Scene::default()
+    };
+
+    draw(&scene, SIZE as f32);
+    drop(scene);
+    assert_eq!(Arc::strong_count(&mesh), 2);
+
+    draw(&Scene::default(), 0.0);
+    assert_eq!(Arc::strong_count(&mesh), 2);
+
+    draw(&Scene::default(), SIZE as f32);
+    assert_eq!(Arc::strong_count(&mesh), 1);
+}
+
+#[test]
+fn a_buffer_shrinks_back_once_it_has_stayed_mostly_empty_for_a_while() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let mut buffer = GrowableBuffer::new(&device, "test", wgpu::BufferUsages::VERTEX);
+    let mut large = Bytes::default();
+    large.floats(&[1.0; 100_000]);
+    let mut small = Bytes::default();
+    small.floats(&[1.0; 10]);
+
+    buffer.upload(&device, &queue, &large);
+    let grown = buffer.size();
+    assert!(grown >= large.len());
+
+    for _ in 0..GrowableBuffer::SHRINK_AFTER_UPLOADS - 1 {
+        buffer.upload(&device, &queue, &small);
+    }
+    buffer.upload(&device, &queue, &large);
+    assert_eq!(buffer.size(), grown);
+
+    for _ in 0..GrowableBuffer::SHRINK_AFTER_UPLOADS {
+        buffer.upload(&device, &queue, &small);
+    }
+    assert_eq!(buffer.size(), GrowableBuffer::INITIAL_SIZE);
 }
