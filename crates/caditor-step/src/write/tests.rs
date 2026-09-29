@@ -34,7 +34,12 @@ fn strings_escape_quotes_backslashes_and_other_scripts() {
     assert_eq!(text("it's"), "'it''s'");
     assert_eq!(text("a\\b"), "'a\\\\b'");
     assert_eq!(text("Kühler"), "'K\\X2\\00FC\\X0\\hler'");
-    assert_eq!(text("🙂"), "'\\X2\\D83DDE42\\X0\\'");
+    assert_eq!(text("🙂"), "'\\X4\\0001F642\\X0\\'");
+    let written = text("Kühler 🙂");
+    assert_eq!(
+        crate::part21::decode_text(written.trim_matches('\'')),
+        "Kühler 🙂"
+    );
 }
 
 #[test]

@@ -341,7 +341,7 @@ impl<'a> Lexer<'a> {
     }
 }
 
-fn decode_text(raw: &str) -> String {
+pub(crate) fn decode_text(raw: &str) -> String {
     let mut out = String::new();
     let mut rest = raw;
     while let Some(index) = rest.find('\\') {

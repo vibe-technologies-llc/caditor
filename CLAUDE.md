@@ -93,8 +93,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   `SURFACE_OF_REVOLUTION`, B-splines with knot runs (rational ones as the complex entity), and
   intersection curves as the cubic B-spline of their Hermite segments over the edge. Face
   `same_sense` is the face sense, since the kernel's normals are STEP's. Reals print as the shortest
-  round-tripping decimal with a point, and text escapes quotes, backslashes and non-ASCII (`\X2\`).
-  The output was checked against OpenCascade (valid, closed, same volume) for every kind of face.
+  round-tripping decimal with a point, and text escapes quotes, backslashes and non-ASCII (`\X2\`
+  within the Basic Multilingual Plane, `\X4\` beyond it). The output was checked against OpenCascade (valid, closed, same volume) for every kind of face.
   - Reading (`part21.rs`, `read/`): a Part 21 parser (header, named and repeated data sections,
     edition 3 `ANCHOR`, `REFERENCE` and `SIGNATURE` sections skipped byte by byte past strings and
     comments, complex instances sorted by name, typed values, comments, the `\X\`, `\X2\`, `\X4\`

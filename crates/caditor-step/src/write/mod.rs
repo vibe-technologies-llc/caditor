@@ -90,14 +90,10 @@ pub(crate) fn text(value: &str) -> String {
             '\'' => quoted.push_str("''"),
             '\\' => quoted.push_str("\\\\"),
             ' '..='~' => quoted.push(character),
-            other => {
-                let mut units = [0u16; 2];
-                quoted.push_str("\\X2\\");
-                for unit in other.encode_utf16(&mut units) {
-                    quoted.push_str(&format!("{unit:04X}"));
-                }
-                quoted.push_str("\\X0\\");
+            other if other.len_utf16() == 1 => {
+                quoted.push_str(&format!("\\X2\\{:04X}\\X0\\", u32::from(other)));
             }
+            other => quoted.push_str(&format!("\\X4\\{:08X}\\X0\\", u32::from(other))),
         }
     }
     quoted.push('\'');

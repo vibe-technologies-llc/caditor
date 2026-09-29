@@ -154,7 +154,6 @@ within a category run from most to least important.
 - One unrecognised byte or an integer beyond i64 rejects the whole file, a repeated entity id
   silently overwrites the earlier one, and `\P` and `\X\` followed by a multi-byte character
   drop the rest of the string (`part21.rs`).
-- The writer encodes characters beyond the BMP as `\X2\` surrogate pairs rather than `\X4\`.
 - Unsupported entities: `OFFSET_SURFACE`, horn tori (a `DEGENERATE_TOROIDAL_SURFACE` whose tube
   just touches its axis), and colours and layers.
 - The declared `UNCERTAINTY_MEASURE_WITH_UNIT` is ignored, and healing covers only edges with
