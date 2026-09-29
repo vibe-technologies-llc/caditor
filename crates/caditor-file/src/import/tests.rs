@@ -14,19 +14,19 @@ use crate::import::{
     parse_dxf,
 };
 
-type Pairs = Vec<(i32, String)>;
+pub(super) type Pairs = Vec<(i32, String)>;
 
-fn pair(code: i32, value: impl ToString) -> (i32, String) {
+pub(super) fn pair(code: i32, value: impl ToString) -> (i32, String) {
     (code, value.to_string())
 }
 
-fn entity(kind: &str, layer: &str, rest: &[(i32, f64)]) -> Pairs {
+pub(super) fn entity(kind: &str, layer: &str, rest: &[(i32, f64)]) -> Pairs {
     let mut pairs = vec![pair(0, kind), pair(8, layer)];
     pairs.extend(rest.iter().map(|(code, value)| pair(*code, value)));
     pairs
 }
 
-fn line(start: (f64, f64), end: (f64, f64)) -> Pairs {
+pub(super) fn line(start: (f64, f64), end: (f64, f64)) -> Pairs {
     entity(
         "LINE",
         "0",
@@ -41,14 +41,14 @@ fn line(start: (f64, f64), end: (f64, f64)) -> Pairs {
     )
 }
 
-fn section(name: &str, content: Vec<Pairs>) -> Pairs {
+pub(super) fn section(name: &str, content: Vec<Pairs>) -> Pairs {
     let mut pairs = vec![pair(0, "SECTION"), pair(2, name)];
     pairs.extend(content.into_iter().flatten());
     pairs.push(pair(0, "ENDSEC"));
     pairs
 }
 
-fn header(units: Option<i64>) -> Pairs {
+pub(super) fn header(units: Option<i64>) -> Pairs {
     let mut content = vec![pair(9, "$ACADVER"), pair(1, "AC1027")];
     if let Some(units) = units {
         content.extend([pair(9, "$INSUNITS"), pair(70, units)]);
@@ -56,7 +56,7 @@ fn header(units: Option<i64>) -> Pairs {
     section("HEADER", vec![content])
 }
 
-fn text(sections: Vec<Pairs>) -> Vec<u8> {
+pub(super) fn text(sections: Vec<Pairs>) -> Vec<u8> {
     let mut out = String::new();
     for (code, value) in sections.into_iter().flatten().chain([pair(0, "EOF")]) {
         out.push_str(&format!("{code:>3}\r\n{value}\r\n"));
@@ -64,19 +64,19 @@ fn text(sections: Vec<Pairs>) -> Vec<u8> {
     out.into_bytes()
 }
 
-fn drawing(units: Option<i64>, entities: Vec<Pairs>) -> Drawing {
+pub(super) fn drawing(units: Option<i64>, entities: Vec<Pairs>) -> Drawing {
     parse_dxf(&text(vec![header(units), section("ENTITIES", entities)])).unwrap()
 }
 
-fn millimetre_drawing(entities: Vec<Pairs>) -> Drawing {
+pub(super) fn millimetre_drawing(entities: Vec<Pairs>) -> Drawing {
     drawing(Some(4), entities)
 }
 
-fn near(a: Point2, b: Point2) -> bool {
+pub(super) fn near(a: Point2, b: Point2) -> bool {
     a.distance(b) < 1e-9
 }
 
-fn lines(drawing: &Drawing) -> Vec<(Point2, Point2)> {
+pub(super) fn lines(drawing: &Drawing) -> Vec<(Point2, Point2)> {
     drawing
         .curves
         .iter()
@@ -87,7 +87,7 @@ fn lines(drawing: &Drawing) -> Vec<(Point2, Point2)> {
         .collect()
 }
 
-fn arcs(drawing: &Drawing) -> Vec<ArcGeometry> {
+pub(super) fn arcs(drawing: &Drawing) -> Vec<ArcGeometry> {
     drawing
         .curves
         .iter()
@@ -196,7 +196,7 @@ fn a_closed_polyline_of_two_bulged_vertices_is_a_whole_circle() {
     assert_eq!(lines(&drawing).len(), 2);
 }
 
-fn evaluate(document: &Document) -> Evaluation {
+pub(super) fn evaluate(document: &Document) -> Evaluation {
     Recompute::default().run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
 }
 
@@ -345,7 +345,7 @@ fn units_are_converted_to_millimetres_and_named() {
     assert_eq!(lines(&metric_named), vec![(Point2::ZERO, Point2::X)]);
 }
 
-fn block(name: &str, base: (f64, f64), content: Vec<Pairs>) -> Pairs {
+pub(super) fn block(name: &str, base: (f64, f64), content: Vec<Pairs>) -> Pairs {
     let mut pairs = vec![
         pair(0, "BLOCK"),
         pair(8, "0"),
@@ -360,13 +360,13 @@ fn block(name: &str, base: (f64, f64), content: Vec<Pairs>) -> Pairs {
     pairs
 }
 
-fn insert(name: &str, layer: &str, rest: &[(i32, f64)]) -> Pairs {
+pub(super) fn insert(name: &str, layer: &str, rest: &[(i32, f64)]) -> Pairs {
     let mut pairs = vec![pair(0, "INSERT"), pair(8, layer), pair(2, name)];
     pairs.extend(rest.iter().map(|(code, value)| pair(*code, value)));
     pairs
 }
 
-fn layer(name: &str, color: i64, flags: i64) -> Pairs {
+pub(super) fn layer(name: &str, color: i64, flags: i64) -> Pairs {
     vec![
         pair(0, "LAYER"),
         pair(2, name),
@@ -375,7 +375,7 @@ fn layer(name: &str, color: i64, flags: i64) -> Pairs {
     ]
 }
 
-fn tables(layers: Vec<Pairs>) -> Pairs {
+pub(super) fn tables(layers: Vec<Pairs>) -> Pairs {
     let mut content = vec![vec![pair(0, "TABLE"), pair(2, "LAYER")]];
     content.extend(layers);
     content.push(vec![pair(0, "ENDTAB")]);

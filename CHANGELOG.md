@@ -82,8 +82,11 @@ The first release of caditor.
 - Drawings whose blocks repeat heavy splines are refused with the reason before they exhaust
   memory, and a large array of a block that draws nothing, such as labels, no longer refuses the
   drawing.
-- Importing a drawing with nothing caditor can draw, such as only text or hatches, says so and
-  lists what was left out.
+- Importing a drawing with nothing caditor can draw, such as only text or dimensions, says so
+  and lists what was left out.
+- Drawings bring in the outlines of their hatches, filled solids, traces, 3D faces and
+  multilines, so a profile drawn only as a hatch can be extruded; a hatch tied to the lines it
+  fills does not repeat them.
 - A drawing's spline through fit points that repeat, or nearly repeat, is imported instead of
   left out.
 - A STEP file with a damaged or unknown entry, or one defined twice, still imports what does not

@@ -882,12 +882,24 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     points and knots in all, else `ImportError::TooDetailed`), and the entities
     LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE and POLYLINE (bulges become arcs, 3D polylines
     lines) and SPLINE (control points with knots up to degree 9 and a weight per control point or
-    none, else its fit points). Object coordinate systems follow the arbitrary axis algorithm. Everything becomes a 3D shape (point,
+    none, else its fit points). HATCH boundaries (`hatch.rs`, the paths between code 91 and the
+    pattern data, so seed points are never read as geometry) become curves: polyline paths with
+    bulges, always closed, and edge paths of lines, arcs, elliptic arcs (their angles read as
+    angles and turned into ellipse parameters, as ezdxf does) and splines, clockwise edges by their
+    complementary angles; text-box paths are skipped, the fill is not imported (a note counts the
+    hatches), and a path whose source objects (code 330) are all drawn entities of the same
+    model space or block, shown, is left to them so an associative hatch is not drawn twice over
+    its outline, while one without sources is imported even where lines trace it. SOLID and TRACE
+    (corners 1, 2, 4, 3 in their object system) and 3DFACE (visible edges only) become their
+    outlines (`outline.rs`), and MLINE (`mline.rs`) becomes a line per element between the vertices'
+    miter points (the first element parameter, as ezdxf; dashes ignored), closed or with the square,
+    round and inner-arc caps and joint miters its MLINESTYLE (from OBJECTS, by handle, else name)
+    asks for; without a style only the element lines. Object coordinate systems follow the arbitrary axis algorithm. Everything becomes a 3D shape (point,
     line, parametric conic, NURBS or fit points), is transformed, then flattened onto XY: conics
     that project to circles become circles and arcs (counter-clockwise), other conics and splines
     that are not already in the sketch's uniform form are fitted within a millionth of the drawing's
-    size. Paper space and invisible entities are skipped silently; text, dimensions, hatches and
-    other annotations are counted in a note. The cap is `MAX_DRAWING_CURVES`. `drawing_transaction`
+    size. Paper space and invisible entities are skipped silently; text, dimensions and other
+    annotations are counted in a note. The cap is `MAX_DRAWING_CURVES`. `drawing_transaction`
     turns a drawing into one transaction on an existing or new sketch, dropping curves shorter than
     the joint tolerance and joining ends closer than a millionth of the drawing's size with
     `Coincident` constraints.

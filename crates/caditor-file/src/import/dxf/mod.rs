@@ -1,5 +1,8 @@
 mod flatten;
 mod geometry;
+mod hatch;
+mod mline;
+mod outline;
 mod pairs;
 
 use std::{
@@ -15,6 +18,9 @@ use crate::import::{
     dxf::{
         flatten::flatten,
         geometry::{Affine, Nurbs, Shape, conic_arc},
+        hatch::boundaries,
+        mline::mline,
+        outline::{face_outline, filled_outline},
         pairs::{Pair, read_pairs},
     },
 };
@@ -38,7 +44,7 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
     let records = records(read_pairs(bytes)?)?;
     let file = DxfFile::read(&records)?;
     let mut interpreter = Interpreter::new(&file);
-    let entities = prepare(&items(&file.entities));
+    let entities = prepare(&file, &items(&file.entities));
     interpreter.add(&entities, &Affine::IDENTITY, DEFAULT_LAYER, &mut Vec::new())?;
     let mut notes = Vec::new();
     let scale = unit_note(file.units, &mut notes);
@@ -69,13 +75,15 @@ struct Record {
     pairs: Vec<Pair>,
 }
 
-impl Record {
-    fn first(&self, code: i32) -> Option<&Pair> {
-        self.pairs.iter().find(|pair| pair.code == code)
+trait Fields {
+    fn pairs(&self) -> &[Pair];
+
+    fn field(&self, code: i32) -> Option<&Pair> {
+        self.pairs().iter().find(|pair| pair.code == code)
     }
 
     fn real(&self, code: i32) -> Option<f64> {
-        self.first(code)?.real()
+        self.field(code)?.real()
     }
 
     fn real_or(&self, code: i32, default: f64) -> f64 {
@@ -83,11 +91,11 @@ impl Record {
     }
 
     fn flags(&self, code: i32) -> i64 {
-        self.first(code).and_then(Pair::integer).unwrap_or_default()
+        self.field(code).and_then(Pair::integer).unwrap_or_default()
     }
 
     fn text(&self, code: i32) -> Option<&str> {
-        Some(self.first(code)?.text().trim())
+        Some(self.field(code)?.text().trim())
     }
 
     fn point(&self, code: i32) -> Option<Point3> {
@@ -103,7 +111,7 @@ impl Record {
     }
 
     fn reals(&self, code: i32) -> Vec<f64> {
-        self.pairs
+        self.pairs()
             .iter()
             .filter(|pair| pair.code == code)
             .filter_map(Pair::real)
@@ -112,7 +120,7 @@ impl Record {
 
     fn points(&self, code: i32) -> Vec<Point3> {
         let mut points: Vec<Point3> = Vec::new();
-        for pair in &self.pairs {
+        for pair in self.pairs() {
             let Some(value) = pair.real() else {
                 continue;
             };
@@ -133,6 +141,18 @@ impl Record {
         self.text(8)
             .filter(|layer| !layer.is_empty())
             .unwrap_or(DEFAULT_LAYER)
+    }
+}
+
+impl Fields for Record {
+    fn pairs(&self) -> &[Pair] {
+        &self.pairs
+    }
+}
+
+impl Fields for [Pair] {
+    fn pairs(&self) -> &[Pair] {
+        self
     }
 }
 
@@ -174,6 +194,36 @@ struct DxfFile {
     layers: BTreeMap<String, Layer>,
     blocks: BTreeMap<String, Block>,
     entities: Vec<Record>,
+    line_styles: LineStyles,
+}
+
+#[derive(Default)]
+struct LineStyles {
+    by_handle: BTreeMap<String, i64>,
+    by_name: BTreeMap<String, i64>,
+}
+
+impl LineStyles {
+    fn add(&mut self, style: &Record) {
+        let flags = style.flags(70);
+        if let Some(handle) = style.text(5) {
+            self.by_handle.insert(handle.to_ascii_uppercase(), flags);
+        }
+        if let Some(name) = style.text(2) {
+            self.by_name.insert(name.to_ascii_uppercase(), flags);
+        }
+    }
+
+    fn of(&self, line: &Record) -> i64 {
+        let by_handle = line
+            .text(340)
+            .and_then(|handle| self.by_handle.get(&handle.to_ascii_uppercase()));
+        let by_name = || {
+            line.text(2)
+                .and_then(|name| self.by_name.get(&name.to_ascii_uppercase()))
+        };
+        by_handle.or_else(by_name).copied().unwrap_or_default()
+    }
 }
 
 impl DxfFile {
@@ -183,6 +233,7 @@ impl DxfFile {
             layers: BTreeMap::new(),
             blocks: BTreeMap::new(),
             entities: Vec::new(),
+            line_styles: LineStyles::default(),
         };
         let mut section = None;
         let mut sections = 0;
@@ -208,7 +259,7 @@ impl DxfFile {
             match section.as_deref() {
                 Some("TABLES") if record.kind == "LAYER" => {
                     let name = record.text(2).unwrap_or_default().to_ascii_uppercase();
-                    let off = record.first(62).and_then(Pair::integer).unwrap_or(7) < 0;
+                    let off = record.field(62).and_then(Pair::integer).unwrap_or(7) < 0;
                     let frozen = record.flags(70) & FROZEN_LAYER != 0;
                     file.layers.insert(
                         name,
@@ -240,6 +291,7 @@ impl DxfFile {
                     }
                 },
                 Some("ENTITIES") => file.entities.push(record.clone()),
+                Some("OBJECTS") if record.kind == "MLINESTYLE" => file.line_styles.add(record),
                 _ => {}
             }
         }
@@ -303,18 +355,55 @@ struct Prepared<'a> {
     decoded: Decoded,
 }
 
-fn prepare<'a>(items: &[Item<'a>]) -> Vec<Prepared<'a>> {
+fn prepare<'a>(file: &DxfFile, items: &[Item<'a>]) -> Vec<Prepared<'a>> {
+    let handles: BTreeMap<String, usize> = items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| Some((item.record.text(5)?.to_ascii_uppercase(), index)))
+        .collect();
     items
         .iter()
         .map(|item| Prepared {
             record: item.record,
-            decoded: if item.record.kind == "INSERT" {
-                Decoded::Insert
-            } else {
-                shapes(item)
+            decoded: match item.record.kind.as_str() {
+                "INSERT" => Decoded::Insert,
+                "HATCH" => hatch(item.record, &handles),
+                _ => shapes(file, item),
             },
         })
         .collect()
+}
+
+fn hatch(record: &Record, handles: &BTreeMap<String, usize>) -> Decoded {
+    let Some(boundaries) = boundaries(record) else {
+        return Decoded::Unreadable;
+    };
+    Decoded::Hatch(
+        boundaries
+            .into_iter()
+            .map(|boundary| HatchBoundary {
+                shapes: boundary.shapes,
+                traced_by: boundary
+                    .sources
+                    .iter()
+                    .map(|source| handles.get(source).copied())
+                    .collect::<Option<_>>()
+                    .unwrap_or_default(),
+            })
+            .collect(),
+    )
+}
+
+struct HatchBoundary {
+    shapes: Vec<Shape>,
+    traced_by: Vec<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Visibility<'r> {
+    Skipped,
+    Hidden,
+    Shown(&'r str),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -323,6 +412,7 @@ struct Tally {
     hidden: usize,
     unreadable: usize,
     too_deep: usize,
+    hatches: usize,
 }
 
 impl Tally {
@@ -340,6 +430,7 @@ impl Tally {
         self.hidden = repeat(self.hidden, since.hidden);
         self.unreadable = repeat(self.unreadable, since.unreadable);
         self.too_deep = repeat(self.too_deep, since.too_deep);
+        self.hatches = repeat(self.hatches, since.hatches);
     }
 }
 
@@ -376,7 +467,7 @@ impl<'a> Interpreter<'a> {
         }
         let file = self.file;
         let block = file.blocks.get(name)?;
-        let prepared = Rc::new(prepare(&items(&block.records)));
+        let prepared = Rc::new(prepare(file, &items(&block.records)));
         self.contents.insert(name.to_owned(), Rc::clone(&prepared));
         Some(prepared)
     }
@@ -402,6 +493,9 @@ impl<'a> Interpreter<'a> {
         self.drawing.insert(name.to_owned(), None);
         let draws = contents.iter().any(|item| match &item.decoded {
             Decoded::Shapes(shapes) => !shapes.is_empty(),
+            Decoded::Hatch(boundaries) => boundaries
+                .iter()
+                .any(|boundary| !boundary.shapes.is_empty()),
             Decoded::Insert => {
                 let inner = item.record.text(2).unwrap_or_default().to_ascii_uppercase();
                 self.draws(&inner, depth + 1)
@@ -422,34 +516,27 @@ impl<'a> Interpreter<'a> {
         for item in items {
             self.visit()?;
             let record = item.record;
-            if record.flags(67) & PAPER_SPACE != 0 || record.flags(60) & INVISIBLE != 0 {
-                continue;
-            }
-            let layer = match record.layer() {
-                DEFAULT_LAYER => inherited_layer,
-                own => own,
+            let layer = match self.visibility(record, inherited_layer) {
+                Visibility::Skipped => continue,
+                Visibility::Hidden => {
+                    self.tally.hidden += 1;
+                    continue;
+                }
+                Visibility::Shown(layer) => layer,
             };
-            if self
-                .file
-                .layers
-                .get(&layer.to_ascii_uppercase())
-                .is_some_and(|layer| layer.hidden)
-            {
-                self.tally.hidden += 1;
-                continue;
-            }
             match &item.decoded {
                 Decoded::Insert => self.insert(record, transform, layer, blocks)?,
-                Decoded::Shapes(shapes) => {
-                    for shape in shapes {
-                        self.points = self.points.saturating_add(shape.size());
-                        if self.points > MAX_DRAWING_POINTS {
-                            return Err(ImportError::TooDetailed);
+                Decoded::Shapes(shapes) => self.push(shapes, transform)?,
+                Decoded::Hatch(boundaries) => {
+                    let mut drawn = false;
+                    for boundary in boundaries {
+                        if !self.traced(items, &boundary.traced_by, inherited_layer) {
+                            drawn |= !boundary.shapes.is_empty();
+                            self.push(&boundary.shapes, transform)?;
                         }
-                        self.shapes.push(shape.transformed(transform));
                     }
-                    if self.shapes.len() > MAX_DRAWING_CURVES {
-                        return Err(ImportError::TooLarge);
+                    if drawn {
+                        self.tally.hatches += 1;
                     }
                 }
                 Decoded::Unreadable => self.tally.unreadable += 1,
@@ -458,6 +545,53 @@ impl<'a> Interpreter<'a> {
                 }
                 Decoded::Ignored => {}
             }
+        }
+        Ok(())
+    }
+
+    fn visibility<'r>(&self, record: &'r Record, inherited_layer: &'r str) -> Visibility<'r> {
+        if record.flags(67) & PAPER_SPACE != 0 || record.flags(60) & INVISIBLE != 0 {
+            return Visibility::Skipped;
+        }
+        let layer = match record.layer() {
+            DEFAULT_LAYER => inherited_layer,
+            own => own,
+        };
+        let hidden = self
+            .file
+            .layers
+            .get(&layer.to_ascii_uppercase())
+            .is_some_and(|layer| layer.hidden);
+        if hidden {
+            Visibility::Hidden
+        } else {
+            Visibility::Shown(layer)
+        }
+    }
+
+    fn traced(&self, items: &[Prepared<'a>], sources: &[usize], inherited_layer: &str) -> bool {
+        !sources.is_empty()
+            && sources.iter().all(|source| {
+                items.get(*source).is_some_and(|source| {
+                    matches!(&source.decoded, Decoded::Shapes(shapes) if !shapes.is_empty())
+                        && matches!(
+                            self.visibility(source.record, inherited_layer),
+                            Visibility::Shown(_)
+                        )
+                })
+            })
+    }
+
+    fn push(&mut self, shapes: &[Shape], transform: &Affine) -> Result<(), ImportError> {
+        for shape in shapes {
+            self.points = self.points.saturating_add(shape.size());
+            if self.points > MAX_DRAWING_POINTS {
+                return Err(ImportError::TooDetailed);
+            }
+            self.shapes.push(shape.transformed(transform));
+        }
+        if self.shapes.len() > MAX_DRAWING_CURVES {
+            return Err(ImportError::TooLarge);
         }
         Ok(())
     }
@@ -563,6 +697,16 @@ impl<'a> Interpreter<'a> {
                 )
             ));
         }
+        if tally.hatches > 0 {
+            drawing.notes.push(if tally.hatches == 1 {
+                "The boundary of 1 hatch was imported without its fill.".to_owned()
+            } else {
+                format!(
+                    "The boundaries of {} hatches were imported without their fill.",
+                    tally.hatches
+                )
+            });
+        }
         if tally.hidden > 0 {
             drawing.notes.push(format!(
                 "{} on hidden or frozen layers {} left out.",
@@ -613,13 +757,14 @@ impl<'a> Interpreter<'a> {
 
 enum Decoded {
     Shapes(Vec<Shape>),
+    Hatch(Vec<HatchBoundary>),
     Unreadable,
     LeftOut((&'static str, &'static str)),
     Ignored,
     Insert,
 }
 
-fn shapes(item: &Item<'_>) -> Decoded {
+fn shapes(file: &DxfFile, item: &Item<'_>) -> Decoded {
     let record = item.record;
     let decoded = match record.kind.as_str() {
         "LINE" => line(record),
@@ -639,6 +784,9 @@ fn shapes(item: &Item<'_>) -> Decoded {
         }
         "POLYLINE" => polyline(record, &item.vertices),
         "SPLINE" => spline(record),
+        "SOLID" | "TRACE" => filled_outline(record),
+        "3DFACE" => face_outline(record),
+        "MLINE" => mline(record, file.line_styles.of(record)),
         other => {
             return match left_out(other) {
                 Some(category) => Decoded::LeftOut(category),
@@ -656,8 +804,8 @@ fn left_out(kind: &str) -> Option<(&'static str, &'static str)> {
     Some(match kind {
         "TEXT" | "MTEXT" | "RTEXT" => ("text", "texts"),
         "DIMENSION" | "ARC_DIMENSION" | "LARGE_RADIAL_DIMENSION" => ("dimension", "dimensions"),
-        "HATCH" | "MPOLYGON" => ("hatch", "hatches"),
-        "SOLID" | "TRACE" | "3DFACE" | "WIPEOUT" => ("filled area", "filled areas"),
+        "MPOLYGON" => ("hatch", "hatches"),
+        "WIPEOUT" => ("filled area", "filled areas"),
         "LEADER" | "MLEADER" | "MULTILEADER" | "TOLERANCE" => ("leader", "leaders"),
         "XLINE" | "RAY" => ("construction line", "construction lines"),
         "3DSOLID" | "BODY" | "REGION" | "SURFACE" | "PLANESURFACE" | "EXTRUDEDSURFACE"

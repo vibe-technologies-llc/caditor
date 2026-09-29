@@ -1,4 +1,6 @@
 mod dxf;
+#[cfg(test)]
+mod entity_tests;
 mod model;
 mod sketch;
 #[cfg(test)]
