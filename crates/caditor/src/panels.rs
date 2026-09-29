@@ -99,6 +99,10 @@ pub struct Renaming {
 }
 
 impl PanelState {
+    pub fn forget_document(&mut self) {
+        *self = Self::default();
+    }
+
     pub fn request_focus(&mut self, target: Focus) {
         self.focus = Some(PendingFocus {
             target,

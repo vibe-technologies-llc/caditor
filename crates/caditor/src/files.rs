@@ -567,7 +567,13 @@ impl Files {
         }
     }
 
+    #[cfg(test)]
+    pub fn exporter_includes(&self, body: FeatureId) -> bool {
+        self.exporter.includes(body)
+    }
+
     pub fn poll(&mut self, model: &mut Model, editing: &mut SketchEditing) -> bool {
+        self.exporter.sync(model);
         let mut changed = false;
         if self
             .closing

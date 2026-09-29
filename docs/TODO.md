@@ -140,11 +140,6 @@ within a category run from most to least important.
 
 ## Interface correctness
 
-- A new or opened document inherits the selection and the selected tree row: IDs restart in
-  every document, `Selection::retain_available` keeps any whose ids exist, and only the camera
-  reacts to a session change (`viewport.rs`), so Extrude can pick a sketch the user never
-  selected and Delete can hit a stale row. Export exclusions (`Exporter.left_out`) carry over
-  the same way.
 - Constraint rows in the sketch tree are styled as links but clicking or hovering them does
   nothing.
 - A rejected `commit_field` draft keeps showing its old text and error after the stored value

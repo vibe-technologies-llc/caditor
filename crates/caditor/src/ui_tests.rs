@@ -1360,6 +1360,42 @@ fn a_missing_file_is_reported_and_dropped_from_recent_files_and_reopening_is_har
 }
 
 #[test]
+fn a_newly_opened_model_starts_with_nothing_selected_or_left_out_of_export() {
+    let mut harness = Harness::new();
+    let base = harness.document().features().next().unwrap().id();
+    let line = harness
+        .sketch(base)
+        .entities()
+        .find_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id))
+        .unwrap();
+    let chosen = Pickable::SketchEntity {
+        feature: base,
+        entity: line,
+    };
+    let session = harness.model.session();
+
+    harness.select([chosen]);
+    harness.workspace.panels.selected = Some(base);
+    harness.command(FileCommand::Export(ExportCommand::Include {
+        body: base,
+        included: false,
+    }));
+    harness.command(FileCommand::OpenSample(crate::samples::Sample::Plate));
+    if harness.shows("Continue Without Saving") {
+        harness.click("Continue Without Saving");
+    }
+    harness.wait_until("the sample opens", |harness| {
+        harness.model.session() != session
+    });
+    harness.settle();
+
+    assert!(harness.document().feature(base).is_some());
+    assert!(harness.workspace.viewport.selection().is_empty());
+    assert_eq!(harness.workspace.panels.selected, None);
+    assert!(harness.files.exporter_includes(base));
+}
+
+#[test]
 fn a_constraint_conflict_is_named_and_leads_to_the_newest_constraint() {
     let mut harness = Harness::new();
     let base = harness.document().features().next().unwrap().clone();

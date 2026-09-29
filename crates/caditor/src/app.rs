@@ -74,6 +74,7 @@ pub struct Workspace {
     pub last_offers: Vec<Offer>,
     applied_appearance: Option<Appearance>,
     keyboard_was_taken: bool,
+    session: u64,
 }
 
 impl Workspace {
@@ -101,6 +102,15 @@ impl Workspace {
             last_offers: Vec::new(),
             applied_appearance: None,
             keyboard_was_taken: false,
+            session: 0,
+        }
+    }
+
+    fn sync(&mut self, model: &Model) {
+        if self.session != model.session() {
+            self.session = model.session();
+            self.viewport.forget_document();
+            self.panels.forget_document();
         }
     }
 
@@ -150,6 +160,7 @@ pub fn show(
     workspace: &mut Workspace,
     actions: &mut Vec<Action>,
 ) {
+    workspace.sync(model);
     match apply_appearance(ui.ctx(), workspace) {
         Applied::FontsPending => return,
         Applied::Changed => ui.set_style(ui.ctx().global_style()),

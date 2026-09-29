@@ -96,6 +96,8 @@ The first release of caditor.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.
 - A welcome dialog with three sample models and first-run tips.
 - Help › About caditor shows the version; `caditor --version` prints it.
+- A new or opened model starts with nothing selected and every body chosen for export, so
+  commands never act on something picked in the previous model.
 
 ### Installation
 

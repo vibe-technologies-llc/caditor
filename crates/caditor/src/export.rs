@@ -53,6 +53,7 @@ pub struct Exporter {
     resolution: MeshResolution,
     left_out: BTreeSet<FeatureId>,
     running: Option<Running>,
+    session: u64,
 }
 
 struct Body {
@@ -68,6 +69,18 @@ impl Exporter {
 
     pub fn is_running(&self) -> bool {
         self.running.is_some()
+    }
+
+    #[cfg(test)]
+    pub fn includes(&self, body: FeatureId) -> bool {
+        !self.left_out.contains(&body)
+    }
+
+    pub fn sync(&mut self, model: &Model) {
+        if self.session != model.session() {
+            self.session = model.session();
+            self.left_out.clear();
+        }
     }
 
     pub fn format(&self) -> ExportFormat {

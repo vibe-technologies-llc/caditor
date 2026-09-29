@@ -165,6 +165,20 @@ impl ViewportState {
         }
     }
 
+    pub fn forget_document(&mut self) {
+        self.selection.clear();
+        self.hovered = None;
+        self.hover_source = None;
+        self.pending_click = None;
+        self.pointer_hit = None;
+        self.last_pick = None;
+        self.keyboard_highlight = None;
+        self.highlightable.clear();
+        self.drawing = Drawing::default();
+        self.annotations = Annotations::default();
+        self.typed_point = TypedPoint::default();
+    }
+
     pub fn set_navigation(&mut self, navigation: Navigation) {
         self.navigation = navigation;
     }

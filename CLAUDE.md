@@ -1027,7 +1027,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     empty model. Release builds unwind (`panic = "unwind"`), since containment relies on it, and
     `recompute.rs` fails to compile otherwise. The viewport
     fits the view once the first recompute of a newly opened model (another `Model::session`)
-    is up to date.
+    is up to date. Since IDs restart in every document, a new session also clears the viewport's
+    selection, hover, highlight and drawing state (`Workspace::sync` at the start of each frame),
+    the tree's selected row and rename, and the export dialog's left-out bodies.
   - Samples (`samples.rs`): three parametric models built through the document API, so they are
     always in the current format: a plate with two holes (extrude), a flanged spool (full
     revolve about the sketch's vertical axis) and an angle bracket (symmetric extrude with a
