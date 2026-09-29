@@ -8,8 +8,7 @@ use std::{
 use caditor_geometry::{Plane, Point3, Vector3};
 use caditor_kernel::{
     BSpline, BSplineSurface, Circle, Cone, Curve, Cylinder, Ellipse, Extrusion, GeometryError,
-    Interval, LINEAR_RESOLUTION, Line, MAX_SPLINE_DEGREE, PlaneSurface, Revolution, Sphere,
-    Surface, Torus,
+    Interval, Line, MAX_SPLINE_DEGREE, PlaneSurface, Revolution, Sphere, Surface, Torus,
 };
 
 use crate::read::{
@@ -21,7 +20,6 @@ use crate::read::{
 const MAX_CURVE_DEPTH: usize = 8;
 const PIECE_SAMPLES: usize = 64;
 const OFFSET_SAMPLES: usize = 256;
-const JOINT_GAP: f64 = 1e-6;
 pub(crate) const MAX_WORK: usize = 4_000_000;
 
 fn sampled(curve: &Curve, range: Interval) -> Vec<Point3> {
@@ -267,9 +265,7 @@ impl<'a> Geometry<'a> {
             let joined = points
                 .last()
                 .zip(piece.first())
-                .is_some_and(|(last, first)| {
-                    last.distance(*first) <= JOINT_GAP * self.units.length
-                });
+                .is_some_and(|(last, first)| last.distance(*first) <= self.units.uncertainty());
             points.extend(piece.into_iter().skip(usize::from(joined)));
         }
         polyline(id, points)
@@ -510,16 +506,21 @@ impl<'a> Geometry<'a> {
                 let frame = self.placement(fields.reference(1)?)?;
                 let major = self.length(&fields, 2)?;
                 let minor = self.length(&fields, 3)?;
-                if minor < major - LINEAR_RESOLUTION {
+                let uncertainty = self.units.uncertainty();
+                if minor < major - uncertainty {
                     return Ok(Torus::new(frame, major, minor).map_err(kernel)?.into());
                 }
-                if minor <= major + LINEAR_RESOLUTION {
+                let outer = fields.logical(4)?;
+                let pole_height = (minor * minor - major * major).max(0.0).sqrt();
+                let horn = pole_height <= uncertainty;
+                if horn && !outer {
                     return Err(Problem::new(
                         id,
-                        "is a torus whose tube just touches its axis, which caditor cannot import yet",
+                        "is the inside of a torus whose tube just touches its axis, which holds \
+                         no volume",
                     ));
                 }
-                let outer = fields.logical(4)?;
+                let minor = if horn { major } else { minor };
                 Ok(spindle(&frame, major, minor, outer).map_err(kernel)?.into())
             }
             "SURFACE_OF_LINEAR_EXTRUSION" => {

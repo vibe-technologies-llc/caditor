@@ -117,6 +117,9 @@ The first release of caditor.
   that reason instead of never finishing.
 - Large STEP files are read in less than half the time and with about half the memory they took
   before.
+- STEP bodies on a torus whose tube just touches its axis import. The precision a STEP file
+  declares is taken into account: small repairs within it are no longer reported, and a body
+  whose faces meet only as closely as that precision is refused with a message that says so.
 
 ### Interface
 

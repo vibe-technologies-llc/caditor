@@ -147,10 +147,11 @@ impl<'g, 'a> Topology<'g, 'a> {
             self.build_shell(shell)?;
         }
         let healed = self.healed;
+        let precision = self.geometry.units.precision;
         let solid = self
             .builder
             .build()
-            .map_err(|error| Problem::new(id, describe_build(&error)))?;
+            .map_err(|error| Problem::new(id, describe_build(&error, precision)))?;
         let check = solid
             .find_crossing()
             .map_err(|_| Problem::new(id, "was not checked, because the import was cancelled"))?;
@@ -277,7 +278,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         let shell = self
             .builder
             .shell()
-            .map_err(|error| Problem::new(plan.id, describe_build(&error)))?;
+            .map_err(|error| Problem::new(plan.id, self.describe(&error)))?;
         for (face, face_flipped) in &plan.faces {
             self.build_face(shell, *face, *face_flipped)?;
         }
@@ -303,7 +304,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         if bounds.is_empty() {
             let seam = self
                 .seam_around(&surface)
-                .map_err(|error| Problem::new(id, describe_build(&error)))?
+                .map_err(|error| Problem::new(id, self.describe(&error)))?
                 .ok_or_else(|| {
                     Problem::new(
                         id,
@@ -319,7 +320,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         let face = self
             .builder
             .face(shell, surface, sense)
-            .map_err(|error| Problem::new(id, describe_build(&error)))?;
+            .map_err(|error| Problem::new(id, self.describe(&error)))?;
         if self.face_entities.len() == face.index() {
             self.face_entities.push(id);
         }
@@ -330,9 +331,19 @@ impl<'g, 'a> Topology<'g, 'a> {
         for bound in bounds {
             self.builder
                 .add_loop(face, &bound.coedges)
-                .map_err(|error| Problem::new(id, describe_build(&error)))?;
+                .map_err(|error| Problem::new(id, self.describe(&error)))?;
         }
         Ok(())
+    }
+
+    fn describe(&self, error: &BuildError) -> String {
+        describe_build(error, self.geometry.units.precision)
+    }
+
+    fn note_repair(&mut self, gap: Option<f64>) {
+        if gap.is_some_and(|gap| gap > self.geometry.units.uncertainty()) {
+            self.healed += 1;
+        }
     }
 
     fn seam_around(&mut self, surface: &Surface) -> Result<Option<EdgeId>, BuildError> {
@@ -377,8 +388,13 @@ impl<'g, 'a> Topology<'g, 'a> {
         let Some((curve, interval)) = seam else {
             return Ok(None);
         };
-        let start = self.builder.vertex(curve.point(interval.start()))?;
-        let end = self.builder.vertex(curve.point(interval.end()))?;
+        let (from, to) = (curve.point(interval.start()), curve.point(interval.end()));
+        let start = self.builder.vertex(from)?;
+        let end = if from.distance(to) <= LINEAR_RESOLUTION {
+            start
+        } else {
+            self.builder.vertex(to)?
+        };
         let edge = self.builder.edge(curve.clone(), interval, start, end)?;
         self.curves.insert(edge, (curve, interval));
         Ok(Some(edge))
@@ -406,7 +422,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         }
         let (points, orientation) =
             outline.ok_or_else(|| Problem::new(face, "has no polygon to take its plane from"))?;
-        let plane = polygon_plane(&points, orientation)
+        let plane = polygon_plane(&points, orientation, self.geometry.units.uncertainty())
             .ok_or_else(|| Problem::new(face, "has a polygon that encloses no area"))?;
         PlaneSurface::new(plane)
             .map(Surface::from)
@@ -422,7 +438,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         let vertex = self
             .builder
             .vertex(position)
-            .map_err(|error| Problem::new(point, describe_build(&error)))?;
+            .map_err(|error| Problem::new(point, self.describe(&error)))?;
         self.corners.insert(key, vertex);
         Ok(vertex)
     }
@@ -458,7 +474,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             let edge = self
                 .builder
                 .line_edge(*from, to)
-                .map_err(|error| Problem::new(id, describe_build(&error)))?;
+                .map_err(|error| Problem::new(id, self.describe(&error)))?;
             self.sides.insert((*from, to), edge);
             coedges.push((edge, Sense::Same));
         }
@@ -528,14 +544,12 @@ impl<'g, 'a> Topology<'g, 'a> {
         let fields = self.geometry.graph.entity(id)?.record("VERTEX_POINT")?;
         let point = self.geometry.point(fields.reference(1)?)?;
         let surfaces = self.surfaces_of(self.vertex_faces.get(&id));
-        let (point, moved) = settle_on(point, &surfaces);
-        if moved {
-            self.healed += 1;
-        }
+        let (point, gap) = settle_on(point, &surfaces);
+        self.note_repair(gap);
         let vertex = self
             .builder
             .vertex(point)
-            .map_err(|error| Problem::new(id, describe_build(&error)))?;
+            .map_err(|error| Problem::new(id, self.describe(&error)))?;
         self.vertices.insert(id, vertex);
         Ok(vertex)
     }
@@ -557,8 +571,8 @@ impl<'g, 'a> Topology<'g, 'a> {
         let interval = self.interval(id, &curve, start, end)?;
         let surfaces = self.surfaces_of(self.edge_faces.get(&id));
         let (curve, interval) = match self.heal_edge(&curve, interval, start, end, &surfaces) {
-            Some(healed) => {
-                self.healed += 1;
+            Some((healed, gap)) => {
+                self.note_repair(Some(gap));
                 healed
             }
             None => (curve, interval),
@@ -566,7 +580,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         let edge = self
             .builder
             .edge(curve.clone(), interval, start, end)
-            .map_err(|error| Problem::new(id, describe_build(&error)))?;
+            .map_err(|error| Problem::new(id, self.describe(&error)))?;
         self.curves.insert(edge, (curve, interval));
         let entry = (edge, !same_sense);
         self.edges.insert(id, entry);
@@ -580,19 +594,24 @@ impl<'g, 'a> Topology<'g, 'a> {
         start: VertexId,
         end: VertexId,
         surfaces: &[Surface],
-    ) -> Option<(Curve, Interval)> {
+    ) -> Option<((Curve, Interval), f64)> {
         let (from, to) = (
             self.builder.vertex_point(start)?,
             self.builder.vertex_point(end)?,
         );
-        let ends_fit = curve.point(interval.start()).distance(from) <= CLEAN
-            && curve.point(interval.end()).distance(to) <= CLEAN;
         let samples: Vec<Point3> = interval
             .split(CHECK_SAMPLES)
             .map(|parameter| curve.point(parameter))
             .collect();
-        let on_surfaces = surfaces.iter().all(|surface| lies_on(surface, &samples));
-        if ends_fit && on_surfaces {
+        let gap = surfaces
+            .iter()
+            .map(|surface| farthest(surface, &samples))
+            .chain([
+                curve.point(interval.start()).distance(from),
+                curve.point(interval.end()).distance(to),
+            ])
+            .fold(0.0, f64::max);
+        if gap <= CLEAN {
             return None;
         }
         let [first, second] = surfaces else {
@@ -613,7 +632,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         let domain = rebuilt.domain();
         let fits = rebuilt.point(domain.start()).distance(from) <= LINEAR_RESOLUTION
             && rebuilt.point(domain.end()).distance(to) <= LINEAR_RESOLUTION;
-        fits.then_some((Curve::Intersection(rebuilt), domain))
+        fits.then_some(((Curve::Intersection(rebuilt), domain), gap))
     }
 
     fn interval(&self, id: u64, curve: &Curve, start: VertexId, end: VertexId) -> Read<Interval> {
@@ -714,20 +733,23 @@ impl<'g, 'a> Topology<'g, 'a> {
     }
 }
 
-fn lies_on(surface: &Surface, samples: &[Point3]) -> bool {
+fn farthest(surface: &Surface, samples: &[Point3]) -> f64 {
     let mut hint = None;
-    samples.iter().all(|point| {
-        let hinted = hint.map(|hint| surface.project(*point, Some(hint)));
-        let foot = match hinted {
-            Some(uv) if surface.point_at(uv).distance(*point) <= CLEAN => uv,
-            _ => surface.project(*point, None),
-        };
-        hint = Some(foot);
-        surface.point_at(foot).distance(*point) <= CLEAN
-    })
+    samples
+        .iter()
+        .map(|point| {
+            let hinted = hint.map(|hint| surface.project(*point, Some(hint)));
+            let foot = match hinted {
+                Some(uv) if surface.point_at(uv).distance(*point) <= CLEAN => uv,
+                _ => surface.project(*point, None),
+            };
+            hint = Some(foot);
+            surface.point_at(foot).distance(*point)
+        })
+        .fold(0.0, f64::max)
 }
 
-fn settle_on(point: Point3, surfaces: &[Surface]) -> (Point3, bool) {
+fn settle_on(point: Point3, surfaces: &[Surface]) -> (Point3, Option<f64>) {
     let worst = |at: Point3| {
         surfaces
             .iter()
@@ -736,7 +758,7 @@ fn settle_on(point: Point3, surfaces: &[Surface]) -> (Point3, bool) {
     };
     let start = worst(point);
     if start <= CLEAN || surfaces.is_empty() {
-        return (point, false);
+        return (point, None);
     }
     let mut current = point;
     let mut current_worst = start;
@@ -781,7 +803,7 @@ fn settle_on(point: Point3, surfaces: &[Surface]) -> (Point3, bool) {
             break;
         }
     }
-    (current, current_worst < start)
+    (current, (current_worst < start).then_some(start))
 }
 
 fn solve3(matrix: [[f64; 3]; 3], right: [f64; 3]) -> Option<Vector3> {
@@ -839,7 +861,7 @@ fn closed_shells(graph: &Graph<'_>, model: Entity<'_>) -> Read<Vec<u64>> {
     Ok(closed)
 }
 
-fn polygon_plane(points: &[Point3], orientation: bool) -> Option<Plane> {
+fn polygon_plane(points: &[Point3], orientation: bool, uncertainty: f64) -> Option<Plane> {
     let first = *points.first()?;
     let mut normal = Vector3::ZERO;
     for (index, point) in points.iter().enumerate() {
@@ -850,11 +872,11 @@ fn polygon_plane(points: &[Point3], orientation: bool) -> Option<Plane> {
     let along = points
         .iter()
         .map(|point| *point - first)
-        .find(|offset| offset.length() > LINEAR_RESOLUTION)?;
+        .find(|offset| offset.length() > uncertainty)?;
     Plane::with_x_axis(first, normal, along)
 }
 
-pub(crate) fn describe_build(error: &BuildError) -> String {
+fn describe_build(error: &BuildError, precision: Option<f64>) -> String {
     match error {
         BuildError::VertexOffCurve { distance, .. } => format!(
             "has a vertex {} mm away from the end of its edge",
@@ -867,11 +889,22 @@ pub(crate) fn describe_build(error: &BuildError) -> String {
         BuildError::Pcurve { .. } => {
             "has an edge that could not be followed across its face".to_owned()
         }
-        BuildError::Invalid(ValidationError::EdgeOffSurface { distance, .. }) => format!(
-            "has faces that meet only within {} mm, and caditor needs them to meet within {} mm",
-            short(*distance),
-            short(LINEAR_RESOLUTION)
-        ),
+        BuildError::Invalid(ValidationError::EdgeOffSurface { distance, .. }) => match precision {
+            Some(precision) if *distance <= precision => format!(
+                "has faces that meet only within {} mm, which the file's precision of {} mm \
+                     allows, but caditor needs them to meet within {} mm, so the model would \
+                     have to be exported again with a finer precision",
+                short(*distance),
+                short(precision),
+                short(LINEAR_RESOLUTION)
+            ),
+            _ => format!(
+                "has faces that meet only within {} mm, and caditor needs them to meet within \
+                     {} mm",
+                short(*distance),
+                short(LINEAR_RESOLUTION)
+            ),
+        },
         BuildError::Invalid(validation) => {
             format!("does not make a closed, valid solid ({validation})")
         }
@@ -881,7 +914,15 @@ pub(crate) fn describe_build(error: &BuildError) -> String {
 
 fn short(value: f64) -> String {
     let digits = (1.0 - value.log10().floor()).clamp(0.0, 12.0) as usize;
-    format!("{value:.digits$}")
+    let written = format!("{value:.digits$}");
+    if written.contains('.') {
+        written
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_owned()
+    } else {
+        written
+    }
 }
 
 #[cfg(test)]
@@ -948,7 +989,7 @@ mod tests {
                         at.point + at.normal().unwrap() * bend
                     })
                     .collect();
-                let chained = lies_on(surface, &samples);
+                let chained = farthest(surface, &samples) <= CLEAN;
                 assert_eq!(chained, on_every_sample(surface, &samples), "path {path}");
                 decided[usize::from(chained)] += 1;
             }

@@ -1,15 +1,19 @@
+use caditor_kernel::LINEAR_RESOLUTION;
+
 use crate::{
     part21::Parameter,
     read::graph::{Entity, Graph},
 };
 
 const MAX_UNIT_DEPTH: usize = 8;
+const COARSEST_PRECISION: f64 = 0.01;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Units {
     pub length: f64,
     pub angle: f64,
     pub named: bool,
+    pub precision: Option<f64>,
 }
 
 impl Default for Units {
@@ -18,7 +22,14 @@ impl Default for Units {
             length: 1.0,
             angle: 1.0,
             named: false,
+            precision: None,
         }
+    }
+}
+
+impl Units {
+    pub fn uncertainty(&self) -> f64 {
+        self.precision.unwrap_or(LINEAR_RESOLUTION)
     }
 }
 
@@ -33,7 +44,13 @@ pub(crate) fn context_units(graph: &Graph<'_>, context: u64) -> Units {
     let Ok(entity) = graph.entity(context) else {
         return Units::default();
     };
-    let Ok(assigned) = entity.record("GLOBAL_UNIT_ASSIGNED_CONTEXT") else {
+    let mut units = assigned_units(graph, entity);
+    units.precision = declared_precision(graph, entity, units.length);
+    units
+}
+
+fn assigned_units(graph: &Graph<'_>, context: Entity<'_>) -> Units {
+    let Some(assigned) = context.find("GLOBAL_UNIT_ASSIGNED_CONTEXT") else {
         return Units::default();
     };
     let mut units = Units::default();
@@ -53,6 +70,40 @@ pub(crate) fn context_units(graph: &Graph<'_>, context: u64) -> Units {
         }
     }
     units
+}
+
+fn declared_precision(graph: &Graph<'_>, context: Entity<'_>, length: f64) -> Option<f64> {
+    let assigned = context.find("GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT")?;
+    assigned
+        .references(0)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|id| graph.entity(id).ok())
+        .filter_map(|uncertainty| length_uncertainty(graph, uncertainty, length))
+        .max_by(f64::total_cmp)
+        .map(|precision| precision.clamp(LINEAR_RESOLUTION, COARSEST_PRECISION))
+}
+
+fn length_uncertainty(graph: &Graph<'_>, uncertainty: Entity<'_>, length: f64) -> Option<f64> {
+    let fields = uncertainty
+        .find("MEASURE_WITH_UNIT")
+        .or_else(|| uncertainty.fields().ok())?;
+    let value = fields.get(0).ok()?;
+    let amount = value
+        .real()
+        .filter(|amount| amount.is_finite() && *amount > 0.0)?;
+    let unit = fields
+        .optional_reference(1)
+        .and_then(|id| graph.entity(id).ok())
+        .map(|unit| measure(graph, unit, 0));
+    let typed_length =
+        matches!(value, Parameter::Typed(typed) if typed.0.as_str() == "LENGTH_MEASURE");
+    match unit {
+        Some(Measure::Length(scale)) => Some(amount * scale),
+        Some(Measure::Angle(_)) => None,
+        _ if typed_length => Some(amount * length),
+        _ => None,
+    }
 }
 
 fn measure(graph: &Graph<'_>, unit: Entity<'_>, depth: usize) -> Measure {
@@ -131,5 +182,72 @@ fn prefix_factor(prefix: Option<&str>) -> f64 {
         Some("FEMTO") => 1e-15,
         Some("ATTO") => 1e-18,
         _ => 1.0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::part21::parse;
+
+    fn precision(uncertainties: &str) -> Option<f64> {
+        let text = format!(
+            "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n\
+             #1=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT($,.METRE.));\n\
+             #2=(NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($,.RADIAN.));\n\
+             #3=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));\n\
+             {uncertainties}\n\
+             #9=(GEOMETRIC_REPRESENTATION_CONTEXT(3) GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#4,#5)) \
+             GLOBAL_UNIT_ASSIGNED_CONTEXT((#1,#2)) REPRESENTATION_CONTEXT('',''));\n\
+             ENDSEC;\nEND-ISO-10303-21;\n"
+        );
+        let exchange = parse(&text).unwrap();
+        context_units(&Graph::new(&exchange), 9).precision
+    }
+
+    #[test]
+    fn the_declared_precision_is_converted_to_millimetres_and_kept_within_bounds() {
+        let metres = precision(
+            "#4=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(2.E-6),#1,'distance_accuracy_value','');",
+        );
+        let millimetres = precision(
+            "#4=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(5.E-4),#3,'distance_accuracy_value','');",
+        );
+        let coarsest_length = precision(
+            "#4=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-6),#1,'',''); \
+             #5=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(3.E-6),#1,'','');",
+        );
+        let complex = precision(
+            "#4=(LENGTH_MEASURE_WITH_UNIT() MEASURE_WITH_UNIT(LENGTH_MEASURE(4.E-6),#1) \
+             UNCERTAINTY_MEASURE_WITH_UNIT('distance_accuracy_value',''));",
+        );
+        let unitless =
+            precision("#4=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-6),$,'','');");
+        let finer_than_caditor = precision(
+            "#4=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-7),#3,'distance_accuracy_value','');",
+        );
+        let hostile = precision(
+            "#4=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E300),#1,'distance_accuracy_value','');",
+        );
+        let unusable = [
+            "#4=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(0.),#1,'distance_accuracy_value','');",
+            "#4=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(-1.),#1,'distance_accuracy_value','');",
+            "#4=UNCERTAINTY_MEASURE_WITH_UNIT(PLANE_ANGLE_MEASURE(1.E-3),#2,'angle','');",
+            "#4=UNCERTAINTY_MEASURE_WITH_UNIT(RATIO_MEASURE(1.E-3),$,'ratio','');",
+            "",
+        ]
+        .map(precision);
+
+        let near = |value: Option<f64>, expected: f64| {
+            value.is_some_and(|value| (value - expected).abs() <= 1e-12 * expected)
+        };
+        assert!(near(metres, 2e-3), "{metres:?}");
+        assert!(near(millimetres, 5e-4), "{millimetres:?}");
+        assert!(near(coarsest_length, 3e-3), "{coarsest_length:?}");
+        assert!(near(complex, 4e-3), "{complex:?}");
+        assert!(near(unitless, 1e-3), "{unitless:?}");
+        assert_eq!(finer_than_caditor, Some(LINEAR_RESOLUTION));
+        assert_eq!(hostile, Some(COARSEST_PRECISION));
+        assert_eq!(unusable, [None; 5]);
     }
 }

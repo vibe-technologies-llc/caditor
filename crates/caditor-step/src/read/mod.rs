@@ -341,7 +341,7 @@ fn unchecked_note(name: &str, [first, second]: [u64; 2]) -> String {
     )
 }
 
-type Builds = BTreeMap<(SolidShells, [u64; 2]), (u64, Result<Built, Problem>)>;
+type Builds = BTreeMap<(SolidShells, [u64; 3]), (u64, Result<Built, Problem>)>;
 
 struct Builder<'a> {
     graph: Graph<'a>,
@@ -362,7 +362,14 @@ impl<'a> Builder<'a> {
 
     fn build(&mut self, units: Units, id: u64) -> Result<Built, Problem> {
         let shells = SolidShells::of(&self.graph, id)?;
-        let key = (shells, [units.length.to_bits(), units.angle.to_bits()]);
+        let key = (
+            shells,
+            [
+                units.length.to_bits(),
+                units.angle.to_bits(),
+                units.uncertainty().to_bits(),
+            ],
+        );
         if let Some((first, built)) = self.builds.get(&key) {
             let first = *first;
             return built.clone().map_err(|problem| {

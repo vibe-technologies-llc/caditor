@@ -110,7 +110,20 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     closed shells (each closed shell a lump) as named kernel solids plus notes, or a `ReadError` in
     words. Units come from each representation's context (SI prefixes and conversion-based units
     such as inches and degrees, whose factor may be a simple or a complex `MEASURE_WITH_UNIT`), and
-    a note names every length unit other than millimetres that was converted. Assemblies are
+    a note names every length unit other than millimetres that was converted. The context's
+    declared precision (the length `UNCERTAINTY_MEASURE_WITH_UNIT`s of its
+    `GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT`, by their own unit or, for a bare `LENGTH_MEASURE`, the
+    context's, the coarsest when there are several) is part of the units, clamped between
+    `LINEAR_RESOLUTION` and `COARSEST_PRECISION` (0.01 mm) so a hostile file can set neither zero
+    nor a huge tolerance, and `LINEAR_RESOLUTION` when none is declared. Solids are still
+    validated at `LINEAR_RESOLUTION`, since the kernel cannot hold looser geometry, so the
+    precision never loosens validity: it decides what the file means (composite curve segments
+    that meet within it are joined, a polygon needs a corner farther than it from its first to
+    have a plane, and a torus is a horn when the poles of its spindle lie within it of the point
+    where the tube touches the axis), which healing counts as a repair worth a note (a vertex or
+    edge that was farther than it from its faces; nearer ones are healed silently as the file's
+    own noise), and how a refusal reads (faces meeting only within the declared precision are
+    refused as a file exported too coarsely for caditor). Assemblies are
     followed from each solid's representation up to the roots through
     `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION` (the child is the representation of the
     occurrence's child definition, found through `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` and
@@ -139,7 +152,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `COMPOSITE_CURVE`s (each segment trimmed by point or parameter and followed in its sense) and
     `OFFSET_CURVE_3D`s as dense polylines that edge healing then rebuilds on the faces. A spindle
     `DEGENERATE_TOROIDAL_SURFACE` is the revolution of the rational arc of its tube on one side of
-    the axis (the apple or, mirrored, the lemon), so its normal stays the torus's. Faces
+    the axis (the apple or, mirrored, the lemon), so its normal stays the torus's; a horn one is
+    the whole tube circle turned about the point where it touches the axis, a revolution whose two
+    poles are one vertex (its seam, when the face has only a `VERTEX_LOOP`, a closed edge on it),
+    and its inside is refused as holding no volume. Faces
     bounded by `POLY_LOOP`s get line edges shared by corner position (and a plane from the polygon
     when a plain `FACE` names no surface). Topology is surveyed first (which faces use each edge and
     vertex), then vertices off their faces are moved onto all of them by damped least squares, edges
@@ -150,7 +166,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     else the one using a seam, else the largest by area, and faces bounded only by `VERTEX_LOOP`s
     get a pole-to-pole seam (spheres, closed spline surfaces and revolutions with two poles). Every solid then goes through
     `SolidBuilder::build`, so an import is valid or a sentence naming the entity; faces that meet
-    only farther apart than `LINEAR_RESOLUTION` are refused in those words, and a solid whose faces
+    only farther apart than `LINEAR_RESOLUTION` are refused in those words (with the file's
+    precision when that allowed the gap), and a solid whose faces
     cross (`Solid::find_crossing`) is refused naming the two face entities, or the one face whose
     edges cross.
 - **caditor-geometry**: the math vocabulary, as f64 `glam` aliases (`Point3`, `Rotation3`, …)

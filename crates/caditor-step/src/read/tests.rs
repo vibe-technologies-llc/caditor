@@ -539,9 +539,98 @@ fn spindle_tori_are_read_as_the_apple_or_the_lemon() {
         assert_eq!(read.faces().count(), solid.faces().count(), "{name}");
         assert_eq!(read.edges().count(), solid.edges().count(), "{name}");
     }
-    let horn = read_step(&spindle(3.0, 3.0, true));
+}
+
+#[test]
+fn horn_tori_are_read_as_the_whole_tube_turned_about_the_point_it_touches() {
+    use std::f64::consts::PI;
+
+    let radius = 3.0;
+
+    let horn = sample(&spindle(radius, radius, true));
+    let solid = &horn.solids[0].solid;
+    let read = round_trip("horn", solid);
+    let inside = read_step(&spindle(radius, radius, false));
+
+    assert_volume(solid, 2.0 * PI * PI * radius.powi(3));
+    assert_eq!(solid.faces().count(), 1);
+    assert_eq!(solid.vertices().count(), 1);
+    assert_same_shape("horn", solid, &read);
     assert!(
-        matches!(&horn, Err(error) if error.to_string().contains("just touches its axis")),
-        "{horn:?}"
+        matches!(&inside, Err(error) if error.to_string().contains("holds no volume")),
+        "{inside:?}"
+    );
+}
+
+fn with_precision(text: &str, representation: &str, brep: u64, precision: &str) -> String {
+    text.replace(
+        "ENDSEC;\nEND-ISO-10303-21;",
+        &format!(
+            "#9020={representation}('',(#{brep}),#9021);\n\
+             #9021=(GEOMETRIC_REPRESENTATION_CONTEXT(3) GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#9022)) \
+             GLOBAL_UNIT_ASSIGNED_CONTEXT((#9023)) REPRESENTATION_CONTEXT('',''));\n\
+             #9022=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE({precision}),#9023,\
+             'distance_accuracy_value','');\n\
+             #9023=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));\n\
+             ENDSEC;\nEND-ISO-10303-21;"
+        ),
+    )
+}
+
+#[test]
+fn a_tube_that_touches_its_axis_within_the_precision_of_the_file_makes_a_horn_torus() {
+    let nearly = spindle(3.0, 3.0 + 1e-7, true);
+    let coarse = with_precision(&nearly, "ADVANCED_BREP_SHAPE_REPRESENTATION", 12, "1.E-3");
+
+    let spindle = sample(&nearly);
+    let horn = sample(&coarse);
+
+    assert_eq!(spindle.solids[0].solid.vertices().count(), 2);
+    assert_eq!(horn.solids[0].solid.vertices().count(), 1);
+}
+
+#[test]
+fn only_repairs_beyond_the_precision_of_the_file_are_reported() {
+    let solid = fixtures::plate_with_hole();
+    let text = write_step(
+        &[StepBody {
+            name: "Plate",
+            solid: &solid,
+        }],
+        "Plate",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+    let corner = "#19=CARTESIAN_POINT('',(0.0,0.0,0.0));";
+    let lifted = text.replacen(corner, "#19=CARTESIAN_POINT('',(0.0,0.0,0.0003));", 1);
+    let coarse = lifted.replacen("LENGTH_MEASURE(1.E-6)", "LENGTH_MEASURE(1.E-3)", 1);
+
+    let fine = sample(&lifted);
+    let coarse = sample(&coarse);
+
+    assert!(text.contains(corner));
+    assert_eq!(
+        fine.notes,
+        ["1 edge or corner that did not quite meet its faces was moved onto its faces."]
+    );
+    assert!(coarse.notes.is_empty(), "{:?}", coarse.notes);
+    assert_volume(&coarse.solids[0].solid, fixtures::volume(&solid));
+}
+
+#[test]
+fn faces_that_meet_only_as_closely_as_the_file_declares_are_refused_with_its_precision() {
+    let bent = faceted_cube("FACETED_BREP('cube',#40)", false)
+        .replace("(10.0,10.0,10.0)", "(10.0,10.0,10.0005)");
+    let declared = with_precision(&bent, "FACETED_BREP_SHAPE_REPRESENTATION", 41, "1.E-3");
+
+    let refusal = |text: &str| read_step(text).unwrap_err().to_string();
+    let (plain, precise) = (refusal(&bent), refusal(&declared));
+
+    assert!(bent.contains("(10.0,10.0,10.0005)"));
+    assert!(plain.contains("meet only within"), "{plain}");
+    assert!(!plain.contains("precision"), "{plain}");
+    assert!(
+        precise.contains("which the file's precision of 0.001 mm allows"),
+        "{precise}"
     );
 }

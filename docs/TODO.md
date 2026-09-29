@@ -44,10 +44,9 @@ within a category run from most to least important.
 
 ## STEP import and export
 
-- Unsupported entities: `OFFSET_SURFACE`, horn tori (a `DEGENERATE_TOROIDAL_SURFACE` whose tube
-  just touches its axis), and colours and layers.
-- The declared `UNCERTAINTY_MEASURE_WITH_UNIT` is ignored, and healing covers only edges with
-  exactly two faces.
+- Unsupported entities: `OFFSET_SURFACE`, and colours and layers.
+- Healing covers only edges with exactly two faces, and faces that meet only within a coarse
+  declared precision are refused rather than refitted to each other.
 - Import canonicalises each placement by writing and re-reading it, parses every import again on
   each model load, journal replay and recovery scan, and stores every placement of a product as
   its own STEP text. Build each representation once, store each product once with placements,
