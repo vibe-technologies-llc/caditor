@@ -304,22 +304,6 @@ impl Arrangement {
                 parent.insert(*component, face);
             }
         }
-        let mut by_area: Vec<usize> = (0..faces.len()).collect();
-        by_area.sort_by(|a, b| {
-            let area = |face: &usize| faces.get(*face).map_or(0.0, |entry| entry.1);
-            area(b).total_cmp(&area(a))
-        });
-        let mut depths: Vec<usize> = vec![0; faces.len()];
-        for face in by_area {
-            let (_, _, component) = lookup(&faces, face)?;
-            let depth = match parent.get(&component) {
-                Some(container) => lookup(&depths, *container)? + 1,
-                None => 0,
-            };
-            if let Some(slot) = depths.get_mut(face) {
-                *slot = depth;
-            }
-        }
         let mut cycle_of = vec![usize::MAX; self.pieces.len() * 2];
         for (index, cycle) in cycles.iter().enumerate() {
             for half_edge in cycle {
@@ -341,6 +325,23 @@ impl Arrangement {
         self.sides = (0..self.pieces.len())
             .map(|piece| Ok([side_of(piece * 2)?, side_of(piece * 2 + 1)?]))
             .collect::<Found<_>>()?;
+        let enclosing = |face: usize| -> Option<usize> {
+            let (cycle, _, _) = faces.get(face)?;
+            let mut beyond = cycles
+                .get(*cycle)?
+                .iter()
+                .map(|half_edge| self.face_of(half_edge ^ 1));
+            let first = beyond.next()??;
+            (first != face && beyond.all(|other| other == Some(first))).then_some(first)
+        };
+        let up: Vec<Option<usize>> = faces
+            .iter()
+            .enumerate()
+            .map(|(face, (_, _, component))| {
+                enclosing(face).or_else(|| parent.get(component).copied())
+            })
+            .collect();
+        let depths = nesting_depths(&up);
         let mut face_half_edges = vec![Vec::new(); faces.len()];
         for half_edge in 0..self.pieces.len() * 2 {
             if let Some(list) = self
@@ -367,6 +368,33 @@ impl Arrangement {
             .collect::<Found<_>>()?;
         Ok(())
     }
+}
+
+fn nesting_depths(up: &[Option<usize>]) -> Vec<usize> {
+    let mut depths: Vec<Option<usize>> = vec![None; up.len()];
+    for start in 0..up.len() {
+        let mut chain = Vec::new();
+        let mut current = Some(start);
+        let mut depth = 0;
+        while let Some(face) = current {
+            if let Some(known) = depths.get(face).copied().flatten() {
+                depth = known + 1;
+                break;
+            }
+            if chain.len() > up.len() {
+                break;
+            }
+            chain.push(face);
+            current = up.get(face).copied().flatten();
+        }
+        for face in chain.into_iter().rev() {
+            if let Some(slot) = depths.get_mut(face) {
+                *slot = Some(depth);
+            }
+            depth += 1;
+        }
+    }
+    depths.into_iter().map(Option::unwrap_or_default).collect()
 }
 
 fn sources(curves: &[ProfileCurve]) -> Found<(Vec<Source>, Scale)> {

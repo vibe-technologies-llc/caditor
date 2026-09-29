@@ -41,9 +41,6 @@ within a category run from most to least important.
   short of the opening instead of reaching it (`shell/mod.rs` `extendable`).
 - Tests missing for a boolean that fails with `Split`, `Intersection` or `Invalid` on real
   solids; only their conversions and messages are tested.
-- Even-depth selection keeps the region inside a hole that touches its outline, since both are in
-  one connected component, so such a sketch sweeps as if it had no hole until the region is
-  chosen.
 
 ## Kernel performance
 

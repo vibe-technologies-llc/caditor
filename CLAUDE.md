@@ -400,8 +400,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     the entity plus what bounds each end: its own start or end, or the sorted ids of the curves
     that cut it there with an occurrence counted along the curve. A `RegionKey` digests the set of
     (entity, side) pairs of its boundary; regions sharing a key are told apart by their piece
-    ids. Depth counts nesting of connected components inside faces of others. `select` with
-    `Selection::EvenDepth` (the default) or explicit keys returns the union of the chosen regions
+    ids. Depth counts nesting: a face lies one deeper than the single face its whole
+    boundary borders (a hole touching its outline, a circle tangent inside another), else than
+    the face its connected component lies in, so the cells of a grid keep their outline's depth.
+    `select` with `Selection::EvenDepth` (the default) or explicit keys returns the union of the chosen regions
     as new regions keyed the same way, so adjacent regions sweep as one lump. Errors name the
     entity ids; an arrangement that fails without knowing which curves caused it is rebuilt from
     fewer curves (`culprits.rs`, at most 64 attempts) until the failing set is small enough to

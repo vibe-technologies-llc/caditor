@@ -717,6 +717,50 @@ fn a_column_of_squares_sharing_their_x_is_divided() {
 }
 
 #[test]
+fn a_hole_touching_its_outline_is_left_out_of_the_even_depth_selection() {
+    let mut pinched = rectangle(1, (0.0, 0.0), (10.0, 10.0));
+    let diamond = [(5.0, 0.0), (7.0, 2.0), (5.0, 4.0), (3.0, 2.0)];
+    for index in 0..4 {
+        pinched.push(line(
+            5 + index as u64,
+            diamond[index],
+            diamond[(index + 1) % 4],
+        ));
+    }
+    let tangent = [circle(1, (0.0, 0.0), 3.0), circle(2, (1.0, 0.0), 2.0)];
+
+    let plate = profile(&pinched).select(&Selection::EvenDepth).unwrap();
+    let crescent = profile(&tangent).select(&Selection::EvenDepth).unwrap();
+
+    assert_eq!(plate.len(), 1);
+    assert!(close(plate[0].area(), 92.0), "{}", plate[0].area());
+    assert_eq!(crescent.len(), 1);
+    assert!(
+        close(crescent[0].area(), 5.0 * PI),
+        "{}",
+        crescent[0].area()
+    );
+}
+
+#[test]
+fn every_cell_of_a_grid_keeps_the_depth_of_its_outline() {
+    let mut curves = rectangle(1, (0.0, 0.0), (9.0, 9.0));
+    for (index, at) in [3.0, 6.0].into_iter().enumerate() {
+        let entity = 10 + index as u64 * 2;
+        curves.push(line(entity, (at, 0.0), (at, 9.0)));
+        curves.push(line(entity + 1, (0.0, at), (9.0, at)));
+    }
+
+    let grid = profile(&curves);
+    let chosen = grid.select(&Selection::EvenDepth).unwrap();
+
+    assert_eq!(grid.regions().len(), 9);
+    assert!(grid.regions().iter().all(|region| region.depth() == 0));
+    assert_eq!(chosen.len(), 1);
+    assert!(close(chosen[0].area(), 81.0));
+}
+
+#[test]
 fn unresolved_curves_are_narrowed_to_those_failing_together() {
     let curves: Vec<ProfileCurve> = (1..=20)
         .map(|entity| {

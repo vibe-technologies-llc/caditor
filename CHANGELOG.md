@@ -23,7 +23,8 @@ The first release of caditor.
 - Shells whose walls are thicker than a rounded edge or corner leave that rounding out of the
   cavity, corners where four or more faces meet become a short ridge inside it, and a thickness
   that would shrink a wall past nothing names the edge where it happens.
-- A region whose hole touches its outline at one point can be extruded and revolved.
+- A region whose hole touches its outline at one point can be extruded and revolved, and such a
+  hole, or a circle drawn tangent inside another, is left open without choosing regions.
 - When the curves of a sketch cannot be divided into regions, the message names the curves
   involved.
 - Sketches with thousands of regions, such as a plate with a large grid of holes or a big
