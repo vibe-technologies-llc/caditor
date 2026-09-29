@@ -626,7 +626,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Container (`binary/`): an 8-byte magic (`\x89CAD\r\n\x1a\n` for models, `\x89CJL…` for
     journals), a little-endian `u32` format version, then chunks. A chunk is the sync marker
     `CDCK`, its kind, its codec (stored, zstd, or zstd against the next newer version as a raw
-    prefix), stored and content lengths and an xxh3-64 of the header fields and payload, followed
+    prefix), a flags byte (`MUST_UNDERSTAND`; unknown bits are ignored) and a reserved zero byte,
+    stored and content lengths and an xxh3-64 of the header fields and payload, followed
     by the payload. A reader that meets a bad chunk scans forward to the next marker whose
     checksum holds, so damage loses only the chunks it touches; the payload bytes hashed while
     scanning are capped at four times the file size, so forged headers cannot make the scan
@@ -638,10 +639,16 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     maps closed by an end tag, with nesting limited. Enums are encoded like JSON (a unit variant
     is its name, others a one-entry map), so `Lenient` reads any record through a
     `serde_json::Value`, fields a reader does not know are ignored and records of an unknown kind
-    are reported as coming from a newer version.
+    are reported as coming from a newer version. A newer version that adds something whose loss
+    would change the model's meaning must use a new record kind or a must-understand chunk, since
+    an older reader drops unknown fields of any record it changes.
   - A model file holds a head chunk (when it was saved, the name of the last change, and a
     blake3 digest of its records), one zstd chunk per record (parameters, features, the ID
-    counters) and the version history. Records carry their stable IDs; expressions are stored
+    counters) and the version history. Saving writes a record whose understood content is
+    unchanged back exactly as it was stored (fields from newer versions included, and without
+    compressing it again), and carries chunks of kinds it does not know unless they are flagged
+    must-understand, which loading reports as left out (so the original is kept as `.damaged`).
+    Records carry their stable IDs; expressions are stored
     as canonical text that refers to parameters as `$<id>` (`Expression::to_stored_text` and
     `parse_stored`), region keys and topology names as 32-digit hex digests, and numbers as
     exact f64. An unreadable extent falls back to 10 mm or 360°, an unreadable blend edge is left

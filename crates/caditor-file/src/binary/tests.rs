@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     model::{decode, history, load_version, save_bytes},
-    testing::{corrupt_chunk, model_chunk_count},
+    testing::{corrupt_chunk, model_chunk_count, push_foreign, records_as_json},
     value::{from_bytes, to_bytes},
     *,
 };
@@ -361,4 +361,62 @@ fn a_damaged_version_info_is_never_paired_with_another_versions_data() {
     )
     .unwrap();
     check_listed_versions(&resaved, &documents);
+}
+
+#[test]
+fn an_unchanged_record_is_written_back_as_stored_with_fields_this_version_does_not_know() {
+    let document = with_width(10);
+    let bytes = save_bytes(&document, None, at(1_000), None).unwrap();
+    let mut records = records_as_json(&bytes);
+    records[0] = records[0].replace(
+        "\"name\":\"width\"",
+        "\"name\":\"width\",\"note\":\"future\"",
+    );
+    let future = super::testing::current_model_from_json(&records);
+    let loaded = decode(&future).unwrap();
+    assert_eq!(loaded.issues, Vec::<String>::new());
+
+    let mut grown = loaded.document.clone();
+    let mut transaction = grown.transaction("More");
+    transaction.add_parameter("depth", transaction.parse("5 mm").unwrap());
+    grown.apply(transaction.finish()).unwrap();
+    let resaved = save_bytes(&grown, Some(&future), at(2_000), None).unwrap();
+    let kept = records_as_json(&resaved);
+    assert!(kept[0].contains("\"note\":\"future\""), "{kept:?}");
+    let stored = parse(&future, &MODEL_MAGIC).unwrap();
+    let Piece::Chunk(first) = stored.pieces[1] else {
+        panic!("the record is whole");
+    };
+    assert!(
+        resaved
+            .windows(first.whole.len())
+            .any(|window| window == first.whole)
+    );
+    assert_eq!(decode(&resaved).unwrap().document, grown);
+
+    let edited = edited(&grown, 20);
+    let rewritten = save_bytes(&edited, Some(&resaved), at(3_000), None).unwrap();
+    assert!(!records_as_json(&rewritten)[0].contains("note"));
+    assert_eq!(decode(&rewritten).unwrap().document, edited);
+    assert_eq!(load_version(&rewritten, 0).unwrap().document, grown);
+}
+
+#[test]
+fn unknown_chunks_are_kept_unless_they_must_be_understood() {
+    let document = with_width(10);
+    let mut bytes = save_bytes(&document, None, at(1_000), None).unwrap();
+    push_foreign(&mut bytes, 200, 0, b"optional");
+    let loaded = decode(&bytes).unwrap();
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    let resaved = save_bytes(&edited(&document, 20), Some(&bytes), at(2_000), None).unwrap();
+    assert!(resaved.windows(8).any(|window| window == b"optional"));
+
+    push_foreign(&mut bytes, 201, MUST_UNDERSTAND, b"required");
+    let loaded = decode(&bytes).unwrap();
+    assert_eq!(loaded.issues.len(), 1);
+    assert!(loaded.issues[0].contains("a newer version of caditor needs"));
+    assert_eq!(loaded.document, document);
+    let resaved = save_bytes(&loaded.document, Some(&bytes), at(2_000), None).unwrap();
+    assert!(resaved.windows(8).any(|window| window == b"optional"));
+    assert!(!resaved.windows(8).any(|window| window == b"required"));
 }

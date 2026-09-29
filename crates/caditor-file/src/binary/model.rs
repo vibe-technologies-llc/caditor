@@ -3,6 +3,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use ahash::AHashMap;
 use caditor_document::Document;
 use serde::{Deserialize, Serialize};
 
@@ -129,6 +130,7 @@ struct Parsed<'a> {
     head: Option<StateRecord>,
     records: Vec<Chunk<'a>>,
     versions: Vec<StoredVersion<'a>>,
+    foreign: Vec<Chunk<'a>>,
 }
 
 impl<'a> Parsed<'a> {
@@ -140,6 +142,7 @@ impl<'a> Parsed<'a> {
             head: None,
             records: Vec::new(),
             versions: Vec::new(),
+            foreign: Vec::new(),
         };
         let mut pending_info = None;
         for piece in &container.pieces {
@@ -166,11 +169,53 @@ impl<'a> Parsed<'a> {
                     | ChunkKind::Apply
                     | ChunkKind::Undo
                     | ChunkKind::Redo,
-                )
-                | None => {}
+                ) => {}
+                None => {
+                    parsed.foreign.push(chunk);
+                    pending_info = info;
+                }
             }
         }
         Some(parsed)
+    }
+
+    fn record_contents(&self, budget: &mut Budget) -> Vec<Option<Vec<u8>>> {
+        self.records
+            .iter()
+            .map(|chunk| budget.unpack(chunk, None))
+            .collect()
+    }
+
+    fn snapshot_held(&self, contents: &[Option<Vec<u8>>]) -> Option<Vec<u8>> {
+        let head = self.head.as_ref()?;
+        let contents: Option<Vec<&[u8]>> = contents.iter().map(Option::as_deref).collect();
+        let snapshot = snapshot_of(contents?);
+        head.holds(&snapshot).then_some(snapshot)
+    }
+
+    fn kept_records<'b>(&self, contents: &'b [Option<Vec<u8>>]) -> AHashMap<Vec<u8>, KeptRecord<'b>>
+    where
+        'a: 'b,
+    {
+        self.records
+            .iter()
+            .zip(contents)
+            .filter_map(|(chunk, content)| {
+                let content = content.as_deref()?;
+                let Ok(Lenient::Read(record)) = value::from_bytes::<Lenient<Record>>(content)
+                else {
+                    return None;
+                };
+                let understood = value::to_bytes(&record).ok()?;
+                Some((
+                    understood,
+                    KeptRecord {
+                        content,
+                        stored: chunk.whole,
+                    },
+                ))
+            })
+            .collect()
     }
 
     fn head_snapshot(&self, budget: &mut Budget) -> Option<Vec<u8>> {
@@ -261,7 +306,7 @@ fn document_records(document: &Document) -> Result<Vec<Vec<u8>>, ValueError> {
         .collect()
 }
 
-fn snapshot_of(records: &[Vec<u8>]) -> Vec<u8> {
+fn snapshot_of<'r>(records: impl IntoIterator<Item = &'r [u8]>) -> Vec<u8> {
     let mut snapshot = Vec::new();
     for record in records {
         push_varint(&mut snapshot, record.len() as u64);
@@ -294,21 +339,52 @@ pub(crate) enum EncodeError {
     Pack(#[from] PackError),
 }
 
+#[derive(Debug, Clone, Copy)]
+struct KeptRecord<'a> {
+    content: &'a [u8],
+    stored: &'a [u8],
+}
+
+enum RecordToWrite<'a> {
+    Kept(KeptRecord<'a>),
+    Fresh(Vec<u8>),
+}
+
+impl RecordToWrite<'_> {
+    fn content(&self) -> &[u8] {
+        match self {
+            Self::Kept(kept) => kept.content,
+            Self::Fresh(content) => content,
+        }
+    }
+}
+
 pub(crate) fn save_bytes(
     document: &Document,
     previous: Option<&[u8]>,
     now: SystemTime,
     label: Option<&str>,
 ) -> Result<Vec<u8>, EncodeError> {
-    let records = document_records(document)?;
-    let snapshot = snapshot_of(&records);
     let prior = previous.and_then(Parsed::of);
-    let prior_head = prior.as_ref().and_then(|prior| {
-        prior
-            .head
-            .clone()
-            .zip(prior.head_snapshot(&mut Budget::default()))
-    });
+    let prior_contents = prior
+        .as_ref()
+        .map(|prior| prior.record_contents(&mut Budget::default()))
+        .unwrap_or_default();
+    let prior_head = prior
+        .as_ref()
+        .and_then(|prior| prior.head.clone().zip(prior.snapshot_held(&prior_contents)));
+    let kept = prior
+        .as_ref()
+        .map(|prior| prior.kept_records(&prior_contents))
+        .unwrap_or_default();
+    let records: Vec<RecordToWrite<'_>> = document_records(document)?
+        .into_iter()
+        .map(|record| match kept.get(&record) {
+            Some(kept) => RecordToWrite::Kept(*kept),
+            None => RecordToWrite::Fresh(record),
+        })
+        .collect();
+    let snapshot = snapshot_of(records.iter().map(RecordToWrite::content));
     let unchanged = prior_head
         .as_ref()
         .is_some_and(|(info, _)| info.holds(&snapshot));
@@ -320,7 +396,15 @@ pub(crate) fn save_bytes(
     let mut bytes = start_file(&MODEL_MAGIC, FORMAT_VERSION);
     push_packed(&mut bytes, ChunkKind::Head, &value::to_bytes(&head)?)?;
     for record in &records {
-        push_packed(&mut bytes, ChunkKind::Record, record)?;
+        match record {
+            RecordToWrite::Kept(kept) => bytes.extend_from_slice(kept.stored),
+            RecordToWrite::Fresh(content) => push_packed(&mut bytes, ChunkKind::Record, content)?,
+        }
+    }
+    for foreign in prior.iter().flat_map(|prior| &prior.foreign) {
+        if !foreign.must_understand() {
+            bytes.extend_from_slice(foreign.whole);
+        }
     }
     if !unchanged && let Some((info, old)) = &prior_head {
         push_packed(&mut bytes, ChunkKind::VersionInfo, &value::to_bytes(info)?)?;
@@ -349,7 +433,7 @@ pub(crate) fn save_bytes(
 
 #[cfg(test)]
 pub(crate) fn file_from_records(version: u32, records: &[Vec<u8>]) -> Result<Vec<u8>, EncodeError> {
-    let snapshot = snapshot_of(records);
+    let snapshot = snapshot_of(records.iter().map(Vec::as_slice));
     let head = StateRecord::new(SystemTime::now(), None, &snapshot);
     let mut bytes = start_file(&MODEL_MAGIC, version);
     push_packed(&mut bytes, ChunkKind::Head, &value::to_bytes(&head)?)?;
@@ -370,6 +454,13 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
     let mut issues = Vec::new();
     if parsed.version > FORMAT_VERSION {
         issues.push(newer_version(parsed.version));
+    }
+    if parsed.foreign.iter().any(Chunk::must_understand) {
+        issues.push(
+            "This model holds something a newer version of caditor needs and this version cannot \
+             read, so it was left out; saving here will not keep it."
+                .to_owned(),
+        );
     }
     if parsed.damaged > 0 {
         issues.push(match parsed.damaged {

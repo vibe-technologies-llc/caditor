@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use super::{
     ChunkKind, Codec, JOURNAL_MAGIC, MODEL_MAGIC, Magic, Piece, model::file_from_records, parse,
-    push_chunk, push_packed, start_file, value,
+    push_chunk, push_packed, push_raw, start_file, value,
 };
 use crate::format::FORMAT_VERSION;
 
@@ -81,4 +81,14 @@ pub(crate) fn stored_copy(bytes: &[u8], magic: &Magic) -> Vec<u8> {
         .unwrap();
     }
     stored
+}
+
+pub(crate) fn push_foreign(bytes: &mut Vec<u8>, kind: u8, flags: u8, content: &[u8]) {
+    push_raw(
+        bytes,
+        [kind, Codec::Stored as u8, flags],
+        content.len(),
+        content,
+    )
+    .unwrap();
 }

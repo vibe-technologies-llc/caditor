@@ -23,6 +23,7 @@ const CHECKSUM: std::ops::Range<usize> = 16..CHUNK_HEADER_LENGTH;
 const MAX_CONTENT: usize = 1 << 28;
 const HASHING_ALLOWANCE: usize = 4;
 const LEVEL: Level = Level::BALANCED;
+pub(crate) const MUST_UNDERSTAND: u8 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -76,6 +77,7 @@ impl Codec {
 pub(crate) struct Chunk<'a> {
     pub kind: Option<ChunkKind>,
     pub codec: Option<Codec>,
+    pub flags: u8,
     content_length: usize,
     payload: &'a [u8],
     pub whole: &'a [u8],
@@ -96,6 +98,10 @@ pub(crate) enum UnpackError {
 impl Chunk<'_> {
     pub fn content_length(&self) -> usize {
         self.content_length
+    }
+
+    pub fn must_understand(&self) -> bool {
+        self.flags & MUST_UNDERSTAND != 0
     }
 
     pub fn unpack(&self, newer: Option<&[u8]>) -> Result<Vec<u8>, UnpackError> {
@@ -215,6 +221,7 @@ fn chunk_at(body: &[u8], position: usize) -> Option<(Chunk<'_>, usize, &[u8], u6
     }
     let kind = *header.get(4)?;
     let codec = *header.get(5)?;
+    let flags = *header.get(6)?;
     let stored_length = u32::from_le_bytes(header.get(8..12)?.try_into().ok()?) as usize;
     let content_length = u32::from_le_bytes(header.get(12..16)?.try_into().ok()?) as usize;
     let checksum = u64::from_le_bytes(header.get(CHECKSUM)?.try_into().ok()?);
@@ -228,6 +235,7 @@ fn chunk_at(body: &[u8], position: usize) -> Option<(Chunk<'_>, usize, &[u8], u6
         Chunk {
             kind: ChunkKind::from_byte(kind),
             codec: Codec::from_byte(codec),
+            flags,
             content_length,
             payload,
             whole: body.get(position..end)?,
@@ -295,6 +303,15 @@ fn push_chunk(
     content_length: usize,
     payload: &[u8],
 ) -> Result<(), PackError> {
+    push_raw(bytes, [kind as u8, codec as u8, 0], content_length, payload)
+}
+
+fn push_raw(
+    bytes: &mut Vec<u8>,
+    [kind, codec, flags]: [u8; 3],
+    content_length: usize,
+    payload: &[u8],
+) -> Result<(), PackError> {
     if content_length > MAX_CONTENT {
         return Err(PackError::TooLarge);
     }
@@ -303,7 +320,7 @@ fn push_chunk(
     let mut header = [0_u8; CHUNK_HEADER_LENGTH];
     let fields = [
         SYNC.as_slice(),
-        &[kind as u8, codec as u8, 0, 0],
+        &[kind, codec, flags, 0],
         &stored.to_le_bytes(),
         &content.to_le_bytes(),
     ]

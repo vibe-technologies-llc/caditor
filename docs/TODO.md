@@ -32,10 +32,6 @@ within a category run from most to least important.
   (`binary/model.rs`). Add a retention policy and write history append-only.
 - A model whose records total more than 256 MiB saves once and never again, since the previous
   snapshot and the journal snapshot are each one chunk (`MAX_CONTENT`). Chunk per record.
-- Every record is recompressed at level 9 on each save, including unchanged STEP text.
-- Fields and chunk kinds an older reader does not know are dropped on its next save without a
-  report, and the reserved header bytes are never read. Keep unknown content and define a
-  must-understand flag.
 
 ## Kernel correctness
 
