@@ -346,6 +346,28 @@ fn faceted_cube(top: &str, missing_face: bool) -> String {
 }
 
 #[test]
+fn a_solid_is_imported_past_an_entry_that_cannot_be_read_with_a_note() {
+    let text = faceted_cube("FACETED_BREP('cube',#40)", false).replacen(
+        "DATA;\n",
+        "DATA;\n#900=@@;\n#901=THING(1,2 3);\n",
+        1,
+    );
+
+    let model = sample(&text);
+
+    assert_eq!(model.solids.len(), 1);
+    assert_volume(&model.solids[0].solid, 1000.0);
+    assert!(
+        model
+            .notes
+            .iter()
+            .any(|note| note.starts_with("2 entries of the file") && note.contains("line 5")),
+        "{:?}",
+        model.notes
+    );
+}
+
+#[test]
 fn faceted_solids_and_closed_surface_models_are_imported() {
     for top in [
         "FACETED_BREP('cube',#40)",

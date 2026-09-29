@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, btree_map::Entry};
 
 const MAX_NESTING: usize = 64;
 
@@ -115,6 +115,8 @@ impl Instance {
 pub(crate) struct Exchange {
     pub header: Vec<Record>,
     pub data: BTreeMap<u64, Instance>,
+    pub unreadable: Vec<usize>,
+    pub repeated: Vec<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,6 +147,7 @@ struct Lexer<'a> {
     bytes: &'a [u8],
     position: usize,
     line: usize,
+    after_semicolon: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -153,7 +156,33 @@ impl<'a> Lexer<'a> {
             bytes: text.as_bytes(),
             position: 0,
             line: 1,
+            after_semicolon: false,
         }
+    }
+
+    fn skip_statement(&mut self) -> Result<(), SyntaxError> {
+        let mut quoted = false;
+        while let Some(byte) = self.bump() {
+            if quoted {
+                quoted = byte != b'\'';
+                continue;
+            }
+            match byte {
+                b'\'' => quoted = true,
+                b'/' if self.peek_byte() == Some(b'*') => {
+                    self.bump();
+                    while let Some(inner) = self.bump() {
+                        if inner == b'*' && self.peek_byte() == Some(b'/') {
+                            self.bump();
+                            break;
+                        }
+                    }
+                }
+                b';' => return Ok(()),
+                _ => {}
+            }
+        }
+        Err(self.damaged())
     }
 
     fn damaged(&self) -> SyntaxError {
@@ -243,6 +272,12 @@ impl<'a> Lexer<'a> {
     }
 
     fn next(&mut self) -> Result<Option<Token>, SyntaxError> {
+        let token = self.token();
+        self.after_semicolon = matches!(token, Ok(Some(Token::Semicolon)));
+        token
+    }
+
+    fn token(&mut self) -> Result<Option<Token>, SyntaxError> {
         self.skip_space()?;
         let Some(byte) = self.peek_byte() else {
             return Ok(None);
@@ -318,7 +353,10 @@ impl<'a> Lexer<'a> {
                 .map(Token::Real)
                 .map_err(|_| self.damaged())
         } else {
-            text.parse().map(Token::Integer).map_err(|_| self.damaged())
+            match text.parse() {
+                Ok(integer) => Ok(Token::Integer(integer)),
+                Err(_) => text.parse().map(Token::Real).map_err(|_| self.damaged()),
+            }
         }
     }
 
@@ -370,9 +408,13 @@ pub(crate) fn decode_text(raw: &str) -> String {
         } else if let Some(after) = rest.strip_prefix("\\X\\") {
             let code = after
                 .get(..2)
+                .filter(|hex| hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
                 .and_then(|hex| u8::from_str_radix(hex, 16).ok());
             out.push(code.map_or('?', char::from));
-            rest = after.get(2..).unwrap_or_default();
+            rest = match code {
+                Some(_) => after.get(2..).unwrap_or_default(),
+                None => after,
+            };
         } else if let Some(after) = rest.strip_prefix("\\S\\") {
             let mut characters = after.chars();
             if let Some(character) = characters.next() {
@@ -380,7 +422,10 @@ pub(crate) fn decode_text(raw: &str) -> String {
             }
             rest = characters.as_str();
         } else if let Some(after) = rest.strip_prefix("\\P") {
-            rest = after.get(2..).unwrap_or_default();
+            let mut characters = after.chars();
+            characters.next();
+            let page = characters.as_str();
+            rest = page.strip_prefix('\\').unwrap_or(page);
         } else {
             out.push('\\');
             rest = rest.get(1..).unwrap_or_default();
@@ -388,6 +433,11 @@ pub(crate) fn decode_text(raw: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+enum Statement {
+    Instance(u64, Instance),
+    End,
 }
 
 struct Parser<'a> {
@@ -475,6 +525,36 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn statement(&mut self) -> Result<Statement, SyntaxError> {
+        match self.take()? {
+            Token::Reference(id) => {
+                self.expect(&Token::Equals)?;
+                let instance = self.instance()?;
+                self.expect(&Token::Semicolon)?;
+                Ok(Statement::Instance(id, instance))
+            }
+            Token::Keyword(word) if word == "ENDSEC" => {
+                self.expect(&Token::Semicolon)?;
+                Ok(Statement::End)
+            }
+            _ => Err(self.lexer.damaged()),
+        }
+    }
+
+    fn next_line(&mut self) -> usize {
+        let _ = self.peek();
+        self.lexer.line
+    }
+
+    fn recover(&mut self) -> Result<(), SyntaxError> {
+        match self.lookahead.take() {
+            Some(Token::Semicolon) => Ok(()),
+            Some(_) => self.lexer.skip_statement(),
+            None if self.lexer.after_semicolon => Ok(()),
+            None => self.lexer.skip_statement(),
+        }
+    }
+
     fn instance(&mut self) -> Result<Instance, SyntaxError> {
         match self.take()? {
             Token::Keyword(name) => Ok(Instance::Simple(self.record(name)?)),
@@ -529,18 +609,19 @@ pub(crate) fn parse(text: &str) -> Result<Exchange, SyntaxError> {
                 }
                 parser.expect(&Token::Semicolon)?;
                 loop {
-                    match parser.take()? {
-                        Token::Reference(id) => {
-                            parser.expect(&Token::Equals)?;
-                            let instance = parser.instance()?;
-                            parser.expect(&Token::Semicolon)?;
-                            exchange.data.insert(id, instance);
+                    let line = parser.next_line();
+                    match parser.statement() {
+                        Ok(Statement::Instance(id, instance)) => match exchange.data.entry(id) {
+                            Entry::Occupied(_) => exchange.repeated.push(id),
+                            Entry::Vacant(slot) => {
+                                slot.insert(instance);
+                            }
+                        },
+                        Ok(Statement::End) => break,
+                        Err(_) => {
+                            exchange.unreadable.push(line);
+                            parser.recover()?;
                         }
-                        Token::Keyword(word) if word == "ENDSEC" => {
-                            parser.expect(&Token::Semicolon)?;
-                            break;
-                        }
-                        _ => return Err(parser.lexer.damaged()),
                     }
                 }
             }
@@ -604,6 +685,34 @@ mod tests {
         assert_eq!(decode_text("caf\\X\\E9"), "café");
         assert_eq!(decode_text("\\S\\i"), "é");
         assert_eq!(decode_text("a\\\\b"), "a\\b");
+        assert_eq!(decode_text("a\\PA\\b"), "ab");
+        assert_eq!(decode_text("a\\P€\\b"), "ab");
+        assert_eq!(decode_text("\\X\\€ rest"), "?€ rest");
+    }
+
+    #[test]
+    fn unreadable_and_repeated_entries_are_left_out_and_counted() {
+        let text = "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n\
+                    #1=LINE('',#2,#3;\n\
+                    #2=CARTESIAN_POINT('',(0.,0.,0.));\n\
+                    #3=CARTESIAN_POINT('a;b',(1.,0.,0.)) @ ;\n\
+                    #4=CARTESIAN_POINT('',(99999999999999999999,0.,0.));\n\
+                    #2=CARTESIAN_POINT('',(5.,0.,0.));\n\
+                    ENDSEC;\nEND-ISO-10303-21;\n";
+
+        let exchange = parse(text).unwrap();
+
+        assert_eq!(exchange.data.keys().copied().collect::<Vec<_>>(), [2, 4]);
+        assert_eq!(exchange.unreadable, [5, 7]);
+        assert_eq!(exchange.repeated, [2]);
+        let x = |id: u64| {
+            exchange.data[&id].simple().unwrap().parameters[1]
+                .list()
+                .unwrap()[0]
+                .real()
+        };
+        assert_eq!(x(2), Some(0.0));
+        assert_eq!(x(4), Some(99_999_999_999_999_999_999.0));
     }
 
     #[test]
@@ -611,14 +720,20 @@ mod tests {
         assert_eq!(parse("solid cube\nfacet"), Err(SyntaxError::NotStep));
         assert_eq!(
             parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=LINE('',#2,#3;\nENDSEC;"),
-            Err(SyntaxError::Damaged { line: 5 })
+            Err(SyntaxError::Damaged { line: 6 })
+        );
+        assert_eq!(
+            parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=LINE('',#2,'#3);\n"),
+            Err(SyntaxError::Damaged { line: 6 })
         );
         let deep = format!(
             "ISO-10303-21;DATA;#1=A({}{});ENDSEC;END-ISO-10303-21;",
             "(".repeat(200),
             ")".repeat(200)
         );
-        assert!(matches!(parse(&deep), Err(SyntaxError::Damaged { .. })));
+        let nested = parse(&deep).unwrap();
+        assert!(nested.data.is_empty());
+        assert_eq!(nested.unreadable, [1]);
     }
 
     #[test]

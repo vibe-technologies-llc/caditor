@@ -98,7 +98,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Reading (`part21.rs`, `read/`): a Part 21 parser (header, named and repeated data sections,
     edition 3 `ANCHOR`, `REFERENCE` and `SIGNATURE` sections skipped byte by byte past strings and
     comments, complex instances sorted by name, typed values, comments, the `\X\`, `\X2\`, `\X4\`
-    and `\S\` encodings, nesting limit) feeds `read_step`, which returns every
+    and `\S\` encodings with `\P` code pages skipped, nesting limit; a data entry that cannot be
+    read, such as a stray byte or nesting too deep, is skipped to its semicolon and counted, a
+    repeated entity id keeps its first definition, and an integer beyond i64 is read as a real)
+    feeds `read_step`, which notes skipped and repeated entries and returns every
     `MANIFOLD_SOLID_BREP`, `BREP_WITH_VOIDS`, `FACETED_BREP` and `SHELL_BASED_SURFACE_MODEL` with
     closed shells (each closed shell a lump) as named kernel solids plus notes, or a `ReadError` in
     words. Units come from each representation's context (SI prefixes and conversion-based units

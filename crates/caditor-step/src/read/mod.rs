@@ -13,7 +13,7 @@ use caditor_geometry::RigidTransform;
 use caditor_kernel::Solid;
 
 use crate::{
-    part21::{SyntaxError, parse},
+    part21::{Exchange, SyntaxError, parse},
     read::{
         geometry::{Geometry, MAX_WORK, Work},
         graph::{Entity, Graph, Problem},
@@ -200,6 +200,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
     }
     model.notes.extend(unplaced.iter().cloned());
     model.notes.extend(unchecked_notes);
+    model.notes.extend(damage_notes(&exchange));
     if structure.truncated {
         model.notes.push(format!(
             "The file places parts more than {MAX_PLACEMENTS} times in all; only the first \
@@ -262,6 +263,33 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
         );
     }
     Ok(model)
+}
+
+fn damage_notes(exchange: &Exchange) -> Vec<String> {
+    let mut notes = Vec::new();
+    if let Some(first) = exchange.unreadable.first() {
+        notes.push(match exchange.unreadable.len() {
+            1 => format!(
+                "An entry of the file near line {first} could not be read and was left out."
+            ),
+            count => format!(
+                "{count} entries of the file, the first near line {first}, could not be read and \
+                 were left out."
+            ),
+        });
+    }
+    if let Some(first) = exchange.repeated.first() {
+        notes.push(match exchange.repeated.len() {
+            1 => format!(
+                "The file defines entity #{first} more than once; its first definition was used."
+            ),
+            count => format!(
+                "The file defines {count} entities, such as #{first}, more than once; their first \
+                 definitions were used."
+            ),
+        });
+    }
+    notes
 }
 
 fn unit_name(millimetres: f64) -> String {

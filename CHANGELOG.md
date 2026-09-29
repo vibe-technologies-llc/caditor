@@ -70,6 +70,8 @@ The first release of caditor.
   STL and 3MF.
 - Importing a drawing with nothing caditor can draw, such as only text or hatches, says so and
   lists what was left out.
+- A STEP file with a damaged or unknown entry, or one defined twice, still imports what does not
+  depend on it, with a note saying how many entries were left out and where.
 - STEP assemblies that place parts with transformation operators put them in place, and a part
   whose placement cannot be read is left out with a note instead of landing at the origin.
 - A STEP surface model made of several closed shells is imported as one body per shell instead
