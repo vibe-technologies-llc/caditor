@@ -1027,7 +1027,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     a stable id, a title, a category, a `Scope` (anywhere, or only while a sketch is edited) and
     default shortcuts. The `Keymap` in `Preferences` holds the user's bindings as overrides of
     the defaults, stored as `keys.<id>` lists of text such as `Ctrl+Shift+Z` (only changed
-    commands are written, so unreadable or newer entries survive). Each frame `app::show`
+    commands are written, so unreadable or newer entries survive, and a command none of whose
+    stored bindings can be read keeps its defaults). Each frame `app::show`
     dispatches key presses to commands (exact modifiers first; extra Shift or Alt is ignored only
     for punctuation keys; sketch-scope bindings win while a sketch is edited; Backspace and
     Delete are left to drawing while a shape is in progress; a held key repeats only camera moves,

@@ -790,6 +790,9 @@ impl Keymap {
             };
             let shortcuts: Vec<KeyboardShortcut> =
                 texts.iter().filter_map(|text| parse_stored(text)).collect();
+            if shortcuts.is_empty() && !texts.is_empty() {
+                continue;
+            }
             keymap.set(command, shortcuts);
         }
         keymap
@@ -1183,8 +1186,13 @@ mod tests {
         let mut raw = Settings::default();
         raw.set_texts("keys.file.save", &["Ctrl+Nothing".to_owned()]);
         raw.set_texts("keys.future.command", &["Ctrl+K".to_owned()]);
+        raw.set_texts("keys.file.open", &[]);
         let loaded = Keymap::from_settings(&raw);
-        assert!(loaded.shortcuts(Command::Save).is_empty());
+        assert_eq!(
+            loaded.shortcuts(Command::Save),
+            Command::Save.default_shortcuts()
+        );
+        assert!(loaded.shortcuts(Command::Open).is_empty());
         let mut keymap = loaded.clone();
         keymap.bind(Command::Extrude, press(Key::E, Modifiers::NONE));
         let mut settings = raw.clone();
@@ -1201,8 +1209,15 @@ mod tests {
             settings.texts("keys.model.extrude"),
             Some(vec!["E".to_owned()])
         );
-        keymap.reset(Command::Save);
+        keymap.bind(Command::Save, press(Key::F2, Modifiers::COMMAND));
         keymap.write(&loaded, &mut settings);
+        assert_eq!(
+            settings.texts("keys.file.save"),
+            Some(vec!["Ctrl+S".to_owned(), "Ctrl+F2".to_owned()])
+        );
+        let rebound = keymap.clone();
+        keymap.reset(Command::Save);
+        keymap.write(&rebound, &mut settings);
         assert_eq!(settings.texts("keys.file.save"), None);
         assert_eq!(Keymap::from_settings(&settings), keymap);
     }

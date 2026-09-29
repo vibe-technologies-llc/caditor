@@ -258,8 +258,6 @@ within a category run from most to least important.
   nothing.
 - A rejected `commit_field` draft keeps showing its old text and error after the stored value
   changes through undo.
-- A shortcut whose stored text does not parse leaves its command unbound rather than on its
-  default.
 - Rows in the blend and shell panels are non-wrapping, so long edge descriptions can push the
   remove button off the panel.
 
