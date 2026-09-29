@@ -1132,3 +1132,249 @@ fn a_line_that_starts_with_no_length_is_named_instead_of_its_constraints() {
     );
     assert!(free.is_ok());
 }
+
+fn arc_ends(sketch: &Sketch, arc: EntityId) -> (EntityId, EntityId, EntityId) {
+    match sketch.entity(arc) {
+        Some(Entity::Arc { center, start, end }) => (*center, *start, *end),
+        other => panic!("expected an arc, found {other:?}"),
+    }
+}
+
+struct ArcsAndLines {
+    sketch: Sketch,
+    lines: [EntityId; 4],
+    arcs: [EntityId; 2],
+    circle: EntityId,
+}
+
+fn arcs_joined_by_tangent_lines() -> ArcsAndLines {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first_line = sketch.add_line(Point2::new(0.2, 0.1), Point2::new(9.8, -0.2));
+    let first_arc = sketch.add_arc(
+        Point2::new(10.3, 4.6),
+        Point2::new(10.1, 0.2),
+        Point2::new(14.6, 5.3),
+    );
+    let second_line = sketch.add_line(Point2::new(14.8, 5.1), Point2::new(15.3, 11.6));
+    let circle = sketch.add_circle(Point2::new(21.0, 5.5), 4.0);
+    let third_line = sketch.add_line(Point2::new(15.1, 12.2), Point2::new(9.9, 14.6));
+    let second_arc = sketch.add_arc(
+        Point2::new(7.0, 10.9),
+        Point2::new(9.7, 15.2),
+        Point2::new(3.2, 13.0),
+    );
+    let fourth_line = sketch.add_line(Point2::new(3.0, 13.4), Point2::new(1.6, 10.8));
+
+    let (first_start, first_end) = ends(&sketch, first_line);
+    let (_, first_arc_start, first_arc_end) = arc_ends(&sketch, first_arc);
+    let (second_start, second_end) = ends(&sketch, second_line);
+    let (third_start, third_end) = ends(&sketch, third_line);
+    let (_, second_arc_start, second_arc_end) = arc_ends(&sketch, second_arc);
+    let (fourth_start, fourth_end) = ends(&sketch, fourth_line);
+    let circle_center = center(&sketch, circle);
+
+    for constraint in [
+        Constraint::Coincident(first_start, EntityId::ORIGIN),
+        Constraint::Horizontal(first_line),
+        Constraint::Distance {
+            from: first_start,
+            to: first_end,
+            value: mm(10.0),
+        },
+        Constraint::Coincident(first_end, first_arc_start),
+        Constraint::Tangent(first_line, first_arc),
+        Constraint::Radius {
+            entity: first_arc,
+            value: mm(5.0),
+        },
+        Constraint::Coincident(first_arc_end, second_start),
+        Constraint::Tangent(first_arc, second_line),
+        Constraint::Vertical(second_line),
+        Constraint::Distance {
+            from: second_start,
+            to: second_end,
+            value: mm(7.0),
+        },
+        Constraint::Equal(first_arc, circle),
+        Constraint::Tangent(second_line, circle),
+        Constraint::Distance {
+            from: circle_center,
+            to: first_line,
+            value: mm(5.0),
+        },
+        Constraint::Coincident(second_end, third_start),
+        Constraint::Angle {
+            from: second_line,
+            to: third_line,
+            reversed: false,
+            value: degrees(60.0),
+        },
+        Constraint::Distance {
+            from: third_start,
+            to: third_end,
+            value: mm(6.0),
+        },
+        Constraint::Coincident(third_end, second_arc_start),
+        Constraint::Tangent(third_line, second_arc),
+        Constraint::Equal(second_arc, first_arc),
+        Constraint::Coincident(second_arc_end, fourth_start),
+        Constraint::Tangent(second_arc, fourth_line),
+        Constraint::Angle {
+            from: third_line,
+            to: fourth_line,
+            reversed: false,
+            value: degrees(90.0),
+        },
+        Constraint::Distance {
+            from: fourth_start,
+            to: fourth_end,
+            value: mm(3.0),
+        },
+    ] {
+        add(&mut sketch, constraint);
+    }
+    ArcsAndLines {
+        sketch,
+        lines: [first_line, second_line, third_line, fourth_line],
+        arcs: [first_arc, second_arc],
+        circle,
+    }
+}
+
+#[test]
+fn arcs_follow_tangent_equal_and_angle_constraints_exactly() {
+    let ArcsAndLines {
+        sketch,
+        lines,
+        arcs,
+        circle,
+    } = arcs_joined_by_tangent_lines();
+    let root_three = 3.0_f64.sqrt();
+    let third_end = Point2::new(15.0 - 3.0 * root_three, 15.0);
+    let second_center = third_end + 5.0 * Point2::new(-0.5, -root_three / 2.0);
+    let second_arc_end = second_center + 5.0 * Point2::new(-root_three / 2.0, 0.5);
+    let fourth_end = second_arc_end + 3.0 * Point2::new(-0.5, -root_three / 2.0);
+
+    let solved = solve(&sketch).unwrap();
+
+    assert!(solved.solution.is_fully_constrained());
+    assert!(solved.solution.redundancies().is_empty());
+    let (first_center, first_radius) = solved.geometry.circle(arcs[0]).unwrap();
+    let (second_arc_center, second_radius) = solved.geometry.circle(arcs[1]).unwrap();
+    let (circle_center, circle_radius) = solved.geometry.circle(circle).unwrap();
+    assert_near(first_center, Point2::new(10.0, 5.0));
+    assert!((first_radius - 5.0).abs() < EXACT);
+    assert!((second_radius - 5.0).abs() < EXACT);
+    assert!((circle_radius - 5.0).abs() < EXACT);
+    assert_near(circle_center, Point2::new(20.0, 5.0));
+    assert_near(second_arc_center, second_center);
+    let (_, first_arc_end) = solved.geometry.line_endpoints(lines[1]).unwrap();
+    assert_near(first_arc_end, Point2::new(15.0, 12.0));
+    let (_, third) = solved.geometry.line_endpoints(lines[2]).unwrap();
+    assert_near(third, third_end);
+    let (fourth_start, fourth) = solved.geometry.line_endpoints(lines[3]).unwrap();
+    assert_near(fourth_start, second_arc_end);
+    assert_near(fourth, fourth_end);
+    let second_arc = solved.geometry.arc(arcs[1]).unwrap();
+    assert!((second_arc.sweep.to_degrees() - 90.0).abs() < 1e-6);
+    let first_arc = solved.geometry.arc(arcs[0]).unwrap();
+    assert!((first_arc.sweep.to_degrees() - 90.0).abs() < 1e-6);
+}
+
+#[test]
+fn two_conflicts_in_one_large_part_are_named_one_at_a_time() {
+    let (mut sketch, lines) = chain(20);
+    let horizontal = |sketch: &Sketch, line: EntityId| {
+        sketch
+            .constraints()
+            .find_map(|(id, constraint)| {
+                (*constraint == Constraint::Horizontal(line)).then_some(id)
+            })
+            .unwrap()
+    };
+    let early_horizontal = horizontal(&sketch, lines[4]);
+    let late_horizontal = horizontal(&sketch, lines[15]);
+    let early_vertical = add(&mut sketch, Constraint::Vertical(lines[4]));
+    let late_vertical = add(&mut sketch, Constraint::Vertical(lines[15]));
+
+    let first = solve(&sketch);
+    sketch.remove_constraint(late_vertical).unwrap();
+    let second = solve(&sketch);
+    sketch.remove_constraint(early_vertical).unwrap();
+    let third = solve(&sketch);
+
+    assert_eq!(
+        first,
+        Err(SketchError::Conflict {
+            constraints: vec![late_horizontal, late_vertical]
+        })
+    );
+    assert_eq!(
+        second,
+        Err(SketchError::Conflict {
+            constraints: vec![early_horizontal, early_vertical]
+        })
+    );
+    assert!(third.unwrap().solution.is_fully_constrained());
+}
+
+#[test]
+fn dense_and_sparse_analyses_agree_on_both_sides_of_the_dense_limit() {
+    use std::collections::BTreeSet;
+
+    use crate::solve::{
+        numeric::{DENSE_LIMIT, Elimination, STIFF, Solver, components},
+        system::System,
+    };
+
+    let loosened = |count: usize| {
+        let (mut sketch, lines) = chain(count);
+        let horizontal = sketch
+            .constraints()
+            .find_map(|(id, constraint)| {
+                (*constraint == Constraint::Horizontal(lines[count / 2])).then_some(id)
+            })
+            .unwrap();
+        sketch.remove_constraint(horizontal).unwrap();
+        sketch
+    };
+    let repeated = |count: usize| {
+        let (mut sketch, lines) = chain(count);
+        add(
+            &mut sketch,
+            Constraint::Parallel(lines[1], lines[count - 2]),
+        );
+        sketch
+    };
+    let sketches = [
+        loosened(DENSE_LIMIT / 4),
+        loosened(DENSE_LIMIT / 4 + 1),
+        repeated(DENSE_LIMIT / 4),
+        repeated(DENSE_LIMIT / 4 + 1),
+        arcs_joined_by_tangent_lines().sketch,
+    ];
+
+    let mut sizes = BTreeSet::new();
+    for sketch in sketches {
+        let geometry = solve(&sketch).unwrap().geometry;
+        let dimensions = geometry.evaluate(&no_parameters).unwrap();
+        let system = System::build(&geometry, &dimensions).unwrap();
+        let stiff = BTreeSet::new();
+        let solver = Solver {
+            system: &system,
+            cancelled: &|| false,
+            stiff: &stiff,
+            stiffness: STIFF,
+        };
+        let every: Vec<usize> = (0..system.equations.len()).collect();
+        for component in components(&system, &every, &system.values) {
+            let dense = solver.analyze_by(Elimination::Dense, &component, &system.values);
+            let sparse = solver.analyze_by(Elimination::Sparse, &component, &system.values);
+            sizes.insert(component.variables.len());
+            assert_eq!(dense, sparse, "{} variables", component.variables.len());
+        }
+    }
+
+    assert!(sizes.contains(&DENSE_LIMIT));
+    assert!(sizes.iter().any(|size| *size > DENSE_LIMIT));
+}

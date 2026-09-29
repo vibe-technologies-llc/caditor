@@ -22,7 +22,7 @@ const GOLDEN_RATIO_FRACTION: f64 = 0.618_033_988_749_894_9;
 const RANK_TOLERANCE: f64 = 1e-8;
 const NULL_SPACE_TOLERANCE: f64 = 1e-10;
 const DUPLICATE_TOLERANCE: f64 = 1e-6;
-const DENSE_LIMIT: usize = 48;
+pub(super) const DENSE_LIMIT: usize = 48;
 pub(crate) const FROZEN: f64 = 0.0;
 pub(crate) const STIFF: f64 = 1e-2;
 
@@ -104,6 +104,12 @@ fn union(parents: &mut BTreeMap<usize, usize>, a: usize, b: usize) {
     if a != b {
         parents.insert(a.max(b), a.min(b));
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Elimination {
+    Dense,
+    Sparse,
 }
 
 pub(crate) struct Part<'a> {
@@ -385,13 +391,30 @@ impl Solver<'_> {
     }
 
     pub fn analyze_component(&self, component: &Component, values: &[f64]) -> ComponentAnalysis {
+        let elimination = if component.variables.len() > DENSE_LIMIT {
+            Elimination::Sparse
+        } else {
+            Elimination::Dense
+        };
+        self.analyze_by(elimination, component, values)
+    }
+
+    pub(super) fn analyze_by(
+        &self,
+        elimination: Elimination,
+        component: &Component,
+        values: &[f64],
+    ) -> ComponentAnalysis {
         let mut analysis = ComponentAnalysis::default();
         let mut contributions = BTreeMap::new();
         let part = self.part(component);
-        if component.variables.len() > DENSE_LIMIT {
-            self.analyze_sparse(&part, values, &mut analysis, &mut contributions);
-        } else {
-            self.analyze_dense(&part, values, &mut analysis, &mut contributions);
+        match elimination {
+            Elimination::Sparse => {
+                self.analyze_sparse(&part, values, &mut analysis, &mut contributions);
+            }
+            Elimination::Dense => {
+                self.analyze_dense(&part, values, &mut analysis, &mut contributions);
+            }
         }
         analysis.contributions = contributions
             .into_iter()
