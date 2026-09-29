@@ -12,7 +12,7 @@ use egui_winit::accesskit_winit;
 use parking_lot::Mutex;
 use winit::{
     application::ApplicationHandler,
-    dpi::PhysicalSize,
+    dpi::{self, PhysicalPosition, PhysicalSize},
     event::{StartCause, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy},
     platform::{wayland::WindowAttributesExtWayland, x11::WindowAttributesExtX11},
@@ -27,6 +27,7 @@ use crate::{
     feature_tree,
     files::{self, FileCommand, Files},
     fonts,
+    layout::{LogicalSize, MonitorArea, PanelLayout, Position, WindowPlacement},
     menu_bar::{self, MenuContext},
     model::{Action, Model, Notice, WakerFactory},
     onboarding::{self, HintChoice, WelcomeChoice},
@@ -73,6 +74,8 @@ const FIRST_RETRY: Duration = Duration::from_millis(16);
 const MAX_RETRY: Duration = Duration::from_secs(1);
 const MAX_RETRY_DOUBLINGS: u32 = 6;
 const HIDDEN_PROBE: Duration = Duration::from_secs(5);
+const LAYOUT_SAVE_DELAY: Duration = Duration::from_secs(1);
+const SETTINGS_FLUSH: Duration = Duration::from_secs(2);
 const NO_TIP: &str = "No tip is shown";
 
 pub struct Workspace {
@@ -106,7 +109,7 @@ impl Workspace {
         viewport.set_navigation(preferences.navigation);
         Self {
             viewport,
-            panels: PanelState::default(),
+            panels: PanelState::with_layout(preferences.panels),
             editing: SketchEditing::default(),
             preferences,
             preferences_open: false,
@@ -282,6 +285,7 @@ pub fn show(
     panels::commands(&context, panels, &mut commands, actions);
     route_dimension_focus(panels, editing, viewport);
     panels::show(ui, model, viewport.selection(), editing, panels, actions);
+    preferences.panels = panels.layout();
     route_dimension_focus(panels, editing, viewport);
     if let Some(chosen) = panels.chosen_in_tree.take() {
         viewport.select_only(chosen);
@@ -502,7 +506,10 @@ impl App {
         }
     }
 
-    pub fn finish(self) -> Result<()> {
+    pub fn finish(mut self) -> Result<()> {
+        if !self.files.wait_for_jobs(SETTINGS_FLUSH) {
+            log::warn!("quitting before the preferences were saved");
+        }
         self.startup_error.map_or(Ok(()), Err)
     }
 }
@@ -575,14 +582,19 @@ impl ApplicationHandler<AppEvent> for App {
             }
             WindowEvent::Resized(size) => {
                 session.renderer.resize(surface_size(size));
+                session.note_placement();
                 session.window.request_redraw();
             }
+            WindowEvent::Moved(_) => session.note_placement(),
             WindowEvent::RedrawRequested => session.redraw(&mut self.model, &mut self.files),
             WindowEvent::DroppedFile(path) => {
                 session.dropped.push(path);
                 session.window.request_redraw();
             }
             _ => {}
+        }
+        if let Some(session) = self.session.as_mut() {
+            session.remember_layout(&mut self.files, Instant::now());
         }
         if self.files.should_quit() {
             event_loop.exit();
@@ -593,25 +605,63 @@ impl ApplicationHandler<AppEvent> for App {
         let flow = self
             .session
             .as_ref()
-            .and_then(|session| session.next_repaint)
+            .and_then(|session| {
+                [session.next_repaint, session.layout_deadline()]
+                    .into_iter()
+                    .flatten()
+                    .min()
+            })
             .map_or(ControlFlow::Wait, ControlFlow::WaitUntil);
         event_loop.set_control_flow(flow);
     }
+
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(mut session) = self.session.take() {
+            session.remember_layout(&mut self.files, Instant::now());
+            session.store_layout(&mut self.files);
+        }
+    }
 }
 
-fn window_attributes(title: &str) -> WindowAttributes {
-    let attributes = Window::default_attributes()
+fn window_attributes(title: &str, placement: WindowPlacement) -> WindowAttributes {
+    let mut attributes = Window::default_attributes()
         .with_title(title)
-        .with_visible(false);
+        .with_visible(false)
+        .with_maximized(placement.maximized);
+    if let Some(size) = placement.size {
+        attributes = attributes.with_inner_size(dpi::LogicalSize::new(size.width, size.height));
+    }
+    if let Some(position) = placement.position {
+        attributes = attributes.with_position(PhysicalPosition::new(position.x, position.y));
+    }
     let attributes =
         WindowAttributesExtWayland::with_name(attributes, about::APP_ID, about::APP_ID);
     WindowAttributesExtX11::with_name(attributes, about::APP_ID, about::APP_ID)
+}
+
+fn monitor_areas(event_loop: &ActiveEventLoop) -> Vec<MonitorArea> {
+    event_loop
+        .available_monitors()
+        .map(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            MonitorArea {
+                x: position.x,
+                y: position.y,
+                width: size.width,
+                height: size.height,
+                scale: monitor.scale_factor(),
+            }
+        })
+        .collect()
 }
 
 fn redraw_wake(proxy: EventLoopProxy<AppEvent>) -> Wake {
     let waker = Mutex::new(waker_factory(proxy)());
     Arc::new(move || (waker.lock())())
 }
+
+type Layout = (WindowPlacement, PanelLayout);
 
 struct Session {
     window: Arc<Window>,
@@ -624,6 +674,9 @@ struct Session {
     hidden_until: Option<Instant>,
     failed_frames: u32,
     title: String,
+    layout_seen: Layout,
+    layout_stored: Layout,
+    layout_changed_at: Option<Instant>,
 }
 
 impl Session {
@@ -633,9 +686,10 @@ impl Session {
         preferences: Preferences,
         proxy: EventLoopProxy<AppEvent>,
     ) -> Result<Self> {
+        let placement = preferences.window.fitted(&monitor_areas(event_loop));
         let window = Arc::new(
             event_loop
-                .create_window(window_attributes(title))
+                .create_window(window_attributes(title, placement))
                 .context("could not open the main window")?,
         );
         let renderer = pollster::block_on(Renderer::new(
@@ -644,6 +698,7 @@ impl Session {
             redraw_wake(proxy.clone()),
         ))
         .context("could not start the renderer")?;
+        let layout = (preferences.window, preferences.panels);
         let mut overlay = Overlay::new(&window, &renderer);
         overlay.enable_accessibility(event_loop, &window, proxy);
         window.set_visible(true);
@@ -658,7 +713,57 @@ impl Session {
             hidden_until: None,
             failed_frames: 0,
             title: title.to_owned(),
+            layout_seen: layout,
+            layout_stored: layout,
+            layout_changed_at: None,
         })
+    }
+
+    fn note_placement(&mut self) {
+        let window = &self.window;
+        let placement = &mut self.workspace.preferences.window;
+        placement.maximized = window.is_maximized();
+        if placement.maximized {
+            return;
+        }
+        let size = window.inner_size().to_logical::<f64>(window.scale_factor());
+        if let Some(size) = LogicalSize::clamped(size.width, size.height) {
+            placement.size = Some(size);
+        }
+        if let Ok(position) = window.outer_position() {
+            placement.position = Some(Position {
+                x: position.x,
+                y: position.y,
+            });
+        }
+    }
+
+    fn remember_layout(&mut self, files: &mut Files, now: Instant) {
+        let preferences = &self.workspace.preferences;
+        let current = (preferences.window, preferences.panels);
+        if current != self.layout_seen {
+            self.layout_seen = current;
+            self.layout_changed_at = Some(now);
+        }
+        if self
+            .layout_deadline()
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.layout_changed_at = None;
+            self.store_layout(files);
+        }
+    }
+
+    fn store_layout(&mut self, files: &mut Files) {
+        if self.layout_seen != self.layout_stored {
+            files.store_settings(self.workspace.preferences.settings());
+            self.layout_stored = self.layout_seen;
+        }
+    }
+
+    fn layout_deadline(&self) -> Option<Instant> {
+        self.layout_changed_at
+            .and_then(|changed| changed.checked_add(LAYOUT_SAVE_DELAY))
     }
 
     fn retry_delay(&mut self) -> Duration {

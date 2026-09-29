@@ -5,6 +5,7 @@ use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     commands::{Command, Keymap},
     icons,
+    layout::{PanelLayout, WindowPlacement},
     onboarding::{Hint, Onboarding},
     units::LengthUnit,
     widgets::{self, DialogWidth},
@@ -103,6 +104,8 @@ pub struct Preferences {
     pub navigation: Navigation,
     pub onboarding: Onboarding,
     pub keymap: Keymap,
+    pub window: WindowPlacement,
+    pub panels: PanelLayout,
     loaded_keymap: Keymap,
     raw: Settings,
 }
@@ -169,6 +172,8 @@ impl Preferences {
             },
             onboarding: Onboarding::from_settings(&raw),
             keymap: Keymap::from_settings(&raw),
+            window: WindowPlacement::from_settings(&raw),
+            panels: PanelLayout::from_settings(&raw),
             loaded_keymap: Keymap::from_settings(&raw),
             raw,
         }
@@ -185,6 +190,8 @@ impl Preferences {
         settings.set_flag(INVERT_ZOOM_KEY, self.navigation.invert_zoom);
         self.keymap.write(&self.loaded_keymap, &mut settings);
         self.onboarding.write(&mut settings);
+        self.window.write(&mut settings);
+        self.panels.write(&mut settings);
         settings
     }
 

@@ -21,6 +21,7 @@ mod fonts;
 mod history;
 mod icons;
 mod import;
+mod layout;
 mod menu_bar;
 mod model;
 mod onboarding;

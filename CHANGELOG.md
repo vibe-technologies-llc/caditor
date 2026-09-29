@@ -137,6 +137,8 @@ The first release of caditor.
   tree, with H for the selection and Alt+H for everything; a sketch is hidden once it is extruded
   or revolved, so it no longer covers the faces it made or takes their clicks.
 - A feature opened from the toolbar or the view scrolls its panel into view in the feature tree.
+- caditor reopens its window at the size and maximised state it was left in (and, under X11, at
+  the same place), with the side panel as wide and its sections open or closed as before.
 - At large interface sizes and in narrow windows the menu bar, status bar and parameter table
   wrap or shrink instead of overlapping, long notices wrap instead of being cut off, and the
   navigation hint wraps clear of the axis triad.

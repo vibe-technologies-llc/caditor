@@ -7,6 +7,7 @@ use crate::{
     commands::CommandFrame,
     editing::SketchEditing,
     feature_tree, icons,
+    layout::{self, MIN_SIDE_WIDTH, PanelLayout},
     model::{Action, Model},
     parameter_table,
     reference_rows::RowCache,
@@ -14,8 +15,6 @@ use crate::{
     widgets::{self, SectionAction},
 };
 
-const SIDE_PANEL_WIDTH: f32 = 330.0;
-const SIDE_PANEL_MIN_WIDTH: f32 = 270.0;
 const SECTION_GAP: f32 = 10.0;
 pub const FEATURES_TITLE: &str = "Features";
 pub const PARAMETERS_TITLE: &str = "Parameters";
@@ -97,6 +96,8 @@ pub struct PanelState {
     pub chosen_in_tree: Option<Pickable>,
     pub reference_rows: RowCache,
     revealing: Option<PendingReveal>,
+    layout: PanelLayout,
+    layout_restored: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,8 +113,39 @@ pub struct Renaming {
 }
 
 impl PanelState {
+    pub fn with_layout(layout: PanelLayout) -> Self {
+        Self {
+            layout,
+            ..Self::default()
+        }
+    }
+
+    pub fn layout(&self) -> PanelLayout {
+        self.layout
+    }
+
     pub fn forget_document(&mut self) {
-        *self = Self::default();
+        *self = Self {
+            layout: self.layout,
+            layout_restored: self.layout_restored,
+            ..Self::default()
+        };
+    }
+
+    fn restore_layout(&mut self, ctx: &egui::Context) {
+        if std::mem::replace(&mut self.layout_restored, true) {
+            return;
+        }
+        widgets::set_section_open(ctx, FEATURES_SECTION, self.layout.features_open);
+        widgets::set_section_open(ctx, PARAMETERS_SECTION, self.layout.parameters_open);
+    }
+
+    fn observe_layout(&mut self, ctx: &egui::Context, width: f32) {
+        self.layout = PanelLayout {
+            side_width: layout::side_width(width),
+            features_open: widgets::is_section_open(ctx, FEATURES_SECTION),
+            parameters_open: widgets::is_section_open(ctx, PARAMETERS_SECTION),
+        };
     }
 
     pub fn request_focus(&mut self, target: Focus) {
@@ -224,10 +256,11 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     state.begin_frame();
-    egui::Panel::left("model")
+    state.restore_layout(ui.ctx());
+    let panel = egui::Panel::left("model")
         .resizable(true)
-        .default_size(SIDE_PANEL_WIDTH)
-        .min_size(SIDE_PANEL_MIN_WIDTH)
+        .default_size(state.layout.side_width)
+        .min_size(MIN_SIDE_WIDTH)
         .show(ui, |ui| {
             if state.wants_features() {
                 widgets::reveal_section(ui.ctx(), FEATURES_SECTION);
@@ -267,6 +300,7 @@ pub fn show(
                 }
             });
         });
+    state.observe_layout(ui.ctx(), panel.response.rect.width());
 }
 
 pub fn commands(

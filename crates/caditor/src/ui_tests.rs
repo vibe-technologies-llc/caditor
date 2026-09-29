@@ -893,6 +893,35 @@ fn preferences_change_units_and_navigation_and_are_remembered() {
 }
 
 #[test]
+fn the_side_panel_opens_as_it_was_left_and_follows_changes_to_it() {
+    let left = crate::layout::PanelLayout {
+        side_width: 420.0,
+        features_open: true,
+        parameters_open: false,
+    };
+    let mut settings = caditor_file::Settings::default();
+    left.write(&mut settings);
+    let mut preferences = Preferences::from_settings(settings);
+    preferences.onboarding = crate::onboarding::Onboarding::finished();
+    let mut harness = Harness::starting(
+        None,
+        sample_document().unwrap(),
+        Workspace::with_preferences(preferences),
+    );
+
+    assert_eq!(harness.workspace.panels.layout(), left);
+    assert_eq!(harness.workspace.preferences.panels, left);
+    assert!(!harness.shows("width"));
+
+    harness.click(crate::panels::PARAMETERS_TITLE);
+    harness.settle();
+
+    assert!(harness.shows("width"));
+    assert!(harness.workspace.preferences.panels.parameters_open);
+    assert_eq!(harness.workspace.preferences.panels.side_width, 420.0);
+}
+
+#[test]
 fn closing_with_unsaved_changes_asks_first_and_the_title_marks_them() {
     let mut harness = Harness::new();
     assert_eq!(app::window_title(&harness.model), "Untitled — caditor");

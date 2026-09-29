@@ -319,11 +319,19 @@ pub struct SectionAction<'a> {
 }
 
 pub fn reveal_section(ctx: &egui::Context, id: &str) {
+    set_section_open(ctx, id, true);
+}
+
+pub fn set_section_open(ctx: &egui::Context, id: &str, open: bool) {
     let mut state = CollapsingState::load_with_default_open(ctx, Id::new(("section", id)), true);
-    if !state.is_open() {
-        state.set_open(true);
+    if state.is_open() != open {
+        state.set_open(open);
         state.store(ctx);
     }
+}
+
+pub fn is_section_open(ctx: &egui::Context, id: &str) -> bool {
+    CollapsingState::load_with_default_open(ctx, Id::new(("section", id)), true).is_open()
 }
 
 pub fn section(

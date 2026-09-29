@@ -1096,6 +1096,16 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     constraint (`PanelState::hovered_in_tree` and `chosen_in_tree`, handed to the viewport after
     the panels are drawn). A section opens by itself when a rename or a focus request needs
     something inside it.
+  - The window and panels open as they were left (`layout.rs`): `Preferences` holds a
+    `WindowPlacement` (inner size in logical pixels, maximised, and the outer position where the
+    platform reports one, which Wayland never does) and a `PanelLayout` (side panel width, which
+    sections are open) under the `window.*` and `panels.*` keys, read clamped to sane bounds. At
+    startup the size is fitted to the largest monitor and a position is used only when it lies on
+    one; the size and position are recorded only while the window is not maximised, so
+    unmaximising returns to them. `PanelState` restores the sections once and reports the panel
+    as drawn each frame. A change is saved through `Files::store_settings` on the files worker a
+    second after it stops changing, and on exit, after which `App::finish` waits up to two
+    seconds for the worker (`Files::wait_for_jobs`).
   - `Model` (`model.rs`) owns the `Editor` and the `Recomputer`. The UI gets `&Model` and
     returns `Action`s, which the app performs after the UI pass, so the UI never mutates the
     document directly. Each change submits a snapshot to the worker. Feature geometry is drawn

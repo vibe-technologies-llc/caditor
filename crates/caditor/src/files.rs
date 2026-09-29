@@ -1093,6 +1093,17 @@ impl Files {
         }));
     }
 
+    pub fn wait_for_jobs(&mut self, timeout: Duration) -> bool {
+        if self.jobs.is_none() {
+            return true;
+        }
+        let (done, finished) = mpsc::channel();
+        self.run_job(Box::new(move || {
+            done.send(()).ok();
+        }));
+        finished.recv_timeout(timeout).is_ok()
+    }
+
     fn change_recent(&mut self, change: RecentChange) {
         self.recent.apply(&change);
         let Some(state_dir) = self.config.state_dir.clone() else {

@@ -140,7 +140,6 @@ within a category run from most to least important.
   own cancellable job. When a worker thread cannot be spawned the job runs on the UI thread.
 - Dropping files on the window works only under X11, since winit 0.30 has no drag and drop on
   Wayland, and nothing shows where a drop will go while files are dragged over the window.
-- Window size, position and panel state are not remembered.
 - One document per process.
 - No clipboard for sketch geometry or features, no parameter import or export.
 - No localisation.
