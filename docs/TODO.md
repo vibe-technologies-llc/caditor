@@ -54,8 +54,6 @@ within a category run from most to least important.
 
 - Undo entries keep removed features alive, imports with their solids and STEP text included;
   `MAX_UNDO_STEPS` bounds how many there are, not how large they are.
-- Tests missing for `transaction_to` with datums, attached sketches and imports, moves to an
-  out-of-range index.
 
 ## Sketch solver and expressions
 

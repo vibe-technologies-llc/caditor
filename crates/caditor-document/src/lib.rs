@@ -176,6 +176,45 @@ mod tests {
     }
 
     #[test]
+    fn a_move_past_the_last_feature_is_refused_without_changing_anything() {
+        let (mut document, ids) = sample();
+        let before = document.clone();
+        let count = document.features().count();
+
+        let past_the_end = Transaction::new(
+            "Move",
+            vec![
+                Edit::MoveFeature {
+                    id: ids.side,
+                    index: 0,
+                },
+                Edit::MoveFeature {
+                    id: ids.base,
+                    index: count,
+                },
+            ],
+        );
+
+        assert_eq!(
+            document.apply(past_the_end),
+            Err(EditError::OutOfRange(count))
+        );
+        assert_eq!(document, before);
+        assert!(
+            document
+                .apply(Transaction::single(
+                    "Move",
+                    Edit::MoveFeature {
+                        id: ids.base,
+                        index: count - 1,
+                    },
+                ))
+                .is_ok()
+        );
+        assert_eq!(document.features().last().unwrap().id(), ids.base);
+    }
+
+    #[test]
     fn id_counters_stop_below_the_storable_range_instead_of_wrapping() {
         let mut document = Document::default();
         document.reserve_ids_below(u64::MAX, u64::MAX);

@@ -485,3 +485,76 @@ fn a_revolve_axis_is_shown_where_the_revolve_found_it() {
     assert!(close(shown.direction().abs(), Vector3::X), "{shown:?}");
     assert!(shown.origin().y.abs() < 1e-9 && shown.origin().z.abs() < 1e-9);
 }
+
+#[test]
+fn restoring_an_earlier_version_brings_back_datums_attached_sketches_and_imports() {
+    let Block {
+        mut document,
+        height,
+        base,
+    } = block();
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let solid = evaluation.body(base).unwrap().clone();
+    let top = top_face(&solid);
+
+    let plane = add(
+        &mut document,
+        "Plane 1",
+        offset_plane(
+            PlaneReference::Principal(PrincipalPlane::Xy),
+            millimetres(-3.0),
+        ),
+    );
+    let on_plane = add(
+        &mut document,
+        "Below",
+        FeatureKind::Sketch(SketchFeature::on_datum(
+            rectangle(Plane::XY, (0.0, 0.0), (2.0, 2.0)),
+            plane,
+        )),
+    );
+    let on_face = add(
+        &mut document,
+        "On top",
+        FeatureKind::Sketch(SketchFeature::on_face(
+            rectangle(Plane::XY, (1.0, 1.0), (3.0, 3.0)),
+            FaceAttachment {
+                body: base,
+                face: top,
+            },
+        )),
+    );
+    let imported = add(
+        &mut document,
+        "Copy",
+        FeatureKind::Import(Import::new("copy.step", solid, "")),
+    );
+    let earlier = document.clone();
+
+    for feature in [imported, on_face, on_plane, plane] {
+        document
+            .apply(Transaction::single(
+                "Delete",
+                Edit::RemoveFeature { id: feature },
+            ))
+            .unwrap();
+    }
+    set(&mut document, height, "9 mm");
+    let later = document.clone();
+    let mut editor = Editor::new(later.clone());
+    editor
+        .apply(later.transaction_to(&earlier, "Restore"))
+        .unwrap();
+    let evaluation = evaluate(editor.document(), &mut Recompute::default());
+
+    assert!(editor.document().same_content(&earlier));
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(sketch_plane(&evaluation, on_plane).origin().z, -3.0);
+    assert!((sketch_plane(&evaluation, on_face).origin().z - 4.0).abs() < 1e-9);
+    assert!(evaluation.body(imported).is_some());
+
+    editor.undo().unwrap();
+
+    assert!(editor.document().same_content(&later));
+    assert!(editor.document().feature(imported).is_none());
+}
