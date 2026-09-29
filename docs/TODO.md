@@ -109,11 +109,6 @@ within a category run from most to least important.
 
 ## Rendering robustness
 
-- Orbit has no elevation limit, so dragging past the pole turns the model upside down and
-  reverses horizontal drag, and entering a sketch on a rotated face starts with a rolled
-  horizon that yaw about Z never removes (`camera.rs`).
-- `View::fitted` floors the radius at 1 mm (`MIN_FIT_RADIUS`), so small parts and fit to a small
-  selection cannot fill the view.
 - Line widths, marker sizes, pick tolerances and the pick window are in physical pixels, so at
   200% edges are 0.75 logical px and picks half as forgiving, while snapping scales.
 - GPU device loss is never handled: no device-lost callback, and the UI shares the dead encoder.
@@ -130,9 +125,6 @@ within a category run from most to least important.
   never shrinks from its peak.
 - Offscreen tests draw only at a zero-offset viewport and never cover markers, the grid,
   near-plane clipping of lines, unpickable faces or a failed readback.
-
-## Interface correctness
-
 
 ## Interface performance
 

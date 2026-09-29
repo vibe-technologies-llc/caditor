@@ -225,6 +225,7 @@ pub struct BuiltScene {
     pub scene: Scene,
     pub picks: PickTable,
     pub everything: Aabb,
+    pub model: Option<Aabb>,
     pub edited: Option<EditedSketch>,
     reference_size: f64,
 }
@@ -249,7 +250,10 @@ impl BuiltScene {
     }
 
     pub fn fit_all(&self) -> Aabb {
-        self.edited.map_or(self.everything, |edited| edited.bounds)
+        match self.edited {
+            Some(edited) => edited.bounds,
+            None => self.model.unwrap_or(self.everything),
+        }
     }
 }
 
@@ -346,6 +350,7 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
         scene: builder.scene,
         picks: builder.picks,
         everything,
+        model,
         edited: edited.map(|(feature, displayed)| EditedSketch {
             feature: feature.id(),
             plane: displayed.plane(),
@@ -1236,6 +1241,19 @@ mod tests {
             .unwrap();
         assert_eq!(drawn.end, Point3::new(40.0, 0.0, 0.0));
         assert_eq!(built.everything.max().x, 48.0);
+        assert_eq!(built.fit_all().max().x, 40.0);
+
+        let empty = build_for(
+            &Document::default(),
+            &Evaluation::default(),
+            &Highlight {
+                selection: &selection,
+                hovered: &[],
+            },
+            None,
+        );
+        assert_eq!(empty.model, None);
+        assert_eq!(empty.fit_all(), empty.everything);
     }
 
     fn evaluate(document: &Document) -> Evaluation {

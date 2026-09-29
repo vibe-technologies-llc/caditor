@@ -1,4 +1,7 @@
-use std::{f64::consts::PI, time::Duration};
+use std::{
+    f64::consts::{FRAC_PI_2, PI},
+    time::Duration,
+};
 
 use caditor_geometry::{Aabb, Plane, Point3, Ray, Rotation3, Vector3};
 use glam::{DMat3, DMat4, DVec2, DVec3, dcamera::rh::proj::directx};
@@ -8,7 +11,8 @@ const NEAR_PLANE_FRACTION: f64 = 1e-3;
 const ORBIT_RADIANS_PER_VIEWPORT_HEIGHT: f64 = PI;
 const MIN_DISTANCE: f64 = 1e-4;
 const MAX_DISTANCE: f64 = 1e8;
-const MIN_FIT_RADIUS: f64 = 1.0;
+const LEVELLING_RATE: f64 = 2.0;
+const VERTICAL_TOLERANCE: f64 = 1e-9;
 const FIT_MARGIN: f64 = 1.15;
 const TRANSITION_DURATION: Duration = Duration::from_millis(350);
 
@@ -194,16 +198,34 @@ impl View {
     }
 
     pub fn fitted(&self, bounds: Aabb) -> Viewpoint {
-        let radius = bounds.bounding_radius().max(MIN_FIT_RADIUS);
+        let radius = bounds.bounding_radius();
         let half_fov_x = (tan_half_fov_y() * self.aspect()).atan();
         let narrowest_half_fov = half_fov_x.min(FIELD_OF_VIEW_Y * 0.5);
+        let distance = if radius > 0.0 {
+            radius / narrowest_half_fov.sin() * FIT_MARGIN
+        } else {
+            self.viewpoint.distance
+        };
         Viewpoint {
             target: bounds.center(),
             orientation: self.viewpoint.orientation,
-            distance: (radius / narrowest_half_fov.sin() * FIT_MARGIN)
-                .clamp(MIN_DISTANCE, MAX_DISTANCE),
+            distance: distance.clamp(MIN_DISTANCE, MAX_DISTANCE),
         }
     }
+}
+
+fn roll(viewpoint: &Viewpoint) -> f64 {
+    let forward = viewpoint.forward();
+    let up = viewpoint.up();
+    let Some(level_up) = level_right(forward).map(|right| right.cross(forward)) else {
+        return 0.0;
+    };
+    forward.dot(up.cross(level_up)).atan2(up.dot(level_up))
+}
+
+fn level_right(forward: Vector3) -> Option<Vector3> {
+    let right = forward.cross(Vector3::Z);
+    (right.length() > VERTICAL_TOLERANCE).then(|| right.normalize())
 }
 
 fn tan_half_fov_y() -> f64 {
@@ -274,9 +296,21 @@ impl Camera {
     pub fn orbit(&mut self, pivot: Point3, drag: DVec2, viewport_height: f64) {
         self.transition = None;
         let radians_per_pixel = ORBIT_RADIANS_PER_VIEWPORT_HEIGHT / viewport_height.max(1.0);
+        let forward = self.viewpoint.forward();
+        let levelling_limit = drag.length() * radians_per_pixel * LEVELLING_RATE;
+        let level = Rotation3::from_axis_angle(
+            forward,
+            roll(&self.viewpoint).clamp(-levelling_limit, levelling_limit),
+        );
+
+        let elevation = forward.z.atan2(forward.truncate().length());
+        let tilt =
+            (-drag.y * radians_per_pixel).clamp(-FRAC_PI_2 - elevation, FRAC_PI_2 - elevation);
+        let tilt_axis = level_right(forward).unwrap_or_else(|| level * self.viewpoint.right());
+        let pitch = Rotation3::from_axis_angle(tilt_axis, tilt);
         let yaw = Rotation3::from_rotation_z(-drag.x * radians_per_pixel);
-        let pitch = Rotation3::from_axis_angle(self.viewpoint.right(), -drag.y * radians_per_pixel);
-        self.viewpoint = self.viewpoint.rotated_about(pivot, yaw * pitch);
+
+        self.viewpoint = self.viewpoint.rotated_about(pivot, yaw * pitch * level);
     }
 
     pub fn pan(&mut self, drag: DVec2, units_per_pixel: f64) {
@@ -413,6 +447,60 @@ mod tests {
     }
 
     #[test]
+    fn orbit_stops_at_the_poles_and_keeps_horizontal_drag_the_same_way_round() {
+        for vertical in [-5000.0, 5000.0] {
+            let mut camera = Camera::new(isometric());
+
+            camera.orbit(Point3::ZERO, DVec2::new(0.0, vertical), HEIGHT);
+            let viewpoint = camera.viewpoint();
+            assert!((viewpoint.forward().z.abs() - 1.0).abs() < 1e-9);
+            assert!(viewpoint.up().z.abs() < 1e-9);
+
+            camera.orbit(Point3::ZERO, DVec2::new(0.0, vertical), HEIGHT);
+            assert_close(camera.viewpoint().forward(), viewpoint.forward(), 1e-9);
+
+            camera.orbit(
+                Point3::ZERO,
+                DVec2::new(0.0, -vertical.signum() * 60.0),
+                HEIGHT,
+            );
+            let viewpoint = camera.viewpoint();
+            assert!(viewpoint.forward().z.abs() < 0.999);
+            assert!(viewpoint.up().z > 0.0);
+
+            let marker = viewpoint.target + viewpoint.right() * -1.0;
+            let before = camera.view(WIDTH, HEIGHT).project(marker).unwrap();
+            camera.orbit(viewpoint.target, DVec2::new(30.0, 0.0), HEIGHT);
+            let after = camera.view(WIDTH, HEIGHT).project(marker).unwrap();
+            assert!(after.x > before.x);
+        }
+    }
+
+    #[test]
+    fn orbiting_levels_a_rolled_view_while_keeping_the_pivot_on_screen() {
+        let plane = Plane::with_x_axis(
+            Point3::new(4.0, -2.0, 7.0),
+            Vector3::new(1.0, -1.0, 0.5),
+            Vector3::new(1.0, 1.0, 1.0),
+        )
+        .unwrap();
+        let mut camera = Camera::new(Viewpoint::facing(&plane, plane.origin(), 50.0));
+        let pivot = plane.origin() + plane.x_axis() * 3.0;
+        assert!(camera.viewpoint().right().z.abs() > 0.1);
+
+        for _ in 0..40 {
+            let before = camera.view(WIDTH, HEIGHT).project(pivot).unwrap();
+            camera.orbit(pivot, DVec2::new(8.0, 0.0), HEIGHT);
+            let after = camera.view(WIDTH, HEIGHT).project(pivot).unwrap();
+            assert_close(after.extend(0.0), before.extend(0.0), 1e-6);
+        }
+
+        let viewpoint = camera.viewpoint();
+        assert!(viewpoint.right().z.abs() < 1e-9);
+        assert!(viewpoint.up().z > 0.0);
+    }
+
+    #[test]
     fn zoom_keeps_the_anchor_under_the_cursor() {
         let mut camera = Camera::new(isometric());
         let before = camera.view(WIDTH, HEIGHT);
@@ -472,6 +560,29 @@ mod tests {
             assert!((0.0..=WIDTH).contains(&pixel.x) && (0.0..=HEIGHT).contains(&pixel.y));
         }
         assert_close(fitted.viewpoint().target, bounds.center(), 1e-12);
+    }
+
+    #[test]
+    fn a_tiny_part_fills_the_view_and_a_single_point_keeps_the_distance() {
+        let view = View::new(isometric(), WIDTH, HEIGHT);
+        let tiny = Aabb::from_points([Point3::new(1.0, 1.0, 1.0), Point3::new(1.01, 1.02, 1.005)])
+            .unwrap();
+        let fitted = View::new(view.fitted(tiny), WIDTH, HEIGHT);
+
+        let pixels = tiny.corners().map(|corner| fitted.project(corner).unwrap());
+        let spread = pixels
+            .iter()
+            .map(|pixel| pixel.y)
+            .fold(f64::NEG_INFINITY, f64::max)
+            - pixels
+                .iter()
+                .map(|pixel| pixel.y)
+                .fold(f64::INFINITY, f64::min);
+        assert!(spread > HEIGHT / 4.0, "{spread}");
+
+        let point = view.fitted(Aabb::from_point(Point3::new(3.0, 0.0, 0.0)));
+        assert_eq!(point.distance, view.viewpoint().distance);
+        assert_eq!(point.target, Point3::new(3.0, 0.0, 0.0));
     }
 
     #[test]

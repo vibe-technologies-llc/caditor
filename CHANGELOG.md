@@ -101,6 +101,10 @@ The first release of caditor.
   the sketch with that constraint selected.
 - A new or opened model starts with nothing selected and every body chosen for export, so
   commands never act on something picked in the previous model.
+- Orbiting stops when looking straight down or up instead of turning the model upside down, and
+  levels the horizon of a view that was turned to face a tilted sketch.
+- Fit all frames the model rather than the origin planes, and fitting a small part or a small
+  selection fills the view however small it is.
 
 ### Installation
 

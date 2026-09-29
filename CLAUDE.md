@@ -908,9 +908,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     fills (principal and datum planes) are drawn in a pass of their own first, nearest winning,
     and everything else is drawn over them, so a translucent plane owns a pixel only where no
     face, line, marker or model fill covers it and a face seen through a plane is picked.
-  - Navigation has a single model: right-drag orbits (turntable around world Z), middle-drag or
-    Shift+right-drag pans, the wheel and pinch zoom toward the point under the cursor, and
-    view changes from the view cube or fit animate.
+  - Navigation has a single model: right-drag orbits (turntable around world Z, tilting about the
+    horizontal and stopping at the poles, while a rolled view such as one facing a tilted sketch
+    turns level at twice the orbit rate), middle-drag or Shift+right-drag pans, the wheel and
+    pinch zoom toward the point under the cursor, and view changes from the view cube or fit
+    animate. Fitting bounds of no size keeps the distance and only recentres.
 - **caditor**: the winit `ApplicationHandler` (`app.rs`), the egui integration drawn over the
   viewport (`overlay.rs`), the menu bar (`menu_bar.rs`), the tool ribbon (`toolbar.rs`), the
   status bar (`status_bar.rs`), the side panel (`panels.rs`) with the feature tree
@@ -1033,7 +1035,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     handler (`signal-hook`) that flush the journal before the process ends, and starts with an
     empty model. Release builds unwind (`panic = "unwind"`), since containment relies on it, and
     `recompute.rs` fails to compile otherwise. The viewport
-    fits the view once the first recompute of a newly opened model (another `Model::session`)
+    fits the view (to the model's sketches and bodies when there are any, else to the reference
+    planes; `BuiltScene::fit_all`) once the first recompute of a newly opened model (another `Model::session`)
     is up to date. Since IDs restart in every document, a new session also clears the viewport's
     selection, hover, highlight and drawing state (`Workspace::sync` at the start of each frame),
     the tree's selected row and rename, and the export dialog's left-out bodies.
