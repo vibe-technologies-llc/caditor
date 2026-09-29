@@ -38,8 +38,8 @@ struct Choice {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Rule {
     Positive,
+    PositiveSide,
     PositiveTurn,
-    Any,
 }
 
 impl Panel<'_> {
@@ -316,7 +316,7 @@ impl Panel<'_> {
                     "forward",
                     forward,
                     Dimension::LENGTH,
-                    Rule::Any,
+                    Rule::PositiveSide,
                     |forward| {
                         SolidFeature::Extrude(Extrude {
                             extent: ExtrudeExtent::TwoSides {
@@ -333,7 +333,7 @@ impl Panel<'_> {
                     "backward",
                     backward,
                     Dimension::LENGTH,
-                    Rule::Any,
+                    Rule::PositiveSide,
                     |backward| {
                         SolidFeature::Extrude(Extrude {
                             extent: ExtrudeExtent::TwoSides {
@@ -581,12 +581,12 @@ fn change(model: &Model, feature: FeatureId, solid: SolidFeature) -> Result<Tran
 
 fn check_rule(rule: Rule, value: f64) -> Result<(), String> {
     match rule {
-        Rule::Any => Ok(()),
-        Rule::Positive if value > 0.0 => Ok(()),
+        Rule::Positive | Rule::PositiveSide if value > 0.0 => Ok(()),
         Rule::PositiveTurn if value > 0.0 && value <= FULL_TURN_DEGREES => Ok(()),
         Rule::Positive => {
             Err("Enter a value above zero. Use Reversed to go the other way".to_owned())
         }
+        Rule::PositiveSide => Err("Enter a distance above zero".to_owned()),
         Rule::PositiveTurn => Err("Enter an angle above zero and at most 360°".to_owned()),
     }
 }

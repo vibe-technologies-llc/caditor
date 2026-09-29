@@ -2222,6 +2222,42 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
 }
 
 #[test]
+fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
+    let mut harness = Harness::new();
+    harness.draw_on_new_sketch();
+    harness.use_tool(Key::R);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(40.0, 30.0));
+    harness.settle();
+    harness.click("Extrude");
+    harness.settle();
+
+    let extrude = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    harness.click("One side");
+    harness.click("Two sides");
+    harness.settle();
+    let SolidFeature::Extrude(extruded) = harness.solid(extrude) else {
+        panic!("expected an extrusion");
+    };
+    assert!(matches!(extruded.extent, ExtrudeExtent::TwoSides { .. }));
+    let before = harness.solid(extrude).clone();
+    harness.type_into_field(Id::new(("solid-field", "forward", extrude)), "0 mm");
+    let refused_forward = harness.shows("Enter a distance above zero");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.type_into_field(Id::new(("solid-field", "backward", extrude)), "-3 mm");
+    let refused_backward = harness.shows("Enter a distance above zero");
+
+    assert!(refused_forward);
+    assert!(refused_backward);
+    assert_eq!(harness.solid(extrude), &before);
+}
+
+#[test]
 fn clicking_a_hole_region_adds_it_and_a_face_names_the_feature_that_made_it() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

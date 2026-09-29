@@ -250,8 +250,6 @@ within a category run from most to least important.
   reacts to a session change (`viewport.rs`), so Extrude can pick a sketch the user never
   selected and Delete can hit a stale row. Export exclusions (`Exporter.left_out`) carry over
   the same way.
-- A two-sided extrude's Forward and Backward fields take `Rule::Any` (`solid_panel.rs`), so zero
-  or negative distances are committed and the feature fails at recompute.
 - An import that adds nothing (a DXF of only hatches or text into the edited sketch) returns
   before its notes are shown, so the user sees nothing (`import.rs`).
 - Restoring a version always reports success, overwriting an error notice from the apply, and a
