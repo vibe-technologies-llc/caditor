@@ -870,7 +870,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `<journal>.<seconds>.unreadable`, which no scan picks up, before the new session's journal
     takes its place (`FileJournal::SetAside`), and opening the model reports where it was kept.
   - DXF import (`import/`): `parse_dxf` reads ASCII and binary DXF (group codes with typed values,
-    UTF-8 or single-byte text) into a `Drawing` of 2D `DrawingCurve`s in millimetres plus notes in
+    text read as UTF-8 when it is valid UTF-8, else in the `$DWGCODEPAGE` the header declares,
+    found by a scan of the header's tokens before the file is decoded: the Windows pages 874 and
+    1250 to 1258 and ISO 8859-1 are tables in `code_page.rs`, and any other page, or none, reads
+    as 1252, bytes a page leaves undefined becoming U+FFFD; `\U+XXXX` escapes become their
+    characters) into a `Drawing` of 2D `DrawingCurve`s in millimetres plus notes in
     plain language. It reads `$INSUNITS` (every code up to the US survey units; an unknown code
     is read as millimetres with a note naming it, and none is read as millimetres, with a note, unless
     `$MEASUREMENT` is 0, imperial, when it is read as inches, also with a note), layers (entities on

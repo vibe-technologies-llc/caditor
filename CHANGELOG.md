@@ -87,6 +87,9 @@ The first release of caditor.
 - Drawings bring in the outlines of their hatches, filled solids, traces, 3D faces and
   multilines, so a profile drawn only as a hatch can be extruded; a hatch tied to the lines it
   fills does not repeat them.
+- Names in older drawings written in a Central European, Cyrillic, Greek, Turkish, Hebrew,
+  Arabic, Baltic, Vietnamese or Thai code page, such as those of missing blocks in the import
+  report, read correctly instead of as garbled letters.
 - A drawing's spline given by fit points and end tangents leaves and arrives along those
   tangents, as in the program that drew it.
 - A drawing's spline through fit points that repeat, or nearly repeat, is imported instead of

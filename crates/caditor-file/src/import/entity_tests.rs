@@ -597,3 +597,91 @@ fn fit_point_splines_honour_their_end_tangents() {
         drawing.notes
     );
 }
+
+fn with_code_page(page: Option<&str>, block_name: &[u8]) -> Vec<u8> {
+    let mut header = vec![pair(9, "$ACADVER"), pair(1, "AC1015")];
+    if let Some(page) = page {
+        header.extend([pair(9, "$DWGCODEPAGE"), pair(3, page)]);
+    }
+    let bytes = text(vec![
+        section("HEADER", vec![header]),
+        section(
+            "ENTITIES",
+            vec![
+                line((0.0, 0.0), (1.0, 0.0)),
+                vec![
+                    pair(0, "INSERT"),
+                    pair(8, "0"),
+                    pair(2, "@NAME@"),
+                    pair(10, 0.0),
+                    pair(20, 0.0),
+                ],
+            ],
+        ),
+    ]);
+    let at = bytes
+        .windows(6)
+        .position(|window| window == b"@NAME@")
+        .unwrap();
+    [&bytes[..at], block_name, &bytes[at + 6..]].concat()
+}
+
+fn binary_text(bytes: &mut Vec<u8>, code: i16, text: &[u8]) {
+    bytes.extend(code.to_le_bytes());
+    bytes.extend(text);
+    bytes.push(0);
+}
+
+fn binary_with_code_page(page: &str, block_name: &[u8]) -> Vec<u8> {
+    let mut bytes = b"AutoCAD Binary DXF\r\n\x1a\0".to_vec();
+    for (code, text) in [
+        (0, &b"SECTION"[..]),
+        (2, b"HEADER"),
+        (9, b"$DWGCODEPAGE"),
+        (3, page.as_bytes()),
+        (0, b"ENDSEC"),
+        (0, b"SECTION"),
+        (2, b"ENTITIES"),
+        (0, b"INSERT"),
+        (8, b"0"),
+        (2, block_name),
+        (0, b"LINE"),
+        (8, b"0"),
+    ] {
+        binary_text(&mut bytes, code, text);
+    }
+    for (code, value) in [(10_i16, 0.0), (20, 0.0), (11, 1.0), (21, 0.0)] {
+        bytes.extend(code.to_le_bytes());
+        bytes.extend(f64::to_le_bytes(value));
+    }
+    binary_text(&mut bytes, 0, b"ENDSEC");
+    binary_text(&mut bytes, 0, b"EOF");
+    bytes
+}
+
+fn missing_blocks(bytes: &[u8]) -> String {
+    let drawing = parse_dxf(bytes).unwrap();
+    drawing
+        .notes
+        .iter()
+        .find_map(|note| note.split("does not contain were left out: ").nth(1))
+        .unwrap()
+        .to_owned()
+}
+
+#[test]
+fn names_are_read_in_the_code_page_the_drawing_declares() {
+    let cyrillic = [0xc1, 0xee, 0xeb, 0xf2];
+
+    let declared = missing_blocks(&with_code_page(Some("ANSI_1251"), &cyrillic));
+    let undeclared = missing_blocks(&with_code_page(None, &cyrillic));
+    let unicode = missing_blocks(&with_code_page(Some("ANSI_1251"), "Größe".as_bytes()));
+    let escaped = missing_blocks(&with_code_page(Some("ANSI_1252"), br"\U+0411olt"));
+    let binary = missing_blocks(&binary_with_code_page("ANSI_1251", &cyrillic));
+
+    assert_eq!(declared, "Болт.");
+    assert_eq!(undeclared, "Áîëò.");
+    assert_eq!(unicode, "Größe.");
+    assert_eq!(escaped, "Бolt.");
+    assert_eq!(binary, "Болт.");
+}

@@ -1,3 +1,4 @@
+mod code_page;
 mod flatten;
 mod geometry;
 mod hatch;

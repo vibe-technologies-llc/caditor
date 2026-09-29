@@ -1,7 +1,10 @@
-use crate::import::ImportError;
+use std::{iter::Enumerate, slice::Split};
+
+use crate::import::{ImportError, dxf::code_page::CodePage};
 
 const BINARY_SENTINEL: &[u8] = b"AutoCAD Binary DXF\r\n\x1a\0";
 const EXTENDED_CODE: u8 = 255;
+const CODE_PAGE_VARIABLE: &[u8] = b"$DWGCODEPAGE";
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Value {
@@ -51,50 +54,132 @@ impl Pair {
 }
 
 pub(super) fn read_pairs(bytes: &[u8]) -> Result<Vec<Pair>, ImportError> {
-    match bytes.strip_prefix(BINARY_SENTINEL) {
-        Some(rest) => Binary::new(rest).read(),
-        None => read_text(bytes),
-    }
+    let page = declared_code_page(tokens(bytes));
+    tokens(bytes)
+        .map(|token| {
+            let Token { code, value } = token?;
+            Ok(Pair {
+                code,
+                value: match value {
+                    Raw::Text(text) => Value::Text(page.decode(text).into_owned()),
+                    Raw::Real(value) => Value::Real(value),
+                    Raw::Integer(value) => Value::Integer(value),
+                    Raw::Bytes => Value::Bytes,
+                },
+            })
+        })
+        .collect()
 }
 
-fn read_text(bytes: &[u8]) -> Result<Vec<Pair>, ImportError> {
-    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
-    let mut lines = bytes.split(|byte| *byte == b'\n').enumerate();
-    let mut pairs = Vec::new();
-    while let Some((index, code_line)) = lines.next() {
-        let code_text = decode(code_line);
-        let code_text = code_text.trim();
-        if code_text.is_empty() {
-            if lines
-                .clone()
-                .all(|(_, line)| decode(line).trim().is_empty())
-            {
-                break;
-            }
-            return Err(damaged(index));
-        }
-        let code: i32 = code_text.parse().map_err(|_| damaged(index))?;
-        let Some((_, value_line)) = lines.next() else {
-            return Err(damaged(index));
-        };
-        let value = decode(value_line);
-        let value = value.strip_suffix('\r').unwrap_or(&value).to_owned();
-        let is_end = code == 0 && value.trim().eq_ignore_ascii_case("EOF");
-        pairs.push(Pair {
-            code,
-            value: Value::Text(value),
-        });
-        if is_end {
+fn declared_code_page<'a>(
+    tokens: impl Iterator<Item = Result<Token<'a>, ImportError>>,
+) -> CodePage {
+    let mut opening_section = false;
+    let mut naming_page = false;
+    for token in tokens {
+        let Ok(Token { code, value }) = token else {
             break;
+        };
+        let text = match value {
+            Raw::Text(text) => text.trim_ascii(),
+            Raw::Real(_) | Raw::Integer(_) | Raw::Bytes => &[],
+        };
+        match code {
+            0 if text.eq_ignore_ascii_case(b"ENDSEC") => break,
+            0 => opening_section = text.eq_ignore_ascii_case(b"SECTION"),
+            2 if opening_section && !text.eq_ignore_ascii_case(b"HEADER") => break,
+            9 => naming_page = text.eq_ignore_ascii_case(CODE_PAGE_VARIABLE),
+            3 if naming_page => {
+                return std::str::from_utf8(text)
+                    .ok()
+                    .and_then(CodePage::named)
+                    .unwrap_or(CodePage::DEFAULT);
+            }
+            _ => {}
         }
     }
-    Ok(pairs)
+    CodePage::DEFAULT
 }
 
-fn decode(line: &[u8]) -> String {
-    match std::str::from_utf8(line) {
-        Ok(text) => text.to_owned(),
-        Err(_) => line.iter().map(|byte| char::from(*byte)).collect(),
+struct Token<'a> {
+    code: i32,
+    value: Raw<'a>,
+}
+
+enum Raw<'a> {
+    Text(&'a [u8]),
+    Real(f64),
+    Integer(i64),
+    Bytes,
+}
+
+fn tokens(bytes: &[u8]) -> Box<dyn Iterator<Item = Result<Token<'_>, ImportError>> + '_> {
+    match bytes.strip_prefix(BINARY_SENTINEL) {
+        Some(rest) => Box::new(Binary::new(rest)),
+        None => Box::new(Text::new(bytes)),
+    }
+}
+
+type Lines<'a> = Enumerate<Split<'a, u8, fn(&u8) -> bool>>;
+
+struct Text<'a> {
+    lines: Lines<'a>,
+    finished: bool,
+}
+
+impl<'a> Text<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
+        let newline: fn(&u8) -> bool = |byte| *byte == b'\n';
+        Self {
+            lines: bytes.split(newline).enumerate(),
+            finished: false,
+        }
+    }
+
+    fn next_token(&mut self) -> Option<Result<Token<'a>, ImportError>> {
+        let (index, code_line) = self.lines.next()?;
+        let code_text = code_line.trim_ascii();
+        if code_text.is_empty() {
+            if self
+                .lines
+                .clone()
+                .all(|(_, line)| line.trim_ascii().is_empty())
+            {
+                return None;
+            }
+            return Some(Err(damaged(index)));
+        }
+        let Some(code) = std::str::from_utf8(code_text)
+            .ok()
+            .and_then(|text| text.parse::<i32>().ok())
+        else {
+            return Some(Err(damaged(index)));
+        };
+        let Some((_, value_line)) = self.lines.next() else {
+            return Some(Err(damaged(index)));
+        };
+        let value = value_line.strip_suffix(b"\r").unwrap_or(value_line);
+        self.finished = code == 0 && value.trim_ascii().eq_ignore_ascii_case(b"EOF");
+        Some(Ok(Token {
+            code,
+            value: Raw::Text(value),
+        }))
+    }
+}
+
+impl<'a> Iterator for Text<'a> {
+    type Item = Result<Token<'a>, ImportError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+        let token = self.next_token();
+        if !matches!(token, Some(Ok(_))) {
+            self.finished = true;
+        }
+        token
     }
 }
 
@@ -106,6 +191,7 @@ struct Binary<'a> {
     bytes: &'a [u8],
     position: usize,
     wide_codes: bool,
+    finished: bool,
 }
 
 impl<'a> Binary<'a> {
@@ -115,21 +201,8 @@ impl<'a> Binary<'a> {
             bytes,
             position: 0,
             wide_codes,
+            finished: false,
         }
-    }
-
-    fn read(mut self) -> Result<Vec<Pair>, ImportError> {
-        let mut pairs = Vec::new();
-        while self.position < self.bytes.len() {
-            let code = self.code()?;
-            let value = self.value(code)?;
-            let is_end = code == 0 && matches!(&value, Value::Text(text) if text == "EOF");
-            pairs.push(Pair { code, value });
-            if is_end {
-                break;
-            }
-        }
-        Ok(pairs)
     }
 
     fn take(&mut self, count: usize) -> Result<&'a [u8], ImportError> {
@@ -159,7 +232,7 @@ impl<'a> Binary<'a> {
         }
     }
 
-    fn value(&mut self, code: i32) -> Result<Value, ImportError> {
+    fn value(&mut self, code: i32) -> Result<Raw<'a>, ImportError> {
         Ok(match value_kind(code) {
             Kind::Text => {
                 let length = self
@@ -167,24 +240,46 @@ impl<'a> Binary<'a> {
                     .get(self.position..)
                     .and_then(|rest| rest.iter().position(|byte| *byte == 0))
                     .ok_or(Self::damaged())?;
-                let text = decode(self.take(length)?);
+                let text = self.take(length)?;
                 self.take(1)?;
-                Value::Text(text)
+                Raw::Text(text)
             }
-            Kind::Real => Value::Real(f64::from_le_bytes(self.array()?)),
-            Kind::Short => Value::Integer(i64::from(i16::from_le_bytes(self.array()?))),
-            Kind::Int => Value::Integer(i64::from(i32::from_le_bytes(self.array()?))),
-            Kind::Long => Value::Integer(i64::from_le_bytes(self.array()?)),
+            Kind::Real => Raw::Real(f64::from_le_bytes(self.array()?)),
+            Kind::Short => Raw::Integer(i64::from(i16::from_le_bytes(self.array()?))),
+            Kind::Int => Raw::Integer(i64::from(i32::from_le_bytes(self.array()?))),
+            Kind::Long => Raw::Integer(i64::from_le_bytes(self.array()?)),
             Kind::Bool => {
                 let [byte] = self.array()?;
-                Value::Integer(i64::from(byte))
+                Raw::Integer(i64::from(byte))
             }
             Kind::Bytes => {
                 let [length] = self.array()?;
                 self.take(usize::from(length))?;
-                Value::Bytes
+                Raw::Bytes
             }
         })
+    }
+
+    fn next_token(&mut self) -> Result<Token<'a>, ImportError> {
+        let code = self.code()?;
+        let value = self.value(code)?;
+        self.finished = code == 0 && matches!(value, Raw::Text(b"EOF"));
+        Ok(Token { code, value })
+    }
+}
+
+impl<'a> Iterator for Binary<'a> {
+    type Item = Result<Token<'a>, ImportError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished || self.position >= self.bytes.len() {
+            return None;
+        }
+        let token = self.next_token();
+        if token.is_err() {
+            self.finished = true;
+        }
+        Some(token)
     }
 }
 
