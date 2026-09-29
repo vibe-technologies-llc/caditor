@@ -17,6 +17,7 @@ const COINCIDENT_SINE: f64 = 1e-6;
 const POLE_NUDGE: f64 = 1e-7;
 const RELATIVE_POLE_NUDGE: f64 = 1e-6;
 const RAY_REACH_MARGIN: f64 = 1.0;
+const WINDOW_MARGIN: f64 = 16.0 * TOLERANCE;
 const PERIOD_SHIFTS: [f64; 5] = [0.0, -1.0, 1.0, -2.0, 2.0];
 const POLE_PROBES: usize = 5;
 const RAY_DIRECTIONS: [[f64; 3]; 12] = [
@@ -382,6 +383,11 @@ impl<'a> SolidClassifier<'a> {
     }
 
     pub fn classify(&self, point: Point3) -> PointClass {
+        let directions = RAY_DIRECTIONS.map(|[x, y, z]| Vector3::new(x, y, z).normalize());
+        self.classify_along(point, &directions)
+    }
+
+    pub(crate) fn classify_along(&self, point: Point3, directions: &[Vector3]) -> PointClass {
         let Some(bounds) = self.bounds else {
             return PointClass::Outside;
         };
@@ -401,80 +407,69 @@ impl<'a> SolidClassifier<'a> {
             .map(|corner| corner.distance(point))
             .fold(0.0, f64::max)
             + RAY_REACH_MARGIN;
-        let mut fallback = None;
-        for [x, y, z] in RAY_DIRECTIONS {
-            let direction = Vector3::new(x, y, z).normalize();
-            match self.cast(point, direction, reach) {
-                Cast::Decided(class) => return class,
-                Cast::Ambiguous(guess) => {
-                    if fallback.is_none() {
-                        fallback = guess;
-                    }
-                }
-            }
-        }
-        fallback.unwrap_or(PointClass::Undecided)
+        directions
+            .iter()
+            .find_map(|direction| self.cast(point, *direction, reach))
+            .unwrap_or(PointClass::Undecided)
     }
 
-    fn cast(&self, origin: Point3, direction: Vector3, reach: f64) -> Cast {
-        let Ok(line) = Line::new(origin, direction) else {
-            return Cast::Ambiguous(None);
-        };
+    fn cast(&self, origin: Point3, direction: Vector3, reach: f64) -> Option<PointClass> {
+        let line = Line::new(origin, direction).ok()?;
         let curve = Curve::Line(line);
         let mut nearest: Option<(f64, f64)> = None;
-        let mut ambiguous = false;
+        let mut first_doubt = f64::INFINITY;
         for data in &self.faces {
             let Some(window) = crate::intersect::line_window(origin, direction, &data.bounds)
             else {
                 continue;
             };
-            let (low, high) = (window.start().max(0.0), window.end().min(reach));
+            let low = (window.start() - WINDOW_MARGIN).max(0.0);
+            let high = (window.end() + WINDOW_MARGIN).min(reach);
             let Some(range) = Interval::new(low, high) else {
                 continue;
             };
             let Some(face) = self.solid.face(data.id) else {
                 continue;
             };
-            let Ok(found) =
-                intersect_curve_surface(&curve, range, face.surface(), Some(data.uv_box))
-            else {
-                ambiguous = true;
-                continue;
-            };
-            if !found.overlaps.is_empty() {
-                ambiguous = true;
-                continue;
-            }
+            let found =
+                match intersect_curve_surface(&curve, range, face.surface(), Some(data.uv_box)) {
+                    Ok(found) if found.overlaps.is_empty() => found,
+                    _ => {
+                        first_doubt = first_doubt.min(low);
+                        continue;
+                    }
+                };
             for hit in found.points {
-                let containment = self.point_in_face(data.id, hit.uv);
-                match containment {
-                    Some(FaceContainment::Outside) => {}
+                let clean = match self.point_in_face(data.id, hit.uv) {
+                    Some(FaceContainment::Outside) => continue,
                     Some(FaceContainment::Inside) if !hit.tangent && hit.parameter > TOLERANCE => {
-                        let Some(normal) = self.outward_normal(data.id, hit.uv) else {
-                            ambiguous = true;
-                            continue;
-                        };
-                        let facing = normal.dot(direction);
-                        if facing.abs() <= GRAZING_COSINE {
-                            ambiguous = true;
-                        }
+                        self.outward_normal(data.id, hit.uv)
+                            .map(|normal| normal.dot(direction))
+                            .filter(|facing| facing.abs() > GRAZING_COSINE)
+                    }
+                    _ => None,
+                };
+                match clean {
+                    Some(facing) => {
                         if nearest.is_none_or(|(distance, _)| hit.parameter < distance) {
                             nearest = Some((hit.parameter, facing));
                         }
                     }
-                    _ => ambiguous = true,
+                    None => first_doubt = first_doubt.min(hit.parameter),
                 }
             }
         }
-        let class = match nearest {
+        let doubtful = match nearest {
+            Some((distance, _)) => first_doubt <= distance + TOLERANCE,
+            None => first_doubt.is_finite(),
+        };
+        if doubtful {
+            return None;
+        }
+        Some(match nearest {
             Some((_, facing)) if facing > 0.0 => PointClass::Inside,
             _ => PointClass::Outside,
-        };
-        if ambiguous {
-            Cast::Ambiguous(Some(class))
-        } else {
-            Cast::Decided(class)
-        }
+        })
     }
 
     pub fn classify_boundary_point(&self, point: Point3, normal: Vector3) -> BoundaryClass {
@@ -509,11 +504,6 @@ impl<'a> SolidClassifier<'a> {
             PointClass::Undecided => BoundaryClass::Undecided,
         }
     }
-}
-
-enum Cast {
-    Decided(PointClass),
-    Ambiguous(Option<PointClass>),
 }
 
 impl Solid {

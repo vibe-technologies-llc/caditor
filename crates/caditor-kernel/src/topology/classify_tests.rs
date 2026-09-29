@@ -290,6 +290,69 @@ fn rays_through_edges_and_vertices_retry_another_direction() {
 }
 
 #[test]
+fn a_point_whose_every_ray_meets_an_edge_or_vertex_is_undecided() {
+    let solid = cuboid(Vector3::new(4.0, 4.0, 4.0));
+    let classifier = solid.classifier();
+    let center = Point3::new(2.0, 2.0, 2.0);
+    let corners: Vec<Vector3> = [-1.0, 1.0]
+        .into_iter()
+        .flat_map(|x| {
+            [-1.0, 1.0]
+                .into_iter()
+                .map(move |y| Vector3::new(x, y, 0.0))
+        })
+        .flat_map(|xy| {
+            [-1.0, 1.0]
+                .into_iter()
+                .map(move |z| (xy + Vector3::Z * z).normalize())
+        })
+        .collect();
+    let edges = [
+        Vector3::new(1.0, 1.0, 0.0).normalize(),
+        Vector3::new(0.0, -1.0, 1.0).normalize(),
+    ];
+
+    assert_eq!(
+        classifier.classify_along(center, &corners),
+        PointClass::Undecided
+    );
+    assert_eq!(
+        classifier.classify_along(center, &edges),
+        PointClass::Undecided
+    );
+    assert_eq!(
+        classifier.classify_boundary_point(center, Vector3::Z),
+        BoundaryClass::Inside
+    );
+    assert_eq!(classifier.classify(center), PointClass::Inside);
+
+    let mixed = [corners[0], Vector3::new(0.3, 0.2, 0.9).normalize()];
+    assert_eq!(
+        classifier.classify_along(center, &mixed),
+        PointClass::Inside
+    );
+}
+
+#[test]
+fn a_doubtful_crossing_beyond_the_nearest_clean_one_does_not_matter() {
+    let solid = hollow_cuboid(6.0, 2.0);
+    let classifier = solid.classifier();
+    let in_void = Point3::splat(3.0);
+    let in_wall = Point3::new(1.0, 3.0, 3.0);
+    let void_corner = Point3::splat(4.0);
+
+    assert_eq!(
+        classifier.classify_along(in_void, &[(void_corner - in_void).normalize()]),
+        PointClass::Undecided
+    );
+    assert_eq!(
+        classifier.classify_along(in_wall, &[(void_corner - in_wall).normalize()]),
+        PointClass::Inside
+    );
+    assert_eq!(classifier.classify(in_void), PointClass::Outside);
+}
+
+#[test]
 fn point_in_face_handles_holes_seams_and_poles() {
     let block = holed_block(10.0, 4.0, 2.5);
     let top = block

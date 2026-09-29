@@ -35,10 +35,6 @@ within a category run from most to least important.
 
 ## Kernel correctness
 
-- `SolidClassifier::classify` never returns `PointClass::Undecided`: `cast` reports every
-  ambiguous ray with a guess, and the first guess is returned after all twelve rays, so the
-  boolean's documented retry at the fragment's other points never runs and a grazing guess is
-  taken as a confident class. Return `Undecided` when no ray was clean, and test it.
 - `Solid::find_crossing` skips face and edge pairs whose intersection errors (`crossing.rs`
   `.ok()?`, `let Ok(..) else { continue }`), so a self-intersecting STEP import with hard
   spline or near-tangent faces is accepted. Report the check as inconclusive instead.

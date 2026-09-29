@@ -411,9 +411,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `classify_point` gives `Inside`, `Outside` or `OnBoundary(face)` exactly, or `Undecided` when
     every ray was ambiguous (a boolean then tries the fragment's other points): a point on a face's
     surface and inside its boundary is on it, otherwise rays from a fixed list of directions are
-    intersected with each face's surface through `intersect_curve_surface`, and the nearest
+    intersected with each face's surface through `intersect_curve_surface` (over each face box's
+    window widened a little, so a crossing is never snapped to the window's end), and the nearest
     crossing's outward normal decides; a ray that grazes, is tangent, lies in a face or meets an
-    edge or vertex is discarded for the next direction. `point_in_face(face, uv)` (`Inside`,
+    edge or vertex no farther than its nearest clean crossing is discarded for the next direction,
+    and when none is left the point is `Undecided`, never a guess. `point_in_face(face, uv)` (`Inside`,
     `Outside`, `OnBoundary`) uses the pcurve polygons by parity over periodic shifts (poles probed
     just off the pole line, inwards from whichever end of the domain is nearer), and near the
     boundary (within a few `PCURVE_TOLERANCE`) the exact edge: the side of the nearest non-seam
