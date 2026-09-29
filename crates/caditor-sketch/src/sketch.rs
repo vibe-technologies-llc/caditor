@@ -1196,6 +1196,17 @@ mod tests {
             }
         );
         assert_eq!(error.to_string(), "a radius must be greater than zero");
+
+        sketch
+            .set_dimension(
+                radius,
+                Expression::Measure(2e6, caditor_expression::Unit::Millimetre),
+            )
+            .unwrap();
+        let error = sketch
+            .evaluate(&width_is(Quantity::angle(1.0)))
+            .unwrap_err();
+        assert_eq!(error.to_string(), "a length cannot be more than 1000 m");
     }
 
     #[test]

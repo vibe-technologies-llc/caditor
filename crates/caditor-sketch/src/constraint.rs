@@ -2,6 +2,8 @@ use caditor_expression::{Dimension, EvalError, Expression};
 
 use crate::id::EntityId;
 
+pub const MAX_LENGTH: f64 = 1e6;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Constraint {
     Coincident(EntityId, EntityId),
@@ -90,9 +92,12 @@ impl Constraint {
 
     pub fn check_dimension_value(&self, value: f64) -> Result<(), DimensionError> {
         match self {
+            _ if !value.is_finite() => Err(DimensionError::NotFinite),
             Self::Distance { .. } if value < 0.0 => Err(DimensionError::Negative),
             Self::Radius { .. } if value <= 0.0 => Err(DimensionError::NotPositive),
-            _ if !value.is_finite() => Err(DimensionError::NotFinite),
+            Self::Distance { .. } | Self::Radius { .. } if value > MAX_LENGTH => {
+                Err(DimensionError::TooLong)
+            }
             _ => Ok(()),
         }
     }
@@ -127,4 +132,6 @@ pub enum DimensionError {
     NotPositive,
     #[error("the value is too large to use")]
     NotFinite,
+    #[error("a length cannot be more than {} m", MAX_LENGTH / 1_000.0)]
+    TooLong,
 }

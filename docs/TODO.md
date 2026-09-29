@@ -125,8 +125,6 @@ within a category run from most to least important.
   (`system.rs` `joint`, `points_on`), quadratic in tangents per solve.
 - `10 mm^2` means (10 mm)², since a power binds to the measure before it; stored text relies on
   that reading, so changing it needs a new spelling or a format change.
-- Dimension values are unbounded above, so 1e200 mm overflows the scale and fails as the generic
-  unsolvable error, and labels print hundreds of digits.
 - `BSpline::through` returns `None` on consecutive equal points (singular collocation); only
   tests use it today.
 - Tests missing for: dense and sparse paths giving the same rank and fixed sets across the

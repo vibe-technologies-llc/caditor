@@ -184,7 +184,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     evenly spaced parameters, and `BSpline::through` follows unevenly spaced points without
     loops: a chord-length interpolation with averaged knots, sampled and fitted. Knot spans are
     found by binary search and every system is solved by banded elimination (`banded.rs`).
-  - `solve` evaluates the dimensions, then runs damped Gauss–Newton with minimal-norm steps on
+  - `solve` evaluates the dimensions (lengths at most `MAX_LENGTH`, a kilometre, so a huge
+    value is refused in words rather than overflowing the solver's scale), then runs damped Gauss–Newton with minimal-norm steps on
     each independent part of the system (SVD from `nalgebra` for parts of up to 48 variables;
     above that CGLS from zero on the sparse Jacobian, which converges to the same minimal-norm
     step, and the analysis uses sparse forward elimination, `sparse.rs`). `solve_dragging` starts

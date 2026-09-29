@@ -8,7 +8,7 @@ mod sketch;
 mod solve;
 
 pub use crate::{
-    constraint::{Constraint, DimensionError},
+    constraint::{Constraint, DimensionError, MAX_LENGTH},
     curve::{ArcGeometry, BSpline},
     entity::Entity,
     fit::FittedSpline,

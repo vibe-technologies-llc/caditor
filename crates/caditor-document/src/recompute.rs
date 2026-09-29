@@ -826,6 +826,10 @@ fn dimension_error(
             "Edit the dimension so it gives more than zero.".to_owned(),
             dimension,
         ),
+        DimensionError::TooLong => (
+            "Edit the dimension so it gives a length the model can hold.".to_owned(),
+            dimension,
+        ),
         DimensionError::Evaluation(_) | DimensionError::NotFinite => (
             "Edit the dimension or the parameters it uses.".to_owned(),
             dimension,
