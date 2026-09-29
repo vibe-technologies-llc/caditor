@@ -166,6 +166,9 @@ impl FeatureResult {
                 own.geometry.same_geometry(&theirs.geometry)
             }
             (Self::Datum(own), Self::Datum(theirs)) => own == theirs,
+            (Self::Solid(own), Self::Solid(theirs)) => {
+                own.body == theirs.body && own.solid == theirs.solid
+            }
             _ => false,
         }
     }

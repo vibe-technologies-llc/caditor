@@ -649,8 +649,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     parameters and features it uses, and those of every feature before it, which name the faces
     it works on). Upstream results count as
     unchanged when they are the same `Arc` or, for sketches, have the same plane and entities
-    (datums: the same result), so an edit that leaves geometry alone (a satisfied constraint, a
-    settle) stops there. A failing feature is `Failed` with a `FeatureError` (reason, remedy and a
+    (datums: the same result; solids: the same body and an equal solid), so an edit that leaves
+    geometry alone (a satisfied constraint, a settle, a feature remaking its body exactly as it
+    was) stops there. A failing feature is `Failed` with a `FeatureError` (reason, remedy and a
     `FixTarget`) and keeps its last good result. Its dependents fail with a pointer back to it, and
     everything else is unaffected. A panic inside an `Evaluator` is caught and becomes that
     feature's error. Each body's latest good state is carried through the tree and is part of the

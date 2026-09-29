@@ -1,4 +1,4 @@
-use std::f64::consts::PI;
+use std::{f64::consts::PI, sync::Arc};
 
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3};
@@ -162,6 +162,47 @@ fn a_fillet_changes_its_body_and_follows_upstream_edits() {
         (found - rounded_volume(6.0, 2.0)).abs() < 0.05,
         "volume {found}"
     );
+}
+
+#[test]
+fn a_blend_is_not_recomputed_when_its_body_comes_out_the_same() {
+    let mut model = model();
+    let result = |evaluation: &Evaluation, feature: FeatureId| {
+        evaluation
+            .feature(feature)
+            .and_then(|status| status.result.clone())
+            .unwrap()
+    };
+
+    let before = evaluate(&model.document, &mut model.engine);
+    let mut base = model.document.feature(model.base).unwrap().kind.clone();
+    let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = &mut base else {
+        panic!("the base is an extrusion");
+    };
+    extrude.extent = ExtrudeExtent::OneSide {
+        distance: model.document.parse("4 mm").unwrap(),
+        reversed: false,
+    };
+    model
+        .document
+        .apply(Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: model.base,
+                kind: base,
+            },
+        ))
+        .unwrap();
+    let after = evaluate(&model.document, &mut model.engine);
+
+    assert!(!Arc::ptr_eq(
+        &result(&before, model.base),
+        &result(&after, model.base)
+    ));
+    assert!(Arc::ptr_eq(
+        &result(&before, model.fillet),
+        &result(&after, model.fillet)
+    ));
 }
 
 #[test]

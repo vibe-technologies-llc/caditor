@@ -54,8 +54,6 @@ within a category run from most to least important.
 
 - Undo entries keep removed features alive, imports with their solids and STEP text included;
   `MAX_UNDO_STEPS` bounds how many there are, not how large they are.
-- Solid results count as unchanged only when they are the same `Arc`, so any edit to a solid
-  feature reruns every downstream boolean, blend and shell even when the shape is identical.
 - Tests missing for `transaction_to` with datums, attached sketches and imports, moves to an
   out-of-range index.
 
