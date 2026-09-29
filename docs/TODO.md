@@ -44,7 +44,8 @@ within a category run from most to least important.
 
 ## STEP import and export
 
-- Unsupported entities: `OFFSET_SURFACE`, and colours and layers.
+- Unsupported entities: an `OFFSET_SURFACE` of a spline, extrusion or revolution (it would need a
+  surface fitted within tolerance), and colours and layers.
 - Healing covers only edges with exactly two faces, and faces that meet only within a coarse
   declared precision are refused rather than refitted to each other.
 - Import canonicalises each placement by writing and re-reading it, parses every import again on

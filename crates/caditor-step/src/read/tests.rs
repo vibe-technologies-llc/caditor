@@ -562,6 +562,80 @@ fn horn_tori_are_read_as_the_whole_tube_turned_about_the_point_it_touches() {
     );
 }
 
+fn offset_of(
+    solid: &caditor_kernel::Solid,
+    surface: &str,
+    distance: f64,
+    radii: (&str, &str),
+) -> String {
+    let text = write_step(
+        &[StepBody {
+            name: "Offset",
+            solid,
+        }],
+        "Offset",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap()
+    .replacen(
+        &format!("{surface}('',"),
+        &format!("OFFSET_SURFACE('',#9100,{distance:?},.F.);\n#9100={surface}('',"),
+        1,
+    );
+    text.lines()
+        .map(|line| match line.strip_prefix("#9100=") {
+            Some(basis) => {
+                assert!(basis.ends_with(&format!(",{});", radii.0)), "{basis}");
+                line.replace(&format!(",{});", radii.0), &format!(",{});", radii.1))
+            }
+            None => line.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn faces_on_offsets_of_elementary_surfaces_are_imported_in_place() {
+    let turned = fixtures::turned();
+    let plate = fixtures::plate_with_hole();
+
+    let torus = sample(&offset_of(
+        &turned,
+        "TOROIDAL_SURFACE",
+        2.0,
+        ("12.0,5.0", "12.0,3.0"),
+    ));
+    let cylinder = sample(&offset_of(
+        &plate,
+        "CYLINDRICAL_SURFACE",
+        -2.0,
+        ("5.0", "7.0"),
+    ));
+
+    assert_same_shape("torus", &turned, &torus.solids[0].solid);
+    assert_same_shape("cylinder", &plate, &cylinder.solids[0].solid);
+}
+
+#[test]
+fn a_face_on_an_offset_that_leaves_no_surface_is_refused_naming_the_offset() {
+    let plate = fixtures::plate_with_hole();
+    let collapsed = offset_of(&plate, "CYLINDRICAL_SURFACE", -6.0, ("5.0", "5.0"));
+    let offset = collapsed
+        .lines()
+        .find_map(|line| line.split_once("=OFFSET_SURFACE"))
+        .map(|(id, _)| id.to_owned())
+        .unwrap();
+
+    let refusal = read_step(&collapsed).unwrap_err().to_string();
+
+    assert!(
+        refusal.contains(&format!(
+            "{offset} is offset by more than the radius of its cylinder, which leaves no surface"
+        )),
+        "{refusal}"
+    );
+}
+
 fn with_precision(text: &str, representation: &str, brep: u64, precision: &str) -> String {
     text.replace(
         "ENDSEC;\nEND-ISO-10303-21;",

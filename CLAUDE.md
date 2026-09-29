@@ -155,7 +155,13 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     the axis (the apple or, mirrored, the lemon), so its normal stays the torus's; a horn one is
     the whole tube circle turned about the point where it touches the axis, a revolution whose two
     poles are one vertex (its seam, when the face has only a `VERTEX_LOOP`, a closed edge on it),
-    and its inside is refused as holding no volume. Faces
+    and its inside is refused as holding no volume. An `OFFSET_SURFACE` of a plane, cylinder,
+    sphere, torus or cone is the exact surface of the same kind along the basis's normal (a plane
+    moved, radii grown, a cone's reference circle moved along its axis, or to its apex when the
+    offset radius there would be negative), so it keeps the basis's normal; an offset that leaves
+    no surface (inwards by a cylinder's, sphere's or torus tube's radius or more) or makes a
+    torus's tube reach its axis is refused in words, and so is an offset of a spline, extrusion or
+    revolution. Faces
     bounded by `POLY_LOOP`s get line edges shared by corner position (and a plane from the polygon
     when a plain `FACE` names no surface). Topology is surveyed first (which faces use each edge and
     vertex), then vertices off their faces are moved onto all of them by damped least squares, edges

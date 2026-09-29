@@ -120,6 +120,7 @@ The first release of caditor.
 - STEP bodies on a torus whose tube just touches its axis import. The precision a STEP file
   declares is taken into account: small repairs within it are no longer reported, and a body
   whose faces meet only as closely as that precision is refused with a message that says so.
+- STEP faces on offsets of planes, cylinders, spheres, tori and cones import as exact surfaces.
 
 ### Interface
 
