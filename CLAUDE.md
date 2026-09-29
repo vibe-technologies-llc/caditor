@@ -1259,7 +1259,7 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     be created, leaves a notice with the reason. A sketch's row says which face or plane it
     lies on and offers Detach, and Place on selected plane or Place on selected face when one is
     selected. Everything that draws or maps onto a sketch takes its plane from the solved result
-    (`scene::sketch_plane`, `displayed_sketch`), since an attached sketch's stored plane is only
+    (`scene::sketch_plane`, `Model::displayed_sketch`), since an attached sketch's stored plane is only
     where it was placed.
   - `Model` also owns the file session: the path, the last saved document (the model is
     unsaved exactly when its document differs from it), the journal entries since then and the
@@ -1467,8 +1467,13 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     displayed geometry. Every sketch transaction first settles the sketch to the last result,
     but only when that result is up to date (`Model::settled_sketch`). The UI never solves; it
     reads constraint states, degrees of freedom and redundancies from the last evaluation
-    (`sketch_status.rs`, colouring in `scene.rs`). `scene::displayed_sketch` is the definition
-    with solved positions wherever the last result has the same entity.
+    (`sketch_status.rs`, colouring in `scene.rs`). A displayed sketch (`Model::displayed_sketch`,
+    `display.rs`) is the definition with solved positions wherever the last result has the same
+    entity: the solved sketch itself when every entity matches, else a merged copy.
+    `DisplayedSketches`, owned by `Model` with the body meshes in `Display` and handed to the
+    scene through `Sources`, works out which once per sketch and keeps it, with the bounds of its
+    points that fitting and the reference size use, until the document or the evaluation changes
+    (`forget`), so a frame compares, copies and polylines no sketch for these.
   - The edited sketch is annotated over the viewport with the egui painter (`annotations.rs`,
     placement in `annotation_layout.rs`), from the displayed geometry projected through the
     current view, with offsets and sizes in screen points and no stored positions. Distances

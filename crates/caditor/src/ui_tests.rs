@@ -215,7 +215,7 @@ impl Harness {
         let built = self.workspace.viewport.build_scene(
             self.model.document(),
             self.model.evaluation(),
-            self.model.meshing(),
+            self.model.display(),
             &self.workspace.editing,
         );
         self.answer_pick(&built);
@@ -329,9 +329,7 @@ impl Harness {
 
     fn shown(&self, feature: FeatureId) -> Sketch {
         let feature = self.document().feature(feature).unwrap();
-        scene::displayed_sketch(self.model.evaluation(), feature)
-            .unwrap()
-            .into_owned()
+        Sketch::clone(&self.model.displayed_sketch(feature).unwrap())
     }
 
     fn add_sketch(&mut self, sketch: Sketch) -> FeatureId {
@@ -589,7 +587,7 @@ impl Harness {
         self.workspace.viewport.build_scene(
             self.model.document(),
             self.model.evaluation(),
-            self.model.meshing(),
+            self.model.display(),
             &self.workspace.editing,
         )
     }

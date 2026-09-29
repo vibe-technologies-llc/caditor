@@ -9,10 +9,11 @@ use egui::{Align2, FontId, Key, PointerButton, Rect, Response, Sense, vec2};
 use crate::{
     annotations::{Annotations, Surface},
     blend_tools,
-    bodies::{self, BodyMeshes, BodyMeshing},
+    bodies::{self, BodyMeshes},
     canvas,
     commands::{CameraMove, Command, CommandFrame, StandardView},
     datum_tools,
+    display::Display,
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
     model::{Action, Model, Notice, RecomputeStatus},
@@ -298,7 +299,7 @@ impl ViewportState {
         &mut self,
         document: &Document,
         evaluation: &Evaluation,
-        meshing: &BodyMeshing,
+        display: &Display,
         editing: &SketchEditing,
     ) -> BuiltScene {
         let edited = editing.feature();
@@ -308,9 +309,9 @@ impl ViewportState {
             self.face_edited_sketch = edited.is_some();
             self.last_pick = None;
         }
-        self.bodies.update(evaluation, meshing);
+        self.bodies.update(evaluation, &display.meshing);
         self.bodies
-            .update_open(document, evaluation, meshing, context.solid);
+            .update_open(document, evaluation, &display.meshing, context.solid);
         self.selection
             .retain_available(document, evaluation, context);
         self.hovered = self
@@ -337,6 +338,7 @@ impl ViewportState {
             document,
             evaluation,
             bodies: &self.bodies,
+            sketches: &display.sketches,
         };
         let mut built = scene::build(
             &sources,
@@ -582,7 +584,7 @@ impl ViewportState {
         let displayed = editing
             .feature()
             .and_then(|feature| model.document().feature(feature))
-            .and_then(|feature| scene::displayed_sketch(model.evaluation(), feature));
+            .and_then(|feature| model.displayed_sketch(feature));
         self.drawing.sync(editing.active(), displayed.as_deref());
         let scale = f64::from(self.pixels_per_point);
         let pointer = self
@@ -806,7 +808,7 @@ impl ViewportState {
             .active()
             .filter(|active| active.tool.draws())
             .and_then(|active| model.document().feature(active.feature))
-            .and_then(|feature| scene::displayed_sketch(model.evaluation(), feature));
+            .and_then(|feature| model.displayed_sketch(feature));
         let Some(sketch) = drawing_sketch else {
             self.typed_point.close();
             return;
@@ -1169,7 +1171,7 @@ mod tests {
         let built = state.build_scene(
             &document,
             &Evaluation::default(),
-            &BodyMeshing::default(),
+            &Display::default(),
             &SketchEditing::default(),
         );
 
@@ -1190,7 +1192,7 @@ mod tests {
         let built = state.build_scene(
             &document,
             &Evaluation::default(),
-            &BodyMeshing::default(),
+            &Display::default(),
             &SketchEditing::default(),
         );
         state.request(&built, true);
@@ -1223,7 +1225,7 @@ mod tests {
         state.build_scene(
             &document,
             &evaluation,
-            &BodyMeshing::default(),
+            &Display::default(),
             &SketchEditing::default(),
         );
         let entity = Pickable::SketchEntity {
@@ -1234,7 +1236,7 @@ mod tests {
         state.selection.toggle(entity);
 
         let editing = SketchEditing::editing(feature);
-        let built = state.build_scene(&document, &evaluation, &BodyMeshing::default(), &editing);
+        let built = state.build_scene(&document, &evaluation, &Display::default(), &editing);
         assert!(state.is_animating());
         assert_eq!(state.selection.iter().collect::<Vec<_>>(), vec![entity]);
         state.advance(Duration::from_secs(1));
@@ -1248,19 +1250,19 @@ mod tests {
             assert!(pixel.y >= 0.0 && pixel.y <= view.size().y);
         }
 
-        state.build_scene(&document, &evaluation, &BodyMeshing::default(), &editing);
+        state.build_scene(&document, &evaluation, &Display::default(), &editing);
         assert!(!state.is_animating());
         let reference = Pickable::SketchEntity {
             feature,
             entity: caditor_sketch::EntityId::ORIGIN,
         };
         state.selection.toggle(reference);
-        state.build_scene(&document, &evaluation, &BodyMeshing::default(), &editing);
+        state.build_scene(&document, &evaluation, &Display::default(), &editing);
         assert!(state.selection.contains(reference));
         state.build_scene(
             &document,
             &evaluation,
-            &BodyMeshing::default(),
+            &Display::default(),
             &SketchEditing::default(),
         );
         assert_eq!(state.selection.iter().collect::<Vec<_>>(), vec![entity]);
@@ -1274,7 +1276,7 @@ mod tests {
         state.build_scene(
             &document,
             &Evaluation::default(),
-            &BodyMeshing::default(),
+            &Display::default(),
             &SketchEditing::default(),
         );
         assert_ne!(state.camera.viewpoint(), initial);
@@ -1287,7 +1289,7 @@ mod tests {
         state.build_scene(
             &document,
             &Evaluation::default(),
-            &BodyMeshing::default(),
+            &Display::default(),
             &SketchEditing::default(),
         );
         assert!(state.is_animating());

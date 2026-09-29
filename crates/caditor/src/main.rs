@@ -11,6 +11,7 @@ mod cli;
 mod commands;
 mod datum_panel;
 mod datum_tools;
+mod display;
 mod drawing;
 mod editing;
 mod export;

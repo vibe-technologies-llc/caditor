@@ -171,6 +171,8 @@ The first release of caditor.
   while a large body is redrawn after an edit.
 - A large drawing is added to its sketch in the background, so importing thousands of curves no
   longer holds up the window, and an edit made while it is read is kept alongside it.
+- Sketches with thousands of curves no longer slow down every frame: how each sketch is shown
+  and how far it reaches is worked out once per change instead of several times per frame.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.
 - An arc's end snaps only to points on its circle and to where its circle crosses other curves,
   and a circle's rim only to points, so the arc stays where it was drawn and every "On …" label

@@ -10,7 +10,6 @@ use crate::{
     icons,
     model::{Action, Model},
     panels::{Focus, PanelState},
-    scene,
     selection::Selection,
     sketch_status::{self, SketchSummary},
     sketch_tools::{self, ConstraintTool},
@@ -43,10 +42,8 @@ pub fn show(
     let Some(feature) = model.document().feature(active.feature) else {
         return;
     };
-    let (Some(definition), Some(shown)) = (
-        feature.kind.sketch(),
-        scene::displayed_sketch(model.evaluation(), feature),
-    ) else {
+    let (Some(definition), Some(shown)) = (feature.kind.sketch(), model.displayed_sketch(feature))
+    else {
         return;
     };
     let selected = sketch_tools::selected_entities(selection, feature.id());

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::BTreeSet};
+use std::collections::BTreeSet;
 
 use caditor_document::{
     DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
@@ -17,6 +17,7 @@ use caditor_sketch::{
 use crate::{
     bodies::{BodyBefore, BodyMesh, BodyMeshes, OpenChoice},
     datum_tools,
+    display::DisplayedSketches,
     drawing::Preview,
     editing::Context,
     selection::{self, Axis, Pickable, PrincipalPlane, Selection},
@@ -237,6 +238,7 @@ pub struct Sources<'a> {
     pub document: &'a Document,
     pub evaluation: &'a Evaluation,
     pub bodies: &'a BodyMeshes,
+    pub sketches: &'a DisplayedSketches,
 }
 
 impl BuiltScene {
@@ -265,13 +267,14 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
         document,
         evaluation,
         bodies,
+        sketches,
     } = *sources;
     let editing = context.sketch;
     let model = model_bounds(sources);
     let reference_size = reference_size(model);
     let edited = editing
         .and_then(|id| document.feature(id))
-        .and_then(|feature| Some((feature, displayed_sketch(evaluation, feature)?)));
+        .and_then(|feature| Some((feature, sketches.get(evaluation, feature)?)));
     let grid_plane = edited
         .as_ref()
         .map_or(Plane::XY, |(_, displayed)| displayed.plane());
@@ -326,7 +329,7 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
             Some(_) => Presence::Background,
         };
         let (Some(displayed), Some(states)) = (
-            displayed_sketch(evaluation, feature),
+            sketches.get(evaluation, feature),
             ConstraintStates::of(evaluation, feature),
         ) else {
             continue;
@@ -350,7 +353,7 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
         builder.open_before(document, evaluation, open);
     }
     if let Some(feature) = context.solid {
-        builder.swept(document, evaluation, feature, reference_size);
+        builder.swept(sources, feature, reference_size);
     }
 
     let reference = Aabb::from_points(plane_corners(Plane::XY, reference_size))
@@ -369,7 +372,9 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
         edited: edited.map(|(feature, displayed)| EditedSketch {
             feature: feature.id(),
             plane: displayed.plane(),
-            bounds: sketch_bounds(&displayed),
+            bounds: sketches
+                .bounds(evaluation, feature, sketch_points_bounds)
+                .unwrap_or_else(|| empty_sketch_bounds(displayed.plane())),
         }),
         reference_size,
     }
@@ -679,13 +684,13 @@ impl Builder<'_> {
         }
     }
 
-    fn swept(
-        &mut self,
-        document: &Document,
-        evaluation: &Evaluation,
-        feature: FeatureId,
-        reference_size: f64,
-    ) {
+    fn swept(&mut self, sources: &Sources<'_>, feature: FeatureId, reference_size: f64) {
+        let Sources {
+            document,
+            evaluation,
+            sketches,
+            ..
+        } = *sources;
         let Some(solid) = document
             .feature(feature)
             .and_then(|owner| owner.kind.solid())
@@ -698,7 +703,7 @@ impl Builder<'_> {
         if let SolidFeature::Revolve(revolve) = solid {
             let displayed = document
                 .feature(solid.sketch())
-                .and_then(|sketch| displayed_sketch(evaluation, sketch));
+                .and_then(|sketch| sketches.get(evaluation, sketch));
             let ends = match &revolve.axis {
                 RevolveAxis::Sketch(line) => match line.reference() {
                     Some(reference) => Some(reference_points(plane, reference, reference_size)),
@@ -970,15 +975,17 @@ fn sketch_entity_points(sketch: &Sketch, entity: EntityId, reference_size: f64) 
     }
 }
 
-fn sketch_bounds(sketch: &Sketch) -> Aabb {
-    let plane = sketch.plane();
+fn sketch_points_bounds(sketch: &Sketch) -> Option<Aabb> {
     Aabb::from_points(
         sketch
             .entities()
             .flat_map(|(entity, _)| sketch_entity_points(sketch, entity, 0.0)),
     )
-    .or_else(|| Aabb::from_points(plane_corners(plane, EMPTY_SKETCH_HALF_SIZE)))
-    .unwrap_or_else(|| Aabb::from_point(plane.origin()))
+}
+
+fn empty_sketch_bounds(plane: Plane) -> Aabb {
+    Aabb::from_points(plane_corners(plane, EMPTY_SKETCH_HALF_SIZE))
+        .unwrap_or_else(|| Aabb::from_point(plane.origin()))
 }
 
 pub fn sketch_plane(
@@ -994,49 +1001,12 @@ pub fn sketch_plane(
     solved.or_else(|| Some(document.feature(feature)?.kind.sketch()?.plane()))
 }
 
-pub fn displayed_sketch<'a>(
-    evaluation: &'a Evaluation,
-    feature: &'a Feature,
-) -> Option<Cow<'a, Sketch>> {
-    let definition = feature.kind.sketch()?;
-    let last_good = evaluation
-        .feature(feature.id())
-        .and_then(|status| status.result.as_deref())
-        .and_then(FeatureResult::sketch)
-        .map(|result| &result.geometry);
-    Some(match last_good {
-        Some(solved) => with_solved_positions(definition, solved),
-        None => Cow::Borrowed(definition),
-    })
-}
-
-fn with_solved_positions<'a>(definition: &'a Sketch, solved: &'a Sketch) -> Cow<'a, Sketch> {
-    let same_entities =
-        definition.entities().len() == solved.entities().len()
-            && definition.entities().zip(solved.entities()).all(
-                |((id, defined), (other, settled))| id == other && defined.same_structure(settled),
-            );
-    if same_entities && definition.plane() == solved.plane() {
-        return Cow::Borrowed(solved);
-    }
-    let mut merged = definition.clone();
-    merged.set_plane(solved.plane());
-    for (id, settled) in solved.entities() {
-        let fits = definition
-            .entity(id)
-            .is_some_and(|defined| defined.same_structure(settled));
-        if fits && let Err(error) = merged.replace_entity(id, settled.clone()) {
-            log::debug!("showing the drawn position of entity {id}: {error}");
-        }
-    }
-    Cow::Owned(merged)
-}
-
 fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f64) -> Vec<Point3> {
     let Sources {
         document,
         evaluation,
         bodies,
+        sketches,
     } = *sources;
     match pickable {
         Pickable::Origin => vec![Point3::ZERO],
@@ -1044,7 +1014,7 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
         Pickable::Plane(plane) => plane_corners(plane.plane(), reference_size).to_vec(),
         Pickable::SketchEntity { feature, entity } => document
             .feature(feature)
-            .and_then(|owner| displayed_sketch(evaluation, owner))
+            .and_then(|owner| sketches.get(evaluation, owner))
             .map(|sketch| sketch_entity_points(&sketch, entity, reference_size))
             .unwrap_or_default(),
         Pickable::SketchConstraint { .. } => pickable
@@ -1101,16 +1071,13 @@ fn model_bounds(sources: &Sources<'_>) -> Option<Aabb> {
         document,
         evaluation,
         bodies,
+        sketches,
     } = *sources;
-    let sketches = Aabb::from_points(document.features().flat_map(|feature| {
-        let Some(sketch) = displayed_sketch(evaluation, feature).filter(|_| !feature.hidden) else {
-            return Vec::new();
-        };
-        sketch
-            .entities()
-            .flat_map(|(entity, _)| sketch_entity_points(&sketch, entity, 0.0))
-            .collect::<Vec<_>>()
-    }));
+    let sketches = document
+        .features()
+        .filter(|feature| !feature.hidden)
+        .filter_map(|feature| sketches.bounds(evaluation, feature, sketch_points_bounds))
+        .reduce(Aabb::union);
     let shown_bodies = bodies
         .iter()
         .filter(|(body, _)| visibility::is_shown(document, *body))
@@ -1186,6 +1153,7 @@ mod tests {
                 document,
                 evaluation,
                 bodies: &BodyMeshes::default(),
+                sketches: &DisplayedSketches::default(),
             },
             highlight,
             Context {
@@ -1207,6 +1175,7 @@ mod tests {
                     document,
                     evaluation,
                     bodies: &BodyMeshes::default(),
+                    sketches: &DisplayedSketches::default(),
                 },
                 pickables,
             )

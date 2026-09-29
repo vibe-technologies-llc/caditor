@@ -16,7 +16,6 @@ use crate::{
     canvas,
     field::{self, DimensionTarget},
     model::{Action, Model},
-    scene,
     selection::{Pickable, Selection},
     sketch_status,
     snap::Screen,
@@ -94,7 +93,7 @@ impl Marks {
     fn collect(model: &Model, feature: FeatureId, screen: &impl Screen) -> Option<Self> {
         let owner = model.document().feature(feature)?;
         let definition = owner.kind.sketch()?;
-        let shown = scene::displayed_sketch(model.evaluation(), owner)?;
+        let shown = model.displayed_sketch(owner)?;
         let standings = Standings::load(model, feature);
         let centre = centre_of(&shown);
         let screen_centre = centre.and_then(|centre| screen.to_screen(centre));

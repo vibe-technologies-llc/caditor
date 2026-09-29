@@ -5,8 +5,8 @@ use std::{
 };
 
 use caditor_document::{
-    Base, Document, Editor, Evaluation, FeatureId, FeatureResult, FeatureState, ModelEvaluator,
-    Outcome, ParameterValues, Prepared, Progress, Recomputer, Stale, Transaction,
+    Base, Document, Editor, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
+    ModelEvaluator, Outcome, ParameterValues, Prepared, Progress, Recomputer, Stale, Transaction,
 };
 use caditor_file::{
     Closing, Flusher, JournalEntry, Recovered, Report, SaveRequest, Start, Storage, StorageConfig,
@@ -15,8 +15,11 @@ use caditor_sketch::Sketch;
 use parking_lot::Mutex;
 
 use crate::{
-    bodies::BodyMeshing, editing::EditingCommand, files::FileCommand,
-    preferences::PreferencesCommand, units::LengthUnit,
+    display::{Display, Displayed},
+    editing::EditingCommand,
+    files::FileCommand,
+    preferences::PreferencesCommand,
+    units::LengthUnit,
 };
 
 pub type Waker = Box<dyn Fn() + Send>;
@@ -138,7 +141,7 @@ pub struct Model {
     file_events: Vec<FileEvent>,
     length_unit: LengthUnit,
     mesh_requested: Option<Arc<FeatureResult>>,
-    meshing: BodyMeshing,
+    display: Display,
     shown_before: Option<Arc<FeatureResult>>,
     evaluation_generation: u64,
 }
@@ -166,7 +169,7 @@ impl Model {
             file_events: Vec::new(),
             length_unit: LengthUnit::default(),
             mesh_requested: None,
-            meshing: BodyMeshing::default(),
+            display: Display::default(),
             shown_before: None,
             evaluation_generation: 0,
         };
@@ -199,12 +202,16 @@ impl Model {
         self.evaluation_generation
     }
 
-    pub fn meshing(&self) -> &BodyMeshing {
-        &self.meshing
+    pub fn display(&self) -> &Display {
+        &self.display
+    }
+
+    pub fn displayed_sketch<'a>(&'a self, feature: &'a Feature) -> Option<Displayed<'a>> {
+        self.display.sketches.get(&self.evaluation, feature)
     }
 
     pub fn bodies_pending(&self) -> bool {
-        self.meshing.is_pending()
+        self.display.meshing.is_pending()
     }
 
     pub fn undo_label(&self) -> Option<&str> {
@@ -294,7 +301,8 @@ impl Model {
         };
         let meshed = result.solid().is_none_or(|solid| solid.is_meshed());
         if meshed {
-            self.meshing
+            self.display
+                .meshing
                 .request(&result, || (self.services.make_waker)());
         }
         let requested = self
@@ -403,6 +411,7 @@ impl Model {
     }
 
     fn changed(&mut self, entry: JournalEntry) {
+        self.display.sketches.forget();
         self.notice.take_if(|notice| !notice.outlasts_edits);
         self.record(entry);
         self.dirty = !self.editor.document().same_content(&self.saved);
@@ -411,7 +420,7 @@ impl Model {
     }
 
     pub fn poll(&mut self) -> bool {
-        let stored = self.poll_storage() | self.meshing.poll();
+        let stored = self.poll_storage() | self.display.meshing.poll();
         let Some(recomputer) = &self.recomputer else {
             return stored;
         };
@@ -427,6 +436,7 @@ impl Model {
                 }
                 self.evaluation = update.evaluation;
                 self.evaluation_generation += 1;
+                self.display.sketches.forget();
                 self.mesh_bodies();
                 true
             }
@@ -537,6 +547,7 @@ impl Model {
         self.parameters = ParameterValues::evaluate(self.editor.document());
         self.evaluation = Evaluation::default();
         self.evaluation_generation += 1;
+        self.display.sketches.forget();
         self.shown_before = None;
         self.mesh_bodies();
         self.start_storage(replaces, predecessor);
@@ -551,10 +562,12 @@ impl Model {
             .chain(self.shown_before.as_ref())
             .cloned()
             .collect();
-        self.meshing
+        self.display
+            .meshing
             .retain(|source| shown.iter().any(|kept| Arc::ptr_eq(kept, source)));
         for source in &shown {
-            self.meshing
+            self.display
+                .meshing
                 .request(source, || (self.services.make_waker)());
         }
     }

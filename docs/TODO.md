@@ -69,10 +69,10 @@ within a category run from most to least important.
 - The whole scene is rebuilt every frame and cloned into `PickKey` for comparison, every line and
   fill vertex is rewritten, and fills are re-sorted (`app.rs` `build_scene`, `viewport.rs`).
   Cache geometry per result and key picks on a generation.
-- Snapping collects every point and curve of the sketch into new vectors and projects onto each
-  on every hover frame (`snap.rs`).
-- `displayed_sketch` clones and compares whole sketches five or more times per frame, and
-  `model_bounds` polylines every sketch twice.
+- Snapping projects every point and curve of the sketch on every hover frame (`snap.rs`), about
+  1 ms for 20,000 lines in a release build, most of it walking the entities; a screen-space
+  index would need the preimage of the snap radius on the sketch plane, unbounded near the
+  horizon.
 - An expanded sketch in the tree formats and evaluates every constraint every frame with an
   O(n²) `involved` check; virtualise and cache.
 - Sketch curves are faceted at a fixed 3° regardless of size or zoom.

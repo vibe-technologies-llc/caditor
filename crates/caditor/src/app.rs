@@ -821,7 +821,7 @@ impl Session {
         let built = workspace.viewport.build_scene(
             model.document(),
             model.evaluation(),
-            model.meshing(),
+            model.display(),
             &workspace.editing,
         );
         let request = workspace
