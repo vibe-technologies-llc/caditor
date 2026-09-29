@@ -134,6 +134,7 @@ pub struct Model {
     mesh_requested: Option<Arc<FeatureResult>>,
     meshing: BodyMeshing,
     shown_before: Option<Arc<FeatureResult>>,
+    evaluation_generation: u64,
 }
 
 impl Model {
@@ -161,6 +162,7 @@ impl Model {
             mesh_requested: None,
             meshing: BodyMeshing::default(),
             shown_before: None,
+            evaluation_generation: 0,
         };
         model.start_storage(None, None);
         model.recompute();
@@ -185,6 +187,10 @@ impl Model {
 
     pub fn evaluation(&self) -> &Evaluation {
         &self.evaluation
+    }
+
+    pub fn evaluation_generation(&self) -> u64 {
+        self.evaluation_generation
     }
 
     pub fn meshing(&self) -> &BodyMeshing {
@@ -394,6 +400,7 @@ impl Model {
                     };
                 }
                 self.evaluation = update.evaluation;
+                self.evaluation_generation += 1;
                 self.mesh_bodies();
                 true
             }
@@ -503,6 +510,7 @@ impl Model {
         self.notice = None;
         self.parameters = ParameterValues::evaluate(self.editor.document());
         self.evaluation = Evaluation::default();
+        self.evaluation_generation += 1;
         self.shown_before = None;
         self.mesh_bodies();
         self.start_storage(replaces, predecessor);

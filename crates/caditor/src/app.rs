@@ -30,6 +30,7 @@ use crate::{
     layout::{LogicalSize, MonitorArea, PanelLayout, Position, WindowPlacement},
     menu_bar::{self, MenuContext},
     model::{Action, Model, Notice, WakerFactory},
+    offers::SelectionOffers,
     onboarding::{self, HintChoice, WelcomeChoice},
     overlay::Overlay,
     palette::Palette,
@@ -89,6 +90,7 @@ pub struct Workspace {
     pub welcome_open: bool,
     pub about_open: bool,
     pub last_offers: Vec<Offer>,
+    pub selection_offers: SelectionOffers,
     applied_appearance: Option<Appearance>,
     keyboard_was_taken: bool,
     deferred_commands: Vec<Command>,
@@ -118,6 +120,7 @@ impl Workspace {
             welcome_open,
             about_open: false,
             last_offers: Vec::new(),
+            selection_offers: SelectionOffers::default(),
             applied_appearance: None,
             keyboard_was_taken: false,
             deferred_commands: Vec::new(),
@@ -226,10 +229,12 @@ pub fn show(
         welcome_open,
         about_open,
         last_offers,
+        selection_offers,
         keyboard_was_taken,
         deferred_commands,
         ..
     } = workspace;
+    let offers = selection_offers.refresh(model, viewport.selection());
     let situation = Situation {
         editing_sketch: editing.active().is_some(),
         drawing: viewport.is_drawing(),
@@ -260,6 +265,7 @@ pub fn show(
     let toolbar = ToolbarContext {
         selection: viewport.selection(),
         editing,
+        offers,
     };
     toolbar::show(ui, model, &toolbar, &mut commands, actions);
     sketch_toolbar::show(
@@ -273,7 +279,7 @@ pub fn show(
     );
     let status = StatusContext {
         files,
-        selection: viewport.selection(),
+        offers,
         appearance: &preferences.appearance,
     };
     status_bar::show(ui, model, &status, panels, &mut commands, actions);

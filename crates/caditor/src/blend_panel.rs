@@ -1,6 +1,8 @@
-use caditor_document::{Blend, BlendKind, Document, Feature, FeatureId, Resolution, Transaction};
+use caditor_document::{
+    Blend, BlendKind, Document, Feature, FeatureId, Resolution, SolidResult, Transaction,
+};
 use caditor_expression::Dimension;
-use caditor_kernel::{EdgeId, Solid};
+use caditor_kernel::EdgeId;
 use egui::{Button, ComboBox, Id, Ui};
 
 use crate::{
@@ -143,13 +145,13 @@ fn size_row(
 const NO_SHAPE_YET: &str = "An edge of a body that has no shape yet";
 const GONE: &str = "An edge that is no longer there";
 
-fn edge_row(document: &Document, solid: &Solid, resolution: &Resolution<EdgeId>) -> String {
+fn edge_row(document: &Document, input: &SolidResult, resolution: &Resolution<EdgeId>) -> String {
     match resolution {
-        Resolution::One(edge) => bodies::describe_edge_id(document, solid, *edge),
+        Resolution::One(edge) => bodies::describe_edge_id(document, input, *edge),
         Resolution::Pieces(pieces) => match pieces.first() {
             Some(first) => format!(
                 "{}, split into {} pieces",
-                bodies::describe_edge_id(document, solid, *first),
+                bodies::describe_edge_id(document, input, *first),
                 pieces.len()
             ),
             None => GONE.to_owned(),
@@ -162,14 +164,15 @@ fn edge_row(document: &Document, solid: &Solid, resolution: &Resolution<EdgeId>)
     }
 }
 
-fn edge_rows(document: &Document, solid: Option<&Solid>, blend: &Blend) -> ReferenceRows {
+fn edge_rows(document: &Document, input: Option<&SolidResult>, blend: &Blend) -> ReferenceRows {
     let mut summary = count(blend.edges.len(), "edge", "edges");
-    let Some(solid) = solid else {
+    let Some(input) = input else {
         return ReferenceRows {
             summary,
             rows: vec![NO_SHAPE_YET.to_owned(); blend.edges.len()],
         };
     };
+    let solid = &input.solid;
     let chosen = blend_tools::chosen_edges(solid, blend);
     let extra = chosen.followed.len().saturating_sub(chosen.explicit.len());
     if extra > 0 {
@@ -182,7 +185,7 @@ fn edge_rows(document: &Document, solid: Option<&Solid>, blend: &Blend) -> Refer
     let rows = blend
         .resolutions(solid)
         .iter()
-        .map(|resolution| edge_row(document, solid, resolution))
+        .map(|resolution| edge_row(document, input, resolution))
         .collect();
     ReferenceRows { summary, rows }
 }
@@ -202,13 +205,7 @@ fn edges_row(
         feature,
         evaluation.body_before(feature),
         model.revision(),
-        || {
-            edge_rows(
-                model.document(),
-                bodies::input_solid(evaluation, feature),
-                blend,
-            )
-        },
+        || edge_rows(model.document(), bodies::input(evaluation, feature), blend),
     );
     ui.vertical(|ui| {
         ui.label(&listed.summary);

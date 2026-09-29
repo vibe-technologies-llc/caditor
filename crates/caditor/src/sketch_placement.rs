@@ -38,8 +38,9 @@ pub fn selected_face(selection: &Selection) -> Option<FaceChoice> {
 pub const NOT_FLAT: &str = "The selected face is curved; sketches lie on planes and flat faces";
 
 pub fn is_flat(model: &Model, choice: FaceChoice) -> bool {
-    model.evaluation().body(choice.body).is_some_and(|solid| {
-        bodies::find_face(solid, choice.face).is_some_and(|face| face_plane(solid, face).is_some())
+    bodies::shown(model.evaluation(), choice.body).is_some_and(|shown| {
+        bodies::find_face(shown, choice.face)
+            .is_some_and(|face| face_plane(&shown.solid, face).is_some())
     })
 }
 
@@ -106,8 +107,9 @@ pub fn attachment_at(
     choice: FaceChoice,
     index: usize,
 ) -> Result<(FaceAttachment, Plane), &'static str> {
-    let shown = model.evaluation().body(choice.body).ok_or(GONE)?;
-    let face = bodies::find_face(shown, choice.face).ok_or(GONE)?;
+    let body = bodies::shown(model.evaluation(), choice.body).ok_or(GONE)?;
+    let face = bodies::find_face(body, choice.face).ok_or(GONE)?;
+    let shown = &body.solid;
     if face_plane(shown, face).is_none() {
         return Err(NOT_FLAT);
     }

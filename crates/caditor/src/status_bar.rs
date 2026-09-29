@@ -10,9 +10,9 @@ use crate::{
     files::{self, Files},
     icons,
     model::{Action, Model, Notice, NoticeKind, RecomputeStatus},
+    offers::Offers,
     panels::{Focus, PanelState},
     preferences::{Appearance, PreferenceChange, PreferencesCommand},
-    selection::Selection,
     widgets::{self, Tone},
 };
 
@@ -28,7 +28,7 @@ const NOTHING_FAILED: &str = "No feature has failed";
 
 pub struct StatusContext<'a> {
     pub files: &'a Files,
-    pub selection: &'a Selection,
+    pub offers: &'a Offers,
     pub appearance: &'a Appearance,
 }
 
@@ -113,7 +113,7 @@ fn trailing(
         interface_size(ui, context.appearance, actions);
         unit(ui, model, actions);
         widgets::remember_width(ui, id, ui.min_rect().width());
-        selection(ui, model, context.selection, selection_room);
+        selection(ui, &context.offers.described, selection_room);
         if with_notice {
             ui.add_space(NOTICE_GAP);
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
@@ -266,12 +266,8 @@ fn notice(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, wrap: bool) {
     }
 }
 
-fn selection(ui: &mut Ui, model: &Model, selection: &Selection, room: f32) {
-    let described: Vec<String> = selection
-        .iter()
-        .map(|pickable| pickable.describe(model.document(), model.evaluation()))
-        .collect();
-    let text = match described.as_slice() {
+fn selection(ui: &mut Ui, described: &[String], room: f32) {
+    let text = match described {
         [] => "Nothing selected".to_owned(),
         [only] => only.clone(),
         many => format!("{} selected", count(many.len(), "item", "items")),
@@ -282,7 +278,7 @@ fn selection(ui: &mut Ui, model: &Model, selection: &Selection, room: f32) {
             ui.add(Label::new(widgets::muted(text, ui)).truncate())
         })
         .inner;
-    match described.as_slice() {
+    match described {
         [] => {}
         [only] => {
             response.on_hover_text(only);

@@ -24,6 +24,7 @@ mod import;
 mod layout;
 mod menu_bar;
 mod model;
+mod offers;
 mod onboarding;
 mod overlay;
 mod palette;

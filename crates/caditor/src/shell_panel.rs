@@ -1,6 +1,6 @@
-use caditor_document::{Document, Feature, FeatureId, Resolution, Shell, Transaction};
+use caditor_document::{Document, Feature, FeatureId, Resolution, Shell, SolidResult, Transaction};
 use caditor_expression::Dimension;
-use caditor_kernel::{FaceId, Solid};
+use caditor_kernel::FaceId;
 use egui::{Id, Ui};
 
 use crate::{
@@ -87,10 +87,11 @@ fn thickness_row(
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
 const GONE: &str = "A face that is no longer there";
 
-fn face_row(document: &Document, solid: &Solid, resolution: &Resolution<FaceId>) -> String {
+fn face_row(document: &Document, input: &SolidResult, resolution: &Resolution<FaceId>) -> String {
     match resolution {
-        Resolution::One(face) => bodies::describe_face_id(document, solid, *face),
-        Resolution::Pieces(pieces) => match pieces.first().and_then(|face| solid.face(*face)) {
+        Resolution::One(face) => bodies::describe_face_id(document, input, *face),
+        Resolution::Pieces(pieces) => match pieces.first().and_then(|face| input.solid.face(*face))
+        {
             Some(first) => format!(
                 "{}, split into {} pieces",
                 bodies::describe_origin(document, first.origin()),
@@ -106,13 +107,13 @@ fn face_row(document: &Document, solid: &Solid, resolution: &Resolution<FaceId>)
     }
 }
 
-fn face_rows(document: &Document, solid: Option<&Solid>, shell: &Shell) -> ReferenceRows {
+fn face_rows(document: &Document, input: Option<&SolidResult>, shell: &Shell) -> ReferenceRows {
     let summary = count(shell.open.len(), "face", "faces");
-    let rows = match solid {
-        Some(solid) => shell
-            .resolutions(solid)
+    let rows = match input {
+        Some(input) => shell
+            .resolutions(&input.solid)
             .iter()
-            .map(|resolution| face_row(document, solid, resolution))
+            .map(|resolution| face_row(document, input, resolution))
             .collect(),
         None => vec![NO_SHAPE_YET.to_owned(); shell.open.len()],
     };
@@ -134,13 +135,7 @@ fn faces_row(
         feature,
         evaluation.body_before(feature),
         model.revision(),
-        || {
-            face_rows(
-                model.document(),
-                bodies::input_solid(evaluation, feature),
-                shell,
-            )
-        },
+        || face_rows(model.document(), bodies::input(evaluation, feature), shell),
     );
     ui.vertical(|ui| {
         if shell.open.is_empty() {

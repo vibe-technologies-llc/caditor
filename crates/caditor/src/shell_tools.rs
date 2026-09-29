@@ -36,12 +36,10 @@ pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource
         }
     }
     let body = body.ok_or("Select the faces of a body to leave open")?;
-    let solid = model
-        .evaluation()
-        .body(body)
+    let shown = bodies::shown(model.evaluation(), body)
         .ok_or("Select the faces of a body to leave open")?;
     let flat = faces.iter().all(|face| {
-        bodies::find_face(solid, *face).is_some_and(|face| face_plane(solid, face).is_some())
+        bodies::find_face(shown, *face).is_some_and(|face| face_plane(&shown.solid, face).is_some())
     });
     if !flat {
         return Err("Only flat faces can be left open, so select flat faces only");
@@ -55,13 +53,12 @@ pub fn create(
     source: &FaceSource,
     unit: LengthUnit,
 ) -> Result<(Transaction, FeatureId), &'static str> {
-    let solid = evaluation
-        .body(source.body)
+    let shown = bodies::shown(evaluation, source.body)
         .ok_or("The body has no shape yet; recompute the model, then try again")?;
     let open: Vec<FaceReference> = source
         .faces
         .iter()
-        .filter_map(|key| FaceReference::capture(solid, bodies::find_face(solid, *key)?))
+        .filter_map(|key| FaceReference::capture(&shown.solid, bodies::find_face(shown, *key)?))
         .collect();
     if open.len() < source.faces.len() {
         return Err("Some of the selected faces are no longer part of the model");
@@ -121,8 +118,9 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
     let document = model.document();
     let owner = document.feature(feature)?;
     let shell = owner.kind.shell()?;
-    let solid = bodies::input_solid(model.evaluation(), feature)?;
-    let clicked = bodies::find_face(solid, face)?;
+    let input = bodies::input(model.evaluation(), feature)?;
+    let clicked = bodies::find_face(input, face)?;
+    let solid = &input.solid;
     face_plane(solid, clicked)?;
     let mut changed = shell.clone();
     changed.open = shell

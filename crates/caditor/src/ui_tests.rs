@@ -3168,6 +3168,38 @@ fn plane_height(harness: &Harness, sketch: FeatureId) -> f64 {
 }
 
 #[test]
+fn what_the_selection_offers_is_worked_out_when_it_or_the_model_changes_not_every_frame() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    let computed = harness.workspace.selection_offers.computations();
+
+    for _ in 0..5 {
+        harness.frame();
+    }
+    assert_eq!(harness.workspace.selection_offers.computations(), computed);
+    assert!(harness.shows("Extrude 1 › Extrude 1 end face"));
+    harness.hover("Shell");
+    assert!(harness.shows(&format!(
+        "{} (1 face open)",
+        crate::shell_tools::DESCRIPTION
+    )));
+
+    harness.select([]);
+    harness.frame();
+    assert_eq!(
+        harness.workspace.selection_offers.computations(),
+        computed + 1
+    );
+    assert!(harness.shows("Nothing selected"));
+
+    let before = harness.workspace.selection_offers.computations();
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(harness.workspace.selection_offers.computations() > before);
+}
+
+#[test]
 fn a_sketch_started_on_a_selected_face_follows_it_when_the_body_changes() {
     let mut harness = Harness::new();
     let (extrude, top) = extruded_plate(&mut harness);
@@ -3442,7 +3474,7 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
         .expect("the fillet is open");
     let whole = crate::bodies::describe_edge(
         harness.document(),
-        crate::bodies::input_solid(harness.model.evaluation(), fillet).unwrap(),
+        crate::bodies::input(harness.model.evaluation(), fillet).unwrap(),
         front,
     );
     let listed_whole = harness.shows(&whole);
@@ -3476,8 +3508,8 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
     });
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
-    let input = crate::bodies::input_solid(harness.model.evaluation(), fillet).unwrap();
-    let pieces = blend_of(&harness, fillet).resolutions(input);
+    let input = crate::bodies::input(harness.model.evaluation(), fillet).unwrap();
+    let pieces = blend_of(&harness, fillet).resolutions(&input.solid);
     let [caditor_document::Resolution::Pieces(pieces)] = pieces.as_slice() else {
         panic!("the slot splits the chosen edge in two: {pieces:?}");
     };

@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     panic::{self, AssertUnwindSafe},
     sync::OnceLock,
 };
@@ -7,9 +7,10 @@ use std::{
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector2};
 use caditor_kernel::{
-    AngularExtent, Axis2, BooleanError, BooleanOperation, GeometryError, LinearExtent, MAX_SIZE,
-    Mesh, Profile, ProfileCurve, ProfileError, Region, RegionKey, RegionMesh, SamplingTolerance,
-    Selection, Solid, SweepError, TessellationError, boolean, extrude, revolve,
+    AngularExtent, Axis2, BooleanError, BooleanOperation, EdgeId, EdgeName, FaceId, FaceName,
+    GeometryError, LinearExtent, MAX_SIZE, Mesh, Profile, ProfileCurve, ProfileError, Region,
+    RegionKey, RegionMesh, SamplingTolerance, Selection, Solid, SweepError, TessellationError,
+    boolean, extrude, revolve,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -243,6 +244,35 @@ pub struct SolidResult {
     pub solid: Solid,
     mesh: OnceLock<Option<Mesh>>,
     bounds: OnceLock<Option<Aabb>>,
+    names: OnceLock<NameIndex>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct NameIndex {
+    faces: BTreeMap<FaceName, Vec<FaceId>>,
+    edges: BTreeMap<EdgeName, EdgeId>,
+}
+
+impl NameIndex {
+    pub fn of(solid: &Solid) -> Self {
+        let mut faces: BTreeMap<FaceName, Vec<FaceId>> = BTreeMap::new();
+        for (id, face) in solid.faces() {
+            faces.entry(face.name()).or_default().push(id);
+        }
+        let mut edges = BTreeMap::new();
+        for (id, edge) in solid.edges() {
+            edges.entry(edge.name()).or_insert(id);
+        }
+        Self { faces, edges }
+    }
+
+    pub fn faces_named(&self, name: FaceName) -> &[FaceId] {
+        self.faces.get(&name).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn edge_named(&self, name: EdgeName) -> Option<EdgeId> {
+        self.edges.get(&name).copied()
+    }
 }
 
 impl SolidResult {
@@ -252,7 +282,12 @@ impl SolidResult {
             solid,
             mesh: OnceLock::new(),
             bounds: OnceLock::new(),
+            names: OnceLock::new(),
         }
+    }
+
+    pub fn names(&self) -> &NameIndex {
+        self.names.get_or_init(|| NameIndex::of(&self.solid))
     }
 
     pub fn bounding_box(&self) -> Option<Aabb> {

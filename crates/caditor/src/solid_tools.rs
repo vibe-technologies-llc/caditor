@@ -1,13 +1,12 @@
 use caditor_document::{
-    BodyOperation, Document, Edit, Extrude, ExtrudeExtent, FeatureId, FeatureKind, RegionChoice,
-    Revolve, RevolveAxis, RevolveExtent, SolidFeature, Transaction, describe_axis,
+    AxisReference, BodyOperation, Document, Edit, Extrude, ExtrudeExtent, FeatureId, FeatureKind,
+    RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature, Transaction, describe_axis,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_kernel::RegionKey;
 use caditor_sketch::{Entity, EntityId, Reference};
 
 use crate::{
-    datum_tools,
     editing::{self, EditingCommand, SketchEditing},
     model::{Action, Model},
     scene,
@@ -100,16 +99,14 @@ pub fn sweep_source(
     Some(SweepSource { sketch, axis })
 }
 
-pub fn with_model_axis(model: &Model, selection: &Selection, source: SweepSource) -> SweepSource {
+pub fn with_model_axis(source: SweepSource, axis: Option<&AxisReference>) -> SweepSource {
     if source.axis.is_some() {
         return source;
     }
-    let end = model.document().features().len();
-    let axis = selection
-        .iter()
-        .find_map(|pickable| datum_tools::axis_reference(model, pickable, end))
-        .map(RevolveAxis::Model);
-    SweepSource { axis, ..source }
+    SweepSource {
+        axis: axis.cloned().map(RevolveAxis::Model),
+        ..source
+    }
 }
 
 pub fn axis_name(document: &Document, sketch: FeatureId, axis: &RevolveAxis) -> String {

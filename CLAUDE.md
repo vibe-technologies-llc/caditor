@@ -775,6 +775,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     (`Recomputer::mesh`, sent by `Model::mesh_before` for the open feature). A panic or
     failure while meshing leaves the body without a mesh (`mesh_failed`) but keeps its shape for
     later features, and a run cancelled before every shown body was meshed is not complete.
+    `SolidResult::names` is a `NameIndex` built on first use and kept with the result: the faces
+    of each name in solid order and the first edge of each name, so the app finds a face or edge
+    it holds by name without scanning the solid.
   - `Recomputer` runs recompute on a worker thread. A newer submission or `cancel` stops the
     running job between features (evaluators also receive a `CancelToken`), and features that
     were not reached are reported as `Outdated`. The worker calls a wake callback after each
@@ -1185,9 +1188,15 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     only uploads buffers, and the first fit of a newly opened model waits for them
     (`Model::bodies_pending`). A face is picked and selected as
     `Pickable::Face` with a `FaceKey` (its `FaceName` and its occurrence among faces sharing
-    the name, in solid order), an edge as `Pickable::Edge` with its `EdgeName`; both are
+    the name, in solid order), an edge as `Pickable::Edge` with its `EdgeName`, both found
+    through the result's `NameIndex` (`find_face`, `find_edge` on the `SolidResult` from
+    `bodies::shown` or `bodies::input`); both are
     described in words from the `FaceOrigin` (for example "Extrude 1 side from Line 3"). While
-    a sketch is edited, bodies are dimmed and not pickable.
+    a sketch is edited, bodies are dimmed and not pickable. What the selection offers the
+    toolbar and status bar (the flat face for New sketch, the model axis for Revolve, the datum
+    plane and axis, the faces to shell and the selection's descriptions) is worked out by
+    `offers.rs` only when the selection, the model's revision, its evaluation
+    (`Model::evaluation_generation`) or the length unit changes, not every frame.
   - Solid modelling (`solid_tools.rs`, `solid_panel.rs`): the toolbar's Extrude and Revolve
     take the edited sketch, else the sketch of the selected entities, else the last sketch, and
     a selected line or sketch axis as the revolve axis, else a selected principal axis, datum

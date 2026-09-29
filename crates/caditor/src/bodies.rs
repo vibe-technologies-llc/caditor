@@ -8,7 +8,7 @@ use std::{
     thread,
 };
 
-use caditor_document::{Document, Evaluation, FeatureId, FeatureKind, FeatureResult};
+use caditor_document::{Document, Evaluation, FeatureId, FeatureKind, FeatureResult, SolidResult};
 pub use caditor_document::{describe_origin, origin_feature};
 use caditor_geometry::{Aabb, Point3};
 use caditor_kernel::{
@@ -45,20 +45,21 @@ pub fn face_keys(solid: &Solid) -> Vec<(FaceId, FaceKey)> {
         .collect()
 }
 
-pub fn input_solid(evaluation: &Evaluation, feature: FeatureId) -> Option<&Solid> {
-    Some(&evaluation.body_before(feature)?.solid()?.solid)
+pub fn shown(evaluation: &Evaluation, body: FeatureId) -> Option<&SolidResult> {
+    evaluation.body_result(body)?.solid()
 }
 
-pub fn find_face(solid: &Solid, key: FaceKey) -> Option<FaceId> {
-    face_keys(solid)
-        .into_iter()
-        .find_map(|(id, candidate)| (candidate == key).then_some(id))
+pub fn input(evaluation: &Evaluation, feature: FeatureId) -> Option<&SolidResult> {
+    evaluation.body_before(feature)?.solid()
 }
 
-pub fn find_edge(solid: &Solid, name: EdgeName) -> Option<EdgeId> {
-    solid
-        .edges()
-        .find_map(|(id, edge)| (edge.name() == name).then_some(id))
+pub fn find_face(body: &SolidResult, key: FaceKey) -> Option<FaceId> {
+    let occurrence = usize::try_from(key.occurrence).ok()?;
+    body.names().faces_named(key.name).get(occurrence).copied()
+}
+
+pub fn find_edge(body: &SolidResult, name: EdgeName) -> Option<EdgeId> {
+    body.names().edge_named(name)
 }
 
 fn edge_faces(solid: &Solid, edge: EdgeId) -> Vec<FaceId> {
@@ -448,53 +449,51 @@ impl BodyMeshing {
     }
 }
 
-pub fn describe_face_id(document: &Document, solid: &Solid, face: FaceId) -> String {
-    let Some(definition) = solid.face(face) else {
+pub fn describe_face_id(document: &Document, body: &SolidResult, face: FaceId) -> String {
+    let Some(definition) = body.solid.face(face) else {
         return "Missing face".to_owned();
     };
     let text = describe_origin(document, definition.origin());
-    let occurrence = face_keys(solid)
-        .into_iter()
-        .find_map(|(id, key)| (id == face).then_some(key.occurrence))
-        .unwrap_or(0);
-    let parts = solid
-        .faces()
-        .filter(|(_, other)| other.name() == definition.name())
-        .count();
-    if parts > 1 {
-        format!("{text}, part {} of {parts}", occurrence.saturating_add(1))
+    let parts = body.names().faces_named(definition.name());
+    let occurrence = parts.iter().position(|part| *part == face).unwrap_or(0);
+    if parts.len() > 1 {
+        format!(
+            "{text}, part {} of {}",
+            occurrence.saturating_add(1),
+            parts.len()
+        )
     } else {
         text
     }
 }
 
-pub fn describe_face(document: &Document, solid: &Solid, key: FaceKey) -> String {
-    match find_face(solid, key) {
-        Some(face) => describe_face_id(document, solid, face),
+pub fn describe_face(document: &Document, body: &SolidResult, key: FaceKey) -> String {
+    match find_face(body, key) {
+        Some(face) => describe_face_id(document, body, face),
         None => "Missing face".to_owned(),
     }
 }
 
-pub fn describe_edge(document: &Document, solid: &Solid, name: EdgeName) -> String {
-    match find_edge(solid, name) {
-        Some(edge) => describe_edge_id(document, solid, edge),
+pub fn describe_edge(document: &Document, body: &SolidResult, name: EdgeName) -> String {
+    match find_edge(body, name) {
+        Some(edge) => describe_edge_id(document, body, edge),
         None => "Missing edge".to_owned(),
     }
 }
 
-pub fn describe_edge_id(document: &Document, solid: &Solid, edge: EdgeId) -> String {
-    match edge_faces(solid, edge).as_slice() {
+pub fn describe_edge_id(document: &Document, body: &SolidResult, edge: EdgeId) -> String {
+    match edge_faces(&body.solid, edge).as_slice() {
         [first, second] => format!(
             "Edge between {} and {}",
-            describe_face_id(document, solid, *first),
-            describe_face_id(document, solid, *second)
+            describe_face_id(document, body, *first),
+            describe_face_id(document, body, *second)
         ),
         _ => "Edge".to_owned(),
     }
 }
 
-pub fn face_origin(solid: &Solid, key: FaceKey) -> Option<FaceOrigin> {
-    solid.face(find_face(solid, key)?)?.origin()
+pub fn face_origin(body: &SolidResult, key: FaceKey) -> Option<FaceOrigin> {
+    body.solid.face(find_face(body, key)?)?.origin()
 }
 
 #[cfg(test)]
@@ -560,6 +559,37 @@ mod tests {
         assert_eq!(shown.edges, direct.edges);
         assert_eq!(shown.mesh.face_count(), direct.mesh.face_count());
         assert_eq!(shown.bounds(), direct.bounds());
+    }
+
+    #[test]
+    fn faces_and_edges_are_found_by_key_and_name_through_the_cached_index() {
+        for sample in Sample::ALL {
+            let document = sample.document().unwrap();
+            let evaluation = evaluate(&mut Recompute::default(), &document);
+            let (body, _) = only_body(&evaluation);
+            let shown = super::shown(&evaluation, body).unwrap();
+
+            for (id, key) in face_keys(&shown.solid) {
+                assert_eq!(find_face(shown, key), Some(id));
+                let parts = shown.names().faces_named(key.name).len();
+                let described = describe_face_id(&document, shown, id);
+                assert_eq!(
+                    described.ends_with(&format!("part {} of {parts}", key.occurrence + 1)),
+                    parts > 1,
+                    "{described}"
+                );
+            }
+            for (id, edge) in shown.solid.edges() {
+                let found = find_edge(shown, edge.name()).unwrap();
+                assert_eq!(shown.solid.edge(found).unwrap().name(), edge.name());
+                assert!(found <= id);
+            }
+            let missing = FaceKey {
+                name: FaceName::NONE,
+                occurrence: 0,
+            };
+            assert_eq!(find_face(shown, missing), None);
+        }
     }
 
     #[test]

@@ -162,7 +162,7 @@ impl Pickable {
             }
             Self::Face { body, face } => {
                 let name = body_name(document, body);
-                match evaluation.body(body) {
+                match bodies::shown(evaluation, body) {
                     Some(solid) => {
                         format!("{name} › {}", bodies::describe_face(document, solid, face))
                     }
@@ -171,7 +171,7 @@ impl Pickable {
             }
             Self::Edge { body, edge } => {
                 let name = body_name(document, body);
-                match evaluation.body(body) {
+                match bodies::shown(evaluation, body) {
                     Some(solid) => {
                         format!("{name} › {}", bodies::describe_edge(document, solid, edge))
                     }
@@ -190,7 +190,7 @@ impl Pickable {
                 let owner = document
                     .feature(feature)
                     .map_or("the feature", |owner| owner.name.as_str());
-                let described = bodies::input_solid(evaluation, feature).map_or_else(
+                let described = bodies::input(evaluation, feature).map_or_else(
                     || "Edge".to_owned(),
                     |solid| bodies::describe_edge(document, solid, edge),
                 );
@@ -203,7 +203,7 @@ impl Pickable {
                 let owner = document
                     .feature(feature)
                     .map_or("the feature", |owner| owner.name.as_str());
-                let described = bodies::input_solid(evaluation, feature).map_or_else(
+                let described = bodies::input(evaluation, feature).map_or_else(
                     || "Face".to_owned(),
                     |solid| bodies::describe_face(document, solid, face),
                 );
@@ -283,15 +283,13 @@ impl Pickable {
             Self::Face { body, face } => {
                 editing.is_none()
                     && visibility::is_shown(document, body)
-                    && evaluation
-                        .body(body)
+                    && bodies::shown(evaluation, body)
                         .is_some_and(|solid| bodies::find_face(solid, face).is_some())
             }
             Self::Edge { body, edge } => {
                 editing.is_none()
                     && visibility::is_shown(document, body)
-                    && evaluation
-                        .body(body)
+                    && bodies::shown(evaluation, body)
                         .is_some_and(|solid| bodies::find_edge(solid, edge).is_some())
             }
             Self::Region { feature, region } => {
@@ -304,7 +302,7 @@ impl Pickable {
             }
             Self::BlendEdge { feature, edge } => {
                 context.solid == Some(feature)
-                    && bodies::input_solid(evaluation, feature)
+                    && bodies::input(evaluation, feature)
                         .is_some_and(|solid| bodies::find_edge(solid, edge).is_some())
             }
             Self::Datum(feature) => {
@@ -317,7 +315,7 @@ impl Pickable {
             }
             Self::ShellFace { feature, face } => {
                 context.solid == Some(feature)
-                    && bodies::input_solid(evaluation, feature)
+                    && bodies::input(evaluation, feature)
                         .is_some_and(|solid| bodies::find_face(solid, face).is_some())
             }
         }

@@ -1062,10 +1062,8 @@ fn open_command(pickable: Option<Pickable>, model: &Model) -> Option<EditingComm
     match pickable? {
         Pickable::SketchEntity { feature, .. } => Some(EditingCommand::Enter(feature)),
         Pickable::Datum(datum) => Some(EditingCommand::OpenSolid(datum)),
-        Pickable::Face { body, face } => model
-            .evaluation()
-            .body(body)
-            .and_then(|solid| bodies::face_origin(solid, face))
+        Pickable::Face { body, face } => bodies::shown(model.evaluation(), body)
+            .and_then(|shown| bodies::face_origin(shown, face))
             .map(|origin| EditingCommand::OpenSolid(bodies::origin_feature(origin))),
         _ => None,
     }

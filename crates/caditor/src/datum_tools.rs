@@ -71,14 +71,14 @@ pub fn axis_reference(model: &Model, pickable: Pickable, index: usize) -> Option
             Some(AxisReference::Datum(feature))
         }
         Pickable::Edge { body, edge } => {
-            let shown = evaluation.body(body)?;
-            let reference = EdgeReference::capture(shown, bodies::find_edge(shown, edge)?)?;
+            let shown = bodies::shown(evaluation, body)?;
+            let reference = EdgeReference::capture(&shown.solid, bodies::find_edge(shown, edge)?)?;
             let state = sketch_placement::body_state_before(model, body, index).ok()?;
             AxisReference::capture_edge(body, state, reference.resolve(state).ok()?)
         }
         Pickable::Face { body, face } => {
-            let shown = evaluation.body(body)?;
-            let reference = FaceReference::capture(shown, bodies::find_face(shown, face)?)?;
+            let shown = bodies::shown(evaluation, body)?;
+            let reference = FaceReference::capture(&shown.solid, bodies::find_face(shown, face)?)?;
             let state = sketch_placement::body_state_before(model, body, index).ok()?;
             AxisReference::capture_face(body, state, reference.resolve(state).ok()?)
         }

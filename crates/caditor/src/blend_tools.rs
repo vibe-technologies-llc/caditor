@@ -49,13 +49,13 @@ pub fn create(
     source: &EdgeSource,
     unit: LengthUnit,
 ) -> Result<(Transaction, FeatureId), &'static str> {
-    let solid = evaluation.body(source.body).ok_or(NO_SHAPE)?;
-    let naming = EdgeNaming::new(solid);
+    let shown = bodies::shown(evaluation, source.body).ok_or(NO_SHAPE)?;
+    let naming = EdgeNaming::new(&shown.solid);
     let edges: Vec<EdgeReference> = source
         .edges
         .iter()
         .filter_map(|name| {
-            let edge = bodies::find_edge(solid, *name)?;
+            let edge = bodies::find_edge(shown, *name)?;
             EdgeReference::capture_in(&naming, edge)
         })
         .collect();
@@ -136,8 +136,9 @@ pub fn toggle_edge(model: &Model, feature: FeatureId, edge: EdgeName) -> Option<
     let document = model.document();
     let owner = document.feature(feature)?;
     let blend = owner.kind.blend()?;
-    let solid = bodies::input_solid(model.evaluation(), feature)?;
-    let clicked = bodies::find_edge(solid, edge)?;
+    let input = bodies::input(model.evaluation(), feature)?;
+    let clicked = bodies::find_edge(input, edge)?;
+    let solid = &input.solid;
     let mut changed = blend.clone();
     changed.edges = blend
         .edges

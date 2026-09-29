@@ -9,8 +9,9 @@ use crate::{
     feature_tree::count,
     icons,
     model::{Action, Model},
+    offers::Offers,
     selection::{Pickable, Selection},
-    shell_tools, sketch_placement,
+    shell_tools,
     solid_tools::{self, Sweep},
     viewport::CHOOSE_PLANE_PROMPT,
     widgets::{self, Tone, ToolButton},
@@ -24,6 +25,7 @@ const NO_SKETCH_TO_SWEEP: &str = "Draw a sketch with a closed outline first";
 pub struct ToolbarContext<'a> {
     pub selection: &'a Selection,
     pub editing: &'a SketchEditing,
+    pub offers: &'a Offers,
 }
 
 pub fn show(
@@ -89,8 +91,7 @@ fn sketch_buttons(
         | Pickable::Datum(_) => None,
     });
     let datum = datum_tools::selected_datum_plane(model.document(), selection);
-    let face = sketch_placement::selected_face(selection)
-        .filter(|face| sketch_placement::is_flat(model, *face));
+    let face = context.offers.sketch_face;
     let (hover, command) = match (plane, datum, face) {
         (Some(plane), _, _) => (
             format!("Start a sketch on the selected {}", plane.name()),
@@ -133,7 +134,7 @@ fn solid_buttons(
 ) {
     let document = model.document();
     let source = solid_tools::sweep_source(document, context.selection, context.editing)
-        .map(|source| solid_tools::with_model_axis(model, context.selection, source));
+        .map(|source| solid_tools::with_model_axis(source, context.offers.model_axis.as_ref()));
     for sweep in Sweep::ALL {
         let command = match sweep {
             Sweep::Extrude => Command::Extrude,
@@ -225,8 +226,7 @@ fn datum_buttons(
     actions: &mut Vec<Action>,
 ) {
     let document = model.document();
-    let end = document.features().len();
-    let plane = datum_tools::plane_from_selection(model, context.selection, end);
+    let plane = context.offers.datum_plane.clone();
     let invoked = commands.invoke(Command::DatumPlane, &plane);
     let response = tool(ui, Command::DatumPlane, PLANE_LABEL, plane.is_ok());
     let response = match &plane {
@@ -243,7 +243,7 @@ fn datum_buttons(
         actions.extend(datum_tools::create_actions(document, Datum::Plane(plane)));
     }
 
-    let axis = datum_tools::axis_from_selection(model, context.selection, end);
+    let axis = context.offers.datum_axis.clone();
     let invoked = commands.invoke(Command::DatumAxis, &axis);
     let response = tool(ui, Command::DatumAxis, AXIS_LABEL, axis.is_ok());
     let response = match &axis {
@@ -270,10 +270,10 @@ fn shell_button(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let source = shell_tools::selected_faces(model, context.selection);
-    let invoked = commands.invoke(Command::Shell, &source);
+    let source = &context.offers.shell;
+    let invoked = commands.invoke(Command::Shell, source);
     let response = tool(ui, Command::Shell, shell_tools::TITLE, source.is_ok());
-    let response = match &source {
+    let response = match source {
         Ok(source) => response.on_hover_text(commands.with_keys(
             Command::Shell,
             &format!(
@@ -288,7 +288,7 @@ fn shell_button(
         )),
     };
     if (response.clicked() || invoked)
-        && let Ok(source) = &source
+        && let Ok(source) = source
     {
         actions.extend(shell_tools::create_actions(
             model.document(),
