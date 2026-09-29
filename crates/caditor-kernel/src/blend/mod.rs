@@ -74,6 +74,8 @@ pub enum BlendError {
     Smooth(EdgeId),
     #[error("the size does not fit on the faces next to edge {0:?}")]
     TooLarge(EdgeId),
+    #[error("the blend around edge {0:?} would reach past its own start to close off its ends")]
+    WrapsAround(EdgeId),
     #[error("edge {edge:?} ends at vertex {vertex:?} where the blend cannot be closed off")]
     UnsupportedEnd {
         edge: EdgeId,
@@ -104,6 +106,7 @@ impl BlendError {
             Self::Unsupported(_) => Self::Unsupported(edge),
             Self::Smooth(_) => Self::Smooth(edge),
             Self::TooLarge(_) => Self::TooLarge(edge),
+            Self::WrapsAround(_) => Self::WrapsAround(edge),
             Self::UnsupportedEnd { .. } => Self::UnsupportedEnd { edge, vertex: None },
             other => other,
         }
@@ -115,6 +118,7 @@ impl BlendError {
             | Self::Unsupported(edge)
             | Self::Smooth(edge)
             | Self::TooLarge(edge)
+            | Self::WrapsAround(edge)
             | Self::Lost(edge)
             | Self::UnsupportedEnd { edge, .. } => Some(*edge),
             Self::InvalidSize
@@ -735,10 +739,14 @@ fn tool(
                 if innermost <= SMALLEST_RADIUS {
                     return Err(BlendError::TooLarge(geometry.edge));
                 }
-                AngularExtent::new(
+                let (from, to) = (
                     -start.extension() / innermost,
                     angle + end.extension() / innermost,
-                )?
+                );
+                if to - from >= TAU {
+                    return Err(BlendError::WrapsAround(geometry.edge));
+                }
+                AngularExtent::new(from, to)?
             };
             revolve(&geometry.frame, &regions, axis, extent, feature)?
         }

@@ -502,7 +502,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     chosen ones come back as `AfterFill` without an id). Ends continuing into another chosen edge
     stop flush, ends on a face perpendicular to the edge stop there, ends on a slanted face extend
     past it when the extension lies where the operation changes nothing, else are clipped by the
-    face's plane. Three convex straight edges filleted at a vertex of three planes get a spherical
+    face's plane; a circular edge whose extended sweep would pass a full turn is refused as
+    `WrapsAround`, naming the edge. Three convex straight edges filleted at a vertex of three planes get a spherical
     corner (`corner.rs`: a hexahedron minus the rolling ball, built through `Plan`); other corners
     mitre. Faces are named `FaceName::blend(feature, edge)` and `corner(feature, vertex)` with
     `FaceOrigin::Fillet` or `Chamfer`.

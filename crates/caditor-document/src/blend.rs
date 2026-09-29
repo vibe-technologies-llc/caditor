@@ -181,6 +181,16 @@ impl Context<'_> {
                 format!("The {what} is too large for the faces next to {edge}."),
                 format!("Enter a smaller {what}, or leave this edge out."),
             ),
+            BlendError::WrapsAround(_) => self.error(
+                format!(
+                    "The {noun} of {edge} would run into itself: the edge is almost a full circle \
+                     and its ends need room beyond it."
+                ),
+                format!(
+                    "Also choose the edges that continue from it, enter a smaller {what}, or \
+                     leave it out."
+                ),
+            ),
             BlendError::UnsupportedEnd { .. } => self.error(
                 format!("The {noun} cannot be closed off where {edge} ends."),
                 "Also choose the edges that continue from it, or leave it out.".to_owned(),

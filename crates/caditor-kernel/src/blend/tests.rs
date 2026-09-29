@@ -555,3 +555,14 @@ fn every_rim_of_a_perforated_plate_is_rounded_at_once() {
     );
     assert_eq!(blend_faces(&result).len(), 6);
 }
+
+#[test]
+fn a_blend_around_an_almost_full_circle_with_slanted_ends_names_the_edge() {
+    let slot = moved(cuboid(Vector3::new(10.0, 0.4, 7.0)), (5.0, -0.2, -1.0));
+    let solid = boolean(&cylinder(10.0, 5.0), &slot, BooleanOperation::Difference).unwrap();
+    let edge = edge_through(&solid, (-10.0, 0.0, 5.0));
+    assert_eq!(
+        blend(&solid, &[edge], fillet(1.0), 50),
+        Err(BlendError::WrapsAround(edge))
+    );
+}
