@@ -211,12 +211,19 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     has a fixed origin and two axes under reserved IDs (`EntityId::ORIGIN`, `HORIZONTAL_AXIS`,
     `VERTICAL_AXIS`) that the counter never reaches; stored IDs stay below 2^63.
   - Constraints have stable `ConstraintId`s: coincident (point–point or point on a curve),
-    horizontal, vertical, parallel, perpendicular, tangent, equal, and the dimensions distance,
-    angle and radius, whose values are expressions. An angle measures from its first line's
-    direction (or its reverse when `reversed`, which the UI sets so a corner of a chain is
-    measured inside it) to its second's. `check_constraint` refuses constraints that
-    do not fit the entity kinds, so the UI can ask before offering one. `insert_entity` and
-    `insert_constraint` take explicit IDs and check references, for loading. The sketch counts
+    horizontal and vertical (a line, or two points as `HorizontalPoints` and `VerticalPoints`),
+    parallel, perpendicular, tangent, equal, midpoint (a point halfway along a line), concentric
+    (two circles or arcs, or a point at one's centre), collinear, symmetric (two points about a
+    line or a point), fix (a point held at a stored position), and the dimensions distance
+    (between points, a point and a line or circle, or two lines, which holds both ends of the
+    second at the distance from the first, so it implies parallel), horizontal and vertical
+    distance, angle, radius and diameter, whose values are expressions. An angle measures from its
+    first line's direction (or its reverse when `reversed`, which the UI sets so a corner of a
+    chain is measured inside it) to its second's. `check_constraint` refuses constraints that
+    do not fit the entity kinds, so the UI can ask before offering one, and `Sketch::measured`
+    gives a dimension's drawn value, which new dimensions start from and unreadable stored ones
+    fall back to. `insert_entity` and `insert_constraint` take explicit IDs and check
+    references, for loading. The sketch counts
     how often each entity is used by curves and constraints, so refusing to remove a used one
     never scans the sketch and undoing a large import stays fast; `remove_entity` removes a
     whole cascade in one pass and updates those counts incrementally.
@@ -242,7 +249,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     step limit and the lengths below which a direction or a line counts as degenerate, so no part
     depends on another; a zero distance is recognised against the scale of its two points. Every
     equation has an analytic gradient; two-branch equations (tangent side,
-    signed distance) take their branch from the starting geometry, so a solve never flips,
+    signed distance, horizontal and vertical distance, the side of a circle a point keeps its
+    distance on, and the side of the first line the second keeps its spacing on) take their
+    branch from the starting geometry, so a solve never flips,
     while internal circle tangency follows whichever circle is currently larger. A tangent
     whose curves share a point (directly or through point–point coincidences) is written as
     the radius there being perpendicular to the line (or both radii along one line), which
@@ -1415,7 +1424,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - `sketch_tools.rs` turns the selection into candidate constraints checked by
     `Sketch::check_constraint`; `sketch_toolbar.rs` offers them as buttons and commands
     (Shift+letter by default), disabled with what to select, and the drawing tools on plain
-    letters (P, L, R, C, A, S). Dimensions start at the value measured on the
+    letters (P, L, R, C, A, S). Parallel, equal, collinear, concentric and horizontal or vertical
+    points chain every selected item to the first in one transaction; fix locks every point of the
+    selection where it is shown; symmetric takes two points or two lines and what to mirror them
+    about (the one axis selected, else whichever of the three mirrors the other two best, pairing
+    line ends by the reflection). Dimensions start at the value measured on the
     displayed geometry. Every sketch transaction first settles the sketch to the last result,
     but only when that result is up to date (`Model::settled_sketch`). The UI never solves; it
     reads constraint states, degrees of freedom and redundancies from the last evaluation
@@ -1425,10 +1438,14 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     placement in `annotation_layout.rs`), from the displayed geometry projected through the
     current view, with offsets and sizes in screen points and no stored positions. Distances
     between points are parallel dimension lines with extension lines, point–line distances are
-    perpendicular, angles are arcs at the lines' intersection (between their closest ends when
-    nearly parallel), radii are leaders with an `R` prefix; dimensions sit away from the
-    sketch's centre. Other constraints are glyphs stacked beside each constrained entity on the
-    opposite side, painted as shapes or as letters the default fonts carry. Labels show the
+    perpendicular (a line–line spacing from the second line's middle), point–circle distances run
+    along the radius, horizontal and vertical distances are level or upright dimension lines beyond
+    the farther point, angles are arcs at the lines' intersection (between their closest ends when
+    nearly parallel), radii are leaders with an `R` prefix and diameters span the circle with an
+    `Ø` prefix; dimensions sit away from the sketch's centre. Other constraints are glyphs
+    stacked beside each constrained entity on the opposite side (horizontal or vertical points,
+    concentric, collinear and symmetric on each item, midpoint and fix on the point), painted as
+    shapes or as letters the default fonts carry. Labels show the
     expression in the document's naming, followed by its value when it is not a literal.
     Conflicting and redundant constraints take the error and warning colours.
   - Labels and glyphs are `Pickable::SketchConstraint`: hovering highlights the constrained

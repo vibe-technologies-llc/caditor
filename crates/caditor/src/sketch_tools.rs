@@ -17,15 +17,23 @@ const DEGENERATE_LENGTH: f64 = 1e-12;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstraintTool {
     Coincident,
+    Midpoint,
+    Concentric,
+    Collinear,
+    Fix,
     Horizontal,
     Vertical,
     Parallel,
     Perpendicular,
     Tangent,
     Equal,
+    Symmetric,
     Distance,
+    HorizontalDistance,
+    VerticalDistance,
     Angle,
     Radius,
+    Diameter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,65 +47,114 @@ enum Shape {
 type Item = (EntityId, Shape);
 
 impl ConstraintTool {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 18] = [
         Self::Coincident,
+        Self::Midpoint,
+        Self::Concentric,
+        Self::Collinear,
+        Self::Fix,
         Self::Horizontal,
         Self::Vertical,
         Self::Parallel,
         Self::Perpendicular,
         Self::Tangent,
         Self::Equal,
+        Self::Symmetric,
         Self::Distance,
+        Self::HorizontalDistance,
+        Self::VerticalDistance,
         Self::Angle,
         Self::Radius,
+        Self::Diameter,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Coincident => "Coincident",
+            Self::Midpoint => "Midpoint",
+            Self::Concentric => "Concentric",
+            Self::Collinear => "Collinear",
+            Self::Fix => "Fix",
             Self::Horizontal => "Horizontal",
             Self::Vertical => "Vertical",
             Self::Parallel => "Parallel",
             Self::Perpendicular => "Perpendicular",
             Self::Tangent => "Tangent",
             Self::Equal => "Equal",
+            Self::Symmetric => "Symmetric",
             Self::Distance => "Distance",
+            Self::HorizontalDistance => "Horizontal distance",
+            Self::VerticalDistance => "Vertical distance",
             Self::Angle => "Angle",
             Self::Radius => "Radius",
+            Self::Diameter => "Diameter",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
             Self::Coincident => "Join two points, or put a point on a curve",
-            Self::Horizontal => "Make lines horizontal",
-            Self::Vertical => "Make lines vertical",
-            Self::Parallel => "Make two lines parallel",
+            Self::Midpoint => "Put a point at the middle of a line",
+            Self::Concentric => "Give circles and arcs one centre, or put a point at their centre",
+            Self::Collinear => "Put lines on one straight line",
+            Self::Fix => "Lock points where they are; a curve is locked by its points",
+            Self::Horizontal => "Make lines horizontal, or line points up horizontally",
+            Self::Vertical => "Make lines vertical, or line points up vertically",
+            Self::Parallel => "Make lines parallel",
             Self::Perpendicular => "Make two lines meet at a right angle",
             Self::Tangent => "Make a line and a curve, or two curves, touch smoothly",
-            Self::Equal => "Give two lines the same length, or two circles or arcs the same radius",
+            Self::Equal => "Give lines the same length, or circles and arcs the same radius",
+            Self::Symmetric => "Mirror two points, or two lines, about a line or a point",
             Self::Distance => {
-                "Fix the distance between two points, a point and a line, or the ends of a line"
+                "Fix the distance between two points, a point and a line or circle, two lines, or \
+                 the ends of a line"
+            }
+            Self::HorizontalDistance => {
+                "Fix the horizontal distance between two points or the ends of a line"
+            }
+            Self::VerticalDistance => {
+                "Fix the vertical distance between two points or the ends of a line"
             }
             Self::Angle => "Fix the angle between two lines",
             Self::Radius => "Fix the radius of circles and arcs",
+            Self::Diameter => "Fix the diameter of circles and arcs",
         }
     }
 
     pub fn selection_hint(self) -> &'static str {
         match self {
             Self::Coincident => "Select two points, or a point and a line, circle or arc",
-            Self::Horizontal | Self::Vertical => "Select one or more lines",
-            Self::Parallel | Self::Perpendicular | Self::Angle => "Select two lines",
+            Self::Midpoint => "Select a point and a line",
+            Self::Concentric => {
+                "Select two or more circles or arcs, or a point and a circle or arc"
+            }
+            Self::Collinear | Self::Parallel => "Select two or more lines",
+            Self::Fix => "Select the points or curves to lock",
+            Self::Horizontal | Self::Vertical => "Select one or more lines, or two or more points",
+            Self::Perpendicular | Self::Angle => "Select two lines",
             Self::Tangent => "Select a line and a circle or arc, or two circles or arcs",
-            Self::Equal => "Select two lines, or two circles or arcs",
-            Self::Distance => "Select two points, a point and a line, or one line",
-            Self::Radius => "Select one or more circles or arcs",
+            Self::Equal => "Select two or more lines, or two or more circles or arcs",
+            Self::Symmetric => {
+                "Select two points or two lines, and the line or point to mirror them about"
+            }
+            Self::Distance => {
+                "Select two points, a point and a line or circle, two lines, or one line"
+            }
+            Self::HorizontalDistance | Self::VerticalDistance => "Select two points or one line",
+            Self::Radius | Self::Diameter => "Select one or more circles or arcs",
         }
     }
 
     pub fn is_dimension(self) -> bool {
-        matches!(self, Self::Distance | Self::Angle | Self::Radius)
+        matches!(
+            self,
+            Self::Distance
+                | Self::HorizontalDistance
+                | Self::VerticalDistance
+                | Self::Angle
+                | Self::Radius
+                | Self::Diameter
+        )
     }
 
     pub fn candidates(
@@ -133,17 +190,33 @@ impl ConstraintTool {
             | (Self::Coincident, &[(a, Line | Circular), (b, Point)]) => {
                 Some(vec![Constraint::Coincident(a, b)])
             }
+            (Self::Midpoint, &[(point, Point), (line, Line)] | &[(line, Line), (point, Point)]) => {
+                Some(vec![Constraint::Midpoint { point, line }])
+            }
+            (
+                Self::Concentric,
+                &[(point, Point), (curve, Circular)] | &[(curve, Circular), (point, Point)],
+            ) => Some(vec![Constraint::Concentric(point, curve)]),
+            (Self::Concentric, _) => chained(items, Circular, Constraint::Concentric),
+            (Self::Collinear, _) => chained(items, Line, Constraint::Collinear),
+            (Self::Fix, _) => fixed(definition, shown, items),
+            (Self::Horizontal, &[(_, Point), ..]) => {
+                chained(items, Point, Constraint::HorizontalPoints)
+            }
+            (Self::Vertical, &[(_, Point), ..]) => {
+                chained(items, Point, Constraint::VerticalPoints)
+            }
             (Self::Horizontal, _) => each(items, Line, Constraint::Horizontal),
             (Self::Vertical, _) => each(items, Line, Constraint::Vertical),
-            (Self::Parallel, &[(a, Line), (b, Line)]) => Some(vec![Constraint::Parallel(a, b)]),
+            (Self::Parallel, _) => chained(items, Line, Constraint::Parallel),
             (Self::Perpendicular, &[(a, Line), (b, Line)]) => {
                 Some(vec![Constraint::Perpendicular(a, b)])
             }
             (Self::Tangent, &[(a, Line | Circular), (b, Circular)])
             | (Self::Tangent, &[(a, Circular), (b, Line)]) => Some(vec![Constraint::Tangent(a, b)]),
-            (Self::Equal, &[(a, Line), (b, Line)] | &[(a, Circular), (b, Circular)]) => {
-                Some(vec![Constraint::Equal(a, b)])
-            }
+            (Self::Equal, _) => chained(items, Line, Constraint::Equal)
+                .or_else(|| chained(items, Circular, Constraint::Equal)),
+            (Self::Symmetric, _) => symmetric(definition, shown, items),
             (Self::Distance, &[(line, Line)]) => {
                 let Some(&Entity::Line { start, end }) = definition.entity(line) else {
                     return None;
@@ -160,21 +233,42 @@ impl ConstraintTool {
                 let length = distance_to_line(shown.point(point)?, line_through(shown, line)?);
                 Some(vec![distance(point, line, length)])
             }
+            (
+                Self::Distance,
+                &[(from, Point), (to, Circular)]
+                | &[(to, Circular), (from, Point)]
+                | &[(from, Line), (to, Line)],
+            ) => Some(vec![measured(shown, |value| Constraint::Distance {
+                from,
+                to,
+                value,
+            })?]),
+            (Self::HorizontalDistance | Self::VerticalDistance, &[(line, Line)]) => {
+                let Some(&Entity::Line { start, end }) = definition.entity(line) else {
+                    return None;
+                };
+                Some(vec![self.offset(shown, start, end)?])
+            }
+            (Self::HorizontalDistance | Self::VerticalDistance, &[(a, Point), (b, Point)]) => {
+                Some(vec![self.offset(shown, a, b)?])
+            }
             (Self::Angle, &[(a, Line), (b, Line)]) => Some(vec![angle(shown, a, b)?]),
-            (Self::Radius, _) => items
-                .iter()
-                .map(|(entity, shape)| {
-                    (*shape == Circular).then_some(())?;
-                    let (_, radius) = shown.circle(*entity)?;
-                    Some(Constraint::Radius {
-                        entity: *entity,
-                        value: millimetres(radius),
-                    })
-                })
-                .collect::<Option<Vec<_>>>()
-                .filter(|constraints| !constraints.is_empty()),
+            (Self::Radius, _) => each_measured(shown, items, |entity, value| Constraint::Radius {
+                entity,
+                value,
+            }),
+            (Self::Diameter, _) => each_measured(shown, items, |entity, value| {
+                Constraint::Diameter { entity, value }
+            }),
             _ => None,
         }
+    }
+
+    fn offset(self, shown: &Sketch, from: EntityId, to: EntityId) -> Option<Constraint> {
+        measured(shown, |value| match self {
+            Self::VerticalDistance => Constraint::VerticalDistance { from, to, value },
+            _ => Constraint::HorizontalDistance { from, to, value },
+        })
     }
 }
 
@@ -202,6 +296,171 @@ fn each(
         .map(|(entity, shape)| (*shape == needed).then(|| make(*entity)))
         .collect::<Option<Vec<_>>>()
         .filter(|constraints| !constraints.is_empty())
+}
+
+fn chained(
+    items: &[Item],
+    needed: Shape,
+    make: fn(EntityId, EntityId) -> Constraint,
+) -> Option<Vec<Constraint>> {
+    let ((first, _), rest) = items.split_first()?;
+    let all_needed = items.iter().all(|(_, shape)| *shape == needed);
+    (all_needed && !rest.is_empty())
+        .then(|| rest.iter().map(|(other, _)| make(*first, *other)).collect())
+}
+
+fn measured(shown: &Sketch, make: impl Fn(Expression) -> Constraint) -> Option<Constraint> {
+    let value = shown.measured(&make(Expression::Number(0.0)))?;
+    Some(make(millimetres(value)))
+}
+
+fn each_measured(
+    shown: &Sketch,
+    items: &[Item],
+    make: fn(EntityId, Expression) -> Constraint,
+) -> Option<Vec<Constraint>> {
+    items
+        .iter()
+        .map(|(entity, shape)| {
+            (*shape == Shape::Circular).then_some(())?;
+            measured(shown, |value| make(*entity, value))
+        })
+        .collect::<Option<Vec<_>>>()
+        .filter(|constraints| !constraints.is_empty())
+}
+
+fn fixed(definition: &Sketch, shown: &Sketch, items: &[Item]) -> Option<Vec<Constraint>> {
+    let mut points: Vec<EntityId> = Vec::new();
+    for (entity, shape) in items {
+        let owned = match shape {
+            Shape::Point => vec![*entity],
+            Shape::Line | Shape::Circular | Shape::Spline => definition.entity(*entity)?.points(),
+        };
+        for point in owned {
+            if !points.contains(&point) {
+                points.push(point);
+            }
+        }
+    }
+    let constraints: Vec<Constraint> = points
+        .into_iter()
+        .map(|point| {
+            Some(Constraint::Fix {
+                point,
+                at: shown.point(point)?,
+            })
+        })
+        .collect::<Option<_>>()?;
+    (!constraints.is_empty()).then_some(constraints)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Mirror {
+    Line(Point2, Vector2),
+    Point(Point2),
+}
+
+impl Mirror {
+    fn of(shown: &Sketch, (entity, shape): Item) -> Option<Self> {
+        match shape {
+            Shape::Point => Some(Self::Point(shown.point(entity)?)),
+            Shape::Line => {
+                let (origin, direction) = line_through(shown, entity)?;
+                Some(Self::Line(origin, direction.try_normalize()?))
+            }
+            Shape::Circular | Shape::Spline => None,
+        }
+    }
+
+    fn reflect(self, point: Point2) -> Point2 {
+        match self {
+            Self::Point(centre) => centre * 2.0 - point,
+            Self::Line(origin, direction) => {
+                let offset = point - origin;
+                origin + direction * (2.0 * offset.dot(direction)) - offset
+            }
+        }
+    }
+}
+
+fn symmetric(definition: &Sketch, shown: &Sketch, items: &[Item]) -> Option<Vec<Constraint>> {
+    let [first, second, third] = *items else {
+        return None;
+    };
+    let axes: Vec<Item> = items
+        .iter()
+        .copied()
+        .filter(|(entity, _)| entity.is_reference())
+        .collect();
+    if let [axis] = axes.as_slice()
+        && axis.1 == Shape::Line
+    {
+        let others: Vec<Item> = items.iter().copied().filter(|item| item != axis).collect();
+        if let [a, b] = others.as_slice() {
+            return mirrored(definition, shown, *a, *b, *axis).map(|(_, constraints)| constraints);
+        }
+    }
+    [
+        (first, second, third),
+        (first, third, second),
+        (second, third, first),
+    ]
+    .into_iter()
+    .filter_map(|(a, b, about)| mirrored(definition, shown, a, b, about))
+    .min_by(|a, b| a.0.total_cmp(&b.0))
+    .map(|(_, constraints)| constraints)
+}
+
+fn mirrored(
+    definition: &Sketch,
+    shown: &Sketch,
+    a: Item,
+    b: Item,
+    about: Item,
+) -> Option<(f64, Vec<Constraint>)> {
+    let mirror = Mirror::of(shown, about)?;
+    let error = |pairs: &[(EntityId, EntityId)]| -> Option<f64> {
+        pairs.iter().try_fold(0.0, |sum, (from, to)| {
+            Some(
+                sum + mirror
+                    .reflect(shown.point(*from)?)
+                    .distance(shown.point(*to)?),
+            )
+        })
+    };
+    let pairs = match (a.1, b.1) {
+        (Shape::Point, Shape::Point) => vec![(a.0, b.0)],
+        (Shape::Line, Shape::Line) => {
+            let ends = |line: EntityId| match definition.entity(line) {
+                Some(&Entity::Line { start, end }) => Some((start, end)),
+                _ => None,
+            };
+            let ((a_start, a_end), (b_start, b_end)) = (ends(a.0)?, ends(b.0)?);
+            let straight = vec![(a_start, b_start), (a_end, b_end)];
+            let crossed = vec![(a_start, b_end), (a_end, b_start)];
+            if error(&straight)? <= error(&crossed)? {
+                straight
+            } else {
+                crossed
+            }
+        }
+        _ => return None,
+    };
+    let constraints = pairs
+        .iter()
+        .map(|(first, second)| {
+            if first == second {
+                Constraint::Coincident(*first, about.0)
+            } else {
+                Constraint::Symmetric {
+                    first: *first,
+                    second: *second,
+                    about: about.0,
+                }
+            }
+        })
+        .collect();
+    Some((error(&pairs)?, constraints))
 }
 
 fn distance(from: EntityId, to: EntityId, length: f64) -> Constraint {
@@ -286,7 +545,21 @@ pub fn in_unit(constraints: Vec<Constraint>, unit: LengthUnit) -> Vec<Constraint
                 to,
                 value: converted(value),
             },
+            Constraint::HorizontalDistance { from, to, value } => Constraint::HorizontalDistance {
+                from,
+                to,
+                value: converted(value),
+            },
+            Constraint::VerticalDistance { from, to, value } => Constraint::VerticalDistance {
+                from,
+                to,
+                value: converted(value),
+            },
             Constraint::Radius { entity, value } => Constraint::Radius {
+                entity,
+                value: converted(value),
+            },
+            Constraint::Diameter { entity, value } => Constraint::Diameter {
                 entity,
                 value: converted(value),
             },
@@ -472,11 +745,11 @@ mod tests {
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Vertical, &[f.slanted, f.lone]),
-            Err("Select one or more lines".to_owned())
+            Err("Select one or more lines, or two or more points".to_owned())
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Horizontal, &[]),
-            Err("Select one or more lines".to_owned())
+            Err("Select one or more lines, or two or more points".to_owned())
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Horizontal, &[EntityId::HORIZONTAL_AXIS]),
@@ -500,7 +773,7 @@ mod tests {
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Parallel, &[f.slanted_start]),
-            Err("Select two lines".to_owned())
+            Err("Select two or more lines".to_owned())
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Coincident, &[f.lone, f.circle]),
@@ -525,6 +798,208 @@ mod tests {
         );
         assert!(candidates(&f, ConstraintTool::Equal, &[f.slanted, f.circle]).is_err());
         assert!(candidates(&f, ConstraintTool::Coincident, &[f.lone, f.spline]).is_err());
+    }
+
+    #[test]
+    fn points_line_up_and_several_items_are_chained_to_the_first() {
+        let f = fixture();
+        assert_eq!(
+            candidates(
+                &f,
+                ConstraintTool::Horizontal,
+                &[f.slanted_start, f.lone, EntityId::ORIGIN]
+            ),
+            Ok(vec![
+                Constraint::HorizontalPoints(f.slanted_start, f.lone),
+                Constraint::HorizontalPoints(f.slanted_start, EntityId::ORIGIN),
+            ])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Vertical, &[f.lone, f.slanted_end]),
+            Ok(vec![Constraint::VerticalPoints(f.lone, f.slanted_end)])
+        );
+        assert_eq!(
+            candidates(
+                &f,
+                ConstraintTool::Parallel,
+                &[f.horizontal, f.slanted, EntityId::VERTICAL_AXIS]
+            ),
+            Ok(vec![
+                Constraint::Parallel(f.horizontal, f.slanted),
+                Constraint::Parallel(f.horizontal, EntityId::VERTICAL_AXIS),
+            ])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Collinear, &[f.horizontal, f.slanted]),
+            Ok(vec![Constraint::Collinear(f.horizontal, f.slanted)])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Concentric, &[f.circle, f.arc]),
+            Ok(vec![Constraint::Concentric(f.circle, f.arc)])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Concentric, &[f.circle, f.lone]),
+            Ok(vec![Constraint::Concentric(f.lone, f.circle)])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Midpoint, &[f.horizontal, f.lone]),
+            Ok(vec![Constraint::Midpoint {
+                point: f.lone,
+                line: f.horizontal
+            }])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Midpoint, &[f.slanted, f.slanted_end]),
+            Err("Point 4 is part of Line 5.".to_owned())
+        );
+    }
+
+    #[test]
+    fn fixing_locks_every_point_of_the_selection_where_it_is_shown() {
+        let f = fixture();
+        assert_eq!(
+            candidates(&f, ConstraintTool::Fix, &[f.slanted, f.slanted_end, f.lone]),
+            Ok(vec![
+                Constraint::Fix {
+                    point: f.slanted_start,
+                    at: Point2::ZERO,
+                },
+                Constraint::Fix {
+                    point: f.slanted_end,
+                    at: Point2::new(10.0, 10.0),
+                },
+                Constraint::Fix {
+                    point: f.lone,
+                    at: Point2::new(3.0, 4.0),
+                },
+            ])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Fix, &[EntityId::ORIGIN]),
+            Err("It only uses reference geometry, which never moves.".to_owned())
+        );
+    }
+
+    #[test]
+    fn symmetry_finds_what_to_mirror_about() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let left = sketch.add_line(Point2::new(-5.0, 0.0), Point2::new(-2.0, 8.0));
+        let right = sketch.add_line(Point2::new(2.1, 8.0), Point2::new(5.0, 0.2));
+        let mirror = sketch.add_line(Point2::new(0.0, -1.0), Point2::new(0.0, 9.0));
+        let (a, b, c) = (
+            sketch.add_point(Point2::new(10.0, 0.0)),
+            sketch.add_point(Point2::new(14.0, 0.0)),
+            sketch.add_point(Point2::new(12.1, 0.1)),
+        );
+        let ends = |line| match sketch.entity(line) {
+            Some(&Entity::Line { start, end }) => (start, end),
+            _ => panic!("expected a line"),
+        };
+        let ((left_start, left_end), (right_start, right_end)) = (ends(left), ends(right));
+        let symmetric = |first, second, about| Constraint::Symmetric {
+            first,
+            second,
+            about,
+        };
+
+        assert_eq!(
+            ConstraintTool::Symmetric.candidates(&sketch, &sketch, &[mirror, left, right]),
+            Ok(vec![
+                symmetric(left_start, right_end, mirror),
+                symmetric(left_end, right_start, mirror),
+            ])
+        );
+        assert_eq!(
+            ConstraintTool::Symmetric.candidates(&sketch, &sketch, &[a, b, c]),
+            Ok(vec![symmetric(a, b, c)])
+        );
+        assert_eq!(
+            ConstraintTool::Symmetric.candidates(
+                &sketch,
+                &sketch,
+                &[a, b, EntityId::VERTICAL_AXIS]
+            ),
+            Ok(vec![symmetric(a, b, EntityId::VERTICAL_AXIS)])
+        );
+        assert_eq!(
+            ConstraintTool::Symmetric.candidates(&sketch, &sketch, &[a, b]),
+            Err(
+                "Select two points or two lines, and the line or point to mirror them about"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn added_dimensions_start_at_the_measured_value() {
+        let f = fixture();
+        let mm = |value| measure(value, Unit::Millimetre);
+        assert_eq!(
+            candidates(&f, ConstraintTool::HorizontalDistance, &[f.slanted]),
+            Ok(vec![Constraint::HorizontalDistance {
+                from: f.slanted_start,
+                to: f.slanted_end,
+                value: mm(10.0),
+            }])
+        );
+        assert_eq!(
+            candidates(
+                &f,
+                ConstraintTool::VerticalDistance,
+                &[f.lone, EntityId::ORIGIN]
+            ),
+            Ok(vec![Constraint::VerticalDistance {
+                from: f.lone,
+                to: EntityId::ORIGIN,
+                value: mm(4.0),
+            }])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Diameter, &[f.circle, f.arc]),
+            Ok(vec![
+                Constraint::Diameter {
+                    entity: f.circle,
+                    value: mm(8.5),
+                },
+                Constraint::Diameter {
+                    entity: f.arc,
+                    value: mm(6.0),
+                },
+            ])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Distance, &[f.circle, f.lone]),
+            Ok(vec![Constraint::Distance {
+                from: f.lone,
+                to: f.circle,
+                value: mm(23.045),
+            }])
+        );
+        assert_eq!(
+            candidates(
+                &f,
+                ConstraintTool::Distance,
+                &[f.horizontal, EntityId::HORIZONTAL_AXIS]
+            ),
+            Ok(vec![Constraint::Distance {
+                from: f.horizontal,
+                to: EntityId::HORIZONTAL_AXIS,
+                value: mm(5.0),
+            }])
+        );
+        assert_eq!(
+            in_unit(
+                vec![Constraint::Diameter {
+                    entity: f.circle,
+                    value: mm(8.5),
+                }],
+                LengthUnit::Centimetre
+            ),
+            vec![Constraint::Diameter {
+                entity: f.circle,
+                value: measure(0.85, Unit::Centimetre),
+            }]
+        );
     }
 
     #[test]

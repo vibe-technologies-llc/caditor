@@ -15,6 +15,11 @@ The first release of caditor.
   equal constraints and distance, angle and radius dimensions. Sketches always show their
   remaining degrees of freedom and colour what is fully constrained; conflicting and redundant
   constraints are named.
+- Midpoint, concentric, collinear, fix and symmetric constraints, horizontal and vertical for two
+  points, and horizontal distance, vertical distance and diameter dimensions; a distance can also
+  hold a point away from a circle or two lines apart. Parallel, equal, collinear, concentric,
+  horizontal and vertical apply to every selected item at once, and fix locks every point of the
+  selected curves.
 - Angles at a corner of a chain of lines are measured inside the corner, tangents where a line
   meets an arc count fully towards a constrained sketch, and a constraint that would shrink a
   line to nothing is reported as a conflict.

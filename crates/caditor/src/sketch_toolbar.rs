@@ -20,7 +20,7 @@ use crate::{
 const FINISH_LABEL: &str = "Finish sketch";
 const DELETE_LABEL: &str = "Delete";
 const TOOL_GAP: f32 = 2.0;
-const CONSTRAINT_COLUMNS: usize = 5;
+const CONSTRAINT_COLUMNS: usize = 6;
 const CONSTRAINT_WIDTH: f32 = 112.0;
 const FINISH_HEIGHT: f32 = 32.0;
 const SELECT_KEY: &str = "Esc";

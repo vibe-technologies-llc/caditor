@@ -90,9 +90,24 @@ impl LineSpan {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Measured {
     Points(Point2, Point2),
+    Aligned {
+        from: Point2,
+        to: Point2,
+        along: Vector2,
+    },
     PointToLine(Point2, LineSpan),
+    PointToCircle {
+        point: Point2,
+        center: Point2,
+        radius: f64,
+    },
     Angle(LineSpan, LineSpan, bool),
     Radius {
+        center: Point2,
+        radius: f64,
+        toward: Vector2,
+    },
+    Diameter {
         center: Point2,
         radius: f64,
         toward: Vector2,
@@ -103,10 +118,31 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
     match *constraint {
         Constraint::Distance { from, to, .. } => match (sketch.point(from), sketch.point(to)) {
             (Some(a), Some(b)) => Some(Measured::Points(a, b)),
-            (Some(point), None) => Some(Measured::PointToLine(point, LineSpan::of(sketch, to)?)),
-            (None, Some(point)) => Some(Measured::PointToLine(point, LineSpan::of(sketch, from)?)),
-            (None, None) => None,
+            (Some(point), None) => point_to_curve(sketch, point, to),
+            (None, Some(point)) => point_to_curve(sketch, point, from),
+            (None, None) => {
+                let (anchor, other) = if to.is_reference() {
+                    (to, from)
+                } else {
+                    (from, to)
+                };
+                let (start, end) = sketch.line_endpoints(other)?;
+                Some(Measured::PointToLine(
+                    (start + end) / 2.0,
+                    LineSpan::of(sketch, anchor)?,
+                ))
+            }
         },
+        Constraint::HorizontalDistance { from, to, .. } => Some(Measured::Aligned {
+            from: sketch.point(from)?,
+            to: sketch.point(to)?,
+            along: Vector2::X,
+        }),
+        Constraint::VerticalDistance { from, to, .. } => Some(Measured::Aligned {
+            from: sketch.point(from)?,
+            to: sketch.point(to)?,
+            along: Vector2::Y,
+        }),
         Constraint::Angle {
             from, to, reversed, ..
         } => Some(Measured::Angle(
@@ -115,12 +151,16 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
             reversed,
         )),
         Constraint::Radius { entity, .. } => {
-            let (center, radius) = sketch.circle(entity)?;
-            let toward = match sketch.arc(entity) {
-                Some(arc) => Vector2::from_angle(arc.start_angle + arc.sweep * ARC_LEADER_FRACTION),
-                None => CIRCLE_LEADER_DIRECTION,
-            };
+            let (center, radius, toward) = leader(sketch, entity)?;
             Some(Measured::Radius {
+                center,
+                radius,
+                toward,
+            })
+        }
+        Constraint::Diameter { entity, .. } => {
+            let (center, radius, toward) = leader(sketch, entity)?;
+            Some(Measured::Diameter {
                 center,
                 radius,
                 toward,
@@ -129,11 +169,39 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
         Constraint::Coincident(..)
         | Constraint::Horizontal(_)
         | Constraint::Vertical(_)
+        | Constraint::HorizontalPoints(..)
+        | Constraint::VerticalPoints(..)
         | Constraint::Parallel(..)
         | Constraint::Perpendicular(..)
         | Constraint::Tangent(..)
-        | Constraint::Equal(..) => None,
+        | Constraint::Equal(..)
+        | Constraint::Midpoint { .. }
+        | Constraint::Concentric(..)
+        | Constraint::Collinear(..)
+        | Constraint::Symmetric { .. }
+        | Constraint::Fix { .. } => None,
     }
+}
+
+fn point_to_curve(sketch: &Sketch, point: Point2, curve: EntityId) -> Option<Measured> {
+    if let Some(line) = LineSpan::of(sketch, curve) {
+        return Some(Measured::PointToLine(point, line));
+    }
+    let (center, radius) = sketch.circle(curve)?;
+    Some(Measured::PointToCircle {
+        point,
+        center,
+        radius,
+    })
+}
+
+fn leader(sketch: &Sketch, entity: EntityId) -> Option<(Point2, f64, Vector2)> {
+    let (center, radius) = sketch.circle(entity)?;
+    let toward = match sketch.arc(entity) {
+        Some(arc) => Vector2::from_angle(arc.start_angle + arc.sweep * ARC_LEADER_FRACTION),
+        None => CIRCLE_LEADER_DIRECTION,
+    };
+    Some((center, radius, toward))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -201,13 +269,24 @@ pub fn layout(
 ) -> Option<DimensionLayout> {
     match *measured {
         Measured::Points(a, b) => points_layout(screen, a, b, centre),
+        Measured::Aligned { from, to, along } => aligned_layout(screen, from, to, along, centre),
         Measured::PointToLine(point, line) => point_to_line_layout(screen, point, line, centre),
+        Measured::PointToCircle {
+            point,
+            center,
+            radius,
+        } => point_to_circle_layout(screen, point, center, radius),
         Measured::Angle(first, second, reversed) => angle_layout(screen, first, second, reversed),
         Measured::Radius {
             center,
             radius,
             toward,
         } => radius_layout(screen, center, radius, toward),
+        Measured::Diameter {
+            center,
+            radius,
+            toward,
+        } => diameter_layout(screen, center, radius, toward),
     }
 }
 
@@ -264,6 +343,72 @@ fn points_layout(
             projector.arrow(end, along)?,
         ],
         label: projector.point(middle + offset)?,
+        label_side: Vector2::ZERO,
+    })
+}
+
+fn aligned_layout(
+    screen: &impl Screen,
+    from: Point2,
+    to: Point2,
+    along: Vector2,
+    centre: Option<Point2>,
+) -> Option<DimensionLayout> {
+    let middle = (from + to) / 2.0;
+    let projector = Projector::new(screen, middle)?;
+    let side = away_from(along.perp(), middle, centre);
+    let reach = from.dot(side).max(to.dot(side)) + projector.units(DIMENSION_OFFSET);
+    let foot = |point: Point2| point + side * (reach - point.dot(side));
+    let (start, end) = (foot(from), foot(to));
+    let extension = |point: Point2, foot: Point2| {
+        let length = (foot - point).dot(side);
+        let gap = projector.units(EXTENSION_GAP).min(length);
+        projector.polyline(&[
+            point + side * gap,
+            foot + side * projector.units(EXTENSION_OVERSHOOT),
+        ])
+    };
+    let direction = (end - start).try_normalize().unwrap_or(along);
+    Some(DimensionLayout {
+        strokes: vec![
+            extension(from, start)?,
+            extension(to, end)?,
+            projector.polyline(&[start, end])?,
+        ],
+        arrows: vec![
+            projector.arrow(start, -direction)?,
+            projector.arrow(end, direction)?,
+        ],
+        label: projector.point((start + end) / 2.0)?,
+        label_side: Vector2::ZERO,
+    })
+}
+
+fn point_to_circle_layout(
+    screen: &impl Screen,
+    point: Point2,
+    center: Point2,
+    radius: f64,
+) -> Option<DimensionLayout> {
+    let outward = (point - center).try_normalize().unwrap_or(Vector2::X);
+    let on_circle = center + outward * radius;
+    let projector = Projector::new(screen, (point + on_circle) / 2.0)?;
+    let strokes = vec![projector.polyline(&[on_circle, point])?];
+    let Some(along) = (point - on_circle).try_normalize() else {
+        return Some(DimensionLayout {
+            strokes,
+            arrows: Vec::new(),
+            label: projector.point(point)?,
+            label_side: projector.direction(point, outward)?,
+        });
+    };
+    Some(DimensionLayout {
+        strokes,
+        arrows: vec![
+            projector.arrow(on_circle, -along)?,
+            projector.arrow(point, along)?,
+        ],
+        label: projector.point((point + on_circle) / 2.0)?,
         label_side: Vector2::ZERO,
     })
 }
@@ -401,6 +546,26 @@ fn radius_layout(
     })
 }
 
+fn diameter_layout(
+    screen: &impl Screen,
+    center: Point2,
+    radius: f64,
+    toward: Vector2,
+) -> Option<DimensionLayout> {
+    let (near, far) = (center - toward * radius, center + toward * radius);
+    let projector = Projector::new(screen, far)?;
+    let end = far + toward * projector.units(RADIUS_OVERSHOOT);
+    Some(DimensionLayout {
+        strokes: vec![projector.polyline(&[near, end])?],
+        arrows: vec![
+            projector.arrow(far, toward)?,
+            projector.arrow(near, -toward)?,
+        ],
+        label: projector.point(end)?,
+        label_side: projector.direction(end, toward)?,
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GlyphKind {
     Horizontal,
@@ -411,6 +576,11 @@ pub enum GlyphKind {
     Equal,
     Coincident,
     OnCurve,
+    Midpoint,
+    Concentric,
+    Collinear,
+    Symmetric,
+    Fix,
 }
 
 pub fn glyphs_of(sketch: &Sketch, constraint: &Constraint) -> Vec<(EntityId, GlyphKind)> {
@@ -424,6 +594,15 @@ pub fn glyphs_of(sketch: &Sketch, constraint: &Constraint) -> Vec<(EntityId, Gly
     match *constraint {
         Constraint::Horizontal(line) => vec![(line, GlyphKind::Horizontal)],
         Constraint::Vertical(line) => vec![(line, GlyphKind::Vertical)],
+        Constraint::HorizontalPoints(a, b) => on_each(GlyphKind::Horizontal, [a, b]),
+        Constraint::VerticalPoints(a, b) => on_each(GlyphKind::Vertical, [a, b]),
+        Constraint::Midpoint { point, .. } => vec![(point, GlyphKind::Midpoint)],
+        Constraint::Concentric(a, b) => on_each(GlyphKind::Concentric, [a, b]),
+        Constraint::Collinear(a, b) => on_each(GlyphKind::Collinear, [a, b]),
+        Constraint::Symmetric { first, second, .. } => {
+            on_each(GlyphKind::Symmetric, [first, second])
+        }
+        Constraint::Fix { point, .. } => vec![(point, GlyphKind::Fix)],
         Constraint::Parallel(a, b) => on_each(GlyphKind::Parallel, [a, b]),
         Constraint::Perpendicular(a, b) => on_each(GlyphKind::Perpendicular, [a, b]),
         Constraint::Tangent(a, b) => on_each(GlyphKind::Tangent, [a, b]),
@@ -441,9 +620,12 @@ pub fn glyphs_of(sketch: &Sketch, constraint: &Constraint) -> Vec<(EntityId, Gly
             };
             anchor.into_iter().collect()
         }
-        Constraint::Distance { .. } | Constraint::Angle { .. } | Constraint::Radius { .. } => {
-            Vec::new()
-        }
+        Constraint::Distance { .. }
+        | Constraint::HorizontalDistance { .. }
+        | Constraint::VerticalDistance { .. }
+        | Constraint::Angle { .. }
+        | Constraint::Radius { .. }
+        | Constraint::Diameter { .. } => Vec::new(),
     }
 }
 
@@ -689,6 +871,74 @@ mod tests {
     }
 
     #[test]
+    fn a_horizontal_distance_is_measured_level_above_the_higher_point() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let from = sketch.add_point(Point2::ZERO);
+        let to = sketch.add_point(Point2::new(30.0, 10.0));
+        let measured = measured(
+            &sketch,
+            &Constraint::HorizontalDistance {
+                from,
+                to,
+                value: caditor_expression::Expression::Number(30.0),
+            },
+        )
+        .unwrap();
+        let layout = layout(&measured, &Flat, Some(Point2::new(15.0, -20.0))).unwrap();
+
+        assert_close(layout.arrows[0].tip, Vector2::new(100.0, 252.0));
+        assert_close(layout.arrows[0].direction, Vector2::new(-1.0, 0.0));
+        assert_close(layout.arrows[1].tip, Vector2::new(160.0, 252.0));
+        assert_close(layout.label, Vector2::new(130.0, 252.0));
+        assert_eq!(
+            layout.strokes[0],
+            vec![Vector2::new(100.0, 296.0), Vector2::new(100.0, 247.0)]
+        );
+        assert_eq!(
+            layout.strokes[1],
+            vec![Vector2::new(160.0, 276.0), Vector2::new(160.0, 247.0)]
+        );
+    }
+
+    #[test]
+    fn a_diameter_spans_the_circle_and_a_point_to_circle_distance_meets_it_squarely() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let circle = sketch.add_circle(Point2::new(10.0, 10.0), 5.0);
+        let point = sketch.add_point(Point2::new(25.0, 10.0));
+        let diameter = measured(
+            &sketch,
+            &Constraint::Diameter {
+                entity: circle,
+                value: caditor_expression::Expression::Number(10.0),
+            },
+        )
+        .unwrap();
+        let spanned = layout(&diameter, &Flat, None).unwrap();
+
+        let outward = Vector2::new(FRAC_1_SQRT_2, -FRAC_1_SQRT_2);
+        let centre = Vector2::new(120.0, 280.0);
+        assert_close(spanned.arrows[0].tip, centre + outward * 10.0);
+        assert_close(spanned.arrows[1].tip, centre - outward * 10.0);
+        assert_close(spanned.arrows[1].direction, -outward);
+        assert_close(spanned.strokes[0][0], centre - outward * 10.0);
+        assert_close(spanned.label, centre + outward * 34.0);
+
+        let distance = measured(
+            &sketch,
+            &Constraint::Distance {
+                from: circle,
+                to: point,
+                value: caditor_expression::Expression::Number(10.0),
+            },
+        )
+        .unwrap();
+        let squarely = layout(&distance, &Flat, None).unwrap();
+        assert_close(squarely.arrows[0].tip, Vector2::new(130.0, 280.0));
+        assert_close(squarely.arrows[1].tip, Vector2::new(150.0, 280.0));
+        assert_close(squarely.label, Vector2::new(140.0, 280.0));
+    }
+
+    #[test]
     fn glyphs_stack_along_a_line_on_the_side_of_the_sketch() {
         let anchor = GlyphAnchor::Segment(Vector2::ZERO, Vector2::new(100.0, 0.0));
         let below = stack_glyphs(anchor, 2, Some(Vector2::new(50.0, 50.0)));
@@ -733,6 +983,27 @@ mod tests {
                 &Constraint::Parallel(line, EntityId::HORIZONTAL_AXIS)
             ),
             vec![(line, GlyphKind::Parallel)]
+        );
+        assert_eq!(
+            glyphs_of(
+                &sketch,
+                &Constraint::HorizontalPoints(lone, EntityId::ORIGIN)
+            ),
+            vec![(lone, GlyphKind::Horizontal)]
+        );
+        assert_eq!(
+            glyphs_of(&sketch, &Constraint::Midpoint { point: lone, line }),
+            vec![(lone, GlyphKind::Midpoint)]
+        );
+        assert_eq!(
+            glyphs_of(
+                &sketch,
+                &Constraint::Fix {
+                    point: lone,
+                    at: Point2::new(3.0, 0.0)
+                }
+            ),
+            vec![(lone, GlyphKind::Fix)]
         );
     }
 }

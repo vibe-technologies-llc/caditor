@@ -54,6 +54,8 @@ pub enum SketchError {
     OnlyReference,
     #[error("{point} is part of {curve}")]
     OwnPoint { point: String, curve: String },
+    #[error("{first} and {second} already share their centre")]
+    SharedCentre { first: String, second: String },
     #[error("the constraint has no value to set")]
     NotADimension(ConstraintId),
     #[error("{reason}")]
@@ -234,19 +236,113 @@ impl Sketch {
         let label = |entity: EntityId| self.entity_label(entity);
         let kind = constraint.kind_name();
         match *constraint {
-            Constraint::Horizontal(entity) | Constraint::Vertical(entity) => {
+            Constraint::Horizontal(entity)
+            | Constraint::Vertical(entity)
+            | Constraint::Fix { point: entity, .. } => {
                 format!("{kind} {}", label(entity))
             }
             Constraint::Coincident(a, b)
+            | Constraint::HorizontalPoints(a, b)
+            | Constraint::VerticalPoints(a, b)
             | Constraint::Parallel(a, b)
             | Constraint::Perpendicular(a, b)
             | Constraint::Tangent(a, b)
-            | Constraint::Equal(a, b) => format!("{kind} {} and {}", label(a), label(b)),
-            Constraint::Distance { from, to, .. } | Constraint::Angle { from, to, .. } => {
+            | Constraint::Equal(a, b)
+            | Constraint::Concentric(a, b)
+            | Constraint::Collinear(a, b) => format!("{kind} {} and {}", label(a), label(b)),
+            Constraint::Midpoint { point, line } => {
+                format!("{kind} of {} at {}", label(line), label(point))
+            }
+            Constraint::Symmetric {
+                first,
+                second,
+                about,
+            } => format!(
+                "{kind} {} and {} about {}",
+                label(first),
+                label(second),
+                label(about)
+            ),
+            Constraint::Distance { from, to, .. }
+            | Constraint::HorizontalDistance { from, to, .. }
+            | Constraint::VerticalDistance { from, to, .. }
+            | Constraint::Angle { from, to, .. } => {
                 format!("{kind} between {} and {}", label(from), label(to))
             }
-            Constraint::Radius { entity, .. } => format!("Radius of {}", label(entity)),
+            Constraint::Radius { entity, .. } | Constraint::Diameter { entity, .. } => {
+                format!("{kind} of {}", label(entity))
+            }
         }
+    }
+
+    pub fn measured(&self, constraint: &Constraint) -> Option<f64> {
+        let value = match *constraint {
+            Constraint::Distance { from, to, .. } => self.distance_between(from, to)?,
+            Constraint::HorizontalDistance { from, to, .. } => {
+                (self.point(to)?.x - self.point(from)?.x).abs()
+            }
+            Constraint::VerticalDistance { from, to, .. } => {
+                (self.point(to)?.y - self.point(from)?.y).abs()
+            }
+            Constraint::Angle {
+                from, to, reversed, ..
+            } => {
+                let (from, to) = (self.line_direction(from)?, self.line_direction(to)?);
+                let from = if reversed { -from } else { from };
+                from.perp_dot(to).atan2(from.dot(to)).to_degrees()
+            }
+            Constraint::Radius { entity, .. } => self.circle(entity)?.1,
+            Constraint::Diameter { entity, .. } => 2.0 * self.circle(entity)?.1,
+            Constraint::Coincident(..)
+            | Constraint::Horizontal(_)
+            | Constraint::Vertical(_)
+            | Constraint::HorizontalPoints(..)
+            | Constraint::VerticalPoints(..)
+            | Constraint::Parallel(..)
+            | Constraint::Perpendicular(..)
+            | Constraint::Tangent(..)
+            | Constraint::Equal(..)
+            | Constraint::Midpoint { .. }
+            | Constraint::Concentric(..)
+            | Constraint::Collinear(..)
+            | Constraint::Symmetric { .. }
+            | Constraint::Fix { .. } => return None,
+        };
+        value.is_finite().then_some(value)
+    }
+
+    fn distance_between(&self, from: EntityId, to: EntityId) -> Option<f64> {
+        match (self.role(from)?, self.role(to)?) {
+            (Role::Point, Role::Point) => Some(self.point(from)?.distance(self.point(to)?)),
+            (Role::Point, Role::Line) => self.distance_to_line(self.point(from)?, to),
+            (Role::Line, Role::Point) => self.distance_to_line(self.point(to)?, from),
+            (Role::Point, Role::Circular) => self.distance_to_circle(self.point(from)?, to),
+            (Role::Circular, Role::Point) => self.distance_to_circle(self.point(to)?, from),
+            (Role::Line, Role::Line) => {
+                let (anchor, other) = if to.is_reference() {
+                    (to, from)
+                } else {
+                    (from, to)
+                };
+                let (start, end) = self.line_endpoints(other)?;
+                self.distance_to_line((start + end) / 2.0, anchor)
+            }
+            _ => None,
+        }
+    }
+
+    fn distance_to_line(&self, point: Point2, line: EntityId) -> Option<f64> {
+        let direction = self.line_direction(line)?.try_normalize()?;
+        let anchor = match self.line_endpoints(line) {
+            Some((start, _)) => start,
+            None => Point2::ZERO,
+        };
+        Some(direction.perp_dot(point - anchor).abs())
+    }
+
+    fn distance_to_circle(&self, point: Point2, circle: EntityId) -> Option<f64> {
+        let (center, radius) = self.circle(circle)?;
+        Some((point.distance(center) - radius).abs())
     }
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
@@ -347,22 +443,30 @@ impl Sketch {
         if let Some(missing) = entities.iter().find(|entity| !self.contains(**entity)) {
             return Err(SketchError::MissingEntity(*missing));
         }
-        if let [a, b] = *entities.as_slice()
-            && a == b
-        {
+        let mut seen = BTreeSet::new();
+        if let Some(repeated) = entities.iter().find(|entity| !seen.insert(**entity)) {
             return Err(SketchError::SameEntity {
-                entity: a,
-                label: self.entity_label(a),
+                entity: *repeated,
+                label: self.entity_label(*repeated),
             });
         }
         match *constraint {
-            Constraint::Coincident(a, b) => self.check_point_on_curve(constraint, a, b, true),
+            Constraint::Coincident(a, b) => self.check_point_on_curve(constraint, a, b),
             Constraint::Horizontal(line) | Constraint::Vertical(line) => {
                 self.expect(line, &[Role::Line], "a line")?;
                 self.check_not_only_reference(&entities)
             }
+            Constraint::HorizontalPoints(a, b)
+            | Constraint::VerticalPoints(a, b)
+            | Constraint::HorizontalDistance { from: a, to: b, .. }
+            | Constraint::VerticalDistance { from: a, to: b, .. } => {
+                self.expect(a, &[Role::Point], "a point")?;
+                self.expect(b, &[Role::Point], "a point")?;
+                self.check_not_only_reference(&entities)
+            }
             Constraint::Parallel(a, b)
             | Constraint::Perpendicular(a, b)
+            | Constraint::Collinear(a, b)
             | Constraint::Angle { from: a, to: b, .. } => {
                 self.expect(a, &[Role::Line], "a line")?;
                 self.expect(b, &[Role::Line], "a line")?;
@@ -386,10 +490,43 @@ impl Sketch {
                 }
                 Ok(())
             }
-            Constraint::Distance { from, to, .. } => {
-                self.check_point_on_curve(constraint, from, to, false)
+            Constraint::Midpoint { point, line } => {
+                self.expect(point, &[Role::Point], "a point")?;
+                self.expect(line, &[Role::Line], "a line")?;
+                if line.is_reference() {
+                    return Err(self.not_applicable(constraint, point, line));
+                }
+                self.check_not_own_point(point, line)
             }
-            Constraint::Radius { entity, .. } => self
+            Constraint::Concentric(a, b) => self.check_concentric(constraint, a, b),
+            Constraint::Symmetric {
+                first,
+                second,
+                about,
+            } => {
+                self.expect(first, &[Role::Point], "a point")?;
+                self.expect(second, &[Role::Point], "a point")?;
+                self.expect(about, &[Role::Point, Role::Line], "a point or a line")?;
+                self.check_not_only_reference(&entities)?;
+                self.check_not_own_point(first, about)?;
+                self.check_not_own_point(second, about)
+            }
+            Constraint::Fix { point, at } => {
+                self.expect(point, &[Role::Point], "a point")?;
+                self.check_not_only_reference(&entities)?;
+                if at.is_finite() {
+                    Ok(())
+                } else {
+                    Err(SketchError::NotFinite)
+                }
+            }
+            Constraint::Distance { from, to, .. } => {
+                if (self.role(from), self.role(to)) == (Some(Role::Line), Some(Role::Line)) {
+                    return self.check_not_only_reference(&entities);
+                }
+                self.check_point_on_curve(constraint, from, to)
+            }
+            Constraint::Radius { entity, .. } | Constraint::Diameter { entity, .. } => self
                 .expect(entity, &[Role::Circular], "a circle or an arc")
                 .map(|_| ()),
         }
@@ -665,20 +802,21 @@ impl Sketch {
         constraint: &Constraint,
         a: EntityId,
         b: EntityId,
-        circles_allowed: bool,
     ) -> Result<(), SketchError> {
         let roles = (self.role(a), self.role(b));
         let (point, curve) = match roles {
             (Some(Role::Point), Some(Role::Point)) => {
                 return self.check_not_only_reference(&[a, b]);
             }
-            (Some(Role::Point), Some(Role::Line)) => (a, b),
-            (Some(Role::Line), Some(Role::Point)) => (b, a),
-            (Some(Role::Point), Some(Role::Circular)) if circles_allowed => (a, b),
-            (Some(Role::Circular), Some(Role::Point)) if circles_allowed => (b, a),
+            (Some(Role::Point), Some(Role::Line | Role::Circular)) => (a, b),
+            (Some(Role::Line | Role::Circular), Some(Role::Point)) => (b, a),
             _ => return Err(self.not_applicable(constraint, a, b)),
         };
         self.check_not_only_reference(&[a, b])?;
+        self.check_not_own_point(point, curve)
+    }
+
+    fn check_not_own_point(&self, point: EntityId, curve: EntityId) -> Result<(), SketchError> {
         if self
             .entities
             .get(&curve)
@@ -690,6 +828,38 @@ impl Sketch {
             });
         }
         Ok(())
+    }
+
+    fn check_concentric(
+        &self,
+        constraint: &Constraint,
+        a: EntityId,
+        b: EntityId,
+    ) -> Result<(), SketchError> {
+        let needed = "a circle, an arc or a point";
+        let first = self.expect(a, &[Role::Circular, Role::Point], needed)?;
+        let second = self.expect(b, &[Role::Circular, Role::Point], needed)?;
+        match (first, second) {
+            (Role::Circular, Role::Circular) => {
+                if self.center_of(a).is_some() && self.center_of(a) == self.center_of(b) {
+                    return Err(SketchError::SharedCentre {
+                        first: self.entity_label(a),
+                        second: self.entity_label(b),
+                    });
+                }
+                Ok(())
+            }
+            (Role::Point, Role::Circular) => self.check_not_own_point(a, b),
+            (Role::Circular, Role::Point) => self.check_not_own_point(b, a),
+            _ => Err(self.not_applicable(constraint, a, b)),
+        }
+    }
+
+    pub fn center_of(&self, curve: EntityId) -> Option<EntityId> {
+        match self.entities.get(&curve)? {
+            Entity::Circle { center, .. } | Entity::Arc { center, .. } => Some(*center),
+            Entity::Point(_) | Entity::Line { .. } | Entity::Spline { .. } => None,
+        }
     }
 
     fn not_applicable(&self, constraint: &Constraint, a: EntityId, b: EntityId) -> SketchError {
@@ -1117,6 +1287,198 @@ mod tests {
             let id = sketch.add_constraint(constraint).unwrap();
             assert_eq!(sketch.describe_constraint(id), label);
         }
+    }
+
+    #[test]
+    fn added_constraint_kinds_check_their_entities_and_have_plain_labels() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::ZERO, Point2::X);
+        let (start, end) = endpoints(&sketch, line);
+        let other = sketch.add_line(Point2::Y, Point2::new(1.0, 2.0));
+        let circle = sketch.add_circle(Point2::new(5.0, 5.0), 1.0);
+        let arc = sketch.add_arc(Point2::new(5.0, 5.0), Point2::new(6.0, 5.0), Point2::Y);
+        let lone = sketch.add_point(Point2::new(3.0, 4.0));
+        let center = sketch.center_of(circle).unwrap();
+        let value = Expression::Number(1.0);
+        let refused = |constraint: Constraint| {
+            sketch
+                .check_constraint(&constraint)
+                .unwrap_err()
+                .to_string()
+        };
+
+        assert_eq!(
+            refused(Constraint::Midpoint { point: start, line }),
+            "Point 0 is part of Line 2"
+        );
+        assert_eq!(
+            refused(Constraint::Midpoint {
+                point: lone,
+                line: EntityId::HORIZONTAL_AXIS
+            }),
+            "Midpoint does not apply to Point 12 and Horizontal axis"
+        );
+        assert_eq!(
+            refused(Constraint::Concentric(circle, center)),
+            "Point 6 is part of Circle 7"
+        );
+        assert_eq!(
+            refused(Constraint::Concentric(lone, start)),
+            "Concentric does not apply to Point 12 and Point 0"
+        );
+        let arc_center = sketch.center_of(arc).unwrap();
+        let mut shared = sketch.clone();
+        let shared_arc = shared.insert_entity(
+            EntityId::from_raw(40),
+            Entity::Arc {
+                center,
+                start: arc_center,
+                end: lone,
+            },
+        );
+        assert_eq!(shared_arc, Ok(()));
+        assert_eq!(
+            shared
+                .check_constraint(&Constraint::Concentric(circle, EntityId::from_raw(40)))
+                .unwrap_err()
+                .to_string(),
+            "Circle 7 and Arc 40 already share their centre"
+        );
+        assert_eq!(
+            refused(Constraint::Collinear(line, circle)),
+            "it needs a line, but Circle 7 is not one"
+        );
+        assert_eq!(
+            refused(Constraint::Symmetric {
+                first: start,
+                second: lone,
+                about: start
+            }),
+            "it uses Point 0 twice"
+        );
+        assert_eq!(
+            refused(Constraint::Symmetric {
+                first: start,
+                second: lone,
+                about: line
+            }),
+            "Point 0 is part of Line 2"
+        );
+        assert_eq!(
+            refused(Constraint::Fix {
+                point: EntityId::ORIGIN,
+                at: Point2::ZERO
+            }),
+            "it only uses reference geometry, which never moves"
+        );
+        assert_eq!(
+            refused(Constraint::Fix {
+                point: lone,
+                at: Point2::new(f64::NAN, 0.0)
+            }),
+            "a point must have finite coordinates"
+        );
+        assert_eq!(
+            refused(Constraint::HorizontalPoints(line, lone)),
+            "it needs a point, but Line 2 is not one"
+        );
+        assert_eq!(
+            refused(Constraint::Distance {
+                from: circle,
+                to: line,
+                value: value.clone()
+            }),
+            "Distance does not apply to Circle 7 and Line 2"
+        );
+        assert_eq!(
+            refused(Constraint::Diameter {
+                entity: line,
+                value: value.clone()
+            }),
+            "it needs a circle or an arc, but Line 2 is not one"
+        );
+
+        let labels = [
+            (
+                Constraint::Midpoint { point: lone, line },
+                "Midpoint of Line 2 at Point 12",
+            ),
+            (
+                Constraint::Concentric(arc, circle),
+                "Concentric Arc 11 and Circle 7",
+            ),
+            (
+                Constraint::Collinear(line, EntityId::HORIZONTAL_AXIS),
+                "Collinear Line 2 and Horizontal axis",
+            ),
+            (
+                Constraint::Symmetric {
+                    first: start,
+                    second: end,
+                    about: EntityId::VERTICAL_AXIS,
+                },
+                "Symmetric Point 0 and Point 1 about Vertical axis",
+            ),
+            (
+                Constraint::Fix {
+                    point: lone,
+                    at: Point2::new(3.0, 4.0),
+                },
+                "Fix Point 12",
+            ),
+            (
+                Constraint::HorizontalPoints(lone, EntityId::ORIGIN),
+                "Horizontal Point 12 and Origin",
+            ),
+            (
+                Constraint::VerticalPoints(lone, start),
+                "Vertical Point 12 and Point 0",
+            ),
+            (
+                Constraint::HorizontalDistance {
+                    from: start,
+                    to: lone,
+                    value: value.clone(),
+                },
+                "Horizontal distance between Point 0 and Point 12",
+            ),
+            (
+                Constraint::VerticalDistance {
+                    from: start,
+                    to: lone,
+                    value: value.clone(),
+                },
+                "Vertical distance between Point 0 and Point 12",
+            ),
+            (
+                Constraint::Diameter {
+                    entity: circle,
+                    value: value.clone(),
+                },
+                "Diameter of Circle 7",
+            ),
+            (
+                Constraint::Distance {
+                    from: lone,
+                    to: circle,
+                    value: value.clone(),
+                },
+                "Distance between Point 12 and Circle 7",
+            ),
+            (
+                Constraint::Distance {
+                    from: line,
+                    to: other,
+                    value,
+                },
+                "Distance between Line 2 and Line 5",
+            ),
+        ];
+        for (constraint, label) in labels {
+            let id = sketch.add_constraint(constraint).unwrap();
+            assert_eq!(sketch.describe_constraint(id), label);
+        }
+        assert_eq!(sketch.uses, sketch.counted_from_scratch());
     }
 
     #[test]

@@ -91,9 +91,7 @@ within a category run from most to least important.
   and changes their keys.
 - No projection of model edges or other sketches into a sketch, and bodies and other sketches
   are unpickable while editing.
-- Constraints missing: symmetric, midpoint, fix, collinear, concentric, horizontal and vertical
-  distance, diameter, horizontal and vertical between two points, point on spline, tangent to a
-  spline, line–line spacing and point–circle distance; Equal and Parallel take only two items.
+- Constraints missing: point on a spline and tangent to a spline.
 - Tools missing: trim, extend, offset, mirror, sketch fillet, three-point and tangent arcs, slot,
   polygon, ellipse, and polar or length input in the typed-point field.
 - Snapping has no midpoints, intersections, spline targets, grid or inference lines to other

@@ -312,9 +312,40 @@ pub(crate) enum ConstraintKindRecord {
         entity: u64,
         value: String,
     },
+    HorizontalPoints([u64; 2]),
+    VerticalPoints([u64; 2]),
+    Midpoint {
+        point: u64,
+        line: u64,
+    },
+    Concentric([u64; 2]),
+    Collinear([u64; 2]),
+    Symmetric {
+        first: u64,
+        second: u64,
+        about: u64,
+    },
+    Fix {
+        point: u64,
+        at: [f64; 2],
+    },
+    HorizontalDistance {
+        from: u64,
+        to: u64,
+        value: String,
+    },
+    VerticalDistance {
+        from: u64,
+        to: u64,
+        value: String,
+    },
+    Diameter {
+        entity: u64,
+        value: String,
+    },
 }
 
-const CONSTRAINT_KINDS: [&str; 10] = [
+const CONSTRAINT_KINDS: [&str; 20] = [
     "coincident",
     "horizontal",
     "vertical",
@@ -325,6 +356,16 @@ const CONSTRAINT_KINDS: [&str; 10] = [
     "distance",
     "angle",
     "radius",
+    "horizontal_points",
+    "vertical_points",
+    "midpoint",
+    "concentric",
+    "collinear",
+    "symmetric",
+    "fix",
+    "horizontal_distance",
+    "vertical_distance",
+    "diameter",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -850,6 +891,45 @@ fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
             value: value.to_stored_text(),
         },
         Constraint::Radius { entity, value } => ConstraintKindRecord::Radius {
+            entity: entity.raw(),
+            value: value.to_stored_text(),
+        },
+        Constraint::HorizontalPoints(a, b) => ConstraintKindRecord::HorizontalPoints(pair(a, b)),
+        Constraint::VerticalPoints(a, b) => ConstraintKindRecord::VerticalPoints(pair(a, b)),
+        Constraint::Midpoint { point, line } => ConstraintKindRecord::Midpoint {
+            point: point.raw(),
+            line: line.raw(),
+        },
+        Constraint::Concentric(a, b) => ConstraintKindRecord::Concentric(pair(a, b)),
+        Constraint::Collinear(a, b) => ConstraintKindRecord::Collinear(pair(a, b)),
+        Constraint::Symmetric {
+            first,
+            second,
+            about,
+        } => ConstraintKindRecord::Symmetric {
+            first: first.raw(),
+            second: second.raw(),
+            about: about.raw(),
+        },
+        Constraint::Fix { point, at } => ConstraintKindRecord::Fix {
+            point: point.raw(),
+            at: at.to_array(),
+        },
+        Constraint::HorizontalDistance { from, to, value } => {
+            ConstraintKindRecord::HorizontalDistance {
+                from: from.raw(),
+                to: to.raw(),
+                value: value.to_stored_text(),
+            }
+        }
+        Constraint::VerticalDistance { from, to, value } => {
+            ConstraintKindRecord::VerticalDistance {
+                from: from.raw(),
+                to: to.raw(),
+                value: value.to_stored_text(),
+            }
+        }
+        Constraint::Diameter { entity, value } => ConstraintKindRecord::Diameter {
             entity: entity.raw(),
             value: value.to_stored_text(),
         },
@@ -1622,6 +1702,68 @@ fn constraint_from_record(
                 value,
             }
         }
+        ConstraintKindRecord::HorizontalPoints(ids) => {
+            let (a, b) = pair(*ids);
+            Constraint::HorizontalPoints(a, b)
+        }
+        ConstraintKindRecord::VerticalPoints(ids) => {
+            let (a, b) = pair(*ids);
+            Constraint::VerticalPoints(a, b)
+        }
+        ConstraintKindRecord::Midpoint { point, line } => Constraint::Midpoint {
+            point: entity(*point),
+            line: entity(*line),
+        },
+        ConstraintKindRecord::Concentric(ids) => {
+            let (a, b) = pair(*ids);
+            Constraint::Concentric(a, b)
+        }
+        ConstraintKindRecord::Collinear(ids) => {
+            let (a, b) = pair(*ids);
+            Constraint::Collinear(a, b)
+        }
+        ConstraintKindRecord::Symmetric {
+            first,
+            second,
+            about,
+        } => Constraint::Symmetric {
+            first: entity(*first),
+            second: entity(*second),
+            about: entity(*about),
+        },
+        ConstraintKindRecord::Fix { point, at: [x, y] } => Constraint::Fix {
+            point: entity(*point),
+            at: Point2::new(*x, *y),
+        },
+        ConstraintKindRecord::HorizontalDistance {
+            from,
+            to,
+            value: text,
+        } => {
+            let (from, to) = (entity(*from), entity(*to));
+            let value = value(text, DrawnValue::HorizontalDistance { from, to })?;
+            Constraint::HorizontalDistance { from, to, value }
+        }
+        ConstraintKindRecord::VerticalDistance {
+            from,
+            to,
+            value: text,
+        } => {
+            let (from, to) = (entity(*from), entity(*to));
+            let value = value(text, DrawnValue::VerticalDistance { from, to })?;
+            Constraint::VerticalDistance { from, to, value }
+        }
+        ConstraintKindRecord::Diameter {
+            entity: curve,
+            value: text,
+        } => {
+            let curve = entity(*curve);
+            let value = value(text, DrawnValue::Diameter(curve))?;
+            Constraint::Diameter {
+                entity: curve,
+                value,
+            }
+        }
     })
 }
 
@@ -1631,67 +1773,75 @@ enum DrawnValue {
         from: EntityId,
         to: EntityId,
     },
+    HorizontalDistance {
+        from: EntityId,
+        to: EntityId,
+    },
+    VerticalDistance {
+        from: EntityId,
+        to: EntityId,
+    },
     Angle {
         from: EntityId,
         to: EntityId,
         reversed: bool,
     },
     Radius(EntityId),
+    Diameter(EntityId),
 }
 
 impl DrawnValue {
     fn noun(self) -> &'static str {
         match self {
             Self::Distance { .. } => "a distance",
+            Self::HorizontalDistance { .. } => "a horizontal distance",
+            Self::VerticalDistance { .. } => "a vertical distance",
             Self::Angle { .. } => "an angle",
             Self::Radius(_) => "a radius",
+            Self::Diameter(_) => "a diameter",
         }
     }
 
     fn drawn_name(self) -> &'static str {
         match self {
-            Self::Distance { .. } => "drawn length",
+            Self::Distance { .. }
+            | Self::HorizontalDistance { .. }
+            | Self::VerticalDistance { .. } => "drawn length",
             Self::Angle { .. } => "drawn angle",
             Self::Radius(_) => "drawn radius",
+            Self::Diameter(_) => "drawn diameter",
         }
     }
 
     fn measure(self, sketch: &Sketch) -> Option<Quantity> {
-        match self {
-            Self::Distance { from, to } => {
-                let point_distance = sketch
-                    .point(from)
-                    .zip(sketch.point(to))
-                    .map(|(a, b)| a.distance(b));
-                point_distance
-                    .or_else(|| line_distance(sketch, from, to))
-                    .or_else(|| line_distance(sketch, to, from))
-                    .map(Quantity::length)
+        let value = Expression::Number(0.0);
+        let constraint = match self {
+            Self::Distance { from, to } => Constraint::Distance { from, to, value },
+            Self::HorizontalDistance { from, to } => {
+                Constraint::HorizontalDistance { from, to, value }
             }
-            Self::Angle { from, to, reversed } => {
-                let (from, to) = (sketch.line_direction(from)?, sketch.line_direction(to)?);
-                let from = if reversed { -from } else { from };
-                let radians = from.perp_dot(to).atan2(from.dot(to));
-                Some(Quantity::angle(radians.to_degrees()))
-            }
-            Self::Radius(curve) => sketch
-                .circle(curve)
-                .map(|(_, radius)| radius)
-                .filter(|radius| *radius > 0.0)
-                .map(Quantity::length),
-        }
-        .filter(|quantity| quantity.value.is_finite())
+            Self::VerticalDistance { from, to } => Constraint::VerticalDistance { from, to, value },
+            Self::Angle { from, to, reversed } => Constraint::Angle {
+                from,
+                to,
+                reversed,
+                value,
+            },
+            Self::Radius(entity) => Constraint::Radius { entity, value },
+            Self::Diameter(entity) => Constraint::Diameter { entity, value },
+        };
+        let measured = sketch.measured(&constraint)?;
+        let quantity = match self {
+            Self::Angle { .. } => Quantity::angle(measured),
+            Self::Radius(_) | Self::Diameter(_) if measured <= 0.0 => return None,
+            Self::Distance { .. }
+            | Self::HorizontalDistance { .. }
+            | Self::VerticalDistance { .. }
+            | Self::Radius(_)
+            | Self::Diameter(_) => Quantity::length(measured),
+        };
+        Some(quantity)
     }
-}
-
-fn line_distance(sketch: &Sketch, point: EntityId, line: EntityId) -> Option<f64> {
-    let position = sketch.point(point)?;
-    let direction = sketch.line_direction(line)?.try_normalize()?;
-    let anchor = match sketch.line_endpoints(line) {
-        Some((start, _)) => start,
-        None => Point2::ZERO,
-    };
-    Some(direction.perp_dot(position - anchor).abs())
 }
 
 fn restore_dimension(

@@ -2052,13 +2052,217 @@ fn a_constraint_button_explains_what_to_select_when_it_cannot_apply() {
     harness.click("Parallel");
     assert_eq!(harness.sketch(feature).constraints().len(), 0);
     harness.hover("Parallel");
-    assert!(harness.shows("Make two lines parallel. Select two lines (Shift+P)"));
+    assert!(harness.shows("Make lines parallel. Select two or more lines (Shift+P)"));
 
     harness.key(Key::P, Modifiers::SHIFT);
     harness.frame();
     harness.frame();
-    assert!(harness.shows("Parallel: Select two lines"));
+    assert!(harness.shows("Parallel: Select two or more lines"));
     assert_eq!(harness.sketch(feature).constraints().len(), 0);
+}
+
+fn entity_pickables(feature: FeatureId, entities: &[EntityId]) -> Vec<Pickable> {
+    entities
+        .iter()
+        .map(|entity| Pickable::SketchEntity {
+            feature,
+            entity: *entity,
+        })
+        .collect()
+}
+
+#[test]
+fn a_horizontal_distance_between_two_points_is_a_dimension_edited_on_the_canvas() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let left = sketch.add_point(Point2::new(0.0, 0.0));
+    let right = sketch.add_point(Point2::new(30.0, 12.0));
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.select(entity_pickables(feature, &[left, right]));
+
+    harness.key(Key::X, Modifiers::SHIFT);
+    harness.frame();
+    harness.frame();
+    let (constraint, added) = only_constraint(harness.sketch(feature));
+    assert_eq!(
+        added,
+        Constraint::HorizontalDistance {
+            from: left,
+            to: right,
+            value: Expression::Measure(30.0, Unit::Millimetre),
+        }
+    );
+    assert_eq!(harness.model.undo_label(), Some("Add Horizontal distance"));
+    harness.frame();
+    assert_eq!(
+        harness.focused(),
+        Some(annotations::field_id(feature, constraint))
+    );
+
+    harness.events.push(Event::Text("width / 2".to_owned()));
+    harness.frame();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    assert!(harness.shows("width / 2 = 20 mm"));
+    let shown = harness.shown(feature);
+    let (from, to) = (shown.point(left).unwrap(), shown.point(right).unwrap());
+    assert!(((to.x - from.x) - 20.0).abs() < 1e-6, "{from} {to}");
+    assert!(((to.y - from.y) - 12.0).abs() < 1e-6, "{from} {to}");
+    assert!(harness.shows("Horizontal distance between Point 0 and Point 1"));
+}
+
+#[test]
+fn a_diameter_is_labelled_with_its_sign_and_sets_the_circle() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let circle = sketch.add_circle(Point2::new(10.0, 10.0), 5.0);
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.select(entity_pickables(feature, &[circle]));
+
+    harness.click("Diameter");
+    harness.frame();
+    let (constraint, _) = only_constraint(harness.sketch(feature));
+    harness.frame();
+    harness.type_into_field(annotations::field_id(feature, constraint), "14");
+    harness.settle();
+
+    assert!(harness.shows("Ø 14"));
+    assert!(harness.shows("Diameter of Circle 1"));
+    let (_, radius) = harness.shown(feature).circle(circle).unwrap();
+    assert!((radius - 7.0).abs() < 1e-9, "{radius}");
+}
+
+#[test]
+fn fixing_a_line_locks_both_ends_where_they_are_shown() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(2.0, 3.0), Point2::new(25.0, 9.0));
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    assert!(harness.shows("4 degrees of freedom left"));
+    harness.select(entity_pickables(feature, &[line]));
+
+    harness.key(Key::F, Modifiers::SHIFT);
+    harness.frame();
+    harness.settle();
+
+    let (start, end) = line_ends(harness.sketch(feature), line);
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Fix"),
+        vec![
+            Constraint::Fix {
+                point: start,
+                at: Point2::new(2.0, 3.0),
+            },
+            Constraint::Fix {
+                point: end,
+                at: Point2::new(25.0, 9.0),
+            },
+        ]
+    );
+    assert_eq!(harness.model.undo_label(), Some("Add Fix"));
+    assert!(harness.shows("Fully constrained"));
+    assert!(harness.shows("Fix Point 0"));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    harness.settle();
+    assert!(harness.sketch(feature).constraints().next().is_none());
+    assert!(harness.shows("4 degrees of freedom left"));
+}
+
+#[test]
+fn equal_and_parallel_take_several_lines_in_one_undoable_step() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let lines = [
+        sketch.add_line(Point2::new(0.0, 0.0), Point2::new(20.0, 0.0)),
+        sketch.add_line(Point2::new(0.0, 10.0), Point2::new(15.0, 14.0)),
+        sketch.add_line(Point2::new(0.0, 20.0), Point2::new(30.0, 26.0)),
+    ];
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.select(entity_pickables(feature, &lines));
+
+    harness.click("Parallel");
+    harness.click("Equal");
+    harness.settle();
+
+    let [first, second, third] = lines;
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Parallel"),
+        vec![
+            Constraint::Parallel(first, second),
+            Constraint::Parallel(first, third)
+        ]
+    );
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Equal"),
+        vec![
+            Constraint::Equal(first, second),
+            Constraint::Equal(first, third)
+        ]
+    );
+    let shown = harness.shown(feature);
+    let direction = |line| shown.line_direction(line).unwrap();
+    for line in [second, third] {
+        assert!(direction(first).perp_dot(direction(line)).abs() < 1e-6);
+        assert!((direction(first).length() - direction(line).length()).abs() < 1e-6);
+    }
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(constraints_of_kind(harness.sketch(feature), "Equal").is_empty());
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Parallel").len(),
+        2
+    );
+}
+
+#[test]
+fn symmetric_mirrors_two_points_about_the_selected_line_from_the_palette() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_point(Point2::new(-8.0, 5.0));
+    let second = sketch.add_point(Point2::new(9.0, 6.0));
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    let mut chosen = entity_pickables(feature, &[first, second]);
+    chosen.push(Pickable::SketchEntity {
+        feature,
+        entity: EntityId::VERTICAL_AXIS,
+    });
+    harness.select(chosen);
+
+    harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.frame();
+    harness.type_text("Symmetric");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(
+        only_constraint(harness.sketch(feature)).1,
+        Constraint::Symmetric {
+            first,
+            second,
+            about: EntityId::VERTICAL_AXIS,
+        }
+    );
+    let shown = harness.shown(feature);
+    let (a, b) = (shown.point(first).unwrap(), shown.point(second).unwrap());
+    assert!(
+        (a.x + b.x).abs() < 1e-6 && (a.y - b.y).abs() < 1e-6,
+        "{a} {b}"
+    );
+    assert!(harness.shows("Symmetric Point 0 and Point 1 about Vertical axis"));
 }
 
 #[test]
@@ -2597,7 +2801,7 @@ fn tool_buttons_name_their_shortcuts() {
     harness.click("Circle");
     assert_eq!(harness.tool(), Some(Tool::Circle));
     harness.hover("Parallel");
-    assert!(harness.shows("Make two lines parallel. Select two lines (Shift+P)"));
+    assert!(harness.shows("Make lines parallel. Select two or more lines (Shift+P)"));
 }
 
 fn rectangle(sketch: &mut Sketch, min: Point2, max: Point2) {

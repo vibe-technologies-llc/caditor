@@ -251,6 +251,84 @@ impl System {
             },
             Constraint::Horizontal(line) => vec![Form::Horizontal(self.line(sketch, line)?)],
             Constraint::Vertical(line) => vec![Form::Vertical(self.line(sketch, line)?)],
+            Constraint::HorizontalPoints(a, b) => vec![Form::SameY(self.point(a)?, self.point(b)?)],
+            Constraint::VerticalPoints(a, b) => vec![Form::SameX(self.point(a)?, self.point(b)?)],
+            Constraint::Midpoint { point, line } => {
+                let (point, line) = (self.point(point)?, self.line(sketch, line)?);
+                [Vector2::X, Vector2::Y]
+                    .into_iter()
+                    .map(|along| Form::Middle {
+                        point,
+                        ends: (line.start, line.end),
+                        along,
+                    })
+                    .collect()
+            }
+            Constraint::Concentric(a, b) => {
+                let centre = |entity: EntityId| match role(entity)? {
+                    Role::Point => self.point(entity),
+                    Role::Line | Role::Circular | Role::Spline => {
+                        Ok(self.circle(sketch, entity)?.center)
+                    }
+                };
+                let (a, b) = (centre(a)?, centre(b)?);
+                vec![Form::SameX(a, b), Form::SameY(a, b)]
+            }
+            Constraint::Collinear(a, b) => {
+                let (anchor, other) = if b.is_reference() { (b, a) } else { (a, b) };
+                let (line, other) = (self.line(sketch, anchor)?, self.line(sketch, other)?);
+                vec![
+                    Form::OnLine {
+                        point: other.start,
+                        line,
+                    },
+                    Form::OnLine {
+                        point: other.end,
+                        line,
+                    },
+                ]
+            }
+            Constraint::Symmetric {
+                first,
+                second,
+                about,
+            } => {
+                let refused = not_applicable(second, about);
+                let (first, second) = (self.point(first)?, self.point(second)?);
+                match role(about)? {
+                    Role::Point => {
+                        let about = self.point(about)?;
+                        [Vector2::X, Vector2::Y]
+                            .into_iter()
+                            .map(|along| Form::Middle {
+                                point: about,
+                                ends: (first, second),
+                                along,
+                            })
+                            .collect()
+                    }
+                    Role::Line => {
+                        let line = self.line(sketch, about)?;
+                        vec![
+                            Form::MirrorMiddle {
+                                first,
+                                second,
+                                line,
+                            },
+                            Form::MirrorAcross {
+                                first,
+                                second,
+                                line,
+                            },
+                        ]
+                    }
+                    Role::Circular | Role::Spline => return Err(refused),
+                }
+            }
+            Constraint::Fix { point, at } => {
+                let (point, target) = (self.point(point)?, PointHandle::Fixed(at));
+                vec![Form::SameX(point, target), Form::SameY(point, target)]
+            }
             Constraint::Parallel(a, b) => {
                 vec![Form::Parallel(self.line(sketch, a)?, self.line(sketch, b)?)]
             }
@@ -301,8 +379,21 @@ impl System {
                     }
                     (Role::Point, Role::Line) => vec![self.line_distance(sketch, from, to, value)?],
                     (Role::Line, Role::Point) => vec![self.line_distance(sketch, to, from, value)?],
+                    (Role::Point, Role::Circular) => {
+                        vec![self.circle_distance(sketch, from, to, value)?]
+                    }
+                    (Role::Circular, Role::Point) => {
+                        vec![self.circle_distance(sketch, to, from, value)?]
+                    }
+                    (Role::Line, Role::Line) => self.line_spacing(sketch, from, to, value)?,
                     _ => return Err(not_applicable(from, to)),
                 }
+            }
+            Constraint::HorizontalDistance { from, to, .. } => {
+                self.offset(self.point(from)?, self.point(to)?, Vector2::X, dimension()?)
+            }
+            Constraint::VerticalDistance { from, to, .. } => {
+                self.offset(self.point(from)?, self.point(to)?, Vector2::Y, dimension()?)
             }
             Constraint::Angle {
                 from, to, reversed, ..
@@ -316,7 +407,73 @@ impl System {
                 circle: self.circle(sketch, entity)?,
                 value: dimension()?,
             }],
+            Constraint::Diameter { entity, .. } => vec![Form::Radius {
+                circle: self.circle(sketch, entity)?,
+                value: dimension()? / 2.0,
+            }],
         })
+    }
+
+    fn offset(&self, from: PointHandle, to: PointHandle, along: Vector2, value: f64) -> Vec<Form> {
+        if value.abs() <= self.span_context(from, to, value).degenerate_length {
+            return if along == Vector2::X {
+                vec![Form::SameX(from, to)]
+            } else {
+                vec![Form::SameY(from, to)]
+            };
+        }
+        let drawn = along.dot(to.at(&self.values) - from.at(&self.values));
+        vec![Form::Offset {
+            from,
+            to,
+            along,
+            side: if drawn < 0.0 { -1.0 } else { 1.0 },
+            value,
+        }]
+    }
+
+    fn circle_distance(
+        &self,
+        sketch: &Sketch,
+        point: EntityId,
+        circle: EntityId,
+        value: f64,
+    ) -> Result<Form, SketchError> {
+        let (point, circle) = (self.point(point)?, self.circle(sketch, circle)?);
+        let values = &self.values;
+        let inside = point.at(values).distance(circle.center.at(values)) < circle.radius(values);
+        Ok(Form::CircleDistance {
+            point,
+            circle,
+            fallback: self.initial_direction(circle.center, point),
+            side: if inside { -1.0 } else { 1.0 },
+            value,
+        })
+    }
+
+    fn line_spacing(
+        &self,
+        sketch: &Sketch,
+        a: EntityId,
+        b: EntityId,
+        value: f64,
+    ) -> Result<Vec<Form>, SketchError> {
+        let (anchor, other) = if b.is_reference() { (b, a) } else { (a, b) };
+        let (line, other) = (self.line(sketch, anchor)?, self.line(sketch, other)?);
+        let values = &self.values;
+        let middle = (other.start.at(values) + other.end.at(values)) / 2.0;
+        let start = line.start.at(values);
+        let side = fallback_direction(line.end.at(values) - start).perp_dot(middle - start);
+        let side = if side < 0.0 { -1.0 } else { 1.0 };
+        Ok([other.start, other.end]
+            .into_iter()
+            .map(|point| Form::LineDistance {
+                point,
+                line,
+                side,
+                value,
+            })
+            .collect())
     }
 
     fn on_line(

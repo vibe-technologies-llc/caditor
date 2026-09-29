@@ -132,15 +132,23 @@ pub fn tool(tool: Tool) -> &'static str {
 pub fn constraint(tool: ConstraintTool) -> &'static str {
     match tool {
         ConstraintTool::Coincident => phosphor::CROSSHAIR_SIMPLE,
+        ConstraintTool::Midpoint => phosphor::GIT_COMMIT,
+        ConstraintTool::Concentric => phosphor::TARGET,
+        ConstraintTool::Collinear => phosphor::DOTS_THREE_OUTLINE,
+        ConstraintTool::Fix => phosphor::LOCK_SIMPLE,
         ConstraintTool::Horizontal => phosphor::ARROWS_OUT_LINE_HORIZONTAL,
         ConstraintTool::Vertical => phosphor::ARROWS_OUT_LINE_VERTICAL,
         ConstraintTool::Parallel => phosphor::PAUSE,
         ConstraintTool::Perpendicular => phosphor::ANGLE,
         ConstraintTool::Tangent => phosphor::ARROW_ARC_RIGHT,
         ConstraintTool::Equal => phosphor::EQUALS,
+        ConstraintTool::Symmetric => phosphor::FLIP_HORIZONTAL,
         ConstraintTool::Distance => phosphor::RULER,
+        ConstraintTool::HorizontalDistance => phosphor::ARROWS_HORIZONTAL,
+        ConstraintTool::VerticalDistance => phosphor::ARROWS_VERTICAL,
         ConstraintTool::Angle => phosphor::COMPASS_TOOL,
         ConstraintTool::Radius => phosphor::CIRCLE_DASHED,
+        ConstraintTool::Diameter => phosphor::PROHIBIT,
     }
 }
 

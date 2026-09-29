@@ -44,6 +44,7 @@ fn seed_model() -> Vec<u8> {
         let time = at(2_000 + index as u64);
         bytes = save_bytes(editor.document(), Some(&bytes), time, Some("Edit width")).unwrap();
     }
+    let (document, _) = with_added_kinds(document);
     save_bytes(&document, Some(&bytes), at(3_000), Some("Datums")).unwrap()
 }
 

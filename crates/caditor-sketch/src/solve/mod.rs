@@ -1,4 +1,6 @@
 mod equation;
+#[cfg(test)]
+mod kind_tests;
 mod memo;
 mod numeric;
 mod sparse;

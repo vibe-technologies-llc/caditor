@@ -211,6 +211,35 @@ pub(crate) enum Form {
         circle: CircleHandle,
         value: f64,
     },
+    Middle {
+        point: PointHandle,
+        ends: (PointHandle, PointHandle),
+        along: Vector2,
+    },
+    MirrorMiddle {
+        first: PointHandle,
+        second: PointHandle,
+        line: LineHandle,
+    },
+    MirrorAcross {
+        first: PointHandle,
+        second: PointHandle,
+        line: LineHandle,
+    },
+    Offset {
+        from: PointHandle,
+        to: PointHandle,
+        along: Vector2,
+        side: f64,
+        value: f64,
+    },
+    CircleDistance {
+        point: PointHandle,
+        circle: CircleHandle,
+        fallback: Vector2,
+        side: f64,
+        value: f64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -244,10 +273,12 @@ impl Form {
         match *self {
             Self::PointDistance { value, .. }
             | Self::LineDistance { value, .. }
-            | Self::Radius { value, .. } => Some(value),
-            Self::SameX(..)
-            | Self::SameY(..)
-            | Self::OnLine { .. }
+            | Self::Radius { value, .. }
+            | Self::Offset { value, .. }
+            | Self::CircleDistance { value, .. } => Some(value),
+            Self::SameX(a, b) => fixed_coordinate(a, b, |position| position.x),
+            Self::SameY(a, b) => fixed_coordinate(a, b, |position| position.y),
+            Self::OnLine { .. }
             | Self::OnCircle { .. }
             | Self::Horizontal(_)
             | Self::Vertical(_)
@@ -257,7 +288,10 @@ impl Form {
             | Self::CircleTangent { .. }
             | Self::EqualLength(..)
             | Self::EqualRadius(..)
-            | Self::Angle { .. } => None,
+            | Self::Angle { .. }
+            | Self::Middle { .. }
+            | Self::MirrorMiddle { .. }
+            | Self::MirrorAcross { .. } => None,
         }
     }
 
@@ -412,7 +446,81 @@ impl Form {
                 circle.push_radius(values, context, gradient, 1.0);
                 circle.radius(values) - value
             }
+            Self::Middle {
+                point,
+                ends: (a, b),
+                along,
+            } => {
+                point.push(gradient, along);
+                a.push(gradient, -along / 2.0);
+                b.push(gradient, -along / 2.0);
+                along.dot(point.at(values) - (a.at(values) + b.at(values)) / 2.0)
+            }
+            Self::MirrorMiddle {
+                first,
+                second,
+                line,
+            } => {
+                let direction = line.direction(values, context);
+                let middle = (first.at(values) + second.at(values)) / 2.0;
+                let offset = middle - line.start.at(values);
+                let normal = direction.unit.perp();
+                first.push(gradient, normal / 2.0);
+                second.push(gradient, normal / 2.0);
+                line.start.push(gradient, -normal);
+                line.push_vector(gradient, direction.back_from_unit(-offset.perp()));
+                direction.unit.perp_dot(offset)
+            }
+            Self::MirrorAcross {
+                first,
+                second,
+                line,
+            } => {
+                let direction = line.direction(values, context);
+                let span = second.at(values) - first.at(values);
+                second.push(gradient, direction.unit);
+                first.push(gradient, -direction.unit);
+                line.push_vector(gradient, direction.back_from_unit(span));
+                direction.unit.dot(span)
+            }
+            Self::Offset {
+                from,
+                to,
+                along,
+                side,
+                value,
+            } => {
+                to.push(gradient, along * side);
+                from.push(gradient, -along * side);
+                side * along.dot(to.at(values) - from.at(values)) - value
+            }
+            Self::CircleDistance {
+                point,
+                circle,
+                fallback,
+                side,
+                value,
+            } => {
+                let direction = Direction::of(
+                    point.at(values) - circle.center.at(values),
+                    fallback,
+                    context,
+                );
+                point.push(gradient, direction.unit * side);
+                circle.center.push(gradient, -direction.unit * side);
+                circle.push_radius(values, context, gradient, -side);
+                side * (direction.length - circle.radius(values)) - value
+            }
         }
+    }
+}
+
+fn fixed_coordinate(a: PointHandle, b: PointHandle, coordinate: fn(Point2) -> f64) -> Option<f64> {
+    match (a, b) {
+        (PointHandle::Fixed(position), _) | (_, PointHandle::Fixed(position)) => {
+            Some(coordinate(position))
+        }
+        (PointHandle::Variable(_), PointHandle::Variable(_)) => None,
     }
 }
 
@@ -560,6 +668,47 @@ mod tests {
             Form::Radius {
                 circle: arc(4, 12),
                 value: 3.0,
+            },
+            Form::Middle {
+                point: point(12),
+                ends: (point(0), point(4)),
+                along: Vector2::X,
+            },
+            Form::Middle {
+                point: point(12),
+                ends: (point(0), PointHandle::Fixed(Point2::new(2.0, -1.0))),
+                along: Vector2::Y,
+            },
+            Form::MirrorMiddle {
+                first: point(0),
+                second: point(12),
+                line: line(4, 6),
+            },
+            Form::MirrorAcross {
+                first: point(0),
+                second: point(12),
+                line: line(4, 6),
+            },
+            Form::Offset {
+                from: point(2),
+                to: point(8),
+                along: Vector2::Y,
+                side: -1.0,
+                value: 1.25,
+            },
+            Form::CircleDistance {
+                point: point(0),
+                circle: circle(6, 10),
+                fallback: Vector2::X,
+                side: -1.0,
+                value: 0.5,
+            },
+            Form::CircleDistance {
+                point: point(14),
+                circle: arc(4, 12),
+                fallback: Vector2::X,
+                side: 1.0,
+                value: 2.0,
             },
         ]
     }

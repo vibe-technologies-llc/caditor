@@ -1030,6 +1030,166 @@ fn unreadable_angles_and_radii_take_their_drawn_values() {
     );
 }
 
+struct AddedKinds {
+    horizontal: ConstraintId,
+    vertical: ConstraintId,
+    diameter: ConstraintId,
+    around: ConstraintId,
+    spacing: ConstraintId,
+}
+
+fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
+    let mut transaction = document.transaction("Added kinds");
+    let width = transaction.add_parameter("gap", transaction.parse("6 mm").unwrap());
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
+    let Some(Entity::Line { start, end }) = sketch.entity(line).cloned() else {
+        panic!("expected a line");
+    };
+    let other = sketch.add_line(Point2::new(0.0, 6.0), Point2::new(30.0, 6.0));
+    let circle = sketch.add_circle(Point2::new(50.0, 5.0), 5.0);
+    let arc = sketch.add_arc(
+        Point2::new(50.0, 5.0),
+        Point2::new(58.0, 5.0),
+        Point2::new(50.0, 13.0),
+    );
+    let middle = sketch.add_point(Point2::new(15.0, 0.0));
+    let mirrored = sketch.add_point(Point2::new(-5.0, 20.0));
+    let lone = sketch.add_point(Point2::new(5.0, 20.0));
+    let mut add = |constraint| sketch.add_constraint(constraint).unwrap();
+    add(Constraint::HorizontalPoints(start, end));
+    add(Constraint::VerticalPoints(start, EntityId::ORIGIN));
+    add(Constraint::Midpoint {
+        point: middle,
+        line,
+    });
+    add(Constraint::Concentric(arc, circle));
+    add(Constraint::Collinear(line, EntityId::HORIZONTAL_AXIS));
+    add(Constraint::Symmetric {
+        first: mirrored,
+        second: lone,
+        about: EntityId::VERTICAL_AXIS,
+    });
+    add(Constraint::Fix {
+        point: lone,
+        at: Point2::new(5.0, 20.0),
+    });
+    let horizontal = add(Constraint::HorizontalDistance {
+        from: start,
+        to: end,
+        value: Expression::Measure(30.0, Unit::Millimetre),
+    });
+    let vertical = add(Constraint::VerticalDistance {
+        from: end,
+        to: lone,
+        value: Expression::Measure(20.0, Unit::Millimetre),
+    });
+    let diameter = add(Constraint::Diameter {
+        entity: circle,
+        value: Expression::Measure(10.0, Unit::Millimetre),
+    });
+    let around = add(Constraint::Distance {
+        from: lone,
+        to: circle,
+        value: Expression::Measure(45.0, Unit::Millimetre),
+    });
+    let spacing = add(Constraint::Distance {
+        from: line,
+        to: other,
+        value: Expression::Parameter(width),
+    });
+    transaction.add_feature("Added kinds", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+    (
+        document,
+        AddedKinds {
+            horizontal,
+            vertical,
+            diameter,
+            around,
+            spacing,
+        },
+    )
+}
+
+#[test]
+fn added_constraint_kinds_round_trip() {
+    let (document, _) = with_added_kinds(Document::default());
+    let text = encode(&document).unwrap();
+    for record in [
+        "\"horizontal_points\":[0,1]",
+        "\"vertical_points\":[0,18446744073709551615]",
+        "\"midpoint\":{\"line\":2,\"point\":12}",
+        "\"concentric\":[11,7]",
+        "\"collinear\":[2,18446744073709551614]",
+        "\"symmetric\":{\"about\":18446744073709551613,\"first\":13,\"second\":14}",
+        "\"fix\":{\"at\":[5.0,20.0],\"point\":14}",
+        "\"horizontal_distance\":{\"from\":0,\"to\":1,\"value\":\"30 mm\"}",
+        "\"vertical_distance\":{\"from\":1,\"to\":14,\"value\":\"20 mm\"}",
+        "\"diameter\":{\"entity\":7,\"value\":\"10 mm\"}",
+        "\"distance\":{\"from\":14,\"to\":7,",
+        "\"distance\":{\"from\":2,\"to\":5,\"value\":\"$0\"}",
+    ] {
+        assert!(text.contains(record), "{record} is missing from {text}");
+    }
+
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn unreadable_added_dimensions_take_their_drawn_values() {
+    let (document, kinds) = with_added_kinds(Document::default());
+    let text = encode(&document)
+        .unwrap()
+        .replace("\"value\":\"30 mm\"", "\"value\":\"30 ((\"")
+        .replace("\"value\":\"20 mm\"", "\"value\":\"20 ((\"")
+        .replace("\"value\":\"10 mm\"", "\"value\":\"10 ((\"")
+        .replace("\"value\":\"45 mm\"", "\"value\":\"45 ((\"")
+        .replace("\"value\":\"$0\"", "\"value\":\"$$\"");
+
+    let loaded = decode_text(&text);
+
+    assert_eq!(
+        loaded.issues,
+        [
+            "In “Added kinds”, the value of a horizontal distance could not be read, so it was \
+             set to its drawn length, 30 mm.",
+            "In “Added kinds”, the value of a vertical distance could not be read, so it was set \
+             to its drawn length, 20 mm.",
+            "In “Added kinds”, the value of a diameter could not be read, so it was set to its \
+             drawn diameter, 10 mm.",
+            "In “Added kinds”, the value of a distance could not be read, so it was set to its \
+             drawn length, 42.434165 mm.",
+            "In “Added kinds”, the value of a distance could not be read, so it was set to its \
+             drawn length, 6 mm.",
+        ]
+    );
+    let sketch = loaded
+        .document
+        .features()
+        .next()
+        .unwrap()
+        .kind
+        .sketch()
+        .unwrap();
+    let value = |constraint| {
+        sketch
+            .constraint(constraint)
+            .and_then(Constraint::dimension)
+    };
+    let millimetres = |value| Expression::Measure(value, Unit::Millimetre);
+    assert_eq!(value(kinds.horizontal), Some(&millimetres(30.0)));
+    assert_eq!(value(kinds.vertical), Some(&millimetres(20.0)));
+    assert_eq!(value(kinds.diameter), Some(&millimetres(10.0)));
+    assert_eq!(value(kinds.spacing), Some(&millimetres(6.0)));
+    assert!(matches!(
+        value(kinds.around),
+        Some(Expression::Measure(length, Unit::Millimetre)) if (length - 42.434_165).abs() < 1e-6
+    ));
+}
+
 struct SketchSession {
     base: Document,
     plate: FeatureId,

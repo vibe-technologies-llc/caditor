@@ -45,6 +45,16 @@ const FIELD_LIFT: f32 = 14.0;
 const FIELD_MARGIN: f32 = 4.0;
 const REQUEST_FRAMES: u8 = 30;
 const RADIUS_PREFIX: &str = "R ";
+const DIAMETER_PREFIX: &str = "Ø ";
+const MIDPOINT_DOT: f32 = 1.8;
+const INNER_RING: f32 = 1.8;
+const DASH_GAP: f32 = 1.2;
+const LOCK_HALF_WIDTH: f32 = 3.4;
+const LOCK_TOP: f32 = -0.4;
+const LOCK_BOTTOM: f32 = 4.2;
+const SHACKLE_RADIUS: f32 = 2.2;
+const SHACKLE_STEPS: usize = 8;
+const MIRROR_TIP: f32 = 1.2;
 const EDIT_HINT: &str = "Double-click to change it.";
 
 pub fn field_id(feature: FeatureId, constraint: ConstraintId) -> Id {
@@ -201,6 +211,7 @@ fn label_text(model: &Model, constraint: &Constraint, expression: &Expression) -
     };
     match constraint {
         Constraint::Radius { .. } => format!("{RADIUS_PREFIX}{text}"),
+        Constraint::Diameter { .. } => format!("{DIAMETER_PREFIX}{text}"),
         _ => text,
     }
 }
@@ -583,7 +594,12 @@ pub fn glyph_letter(kind: GlyphKind) -> Option<&'static str> {
         | GlyphKind::Perpendicular
         | GlyphKind::Tangent
         | GlyphKind::Coincident
-        | GlyphKind::OnCurve => None,
+        | GlyphKind::OnCurve
+        | GlyphKind::Midpoint
+        | GlyphKind::Concentric
+        | GlyphKind::Collinear
+        | GlyphKind::Symmetric
+        | GlyphKind::Fix => None,
     }
 }
 
@@ -604,7 +620,12 @@ fn paint_glyph(painter: &egui::Painter, center: Pos2, kind: GlyphKind, color: Co
         | GlyphKind::Equal
         | GlyphKind::Parallel
         | GlyphKind::Perpendicular
-        | GlyphKind::Tangent => {}
+        | GlyphKind::Tangent
+        | GlyphKind::Midpoint
+        | GlyphKind::Concentric
+        | GlyphKind::Collinear
+        | GlyphKind::Symmetric
+        | GlyphKind::Fix => {}
     }
     painter.rect_filled(
         Rect::from_center_size(center, egui::Vec2::splat(GLYPH_SIZE)),
@@ -647,6 +668,59 @@ fn paint_glyph(painter: &egui::Painter, center: Pos2, kind: GlyphKind, color: Co
                 stroke,
             );
         }
+        GlyphKind::Midpoint => {
+            painter.line_segment([at(-SYMBOL_HALF, 0.0), at(SYMBOL_HALF, 0.0)], stroke);
+            painter.circle_filled(center, MIDPOINT_DOT, color);
+        }
+        GlyphKind::Concentric => {
+            painter.circle_stroke(center, SYMBOL_HALF, stroke);
+            painter.circle_stroke(center, INNER_RING, stroke);
+        }
+        GlyphKind::Collinear => {
+            for side in [-1.0, 1.0] {
+                painter.line_segment(
+                    [
+                        at(side * DASH_GAP, -side * DASH_GAP),
+                        at(side * SYMBOL_HALF, -side * SYMBOL_HALF),
+                    ],
+                    stroke,
+                );
+            }
+        }
+        GlyphKind::Symmetric => {
+            painter.line_segment([at(0.0, -SYMBOL_HALF), at(0.0, SYMBOL_HALF)], stroke);
+            for side in [-1.0, 1.0] {
+                painter.add(Shape::convex_polygon(
+                    vec![
+                        at(side * SYMBOL_HALF, -SYMBOL_HALF + MIRROR_TIP),
+                        at(side * SYMBOL_HALF, SYMBOL_HALF - MIRROR_TIP),
+                        at(side * MIRROR_TIP, 0.0),
+                    ],
+                    color,
+                    Stroke::NONE,
+                ));
+            }
+        }
+        GlyphKind::Fix => {
+            painter.rect_filled(
+                Rect::from_min_max(
+                    at(-LOCK_HALF_WIDTH, LOCK_TOP),
+                    at(LOCK_HALF_WIDTH, LOCK_BOTTOM),
+                ),
+                1.0,
+                color,
+            );
+            let shackle = (0..=SHACKLE_STEPS)
+                .map(|step| {
+                    let angle = std::f32::consts::PI * step as f32 / SHACKLE_STEPS as f32;
+                    at(
+                        -SHACKLE_RADIUS * angle.cos(),
+                        LOCK_TOP - SHACKLE_RADIUS * angle.sin(),
+                    )
+                })
+                .collect();
+            painter.add(Shape::line(shackle, stroke));
+        }
         GlyphKind::Horizontal
         | GlyphKind::Vertical
         | GlyphKind::Equal
@@ -676,11 +750,17 @@ mod tests {
             GlyphKind::Equal,
             GlyphKind::Coincident,
             GlyphKind::OnCurve,
+            GlyphKind::Midpoint,
+            GlyphKind::Concentric,
+            GlyphKind::Collinear,
+            GlyphKind::Symmetric,
+            GlyphKind::Fix,
         ];
-        let texts = kinds
-            .into_iter()
-            .filter_map(glyph_letter)
-            .chain([RADIUS_PREFIX, "0123456789.,+-*/()= mm deg °"]);
+        let texts = kinds.into_iter().filter_map(glyph_letter).chain([
+            RADIUS_PREFIX,
+            DIAMETER_PREFIX,
+            "0123456789.,+-*/()= mm deg °",
+        ]);
         for text in texts {
             let renders = context.fonts_mut(|fonts| {
                 fonts.has_glyphs(&FontId::proportional(LABEL_FONT_SIZE), text.trim())

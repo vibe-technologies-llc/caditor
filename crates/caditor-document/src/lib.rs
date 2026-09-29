@@ -64,7 +64,7 @@ mod tests {
 
     use caditor_expression::{EvalError, Expression, ParameterId, Quantity};
     use caditor_geometry::{Plane, Point2};
-    use caditor_sketch::{Constraint, ConstraintId, Entity, Sketch};
+    use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 
     use super::*;
 
@@ -785,6 +785,68 @@ mod tests {
         assert_eq!(
             evaluation.feature(side).unwrap().state,
             FeatureState::UpToDate
+        );
+    }
+
+    #[test]
+    fn added_constraint_kinds_are_named_in_conflicts_and_dimension_errors() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let point = sketch.add_point(Point2::new(4.0, 1.0));
+        let circle = sketch.add_circle(Point2::new(20.0, 0.0), 3.0);
+        let fixed = sketch
+            .add_constraint(Constraint::Fix {
+                point,
+                at: Point2::new(4.0, 1.0),
+            })
+            .unwrap();
+        let level = sketch
+            .add_constraint(Constraint::HorizontalPoints(point, EntityId::ORIGIN))
+            .unwrap();
+        let diameter = sketch
+            .add_constraint(Constraint::Diameter {
+                entity: circle,
+                value: Expression::Number(6.0),
+            })
+            .unwrap();
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Holes", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+
+        let evaluation = recompute(&mut Recompute::default(), &document);
+
+        let error = failure(&evaluation, feature);
+        assert_eq!(
+            error.reason,
+            "Horizontal Point 0 and Origin conflicts with Fix Point 0."
+        );
+        assert_eq!(error.constraints, [fixed, level]);
+
+        document
+            .apply(Transaction::single(
+                "Remove",
+                Edit::RemoveSketchConstraint { feature, id: level },
+            ))
+            .unwrap();
+        document
+            .apply(Transaction::single(
+                "Zero",
+                Edit::SetDimension {
+                    feature,
+                    constraint: diameter,
+                    value: Expression::Number(0.0),
+                },
+            ))
+            .unwrap();
+        let evaluation = recompute(&mut Recompute::default(), &document);
+        let error = failure(&evaluation, feature);
+        assert_eq!(
+            error.reason,
+            "Diameter of Circle 2 cannot be evaluated: a diameter must be greater than zero."
+        );
+        assert_eq!(
+            error.remedy,
+            "Edit the dimension so it gives more than zero."
         );
     }
 

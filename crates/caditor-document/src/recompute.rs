@@ -881,7 +881,7 @@ fn dimension_error(
             "Edit the dimension so it gives zero or more.".to_owned(),
             dimension,
         ),
-        DimensionError::NotPositive => (
+        DimensionError::NotPositive | DimensionError::DiameterNotPositive => (
             "Edit the dimension so it gives more than zero.".to_owned(),
             dimension,
         ),
