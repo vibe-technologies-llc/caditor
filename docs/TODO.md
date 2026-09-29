@@ -22,8 +22,8 @@ within a category run from most to least important.
 
 ## Checks and CI
 
-- Slow tests to keep an eye on: STEP `every_fixture_survives_a_round_trip` (7 s),
-  `blend::every_edge_of_assorted_prisms` (6 s) and about 40 UI tests at over a second each.
+- Slow tests to keep an eye on: `blend::every_edge_of_assorted_prisms` (6 s) and about 40 UI
+  tests at over a second each.
 
 ## Kernel correctness
 

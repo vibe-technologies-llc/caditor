@@ -16,19 +16,46 @@ fn round_trip(name: &str, solid: &caditor_kernel::Solid) -> caditor_kernel::Soli
     read.solid
 }
 
+fn assert_same_shape(name: &str, original: &caditor_kernel::Solid, read: &caditor_kernel::Solid) {
+    let coarse = caditor_kernel::SamplingTolerance::new(0.05, 0.3).unwrap();
+    let mesh = read.tessellate(&coarse).unwrap();
+    let before = fixtures::mesh_volume(&original.tessellate(&coarse).unwrap());
+    let after = fixtures::mesh_volume(&mesh);
+    let surfaces: Vec<&caditor_kernel::Surface> =
+        original.faces().map(|(_, face)| face.surface()).collect();
+
+    assert_eq!(read.faces().count(), original.faces().count(), "{name}");
+    assert_eq!(read.edges().count(), original.edges().count(), "{name}");
+    assert_eq!(
+        read.vertices().count(),
+        original.vertices().count(),
+        "{name}"
+    );
+    assert_eq!(read.shells().count(), original.shells().count(), "{name}");
+    assert!(
+        (before - after).abs() < 1e-6 * before,
+        "{name}: {before} vs {after}"
+    );
+    for (index, face) in mesh.faces().iter().enumerate() {
+        let surface = surfaces[index];
+        for triangle in &mesh.triangles()[face.triangles.clone()] {
+            for corner in mesh.triangle_positions(*triangle).unwrap() {
+                let point = mesh.position(corner).unwrap();
+                let gap = surface.distance(point);
+                assert!(
+                    gap <= caditor_kernel::LINEAR_RESOLUTION,
+                    "{name}: face {index} is {gap} mm off the original at {point}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn every_fixture_survives_a_round_trip() {
     for (name, solid) in fixtures::all() {
         let read = round_trip(name, &solid);
-        assert_eq!(read.faces().count(), solid.faces().count(), "{name}");
-        assert_eq!(read.edges().count(), solid.edges().count(), "{name}");
-        assert_eq!(read.vertices().count(), solid.vertices().count(), "{name}");
-        assert_eq!(read.shells().count(), solid.shells().count(), "{name}");
-        let (before, after) = (fixtures::volume(&solid), fixtures::volume(&read));
-        assert!(
-            (before - after).abs() < 1e-6 * before,
-            "{name}: {before} vs {after}"
-        );
+        assert_same_shape(name, &solid, &read);
     }
 }
 

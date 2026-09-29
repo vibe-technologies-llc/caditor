@@ -1,6 +1,6 @@
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
-    AngularExtent, Axis2, BlendShape, BooleanOperation, LinearExtent, Profile, ProfileCurve,
+    AngularExtent, Axis2, BlendShape, BooleanOperation, LinearExtent, Mesh, Profile, ProfileCurve,
     SamplingTolerance, Selection, Solid, blend, boolean, extrude, revolve,
 };
 
@@ -128,9 +128,29 @@ pub fn all() -> Vec<(&'static str, Solid)> {
 }
 
 pub fn volume(solid: &Solid) -> f64 {
-    solid
-        .tessellate(&SamplingTolerance::new(1e-3, 0.05).unwrap())
-        .unwrap()
-        .mass_properties()
-        .volume
+    mesh_volume(
+        &solid
+            .tessellate(&SamplingTolerance::new(0.02, 0.2).unwrap())
+            .unwrap(),
+    )
+}
+
+pub fn mesh_volume(mesh: &Mesh) -> f64 {
+    let origin = mesh.positions()[0];
+
+    let mut total = 0.0;
+    for triangle in mesh.triangles() {
+        let corners = triangle.map(|index| mesh.vertices()[index as usize]);
+        let [a, b, c] = corners.map(|corner| mesh.positions()[corner.position as usize] - origin);
+        let flat = a.dot(b.cross(c)) / 6.0;
+        let area = 0.5 * (b - a).cross(c - a).length();
+        let sag = |from: usize, to: usize| {
+            let (from, to) = (corners[from], corners[to]);
+            let chord =
+                mesh.positions()[to.position as usize] - mesh.positions()[from.position as usize];
+            chord.dot(to.normal - from.normal) / 8.0
+        };
+        total += flat + area * (sag(0, 1) + sag(1, 2) + sag(2, 0)) / 3.0;
+    }
+    total
 }
