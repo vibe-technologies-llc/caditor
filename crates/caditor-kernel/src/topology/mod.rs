@@ -227,6 +227,46 @@ fn enumerate<'a, Id, Item>(
 }
 
 impl Solid {
+    pub fn approximate_size(&self) -> usize {
+        let edges: usize = self
+            .edges
+            .iter()
+            .map(|edge| edge.curve.heap_size() + size_of_val(edge.coedges.as_slice()))
+            .sum();
+        let coedges: usize = self
+            .coedges
+            .iter()
+            .map(|coedge| coedge.pcurve.heap_size())
+            .sum();
+        let loops: usize = self
+            .loops
+            .iter()
+            .map(|owned| size_of_val(owned.coedges.as_slice()))
+            .sum();
+        let faces: usize = self
+            .faces
+            .iter()
+            .map(|face| face.surface.heap_size() + size_of_val(face.loops.as_slice()))
+            .sum();
+        let shells: usize = self
+            .shells
+            .iter()
+            .map(|shell| size_of_val(shell.faces.as_slice()))
+            .sum();
+        size_of::<Self>()
+            + size_of_val(self.vertices.as_slice())
+            + size_of_val(self.edges.as_slice())
+            + size_of_val(self.coedges.as_slice())
+            + size_of_val(self.loops.as_slice())
+            + size_of_val(self.faces.as_slice())
+            + size_of_val(self.shells.as_slice())
+            + edges
+            + coedges
+            + loops
+            + faces
+            + shells
+    }
+
     pub fn vertex(&self, id: VertexId) -> Option<&Vertex> {
         self.vertices.get(id.index())
     }

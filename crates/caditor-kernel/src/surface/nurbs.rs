@@ -178,6 +178,19 @@ struct Basis {
 }
 
 impl BSplineSurface {
+    pub(crate) fn heap_size(&self) -> usize {
+        size_of_val(&*self.u_knots)
+            + size_of_val(&*self.v_knots)
+            + size_of_val(&*self.control_points)
+            + self
+                .weights
+                .as_ref()
+                .map_or(0, |weights| size_of_val(&**weights))
+            + size_of::<SampleGrid>()
+            + size_of_val(self.grid.samples.as_slice())
+            + size_of_val(self.grid.blocks.as_slice())
+    }
+
     pub fn new(
         u_degree: usize,
         v_degree: usize,

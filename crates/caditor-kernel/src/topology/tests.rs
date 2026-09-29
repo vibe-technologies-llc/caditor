@@ -599,3 +599,23 @@ fn imported_solids_name_faces_by_position_and_edges_uniquely() {
         assert_eq!(again, names, "{name}");
     }
 }
+
+#[test]
+fn the_approximate_size_counts_topology_pcurves_and_spline_data() {
+    let block = fixtures::cuboid(Vector3::new(1.0, 1.0, 1.0));
+    let spline = fixtures::spline_topped_block(10.0, 5.0, 2.0);
+    let pcurve_samples: usize = spline
+        .coedges()
+        .map(|(_, coedge)| coedge.pcurve().heap_size())
+        .sum();
+    let arenas = size_of::<Vertex>() * 8
+        + size_of::<Edge>() * 12
+        + size_of::<Coedge>() * 24
+        + size_of::<Loop>() * 6
+        + size_of::<Face>() * 6
+        + size_of::<Shell>();
+
+    assert!(block.approximate_size() > arenas);
+    assert!(block.approximate_size() < 64 * 1024);
+    assert!(spline.approximate_size() > block.approximate_size() + pcurve_samples);
+}

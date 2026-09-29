@@ -5,7 +5,7 @@ use std::{
 };
 
 use caditor_expression::{Expression, ParameterId, ParseError};
-use caditor_sketch::Sketch;
+use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 
 use crate::{
     attachment::{SketchAttachment, SketchFeature},
@@ -76,6 +76,24 @@ impl From<Sketch> for FeatureKind {
 }
 
 impl FeatureKind {
+    pub fn approximate_size(&self) -> usize {
+        let owned = match self {
+            Self::Sketch(sketch) => {
+                let entities = sketch.sketch.entities().len();
+                let constraints = sketch.sketch.constraints().len();
+                entities * (size_of::<EntityId>() + size_of::<Entity>())
+                    + constraints * (size_of::<ConstraintId>() + size_of::<Constraint>())
+            }
+            Self::Blend(blend) => size_of_val(blend.edges.as_slice()),
+            Self::Shell(shell) => size_of_val(shell.open.as_slice()),
+            Self::Import(import) => {
+                import.source.len() + import.step.len() + import.solid.approximate_size()
+            }
+            Self::Solid(_) | Self::Datum(_) => 0,
+        };
+        size_of::<Self>() + owned
+    }
+
     pub fn sketch(&self) -> Option<&Sketch> {
         match self {
             Self::Sketch(sketch) => Some(&sketch.sketch),

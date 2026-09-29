@@ -85,6 +85,12 @@ struct Traced {
 }
 
 impl IntersectionCurve {
+    pub(crate) fn heap_size(&self) -> usize {
+        size_of_val(&*self.surfaces)
+            + self.surfaces.iter().map(Surface::heap_size).sum::<usize>()
+            + size_of_val(&*self.nodes)
+    }
+
     pub fn new(
         surfaces: [Surface; 2],
         nodes: Vec<IntersectionNode>,

@@ -602,7 +602,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Every mutation is a `Transaction` of `Edit`s passed to `Document::apply`, the only public
     mutator of content (`reserve_ids_below` only raises the ID counters, for loading). `apply` is
     atomic and returns the inverse transaction, and `Editor` keeps undo and redo as stacks of these
-    inverses, each holding at most `MAX_UNDO_STEPS` (500), the oldest dropped first. Edits carry their IDs, so redo restores the same IDs, and ID counters never move
+    inverses, each holding at most `MAX_UNDO_STEPS` (500) and `MAX_UNDO_BYTES` (256 MiB by
+    `Transaction::approximate_size`, which counts what an inverse keeps alive: removed features,
+    with an import's STEP text and `Solid::approximate_size`), the oldest dropped first and the
+    newest always kept. Edits carry their IDs, so redo restores the same IDs, and ID counters never move
     backwards. Parameter and feature IDs stay below 2^63 (`FIRST_UNSTORABLE_ID`, as in sketches):
     edits refuse larger ones as `ReservedId` and `reserve_ids_below` clamps to it, so a stored
     counter can never wrap. Edits refuse to break invariants: unknown references, parameter cycles, deleting

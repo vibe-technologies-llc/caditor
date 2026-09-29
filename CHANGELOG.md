@@ -56,6 +56,8 @@ The first release of caditor.
 - The `.caditor` model format: compressed, checksummed, and partially readable when damaged.
 - Every change can be undone, a recovery journal restores unsaved work after a crash, and each
   file keeps the versions its saves replaced so they can be restored later.
+- The undo history keeps its memory bounded when large imports are deleted or replaced over and
+  over: once it holds about 256 MiB, its oldest steps are dropped.
 - Unsaved work is flushed to the recovery journal when caditor is stopped by logout or a signal,
   and a status bar pill says when it cannot be protected while caditor keeps retrying.
 - Unsaved work in a model that crashed is offered at the next start even when the model has

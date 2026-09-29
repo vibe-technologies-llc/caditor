@@ -50,6 +50,14 @@ pub enum Curve {
 }
 
 impl Curve {
+    pub fn heap_size(&self) -> usize {
+        match self {
+            Self::Line(_) | Self::Circle(_) | Self::Ellipse(_) => 0,
+            Self::BSpline(spline) => spline.heap_size(),
+            Self::Intersection(curve) => curve.heap_size(),
+        }
+    }
+
     pub fn evaluate(&self, parameter: f64) -> CurveDerivatives {
         let [point, first, second] = Parametric::evaluate(self, parameter);
         CurveDerivatives {

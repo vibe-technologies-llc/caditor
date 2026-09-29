@@ -36,11 +36,6 @@ within a category run from most to least important.
 - Tests missing for a boolean that fails with `Split`, `Intersection` or `Invalid` on real
   solids; only their conversions and messages are tested.
 
-## Document and recompute
-
-- Undo entries keep removed features alive, imports with their solids and STEP text included;
-  `MAX_UNDO_STEPS` bounds how many there are, not how large they are.
-
 ## Sketch solver and expressions
 
 - Conflict diagnosis treats a subset that fails to converge from the starting shape as

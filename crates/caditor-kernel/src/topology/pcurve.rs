@@ -34,6 +34,10 @@ pub struct Pcurve {
 }
 
 impl Pcurve {
+    pub fn heap_size(&self) -> usize {
+        size_of_val(self.samples.as_slice())
+    }
+
     pub fn new(samples: Vec<PcurveSample>, tolerance: f64) -> Result<Self, PcurveError> {
         if samples.len() < 2 {
             return Err(PcurveError::TooFewSamples);

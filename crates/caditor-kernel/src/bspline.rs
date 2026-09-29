@@ -12,6 +12,15 @@ pub struct BSpline<P> {
 }
 
 impl<P: Coordinates> BSpline<P> {
+    pub(crate) fn heap_size(&self) -> usize {
+        size_of_val(self.knots.as_slice())
+            + size_of_val(self.control_points.as_slice())
+            + self
+                .weights
+                .as_ref()
+                .map_or(0, |weights| size_of_val(weights.as_slice()))
+    }
+
     pub fn new(
         degree: usize,
         knots: Vec<f64>,

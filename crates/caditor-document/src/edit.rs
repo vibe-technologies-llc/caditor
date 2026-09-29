@@ -116,6 +116,33 @@ impl Transaction {
     pub fn is_empty(&self) -> bool {
         self.edits.is_empty()
     }
+
+    pub fn approximate_size(&self) -> usize {
+        let owned: usize = self
+            .edits
+            .iter()
+            .map(|edit| match edit {
+                Edit::InsertFeature { feature, .. } => {
+                    feature.name.len() + feature.kind.approximate_size()
+                }
+                Edit::SetFeatureKind { kind, .. } => kind.approximate_size(),
+                Edit::InsertParameter { parameter, .. } => parameter.name.len(),
+                Edit::RenameParameter { name, .. } | Edit::RenameFeature { name, .. } => name.len(),
+                Edit::RemoveParameter { .. }
+                | Edit::SetParameterExpression { .. }
+                | Edit::RemoveFeature { .. }
+                | Edit::MoveFeature { .. }
+                | Edit::SetSketchPlacement { .. }
+                | Edit::SetDimension { .. }
+                | Edit::AddSketchEntity { .. }
+                | Edit::RemoveSketchEntity { .. }
+                | Edit::SetSketchEntity { .. }
+                | Edit::AddSketchConstraint { .. }
+                | Edit::RemoveSketchConstraint { .. } => 0,
+            })
+            .sum();
+        size_of::<Self>() + self.label.len() + size_of_val(self.edits.as_slice()) + owned
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]

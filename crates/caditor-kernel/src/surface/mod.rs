@@ -64,6 +64,19 @@ pub enum Surface {
 }
 
 impl Surface {
+    pub fn heap_size(&self) -> usize {
+        match self {
+            Self::Plane(_)
+            | Self::Cylinder(_)
+            | Self::Cone(_)
+            | Self::Sphere(_)
+            | Self::Torus(_) => 0,
+            Self::Extrusion(extrusion) => extrusion.profile().heap_size(),
+            Self::Revolution(revolution) => revolution.profile().heap_size(),
+            Self::BSpline(spline) => spline.heap_size(),
+        }
+    }
+
     pub fn evaluate(&self, u: f64, v: f64) -> SurfaceDerivatives {
         match self {
             Self::Plane(plane) => plane.evaluate(u, v),
