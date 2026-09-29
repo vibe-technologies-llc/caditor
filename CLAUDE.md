@@ -194,7 +194,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     projection, banded least squares with fixed ends, doubling the control points until within
     a tolerance, else the best found), `BSpline::interpolate` passes one through given points at
     evenly spaced parameters, and `BSpline::through` follows unevenly spaced points without
-    loops: a chord-length interpolation with averaged knots, sampled and fitted. Knot spans are
+    loops: a chord-length interpolation with averaged knots, sampled and fitted, passing once
+    through points repeated within a billionth of the polyline's length. Knot spans are
     found by binary search and every system is solved by banded elimination (`banded.rs`).
   - `solve` evaluates the dimensions (lengths at most `MAX_LENGTH`, a kilometre, so a huge
     value is refused in words rather than overflowing the solver's scale), then runs damped Gauss–Newton with minimal-norm steps on

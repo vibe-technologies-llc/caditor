@@ -78,6 +78,8 @@ The first release of caditor.
   drawing.
 - Importing a drawing with nothing caditor can draw, such as only text or hatches, says so and
   lists what was left out.
+- A drawing's spline through fit points that repeat, or nearly repeat, is imported instead of
+  left out.
 - A STEP file with a damaged or unknown entry, or one defined twice, still imports what does not
   depend on it, with a note saying how many entries were left out and where.
 - STEP assemblies that place parts with transformation operators put them in place, and a part

@@ -12,6 +12,7 @@ const NEWTON_STEPS: usize = 3;
 const DERIVATIVE_STEP: f64 = 1e-6;
 const SAMPLES_PER_SPAN: usize = 16;
 const MAX_THROUGH_SAMPLES: usize = 60_000;
+const REPEATED_POINT_FRACTION: f64 = 1e-9;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FittedSpline {
@@ -70,6 +71,7 @@ impl BSpline {
         tolerance: f64,
         max_control_points: usize,
     ) -> Option<FittedSpline> {
+        let points = &distinct(points)?;
         let parameters = chord_parameters(points)?;
         let count = points.len();
         let degree = MAX_SPLINE_DEGREE.min(count - 1);
@@ -102,6 +104,35 @@ impl BSpline {
             .collect();
         Self::fit(&samples, tolerance, max_control_points)
     }
+}
+
+fn distinct(points: &[Point2]) -> Option<Vec<Point2>> {
+    if points.iter().any(|point| !point.is_finite()) {
+        return None;
+    }
+    let length: f64 = points
+        .windows(2)
+        .map(|pair| match pair {
+            [a, b] => a.distance(*b),
+            _ => 0.0,
+        })
+        .sum();
+    let repeated = length * REPEATED_POINT_FRACTION;
+    let mut kept: Vec<Point2> = Vec::with_capacity(points.len());
+    for point in points {
+        match kept.last() {
+            Some(last) if last.distance(*point) <= repeated => {}
+            _ => kept.push(*point),
+        }
+    }
+    let last = *points.last()?;
+    if let [.., before, end] = kept.as_mut_slice()
+        && *end != last
+        && before.distance(last) > repeated
+    {
+        *end = last;
+    }
+    Some(kept)
 }
 
 fn chord_parameters(samples: &[Point2]) -> Option<Vec<f64>> {
@@ -421,6 +452,27 @@ mod tests {
             xs.windows(2).all(|pair| pair[1] >= pair[0] - 1e-9),
             "the interpolated curve turns back"
         );
+    }
+
+    #[test]
+    fn repeated_points_are_passed_through_once() {
+        let points = [
+            Point2::ZERO,
+            Point2::ZERO,
+            Point2::new(1.0, 1.0),
+            Point2::new(1.0, 1.0 + 1e-13),
+            Point2::new(2.0, 0.0),
+            Point2::new(3.0, 1.0),
+            Point2::new(3.0, 1.0),
+        ];
+        let fitted = BSpline::through(&points, 1e-6, 400).unwrap();
+        assert!(fitted.deviation <= 1e-6, "{}", fitted.deviation);
+        assert_eq!(fitted.spline.point_at(0.0), Point2::ZERO);
+        assert_eq!(fitted.spline.point_at(1.0), Point2::new(3.0, 1.0));
+
+        let line = BSpline::through(&[Point2::ZERO, Point2::X, Point2::X], 1e-6, 400).unwrap();
+        assert_eq!(line.spline.degree(), 1);
+        assert!(BSpline::through(&[Point2::X, Point2::X, Point2::X], 1e-6, 400).is_none());
     }
 
     #[test]

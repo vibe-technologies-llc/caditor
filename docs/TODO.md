@@ -63,8 +63,6 @@ within a category run from most to least important.
   the outermost dimension or dragging the outermost point misses the memo for every part.
 - `10 mm^2` means (10 mm)², since a power binds to the measure before it; stored text relies on
   that reading, so changing it needs a new spelling or a format change.
-- `BSpline::through` returns `None` on consecutive equal points (singular collocation); only
-  tests use it today.
 - Tests missing for: dense and sparse paths giving the same rank and fixed sets across the
   48-variable boundary; minimal conflict sets and two independent conflicts in a large part;
   arcs with tangent, equal and angle constraints; a scale-changing edit; expressions at
