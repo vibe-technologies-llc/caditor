@@ -593,6 +593,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     datum axis, straight edge as an `EdgeReference`, or the axis of a cylindrical, conical,
     toroidal or revolved face as a `FaceReference`), resolved in each body's state at the
     feature's place in the tree; pieces of a split edge or face count when they lie on one line.
+    Whether geometry lies on a line or plane, runs along a plane or is parallel is decided in one
+    place (`tolerance.rs`: 1e-6 in direction, `LINEAR_RESOLUTION` in position) for revolve axes,
+    datums, face attachments and blend pieces alike, so slightly noisy imported geometry is
+    accepted or refused the same way everywhere.
     A `DatumPlane` starts from its base plane, optionally moves it to pass through an axis and
     turns it about the axis (which must run along the plane) by an angle, then offsets it along
     its normal; a `DatumAxis` runs

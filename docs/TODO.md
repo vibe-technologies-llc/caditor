@@ -109,9 +109,6 @@ within a category run from most to least important.
   `MAX_UNDO_STEPS` bounds how many there are, not how large they are.
 - Solid results count as unchanged only when they are the same `Arc`, so any edit to a solid
   feature reruns every downstream boolean, blend and shell even when the shape is identical.
-- Axis-in-plane tolerances disagree: a revolve accepts 1e-6, a datum rotation axis 1e-9, and
-  face attachments compare planes exactly, so a slightly noisy imported edge works for one and
-  is refused by another.
 - Tests missing for `transaction_to` with datums, attached sketches and imports, moves to an
   out-of-range index.
 

@@ -19,10 +19,9 @@ use crate::{
     recompute::{
         CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, SketchResult,
     },
+    tolerance,
     values::ParameterValues,
 };
-
-const AXIS_IN_PLANE: f64 = 1e-6;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum RegionChoice {
@@ -752,8 +751,7 @@ fn model_axis(
     reference: &AxisReference,
 ) -> Result<Axis2, Failure> {
     let axis = Resolver { feature, inputs }.axis(reference)?;
-    let in_plane = plane.normal().dot(axis.direction()).abs() <= AXIS_IN_PLANE
-        && plane.signed_distance(axis.origin()).abs() <= AXIS_IN_PLANE;
+    let in_plane = tolerance::along_plane(axis, plane);
     let origin = plane.to_local(axis.origin());
     let direction = plane.to_local(axis.origin() + axis.direction()) - origin;
     match Axis2::new(origin, direction) {

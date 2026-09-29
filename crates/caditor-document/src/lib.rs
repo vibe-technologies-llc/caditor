@@ -11,6 +11,7 @@ mod pieces;
 mod recompute;
 mod shell;
 mod solid;
+mod tolerance;
 mod values;
 mod worker;
 

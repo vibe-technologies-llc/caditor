@@ -11,10 +11,8 @@ use crate::{
     describe::describe_origin,
     document::{Document, Feature, FeatureId},
     recompute::{Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
+    tolerance,
 };
-
-const PARALLEL_PLANES: f64 = 1e-9;
-const COLLINEAR: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PrincipalPlane {
@@ -355,19 +353,11 @@ pub fn displayed_axis(
     }
 }
 
-fn same_line(first: Ray, second: Ray) -> bool {
-    first.direction().cross(second.direction()).length() <= COLLINEAR
-        && (second.origin() - first.origin())
-            .cross(first.direction())
-            .length()
-            <= COLLINEAR * (1.0 + (second.origin() - first.origin()).length())
-}
-
 fn one_line(rays: impl IntoIterator<Item = Option<Ray>>) -> Option<Ray> {
     let rays: Vec<Ray> = rays.into_iter().collect::<Option<_>>()?;
     let (first, rest) = rays.split_first()?;
     rest.iter()
-        .all(|other| same_line(*first, *other))
+        .all(|other| tolerance::same_line(*first, *other))
         .then_some(*first)
 }
 
@@ -554,10 +544,10 @@ impl Resolver<'_> {
 }
 
 fn intersection(first: Plane, second: Plane) -> Option<Ray> {
-    let direction = first.normal().cross(second.normal());
-    if direction.length() <= PARALLEL_PLANES {
+    if tolerance::parallel(first.normal(), second.normal()) {
         return None;
     }
+    let direction = first.normal().cross(second.normal());
     let first_distance = first.normal().dot(first.origin());
     let second_distance = second.normal().dot(second.origin());
     let point = (second.normal().cross(direction) * first_distance
@@ -578,7 +568,7 @@ pub(crate) fn evaluate(
             let mut plane = resolver.plane(&definition.base)?;
             if let Some(rotation) = &definition.rotation {
                 let axis = resolver.axis(&rotation.axis)?;
-                if axis.direction().dot(plane.normal()).abs() > COLLINEAR {
+                if !tolerance::perpendicular(axis.direction(), plane.normal()) {
                     return Err(resolver.own_error(
                         format!(
                             "{} does not run along {}, so turning the plane about it cannot \

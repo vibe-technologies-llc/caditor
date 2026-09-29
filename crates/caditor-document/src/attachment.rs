@@ -6,6 +6,7 @@ use crate::{
     datum::DatumResult,
     document::{Feature, FeatureId},
     recompute::{Failure, FeatureError, FeatureResult, FixTarget, Inputs},
+    tolerance,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,7 +40,11 @@ impl FaceAttachment {
             .map(|face| face_plane(solid, *face))
             .collect();
         match planes.split_first() {
-            Some((Some(first), rest)) if rest.iter().all(|other| *other == Some(*first)) => {
+            Some((Some(first), rest))
+                if rest.iter().all(|other| {
+                    other.is_some_and(|other| tolerance::same_plane(first, &other))
+                }) =>
+            {
                 Ok(*first)
             }
             Some((None, [])) => Err(AttachmentError::NotFlat),

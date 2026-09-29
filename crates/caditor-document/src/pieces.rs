@@ -1,7 +1,7 @@
-use caditor_geometry::Vector3;
-use caditor_kernel::{
-    ANGULAR_RESOLUTION, Curve, Edge, EdgeId, FaceId, LINEAR_RESOLUTION, Sense, Solid,
-};
+use caditor_geometry::Ray;
+use caditor_kernel::{Curve, Edge, EdgeId, FaceId, Sense, Solid};
+
+use crate::tolerance;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unresolved {
@@ -66,17 +66,20 @@ pub(crate) fn pieces_of_one_edge(solid: &Solid, pieces: &[EdgeId]) -> bool {
 }
 
 fn one_curve(first: &Curve, other: &Curve) -> bool {
-    let parallel = |a: Vector3, b: Vector3| a.cross(b).length() <= ANGULAR_RESOLUTION;
     match (first, other) {
         (Curve::Line(first), Curve::Line(other)) => {
-            let offset = other.origin() - first.origin();
-            parallel(first.direction(), other.direction())
-                && offset.cross(first.direction()).length() <= LINEAR_RESOLUTION
+            match (
+                Ray::new(first.origin(), first.direction()),
+                Ray::new(other.origin(), other.direction()),
+            ) {
+                (Some(first), Some(other)) => tolerance::same_line(first, other),
+                _ => false,
+            }
         }
         (Curve::Circle(first), Curve::Circle(other)) => {
-            first.center().distance(other.center()) <= LINEAR_RESOLUTION
-                && (first.radius() - other.radius()).abs() <= LINEAR_RESOLUTION
-                && parallel(first.frame().normal(), other.frame().normal())
+            first.center().distance(other.center()) <= tolerance::POSITION_TOLERANCE
+                && (first.radius() - other.radius()).abs() <= tolerance::POSITION_TOLERANCE
+                && tolerance::parallel(first.frame().normal(), other.frame().normal())
         }
         _ => first == other,
     }
