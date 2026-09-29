@@ -109,9 +109,9 @@ impl Structure {
     }
 
     fn relationship(&mut self, graph: &Graph<'_>, entity: Entity<'_>, context: &Context<'_>) {
-        let Ok(relation) = entity
-            .record("REPRESENTATION_RELATIONSHIP")
-            .or_else(|_| entity.record("SHAPE_REPRESENTATION_RELATIONSHIP"))
+        let Some(relation) = entity
+            .find("REPRESENTATION_RELATIONSHIP")
+            .or_else(|| entity.find("SHAPE_REPRESENTATION_RELATIONSHIP"))
         else {
             return;
         };
@@ -119,8 +119,7 @@ impl Structure {
             return;
         };
         let transformation = entity
-            .record("REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION")
-            .ok()
+            .find("REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION")
             .and_then(|with| with.reference(0).ok());
         let Some(transformation) = transformation else {
             self.identical.entry(first).or_default().insert(second);
@@ -208,7 +207,7 @@ impl Structure {
                 carried.inverse()
             });
         }
-        let fields = entity.record("ITEM_DEFINED_TRANSFORMATION").ok()?;
+        let fields = entity.find("ITEM_DEFINED_TRANSFORMATION")?;
         let mut item = |representation: u64, index: usize| {
             let geometry = Geometry::new(
                 *graph,
@@ -367,11 +366,7 @@ fn occurrences(graph: &Graph<'_>) -> BTreeMap<u64, Occurrence> {
         let Ok(child) = usage_fields.reference(4) else {
             continue;
         };
-        let name = [usage_fields.text(1), usage_fields.text(5)]
-            .into_iter()
-            .map(str::trim)
-            .find(|text| !text.is_empty())
-            .map(str::to_owned);
+        let name = usage_fields.name(1).or_else(|| usage_fields.name(5));
         found.insert(relationship, Occurrence { child, name });
     }
     found
@@ -398,9 +393,9 @@ struct Operator {
 
 fn operator_fields(graph: &Graph<'_>, entity: Entity<'_>) -> Option<Operator> {
     let scale = |fields: &Fields<'_>, index: usize| fields.get(index).ok()?.real();
-    if let (Ok(base), Ok(spatial)) = (
-        entity.record("CARTESIAN_TRANSFORMATION_OPERATOR"),
-        entity.record("CARTESIAN_TRANSFORMATION_OPERATOR_3D"),
+    if let (Some(base), Some(spatial)) = (
+        entity.find("CARTESIAN_TRANSFORMATION_OPERATOR"),
+        entity.find("CARTESIAN_TRANSFORMATION_OPERATOR_3D"),
     ) {
         return Some(Operator {
             axis1: base.optional_reference(0),
@@ -410,7 +405,7 @@ fn operator_fields(graph: &Graph<'_>, entity: Entity<'_>) -> Option<Operator> {
             axis3: spatial.optional_reference(0),
         });
     }
-    let fields = entity.record("CARTESIAN_TRANSFORMATION_OPERATOR_3D").ok()?;
+    let fields = entity.find("CARTESIAN_TRANSFORMATION_OPERATOR_3D")?;
     let is_point = |index: usize| {
         fields
             .optional_reference(index)
@@ -513,13 +508,7 @@ fn product_names(
             })
             .and_then(|product| {
                 let fields = graph.entity(product).ok()?.fields().ok()?;
-                let name = fields.text(1).trim();
-                let name = if name.is_empty() {
-                    fields.text(0).trim()
-                } else {
-                    name
-                };
-                (!name.is_empty()).then(|| name.to_owned())
+                fields.name(1).or_else(|| fields.name(0))
             });
         if let Some(name) = name {
             for representation in representations {
@@ -581,7 +570,8 @@ mod tests {
                 }
             }
         }
-        let exchange = parse(&file(&data)).unwrap();
+        let text = file(&data);
+        let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
         let mut structure = Structure::read(&graph);
         let started = std::time::Instant::now();
@@ -601,7 +591,8 @@ mod tests {
             placed(201, 101, 100),
         ]
         .concat();
-        let exchange = parse(&file(&data)).unwrap();
+        let text = file(&data);
+        let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
         let mut structure = Structure::read(&graph);
         assert_eq!(
@@ -610,7 +601,8 @@ mod tests {
         );
 
         let data = [data, placed(202, 101, 102)].concat();
-        let exchange = parse(&file(&data)).unwrap();
+        let text = file(&data);
+        let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
         let mut structure = Structure::read(&graph);
         let placements = structure.placements(100);
@@ -646,7 +638,8 @@ mod tests {
             SHAPE_REPRESENTATION_RELATIONSHIP());\
             #700=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#600,#510);\
             #701=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#601,#511);";
-        let exchange = parse(&file(data)).unwrap();
+        let text = file(data);
+        let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
         let mut structure = Structure::read(&graph);
         let moved = |x: f64, y: f64| {
@@ -679,7 +672,8 @@ mod tests {
              REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#30)\
              SHAPE_REPRESENTATION_RELATIONSHIP());"
         );
-        let exchange = parse(&file(&data)).unwrap();
+        let text = file(&data);
+        let exchange = parse(&text).unwrap();
         let graph = Graph::new(&exchange);
         Structure::read(&graph).placements(100)
     }

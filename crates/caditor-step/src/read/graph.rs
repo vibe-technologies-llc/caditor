@@ -27,40 +27,38 @@ pub(crate) type Read<T> = Result<T, Problem>;
 
 #[derive(Clone, Copy)]
 pub(crate) struct Graph<'a> {
-    exchange: &'a Exchange,
+    exchange: &'a Exchange<'a>,
 }
 
 #[derive(Clone, Copy)]
 pub(crate) struct Entity<'a> {
     pub id: u64,
-    pub instance: &'a Instance,
+    pub instance: &'a Instance<'a>,
 }
 
 impl<'a> Graph<'a> {
-    pub fn new(exchange: &'a Exchange) -> Self {
+    pub fn new(exchange: &'a Exchange<'a>) -> Self {
         Self { exchange }
     }
 
     pub fn entity(&self, id: u64) -> Read<Entity<'a>> {
         self.exchange
-            .data
-            .get(&id)
+            .instance(id)
             .map(|instance| Entity { id, instance })
             .ok_or_else(|| Problem::new(id, "is missing from the file"))
     }
 
     pub fn entities(&self) -> impl Iterator<Item = Entity<'a>> + 'a {
         self.exchange
-            .data
-            .iter()
-            .map(|(id, instance)| Entity { id: *id, instance })
+            .instances()
+            .map(|(id, instance)| Entity { id, instance })
     }
 }
 
 impl<'a> Entity<'a> {
     pub fn kind(&self) -> &'a str {
         match self.instance {
-            Instance::Simple(record) => &record.name,
+            Instance::Simple(record) => record.name.as_str(),
             Instance::Complex(records) => records
                 .iter()
                 .map(|record| record.name.as_str())
@@ -79,13 +77,15 @@ impl<'a> Entity<'a> {
     }
 
     pub fn record(&self, name: &str) -> Read<Fields<'a>> {
-        self.instance
-            .record(name)
-            .map(|record| Fields {
-                id: self.id,
-                record,
-            })
+        self.find(name)
             .ok_or_else(|| Problem::new(self.id, format!("is not a {}", friendly(name))))
+    }
+
+    pub fn find(&self, name: &str) -> Option<Fields<'a>> {
+        self.instance.record(name).map(|record| Fields {
+            id: self.id,
+            record,
+        })
     }
 
     pub fn fields(&self) -> Read<Fields<'a>> {
@@ -102,11 +102,11 @@ impl<'a> Entity<'a> {
 #[derive(Clone, Copy)]
 pub(crate) struct Fields<'a> {
     pub id: u64,
-    record: &'a Record,
+    record: &'a Record<'a>,
 }
 
 impl<'a> Fields<'a> {
-    pub fn get(&self, index: usize) -> Read<&'a Parameter> {
+    pub fn get(&self, index: usize) -> Read<&'a Parameter<'a>> {
         self.record
             .parameters
             .get(index)
@@ -136,7 +136,7 @@ impl<'a> Fields<'a> {
         self.record.parameters.get(index)?.reference()
     }
 
-    pub fn list(&self, index: usize) -> Read<&'a [Parameter]> {
+    pub fn list(&self, index: usize) -> Read<&'a [Parameter<'a>]> {
         self.get(index)?
             .list()
             .ok_or_else(|| Problem::new(self.id, "has a value where a list belongs"))
@@ -148,12 +148,10 @@ impl<'a> Fields<'a> {
             .ok_or_else(|| Problem::new(self.id, "has a value where true or false belongs"))
     }
 
-    pub fn text(&self, index: usize) -> &'a str {
-        self.record
-            .parameters
-            .get(index)
-            .and_then(Parameter::text)
-            .unwrap_or_default()
+    pub fn name(&self, index: usize) -> Option<String> {
+        let text = self.record.parameters.get(index)?.text()?;
+        let trimmed = text.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_owned())
     }
 
     pub fn reals(&self, index: usize) -> Read<Vec<f64>> {
@@ -173,7 +171,7 @@ impl<'a> Fields<'a> {
     }
 }
 
-pub(crate) fn references(items: &[Parameter], context: u64) -> Read<Vec<u64>> {
+pub(crate) fn references(items: &[Parameter<'_>], context: u64) -> Read<Vec<u64>> {
     items
         .iter()
         .map(|item| {

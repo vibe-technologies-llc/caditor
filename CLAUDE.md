@@ -100,8 +100,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     comments, complex instances sorted by name, typed values, comments, the `\X\`, `\X2\`, `\X4\`
     and `\S\` encodings with `\P` code pages skipped, nesting limit; a data entry that cannot be
     read, such as a stray byte or nesting too deep, is skipped to its semicolon and counted, a
-    repeated entity id keeps its first definition, and an integer beyond i64 is read as a real)
-    feeds `read_step`, which notes skipped and repeated entries and returns every
+    repeated entity id keeps its first definition, and an integer beyond i64 is read as a real;
+    the tree borrows from the text, keeping names, enumerations and text as written (uppercased
+    copies only for lowercase names, text unquoted and decoded when read), lists and parameters as
+    boxed slices and the instances as a vector sorted by id, found by binary search) feeds
+    `read_step` (whose optional records, `Entity::find`, build no error message when absent), which notes skipped and repeated entries and returns every
     `MANIFOLD_SOLID_BREP`, `BREP_WITH_VOIDS`, `FACETED_BREP` and `SHELL_BASED_SURFACE_MODEL` with
     closed shells (each closed shell a lump) as named kernel solids plus notes, or a `ReadError` in
     words. Units come from each representation's context (SI prefixes and conversion-based units

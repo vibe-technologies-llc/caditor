@@ -97,6 +97,8 @@ The first release of caditor.
 - STEP files whose curves are nested many times over, or whose bodies share shells and
   surfaces, import in proportion to their size, and one too intricate to import is refused with
   that reason instead of never finishing.
+- Large STEP files are read in less than half the time and with about half the memory they took
+  before.
 
 ### Interface
 

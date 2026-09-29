@@ -411,7 +411,7 @@ impl<'a> Geometry<'a> {
                 let curve = entity.record("B_SPLINE_CURVE")?;
                 let degree = spline_degree(curve.integer(0)?, id)?;
                 let points = curve.references(1)?;
-                let knots = if let Ok(with_knots) = entity.record("B_SPLINE_CURVE_WITH_KNOTS") {
+                let knots = if let Some(with_knots) = entity.find("B_SPLINE_CURVE_WITH_KNOTS") {
                     let multiplicities: Vec<i64> = with_knots
                         .list(0)?
                         .iter()
@@ -429,8 +429,7 @@ impl<'a> Geometry<'a> {
             }
         };
         let weights = entity
-            .record("RATIONAL_B_SPLINE_CURVE")
-            .ok()
+            .find("RATIONAL_B_SPLINE_CURVE")
             .map(|rational| rational.reals(0))
             .transpose()?;
         let points = points
@@ -618,7 +617,7 @@ impl Geometry<'_> {
                 ),
                 Err(_) => {
                     let fields = entity.record("B_SPLINE_SURFACE")?;
-                    let knots = entity.record("B_SPLINE_SURFACE_WITH_KNOTS").ok();
+                    let knots = entity.find("B_SPLINE_SURFACE_WITH_KNOTS");
                     (
                         degree(fields.integer(0)?)?,
                         degree(fields.integer(1)?)?,
@@ -685,8 +684,8 @@ impl Geometry<'_> {
                 )
             }
         };
-        let weights: Option<Vec<Vec<f64>>> = match entity.record("RATIONAL_B_SPLINE_SURFACE") {
-            Ok(rational) => Some(
+        let weights: Option<Vec<Vec<f64>>> = match entity.find("RATIONAL_B_SPLINE_SURFACE") {
+            Some(rational) => Some(
                 rational
                     .list(0)?
                     .iter()
@@ -703,7 +702,7 @@ impl Geometry<'_> {
                     })
                     .collect::<Read<_>>()?,
             ),
-            Err(_) => None,
+            None => None,
         };
         let mut rows_by_v: Vec<Vec<Homogeneous>> = vec![Vec::with_capacity(columns); count];
         for (u_index, row) in grid.iter().enumerate() {

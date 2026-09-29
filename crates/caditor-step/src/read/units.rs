@@ -59,7 +59,7 @@ fn measure(graph: &Graph<'_>, unit: Entity<'_>, depth: usize) -> Measure {
     if depth > MAX_UNIT_DEPTH {
         return Measure::Other;
     }
-    if let Ok(si) = unit.record("SI_UNIT") {
+    if let Some(si) = unit.find("SI_UNIT") {
         let count = unit
             .instance
             .record("SI_UNIT")
@@ -79,7 +79,7 @@ fn measure(graph: &Graph<'_>, unit: Entity<'_>, depth: usize) -> Measure {
             _ => Measure::Other,
         };
     }
-    if let Ok(converted) = unit.record("CONVERSION_BASED_UNIT") {
+    if let Some(converted) = unit.find("CONVERSION_BASED_UNIT") {
         let Some(factor) = converted
             .reference(1)
             .ok()

@@ -405,7 +405,8 @@ fn solid_name(
 ) -> String {
     let own = entity
         .fields()
-        .map(|fields| fields.text(0).trim().to_owned())
+        .ok()
+        .and_then(|fields| fields.name(0))
         .unwrap_or_default();
     let product = representation.and_then(|representation| structure.name_of(representation));
     match product {
