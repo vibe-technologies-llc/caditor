@@ -514,7 +514,13 @@ fn write_locked_then_rename(
     file.write_all(contents)?;
     file.sync_all()?;
     fs::rename(temporary, path)?;
-    sync_parent(path)?;
+    if let Err(error) = sync_parent(path) {
+        log::warn!(
+            "the folder of {} could not be synced after the journal was renamed into place: \
+             {error}",
+            path.display()
+        );
+    }
     remove_orphaned_temporaries(path);
     Ok(file)
 }

@@ -28,9 +28,6 @@ within a category run from most to least important.
 
 ## File format and storage
 
-- A failed directory fsync after the journal rename (`storage.rs` `write_locked`) returns an
-  error after the new journal is already in place and drops its lock, so the adjacent journal is
-  orphaned and a second one is written in the recovery directory. Log it as `save.rs` does.
 - Journal locks are taken with `flock(LOCK_EX)` on read-only handles (`recovery.rs`,
   `storage.rs` `locked_elsewhere`), which NFS emulates with byte-range locks that need a
   writable descriptor, so on NFS homes no journal is ever recovered and two windows can open one

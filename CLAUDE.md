@@ -686,7 +686,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     after a write error (`Report::JournalFailed`) it keeps holding the lock, stops appending and
     rewrites the whole journal every few seconds until that succeeds
     (`Report::JournalRestored`). A journal it replaces (after a save or a restore) is removed
-    only once the new one is written. Saving to another path is refused while another window
+    only once the new one is written, and a failed directory fsync after the rename is logged
+    rather than treated as a failed write, since the new journal is already in place. Saving to another path is refused while another window
     holds that model's journal, and a journal is never renamed over one another window holds.
     A `Flusher` lets the panic hook and the signal handler wait for pending entries.
   - Preferences (`settings.rs`): `Settings` is a JSON key/value file in
