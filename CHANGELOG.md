@@ -38,6 +38,10 @@ The first release of caditor.
   that would shrink a wall past nothing names the edge where it happens.
 - Opening a face of a hollow inside a body cuts through the wall behind it, and the walls beside
   that face now reach down to the cavity instead of stopping short.
+- Adding, removing and intersecting bodies succeeds in cases that used to fail: where a cut
+  passes close to or through the pole of a sphere or the tip of a cone, where it only touches a
+  round face's seam or crosses a bore exactly there, and where a small face meets a large
+  curved one.
 - A region whose hole touches its outline at one point can be extruded and revolved, and such a
   hole, or a circle drawn tangent inside another, is left open without choosing regions.
 - When the curves of a sketch cannot be divided into regions, the message names the curves

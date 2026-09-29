@@ -186,6 +186,12 @@ impl<'a> Tracer<'a> {
         first.contains(a) && second.contains(b)
     }
 
+    fn at_pole(&self, contact: &Contact) -> bool {
+        let [first, second] = self.surfaces();
+        let [first_uv, second_uv] = contact.uv;
+        first.pole_at(first_uv).is_some() || second.pole_at(second_uv).is_some()
+    }
+
     fn seed_at(&self, contact: Contact) -> Option<Seed> {
         if !self.inside(&contact) {
             return None;
@@ -621,6 +627,13 @@ impl<'a> Tracer<'a> {
                         contacts,
                         closed: false,
                         tangent_end: true,
+                    });
+                }
+                Err(Stalled::Collapsed) if self.at_pole(&current) => {
+                    return Ok(Marched {
+                        contacts,
+                        closed: false,
+                        tangent_end: false,
                     });
                 }
                 Err(Stalled::Collapsed) => {

@@ -102,6 +102,48 @@ fn clamp_state(surfaces: [&Surface; 2], state: [f64; 4]) -> [f64; 4] {
     ]
 }
 
+fn nearest_turn(value: f64, reference: f64, period: Option<f64>) -> f64 {
+    match period {
+        Some(period) if period > 0.0 && value.is_finite() && reference.is_finite() => {
+            value - ((value - reference) / period).round() * period
+        }
+        _ => value,
+    }
+}
+
+fn near_start(
+    surfaces: [&Surface; 2],
+    state: [f64; 4],
+    start: [f64; 4],
+    constraint: Constraint,
+) -> [f64; 4] {
+    let [first, second] = surfaces;
+    let periods = [
+        first.u_period(),
+        first.v_period(),
+        second.u_period(),
+        second.v_period(),
+    ];
+    let held = match constraint {
+        Constraint::Parameter { coordinate, .. } => Some(coordinate),
+        Constraint::Free | Constraint::Plane { .. } => None,
+    };
+    let mut wrapped = state;
+    for (((value, reference), period), coordinate) in
+        wrapped.iter_mut().zip(start).zip(periods).zip([
+            Coordinate::FirstU,
+            Coordinate::FirstV,
+            Coordinate::SecondU,
+            Coordinate::SecondV,
+        ])
+    {
+        if held != Some(coordinate) {
+            *value = nearest_turn(*value, reference, period);
+        }
+    }
+    wrapped
+}
+
 fn speed_of(
     coordinate: Coordinate,
     first: &SurfaceDerivatives,
@@ -200,6 +242,7 @@ pub(crate) fn refine_contact(
     if !state.iter().all(|value| value.is_finite()) {
         return None;
     }
+    let origin = state;
     let mut current = system(surfaces, state, constraint);
     for _ in 0..MAX_CONTACT_ITERATIONS {
         if converged(&current) {
@@ -211,7 +254,12 @@ pub(crate) fn refine_contact(
         let mut scale = 1.0;
         let mut accepted = None;
         for _ in 0..MAX_HALVINGS {
-            let candidate = clamp_state(surfaces, add(state, step, scale));
+            let candidate = near_start(
+                surfaces,
+                clamp_state(surfaces, add(state, step, scale)),
+                origin,
+                constraint,
+            );
             let next = system(surfaces, candidate, constraint);
             if next.merit().is_finite() && next.merit() < current.merit() {
                 accepted = Some((candidate, next));
@@ -341,6 +389,7 @@ pub(crate) fn refine_on_plane(
 
 pub(crate) fn closest_approach(surfaces: [&Surface; 2], start: [Point2; 2]) -> ([Point2; 2], f64) {
     let mut state = clamp_state(surfaces, state_of(start));
+    let origin = state;
     let mut current = system(surfaces, state, Constraint::Free);
     for _ in 0..MAX_CONTACT_ITERATIONS {
         if converged(&current) {
@@ -352,7 +401,12 @@ pub(crate) fn closest_approach(surfaces: [&Surface; 2], start: [Point2; 2]) -> (
         let mut scale = 1.0;
         let mut accepted = None;
         for _ in 0..MAX_HALVINGS {
-            let candidate = clamp_state(surfaces, add(state, step, scale));
+            let candidate = near_start(
+                surfaces,
+                clamp_state(surfaces, add(state, step, scale)),
+                origin,
+                Constraint::Free,
+            );
             let next = system(surfaces, candidate, Constraint::Free);
             if next.merit().is_finite() && next.merit() < current.merit() {
                 accepted = Some((candidate, next));

@@ -9,7 +9,7 @@ use crate::{
     topology::{Pcurve, continues, fit_pcurve, inside_polygon, signed_area},
 };
 
-const ANGLE_TIE: f64 = 1e-7;
+const ANGLE_TIE: f64 = 1e-5;
 const CHORD_FRACTION: f64 = 0.01;
 const SCAN_LEVELS: usize = 24;
 const PERIOD_SHIFTS: [f64; 3] = [0.0, -1.0, 1.0];

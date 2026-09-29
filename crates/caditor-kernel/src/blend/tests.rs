@@ -295,68 +295,81 @@ fn impossible_blends_are_refused_with_the_edge() {
     );
 }
 
+fn blend_every_edge(name: &str, curves: &[ProfileCurve]) {
+    let solid = swept(Plane::XY, curves, 3.0);
+    let every: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
+    let before = volume(&solid);
+    for shape in [fillet(0.5), BlendShape::Chamfer { distance: 0.5 }] {
+        let result = match blend(&solid, &every, shape, 50) {
+            Ok(result) => result,
+            Err(error) => panic!("{name} {shape:?}: {error}"),
+        };
+        let mesh = result.tessellate(&result.default_tolerance()).unwrap();
+        let after = mesh.mass_properties().volume;
+
+        assert_eq!(result.validate(), Ok(()), "{name} {shape:?}");
+        assert_watertight(name, &mesh);
+        assert!(
+            after < before && after > 0.8 * before,
+            "{name} {shape:?}: {after}"
+        );
+        for edge in blend_chain(&solid, &every) {
+            let edge = solid.edge(edge).unwrap();
+            let expected = crate::naming::FaceName::blend(50, edge.name());
+            assert!(
+                result.faces().any(|(_, face)| face.name() == expected),
+                "{name} {shape:?}: an edge was left without its blend face"
+            );
+        }
+    }
+}
+
 #[test]
-fn every_edge_of_assorted_prisms() {
+fn every_edge_of_a_wedge() {
+    blend_every_edge(
+        "wedge",
+        &polygon(&[(0.0, 0.0), (10.0, 0.0), (8.0, 6.0), (0.0, 6.0)]),
+    );
+}
+
+#[test]
+fn every_edge_of_a_hexagonal_prism() {
     let hexagon: Vec<(f64, f64)> = (0..6)
         .map(|index| {
             let angle = PI / 3.0 * index as f64;
             (5.0 * angle.cos(), 5.0 * angle.sin())
         })
         .collect();
-    let stadium = vec![
-        line(1, (0.0, 0.0), (10.0, 0.0)),
-        arc(2, (10.0, 2.0), (10.0, 0.0), (10.0, 4.0)),
-        line(3, (10.0, 4.0), (0.0, 4.0)),
-        arc(4, (0.0, 2.0), (0.0, 4.0), (0.0, 0.0)),
-    ];
-    let shapes = [
-        (
-            "wedge",
-            polygon(&[(0.0, 0.0), (10.0, 0.0), (8.0, 6.0), (0.0, 6.0)]),
-        ),
-        ("hexagon", polygon(&hexagon)),
-        (
-            "l shape",
-            polygon(&[
-                (0.0, 0.0),
-                (10.0, 0.0),
-                (10.0, 4.0),
-                (4.0, 4.0),
-                (4.0, 10.0),
-                (0.0, 10.0),
-            ]),
-        ),
-        ("stadium", stadium),
-    ];
-    for (name, curves) in shapes {
-        let solid = swept(Plane::XY, &curves, 3.0);
-        let every: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
-        let before = volume(&solid);
-        for shape in [fillet(0.5), BlendShape::Chamfer { distance: 0.5 }] {
-            let result = match blend(&solid, &every, shape, 50) {
-                Ok(result) => result,
-                Err(error) => panic!("{name} {shape:?}: {error}"),
-            };
-            assert_eq!(result.validate(), Ok(()), "{name} {shape:?}");
-            assert_watertight(
-                name,
-                &result.tessellate(&result.default_tolerance()).unwrap(),
-            );
-            let after = volume(&result);
-            assert!(
-                after < before && after > 0.8 * before,
-                "{name} {shape:?}: {after}"
-            );
-            for edge in blend_chain(&solid, &every) {
-                let edge = solid.edge(edge).unwrap();
-                let expected = crate::naming::FaceName::blend(50, edge.name());
-                assert!(
-                    result.faces().any(|(_, face)| face.name() == expected),
-                    "{name} {shape:?}: an edge was left without its blend face"
-                );
-            }
-        }
-    }
+
+    blend_every_edge("hexagon", &polygon(&hexagon));
+}
+
+#[test]
+fn every_edge_of_an_l_shaped_prism() {
+    blend_every_edge(
+        "l shape",
+        &polygon(&[
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 4.0),
+            (4.0, 4.0),
+            (4.0, 10.0),
+            (0.0, 10.0),
+        ]),
+    );
+}
+
+#[test]
+fn every_edge_of_a_stadium_prism() {
+    blend_every_edge(
+        "stadium",
+        &[
+            line(1, (0.0, 0.0), (10.0, 0.0)),
+            arc(2, (10.0, 2.0), (10.0, 0.0), (10.0, 4.0)),
+            line(3, (10.0, 4.0), (0.0, 4.0)),
+            arc(4, (0.0, 2.0), (0.0, 4.0), (0.0, 0.0)),
+        ],
+    );
 }
 
 #[test]

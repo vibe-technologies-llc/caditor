@@ -171,7 +171,7 @@ fn meridian(
     axis: &Axis,
     window: &Window,
 ) -> Option<(Curve2, Interval)> {
-    let span = Interval::new(window.low, window.high)?;
+    let span = Interval::new(window.low - window.reach, window.high + window.reach)?;
     match surface {
         Surface::Plane(plane) => {
             let height = axis.height(plane.frame().origin());

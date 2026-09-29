@@ -19,6 +19,8 @@ const TOLERANCE: f64 = LINEAR_RESOLUTION;
 const MIN_CLIP_SAMPLES: usize = 32;
 const MAX_CLIP_SAMPLES: usize = 4096;
 const CLIP_SPACING: f64 = 0.02;
+const MAX_SPAN_DEPTH: usize = 48;
+const MAX_SPAN_PIECES: usize = 4096;
 const PERIOD_SLACK: f64 = 1e-9;
 const MIN_BRANCH_LENGTH: f64 = 10.0 * LINEAR_RESOLUTION;
 
@@ -131,16 +133,21 @@ fn clip(
     window: &Aabb,
     raw: &RawCurve,
 ) -> Vec<Interval> {
-    let length = raw.curve.length(raw.range);
     let spacing = CLIP_SPACING * window.diagonal().max(TOLERANCE);
-    let samples = (length / spacing).ceil();
-    let samples = if samples.is_finite() {
-        (samples as usize).clamp(MIN_CLIP_SAMPLES, MAX_CLIP_SAMPLES)
-    } else {
-        MIN_CLIP_SAMPLES
-    };
+    let reach = window.expanded(spacing);
     let inside = |parameter: f64| locate_both(first, second, raw.curve.point(parameter)).is_some();
-    let mut pieces = inside_intervals(raw.range, samples, inside);
+    let mut pieces: Vec<Interval> = spans_within(&raw.curve, raw.range, &reach)
+        .into_iter()
+        .flat_map(|span| {
+            let samples = (raw.curve.length(span) / spacing).ceil();
+            let samples = if samples.is_finite() {
+                (samples as usize).clamp(MIN_CLIP_SAMPLES, MAX_CLIP_SAMPLES)
+            } else {
+                MIN_CLIP_SAMPLES
+            };
+            inside_intervals(span, samples, inside)
+        })
+        .collect();
     let whole_period = raw
         .curve
         .period()
@@ -158,6 +165,44 @@ fn clip(
         pieces.push(joined);
     }
     pieces
+}
+
+fn spans_within(curve: &Curve, range: Interval, reach: &Aabb) -> Vec<Interval> {
+    let mut spans: Vec<Interval> = Vec::new();
+    let mut pending = vec![(range, 0)];
+    let mut visited = 0;
+    while let Some((piece, depth)) = pending.pop() {
+        visited += 1;
+        if visited > MAX_SPAN_PIECES {
+            return vec![range];
+        }
+        let bounds = curve.bounding_box(piece);
+        if !boxes_overlap(&bounds, reach, 0.0) {
+            continue;
+        }
+        let halves = Interval::new(piece.start(), piece.middle())
+            .zip(Interval::new(piece.middle(), piece.end()));
+        let settled = depth >= MAX_SPAN_DEPTH
+            || within(&bounds, reach)
+            || bounds.diagonal() <= reach.diagonal();
+        match halves {
+            Some((low, high)) if !settled => {
+                pending.push((high, depth + 1));
+                pending.push((low, depth + 1));
+            }
+            _ => match spans.last_mut() {
+                Some(last) if last.end() == piece.start() => {
+                    *last = Interval::new(last.start(), piece.end()).unwrap_or(*last);
+                }
+                _ => spans.push(piece),
+            },
+        }
+    }
+    spans
+}
+
+fn within(inner: &Aabb, outer: &Aabb) -> bool {
+    inner.min().cmpge(outer.min()).all() && inner.max().cmple(outer.max()).all()
 }
 
 fn finish(

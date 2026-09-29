@@ -22,16 +22,20 @@ within a category run from most to least important.
 
 ## Checks and CI
 
-- Slow tests to keep an eye on: `blend::every_edge_of_assorted_prisms` (6 s) and about 40 UI
-  tests at over a second each.
+- Slow tests to keep an eye on: about 40 UI tests at over a second each.
 
 ## Kernel correctness
 
 - Shell cannot drop collapsing cones or faces whose edges run neither around nor along their
   axis, and cannot split a vertex whose edges are partly convex and partly concave (both
   reported).
-- Tests missing for a boolean that fails with `Split`, `Intersection` or `Invalid` on real
-  solids; only their conversions and messages are tested.
+- About 2% of booleans between the fixture solids in random placements still fail
+  (`boolean::tests::random_placements_of_every_fixture`, ignored, best run in release): mostly
+  `Open` and `Ambiguous`, then nearly coincident tori and cones that are too intricate to
+  intersect. Intersection curves crossing at a tangent point (tori touching along their
+  equators, a face touching a torus's inner equator) cannot be split, and a result whose pcurves
+  stray past the resolution (a cylinder against a tilted torus) or with a lump too thin for the
+  validation mesh is refused as invalid; each of the three has a test pinning its error.
 
 ## Sketch solver and expressions
 

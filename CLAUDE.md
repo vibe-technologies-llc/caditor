@@ -326,7 +326,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     both (point, unit tangent, uv on each) joined by cubic Hermite segments in approximate arc
     length, subdivided until the midpoint of every segment is within `INTERSECTION_TOLERANCE`
     (a quarter of `LINEAR_RESOLUTION`) of the true intersection, so edges built on it validate.
-    A closed one is periodic over its length. `uv_at` and `refined_point` re-project onto both
+    A closed one is periodic over its length, and its sampling seeds are its nodes less those
+    within a thousandth of the resolution of each other or of the range ends. `uv_at` and `refined_point` re-project onto both
     surfaces; `trimmed` returns a sub-range as a new curve with the same parameters and shape.
     `IntersectionCurve::through` rebuilds one from rough points (an imported edge a little off
     its faces): each point is solved onto both surfaces in its normal plane, and where the
@@ -371,7 +372,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     the face normal, so in uv the outer loop is counter-clockwise when the face sense is `Same`.
     A face that wraps around a periodic surface has a seam edge used twice in its loop with
     opposite senses, one period apart in uv; `add_loop` fits pcurves by chaining projection
-    hints and moves the second copy of a seam by a period when the chain put both on one side.
+    hints (bisecting any step between seeds that turns more than a quarter period, so a curve
+    passing close to a pole keeps its winding) and moves the second copy of a seam by a period when the chain put both on one side.
     Poles have no degenerate edges: the pole is a vertex, and the uv loop is closed along the
     pole line between the two coedges that meet there, a gap that validation and tessellation
     both accept; a fitted pcurve end at a pole takes the pole's v exactly. `add_loop` places the
@@ -519,7 +521,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
       a tangent line), equal cylinders with crossing axes (two ellipses and the two tangent
       points), and every coaxial pair of rotational surfaces (plane normal to the axis, sphere
       centred on it, cylinder, cone, torus, revolution with a planar profile), whose meridians are
-      intersected in (r, z) as 2D curves: each point is a circle, tangent points give tangent
+      intersected in (r, z) as 2D curves (a cylinder's reaching well past the window, so no crossing
+      is pulled onto its end): each point is a circle, tangent points give tangent
       circles, points on the axis give isolated points. Everything else is marched: seeds come
       from paired subdivision of both patches (sub-patches cached with their boxes, pruned by box
       overlap and Lipschitz distance) down to leaves of half a curvature radius, each solved by
@@ -529,8 +532,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
       (a parameter-constrained solve), close loops through the seed and end where the normals
       become parallel (reported as tangent points). A step that collapses where the branch runs
       off a bounded surface ends on the boundary ahead (the nearest patch bound along the
-      tangent, within one maximum step, by a parameter-constrained solve); otherwise it, and a
-      branch longer than the step cap, fails as `IntersectionError::Unfollowable`.
+      tangent, within one maximum step, by a parameter-constrained solve), one that collapses at a
+      pole (a cone apex on the other surface) ends there; otherwise it, and a branch longer than the step cap, fails as `IntersectionError::Unfollowable`.
+      Contact solves keep each periodic coordinate at the turn nearest their start, and every
+      branch is clipped to both patches by sampling only the spans of it whose boxes reach the
+      window the patches share, so a long curve through a small face is found there.
       Near poles the contact is solved with one surface as carrier and the other's signed
       distance. A marched branch that is a line, circle
       or ellipse within half the resolution is returned as that curve.
@@ -581,8 +587,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
       traced into loops from its boundary pieces (hinted by the original pcurves) and
       its cuts (both ways, dangling ones pruned): at each vertex the next edge is the first one
       clockwise from the arriving one about the outward normal (at a pole, the mean normal of a ring
-      around it, so rulings through a cone apex are ordered by azimuth), with ties and cusps decided
-      by chords at a common distance. Loops are fitted in the face's chart; a run of cuts leaving a
+      around it, so rulings through a cone apex are ordered by azimuth), with ties and cusps (tangents
+      within 1e-5 rad, the noise of intersection tangents) decided by chords at a common distance. Loops are fitted in the face's chart; a run of cuts leaving a
       pole is shifted by whole periods to meet the next boundary edge, pcurve ends are snapped to
       their vertices, and a hole goes to the smallest outer loop containing a point of it that is
       not on that loop.
@@ -595,8 +601,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
       one use each way, else `Open`, or `NonManifold` when solids would meet only along an edge.
     - Adjacent faces on the same surface with the same orientation are merged by retracing them
       without the edges between them (left apart when that fails, as for a ring around a periodic
-      surface), and two edges meeting at a vertex between the same faces are joined when they are
-      pieces of one curve, collinear lines or arcs of one circle. Faces keep their names and
+      surface), and two edges meeting at a vertex between the same faces, not at a pole of either,
+      are joined when they are pieces of one curve, collinear lines or arcs of one circle. Faces keep their names and
       origins (fragments of a split face share its name), pieces keep their edge's name and new
       edges are named `between` their two faces, before the plan disambiguates duplicates.
   - Blends (`blend/`): `blend(solid, edges, BlendShape, feature)` rounds (`Fillet`) or bevels

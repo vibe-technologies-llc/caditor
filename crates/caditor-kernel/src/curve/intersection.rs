@@ -18,6 +18,7 @@ const MAX_UNROLLED_PERIODS: i64 = 8;
 const SMALL_TURN: f64 = 1e-6;
 const TOUCHING_ITERATIONS: usize = 12;
 const TOUCHING_GAP: f64 = LINEAR_RESOLUTION;
+const SEED_GAP: f64 = 1e-3 * LINEAR_RESOLUTION;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct IntersectionNode {
@@ -408,18 +409,19 @@ impl IntersectionCurve {
     }
 
     pub(crate) fn seeds(&self, range: Interval) -> Vec<f64> {
-        let mut seeds = vec![range.start()];
-        for (a, b) in self.pieces(range) {
-            seeds.push(a.parameter);
-            seeds.push(b.parameter);
-        }
-        seeds.push(range.end());
-        seeds.retain(|seed| range.contains(*seed));
+        let apart = |a: f64, b: f64| (b - a).abs() > SEED_GAP;
+        let mut seeds: Vec<f64> = self
+            .pieces(range)
+            .into_iter()
+            .flat_map(|(a, b)| [a.parameter, b.parameter])
+            .filter(|seed| {
+                range.contains(*seed) && apart(range.start(), *seed) && apart(*seed, range.end())
+            })
+            .collect();
         seeds.sort_by(f64::total_cmp);
-        seeds.dedup();
-        if seeds.len() < 2 {
-            seeds.push(range.end());
-        }
+        seeds.dedup_by(|later, earlier| !apart(*earlier, *later));
+        seeds.insert(0, range.start());
+        seeds.push(range.end());
         seeds
     }
 

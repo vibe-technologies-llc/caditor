@@ -136,6 +136,25 @@ fn cylinder_patches_clip_the_intersection() {
 }
 
 #[test]
+fn a_long_curve_through_a_tiny_patch_is_found_there() {
+    let tube = cylinder(Point3::ZERO, Vector3::Z, 10.0);
+    let spot = plane(
+        Point3::new(10.0 * 1.0_f64.cos(), 10.0 * 1.0_f64.sin(), 0.0),
+        Vector3::Z,
+    );
+    let result = intersect_surfaces(&square(&spot, 0.0005), &around(&tube, (-20.0, 20.0))).unwrap();
+
+    check_all(&result, &spot, &tube);
+    assert_eq!(result.branches().len(), 1);
+
+    let branch = &result.branches()[0];
+    let length = branch.curve.length(branch.range);
+
+    assert!(!branch.closed);
+    assert!(length > 0.00099 && length < 0.00142, "{length}");
+}
+
+#[test]
 fn a_plane_cuts_a_cone_in_every_conic() {
     let half_angle = FRAC_PI_6;
     let cone: Surface = Cone::new(Plane::XY, 2.0, half_angle).unwrap().into();

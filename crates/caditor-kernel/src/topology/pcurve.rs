@@ -8,6 +8,7 @@ use crate::{
 
 const MAX_PCURVE_SAMPLES: usize = 1 << 16;
 const MAX_PCURVE_DEPTH: usize = 30;
+const MAX_PERIOD_FRACTION_PER_STEP: f64 = 0.25;
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum PcurveError {
@@ -161,18 +162,60 @@ pub(crate) fn fit(
     if !sense.is_same() {
         parameters.reverse();
     }
-    let mut previous = hint;
-    let mut samples: Vec<PcurveSample> = parameters
-        .into_iter()
-        .map(|parameter| {
-            let uv = surface.project(curve.point(parameter), previous);
-            previous = Some(uv);
-            PcurveSample { parameter, uv }
-        })
-        .collect();
+    let mut samples: Vec<PcurveSample> = Vec::with_capacity(parameters.len());
+    let mut parameters = parameters.into_iter();
+    if let Some(parameter) = parameters.next() {
+        samples.push(PcurveSample {
+            parameter,
+            uv: surface.project(curve.point(parameter), hint),
+        });
+    }
+    for parameter in parameters {
+        let Some(from) = samples.last().copied() else {
+            break;
+        };
+        follow(surface, curve, from, parameter, &mut samples)?;
+    }
     settle_pole_ends(surface, &mut samples);
     let refined = refine(surface, curve, &samples)?;
     Pcurve::new(refined, PCURVE_TOLERANCE)
+}
+
+fn follow(
+    surface: &Surface,
+    curve: &Curve,
+    from: PcurveSample,
+    to: f64,
+    samples: &mut Vec<PcurveSample>,
+) -> Result<(), PcurveError> {
+    let mut pending = vec![(to, 0)];
+    let mut last = from;
+    while let Some((parameter, depth)) = pending.pop() {
+        if samples.len() + pending.len() >= MAX_PCURVE_SAMPLES {
+            return Err(PcurveError::TooComplex(MAX_PCURVE_SAMPLES));
+        }
+        let uv = surface.project(curve.point(parameter), Some(last.uv));
+        let middle = 0.5 * (last.parameter + parameter);
+        let divisible = depth < MAX_PCURVE_DEPTH && middle != last.parameter && middle != parameter;
+        if divisible && turns_too_far(surface, last.uv, uv) {
+            pending.push((parameter, depth + 1));
+            pending.push((middle, depth + 1));
+            continue;
+        }
+        last = PcurveSample { parameter, uv };
+        samples.push(last);
+    }
+    Ok(())
+}
+
+fn turns_too_far(surface: &Surface, from: Point2, to: Point2) -> bool {
+    if surface.pole_at(from).is_some() || surface.pole_at(to).is_some() {
+        return false;
+    }
+    let beyond = |step: f64, period: Option<f64>| {
+        period.is_some_and(|period| step.abs() > period * MAX_PERIOD_FRACTION_PER_STEP)
+    };
+    beyond(to.x - from.x, surface.u_period()) || beyond(to.y - from.y, surface.v_period())
 }
 
 fn settle_pole_ends(surface: &Surface, samples: &mut [PcurveSample]) {

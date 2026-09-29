@@ -1,4 +1,7 @@
-use std::{collections::BTreeSet, f64::consts::PI};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    f64::consts::PI,
+};
 
 use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 
@@ -17,7 +20,7 @@ use crate::{
     surface::{PlaneSurface, Surface},
     test_support::{assert_cancelled_anywhere, assert_watertight, circle, rectangle},
     tolerance::SamplingTolerance,
-    topology::{BuildError, FaceId, Pcurve, PcurveSample},
+    topology::{BuildError, FaceId, Pcurve, PcurveSample, ValidationError},
 };
 
 fn moved(solid: Solid, offset: (f64, f64, f64)) -> Solid {
@@ -650,6 +653,144 @@ fn a_spline_face_is_drilled_and_shares_its_plane_with_a_neighbour() {
     check("shared", &shared, 5.0 * 7.0 * 4.0);
 }
 
+#[test]
+fn an_intersection_passing_close_to_a_sphere_pole_splits_its_face() {
+    let ball = sphere(4.0);
+    let other = moved(sphere(4.0), (-1.275, -2.497, -1.18));
+
+    consistent("spheres", &ball, &other);
+}
+
+#[test]
+fn a_cylinder_grazing_a_sphere_pole_is_marched() {
+    let ball = sphere(4.0);
+    let post = moved(cylinder(3.0, 5.0), (-3.0, -1.0, 0.0));
+
+    consistent("sphere and cylinder", &ball, &post);
+}
+
+#[test]
+fn an_intersection_touching_a_cone_seam_splits_the_cone() {
+    let post = cylinder(3.0, 5.0);
+    let cone = moved(crate::fixtures::cone(3.0, 4.0), (-1.0, -3.0, 2.0));
+
+    consistent("cylinder and cone", &post, &cone);
+}
+
+#[test]
+fn a_cone_apex_lying_on_a_cylinder_ends_the_intersection_there() {
+    let post = cylinder(3.0, 5.0);
+    let cone = moved(
+        rotated(crate::fixtures::cone(3.0, 4.0), Vector3::X, 0.5 * PI),
+        (0.0, 1.0, 1.0),
+    );
+
+    consistent("cylinder and lying cone", &post, &cone);
+}
+
+#[test]
+fn edges_through_a_sphere_pole_are_not_joined_across_it() {
+    let ball = sphere(4.0);
+    let holed = crate::fixtures::holed_block(10.0, 4.0, 2.5);
+    let hollow = moved(crate::fixtures::hollow_cuboid(10.0, 4.0), (0.0, -2.0, 1.0));
+
+    consistent(
+        "holed block",
+        &holed,
+        &moved(ball.clone(), (0.0, 1.0, -1.0)),
+    );
+    consistent("hollow cuboid", &ball, &hollow);
+}
+
+#[test]
+fn intersection_edges_ending_at_a_node_are_sampled_once_there() {
+    let cone = crate::fixtures::cone(3.0, 4.0);
+    let ball = moved(rotated(sphere(4.0), Vector3::Z, PI), (3.0, -3.5, 0.0));
+    let ring = crate::fixtures::torus(6.0, 2.0);
+    let hollow = moved(
+        rotated(
+            crate::fixtures::hollow_cuboid(10.0, 4.0),
+            Vector3::Z,
+            1.5 * PI,
+        ),
+        (0.0, -3.0, -0.5),
+    );
+
+    consistent("cone and sphere", &cone, &ball);
+    consistent("torus and hollow cuboid", &ring, &hollow);
+}
+
+#[test]
+fn a_plane_crossing_a_bore_exactly_at_its_seam_splits_it_there() {
+    let holed = crate::fixtures::holed_block(10.0, 4.0, 2.5);
+    let hollow = moved(
+        rotated(
+            crate::fixtures::hollow_cuboid(10.0, 4.0),
+            Vector3::Y,
+            0.5 * PI,
+        ),
+        (0.5, -0.5, 1.5),
+    );
+
+    consistent("holed and hollow", &holed, &hollow);
+}
+
+#[test]
+fn nearly_coincident_tori_are_too_intricate_to_intersect() {
+    let ring = crate::fixtures::torus(6.0, 2.0);
+    let shifted = moved(ring.clone(), (1e-4, 1e-4, 1e-4));
+
+    assert!(matches!(
+        boolean(&ring, &shifted, BooleanOperation::Union),
+        Err(BooleanError::Intersection(IntersectionError::TooComplex(_)))
+    ));
+}
+
+#[test]
+fn tori_touching_along_their_equators_cannot_be_split() {
+    let ring = crate::fixtures::torus(6.0, 2.0);
+    let beside = moved(ring.clone(), (4.0, 0.0, 0.0));
+
+    assert_eq!(
+        boolean(&ring, &beside, BooleanOperation::Union).err(),
+        Some(BooleanError::Split)
+    );
+}
+
+#[test]
+fn a_result_straying_past_the_resolution_is_refused_as_invalid() {
+    let post = cylinder(3.0, 5.0);
+    let tilted = crate::fixtures::torus(6.0, 2.0)
+        .transformed(
+            &RigidTransform::rotation_about(
+                Point3::ZERO,
+                Vector3::new(
+                    0.7673022691030771,
+                    -0.42585843157607983,
+                    -0.19882123522923822,
+                ),
+                4.719479295313324,
+            )
+            .unwrap()
+            .then(
+                &RigidTransform::translation(Vector3::new(
+                    -1.3388772157931028,
+                    2.714601682264157,
+                    0.4609464282424307,
+                ))
+                .unwrap(),
+            ),
+        )
+        .unwrap();
+
+    assert!(matches!(
+        boolean(&post, &tilted, BooleanOperation::Union),
+        Err(BooleanError::Invalid(BuildError::Invalid(
+            ValidationError::PcurveOffEdge { .. }
+        )))
+    ));
+}
+
 fn square_fragment(size: f64) -> Fragment {
     let corners = [
         Point2::ZERO,
@@ -796,4 +937,56 @@ fn failures_of_the_steps_become_boolean_errors_in_words() {
     ] {
         assert_eq!(error.to_string(), words);
     }
+}
+
+fn outcome(result: &Result<Solid, BooleanError>) -> &'static str {
+    match result {
+        Ok(_) => "ok",
+        Err(BooleanError::Empty) => "empty",
+        Err(BooleanError::Intersection(_)) => "intersection",
+        Err(BooleanError::Split) => "split",
+        Err(BooleanError::Ambiguous) => "ambiguous",
+        Err(BooleanError::Open) => "open",
+        Err(BooleanError::NonManifold) => "non-manifold",
+        Err(BooleanError::Invalid(_)) => "invalid",
+        Err(BooleanError::Cancelled(_)) => "cancelled",
+    }
+}
+
+#[test]
+#[ignore = "a survey of the failures left, best run in release"]
+fn random_placements_of_every_fixture() {
+    let solids = crate::fixtures::every_solid();
+    let mut random = crate::test_support::Random::new(2);
+    let mut outcomes: BTreeMap<&str, usize> = BTreeMap::new();
+
+    for _ in 0..1500 {
+        let first = (random.unit() * solids.len() as f64) as usize % solids.len();
+        let second = (random.unit() * solids.len() as f64) as usize % solids.len();
+        let axis = random.point(1.0) - Point3::ZERO;
+        let angle = random.between(0.0, 2.0 * PI);
+        let reach = random.between(0.0, 4.0);
+        let offset = random.point(reach);
+        let placed = moved(
+            rotated(solids[second].1.clone(), axis, angle),
+            (offset.x, offset.y, offset.z),
+        );
+        for operation in [
+            BooleanOperation::Union,
+            BooleanOperation::Difference,
+            BooleanOperation::Intersection,
+        ] {
+            let label = outcome(&boolean(&solids[first].1, &placed, operation));
+            *outcomes.entry(label).or_default() += 1;
+            if !matches!(label, "ok" | "empty") {
+                eprintln!(
+                    "{label}: {} and {} turned about {axis:?} by {angle}, moved by {offset:?}, \
+                     {operation:?}",
+                    solids[first].0, solids[second].0
+                );
+            }
+        }
+    }
+
+    eprintln!("{outcomes:?}");
 }

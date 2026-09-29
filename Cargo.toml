@@ -70,6 +70,12 @@ xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
 [profile.dev.package.nalgebra]
 opt-level = 3
 
+[profile.dev.package.spade]
+opt-level = 3
+
+[profile.dev.package.robust]
+opt-level = 3
+
 [profile.release]
 opt-level = 3
 codegen-units = 1

@@ -296,7 +296,9 @@ fn heal_edges(arrangement: &mut Arrangement, faces: &mut [KeptFace]) -> Result<(
     while let Some((vertex, first, second)) = joints.next() {
         interrupt::check()?;
         let users = face_users(&joints.uses, first);
-        let joined = (users == face_users(&joints.uses, second))
+        let joinable = users == face_users(&joints.uses, second)
+            && !at_pole(arrangement, faces, &users, vertex);
+        let joined = joinable
             .then(|| join(arrangement, vertex, first, second))
             .flatten();
         let Some(piece) = joined else {
@@ -325,6 +327,17 @@ fn heal_edges(arrangement: &mut Arrangement, faces: &mut [KeptFace]) -> Result<(
         joints.joined(arrangement, &joint);
     }
     Ok(())
+}
+
+fn at_pole(arrangement: &Arrangement, faces: &[KeptFace], users: &[usize], vertex: usize) -> bool {
+    let Some(point) = arrangement.point(vertex) else {
+        return false;
+    };
+    users
+        .iter()
+        .filter_map(|index| faces.get(*index))
+        .flat_map(|face| face.surface.poles())
+        .any(|pole| pole.point.distance(point) <= TOLERANCE)
 }
 
 struct Joint {
