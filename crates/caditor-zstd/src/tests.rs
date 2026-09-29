@@ -1,8 +1,12 @@
 use super::*;
 
 fn sample(seed: u64) -> Vec<u8> {
+    sample_of(seed, 20_000)
+}
+
+fn sample_of(seed: u64, length: usize) -> Vec<u8> {
     let mut state = 0x9e37_79b9_7f4a_7c15_u64 ^ seed;
-    (0..20_000)
+    (0..length)
         .map(|_| {
             state ^= state << 13;
             state ^= state >> 7;
@@ -59,12 +63,78 @@ fn damaged_or_oversized_frames_are_errors() {
         Err(ZstdError::TooLarge { .. })
     ));
     assert_eq!(decompress(b"not zstd", 100), Err(ZstdError::NotAFrame));
+    assert_eq!(decompress(&[], 100), Err(ZstdError::NotAFrame));
     assert!(decompress(&frame[..frame.len() / 2], data.len()).is_err());
     for position in (8..frame.len()).step_by(frame.len() / 50 + 1) {
         let mut damaged = frame.clone();
         damaged[position] ^= 0x5a;
-        let _ = decompress(&damaged, data.len());
+        if let Ok(content) = decompress(&damaged, data.len()) {
+            assert_eq!(content.len(), data.len(), "damage at {position}");
+        }
     }
     assert_eq!(Level::new(i32::MAX), None);
     assert_eq!(Level::new(9), Some(Level::BALANCED));
+}
+
+#[test]
+fn a_frame_without_its_size_is_refused() {
+    let data = sample(4);
+    let context = Compressor::new().unwrap();
+    context
+        .set(ZSTD_cParameter::ZSTD_c_contentSizeFlag, 0)
+        .unwrap();
+    let frame = context.compress(&data, &[]).unwrap();
+    assert_eq!(content_size(&frame), Err(ZstdError::UnknownSize));
+    assert_eq!(decompress(&frame, usize::MAX), Err(ZstdError::UnknownSize));
+}
+
+#[test]
+fn a_frame_recording_the_wrong_size_is_refused() {
+    let data = sample_of(5, 100);
+    let frame = compress(&data, Level::FAST).unwrap();
+    let recorded = 5;
+    assert_eq!(frame[recorded], 100);
+    for claimed in [99_u8, 101] {
+        let mut lying = frame.clone();
+        lying[recorded] = claimed;
+        assert_eq!(content_size(&lying).unwrap(), u64::from(claimed));
+        assert!(decompress(&lying, 200).is_err());
+    }
+}
+
+#[test]
+fn a_delta_needs_its_own_prefix_and_an_empty_one_round_trips() {
+    let older = sample(6);
+    let newer = sample(7);
+    let delta = compress_after(&newer, &older, Level::BALANCED).unwrap();
+    assert!(decompress(&delta, newer.len()).map_or(true, |content| content != newer));
+    assert!(
+        decompress_after(&delta, &sample(8), newer.len()).map_or(true, |content| content != newer)
+    );
+    assert_eq!(
+        decompress_after(&delta, &older, newer.len()).unwrap(),
+        newer
+    );
+
+    let empty = compress_after(&[], &older, Level::BALANCED).unwrap();
+    assert_eq!(
+        decompress_after(&empty, &older, 0).unwrap(),
+        Vec::<u8>::new()
+    );
+}
+
+#[test]
+fn a_delta_reaches_back_across_a_prefix_of_several_mebibytes() {
+    let older = sample_of(9, 12 << 20);
+    let mut newer = older.clone();
+    newer[1_000..1_064].copy_from_slice(&[7; 64]);
+    newer.extend_from_slice(b"one more record");
+
+    let delta = compress_after(&newer, &older, Level::BALANCED).unwrap();
+
+    assert!(delta.len() < 64 << 10, "{} bytes", delta.len());
+    assert_eq!(
+        decompress_after(&delta, &older, newer.len()).unwrap(),
+        newer
+    );
 }

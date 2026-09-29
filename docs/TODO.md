@@ -32,15 +32,10 @@ within a category run from most to least important.
   (`binary/model.rs`). Add a retention policy and write history append-only.
 - A model whose records total more than 256 MiB saves once and never again, since the previous
   snapshot and the journal snapshot are each one chunk (`MAX_CONTENT`). Chunk per record.
-- Deltas set no zstd window or long-distance matching (`caditor-zstd` `compress_after`), so
-  versions above the default window are close to full copies. Size the window to prefix plus
-  data, raise the decoder's `windowLogMax`, and test with a prefix of several MiB.
 - Every record is recompressed at level 9 on each save, including unchanged STEP text.
 - Fields and chunk kinds an older reader does not know are dropped on its next save without a
   report, and the reserved header bytes are never read. Keep unknown content and define a
   must-understand flag.
-- `caditor-zstd` has three tests: `UnknownSize`, `WrongSize`, a wrong prefix and an empty input
-  are never asserted, and the damage loop discards its results.
 
 ## Kernel correctness
 

@@ -8,11 +8,14 @@ use std::{
 
 use libzstd_rs_sys::{
     ZSTD_CCtx, ZSTD_CCtx_refPrefix, ZSTD_CCtx_setParameter, ZSTD_CONTENTSIZE_ERROR,
-    ZSTD_CONTENTSIZE_UNKNOWN, ZSTD_DCtx, ZSTD_DCtx_refPrefix, ZSTD_cParameter, ZSTD_compress2,
-    ZSTD_compressBound, ZSTD_createCCtx, ZSTD_createDCtx, ZSTD_decompressDCtx, ZSTD_freeCCtx,
+    ZSTD_CONTENTSIZE_UNKNOWN, ZSTD_DCtx, ZSTD_DCtx_refPrefix, ZSTD_DCtx_setParameter,
+    ZSTD_WINDOWLOG_MAX_64, ZSTD_WINDOWLOG_MIN, ZSTD_cParameter, ZSTD_compress2, ZSTD_compressBound,
+    ZSTD_createCCtx, ZSTD_createDCtx, ZSTD_dParameter, ZSTD_decompressDCtx, ZSTD_freeCCtx,
     ZSTD_freeDCtx, ZSTD_getErrorName, ZSTD_getFrameContentSize, ZSTD_isError, ZSTD_maxCLevel,
     ZSTD_minCLevel,
 };
+
+const LONG_MATCHING_ON: c_int = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Level(i32);
@@ -56,6 +59,9 @@ pub fn compress(data: &[u8], level: Level) -> Result<Vec<u8>, ZstdError> {
 pub fn compress_after(data: &[u8], prefix: &[u8], level: Level) -> Result<Vec<u8>, ZstdError> {
     let context = Compressor::new()?;
     context.set_level(level)?;
+    if !prefix.is_empty() {
+        context.reach_back(prefix.len().saturating_add(data.len()))?;
+    }
     context.compress(data, prefix)
 }
 
@@ -80,6 +86,16 @@ pub fn content_size(frame: &[u8]) -> Result<u64, ZstdError> {
         ZSTD_CONTENTSIZE_UNKNOWN => Err(ZstdError::UnknownSize),
         size => Ok(size),
     }
+}
+
+fn window_log(span: usize) -> c_int {
+    let bits = span
+        .max(1)
+        .checked_next_power_of_two()
+        .map_or(usize::BITS, usize::trailing_zeros);
+    c_int::try_from(bits)
+        .unwrap_or(ZSTD_WINDOWLOG_MAX_64)
+        .clamp(ZSTD_WINDOWLOG_MIN, ZSTD_WINDOWLOG_MAX_64)
 }
 
 fn checked(code: usize) -> Result<usize, ZstdError> {
@@ -107,15 +123,20 @@ impl Compressor {
     }
 
     fn set_level(&self, level: Level) -> Result<(), ZstdError> {
-        let level: c_int = level.get();
+        self.set(ZSTD_cParameter::ZSTD_c_compressionLevel, level.get())
+    }
+
+    fn reach_back(&self, span: usize) -> Result<(), ZstdError> {
+        self.set(ZSTD_cParameter::ZSTD_c_windowLog, window_log(span))?;
+        self.set(
+            ZSTD_cParameter::ZSTD_c_enableLongDistanceMatching,
+            LONG_MATCHING_ON,
+        )
+    }
+
+    fn set(&self, parameter: ZSTD_cParameter, value: c_int) -> Result<(), ZstdError> {
         #[allow(unsafe_code)]
-        let code = unsafe {
-            ZSTD_CCtx_setParameter(
-                self.0.as_ptr(),
-                ZSTD_cParameter::ZSTD_c_compressionLevel,
-                level,
-            )
-        };
+        let code = unsafe { ZSTD_CCtx_setParameter(self.0.as_ptr(), parameter, value) };
         checked(code).map(drop)
     }
 
@@ -164,12 +185,25 @@ impl Decompressor {
             .ok_or(ZstdError::OutOfMemory)
     }
 
+    fn accept_any_window(&self) -> Result<(), ZstdError> {
+        #[allow(unsafe_code)]
+        let code = unsafe {
+            ZSTD_DCtx_setParameter(
+                self.0.as_ptr(),
+                ZSTD_dParameter::ZSTD_d_windowLogMax,
+                ZSTD_WINDOWLOG_MAX_64,
+            )
+        };
+        checked(code).map(drop)
+    }
+
     fn decompress(
         &self,
         frame: &[u8],
         prefix: &[u8],
         expected: usize,
     ) -> Result<Vec<u8>, ZstdError> {
+        self.accept_any_window()?;
         if !prefix.is_empty() {
             #[allow(unsafe_code)]
             let code = unsafe {
