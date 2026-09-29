@@ -296,6 +296,23 @@ fn units_are_converted_to_millimetres_and_named() {
     let unitless = drawing(Some(0), vec![line((0.0, 0.0), (1.0, 0.0))]);
     assert!(unitless.notes[0].contains("read as millimetres"));
 
+    let survey = drawing(Some(21), vec![line((0.0, 0.0), (3_937.0, 0.0))]);
+    let (_, end) = lines(&survey)[0];
+    assert!((end.x - 1_200_000.0).abs() < 1e-6, "{end}");
+    assert!(
+        survey.notes[0].contains("US survey feet"),
+        "{:?}",
+        survey.notes
+    );
+
+    let future = drawing(Some(99), vec![line((0.0, 0.0), (1.0, 0.0))]);
+    assert_eq!(lines(&future), vec![(Point2::ZERO, Point2::X)]);
+    assert_eq!(
+        future.notes[0],
+        "The drawing names a unit caditor does not know (code 99), so its numbers were read as \
+         millimetres."
+    );
+
     for units in [None, Some(0)] {
         let mut content = vec![pair(9, "$MEASUREMENT"), pair(70, 0)];
         if let Some(units) = units {

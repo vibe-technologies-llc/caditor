@@ -178,7 +178,6 @@ within a category run from most to least important.
   only closed profile.
 - An INSERT array above 20,000 cells refuses the whole import before checking whether its block
   draws anything.
-- `$INSUNITS` codes above 20 read as millimetres with a "does not say" note.
 - Fit-point splines ignore their end tangents.
 - `$DWGCODEPAGE` is ignored, so non-UTF-8 names come out garbled.
 - `Nurbs::point` finds the knot span linearly for each of up to 16,384 samples, and each visited

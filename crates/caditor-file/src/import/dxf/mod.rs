@@ -731,14 +731,21 @@ fn unit_note(units: HeaderUnits, notes: &mut Vec<String>) -> f64 {
         );
         return INCH;
     }
-    match named.and_then(unit) {
-        Some((scale, name)) => {
+    match named.map(|code| (code, unit(code))) {
+        Some((_, Some((scale, name)))) => {
             if scale != 1.0 {
                 notes.push(format!(
                     "The drawing is in {name}, so its lengths were converted to millimetres."
                 ));
             }
             scale
+        }
+        Some((code, None)) => {
+            notes.push(format!(
+                "The drawing names a unit caditor does not know (code {code}), so its numbers \
+                 were read as millimetres."
+            ));
+            1.0
         }
         None => {
             notes.push(
@@ -753,6 +760,7 @@ fn unit_note(units: HeaderUnits, notes: &mut Vec<String>) -> f64 {
 
 const UNITLESS: i64 = 0;
 const INCH: f64 = 25.4;
+const US_SURVEY_FOOT: f64 = 1_200_000.0 / 3_937.0;
 const IMPERIAL_MEASUREMENT: i64 = 0;
 
 fn unit(code: i64) -> Option<(f64, &'static str)> {
@@ -777,6 +785,10 @@ fn unit(code: i64) -> Option<(f64, &'static str)> {
         18 => (1.495_978_707e14, "astronomical units"),
         19 => (9.460_730_472_580_8e18, "light years"),
         20 => (3.085_677_581_491_367e19, "parsecs"),
+        21 => (US_SURVEY_FOOT, "US survey feet"),
+        22 => (US_SURVEY_FOOT / 12.0, "US survey inches"),
+        23 => (US_SURVEY_FOOT * 3.0, "US survey yards"),
+        24 => (US_SURVEY_FOOT * 5_280.0, "US survey miles"),
         _ => return None,
     })
 }

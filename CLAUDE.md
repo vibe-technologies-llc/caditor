@@ -775,7 +775,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     takes its place (`FileJournal::SetAside`), and opening the model reports where it was kept.
   - DXF import (`import/`): `parse_dxf` reads ASCII and binary DXF (group codes with typed values,
     UTF-8 or single-byte text) into a `Drawing` of 2D `DrawingCurve`s in millimetres plus notes in
-    plain language. It reads `$INSUNITS` (none is read as millimetres, with a note, unless
+    plain language. It reads `$INSUNITS` (every code up to the US survey units; an unknown code
+    is read as millimetres with a note naming it, and none is read as millimetres, with a note, unless
     `$MEASUREMENT` is 0, imperial, when it is read as inches, also with a note), layers (entities on
     off or frozen layers are left out), blocks and INSERTs (base point, scale, rotation, column and
     row arrays, nested with cycle and depth limits and at most `MAX_EXPANDED_OBJECTS` objects and
