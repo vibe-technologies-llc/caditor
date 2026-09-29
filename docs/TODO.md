@@ -37,11 +37,13 @@ within a category run from most to least important.
 - Shell cannot drop collapsing cones or faces whose edges run neither around nor along their
   axis, and cannot split a vertex whose edges are partly convex and partly concave (both
   reported).
-- Tests missing for: pinched regions (a hole tangent to its outline, squares sharing a corner)
-  swept by extrude and revolve; a circle tangent to the revolve axis; shelling or blending bodies
-  with voids or several lumps; the `Ambiguous`, `Open`, `Split`, `Intersection` and `Invalid`
-  boolean errors and `TooComplex`/`Unfollowable` messages; pinned digests of a tie-broken
-  `RegionKey` and of `PieceId::digest`.
+- Opening a face of a void moves it into the void, so the void's side walls stop the thickness
+  short of the opening instead of reaching it (`shell/mod.rs` `extendable`).
+- Tests missing for a boolean that fails with `Split`, `Intersection` or `Invalid` on real
+  solids; only their conversions and messages are tested.
+- Even-depth selection keeps the region inside a hole that touches its outline, since both are in
+  one connected component, so such a sketch sweeps as if it had no hole until the region is
+  chosen.
 
 ## Kernel cancellation and limits
 

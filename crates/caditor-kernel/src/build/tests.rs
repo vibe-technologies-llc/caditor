@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     f64::consts::{FRAC_PI_2, PI, TAU},
 };
 
@@ -42,13 +42,52 @@ fn fine_mesh(solid: &Solid) -> Mesh {
         .unwrap()
 }
 
+fn assert_balanced(name: &str, mesh: &Mesh) {
+    let mut directed: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+    for [a, b, c] in mesh.position_triangles() {
+        assert!(a != b && b != c && a != c, "{name}: degenerate triangle");
+        for edge in [(a, b), (b, c), (c, a)] {
+            *directed.entry(edge).or_default() += 1;
+        }
+    }
+    for ((from, to), count) in &directed {
+        assert_eq!(
+            directed.get(&(*to, *from)),
+            Some(count),
+            "{name}: edge {from}->{to} is not matched"
+        );
+    }
+}
+
 fn check(name: &str, solid: &Solid, volume: f64, area: f64, smallest_radius: f64) {
+    check_closed(
+        name,
+        solid,
+        volume,
+        area,
+        smallest_radius,
+        assert_watertight,
+    );
+}
+
+fn check_pinched(name: &str, solid: &Solid, volume: f64, area: f64, smallest_radius: f64) {
+    check_closed(name, solid, volume, area, smallest_radius, assert_balanced);
+}
+
+fn check_closed(
+    name: &str,
+    solid: &Solid,
+    volume: f64,
+    area: f64,
+    smallest_radius: f64,
+    closed: fn(&str, &Mesh),
+) {
     assert_eq!(solid.validate(), Ok(()), "{name}");
     for tolerance in [
         SamplingTolerance::new(0.05, 0.3).unwrap(),
         solid.default_tolerance(),
     ] {
-        assert_watertight(name, &solid.tessellate(&tolerance).unwrap());
+        closed(name, &solid.tessellate(&tolerance).unwrap());
     }
     let properties = fine_mesh(solid).mass_properties();
     assert!(
@@ -537,4 +576,94 @@ fn extents_reaching_beyond_the_largest_size_are_refused() {
     );
     assert!(LinearExtent::symmetric(2.0 * MAX_SIZE).is_ok());
     assert!(LinearExtent::one_side(MAX_SIZE).is_ok());
+}
+
+fn corner_to_corner(from: (f64, f64)) -> Vec<ProfileCurve> {
+    let (x, y) = from;
+    let mut curves = rectangle(1, (x, y), (x + 2.0, y + 2.0));
+    curves.extend(rectangle(5, (x + 2.0, y + 2.0), (x + 4.0, y + 4.0)));
+    curves
+}
+
+fn hole_touching_the_bottom(from: (f64, f64), size: f64, radius: f64) -> Vec<Region> {
+    let (x, y) = from;
+    let mut curves = rectangle(1, (x, y), (x + size, y + size));
+    curves.push(circle(5, (x + size / 2.0, y + radius), radius));
+    let profile = Profile::new(&curves).unwrap();
+    let around = profile
+        .regions()
+        .iter()
+        .max_by(|a, b| a.area().total_cmp(&b.area()))
+        .unwrap()
+        .key();
+    profile.select(&Selection::Regions(vec![around])).unwrap()
+}
+
+#[test]
+fn squares_sharing_a_corner_sweep_into_two_lumps() {
+    let extruded = extrude(
+        &Plane::XY,
+        &regions(&corner_to_corner((0.0, 0.0))),
+        one_side(1.0),
+        FEATURE,
+    )
+    .unwrap();
+    check("corner extrude", &extruded, 8.0, 32.0, f64::INFINITY);
+    assert_eq!(extruded.shells().count(), 2);
+
+    let revolved = revolve(
+        &Plane::XY,
+        &regions(&corner_to_corner((2.0, 0.0))),
+        y_axis(),
+        full(),
+        FEATURE,
+    )
+    .unwrap();
+    check("corner revolve", &revolved, 64.0 * PI, 128.0 * PI, 2.0);
+    assert_eq!(revolved.shells().count(), 2);
+}
+
+#[test]
+fn a_hole_tangent_to_its_outline_sweeps_into_one_pinched_lump() {
+    let flat = hole_touching_the_bottom((0.0, 0.0), 10.0, 3.0);
+    assert_eq!(flat.len(), 1);
+    let face = 100.0 - 9.0 * PI;
+    let extruded = extrude(&Plane::XY, &flat, one_side(1.0), FEATURE).unwrap();
+    check_pinched(
+        "tangent hole extrude",
+        &extruded,
+        face,
+        2.0 * face + 40.0 + 6.0 * PI,
+        3.0,
+    );
+    assert_eq!(extruded.shells().count(), 1);
+
+    let turned = hole_touching_the_bottom((2.0, 0.0), 6.0, 2.0);
+    let revolved = revolve(&Plane::XY, &turned, y_axis(), full(), FEATURE).unwrap();
+    check_pinched(
+        "tangent hole revolve",
+        &revolved,
+        10.0 * PI * (36.0 - 4.0 * PI),
+        240.0 * PI + 40.0 * PI * PI,
+        2.0,
+    );
+    assert_eq!(revolved.shells().count(), 1);
+}
+
+#[test]
+fn a_circle_tangent_to_the_axis_revolves_into_a_horn_torus() {
+    let profile = regions(&[circle(1, (2.0, 0.0), 2.0)]);
+    let whole = revolve(&Plane::XY, &profile, y_axis(), full(), FEATURE).unwrap();
+    check("horn torus", &whole, 16.0 * PI * PI, 16.0 * PI * PI, 2.0);
+    assert_eq!(whole.shells().count(), 1);
+
+    let quarter = AngularExtent::one_side(FRAC_PI_2).unwrap();
+    let part = revolve(&Plane::XY, &profile, y_axis(), quarter, FEATURE).unwrap();
+    check(
+        "quarter horn torus",
+        &part,
+        4.0 * PI * PI,
+        4.0 * PI * PI + 8.0 * PI,
+        2.0,
+    );
 }

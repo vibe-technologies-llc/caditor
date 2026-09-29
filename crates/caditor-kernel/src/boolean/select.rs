@@ -18,7 +18,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Class {
+pub(super) enum Class {
     Inside,
     Outside,
     Coincident(Sense),
@@ -55,7 +55,7 @@ fn keep(operand: Operand, class: Class, operation: BooleanOperation) -> Keep {
     }
 }
 
-fn classify(
+pub(super) fn classify(
     input: &Input,
     key: FaceKey,
     surface: &Surface,

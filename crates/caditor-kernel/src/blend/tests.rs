@@ -5,7 +5,7 @@ use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 use super::*;
 use crate::{
     build::{LinearExtent, extrude},
-    fixtures::{cuboid, cylinder},
+    fixtures::{cuboid, cylinder, hollow_cuboid},
     naming::FaceOrigin,
     profile::{Profile, ProfileCurve, Selection},
     test_support::{arc, assert_watertight, line},
@@ -587,4 +587,47 @@ fn a_hole_between_the_sampled_points_of_a_foot_refuses_the_blend() {
         &run(&clear, &[edge], fillet(2.0)),
         1000.0 - hole - 10.0 * spandrel(2.0),
     );
+}
+
+#[test]
+fn edges_of_one_lump_are_blended_without_disturbing_the_others() {
+    let mut curves = polygon(&[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)]);
+    curves.extend(
+        polygon(&[(6.0, 0.0), (10.0, 0.0), (10.0, 4.0), (6.0, 4.0)])
+            .into_iter()
+            .map(|mut curve| {
+                curve.entity += 10;
+                curve
+            }),
+    );
+    let blocks = swept(Plane::XY, &curves, 4.0);
+    let right = edge_through(&blocks, (10.0, 4.0, 2.0));
+    let left = edge_through(&blocks, (0.0, 0.0, 2.0));
+
+    let one = run(&blocks, &[right], fillet(1.0));
+    check("one lump rounded", &one, 128.0 - 4.0 * spandrel(1.0));
+    assert_eq!(one.shells().count(), 2);
+
+    let both = run(&blocks, &[right, left], fillet(1.0));
+    check("both lumps rounded", &both, 128.0 - 8.0 * spandrel(1.0));
+    assert_eq!(both.shells().count(), 2);
+}
+
+#[test]
+fn edges_of_a_body_and_of_its_void_are_blended() {
+    let hollow = hollow_cuboid(10.0, 2.0);
+    let material = 1000.0 - 8.0;
+    let outer = edge_through(&hollow, (10.0, 10.0, 5.0));
+    let inner = edge_through(&hollow, (6.0, 6.0, 5.0));
+
+    let rounded = run(&hollow, &[outer], fillet(1.0));
+    check("outer edge", &rounded, material - 10.0 * spandrel(1.0));
+    assert_eq!(rounded.shells().count(), 2);
+
+    let filled = run(&hollow, &[inner], fillet(0.5));
+    check("void edge", &filled, material + 2.0 * spandrel(0.5));
+    assert_eq!(filled.shells().count(), 2);
+
+    let bevelled = run(&hollow, &[inner], BlendShape::Chamfer { distance: 0.5 });
+    check("void edge chamfer", &bevelled, material + 2.0 * 0.125);
 }

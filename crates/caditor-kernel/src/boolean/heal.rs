@@ -38,7 +38,7 @@ fn uses(faces: &[KeptFace]) -> Uses {
     uses
 }
 
-fn check_closed(faces: &[KeptFace]) -> Result<(), BooleanError> {
+pub(super) fn check_closed(faces: &[KeptFace]) -> Result<(), BooleanError> {
     for list in uses(faces).values() {
         let forward = list.iter().filter(|(_, sense)| sense.is_same()).count();
         let backward = list.len() - forward;

@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use caditor_geometry::{Aabb2, Point2, Vector3};
 use spade::{
@@ -225,7 +225,26 @@ fn boundary_loops(
         }
         loops.push(points);
     }
+    share_revisited_vertices(surface, &mut loops);
     Ok(loops)
+}
+
+fn share_revisited_vertices(surface: &Surface, loops: &mut [Vec<BoundaryPoint>]) {
+    let mut seen: BTreeMap<u32, Vec<Point2>> = BTreeMap::new();
+    for point in loops.iter_mut().flatten() {
+        let earlier = seen.entry(point.position).or_default();
+        let same = earlier.iter().copied().find(|uv| {
+            let first = BoundaryPoint {
+                uv: *uv,
+                position: point.position,
+            };
+            coincide(&first, point) || joined(surface, &first, point)
+        });
+        match same {
+            Some(uv) => point.uv = uv,
+            None => earlier.push(point.uv),
+        }
+    }
 }
 
 fn coincide(a: &BoundaryPoint, b: &BoundaryPoint) -> bool {

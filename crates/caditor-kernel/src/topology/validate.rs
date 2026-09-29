@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use caditor_geometry::{Point2, Vector2};
 use thiserror::Error;
@@ -461,14 +461,8 @@ fn shells(solid: &Solid) -> Checked<()> {
             edges.extend(face_edges(solid, face)?);
             rings += face.loops().len() as i64 - 1;
         }
-        let mut vertices: BTreeSet<VertexId> = BTreeSet::new();
-        for edge in &edges {
-            let edge = solid.edge(*edge).ok_or(ValidationError::MissingEntity)?;
-            vertices.insert(edge.start());
-            vertices.insert(edge.end());
-        }
         let characteristic =
-            vertices.len() as i64 - edges.len() as i64 + faces.len() as i64 - rings;
+            vertex_fans(solid, faces)? - edges.len() as i64 + faces.len() as i64 - rings;
         if characteristic % 2 != 0 || characteristic > 2 {
             return Err(ValidationError::EulerPoincare {
                 shell: shell_id,
@@ -477,6 +471,54 @@ fn shells(solid: &Solid) -> Checked<()> {
         }
     }
     Ok(())
+}
+
+fn vertex_fans(solid: &Solid, faces: &[FaceId]) -> Checked<i64> {
+    let mut leaving: Vec<CoedgeId> = Vec::new();
+    let mut corner_after: BTreeMap<CoedgeId, usize> = BTreeMap::new();
+    for face_id in faces {
+        for loop_id in face_of(solid, *face_id)?.loops() {
+            let coedges = solid
+                .face_loop(*loop_id)
+                .ok_or(ValidationError::MissingEntity)?
+                .coedges();
+            for (index, arriving) in coedges.iter().enumerate() {
+                let next = coedges
+                    .get((index + 1) % coedges.len())
+                    .ok_or(ValidationError::MissingEntity)?;
+                corner_after.insert(*arriving, leaving.len());
+                leaving.push(*next);
+            }
+        }
+    }
+    let mut visited = vec![false; leaving.len()];
+    let mut fans = 0;
+    for start in 0..leaving.len() {
+        let mut corner = start;
+        if visited.get(corner).copied().unwrap_or(true) {
+            continue;
+        }
+        fans += 1;
+        while let Some(seen) = visited.get_mut(corner)
+            && !*seen
+        {
+            *seen = true;
+            let coedge = *leaving.get(corner).ok_or(ValidationError::MissingEntity)?;
+            let edge = solid
+                .coedge(coedge)
+                .and_then(|coedge| solid.edge(coedge.edge()))
+                .ok_or(ValidationError::MissingEntity)?;
+            let mate = edge
+                .coedges()
+                .iter()
+                .find(|other| **other != coedge)
+                .ok_or(ValidationError::MissingEntity)?;
+            corner = *corner_after
+                .get(mate)
+                .ok_or(ValidationError::MissingEntity)?;
+        }
+    }
+    Ok(fans)
 }
 
 fn volumes(solid: &Solid) -> Checked<()> {

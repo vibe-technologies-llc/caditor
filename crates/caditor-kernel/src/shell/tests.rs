@@ -6,7 +6,7 @@ use super::*;
 use crate::{
     blend::{BlendShape, blend},
     build::{AngularExtent, Axis2, LinearExtent, extrude, revolve},
-    fixtures::{cuboid, cylinder},
+    fixtures::{cuboid, cylinder, hollow_cuboid},
     profile::{Profile, ProfileCurve, Selection},
     test_support::{arc, assert_watertight, line},
     tolerance::SamplingTolerance,
@@ -541,4 +541,69 @@ fn every_refusal_names_what_cannot_be_shelled() {
         shell(&slanted, &[lid], 0.5, 1),
         Err(ShellError::UnsupportedEdge(rim))
     );
+}
+
+fn two_blocks() -> Solid {
+    let mut curves = polygon(&[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)]);
+    curves.extend(
+        polygon(&[(6.0, 0.0), (10.0, 0.0), (10.0, 4.0), (6.0, 4.0)])
+            .into_iter()
+            .map(|mut curve| {
+                curve.entity += 10;
+                curve
+            }),
+    );
+    swept(&curves, 4.0)
+}
+
+fn faces_facing(solid: &Solid, normal: Vector3) -> Vec<FaceId> {
+    solid
+        .faces()
+        .filter(|(_, face)| match face.surface() {
+            Surface::Plane(plane) => {
+                (plane.frame().normal() * face.sense().sign()).dot(normal) > 0.999
+            }
+            _ => false,
+        })
+        .map(|(id, _)| id)
+        .collect()
+}
+
+#[test]
+fn every_lump_of_a_body_is_shelled() {
+    let blocks = two_blocks();
+    let tops = faces_facing(&blocks, Vector3::Z);
+    assert_eq!(tops.len(), 2);
+
+    let closed = run(&blocks, &[], 1.0);
+    check("closed blocks", &closed, 2.0 * (64.0 - 8.0));
+    assert_eq!(closed.shells().count(), 4);
+
+    let open = run(&blocks, &tops, 1.0);
+    check("open blocks", &open, 2.0 * (64.0 - 12.0));
+    assert_eq!(open.shells().count(), 2);
+
+    let one_open = run(&blocks, &tops[..1], 1.0);
+    check("one open block", &one_open, 128.0 - 12.0 - 8.0);
+    assert_eq!(one_open.shells().count(), 3);
+}
+
+#[test]
+fn a_body_with_a_void_keeps_a_wall_around_it() {
+    let hollow = hollow_cuboid(10.0, 2.0);
+    let material = 1000.0 - 8.0;
+    let around_void = 4.0 * 4.0 * 4.0;
+
+    let closed = run(&hollow, &[], 1.0);
+    check("closed hollow", &closed, material - (512.0 - around_void));
+    assert_eq!(closed.shells().count(), 4);
+
+    let top = face_facing(&hollow, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
+    let open = run(&hollow, &[top], 1.0);
+    check(
+        "open hollow",
+        &open,
+        material - (8.0 * 8.0 * 9.0 - around_void),
+    );
+    assert_eq!(open.shells().count(), 3);
 }

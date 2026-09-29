@@ -2,14 +2,22 @@ use std::{collections::BTreeSet, f64::consts::PI};
 
 use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 
-use super::*;
+use super::{
+    select::KeptFace,
+    trace::{Fragment, HalfEdge, TracedLoop},
+    *,
+};
 use crate::{
-    build::{AngularExtent, Axis2, LinearExtent, extrude, revolve},
+    build::{AngularExtent, Axis2, LinearExtent, extrude, plan::PlanError, revolve},
     fixtures::{cuboid, cylinder, sphere},
+    intersect::IntersectionError,
     naming::{EdgeName, FaceName},
     profile::{Profile, Selection},
+    sense::Sense,
+    surface::{PlaneSurface, Surface},
     test_support::{assert_watertight, circle, rectangle},
     tolerance::SamplingTolerance,
+    topology::{BuildError, FaceId, Pcurve, PcurveSample},
 };
 
 fn moved(solid: Solid, offset: (f64, f64, f64)) -> Solid {
@@ -626,4 +634,152 @@ fn a_spline_face_is_drilled_and_shares_its_plane_with_a_neighbour() {
     check("joined", &joined, (100.0 + 100.0 - 5.0 * 7.0) * 4.0);
     let shared = boolean(&flat, &beside, BooleanOperation::Intersection).unwrap();
     check("shared", &shared, 5.0 * 7.0 * 4.0);
+}
+
+fn square_fragment(size: f64) -> Fragment {
+    let corners = [
+        Point2::ZERO,
+        Point2::new(size, 0.0),
+        Point2::new(size, size),
+        Point2::new(0.0, size),
+    ];
+    let coedges = corners
+        .iter()
+        .zip(corners.iter().cycle().skip(1))
+        .enumerate()
+        .map(|(piece, (from, to))| trace::Coedge {
+            half_edge: HalfEdge::new(piece, Sense::Same, None),
+            pcurve: Pcurve::new(
+                vec![
+                    PcurveSample {
+                        parameter: 0.0,
+                        uv: *from,
+                    },
+                    PcurveSample {
+                        parameter: size,
+                        uv: *to,
+                    },
+                ],
+                0.0,
+            )
+            .unwrap(),
+        })
+        .collect();
+    Fragment {
+        loops: vec![TracedLoop {
+            coedges,
+            area: size * size,
+        }],
+    }
+}
+
+fn kept_face(face: usize, fragment: Fragment) -> KeptFace {
+    KeptFace {
+        key: FaceKey {
+            operand: Operand::First,
+            face: FaceId::from_index(face).unwrap(),
+        },
+        surface: PlaneSurface::new(Plane::XY).unwrap().into(),
+        sense: Sense::Same,
+        name: FaceName::NONE,
+        origin: None,
+        fragment,
+    }
+}
+
+#[test]
+fn kept_faces_must_use_every_edge_once_each_way() {
+    let square = square_fragment(1.0);
+
+    assert_eq!(
+        heal::check_closed(&[kept_face(0, square.clone())]),
+        Err(BooleanError::Open)
+    );
+    assert_eq!(
+        heal::check_closed(&[
+            kept_face(0, square.clone()),
+            kept_face(1, square.reversed()),
+            kept_face(2, square.clone()),
+            kept_face(3, square.reversed()),
+        ]),
+        Err(BooleanError::NonManifold)
+    );
+    assert_eq!(
+        heal::check_closed(&[
+            kept_face(0, square.clone()),
+            kept_face(1, square.reversed())
+        ]),
+        Ok(())
+    );
+}
+
+#[test]
+fn a_fragment_both_inside_and_outside_the_other_solid_is_ambiguous() {
+    let fragment = square_fragment(10.0);
+    let surface: Surface = PlaneSurface::new(Plane::XY).unwrap().into();
+    let points = trace::interior_points(&fragment, &surface);
+    let probe = points[0];
+    let first = cuboid(Vector3::splat(10.0));
+    let second = block(
+        (probe.x - 0.01, probe.y - 0.01, -1.0),
+        (probe.x + 0.01, probe.y + 0.01, 1.0),
+    );
+    let input = Input::new(&first, &second);
+    let key = FaceKey {
+        operand: Operand::First,
+        face: FaceId::from_index(0).unwrap(),
+    };
+
+    assert_eq!(points.len(), 3);
+    assert!(points[1..].iter().all(|point| point.distance(probe) > 0.1));
+    assert_eq!(
+        select::classify(&input, key, &surface, Sense::Same, &fragment),
+        Err(BooleanError::Ambiguous)
+    );
+}
+
+#[test]
+fn failures_of_the_steps_become_boolean_errors_in_words() {
+    assert_eq!(
+        BooleanError::from(PlanError::Unassembled),
+        BooleanError::Open
+    );
+    assert_eq!(
+        BooleanError::from(BuildError::EmptyLoop),
+        BooleanError::Invalid(BuildError::EmptyLoop)
+    );
+    assert_eq!(
+        BooleanError::from(PlanError::Build(BuildError::ZeroLengthEdge)),
+        BooleanError::Invalid(BuildError::ZeroLengthEdge)
+    );
+    for (error, words) in [
+        (
+            BooleanError::Split,
+            "a face could not be divided where the solids meet",
+        ),
+        (
+            BooleanError::Ambiguous,
+            "the solids touch where it cannot be told which side is inside",
+        ),
+        (
+            BooleanError::Open,
+            "the faces of the result do not join up into closed shells",
+        ),
+        (
+            BooleanError::Invalid(BuildError::EmptyLoop),
+            "the result is not a valid solid: a loop needs at least one coedge",
+        ),
+        (
+            BooleanError::from(IntersectionError::TooComplex(32768)),
+            "the solids could not be intersected: the intersection needs more than 32768 \
+             subdivisions",
+        ),
+        (
+            BooleanError::from(IntersectionError::Unfollowable),
+            "the solids could not be intersected: an intersection curve could not be followed \
+             to its end",
+        ),
+    ] {
+        assert_eq!(error.to_string(), words);
+    }
 }

@@ -290,7 +290,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     topology (edge uses and senses, loop chaining in space and in uv, vertices on curve ends,
     edges on both surfaces, pcurves on their edges, loop winding and nesting, shell
     connectivity, Euler–Poincaré per shell, positive volume for lumps and voids inside a lump)
-    and returns the first `ValidationError`, with ids. The volume checks run on a coarse mesh and
+    and returns the first `ValidationError`, with ids. Euler–Poincaré counts each fan of faces
+    around a vertex as a vertex, so a pinched shell (a hole touching its outline, swept) whose
+    merged vertex joins two fans has the characteristic of the surface it pinches. The volume checks run on a coarse mesh and
     retry finer before reporting a void outside its lump. Validation does not intersect faces
     with each other, since every build runs it; `Solid::find_crossing` does, for importers: the
     edges of each face (seams aside) are intersected with each other, and a transversal point or
@@ -314,7 +316,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     one's, so no triangle spans far across a curved direction); triangles are kept by the parity of
     constraint crossings from outside. Consecutive boundary points at the same vertex whose
     parameters differ by a spatially negligible gap (an edge ending within the resolution of its
-    vertex) are merged, so such joints do not become spikes. Pole-line points share the pole's
+    vertex) are merged, so such joints do not become spikes, and a vertex a face's loops pass
+    more than once (a pinch) takes the uv of its first pass wherever the others lie within that
+    gap, so the triangulation sees one point. Pole-line points share the pole's
     position and the triangles that collapse there are dropped, so the mesh stays watertight. A
     straight edge ending at a pole (a ruling to a cone's apex) is sampled at the grid's row spacing
     of the faces it bounds, since with only its ends the triangles between it and the next grid

@@ -689,3 +689,54 @@ fn unresolved_curves_are_narrowed_to_those_failing_together() {
         vec![7, 13]
     );
 }
+
+#[test]
+fn digests_of_piece_ids_and_tiebroken_keys_never_change() {
+    let cut = PieceId::new(
+        4,
+        PieceBound::Cut {
+            entities: vec![5, 9],
+            occurrence: 1,
+        },
+        PieceBound::End,
+    );
+    let wiggle = profile(&[
+        spline(
+            1,
+            &[
+                (0.0, 0.0),
+                (2.0, 3.0),
+                (4.0, -3.0),
+                (6.0, 3.0),
+                (8.0, -3.0),
+                (10.0, 0.0),
+            ],
+        ),
+        line(2, (0.0, 0.0), (10.0, 0.0)),
+    ]);
+
+    let shared: Vec<u128> = wiggle.ambiguous.iter().map(|key| key.digest()).collect();
+    let tiebroken: BTreeSet<u128> = wiggle
+        .regions()
+        .iter()
+        .map(|region| region.key().digest())
+        .collect();
+
+    assert_eq!(cut.digest(), 0xbead_433d_ef24_0826_b5b7_084a_6ec7_522f);
+    assert_eq!(
+        shared,
+        vec![
+            0x2f87_f177_b11f_76c1_1600_ede9_4f64_339f,
+            0xe544_dce8_c817_9bd4_8241_5c26_494e_a7cd,
+        ]
+    );
+    assert_eq!(
+        tiebroken,
+        BTreeSet::from([
+            0xa207_268b_93a8_942f_2e11_0fb4_ecc8_75fe,
+            0xa661_8434_7219_b786_38f4_844a_d742_d115,
+            0xb6a4_4692_e8cd_1ef9_4eb2_99ef_bc18_096a,
+            0xff95_3a0f_ce4e_e7c9_5c24_9c4f_1997_ce0c,
+        ])
+    );
+}
