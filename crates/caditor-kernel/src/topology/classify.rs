@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector2, Vector3};
 
 use crate::{
@@ -74,6 +76,7 @@ struct FaceData {
     uv_box: Aabb2,
     bounds: Aabb,
     boundary: Vec<BoundaryCoedge>,
+    boundary_ids: BTreeSet<CoedgeId>,
 }
 
 #[derive(Debug, Clone)]
@@ -102,28 +105,30 @@ fn positions_of(faces: &[FaceData]) -> Vec<Option<usize>> {
 fn face_data(solid: &Solid, id: FaceId) -> Option<FaceData> {
     let face = solid.face(id)?;
     let mut polygons = Vec::with_capacity(face.loops().len());
-    let mut uses: Vec<EdgeId> = Vec::new();
+    let mut uses: BTreeMap<EdgeId, usize> = BTreeMap::new();
     for loop_id in face.loops() {
         let face_loop = solid.face_loop(*loop_id)?;
         let mut polygon = Vec::new();
         for coedge in face_loop.coedges() {
             let coedge = solid.coedge(*coedge)?;
             polygon.extend(coedge.pcurve().samples().iter().map(|sample| sample.uv));
-            uses.push(coedge.edge());
+            *uses.entry(coedge.edge()).or_insert(0) += 1;
         }
         polygons.push(polygon);
     }
     let uv_box = Aabb2::from_points(polygons.iter().flatten().copied())?;
     let mut boundary = Vec::new();
+    let mut boundary_ids = BTreeSet::new();
     for loop_id in face.loops() {
         let face_loop = solid.face_loop(*loop_id)?;
         for coedge_id in face_loop.coedges() {
             let coedge = solid.coedge(*coedge_id)?;
-            let seam = uses.iter().filter(|edge| **edge == coedge.edge()).count() > 1;
+            let seam = uses.get(&coedge.edge()).is_some_and(|count| *count > 1);
             if seam {
                 continue;
             }
             let edge = solid.edge(coedge.edge())?;
+            boundary_ids.insert(*coedge_id);
             boundary.push(BoundaryCoedge {
                 id: *coedge_id,
                 edge: coedge.edge(),
@@ -138,6 +143,7 @@ fn face_data(solid: &Solid, id: FaceId) -> Option<FaceData> {
         uv_box,
         bounds: patch_bounds(face.surface(), uv_box).expanded(TOLERANCE),
         boundary,
+        boundary_ids,
     })
 }
 
@@ -342,15 +348,12 @@ impl<'a> SolidClassifier<'a> {
         vertex: VertexId,
     ) -> Option<((CoedgeId, f64), (CoedgeId, f64))> {
         let face_loop = self.solid.face_loop(coedge.face_loop)?;
-        let data = self
-            .faces
-            .iter()
-            .find(|data| data.boundary.iter().any(|entry| entry.id == coedge.id))?;
+        let data = self.data(face_loop.face())?;
         let boundary: Vec<CoedgeId> = face_loop
             .coedges()
             .iter()
             .copied()
-            .filter(|id| data.boundary.iter().any(|entry| entry.id == *id))
+            .filter(|id| data.boundary_ids.contains(id))
             .collect();
         let ending = boundary.iter().copied().find(|id| {
             self.solid

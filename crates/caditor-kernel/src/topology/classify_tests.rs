@@ -236,7 +236,7 @@ fn points_on_faces_edges_and_vertices_are_on_the_boundary() {
                 .collect();
             let center =
                 polygon.iter().fold(Point2::ZERO, |sum, uv| sum + *uv) / polygon.len() as f64;
-            if solid.point_in_face(id, center) != Some(FaceContainment::Inside) {
+            if classifier.point_in_face(id, center) != Some(FaceContainment::Inside) {
                 continue;
             }
             let point = face.surface().point_at(center);
