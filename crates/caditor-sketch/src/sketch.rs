@@ -66,7 +66,10 @@ pub enum SketchError {
     #[error("some constraints conflict with each other")]
     Conflict { constraints: Vec<ConstraintId> },
     #[error("the sketch could not be solved from its current shape")]
-    Unsolvable,
+    Unsolvable {
+        entities: Vec<EntityId>,
+        newest: Option<ConstraintId>,
+    },
     #[error("{label} has no length")]
     NoLength { entity: EntityId, label: String },
 }

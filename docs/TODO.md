@@ -54,11 +54,10 @@ within a category run from most to least important.
 
 ## Sketch solver and expressions
 
-- A solve that fails with no identifiable conflict reports "could not be solved from its current
-  shape" with no entity and no next step (`diagnose_failure` returning `Unsolvable`).
-- Conflict diagnosis re-solves each probe over the whole failed scope with no probe budget, and
-  treats a subset that merely fails to converge from the fixed start as inconsistent, so large
-  sketches diagnose slowly and a reported conflict can be wrong or not minimal.
+- Conflict diagnosis treats a subset that fails to converge from the starting shape as
+  inconsistent, so a reported conflict can be constraints the solver merely could not reach
+  together rather than a true contradiction. Probes also always start from the drawn shape, so a
+  conflict spanning a whole large part costs a full solve per probe and runs out of budget.
 - `10 mm^2` means (10 mm)², since a power binds to the measure before it; stored text relies on
   that reading, so changing it needs a new spelling or a format change.
 

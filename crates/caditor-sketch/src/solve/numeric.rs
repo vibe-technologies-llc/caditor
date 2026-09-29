@@ -14,6 +14,8 @@ use crate::{
 const CONVERGENCE_TOLERANCE: f64 = 1e-10;
 const MAX_ITERATIONS: usize = 100;
 const LINE_SEARCH_STEPS: usize = 40;
+const STALLED_COST_RATIO: f64 = 0.999;
+const STALLED_ITERATIONS: usize = 3;
 const MAX_STEP: f64 = 1.0;
 const STEP_RANK_TOLERANCE: f64 = 1e-10;
 const SVD_ITERATIONS: usize = 100_000;
@@ -142,6 +144,10 @@ impl Solver<'_> {
         }
     }
 
+    pub fn solves(&self, component: &Component, values: &mut [f64]) -> Result<bool, Cancelled> {
+        self.solve_component(&self.part(component), values)
+    }
+
     fn solve_component(&self, part: &Part<'_>, values: &mut [f64]) -> Result<bool, Cancelled> {
         if self.converged(part, values) {
             return Ok(true);
@@ -268,6 +274,7 @@ impl Solver<'_> {
     fn gauss_newton(&self, part: &Part<'_>, values: &mut [f64]) -> Result<bool, Cancelled> {
         let component = part.component;
         let scale = part.context.scale;
+        let mut stalled = 0;
         for _ in 0..MAX_ITERATIONS {
             if (self.cancelled)() {
                 return Err(Cancelled);
@@ -323,14 +330,22 @@ impl Solver<'_> {
                 let shrink = MAX_STEP * scale / length;
                 step.iter_mut().for_each(|delta| *delta *= shrink);
             }
-            if !self.line_search(part, &step, values) {
+            let Some(remaining) = self.line_search(part, &step, values) else {
+                return Ok(false);
+            };
+            stalled = if remaining > STALLED_COST_RATIO {
+                stalled + 1
+            } else {
+                0
+            };
+            if stalled >= STALLED_ITERATIONS {
                 return Ok(false);
             }
         }
         Ok(self.converged(part, values))
     }
 
-    fn line_search(&self, part: &Part<'_>, step: &[f64], values: &mut [f64]) -> bool {
+    fn line_search(&self, part: &Part<'_>, step: &[f64], values: &mut [f64]) -> Option<f64> {
         let component = part.component;
         let cost = |values: &[f64]| -> f64 {
             self.residuals(part, values)
@@ -357,11 +372,11 @@ impl Solver<'_> {
                         *slot = *accepted;
                     }
                 }
-                return true;
+                return Some(candidate / current);
             }
             fraction *= 0.5;
         }
-        false
+        None
     }
 
     fn linearize(&self, part: &Part<'_>, values: &[f64]) -> (Vec<Vec<f64>>, Vec<f64>) {

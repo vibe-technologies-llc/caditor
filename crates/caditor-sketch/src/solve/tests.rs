@@ -577,7 +577,7 @@ fn degenerate_geometry_never_produces_nan() {
             matches!(
                 error,
                 SketchError::Conflict { .. }
-                    | SketchError::Unsolvable
+                    | SketchError::Unsolvable { .. }
                     | SketchError::NoLength { .. }
             ),
             "{error:?}"
@@ -1377,4 +1377,90 @@ fn dense_and_sparse_analyses_agree_on_both_sides_of_the_dense_limit() {
 
     assert!(sizes.contains(&DENSE_LIMIT));
     assert!(sizes.iter().any(|size| *size > DENSE_LIMIT));
+}
+
+fn chain_closed_out_of_reach(count: usize) -> (Sketch, Vec<EntityId>, ConstraintId) {
+    let (mut sketch, lines) = chain(count);
+    let (first, _) = ends(&sketch, lines[0]);
+    let (_, last) = ends(&sketch, lines[count - 1]);
+    let closing = add(
+        &mut sketch,
+        Constraint::Distance {
+            from: first,
+            to: last,
+            value: mm(count as f64 + 5.0),
+        },
+    );
+    (sketch, lines, closing)
+}
+
+#[test]
+fn a_conflict_spanning_a_whole_chain_names_every_constraint_in_it() {
+    let (sketch, _, closing) = chain_closed_out_of_reach(8);
+    let spanning: Vec<ConstraintId> = sketch
+        .constraints()
+        .filter(|(_, constraint)| match constraint {
+            Constraint::Distance { .. } => true,
+            Constraint::Coincident(_, other) => *other != EntityId::ORIGIN,
+            _ => false,
+        })
+        .map(|(id, _)| id)
+        .collect();
+
+    let result = solve(&sketch);
+
+    assert_eq!(spanning.len(), 8 + 7 + 1);
+    assert!(spanning.contains(&closing));
+    assert_eq!(
+        result,
+        Err(SketchError::Conflict {
+            constraints: spanning
+        })
+    );
+}
+
+#[test]
+fn a_diagnosis_out_of_work_names_the_part_and_its_newest_constraint() {
+    use std::collections::BTreeSet;
+
+    use crate::solve::{
+        DIAGNOSIS_WORK, diagnose_failure,
+        numeric::{STIFF, Solver, components},
+        system::System,
+    };
+
+    let (sketch, lines, closing) = chain_closed_out_of_reach(6);
+    let dimensions = sketch.evaluate(&no_parameters).unwrap();
+    let system = System::build(&sketch, &dimensions).unwrap();
+    let stiff = BTreeSet::new();
+    let solver = Solver {
+        system: &system,
+        cancelled: &|| false,
+        stiff: &stiff,
+        stiffness: STIFF,
+    };
+    let every: Vec<usize> = (0..system.equations.len()).collect();
+    let mut values = system.values.clone();
+    let failed = solver.solve(&every, &mut values).unwrap();
+
+    let enough_once_stalled_attempts_stop = 10_000;
+    let starved = diagnose_failure(&sketch, &solver, &failed, 100).unwrap();
+    let funded =
+        diagnose_failure(&sketch, &solver, &failed, enough_once_stalled_attempts_stop).unwrap();
+
+    assert!(enough_once_stalled_attempts_stop < DIAGNOSIS_WORK);
+    assert_eq!(components(&system, &every, &system.values).len(), 1);
+    assert_eq!(failed.len(), 1);
+    assert_eq!(
+        starved,
+        SketchError::Unsolvable {
+            entities: lines,
+            newest: Some(closing),
+        }
+    );
+    let SketchError::Conflict { constraints } = funded else {
+        panic!("with enough work the conflict is found, not {funded:?}");
+    };
+    assert_eq!(constraints.len(), 6 + 5 + 1);
+    assert_eq!(constraints.last(), Some(&closing));
 }

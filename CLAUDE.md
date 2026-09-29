@@ -225,10 +225,20 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     fraction of its own extent.
     Degrees of freedom and each entity's constraint state come from the rank and null space
     of the Jacobian at the solution; a constraint whose equations add no rank over older ones
-    is reported as redundant, naming what it duplicates. When a part does not converge,
-    QuickXplain-style divide and conquer over its constraints (newest preferred, re-solving
-    only the failed parts) finds a minimal set of conflicting constraints, which recompute
-    reports as the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
+    is reported as redundant, naming what it duplicates. A Gauss–Newton attempt gives up once
+    three steps in a row lower the squared residuals by less than a thousandth, since it has
+    stalled at a least-squares minimum. When a part does not converge, QuickXplain-style divide
+    and conquer over the constraints of the failed part holding the newest one (newest
+    preferred) looks for a conflict: a probe solves the sub-parts its constraints form from the
+    starting shape, each sub-part's outcome is remembered by its equations so no probe solves one
+    twice, and all probes share one budget (`DIAGNOSIS_WORK`, Gauss–Newton steps weighted by
+    their equations). The set found must fail on its own and is trimmed, oldest first, of every
+    constraint without which it still fails, so it is minimal; recompute reports it as the
+    feature's error with `FeatureError.constraints` and `FixTarget::Constraint`. A failure with
+    no such set (the budget spent, a set that solves alone, or nothing to blame) is
+    `SketchError::Unsolvable` with the part's curves and free points and its newest constraint,
+    which recompute words as that geometry not solving from its current shape, naming at most
+    three, and points at the newest constraint (or at the sketch when there is none).
     `Sketch::solve_from` takes the `SolveMemo` of the previous solve (recompute passes the
     feature's last good `SketchResult::memo`): each part is keyed by its entities, constraints,
     dimension values, starting values and its own scale, and remembered under both its

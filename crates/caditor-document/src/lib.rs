@@ -750,6 +750,53 @@ mod tests {
     }
 
     #[test]
+    fn an_unsolved_sketch_names_its_geometry_and_points_at_the_newest_constraint() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let lines: Vec<_> = (0..5)
+            .map(|index| {
+                let x = f64::from(index);
+                sketch.add_line(Point2::new(x, 0.0), Point2::new(x + 1.0, 0.0))
+            })
+            .collect();
+        let newest = sketch
+            .add_constraint(Constraint::Horizontal(lines[4]))
+            .unwrap();
+        let feature = FeatureId::from_raw(7);
+
+        let many = recompute::unsolvable_error(feature, &sketch, &lines, Some(newest));
+        let one = recompute::unsolvable_error(feature, &sketch, &lines[..1], None);
+        let unknown = recompute::unsolvable_error(feature, &sketch, &[], None);
+
+        assert_eq!(
+            many.reason,
+            "Line 2, Line 5, Line 8 and 2 more could not be solved from their current shape."
+        );
+        assert_eq!(
+            many.remedy,
+            "Delete or change Horizontal Line 14, the newest constraint on them, or undo the last \
+             change."
+        );
+        assert_eq!(
+            many.fix,
+            Some(FixTarget::Constraint {
+                feature,
+                constraint: newest
+            })
+        );
+        assert_eq!(
+            one.reason,
+            "Line 2 could not be solved from its current shape."
+        );
+        assert_eq!(one.remedy, "Delete and redraw it, or undo the last change.");
+        assert_eq!(one.fix, Some(FixTarget::Feature(feature)));
+        assert_eq!(
+            unknown.reason,
+            "The sketch could not be solved from its current shape."
+        );
+        assert_eq!(unknown.remedy, "Undo the last change.");
+    }
+
+    #[test]
     fn a_cancelled_solve_leaves_the_feature_outdated() {
         let (mut document, ids) = sample();
         document

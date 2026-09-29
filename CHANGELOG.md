@@ -18,6 +18,10 @@ The first release of caditor.
 - Angles at a corner of a chain of lines are measured inside the corner, tangents where a line
   meets an arc count fully towards a constrained sketch, and a constraint that would shrink a
   line to nothing is reported as a conflict.
+- Conflicting constraints in large sketches are found several times faster and never hold up
+  the recompute for long; the constraints named are always a smallest set that cannot hold
+  together, and when a conflict cannot be pinned down the message names the geometry that
+  failed to solve and offers to go to its newest constraint.
 - Extrude and revolve sketch regions into new bodies or add to, remove from or intersect
   existing ones; fillet and chamfer edges; shell bodies with open faces; datum planes and axes.
 - Shells whose walls are thicker than a rounded edge or corner leave that rounding out of the

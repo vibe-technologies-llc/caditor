@@ -8,7 +8,7 @@ use std::{
 use caditor_expression::{Dimension, EvalError, ParameterId, Quantity};
 use caditor_kernel::{Interrupt, Profile, ProfileError, Solid, interruptible};
 use caditor_sketch::{
-    ConstraintId, DimensionError, Sketch, SketchError, SketchSolution, SolveMemo, Solved,
+    ConstraintId, DimensionError, EntityId, Sketch, SketchError, SketchSolution, SolveMemo, Solved,
 };
 
 use crate::{
@@ -754,17 +754,64 @@ fn sketch_error(feature: FeatureId, sketch: &Sketch, error: &SketchError) -> Fea
             fix: Some(FixTarget::Feature(feature)),
             constraints: Vec::new(),
         },
-        SketchError::Unsolvable => FeatureError {
-            reason: "The sketch could not be solved from its current shape.".to_owned(),
-            remedy: "Undo the last change, or remove constraints until the sketch solves."
-                .to_owned(),
-            fix: None,
-            constraints: Vec::new(),
-        },
+        SketchError::Unsolvable { entities, newest } => {
+            unsolvable_error(feature, sketch, entities, *newest)
+        }
         _ => FeatureError {
             reason: format!("The sketch could not be evaluated: {error}."),
             remedy: "Undo the last change.".to_owned(),
             fix: None,
+            constraints: Vec::new(),
+        },
+    }
+}
+
+const UNSOLVED_NAMED: usize = 3;
+
+pub(crate) fn unsolvable_error(
+    feature: FeatureId,
+    sketch: &Sketch,
+    entities: &[EntityId],
+    newest: Option<ConstraintId>,
+) -> FeatureError {
+    let mut names: Vec<String> = entities
+        .iter()
+        .take(UNSOLVED_NAMED)
+        .map(|entity| sketch.entity_label(*entity))
+        .collect();
+    let unnamed = entities.len().saturating_sub(UNSOLVED_NAMED);
+    if unnamed > 0 {
+        names.push(format!("{unnamed} more"));
+    }
+    let (subject, possessive, them) = match entities.len() {
+        0 => ("The sketch".to_owned(), "its", "it"),
+        1 => (list_names(&names), "its", "it"),
+        _ => (list_names(&names), "their", "them"),
+    };
+    let reason = format!("{subject} could not be solved from {possessive} current shape.");
+    match newest {
+        Some(constraint) => FeatureError {
+            reason,
+            remedy: format!(
+                "Delete or change {}, the newest constraint on {them}, or undo the last change.",
+                sketch.describe_constraint(constraint)
+            ),
+            fix: Some(FixTarget::Constraint {
+                feature,
+                constraint,
+            }),
+            constraints: Vec::new(),
+        },
+        None if entities.is_empty() => FeatureError {
+            reason,
+            remedy: "Undo the last change.".to_owned(),
+            fix: Some(FixTarget::Feature(feature)),
+            constraints: Vec::new(),
+        },
+        None => FeatureError {
+            reason,
+            remedy: format!("Delete and redraw {them}, or undo the last change."),
+            fix: Some(FixTarget::Feature(feature)),
             constraints: Vec::new(),
         },
     }
@@ -776,7 +823,7 @@ fn conflict_error(
     constraints: &[ConstraintId],
 ) -> FeatureError {
     let Some((newest, older)) = constraints.split_last() else {
-        return sketch_error(feature, sketch, &SketchError::Unsolvable);
+        return unsolvable_error(feature, sketch, &[], None);
     };
     let newest_label = sketch.describe_constraint(*newest);
     let reason = if older.is_empty() {
