@@ -40,9 +40,6 @@ within a category run from most to least important.
   and resolves names by linear scans (`load.rs` `assemble`, `unique_feature_name`), so a file of
   many tiny records makes open, recovery and replay quadratic or worse with no cancel. Cap the
   record count and index names.
-- A damaged `VersionInfo` followed by a valid `VersionData` pairs the data with the previous
-  info (`binary/model.rs` `pending_info`), so an intact version never matches its digest and the
-  mispaired chunk is carried into every later save.
 - Saving keeps the mode but not the owner group, ACLs or extended attributes, and the temporary
   sibling exists at umask mode before `set_permissions` (`save.rs` `write_and_sync`).
 - A name near `NAME_MAX` opens but cannot be saved or journaled next to the file, since the

@@ -648,7 +648,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     carries them along; saving an unchanged model adds none). A version is an info chunk (time, last
     change, blake3 digest) and a data chunk compressed with the next newer version as a zstd prefix,
     so a version costs only its difference; every eighth one is stored whole, which bounds the chain
-    a damaged chunk can break. Each rebuilt version is checked against its digest before it is
+    a damaged chunk can break. An info chunk belongs only to the data chunk right after it: data
+    whose info was damaged is kept (unlisted) so the older deltas built on it still decode, and info
+    whose data was damaged is dropped. Each rebuilt version is checked against its digest before it is
     offered. `history` lists the versions (with whether each can still be rebuilt), keeping only the
     rolling newer snapshot, and `load_version` rebuilds one starting from the nearest whole version
     at or after it. When the head cannot be rebuilt, the next save drops the deltas that depended on

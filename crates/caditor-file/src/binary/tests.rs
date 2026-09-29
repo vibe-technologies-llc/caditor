@@ -308,3 +308,57 @@ fn a_model_cut_between_chunks_is_reported_as_incomplete() {
     assert_eq!(loaded.issues.len(), 1);
     assert!(loaded.issues[0].starts_with("The file ends early"));
 }
+
+fn check_listed_versions(bytes: &[u8], documents: &[Document]) -> History {
+    let listed = history(bytes);
+    for version in listed.versions.iter().filter(|version| version.available) {
+        let step = match version.state.label.as_deref() {
+            Some("First") => 0,
+            Some(label) => label.strip_prefix("Step ").unwrap().parse().unwrap(),
+            None => panic!("every save in the series has a label"),
+        };
+        assert_eq!(
+            load_version(bytes, version.index).unwrap().document,
+            documents[step],
+            "{:?}",
+            version.state.label
+        );
+    }
+    listed
+}
+
+#[test]
+fn a_damaged_version_info_is_never_paired_with_another_versions_data() {
+    let (documents, bytes) = saved_series(6);
+    let first_info = 3;
+
+    let lost_info = corrupt_chunk(&bytes, &MODEL_MAGIC, first_info + 2);
+    let listed = check_listed_versions(&lost_info, &documents);
+    assert_eq!(listed.versions.len(), 4);
+    assert!(listed.versions.iter().all(|version| version.available));
+    let resaved = save_bytes(&documents[0], Some(&lost_info), at(5_000), None).unwrap();
+    let after = check_listed_versions(&resaved, &documents);
+    assert_eq!(after.versions.len(), 5);
+    assert!(after.versions.iter().all(|version| version.available));
+
+    let lost_data_and_next_info = corrupt_chunk(
+        &corrupt_chunk(&bytes, &MODEL_MAGIC, first_info + 2),
+        &MODEL_MAGIC,
+        first_info + 1,
+    );
+    let listed = check_listed_versions(&lost_data_and_next_info, &documents);
+    let labels: Vec<_> = listed
+        .versions
+        .iter()
+        .map(|version| version.state.label.as_deref().unwrap())
+        .collect();
+    assert_eq!(labels, ["Step 2", "Step 1", "First"]);
+    let resaved = save_bytes(
+        &documents[0],
+        Some(&lost_data_and_next_info),
+        at(5_000),
+        None,
+    )
+    .unwrap();
+    check_listed_versions(&resaved, &documents);
+}

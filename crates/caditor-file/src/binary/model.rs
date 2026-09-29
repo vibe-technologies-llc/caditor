@@ -7,7 +7,7 @@ use caditor_document::Document;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Chunk, ChunkKind, Codec, MODEL_MAGIC, PackError, has_magic, parse, push_packed,
+    Chunk, ChunkKind, Codec, MODEL_MAGIC, PackError, Piece, has_magic, parse, push_packed,
     push_packed_after, start_file,
     value::{self, ValueError, push_varint, read_varint},
 };
@@ -99,15 +99,26 @@ fn digest(snapshot: &[u8]) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+struct StoredInfo<'a> {
+    record: StateRecord,
+    chunk: Chunk<'a>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct StoredVersion<'a> {
-    info: StateRecord,
-    info_chunk: Chunk<'a>,
+    info: Option<StoredInfo<'a>>,
     data: Chunk<'a>,
 }
 
 impl StoredVersion<'_> {
     fn is_keyframe(&self) -> bool {
         self.data.codec != Some(Codec::ZstdAfterNewer)
+    }
+
+    fn holds(&self, snapshot: &[u8]) -> bool {
+        self.info
+            .as_ref()
+            .is_some_and(|info| info.record.holds(snapshot))
     }
 }
 
@@ -131,23 +142,22 @@ impl<'a> Parsed<'a> {
             versions: Vec::new(),
         };
         let mut pending_info = None;
-        for chunk in container.chunks() {
+        for piece in &container.pieces {
+            let Piece::Chunk(chunk) = *piece else {
+                pending_info = None;
+                continue;
+            };
+            let info = pending_info.take();
             match chunk.kind {
                 Some(ChunkKind::Head) if parsed.head.is_none() => {
                     parsed.head = state_record(&chunk);
                 }
                 Some(ChunkKind::Record) => parsed.records.push(chunk),
                 Some(ChunkKind::VersionInfo) => {
-                    pending_info = state_record(&chunk).map(|info| (info, chunk));
+                    pending_info = state_record(&chunk).map(|record| StoredInfo { record, chunk });
                 }
                 Some(ChunkKind::VersionData) => {
-                    if let Some((info, info_chunk)) = pending_info.take() {
-                        parsed.versions.push(StoredVersion {
-                            info,
-                            info_chunk,
-                            data: chunk,
-                        });
-                    }
+                    parsed.versions.push(StoredVersion { info, data: chunk });
                 }
                 Some(
                     ChunkKind::Head
@@ -206,10 +216,11 @@ impl<'a> Parsed<'a> {
         let versions = self.versions.iter().enumerate();
         let count = until.saturating_add(1).saturating_sub(from);
         for (index, version) in versions.skip(from).take(count) {
-            let snapshot = budget
-                .unpack(&version.data, newer.as_deref())
-                .filter(|snapshot| version.info.holds(snapshot));
-            visit(index, snapshot.as_deref());
+            let snapshot = budget.unpack(&version.data, newer.as_deref());
+            let verified = snapshot
+                .as_deref()
+                .filter(|snapshot| version.holds(snapshot));
+            visit(index, verified);
             newer = snapshot;
         }
     }
@@ -327,7 +338,9 @@ pub(crate) fn save_bytes(
             prior.leading_deltas()
         };
         for version in prior.versions.iter().skip(unreachable) {
-            bytes.extend_from_slice(version.info_chunk.whole);
+            if let Some(info) = &version.info {
+                bytes.extend_from_slice(info.chunk.whole);
+            }
             bytes.extend_from_slice(version.data.whole);
         }
     }
@@ -424,10 +437,12 @@ pub(crate) fn history(bytes: &[u8]) -> History {
             .iter()
             .zip(available)
             .enumerate()
-            .map(|(index, (version, available))| Version {
-                index,
-                state: version.info.state(),
-                available,
+            .filter_map(|(index, (version, available))| {
+                Some(Version {
+                    index,
+                    state: version.info.as_ref()?.record.state(),
+                    available,
+                })
             })
             .collect(),
     }

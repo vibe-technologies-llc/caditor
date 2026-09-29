@@ -132,6 +132,7 @@ pub(crate) struct Container<'a> {
 }
 
 impl<'a> Container<'a> {
+    #[cfg(test)]
     pub fn chunks(&self) -> impl Iterator<Item = Chunk<'a>> + '_ {
         self.pieces.iter().filter_map(|piece| match piece {
             Piece::Chunk(chunk) => Some(*chunk),
