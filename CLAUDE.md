@@ -916,8 +916,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Meshes: a `MeshInstance` is an `Arc<ShadedMesh>` (faces of points with normals) plus a
     `FaceStyle` (colour, pick id) per face. Vertex and index buffers are uploaded once per
     `Arc` and dropped when the mesh leaves the scene (a frame with no viewport to draw keeps
-    them); only the per-face styles, read from a
-    storage buffer by face index, are rewritten each frame, so hover and selection cost nothing
+    them); a mesh whose vertices or indices would pass the device's `max_buffer_size` is split
+    by triangles into parts that each fit (`split_into_parts`), and the style buffer holds as
+    many faces as a storage binding allows (later faces take the last one's style). Only the
+    per-face styles, read from a storage buffer by face index, are rewritten each frame, so hover and selection cost nothing
     in geometry. Faces are lit two-sided by a key light above and to the left of the camera, a
     headlight and a small specular term, and write depth, so edges and sketches behind them are
     hidden in the view and in picking alike (a face without a pick id writes id 0 with its depth in
@@ -925,7 +927,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - Depth is reverse-Z with an infinite far plane and `Depth32Float`, with 4x MSAA when the
     adapter supports it (the multisampled colour is resolved and discarded, never stored). Line,
     marker and fill vertices go through `GrowableBuffer`s, which grow to the next power of two
-    and shrink back after 300 uploads using under a quarter of them. The surface is `Bgra8Unorm` or `Rgba8Unorm` when offered (never a float
+    and shrink back after 300 uploads using under a quarter of them; they never pass the
+    device's `max_buffer_size`, so a scene beyond it draws only its first whole lines, markers
+    and fill triangles (logged once) instead of invalidating the frame's encoder, which the UI
+    shares. The surface is `Bgra8Unorm` or `Rgba8Unorm` when offered (never a float
     or snorm format an HDR setup lists first), else the first non-sRGB one. Model geometry draws
     over reference geometry (datum planes, axes) through a per-`Layer` depth bias, and model-layer
     fills (sketch regions) over the faces they lie on.

@@ -23,6 +23,7 @@ const QUAD_VERTICES: u32 = 6;
 const LINE_STRIDE: u64 = 52;
 const MARKER_STRIDE: u64 = 40;
 const FILL_VERTEX_STRIDE: u64 = 36;
+const FILL_TRIANGLE_STRIDE: u64 = FILL_VERTEX_STRIDE * 3;
 const VIEW_UNIFORM_SIZE: u64 = 128;
 const KEY_LIGHT_UP: f64 = 0.8;
 const KEY_LIGHT_LEFT: f64 = 0.5;
@@ -437,7 +438,7 @@ impl ViewportRenderer {
                 .u32(PickId::raw(line.pick))
                 .f32(line.layer.depth_bias(Primitive::Line));
         }
-        self.lines.upload(device, queue, &self.staging);
+        let lines = self.lines.upload(device, queue, &self.staging, LINE_STRIDE);
 
         self.staging.clear();
         for marker in &scene.markers {
@@ -448,10 +449,11 @@ impl ViewportRenderer {
                 .u32(PickId::raw(marker.pick))
                 .f32(marker.layer.depth_bias(Primitive::Marker));
         }
-        self.markers.upload(device, queue, &self.staging);
+        let markers = self
+            .markers
+            .upload(device, queue, &self.staging, MARKER_STRIDE);
 
         self.staging.clear();
-        let mut fill_vertices = 0u32;
         for fill in fills_back_to_front(&scene.fills, view) {
             let depth_bias = fill.layer.depth_bias(Primitive::Fill);
             for corner in fill.triangles.iter().flatten() {
@@ -460,10 +462,11 @@ impl ViewportRenderer {
                     .floats(&fill.color.to_array())
                     .u32(PickId::raw(fill.pick))
                     .f32(depth_bias);
-                fill_vertices = fill_vertices.saturating_add(1);
             }
         }
-        self.fills.upload(device, queue, &self.staging);
+        let fill_triangles = self
+            .fills
+            .upload(device, queue, &self.staging, FILL_TRIANGLE_STRIDE);
 
         let pick_fills = match viewport.pick_at {
             Some(_) => self.upload_pick_fills(device, queue, &scene.fills, eye),
@@ -471,9 +474,9 @@ impl ViewportRenderer {
         };
 
         Counts {
-            lines: u32::try_from(scene.lines.len()).unwrap_or(u32::MAX),
-            markers: u32::try_from(scene.markers.len()).unwrap_or(u32::MAX),
-            fill_vertices,
+            lines: count(lines),
+            markers: count(markers),
+            fill_vertices: count(fill_triangles.saturating_mul(3)),
             pick_fills,
         }
     }
@@ -508,8 +511,18 @@ impl ViewportRenderer {
                 Layer::Model => counts.model_vertices = written,
             }
         }
-        self.pick_fills.upload(device, queue, &self.staging);
-        counts
+        let uploaded = count(
+            self.pick_fills
+                .upload(device, queue, &self.staging, FILL_TRIANGLE_STRIDE)
+                .saturating_mul(3),
+        );
+        let reference_vertices = counts.reference_vertices.min(uploaded);
+        PickFills {
+            reference_vertices,
+            model_vertices: counts
+                .model_vertices
+                .min(uploaded.saturating_sub(reference_vertices)),
+        }
     }
 }
 
@@ -727,6 +740,10 @@ fn build_pipeline(device: &wgpu::Device, spec: &PipelineSpec<'_>) -> wgpu::Rende
 
 pub fn relative_to_eye(point: Point3, eye: Point3) -> Vec3 {
     (point - eye).as_vec3()
+}
+
+fn count(uploaded: u64) -> u32 {
+    u32::try_from(uploaded).unwrap_or(u32::MAX)
 }
 
 fn valid_scale(pixels_per_point: f32) -> f32 {

@@ -46,11 +46,17 @@ impl Bytes {
     }
 }
 
+pub fn buffer_limit(device: &wgpu::Device) -> u64 {
+    device.limits().max_buffer_size / wgpu::COPY_BUFFER_ALIGNMENT * wgpu::COPY_BUFFER_ALIGNMENT
+}
+
 pub struct GrowableBuffer {
     label: &'static str,
     usage: wgpu::BufferUsages,
     buffer: wgpu::Buffer,
     small_uploads: u32,
+    limit: u64,
+    truncated: bool,
 }
 
 impl GrowableBuffer {
@@ -59,11 +65,14 @@ impl GrowableBuffer {
 
     pub fn new(device: &wgpu::Device, label: &'static str, usage: wgpu::BufferUsages) -> Self {
         let usage = usage | wgpu::BufferUsages::COPY_DST;
+        let limit = buffer_limit(device);
         Self {
             label,
             usage,
-            buffer: Self::allocate(device, label, usage, Self::INITIAL_SIZE),
+            buffer: Self::allocate(device, label, usage, Self::INITIAL_SIZE.min(limit)),
             small_uploads: 0,
+            limit,
+            truncated: false,
         }
     }
 
@@ -81,20 +90,46 @@ impl GrowableBuffer {
         })
     }
 
-    pub fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, bytes: &Bytes) {
-        let fitting = fitting_size(bytes.len());
+    pub fn upload(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bytes: &Bytes,
+        unit: u64,
+    ) -> u64 {
+        let unit = unit.max(wgpu::COPY_BUFFER_ALIGNMENT);
+        let length = bytes.len().min(self.limit / unit * unit);
+        self.note_truncation(length < bytes.len());
+
+        let fitting = fitting_size(length).min(self.limit);
         self.small_uploads = if fitting < self.buffer.size() / 4 {
             self.small_uploads.saturating_add(1)
         } else {
             0
         };
-        if bytes.len() > self.buffer.size() || self.small_uploads >= Self::SHRINK_AFTER_UPLOADS {
+        if length > self.buffer.size() || self.small_uploads >= Self::SHRINK_AFTER_UPLOADS {
             self.buffer = Self::allocate(device, self.label, self.usage, fitting);
             self.small_uploads = 0;
         }
-        if bytes.len() > 0 {
-            queue.write_buffer(&self.buffer, 0, bytes.as_slice());
+        let written = usize::try_from(length)
+            .ok()
+            .and_then(|length| bytes.as_slice().get(..length))
+            .unwrap_or_default();
+        if !written.is_empty() {
+            queue.write_buffer(&self.buffer, 0, written);
         }
+        written.len() as u64 / unit
+    }
+
+    fn note_truncation(&mut self, truncated: bool) {
+        if truncated && !self.truncated {
+            log::warn!(
+                "the {} do not fit in a graphics buffer of at most {} bytes, so only the first are drawn",
+                self.label,
+                self.limit
+            );
+        }
+        self.truncated = truncated;
     }
 
     #[cfg(test)]

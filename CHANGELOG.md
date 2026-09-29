@@ -115,6 +115,8 @@ The first release of caditor.
   micrometres, millimetres, centimetres or metres.
 - Edges, sketch curves, points and the grid keep their size at larger interface sizes and on
   high-resolution screens, and picking them is as forgiving as at 100%.
+- A body or drawing too large for the graphics card's buffers is drawn in parts, or as much of
+  it as fits, instead of leaving the whole window blank.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.
 - An arc over half a turn can be typed: a typed end goes the shorter way round, and X (Reverse
   the arc) sends the arc, typed or drawn, the other way.

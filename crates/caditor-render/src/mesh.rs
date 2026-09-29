@@ -5,12 +5,13 @@ use glam::Vec3;
 use wgpu::util::DeviceExt;
 
 use crate::{
-    gpu::Bytes,
+    gpu::{self, Bytes},
     scene::{Color, PickId},
     viewport::relative_to_eye,
 };
 
 pub const MESH_VERTEX_STRIDE: u64 = 28;
+const INDEX_BYTES: u64 = 4;
 const STYLE_BINDING: u32 = 1;
 const STYLE_HEADER_BYTES: u64 = 16;
 const FACE_STYLE_BYTES: u64 = 32;
@@ -115,19 +116,77 @@ impl PartialEq for MeshInstance {
     }
 }
 
-struct GpuMesh {
-    mesh: Arc<ShadedMesh>,
+#[derive(Debug, Default, PartialEq)]
+struct MeshPart {
+    vertices: Vec<u32>,
+    indices: Vec<u32>,
+}
+
+impl MeshPart {
+    fn has_room(&self, max_vertices: usize, max_indices: usize) -> bool {
+        self.vertices.len() + 3 <= max_vertices && self.indices.len() + 3 <= max_indices
+    }
+}
+
+fn split_into_parts(mesh: &ShadedMesh, limit: u64) -> Option<Vec<MeshPart>> {
+    let max_vertices = usize::try_from(limit / MESH_VERTEX_STRIDE).unwrap_or(usize::MAX);
+    let max_indices = usize::try_from(limit / INDEX_BYTES / 3 * 3).unwrap_or(usize::MAX);
+    if mesh.vertices.len() <= max_vertices && mesh.indices.len() <= max_indices {
+        return None;
+    }
+    let mut local = vec![u32::MAX; mesh.vertices.len()];
+    let mut parts = Vec::new();
+    let mut part = MeshPart::default();
+    if !part.has_room(max_vertices, max_indices) {
+        return Some(parts);
+    }
+    for triangle in mesh.indices.as_chunks::<3>().0 {
+        if triangle
+            .iter()
+            .any(|vertex| local.get(*vertex as usize).is_none())
+        {
+            continue;
+        }
+        if !part.has_room(max_vertices, max_indices) {
+            for vertex in &part.vertices {
+                if let Some(slot) = local.get_mut(*vertex as usize) {
+                    *slot = u32::MAX;
+                }
+            }
+            parts.push(std::mem::take(&mut part));
+        }
+        for vertex in triangle {
+            let Some(slot) = local.get_mut(*vertex as usize) else {
+                break;
+            };
+            if *slot == u32::MAX {
+                *slot = u32::try_from(part.vertices.len()).unwrap_or(u32::MAX);
+                part.vertices.push(*vertex);
+            }
+            part.indices.push(*slot);
+        }
+    }
+    if !part.indices.is_empty() {
+        parts.push(part);
+    }
+    Some(parts)
+}
+
+struct GpuPart {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
     index_count: u32,
-    styles: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
 }
 
-impl GpuMesh {
-    fn new(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, mesh: Arc<ShadedMesh>) -> Self {
-        let mut bytes = Bytes::default();
-        for vertex in &mesh.vertices {
+impl GpuPart {
+    fn new<'a>(
+        device: &wgpu::Device,
+        bytes: &mut Bytes,
+        vertices: impl Iterator<Item = &'a GpuVertex>,
+        indices: impl Iterator<Item = u32>,
+    ) -> Self {
+        bytes.clear();
+        for vertex in vertices {
             bytes
                 .vec3(vertex.position)
                 .vec3(vertex.normal)
@@ -139,18 +198,75 @@ impl GpuMesh {
             usage: wgpu::BufferUsages::VERTEX,
         });
         bytes.clear();
-        for index in &mesh.indices {
-            bytes.u32(*index);
+        let mut index_count = 0u32;
+        for index in indices {
+            bytes.u32(index);
+            index_count = index_count.saturating_add(1);
         }
         let indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("mesh indices"),
             contents: bytes.as_slice(),
             usage: wgpu::BufferUsages::INDEX,
         });
-        let faces = u64::try_from(mesh.face_count.max(1)).unwrap_or(u64::MAX);
+        Self {
+            vertices,
+            indices,
+            index_count,
+        }
+    }
+}
+
+struct GpuMesh {
+    mesh: Arc<ShadedMesh>,
+    parts: Vec<GpuPart>,
+    styled_faces: usize,
+    styles: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+}
+
+impl GpuMesh {
+    fn new(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, mesh: Arc<ShadedMesh>) -> Self {
+        let limits = device.limits();
+        let buffer_limit = gpu::buffer_limit(device);
+        let mut bytes = Bytes::default();
+        let parts = match split_into_parts(&mesh, buffer_limit) {
+            None => vec![GpuPart::new(
+                device,
+                &mut bytes,
+                mesh.vertices.iter(),
+                mesh.indices.iter().copied(),
+            )],
+            Some(parts) => {
+                log::warn!(
+                    "a mesh of {} vertices is drawn in {} parts, since the graphics device holds at most {buffer_limit} bytes in a buffer",
+                    mesh.vertices.len(),
+                    parts.len()
+                );
+                parts
+                    .iter()
+                    .map(|part| {
+                        GpuPart::new(
+                            device,
+                            &mut bytes,
+                            part.vertices
+                                .iter()
+                                .filter_map(|vertex| mesh.vertices.get(*vertex as usize)),
+                            part.indices.iter().copied(),
+                        )
+                    })
+                    .collect()
+            }
+        };
+        let style_limit = buffer_limit.min(limits.max_storage_buffer_binding_size);
+        let styled_faces = usize::try_from(
+            (style_limit.saturating_sub(STYLE_HEADER_BYTES) / FACE_STYLE_BYTES).max(1),
+        )
+        .unwrap_or(usize::MAX)
+        .min(mesh.face_count.max(1));
         let styles = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("mesh face styles"),
-            size: STYLE_HEADER_BYTES.saturating_add(faces.saturating_mul(FACE_STYLE_BYTES)),
+            size: STYLE_HEADER_BYTES
+                .saturating_add((styled_faces as u64).saturating_mul(FACE_STYLE_BYTES)),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -163,10 +279,9 @@ impl GpuMesh {
             }],
         });
         Self {
-            index_count: u32::try_from(mesh.indices.len()).unwrap_or(u32::MAX),
             mesh,
-            vertices,
-            indices,
+            parts,
+            styled_faces,
             styles,
             bind_group,
         }
@@ -181,7 +296,7 @@ impl GpuMesh {
     ) {
         bytes.clear();
         bytes.vec4(relative_to_eye(self.mesh.origin, eye), 0.0);
-        for face in 0..self.mesh.face_count.max(1) {
+        for face in 0..self.styled_faces {
             let style = instance.faces.get(face).copied().unwrap_or(UNSTYLED_FACE);
             bytes
                 .floats(&style.color.to_array())
@@ -256,9 +371,11 @@ impl MeshCache {
         pass.set_pipeline(pipeline);
         for mesh in &self.meshes {
             pass.set_bind_group(1, &mesh.bind_group, &[]);
-            pass.set_vertex_buffer(0, mesh.vertices.slice(..));
-            pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            for part in &mesh.parts {
+                pass.set_vertex_buffer(0, part.vertices.slice(..));
+                pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..part.index_count, 0, 0..1);
+            }
         }
     }
 }
@@ -303,5 +420,62 @@ mod tests {
         assert_eq!(mesh.vertices[4].normal, Vec3::Z);
         assert!(!mesh.is_empty());
         assert!(ShadedMesh::new([]).is_empty());
+    }
+
+    fn strip(quads: u32) -> ShadedMesh {
+        let points = (0..=quads)
+            .flat_map(|column| {
+                let x = f64::from(column);
+                [point(x, 0.0, 0.0), point(x, 1.0, 0.0)]
+            })
+            .collect();
+        let triangles = (0..quads)
+            .flat_map(|quad| {
+                let first = quad * 2;
+                [[first, first + 2, first + 3], [first, first + 3, first + 1]]
+            })
+            .collect();
+        ShadedMesh::new([MeshFace { points, triangles }])
+    }
+
+    fn triangles_in_space(mesh: &ShadedMesh, parts: &[MeshPart]) -> Vec<[Vec3; 3]> {
+        parts
+            .iter()
+            .flat_map(|part| {
+                part.indices.as_chunks::<3>().0.iter().map(|triangle| {
+                    triangle
+                        .map(|local| mesh.vertices[part.vertices[local as usize] as usize].position)
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_mesh_larger_than_a_buffer_is_split_into_parts_that_each_fit() {
+        let mesh = strip(100);
+        let limit = 40 * MESH_VERTEX_STRIDE;
+
+        let parts = split_into_parts(&mesh, limit).unwrap();
+        let expected: Vec<[Vec3; 3]> = mesh
+            .indices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|triangle| triangle.map(|index| mesh.vertices[index as usize].position))
+            .collect();
+
+        assert!(parts.len() >= 6, "{}", parts.len());
+        for part in &parts {
+            assert!(part.vertices.len() as u64 * MESH_VERTEX_STRIDE <= limit);
+            assert!(part.indices.len() as u64 * INDEX_BYTES <= limit);
+            assert!(
+                part.indices
+                    .iter()
+                    .all(|local| (*local as usize) < part.vertices.len())
+            );
+        }
+        assert_eq!(triangles_in_space(&mesh, &parts), expected);
+        assert_eq!(split_into_parts(&mesh, 1 << 20), None);
+        assert_eq!(split_into_parts(&mesh, 8), Some(Vec::new()));
     }
 }

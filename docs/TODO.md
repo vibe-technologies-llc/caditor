@@ -102,8 +102,6 @@ within a category run from most to least important.
 - The device uses default limits with no retry, so windows wider than 8192 px fail and GL or
   downlevel adapters (the mesh shader needs vertex storage) fail at startup; the high-performance
   preference also wakes discrete GPUs.
-- One buffer over the device limits breaks every frame including the UI; check sizes and split
-  meshes.
 
 ## Interface performance
 

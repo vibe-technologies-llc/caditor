@@ -19,7 +19,11 @@ const LINE_COLOR: Color = Color::from_rgb8(250, 20, 20);
 const REQUIRE_GPU: &str = "CADITOR_REQUIRE_GPU";
 
 fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
-    let found = device();
+    gpu_with(wgpu::Limits::default())
+}
+
+fn gpu_with(limits: wgpu::Limits) -> Option<(wgpu::Device, wgpu::Queue)> {
+    let found = device(limits);
     if found.is_none() {
         assert!(
             std::env::var_os(REQUIRE_GPU).is_none(),
@@ -30,12 +34,16 @@ fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
     found
 }
 
-fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
+fn device(limits: wgpu::Limits) -> Option<(wgpu::Device, wgpu::Queue)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .ok()?;
-    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()
+    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: limits,
+        ..wgpu::DeviceDescriptor::default()
+    }))
+    .ok()
 }
 
 fn scene() -> Scene {
@@ -683,18 +691,18 @@ fn a_buffer_shrinks_back_once_it_has_stayed_mostly_empty_for_a_while() {
     let mut small = Bytes::default();
     small.floats(&[1.0; 10]);
 
-    buffer.upload(&device, &queue, &large);
+    buffer.upload(&device, &queue, &large, 4);
     let grown = buffer.size();
     assert!(grown >= large.len());
 
     for _ in 0..GrowableBuffer::SHRINK_AFTER_UPLOADS - 1 {
-        buffer.upload(&device, &queue, &small);
+        buffer.upload(&device, &queue, &small, 4);
     }
-    buffer.upload(&device, &queue, &large);
+    buffer.upload(&device, &queue, &large, 4);
     assert_eq!(buffer.size(), grown);
 
     for _ in 0..GrowableBuffer::SHRINK_AFTER_UPLOADS {
-        buffer.upload(&device, &queue, &small);
+        buffer.upload(&device, &queue, &small, 4);
     }
     assert_eq!(buffer.size(), GrowableBuffer::INITIAL_SIZE);
 }
@@ -1040,4 +1048,117 @@ fn a_failed_readback_replaces_the_pick_buffer_and_the_next_pick_is_read() {
         matches!(&read, crate::PickPoll::Ready(pick) if pick.hits.first().map(|hit| hit.id) == PickId::from_index(0)),
         "{read:?}"
     );
+}
+
+fn strip_mesh(quads: u32, length: f64) -> ShadedMesh {
+    let step = length / f64::from(quads);
+    let faces = (0..quads).map(|quad| {
+        let x = -length * 0.5 + f64::from(quad) * step;
+        let corner = |dx: f64, y: f64| MeshPoint {
+            position: Point3::new(x + dx, y, 0.0),
+            normal: Vector3::Z,
+        };
+        MeshFace {
+            points: vec![
+                corner(0.0, -5.0),
+                corner(step, -5.0),
+                corner(step, 5.0),
+                corner(0.0, 5.0),
+            ],
+            triangles: vec![[0, 1, 2], [0, 2, 3]],
+        }
+    });
+    ShadedMesh::new(faces)
+}
+
+#[test]
+fn a_scene_larger_than_a_buffer_draws_what_fits_and_splits_its_meshes() {
+    const BUFFER_LIMIT: u64 = 256 * 1024;
+    let Some((device, queue)) = gpu_with(wgpu::Limits {
+        max_buffer_size: BUFFER_LIMIT,
+        max_storage_buffer_binding_size: 1024,
+        ..wgpu::Limits::default()
+    }) else {
+        return;
+    };
+    let quads = 3000;
+    let mesh = Arc::new(strip_mesh(quads, 160.0));
+    let styles = (0..quads as usize)
+        .map(|index| FaceStyle {
+            color: Color::from_rgb8(40, 200, 40),
+            pick: PickId::from_index(100 + index),
+        })
+        .collect();
+    let many = 2 * BUFFER_LIMIT as usize / 52;
+    let lines = (0..many)
+        .map(|index| Line {
+            start: Point3::new(-40.0, 20.0 + index as f64 * 1e-3, 1.0),
+            end: Point3::new(40.0, 20.0 + index as f64 * 1e-3, 1.0),
+            color: LINE_COLOR,
+            width: 3.0,
+            layer: Layer::Model,
+            pick: PickId::from_index(index),
+        })
+        .collect();
+    let fills = (0..many / 6)
+        .map(|index| {
+            square_fill(
+                2.0 + index as f64 * 1e-3,
+                5.0,
+                Layer::Model,
+                1_000_000 + index,
+            )
+        })
+        .collect();
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::clone(&mesh),
+            faces: styles,
+        }],
+        lines,
+        fills,
+        ..Scene::default()
+    };
+    let view = looking_down(400.0, f64::from(SIZE), f64::from(SIZE));
+    let near_end = Point3::new(-75.0, 0.0, 0.0);
+    let far_end = Point3::new(75.0, 0.0, 0.0);
+    let on_lines = Point3::new(-30.0, 20.0, 1.0);
+
+    let at_near_end = render(
+        &device,
+        &queue,
+        &view,
+        &scene,
+        view.project(near_end).unwrap(),
+    );
+    let at_far_end = render(
+        &device,
+        &queue,
+        &view,
+        &scene,
+        view.project(far_end).unwrap(),
+    );
+    let on_the_lines = render(
+        &device,
+        &queue,
+        &view,
+        &scene,
+        view.project(on_lines).unwrap(),
+    );
+
+    for (rendered, at) in [(&at_near_end, near_end), (&at_far_end, far_end)] {
+        let [red, green, blue, _] = pixel(rendered, view.project(at).unwrap());
+        assert!(
+            green > 60 && green > red * 2 && green > blue * 2,
+            "the strip at {at} was {red} {green} {blue}"
+        );
+        assert!(
+            rendered.pick.hits[0].id.index() >= 100,
+            "{:?}",
+            rendered.pick.hits
+        );
+    }
+    let [red, green, _, _] = pixel(&on_the_lines, view.project(on_lines).unwrap());
+    assert!(red > 200 && green < 80, "the lines were {red} {green}");
+    assert!(on_the_lines.pick.hits[0].id.index() < many);
 }
