@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, File, OpenOptions, Permissions, TryLockError},
+    fs::{self, File, OpenOptions, Permissions},
     io::{self, Write},
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
@@ -12,6 +12,7 @@ use caditor_document::Document;
 
 use crate::{
     journal::{JournalEntry, encode_entry, encode_journal},
+    lock::{holds, install, locked_elsewhere, remove_held, remove_unheld},
     paths, reason,
     save::{self, SaveOptions, remove_orphaned_temporaries, sync_parent, temporary_sibling},
 };
@@ -264,7 +265,7 @@ impl Worker {
                 if let Some(journal) = self.journal.take()
                     && discard
                 {
-                    remove_journal(&journal.path);
+                    remove_held(&journal.file, &journal.path);
                 }
                 let _ = done.send(());
                 (self.wake)();
@@ -293,10 +294,17 @@ impl Worker {
             return;
         }
         self.unsynced = false;
-        if let Some(journal) = &self.journal
-            && let Err(error) = journal.file.sync_data()
-        {
+        let Some(journal) = &self.journal else {
+            return;
+        };
+        if let Err(error) = journal.file.sync_data() {
             self.lose_protection(&error);
+        } else if !holds(&journal.file, &journal.path) {
+            log::warn!(
+                "{} was moved or replaced while this window wrote to it",
+                journal.path.display()
+            );
+            self.fail("the recovery file was moved or replaced".to_owned());
         }
     }
 
@@ -365,8 +373,14 @@ impl Worker {
     fn opened_elsewhere(&self, file: &Path) -> bool {
         paths::journals_for(file, self.recovery_dir.as_deref())
             .iter()
-            .filter(|candidate| self.journal_path() != Some(candidate.as_path()))
+            .filter(|candidate| !self.owns(candidate))
             .any(|candidate| locked_elsewhere(candidate))
+    }
+
+    fn owns(&self, path: &Path) -> bool {
+        self.journal
+            .as_ref()
+            .is_some_and(|journal| journal.path == path && holds(&journal.file, path))
     }
 
     fn journal_path(&self) -> Option<&Path> {
@@ -399,8 +413,12 @@ impl Worker {
             .map(|metadata| metadata.permissions());
         let mut failure = None;
         for candidate in candidates.iter().cloned() {
-            let own = self.journal_path() == Some(candidate.as_path());
-            if !own && locked_elsewhere(&candidate) {
+            let own = self
+                .journal
+                .as_ref()
+                .filter(|journal| journal.path == candidate && holds(&journal.file, &candidate))
+                .map(|journal| &journal.file);
+            if own.is_none() && locked_elsewhere(&candidate) {
                 log::warn!("{} belongs to another caditor window", candidate.display());
                 continue;
             }
@@ -409,6 +427,7 @@ impl Worker {
                 &contents,
                 permissions.as_ref(),
                 self.recovery_dir.as_deref(),
+                own,
             );
             match written {
                 Ok(file) => {
@@ -419,12 +438,12 @@ impl Worker {
                     if let Some(previous) = previous
                         && self.journal_path() != Some(previous.path.as_path())
                     {
-                        remove_journal(&previous.path);
+                        remove_held(&previous.file, &previous.path);
                     }
                     if let Some(replaced) = self.replaces.take()
                         && self.journal_path() != Some(replaced.as_path())
                     {
-                        remove_journal(&replaced);
+                        remove_unheld(&replaced);
                     }
                     self.protected = true;
                     self.unsynced = false;
@@ -440,7 +459,7 @@ impl Worker {
             .journal
             .take_if(|previous| !candidates.contains(&previous.path))
         {
-            remove_journal(&stale.path);
+            remove_held(&stale.file, &stale.path);
         }
         self.fail(failure.map_or_else(
             || "the recovery file is in use by another caditor window".to_owned(),
@@ -470,18 +489,12 @@ impl Worker {
     }
 }
 
-fn locked_elsewhere(journal: &Path) -> bool {
-    let Ok(file) = File::open(journal) else {
-        return false;
-    };
-    matches!(file.try_lock(), Err(TryLockError::WouldBlock))
-}
-
 fn write_locked(
     path: &Path,
     contents: &[u8],
     permissions: Option<&Permissions>,
     recovery_dir: Option<&Path>,
+    own: Option<&File>,
 ) -> io::Result<File> {
     if let Some(dir) = recovery_dir
         && path.starts_with(dir)
@@ -489,7 +502,7 @@ fn write_locked(
         fs::create_dir_all(dir)?;
     }
     let temporary = temporary_sibling(path)?;
-    let written = write_locked_then_rename(&temporary, path, contents, permissions);
+    let written = write_locked_then_rename(&temporary, path, contents, permissions, own);
     if written.is_err() {
         let _ = fs::remove_file(&temporary);
     }
@@ -501,6 +514,7 @@ fn write_locked_then_rename(
     path: &Path,
     contents: &[u8],
     permissions: Option<&Permissions>,
+    own: Option<&File>,
 ) -> io::Result<File> {
     let mut file = OpenOptions::new()
         .write(true)
@@ -513,7 +527,7 @@ fn write_locked_then_rename(
     file.try_lock().map_err(io::Error::from)?;
     file.write_all(contents)?;
     file.sync_all()?;
-    fs::rename(temporary, path)?;
+    install(temporary, path, own)?;
     if let Err(error) = sync_parent(path) {
         log::warn!(
             "the folder of {} could not be synced after the journal was renamed into place: \
@@ -523,12 +537,4 @@ fn write_locked_then_rename(
     }
     remove_orphaned_temporaries(path);
     Ok(file)
-}
-
-fn remove_journal(path: &Path) {
-    match fs::remove_file(path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => log::warn!("could not remove {}: {error}", path.display()),
-    }
 }

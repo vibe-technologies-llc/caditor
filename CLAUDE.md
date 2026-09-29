@@ -678,7 +678,13 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     first entry it cannot read and keeps everything before it. The journal lives next to the
     file as `.<name>.journal`, falling back to `$XDG_STATE_HOME/caditor/recovery/`, where
     untitled documents keep theirs. Its owner holds an exclusive lock on it, which is how the
-    startup scan and other instances tell a live journal from an orphan. Journals take the
+    startup scan and other instances tell a live journal from an orphan. Locks are taken on
+    read-write handles (`lock.rs`; a read-only journal gets a shared lock), since NFS emulates
+    `flock` with byte-range locks that need a writable descriptor. A journal is only put in
+    place by linking it where none exists, or by renaming over the inode the writer holds
+    locked and has checked is still at that path, so two windows cannot take one path from each
+    other; the owner also checks the path still names its file after every sync, and otherwise
+    reports itself unprotected and retakes the path when it can. Journals take the
     model's permissions, or owner-only for untitled documents.
   - `Storage` is one worker thread per open document. It owns the journal and performs saves,
     so appends, saves and the rebase of the journal onto the saved snapshot stay in order, and

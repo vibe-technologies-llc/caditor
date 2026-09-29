@@ -6,6 +6,7 @@ pub mod fuzzing;
 mod import;
 mod journal;
 mod load;
+mod lock;
 mod paths;
 mod reason;
 mod recent;

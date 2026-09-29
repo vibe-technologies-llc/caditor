@@ -28,18 +28,10 @@ within a category run from most to least important.
 
 ## File format and storage
 
-- Journal locks are taken with `flock(LOCK_EX)` on read-only handles (`recovery.rs`,
-  `storage.rs` `locked_elsewhere`), which NFS emulates with byte-range locks that need a
-  writable descriptor, so on NFS homes no journal is ever recovered and two windows can open one
-  model. Probe with a shared lock or a read-write handle.
 - Adjacent journals are found only through the recent-files list, which `RecentFiles::save`
   overwrites whole, so two windows lose each other's entries and a crashed model's journal is
   never offered. Merge recent files like `Settings::save_changes`, and remember journal paths in
   the state directory.
-- Journal ownership is check-then-rename (`storage.rs`): two windows opening one model at once
-  both pass `locked_elsewhere`, the second rename orphans the first window's locked inode, and
-  that window keeps appending to it while reporting itself protected. Lock a stable lock file, or
-  compare the path's inode with the held file on each sync.
 - Version history is never pruned and every save rewrites and fsyncs all of it
   (`binary/model.rs`). Add a retention policy and write history append-only.
 - A model whose records total more than 256 MiB saves once and never again, since the previous

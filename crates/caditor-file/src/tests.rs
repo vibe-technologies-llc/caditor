@@ -535,6 +535,65 @@ fn an_unreadable_journal_is_set_aside_before_a_new_one_replaces_it() {
 }
 
 #[test]
+fn a_journal_locked_by_another_window_is_never_replaced() {
+    let dir = TempDir::new().unwrap();
+    let journal = dir.path().join(".model.caditor.journal");
+    fs::write(&journal, b"theirs").unwrap();
+    let theirs = crate::lock::lock_existing(&journal).unwrap().unwrap();
+    let temporary = dir.path().join("ours.tmp");
+    fs::write(&temporary, b"ours").unwrap();
+
+    let refused = crate::lock::install(&temporary, &journal, None).unwrap_err();
+    assert_eq!(refused.kind(), std::io::ErrorKind::ResourceBusy);
+    assert_eq!(fs::read(&journal).unwrap(), b"theirs");
+    assert!(crate::lock::lock_existing(&journal).unwrap().is_none());
+
+    drop(theirs);
+    crate::lock::install(&temporary, &journal, None).unwrap();
+    assert_eq!(fs::read(&journal).unwrap(), b"ours");
+    assert!(!temporary.exists());
+}
+
+#[test]
+fn a_window_whose_journal_is_replaced_stops_claiming_protection_and_retakes_it() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let base = sample();
+    save(&base, &path, false).unwrap();
+    let start = Start {
+        file: Some(path.clone()),
+        ..untitled(&base)
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    assert!(storage.flusher().flush(WAIT));
+    let journal = dir.path().join(".model.caditor.journal");
+    let intruder = dir.path().join("intruder");
+    fs::write(&intruder, b"not ours").unwrap();
+    fs::rename(&intruder, &journal).unwrap();
+
+    let mut editor = Editor::new(base);
+    let change = edit_width(editor.document(), "70 mm");
+    editor.apply(change.clone()).unwrap();
+    storage.record(JournalEntry::Apply(change)).unwrap();
+    assert!(storage.flusher().flush(WAIT));
+    let reports = storage.poll().unwrap();
+    assert!(
+        matches!(
+            reports.as_slice(),
+            [Report::JournalFailed { .. }, Report::JournalRestored]
+        ),
+        "{reports:?}"
+    );
+    crash(storage);
+    let FileJournal::Recoverable(recovered) =
+        journal_for(&path, Some(&dir.path().join("recovery")))
+    else {
+        panic!("the change should be recoverable from the retaken journal");
+    };
+    assert_eq!(recovered.changes(), 1);
+}
+
+#[test]
 fn a_journal_whose_changes_reached_the_file_is_tidied_away() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");

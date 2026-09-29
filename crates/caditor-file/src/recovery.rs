@@ -1,9 +1,8 @@
 use std::{
     cmp::Reverse,
     collections::BTreeSet,
-    fs::{self, File, TryLockError},
+    fs::{self, File},
     io::{self, Read},
-    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -13,6 +12,7 @@ use caditor_document::{Document, Editor};
 use crate::{
     journal::{JournalEntry, decode_journal, replay},
     load::load,
+    lock::{Location, in_use, location, lock_existing},
     paths::{self, JOURNAL_EXTENSION},
     save::sync_parent,
 };
@@ -55,12 +55,9 @@ pub fn inspect(journal: &Path) -> io::Result<Inspection> {
 }
 
 fn inspect_as(journal: &Path, unreadable: Unreadable) -> io::Result<Inspection> {
-    let mut file = File::open(journal)?;
-    match file.try_lock() {
-        Ok(()) => {}
-        Err(TryLockError::WouldBlock) => return Ok(Inspection::InUse),
-        Err(TryLockError::Error(error)) => return Err(error),
-    }
+    let Some(mut file) = lock_existing(journal)? else {
+        return Ok(Inspection::InUse);
+    };
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
     let modified = file
@@ -214,8 +211,7 @@ fn set_aside_locked(file: &File, journal: &Path) -> io::Result<Inspection> {
 }
 
 pub fn discard(journal: &Path) -> io::Result<()> {
-    let file = File::open(journal)?;
-    file.try_lock().map_err(io::Error::from)?;
+    let file = lock_existing(journal)?.ok_or_else(in_use)?;
     match remove_locked(&file, journal)? {
         Inspection::Removed => Ok(()),
         _ => Err(io::Error::new(
@@ -233,25 +229,5 @@ fn remove_locked(file: &File, journal: &Path) -> io::Result<Inspection> {
             fs::remove_file(journal)?;
             Ok(Inspection::Removed)
         }
-    }
-}
-
-enum Location {
-    Gone,
-    Replaced,
-    Here,
-}
-
-fn location(file: &File, journal: &Path) -> io::Result<Location> {
-    let locked = file.metadata()?;
-    let current = match fs::symlink_metadata(journal) {
-        Ok(current) => current,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Location::Gone),
-        Err(error) => return Err(error),
-    };
-    if (locked.dev(), locked.ino()) == (current.dev(), current.ino()) {
-        Ok(Location::Here)
-    } else {
-        Ok(Location::Replaced)
     }
 }
