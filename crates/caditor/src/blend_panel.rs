@@ -9,7 +9,6 @@ use crate::{
     editing::EditingCommand,
     feature_tree::count,
     field::{self, Expected},
-    icons,
     model::{Action, Model, Notice},
     widgets::{self, FIELD_WIDTH},
 };
@@ -177,15 +176,12 @@ fn edges_row(
                     ))
                 })
                 .unwrap_or_else(|| "An edge that is no longer there".to_owned());
-            ui.horizontal(|ui| {
-                ui.label(widgets::muted(text, ui));
-                let remove = widgets::icon_button(ui, icons::REMOVE, "Leave this edge out");
-                if remove.clicked() {
-                    let mut changed = blend.clone();
-                    changed.edges.remove(index);
-                    apply(actions, change(model, feature, changed));
-                }
-            });
+            let text = widgets::muted(text, ui);
+            if widgets::removable_row(ui, text, "Leave this edge out") {
+                let mut changed = blend.clone();
+                changed.edges.remove(index);
+                apply(actions, change(model, feature, changed));
+            }
         }
         if widgets::choose_in_view(
             ui,

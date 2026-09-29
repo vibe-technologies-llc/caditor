@@ -929,7 +929,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     read colours from `appearance::tokens(ui)` or the visuals, never fixed values, and take their
     icons from `icons.rs` (one per command, tool, constraint and feature kind). `widgets.rs` is the
     shared kit every panel and dialog is built from: `ToolButton` (icon above label), `section`,
-    `properties`/`property`/`error_row`, `card`, `callout` and `pill` with a `Tone`, `icon_button`,
+    `properties`/`property`/`error_row`, `removable_row` (text that wraps beside a
+    remove button), `card`, `callout` and `pill` with a `Tone`, `icon_button`,
     `small_button`, `primary_button`, `menu_item`, `link_label`, `choose_in_view`, and
     `dialog`/`footer` (a titled modal with a close button and the primary action rightmost); dialog
     widths and list heights are clamped to the screen (`fitting_width`, `list_height`) so nothing

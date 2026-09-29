@@ -94,6 +94,18 @@ pub fn icon_button(ui: &mut Ui, glyph: &str, hover: &str) -> Response {
     .on_hover_text(hover)
 }
 
+pub fn removable_row(ui: &mut Ui, text: RichText, hover: &str) -> bool {
+    Sides::new()
+        .shrink_left()
+        .wrap()
+        .show(
+            ui,
+            |ui| ui.label(text),
+            |ui| icon_button(ui, icons::REMOVE, hover).clicked(),
+        )
+        .1
+}
+
 pub fn small_button(ui: &mut Ui, glyph: &str, text: &str) -> Button<'static> {
     let muted = appearance::tokens(ui).text_muted;
     Button::new((
@@ -480,4 +492,39 @@ pub fn dialog_frame(ctx: &egui::Context) -> Frame {
 pub fn footer<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     ui.add_space(DIALOG_FOOTER_GAP);
     Sides::new().show(ui, |_| {}, add).1
+}
+
+#[cfg(test)]
+mod tests {
+    use egui::{Context, RawInput, Rect, pos2};
+
+    use super::*;
+
+    #[test]
+    fn a_long_removable_row_wraps_to_keep_its_button_in_the_panel() {
+        let context = Context::default();
+        context.set_fonts(fonts::definitions());
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(220.0, 400.0));
+        let description = "Edge between Extrude 1 side from Line 3 and Extrude 1 end cap".repeat(3);
+        let mut measured = None;
+
+        for _ in 0..2 {
+            let input = RawInput {
+                screen_rect: Some(screen),
+                ..RawInput::default()
+            };
+            let mut output = context.run_ui(input, |ui| {
+                let row = ui
+                    .scope(|ui| removable_row(ui, RichText::new(description.as_str()), "Remove"))
+                    .response
+                    .rect;
+                measured = Some((row, ui.max_rect(), ui.text_style_height(&TextStyle::Body)));
+            });
+            output.textures_delta.clear();
+        }
+        let (row, panel, line) = measured.unwrap();
+
+        assert!(row.right() <= panel.right() + 0.5, "{row:?} in {panel:?}");
+        assert!(row.height() > 2.0 * line, "{row:?}");
+    }
 }

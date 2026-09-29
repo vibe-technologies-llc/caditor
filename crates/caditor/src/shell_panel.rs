@@ -7,7 +7,6 @@ use crate::{
     editing::EditingCommand,
     feature_tree::count,
     field::{self, Expected},
-    icons,
     model::{Action, Model, Notice},
     shell_tools,
     widgets::{self, FIELD_WIDTH},
@@ -110,20 +109,17 @@ fn faces_row(
                     Some(bodies::describe_face(document, solid, key))
                 })
                 .unwrap_or_else(|| "A face that is no longer there".to_owned());
-            ui.horizontal(|ui| {
-                ui.label(widgets::muted(text, ui));
-                let close = widgets::icon_button(ui, icons::REMOVE, "Close this face");
-                if close.clicked() {
-                    let mut changed = shell.clone();
-                    changed.open.remove(index);
-                    match change(model, feature, changed) {
-                        Ok(transaction) => actions.push(Action::Apply(transaction)),
-                        Err(reason) => actions.push(Action::Inform(Notice::error(format!(
-                            "The shell was not changed: {reason}"
-                        )))),
-                    }
+            let text = widgets::muted(text, ui);
+            if widgets::removable_row(ui, text, "Close this face") {
+                let mut changed = shell.clone();
+                changed.open.remove(index);
+                match change(model, feature, changed) {
+                    Ok(transaction) => actions.push(Action::Apply(transaction)),
+                    Err(reason) => actions.push(Action::Inform(Notice::error(format!(
+                        "The shell was not changed: {reason}"
+                    )))),
                 }
-            });
+            }
         }
         if widgets::choose_in_view(
             ui,
