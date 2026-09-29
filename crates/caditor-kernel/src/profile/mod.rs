@@ -185,9 +185,9 @@ impl RegionKey {
         self.0
     }
 
-    fn of_sides(pieces: &[&Piece]) -> Self {
+    fn of_sides<'a>(pieces: impl IntoIterator<Item = &'a Piece>) -> Self {
         let sides: BTreeSet<(u64, Side)> = pieces
-            .iter()
+            .into_iter()
             .map(|piece| (piece.id.entity, piece.side()))
             .collect();
         let mut digest = Digest::new(REGION_KEY);
@@ -199,9 +199,9 @@ impl RegionKey {
         Self(digest.finish())
     }
 
-    fn tiebroken(self, pieces: &[&Piece]) -> Self {
+    fn tiebroken<'a>(self, pieces: impl IntoIterator<Item = &'a Piece>) -> Self {
         let identities: BTreeSet<(u128, Side)> = pieces
-            .iter()
+            .into_iter()
             .map(|piece| (piece.id.digest(), piece.side()))
             .collect();
         let mut digest = Digest::new(REGION_TIEBREAK);

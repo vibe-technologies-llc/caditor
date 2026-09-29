@@ -101,6 +101,7 @@ pub(super) struct Arrangement {
     pub position: Vec<usize>,
     pub faces: Vec<GraphFace>,
     pub sides: Vec<[Option<usize>; 2]>,
+    pub face_half_edges: Vec<Vec<usize>>,
 }
 
 pub(super) fn piece_of(half_edge: usize) -> (usize, bool) {
@@ -186,23 +187,24 @@ impl Arrangement {
     }
 
     pub fn cycles(&self, kept: impl Fn(usize) -> bool) -> Found<Vec<Vec<usize>>> {
+        self.cycles_from(0..self.pieces.len() * 2, kept)
+    }
+
+    pub fn cycles_from(
+        &self,
+        starts: impl IntoIterator<Item = usize>,
+        kept: impl Fn(usize) -> bool,
+    ) -> Found<Vec<Vec<usize>>> {
         let count = self.pieces.len() * 2;
-        let mut visited = vec![false; count];
+        let mut visited = BTreeSet::new();
         let mut cycles = Vec::new();
-        for start in 0..count {
-            if !kept(start) || visited.get(start).copied().unwrap_or(true) {
+        for start in starts {
+            if start >= count || !kept(start) || visited.contains(&start) {
                 continue;
             }
             let mut cycle = Vec::new();
             let mut current = start;
-            loop {
-                let seen = visited
-                    .get_mut(current)
-                    .ok_or_else(ProfileError::unresolved)?;
-                if *seen {
-                    break;
-                }
-                *seen = true;
+            while visited.insert(current) {
                 cycle.push(current);
                 current = self.next_where(current, &kept)?;
                 if cycle.len() > count {
@@ -215,6 +217,16 @@ impl Arrangement {
             cycles.push(cycle);
         }
         Ok(cycles)
+    }
+
+    pub fn face_of(&self, half_edge: usize) -> Option<usize> {
+        let (piece, forward) = piece_of(half_edge);
+        let [left, right] = *self.sides.get(piece)?;
+        if forward { left } else { right }
+    }
+
+    pub fn half_edges_of(&self, face: usize) -> &[usize] {
+        self.face_half_edges.get(face).map_or(&[], Vec::as_slice)
     }
 
     fn connect(&mut self) -> Found<()> {
@@ -329,6 +341,16 @@ impl Arrangement {
         self.sides = (0..self.pieces.len())
             .map(|piece| Ok([side_of(piece * 2)?, side_of(piece * 2 + 1)?]))
             .collect::<Found<_>>()?;
+        let mut face_half_edges = vec![Vec::new(); faces.len()];
+        for half_edge in 0..self.pieces.len() * 2 {
+            if let Some(list) = self
+                .face_of(half_edge)
+                .and_then(|face| face_half_edges.get_mut(face))
+            {
+                list.push(half_edge);
+            }
+        }
+        self.face_half_edges = face_half_edges;
         self.faces = faces
             .iter()
             .zip(depths)

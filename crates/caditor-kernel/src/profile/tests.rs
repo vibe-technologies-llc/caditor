@@ -664,6 +664,35 @@ fn many_squares_and_a_long_dangling_chain() {
 }
 
 #[test]
+fn a_plate_with_thousands_of_holes_is_divided_and_selected() {
+    let mut curves = vec![
+        line(1, (-1.0, -1.0), (120.0, -1.0)),
+        line(2, (120.0, -1.0), (120.0, 120.0)),
+        line(3, (120.0, 120.0), (-1.0, 120.0)),
+        line(4, (-1.0, 120.0), (-1.0, -1.0)),
+    ];
+    let mut entity = 4;
+    for row in 0..40 {
+        for column in 0..40 {
+            let (x, y) = (f64::from(column) * 3.0, f64::from(row) * 3.0);
+            let corners = [(x, y), (x + 2.0, y), (x + 2.0, y + 2.0), (x, y + 2.0)];
+            for index in 0..4 {
+                entity += 1;
+                curves.push(line(entity, corners[index], corners[(index + 1) % 4]));
+            }
+        }
+    }
+
+    let profile = profile(&curves);
+    let plate = profile.select(&Selection::EvenDepth).unwrap();
+
+    assert_eq!(profile.regions().len(), 1601);
+    assert_eq!(keys(&profile).len(), 1601);
+    assert_eq!(plate.len(), 1);
+    assert_eq!(plate[0].holes().len(), 1600);
+}
+
+#[test]
 fn unresolved_curves_are_narrowed_to_those_failing_together() {
     let curves: Vec<ProfileCurve> = (1..=20)
         .map(|entity| {

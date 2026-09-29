@@ -45,14 +45,8 @@ within a category run from most to least important.
   one connected component, so such a sketch sweeps as if it had no hole until the region is
   chosen.
 
-## Kernel cancellation and limits
-
-
 ## Kernel performance
 
-- Profile keys and faces cost O(R²) and O(F·P): `shared_keys` and `with_keys` count equal keys
-  with nested scans, `base_keys` clones every piece, and `lumps` scans every half-edge per face.
-  The largest test has 200 regions; a big DXF freezes the worker.
 - `Plan::merge_coincident_vertices` refilters every edge per shell, O(shells × edges) on every
   build, and it and `arrangement::cluster` degrade to O(n²) when many points share an x.
 - Every `Solid::build` computes `bounding_box`, which builds a full classifier and runs 169
