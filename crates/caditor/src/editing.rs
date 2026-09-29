@@ -93,6 +93,7 @@ pub enum EditingCommand {
 pub struct Context {
     pub sketch: Option<FeatureId>,
     pub solid: Option<FeatureId>,
+    pub choosing_plane: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -120,6 +121,7 @@ impl SketchEditing {
         Context {
             sketch: self.feature(),
             solid: self.solid,
+            choosing_plane: self.choosing_plane,
         }
     }
 

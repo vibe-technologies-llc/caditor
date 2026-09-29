@@ -1,4 +1,4 @@
-use caditor_document::{BlendKind, Datum, FeatureKind, SolidFeature};
+use caditor_document::{BlendKind, Datum, FeatureKind, PrincipalGeometry, SolidFeature};
 use egui_phosphor::regular as phosphor;
 
 use crate::{
@@ -39,6 +39,8 @@ pub const ATTACHED: &str = phosphor::PUSH_PIN;
 pub const RENAME: &str = phosphor::TEXTBOX;
 pub const MOVE_UP: &str = phosphor::ARROW_UP;
 pub const MOVE_DOWN: &str = phosphor::ARROW_DOWN;
+pub const PRINCIPAL_GROUP: &str = PLANE;
+const ORIGIN: &str = phosphor::CROSSHAIR;
 
 pub fn command(command: Command) -> &'static str {
     match command {
@@ -79,6 +81,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ActivateHighlighted => phosphor::CURSOR_CLICK,
         Command::HideSelection | Command::ToggleVisibility => HIDE,
         Command::ShowAll => SHOW,
+        Command::TogglePrincipal => PRINCIPAL_GROUP,
         Command::OpenSample(_) => SAMPLE,
         Command::OpenRecent(_) => RECENT,
         Command::RecoverUnsaved => RECOVER,
@@ -158,6 +161,14 @@ fn camera_move(camera: CameraMove) -> &'static str {
         }
         CameraMove::ZoomIn => phosphor::MAGNIFYING_GLASS_PLUS,
         CameraMove::ZoomOut => phosphor::MAGNIFYING_GLASS_MINUS,
+    }
+}
+
+pub fn principal(geometry: PrincipalGeometry) -> &'static str {
+    match geometry {
+        PrincipalGeometry::Origin => ORIGIN,
+        PrincipalGeometry::Axis(_) => AXIS,
+        PrincipalGeometry::Plane(_) => PLANE,
     }
 }
 

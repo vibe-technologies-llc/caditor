@@ -130,6 +130,7 @@ impl Menus<'_, '_> {
                     Command::HideSelection,
                     Command::ToggleVisibility,
                     Command::ShowAll,
+                    Command::TogglePrincipal,
                 ],
             );
             submenu(

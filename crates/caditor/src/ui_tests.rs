@@ -4953,3 +4953,57 @@ fn swept_sketches_hide_and_bodies_and_sketches_hide_and_show_again() {
     harness.settle();
     assert!(hidden(&harness, plate));
 }
+
+fn principal_pickables(harness: &mut Harness) -> Vec<Pickable> {
+    harness
+        .built()
+        .picks
+        .pickables()
+        .filter(|pickable| crate::visibility::principal(*pickable).is_some())
+        .collect()
+}
+
+#[test]
+fn principal_planes_axes_and_origin_hide_and_planes_return_while_choosing_one() {
+    let mut harness = Harness::new();
+    harness.settle();
+    let shown_at_first = principal_pickables(&mut harness).len();
+
+    harness.click_beside(crate::icons::SHOW, crate::principal_tree::GROUP_TITLE);
+    harness.settle();
+    let hidden_label = harness.model.undo_label().map(str::to_owned);
+    let left_after_hiding = principal_pickables(&mut harness);
+
+    harness.perform(Action::Editing(EditingCommand::NewSketch(None)));
+    harness.settle();
+    let offered_while_choosing = principal_pickables(&mut harness);
+    harness.perform(Action::Editing(EditingCommand::CancelNewSketch));
+    harness.settle();
+    let left_after_choosing = principal_pickables(&mut harness).len();
+
+    harness.key(Key::H, Modifiers::ALT);
+    harness.settle();
+    let shown_again = principal_pickables(&mut harness).len();
+    let xy = Pickable::Plane(PrincipalPlane::Xy);
+    harness.select([xy]);
+    harness.key(Key::H, Modifiers::NONE);
+    harness.settle();
+    let after_hiding_xy = principal_pickables(&mut harness);
+
+    assert_eq!(shown_at_first, 7);
+    assert_eq!(
+        hidden_label.as_deref(),
+        Some("Hide principal planes, axes and origin")
+    );
+    assert!(left_after_hiding.is_empty());
+    assert_eq!(
+        offered_while_choosing,
+        PrincipalPlane::ALL.map(Pickable::Plane).to_vec()
+    );
+    assert_eq!(left_after_choosing, 0);
+    assert_eq!(shown_again, 7);
+    assert_eq!(after_hiding_xy.len(), 6);
+    assert!(!after_hiding_xy.contains(&xy));
+    assert_eq!(harness.model.undo_label(), Some("Hide XY plane"));
+    assert!(harness.workspace.viewport.selection().is_empty());
+}

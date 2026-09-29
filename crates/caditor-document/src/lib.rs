@@ -20,7 +20,8 @@ pub use crate::{
     blend::{Blend, BlendKind},
     datum::{
         AxisReference, Datum, DatumAxis, DatumPlane, DatumResult, PlaneReference, PlaneRotation,
-        PrincipalAxis, PrincipalPlane, capitalized, describe_axis, describe_plane, displayed_axis,
+        PrincipalAxis, PrincipalGeometry, PrincipalPlane, capitalized, describe_axis,
+        describe_plane, displayed_axis,
     },
     dependencies::DependencyGraph,
     describe::{describe_edge, describe_origin, edge_faces, origin_feature},
@@ -173,6 +174,44 @@ mod tests {
 
         editor.undo().unwrap();
         assert!(editor.document().same_content(&later));
+    }
+
+    #[test]
+    fn hiding_principal_geometry_is_undoable_content_that_a_restore_brings_back() {
+        let (shown, _) = sample();
+        let mut editor = Editor::new(shown.clone());
+        let xy = PrincipalGeometry::Plane(PrincipalPlane::Xy);
+        let hide = |geometry| {
+            Transaction::single(
+                "Hide",
+                Edit::SetPrincipalHidden {
+                    geometry,
+                    hidden: true,
+                },
+            )
+        };
+
+        editor.apply(hide(xy)).unwrap();
+        editor.apply(hide(xy)).unwrap();
+        editor.apply(hide(PrincipalGeometry::Origin)).unwrap();
+        let hidden = editor.document().clone();
+        editor.undo().unwrap();
+        editor.undo().unwrap();
+        let hidden_once = editor.document().clone();
+        editor.undo().unwrap();
+        let restore = shown.transaction_to(&hidden, "Restore");
+        let mut restored = shown.clone();
+        restored.apply(restore).unwrap();
+
+        assert!(!hidden.same_content(&shown));
+        assert_eq!(
+            hidden.hidden_principal().collect::<Vec<_>>(),
+            vec![PrincipalGeometry::Origin, xy]
+        );
+        assert!(hidden_once.is_principal_hidden(xy));
+        assert!(!hidden_once.is_principal_hidden(PrincipalGeometry::Origin));
+        assert!(editor.document().same_content(&shown));
+        assert!(restored.same_content(&hidden));
     }
 
     #[test]

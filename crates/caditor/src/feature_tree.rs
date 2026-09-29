@@ -18,6 +18,7 @@ use crate::{
     icons,
     model::{Action, Model},
     panels::{Focus, PanelState, Renaming},
+    principal_tree,
     selection::{Pickable, Selection},
     shell_panel,
     sketch_placement::{self, PlacementTarget},
@@ -61,10 +62,11 @@ pub fn show(
         state.opened_for_editing = None;
     }
     let document = model.document();
+    ui.spacing_mut().item_spacing.y = ROW_GAP;
+    principal_tree::show(ui, model, state, actions);
     if document.features().len() == 0 {
         ui.label(widgets::muted(EMPTY_TREE, ui));
     }
-    ui.spacing_mut().item_spacing.y = ROW_GAP;
     let count = document.features().len();
     for (index, feature) in document.features().enumerate() {
         let row = Row {
@@ -748,6 +750,9 @@ fn feature_commands(
         && let Ok(transaction) = show
     {
         actions.push(Action::Apply(transaction));
+    }
+    if commands.invoke(Command::TogglePrincipal, &Ok::<_, String>(())) {
+        actions.push(Action::Apply(visibility::toggle_principal_group(document)));
     }
     let changes: [(Command, FeatureChange<'_>); 5] = [
         (Command::DetachSketch, &|feature| {

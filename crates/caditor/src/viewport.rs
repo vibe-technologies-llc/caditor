@@ -318,7 +318,10 @@ impl ViewportState {
         } else if let Some(annotation) = self.annotations.hovered() {
             annotation.constrained_entities(document)
         } else if let Some(row) = self.hovered_in_tree {
-            row.constrained_entities(document)
+            match row.constrained_entities(document) {
+                entities if entities.is_empty() => vec![row],
+                entities => entities,
+            }
         } else {
             highlighted.into_iter().collect()
         };

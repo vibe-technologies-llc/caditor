@@ -72,6 +72,33 @@ impl PrincipalAxis {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PrincipalGeometry {
+    Origin,
+    Axis(PrincipalAxis),
+    Plane(PrincipalPlane),
+}
+
+impl PrincipalGeometry {
+    pub const ALL: [Self; 7] = [
+        Self::Plane(PrincipalPlane::Xy),
+        Self::Plane(PrincipalPlane::Xz),
+        Self::Plane(PrincipalPlane::Yz),
+        Self::Axis(PrincipalAxis::X),
+        Self::Axis(PrincipalAxis::Y),
+        Self::Axis(PrincipalAxis::Z),
+        Self::Origin,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Origin => "Origin",
+            Self::Axis(axis) => axis.name(),
+            Self::Plane(plane) => plane.name(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlaneReference {
     Principal(PrincipalPlane),

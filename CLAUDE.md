@@ -649,7 +649,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     turns one document into another (every feature and parameter removed, then the target's inserted
     with their IDs), which is how an earlier version is restored as one undoable change.
   - A feature carries a `hidden` flag, changed by `Edit::SetFeatureHidden` (undoable, saved as a
-    `hidden` field written only when set, journaled like any edit); recompute ignores it.
+    `hidden` field written only when set, journaled like any edit); recompute ignores it. The
+    principal planes, axes and origin (`PrincipalGeometry`) are not features, but which of them
+    are hidden is document content as well (`Edit::SetPrincipalHidden`, compared by
+    `same_content` and carried by `transaction_to`) rather than a view preference, so hiding a
+    selection that mixes them with features, showing everything and undoing either are one change,
+    and a model reopens looking as it was left.
   - Sketch content changes only through sketch edits (add, remove or set an entity, add or
     remove a constraint, set a dimension). Removing an entity that something still uses is
     refused rather than cascaded; `TransactionBuilder::remove_sketch_items` expands a user's
@@ -789,7 +794,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     an older reader drops unknown fields of any record it changes.
   - A model file holds a head chunk (when it was saved, the name of the last change, and a
     blake3 digest of its records), one zstd chunk per record (parameters, features, the ID
-    counters) and the version history. Saving writes a record whose understood content is
+    counters, and a `principal` record listing the hidden principal planes, axes and origin,
+    written only when one is hidden; the journal's snapshot carries it as a field) and the
+    version history. Saving writes a record whose understood content is
     unchanged back exactly as it was stored (fields from newer versions included, and without
     compressing it again), and carries chunks of kinds it does not know unless they are flagged
     must-understand, which loading reports as left out (so the original is kept as `.damaged`).
@@ -1172,7 +1179,13 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     or counted in fitting, except the edited sketch and the open datum. Each such tree row has an
     eye button and a Hide or Show menu item (Hide or show feature, on the tree's current
     feature); H hides the bodies, sketches and datums of the selection and Alt+H shows
-    everything. Extrude and Revolve hide the sketch they sweep in the same transaction.
+    everything. Extrude and Revolve hide the sketch they sweep in the same transaction. The
+    principal planes, axes and origin hide the same way (H on them in the view, Alt+H), and a
+    collapsible "Principal planes and axes" row at the top of the tree (`principal_tree.rs`) has
+    an eye button for the group (also the command Hide or show principal planes, axes and
+    origin) and one per item, hovering an item highlighting it in the view. While a sketch's
+    plane is being chosen (`Context::choosing_plane`) hidden principal planes are drawn and
+    offered anyway.
   - Datums (`datum_tools.rs`, `datum_panel.rs`): the toolbar's Plane starts from the selected plane
     or flat face (the XY plane otherwise), turned 45° about the selected axis, straight edge or
     round face when there is one (offset 0 mm), else offset 10 mm; Axis runs along the selected

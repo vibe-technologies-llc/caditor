@@ -10,7 +10,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use crate::{
     attachment::{SketchAttachment, SketchFeature},
     blend::Blend,
-    datum::Datum,
+    datum::{Datum, PrincipalGeometry},
     edit::{Edit, Transaction},
     import::Import,
     shell::Shell,
@@ -323,6 +323,7 @@ pub struct Document {
     pub(crate) features: Vec<Arc<Feature>>,
     pub(crate) next_parameter_id: u64,
     pub(crate) next_feature_id: u64,
+    pub(crate) hidden_principal: BTreeSet<PrincipalGeometry>,
 }
 
 impl Document {
@@ -371,8 +372,17 @@ impl Document {
         self.next_feature_id
     }
 
+    pub fn is_principal_hidden(&self, geometry: PrincipalGeometry) -> bool {
+        self.hidden_principal.contains(&geometry)
+    }
+
+    pub fn hidden_principal(&self) -> impl Iterator<Item = PrincipalGeometry> + '_ {
+        self.hidden_principal.iter().copied()
+    }
+
     pub fn same_content(&self, other: &Self) -> bool {
         self.parameters == other.parameters
+            && self.hidden_principal == other.hidden_principal
             && self.features.len() == other.features.len()
             && self
                 .features
@@ -427,7 +437,19 @@ impl Document {
                     feature: self.keeping_sketch_ids(feature),
                 }
             }));
-        Transaction::new(label, removals.chain(insertions).collect())
+        let visibility = PrincipalGeometry::ALL
+            .into_iter()
+            .filter(|geometry| {
+                self.is_principal_hidden(*geometry) != target.is_principal_hidden(*geometry)
+            })
+            .map(|geometry| Edit::SetPrincipalHidden {
+                geometry,
+                hidden: target.is_principal_hidden(geometry),
+            });
+        Transaction::new(
+            label,
+            removals.chain(insertions).chain(visibility).collect(),
+        )
     }
 
     fn keeping_sketch_ids(&self, restored: &Arc<Feature>) -> Arc<Feature> {

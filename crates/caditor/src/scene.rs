@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
     DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
-    RegionChoice, RevolveAxis, SketchRegion, SolidFeature, displayed_axis,
+    PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion, SolidFeature, displayed_axis,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray};
 use caditor_kernel::RegionKey;
@@ -293,12 +293,23 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
         }
         None => {
             for plane in PrincipalPlane::ALL {
-                builder.principal_plane(plane, reference_size);
+                if context.choosing_plane
+                    || visibility::is_principal_shown(document, PrincipalGeometry::Plane(plane))
+                {
+                    builder.principal_plane(plane, reference_size);
+                }
             }
             for axis in Axis::ALL {
-                builder.axis(axis, reference_size);
+                if visibility::is_principal_shown(
+                    document,
+                    PrincipalGeometry::Axis(axis.principal()),
+                ) {
+                    builder.axis(axis, reference_size);
+                }
             }
-            builder.origin();
+            if visibility::is_principal_shown(document, PrincipalGeometry::Origin) {
+                builder.origin();
+            }
             for feature in document.features() {
                 let opened = context.solid == Some(feature.id());
                 if feature.kind.datum().is_some() && (opened || !feature.hidden) {
@@ -1179,7 +1190,7 @@ mod tests {
             highlight,
             Context {
                 sketch: editing,
-                solid: None,
+                ..Context::default()
             },
         )
     }

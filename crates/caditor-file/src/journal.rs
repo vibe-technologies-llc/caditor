@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     binary::{ChunkKind, EncodeError, JOURNAL_MAGIC, Piece, parse, push_packed, start_file, value},
     format::{
-        FeatureRecord, Lenient, NextIdsRecord, ParameterRecord, Record, TransactionRecord,
-        feature_record, next_ids_record, parameter_record, restore_transaction, transaction_record,
+        FeatureRecord, Lenient, NextIdsRecord, ParameterRecord, PrincipalRecord, Record,
+        TransactionRecord, feature_record, next_ids_record, parameter_record, principal_record,
+        restore_transaction, transaction_record,
     },
     load::{Parts, assemble},
 };
@@ -39,6 +40,8 @@ struct SnapshotRecord {
     parameters: Vec<Lenient<ParameterRecord>>,
     features: Vec<Lenient<FeatureRecord>>,
     next_ids: NextIdsRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    principal: Option<PrincipalRecord>,
 }
 
 pub(crate) fn encode_journal(
@@ -96,6 +99,7 @@ fn snapshot_record(document: &Document) -> SnapshotRecord {
             .map(|feature| Lenient::Read(feature_record(feature)))
             .collect(),
         next_ids: next_ids_record(document),
+        principal: principal_record(document),
     }
 }
 
@@ -186,6 +190,10 @@ fn decode_entry(piece: &Piece<'_>) -> Option<JournalEntry> {
 fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {
     let mut parts = Parts {
         next_ids: Some(snapshot.next_ids),
+        hidden_principal: snapshot
+            .principal
+            .map(|principal| principal.hidden)
+            .unwrap_or_default(),
         ..Parts::default()
     };
     for parameter in snapshot.parameters {

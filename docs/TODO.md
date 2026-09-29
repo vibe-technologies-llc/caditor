@@ -122,7 +122,6 @@ within a category run from most to least important.
 
 ## Viewer
 
-- The principal planes, axes and origin cannot be hidden.
 - Orthographic projection for standard views.
 - Silhouette edges on curved bodies.
 - Section planes.

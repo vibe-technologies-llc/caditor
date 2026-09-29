@@ -1371,6 +1371,45 @@ fn a_hidden_feature_stays_hidden_through_saving_and_the_journal() {
     );
 }
 
+#[test]
+fn hidden_principal_geometry_stays_hidden_through_saving_the_journal_and_its_snapshot() {
+    use caditor_document::{PrincipalAxis, PrincipalGeometry, PrincipalPlane};
+
+    let (mut document, _, _) = solid_model();
+    let visible = encode(&document).unwrap();
+    let hide = Transaction::new(
+        "Hide",
+        [
+            PrincipalGeometry::Origin,
+            PrincipalGeometry::Axis(PrincipalAxis::Z),
+            PrincipalGeometry::Plane(PrincipalPlane::Xz),
+        ]
+        .into_iter()
+        .map(|geometry| Edit::SetPrincipalHidden {
+            geometry,
+            hidden: true,
+        })
+        .collect(),
+    );
+    document.apply(hide.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&hide)).unwrap());
+    let recovered =
+        journal::decode_journal(&journal::encode_journal(None, false, &document, &[]).unwrap())
+            .unwrap();
+
+    assert!(!visible.contains("principal"));
+    assert!(text.contains(r#"{"principal":{"hidden":["origin",{"axis":"z"},{"plane":"xz"}]}}"#));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(hide));
+    assert_eq!(recovered.issues, Vec::<String>::new());
+    assert_eq!(recovered.base, document);
+}
+
 fn attached_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{FaceAttachment, SketchFeature};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};

@@ -140,6 +140,9 @@ The first release of caditor.
 - Bodies, sketches and datum planes and axes can be hidden and shown again from the feature
   tree, with H for the selection and Alt+H for everything; a sketch is hidden once it is extruded
   or revolved, so it no longer covers the faces it made or takes their clicks.
+- The principal planes, axes and origin can be hidden too, all at once or one by one, from the
+  top of the feature tree, with H on them in the view or from the palette. The model remembers
+  which are hidden, and hidden planes still appear while choosing where to start a sketch.
 - A feature opened from the toolbar or the view scrolls its panel into view in the feature tree.
 - caditor reopens its window at the size and maximised state it was left in (and, under X11, at
   the same place), with the side panel as wide and its sections open or closed as before.

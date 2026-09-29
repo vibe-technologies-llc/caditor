@@ -8,7 +8,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
 
 use crate::{
     attachment::SketchAttachment,
-    datum::Datum,
+    datum::{Datum, PrincipalGeometry},
     dependencies::DependencyGraph,
     document::{
         Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, list_names,
@@ -50,6 +50,10 @@ pub enum Edit {
     },
     SetFeatureHidden {
         id: FeatureId,
+        hidden: bool,
+    },
+    SetPrincipalHidden {
+        geometry: PrincipalGeometry,
         hidden: bool,
     },
     SetFeatureKind {
@@ -137,6 +141,7 @@ impl Transaction {
                 | Edit::RemoveFeature { .. }
                 | Edit::MoveFeature { .. }
                 | Edit::SetFeatureHidden { .. }
+                | Edit::SetPrincipalHidden { .. }
                 | Edit::SetSketchPlacement { .. }
                 | Edit::SetDimension { .. }
                 | Edit::AddSketchEntity { .. }
@@ -340,6 +345,9 @@ impl Document {
             Edit::RenameFeature { id, name } => self.rename_feature(id, name),
             Edit::MoveFeature { id, index } => self.move_feature(id, index),
             Edit::SetFeatureHidden { id, hidden } => self.set_feature_hidden(id, hidden),
+            Edit::SetPrincipalHidden { geometry, hidden } => {
+                Ok(self.set_principal_hidden(geometry, hidden))
+            }
             Edit::SetFeatureKind { id, kind } => self.set_feature_kind(id, kind),
             Edit::SetSketchPlacement {
                 feature,
@@ -675,6 +683,18 @@ impl Document {
             id,
             hidden: previous,
         })
+    }
+
+    fn set_principal_hidden(&mut self, geometry: PrincipalGeometry, hidden: bool) -> Edit {
+        let previous = if hidden {
+            !self.hidden_principal.insert(geometry)
+        } else {
+            self.hidden_principal.remove(&geometry)
+        };
+        Edit::SetPrincipalHidden {
+            geometry,
+            hidden: previous,
+        }
     }
 
     fn check_feature_name(&self, name: &str, id: FeatureId) -> Result<(), EditError> {

@@ -3,8 +3,9 @@ use std::sync::Arc;
 use caditor_document::{
     AxisReference, Blend, BlendKind, BodyOperation, Datum, DatumAxis, DatumPlane, Document, Edit,
     Extrude, ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Import, Parameter,
-    PlaneReference, PlaneRotation, PrincipalAxis, PrincipalPlane, RegionChoice, Revolve,
-    RevolveAxis, RevolveExtent, Shell, SketchAttachment, SketchFeature, SolidFeature, Transaction,
+    PlaneReference, PlaneRotation, PrincipalAxis, PrincipalGeometry, PrincipalPlane, RegionChoice,
+    Revolve, RevolveAxis, RevolveExtent, Shell, SketchAttachment, SketchFeature, SolidFeature,
+    Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -23,9 +24,10 @@ pub(crate) enum Record {
     Parameter(ParameterRecord),
     Feature(Box<FeatureRecord>),
     NextIds(NextIdsRecord),
+    Principal(PrincipalRecord),
 }
 
-pub(crate) const RECORD_KINDS: [&str; 3] = ["parameter", "feature", "next_ids"];
+pub(crate) const RECORD_KINDS: [&str; 4] = ["parameter", "feature", "next_ids", "principal"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ParameterRecord {
@@ -82,6 +84,19 @@ pub(crate) enum PrincipalAxisRecord {
     X,
     Y,
     Z,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PrincipalGeometryRecord {
+    Origin,
+    Axis(PrincipalAxisRecord),
+    Plane(PrincipalPlaneRecord),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PrincipalRecord {
+    pub hidden: Vec<PrincipalGeometryRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -361,6 +376,10 @@ pub(crate) enum EditRecord {
         id: u64,
         hidden: bool,
     },
+    SetPrincipalHidden {
+        geometry: PrincipalGeometryRecord,
+        hidden: bool,
+    },
     SetFeatureKind {
         feature: FeatureRecord,
     },
@@ -617,13 +636,73 @@ fn hex(digest: u128) -> String {
     format!("{digest:032x}")
 }
 
+fn principal_plane_record(plane: PrincipalPlane) -> PrincipalPlaneRecord {
+    match plane {
+        PrincipalPlane::Xy => PrincipalPlaneRecord::Xy,
+        PrincipalPlane::Xz => PrincipalPlaneRecord::Xz,
+        PrincipalPlane::Yz => PrincipalPlaneRecord::Yz,
+    }
+}
+
+fn principal_axis_record(axis: PrincipalAxis) -> PrincipalAxisRecord {
+    match axis {
+        PrincipalAxis::X => PrincipalAxisRecord::X,
+        PrincipalAxis::Y => PrincipalAxisRecord::Y,
+        PrincipalAxis::Z => PrincipalAxisRecord::Z,
+    }
+}
+
+fn principal_geometry_record(geometry: PrincipalGeometry) -> PrincipalGeometryRecord {
+    match geometry {
+        PrincipalGeometry::Origin => PrincipalGeometryRecord::Origin,
+        PrincipalGeometry::Axis(axis) => PrincipalGeometryRecord::Axis(principal_axis_record(axis)),
+        PrincipalGeometry::Plane(plane) => {
+            PrincipalGeometryRecord::Plane(principal_plane_record(plane))
+        }
+    }
+}
+
+pub(crate) fn principal_record(document: &Document) -> Option<PrincipalRecord> {
+    let hidden: Vec<PrincipalGeometryRecord> = document
+        .hidden_principal()
+        .map(principal_geometry_record)
+        .collect();
+    (!hidden.is_empty()).then_some(PrincipalRecord { hidden })
+}
+
+fn restore_principal_plane(record: PrincipalPlaneRecord) -> PrincipalPlane {
+    match record {
+        PrincipalPlaneRecord::Xy => PrincipalPlane::Xy,
+        PrincipalPlaneRecord::Xz => PrincipalPlane::Xz,
+        PrincipalPlaneRecord::Yz => PrincipalPlane::Yz,
+    }
+}
+
+fn restore_principal_axis(record: PrincipalAxisRecord) -> PrincipalAxis {
+    match record {
+        PrincipalAxisRecord::X => PrincipalAxis::X,
+        PrincipalAxisRecord::Y => PrincipalAxis::Y,
+        PrincipalAxisRecord::Z => PrincipalAxis::Z,
+    }
+}
+
+pub(crate) fn restore_principal(record: PrincipalGeometryRecord) -> PrincipalGeometry {
+    match record {
+        PrincipalGeometryRecord::Origin => PrincipalGeometry::Origin,
+        PrincipalGeometryRecord::Axis(axis) => {
+            PrincipalGeometry::Axis(restore_principal_axis(axis))
+        }
+        PrincipalGeometryRecord::Plane(plane) => {
+            PrincipalGeometry::Plane(restore_principal_plane(plane))
+        }
+    }
+}
+
 fn plane_reference_record(reference: &PlaneReference) -> PlaneReferenceRecord {
     match reference {
-        PlaneReference::Principal(plane) => PlaneReferenceRecord::Principal(match plane {
-            PrincipalPlane::Xy => PrincipalPlaneRecord::Xy,
-            PrincipalPlane::Xz => PrincipalPlaneRecord::Xz,
-            PrincipalPlane::Yz => PrincipalPlaneRecord::Yz,
-        }),
+        PlaneReference::Principal(plane) => {
+            PlaneReferenceRecord::Principal(principal_plane_record(*plane))
+        }
         PlaneReference::Datum(feature) => PlaneReferenceRecord::Datum(feature.raw()),
         PlaneReference::Face(attachment) => {
             PlaneReferenceRecord::Face(attachment_record(attachment))
@@ -633,11 +712,9 @@ fn plane_reference_record(reference: &PlaneReference) -> PlaneReferenceRecord {
 
 fn axis_record(reference: &AxisReference) -> AxisReferenceRecord {
     match reference {
-        AxisReference::Principal(axis) => AxisReferenceRecord::Principal(match axis {
-            PrincipalAxis::X => PrincipalAxisRecord::X,
-            PrincipalAxis::Y => PrincipalAxisRecord::Y,
-            PrincipalAxis::Z => PrincipalAxisRecord::Z,
-        }),
+        AxisReference::Principal(axis) => {
+            AxisReferenceRecord::Principal(principal_axis_record(*axis))
+        }
         AxisReference::Datum(feature) => AxisReferenceRecord::Datum(feature.raw()),
         AxisReference::Edge { body, edge } => AxisReferenceRecord::Edge {
             body: body.raw(),
@@ -825,6 +902,10 @@ fn edit_record(edit: &Edit) -> EditRecord {
             id: id.raw(),
             hidden: *hidden,
         },
+        Edit::SetPrincipalHidden { geometry, hidden } => EditRecord::SetPrincipalHidden {
+            geometry: principal_geometry_record(*geometry),
+            hidden: *hidden,
+        },
         Edit::SetFeatureKind { id, kind } => EditRecord::SetFeatureKind {
             feature: FeatureRecord {
                 id: id.raw(),
@@ -948,6 +1029,10 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
         },
         EditRecord::SetFeatureHidden { id, hidden } => Edit::SetFeatureHidden {
             id: FeatureId::from_raw(id),
+            hidden,
+        },
+        EditRecord::SetPrincipalHidden { geometry, hidden } => Edit::SetPrincipalHidden {
+            geometry: restore_principal(geometry),
             hidden,
         },
         EditRecord::SetFeatureKind { feature } => {
@@ -1147,11 +1232,9 @@ fn restore_import(record: &ImportRecord, name: &str, issues: &mut Vec<String>) -
 
 fn restore_plane_reference(record: &PlaneReferenceRecord) -> Option<PlaneReference> {
     Some(match record {
-        PlaneReferenceRecord::Principal(plane) => PlaneReference::Principal(match plane {
-            PrincipalPlaneRecord::Xy => PrincipalPlane::Xy,
-            PrincipalPlaneRecord::Xz => PrincipalPlane::Xz,
-            PrincipalPlaneRecord::Yz => PrincipalPlane::Yz,
-        }),
+        PlaneReferenceRecord::Principal(plane) => {
+            PlaneReference::Principal(restore_principal_plane(*plane))
+        }
         PlaneReferenceRecord::Datum(feature) => {
             PlaneReference::Datum(FeatureId::from_raw(*feature))
         }
@@ -1163,11 +1246,9 @@ fn restore_plane_reference(record: &PlaneReferenceRecord) -> Option<PlaneReferen
 
 fn restore_axis(record: &AxisReferenceRecord) -> Option<AxisReference> {
     Some(match record {
-        AxisReferenceRecord::Principal(axis) => AxisReference::Principal(match axis {
-            PrincipalAxisRecord::X => PrincipalAxis::X,
-            PrincipalAxisRecord::Y => PrincipalAxis::Y,
-            PrincipalAxisRecord::Z => PrincipalAxis::Z,
-        }),
+        AxisReferenceRecord::Principal(axis) => {
+            AxisReference::Principal(restore_principal_axis(*axis))
+        }
         AxisReferenceRecord::Datum(feature) => AxisReference::Datum(FeatureId::from_raw(*feature)),
         AxisReferenceRecord::Edge { body, edge } => AxisReference::Edge {
             body: FeatureId::from_raw(*body),

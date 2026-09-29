@@ -93,6 +93,7 @@ pub enum Command {
     HideSelection,
     ToggleVisibility,
     ShowAll,
+    TogglePrincipal,
     OpenSample(Sample),
     OpenRecent(RecentSlot),
     RecoverUnsaved,
@@ -359,7 +360,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 57] = [
+const PLAIN_COMMANDS: [Command; 58] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -385,6 +386,7 @@ const PLAIN_COMMANDS: [Command; 57] = [
     Command::HideSelection,
     Command::ToggleVisibility,
     Command::ShowAll,
+    Command::TogglePrincipal,
     Command::NewSketch,
     Command::Extrude,
     Command::Revolve,
@@ -498,6 +500,7 @@ impl Command {
             Self::HideSelection => "view.hide_selection",
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
+            Self::TogglePrincipal => "view.toggle_principal",
             Self::OpenSample(sample) => match sample {
                 Sample::Plate => "file.sample.plate",
                 Sample::Spool => "file.sample.spool",
@@ -572,6 +575,7 @@ impl Command {
             Self::HideSelection => "Hide selection",
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
+            Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
             Self::OpenSample(sample) => return format!("Open the {} sample", sample.title()),
             Self::OpenRecent(slot) => return slot.title(),
             Self::RecoverUnsaved => "Recover Unsaved Work…",
@@ -634,7 +638,8 @@ impl Command {
             | Self::ActivateHighlighted
             | Self::HideSelection
             | Self::ToggleVisibility
-            | Self::ShowAll => Category::View,
+            | Self::ShowAll
+            | Self::TogglePrincipal => Category::View,
             Self::NewSketch
             | Self::Extrude
             | Self::Revolve
@@ -731,6 +736,7 @@ impl Command {
             | Self::MoveFeatureDown
             | Self::DeleteFeature
             | Self::ToggleVisibility
+            | Self::TogglePrincipal
             | Self::CloseFeature
             | Self::DetachSketch
             | Self::PlaceSketch

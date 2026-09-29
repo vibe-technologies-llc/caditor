@@ -15,8 +15,8 @@ use caditor_sketch::EntityId;
 use crate::{
     binary::{self, History},
     format::{
-        FEATURE_KINDS, FeatureRecord, NextIdsRecord, ParameterRecord, RECORD_KINDS, Record,
-        Unreadable, restore_feature,
+        FEATURE_KINDS, FeatureRecord, NextIdsRecord, ParameterRecord, PrincipalGeometryRecord,
+        RECORD_KINDS, Record, Unreadable, restore_feature, restore_principal,
     },
     read::read_file,
     reason,
@@ -94,6 +94,7 @@ pub(crate) struct Parts {
     pub parameters: Vec<ParameterRecord>,
     pub features: Vec<FeatureRecord>,
     pub next_ids: Option<NextIdsRecord>,
+    pub hidden_principal: Vec<PrincipalGeometryRecord>,
     pub lost_parameter_names: BTreeMap<u64, String>,
     pub beyond_limit: usize,
 }
@@ -115,6 +116,7 @@ impl Parts {
             Record::Parameter(parameter) => self.parameters.push(parameter),
             Record::Feature(feature) => self.features.push(*feature),
             Record::NextIds(next_ids) => self.next_ids = Some(next_ids),
+            Record::Principal(principal) => self.hidden_principal = principal.hidden,
         }
     }
 }
@@ -329,6 +331,22 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
         },
         &mut |document, feature, error| insert_alone(document, feature, error, issues),
     );
+
+    let hidden = parts
+        .hidden_principal
+        .iter()
+        .map(|record| Edit::SetPrincipalHidden {
+            geometry: restore_principal(*record),
+            hidden: true,
+        })
+        .collect();
+    if document.apply(Transaction::new("Hide", hidden)).is_err() {
+        issues.push(
+            "Which principal planes and axes were hidden could not be restored, so they are all \
+             shown."
+                .to_owned(),
+        );
+    }
 
     if let Some(next) = parts.next_ids {
         document.reserve_ids_below(next.parameter, next.feature);

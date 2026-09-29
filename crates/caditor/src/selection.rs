@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 pub use caditor_document::PrincipalPlane;
 use caditor_document::{
-    Document, Evaluation, FeatureId, FeatureResult, PrincipalAxis, SketchRegion,
+    Document, Evaluation, FeatureId, FeatureResult, PrincipalAxis, PrincipalGeometry, SketchRegion,
 };
 use caditor_geometry::Vector3;
 use caditor_kernel::{EdgeName, RegionKey};
@@ -58,6 +58,14 @@ impl Axis {
             Self::X => PrincipalAxis::X,
             Self::Y => PrincipalAxis::Y,
             Self::Z => PrincipalAxis::Z,
+        }
+    }
+
+    pub fn of(axis: PrincipalAxis) -> Self {
+        match axis {
+            PrincipalAxis::X => Self::X,
+            PrincipalAxis::Y => Self::Y,
+            PrincipalAxis::Z => Self::Z,
         }
     }
 }
@@ -259,7 +267,19 @@ impl Pickable {
                         .and_then(|owner| owner.kind.sketch())
                         .is_some_and(|sketch| sketch.constraint(constraint).is_some())
             }
-            Self::Origin | Self::Axis(_) | Self::Plane(_) => editing.is_none(),
+            Self::Plane(plane) => {
+                editing.is_none()
+                    && (context.choosing_plane
+                        || visibility::is_principal_shown(
+                            document,
+                            PrincipalGeometry::Plane(plane),
+                        ))
+            }
+            Self::Origin | Self::Axis(_) => {
+                editing.is_none()
+                    && visibility::principal(self)
+                        .is_some_and(|geometry| visibility::is_principal_shown(document, geometry))
+            }
             Self::Face { body, face } => {
                 editing.is_none()
                     && visibility::is_shown(document, body)

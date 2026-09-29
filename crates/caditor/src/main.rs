@@ -30,6 +30,7 @@ mod palette;
 mod panels;
 mod parameter_table;
 mod preferences;
+mod principal_tree;
 mod reference_rows;
 mod samples;
 mod scene;
