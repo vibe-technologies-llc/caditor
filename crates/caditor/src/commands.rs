@@ -33,6 +33,22 @@ const WIDGET_KEYS: [Key; 12] = [
     Key::End,
 ];
 const KEPT_WHILE_DRAWING: [Key; 2] = [Key::Backspace, Key::Delete];
+const TEXT_EDITING_KEYS: [Key; 14] = [
+    Key::A,
+    Key::C,
+    Key::V,
+    Key::X,
+    Key::Y,
+    Key::Z,
+    Key::ArrowUp,
+    Key::ArrowDown,
+    Key::ArrowLeft,
+    Key::ArrowRight,
+    Key::Home,
+    Key::End,
+    Key::Backspace,
+    Key::Delete,
+];
 const CTRL: &str = "Ctrl";
 const ALT: &str = "Alt";
 const SHIFT: &str = "Shift";
@@ -972,7 +988,7 @@ impl Situation {
             return false;
         }
         if modifiers.command || modifiers.alt {
-            !self.text_focused
+            !self.text_focused || !TEXT_EDITING_KEYS.contains(&shortcut.logical_key)
         } else if WIDGET_KEYS.contains(&shortcut.logical_key) {
             self.keys_free
         } else {
@@ -1319,6 +1335,14 @@ mod tests {
             text_focused: true,
             ..Situation::default()
         };
-        assert!(!typing.accepts(&press(Key::S, Modifiers::COMMAND)));
+        assert!(typing.accepts(&press(Key::S, Modifiers::COMMAND)));
+        assert!(typing.accepts(&press(Key::Num1, Modifiers::ALT)));
+        for kept in [Key::C, Key::V, Key::Z, Key::ArrowLeft, Key::Backspace] {
+            assert!(
+                !typing.accepts(&press(kept, Modifiers::COMMAND)),
+                "{kept:?}"
+            );
+        }
+        assert!(!typing.accepts(&press(Key::S, Modifiers::NONE)));
     }
 }

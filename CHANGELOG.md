@@ -100,6 +100,8 @@ The first release of caditor.
   including views, highlighting in the viewport and typed points.
 - The shortcut editor finds commands by their keys as well as their names: typing `ctrl+z` or
   just `z` lists what those keys do.
+- Shortcuts such as Ctrl+S work while typing in a field: the typed value is committed first, so
+  it is what gets saved. Copy, paste, undo and the other editing keys stay with the field.
 - Dark, light and high-contrast themes, interface sizes from 75% to 200%, and a choice of
   micrometres, millimetres, centimetres or metres.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.

@@ -74,6 +74,7 @@ pub struct Workspace {
     pub last_offers: Vec<Offer>,
     applied_appearance: Option<Appearance>,
     keyboard_was_taken: bool,
+    deferred_commands: Vec<Command>,
     session: u64,
 }
 
@@ -102,6 +103,7 @@ impl Workspace {
             last_offers: Vec::new(),
             applied_appearance: None,
             keyboard_was_taken: false,
+            deferred_commands: Vec::new(),
             session: 0,
         }
     }
@@ -187,6 +189,7 @@ pub fn show(
         about_open,
         last_offers,
         keyboard_was_taken,
+        deferred_commands,
         ..
     } = workspace;
     let situation = Situation {
@@ -195,11 +198,19 @@ pub fn show(
         text_focused,
         keys_free,
     };
+    let deferred = std::mem::take(deferred_commands);
     let mut triggered = if blocked {
         Vec::new()
     } else {
         commands::dispatch(ui.ctx(), &preferences.keymap, &situation)
     };
+    if text_focused && !triggered.is_empty() {
+        leave_text_field(ui.ctx());
+        *deferred_commands = std::mem::take(&mut triggered);
+    }
+    if !blocked {
+        triggered.extend(deferred);
+    }
     triggered.extend(palette.take_chosen());
     let mut commands = CommandFrame::new(&preferences.keymap, triggered);
     let menu = MenuContext {
@@ -378,6 +389,15 @@ fn interface_size(
             )));
         }
     }
+}
+
+fn leave_text_field(ctx: &egui::Context) {
+    ctx.request_repaint();
+    ctx.memory_mut(|memory| {
+        if let Some(focused) = memory.focused() {
+            memory.surrender_focus(focused);
+        }
+    });
 }
 
 fn route_dimension_focus(

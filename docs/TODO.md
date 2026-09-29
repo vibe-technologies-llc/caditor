@@ -150,8 +150,6 @@ within a category run from most to least important.
   size buttons) expose their private-use glyph as their accessible name, property captions are
   not tied to their fields, and the shortcut editor's many "Add…" and "Reset" buttons differ
   only by hover text.
-- Ctrl and Alt shortcuts are ignored while a text field has focus, so Save after typing a value
-  does nothing; commit the field and let global commands through.
 - The menu bar and status bar are single non-wrapping rows and the parameter grid is wider than
   the side panel's minimum; the 200% test checks four labels on an empty model.
 - Typed arc ends always take the shorter sweep, so an arc over 180° cannot be typed.

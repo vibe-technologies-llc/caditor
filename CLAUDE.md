@@ -1123,9 +1123,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     constraint's own rule (a radius above zero). Plain-key shortcuts (and Escape, Enter and
     Backspace in the viewport) run only when no widget held keyboard focus at the start of the
     frame or the end of the previous one, so Escape or Enter in a field never reaches the
-    viewport; shortcuts with Ctrl or Alt, and plain keys that widgets do not use (letters, Delete,
-    function keys; not Space, Enter, Tab, Escape, arrows, Page Up or Down, Home or End), need
-    only that no text field has focus.
+    viewport; plain keys that widgets do not use (letters, Delete, function keys; not Space,
+    Enter, Tab, Escape, arrows, Page Up or Down, Home or End) need only that no text field has
+    focus. Shortcuts with Ctrl or Alt run from a text field too, except on the keys text editing
+    uses (`TEXT_EDITING_KEYS`: A, C, V, X, Y, Z, arrows, Home, End, Backspace, Delete): the field
+    loses focus, which commits it, and the command runs on the next frame
+    (`Workspace::deferred_commands`), so Save after typing a value saves that value.
   - Commands (`commands.rs`): every toolbar, menu and sketch-toolbar action is a `Command` with
     a stable id, a title, a category, a `Scope` (anywhere, or only while a sketch is edited) and
     default shortcuts. The `Keymap` in `Preferences` holds the user's bindings as overrides of

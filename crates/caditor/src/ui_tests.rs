@@ -1250,6 +1250,41 @@ fn damage_chunk(bytes: &[u8], chunk: usize) -> Vec<u8> {
 }
 
 #[test]
+fn saving_while_typing_in_a_field_commits_the_field_first() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let path = dir.path().join("plate.caditor");
+    harness.answer_dialog(Some(path.clone()));
+    harness.command(FileCommand::SaveAs);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
+
+    let width = harness.parameter("width");
+    harness.focus(Focus::ParameterValue(width));
+    harness.replace_text("52 mm");
+    assert_eq!(
+        harness.focused(),
+        Some(Focus::ParameterValue(width).field_id())
+    );
+    harness.key(Key::S, Modifiers::COMMAND);
+    harness.frame();
+    harness.frame();
+    harness.wait_until("the typed width is saved", |harness| {
+        !harness.model.is_dirty() && !harness.model.is_saving()
+    });
+
+    assert_eq!(harness.expression_text("width"), "52 mm");
+    assert_eq!(harness.focused(), None);
+    let reopened = caditor_file::load(&path).unwrap();
+    let document = &reopened.document;
+    assert_eq!(
+        document.expression_text(&document.parameter_named("width").unwrap().expression),
+        "52 mm"
+    );
+}
+
+#[test]
 fn every_save_keeps_a_version_that_can_be_restored_and_undone() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
