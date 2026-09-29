@@ -391,12 +391,17 @@ fn overlapping_lumps_cross_and_valid_solids_do_not() {
     let crossing = overlapping
         .find_crossing()
         .unwrap()
+        .crossing()
         .expect("the lumps cross");
     assert_ne!(crossing.faces[0], crossing.faces[1]);
     assert!(overlapping.classify_point(crossing.point) != crate::PointClass::Outside);
 
     for (name, solid) in crate::fixtures::every_solid() {
-        assert_eq!(solid.find_crossing().unwrap(), None, "{name}");
+        assert_eq!(
+            solid.find_crossing().unwrap(),
+            CrossingCheck::Clear,
+            "{name}"
+        );
     }
 }
 
@@ -418,6 +423,7 @@ fn a_face_folded_onto_its_neighbour_crosses_it() {
     let crossing = folded
         .find_crossing()
         .unwrap()
+        .crossing()
         .expect("the flap lies on the base");
     let mut faces = crossing.faces;
     faces.sort();
@@ -480,6 +486,7 @@ fn a_curved_flap_passing_through_its_neighbour_crosses_it() {
     let crossing = solid
         .find_crossing()
         .unwrap()
+        .crossing()
         .expect("the flap passes through the base");
     let mut faces = crossing.faces;
     faces.sort();
@@ -513,6 +520,7 @@ fn a_hole_crossing_its_outer_loop_crosses_its_own_face() {
     let crossing = solid
         .find_crossing()
         .unwrap()
+        .crossing()
         .expect("the hole crosses the outer loop");
     assert_eq!(crossing.faces, [plate, plate]);
     assert!((crossing.point.x - 4.0).abs() < 1e-9, "{crossing:?}");
@@ -542,7 +550,11 @@ fn blended_solids_do_not_cross() {
     ] {
         let edges: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
         let blended = crate::blend::blend(&solid, &edges, shape, 7).unwrap();
-        assert_eq!(blended.find_crossing().unwrap(), None, "{name}");
+        assert_eq!(
+            blended.find_crossing().unwrap(),
+            CrossingCheck::Clear,
+            "{name}"
+        );
     }
 }
 

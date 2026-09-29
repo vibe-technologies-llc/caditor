@@ -5,7 +5,7 @@ use std::{
 
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
-    BSpline, BuildError, Circle, Curve, EdgeId, FaceId, IntersectionCurve, Interval,
+    BSpline, BuildError, Circle, CrossingCheck, Curve, EdgeId, FaceId, IntersectionCurve, Interval,
     LINEAR_RESOLUTION, PlaneSurface, Sense, ShellId, Solid, SolidBuilder, Surface, ValidationError,
     VertexId,
 };
@@ -35,6 +35,12 @@ pub(crate) struct Topology<'g, 'a> {
     sides: BTreeMap<(VertexId, VertexId), EdgeId>,
     face_entities: Vec<u64>,
     healed: usize,
+}
+
+pub(crate) struct Built {
+    pub solid: Solid,
+    pub healed: usize,
+    pub unchecked: Option<[u64; 2]>,
 }
 
 struct FacePlan {
@@ -71,7 +77,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         }
     }
 
-    pub fn solid(mut self, id: u64) -> Read<(Solid, usize)> {
+    pub fn solid(mut self, id: u64) -> Read<Built> {
         let graph = self.geometry.graph;
         let entity = graph.entity(id)?;
         let (outer, voids, lumps) = match entity.kind() {
@@ -122,29 +128,38 @@ impl<'g, 'a> Topology<'g, 'a> {
             .builder
             .build()
             .map_err(|error| Problem::new(id, describe_build(&error)))?;
-        let crossing = solid
+        let check = solid
             .find_crossing()
             .map_err(|_| Problem::new(id, "was not checked, because the import was cancelled"))?;
-        if let Some(crossing) = crossing {
-            let [first, second] = crossing
-                .faces
-                .map(|face| self.face_entities.get(face.index()).copied());
-            let reason = match (first, second) {
-                (Some(first), Some(second)) if first == second => format!(
-                    "has face #{first} whose edges cross each other, so it does not enclose one \
-                     volume"
-                ),
-                (Some(first), Some(second)) => format!(
-                    "has faces #{first} and #{second} that cross each other, so it does not \
-                     enclose one volume"
-                ),
-                _ => {
-                    "has faces that cross each other, so it does not enclose one volume".to_owned()
-                }
-            };
-            return Err(Problem::new(id, reason));
-        }
-        Ok((solid, healed))
+        let entities =
+            |faces: [FaceId; 2]| faces.map(|face| self.face_entities.get(face.index()).copied());
+        let unchecked = match check {
+            CrossingCheck::Clear => None,
+            CrossingCheck::Inconclusive { faces } => match entities(faces) {
+                [Some(first), Some(second)] => Some([first, second]),
+                _ => Some([id, id]),
+            },
+            CrossingCheck::Crossing(crossing) => {
+                let reason = match entities(crossing.faces) {
+                    [Some(first), Some(second)] if first == second => format!(
+                        "has face #{first} whose edges cross each other, so it does not enclose one \
+                         volume"
+                    ),
+                    [Some(first), Some(second)] => format!(
+                        "has faces #{first} and #{second} that cross each other, so it does not \
+                         enclose one volume"
+                    ),
+                    _ => "has faces that cross each other, so it does not enclose one volume"
+                        .to_owned(),
+                };
+                return Err(Problem::new(id, reason));
+            }
+        };
+        Ok(Built {
+            solid,
+            healed,
+            unchecked,
+        })
     }
 
     fn plan_shell(&mut self, id: u64, flipped: bool) -> Read<ShellPlan> {

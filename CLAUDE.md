@@ -288,7 +288,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     inside both faces (or, for coincident faces, a sample strictly inside both) is a `Crossing`.
     Neighbours skip the costly surface pair, whose branch along their shared edge is known: each
     one's other edges are intersected with the other's surface, and a transversal point or an
-    overlap strictly inside the other face is a `Crossing`. `bounding_box` covers the edges and, for
+    overlap strictly inside the other face is a `Crossing`. A pair whose intersection fails is not
+    skipped: the result is a `CrossingCheck` (`Clear`, `Crossing`, or `Inconclusive` naming the first
+    such pair when no crossing was found), and STEP import keeps an inconclusive solid with a note
+    naming the face entities. `bounding_box` covers the edges and, for
     doubly curved faces, a grid of points inside each face plus a sphere's axis extremes.
   - Tessellation samples each edge once and shares its positions between both faces. Each face is a
     constrained Delaunay triangulation (spade) of its loops in (u, v), scaled by the mean surface

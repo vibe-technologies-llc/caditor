@@ -23,6 +23,71 @@ pub struct Crossing {
     pub point: Point3,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CrossingCheck {
+    Clear,
+    Crossing(Crossing),
+    Inconclusive { faces: [FaceId; 2] },
+}
+
+impl CrossingCheck {
+    pub fn crossing(self) -> Option<Crossing> {
+        match self {
+            CrossingCheck::Crossing(crossing) => Some(crossing),
+            CrossingCheck::Clear | CrossingCheck::Inconclusive { .. } => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Probe {
+    Clear,
+    Crossing(Point3),
+    Inconclusive,
+}
+
+impl Probe {
+    fn then_check(
+        self,
+        next: impl FnOnce() -> Result<Probe, Interrupted>,
+    ) -> Result<Probe, Interrupted> {
+        Ok(match self {
+            Probe::Crossing(_) => self,
+            Probe::Clear => next()?,
+            Probe::Inconclusive => match next()? {
+                Probe::Crossing(point) => Probe::Crossing(point),
+                Probe::Clear | Probe::Inconclusive => Probe::Inconclusive,
+            },
+        })
+    }
+}
+
+#[derive(Default)]
+struct Survey {
+    doubt: bool,
+}
+
+impl Survey {
+    fn record(&mut self, probe: Probe) -> Option<Point3> {
+        match probe {
+            Probe::Clear => None,
+            Probe::Crossing(point) => Some(point),
+            Probe::Inconclusive => {
+                self.doubt = true;
+                None
+            }
+        }
+    }
+
+    fn outcome(self) -> Probe {
+        if self.doubt {
+            Probe::Inconclusive
+        } else {
+            Probe::Clear
+        }
+    }
+}
+
 struct Extent {
     id: FaceId,
     uv: Aabb2,
@@ -30,7 +95,7 @@ struct Extent {
 }
 
 impl Solid {
-    pub fn find_crossing(&self) -> Result<Option<Crossing>, Interrupted> {
+    pub fn find_crossing(&self) -> Result<CrossingCheck, Interrupted> {
         let extents: Vec<Extent> = self
             .faces()
             .filter_map(|(id, face)| {
@@ -61,12 +126,19 @@ impl Solid {
                 }
             }
         }
+        let mut inconclusive = None;
         for (id, face) in self.faces() {
-            if let Some(point) = self.boundary_crossing(face)? {
-                return Ok(Some(Crossing {
-                    faces: [id, id],
-                    point,
-                }));
+            match self.boundary_crossing(face)? {
+                Probe::Clear => {}
+                Probe::Crossing(point) => {
+                    return Ok(CrossingCheck::Crossing(Crossing {
+                        faces: [id, id],
+                        point,
+                    }));
+                }
+                Probe::Inconclusive => {
+                    inconclusive.get_or_insert([id, id]);
+                }
             }
         }
         let classifier = self.classifier();
@@ -81,19 +153,28 @@ impl Solid {
                 interrupt::check()?;
                 let found = if neighbours.contains(&(first.id, second.id)) {
                     self.edges_piercing(&classifier, first.id, second)?
-                        .or(self.edges_piercing(&classifier, second.id, first)?)
+                        .then_check(|| self.edges_piercing(&classifier, second.id, first))?
                 } else {
                     self.crossing_between(&classifier, first, second)
                 };
-                if let Some(point) = found {
-                    return Ok(Some(Crossing {
-                        faces: [first.id, second.id],
-                        point,
-                    }));
+                match found {
+                    Probe::Clear => {}
+                    Probe::Crossing(point) => {
+                        return Ok(CrossingCheck::Crossing(Crossing {
+                            faces: [first.id, second.id],
+                            point,
+                        }));
+                    }
+                    Probe::Inconclusive => {
+                        inconclusive.get_or_insert([first.id, second.id]);
+                    }
                 }
             }
         }
-        Ok(None)
+        Ok(match inconclusive {
+            Some(faces) => CrossingCheck::Inconclusive { faces },
+            None => CrossingCheck::Clear,
+        })
     }
 
     fn edge_uses(&self, face: &Face) -> BTreeMap<EdgeId, usize> {
@@ -115,11 +196,12 @@ impl Solid {
         classifier: &SolidClassifier<'_>,
         source: FaceId,
         target: &Extent,
-    ) -> Result<Option<Point3>, Interrupted> {
+    ) -> Result<Probe, Interrupted> {
         let (Some(source_face), Some(target_face)) = (self.face(source), self.face(target.id))
         else {
-            return Ok(None);
+            return Ok(Probe::Inconclusive);
         };
+        let mut survey = Survey::default();
         let shared = self.edge_uses(target_face);
         let surface = target_face.surface();
         let inside =
@@ -138,6 +220,7 @@ impl Solid {
             let Ok(found) =
                 intersect_curve_surface(edge.curve(), edge.interval(), surface, Some(target.uv))
             else {
+                survey.record(Probe::Inconclusive);
                 continue;
             };
             let piercing = found
@@ -150,13 +233,13 @@ impl Solid {
                 inside(surface.project(point, Some(overlap.start_uv))).then_some(point)
             });
             if let Some(point) = piercing.chain(lying).next() {
-                return Ok(Some(point));
+                return Ok(Probe::Crossing(point));
             }
         }
-        Ok(None)
+        Ok(survey.outcome())
     }
 
-    fn boundary_crossing(&self, face: &Face) -> Result<Option<Point3>, Interrupted> {
+    fn boundary_crossing(&self, face: &Face) -> Result<Probe, Interrupted> {
         let uses = self.edge_uses(face);
         let edges: Vec<(&Edge, Aabb)> = uses
             .iter()
@@ -164,28 +247,30 @@ impl Solid {
             .filter_map(|(id, _)| self.edge(*id))
             .map(|edge| (edge, edge.curve().bounding_box(edge.interval())))
             .collect();
+        let mut survey = Survey::default();
         for (index, (first, first_bounds)) in edges.iter().enumerate() {
             for (second, second_bounds) in edges.iter().skip(index + 1) {
                 if !boxes_overlap(first_bounds, second_bounds, LINEAR_RESOLUTION) {
                     continue;
                 }
                 interrupt::check()?;
-                if let Some(point) = self.edges_cross(first, second) {
-                    return Ok(Some(point));
+                if let Some(point) = survey.record(self.edges_cross(first, second)) {
+                    return Ok(Probe::Crossing(point));
                 }
             }
         }
-        Ok(None)
+        Ok(survey.outcome())
     }
 
-    fn edges_cross(&self, first: &Edge, second: &Edge) -> Option<Point3> {
-        let found = intersect_curves(
+    fn edges_cross(&self, first: &Edge, second: &Edge) -> Probe {
+        let Ok(found) = intersect_curves(
             first.curve(),
             first.interval(),
             second.curve(),
             second.interval(),
-        )
-        .ok()?;
+        ) else {
+            return Probe::Inconclusive;
+        };
         let shared: Vec<Point3> = [first.start(), first.end()]
             .into_iter()
             .filter(|vertex| [second.start(), second.end()].contains(vertex))
@@ -201,11 +286,14 @@ impl Solid {
             .overlaps
             .iter()
             .map(|overlap| first.curve().point(overlap.first.middle()));
-        transversal.chain(overlapping).find(|point| {
-            shared
-                .iter()
-                .all(|vertex| vertex.distance(*point) > NEAR_SHARED_VERTEX)
-        })
+        transversal
+            .chain(overlapping)
+            .find(|point| {
+                shared
+                    .iter()
+                    .all(|vertex| vertex.distance(*point) > NEAR_SHARED_VERTEX)
+            })
+            .map_or(Probe::Clear, Probe::Crossing)
     }
 
     fn crossing_between(
@@ -213,10 +301,17 @@ impl Solid {
         classifier: &SolidClassifier<'_>,
         first: &Extent,
         second: &Extent,
-    ) -> Option<Point3> {
-        let (first_face, second_face) = (self.face(first.id)?, self.face(second.id)?);
-        let first_patch = SurfacePatch::new(first_face.surface(), first.uv).ok()?;
-        let second_patch = SurfacePatch::new(second_face.surface(), second.uv).ok()?;
+    ) -> Probe {
+        let (Some(first_face), Some(second_face)) = (self.face(first.id), self.face(second.id))
+        else {
+            return Probe::Inconclusive;
+        };
+        let (Ok(first_patch), Ok(second_patch)) = (
+            SurfacePatch::new(first_face.surface(), first.uv),
+            SurfacePatch::new(second_face.surface(), second.uv),
+        ) else {
+            return Probe::Inconclusive;
+        };
         let inside = |extent: &Extent, point: Point3, hint: Option<Point2>| {
             let surface = self.face(extent.id)?.surface();
             let uv = surface.project(point, hint.or(Some(extent.uv.center())));
@@ -224,7 +319,10 @@ impl Solid {
             (on_surface && classifier.point_in_face(extent.id, uv) == Some(FaceContainment::Inside))
                 .then_some(())
         };
-        match intersect_surfaces(&first_patch, &second_patch).ok()? {
+        let Ok(intersection) = intersect_surfaces(&first_patch, &second_patch) else {
+            return Probe::Inconclusive;
+        };
+        let found = match intersection {
             SurfaceIntersection::Coincident(_) => {
                 let (low, high) = (first.uv.min(), first.uv.max());
                 (0..FACE_SAMPLES)
@@ -252,6 +350,47 @@ impl Solid {
                     Some(point)
                 })
             }),
-        }
+        };
+        found.map_or(Probe::Clear, Probe::Crossing)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_crossing_found_after_a_doubt_still_counts() {
+        let point = Point3::new(1.0, 2.0, 3.0);
+        let crossing = || Ok(Probe::Crossing(point));
+        let clear = || Ok(Probe::Clear);
+        let doubt = || Ok(Probe::Inconclusive);
+
+        assert_eq!(
+            Probe::Inconclusive.then_check(crossing),
+            Ok(Probe::Crossing(point))
+        );
+        assert_eq!(
+            Probe::Inconclusive.then_check(clear),
+            Ok(Probe::Inconclusive)
+        );
+        assert_eq!(Probe::Clear.then_check(doubt), Ok(Probe::Inconclusive));
+        assert_eq!(Probe::Clear.then_check(clear), Ok(Probe::Clear));
+        assert_eq!(
+            Probe::Crossing(point).then_check(doubt),
+            Ok(Probe::Crossing(point))
+        );
+    }
+
+    #[test]
+    fn a_survey_with_any_failed_check_is_inconclusive() {
+        let mut clean = Survey::default();
+        assert_eq!(clean.record(Probe::Clear), None);
+        assert_eq!(clean.outcome(), Probe::Clear);
+
+        let mut doubtful = Survey::default();
+        assert_eq!(doubtful.record(Probe::Inconclusive), None);
+        assert_eq!(doubtful.record(Probe::Clear), None);
+        assert_eq!(doubtful.outcome(), Probe::Inconclusive);
     }
 }

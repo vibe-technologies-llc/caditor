@@ -54,6 +54,8 @@ The first release of caditor.
   the reason instead of hanging or closing caditor.
 - Import of DXF drawings into sketches and of STEP models as bodies; export of bodies as STEP,
   STL and 3MF.
+- A STEP body whose faces could not all be checked for crossing each other is still imported,
+  with a note naming the faces, instead of passing the check unnoticed.
 
 ### Interface
 

@@ -35,9 +35,6 @@ within a category run from most to least important.
 
 ## Kernel correctness
 
-- `Solid::find_crossing` skips face and edge pairs whose intersection errors (`crossing.rs`
-  `.ok()?`, `let Ok(..) else { continue }`), so a self-intersecting STEP import with hard
-  spline or near-tangent faces is accepted. Report the check as inconclusive instead.
 - Cancelling during a boolean's final validation surfaces as `BooleanError::Invalid`
   (`Tessellation(Cancelled)` wrapped by `PlanError::Build`), so blends retry tool by tool or
   report a false invalid result instead of stopping.

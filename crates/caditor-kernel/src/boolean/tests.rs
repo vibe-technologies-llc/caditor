@@ -578,7 +578,7 @@ fn a_cut_through_a_cone_apex_leaves_half_the_cone() {
 #[test]
 fn a_spline_face_is_drilled_and_shares_its_plane_with_a_neighbour() {
     let bulged = crate::fixtures::spline_topped_block(10.0, 4.0, 3.0);
-    assert_eq!(bulged.find_crossing().unwrap(), None);
+    assert_eq!(bulged.find_crossing().unwrap(), crate::CrossingCheck::Clear);
     let before = volume(&bulged);
     let drill = moved(cylinder(1.5, 20.0), (5.0, 5.0, -5.0));
     let drilled = boolean(&bulged, &drill, BooleanOperation::Difference).unwrap();

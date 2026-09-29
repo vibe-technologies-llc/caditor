@@ -18,7 +18,7 @@ use crate::{
         geometry::Geometry,
         graph::{Entity, Graph, Problem},
         structure::{MAX_DEPTH, MAX_INSTANCES as MAX_PLACEMENTS, Placements, Structure, Unplaced},
-        topology::Topology,
+        topology::{Built, Topology},
         units::Units,
     },
 };
@@ -62,6 +62,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
     let mut unnamed_units = false;
     let mut converted: Vec<f64> = Vec::new();
     let mut repaired = 0;
+    let mut unchecked_notes = Vec::new();
     let encloses = |entity: &Entity<'_>| {
         entity.fields().is_ok_and(|fields| {
             fields.references(1).is_ok_and(|shells| {
@@ -144,8 +145,15 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
         let occurrences_name_each =
             transforms.len() > 1 && named_occurrences.len() == transforms.len();
         match build(&graph, units, entity.id) {
-            Ok((solid, healed)) => {
+            Ok(Built {
+                solid,
+                healed,
+                unchecked,
+            }) => {
                 repaired += healed;
+                if let Some(faces) = unchecked {
+                    unchecked_notes.push(unchecked_note(&name, faces));
+                }
                 let count = transforms.len();
                 let mut misplaced = false;
                 for (instance, (placement, occurrence)) in transforms.into_iter().enumerate() {
@@ -188,6 +196,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
         ));
     }
     model.notes.extend(unplaced.iter().cloned());
+    model.notes.extend(unchecked_notes);
     if structure.truncated {
         model.notes.push(format!(
             "The file places parts more than {MAX_PLACEMENTS} times in all; only the first \
@@ -285,7 +294,19 @@ fn unplaced_note(name: &str, reason: Unplaced) -> String {
     }
 }
 
-fn build(graph: &Graph<'_>, units: Units, id: u64) -> Result<(Solid, usize), Problem> {
+fn unchecked_note(name: &str, [first, second]: [u64; 2]) -> String {
+    let what = if first == second {
+        format!("the edges of its face #{first} cross each other")
+    } else {
+        format!("its faces #{first} and #{second} cross each other")
+    };
+    format!(
+        "“{name}” was imported, but whether {what} could not be checked, so features built on it \
+         may fail."
+    )
+}
+
+fn build(graph: &Graph<'_>, units: Units, id: u64) -> Result<Built, Problem> {
     let geometry = Geometry {
         graph: *graph,
         units,
