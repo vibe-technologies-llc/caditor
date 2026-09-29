@@ -4,6 +4,7 @@ use crate::{
     coordinates::{Coordinates, angle_between},
     curve::Curve,
     curve2::Curve2,
+    interrupt,
     intersect::{IntersectionError, inside_intervals},
     interval::Interval,
     parametric::Parametric,
@@ -406,6 +407,7 @@ fn general<C: Traceable>(pair: &Pair<C>) -> Result<Vec<Candidate>, IntersectionE
     let mut candidates = Vec::new();
     let mut visited = 0usize;
     while let Some((a, b, depth)) = pending.pop() {
+        interrupt::check()?;
         visited += 1;
         if visited > MAX_PAIRS {
             return Err(IntersectionError::TooComplex(MAX_PAIRS));

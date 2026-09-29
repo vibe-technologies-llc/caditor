@@ -8,6 +8,7 @@ use caditor_geometry::{Aabb2, Plane, Point2, Point3};
 use crate::{
     coordinates::angle_between,
     curve::Curve,
+    interrupt,
     intersect::{
         IntersectionError, SurfacePatch, boxes_overlap, inside_intervals,
         solve::{bracket_root, minimize_bracket, polynomial_roots, uv_direction},
@@ -536,6 +537,7 @@ fn general(
     let mut leaves = Vec::new();
     let mut visited = 0usize;
     while let Some((piece, depth)) = pending.pop() {
+        interrupt::check()?;
         visited += 1;
         if visited > MAX_PIECES {
             return Err(IntersectionError::TooComplex(MAX_PIECES));

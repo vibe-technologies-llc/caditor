@@ -601,6 +601,40 @@ fn a_boolean_cancelled_at_any_poll_stops_with_cancelled() {
     assert!(finished);
 }
 
+fn cancelled_after(
+    allowed: usize,
+    work: impl FnOnce() -> Result<Solid, BooleanError>,
+) -> (Result<Solid, BooleanError>, usize) {
+    let polls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = std::sync::Arc::clone(&polls);
+    let stop = std::sync::Arc::new(move || {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= allowed
+    });
+    let result = crate::interruptible(stop, work);
+    (result, polls.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+#[test]
+fn a_marched_boolean_cancelled_anywhere_stops_with_cancelled() {
+    let post = cylinder(1.0, 4.0);
+    let ball = moved(sphere(1.5), (1.0, 0.0, 2.0));
+    let run = || boolean(&post, &ball, BooleanOperation::Union);
+
+    let (finished, total) = cancelled_after(usize::MAX, run);
+    assert!(finished.is_ok());
+    assert!(total > 100, "only {total} polls");
+
+    let mut allowed = 0;
+    while allowed < total {
+        let (result, _) = cancelled_after(allowed, run);
+        assert!(
+            matches!(result, Err(BooleanError::Cancelled(_))),
+            "stopped after {allowed} of {total} polls: {result:?}"
+        );
+        allowed = allowed * 5 / 4 + 1;
+    }
+}
+
 #[test]
 fn a_cut_through_a_cone_apex_leaves_half_the_cone() {
     let cone = crate::fixtures::cone(3.0, 4.0);

@@ -217,11 +217,16 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
 - **caditor-kernel**: caditor's own B-rep geometry kernel (no truck, no OpenCascade), the base of
   solid modelling.
   - Cancellation (`interrupt.rs`): `interruptible(interrupt, work)` installs a check for the
-    current thread while `work` runs, and booleans (per edge, face pair, face and fragment and
+    current thread while `work` runs, and intersections (per subdivision pair and march step),
+    booleans (per edge, face pair, face, fragment, edge split, branch and healing step, and
     between phases) and tessellation (per face) poll it, failing with a `Cancelled` variant of
-    their error; a boolean cancelled while validating its result says so too
-    (`BuildError::interrupted`), rather than reporting an invalid solid. The document installs its `CancelToken` around every evaluation and meshing,
-    and export around its meshing and STEP writing.
+    their error. A boolean that fails for any reason while its interrupt is set reports
+    `Cancelled`, so a step that swallowed the cancellation (a ray given up in classification, say)
+    cannot surface as another error, and one cancelled while validating its result says so too
+    (`BuildError::interrupted`). `Solid::find_crossing` polls once more before answering, so an
+    intersection it gave up as inconclusive because it was cancelled is not taken for a result.
+    The document installs its `CancelToken` around every evaluation and meshing, and export
+    around its meshing and STEP writing.
   - Tolerances live in `tolerance.rs`: `LINEAR_RESOLUTION` is 1e-6 mm and `ANGULAR_RESOLUTION`
     is the angle that moves a point at `MODEL_EXTENT` (10 m) by it. `SamplingTolerance` (chord
     and angle) drives every sampling, and `Solid::default_tolerance` derives one from the size.

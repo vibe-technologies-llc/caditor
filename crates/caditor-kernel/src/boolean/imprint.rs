@@ -257,6 +257,7 @@ pub(super) fn imprint(input: &Input) -> Result<Arrangement, BooleanError> {
         add_overlap_cuts(input, overlap, &mut arrangement);
     }
     for branch in &branches {
+        interrupt::check()?;
         clip_branch(input, branch, &mut pool, &mut arrangement);
     }
     for piece in &mut arrangement.pieces {
@@ -422,6 +423,7 @@ fn split_edges(
 ) -> Result<(), BooleanError> {
     let solid = input.solid(operand);
     for (edge_id, edge) in solid.edges() {
+        interrupt::check()?;
         let curve = edge.curve();
         let interval = edge.interval();
         let (Some(start), Some(end)) = (

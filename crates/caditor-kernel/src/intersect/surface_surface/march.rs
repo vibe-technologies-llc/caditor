@@ -3,6 +3,7 @@ use caditor_geometry::{Aabb, Point2, Point3, Vector3};
 use crate::{
     coordinates::angle_between,
     curve::{Curve, IntersectionCurve},
+    interrupt,
     intersect::{
         IntersectionError, SurfacePatch, boxes_overlap,
         solve::{
@@ -265,6 +266,7 @@ impl<'a> Tracer<'a> {
         let mut seeds: Vec<Seed> = Vec::new();
         let mut visited = 0usize;
         while let Some((a, b, depth)) = pending.pop() {
+            interrupt::check()?;
             visited += 1;
             if visited > MAX_SEED_PAIRS {
                 return Err(IntersectionError::TooComplex(MAX_SEED_PAIRS));
@@ -607,6 +609,7 @@ impl<'a> Tracer<'a> {
         let mut step = self.max_step * 0.25;
         let mut steps = 0usize;
         while steps < MAX_STEPS {
+            interrupt::check()?;
             steps += 1;
             let Some(current) = contacts.last().copied() else {
                 break;

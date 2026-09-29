@@ -6,7 +6,7 @@ use super::*;
 use crate::{
     bspline::BSpline,
     curve::Curve,
-    intersect::{SurfaceIntersection, intersect_surfaces},
+    intersect::{IntersectionError, SurfaceIntersection, intersect_surfaces},
     sense::Sense,
     surface::{Cone, Cylinder, Extrusion, Revolution, Sphere, Torus},
 };
@@ -394,6 +394,26 @@ fn a_sphere_off_a_cylinder_axis_is_marched() {
     check_all(&result, &pierced, &ball);
     assert_eq!(result.branches().len(), 2, "{result:?}");
     assert!(result.branches().iter().all(|branch| branch.closed));
+}
+
+#[test]
+fn a_marched_intersection_stops_when_interrupted() {
+    let tube = cylinder(Point3::new(1.0, 0.0, 0.0), Vector3::Z, 1.0);
+    let ball = sphere(Point3::ZERO, 2.0);
+    let (tube_patch, ball_patch) = (around(&tube, (-5.0, 5.0)), whole_ball(&ball));
+    let polls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = std::sync::Arc::clone(&polls);
+    let stop = std::sync::Arc::new(move || {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= 20
+    });
+
+    let stopped = crate::interruptible(stop, || intersect_surfaces(&tube_patch, &ball_patch));
+
+    assert!(
+        matches!(stopped, Err(IntersectionError::Cancelled(_))),
+        "{stopped:?}"
+    );
+    assert_eq!(polls.load(std::sync::atomic::Ordering::SeqCst), 21);
 }
 
 fn spline_extrusion() -> Surface {

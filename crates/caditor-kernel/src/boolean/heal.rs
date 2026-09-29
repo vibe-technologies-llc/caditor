@@ -10,6 +10,7 @@ use crate::{
         trace::{Chart, Coedge, HalfEdge, TracedLoop, fit_loop, group, snap_ends, trace},
     },
     curve::Curve,
+    interrupt::{self, Interrupted},
     interval::Interval,
     sense::Sense,
     surface::Surface,
@@ -57,7 +58,7 @@ pub(super) fn heal(
     kept: Vec<KeptFace>,
 ) -> Result<Vec<KeptFace>, BooleanError> {
     check_closed(&kept)?;
-    let mut faces = merge_faces(arrangement, kept);
+    let mut faces = merge_faces(arrangement, kept)?;
     heal_edges(arrangement, &mut faces)?;
     Ok(faces)
 }
@@ -82,7 +83,10 @@ fn root(parents: &[usize], mut item: usize) -> usize {
     item
 }
 
-fn merge_faces(arrangement: &Arrangement, faces: Vec<KeptFace>) -> Vec<KeptFace> {
+fn merge_faces(
+    arrangement: &Arrangement,
+    faces: Vec<KeptFace>,
+) -> Result<Vec<KeptFace>, Interrupted> {
     let mut parents: Vec<usize> = (0..faces.len()).collect();
     for list in uses(&faces).values() {
         let [(first, _), (second, _)] = list.as_slice() else {
@@ -110,6 +114,7 @@ fn merge_faces(arrangement: &Arrangement, faces: Vec<KeptFace>) -> Vec<KeptFace>
     }
     let mut merged = Vec::with_capacity(faces.len());
     for members in groups.values() {
+        interrupt::check()?;
         let combined = if members.len() > 1 {
             merge_group(arrangement, &faces, members)
         } else {
@@ -125,7 +130,7 @@ fn merge_faces(arrangement: &Arrangement, faces: Vec<KeptFace>) -> Vec<KeptFace>
             ),
         }
     }
-    merged
+    Ok(merged)
 }
 
 fn merge_group(
@@ -289,6 +294,7 @@ impl Joints {
 fn heal_edges(arrangement: &mut Arrangement, faces: &mut [KeptFace]) -> Result<(), BooleanError> {
     let mut joints = Joints::new(arrangement, faces);
     while let Some((vertex, first, second)) = joints.next() {
+        interrupt::check()?;
         let users = face_users(&joints.uses, first);
         let joined = (users == face_users(&joints.uses, second))
             .then(|| join(arrangement, vertex, first, second))

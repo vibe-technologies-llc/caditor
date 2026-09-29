@@ -33,7 +33,7 @@ pub enum BooleanError {
     #[error("nothing is left of the solids")]
     Empty,
     #[error("the solids could not be intersected: {0}")]
-    Intersection(#[from] IntersectionError),
+    Intersection(IntersectionError),
     #[error("a face could not be divided where the solids meet")]
     Split,
     #[error("the solids touch where it cannot be told which side is inside")]
@@ -46,6 +46,15 @@ pub enum BooleanError {
     Invalid(BuildError),
     #[error(transparent)]
     Cancelled(#[from] Interrupted),
+}
+
+impl From<IntersectionError> for BooleanError {
+    fn from(error: IntersectionError) -> Self {
+        match error {
+            IntersectionError::Cancelled(interrupted) => Self::Cancelled(interrupted),
+            other => Self::Intersection(other),
+        }
+    }
 }
 
 impl From<BuildError> for BooleanError {
@@ -211,6 +220,17 @@ impl<'a> Input<'a> {
 }
 
 pub fn boolean(
+    first: &Solid,
+    second: &Solid,
+    operation: BooleanOperation,
+) -> Result<Solid, BooleanError> {
+    combine(first, second, operation).or_else(|error| {
+        interrupt::check()?;
+        Err(error)
+    })
+}
+
+fn combine(
     first: &Solid,
     second: &Solid,
     operation: BooleanOperation,

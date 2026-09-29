@@ -171,6 +171,7 @@ impl Solid {
                 }
             }
         }
+        interrupt::check()?;
         Ok(match inconclusive {
             Some(faces) => CrossingCheck::Inconclusive { faces },
             None => CrossingCheck::Clear,

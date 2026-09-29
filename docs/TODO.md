@@ -47,9 +47,6 @@ within a category run from most to least important.
 
 ## Kernel cancellation and limits
 
-- Nothing in `intersect/` polls the interrupt, though one `intersect_surfaces` call can seed
-  32768 pairs and march 32768 steps per direction; `imprint::split_edges`, `clip_branch` and
-  healing are unchecked too, and the only cancellation test cancels at the first poll.
 - Profile building, sweeps, shell offsets and blend tool construction never poll the interrupt:
   `profile/arrangement.rs` `events` runs up to 100k box tests per curve pair and `within` is
   O(S²) in spline segments, all uncancellable.

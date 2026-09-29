@@ -28,7 +28,7 @@ pub use self::{
         IntersectionBranch, IntersectionPoint, SurfaceIntersection, intersect_surfaces,
     },
 };
-use crate::error::GeometryError;
+use crate::{error::GeometryError, interrupt::Interrupted};
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum IntersectionError {
@@ -40,4 +40,6 @@ pub enum IntersectionError {
     Unfollowable,
     #[error(transparent)]
     Geometry(#[from] GeometryError),
+    #[error(transparent)]
+    Cancelled(#[from] Interrupted),
 }
