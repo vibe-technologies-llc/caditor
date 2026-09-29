@@ -105,8 +105,8 @@ within a category run from most to least important.
 
 ## Document and recompute
 
-- Undo and redo stacks are unbounded (`editor.rs`), and entries keep removed features alive,
-  imports with their solids and STEP text included.
+- Undo entries keep removed features alive, imports with their solids and STEP text included;
+  `MAX_UNDO_STEPS` bounds how many there are, not how large they are.
 - Cached failure messages refresh only when the names of `features()` change, but blend, shell
   and datum errors name the features that made each face ("Cut 2 end face"), so renaming those
   keeps the old name in the message.

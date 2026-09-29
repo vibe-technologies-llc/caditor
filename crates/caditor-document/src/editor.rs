@@ -1,13 +1,17 @@
+use std::collections::VecDeque;
+
 use crate::{
     document::Document,
     edit::{EditError, Transaction},
 };
 
+pub const MAX_UNDO_STEPS: usize = 500;
+
 #[derive(Debug, Clone, Default)]
 pub struct Editor {
     document: Document,
-    undo: Vec<Transaction>,
-    redo: Vec<Transaction>,
+    undo: VecDeque<Transaction>,
+    redo: VecDeque<Transaction>,
     revision: u64,
 }
 
@@ -28,19 +32,19 @@ impl Editor {
     }
 
     pub fn undo_label(&self) -> Option<&str> {
-        self.undo.last().map(Transaction::label)
+        self.undo.back().map(Transaction::label)
     }
 
     pub fn redo_label(&self) -> Option<&str> {
-        self.redo.last().map(Transaction::label)
+        self.redo.back().map(Transaction::label)
     }
 
     pub fn next_undo(&self) -> Option<&Transaction> {
-        self.undo.last()
+        self.undo.back()
     }
 
     pub fn next_redo(&self) -> Option<&Transaction> {
-        self.redo.last()
+        self.redo.back()
     }
 
     pub fn apply(&mut self, transaction: Transaction) -> Result<(), EditError> {
@@ -48,7 +52,7 @@ impl Editor {
             return Ok(());
         }
         let inverse = self.document.apply(transaction)?;
-        self.undo.push(inverse);
+        remember(&mut self.undo, inverse);
         self.redo.clear();
         self.revision += 1;
         Ok(())
@@ -72,22 +76,73 @@ impl Editor {
 
     fn replay(
         document: &mut Document,
-        from: &mut Vec<Transaction>,
-        to: &mut Vec<Transaction>,
+        from: &mut VecDeque<Transaction>,
+        to: &mut VecDeque<Transaction>,
     ) -> Result<Option<String>, EditError> {
-        let Some(transaction) = from.pop() else {
+        let Some(transaction) = from.pop_back() else {
             return Ok(None);
         };
         match document.apply(transaction.clone()) {
             Ok(inverse) => {
                 let label = inverse.label().to_owned();
-                to.push(inverse);
+                remember(to, inverse);
                 Ok(Some(label))
             }
             Err(error) => {
-                from.push(transaction);
+                from.push_back(transaction);
                 Err(error)
             }
         }
+    }
+}
+
+fn remember(steps: &mut VecDeque<Transaction>, step: Transaction) {
+    steps.push_back(step);
+    while steps.len() > MAX_UNDO_STEPS {
+        steps.pop_front();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use caditor_expression::Expression;
+
+    use super::*;
+    use crate::edit::Edit;
+
+    #[test]
+    fn undo_keeps_only_the_latest_steps() {
+        let mut document = Document::default();
+
+        let mut transaction = document.transaction("Add");
+        let width = transaction.add_parameter("width", Expression::Number(0.0));
+        document.apply(transaction.finish()).unwrap();
+        let mut editor = Editor::new(document);
+        let set = |value: usize| {
+            Transaction::single(
+                format!("Set {value}"),
+                Edit::SetParameterExpression {
+                    id: width,
+                    expression: Expression::Number(value as f64),
+                },
+            )
+        };
+        for value in 1..=MAX_UNDO_STEPS + 20 {
+            editor.apply(set(value)).unwrap();
+        }
+        let mut undone = 0;
+        while editor.undo().unwrap().is_some() {
+            undone += 1;
+        }
+        let value = editor
+            .document()
+            .parameter(width)
+            .unwrap()
+            .expression
+            .clone();
+
+        assert_eq!(undone, MAX_UNDO_STEPS);
+        assert_eq!(value, Expression::Number(20.0));
+        assert_eq!(editor.redo_label(), Some("Set 21"));
     }
 }
