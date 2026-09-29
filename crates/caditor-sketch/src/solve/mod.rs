@@ -221,9 +221,11 @@ fn diagnose_failure(
     solver: &Solver<'_>,
     failed: &[Component],
 ) -> Result<SketchError, SketchError> {
-    let collapsed = failed
-        .iter()
-        .find_map(|component| solver.collapsed(component, &solver.system.values).next());
+    let collapsed = failed.iter().find_map(|component| {
+        solver
+            .collapsed(&solver.part(component), &solver.system.values)
+            .next()
+    });
     if let Some(entity) = collapsed {
         return Ok(SketchError::NoLength {
             entity,

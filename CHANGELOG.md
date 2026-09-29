@@ -34,6 +34,8 @@ The first release of caditor.
   depend on it keeps working.
 - A body whose first feature fails stays in view, tinted, in its last good shape, and edits that
   leave geometry unchanged or only rename something do not rebuild what follows them.
+- Editing or growing one part of a large sketch solves only that part again, even when the edit
+  makes the sketch larger or moves its outermost point.
 - Named parameters and unit-aware expressions in every field, with comparisons and `if`,
   `mod`, `hypot`, `exp`, `ln`, `sign`, `clamp`, rounding to a step, units after parentheses
   and names (`(2 + 3) mm`), areas and volumes such as `mm²`, and a clear message for a

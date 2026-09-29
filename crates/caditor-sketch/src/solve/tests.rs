@@ -1043,6 +1043,71 @@ fn an_edit_reanalyses_only_the_parts_it_touches() {
 }
 
 #[test]
+fn growing_the_outermost_part_keeps_every_other_part_remembered() {
+    let Rectangle {
+        sketch: mut settled,
+        corners,
+        ..
+    } = rectangle([
+        Point2::new(0.0, 0.0),
+        Point2::new(40.0, 0.0),
+        Point2::new(40.0, 20.0),
+        Point2::new(0.0, 20.0),
+    ]);
+    let width = settled
+        .constraints()
+        .find_map(|(id, constraint)| match constraint {
+            Constraint::Distance { value, .. } if *value == mm(40.0) => Some(id),
+            _ => None,
+        })
+        .unwrap();
+    let line = settled.add_line(Point2::new(5.0, 30.0), Point2::new(15.0, 31.0));
+    let (start, end) = ends(&settled, line);
+    add(&mut settled, Constraint::Horizontal(line));
+    add(
+        &mut settled,
+        Constraint::Distance {
+            from: start,
+            to: end,
+            value: mm(10.0),
+        },
+    );
+
+    let fresh = solve(&settled).unwrap();
+    settled = fresh.geometry.clone();
+    let again = settled
+        .solve_from(&no_parameters, &|| false, &[], Some(&fresh.memo))
+        .unwrap();
+    settled
+        .set_dimension(width, mm(60.0))
+        .expect("the width takes a new value");
+    let edited = settled
+        .solve_from(&no_parameters, &|| false, &[], Some(&again.memo))
+        .unwrap();
+    let from_scratch = solve(&settled).unwrap();
+    let dragged_to = crate::Drag {
+        point: corners[2],
+        to: Point2::new(90.0, 45.0),
+    };
+    let dragged = settled
+        .solve_from(&no_parameters, &|| false, &[dragged_to], Some(&edited.memo))
+        .unwrap();
+    let dragged_from_scratch = settled
+        .solve_dragging(&no_parameters, &|| false, &[dragged_to])
+        .unwrap();
+
+    assert_eq!(again.memo.recalled(), 2);
+    assert_eq!(edited.memo.recalled(), 1);
+    assert_eq!(edited.solution, from_scratch.solution);
+    assert_eq!(edited.geometry, from_scratch.geometry);
+    assert_near(at(&edited, corners[2]), Point2::new(60.0, 20.0));
+    assert_near(at(&edited, end), Point2::new(15.0, 30.5));
+    assert_eq!(dragged.memo.recalled(), 1);
+    assert_eq!(dragged.solution, dragged_from_scratch.solution);
+    assert_eq!(dragged.geometry, dragged_from_scratch.geometry);
+}
+
+#[test]
 fn a_line_that_starts_with_no_length_is_named_instead_of_its_constraints() {
     let mut pinned = Sketch::new(Plane::XY);
     let line = pinned.add_line(Point2::ZERO, Point2::ZERO);

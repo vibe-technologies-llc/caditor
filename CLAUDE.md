@@ -206,7 +206,11 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     else solves; when that cannot work they only weigh a hundred times more than free geometry,
     so they end as near their targets as the constraints allow, so geometry that already
     satisfies its constraints does not move and under-constrained geometry moves as little as
-    possible. Every equation has an analytic gradient; two-branch equations (tangent side,
+    possible. Each part is solved at a scale of its own (its largest starting coordinate or length
+    dimension, at least 1, rounded up to a power of two), which sets its convergence tolerance,
+    step limit and the lengths below which a direction or a line counts as degenerate, so no part
+    depends on another; a zero distance is recognised against the scale of its two points. Every
+    equation has an analytic gradient; two-branch equations (tangent side,
     signed distance) take their branch from the starting geometry, so a solve never flips,
     while internal circle tangency follows whichever circle is currently larger. A tangent
     whose curves share a point (directly or through point–point coincidences) is written as
@@ -224,9 +228,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     reports as the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
     `Sketch::solve_from` takes the `SolveMemo` of the previous solve (recompute passes the
     feature's last good `SketchResult::memo`): each part is keyed by its entities, constraints,
-    dimension values, starting values and the solver's scale, and remembered under both its
+    dimension values, starting values and its own scale, and remembered under both its
     starting and its solved values, so a part an edit did not touch starts from its old
-    solution and reuses its rank analysis once its solved values match exactly.
+    solution and reuses its rank analysis once its solved values match exactly, however the rest
+    of the sketch grew or moved.
 - **caditor-kernel**: caditor's own B-rep geometry kernel (no truck, no OpenCascade), the base of
   solid modelling.
   - Cancellation (`interrupt.rs`): `interruptible(interrupt, work)` installs a check for the

@@ -10,26 +10,24 @@ use crate::{
     entity::{Entity, Role},
     id::{ConstraintId, EntityId, Reference},
     sketch::{DimensionValues, Sketch, SketchError},
-    solve::equation::{
-        CircleHandle, Contact, Context, Equation, Form, LineHandle, PointHandle, RadiusHandle,
-        fallback_direction,
+    solve::{
+        equation::{
+            CircleHandle, Contact, Context, Equation, Form, LineHandle, PointHandle, RadiusHandle,
+            fallback_direction, value,
+        },
+        numeric::Component,
     },
 };
-
-const DEGENERATE_LENGTH: f64 = 1e-12;
-const COLLAPSED_LENGTH: f64 = 1e-9;
 
 #[derive(Debug, Clone)]
 pub(crate) struct System {
     pub values: Vec<f64>,
     pub equations: Vec<Equation>,
-    pub context: Context,
     pub points: BTreeMap<EntityId, usize>,
     pub radii: BTreeMap<EntityId, usize>,
     pub radius_variables: BTreeSet<usize>,
     pub entity_variables: BTreeMap<EntityId, Vec<usize>>,
     pub spans: Vec<(EntityId, PointHandle, PointHandle)>,
-    pub collapsed_length: f64,
 }
 
 impl System {
@@ -50,33 +48,14 @@ impl System {
                 Entity::Line { .. } | Entity::Arc { .. } | Entity::Spline { .. } => {}
             }
         }
-        let lengths = dimensions.iter().filter_map(|(id, value)| {
-            matches!(
-                sketch.constraint(id),
-                Some(Constraint::Distance { .. } | Constraint::Radius { .. })
-            )
-            .then_some(value)
-        });
-        let scale = values
-            .iter()
-            .copied()
-            .chain(lengths)
-            .map(f64::abs)
-            .filter(|value| value.is_finite())
-            .fold(1.0, f64::max);
         let mut system = Self {
             radius_variables: radii.values().copied().collect(),
             values,
             equations: Vec::new(),
-            context: Context {
-                scale,
-                degenerate_length: DEGENERATE_LENGTH * scale,
-            },
             points,
             radii,
             entity_variables: BTreeMap::new(),
             spans: Vec::new(),
-            collapsed_length: COLLAPSED_LENGTH * scale,
         };
         system.entity_variables = sketch
             .entities()
@@ -118,6 +97,18 @@ impl System {
                 }));
         }
         Ok(system)
+    }
+
+    pub fn context_of(&self, component: &Component) -> Context {
+        let coordinates = component
+            .variables
+            .iter()
+            .map(|variable| value(&self.values, *variable));
+        let lengths = component
+            .equations
+            .iter()
+            .filter_map(|index| self.equations.get(*index)?.form.length());
+        Context::at_scale(scale_of(coordinates.chain(lengths)))
     }
 
     fn variables_of(&self, id: EntityId, entity: &Entity) -> Vec<usize> {
@@ -186,6 +177,11 @@ impl System {
             }
             _ => Err(SketchError::MissingEntity(id)),
         }
+    }
+
+    fn span_context(&self, from: PointHandle, to: PointHandle, value: f64) -> Context {
+        let (from, to) = (from.at(&self.values), to.at(&self.values));
+        Context::at_scale(scale_of([from.x, from.y, to.x, to.y, value]))
     }
 
     fn initial_direction(&self, from: PointHandle, to: PointHandle) -> Vector2 {
@@ -291,12 +287,11 @@ impl System {
             Constraint::Distance { from, to, .. } => {
                 let value = dimension()?;
                 match (role(from)?, role(to)?) {
-                    (Role::Point, Role::Point) if value.abs() <= self.context.degenerate_length => {
-                        let (from, to) = (self.point(from)?, self.point(to)?);
-                        vec![Form::SameX(from, to), Form::SameY(from, to)]
-                    }
                     (Role::Point, Role::Point) => {
                         let (from, to) = (self.point(from)?, self.point(to)?);
+                        if value.abs() <= self.span_context(from, to, value).degenerate_length {
+                            return Ok(vec![Form::SameX(from, to), Form::SameY(from, to)]);
+                        }
                         vec![Form::PointDistance {
                             from,
                             to,
@@ -419,6 +414,20 @@ impl System {
             line,
             value,
         })
+    }
+}
+
+fn scale_of(magnitudes: impl IntoIterator<Item = f64>) -> f64 {
+    let largest = magnitudes
+        .into_iter()
+        .map(f64::abs)
+        .filter(|magnitude| magnitude.is_finite())
+        .fold(1.0, f64::max);
+    let power_of_two = largest.log2().ceil().exp2();
+    if power_of_two.is_finite() {
+        power_of_two
+    } else {
+        largest
     }
 }
 

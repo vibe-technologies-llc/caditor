@@ -59,13 +59,11 @@ within a category run from most to least important.
 - Conflict diagnosis re-solves each probe over the whole failed scope with no probe budget, and
   treats a subset that merely fails to converge from the fixed start as inconsistent, so large
   sketches diagnose slowly and a reported conflict can be wrong or not minimal.
-- The solve memo key includes the global scale (the largest coordinate or dimension), so editing
-  the outermost dimension or dragging the outermost point misses the memo for every part.
 - `10 mm^2` means (10 mm)², since a power binds to the measure before it; stored text relies on
   that reading, so changing it needs a new spelling or a format change.
 - Tests missing for: dense and sparse paths giving the same rank and fixed sets across the
   48-variable boundary; minimal conflict sets and two independent conflicts in a large part;
-  arcs with tangent, equal and angle constraints; a scale-changing edit; expressions at
+  arcs with tangent, equal and angle constraints; expressions at
   `MAX_TREE_DEPTH` evaluated, printed and dropped on a worker's default stack.
 
 ## STEP import and export

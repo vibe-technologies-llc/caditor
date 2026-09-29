@@ -5,7 +5,7 @@ use nalgebra::{DMatrix, DVector, SVD};
 use crate::{
     id::{ConstraintId, EntityId},
     solve::{
-        equation::{Equation, Gradient, PointHandle, value},
+        equation::{Context, Equation, Gradient, PointHandle, value},
         sparse,
         system::System,
     },
@@ -43,7 +43,7 @@ pub(crate) fn components(system: &System, active: &[usize], values: &[f64]) -> V
         let Some(equation) = system.equations.get(index) else {
             continue;
         };
-        let variables = equation.variables(values, &system.context);
+        let variables = equation.variables(values);
         let Some(&first) = variables.first() else {
             constant.push(index);
             continue;
@@ -106,6 +106,11 @@ fn union(parents: &mut BTreeMap<usize, usize>, a: usize, b: usize) {
     }
 }
 
+pub(crate) struct Part<'a> {
+    pub component: &'a Component,
+    pub context: Context,
+}
+
 pub(crate) struct Solver<'a> {
     pub system: &'a System,
     pub cancelled: &'a dyn Fn() -> bool,
@@ -117,21 +122,25 @@ impl Solver<'_> {
     pub fn solve(&self, active: &[usize], values: &mut [f64]) -> Result<Vec<Component>, Cancelled> {
         let mut failed = Vec::new();
         for component in components(self.system, active, values) {
-            if !self.solve_component(&component, values)? {
+            if !self.solve_component(&self.part(&component), values)? {
                 failed.push(component);
             }
         }
         Ok(failed)
     }
 
-    fn solve_component(
-        &self,
-        component: &Component,
-        values: &mut [f64],
-    ) -> Result<bool, Cancelled> {
-        if self.converged(component, values) {
+    pub fn part<'b>(&self, component: &'b Component) -> Part<'b> {
+        Part {
+            component,
+            context: self.system.context_of(component),
+        }
+    }
+
+    fn solve_component(&self, part: &Part<'_>, values: &mut [f64]) -> Result<bool, Cancelled> {
+        if self.converged(part, values) {
             return Ok(true);
         }
+        let component = part.component;
         let start: Vec<f64> = component
             .variables
             .iter()
@@ -140,8 +149,8 @@ impl Solver<'_> {
         let attempts = std::iter::once(0.0).chain(PERTURBATIONS);
         for magnitude in attempts {
             self.restore(component, &start, values);
-            self.perturb(component, magnitude, values);
-            if self.gauss_newton(component, values)? {
+            self.perturb(part, magnitude, values);
+            if self.gauss_newton(part, values)? {
                 return Ok(true);
             }
         }
@@ -157,12 +166,12 @@ impl Solver<'_> {
         }
     }
 
-    fn perturb(&self, component: &Component, magnitude: f64, values: &mut [f64]) {
+    fn perturb(&self, part: &Part<'_>, magnitude: f64, values: &mut [f64]) {
         if magnitude == 0.0 {
             return;
         }
-        let offset = magnitude * self.extent(component, values);
-        for (order, variable) in component.variables.iter().enumerate() {
+        let offset = magnitude * self.extent(part, values);
+        for (order, variable) in part.component.variables.iter().enumerate() {
             if self.system.radius_variables.contains(variable) {
                 continue;
             }
@@ -173,9 +182,9 @@ impl Solver<'_> {
         }
     }
 
-    fn extent(&self, component: &Component, values: &[f64]) -> f64 {
+    fn extent(&self, part: &Part<'_>, values: &[f64]) -> f64 {
         let (mut low, mut high, mut radius) = (f64::INFINITY, f64::NEG_INFINITY, 0.0_f64);
-        for variable in &component.variables {
+        for variable in &part.component.variables {
             let current = value(values, *variable);
             if !current.is_finite() {
                 continue;
@@ -188,15 +197,11 @@ impl Solver<'_> {
             }
         }
         let extent = (high - low).max(radius);
-        if extent.is_finite() && extent > self.system.context.degenerate_length {
+        if extent.is_finite() && extent > part.context.degenerate_length {
             extent
         } else {
-            self.system.context.scale
+            part.context.scale
         }
-    }
-
-    fn tolerance(&self) -> f64 {
-        CONVERGENCE_TOLERANCE * self.system.context.scale
     }
 
     fn equations<'b>(&'b self, component: &'b Component) -> impl Iterator<Item = &'b Equation> {
@@ -206,60 +211,62 @@ impl Solver<'_> {
             .filter_map(|index| self.system.equations.get(*index))
     }
 
-    fn residuals(&self, component: &Component, values: &[f64]) -> Vec<f64> {
-        self.equations(component)
-            .map(|equation| equation.residual(values, &self.system.context))
+    fn residuals(&self, part: &Part<'_>, values: &[f64]) -> Vec<f64> {
+        self.equations(part.component)
+            .map(|equation| equation.residual(values, &part.context))
             .collect()
     }
 
-    fn admissible(&self, component: &Component, values: &[f64]) -> bool {
-        let finite = component.variables.iter().all(|variable| {
+    fn admissible(&self, part: &Part<'_>, values: &[f64]) -> bool {
+        let finite = part.component.variables.iter().all(|variable| {
             let current = value(values, *variable);
             current.is_finite()
                 && (!self.system.radius_variables.contains(variable) || current > 0.0)
         });
-        finite && !self.collapses(component, values)
+        finite && !self.collapses(part, values)
     }
 
-    fn collapses(&self, component: &Component, values: &[f64]) -> bool {
-        self.collapsed(component, values).next().is_some()
+    fn collapses(&self, part: &Part<'_>, values: &[f64]) -> bool {
+        self.collapsed(part, values).next().is_some()
     }
 
     pub(crate) fn collapsed<'b>(
         &'b self,
-        component: &'b Component,
+        part: &'b Part<'b>,
         values: &'b [f64],
     ) -> impl Iterator<Item = EntityId> + 'b {
         let moves = |handle: &PointHandle| match handle {
-            PointHandle::Variable(x) => component.variables.binary_search(x).is_ok(),
+            PointHandle::Variable(x) => part.component.variables.binary_search(x).is_ok(),
             PointHandle::Fixed(_) => false,
         };
+        let collapsed_length = part.context.collapsed_length();
         self.system
             .spans
             .iter()
             .filter(move |(_, from, to)| {
                 (moves(from) || moves(to))
-                    && from.at(values).distance(to.at(values)) <= self.system.collapsed_length
+                    && from.at(values).distance(to.at(values)) <= collapsed_length
             })
             .map(|(entity, _, _)| *entity)
     }
 
-    fn converged(&self, component: &Component, values: &[f64]) -> bool {
-        let tolerance = self.tolerance();
-        self.admissible(component, values)
+    fn converged(&self, part: &Part<'_>, values: &[f64]) -> bool {
+        let tolerance = CONVERGENCE_TOLERANCE * part.context.scale;
+        self.admissible(part, values)
             && self
-                .residuals(component, values)
+                .residuals(part, values)
                 .iter()
                 .all(|residual| residual.abs() <= tolerance)
     }
 
-    fn gauss_newton(&self, component: &Component, values: &mut [f64]) -> Result<bool, Cancelled> {
-        let scale = self.system.context.scale;
+    fn gauss_newton(&self, part: &Part<'_>, values: &mut [f64]) -> Result<bool, Cancelled> {
+        let component = part.component;
+        let scale = part.context.scale;
         for _ in 0..MAX_ITERATIONS {
             if (self.cancelled)() {
                 return Err(Cancelled);
             }
-            if self.converged(component, values) {
+            if self.converged(part, values) {
                 return Ok(true);
             }
             let scales: Vec<f64> = component
@@ -274,7 +281,7 @@ impl Solver<'_> {
                 })
                 .collect();
             let step = if component.variables.len() > DENSE_LIMIT {
-                let (rows, residuals) = self.sparse_linearize(component, values);
+                let (rows, residuals) = self.sparse_linearize(part, values);
                 let rows: Vec<sparse::Row> = rows
                     .into_iter()
                     .map(|row| {
@@ -287,7 +294,7 @@ impl Solver<'_> {
                     .collect();
                 sparse::minimal_norm_step(&rows, &residuals, component.variables.len())
             } else {
-                let (rows, residuals) = self.linearize(component, values);
+                let (rows, residuals) = self.linearize(part, values);
                 let rows: Vec<Vec<f64>> = rows
                     .into_iter()
                     .map(|row| {
@@ -310,16 +317,17 @@ impl Solver<'_> {
                 let shrink = MAX_STEP * scale / length;
                 step.iter_mut().for_each(|delta| *delta *= shrink);
             }
-            if !self.line_search(component, &step, values) {
+            if !self.line_search(part, &step, values) {
                 return Ok(false);
             }
         }
-        Ok(self.converged(component, values))
+        Ok(self.converged(part, values))
     }
 
-    fn line_search(&self, component: &Component, step: &[f64], values: &mut [f64]) -> bool {
+    fn line_search(&self, part: &Part<'_>, step: &[f64], values: &mut [f64]) -> bool {
+        let component = part.component;
         let cost = |values: &[f64]| -> f64 {
-            self.residuals(component, values)
+            self.residuals(part, values)
                 .iter()
                 .map(|residual| residual * residual)
                 .sum()
@@ -335,7 +343,7 @@ impl Solver<'_> {
                 }
             }
             let candidate = cost(&trial);
-            if self.admissible(component, &trial) && candidate.is_finite() && candidate < current {
+            if self.admissible(part, &trial) && candidate.is_finite() && candidate < current {
                 for variable in &component.variables {
                     if let (Some(slot), Some(accepted)) =
                         (values.get_mut(*variable), trial.get(*variable))
@@ -350,28 +358,26 @@ impl Solver<'_> {
         false
     }
 
-    fn linearize(&self, component: &Component, values: &[f64]) -> (Vec<Vec<f64>>, Vec<f64>) {
+    fn linearize(&self, part: &Part<'_>, values: &[f64]) -> (Vec<Vec<f64>>, Vec<f64>) {
+        let component = part.component;
         let mut gradient = Gradient::new();
         let mut rows = Vec::with_capacity(component.equations.len());
         let mut residuals = Vec::with_capacity(component.equations.len());
         for equation in self.equations(component) {
-            let residual = equation.linearize(values, &self.system.context, &mut gradient);
+            let residual = equation.linearize(values, &part.context, &mut gradient);
             rows.push(dense_row(&gradient, &component.variables));
             residuals.push(residual);
         }
         (rows, residuals)
     }
 
-    fn sparse_linearize(
-        &self,
-        component: &Component,
-        values: &[f64],
-    ) -> (Vec<sparse::Row>, Vec<f64>) {
+    fn sparse_linearize(&self, part: &Part<'_>, values: &[f64]) -> (Vec<sparse::Row>, Vec<f64>) {
+        let component = part.component;
         let mut gradient = Gradient::new();
         let mut rows = Vec::with_capacity(component.equations.len());
         let mut residuals = Vec::with_capacity(component.equations.len());
         for equation in self.equations(component) {
-            let residual = equation.linearize(values, &self.system.context, &mut gradient);
+            let residual = equation.linearize(values, &part.context, &mut gradient);
             rows.push(sparse::row(&gradient, &component.variables));
             residuals.push(residual);
         }
@@ -381,10 +387,11 @@ impl Solver<'_> {
     pub fn analyze_component(&self, component: &Component, values: &[f64]) -> ComponentAnalysis {
         let mut analysis = ComponentAnalysis::default();
         let mut contributions = BTreeMap::new();
+        let part = self.part(component);
         if component.variables.len() > DENSE_LIMIT {
-            self.analyze_sparse(component, values, &mut analysis, &mut contributions);
+            self.analyze_sparse(&part, values, &mut analysis, &mut contributions);
         } else {
-            self.analyze_dense(component, values, &mut analysis, &mut contributions);
+            self.analyze_dense(&part, values, &mut analysis, &mut contributions);
         }
         analysis.contributions = contributions
             .into_iter()
@@ -398,15 +405,16 @@ impl Solver<'_> {
 
     fn analyze_dense(
         &self,
-        component: &Component,
+        part: &Part<'_>,
         values: &[f64],
         analysis: &mut ComponentAnalysis,
         contributions: &mut BTreeMap<ConstraintId, Contribution>,
     ) {
+        let component = part.component;
         let mut groups: BTreeMap<Option<ConstraintId>, Vec<Vec<f64>>> = BTreeMap::new();
         let mut gradient = Gradient::new();
         for equation in self.equations(component) {
-            equation.linearize(values, &self.system.context, &mut gradient);
+            equation.linearize(values, &part.context, &mut gradient);
             groups
                 .entry(equation.owner)
                 .or_default()
@@ -453,15 +461,16 @@ impl Solver<'_> {
 impl Solver<'_> {
     fn analyze_sparse(
         &self,
-        component: &Component,
+        part: &Part<'_>,
         values: &[f64],
         analysis: &mut ComponentAnalysis,
         contributions: &mut BTreeMap<ConstraintId, Contribution>,
     ) {
+        let component = part.component;
         let mut groups: BTreeMap<Option<ConstraintId>, Vec<sparse::Row>> = BTreeMap::new();
         let mut gradient = Gradient::new();
         for equation in self.equations(component) {
-            equation.linearize(values, &self.system.context, &mut gradient);
+            equation.linearize(values, &part.context, &mut gradient);
             groups
                 .entry(equation.owner)
                 .or_default()

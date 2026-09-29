@@ -6,10 +6,28 @@ use crate::id::ConstraintId;
 
 pub(crate) type Gradient = Vec<(usize, f64)>;
 
+const DEGENERATE_LENGTH: f64 = 1e-12;
+const COLLAPSED_LENGTH: f64 = 1e-9;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Context {
     pub scale: f64,
     pub degenerate_length: f64,
+}
+
+impl Context {
+    pub const UNIT: Self = Self::at_scale(1.0);
+
+    pub const fn at_scale(scale: f64) -> Self {
+        Self {
+            scale,
+            degenerate_length: DEGENERATE_LENGTH * scale,
+        }
+    }
+
+    pub fn collapsed_length(&self) -> f64 {
+        COLLAPSED_LENGTH * self.scale
+    }
 }
 
 pub(crate) fn value(values: &[f64], index: usize) -> f64 {
@@ -211,9 +229,9 @@ impl Equation {
         self.form.evaluate(values, context, gradient)
     }
 
-    pub fn variables(&self, values: &[f64], context: &Context) -> Vec<usize> {
+    pub fn variables(&self, values: &[f64]) -> Vec<usize> {
         let mut gradient = Vec::new();
-        self.linearize(values, context, &mut gradient);
+        self.linearize(values, &Context::UNIT, &mut gradient);
         let mut variables: Vec<usize> = gradient.into_iter().map(|(index, _)| index).collect();
         variables.sort_unstable();
         variables.dedup();
@@ -222,6 +240,27 @@ impl Equation {
 }
 
 impl Form {
+    pub fn length(&self) -> Option<f64> {
+        match *self {
+            Self::PointDistance { value, .. }
+            | Self::LineDistance { value, .. }
+            | Self::Radius { value, .. } => Some(value),
+            Self::SameX(..)
+            | Self::SameY(..)
+            | Self::OnLine { .. }
+            | Self::OnCircle { .. }
+            | Self::Horizontal(_)
+            | Self::Vertical(_)
+            | Self::Parallel(..)
+            | Self::Perpendicular(..)
+            | Self::LineTangent { .. }
+            | Self::CircleTangent { .. }
+            | Self::EqualLength(..)
+            | Self::EqualRadius(..)
+            | Self::Angle { .. } => None,
+        }
+    }
+
     fn evaluate(&self, values: &[f64], context: &Context, gradient: &mut Gradient) -> f64 {
         match *self {
             Self::SameX(a, b) => {
@@ -402,10 +441,7 @@ pub(crate) fn wrap_angle(angle: f64) -> f64 {
 mod tests {
     use super::*;
 
-    const CONTEXT: Context = Context {
-        scale: 7.0,
-        degenerate_length: 1e-12,
-    };
+    const CONTEXT: Context = Context::at_scale(7.0);
     const STEP: f64 = 1e-6;
 
     fn point(index: usize) -> PointHandle {

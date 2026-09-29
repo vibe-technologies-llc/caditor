@@ -19,7 +19,7 @@ enum Variable {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Key {
-    context: [u64; 3],
+    scale: u64,
     entities: Vec<EntityId>,
     constraints: Vec<(ConstraintId, Option<u64>)>,
     start: Vec<(Variable, u64)>,
@@ -80,11 +80,6 @@ impl<'a> Recall<'a> {
                 owners.entry(*variable).or_default().push(*entity);
             }
         }
-        let context = [
-            system.context.scale.to_bits(),
-            system.context.degenerate_length.to_bits(),
-            system.collapsed_length.to_bits(),
-        ];
         let keys = components(system, active, &system.values)
             .into_iter()
             .filter(|component| {
@@ -95,7 +90,7 @@ impl<'a> Recall<'a> {
                         .any(|variable| stiff.contains(variable))
             })
             .filter_map(|component| {
-                let key = Key::of(system, dimensions, &component, &names, &owners, context)?;
+                let key = Key::of(system, dimensions, &component, &names, &owners)?;
                 Some((component.equations, key))
             })
             .collect();
@@ -220,7 +215,6 @@ impl Key {
         component: &Component,
         names: &BTreeMap<usize, Variable>,
         owners: &BTreeMap<usize, Vec<EntityId>>,
-        context: [u64; 3],
     ) -> Option<Self> {
         let entities: BTreeSet<EntityId> = component
             .variables
@@ -243,7 +237,7 @@ impl Key {
             })
             .collect::<Option<Vec<_>>>()?;
         Some(Self {
-            context,
+            scale: system.context_of(component).scale.to_bits(),
             entities: entities.into_iter().collect(),
             constraints: constraints
                 .into_iter()
