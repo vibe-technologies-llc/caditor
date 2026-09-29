@@ -32,9 +32,10 @@ entirely; see `.claude/rules/rust-style.md`.
 by the release workflow before it builds, in Ubuntu 22.04 containers on the toolchain pinned by
 `RUST_TOOLCHAIN` (shared with the release workflow; actions are pinned by commit, and
 `cargo-deny`, `cargo-fuzz` and `cargo-about` are their release binaries checked against pinned
-SHA-256 sums): the tests with `--locked` and `CADITOR_REQUIRE_GPU=1` on the lavapipe software
+SHA-256 sums, and `rust-formatter` is built from the commit pinned by `RUST_FORMATTER_REV`):
+the tests with `--locked` and `CADITOR_REQUIRE_GPU=1` on the lavapipe software
 Vulkan driver (without that variable the offscreen render tests skip when no adapter exists),
-clippy, `cargo deny` (`deny.toml`: licences, sources and advisories, each ignored advisory with
+clippy, `rust-formatter --check` on the nightly pinned by `FORMAT_TOOLCHAIN`, `cargo deny` (`deny.toml`: licences, sources and advisories, each ignored advisory with
 its reason), a snapshot archive checked by `packaging/check-install.sh`, and a minute of fuzzing
 per target. Every job has a timeout, and a newer push to a pull request cancels its older run. `fuzz/` is its own cargo
 workspace for `cargo fuzz` on nightly, with targets for the expression parser (`expression`),

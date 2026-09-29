@@ -51,7 +51,7 @@ differently, what they must do), not as a commit message.
 5. Commit as `Release <version>`, tag it `v<version>` with `git tag -a`, and push `master` and
    the tag.
 6. The `Release` workflow (`.github/workflows/release.yml`) first runs the whole CI workflow
-   on the tagged commit (tests on lavapipe, clippy, `cargo deny`, the packaging check and the
+   on the tagged commit (tests on lavapipe, clippy, the formatting check, `cargo deny`, the packaging check and the
    fuzzing, through `workflow_call`), and only when it passes builds the archive with
    `packaging/build-release.sh` in an Ubuntu 22.04 container on the toolchain pinned by
    `RUST_TOOLCHAIN` (kept equal in `ci.yml` and raised in both at once), checks it with

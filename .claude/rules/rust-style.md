@@ -12,7 +12,9 @@ paths:
   `rustfmt`. It runs nightly rustfmt with settings the plain tools lack, so their output differs.
 - There is no `rustfmt.toml`, and none should be added. The formatter is zero-config.
 - `rust-formatter --check` is read-only and exits 1 with a diff. `--since <REF>` and `--staged`
-  limit a run to changed files.
+  limit a run to changed files. CI runs the check with the formatter built from the commit
+  pinned by `RUST_FORMATTER_REV` on the nightly pinned by `FORMAT_TOOLCHAIN` in
+  `.github/workflows/ci.yml`; raise both there when the local tools move on.
 
 ## Imports
 
