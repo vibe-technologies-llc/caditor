@@ -15,9 +15,9 @@ ahash.workspace = true
 glam.workspace = true
 log.workspace = true
 parking_lot.workspace = true
+pollster.workspace = true
 thiserror.workspace = true
 wgpu.workspace = true
 
 [dev-dependencies]
 naga = { workspace = true, features = ["wgsl-in"] }
-pollster.workspace = true

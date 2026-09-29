@@ -13,8 +13,10 @@ use crate::{
 pub const MESH_VERTEX_STRIDE: u64 = 28;
 const INDEX_BYTES: u64 = 4;
 const STYLE_BINDING: u32 = 1;
-const STYLE_HEADER_BYTES: u64 = 16;
-const FACE_STYLE_BYTES: u64 = 32;
+const PLACEMENT_BINDING: u32 = 2;
+const PLACEMENT_BYTES: u64 = 32;
+const STYLE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg32Uint;
+const STYLE_TEXEL_BYTES: u32 = 8;
 const UNSTYLED_FACE: FaceStyle = FaceStyle {
     color: Color::from_rgb8(160, 164, 172),
     pick: None,
@@ -219,15 +221,54 @@ impl GpuPart {
 struct GpuMesh {
     mesh: Arc<ShadedMesh>,
     parts: Vec<GpuPart>,
-    styled_faces: usize,
-    styles: wgpu::Buffer,
+    layout: StyleLayout,
+    placement: wgpu::Buffer,
+    styles: wgpu::Texture,
     written: Option<Vec<FaceStyle>>,
     bind_group: wgpu::BindGroup,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StyleLayout {
+    columns: u32,
+    rows: u32,
+    faces: u32,
+}
+
+impl StyleLayout {
+    fn new(face_count: usize, largest_side: u32) -> Self {
+        let side = largest_side.max(1);
+        let wanted = u32::try_from(face_count).unwrap_or(u32::MAX).max(1);
+        let columns = wanted.min(side);
+        let rows = wanted.div_ceil(columns).min(side);
+        Self {
+            columns,
+            rows,
+            faces: columns.saturating_mul(rows).min(wanted),
+        }
+    }
+
+    fn extent(self) -> wgpu::Extent3d {
+        wgpu::Extent3d {
+            width: self.columns,
+            height: self.rows,
+            depth_or_array_layers: 1,
+        }
+    }
+
+    fn texels(self) -> usize {
+        usize::try_from(u64::from(self.columns) * u64::from(self.rows)).unwrap_or(usize::MAX)
+    }
+}
+
+fn pack_color(color: Color) -> u32 {
+    color.to_array().iter().rev().fold(0, |packed, channel| {
+        (packed << 8) | (channel.clamp(0.0, 1.0) * 255.0).round() as u32
+    })
+}
+
 impl GpuMesh {
     fn new(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, mesh: Arc<ShadedMesh>) -> Self {
-        let limits = device.limits();
         let buffer_limit = gpu::buffer_limit(device);
         let mut bytes = Bytes::default();
         let parts = match split_into_parts(&mesh, buffer_limit) {
@@ -258,31 +299,44 @@ impl GpuMesh {
                     .collect()
             }
         };
-        let style_limit = buffer_limit.min(limits.max_storage_buffer_binding_size);
-        let styled_faces = usize::try_from(
-            (style_limit.saturating_sub(STYLE_HEADER_BYTES) / FACE_STYLE_BYTES).max(1),
-        )
-        .unwrap_or(usize::MAX)
-        .min(mesh.face_count.max(1));
-        let styles = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("mesh face styles"),
-            size: STYLE_HEADER_BYTES
-                .saturating_add((styled_faces as u64).saturating_mul(FACE_STYLE_BYTES)),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        let style_layout =
+            StyleLayout::new(mesh.face_count, device.limits().max_texture_dimension_2d);
+        let placement = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("mesh placement"),
+            size: PLACEMENT_BYTES,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let styles = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mesh face styles"),
+            size: style_layout.extent(),
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: STYLE_FORMAT,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let styles_view = styles.create_view(&wgpu::TextureViewDescriptor::default());
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("mesh face styles"),
             layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: STYLE_BINDING,
-                resource: styles.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: STYLE_BINDING,
+                    resource: wgpu::BindingResource::TextureView(&styles_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: PLACEMENT_BINDING,
+                    resource: placement.as_entire_binding(),
+                },
+            ],
         });
         Self {
             mesh,
             parts,
-            styled_faces,
+            layout: style_layout,
+            placement,
             styles,
             written: None,
             bind_group,
@@ -297,22 +351,33 @@ impl GpuMesh {
         eye: Point3,
     ) {
         bytes.clear();
-        bytes.vec4(relative_to_eye(self.mesh.origin, eye), 0.0);
-        queue.write_buffer(&self.styles, 0, bytes.as_slice());
+        bytes
+            .vec4(relative_to_eye(self.mesh.origin, eye), 0.0)
+            .u32(self.layout.faces)
+            .u32(self.layout.columns)
+            .u32(0)
+            .u32(0);
+        queue.write_buffer(&self.placement, 0, bytes.as_slice());
         if self.written.as_deref() == Some(instance.faces.as_slice()) {
             return;
         }
         bytes.clear();
-        for face in 0..self.styled_faces {
+        for face in 0..self.layout.texels() {
             let style = instance.faces.get(face).copied().unwrap_or(UNSTYLED_FACE);
             bytes
-                .floats(&style.color.to_array())
-                .u32(PickId::raw(style.pick))
-                .u32(0)
-                .u32(0)
-                .u32(0);
+                .u32(pack_color(style.color))
+                .u32(PickId::raw(style.pick));
         }
-        queue.write_buffer(&self.styles, STYLE_HEADER_BYTES, bytes.as_slice());
+        queue.write_texture(
+            self.styles.as_image_copy(),
+            bytes.as_slice(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(self.layout.columns.saturating_mul(STYLE_TEXEL_BYTES)),
+                rows_per_image: Some(self.layout.rows),
+            },
+            self.layout.extent(),
+        );
         self.written = Some(instance.faces.clone());
     }
 }
@@ -327,16 +392,28 @@ impl MeshCache {
     pub fn new(device: &wgpu::Device) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("mesh face styles"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: STYLE_BINDING,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: STYLE_BINDING,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: PLACEMENT_BINDING,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
         });
         Self {
             layout,
@@ -428,6 +505,42 @@ mod tests {
         assert_eq!(mesh.vertices[4].normal, Vec3::Z);
         assert!(!mesh.is_empty());
         assert!(ShadedMesh::new([]).is_empty());
+    }
+
+    #[test]
+    fn face_styles_fill_rows_of_a_texture_no_wider_than_the_device_allows() {
+        let one_row = StyleLayout::new(6, 8192);
+        let wrapped = StyleLayout::new(3000, 256);
+        let beyond = StyleLayout::new(100_000, 64);
+
+        assert_eq!(
+            one_row,
+            StyleLayout {
+                columns: 6,
+                rows: 1,
+                faces: 6,
+            }
+        );
+        assert_eq!(
+            wrapped,
+            StyleLayout {
+                columns: 256,
+                rows: 12,
+                faces: 3000,
+            }
+        );
+        assert_eq!(wrapped.texels(), 3072);
+        assert_eq!(beyond.faces, 64 * 64);
+        assert_eq!(StyleLayout::new(0, 0).faces, 1);
+    }
+
+    #[test]
+    fn colours_pack_red_into_the_lowest_byte() {
+        assert_eq!(pack_color(Color::from_rgba8(1, 2, 3, 4)), 0x0403_0201);
+        assert_eq!(
+            pack_color(Color::from_rgb8(255, 0, 0).with_alpha(2.0)),
+            0xff00_00ff
+        );
     }
 
     fn strip(quads: u32) -> ShadedMesh {

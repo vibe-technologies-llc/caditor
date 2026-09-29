@@ -13,19 +13,15 @@ struct Grid {
     color: vec4<f32>,
 }
 
-struct FaceStyle {
-    color: vec4<f32>,
-    pick: u32,
-}
-
-struct MeshStyle {
+struct MeshPlacement {
     offset: vec4<f32>,
-    faces: array<FaceStyle>,
+    faces_columns: vec4<u32>,
 }
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(1) @binding(0) var<uniform> grid: Grid;
-@group(1) @binding(1) var<storage, read> mesh: MeshStyle;
+@group(1) @binding(1) var face_styles: texture_2d<u32>;
+@group(1) @binding(2) var<uniform> mesh: MeshPlacement;
 
 const CULLED: vec4<f32> = vec4<f32>(0.0, 0.0, 2.0, 1.0);
 
@@ -42,7 +38,7 @@ struct Varyings {
 
 struct PickOutput {
     @location(0) id: u32,
-    @location(1) depth: f32,
+    @location(1) depth: u32,
 }
 
 fn view_depth(position: vec3<f32>) -> f32 {
@@ -202,16 +198,22 @@ struct MeshVertex {
     @location(2) face: u32,
 }
 
+fn unpack_color(packed: u32) -> vec4<f32> {
+    let channels = vec4<u32>(packed, packed >> 8u, packed >> 16u, packed >> 24u) & vec4<u32>(255u);
+    return vec4<f32>(channels) / 255.0;
+}
+
 @vertex
 fn vs_mesh(vertex: MeshVertex) -> Varyings {
     let relative = vertex.position + mesh.offset.xyz;
-    let face = min(vertex.face, arrayLength(&mesh.faces) - 1u);
-    let style = mesh.faces[face];
+    let face = min(vertex.face, max(mesh.faces_columns.x, 1u) - 1u);
+    let columns = max(mesh.faces_columns.y, 1u);
+    let style = textureLoad(face_styles, vec2<u32>(face % columns, face / columns), 0);
 
     var out = empty_varyings();
     out.position = finish(to_clip(relative), 1.0);
-    out.color = style.color;
-    out.pick = style.pick;
+    out.color = unpack_color(style.x);
+    out.pick = style.y;
     out.depth = view_depth(relative);
     out.relative = relative;
     out.normal = vertex.normal;
@@ -306,12 +308,12 @@ fn fs_pick(in: Varyings) -> PickOutput {
     if in.pick == 0u {
         discard;
     }
-    return PickOutput(in.pick, in.depth);
+    return PickOutput(in.pick, bitcast<u32>(in.depth));
 }
 
 @fragment
 fn fs_mesh_pick(in: Varyings) -> PickOutput {
-    return PickOutput(in.pick, in.depth);
+    return PickOutput(in.pick, bitcast<u32>(in.depth));
 }
 
 @fragment
@@ -319,5 +321,5 @@ fn fs_marker_pick(in: Varyings) -> PickOutput {
     if in.pick == 0u || marker_coverage(in) <= 0.0 {
         discard;
     }
-    return PickOutput(in.pick, in.depth);
+    return PickOutput(in.pick, bitcast<u32>(in.depth));
 }

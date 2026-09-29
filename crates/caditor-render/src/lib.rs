@@ -11,9 +11,9 @@ use std::{fmt::Debug, sync::Arc};
 
 use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 
-use crate::viewport::{DEPTH_FORMAT, SurfaceTarget, ViewportRenderer};
 pub use crate::{
     camera::{Camera, View, Viewpoint},
+    gpu::Wake,
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     picking::PickPoll,
     scene::{
@@ -21,17 +21,23 @@ pub use crate::{
     },
     viewport::ViewportFrame,
 };
+use crate::{
+    gpu::DeviceLoss,
+    viewport::{DEPTH_FORMAT, SurfaceTarget, ViewportRenderer},
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
     #[error("could not create a drawing surface for the window: {0}")]
     CreateSurface(#[from] wgpu::CreateSurfaceError),
-    #[error("no compatible graphics adapter was found: {0}")]
-    RequestAdapter(#[from] wgpu::RequestAdapterError),
-    #[error("the graphics adapter refused to open a device: {0}")]
+    #[error("no graphics adapter can draw to this window")]
+    NoAdapter,
+    #[error("no graphics adapter would open a device: {0}")]
     RequestDevice(#[from] wgpu::RequestDeviceError),
     #[error("the graphics adapter cannot present to this window")]
     UnsupportedSurface,
+    #[error("the graphics device refused the window's drawing surface")]
+    ConfigureSurface,
     #[error("the window's drawing surface raised a validation error")]
     SurfaceValidation,
 }
@@ -50,6 +56,7 @@ pub enum FrameStart {
 
 pub struct Frame {
     surface_texture: wgpu::SurfaceTexture,
+    generation: u64,
     pub view: wgpu::TextureView,
     pub encoder: wgpu::CommandEncoder,
 }
@@ -61,98 +68,141 @@ impl<T> WindowTarget for T where
 {
 }
 
-pub struct Renderer {
-    window: Arc<dyn WindowTarget>,
-    instance: wgpu::Instance,
+struct Gpu {
     adapter: wgpu::Adapter,
-    surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
+    loss: DeviceLoss,
+}
+
+impl Gpu {
+    async fn open(
+        instance: &wgpu::Instance,
+        surface: &wgpu::Surface<'static>,
+        size: SurfaceSize,
+        wake: &Wake,
+    ) -> Result<Self, RenderError> {
+        let opened = gpu::open_device(instance, Some(surface)).await?;
+        let loss = DeviceLoss::watch(&opened.device, Arc::clone(wake));
+        let config = configure(&opened.adapter, &opened.device, surface, size).await?;
+        log::info!("drawing to a {:?} surface", config.format);
+        Ok(Self {
+            adapter: opened.adapter,
+            device: opened.device,
+            queue: opened.queue,
+            config,
+            loss,
+        })
+    }
+
+    fn viewport(&self) -> ViewportRenderer {
+        let sample_count = gpu::sample_count(
+            &self.adapter,
+            &self.device,
+            self.config.format,
+            DEPTH_FORMAT,
+        );
+        log::info!("drawing the viewport with {sample_count}x multisampling");
+        ViewportRenderer::new(&self.device, self.config.format, sample_count)
+    }
+
+    fn largest_side(&self) -> u32 {
+        self.device.limits().max_texture_dimension_2d
+    }
+}
+
+async fn configure(
+    adapter: &wgpu::Adapter,
+    device: &wgpu::Device,
+    surface: &wgpu::Surface<'static>,
+    size: SurfaceSize,
+) -> Result<wgpu::SurfaceConfiguration, RenderError> {
+    let size = clamp_size(size, device.limits().max_texture_dimension_2d);
+    let mut config = surface
+        .get_default_config(adapter, size.width, size.height)
+        .ok_or(RenderError::UnsupportedSurface)?;
+    if let Some(format) = preferred_format(&surface.get_capabilities(adapter).formats) {
+        config.format = format;
+    }
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    surface.configure(device, &config);
+    match scope.pop().await {
+        None => Ok(config),
+        Some(error) => {
+            log::warn!("the drawing surface could not be configured: {error}");
+            Err(RenderError::ConfigureSurface)
+        }
+    }
+}
+
+pub struct Renderer {
+    window: Arc<dyn WindowTarget>,
+    wake: Wake,
+    instance: wgpu::Instance,
+    surface: wgpu::Surface<'static>,
+    gpu: Gpu,
     needs_reconfigure: bool,
     viewport: ViewportRenderer,
+    generation: u64,
+    pick_dropped: bool,
 }
 
 impl Renderer {
     pub async fn new(
         window: Arc<dyn WindowTarget>,
         size: SurfaceSize,
+        wake: Wake,
     ) -> Result<Self, RenderError> {
         let instance =
             wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle_from_env(
                 Box::new(Arc::clone(&window)),
             ));
         let surface = instance.create_surface(Arc::clone(&window))?;
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                ..Default::default()
-            })
-            .await?;
-        log::info!("using graphics adapter {:?}", adapter.get_info());
-
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: Some("caditor"),
-                ..Default::default()
-            })
-            .await?;
-        device.on_uncaptured_error(Arc::new(|error| {
-            log::error!("the graphics device reported an error: {error}");
-        }));
-
-        let size = clamp_size(size);
-        let mut config = surface
-            .get_default_config(&adapter, size.width, size.height)
-            .ok_or(RenderError::UnsupportedSurface)?;
-        let capabilities = surface.get_capabilities(&adapter);
-        if let Some(format) = preferred_format(&capabilities.formats) {
-            config.format = format;
-        }
-        log::info!("drawing to a {:?} surface", config.format);
-        surface.configure(&device, &config);
-        let sample_count = supported_sample_count(&adapter, config.format);
-        log::info!("drawing the viewport with {sample_count}x multisampling");
-        let viewport = ViewportRenderer::new(&device, config.format, sample_count);
+        let gpu = Gpu::open(&instance, &surface, size, &wake).await?;
+        let viewport = gpu.viewport();
 
         Ok(Self {
             window,
+            wake,
             instance,
-            adapter,
             surface,
-            device,
-            queue,
-            config,
+            gpu,
             needs_reconfigure: false,
             viewport,
+            generation: 0,
+            pick_dropped: false,
         })
     }
 
     pub fn device(&self) -> &wgpu::Device {
-        &self.device
+        &self.gpu.device
     }
 
     pub fn queue(&self) -> &wgpu::Queue {
-        &self.queue
+        &self.gpu.queue
     }
 
     pub fn format(&self) -> wgpu::TextureFormat {
-        self.config.format
+        self.gpu.config.format
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn size(&self) -> SurfaceSize {
         SurfaceSize {
-            width: self.config.width,
-            height: self.config.height,
+            width: self.gpu.config.width,
+            height: self.gpu.config.height,
         }
     }
 
     pub fn resize(&mut self, size: SurfaceSize) {
-        let size = clamp_size(size);
-        self.config.width = size.width;
-        self.config.height = size.height;
-        self.surface.configure(&self.device, &self.config);
+        let size = clamp_size(size, self.gpu.largest_side());
+        self.gpu.config.width = size.width;
+        self.gpu.config.height = size.height;
+        self.surface.configure(&self.gpu.device, &self.gpu.config);
         self.needs_reconfigure = false;
     }
 
@@ -161,8 +211,12 @@ impl Renderer {
         window_size: SurfaceSize,
         viewport: Option<&ViewportFrame<'_>>,
     ) -> Result<FrameStart, RenderError> {
+        if self.gpu.loss.is_lost() {
+            self.recover()?;
+        }
         self.viewport.picking().abandon_unsubmitted();
-        if self.needs_reconfigure || clamp_size(window_size) != self.size() {
+        if self.needs_reconfigure || clamp_size(window_size, self.gpu.largest_side()) != self.size()
+        {
             self.resize(window_size);
         }
 
@@ -192,13 +246,14 @@ impl Renderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self
+            .gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("frame"),
             });
         self.viewport.draw(
-            &self.device,
-            &self.queue,
+            &self.gpu.device,
+            &self.gpu.queue,
             &mut encoder,
             &SurfaceTarget {
                 view: &view,
@@ -210,6 +265,7 @@ impl Renderer {
 
         Ok(FrameStart::Ready(Box::new(Frame {
             surface_texture,
+            generation: self.generation,
             view,
             encoder,
         })))
@@ -220,25 +276,58 @@ impl Renderer {
         frame: Frame,
         preceding: impl IntoIterator<Item = wgpu::CommandBuffer>,
     ) {
-        self.queue
+        if frame.generation != self.generation || self.gpu.loss.is_lost() {
+            log::warn!("dropping a frame drawn on a graphics device that was lost");
+            return;
+        }
+        self.gpu
+            .queue
             .submit(preceding.into_iter().chain([frame.encoder.finish()]));
-        self.queue.present(frame.surface_texture);
+        self.gpu.queue.present(frame.surface_texture);
         self.viewport.picking().after_submit();
     }
 
     pub fn poll_pick(&mut self) -> PickPoll {
-        self.viewport.picking().poll(&self.device)
+        if std::mem::take(&mut self.pick_dropped) {
+            return PickPoll::Failed;
+        }
+        self.viewport.picking().poll(&self.gpu.device)
     }
 
     pub fn is_pick_pending(&self) -> bool {
         self.viewport.is_pick_pending()
     }
 
+    fn recover(&mut self) -> Result<(), RenderError> {
+        log::warn!("opening a new graphics device to replace the lost one");
+        let size = self.size();
+        let reused = pollster::block_on(Gpu::open(&self.instance, &self.surface, size, &self.wake));
+        let gpu = match reused {
+            Ok(gpu) => gpu,
+            Err(error) => {
+                log::warn!(
+                    "the window's surface could not be reused ({error}), creating a new one"
+                );
+                let surface = self.instance.create_surface(Arc::clone(&self.window))?;
+                let gpu =
+                    pollster::block_on(Gpu::open(&self.instance, &surface, size, &self.wake))?;
+                self.surface = surface;
+                gpu
+            }
+        };
+        self.pick_dropped |= self.viewport.is_pick_pending();
+        self.viewport = gpu.viewport();
+        self.gpu = gpu;
+        self.generation = self.generation.wrapping_add(1);
+        self.needs_reconfigure = false;
+        Ok(())
+    }
+
     fn recreate_surface(&mut self) -> Result<(), RenderError> {
         log::warn!("drawing surface was lost, recreating it");
         let surface = self.instance.create_surface(Arc::clone(&self.window))?;
         if !surface
-            .get_capabilities(&self.adapter)
+            .get_capabilities(&self.gpu.adapter)
             .formats
             .contains(&self.viewport.format())
         {
@@ -262,23 +351,11 @@ fn preferred_format(formats: &[wgpu::TextureFormat]) -> Option<wgpu::TextureForm
         .or_else(|| formats.iter().copied().find(|format| !format.is_srgb()))
 }
 
-fn supported_sample_count(adapter: &wgpu::Adapter, format: wgpu::TextureFormat) -> u32 {
-    let color = adapter.get_texture_format_features(format).flags;
-    let depth = adapter.get_texture_format_features(DEPTH_FORMAT).flags;
-    [4, 2]
-        .into_iter()
-        .find(|&count| {
-            color.sample_count_supported(count)
-                && depth.sample_count_supported(count)
-                && color.contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE)
-        })
-        .unwrap_or(1)
-}
-
-fn clamp_size(size: SurfaceSize) -> SurfaceSize {
+fn clamp_size(size: SurfaceSize, largest_side: u32) -> SurfaceSize {
+    let largest_side = largest_side.max(1);
     SurfaceSize {
-        width: size.width.max(1),
-        height: size.height.max(1),
+        width: size.width.clamp(1, largest_side),
+        height: size.height.clamp(1, largest_side),
     }
 }
 
@@ -308,5 +385,35 @@ mod tests {
             Some(TextureFormat::Rgb10a2Unorm)
         );
         assert_eq!(preferred_format(&[TextureFormat::Bgra8UnormSrgb]), None);
+    }
+
+    #[test]
+    fn the_surface_never_passes_the_largest_texture_the_device_allows() {
+        let wide = SurfaceSize {
+            width: 10_240,
+            height: 2_160,
+        };
+
+        assert_eq!(
+            clamp_size(wide, 8_192),
+            SurfaceSize {
+                width: 8_192,
+                height: 2_160,
+            }
+        );
+        assert_eq!(clamp_size(wide, 16_384), wide);
+        assert_eq!(
+            clamp_size(
+                SurfaceSize {
+                    width: 0,
+                    height: 0,
+                },
+                0
+            ),
+            SurfaceSize {
+                width: 1,
+                height: 1,
+            }
+        );
     }
 }

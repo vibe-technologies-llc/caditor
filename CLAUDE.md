@@ -961,6 +961,23 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   a resize, focus, the cursor entering) or five seconds pass, so a window hidden on Wayland
   does not block the UI thread for the acquire timeout every frame, and retries skipped or
   failed frames after 16 ms doubling up to a second instead of in a tight loop.
+  - Devices (`gpu.rs`): `open_device` asks for the low-power adapter (unless `WGPU_POWER_PREF`
+    says otherwise), so a discrete GPU is not woken for a CAD window, then tries every other
+    adapter that can present to the window, integrated before discrete, virtual and software
+    ones and Vulkan before GL. Each adapter is asked for a device with its own limits (and its
+    adapter-specific format features), then default and then WebGL2-level limits that keep its
+    texture sizes and buffer size, before the next adapter is tried. The surface is clamped to
+    the device's largest texture side, and the multisample count is read from the adapter's
+    format features only when the device may use them. Nothing needs storage buffers, so
+    downlevel and GL devices draw everything (a test renders on WebGL2 limits).
+  - Device loss: `DeviceLoss::watch` registers the device-lost callback (which also wakes the
+    app through the `Wake` given to `Renderer::new`) and the uncaptured-error handler, which
+    logs. The next `begin_frame` after a loss opens a new device on the same surface (or on a
+    new one when that fails), reconfigures it and rebuilds the `ViewportRenderer` (pipelines,
+    mesh buffers, pick targets and growable buffers), bumping `Renderer::generation`; a pick in
+    flight then polls as `Failed`. A `Frame` remembers its generation, and `submit` drops a frame
+    from an older one or drawn while the device is lost instead of submitting it. A failed
+    reopening is an error for that frame, retried later like any other.
   - Precision: every position is converted relative to the eye in f64 before the cast to f32,
     and the view matrix is rotation only, so geometry far from the origin stays exact. Meshes
     are the exception that keeps the rule: a `ShadedMesh` stores f32 positions relative to its
@@ -969,10 +986,12 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     `FaceStyle` (colour, pick id) per face. Vertex and index buffers are uploaded once per
     `Arc` and dropped when the mesh leaves the scene (a frame with no viewport to draw keeps
     them); a mesh whose vertices or indices would pass the device's `max_buffer_size` is split
-    by triangles into parts that each fit (`split_into_parts`), and the style buffer holds as
-    many faces as a storage binding allows (later faces take the last one's style). Each frame
-    writes only the eye's offset to the mesh centre at the head of that buffer; the per-face
-    styles after it, read by face index, are written when they differ from the last ones
+    by triangles into parts that each fit (`split_into_parts`). Per-face styles live in an
+    `Rg32Uint` texture (colour packed as 8-bit RGBA, then the pick id) filled row by row up to
+    the device's largest texture side (`StyleLayout`; later faces take the last one's style)
+    and read by face index with `textureLoad` in the vertex shader, so no storage buffer is
+    needed. Each frame writes only the eye's offset to the mesh centre (with the face count and
+    row width) into a small uniform; the styles are written when they differ from the last ones
     written, so hover and selection cost nothing in geometry. Faces are lit two-sided by a key light above and to the left of the camera, a
     headlight and a small specular term, and write depth, so edges and sketches behind them are
     hidden in the view and in picking alike (a face without a pick id writes id 0 with its depth in
@@ -993,7 +1012,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     every interface size, like the app's snapping and annotations.
   - Picking renders a window of `PICK_RADIUS_POINTS` (7.5) around the cursor, sized in physical
     pixels from the scale (`PickWindow`, its targets and readback recreated when it changes),
-    into ID and depth targets and reads it back asynchronously, so hover never blocks the UI
+    into ID and depth targets (both `R32Uint`, the depth as the bits of its f32, since GL does not
+    always render to float targets) and reads it back asynchronously, so hover never blocks the UI
     thread; hits report their distance from the cursor in points (`offset_points`), which the
     app's pick tolerances compare against; `poll_pick` says `Pending`, `Ready`
     or `Failed` (a failed readback, after which the pick targets and buffer are made anew, or a
@@ -1009,7 +1029,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     pinch zoom toward the point under the cursor, and view changes from the view cube or fit
     animate. Fitting bounds of no size keeps the distance and only recentres.
 - **caditor**: the winit `ApplicationHandler` (`app.rs`), the egui integration drawn over the
-  viewport (`overlay.rs`), the menu bar (`menu_bar.rs`), the tool ribbon (`toolbar.rs`), the
+  viewport (`overlay.rs`, which keeps a CPU copy of every egui texture so that, when the
+  renderer's generation changes after a lost device, it builds a new egui renderer on the new
+  device and uploads them whole again), the menu bar (`menu_bar.rs`), the tool ribbon (`toolbar.rs`), the
   status bar (`status_bar.rs`), the side panel (`panels.rs`) with the feature tree
   (`feature_tree.rs`) and parameter table (`parameter_table.rs`), the viewport widget with
   navigation, hover and selection (`viewport.rs`), the view cube (`view_cube.rs`) and the

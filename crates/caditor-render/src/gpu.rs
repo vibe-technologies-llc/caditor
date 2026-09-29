@@ -1,4 +1,212 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
 use glam::{Mat4, Vec3};
+
+use crate::RenderError;
+
+pub type Wake = Arc<dyn Fn() + Send + Sync>;
+
+#[derive(Debug, Clone, Default)]
+pub struct DeviceLoss(Arc<AtomicBool>);
+
+impl DeviceLoss {
+    pub fn watch(device: &wgpu::Device, wake: Wake) -> Self {
+        let loss = Self::default();
+        let lost = Arc::clone(&loss.0);
+        device.set_device_lost_callback(move |reason, message| {
+            log::error!("the graphics device was lost ({reason:?}): {message}");
+            lost.store(true, Ordering::Release);
+            wake();
+        });
+        device.on_uncaptured_error(Arc::new(|error| {
+            log::error!("the graphics device reported an error: {error}");
+        }));
+        loss
+    }
+
+    pub fn is_lost(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
+
+pub struct OpenedDevice {
+    pub adapter: wgpu::Adapter,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+}
+
+pub async fn open_device(
+    instance: &wgpu::Instance,
+    surface: Option<&wgpu::Surface<'_>>,
+) -> Result<OpenedDevice, RenderError> {
+    let mut failure = RenderError::NoAdapter;
+    let preferred = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: power_preference(),
+            compatible_surface: surface,
+            ..Default::default()
+        })
+        .await;
+    let tried = match preferred {
+        Ok(adapter) => {
+            let info = adapter.get_info();
+            match request_device(adapter).await {
+                Ok(opened) => return Ok(opened),
+                Err(error) => failure = error,
+            }
+            Some(info)
+        }
+        Err(error) => {
+            log::warn!("no preferred graphics adapter: {error}");
+            None
+        }
+    };
+    let mut others: Vec<wgpu::Adapter> = instance
+        .enumerate_adapters(wgpu::Backends::all())
+        .await
+        .into_iter()
+        .filter(|adapter| surface.is_none_or(|surface| adapter.is_surface_supported(surface)))
+        .filter(|adapter| tried.as_ref() != Some(&adapter.get_info()))
+        .collect();
+    others.sort_by_key(|adapter| adapter_rank(&adapter.get_info()));
+    for adapter in others {
+        match request_device(adapter).await {
+            Ok(opened) => return Ok(opened),
+            Err(error) => failure = error,
+        }
+    }
+    Err(failure)
+}
+
+async fn request_device(adapter: wgpu::Adapter) -> Result<OpenedDevice, RenderError> {
+    let info = adapter.get_info();
+    let mut failure = RenderError::NoAdapter;
+    for request in device_requests(&adapter) {
+        let descriptor = wgpu::DeviceDescriptor {
+            label: Some("caditor"),
+            required_features: request.features,
+            required_limits: request.limits,
+            ..Default::default()
+        };
+        match adapter.request_device(&descriptor).await {
+            Ok((device, queue)) => {
+                log::info!(
+                    "using graphics adapter {} ({:?}, {:?}) with {} limits",
+                    info.name,
+                    info.backend,
+                    info.device_type,
+                    request.name
+                );
+                return Ok(OpenedDevice {
+                    adapter,
+                    device,
+                    queue,
+                });
+            }
+            Err(error) => {
+                log::warn!(
+                    "the graphics adapter {} refused a device with {} limits: {error}",
+                    info.name,
+                    request.name
+                );
+                failure = RenderError::RequestDevice(error);
+            }
+        }
+    }
+    Err(failure)
+}
+
+fn power_preference() -> wgpu::PowerPreference {
+    wgpu::PowerPreference::from_env().unwrap_or(wgpu::PowerPreference::LowPower)
+}
+
+fn adapter_rank(info: &wgpu::AdapterInfo) -> (u8, u8) {
+    let kind = match info.device_type {
+        wgpu::DeviceType::IntegratedGpu => 0,
+        wgpu::DeviceType::DiscreteGpu => 1,
+        wgpu::DeviceType::VirtualGpu => 2,
+        wgpu::DeviceType::Other => 3,
+        wgpu::DeviceType::Cpu => 4,
+    };
+    let backend = match info.backend {
+        wgpu::Backend::Vulkan => 0,
+        wgpu::Backend::Gl => 1,
+        _ => 2,
+    };
+    (kind, backend)
+}
+
+pub struct DeviceRequest {
+    pub name: &'static str,
+    pub features: wgpu::Features,
+    pub limits: wgpu::Limits,
+}
+
+pub fn device_requests(adapter: &wgpu::Adapter) -> [DeviceRequest; 3] {
+    let offered = adapter.limits();
+    let format_features =
+        adapter.features() & wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+    [
+        DeviceRequest {
+            name: "the adapter's",
+            features: format_features,
+            limits: offered.clone(),
+        },
+        DeviceRequest {
+            name: "default",
+            features: wgpu::Features::empty(),
+            limits: within(wgpu::Limits::defaults(), &offered),
+        },
+        DeviceRequest {
+            name: "downlevel",
+            features: wgpu::Features::empty(),
+            limits: within(wgpu::Limits::downlevel_webgl2_defaults(), &offered),
+        },
+    ]
+}
+
+pub fn within(base: wgpu::Limits, offered: &wgpu::Limits) -> wgpu::Limits {
+    wgpu::Limits {
+        max_buffer_size: offered.max_buffer_size,
+        ..base.using_resolution(offered.clone())
+    }
+    .or_worse_values_from(offered)
+}
+
+pub fn sample_count(
+    adapter: &wgpu::Adapter,
+    device: &wgpu::Device,
+    color: wgpu::TextureFormat,
+    depth: wgpu::TextureFormat,
+) -> u32 {
+    let adapter_specific = device
+        .features()
+        .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
+        || !adapter
+            .get_downlevel_capabilities()
+            .flags
+            .contains(wgpu::DownlevelFlags::WEBGPU_TEXTURE_FORMAT_SUPPORT);
+    let features = |format: wgpu::TextureFormat| {
+        if adapter_specific {
+            adapter.get_texture_format_features(format).flags
+        } else {
+            format.guaranteed_format_features(device.features()).flags
+        }
+    };
+    let color = features(color);
+    let depth = features(depth);
+    [4, 2]
+        .into_iter()
+        .find(|&count| {
+            color.sample_count_supported(count)
+                && depth.sample_count_supported(count)
+                && color.contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE)
+        })
+        .unwrap_or(1)
+}
 
 #[derive(Debug, Default)]
 pub struct Bytes(Vec<u8>);
@@ -158,5 +366,46 @@ mod tests {
         assert_eq!(bytes.len(), 20);
         assert_eq!(bytes.as_slice().get(..4), Some(&7u32.to_le_bytes()[..]));
         assert_eq!(bytes.as_slice().get(16..), Some(&4.0f32.to_le_bytes()[..]));
+    }
+
+    #[test]
+    fn conservative_limits_keep_the_adapters_resolution_and_buffers_but_never_pass_it() {
+        let offered = wgpu::Limits {
+            max_texture_dimension_2d: 16_384,
+            max_buffer_size: 1 << 34,
+            max_vertex_attributes: 12,
+            ..wgpu::Limits::downlevel_defaults()
+        };
+
+        let limits = within(wgpu::Limits::downlevel_webgl2_defaults(), &offered);
+
+        assert_eq!(limits.max_texture_dimension_2d, 16_384);
+        assert_eq!(limits.max_buffer_size, 1 << 34);
+        assert_eq!(limits.max_vertex_attributes, 12);
+        assert_eq!(limits.max_storage_buffers_per_shader_stage, 0);
+        assert!(limits.check_limits(&offered));
+    }
+
+    #[test]
+    fn integrated_vulkan_adapters_come_first_and_software_ones_last() {
+        let info = wgpu::AdapterInfo::new;
+        let mut adapters = [
+            info(wgpu::DeviceType::Cpu, wgpu::Backend::Vulkan),
+            info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan),
+            info(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Gl),
+            info(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Vulkan),
+        ];
+
+        adapters.sort_by_key(adapter_rank);
+
+        assert_eq!(
+            adapters.map(|adapter| (adapter.device_type, adapter.backend)),
+            [
+                (wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Vulkan),
+                (wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Gl),
+                (wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan),
+                (wgpu::DeviceType::Cpu, wgpu::Backend::Vulkan),
+            ]
+        );
     }
 }

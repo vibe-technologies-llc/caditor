@@ -5,8 +5,11 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use caditor_render::{FrameStart, PickPoll, Renderer, SurfaceSize, ViewportFrame, WindowTarget};
+use caditor_render::{
+    FrameStart, PickPoll, Renderer, SurfaceSize, ViewportFrame, Wake, WindowTarget,
+};
 use egui_winit::accesskit_winit;
+use parking_lot::Mutex;
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -605,6 +608,11 @@ fn window_attributes(title: &str) -> WindowAttributes {
     WindowAttributesExtX11::with_name(attributes, about::APP_ID, about::APP_ID)
 }
 
+fn redraw_wake(proxy: EventLoopProxy<AppEvent>) -> Wake {
+    let waker = Mutex::new(waker_factory(proxy)());
+    Arc::new(move || (waker.lock())())
+}
+
 struct Session {
     window: Arc<Window>,
     renderer: Renderer,
@@ -633,6 +641,7 @@ impl Session {
         let renderer = pollster::block_on(Renderer::new(
             Arc::clone(&window) as Arc<dyn WindowTarget>,
             surface_size(window.inner_size()),
+            redraw_wake(proxy.clone()),
         ))
         .context("could not start the renderer")?;
         let mut overlay = Overlay::new(&window, &renderer);

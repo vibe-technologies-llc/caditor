@@ -1,11 +1,14 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 use caditor_geometry::{Plane, Point3, Vector3};
 use glam::DVec2;
 
 use crate::{
     camera::{View, Viewpoint},
-    gpu::{Bytes, GrowableBuffer},
+    gpu::{self, Bytes, DeviceLoss, GrowableBuffer},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     scene::{Color, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Scene, ViewportRect},
     viewport::{SurfaceTarget, ViewportFrame, ViewportRenderer},
@@ -389,6 +392,64 @@ fn draws_shaded_faces_that_hide_what_is_behind_them_and_picks_the_face_in_front(
     let Some((device, queue)) = gpu() else {
         return;
     };
+    draws_and_picks_a_box(&device, &queue);
+}
+
+#[test]
+fn a_downlevel_device_without_vertex_storage_draws_and_picks_faces() {
+    let Some((device, queue)) = gpu_with(wgpu::Limits::downlevel_webgl2_defaults()) else {
+        return;
+    };
+
+    assert_eq!(device.limits().max_storage_buffers_per_shader_stage, 0);
+    draws_and_picks_a_box(&device, &queue);
+}
+
+#[test]
+fn a_lost_device_is_reported_and_a_new_one_draws() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let Some(lost) = opened_device(&instance) else {
+        return;
+    };
+    let woken = Arc::new(AtomicBool::new(false));
+    let wake = Arc::clone(&woken);
+    let loss = DeviceLoss::watch(
+        &lost.device,
+        Arc::new(move || wake.store(true, Ordering::SeqCst)),
+    );
+
+    assert!(!loss.is_lost());
+
+    lost.device.destroy();
+    let _ = lost.device.poll(wgpu::PollType::wait_indefinitely());
+
+    assert!(loss.is_lost());
+    assert!(woken.load(Ordering::SeqCst));
+
+    let reopened = opened_device(&instance).unwrap();
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let on_line = view.project(Point3::new(5.0, 0.0, 0.0)).unwrap();
+
+    let rendered = render(&reopened.device, &reopened.queue, &view, &scene(), on_line);
+
+    assert_eq!(rendered.pick.hits[0].id, PickId::from_index(0).unwrap());
+    let [red, green, _, _] = pixel(&rendered, on_line);
+    assert!(red > 200 && green < 80, "line pixel was {red} {green}");
+}
+
+fn opened_device(instance: &wgpu::Instance) -> Option<gpu::OpenedDevice> {
+    let opened = pollster::block_on(gpu::open_device(instance, None)).ok();
+    if opened.is_none() {
+        assert!(
+            std::env::var_os(REQUIRE_GPU).is_none(),
+            "no graphics adapter is available, and {REQUIRE_GPU} says the offscreen tests must run"
+        );
+    }
+    opened
+}
+
+fn draws_and_picks_a_box(device: &wgpu::Device, queue: &wgpu::Queue) {
     let mesh = Arc::new(box_mesh(20.0));
     let styles: Vec<FaceStyle> = (0..6)
         .map(|index| FaceStyle {
@@ -417,7 +478,7 @@ fn draws_shaded_faces_that_hide_what_is_behind_them_and_picks_the_face_in_front(
     let hidden_line = view.project(Point3::new(5.0, 0.0, 20.0)).unwrap();
     let visible_line = view.project(Point3::new(40.0, 0.0, 0.0)).unwrap();
 
-    let rendered = render(&device, &queue, &view, &scene, on_top);
+    let rendered = render(device, queue, &view, &scene, on_top);
 
     let nearest = rendered.pick.hits[0];
     assert_eq!(nearest.id, PickId::from_index(14).unwrap());
@@ -439,7 +500,7 @@ fn draws_shaded_faces_that_hide_what_is_behind_them_and_picks_the_face_in_front(
         "the line outside the box was hidden"
     );
 
-    let rendered = render(&device, &queue, &view, &scene, hidden_line);
+    let rendered = render(device, queue, &view, &scene, hidden_line);
     assert!(
         rendered
             .pick
@@ -1137,7 +1198,7 @@ fn a_scene_larger_than_a_buffer_draws_what_fits_and_splits_its_meshes() {
     const BUFFER_LIMIT: u64 = 256 * 1024;
     let Some((device, queue)) = gpu_with(wgpu::Limits {
         max_buffer_size: BUFFER_LIMIT,
-        max_storage_buffer_binding_size: 1024,
+        max_texture_dimension_2d: 256,
         ..wgpu::Limits::default()
     }) else {
         return;

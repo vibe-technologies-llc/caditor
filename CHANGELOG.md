@@ -144,6 +144,10 @@ The first release of caditor.
   high-resolution screens, and picking them is as forgiving as at 100%.
 - A body or drawing too large for the graphics card's buffers is drawn in parts, or as much of
   it as fits, instead of leaving the whole window blank.
+- When the graphics driver resets or the graphics card is lost, caditor opens it again and
+  carries on drawing instead of freezing or closing, and no work is lost.
+- caditor starts on older and OpenGL-only graphics cards, draws windows wider than 8192 pixels,
+  and uses the power-saving graphics card of a laptop rather than waking the discrete one.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.
 - An arc's end snaps only to points on its circle and to where its circle crosses other curves,
   and a circle's rim only to points, so the arc stays where it was drawn and every "On …" label

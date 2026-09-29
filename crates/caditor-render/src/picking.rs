@@ -11,7 +11,7 @@ use crate::{
 
 pub const PICK_RADIUS_POINTS: f64 = 7.5;
 pub const ID_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Uint;
-pub const DEPTH_VALUE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
+pub const DEPTH_VALUE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Uint;
 const TEXEL_BYTES: u32 = 4;
 const MAX_PICK_RADIUS: u32 = 63;
 
