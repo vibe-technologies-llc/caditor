@@ -26,6 +26,8 @@ The first release of caditor.
 - A region whose hole touches its outline at one point can be extruded and revolved.
 - When the curves of a sketch cannot be divided into regions, the message names the curves
   involved.
+- Sketches with thousands of regions, such as a plate with a large grid of holes or a big
+  imported drawing, are divided into regions and swept in seconds instead of stalling.
 - References to faces and edges survive edits to earlier sketches and features. A feature that
   fails is marked in the tree with the reason and what to do, and everything that does not
   depend on it keeps working.
@@ -70,6 +72,9 @@ The first release of caditor.
   lists what was left out.
 - A STEP body whose faces could not all be checked for crossing each other is still imported,
   with a note naming the faces, instead of passing the check unnoticed.
+- STEP files whose curves are nested many times over, or whose bodies share shells and
+  surfaces, import in proportion to their size, and one too intricate to import is refused with
+  that reason instead of never finishing.
 
 ### Interface
 
