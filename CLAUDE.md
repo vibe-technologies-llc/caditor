@@ -259,7 +259,7 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     found once, when it is built. u is the angle around the axis (the frame normal) on every rotational surface; the cone's
     v is slant distance from its reference circle, the sphere's v latitude, the torus's v the tube
     angle, and a revolution's v the profile parameter. An extrusion is (profile parameter,
-    distance). du × dv points outward on every elementary surface. Singularities are always `Pole`s:
+    distance), and one of a line within a millionth of a radian of its direction is refused. du × dv points outward on every elementary surface. Singularities are always `Pole`s:
     v isolines where du vanishes (sphere poles, cone apex, a revolution profile ending on its axis).
     `project` returns the periodic representative nearest a hint, else the principal one in [0,
     period); on spline profiles it keeps the closest point near the hint when no other is closer by

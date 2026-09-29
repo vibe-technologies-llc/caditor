@@ -464,3 +464,25 @@ fn constructors_reject_degenerate_surfaces() {
     );
     let _ = PI;
 }
+
+#[test]
+fn a_line_extruded_almost_along_itself_is_refused_and_a_steep_one_projects_exactly() {
+    let along = Line::new(Point3::ZERO, Vector3::new(1e-8, 0.0, 1.0)).unwrap();
+    assert_eq!(
+        Extrusion::new(along.into(), Vector3::Z),
+        Err(GeometryError::DegenerateSurface)
+    );
+
+    let steep = Line::new(Point3::new(3.0, -2.0, 1.0), Vector3::new(1e-4, 0.0, 1.0)).unwrap();
+    let surface: Surface = Extrusion::new(steep.into(), Vector3::Z).unwrap().into();
+    for (u, v) in [(0.0, 0.0), (250.0, -40.0), (-3_000.0, 7_000.0)] {
+        let point = surface.evaluate(u, v).point;
+        let found = surface.project(point, None);
+        let back = surface.evaluate(found.x, found.y).point;
+        assert!(back.distance(point) < 1e-9, "{u} {v}: {found:?}");
+        assert!(
+            (found.x - u).abs() < 1e-6 * (1.0 + u.abs()),
+            "{u}: {found:?}"
+        );
+    }
+}

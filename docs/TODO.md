@@ -43,8 +43,6 @@ within a category run from most to least important.
   only within 1e-14 relative (`surface/projection.rs` `AXIS_EPSILON`), so a pole vertex of a
   model far from the origin gets an arbitrary u, unlike revolutions and splines, which reuse the
   hint's u through `pole_at`.
-- Extrusions of a line profile nearly parallel to the direction pass the `parallel` check
-  (1e-10) and then project by dividing by `1 - tilt²` (`surface/swept.rs`).
 - `ProfileError::Unresolved`, produced by about thirty internal paths in `profile/`, names no
   curves, so the sketch error can only say to simplify where curves meet.
 - Shell cannot drop collapsing cones or faces whose edges run neither around nor along their

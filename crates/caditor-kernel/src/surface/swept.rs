@@ -19,6 +19,7 @@ use crate::{
 const PROFILE_SEED_REFINEMENT: usize = 4;
 const DEGENERACY_SAMPLES: usize = 16;
 const UNBOUNDED_REACH: f64 = 1.0;
+const MIN_LINE_SWEEP_SINE: f64 = 1e-6;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Extrusion {
@@ -29,6 +30,11 @@ pub struct Extrusion {
 impl Extrusion {
     pub fn new(profile: Curve, direction: Vector3) -> Result<Self, GeometryError> {
         let direction = unit(direction)?;
+        if let Curve::Line(line) = &profile
+            && line.direction().cross(direction).length() < MIN_LINE_SWEEP_SINE
+        {
+            return Err(GeometryError::DegenerateSurface);
+        }
         let range = profile.domain().clipped(UNBOUNDED_REACH);
         let sweeps = range.split(DEGENERACY_SAMPLES).any(|parameter| {
             let tangent = profile.evaluate(parameter).first;
@@ -64,14 +70,8 @@ impl Extrusion {
         let across = |vector: Vector3| vector - self.direction * vector.dot(self.direction);
         let u = match &self.profile {
             Curve::Line(line) => {
-                let offset = point - line.origin();
-                let tilt = line.direction().dot(self.direction);
-                let denominator = 1.0 - tilt * tilt;
-                if denominator > 0.0 {
-                    (offset.dot(line.direction()) - offset.dot(self.direction) * tilt) / denominator
-                } else {
-                    0.0
-                }
+                let sideways = across(line.direction());
+                across(point - line.origin()).dot(sideways) / sideways.length_squared()
             }
             profile => {
                 let range = profile_search_range(profile, hint.map(|hint| hint.x));
