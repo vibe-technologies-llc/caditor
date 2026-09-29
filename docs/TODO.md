@@ -50,8 +50,6 @@ within a category run from most to least important.
   generic errors.
 - Extrusions of a line profile nearly parallel to the direction pass the `parallel` check
   (1e-10) and then project by dividing by `1 - tilt²` (`surface/swept.rs`).
-- `EdgeReference::resolve` reports `Ambiguous` when several candidates all score zero on their
-  recorded ends, where `Missing` is the truth.
 - `EdgeName::between_at` orders its faces only when the end vertex names differ, so an edge
   whose ends have equal names (a closed edge) is named differently depending on its direction.
 - `ProfileError::Unresolved`, produced by about thirty internal paths in `profile/`, names no

@@ -335,7 +335,7 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     differences); and when the name is gone (its region key or piece id changed), to the face of the
     same origin sharing at least one neighbour. An `EdgeReference` is an edge's name, its two face
     names and its end vertex names, resolved by name, else among the edges between the same faces by
-    matching ends. A tie is `ReferenceError::Ambiguous` with the candidates and no match is
+    matching ends (an edge sharing no end with the reference is never taken for it). A tie is `ReferenceError::Ambiguous` with the candidates and no match is
     `Missing`: resolution never guesses between equals.
   - Profiles (`profile/`): `Profile::new` takes `ProfileCurve`s (lines, circles, counter-clockwise
     arcs, clamped B-splines with an explicit knot vector) tagged with the sketch entity id as a

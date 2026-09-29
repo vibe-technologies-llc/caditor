@@ -250,6 +250,34 @@ fn pieces_of_a_split_edge_are_told_apart_by_their_ends() {
     }
 }
 
+#[test]
+fn edges_between_the_same_faces_sharing_no_end_are_not_the_referenced_edge() {
+    let solid = plate_with_slot(4.0);
+
+    let references: Vec<EdgeReference> = solid
+        .edges()
+        .map(|(id, _)| EdgeReference::capture(&solid, id).unwrap())
+        .collect();
+    let piece = references
+        .iter()
+        .find(|reference| {
+            references
+                .iter()
+                .filter(|other| other.faces() == reference.faces())
+                .count()
+                == 2
+        })
+        .unwrap();
+    let unknown = EdgeName::from_digest(3);
+    let strangers = [VertexName::from_digest(1), VertexName::from_digest(2)];
+    let lost = EdgeReference::new(unknown, piece.faces(), strangers);
+    let renamed = EdgeReference::new(unknown, piece.faces(), piece.ends());
+
+    assert_eq!(lost.resolve(&solid), Err(ReferenceError::Missing));
+    assert_eq!(renamed.resolve(&solid), piece.resolve(&solid));
+    assert!(renamed.resolve(&solid).is_ok());
+}
+
 fn name_of_fragments(solid: &Solid) -> FaceName {
     let names: BTreeSet<FaceName> = solid
         .faces()

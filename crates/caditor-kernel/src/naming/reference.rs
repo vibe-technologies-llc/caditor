@@ -197,7 +197,12 @@ impl EdgeReference {
                 Some((*id, matching))
             })
             .collect();
-        let Some(best) = scored.iter().map(|(_, score)| *score).max() else {
+        let Some(best) = scored
+            .iter()
+            .map(|(_, score)| *score)
+            .max()
+            .filter(|best| *best > 0)
+        else {
             return Err(ReferenceError::Missing);
         };
         match scored
