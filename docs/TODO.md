@@ -104,8 +104,6 @@ within a category run from most to least important.
 
 ## Sketching
 
-- The arc end snaps to a target not on its circle and keeps the `Coincident`, so the solver
-  moves it away from the preview; the circle rim shows "On Line N" but adds nothing.
 - No dragging of sketch geometry and no window selection: primary drag is never handled.
 - No construction geometry: every curve becomes profile curves, so a centreline splits regions
   and changes their keys.

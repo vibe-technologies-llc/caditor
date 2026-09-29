@@ -1288,14 +1288,20 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     pointer swept around its centre, a typed end the shorter way round from its start
     (counter-clockwise at exactly half a turn, `Sweep::aim`), and Reverse the arc (X, a sketch
     command offered once the centre and start are placed, named in the prompt) sends either the
-    other way; its end is projected onto the circle through its start. Every inferred constraint is checked with `Sketch::check_constraint` on a shadow of
-    the sketch and skipped if refused. A shape with no size (a flat rectangle, a line, circle or
+    other way; its end is projected onto the circle through its start, keeping its snap only when
+    the target lies on that circle (a typed end on a point off it lands free). Every inferred
+    constraint is checked with `Sketch::check_constraint` on a shadow of the sketch and skipped
+    if refused. A shape with no size (a flat rectangle, a line, circle or
     arc ending where it starts) is refused with a `Degenerate` reason: a notice for a click, the
     field's error for a typed point.
   - Snapping (`snap.rs`) runs on the UI thread against the displayed sketch, in screen space
     through the view: the shape's own pending point first, then existing points and the origin
     within 8 logical pixels, then lines, circles, arcs and the axes within 6, projecting onto
-    the curve. A snapped point gets a `Coincident` with its target. A line end that snapped to
+    the curve. A snapped point gets a `Coincident` with its target. What a placement accepts
+    depends on the shape (`Accept`): a circle's rim takes points only, since a rim on a curve
+    would add no constraint, and an arc's end only points lying on its circle and the places
+    where its circle crosses lines, circles, arcs and the axes, so every snap shown is a
+    constraint that already holds. A line end that snapped to
     nothing becomes exactly horizontal or vertical within 3° or 6 pixels and gets that
     constraint. The preview, snap marker and snap label are drawn from this state, and the
     snap target replaces the GPU hover while a drawing tool is active.

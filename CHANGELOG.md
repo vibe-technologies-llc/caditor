@@ -136,6 +136,9 @@ The first release of caditor.
 - A body or drawing too large for the graphics card's buffers is drawn in parts, or as much of
   it as fits, instead of leaving the whole window blank.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.
+- An arc's end snaps only to points on its circle and to where its circle crosses other curves,
+  and a circle's rim only to points, so the arc stays where it was drawn and every "On …" label
+  becomes a constraint.
 - An arc over half a turn can be typed: a typed end goes the shorter way round, and X (Reverse
   the arc) sends the arc, typed or drawn, the other way.
 - Screen readers name icon buttons by what they do instead of reading a symbol, read each

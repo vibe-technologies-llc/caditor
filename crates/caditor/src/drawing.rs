@@ -8,7 +8,7 @@ use crate::{
     editing::{self, ActiveSketch, Tool},
     model::Model,
     sketch_tools,
-    snap::{self, Pointer, Screen, Target},
+    snap::{self, Accept, Pointer, Screen, Target},
 };
 
 const ALIGN_ANGLE_DEGREES: f64 = 3.0;
@@ -374,22 +374,26 @@ impl Drawing {
                 None
             }
             (Tool::Arc, &[center, start]) => {
-                let end = arc_end(center.position, start.position, placement.position)
-                    .filter(|end| end.distance(start.position) >= DEGENERATE_LENGTH)
-                    .ok_or(Degenerate::ArcSweep)?;
+                let radius = center.position.distance(start.position);
+                let end = match placement.snap {
+                    Snap::Target(_)
+                        if snap::on_circle(center.position, radius, placement.position) =>
+                    {
+                        placement
+                    }
+                    Snap::Free | Snap::Target(_) | Snap::Aligned(_) => Placement::free(
+                        arc_end(center.position, start.position, placement.position)
+                            .ok_or(Degenerate::ArcSweep)?,
+                    ),
+                };
+                if end.position.distance(start.position) < DEGENERATE_LENGTH {
+                    return Err(Degenerate::ArcSweep);
+                }
                 let counter_clockwise = self.sweep.is_none_or(|sweep| sweep.counter_clockwise());
                 let Some(mut draft) = draft() else {
                     return Ok(None);
                 };
-                draft.arc(
-                    center,
-                    start,
-                    Placement {
-                        position: end,
-                        snap: placement.snap,
-                    },
-                    counter_clockwise,
-                );
+                draft.arc(center, start, end, counter_clockwise);
                 self.cancel();
                 Some(draft.finish())
             }
@@ -524,7 +528,8 @@ impl Drawing {
         pointer: Pointer,
     ) -> Placement {
         let pending = self.pending(tool);
-        if let Some(snapped) = snap::resolve(sketch, screen, pointer, &pending) {
+        let accept = self.accept(tool);
+        if let Some(snapped) = snap::resolve(sketch, screen, pointer, &pending, accept) {
             return Placement {
                 position: snapped.position,
                 snap: Snap::Target(snapped.target),
@@ -539,6 +544,17 @@ impl Drawing {
 }
 
 impl Drawing {
+    fn accept(&self, tool: Tool) -> Accept {
+        match (tool, self.placed.as_slice()) {
+            (Tool::Circle, &[_]) => Accept::Points,
+            (Tool::Arc, &[center, start]) => Accept::OnCircle {
+                center: center.position,
+                radius: center.position.distance(start.position),
+            },
+            _ => Accept::Anything,
+        }
+    }
+
     fn pending(&self, tool: Tool) -> Vec<(usize, Point2)> {
         match tool {
             Tool::Line => self.placed.first().map(|start| (0, start.position)),

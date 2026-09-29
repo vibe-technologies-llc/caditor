@@ -5,6 +5,7 @@ use caditor_sketch::{Entity, EntityId, Sketch};
 
 pub const POINT_TOLERANCE: f64 = 8.0;
 pub const CURVE_TOLERANCE: f64 = 6.0;
+const ON_CIRCLE_TOLERANCE: f64 = 1e-9;
 
 pub trait Screen {
     fn to_screen(&self, point: Point2) -> Option<Vector2>;
@@ -38,11 +39,19 @@ pub struct Pointer {
     pub sketch: Point2,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Accept {
+    Anything,
+    Points,
+    OnCircle { center: Point2, radius: f64 },
+}
+
 pub fn resolve(
     sketch: &Sketch,
     screen: &impl Screen,
     pointer: Pointer,
     pending: &[(usize, Point2)],
+    accept: Accept,
 ) -> Option<Snapped> {
     let pending = pending
         .iter()
@@ -63,9 +72,26 @@ pub fn resolve(
             .min_by(|a, b| a.0.total_cmp(&b.0))
             .map(|(_, candidate)| candidate)
     };
+    let points = match accept {
+        Accept::Anything | Accept::Points => points(sketch),
+        Accept::OnCircle { center, radius } => points(sketch)
+            .into_iter()
+            .filter(|candidate| on_circle(center, radius, candidate.position))
+            .collect(),
+    };
     nearest(pending, POINT_TOLERANCE)
-        .or_else(|| nearest(points(sketch), POINT_TOLERANCE))
-        .or_else(|| nearest(curves(sketch, pointer.sketch), CURVE_TOLERANCE))
+        .or_else(|| nearest(points, POINT_TOLERANCE))
+        .or_else(|| match accept {
+            Accept::Anything => nearest(curves(sketch, pointer.sketch), CURVE_TOLERANCE),
+            Accept::Points => None,
+            Accept::OnCircle { center, radius } => {
+                nearest(crossings(sketch, center, radius), CURVE_TOLERANCE)
+            }
+        })
+}
+
+pub fn on_circle(center: Point2, radius: f64, point: Point2) -> bool {
+    (point.distance(center) - radius).abs() <= ON_CIRCLE_TOLERANCE * radius.max(1.0)
 }
 
 pub fn points(sketch: &Sketch) -> Vec<Snapped> {
@@ -127,6 +153,111 @@ fn closest_on(sketch: &Sketch, id: EntityId, entity: &Entity, at: Point2) -> Opt
     }
 }
 
+fn crossings(sketch: &Sketch, center: Point2, radius: f64) -> Vec<Snapped> {
+    let axes = [
+        (EntityId::HORIZONTAL_AXIS, Point2::ZERO, Point2::X),
+        (EntityId::VERTICAL_AXIS, Point2::ZERO, Point2::Y),
+    ]
+    .into_iter()
+    .flat_map(|(axis, through, along)| {
+        line_crossings(through, along, center, radius)
+            .into_iter()
+            .map(move |(_, position)| Snapped {
+                position,
+                target: Target::Curve(axis),
+            })
+    });
+    let drawn = sketch.entities().flat_map(|(id, entity)| {
+        crossings_with(sketch, id, entity, center, radius)
+            .into_iter()
+            .map(move |position| Snapped {
+                position,
+                target: Target::Curve(id),
+            })
+    });
+    axes.chain(drawn).collect()
+}
+
+fn crossings_with(
+    sketch: &Sketch,
+    id: EntityId,
+    entity: &Entity,
+    center: Point2,
+    radius: f64,
+) -> Vec<Point2> {
+    match entity {
+        Entity::Line { .. } => sketch
+            .line_endpoints(id)
+            .map(|(start, end)| {
+                line_crossings(start, end - start, center, radius)
+                    .into_iter()
+                    .filter(|(along, _)| (0.0..=1.0).contains(along))
+                    .map(|(_, position)| position)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        Entity::Circle { .. } => sketch
+            .circle(id)
+            .map(|(other, other_radius)| circle_crossings(center, radius, other, other_radius))
+            .unwrap_or_default(),
+        Entity::Arc { .. } => sketch
+            .arc(id)
+            .map(|arc| {
+                circle_crossings(center, radius, arc.center, arc.radius)
+                    .into_iter()
+                    .filter(|position| {
+                        let offset = *position - arc.center;
+                        let turned = (offset.y.atan2(offset.x) - arc.start_angle).rem_euclid(TAU);
+                        turned <= arc.sweep
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        Entity::Point(_) | Entity::Spline { .. } => Vec::new(),
+    }
+}
+
+fn line_crossings(
+    through: Point2,
+    along: Vector2,
+    center: Point2,
+    radius: f64,
+) -> Vec<(f64, Point2)> {
+    let length_squared = along.length_squared();
+    if length_squared == 0.0 {
+        return Vec::new();
+    }
+    let foot = (center - through).dot(along) / length_squared;
+    let closest = through + along * foot;
+    let half_chord_squared = radius * radius - closest.distance_squared(center);
+    if half_chord_squared < 0.0 {
+        return Vec::new();
+    }
+    let half = half_chord_squared.sqrt() / length_squared.sqrt();
+    [foot - half, foot + half]
+        .into_iter()
+        .map(|parameter| (parameter, through + along * parameter))
+        .collect()
+}
+
+fn circle_crossings(center: Point2, radius: f64, other: Point2, other_radius: f64) -> Vec<Point2> {
+    let between = other - center;
+    let distance = between.length();
+    if distance == 0.0
+        || distance > radius + other_radius
+        || distance < (radius - other_radius).abs()
+    {
+        return Vec::new();
+    }
+    let along =
+        (radius * radius - other_radius * other_radius + distance * distance) / (2.0 * distance);
+    let half_chord = (radius * radius - along * along).max(0.0).sqrt();
+    let direction = between / distance;
+    let middle = center + direction * along;
+    let across = direction.perp() * half_chord;
+    vec![middle + across, middle - across]
+}
+
 fn closest_on_segment(start: Point2, end: Point2, at: Point2) -> Point2 {
     let along = end - start;
     let length_squared = along.length_squared();
@@ -164,7 +295,7 @@ pub mod tests {
     }
 
     fn resolve_at(sketch: &Sketch, at: Point2) -> Option<Snapped> {
-        resolve(sketch, &Scaled(10.0), pointer_at(at), &[])
+        resolve(sketch, &Scaled(10.0), pointer_at(at), &[], Accept::Anything)
     }
 
     fn point_of(sketch: &Sketch, curve: EntityId, index: usize) -> EntityId {
@@ -240,10 +371,75 @@ pub mod tests {
             &Scaled(10.0),
             pointer_at(Point2::new(20.0, 0.2)),
             &[(3, Point2::new(20.5, 0.5))],
+            Accept::Anything,
         );
         assert_eq!(
             pending.map(|snapped| snapped.target),
             Some(Target::Pending(3))
         );
+    }
+    #[test]
+    fn a_point_on_a_circle_snaps_only_to_its_points_and_crossings() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let on = sketch.add_point(Point2::new(40.0, 50.0));
+        sketch.add_point(Point2::new(47.5, 47.0));
+        let line = sketch.add_line(Point2::new(46.0, 20.0), Point2::new(46.0, 60.0));
+        let arc = sketch.add_arc(
+            Point2::new(60.0, 40.0),
+            Point2::new(75.0, 40.0),
+            Point2::new(45.0, 40.0),
+        );
+        let circle = Accept::OnCircle {
+            center: Point2::new(40.0, 40.0),
+            radius: 10.0,
+        };
+        let at = |point| resolve(&sketch, &Scaled(10.0), pointer_at(point), &[], circle);
+        let upper = Point2::new(46.875, 40.0 + (100.0f64 - 6.875 * 6.875).sqrt());
+        let lower = Point2::new(upper.x, 80.0 - upper.y);
+
+        let point = at(Point2::new(40.3, 50.2)).unwrap();
+        let crossing = at(Point2::new(46.1, 48.3)).unwrap();
+        let around = Accept::OnCircle {
+            center: Point2::new(5.0, 3.0),
+            radius: 5.0,
+        };
+        let axis_crossing = resolve(
+            &sketch,
+            &Scaled(10.0),
+            pointer_at(Point2::new(9.2, 0.3)),
+            &[],
+            around,
+        )
+        .unwrap();
+
+        assert_eq!(point.target, Target::Point(on));
+        assert_eq!(at(Point2::new(47.5, 47.0)), None);
+        assert_eq!(crossing.target, Target::Curve(line));
+        assert!(crossing.position.distance(Point2::new(46.0, 48.0)) < 1e-12);
+        assert_eq!(
+            at(upper).map(|snapped| snapped.target),
+            Some(Target::Curve(arc))
+        );
+        assert!(at(upper).unwrap().position.distance(upper) < 1e-9);
+        assert_eq!(at(lower), None);
+        assert_eq!(
+            axis_crossing.target,
+            Target::Curve(EntityId::HORIZONTAL_AXIS)
+        );
+        assert!(axis_crossing.position.distance(Point2::new(9.0, 0.0)) < 1e-12);
+    }
+
+    #[test]
+    fn a_rim_snaps_to_points_but_not_to_curves() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let point = sketch.add_point(Point2::new(30.0, 30.0));
+        sketch.add_line(Point2::new(10.0, 10.0), Point2::new(10.0, 50.0));
+        let rim = |at| resolve(&sketch, &Scaled(10.0), pointer_at(at), &[], Accept::Points);
+
+        assert_eq!(
+            rim(Point2::new(30.2, 30.1)).map(|snapped| snapped.target),
+            Some(Target::Point(point))
+        );
+        assert_eq!(rim(Point2::new(10.2, 30.0)), None);
     }
 }

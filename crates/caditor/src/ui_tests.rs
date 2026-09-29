@@ -2314,6 +2314,91 @@ fn circles_and_arcs_get_the_drawn_geometry() {
     assert_eq!(harness.model.undo_label(), Some("Draw arc"));
 }
 
+fn arc_end(sketch: &Sketch, arc: EntityId) -> EntityId {
+    let Some(Entity::Arc { end, .. }) = sketch.entity(arc) else {
+        panic!("expected an arc");
+    };
+    *end
+}
+
+fn joins(sketch: &Sketch, point: EntityId, other: EntityId) -> bool {
+    constraints_of_kind(sketch, "Coincident")
+        .iter()
+        .any(|constraint| {
+            matches!(constraint, Constraint::Coincident(a, b)
+            if (*a == point && *b == other) || (*a == other && *b == point))
+        })
+}
+
+#[test]
+fn an_arc_end_and_a_circle_rim_join_only_what_they_land_on() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    type_point(&mut harness, "46, 20");
+    type_point(&mut harness, "46, 60");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let line = entities_of_kind(harness.sketch(feature), "Line")[0];
+    let on_line = format!("On {}", harness.sketch(feature).entity_label(line));
+    harness.use_tool(Key::P);
+    type_point(&mut harness, "47.5, 47");
+    let lone = harness
+        .sketch(feature)
+        .entities()
+        .find(
+            |(_, entity)| matches!(entity, Entity::Point(at) if near(*at, Point2::new(47.5, 47.0))),
+        )
+        .map(|(id, _)| id)
+        .expect("the lone point was placed");
+    let lone_label = format!("On {}", harness.sketch(feature).entity_label(lone));
+
+    harness.use_tool(Key::A);
+    type_point(&mut harness, "40, 40");
+    type_point(&mut harness, "50, 40");
+    harness.point_at(Point2::new(47.0, 46.5));
+    let near_lone_on_arc = harness.shows(&lone_label);
+    harness.point_at(Point2::new(46.1, 48.1));
+    let near_crossing = harness.shows(&on_line);
+    harness.click_at(Point2::new(46.1, 48.1));
+    harness.settle();
+    let arc = entities_of_kind(harness.sketch(feature), "Arc")[0];
+    let crossing_end = arc_end(harness.sketch(feature), arc);
+
+    type_point(&mut harness, "40, 40");
+    type_point(&mut harness, "50, 40");
+    harness.point_at(Point2::new(47.0, 46.0));
+    type_point(&mut harness, "47.5, 47");
+    let arcs = entities_of_kind(harness.sketch(feature), "Arc");
+    let projected_end = arc_end(harness.sketch(feature), arcs[1]);
+    let projected = harness.sketch(feature).point(projected_end).unwrap();
+
+    harness.use_tool(Key::C);
+    type_point(&mut harness, "60, 30");
+    harness.point_at(Point2::new(46.2, 30.0));
+    let rim_on_line = harness.shows(&on_line);
+    harness.click_at(Point2::new(46.2, 30.0));
+    harness.settle();
+    let circle = entities_of_kind(harness.sketch(feature), "Circle")[0];
+
+    assert!(!near_lone_on_arc);
+    assert!(near_crossing);
+    assert!(joins(harness.sketch(feature), crossing_end, line));
+    assert!(near(
+        harness.shown(feature).point(crossing_end).unwrap(),
+        Point2::new(46.0, 48.0)
+    ));
+    assert!(!joins(harness.sketch(feature), projected_end, lone));
+    assert!((projected.distance(Point2::new(40.0, 40.0)) - 10.0).abs() < DRAWN);
+    assert!(!rim_on_line);
+    assert!(!joins(harness.sketch(feature), line, circle));
+    assert!(
+        constraints_of_kind(harness.sketch(feature), "Coincident")
+            .iter()
+            .all(|constraint| !constraint.entities().contains(&circle))
+    );
+}
+
 #[test]
 fn a_typed_arc_goes_the_shorter_way_and_x_sends_it_the_long_way() {
     let mut harness = Harness::new();
