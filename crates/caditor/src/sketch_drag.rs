@@ -8,6 +8,8 @@ use crate::{drag_solver::DragCommand, feature_tree::count, snap::Screen};
 
 const OUTLINE_SEGMENT_ANGLE: f64 = PI / 60.0;
 const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
+const MOVE_WHILE_DRAWING: &str = "Switch to the Select tool to move geometry";
+const NOTHING_TO_SELECT: &str = "The sketch has no geometry to select";
 
 #[derive(Debug, Clone, PartialEq)]
 enum Handles {
@@ -109,6 +111,19 @@ pub struct Moving {
 }
 
 impl Moving {
+    pub fn offered(
+        sketch: &Sketch,
+        feature: FeatureId,
+        selected: &[EntityId],
+        drawing: bool,
+    ) -> Result<Self, String> {
+        if drawing {
+            Err(MOVE_WHILE_DRAWING.to_owned())
+        } else {
+            Self::of(sketch, feature, selected)
+        }
+    }
+
     pub fn of(sketch: &Sketch, feature: FeatureId, selected: &[EntityId]) -> Result<Self, String> {
         let entities: Vec<EntityId> = selected
             .iter()
@@ -259,6 +274,23 @@ pub fn within(sketch: &Sketch, screen: &impl Screen, area: ScreenBox) -> Vec<Ent
         })
         .map(|(id, _)| id);
     selectable(sketch, caught)
+}
+
+pub fn select_all(sketch: &Sketch) -> Result<Vec<EntityId>, &'static str> {
+    let everything = everything(sketch);
+    if everything.is_empty() {
+        Err(NOTHING_TO_SELECT)
+    } else {
+        Ok(everything)
+    }
+}
+
+pub fn can_select_all(sketch: &Sketch) -> Result<(), &'static str> {
+    if sketch.entities().any(|(id, _)| !id.is_reference()) {
+        Ok(())
+    } else {
+        Err(NOTHING_TO_SELECT)
+    }
 }
 
 pub fn everything(sketch: &Sketch) -> Vec<EntityId> {

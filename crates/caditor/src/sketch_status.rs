@@ -101,7 +101,7 @@ pub fn show(ui: &mut Ui, summary: &SketchSummary) -> Option<Focus> {
         SketchStatus::Free(_) => Tone::Info,
         SketchStatus::Conflicting | SketchStatus::Failed => Tone::Error,
     };
-    let response = widgets::pill(ui, tone, summary.status_text());
+    let response = widgets::status_pill(ui, tone, summary.status_text());
     let mut focus = None;
     if let Some(problem) = summary.problem {
         let response = response
@@ -113,7 +113,7 @@ pub fn show(ui: &mut Ui, summary: &SketchSummary) -> Option<Focus> {
         }
     }
     if let Some(redundant) = summary.redundant_text() {
-        widgets::pill(ui, Tone::Warning, redundant);
+        widgets::status_pill(ui, Tone::Warning, redundant);
     }
     focus
 }

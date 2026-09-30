@@ -55,7 +55,9 @@ paths:
 - Move selected sketch geometry (M) opens the typed-point field (`app-input.md`) as "Move to": the
   first selected point goes there (`@` offsets from it), the rest follows, committed like a drag
   (`Move <what>`), solved like a drag. Select all sketch geometry (Ctrl+A) selects what a box around
-  everything would.
+  everything would. The sketch ribbon's Move and Select all buttons trigger these commands, which
+  the viewport carries out; both share their availability through `Moving::offered` and
+  `sketch_drag::can_select_all`/`select_all`.
 
 ## Drawing tools
 
@@ -94,8 +96,8 @@ paths:
   transaction (`sketch_tools::ConstructionChange`), ordinary when all already are; with no curve
   selected it switches drawing (`ActiveSketch::construction`): new curves are construction, points
   stay points (the button shows pressed). Construction curves and the preview while drawing them are
-  dashed (`scene::curve_lines`), coloured by constraint state like any curve. The button follows the
-  drawing tools.
+  dashed (`scene::curve_lines`), coloured by constraint state like any curve. Its button leads the
+  ribbon's Modify group, after the drawing tools.
 
 ## Snapping
 
@@ -125,8 +127,8 @@ paths:
 ## Constraint tools
 
 - `sketch_tools.rs` turns the selection into candidates checked by `Sketch::check_constraint`;
-  `sketch_toolbar.rs` offers them as buttons and commands (Shift+letter by default), disabled with
-  what to select.
+  `sketch_toolbar.rs` offers them as compact buttons, geometric then dimensional
+  (`app-look.md`), and commands (Shift+letter by default), disabled with what to select.
 - Parallel, equal, collinear, concentric and horizontal or vertical points chain every selected item
   to the first in one transaction. Fix locks selected points where shown. Symmetric takes two points
   or lines and the mirror: the one axis selected, else whichever of the three mirrors the other two

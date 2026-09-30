@@ -1,11 +1,15 @@
+use std::sync::Arc;
+
 use egui::{
-    Align, Button, Color32, CornerRadius, CursorIcon, Frame, Grid, Id, Label, Layout, Margin,
-    Modal, Response, RichText, Sense, Sides, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui,
-    Widget, WidgetInfo, WidgetText, WidgetType, collapsing_header::CollapsingState, vec2,
+    Align, Button, Color32, CornerRadius, CursorIcon, Frame, Galley, Grid, Id, Label, Layout,
+    Margin, Modal, Response, RichText, Sense, Sides, Stroke, StrokeKind, TextStyle, TextWrapMode,
+    Ui, Vec2, Widget, WidgetInfo, WidgetText, WidgetType, collapsing_header::CollapsingState, vec2,
 };
 
 use crate::{
-    appearance::{self, CARD_RADIUS, ICON_SIZE, SECTION, TOOL_ICON_SIZE, Tokens, WIDGET_RADIUS},
+    appearance::{
+        self, CARD_RADIUS, ICON_SIZE, SECTION, SMALL_SIZE, TOOL_ICON_SIZE, Tokens, WIDGET_RADIUS,
+    },
     fonts, icons,
 };
 
@@ -21,10 +25,13 @@ const CARD_MARGIN: i8 = 10;
 const CALLOUT_MARGIN: Margin = Margin::symmetric(10, 8);
 const PILL_MARGIN: Margin = Margin::symmetric(8, 2);
 const PILL_RADIUS: u8 = 10;
-const TOOL_PADDING: egui::Vec2 = vec2(6.0, 5.0);
+const PILL_ICON_GAP: f32 = 4.0;
+const TOOL_PADDING: Vec2 = vec2(6.0, 5.0);
 const TOOL_MIN_WIDTH: f32 = 50.0;
 const TOOL_LABEL_GAP: f32 = 2.0;
 const FOCUS_WIDTH: f32 = 2.0;
+const SELECTED_WIDTH: f32 = 1.0;
+pub const COMPACT_TOOL_GAP: f32 = 2.0;
 const DIALOG_MARGIN: i8 = 20;
 const DIALOG_FOOTER_GAP: f32 = 14.0;
 const UNDERLINE_WIDTH: f32 = 1.0;
@@ -203,6 +210,48 @@ pub fn pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response {
             )
         })
         .inner
+}
+
+pub fn status_pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response {
+    let tokens = appearance::tokens(ui);
+    let color = tone.color(tokens);
+    Frame::new()
+        .fill(tone.fill(tokens))
+        .corner_radius(CornerRadius::same(PILL_RADIUS))
+        .inner_margin(PILL_MARGIN)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = PILL_ICON_GAP;
+                let glyph = ui.add(
+                    Label::new(
+                        RichText::new(tone.icon())
+                            .font(icon_font(SMALL_SIZE))
+                            .color(color),
+                    )
+                    .selectable(false),
+                );
+                decorative(ui, &glyph);
+                ui.add(
+                    Label::new(
+                        RichText::new(text)
+                            .text_style(TextStyle::Small)
+                            .color(color),
+                    )
+                    .selectable(false),
+                );
+            });
+        })
+        .response
+}
+
+pub fn primary_icon_button(ui: &Ui, glyph: &str, text: &str) -> Button<'static> {
+    let tokens = appearance::tokens(ui);
+    Button::new((
+        icon(glyph).color(tokens.text_on_accent),
+        RichText::new(text.to_owned()).color(tokens.text_on_accent),
+    ))
+    .fill(tokens.accent)
+    .stroke(Stroke::NONE)
 }
 
 pub fn callout<R>(ui: &mut Ui, tone: Tone, add: impl FnOnce(&mut Ui) -> R) -> R {
@@ -400,6 +449,7 @@ pub struct ToolButton<'a> {
     glyph: &'a str,
     label: &'a str,
     selected: bool,
+    compact: bool,
 }
 
 impl<'a> ToolButton<'a> {
@@ -408,6 +458,7 @@ impl<'a> ToolButton<'a> {
             glyph,
             label,
             selected: false,
+            compact: false,
         }
     }
 
@@ -415,35 +466,57 @@ impl<'a> ToolButton<'a> {
         self.selected = selected;
         self
     }
+
+    pub fn compact(mut self) -> Self {
+        self.compact = true;
+        self
+    }
+}
+
+pub fn tool_height(ui: &Ui) -> f32 {
+    let glyph = ui.fonts_mut(|fonts| fonts.row_height(&icon_font(TOOL_ICON_SIZE)));
+    glyph + TOOL_LABEL_GAP + ui.text_style_height(&TextStyle::Small) + 2.0 * TOOL_PADDING.y
+}
+
+pub fn compact_tool_side(ui: &Ui) -> f32 {
+    (tool_height(ui) - COMPACT_TOOL_GAP) / 2.0
+}
+
+fn icon_font(size: f32) -> egui::FontId {
+    egui::FontId::new(size, fonts::icons())
+}
+
+fn unwrapped(ui: &Ui, text: RichText, style: TextStyle) -> Arc<Galley> {
+    WidgetText::from(text).into_galley(ui, Some(TextWrapMode::Extend), f32::INFINITY, style)
 }
 
 impl Widget for ToolButton<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let tokens = appearance::tokens(ui);
-        let glyph = WidgetText::from(
-            RichText::new(self.glyph).font(egui::FontId::new(TOOL_ICON_SIZE, fonts::icons())),
-        )
-        .into_galley(
+        let glyph_size = if self.compact {
+            ICON_SIZE
+        } else {
+            TOOL_ICON_SIZE
+        };
+        let glyph = unwrapped(
             ui,
-            Some(TextWrapMode::Extend),
-            f32::INFINITY,
+            RichText::new(self.glyph).font(icon_font(glyph_size)),
             TextStyle::Body,
         );
-        let label = WidgetText::from(RichText::new(self.label).text_style(TextStyle::Small))
-            .into_galley(
+        let label = (!self.compact).then(|| {
+            unwrapped(
                 ui,
-                Some(TextWrapMode::Extend),
-                f32::INFINITY,
+                RichText::new(self.label).text_style(TextStyle::Small),
                 TextStyle::Small,
-            );
-        let content = vec2(
-            glyph.size().x.max(label.size().x),
-            glyph.size().y + TOOL_LABEL_GAP + label.size().y,
-        );
-        let size = vec2(
-            (content.x + 2.0 * TOOL_PADDING.x).max(TOOL_MIN_WIDTH),
-            content.y + 2.0 * TOOL_PADDING.y,
-        );
+            )
+        });
+        let size = match &label {
+            Some(label) => vec2(
+                (glyph.size().x.max(label.size().x) + 2.0 * TOOL_PADDING.x).max(TOOL_MIN_WIDTH),
+                tool_height(ui),
+            ),
+            None => Vec2::splat(compact_tool_side(ui)),
+        };
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
         response.widget_info(|| {
             WidgetInfo::selected(
@@ -466,6 +539,8 @@ impl Widget for ToolButton<'_> {
             };
             let stroke = if response.has_focus() {
                 Stroke::new(FOCUS_WIDTH, tokens.focus)
+            } else if self.selected {
+                Stroke::new(SELECTED_WIDTH, tokens.accent_text)
             } else {
                 Stroke::NONE
             };
@@ -477,14 +552,22 @@ impl Widget for ToolButton<'_> {
             } else {
                 visuals.text_color()
             };
-            let top = rect.top() + TOOL_PADDING.y;
-            let glyph_pos = egui::pos2(rect.center().x - glyph.size().x / 2.0, top);
-            let label_pos = egui::pos2(
-                rect.center().x - label.size().x / 2.0,
-                top + glyph.size().y + TOOL_LABEL_GAP,
-            );
-            ui.painter().galley(glyph_pos, glyph, color);
-            ui.painter().galley(label_pos, label, color);
+            match label {
+                Some(label) => {
+                    let top = rect.top() + TOOL_PADDING.y;
+                    let glyph_pos = egui::pos2(rect.center().x - glyph.size().x / 2.0, top);
+                    let label_pos = egui::pos2(
+                        rect.center().x - label.size().x / 2.0,
+                        top + glyph.size().y + TOOL_LABEL_GAP,
+                    );
+                    ui.painter().galley(glyph_pos, glyph, color);
+                    ui.painter().galley(label_pos, label, color);
+                }
+                None => {
+                    let glyph_pos = rect.center() - glyph.size() / 2.0;
+                    ui.painter().galley(glyph_pos, glyph, color);
+                }
+            }
         }
         response
     }
