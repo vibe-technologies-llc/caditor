@@ -7,8 +7,10 @@ use caditor_geometry::{Plane, Point3, Vector3};
 use glam::DVec2;
 
 use crate::{
+    SurfaceSize,
     camera::{Projection, View, Viewpoint},
     gpu::{self, Bytes, DeviceLoss, GrowableBuffer},
+    image::{Background, Image, ImagePoll, ImageRequest, PendingImage},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     scene::{
         Color, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Scene, Stroke, ViewportRect,
@@ -1648,4 +1650,168 @@ fn enhanced_shading_sets_faces_apart_keeps_their_tint_and_keeps_dimmed_bodies_da
         );
     }
     assert_eq!(pick.hits[0].id, PickId::from_index(14).unwrap());
+}
+
+fn export_image(
+    renderer: &mut ViewportRenderer,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    request: &ImageRequest<'_>,
+    tile_side: u32,
+) -> Image {
+    let readback = renderer
+        .encode_image(device, queue, request, tile_side)
+        .unwrap();
+    let pending = PendingImage::map(readback, 0);
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+
+    assert!(pending.is_mapped());
+    let ImagePoll::Ready(readback) = pending.finish() else {
+        panic!("the image should be read back");
+    };
+    readback.into_image().unwrap()
+}
+
+fn image_pixel(image: &Image, at: DVec2) -> [u8; 4] {
+    let offset = (at.y as usize * image.width as usize + at.x as usize) * 4;
+    image.pixels[offset..offset + 4].try_into().unwrap()
+}
+
+#[test]
+fn an_exported_image_is_drawn_in_tiles_at_its_own_size_with_the_chosen_background() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let size = SurfaceSize {
+        width: 300,
+        height: 180,
+    };
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(box_mesh(20.0)),
+            faces: vec![
+                FaceStyle {
+                    color: Color::from_rgb8(40, 200, 40),
+                    pick: None,
+                };
+                6
+            ],
+        }],
+        ..Scene::default()
+    };
+    let view = looking_down(150.0, f64::from(size.width), f64::from(size.height));
+    let on_top = view.project(Point3::new(0.0, 0.0, 20.0)).unwrap();
+    let corner = DVec2::new(2.0, 2.0);
+    let request = |background| ImageRequest {
+        size,
+        view: &view,
+        scene: &scene,
+        pixels_per_point: 1.0,
+        background,
+    };
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut bgra = ViewportRenderer::new(&device, wgpu::TextureFormat::Bgra8Unorm, 1);
+
+    let whole = export_image(
+        &mut renderer,
+        &device,
+        &queue,
+        &request(Background::Viewport),
+        512,
+    );
+    let tiled = export_image(
+        &mut renderer,
+        &device,
+        &queue,
+        &request(Background::Viewport),
+        64,
+    );
+    let transparent = export_image(
+        &mut renderer,
+        &device,
+        &queue,
+        &request(Background::Transparent),
+        64,
+    );
+    let swapped = export_image(
+        &mut bgra,
+        &device,
+        &queue,
+        &request(Background::Viewport),
+        128,
+    );
+    let differing = whole
+        .pixels
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(tiled.pixels.as_chunks::<4>().0)
+        .filter(|(a, b)| a.iter().zip(*b).any(|(a, b)| a.abs_diff(*b) > 2))
+        .count();
+    let top = image_pixel(&transparent, on_top);
+
+    assert_eq!((whole.width, whole.height), (300, 180));
+    assert_eq!(whole.pixels.len(), 300 * 180 * 4);
+    let [red, green, blue, alpha] = image_pixel(&whole, on_top);
+    assert!(
+        green > 60 && green > red * 2 && green > blue * 2 && alpha == 255,
+        "the top of the box was {red} {green} {blue} {alpha}"
+    );
+    assert!(is_background(image_pixel(&whole, corner)));
+    assert_eq!(image_pixel(&whole, corner)[3], 255);
+    assert!(differing < 300 * 180 / 100, "{differing} pixels differ");
+    assert_eq!(image_pixel(&transparent, corner), [0, 0, 0, 0]);
+    assert_eq!(top[3], 255);
+    assert!(
+        top.iter()
+            .zip(image_pixel(&whole, on_top))
+            .all(|(a, b)| a.abs_diff(b) <= 1)
+    );
+    let [red, green, blue, _] = image_pixel(&swapped, on_top);
+    assert!(
+        green > red * 2 && green > blue * 2,
+        "a BGRA target gave {red} {green} {blue}"
+    );
+    assert!(is_background(image_pixel(&swapped, corner)));
+}
+
+#[test]
+fn lines_in_an_exported_image_widen_with_its_pixels_per_point() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let size = SurfaceSize {
+        width: 400,
+        height: 400,
+    };
+    let view = looking_down(100.0, f64::from(size.width), f64::from(size.height));
+    let scene = line_and_marker();
+    let across = view.project(Point3::new(-10.0, 0.0, 0.0)).unwrap();
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 1);
+    let mut width = |pixels_per_point: f32| {
+        let image = export_image(
+            &mut renderer,
+            &device,
+            &queue,
+            &ImageRequest {
+                size,
+                view: &view,
+                scene: &scene,
+                pixels_per_point,
+                background: Background::Transparent,
+            },
+            100,
+        );
+        (0..size.height)
+            .filter(|row| {
+                image_pixel(&image, DVec2::new(across.x.floor(), f64::from(*row)))[3] > 128
+            })
+            .count()
+    };
+
+    let at_one = width(1.0);
+    let at_two = width(2.0);
+
+    assert!((2..=4).contains(&at_one), "{at_one}");
+    assert!((5..=7).contains(&at_two), "{at_two}");
 }

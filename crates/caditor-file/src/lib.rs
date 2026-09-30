@@ -19,8 +19,8 @@ mod storage;
 pub use crate::{
     binary::{History, SavedState, Version},
     export::{
-        ExportBody, ExportError, ExportFormat, Exported, MeshResolution, STEP_EXTENSION,
-        STEP_EXTENSIONS, export_bodies,
+        ExportBody, ExportError, ExportFormat, Exported, ImageExportError, MeshResolution,
+        PNG_EXTENSION, RgbaImage, STEP_EXTENSION, STEP_EXTENSIONS, export_bodies, export_png,
     },
     format::FORMAT_VERSION,
     import::{

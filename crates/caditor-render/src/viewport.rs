@@ -6,6 +6,7 @@ use glam::{DVec2, Vec3};
 use crate::{
     camera::{Projection, View},
     gpu::{Bytes, GrowableBuffer},
+    image::{self, Background, ChannelOrder, ImageReadback, ImageRequest, TileReadback},
     mesh::{MESH_VERTEX_STRIDE, MeshCache},
     picking::{self, PickTargets, PickWindow, Picking},
     scene::{Fill, Grid, Layer, PickId, Primitive, Scene, ViewportRect},
@@ -34,6 +35,7 @@ const GRID_UNIFORM_SIZE: u64 = 64;
 const GRID_CELLS_ACROSS_SCALE: f64 = 100.0;
 const GRID_EXTENT_PER_SCALE: f64 = 40.0;
 const GRID_MIN_SCALE_PER_DISTANCE: f64 = 0.25;
+const WHOLE_VIEW: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
 
 pub struct ViewportFrame<'a> {
     pub rect: ViewportRect,
@@ -90,6 +92,96 @@ struct Pipelines {
     pick_fills: wgpu::RenderPipeline,
     pick_reference_fills: wgpu::RenderPipeline,
     pick_meshes: wgpu::RenderPipeline,
+}
+
+struct ImageTargets {
+    multisampled: Option<wgpu::TextureView>,
+    resolved: wgpu::Texture,
+    resolved_view: wgpu::TextureView,
+    depth: wgpu::TextureView,
+}
+
+impl ImageTargets {
+    fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        sample_count: u32,
+        extent: wgpu::Extent3d,
+    ) -> Self {
+        let texture = |label, format, sample_count, usage| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: extent,
+                mip_level_count: 1,
+                sample_count,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage,
+                view_formats: &[],
+            })
+        };
+        let view = |texture: &wgpu::Texture| texture.create_view(&Default::default());
+        let resolved = texture(
+            "image tile",
+            format,
+            1,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        );
+        Self {
+            multisampled: (sample_count > 1).then(|| {
+                view(&texture(
+                    "multisampled image tile",
+                    format,
+                    sample_count,
+                    wgpu::TextureUsages::RENDER_ATTACHMENT,
+                ))
+            }),
+            resolved_view: view(&resolved),
+            resolved,
+            depth: view(&texture(
+                "image tile depth",
+                DEPTH_FORMAT,
+                sample_count,
+                wgpu::TextureUsages::RENDER_ATTACHMENT,
+            )),
+        }
+    }
+
+    fn begin_pass<'a>(
+        &self,
+        encoder: &'a mut wgpu::CommandEncoder,
+        clear: wgpu::Color,
+    ) -> wgpu::RenderPass<'a> {
+        let (view, resolve_target, store) = match &self.multisampled {
+            Some(multisampled) => (
+                multisampled,
+                Some(&self.resolved_view),
+                wgpu::StoreOp::Discard,
+            ),
+            None => (&self.resolved_view, None, wgpu::StoreOp::Store),
+        };
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("image tile"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(clear),
+                    store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.depth,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(FAR_DEPTH),
+                    store: wgpu::StoreOp::Discard,
+                }),
+                stencil_ops: None,
+            }),
+            ..Default::default()
+        })
+    }
 }
 
 struct SceneTargets {
@@ -274,21 +366,111 @@ impl ViewportRenderer {
             1.0,
         );
         pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
-        pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
-        self.meshes.draw(&mut pass, &self.pipelines.meshes);
-        self.draw_lines(&mut pass, &self.pipelines.lines, &counts);
-        self.draw_markers(&mut pass, &self.pipelines.markers, &counts);
-        if viewport.scene.grid.is_some() {
-            pass.set_pipeline(&self.pipelines.grid);
-            pass.set_bind_group(1, &self.grid_uniform.bind_group, &[]);
-            pass.draw(0..QUAD_VERTICES, 0..1);
-        }
-        self.draw_fills(&mut pass, &self.pipelines.fills, &counts);
+        self.draw_scene(&mut pass, &counts, viewport.scene.grid.is_some());
         drop(pass);
 
         if let Some(cursor) = viewport.pick_at {
             self.draw_pick(encoder, viewport.view, cursor, &counts);
         }
+    }
+
+    pub fn encode_image(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        request: &ImageRequest<'_>,
+        tile_side: u32,
+    ) -> Option<ImageReadback> {
+        let order = ChannelOrder::of(self.format)?;
+        let size = request.size;
+        let frame = ViewportFrame {
+            rect: ViewportRect {
+                x: 0.0,
+                y: 0.0,
+                width: size.width as f32,
+                height: size.height as f32,
+            },
+            view: request.view,
+            scene: request.scene,
+            pick_at: None,
+            pixels_per_point: request.pixels_per_point,
+        };
+        let counts = self.upload(device, queue, &frame);
+        let tiles = image::tiles(size, tile_side);
+        let targets = ImageTargets::new(
+            device,
+            self.format,
+            self.sample_count,
+            wgpu::Extent3d {
+                width: tile_side.min(size.width),
+                height: tile_side.min(size.height),
+                depth_or_array_layers: 1,
+            },
+        );
+        let clear = match request.background {
+            Background::Viewport => BACKGROUND,
+            Background::Transparent => wgpu::Color::TRANSPARENT,
+        };
+        let pixels_per_point = valid_scale(request.pixels_per_point);
+        let grid = request.scene.grid.is_some();
+
+        let mut readbacks = Vec::with_capacity(tiles.len());
+        for tile in tiles {
+            view_uniform(
+                &mut self.staging,
+                request.view,
+                pixels_per_point,
+                self.shading,
+                image::tile_transform(tile, size),
+            );
+            queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("image readback"),
+                size: tile.readback_bytes(),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("image tile"),
+            });
+            let mut pass = targets.begin_pass(&mut encoder, clear);
+            pass.set_viewport(0.0, 0.0, tile.width as f32, tile.height as f32, 0.0, 1.0);
+            pass.set_scissor_rect(0, 0, tile.width, tile.height);
+            self.draw_scene(&mut pass, &counts, grid);
+            drop(pass);
+            encoder.copy_texture_to_buffer(
+                targets.resolved.as_image_copy(),
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(tile.row_pitch()),
+                        rows_per_image: Some(tile.height),
+                    },
+                },
+                wgpu::Extent3d {
+                    width: tile.width,
+                    height: tile.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            queue.submit([encoder.finish()]);
+            readbacks.push(TileReadback { tile, buffer });
+        }
+        Some(ImageReadback::new(size, order, readbacks))
+    }
+
+    fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, counts: &Counts, grid: bool) {
+        pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
+        self.meshes.draw(pass, &self.pipelines.meshes);
+        self.draw_lines(pass, &self.pipelines.lines, counts);
+        self.draw_markers(pass, &self.pipelines.markers, counts);
+        if grid {
+            pass.set_pipeline(&self.pipelines.grid);
+            pass.set_bind_group(1, &self.grid_uniform.bind_group, &[]);
+            pass.draw(0..QUAD_VERTICES, 0..1);
+        }
+        self.draw_fills(pass, &self.pipelines.fills, counts);
     }
 
     fn draw_lines(
@@ -443,7 +625,7 @@ impl ViewportRenderer {
             view,
             pixels_per_point,
             self.shading,
-            None,
+            WHOLE_VIEW,
         );
         queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
         if let Some(cursor) = viewport.pick_at
@@ -456,7 +638,7 @@ impl ViewportRenderer {
                 view,
                 pixels_per_point,
                 self.shading,
-                Some((cursor, window)),
+                picking::pick_transform(cursor, view.size(), window),
             );
             queue.write_buffer(&self.pick_view_uniform.buffer, 0, self.staging.as_slice());
         }
@@ -796,13 +978,9 @@ fn view_uniform(
     view: &View,
     pixels_per_point: f32,
     shading: Shading,
-    pick: Option<(DVec2, PickWindow)>,
+    transform: [f32; 4],
 ) {
     let size = view.size();
-    let pick_transform = match pick {
-        Some((cursor, window)) => picking::pick_transform(cursor, size, window),
-        None => [1.0, 1.0, 0.0, 0.0],
-    };
     bytes.clear();
     bytes
         .mat4(view.rotation_projection().as_mat4())
@@ -813,7 +991,7 @@ fn view_uniform(
             pixels_per_point,
             if view.is_orthographic() { 1.0 } else { 0.0 },
         ])
-        .floats(&pick_transform)
+        .floats(&transform)
         .vec4(key_light(view).as_vec3(), shading.uniform_flag())
         .vec4(fill_light(view).as_vec3(), 0.0);
 }

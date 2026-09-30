@@ -1,3 +1,4 @@
+mod image;
 mod stl;
 #[cfg(test)]
 mod tests;
@@ -15,6 +16,7 @@ use caditor_geometry::{Aabb, Point3};
 use caditor_kernel::{Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_step::{StepBody, WriteError, write_step};
 
+pub use self::image::{ImageExportError, PNG_EXTENSION, RgbaImage, export_png};
 use crate::{reason, save::write_atomically};
 
 const APPLICATION: &str = concat!("caditor ", env!("CARGO_PKG_VERSION"));

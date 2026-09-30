@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use caditor_document::{Document, Evaluation, FeatureId, FeatureKind};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
-use caditor_render::{Camera, PickResult, Scene, View, Viewpoint, ViewportRect};
+use caditor_render::{Camera, PickResult, Scene, SurfaceSize, View, Viewpoint, ViewportRect};
 use caditor_sketch::{ConstraintId, EntityId};
 use egui::{Align2, FontId, Key, PointerButton, Rect, Response, Sense, Shape, Stroke, vec2};
 
@@ -119,6 +119,12 @@ pub struct ViewportRequest {
     pub view: View,
     pub rect: ViewportRect,
     pub pick_at: Option<Vector2>,
+    pub pixels_per_point: f32,
+}
+
+pub struct ImageView {
+    pub view: View,
+    pub scene: Scene,
     pub pixels_per_point: f32,
 }
 
@@ -451,6 +457,54 @@ impl ViewportState {
             pick_at,
             pixels_per_point: scale,
         })
+    }
+
+    pub fn view_pixels(&self) -> Option<SurfaceSize> {
+        let size = self.rect?.size() * self.pixels_per_point;
+        let side = |length: f32| {
+            let rounded = length.round();
+            (rounded >= 1.0).then_some(rounded as u32)
+        };
+        Some(SurfaceSize {
+            width: side(size.x)?,
+            height: side(size.y)?,
+        })
+    }
+
+    pub fn image(
+        &self,
+        document: &Document,
+        evaluation: &Evaluation,
+        display: &Display,
+        editing: &SketchEditing,
+        size: SurfaceSize,
+    ) -> ImageView {
+        let sources = Sources {
+            document,
+            evaluation,
+            bodies: &self.bodies,
+            sketches: &display.sketches,
+        };
+        let unselected = Selection::default();
+        let mut built = scene::build(
+            &sources,
+            &Highlight {
+                selection: &unselected,
+                hovered: &[],
+            },
+            editing.context(),
+        );
+        built.scene.grid = None;
+        let view = self
+            .camera
+            .view(f64::from(size.width), f64::from(size.height))
+            .reaching(built.everything);
+        let shown_height = self.view_pixels().map_or(size.height, |shown| shown.height);
+        ImageView {
+            view,
+            scene: built.scene,
+            pixels_per_point: self.pixels_per_point * size.height as f32 / shown_height as f32,
+        }
     }
 
     pub fn pick_was_not_issued(&mut self) {

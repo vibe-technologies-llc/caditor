@@ -58,8 +58,8 @@ paths:
 ## Redraws and frame pacing
 
 - caditor draws only when something asks: an input or window event, a worker's wake, egui's
-  requested repaint, or a frame that must follow (an action, a camera animation, a pick in
-  flight). Every such request goes through `Session::request_redraw`, never straight to the window.
+  requested repaint, or a frame that must follow (an action, a camera animation, a pick or an
+  exported image in flight). Every such request goes through `Session::request_redraw`, never straight to the window.
 - `FramePacer` (`graphics.rs`) holds them to the frame limit: `Graphics::frame_interval` is the
   chosen rate's interval, or for Match the display the monitor's refresh rate
   (`MonitorHandle::refresh_rate_millihertz`, read at startup and on move, resize and scale change)
