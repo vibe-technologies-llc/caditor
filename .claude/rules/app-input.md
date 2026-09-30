@@ -63,8 +63,8 @@ paths:
 - Every command is in the palette: recompute (F5) and its cancel, going to the first failed feature
   (F8, which also selects its row), adding a parameter and deleting the one whose name or expression
   field last had focus (`PanelState::parameter`), opening each recent model (an `Offer` may carry a
-  detail, here the file name, shown after the title), recovering unsaved work, cancelling an export,
-  dismissing the notice and dismissing or hiding the current tip (offered while the palette covers
+  detail, here the file name, shown after the title), recovering unsaved work, cancelling an export or
+  an image export, dismissing the notice and dismissing or hiding the current tip (offered while the palette covers
   it).
 - A feature row's and panel's actions are commands on the tree's current feature
   (`feature_tree::current_feature`, the offer's detail; `feature_tree::commands`), sharing the

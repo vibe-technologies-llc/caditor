@@ -15,10 +15,11 @@ use std::{
 use caditor_document::{Document, FeatureId};
 use caditor_file::{
     Closing, DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported, FILE_EXTENSION,
-    FileJournal, History, ImportError, LoadError, Loaded, ModelImport, RecentChange, RecentFiles,
-    Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings, describe_set_aside,
-    journal_for, load, load_version, read_dxf, read_step_file, scan,
+    FileJournal, History, ImportError, LoadError, Loaded, ModelImport, PNG_EXTENSION, RecentChange,
+    RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings,
+    describe_set_aside, journal_for, load, load_version, read_dxf, read_step_file, scan,
 };
+use caditor_render::{ImageError, SurfaceSize};
 use egui::{Id, Modal, RichText, Ui};
 use parking_lot::Mutex;
 
@@ -29,6 +30,9 @@ use crate::{
     export::{self, ExportCommand, Exporter},
     history::{self, HistoryCommand, VersionHistory},
     icons,
+    image_export::{
+        self, IMAGE_HINT, ImageCommand, ImageExporter, ImageFailure, ReadPixels, RenderJob,
+    },
     import::{self, DrawingPlan, IMPORT_HINT, Placement},
     model::{Action, FileEvent, Model, Notice, WakerFactory, display_name},
     preferences::PreferencesCommand,
@@ -45,7 +49,8 @@ const MODEL_KIND: &str = "caditor model";
 const DRAWING_KIND: &str = "DXF drawing";
 const MODEL_EXCHANGE_KIND: &str = "STEP model";
 const IMPORTABLE_KIND: &str = "Drawings and models";
-const FILE_COMMANDS: [Command; 9] = [
+const IMAGE_KIND: &str = "PNG image";
+const FILE_COMMANDS: [Command; 10] = [
     Command::New,
     Command::Open,
     Command::Save,
@@ -53,6 +58,7 @@ const FILE_COMMANDS: [Command; 9] = [
     Command::VersionHistory,
     Command::Import,
     Command::Export,
+    Command::ExportImage,
     Command::Preferences,
     Command::Quit,
 ];
@@ -76,6 +82,7 @@ pub enum FileCommand {
     Replace(bool),
     QuitAnyway,
     Export(ExportCommand),
+    ExportImage(ImageCommand),
     History(HistoryCommand),
     Import {
         into: Option<FeatureId>,
@@ -107,6 +114,7 @@ pub trait Dialogs {
         respond: Respond,
     );
     fn pick_import(&self, directory: Option<PathBuf>, respond: Respond);
+    fn pick_image_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond);
 }
 
 pub struct NativeDialogs;
@@ -189,6 +197,15 @@ impl Dialogs for NativeDialogs {
                 .pick_file()
         });
     }
+
+    fn pick_image_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
+        Self::spawn(respond, move || {
+            Self::dialog(directory, IMAGE_KIND, &[PNG_EXTENSION])
+                .set_title("Export Image")
+                .set_file_name(file_name)
+                .save_file()
+        });
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -203,6 +220,7 @@ enum Purpose {
     Open,
     SaveAs,
     Export(ExportFormat),
+    Image,
     Import,
 }
 
@@ -251,6 +269,10 @@ enum Event {
     Exported {
         path: PathBuf,
         result: Result<Exported, ExportError>,
+    },
+    ImageExported {
+        path: PathBuf,
+        result: Result<SurfaceSize, ImageFailure>,
     },
     HistoryListed {
         path: PathBuf,
@@ -325,6 +347,7 @@ pub struct Files {
     importing: Option<Importing>,
     queued_imports: VecDeque<Queued>,
     exporter: Exporter,
+    image: ImageExporter,
     history: VersionHistory,
     picking: bool,
     confirm_replace: Option<PathBuf>,
@@ -354,6 +377,7 @@ impl Files {
             importing: None,
             queued_imports: VecDeque::new(),
             exporter: Exporter::default(),
+            image: ImageExporter::default(),
             history: VersionHistory::default(),
             picking: false,
             confirm_replace: None,
@@ -394,6 +418,7 @@ impl Files {
             || self.report.is_some()
             || self.showing_recovery()
             || self.exporter.is_open()
+            || self.image.is_open()
             || self.history.is_open()
             || self.picking
     }
@@ -478,6 +503,12 @@ impl Files {
                 self.exporter.perform(command);
                 if command == ExportCommand::Choose {
                     self.pick(Purpose::Export(self.exporter.format()), model);
+                }
+            }
+            FileCommand::ExportImage(command) => {
+                self.image.perform(command);
+                if matches!(command, ImageCommand::Choose(_)) {
+                    self.pick(Purpose::Image, model);
                 }
             }
             FileCommand::History(command) => self.history_command(command, model),
@@ -633,6 +664,31 @@ impl Files {
         self.exporter.includes(body)
     }
 
+    pub fn image_job(&mut self) -> Option<RenderJob> {
+        self.image.render_job()
+    }
+
+    #[cfg(test)]
+    pub fn is_exporting_image(&self) -> bool {
+        self.image.is_running()
+    }
+
+    pub fn image_rendered(&mut self, pixels: Result<ReadPixels, ImageError>, model: &mut Model) {
+        let events = self.events.clone();
+        let wake = (self.make_waker)();
+        let refused = self.image.rendered(
+            pixels,
+            Box::new(move |path, result| {
+                if events.send(Event::ImageExported { path, result }).is_ok() {
+                    wake();
+                }
+            }),
+        );
+        if let Some(notice) = refused {
+            model.set_notice(notice);
+        }
+    }
+
     pub fn poll(&mut self, model: &mut Model, editing: &mut SketchEditing) -> bool {
         self.exporter.sync(model);
         let mut changed = false;
@@ -684,6 +740,7 @@ impl Files {
                         let into = self.importing.as_ref().and_then(|importing| importing.into);
                         self.import(path, into, model);
                     }
+                    (Purpose::Image, path) => self.image.picked(path),
                     (Purpose::Import, None) => self.importing = None,
                     (_, None) => self.after_save = None,
                 }
@@ -725,6 +782,10 @@ impl Files {
             }
             Event::Exported { path, result } => {
                 let notice = self.exporter.finished(&path, result);
+                model.set_notice(notice);
+            }
+            Event::ImageExported { path, result } => {
+                let notice = self.image.finished(&path, result);
                 model.set_notice(notice);
             }
             Event::HistoryListed { path, result } => self.history.listed(&path, result),
@@ -996,6 +1057,11 @@ impl Files {
                 let file_name = self.exporter.file_name(model);
                 self.dialogs
                     .pick_export_path(directory, file_name, format, respond);
+            }
+            Purpose::Image => {
+                let directory = self.image.folder().or(directory);
+                self.dialogs
+                    .pick_image_path(directory, ImageExporter::file_name(model), respond);
             }
             Purpose::Import => self.dialogs.pick_import(directory, respond),
         }
@@ -1349,6 +1415,7 @@ pub fn menu(
         let hints = [
             (Command::Import, Some(IMPORT_HINT)),
             (Command::Export, None),
+            (Command::ExportImage, Some(IMAGE_HINT)),
         ];
         for (command, hint) in hints {
             let response = menu_item(ui, commands, command);
@@ -1424,6 +1491,7 @@ pub fn menu(
                 into: editing.feature(),
             }),
             Command::Export => Action::File(FileCommand::Export(ExportCommand::Show)),
+            Command::ExportImage => Action::File(FileCommand::ExportImage(ImageCommand::Show)),
             Command::Preferences => Action::Preferences(PreferencesCommand::Show),
             _ => Action::File(FileCommand::Quit),
         };
@@ -1459,6 +1527,7 @@ pub fn activity(
         ui.label(format!("Importing “{}”…", display_name(Some(path))));
     }
     export::activity(ui, &files.exporter, commands, actions);
+    image_export::activity(ui, &files.image, commands, actions);
 }
 
 fn is_model_file(path: &Path) -> bool {
@@ -1482,7 +1551,13 @@ fn submenu_label(ui: &Ui, glyph: &str, title: &str) -> (egui::RichText, String) 
     )
 }
 
-pub fn show(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>) {
+pub fn show(
+    ui: &mut Ui,
+    model: &Model,
+    files: &Files,
+    view: Option<SurfaceSize>,
+    actions: &mut Vec<Action>,
+) {
     let ctx = ui.ctx().clone();
     let mut command = None;
     if let Some((_, since)) = &files.closing {
@@ -1506,6 +1581,8 @@ pub fn show(ui: &mut Ui, model: &Model, files: &Files, actions: &mut Vec<Action>
         command = recovery(&ctx, files);
     } else if files.exporter.is_open() {
         command = export::dialog(&ctx, model, &files.exporter).map(FileCommand::Export);
+    } else if files.image.is_open() {
+        command = image_export::dialog(&ctx, &files.image, view).map(FileCommand::ExportImage);
     } else if files.history.is_open() {
         command = history::dialog(&ctx, model, &files.history).map(FileCommand::History);
     }

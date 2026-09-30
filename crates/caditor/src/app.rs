@@ -6,7 +6,8 @@ use std::{
 
 use anyhow::{Context, Result};
 use caditor_render::{
-    FrameStart, PickPoll, Renderer, SurfaceSize, ViewportFrame, Wake, WindowTarget,
+    FrameStart, ImagePoll, ImageRequest, PickPoll, Renderer, SurfaceSize, ViewportFrame, Wake,
+    WindowTarget,
 };
 use egui_winit::accesskit_winit;
 use parking_lot::Mutex;
@@ -365,7 +366,7 @@ pub fn show(
     if open_shortcuts {
         actions.push(Action::Preferences(PreferencesCommand::ShowShortcuts));
     }
-    files::show(ui, model, files, actions);
+    files::show(ui, model, files, viewport.view_pixels(), actions);
     if !files.is_blocking() {
         let view = PreferencesView {
             tab: *preferences_tab,
@@ -885,6 +886,36 @@ impl Session {
         delay
     }
 
+    fn export_image(&mut self, model: &mut Model, files: &mut Files) {
+        if let Some(job) = files.image_job() {
+            let workspace = &self.workspace;
+            let image = workspace.viewport.image(
+                model.document(),
+                model.evaluation(),
+                model.display(),
+                &workspace.editing,
+                job.size,
+            );
+            let started = self.renderer.render_image(&ImageRequest {
+                size: job.size,
+                view: &image.view,
+                scene: &image.scene,
+                pixels_per_point: image.pixels_per_point,
+                background: job.background,
+            });
+            if let Err(error) = started {
+                files.image_rendered(Err(error), model);
+            }
+        }
+        match self.renderer.poll_image() {
+            ImagePoll::Idle | ImagePoll::Pending => {}
+            ImagePoll::Ready(readback) => {
+                files.image_rendered(Ok(Box::new(move || readback.into_image())), model);
+            }
+            ImagePoll::Failed(error) => files.image_rendered(Err(error), model),
+        }
+    }
+
     fn redraw(&mut self, model: &mut Model, files: &mut Files) {
         let now = Instant::now();
         self.pacer.frame_started(now, self.frame_interval());
@@ -927,6 +958,7 @@ impl Session {
         }
 
         model.mesh_before(self.workspace.editing.context().solid);
+        self.export_image(model, files);
         let workspace = &mut self.workspace;
         let built = workspace.viewport.build_scene(
             model.document(),
@@ -993,6 +1025,7 @@ impl Session {
         } else if repaint_now
             || self.workspace.viewport.is_animating()
             || self.renderer.is_pick_pending()
+            || self.renderer.is_image_pending()
         {
             self.request_redraw();
         } else {

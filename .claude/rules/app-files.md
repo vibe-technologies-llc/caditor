@@ -3,6 +3,7 @@ paths:
   - "crates/caditor/src/files.rs"
   - "crates/caditor/src/onboarding.rs"
   - "crates/caditor/src/export.rs"
+  - "crates/caditor/src/image_export.rs"
   - "crates/caditor/src/import.rs"
   - "crates/caditor/src/history.rs"
   - "crates/caditor/src/preferences.rs"
@@ -45,6 +46,32 @@ paths:
   save dialog it runs on its own thread, with Cancel in the status bar. A path lacking the format's
   extension gets it appended, so an export never replaces a model file (`.stp` counts as STEP). The
   outcome is a notice with the body count and, for meshes, the triangle count.
+
+## Image export
+
+- `image_export.rs`. File › Export Image… (Ctrl+Shift+E): size (the 3D view's size in physical
+  pixels, `ViewportState::view_pixels`, or a custom width and height, each a `commit_field` taking
+  whole pixels from 1 to `MAX_IMAGE_SIDE`), scale (1×, 2×, 4×) and background (the 3D view's or
+  transparent). The dialog shows the resulting size, or a warning callout when a side passes 8192
+  (Export… disabled with the same reason on hover). The choices, and the folder last exported to,
+  are kept for the session like the other export's, not saved.
+- The image leaves out hover, selection and keyboard highlights, the grid and the drawing preview
+  (`ViewportState::image` builds the scene again with an empty `Highlight` and no grid); egui's
+  labels, annotations and view cube are never in it, since they are not in the scene. It keeps
+  everything else the view shows (bodies, visible sketches, reference planes, axes and datums,
+  which can be hidden first), the camera as it is now and the graphics settings in use. Its view
+  is the camera at the image's size, so the vertical extent matches the view and a wider image
+  shows more at the sides; pixels per point scale with the image's height over the view's, so
+  lines and points grow with 2× and 4×.
+- After the save dialog (`Dialogs::pick_image_path`, `.png` appended when missing, so an export
+  never replaces a model) the job waits in `Files` (`image_job`); the session renders it with
+  `Renderer::render_image` before the frame's own drawing and polls it each frame, redrawing while
+  it is pending (the UI tests stand in for the renderer). The readback goes to `image_rendered`,
+  which reads the pixels and writes the PNG on its own thread under `catch_unwind`, with Cancel
+  in the status bar and the palette (`Command::CancelImageExport`).
+- The outcome is a notice with the size and file name; failures say what happened and what to do
+  next (a smaller size or scale, lower anti-aliasing, another folder, export again after the
+  device was recovered). Clipboard copying is not offered: the app has no image clipboard.
 
 ## Import
 

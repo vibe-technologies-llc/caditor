@@ -1,5 +1,6 @@
 mod camera;
 mod gpu;
+mod image;
 mod mesh;
 #[cfg(test)]
 mod offscreen_tests;
@@ -15,6 +16,9 @@ use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 pub use crate::{
     camera::{Camera, Projection, View, Viewpoint},
     gpu::Wake,
+    image::{
+        Background, Image, ImageError, ImagePoll, ImageReadback, ImageRequest, MAX_IMAGE_SIDE,
+    },
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     picking::PickPoll,
     scene::{
@@ -26,6 +30,7 @@ pub use crate::{
 };
 use crate::{
     gpu::DeviceLoss,
+    image::{IMAGE_FORMAT, PendingImage, TILE_SIDE},
     viewport::{DEPTH_FORMAT, SurfaceTarget, ViewportRenderer},
 };
 
@@ -158,6 +163,14 @@ impl Gpu {
     fn largest_side(&self) -> u32 {
         self.device.limits().max_texture_dimension_2d
     }
+
+    fn image_viewport(&self, shading: Shading) -> ViewportRenderer {
+        let offered = gpu::offered_msaa(&self.adapter, &self.device, IMAGE_FORMAT, DEPTH_FORMAT);
+        let msaa = self.info.msaa.closest(&offered);
+        let mut viewport = ViewportRenderer::new(&self.device, IMAGE_FORMAT, msaa.samples());
+        viewport.set_shading(shading);
+        viewport
+    }
 }
 
 async fn configure(
@@ -197,6 +210,7 @@ pub struct Renderer {
     viewport: ViewportRenderer,
     generation: u64,
     pick_dropped: bool,
+    image: Option<PendingImage>,
 }
 
 impl Renderer {
@@ -225,6 +239,7 @@ impl Renderer {
             viewport,
             generation: 0,
             pick_dropped: false,
+            image: None,
         })
     }
 
@@ -370,6 +385,66 @@ impl Renderer {
 
     pub fn is_pick_pending(&self) -> bool {
         self.viewport.is_pick_pending()
+    }
+
+    pub fn render_image(&mut self, request: &ImageRequest<'_>) -> Result<(), ImageError> {
+        if self.image.is_some() {
+            return Err(ImageError::Busy);
+        }
+        image::check_size(request.size)?;
+        if self.gpu.loss.is_lost() {
+            return Err(ImageError::DeviceLost);
+        }
+        let gpu = &self.gpu;
+        let tile_side = TILE_SIDE.min(gpu.largest_side()).max(1);
+        let out_of_memory = gpu.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        let invalid = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let readback = match self
+            .viewport
+            .encode_image(&gpu.device, &gpu.queue, request, tile_side)
+        {
+            Some(readback) => Some(readback),
+            None => gpu.image_viewport(self.graphics.shading).encode_image(
+                &gpu.device,
+                &gpu.queue,
+                request,
+                tile_side,
+            ),
+        };
+        let refused = pollster::block_on(invalid.pop());
+        let exhausted = pollster::block_on(out_of_memory.pop());
+        if let Some(error) = exhausted {
+            log::warn!("the exported image did not fit in graphics memory: {error}");
+            return Err(ImageError::OutOfMemory);
+        }
+        if let Some(error) = refused {
+            log::warn!("the graphics device refused to draw the exported image: {error}");
+            return Err(ImageError::Refused);
+        }
+        let readback = readback.ok_or(ImageError::Refused)?;
+        self.image = Some(PendingImage::map(readback, self.generation));
+        Ok(())
+    }
+
+    pub fn poll_image(&mut self) -> ImagePoll {
+        let Some(pending) = self.image.take() else {
+            return ImagePoll::Idle;
+        };
+        if pending.generation() != self.generation || self.gpu.loss.is_lost() {
+            return ImagePoll::Failed(ImageError::DeviceLost);
+        }
+        if let Err(error) = self.gpu.device.poll(wgpu::PollType::Poll) {
+            log::warn!("could not poll the graphics device for an exported image: {error}");
+        }
+        if pending.is_mapped() {
+            return pending.finish();
+        }
+        self.image = Some(pending);
+        ImagePoll::Pending
+    }
+
+    pub fn is_image_pending(&self) -> bool {
+        self.image.is_some()
     }
 
     fn recover(&mut self) -> Result<(), RenderError> {

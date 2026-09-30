@@ -162,6 +162,32 @@ paths:
   face, line, marker or model or front fill covers it, and a face seen through a plane is picked.
   Front-layer lines, markers and fills are picked through any face, as they are drawn.
 
+## Image export (`image.rs`)
+
+- `Renderer::render_image` draws an `ImageRequest` (size, view, scene, pixels per point,
+  `Background::Viewport` or `Transparent`) offscreen, independent of the window: at most
+  `MAX_IMAGE_SIDE` (8192) pixels a side, in square tiles of `TILE_SIDE` (2048, or the device's
+  largest texture side if smaller), so no size the app offers can pass the device's texture limit
+  and memory stays bounded. Each tile writes the view uniform with `image::tile_transform`, the
+  same clip-space scale and offset the pick window uses, so line widths and grid fades stay those
+  of the whole image; one submit per tile, since uniform writes land at the next submit.
+- It reuses the window's `ViewportRenderer` (its pipelines at the anti-aliasing level in use, its
+  shading, its uploaded meshes) when the surface is `Rgba8Unorm` or `Bgra8Unorm`; any other
+  surface format draws through a throwaway `ViewportRenderer` in `Rgba8Unorm` at the offered level
+  closest to the one in use. Tile targets and readback buffers are its own; the window's scene
+  targets are untouched. The shader output is written unconverted, as on screen, so the pixels are
+  sRGB.
+- Encoding and submitting run inside out-of-memory and validation error scopes
+  (`ImageError::OutOfMemory`, `Refused`); a lost device, before or while reading back, is
+  `DeviceLost`. One image at a time (`Busy`).
+- Every tile's buffer (rows padded to `COPY_BYTES_PER_ROW_ALIGNMENT`) is mapped asynchronously;
+  `poll_image` says `Idle`, `Pending`, `Ready(ImageReadback)` or `Failed`, so the UI thread never
+  waits on the GPU. `ImageReadback::into_image` is `Send` and meant for a worker: it assembles the
+  tiles, swaps BGRA to RGBA and turns the premultiplied colour a transparent clear leaves into
+  straight alpha (opaque pixels unchanged).
+- The renderer draws whatever scene it is given; leaving out highlights and the grid is the app's
+  choice (`app-files.md`).
+
 ## Navigation
 
 - One model: right-drag orbits (turntable around world Z, tilting about the horizontal, stopping at

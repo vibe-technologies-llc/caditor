@@ -23,6 +23,7 @@ mod fonts;
 mod graphics;
 mod history;
 mod icons;
+mod image_export;
 mod import;
 mod layout;
 mod menu_bar;

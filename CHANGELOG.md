@@ -119,6 +119,10 @@ The first release of caditor.
   the reason instead of hanging or closing caditor.
 - Import of DXF drawings into sketches and of STEP models as bodies; export of bodies as STEP,
   STL and 3MF.
+- File › Export Image… (Ctrl+Shift+E) saves the 3D view as a PNG image at the view's size or a
+  size of your own up to 8192 pixels a side, at 1×, 2× or 4×, over the view's background or a
+  transparent one, with the anti-aliasing and shading in use and without highlights, the grid or
+  labels. It is written in the background and can be cancelled from the status bar.
 - Dropping a model on the window opens it, and dropping drawings or STEP files imports them one
   after another (under X11).
 - Large drawings import in a fraction of the memory and time they took, and one whose blocks

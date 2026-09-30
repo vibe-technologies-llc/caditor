@@ -82,5 +82,9 @@ paths:
     surface, facet normals from the winding) or 3MF (one named object per body, millimetres).
 - Files are saved atomically like a model. Cancellation is checked between bodies and before
   writing; failures are sentences naming the body.
+- `export_png` (`export/image.rs`) writes 8-bit RGBA with straight alpha and an sRGB chunk
+  through the pure-Rust `png` crate (fast compression), checking the pixel count against the size,
+  cancellation before encoding and before writing, then saving atomically; errors are
+  `ImageExportError` variants, a write failure in the words of `reason::writing`.
 - The 3MF package uses a small ZIP writer (`zip.rs`): deflate through `miniz_oxide` unless storing
   is smaller, CRC32, no ZIP64.

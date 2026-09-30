@@ -59,8 +59,8 @@ and geometry crates and only `caditor-file` uses it.
 | `caditor-step` | STEP (ISO 10303-21, AP214) writing and reading of kernel solids. |
 | `caditor-zstd` | Safe wrapper over the pure-Rust zstd port; the only crate with `unsafe`. |
 | `caditor-document` | The parametric model: parameters, the feature tree, transactions, undo, recompute on a worker. |
-| `caditor-file` | Persistence: binary zstd/xxh3 container, model files with version history, recovery journal, preferences, DXF and STEP import, STL/3MF/STEP export. |
-| `caditor-render` | wgpu device and surface, camera, viewport drawing of a `Scene`, GPU picking; no winit or document dependency. |
+| `caditor-file` | Persistence: binary zstd/xxh3 container, model files with version history, recovery journal, preferences, DXF and STEP import, STL/3MF/STEP and PNG export. |
+| `caditor-render` | wgpu device and surface, camera, viewport drawing of a `Scene`, GPU picking, tiled offscreen image export; no winit or document dependency. |
 | `caditor` | The winit/egui application: UI, commands, sketch editing, file workflow. |
 
 Invariants that hold across crates:
@@ -120,12 +120,12 @@ that makes a rule false updates it in the same commit.
 | `document-recompute.md` | Recompute caching, failure containment, body states, display data, the `Recomputer` worker. |
 | `file-format.md` | Container, values, model records, version history and retention, atomic saving, reading limits, partial loading. |
 | `file-journal.md` | Recovery journal, locks, `Storage` worker, preferences, recent files, recovery scan. |
-| `file-import-export.md` | DXF and STEP import, STL, 3MF and STEP export. |
-| `render.md` | Frames, devices, graphics settings (vsync, MSAA, shading) and device loss, precision, meshes, depth, lines, projection, picking, navigation. |
+| `file-import-export.md` | DXF and STEP import, STL, 3MF, STEP and PNG export. |
+| `render.md` | Frames, devices, graphics settings (vsync, MSAA, shading) and device loss, precision, meshes, depth, lines, projection, picking, image export, navigation. |
 | `app.md` | App shell, `Model` and `Action`s, body meshing, offers, file session, signals, redraws and frame pacing, samples, CLI, accessibility. |
 | `app-look.md` | Fonts, theme tokens, widgets and tabs, screen-reader naming, bars and panels, the title bar and window frame, window and panel persistence. |
 | `app-modelling.md` | Extrude, revolve, fillet, chamfer, shell and datum tools and panels, visibility, sketch placement. |
-| `app-files.md` | File workflow, onboarding, export and import dialogs, version history, the tabbed preferences with graphics settings, units. |
+| `app-files.md` | File workflow, onboarding, export, image export and import dialogs, version history, the tabbed preferences with graphics settings, units. |
 | `app-input.md` | Numeric fields, shortcut focus rules, commands and keymap, palette, shortcut editor, keyboard-only operation, typed points. |
 | `app-sketching.md` | Sketch editing context, dragging and box selection, drawing tools, construction, snapping, constraint tools, annotations. |
 | `app-tests.md` | The headless egui UI test harness. |

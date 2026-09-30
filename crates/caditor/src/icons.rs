@@ -64,6 +64,7 @@ pub fn command(command: Command) -> &'static str {
         Command::VersionHistory => phosphor::CLOCK_COUNTER_CLOCKWISE,
         Command::Import => phosphor::DOWNLOAD_SIMPLE,
         Command::Export => phosphor::EXPORT,
+        Command::ExportImage => phosphor::IMAGE,
         Command::Preferences => phosphor::GEAR,
         Command::KeyboardShortcuts => phosphor::KEYBOARD,
         Command::Quit => phosphor::SIGN_OUT,
@@ -106,7 +107,9 @@ pub fn command(command: Command) -> &'static str {
         Command::OpenSample(_) => SAMPLE,
         Command::OpenRecent(_) => RECENT,
         Command::RecoverUnsaved => RECOVER,
-        Command::CancelExport | Command::CancelRecompute => phosphor::STOP_CIRCLE,
+        Command::CancelExport | Command::CancelImageExport | Command::CancelRecompute => {
+            phosphor::STOP_CIRCLE
+        }
         Command::Recompute => phosphor::ARROW_CLOCKWISE,
         Command::RenameFeature => RENAME,
         Command::MoveFeatureUp => MOVE_UP,

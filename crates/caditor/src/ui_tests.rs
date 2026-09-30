@@ -13,7 +13,7 @@ use caditor_expression::{Expression, ParameterId, Unit};
 use caditor_file::{ExportFormat, JournalEntry, Start, Storage, StorageConfig};
 use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_kernel::MeshQuality;
-use caditor_render::{GraphicsInfo, Msaa, Shading};
+use caditor_render::{Background, GraphicsInfo, Image, ImageError, Msaa, Shading};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 use egui::{
     Color32, Event, Id, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape,
@@ -37,6 +37,7 @@ use crate::{
     graphics::{CurveQuality, FrameLimit, Graphics, Hardware},
     history::HistoryCommand,
     icons,
+    image_export::{ImageCommand, ReadPixels},
     import::{self, Placement},
     menu_bar,
     model::{Action, Model, Notice, RecomputeStatus, Services, WakerFactory},
@@ -90,6 +91,10 @@ impl Dialogs for ScriptedDialogs {
     fn pick_import(&self, _directory: Option<PathBuf>, respond: Respond) {
         respond(self.answer.lock().clone());
     }
+
+    fn pick_image_path(&self, _directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+        respond(self.answer.lock().clone());
+    }
 }
 
 fn no_wake() -> WakerFactory {
@@ -111,6 +116,7 @@ struct Harness {
     accessible: Vec<(NodeId, Node)>,
     window: ViewportInfo,
     window_commands: Vec<ViewportCommand>,
+    image_failure: Option<ImageError>,
 }
 
 impl Harness {
@@ -164,6 +170,7 @@ impl Harness {
             accessible: Vec::new(),
             window: ViewportInfo::default(),
             window_commands: Vec::new(),
+            image_failure: None,
         };
         harness.settle();
         harness
@@ -232,6 +239,7 @@ impl Harness {
             &mut self.files,
             &mut self.workspace,
         );
+        self.render_image();
         self.model
             .mesh_before(self.workspace.editing.context().solid);
         let built = self.workspace.viewport.build_scene(
@@ -247,6 +255,31 @@ impl Harness {
             let ClippedShape { shape, .. } = clipped;
             collect_texts(shape, &mut self.texts, &mut self.text_colors);
         }
+    }
+
+    fn render_image(&mut self) {
+        let Some(job) = self.files.image_job() else {
+            return;
+        };
+        let pixels: Result<ReadPixels, ImageError> = match self.image_failure.take() {
+            Some(error) => Err(error),
+            None => {
+                let texel = match job.background {
+                    Background::Viewport => [27, 28, 31, 255],
+                    Background::Transparent => [0; 4],
+                };
+                let (width, height) = (job.size.width, job.size.height);
+                let pixels = texel.repeat(width as usize * height as usize);
+                Ok(Box::new(move || {
+                    Ok(Image {
+                        width,
+                        height,
+                        pixels,
+                    })
+                }))
+            }
+        };
+        self.files.image_rendered(pixels, &mut self.model);
     }
 
     fn answer_pick(&mut self, built: &scene::BuiltScene) {
@@ -1222,6 +1255,113 @@ fn exporting_writes_the_chosen_bodies_in_the_chosen_format_beside_the_model() {
     let step = std::fs::read_to_string(dir.path().join("plate.stp")).unwrap();
     assert!(step.starts_with("ISO-10303-21;"));
     assert!(step.contains("MANIFOLD_SOLID_BREP("));
+}
+
+fn png_size(path: &Path) -> (u32, u32, u8) {
+    const RGBA: u8 = 6;
+    let bytes = std::fs::read(path).unwrap();
+    assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+    assert_eq!(&bytes[12..16], b"IHDR");
+    let side = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap());
+    assert_eq!(bytes[25], RGBA);
+    (side(16), side(20), bytes[24])
+}
+
+#[test]
+fn exporting_an_image_writes_a_png_of_the_view_without_highlights_at_the_chosen_size() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    let view = harness.workspace.viewport.view_pixels().unwrap();
+    let image = harness.workspace.viewport.image(
+        harness.model.document(),
+        harness.model.evaluation(),
+        harness.model.display(),
+        &harness.workspace.editing,
+        view,
+    );
+    harness.select([]);
+    let mut plain = harness.built().scene;
+    plain.grid = None;
+
+    assert_eq!(image.scene, plain);
+    assert_eq!(image.pixels_per_point, 1.0);
+    assert_eq!(
+        image.view.size(),
+        (harness.workspace.viewport.current_view().unwrap().size()).round()
+    );
+
+    harness.key(Key::E, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.frame();
+    harness.show_new_windows();
+    assert!(harness.shows("Export Image"));
+    assert!(harness.shows(&format!("View size ({} × {})", view.width, view.height)));
+    harness.click("2×");
+    assert!(harness.shows(&format!(
+        "The image will be {} × {} pixels.",
+        view.width * 2,
+        view.height * 2
+    )));
+    harness.answer_dialog(Some(dir.path().join("plate")));
+    harness.click("Export…");
+    harness.wait_until("the image is written", |harness| {
+        !harness.files.is_exporting_image()
+    });
+    assert_eq!(
+        harness.model.notice().unwrap().text,
+        format!(
+            "Exported a {} × {} image to “plate.png”.",
+            view.width * 2,
+            view.height * 2
+        )
+    );
+    assert_eq!(
+        png_size(&dir.path().join("plate.png")),
+        (view.width * 2, view.height * 2, 8)
+    );
+
+    harness.command(FileCommand::ExportImage(ImageCommand::Show));
+    assert!(harness.shows(&format!(
+        "The image will be {} × {} pixels.",
+        view.width * 2,
+        view.height * 2
+    )));
+    harness.click("Custom");
+    harness.type_into_field(Id::new(("image-side", "Width")), "5000");
+    harness.type_into_field(Id::new(("image-side", "Height")), "none");
+    assert!(harness.shows("Enter a whole number of pixels from 1 to 8192"));
+    harness.type_into_field(Id::new(("image-side", "Height")), "900");
+    harness.click("4×");
+    assert!(harness.shows(
+        "At 4× the image would be 20000 × 3600 pixels, more than the 8192 pixels a side caditor \
+         draws. Choose a smaller size or scale."
+    ));
+    harness.click("1×");
+    harness.click("Transparent");
+    assert!(harness.shows("The image will be 5000 × 900 pixels."));
+    harness.answer_dialog(Some(dir.path().join("wide.PNG")));
+    harness.click("Export…");
+    harness.wait_until("the wide image is written", |harness| {
+        !harness.files.is_exporting_image()
+    });
+    assert_eq!(png_size(&dir.path().join("wide.PNG")), (5000, 900, 8));
+
+    harness.image_failure = Some(ImageError::OutOfMemory);
+    harness.key(Key::E, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.frame();
+    harness.show_new_windows();
+    harness.answer_dialog(Some(dir.path().join("huge.png")));
+    harness.click("Export…");
+    assert_eq!(
+        harness.model.notice().unwrap().text,
+        "Could not export “huge.png”: the graphics card does not have enough memory for an image \
+         this large. Choose a smaller size or scale, or lower the anti-aliasing in Preferences › \
+         Graphics."
+    );
+    assert!(!dir.path().join("huge.png").exists());
+    assert!(!harness.files.is_exporting_image());
+    assert!(!harness.files.is_blocking());
 }
 
 fn write_drawing(path: &Path, units: Option<i64>, entities: &str) {

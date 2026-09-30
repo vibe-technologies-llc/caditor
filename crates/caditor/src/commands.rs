@@ -63,6 +63,7 @@ pub enum Command {
     VersionHistory,
     Import,
     Export,
+    ExportImage,
     Preferences,
     KeyboardShortcuts,
     Quit,
@@ -107,6 +108,7 @@ pub enum Command {
     OpenRecent(RecentSlot),
     RecoverUnsaved,
     CancelExport,
+    CancelImageExport,
     Recompute,
     CancelRecompute,
     RenameFeature,
@@ -369,7 +371,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 67] = [
+const PLAIN_COMMANDS: [Command; 69] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -378,6 +380,7 @@ const PLAIN_COMMANDS: [Command; 67] = [
     Command::VersionHistory,
     Command::Import,
     Command::Export,
+    Command::ExportImage,
     Command::Preferences,
     Command::KeyboardShortcuts,
     Command::Welcome,
@@ -418,6 +421,7 @@ const PLAIN_COMMANDS: [Command; 67] = [
     Command::DeleteSelection,
     Command::RecoverUnsaved,
     Command::CancelExport,
+    Command::CancelImageExport,
     Command::Recompute,
     Command::CancelRecompute,
     Command::RenameFeature,
@@ -461,6 +465,7 @@ impl Command {
             Self::VersionHistory => "file.history",
             Self::Import => "file.import",
             Self::Export => "file.export",
+            Self::ExportImage => "file.export_image",
             Self::Preferences => "file.preferences",
             Self::KeyboardShortcuts => "file.shortcuts",
             Self::Quit => "file.quit",
@@ -548,6 +553,7 @@ impl Command {
             Self::OpenRecent(slot) => slot.id(),
             Self::RecoverUnsaved => "file.recover",
             Self::CancelExport => "file.cancel_export",
+            Self::CancelImageExport => "file.cancel_image_export",
             Self::Recompute => "model.recompute",
             Self::CancelRecompute => "model.cancel_recompute",
             Self::RenameFeature => "model.rename_feature",
@@ -582,6 +588,7 @@ impl Command {
             Self::VersionHistory => "Version History…",
             Self::Import => "Import…",
             Self::Export => "Export…",
+            Self::ExportImage => "Export Image…",
             Self::Preferences => "Preferences…",
             Self::KeyboardShortcuts => "Keyboard Shortcuts…",
             Self::Quit => "Quit",
@@ -628,6 +635,7 @@ impl Command {
             Self::OpenRecent(slot) => return slot.title(),
             Self::RecoverUnsaved => "Recover Unsaved Work…",
             Self::CancelExport => "Cancel the export",
+            Self::CancelImageExport => "Cancel the image export",
             Self::Recompute => "Recompute the model",
             Self::CancelRecompute => "Cancel the recompute",
             Self::RenameFeature => "Rename feature",
@@ -662,13 +670,15 @@ impl Command {
             | Self::VersionHistory
             | Self::Import
             | Self::Export
+            | Self::ExportImage
             | Self::Preferences
             | Self::KeyboardShortcuts
             | Self::Quit
             | Self::OpenSample(_)
             | Self::OpenRecent(_)
             | Self::RecoverUnsaved
-            | Self::CancelExport => Category::File,
+            | Self::CancelExport
+            | Self::CancelImageExport => Category::File,
             Self::Welcome | Self::About | Self::DismissTip | Self::HideTips => Category::Help,
             Self::Palette
             | Self::Undo
@@ -755,6 +765,7 @@ impl Command {
             Self::SaveAs => vec![command_shift(Key::S)],
             Self::Import => vec![command(Key::I)],
             Self::Export => vec![command(Key::E)],
+            Self::ExportImage => vec![command_shift(Key::E)],
             Self::Preferences => vec![command(Key::Comma)],
             Self::Quit => vec![command(Key::Q)],
             Self::Undo => vec![command(Key::Z)],
@@ -803,6 +814,7 @@ impl Command {
             | Self::OpenRecent(_)
             | Self::RecoverUnsaved
             | Self::CancelExport
+            | Self::CancelImageExport
             | Self::CancelRecompute
             | Self::MoveFeatureUp
             | Self::MoveFeatureDown

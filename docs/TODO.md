@@ -120,7 +120,6 @@ within a category run from most to least important.
 - Line caps, joins and anti-aliasing without MSAA.
 - Measure tool with distances and angles, vertex selection, a selection filter, and mass
   properties (volume, area and centroid are already computed by `Mesh`).
-- Screenshot and image export.
 
 ## Application
 
