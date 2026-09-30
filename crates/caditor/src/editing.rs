@@ -27,10 +27,13 @@ pub enum Tool {
     Spline,
     Trim,
     Extend,
+    Offset,
+    Mirror,
+    Fillet,
 }
 
 impl Tool {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 16] = [
         Self::Select,
         Self::Point,
         Self::Line,
@@ -44,6 +47,9 @@ impl Tool {
         Self::Spline,
         Self::Trim,
         Self::Extend,
+        Self::Offset,
+        Self::Mirror,
+        Self::Fillet,
     ];
 
     pub fn label(self) -> &'static str {
@@ -61,6 +67,9 @@ impl Tool {
             Self::Spline => "Spline",
             Self::Trim => "Trim",
             Self::Extend => "Extend",
+            Self::Offset => "Offset",
+            Self::Mirror => "Mirror",
+            Self::Fillet => "Sketch fillet",
         }
     }
 
@@ -89,12 +98,28 @@ impl Tool {
             Self::Extend => {
                 "Click near the end of a line or arc to lengthen it to the next curve in its way"
             }
+            Self::Offset => {
+                "Copy the selected chain of lines, arcs or circles at a distance to one side, kept \
+                 at that distance as the original changes"
+            }
+            Self::Mirror => {
+                "Copy the selected geometry mirrored about a line or axis, kept mirrored as the \
+                 original changes"
+            }
+            Self::Fillet => {
+                "Round the corner where two lines or arcs meet with an arc tangent to both"
+            }
         }
     }
 
     pub fn draws(self) -> bool {
         match self {
-            Self::Select | Self::Trim | Self::Extend => false,
+            Self::Select
+            | Self::Trim
+            | Self::Extend
+            | Self::Offset
+            | Self::Mirror
+            | Self::Fillet => false,
             Self::Point
             | Self::Line
             | Self::Rectangle
@@ -109,7 +134,15 @@ impl Tool {
     }
 
     pub fn modifies(self) -> bool {
+        self.trims() || self.reshapes()
+    }
+
+    pub fn trims(self) -> bool {
         matches!(self, Self::Trim | Self::Extend)
+    }
+
+    pub fn reshapes(self) -> bool {
+        matches!(self, Self::Offset | Self::Mirror | Self::Fillet)
     }
 }
 

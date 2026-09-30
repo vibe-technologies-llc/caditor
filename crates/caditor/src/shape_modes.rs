@@ -212,7 +212,10 @@ impl ShapeModes {
             | Tool::TangentArc
             | Tool::Spline
             | Tool::Trim
-            | Tool::Extend => None,
+            | Tool::Extend
+            | Tool::Offset
+            | Tool::Mirror
+            | Tool::Fillet => None,
         }
     }
 

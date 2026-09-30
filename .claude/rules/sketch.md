@@ -72,6 +72,53 @@ paths:
   way. An end shared with another curve, coincident with another point or fixed is refused
   (`ExtendError::Joined`, `Fixed`), as are circles, splines and ends with nothing beyond them.
 
+## Offset
+
+- `offset.rs`. `offset_chain` orders the chosen lines and arcs into one chain, open or closed, by
+  their ends meeting within `1e-7` of their extent (a lone circle is a closed chain); points and
+  the reference geometry are ignored, splines refused, and branches or separate chains refused in
+  words. The chain is walked from a free end (or its lowest curve), so the same curves give the
+  same order and `Side` (left or right of that walk) means the same thing on the working copy.
+- `Chain::outline` offsets each curve (an arc or circle refused if its radius would reach nothing)
+  and joins them: where the original is smooth the offsets meet; line–line corners meet sharp,
+  extended or trimmed to where the offset lines cross; a convex corner involving an arc gets a
+  round arc about the original corner; a concave one is trimmed to where the offset carriers cross
+  nearest the corner, refused when they miss. A curve used up by trimming, or offsets of curves
+  not next to each other crossing, is refused.
+- `offset` adds the outline in one pass on a copy: separate end points joined by `Coincident`,
+  offset arcs and circles on their original's centre point, round corners on the original corner
+  point. The first curve and every curve after a sharp corner hold the distance with the typed
+  expression: `Distance` between the lines, from the arc's start to the original arc, or, for a
+  circle, from a point on it held level with its centre (`HorizontalPoints`) to the original.
+  After a smooth joint or a round corner the distance follows from the `Tangent` there, so a line
+  only gets `Parallel` and an arc nothing, and concentric arcs meeting smoothly get no tangent.
+  The closing `Coincident` of a closed chain is added last, so the one relation a closed loop
+  repeats is part of it and never a whole redundant constraint.
+
+## Mirror
+
+- `mirror.rs`. `mirror` copies the chosen points and curves about a sketch line or an axis:
+  points on the mirror line are shared (and held there by `Coincident` unless already an end of
+  the line, on it, at its end or the origin of an axis, or its midpoint), others copied with
+  `Symmetric` to the original; arcs swap their ends to stay counter-clockwise, circles add `Equal`
+  for the radius, and a curve that is its own image is left out. No other constraint is copied,
+  since symmetry holds the copy. `mirror_image` gives the same result as polylines for a preview.
+
+## Sketch fillet
+
+- `fillet.rs`. A `Corner` is where exactly two lines or arcs end (shared point or ends within
+  `1e-7`), kept by one of its points; `corner_at`, `corner_between` and `fillet_corners` find
+  them, and one curve, three, a spline or a smooth meeting is refused in words.
+- `rounding` puts the arc's centre where the two curves' carriers offset by the radius toward the
+  inside of the corner cross, nearest the corner, and refuses a radius whose touching point would
+  not lie on a curve short of its far end (`TooLarge`, naming the curve). `radius_through` gives
+  the radius of the fillet passing through a point on the corner's bisector at its distance.
+- `fillet` moves each curve's corner end to its touching point (restructured like Trim, dropping
+  `Equal` and `Midpoint` of a shortened line), adds the arc with its own end points joined by
+  `Coincident`, `Tangent` to both and a `Radius` dimension, and keeps the corner point as a sharp
+  held on both carriers by `Coincident`, so dimensions, fixes and symmetry on the corner still
+  hold; the other corner point, if separate, is merged into it.
+
 ## Faceting
 
 - Curves are drawn as polylines within a chord tolerance (`Faceting`, `curve.rs`): arcs and circles

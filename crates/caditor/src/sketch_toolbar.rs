@@ -502,8 +502,11 @@ impl Bar<'_, '_> {
             self.construction_button(ui);
             self.compact_tool_button(ui, Tool::Trim);
             self.compact_tool_button(ui, Tool::Extend);
+            self.compact_tool_button(ui, Tool::Fillet);
         });
         let second = ui.horizontal_top(|ui| {
+            self.compact_tool_button(ui, Tool::Offset);
+            self.compact_tool_button(ui, Tool::Mirror);
             let moving = self.moving.clone();
             if self.command_button(ui, Command::MoveGeometry, MOVE_LABEL, MOVE_HELP, &moving) {
                 self.commands.trigger(Command::MoveGeometry);

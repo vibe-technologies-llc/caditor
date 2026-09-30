@@ -672,7 +672,7 @@ impl Sketch {
         })
     }
 
-    fn restructure(
+    pub(crate) fn restructure(
         &mut self,
         curve: EntityId,
         entity: Entity,
@@ -966,7 +966,7 @@ impl Sketch {
     }
 }
 
-fn keeps_length(constraint: &Constraint) -> bool {
+pub(crate) fn keeps_length(constraint: &Constraint) -> bool {
     !matches!(
         constraint,
         Constraint::Midpoint { .. } | Constraint::Equal(..)

@@ -42,6 +42,15 @@ The first release of caditor.
   deleted. Extend lengthens a line or arc from the clicked end to the next curve in its way.
   Constraints stay with the pieces kept, new ends stay on the curves that cut them, each change
   is one undoable step, and both work from the keyboard with N to highlight and Enter to act.
+- Offset (W), Mirror (Y) and Sketch fillet (B) in the sketch ribbon's Modify group. Offset copies
+  the selected chain of lines, arcs or circles (or the chain of the curve clicked) to the side
+  and at the distance the pointer shows, or by a typed distance, negative for the other side:
+  lines meet at their corners, arcs round the outside of a corner, and the copy keeps its
+  distance as the original changes. Mirror copies the selection about the line or axis clicked,
+  sharing the points on it and staying mirrored. Sketch fillet rounds the corner clicked (or the
+  selected corner) with a tangent arc of the radius typed or pointed to, trimming both curves and
+  keeping the corner's dimensions on its sharp point. Each is one undoable step, says in words
+  why it cannot be done, previews its result and works from the keyboard.
 - A typed point can be a length and an angle, such as `25 < 30` or `@25 < 30` from the last
   point, or a length alone, which goes from the last point toward the pointer. Typing a chain of
   line ends no longer starts a new chain after the first line.

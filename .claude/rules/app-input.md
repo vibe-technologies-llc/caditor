@@ -94,9 +94,13 @@ paths:
   click would (toggling it in the selection, or a region, blend edge, shell face or sketch plane as
   in those modes, through `pick_action`), Enter opens what it belongs to as a double-click would.
   With Trim or Extend active they step through that tool's targets instead, and Space or Enter
-  trims or extends the highlighted one (`app-sketching.md`).
+  trims or extends the highlighted one; with Mirror the lines and axes to mirror about, with
+  Sketch fillet the corners to round (`app-sketching.md`).
 
 ## Typed-point field
+
+- It also takes Offset's distance and Sketch fillet's radius as one length expression (`Offset
+  by`, `Fillet radius`, `modifying::Value`), opened the same way (`app-sketching.md`).
 
 - `typed_point.rs`: with a drawing tool active, typing a digit, sign, point, `(` or `@` opens it.
   Accepted: two length expressions (preferred unit) split at top-level commas; a length and angle

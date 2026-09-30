@@ -5,6 +5,10 @@ paths:
   - "crates/caditor/src/drag_solver.rs"
   - "crates/caditor/src/drawing.rs"
   - "crates/caditor/src/trimming.rs"
+  - "crates/caditor/src/modifying.rs"
+  - "crates/caditor/src/offsetting.rs"
+  - "crates/caditor/src/mirroring.rs"
+  - "crates/caditor/src/filleting.rs"
   - "crates/caditor/src/shapes.rs"
   - "crates/caditor/src/shape_modes.rs"
   - "crates/caditor/src/snap.rs"
@@ -32,9 +36,10 @@ paths:
   and picks over it with its hover and selection highlights, while the dimmed body stays in view
   for context. Other sketches, bodies and datum geometry stay on their usual layers.
 - Clicks and primary drags select with the Select tool; a drawing tool (`Tool::draws`) draws, and
-  Trim and Extend (`Tool::modifies`) act on the curve under the pointer. Escape backs out one step
-  at a time: a drag or trim path in progress, plane choice, shape in progress, keyboard highlight,
-  tool, selection, then editing.
+  the modify tools (`Tool::modifies`: Trim and Extend, `Tool::trims`; Offset, Mirror and Sketch
+  fillet, `Tool::reshapes`) act on what is under the pointer. Escape backs out one step at a time:
+  a drag, trim path or pull in progress, plane choice, shape in progress, keyboard highlight, a
+  modify tool's highlighted target or chosen corner, tool, selection, then editing.
 
 ## Dragging and box selection
 
@@ -172,6 +177,40 @@ paths:
   targets instead of the scene's pickables (every piece of every line, circle and arc; every line
   or arc end that can reach something), and Enter or Space acts on the highlighted target, or on
   the one under the pointer.
+
+## Offset, mirror and sketch fillet
+
+- `modifying.rs` is one facade over the three tools' UI state (`offsetting.rs`, `mirroring.rs`,
+  `filleting.rs`), which the viewport calls where it calls `Trimming`; the geometry and constraint
+  rules are the sketch's (`sketch.md`). Each frame it syncs with the active tool, the displayed
+  sketch and the selection, aims through the displayed sketch, draws its result as a preview curve
+  and puts its words ("Offset 4 curves by 5 mm", "Mirror 3 items about Line 5", "Round the corner
+  of Line 2 and Line 5 with a radius of 4 mm", or why not) where hover descriptions go. A commit
+  is one transaction (`Offset curves`, `Mirror geometry`, `Fillet corner`) built by
+  `reshape_sketch` from the working copy like Trim's; a refusal is a notice (`Offset: …`) or, for
+  a typed value, the field's error. The tool stays active.
+- Offset (W) works on the selected chain; with none (or one that cannot be offset), a click on a
+  curve selects its chain (`offset_chain_through`, stopping where three ends meet). The pointer's
+  side of the chain chooses the side and its distance from the chain the distance, previewed
+  live; a click, a primary drag's release or Enter commits it, dimensioned in the length unit.
+- Mirror (Y) copies the selection about the line or axis under the pointer (sketch lines win a
+  tie with an axis); with nothing selected its prompt asks for a selection first. N and Shift+N
+  step through the axes and every line, Space or Enter mirrors about the highlighted one.
+- Sketch fillet (B, "Sketch fillet", so it is not confused with the model's Fillet) first takes
+  its corner: a selected corner point or two selected curves meeting when the tool starts, else
+  the curve end under the pointer (`Sketch::corner_at`, refused in words when it is no corner),
+  clicked, or pressed and dragged from; N and Shift+N step through `fillet_corners` and Space or
+  Enter takes the highlighted one. Then the pointer sets the radius whose arc passes under it
+  (`radius_through`), and a click, a drag's release or Enter commits it; the chosen corner is
+  cleared after each fillet.
+- Offset and Sketch fillet take a typed value in the typed-point field ("Offset by", "Fillet
+  radius"): typing a digit, sign, point or `(` opens it, the preview follows the text while it
+  parses, Enter commits the expression as typed (parameters included) and an error keeps the field
+  open with the reason. A negative offset goes to the other side of the pointer, or of the
+  default side (outside a closed chain, left of an open one) when there is no pointer, so the
+  keyboard alone does select, W, the distance, Enter.
+- Their compact buttons sit in the ribbon's Modify group: Sketch fillet after Extend, Offset and
+  Mirror leading the second row.
 
 ## Snapping
 

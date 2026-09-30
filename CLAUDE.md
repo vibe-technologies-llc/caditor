@@ -108,7 +108,7 @@ that makes a rule false updates it in the same commit.
 | `ci.md` | CI jobs and pins, `cargo deny`, the fuzz workspace, targets, seeds and dictionaries. |
 | `expression.md` | `Quantity`, units, plain numbers, the function set, parse and evaluation limits. |
 | `zstd.md` | `caditor-zstd`: prefix deltas, frame checks, the `unsafe` boundary. |
-| `sketch.md` | Sketch entities, reserved IDs, construction geometry, constraints, splines. |
+| `sketch.md` | Sketch entities, reserved IDs, construction geometry, constraints, trim and extend, offset, mirror, sketch fillet, faceting, splines. |
 | `sketch-solver.md` | `solve`, `solve_dragging`, per-part scales, branches, DOF and redundancy, conflict diagnosis, `SolveMemo`. |
 | `kernel.md` | Kernel base: cancellation, tolerances, curves, surfaces, topology, validation, `find_crossing`. |
 | `kernel-tessellation.md` | Face triangulation, grid density, poles and pinches, `Mesh`, retries, `MAX_POINTS`. |
@@ -129,5 +129,5 @@ that makes a rule false updates it in the same commit.
 | `app-modelling.md` | Extrude, revolve, fillet, chamfer, shell, pattern and datum tools and panels, visibility, sketch placement. |
 | `app-files.md` | File workflow, onboarding, export, image export and import dialogs, version history, the tabbed preferences with graphics settings, units. |
 | `app-input.md` | Numeric fields, shortcut focus rules, commands and keymap, palette, shortcut editor, keyboard-only operation, typed points. |
-| `app-sketching.md` | Sketch editing context, dragging and box selection, drawing tools and their ways of drawing, construction, snapping, constraint tools, annotations. |
+| `app-sketching.md` | Sketch editing context, dragging and box selection, drawing tools and their ways of drawing, construction, trim, extend, offset, mirror and sketch fillet, snapping, constraint tools, annotations. |
 | `app-tests.md` | The headless egui UI test harness. |

@@ -97,7 +97,10 @@ within a category run from most to least important.
 
 - No projection of model edges or other sketches into a sketch, and bodies and other sketches
   are unpickable while editing.
-- Tools missing: offset, mirror, sketch fillet and ellipse.
+- Tools missing: ellipse (a new entity kind across the solver, kernel and file format).
+- Offset takes one chain at a time, leaves the free ends of an open chain sliding along their
+  curves and cannot offset splines; a sketch fillet cannot round a spline and drops equal lengths
+  and midpoints of the lines it shortens, as trim does.
 - Snapping has no midpoints, intersections, spline targets, grid or inference lines to other
   points, and dragged geometry does not snap at all.
 - Dimensions all sit at one fixed offset, so collinear chains overlap, and labels cannot be
@@ -136,8 +139,9 @@ within a category run from most to least important.
 
 - The modelling tools borrow Phosphor glyphs that mean something else (`icons.rs`): fillet is the
   full-screen corners, chamfer a generic polygon, revolve the refresh arrows, circular pattern a
-  loading spinner, shell a see-through cube. Draw caditor's own icons for fillet, chamfer, shell,
-  extrude, revolve and both patterns, on Phosphor's grid and stroke weight so they sit beside it;
+  loading spinner, shell a see-through cube, and the sketch fillet shares the fillet's. Draw
+  caditor's own icons for fillet, chamfer, shell, extrude, revolve and both patterns, on
+  Phosphor's grid and stroke weight so they sit beside it;
   undecided whether they ship as glyphs added to the `icons` font family or as painted shapes.
 - One files worker runs everything and Open and Import cannot be cancelled, so a slow STEP import
   blocks Open behind a modal, and the opening modal is drawn before the unsaved-changes prompt,
