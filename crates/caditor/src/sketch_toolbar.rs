@@ -3,8 +3,8 @@ use std::sync::Arc;
 use caditor_document::Feature;
 use caditor_sketch::{Constraint, ConstraintId, EntityId, Sketch};
 use egui::{
-    Align, Align2, CornerRadius, FontId, Frame, Galley, Id, Label, Layout, Margin, Rect, Response,
-    RichText, Stroke, TextStyle, TextWrapMode, Ui, Vec2, WidgetText, pos2, vec2,
+    Align, Align2, CornerRadius, FontId, Frame, Galley, Id, Label, Layout, Margin, Popup, Rect,
+    Response, RichText, Stroke, TextStyle, TextWrapMode, Ui, Vec2, WidgetText, pos2, vec2,
 };
 
 use crate::{
@@ -16,6 +16,7 @@ use crate::{
     model::{Action, Model},
     panels::{Focus, PanelState},
     selection::Selection,
+    shape_modes::{ShapeMode, ShapeModes},
     sketch_drag::{self, Moving},
     sketch_status::{self, SketchSummary},
     sketch_tools::{self, ConstraintTool, ConstructionChange},
@@ -109,6 +110,7 @@ pub fn show(
         model,
         feature,
         active,
+        modes: editing.modes(),
         offers: &offers,
         construction: construction.as_ref(),
         deletable: if deletable.is_empty() {
@@ -140,6 +142,9 @@ pub fn show(
     }
     if let Some(tool) = request.tool {
         actions.push(Action::Editing(EditingCommand::SetTool(tool)));
+    }
+    if let Some(mode) = request.mode {
+        actions.push(Action::Editing(EditingCommand::SetMode(mode)));
     }
     if let Some((tool, constraints)) = request.constraints {
         let added = sketch_tools::add_constraints(model, feature.id(), tool, constraints);
@@ -200,6 +205,7 @@ impl Deletable {
 struct Request {
     focus: Option<Focus>,
     tool: Option<Tool>,
+    mode: Option<ShapeMode>,
     constraints: Option<(ConstraintTool, Vec<Constraint>)>,
     construction: bool,
     delete: bool,
@@ -268,6 +274,7 @@ struct Bar<'a, 'b> {
     model: &'a Model,
     feature: &'a Feature,
     active: ActiveSketch,
+    modes: ShapeModes,
     offers: &'a [Offer],
     construction: Option<&'a ConstructionChange>,
     deletable: Result<(), String>,
@@ -410,17 +417,53 @@ impl Bar<'_, '_> {
             (None, Tool::Select) => Some(SELECT_KEY.to_owned()),
             (None, _) => None,
         };
-        let hover = match keys {
-            Some(keys) => format!("{} ({keys})", tool.description()),
-            None => tool.description().to_owned(),
+        let mode = self.modes.of(tool);
+        let description = mode.map_or(tool.description(), ShapeMode::description);
+        let hover = match (keys, mode) {
+            (Some(keys), Some(mode)) => format!(
+                "{description} ({keys})\n{keys} again: {}",
+                mode.next().label().to_lowercase()
+            ),
+            (Some(keys), None) => format!("{description} ({keys})"),
+            (None, _) => description.to_owned(),
         };
-        let button =
-            ToolButton::new(icons::tool(tool), tool.label()).selected(self.active.tool == tool);
+        let active = self.active.tool == tool;
+        let button = ToolButton::new(icons::tool(tool), tool.label()).selected(active);
         let response = ui.add(button).on_hover_text(hover);
-        if response.clicked() || invoked {
-            self.request.tool = Some(tool);
+        match mode.filter(|_| invoked && active) {
+            Some(mode) => self.request.mode = Some(mode.next()),
+            None if response.clicked() || invoked => self.request.tool = Some(tool),
+            None => {}
         }
         response
+    }
+
+    fn mode_menu(&mut self, ui: &mut Ui, current: ShapeMode, button: Rect) {
+        let tool = current.tool();
+        for mode in ShapeMode::of_tool(tool) {
+            if self.commands.available(Command::ShapeMode(mode)) {
+                self.request.mode = Some(mode);
+            }
+        }
+        let name = modes_label(tool);
+        let id = Id::new(("sketch-bar-modes", tool));
+        let selected = self.active.tool == tool;
+        let response = widgets::corner_menu_button(ui, id, button, &name, selected);
+        let commands = &*self.commands;
+        let shown = Popup::menu(&response).show(|ui| {
+            let mut chosen = None;
+            for mode in ShapeMode::of_tool(tool) {
+                let keys = commands.keys(Command::ShapeMode(mode));
+                let glyph = icons::shape_mode(mode);
+                if widgets::menu_choice(ui, glyph, mode.label(), keys, mode == current).clicked() {
+                    chosen = Some(mode);
+                }
+            }
+            chosen
+        });
+        if let Some(mode) = shown.and_then(|shown| shown.inner) {
+            self.request.mode = Some(mode);
+        }
     }
 
     fn compact_tool_button(&mut self, ui: &mut Ui, tool: Tool) {
@@ -441,7 +484,13 @@ impl Bar<'_, '_> {
             Tool::ALL
                 .into_iter()
                 .filter(|tool| tool.draws())
-                .map(|tool| self.tool_button(ui, tool).rect.width())
+                .map(|tool| {
+                    let button = self.tool_button(ui, tool).rect;
+                    if let Some(mode) = self.modes.of(tool) {
+                        self.mode_menu(ui, mode, button);
+                    }
+                    button.width()
+                })
                 .reduce(|total, width| total + TOOL_GAP + width)
                 .unwrap_or_default()
         })
@@ -597,6 +646,10 @@ impl Bar<'_, '_> {
             self.request.finish = true;
         }
     }
+}
+
+pub fn modes_label(tool: Tool) -> String {
+    format!("Ways to draw a {}", tool.label().to_lowercase())
 }
 
 fn explained(response: Response, title: &str, help: &Result<String, String>) -> Response {

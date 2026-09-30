@@ -29,6 +29,12 @@ The first release of caditor.
   of a line, arc or spline and chain one after another (T), slots (U), and regular polygons of
   3 to 64 sides (G, with ] and [ for more or fewer sides), each drawn with the constraints that
   keep its shape.
+- More ways to draw shapes: rectangles from their centre or from three points at any angle,
+  circles through the two ends of a diameter or through three points, polygons from their centre
+  and the middle of a side or from one whole side, and slots from their centre or curved along an
+  arc. Pressing a shape's key again (R, C, G or U) switches to its next way, the corner menu on
+  its ribbon button and the palette offer each one, the prompt names the one in use, and each
+  shape remembers the last way used. Each is drawn with the constraints that keep its shape.
 - Trim (K) and Extend (J) in the sketch ribbon's Modify group. Trim cuts away the piece of a
   line, circle or arc between the curves crossing it, or every piece a drag passes over: a circle
   opens into an arc, a line or arc cut in the middle splits in two, and a piece nothing crosses is

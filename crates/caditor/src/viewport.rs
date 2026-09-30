@@ -22,6 +22,7 @@ use crate::{
     preferences::{Navigation, PreferenceChange, PreferencesCommand},
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
     selection::{Pickable, Selection},
+    shape_modes::ShapeMode,
     shell_tools,
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenBox},
     sketch_placement::FaceChoice,
@@ -865,7 +866,8 @@ impl ViewportState {
             .feature()
             .and_then(|feature| model.document().feature(feature))
             .and_then(|feature| model.displayed_sketch(feature));
-        self.drawing.sync(editing.active(), displayed.as_deref());
+        self.drawing
+            .sync(editing.active(), editing.modes(), displayed.as_deref());
         self.trimming.sync(editing.active(), displayed.as_deref());
         let scale = f64::from(self.pixels_per_point);
         let pointer = self
@@ -1428,6 +1430,11 @@ impl ViewportState {
                 .prompt()
                 .filter(|_| !self.typed_point.is_open())
                 .map(|prompt| {
+                    let mode = self
+                        .drawing
+                        .mode()
+                        .map(|mode| format!("{}   ", key_hints.mode(mode)))
+                        .unwrap_or_default();
                     let reverse = key_hints
                         .reverse
                         .as_ref()
@@ -1444,7 +1451,7 @@ impl ViewportState {
                         .unwrap_or_default();
                     (
                         prompt.text,
-                        format!("{reverse}{sides}{}   {TYPE_POINT_HINT}", prompt.keys),
+                        format!("{mode}{reverse}{sides}{}   {TYPE_POINT_HINT}", prompt.keys),
                     )
                 })
         };
@@ -1608,6 +1615,7 @@ struct KeyHints {
     reverse: Option<String>,
     sides: Option<String>,
     targets: String,
+    tools: Vec<(Tool, String)>,
 }
 
 impl KeyHints {
@@ -1649,7 +1657,20 @@ impl KeyHints {
                 .keys(Command::MoreSides)
                 .zip(commands.keys(Command::FewerSides))
                 .map(|(more, fewer)| format!("{more} or {fewer}: more or fewer sides")),
+            tools: Tool::ALL
+                .into_iter()
+                .filter_map(|tool| Some((tool, commands.keys(Command::SketchTool(tool))?)))
+                .collect(),
         }
+    }
+
+    fn mode(&self, mode: ShapeMode) -> String {
+        let keys = self
+            .tools
+            .iter()
+            .find(|(tool, _)| *tool == mode.tool())
+            .map(|(_, keys)| keys.as_str());
+        mode.hint(keys)
     }
 }
 

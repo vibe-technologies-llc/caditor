@@ -46,7 +46,9 @@ paths:
   accent outline), `section`, `properties`/`property`/`error_row`, `removable_row` (text that
   wraps beside a remove button), `card`, `callout` and `pill` with a `Tone`, `status_pill` (the
   tone's icon before the text, for states such as a sketch's), `icon_button`, `small_button`,
-  `primary_button` and `primary_icon_button`, `menu_item`, `link_label`, `choose_in_view`,
+  `primary_button` and `primary_icon_button`, `menu_item` and `menu_choice` (one marked as the
+  current choice), `corner_menu_button` (a small caret in another button's top-right corner,
+  opening a popup menu without taking width of its own), `link_label`, `choose_in_view`,
   `dialog`/`footer` (a titled modal with a close button and the primary action rightmost), and
   `tabs`.
 - `tabs` is a wrapping row of `Tab`s (icon and label) over a border line: the selected one tinted
@@ -71,8 +73,8 @@ paths:
 
 ## Menu bar, ribbon and status bar
 
-- The menu bar holds File, Edit, View, Model, Sketch and Help, built from the commands with their
-  icons and shortcuts; items trigger their command and enable from the previous frame's offers
+- The menu bar holds File, Edit, View, Model, Sketch (with a Ways to draw shapes submenu) and
+  Help, built from the commands with their icons and shortcuts; items trigger their command and enable from the previous frame's offers
   (`Workspace::last_offers`), reason on hover. Then the model title, the Search commands field
   and, with caditor's title bar, the window buttons; caditor's title bar also leads with the logo,
   as tall as a control, which drags the window like the rest of the bar.
@@ -88,7 +90,9 @@ paths:
   `accent_surface` with a 2-point `accent_text` line along its top. Groups run left to right,
   split by thin dividers and captioned in small muted text below: a fixed-width header (sketch badge,
   "Editing <name>" truncating with the full name on hover, the sketch's `status_pill`s), Select,
-  Draw (the drawing tools as `ToolButton`s), Modify (compact Construction, Trim and Extend over
+  Draw (the drawing tools as `ToolButton`s; rectangle, circle, polygon and slot carry a
+  `corner_menu_button`, "Ways to draw a rectangle" and so on, listing their ways of drawing as
+  `menu_choice`s with the current one marked), Modify (compact Construction, Trim and Extend over
   Move, Select all and Delete, which trigger their commands or choose their tool), Constrain (the geometric constraints, six compact buttons a
   row) and Dimension (three a row). Finish sketch is a primary button at the right of the first
   row. Compact buttons show their name, what they do and the shortcut on hover, and why they are

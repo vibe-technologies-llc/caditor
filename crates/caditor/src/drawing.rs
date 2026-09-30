@@ -7,7 +7,8 @@ use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, EntityId, Sketch}
 use crate::{
     editing::{self, ActiveSketch, Tool},
     model::Model,
-    shapes::{self, Circular, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot},
+    shape_modes::{CircleMode, PolygonMode, RectangleMode, ShapeMode, ShapeModes, SlotMode},
+    shapes::{self, ArcSlot, Circular, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot},
     sketch_tools,
     snap::{self, Accept, Pointer, Screen, Snapped, Target},
 };
@@ -21,6 +22,10 @@ const ALIGNED_CROSSING_TOLERANCE: f64 = 12.0;
 const TYPED_TOLERANCE: f64 = 1e-6;
 const PREVIEW_SEGMENT_ANGLE: f64 = PI / 60.0;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
+const CANCEL_RECTANGLE: &str = "Esc: cancel the rectangle";
+const CANCEL_CIRCLE: &str = "Esc: cancel the circle";
+const CANCEL_SLOT: &str = "Esc: cancel the slot";
+const CANCEL_POLYGON: &str = "Esc: cancel the polygon";
 
 const TOO_FEW_SIDES: &str = "A polygon needs at least three sides";
 const TOO_MANY_SIDES: &str = "A polygon has at most 64 sides";
@@ -30,7 +35,11 @@ const NOT_A_POLYGON: &str = "Choose the Polygon tool first";
 pub enum Refusal {
     Line,
     Rectangle,
+    RectangleSide,
+    RectangleWidth,
     Circle,
+    CircleDiameter,
+    CircleInLine,
     ArcRadius,
     ArcSweep,
     ArcInLine,
@@ -38,7 +47,12 @@ pub enum Refusal {
     TangentStraight,
     SlotLength,
     SlotWidth,
+    ArcSlotRadius,
+    ArcSlotSweep,
+    ArcSlotWidth,
     PolygonSize,
+    PolygonSideMiddle,
+    PolygonSide,
 }
 
 impl Refusal {
@@ -46,7 +60,13 @@ impl Refusal {
         match self {
             Self::Line => "A line needs its end away from its start",
             Self::Rectangle => "A rectangle needs its corners apart in both directions",
+            Self::RectangleSide => "A rectangle needs the two ends of its first side apart",
+            Self::RectangleWidth => "A rectangle needs a width: click away from its first side",
             Self::Circle => "A circle needs its rim away from its centre",
+            Self::CircleDiameter => "A circle needs the two ends of its diameter apart",
+            Self::CircleInLine => {
+                "A circle through three points needs them apart and not all on one line"
+            }
             Self::ArcRadius => "An arc needs its start away from its centre",
             Self::ArcSweep => "An arc needs its end away from its start",
             Self::ArcInLine => {
@@ -62,7 +82,127 @@ impl Refusal {
             Self::SlotWidth => {
                 "A slot needs a width: click away from the line through the centres of its ends"
             }
+            Self::ArcSlotRadius => {
+                "An arc slot needs the centre of its first end away from the centre of its arc"
+            }
+            Self::ArcSlotSweep => "An arc slot needs the centres of its two ends apart",
+            Self::ArcSlotWidth => {
+                "An arc slot needs a width: click off its arc, nearer to it than the arc's \
+                 centre, and keep its round ends from meeting"
+            }
             Self::PolygonSize => "A polygon needs its corner away from its centre",
+            Self::PolygonSideMiddle => {
+                "A polygon needs the middle of its side away from its centre"
+            }
+            Self::PolygonSide => "A polygon needs the two ends of its side apart",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shape {
+    Point,
+    Line,
+    Rectangle(RectangleMode),
+    Circle(CircleMode),
+    Arc,
+    ThreePointArc,
+    TangentArc,
+    Slot(SlotMode),
+    Polygon(PolygonMode),
+    Spline,
+}
+
+impl From<ShapeMode> for Shape {
+    fn from(mode: ShapeMode) -> Self {
+        match mode {
+            ShapeMode::Rectangle(mode) => Self::Rectangle(mode),
+            ShapeMode::Circle(mode) => Self::Circle(mode),
+            ShapeMode::Polygon(mode) => Self::Polygon(mode),
+            ShapeMode::Slot(mode) => Self::Slot(mode),
+        }
+    }
+}
+
+impl Shape {
+    fn of(tool: Tool, modes: ShapeModes) -> Option<Self> {
+        match tool {
+            Tool::Rectangle | Tool::Circle | Tool::Polygon | Tool::Slot => {
+                modes.of(tool).map(Self::from)
+            }
+            Tool::Point => Some(Self::Point),
+            Tool::Line => Some(Self::Line),
+            Tool::Arc => Some(Self::Arc),
+            Tool::ThreePointArc => Some(Self::ThreePointArc),
+            Tool::TangentArc => Some(Self::TangentArc),
+            Tool::Spline => Some(Self::Spline),
+            Tool::Select | Tool::Trim | Tool::Extend => None,
+        }
+    }
+
+    fn mode(self) -> Option<ShapeMode> {
+        match self {
+            Self::Rectangle(mode) => Some(ShapeMode::Rectangle(mode)),
+            Self::Circle(mode) => Some(ShapeMode::Circle(mode)),
+            Self::Polygon(mode) => Some(ShapeMode::Polygon(mode)),
+            Self::Slot(mode) => Some(ShapeMode::Slot(mode)),
+            Self::Point
+            | Self::Line
+            | Self::Arc
+            | Self::ThreePointArc
+            | Self::TangentArc
+            | Self::Spline => None,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Point => "point",
+            Self::Line => "line",
+            Self::Rectangle(_) => "rectangle",
+            Self::Circle(_) => "circle",
+            Self::Arc => "arc",
+            Self::ThreePointArc => "3-point arc",
+            Self::TangentArc => "tangent arc",
+            Self::Slot(SlotMode::Arc) => "arc slot",
+            Self::Slot(SlotMode::Ends | SlotMode::Center) => "slot",
+            Self::Polygon(_) => "polygon",
+            Self::Spline => "spline",
+        }
+    }
+
+    fn sizes_by_width(self, placed: usize) -> bool {
+        match self {
+            Self::Rectangle(RectangleMode::ThreePoints)
+            | Self::Slot(SlotMode::Ends | SlotMode::Center) => placed == 2,
+            Self::Slot(SlotMode::Arc) => placed == 3,
+            Self::Point
+            | Self::Line
+            | Self::Rectangle(RectangleMode::Corners | RectangleMode::Center)
+            | Self::Circle(_)
+            | Self::Arc
+            | Self::ThreePointArc
+            | Self::TangentArc
+            | Self::Polygon(_)
+            | Self::Spline => false,
+        }
+    }
+
+    fn aligns_second_point(self) -> bool {
+        match self {
+            Self::Line
+            | Self::Rectangle(RectangleMode::ThreePoints)
+            | Self::Slot(SlotMode::Ends | SlotMode::Center)
+            | Self::Polygon(PolygonMode::Side) => true,
+            Self::Point
+            | Self::Rectangle(RectangleMode::Corners | RectangleMode::Center)
+            | Self::Circle(_)
+            | Self::Arc
+            | Self::ThreePointArc
+            | Self::TangentArc
+            | Self::Slot(SlotMode::Arc)
+            | Self::Polygon(PolygonMode::Corner | PolygonMode::SideMiddle)
+            | Self::Spline => false,
         }
     }
 }
@@ -303,7 +443,7 @@ pub struct Prompt {
 
 #[derive(Debug, Clone, Default)]
 pub struct Drawing {
-    context: Option<(FeatureId, Tool)>,
+    context: Option<(FeatureId, Shape)>,
     construction: bool,
     placed: Vec<Placement>,
     hover: Option<Placement>,
@@ -322,6 +462,10 @@ impl Drawing {
         !self.placed.is_empty()
     }
 
+    pub fn mode(&self) -> Option<ShapeMode> {
+        self.context.and_then(|(_, shape)| shape.mode())
+    }
+
     pub fn snap_entities(&self) -> Vec<EntityId> {
         let Some(hover) = self.hover else {
             return Vec::new();
@@ -334,10 +478,14 @@ impl Drawing {
             .collect()
     }
 
-    pub fn sync(&mut self, active: Option<ActiveSketch>, sketch: Option<&Sketch>) {
-        let context = active
-            .filter(|active| active.tool.draws())
-            .map(|active| (active.feature, active.tool));
+    pub fn sync(
+        &mut self,
+        active: Option<ActiveSketch>,
+        modes: ShapeModes,
+        sketch: Option<&Sketch>,
+    ) {
+        let context =
+            active.and_then(|active| Some((active.feature, Shape::of(active.tool, modes)?)));
         if context != self.context {
             *self = Self {
                 context,
@@ -365,19 +513,25 @@ impl Drawing {
     }
 
     pub fn hover(&mut self, sketch: &Sketch, screen: &impl Screen, pointer: Option<Pointer>) {
-        let Some((_, tool)) = self.context else {
+        let Some((_, shape)) = self.context else {
             self.hover = None;
             return;
         };
-        self.hover = pointer.map(|pointer| self.place(tool, sketch, screen, pointer));
-        if let (Some(sweep), Some(hover)) = (&mut self.sweep, self.hover) {
+        self.hover = pointer.map(|pointer| self.place(shape, sketch, screen, pointer));
+        if self.choosing_arc_end()
+            && let (Some(sweep), Some(hover)) = (&mut self.sweep, self.hover)
+        {
             sweep.follow(hover.position);
         }
-        self.find_tangent(tool, sketch);
+        self.find_tangent(shape, sketch);
     }
 
-    fn find_tangent(&mut self, tool: Tool, sketch: &Sketch) {
-        if tool == Tool::TangentArc && self.placed.is_empty() {
+    fn choosing_arc_end(&self) -> bool {
+        self.sweep.is_some() && self.placed.len() == 2
+    }
+
+    fn find_tangent(&mut self, shape: Shape, sketch: &Sketch) {
+        if shape == Shape::TangentArc && self.placed.is_empty() {
             self.tangent = point_target(self.hover.map_or(Snap::Free, |hover| hover.snap))
                 .and_then(|point| continuing(sketch, point));
         }
@@ -392,12 +546,12 @@ impl Drawing {
     }
 
     pub fn type_point(&mut self, sketch: &Sketch, position: Point2) {
-        let Some((_, tool)) = self.context else {
+        let Some((_, shape)) = self.context else {
             return;
         };
         let same = |candidate: Point2| candidate.distance(position) <= TYPED_TOLERANCE;
         let pending = self
-            .pending(tool)
+            .pending(shape)
             .into_iter()
             .find(|(_, candidate)| same(*candidate))
             .map(|(index, candidate)| (candidate, Target::Pending(index)));
@@ -413,10 +567,12 @@ impl Drawing {
             None => Placement::free(position),
         };
         self.hover = Some(placement);
-        if let Some(sweep) = &mut self.sweep {
+        if self.choosing_arc_end()
+            && let Some(sweep) = &mut self.sweep
+        {
             sweep.aim(placement.position);
         }
-        self.find_tangent(tool, sketch);
+        self.find_tangent(shape, sketch);
     }
 
     pub fn reversible(&self) -> Result<(), &'static str> {
@@ -458,7 +614,7 @@ impl Drawing {
 
     fn polygon_sides(&self) -> Result<(), &'static str> {
         match self.context {
-            Some((_, Tool::Polygon)) => Ok(()),
+            Some((_, Shape::Polygon(_))) => Ok(()),
             _ => Err(NOT_A_POLYGON),
         }
     }
@@ -486,52 +642,52 @@ impl Drawing {
     }
 
     pub fn click(&mut self, model: &Model) -> Result<Option<Transaction>, Refusal> {
-        let (Some((feature, tool)), Some(placement)) = (self.context, self.hover) else {
+        let (Some((feature, shape)), Some(placement)) = (self.context, self.hover) else {
             return Ok(None);
         };
         if let Snap::Target(Target::Pending(_)) = placement.snap {
-            return Ok(match tool {
-                Tool::Spline => self.finish(model),
-                Tool::Select
-                | Tool::Trim
-                | Tool::Extend
-                | Tool::Point
-                | Tool::Line
-                | Tool::Rectangle
-                | Tool::Circle
-                | Tool::Arc
-                | Tool::ThreePointArc
-                | Tool::TangentArc
-                | Tool::Slot
-                | Tool::Polygon => {
+            return Ok(match shape {
+                Shape::Spline => self.finish(model),
+                Shape::Point
+                | Shape::Line
+                | Shape::Rectangle(_)
+                | Shape::Circle(_)
+                | Shape::Arc
+                | Shape::ThreePointArc
+                | Shape::TangentArc
+                | Shape::Slot(_)
+                | Shape::Polygon(_) => {
                     self.cancel();
                     None
                 }
             });
         }
-        self.drawn(model, feature, tool, placement)
+        self.drawn(model, feature, shape, placement)
     }
 
     fn drawn(
         &mut self,
         model: &Model,
         feature: FeatureId,
-        tool: Tool,
+        shape: Shape,
         placement: Placement,
     ) -> Result<Option<Transaction>, Refusal> {
-        let shape = tool.label().to_lowercase();
-        let draft = || Draft::new(model, feature, &shape, self.construction);
-        Ok(match (tool, self.placed.as_slice()) {
-            (Tool::Select | Tool::Trim | Tool::Extend, _) => None,
-            (Tool::Point, _) => draft().map(|mut draft| {
+        let draft = |name: &str| Draft::new(model, feature, name, self.construction);
+        let apart = |from: Placement, refusal: Refusal| {
+            if from.position.distance(placement.position) < DEGENERATE_LENGTH {
+                Err(refusal)
+            } else {
+                Ok(())
+            }
+        };
+        let finished = match (shape, self.placed.as_slice()) {
+            (Shape::Point, _) => draft(shape.name()).map(|mut draft| {
                 draft.point(placement);
-                draft.finish()
+                draft
             }),
-            (Tool::Line, &[start]) => {
-                if start.position.distance(placement.position) < DEGENERATE_LENGTH {
-                    return Err(Refusal::Line);
-                }
-                let Some(mut draft) = draft() else {
+            (Shape::Line, &[start]) => {
+                apart(start, Refusal::Line)?;
+                let Some(mut draft) = draft(shape.name()) else {
                     return Ok(None);
                 };
                 let (first, end) = draft.line(start, placement);
@@ -549,96 +705,114 @@ impl Drawing {
                         snap: Snap::Target(Target::Point(end)),
                     }];
                 }
-                Some(draft.finish())
+                return Ok(Some(draft.finish()));
             }
-            (Tool::Rectangle, &[corner]) => {
-                let size = (placement.position - corner.position).abs();
-                if size.min_element() < DEGENERATE_LENGTH {
+            (Shape::Rectangle(RectangleMode::Corners), &[corner]) => {
+                if (placement.position - corner.position).abs().min_element() < DEGENERATE_LENGTH {
                     return Err(Refusal::Rectangle);
                 }
-                let Some(mut draft) = draft() else {
-                    return Ok(None);
-                };
-                draft.rectangle(corner, placement);
-                self.cancel();
-                Some(draft.finish())
+                draft(shape.name()).map(|mut draft| {
+                    draft.rectangle(corner, placement);
+                    draft
+                })
             }
-            (Tool::Circle, &[center]) => {
-                if center.position.distance(placement.position) < DEGENERATE_LENGTH {
-                    return Err(Refusal::Circle);
+            (Shape::Rectangle(RectangleMode::Center), &[center]) => {
+                if (placement.position - center.position).abs().min_element() < DEGENERATE_LENGTH {
+                    return Err(Refusal::Rectangle);
                 }
-                let Some(mut draft) = draft() else {
-                    return Ok(None);
-                };
-                draft.circle(center, placement);
-                self.cancel();
-                Some(draft.finish())
+                draft(shape.name()).map(|mut draft| {
+                    draft.centered_rectangle(center, placement);
+                    draft
+                })
             }
-            (Tool::Arc, &[center]) => {
-                if center.position.distance(placement.position) < DEGENERATE_LENGTH {
-                    return Err(Refusal::ArcRadius);
-                }
+            (Shape::Rectangle(RectangleMode::ThreePoints), &[first]) => {
+                apart(first, Refusal::RectangleSide)?;
+                self.placed.push(placement);
+                return Ok(None);
+            }
+            (Shape::Rectangle(RectangleMode::ThreePoints), &[first, second]) => {
+                let corners =
+                    shapes::rectangle_on_side(first.position, second.position, placement.position)
+                        .ok_or(Refusal::RectangleWidth)?;
+                draft(shape.name()).map(|mut draft| {
+                    draft.rectangle_on_side(first, second, corners);
+                    draft
+                })
+            }
+            (Shape::Circle(CircleMode::Center), &[center]) => {
+                apart(center, Refusal::Circle)?;
+                draft(shape.name()).map(|mut draft| {
+                    draft.circle(center, placement);
+                    draft
+                })
+            }
+            (Shape::Circle(CircleMode::TwoPoints), &[first]) => {
+                let circle = shapes::circle_on_diameter(first.position, placement.position)
+                    .ok_or(Refusal::CircleDiameter)?;
+                draft(shape.name()).map(|mut draft| {
+                    draft.circle_on_diameter(first, placement, circle);
+                    draft
+                })
+            }
+            (Shape::Circle(CircleMode::ThreePoints), &[first]) => {
+                apart(first, Refusal::CircleInLine)?;
+                self.placed.push(placement);
+                return Ok(None);
+            }
+            (Shape::Circle(CircleMode::ThreePoints), &[first, second]) => {
+                let circle = shapes::circle_through_three(
+                    first.position,
+                    second.position,
+                    placement.position,
+                )
+                .ok_or(Refusal::CircleInLine)?;
+                draft(shape.name()).map(|mut draft| {
+                    draft.circle_through(circle, &[first, second, placement]);
+                    draft
+                })
+            }
+            (Shape::Arc, &[center]) => {
+                apart(center, Refusal::ArcRadius)?;
                 self.sweep = Some(Sweep::new(center.position, placement.position));
                 self.placed.push(placement);
-                None
+                return Ok(None);
             }
-            (Tool::Arc, &[center, start]) => {
-                let radius = center.position.distance(start.position);
-                let kept = placement.snap.target().is_some()
-                    && snap::on_circle(center.position, radius, placement.position);
-                let end = if kept {
-                    placement
-                } else {
-                    Placement::free(
-                        arc_end(center.position, start.position, placement.position)
-                            .ok_or(Refusal::ArcSweep)?,
-                    )
-                };
-                if end.position.distance(start.position) < DEGENERATE_LENGTH {
-                    return Err(Refusal::ArcSweep);
-                }
-                let counter_clockwise = self.sweep.is_none_or(|sweep| sweep.counter_clockwise());
-                let Some(mut draft) = draft() else {
-                    return Ok(None);
-                };
-                draft.arc(center, start, end, counter_clockwise);
-                self.cancel();
-                Some(draft.finish())
+            (Shape::Arc, &[center, start]) => {
+                let end = landing_on_arc(center, start, placement).ok_or(Refusal::ArcSweep)?;
+                let counter_clockwise = self.counter_clockwise();
+                draft(shape.name()).map(|mut draft| {
+                    draft.arc(center, start, end, counter_clockwise);
+                    draft
+                })
             }
-            (Tool::ThreePointArc, &[start]) => {
-                if start.position.distance(placement.position) < DEGENERATE_LENGTH {
-                    return Err(Refusal::ArcSweep);
-                }
+            (Shape::ThreePointArc, &[start]) => {
+                apart(start, Refusal::ArcSweep)?;
                 self.placed.push(placement);
-                None
+                return Ok(None);
             }
-            (Tool::ThreePointArc, &[start, end]) => {
+            (Shape::ThreePointArc, &[start, end]) => {
                 let circular =
                     shapes::through_three(start.position, end.position, placement.position)
                         .ok_or(Refusal::ArcInLine)?;
-                let Some(mut draft) = draft() else {
-                    return Ok(None);
-                };
-                draft.three_point_arc(start, end, placement, circular);
-                self.cancel();
-                Some(draft.finish())
+                draft(shape.name()).map(|mut draft| {
+                    draft.three_point_arc(start, end, placement, circular);
+                    draft
+                })
             }
-            (Tool::TangentArc, &[]) => {
+            (Shape::TangentArc, &[]) => {
                 if self.tangent.is_none() {
                     return Err(Refusal::TangentStart);
                 }
                 self.placed.push(placement);
-                None
+                return Ok(None);
             }
-            (Tool::TangentArc, &[start]) => {
-                if start.position.distance(placement.position) < DEGENERATE_LENGTH {
-                    return Err(Refusal::ArcSweep);
-                }
+            (Shape::TangentArc, &[start]) => {
+                apart(start, Refusal::ArcSweep)?;
                 let tangent = self.tangent.ok_or(Refusal::TangentStart)?;
                 let circular =
                     shapes::tangent_from(start.position, tangent.direction, placement.position)
                         .ok_or(Refusal::TangentStraight)?;
-                let Some(mut draft) = draft() else {
+                let Some(mut draft) = draft(shape.name()) else {
                     return Ok(None);
                 };
                 let drawn = draft.tangent_arc(start, placement, tangent.curve, circular);
@@ -655,82 +829,146 @@ impl Drawing {
                             snap: Snap::Target(Target::Point(drawn.end)),
                         }];
                         self.tangent = Some(Tangent {
-                            curve: drawn.arc,
+                            curve: drawn.curve,
                             direction,
                         });
                     }
                     Some(_) | None => self.cancel(),
                 }
-                Some(draft.finish())
+                return Ok(Some(draft.finish()));
             }
-            (Tool::Slot, &[first]) => {
-                if first.position.distance(placement.position) < DEGENERATE_LENGTH {
-                    return Err(Refusal::SlotLength);
-                }
+            (Shape::Slot(SlotMode::Ends), &[first]) => {
+                apart(first, Refusal::SlotLength)?;
                 self.placed.push(placement);
-                None
+                return Ok(None);
             }
-            (Tool::Slot, &[first, second]) => {
+            (Shape::Slot(SlotMode::Ends), &[first, second]) => {
                 let slot = Slot::new(first.position, second.position, placement.position)
                     .ok_or(Refusal::SlotWidth)?;
-                let Some(mut draft) = draft() else {
-                    return Ok(None);
-                };
-                draft.slot(first, second, &slot);
-                self.cancel();
-                Some(draft.finish())
+                draft(shape.name()).map(|mut draft| {
+                    draft.slot(first, second, &slot);
+                    draft
+                })
             }
-            (Tool::Polygon, &[center]) => {
-                if center.position.distance(placement.position) < DEGENERATE_LENGTH {
-                    return Err(Refusal::PolygonSize);
-                }
-                let name = shapes::polygon_name(self.sides.0);
-                let Some(mut draft) = Draft::new(model, feature, &name, self.construction) else {
-                    return Ok(None);
-                };
-                draft.polygon(center, placement, self.sides.0);
-                self.cancel();
-                Some(draft.finish())
+            (Shape::Slot(SlotMode::Center), &[center]) => {
+                apart(center, Refusal::SlotLength)?;
+                self.placed.push(placement);
+                return Ok(None);
+            }
+            (Shape::Slot(SlotMode::Center), &[center, end]) => {
+                let mirrored = shapes::mirrored(end.position, center.position);
+                let slot = Slot::new(mirrored, end.position, placement.position)
+                    .ok_or(Refusal::SlotWidth)?;
+                draft(shape.name()).map(|mut draft| {
+                    draft.centered_slot(center, end, &slot);
+                    draft
+                })
+            }
+            (Shape::Slot(SlotMode::Arc), &[center]) => {
+                apart(center, Refusal::ArcSlotRadius)?;
+                self.sweep = Some(Sweep::new(center.position, placement.position));
+                self.placed.push(placement);
+                return Ok(None);
+            }
+            (Shape::Slot(SlotMode::Arc), &[center, start]) => {
+                let end = landing_on_arc(center, start, placement).ok_or(Refusal::ArcSlotSweep)?;
+                self.placed.push(end);
+                return Ok(None);
+            }
+            (Shape::Slot(SlotMode::Arc), &[center, start, end]) => {
+                let (first, last) = arc_ends(self.counter_clockwise(), start, end);
+                let slot = ArcSlot::new(
+                    center.position,
+                    [first.position, last.position],
+                    placement.position,
+                )
+                .ok_or(Refusal::ArcSlotWidth)?;
+                draft(shape.name()).map(|mut draft| {
+                    draft.arc_slot(center, [first, last], &slot);
+                    draft
+                })
+            }
+            (Shape::Polygon(PolygonMode::Corner), &[center]) => {
+                apart(center, Refusal::PolygonSize)?;
+                let corners =
+                    shapes::polygon_corners(center.position, placement.position, self.sides.0);
+                self.polygon_draft(model, feature).map(|mut draft| {
+                    draft.polygon(center, &placed_first(&corners, &[placement]));
+                    draft
+                })
+            }
+            (Shape::Polygon(PolygonMode::SideMiddle), &[center]) => {
+                apart(center, Refusal::PolygonSideMiddle)?;
+                let corners = shapes::polygon_around_side_middle(
+                    center.position,
+                    placement.position,
+                    self.sides.0,
+                );
+                self.polygon_draft(model, feature).map(|mut draft| {
+                    draft.polygon_around_side_middle(center, placement, &corners);
+                    draft
+                })
+            }
+            (Shape::Polygon(PolygonMode::Side), &[first]) => {
+                let (center, corners) =
+                    shapes::polygon_on_side(first.position, placement.position, self.sides.0)
+                        .ok_or(Refusal::PolygonSide)?;
+                self.polygon_draft(model, feature).map(|mut draft| {
+                    draft.polygon_on_side(first, placement, center, &corners);
+                    draft
+                })
             }
             (
-                Tool::Line
-                | Tool::Rectangle
-                | Tool::Circle
-                | Tool::Arc
-                | Tool::ThreePointArc
-                | Tool::Slot
-                | Tool::Polygon
-                | Tool::Spline,
+                Shape::Line
+                | Shape::Rectangle(_)
+                | Shape::Circle(_)
+                | Shape::Arc
+                | Shape::ThreePointArc
+                | Shape::TangentArc
+                | Shape::Slot(_)
+                | Shape::Polygon(_)
+                | Shape::Spline,
                 _,
-            )
-            | (Tool::TangentArc, _) => {
+            ) => {
                 self.placed.push(placement);
-                None
+                return Ok(None);
             }
-        })
+        };
+        if shape != Shape::Point {
+            self.cancel();
+        }
+        Ok(finished.map(Draft::finish))
+    }
+
+    fn counter_clockwise(&self) -> bool {
+        self.sweep.is_none_or(|sweep| sweep.counter_clockwise())
+    }
+
+    fn polygon_draft<'a>(&self, model: &'a Model, feature: FeatureId) -> Option<Draft<'a>> {
+        Draft::new(
+            model,
+            feature,
+            &shapes::polygon_name(self.sides.0),
+            self.construction,
+        )
     }
 
     pub fn finish(&mut self, model: &Model) -> Option<Transaction> {
-        let (feature, tool) = self.context?;
-        if tool != Tool::Spline {
+        let (feature, shape) = self.context?;
+        if shape != Shape::Spline {
             return None;
         }
         let placed = std::mem::take(&mut self.placed);
         if placed.len() < 2 {
             return None;
         }
-        let mut draft = Draft::new(
-            model,
-            feature,
-            &tool.label().to_lowercase(),
-            self.construction,
-        )?;
+        let mut draft = Draft::new(model, feature, shape.name(), self.construction)?;
         draft.spline(&placed);
         Some(draft.finish())
     }
 
     pub fn preview(&self) -> Preview {
-        let Some((_, tool)) = self.context else {
+        let Some((_, shape)) = self.context else {
             return Preview::default();
         };
         let hover = self.hover.map(|hover| hover.position);
@@ -751,32 +989,85 @@ impl Drawing {
         let Some(cursor) = hover else {
             return preview;
         };
-        match (tool, placed.as_slice()) {
-            (Tool::Line, &[start]) => preview.curves.push(vec![start, cursor]),
-            (Tool::Rectangle, &[corner]) => {
-                let [a, b, c, d] = rectangle_corners(corner, cursor);
-                preview.curves.push(vec![a, b, c, d, a]);
+        let closed = |mut corners: Vec<Point2>| {
+            corners.extend(corners.first().copied());
+            corners
+        };
+        match (shape, placed.as_slice()) {
+            (Shape::Line, &[start]) => preview.curves.push(vec![start, cursor]),
+            (Shape::Rectangle(RectangleMode::Corners), &[corner]) => {
+                preview
+                    .curves
+                    .push(closed(rectangle_corners(corner, cursor).to_vec()));
             }
-            (Tool::Circle, &[center]) => preview.curves.push(
+            (Shape::Rectangle(RectangleMode::Center), &[center]) => {
+                let opposite = shapes::mirrored(cursor, center);
+                preview
+                    .curves
+                    .push(closed(rectangle_corners(cursor, opposite).to_vec()));
+            }
+            (Shape::Rectangle(RectangleMode::ThreePoints), &[first, second]) => {
+                preview
+                    .curves
+                    .push(match shapes::rectangle_on_side(first, second, cursor) {
+                        Some(corners) => closed(corners.to_vec()),
+                        None => vec![first, second],
+                    });
+            }
+            (Shape::Circle(CircleMode::Center), &[center]) => preview.curves.push(
                 ArcGeometry::full_circle(center, center.distance(cursor))
                     .polyline(PREVIEW_SEGMENT_ANGLE),
             ),
-            (Tool::Arc, &[center]) => preview.curves.push(vec![center, cursor]),
-            (Tool::Arc, &[center, start]) => {
+            (Shape::Circle(CircleMode::TwoPoints), &[first]) => {
+                preview
+                    .curves
+                    .push(match shapes::circle_on_diameter(first, cursor) {
+                        Some(circle) => circle.polyline(PREVIEW_SEGMENT_ANGLE),
+                        None => vec![first, cursor],
+                    });
+            }
+            (Shape::Circle(CircleMode::ThreePoints), &[first, second]) => {
+                preview
+                    .curves
+                    .push(match shapes::circle_through_three(first, second, cursor) {
+                        Some(circle) => circle.polyline(PREVIEW_SEGMENT_ANGLE),
+                        None => vec![first, second],
+                    });
+            }
+            (Shape::Arc | Shape::Slot(SlotMode::Arc), &[center]) => {
+                preview.curves.push(vec![center, cursor]);
+            }
+            (Shape::Arc | Shape::Slot(SlotMode::Arc), &[center, start]) => {
                 if let Some(end) = arc_end(center, start, cursor) {
-                    let counter_clockwise =
-                        self.sweep.is_none_or(|sweep| sweep.counter_clockwise());
-                    let (from, to) = arc_ends(counter_clockwise, start, end);
-                    preview.curves.push(
-                        ArcGeometry::from_points(center, from, to).polyline(PREVIEW_SEGMENT_ANGLE),
-                    );
+                    preview.curves.push(self.arc_polyline(center, start, end));
                     preview.points = vec![center, start, end];
                 }
             }
-            (Tool::ThreePointArc | Tool::Slot, &[start]) => {
+            (Shape::Slot(SlotMode::Arc), &[center, start, end]) => {
+                let (first, last) = arc_ends(self.counter_clockwise(), start, end);
+                preview
+                    .curves
+                    .push(match ArcSlot::new(center, [first, last], cursor) {
+                        Some(slot) => slot.outline(PREVIEW_SEGMENT_ANGLE),
+                        None => self.arc_polyline(center, start, end),
+                    });
+                preview.points = vec![center, start, end];
+            }
+            (
+                Shape::ThreePointArc
+                | Shape::Slot(SlotMode::Ends)
+                | Shape::Rectangle(RectangleMode::ThreePoints)
+                | Shape::Circle(CircleMode::ThreePoints),
+                &[start],
+            ) => {
                 preview.curves.push(vec![start, cursor]);
             }
-            (Tool::ThreePointArc, &[start, end]) => {
+            (Shape::Slot(SlotMode::Center), &[center]) => {
+                preview
+                    .curves
+                    .push(vec![shapes::mirrored(cursor, center), cursor]);
+            }
+            (Shape::ThreePointArc, &[start, end]) => {
                 preview
                     .curves
                     .push(match shapes::through_three(start, end, cursor) {
@@ -784,7 +1075,7 @@ impl Drawing {
                         None => vec![start, end],
                     });
             }
-            (Tool::TangentArc, &[start]) => {
+            (Shape::TangentArc, &[start]) => {
                 let circular = self
                     .tangent
                     .and_then(|tangent| shapes::tangent_from(start, tangent.direction, cursor));
@@ -793,19 +1084,46 @@ impl Drawing {
                     None => vec![start, cursor],
                 });
             }
-            (Tool::Slot, &[first, second]) => {
+            (Shape::Slot(SlotMode::Ends), &[first, second]) => {
                 preview.curves.push(match Slot::new(first, second, cursor) {
                     Some(slot) => slot.outline(PREVIEW_SEGMENT_ANGLE),
                     None => vec![first, second],
                 });
                 preview.points = vec![first, second];
             }
-            (Tool::Polygon, &[center]) => {
-                let mut corners = shapes::polygon_corners(center, cursor, self.sides.0);
-                corners.extend(corners.first().copied());
-                preview.curves.push(corners);
+            (Shape::Slot(SlotMode::Center), &[center, end]) => {
+                let mirrored = shapes::mirrored(end, center);
+                preview.curves.push(match Slot::new(mirrored, end, cursor) {
+                    Some(slot) => slot.outline(PREVIEW_SEGMENT_ANGLE),
+                    None => vec![mirrored, end],
+                });
+                preview.points = vec![mirrored, center, end];
             }
-            (Tool::Spline, _) if !placed.is_empty() => {
+            (Shape::Polygon(PolygonMode::Corner), &[center]) => {
+                preview.curves.push(closed(shapes::polygon_corners(
+                    center,
+                    cursor,
+                    self.sides.0,
+                )));
+            }
+            (Shape::Polygon(PolygonMode::SideMiddle), &[center]) => {
+                preview
+                    .curves
+                    .push(closed(shapes::polygon_around_side_middle(
+                        center,
+                        cursor,
+                        self.sides.0,
+                    )));
+            }
+            (Shape::Polygon(PolygonMode::Side), &[first]) => {
+                preview
+                    .curves
+                    .push(match shapes::polygon_on_side(first, cursor, self.sides.0) {
+                        Some((_, corners)) => closed(corners),
+                        None => vec![first, cursor],
+                    });
+            }
+            (Shape::Spline, _) if !placed.is_empty() => {
                 if let Some(spline) = BSpline::clamped(preview.points.clone()) {
                     preview.curves.push(spline.polyline(PREVIEW_SEGMENT_ANGLE));
                 }
@@ -815,27 +1133,32 @@ impl Drawing {
         preview
     }
 
+    fn arc_polyline(&self, center: Point2, start: Point2, end: Point2) -> Vec<Point2> {
+        let (from, to) = arc_ends(self.counter_clockwise(), start, end);
+        ArcGeometry::from_points(center, from, to).polyline(PREVIEW_SEGMENT_ANGLE)
+    }
+
     pub fn snap_label(&self, sketch: &Sketch) -> Option<String> {
-        let (_, tool) = self.context?;
+        let (_, shape) = self.context?;
         let snap = self.hover?.snap;
         match (snap.target(), snap.direction()) {
             (None, None) => None,
             (None, Some(direction)) => Some(direction.label(sketch)),
-            (Some(target), None) => Some(self.target_label(tool, sketch, target)),
+            (Some(target), None) => Some(self.target_label(shape, sketch, target)),
             (Some(target), Some(direction)) => Some(format!(
                 "{}, {}",
-                self.target_label(tool, sketch, target),
+                self.target_label(shape, sketch, target),
                 direction.joined_label(sketch)
             )),
         }
     }
 
-    fn target_label(&self, tool: Tool, sketch: &Sketch, target: Target) -> String {
+    fn target_label(&self, shape: Shape, sketch: &Sketch, target: Target) -> String {
         match target {
-            Target::Pending(_) if tool == Tool::Spline => "Finish the spline".to_owned(),
+            Target::Pending(_) if shape == Shape::Spline => "Finish the spline".to_owned(),
             Target::Pending(_) => "Stop here".to_owned(),
             Target::Point(_)
-                if tool == Tool::TangentArc
+                if shape == Shape::TangentArc
                     && self.placed.is_empty()
                     && let Some(tangent) = self.tangent =>
             {
@@ -849,67 +1172,129 @@ impl Drawing {
     }
 
     pub fn prompt(&self) -> Option<Prompt> {
-        let (_, tool) = self.context?;
+        let (_, shape) = self.context?;
         let prompt = |text: &str, keys| {
             Some(Prompt {
                 text: text.to_owned(),
                 keys,
             })
         };
-        match (tool, self.placed.len()) {
-            (Tool::Select | Tool::Trim | Tool::Extend, _) => None,
-            (Tool::Point, _) => prompt("Click to place a point", BACK_TO_SELECT),
-            (Tool::Line, 0) => prompt("Click the start of the line", BACK_TO_SELECT),
-            (Tool::Line, _) => prompt(
+        let polygon = shapes::polygon_name(self.sides.0);
+        let polygon_prompt = |text: String, keys| Some(Prompt { text, keys });
+        match (shape, self.placed.len()) {
+            (Shape::Point, _) => prompt("Click to place a point", BACK_TO_SELECT),
+            (Shape::Line, 0) => prompt("Click the start of the line", BACK_TO_SELECT),
+            (Shape::Line, _) => prompt(
                 "Click to end the line, Escape to stop",
                 "Click the start to close, or the last point again to stop",
             ),
-            (Tool::Rectangle, 0) => prompt("Click the rectangle's first corner", BACK_TO_SELECT),
-            (Tool::Rectangle, _) => {
-                prompt("Click the opposite corner", "Esc: cancel the rectangle")
+            (Shape::Rectangle(RectangleMode::Corners), 0) => {
+                prompt("Click the rectangle's first corner", BACK_TO_SELECT)
             }
-            (Tool::Circle, 0) => prompt("Click the circle's centre", BACK_TO_SELECT),
-            (Tool::Circle, _) => prompt("Click a point on the circle", "Esc: cancel the circle"),
-            (Tool::Arc, 0) => prompt("Click the arc's centre", BACK_TO_SELECT),
-            (Tool::Arc, 1) => prompt("Click where the arc starts", "Esc: cancel the arc"),
-            (Tool::Arc, _) => prompt(
+            (Shape::Rectangle(RectangleMode::Corners), _) => {
+                prompt("Click the opposite corner", CANCEL_RECTANGLE)
+            }
+            (Shape::Rectangle(RectangleMode::Center), 0) => {
+                prompt("Click the rectangle's centre", BACK_TO_SELECT)
+            }
+            (Shape::Rectangle(RectangleMode::Center), _) => {
+                prompt("Click a corner of the rectangle", CANCEL_RECTANGLE)
+            }
+            (Shape::Rectangle(RectangleMode::ThreePoints), 0) => prompt(
+                "Click where the rectangle's first side starts",
+                BACK_TO_SELECT,
+            ),
+            (Shape::Rectangle(RectangleMode::ThreePoints), 1) => {
+                prompt("Click where its first side ends", CANCEL_RECTANGLE)
+            }
+            (Shape::Rectangle(RectangleMode::ThreePoints), _) => {
+                prompt("Click to set the rectangle's width", CANCEL_RECTANGLE)
+            }
+            (Shape::Circle(CircleMode::Center), 0) => {
+                prompt("Click the circle's centre", BACK_TO_SELECT)
+            }
+            (Shape::Circle(CircleMode::Center), _) => {
+                prompt("Click a point on the circle", CANCEL_CIRCLE)
+            }
+            (Shape::Circle(CircleMode::TwoPoints), 0) => {
+                prompt("Click one end of the circle's diameter", BACK_TO_SELECT)
+            }
+            (Shape::Circle(CircleMode::TwoPoints), _) => {
+                prompt("Click the other end of the diameter", CANCEL_CIRCLE)
+            }
+            (Shape::Circle(CircleMode::ThreePoints), 0) => {
+                prompt("Click a first point on the circle", BACK_TO_SELECT)
+            }
+            (Shape::Circle(CircleMode::ThreePoints), 1) => {
+                prompt("Click a second point on the circle", CANCEL_CIRCLE)
+            }
+            (Shape::Circle(CircleMode::ThreePoints), _) => {
+                prompt("Click a third point on the circle", CANCEL_CIRCLE)
+            }
+            (Shape::Arc, 0) => prompt("Click the arc's centre", BACK_TO_SELECT),
+            (Shape::Arc, 1) => prompt("Click where the arc starts", "Esc: cancel the arc"),
+            (Shape::Arc, _) => prompt(
                 "Click where the arc ends",
                 "The arc follows your sweep around the centre, a typed end the shorter way   Esc: \
                  cancel the arc",
             ),
-            (Tool::ThreePointArc, 0) => prompt("Click where the arc starts", BACK_TO_SELECT),
-            (Tool::ThreePointArc, 1) => prompt("Click where the arc ends", "Esc: cancel the arc"),
-            (Tool::ThreePointArc, _) => prompt(
+            (Shape::ThreePointArc, 0) => prompt("Click where the arc starts", BACK_TO_SELECT),
+            (Shape::ThreePointArc, 1) => prompt("Click where the arc ends", "Esc: cancel the arc"),
+            (Shape::ThreePointArc, _) => prompt(
                 "Click a point the arc passes through",
                 "Esc: cancel the arc",
             ),
-            (Tool::TangentArc, 0) => prompt(
+            (Shape::TangentArc, 0) => prompt(
                 "Click the end of a line, arc or spline to continue from",
                 BACK_TO_SELECT,
             ),
-            (Tool::TangentArc, _) => prompt(
+            (Shape::TangentArc, _) => prompt(
                 "Click where the arc ends, Escape to stop",
                 "Click the start to close, or the last point again to stop",
             ),
-            (Tool::Slot, 0) => prompt("Click the centre of the slot's first end", BACK_TO_SELECT),
-            (Tool::Slot, 1) => prompt(
-                "Click the centre of the slot's other end",
-                "Esc: cancel the slot",
+            (Shape::Slot(SlotMode::Ends), 0) => {
+                prompt("Click the centre of the slot's first end", BACK_TO_SELECT)
+            }
+            (Shape::Slot(SlotMode::Ends), 1) => {
+                prompt("Click the centre of the slot's other end", CANCEL_SLOT)
+            }
+            (Shape::Slot(SlotMode::Center), 0) => prompt("Click the slot's centre", BACK_TO_SELECT),
+            (Shape::Slot(SlotMode::Center), 1) => {
+                prompt("Click the centre of one of the slot's ends", CANCEL_SLOT)
+            }
+            (Shape::Slot(SlotMode::Arc), 0) => prompt(
+                "Click the centre of the arc the slot follows",
+                BACK_TO_SELECT,
             ),
-            (Tool::Slot, _) => prompt("Click to set the slot's width", "Esc: cancel the slot"),
-            (Tool::Polygon, 0) => Some(Prompt {
-                text: format!("Click the {}'s centre", shapes::polygon_name(self.sides.0)),
-                keys: BACK_TO_SELECT,
-            }),
-            (Tool::Polygon, _) => Some(Prompt {
-                text: format!(
-                    "Click a corner of the {}",
-                    shapes::polygon_name(self.sides.0)
-                ),
-                keys: "Esc: cancel the polygon",
-            }),
-            (Tool::Spline, 0) => prompt("Click the spline's first control point", BACK_TO_SELECT),
-            (Tool::Spline, _) => prompt(
+            (Shape::Slot(SlotMode::Arc), 1) => {
+                prompt("Click the centre of the slot's first end", CANCEL_SLOT)
+            }
+            (Shape::Slot(SlotMode::Arc), 2) => prompt(
+                "Click the centre of the slot's other end",
+                "The slot follows your sweep around the centre, a typed end the shorter way   \
+                 Esc: cancel the slot",
+            ),
+            (Shape::Slot(_), _) => prompt("Click to set the slot's width", CANCEL_SLOT),
+            (Shape::Polygon(PolygonMode::Corner | PolygonMode::SideMiddle), 0) => {
+                polygon_prompt(format!("Click the {polygon}'s centre"), BACK_TO_SELECT)
+            }
+            (Shape::Polygon(PolygonMode::Corner), _) => {
+                polygon_prompt(format!("Click a corner of the {polygon}"), CANCEL_POLYGON)
+            }
+            (Shape::Polygon(PolygonMode::SideMiddle), _) => polygon_prompt(
+                format!("Click the middle of a side of the {polygon}"),
+                CANCEL_POLYGON,
+            ),
+            (Shape::Polygon(PolygonMode::Side), 0) => polygon_prompt(
+                format!("Click where a side of the {polygon} starts"),
+                BACK_TO_SELECT,
+            ),
+            (Shape::Polygon(PolygonMode::Side), _) => polygon_prompt(
+                format!("Click where that side of the {polygon} ends"),
+                CANCEL_POLYGON,
+            ),
+            (Shape::Spline, 0) => prompt("Click the spline's first control point", BACK_TO_SELECT),
+            (Shape::Spline, _) => prompt(
                 "Click the next control point",
                 "Enter or double-click: finish   Backspace: remove the last point   Esc: cancel",
             ),
@@ -918,22 +1303,22 @@ impl Drawing {
 
     fn place(
         &self,
-        tool: Tool,
+        shape: Shape,
         sketch: &Sketch,
         screen: &impl Screen,
         pointer: Pointer,
     ) -> Placement {
-        if let (Tool::Slot, &[_, _]) = (tool, self.placed.as_slice()) {
+        if shape.sizes_by_width(self.placed.len()) {
             return Placement::free(pointer.sketch);
         }
-        let pending = self.pending(tool);
-        let accept = self.accept(tool);
+        let pending = self.pending(shape);
+        let accept = self.accept(shape);
         let snapped = snap::resolve(sketch, screen, pointer, &pending, accept);
-        let Some(start) = self.aligned_from(tool) else {
+        let Some(start) = self.aligned_from(shape) else {
             return snapped.map_or(Placement::free(pointer.sketch), Placement::snapped);
         };
-        let continued = match tool {
-            Tool::Line => point_target(start.snap),
+        let continued = match shape {
+            Shape::Line => point_target(start.snap),
             _ => None,
         };
         let guides = guides(sketch, screen, pointer, start.position, continued);
@@ -945,21 +1330,23 @@ impl Drawing {
         }
     }
 
-    fn aligned_from(&self, tool: Tool) -> Option<Placement> {
-        match (tool, self.placed.as_slice()) {
-            (Tool::Line | Tool::Slot, &[start]) => Some(start),
+    fn aligned_from(&self, shape: Shape) -> Option<Placement> {
+        match self.placed.as_slice() {
+            &[start] if shape.aligns_second_point() => Some(start),
             _ => None,
         }
     }
 }
 
 impl Drawing {
-    fn accept(&self, tool: Tool) -> Accept {
-        match (tool, self.placed.as_slice()) {
-            (Tool::Circle, &[_]) | (Tool::ThreePointArc, &[_, _]) | (Tool::TangentArc, &[]) => {
-                Accept::Points
-            }
-            (Tool::Arc, &[center, start]) => Accept::OnCircle {
+    fn accept(&self, shape: Shape) -> Accept {
+        match (shape, self.placed.as_slice()) {
+            (Shape::Circle(CircleMode::Center), &[_])
+            | (Shape::Circle(CircleMode::TwoPoints | CircleMode::ThreePoints), _)
+            | (Shape::Polygon(PolygonMode::SideMiddle), &[_])
+            | (Shape::ThreePointArc, &[_, _])
+            | (Shape::TangentArc, &[]) => Accept::Points,
+            (Shape::Arc | Shape::Slot(SlotMode::Arc), &[center, start]) => Accept::OnCircle {
                 center: center.position,
                 radius: center.position.distance(start.position),
             },
@@ -967,29 +1354,25 @@ impl Drawing {
         }
     }
 
-    fn pending(&self, tool: Tool) -> Vec<(usize, Point2)> {
-        match tool {
-            Tool::Line | Tool::TangentArc => self.placed.first().map(|start| (0, start.position)),
-            Tool::Spline => self
+    fn pending(&self, shape: Shape) -> Vec<(usize, Point2)> {
+        match shape {
+            Shape::Line | Shape::TangentArc => self.placed.first().map(|start| (0, start.position)),
+            Shape::Spline => self
                 .placed
                 .last()
                 .map(|last| (self.placed.len() - 1, last.position)),
-            Tool::Select
-            | Tool::Trim
-            | Tool::Extend
-            | Tool::Point
-            | Tool::Rectangle
-            | Tool::Circle
-            | Tool::Arc
-            | Tool::ThreePointArc
-            | Tool::Slot
-            | Tool::Polygon => None,
+            Shape::Point
+            | Shape::Rectangle(_)
+            | Shape::Circle(_)
+            | Shape::Arc
+            | Shape::ThreePointArc
+            | Shape::Slot(_)
+            | Shape::Polygon(_) => None,
         }
         .into_iter()
         .collect()
     }
 }
-
 fn guides(
     sketch: &Sketch,
     screen: &impl Screen,
@@ -1183,6 +1566,35 @@ fn rectangle_corners(corner: Point2, opposite: Point2) -> [Point2; 4] {
     ]
 }
 
+fn landing_on_arc(center: Placement, start: Placement, placement: Placement) -> Option<Placement> {
+    let radius = center.position.distance(start.position);
+    let kept = placement.snap.target().is_some()
+        && snap::on_circle(center.position, radius, placement.position);
+    let end = if kept {
+        placement
+    } else {
+        Placement::free(arc_end(
+            center.position,
+            start.position,
+            placement.position,
+        )?)
+    };
+    (end.position.distance(start.position) >= DEGENERATE_LENGTH).then_some(end)
+}
+
+fn placed_first(corners: &[Point2], placed: &[Placement]) -> Vec<Placement> {
+    corners
+        .iter()
+        .enumerate()
+        .map(|(index, corner)| {
+            placed
+                .get(index)
+                .copied()
+                .unwrap_or(Placement::free(*corner))
+        })
+        .collect()
+}
+
 struct Draft<'a> {
     feature: FeatureId,
     transaction: TransactionBuilder<'a>,
@@ -1190,10 +1602,16 @@ struct Draft<'a> {
     construction: bool,
 }
 
-struct TangentArc {
-    arc: EntityId,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DrawnCurve {
+    curve: EntityId,
     start: EntityId,
     end: EntityId,
+}
+
+struct Polygon {
+    center: EntityId,
+    first: DrawnCurve,
 }
 
 impl<'a> Draft<'a> {
@@ -1265,29 +1683,83 @@ impl<'a> Draft<'a> {
         (start, end_point)
     }
 
-    fn rectangle(&mut self, corner: Placement, opposite: Placement) {
-        let corners = rectangle_corners(corner.position, opposite.position);
-        let snaps = [corner.snap, Snap::Free, opposite.snap, Snap::Free];
+    fn joined_outline(&mut self, corners: &[Placement]) -> Vec<DrawnCurve> {
         let mut sides = Vec::with_capacity(corners.len());
-        for (index, (position, snap)) in corners.into_iter().zip(snaps).enumerate() {
+        for (index, corner) in corners.iter().enumerate() {
             let next = corners
                 .get((index + 1) % corners.len())
-                .copied()
-                .unwrap_or(position);
-            let start = self.point(Placement { position, snap });
+                .map_or(corner.position, |next| next.position);
+            let start = self.point(*corner);
             let end = self.point(Placement::free(next));
-            let line = self.entity(Entity::Line { start, end });
-            sides.push((line, start, end));
+            let curve = self.entity(Entity::Line { start, end });
+            sides.push(DrawnCurve { curve, start, end });
         }
-        for (index, (line, _, end)) in sides.iter().enumerate() {
-            if let Some((_, next_start, _)) = sides.get((index + 1) % sides.len()) {
-                self.constrain(Constraint::Coincident(*end, *next_start));
+        for (index, side) in sides.iter().enumerate() {
+            if let Some(next) = sides.get((index + 1) % sides.len()) {
+                self.constrain(Constraint::Coincident(side.end, next.start));
             }
+        }
+        sides
+    }
+
+    fn level_rectangle(&mut self, corners: [Placement; 4]) -> Vec<DrawnCurve> {
+        let sides = self.joined_outline(&corners);
+        for (index, side) in sides.iter().enumerate() {
             self.constrain(if index % 2 == 0 {
-                Constraint::Horizontal(*line)
+                Constraint::Horizontal(side.curve)
             } else {
-                Constraint::Vertical(*line)
+                Constraint::Vertical(side.curve)
             });
+        }
+        sides
+    }
+
+    fn rectangle(&mut self, corner: Placement, opposite: Placement) {
+        let [_, second, _, fourth] = rectangle_corners(corner.position, opposite.position);
+        self.level_rectangle([
+            corner,
+            Placement::free(second),
+            opposite,
+            Placement::free(fourth),
+        ]);
+    }
+
+    fn centered_rectangle(&mut self, center: Placement, corner: Placement) {
+        let opposite = shapes::mirrored(corner.position, center.position);
+        let [_, second, third, fourth] = rectangle_corners(corner.position, opposite);
+        let sides = self.level_rectangle([
+            corner,
+            Placement::free(second),
+            Placement::free(third),
+            Placement::free(fourth),
+        ]);
+        let center = self.point(center);
+        if let (Some(first), Some(opposite)) = (sides.first(), sides.get(2)) {
+            self.constrain(Constraint::Symmetric {
+                first: first.start,
+                second: opposite.start,
+                about: center,
+            });
+        }
+    }
+
+    fn rectangle_on_side(&mut self, first: Placement, second: Placement, corners: [Point2; 4]) {
+        let [_, _, third, fourth] = corners;
+        let sides = self.joined_outline(&[
+            first,
+            second,
+            Placement::free(third),
+            Placement::free(fourth),
+        ]);
+        let [base, next, opposite, last] = sides.as_slice() else {
+            return;
+        };
+        let (base, next, opposite, last) = (*base, *next, *opposite, *last);
+        self.constrain(Constraint::Perpendicular(base.curve, next.curve));
+        self.constrain(Constraint::Parallel(opposite.curve, base.curve));
+        self.constrain(Constraint::Parallel(last.curve, next.curve));
+        if let Some(direction) = second.snap.direction() {
+            self.constrain(direction.constraint(base.curve));
         }
     }
 
@@ -1295,8 +1767,39 @@ impl<'a> Draft<'a> {
         let radius = center.position.distance(rim.position);
         let center = self.point(center);
         let circle = self.entity(Entity::Circle { center, radius });
-        if let Snap::Target(Target::Point(point)) = rim.snap {
+        if let Some(point) = point_target(rim.snap) {
             self.constrain(Constraint::Coincident(point, circle));
+        }
+    }
+
+    fn circle_through(&mut self, circle: ArcGeometry, on: &[Placement]) -> EntityId {
+        let center = self.entity(Entity::Point(circle.center));
+        let id = self.entity(Entity::Circle {
+            center,
+            radius: circle.radius,
+        });
+        for point in on
+            .iter()
+            .filter_map(|placement| point_target(placement.snap))
+        {
+            self.constrain(Constraint::Coincident(point, id));
+        }
+        center
+    }
+
+    fn circle_on_diameter(&mut self, first: Placement, second: Placement, circle: ArcGeometry) {
+        match (point_target(first.snap), point_target(second.snap)) {
+            (Some(one_end), Some(other_end)) => {
+                let center = self.circle_through(circle, &[first]);
+                self.constrain(Constraint::Symmetric {
+                    first: one_end,
+                    second: other_end,
+                    about: center,
+                });
+            }
+            _ => {
+                self.circle_through(circle, &[first, second]);
+            }
         }
     }
 
@@ -1314,23 +1817,18 @@ impl<'a> Draft<'a> {
         self.entity(Entity::Arc { center, start, end });
     }
 
-    fn arc_through(
-        &mut self,
-        center: EntityId,
-        start: Point2,
-        end: Point2,
-    ) -> (EntityId, EntityId, EntityId) {
+    fn arc_through(&mut self, center: EntityId, start: Point2, end: Point2) -> DrawnCurve {
         let start = self.entity(Entity::Point(start));
         let end = self.entity(Entity::Point(end));
-        let arc = self.entity(Entity::Arc { center, start, end });
-        (arc, start, end)
+        let curve = self.entity(Entity::Arc { center, start, end });
+        DrawnCurve { curve, start, end }
     }
 
-    fn free_line(&mut self, start: Point2, end: Point2) -> (EntityId, EntityId, EntityId) {
+    fn free_line(&mut self, start: Point2, end: Point2) -> DrawnCurve {
         let start = self.entity(Entity::Point(start));
         let end = self.entity(Entity::Point(end));
-        let line = self.entity(Entity::Line { start, end });
-        (line, start, end)
+        let curve = self.entity(Entity::Line { start, end });
+        DrawnCurve { curve, start, end }
     }
 
     fn three_point_arc(
@@ -1356,7 +1854,7 @@ impl<'a> Draft<'a> {
         end: Placement,
         from: EntityId,
         circular: Circular,
-    ) -> TangentArc {
+    ) -> DrawnCurve {
         let center = self.entity(Entity::Point(circular.center));
         let start = self.point(start);
         let end = self.point(end);
@@ -1367,67 +1865,152 @@ impl<'a> Draft<'a> {
             end: last,
         });
         self.constrain(Constraint::Tangent(from, arc));
-        TangentArc { arc, start, end }
+        DrawnCurve {
+            curve: arc,
+            start,
+            end,
+        }
     }
 
-    fn slot(&mut self, first: Placement, second: Placement, slot: &Slot) {
+    fn join(&mut self, joints: [(EntityId, EntityId); 4], tangents: [(EntityId, EntityId); 4]) {
+        for (point, other) in joints {
+            self.constrain(Constraint::Coincident(point, other));
+        }
+        for (first, second) in tangents {
+            self.constrain(Constraint::Tangent(first, second));
+        }
+    }
+
+    fn slot(&mut self, first: Placement, second: Placement, slot: &Slot) -> [EntityId; 2] {
         let first_center = self.point(first);
         let second_center = self.point(second);
         let [a, b, c, d] = slot.corners();
-        let (second_arc, second_start, second_end) = self.arc_through(second_center, a, b);
-        let (first_arc, first_start, first_end) = self.arc_through(first_center, c, d);
-        let (top, top_start, top_end) = self.free_line(b, c);
-        let (bottom, bottom_start, bottom_end) = self.free_line(d, a);
-        for (point, other) in [
-            (top_start, second_end),
-            (top_end, first_start),
-            (bottom_start, first_end),
-            (bottom_end, second_start),
-        ] {
-            self.constrain(Constraint::Coincident(point, other));
-        }
-        for (line, arc) in [
-            (top, second_arc),
-            (top, first_arc),
-            (bottom, first_arc),
-            (bottom, second_arc),
-        ] {
-            self.constrain(Constraint::Tangent(line, arc));
-        }
-        self.constrain(Constraint::Equal(first_arc, second_arc));
+        let second_end = self.arc_through(second_center, a, b);
+        let first_end = self.arc_through(first_center, c, d);
+        let top = self.free_line(b, c);
+        let bottom = self.free_line(d, a);
+        self.join(
+            [
+                (top.start, second_end.end),
+                (top.end, first_end.start),
+                (bottom.start, first_end.end),
+                (bottom.end, second_end.start),
+            ],
+            [
+                (top.curve, second_end.curve),
+                (top.curve, first_end.curve),
+                (bottom.curve, first_end.curve),
+                (bottom.curve, second_end.curve),
+            ],
+        );
+        self.constrain(Constraint::Equal(first_end.curve, second_end.curve));
         if let Some(direction) = second.snap.direction() {
-            self.constrain(direction.constraint(top));
+            self.constrain(direction.constraint(top.curve));
+        }
+        [first_center, second_center]
+    }
+
+    fn centered_slot(&mut self, center: Placement, end: Placement, slot: &Slot) {
+        let [mirrored, _] = slot.centers;
+        let [first, second] = self.slot(Placement::free(mirrored), end, slot);
+        let about = self.point(center);
+        self.constrain(Constraint::Symmetric {
+            first,
+            second,
+            about,
+        });
+    }
+
+    fn arc_slot(&mut self, center: Placement, ends: [Placement; 2], slot: &ArcSlot) {
+        let center = self.point(center);
+        let [first, last] = ends;
+        let [first_position, last_position] = slot.ends;
+        let first_center = self.point(Placement {
+            position: first_position,
+            snap: first.snap,
+        });
+        let last_center = self.point(Placement {
+            position: last_position,
+            snap: last.snap,
+        });
+        let [outer_first, outer_last, inner_first, inner_last] = slot.corners();
+        let outer = self.arc_through(center, outer_first, outer_last);
+        let inner = self.arc_through(center, inner_first, inner_last);
+        let first_end = self.arc_through(first_center, inner_first, outer_first);
+        let last_end = self.arc_through(last_center, outer_last, inner_last);
+        self.join(
+            [
+                (first_end.start, inner.start),
+                (first_end.end, outer.start),
+                (last_end.start, outer.end),
+                (last_end.end, inner.end),
+            ],
+            [
+                (first_end.curve, outer.curve),
+                (first_end.curve, inner.curve),
+                (last_end.curve, outer.curve),
+                (last_end.curve, inner.curve),
+            ],
+        );
+    }
+
+    fn regular_polygon(&mut self, center: Placement, corners: &[Placement]) -> Option<Polygon> {
+        let radius = center.position.distance(corners.first()?.position);
+        let center = self.point(center);
+        let circle = self.entity_as(Entity::Circle { center, radius }, true);
+        let sides = self.joined_outline(corners);
+        let first = *sides.first()?;
+        for side in &sides {
+            self.constrain(Constraint::Coincident(side.start, circle));
+            if side.curve != first.curve {
+                self.constrain(Constraint::Equal(first.curve, side.curve));
+            }
+        }
+        Some(Polygon { center, first })
+    }
+
+    fn polygon(&mut self, center: Placement, corners: &[Placement]) {
+        self.regular_polygon(center, corners);
+    }
+
+    fn polygon_around_side_middle(
+        &mut self,
+        center: Placement,
+        middle: Placement,
+        corners: &[Point2],
+    ) {
+        let Some(polygon) = self.regular_polygon(center, &placed_first(corners, &[])) else {
+            return;
+        };
+        let inscribed = self.entity_as(
+            Entity::Circle {
+                center: polygon.center,
+                radius: center.position.distance(middle.position),
+            },
+            true,
+        );
+        self.constrain(Constraint::Tangent(polygon.first.curve, inscribed));
+        if let Some(point) = point_target(middle.snap) {
+            self.constrain(Constraint::Midpoint {
+                point,
+                line: polygon.first.curve,
+            });
         }
     }
 
-    fn polygon(&mut self, center: Placement, corner: Placement, sides: usize) {
-        let corners = shapes::polygon_corners(center.position, corner.position, sides);
-        let radius = center.position.distance(corner.position);
-        let center = self.point(center);
-        let circle = self.entity_as(Entity::Circle { center, radius }, true);
-        let mut edges = Vec::with_capacity(corners.len());
-        for (index, position) in corners.iter().copied().enumerate() {
-            let next = corners
-                .get((index + 1) % corners.len())
-                .copied()
-                .unwrap_or(position);
-            let snap = if index == 0 { corner.snap } else { Snap::Free };
-            let start = self.point(Placement { position, snap });
-            let end = self.point(Placement::free(next));
-            let line = self.entity(Entity::Line { start, end });
-            edges.push((line, start, end));
-        }
-        let Some(&(first, _, _)) = edges.first() else {
+    fn polygon_on_side(
+        &mut self,
+        first: Placement,
+        second: Placement,
+        center: Point2,
+        corners: &[Point2],
+    ) {
+        let corners = placed_first(corners, &[first, second]);
+        let Some(polygon) = self.regular_polygon(Placement::free(center), &corners) else {
             return;
         };
-        for (index, (line, start, end)) in edges.iter().copied().enumerate() {
-            if let Some((_, next_start, _)) = edges.get((index + 1) % edges.len()) {
-                self.constrain(Constraint::Coincident(end, *next_start));
-            }
-            self.constrain(Constraint::Coincident(start, circle));
-            if line != first {
-                self.constrain(Constraint::Equal(first, line));
-            }
+        if let Some(direction) = second.snap.direction() {
+            self.constrain(direction.constraint(polygon.first.curve));
         }
     }
 
@@ -1568,7 +2151,7 @@ mod tests {
             caditor_document::FeatureKind::from(sketch.clone()),
         );
         let mut drawing = Drawing {
-            context: Some((feature, Tool::Line)),
+            context: Some((feature, Shape::Line)),
             placed: vec![Placement::free(Point2::new(10.0, 10.0))],
             ..Drawing::default()
         };
@@ -1598,7 +2181,7 @@ mod tests {
             caditor_document::FeatureKind::from(sketch.clone()),
         );
         Drawing {
-            context: Some((feature, Tool::Line)),
+            context: Some((feature, Shape::Line)),
             placed: vec![start],
             ..Drawing::default()
         }

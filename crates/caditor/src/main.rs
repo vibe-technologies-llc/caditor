@@ -45,6 +45,7 @@ mod reference_rows;
 mod samples;
 mod scene;
 mod selection;
+mod shape_modes;
 mod shapes;
 mod shell_panel;
 mod shell_tools;

@@ -5,6 +5,7 @@ use crate::{
     commands::Command,
     model::{Action, Model, Notice},
     selection::PrincipalPlane,
+    shape_modes::{ShapeMode, ShapeModes},
     sketch_placement::{self, FaceChoice},
 };
 
@@ -128,6 +129,7 @@ pub enum EditingCommand {
     Enter(FeatureId),
     Finish,
     SetTool(Tool),
+    SetMode(ShapeMode),
     DrawConstruction(bool),
     OpenSolid(FeatureId),
     CloseSolid,
@@ -145,6 +147,7 @@ pub struct SketchEditing {
     active: Option<ActiveSketch>,
     solid: Option<FeatureId>,
     choosing_plane: bool,
+    modes: ShapeModes,
     session: u64,
 }
 
@@ -159,6 +162,10 @@ impl SketchEditing {
 
     pub fn solid(&self) -> Option<FeatureId> {
         self.solid
+    }
+
+    pub fn modes(&self) -> ShapeModes {
+        self.modes
     }
 
     pub fn context(&self) -> Context {
@@ -202,6 +209,12 @@ impl SketchEditing {
             EditingCommand::SetTool(tool) => {
                 if let Some(active) = &mut self.active {
                     active.tool = tool;
+                }
+            }
+            EditingCommand::SetMode(mode) => {
+                self.modes.set(mode);
+                if let Some(active) = &mut self.active {
+                    active.tool = mode.tool();
                 }
             }
             EditingCommand::DrawConstruction(construction) => {

@@ -87,11 +87,6 @@ within a category run from most to least important.
 - No projection of model edges or other sketches into a sketch, and bodies and other sketches
   are unpickable while editing.
 - Tools missing: offset, mirror, sketch fillet and ellipse.
-- Most shapes are drawn only one way. Missing modes: a rectangle from its centre and a corner, or
-  from three points (one side, then its width) at any angle; a circle through two ends of a
-  diameter or through three points; a polygon sized by the middle of a side rather than a corner,
-  or by one whole side; a slot drawn from its centre or as an arc. Undecided whether each mode is
-  its own tool and key or a switch within the shape's tool, like the polygon's side count.
 - Snapping has no midpoints, intersections, spline targets, grid or inference lines to other
   points, and dragged geometry does not snap at all.
 - Dimensions all sit at one fixed offset, so collinear chains overlap, and labels cannot be
