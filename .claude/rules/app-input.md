@@ -73,6 +73,9 @@ paths:
   (`solid_panel::selected_axis_change`), Base datum on selection and Turn datum plane about selected
   axis (`datum_panel::base_change`, `rotation_change`). Tab moves between widgets and Escape leaves
   them; each feature row has a "⋯" menu with what its right-click menu holds.
+- Window commands: Minimize the window, Maximize or restore the window (refused in full screen)
+  and Enter or leave full screen (F11), carried out as egui viewport commands
+  (`window_frame::commands`); closing the window is Quit.
 - Viewport commands: standard views (Alt+0 to Alt+6), the projection (O), orbit (arrows), pan
   (Shift+arrows), zoom (Page Up and Page Down). In a sketch, M moves the selection to a typed
   position and Ctrl+A selects all of it (`app-sketching.md`).

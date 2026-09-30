@@ -100,6 +100,9 @@ pub enum Command {
     ShowAll,
     TogglePrincipal,
     ToggleProjection,
+    MinimizeWindow,
+    MaximizeWindow,
+    FullScreen,
     OpenSample(Sample),
     OpenRecent(RecentSlot),
     RecoverUnsaved,
@@ -366,7 +369,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 64] = [
+const PLAIN_COMMANDS: [Command; 67] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -394,6 +397,9 @@ const PLAIN_COMMANDS: [Command; 64] = [
     Command::ToggleVisibility,
     Command::ShowAll,
     Command::TogglePrincipal,
+    Command::MinimizeWindow,
+    Command::MaximizeWindow,
+    Command::FullScreen,
     Command::NewSketch,
     Command::Extrude,
     Command::Revolve,
@@ -531,6 +537,9 @@ impl Command {
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
             Self::ToggleProjection => "view.toggle_projection",
+            Self::MinimizeWindow => "view.minimize_window",
+            Self::MaximizeWindow => "view.maximize_window",
+            Self::FullScreen => "view.full_screen",
             Self::OpenSample(sample) => match sample {
                 Sample::Plate => "file.sample.plate",
                 Sample::Spool => "file.sample.spool",
@@ -612,6 +621,9 @@ impl Command {
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
             Self::ToggleProjection => "Switch between perspective and orthographic",
+            Self::MinimizeWindow => "Minimize the window",
+            Self::MaximizeWindow => "Maximize or restore the window",
+            Self::FullScreen => "Enter or leave full screen",
             Self::OpenSample(sample) => return format!("Open the {} sample", sample.title()),
             Self::OpenRecent(slot) => return slot.title(),
             Self::RecoverUnsaved => "Recover Unsaved Work…",
@@ -676,7 +688,10 @@ impl Command {
             | Self::ToggleVisibility
             | Self::ShowAll
             | Self::TogglePrincipal
-            | Self::ToggleProjection => Category::View,
+            | Self::ToggleProjection
+            | Self::MinimizeWindow
+            | Self::MaximizeWindow
+            | Self::FullScreen => Category::View,
             Self::NewSketch
             | Self::Extrude
             | Self::Revolve
@@ -772,6 +787,7 @@ impl Command {
             Self::Recompute => vec![plain(Key::F5)],
             Self::EditFeature => vec![plain(Key::E)],
             Self::ShowFirstFailed => vec![plain(Key::F8)],
+            Self::FullScreen => vec![plain(Key::F11)],
             Self::VersionHistory
             | Self::KeyboardShortcuts
             | Self::NewSketch
@@ -793,6 +809,8 @@ impl Command {
             | Self::DeleteFeature
             | Self::ToggleVisibility
             | Self::TogglePrincipal
+            | Self::MinimizeWindow
+            | Self::MaximizeWindow
             | Self::CloseFeature
             | Self::DetachSketch
             | Self::PlaceSketch

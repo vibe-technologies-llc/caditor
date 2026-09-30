@@ -152,6 +152,12 @@ The first release of caditor.
 
 ### Interface
 
+- caditor draws its own title bar: the menu bar doubles as it, with the model's name (and the
+  sketch being edited) in the middle, a details popover with its location, saved state, Save,
+  Save As, Version History and Copy file location, and Minimize, Maximize and Close buttons. Drag
+  it to move the window, double-click to maximize, right-click for the window menu, drag any edge
+  to resize; it keeps working while a dialog is open. F11 enters and leaves full screen. Prefer
+  the window manager's title bar? Choose it in Preferences › Appearance or the window menu.
 - One environment without workbenches or modes: tools are offered where they fit the selection
   and the edited sketch.
 - A command palette, customisable keyboard shortcuts, and keyboard operation of everything,

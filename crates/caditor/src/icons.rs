@@ -41,6 +41,13 @@ pub const MOVE_UP: &str = phosphor::ARROW_UP;
 pub const MOVE_DOWN: &str = phosphor::ARROW_DOWN;
 pub const PRINCIPAL_GROUP: &str = PLANE;
 pub const CONSTRUCTION: &str = phosphor::CIRCLE_DASHED;
+pub const MINIMIZE: &str = phosphor::MINUS;
+pub const MAXIMIZE: &str = phosphor::SQUARE;
+pub const RESTORE: &str = phosphor::COPY;
+pub const FULL_SCREEN: &str = phosphor::CORNERS_OUT;
+pub const LEAVE_FULL_SCREEN: &str = phosphor::CORNERS_IN;
+pub const COPY_PATH: &str = phosphor::CLIPBOARD_TEXT;
+pub const BREADCRUMB: &str = phosphor::CARET_RIGHT;
 const ORIGIN: &str = phosphor::CROSSHAIR;
 
 pub fn command(command: Command) -> &'static str {
@@ -78,6 +85,9 @@ pub fn command(command: Command) -> &'static str {
         Command::DatumAxis => AXIS,
         Command::FitView => phosphor::FRAME_CORNERS,
         Command::ToggleProjection => phosphor::PERSPECTIVE,
+        Command::MinimizeWindow => MINIMIZE,
+        Command::MaximizeWindow => MAXIMIZE,
+        Command::FullScreen => FULL_SCREEN,
         Command::LargerInterface => phosphor::MAGNIFYING_GLASS_PLUS,
         Command::SmallerInterface => phosphor::MAGNIFYING_GLASS_MINUS,
         Command::NormalInterface => phosphor::TEXT_AA,
@@ -120,7 +130,7 @@ const REVOLVE: &str = phosphor::ARROWS_CLOCKWISE;
 const SHELL: &str = phosphor::CUBE_TRANSPARENT;
 const PLANE: &str = phosphor::PARALLELOGRAM;
 const AXIS: &str = phosphor::ARROW_LINE_UP_RIGHT;
-const SKETCH: &str = phosphor::PENCIL_LINE;
+pub const SKETCH: &str = phosphor::PENCIL_LINE;
 const IMPORTED: &str = phosphor::CUBE;
 
 pub fn tool(tool: Tool) -> &'static str {

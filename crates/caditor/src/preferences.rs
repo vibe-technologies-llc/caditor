@@ -22,6 +22,7 @@ const ORBIT_KEY: &str = "navigation.orbit_speed";
 const ZOOM_KEY: &str = "navigation.zoom_speed";
 const INVERT_ZOOM_KEY: &str = "navigation.invert_zoom";
 const PROJECTION_KEY: &str = "navigation.projection";
+const TITLE_BAR_KEY: &str = "appearance.title_bar";
 const SECTION_GAP: f32 = 12.0;
 const BODY_HEIGHT_SHARE: f32 = 0.75;
 
@@ -62,6 +63,52 @@ impl Theme {
             Self::Dark => ThemePreference::Dark,
             Self::Light => ThemePreference::Light,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TitleBar {
+    #[default]
+    BuiltIn,
+    System,
+}
+
+impl TitleBar {
+    pub const ALL: [Self; 2] = [Self::BuiltIn, Self::System];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::BuiltIn => "caditor's",
+            Self::System => "The system's",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::BuiltIn => {
+                "The menu bar is the title bar: drag it to move the window, double-click it to \
+                 maximize, and use its buttons to minimize, maximize and close"
+            }
+            Self::System => {
+                "The window manager draws its own title bar above the menu bar; suits tiling \
+                 window managers"
+            }
+        }
+    }
+
+    pub fn decorated(self) -> bool {
+        self == Self::System
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::BuiltIn => "built_in",
+            Self::System => "system",
+        }
+    }
+
+    fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|bar| bar.key() == key)
     }
 }
 
@@ -126,6 +173,7 @@ pub struct Preferences {
     pub unit: LengthUnit,
     pub appearance: Appearance,
     pub navigation: Navigation,
+    pub title_bar: TitleBar,
     pub onboarding: Onboarding,
     pub keymap: Keymap,
     pub window: WindowPlacement,
@@ -144,6 +192,7 @@ pub enum PreferenceChange {
     ZoomSpeed(f64),
     InvertZoom(bool),
     Projection(Projection),
+    TitleBar(TitleBar),
     Bind(Command, KeyboardShortcut),
     Unbind(Command, KeyboardShortcut),
     ResetShortcut(Command),
@@ -199,6 +248,10 @@ impl Preferences {
                     .and_then(projection_from_key)
                     .unwrap_or_default(),
             },
+            title_bar: raw
+                .text(TITLE_BAR_KEY)
+                .and_then(TitleBar::from_key)
+                .unwrap_or_default(),
             onboarding: Onboarding::from_settings(&raw),
             keymap: Keymap::from_settings(&raw),
             window: WindowPlacement::from_settings(&raw),
@@ -218,6 +271,7 @@ impl Preferences {
         settings.set_number(ZOOM_KEY, self.navigation.zoom_speed);
         settings.set_flag(INVERT_ZOOM_KEY, self.navigation.invert_zoom);
         settings.set_text(PROJECTION_KEY, projection_key(self.navigation.projection));
+        settings.set_text(TITLE_BAR_KEY, self.title_bar.key());
         self.keymap.write(&self.loaded_keymap, &mut settings);
         self.onboarding.write(&mut settings);
         self.window.write(&mut settings);
@@ -241,6 +295,7 @@ impl Preferences {
             }
             PreferenceChange::InvertZoom(invert) => self.navigation.invert_zoom = invert,
             PreferenceChange::Projection(projection) => self.navigation.projection = projection,
+            PreferenceChange::TitleBar(bar) => self.title_bar = bar,
             PreferenceChange::Bind(command, shortcut) => self.keymap.bind(command, shortcut),
             PreferenceChange::Unbind(command, shortcut) => self.keymap.unbind(command, shortcut),
             PreferenceChange::ResetShortcut(command) => self.keymap.reset(command),
@@ -258,6 +313,7 @@ impl Preferences {
                 self.unit = LengthUnit::default();
                 self.appearance = Appearance::default();
                 self.navigation = Navigation::default();
+                self.title_bar = TitleBar::default();
             }
         }
     }
@@ -283,8 +339,8 @@ pub fn dialog(ctx: &egui::Context, preferences: &Preferences) -> Option<Preferen
             if ui
                 .button("Restore defaults")
                 .on_hover_text(
-                    "Go back to millimetres, the system theme at normal size and contrast, and \
-                     normal speeds",
+                    "Go back to millimetres, the system theme at normal size and contrast, \
+                     caditor's title bar and normal speeds",
                 )
                 .clicked()
             {
@@ -381,6 +437,19 @@ fn appearance(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
                 {
                     change(command, PreferenceChange::HighContrast(high_contrast));
                 }
+            });
+            widgets::property(ui, "Title bar", |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for bar in TitleBar::ALL {
+                        if ui
+                            .selectable_label(preferences.title_bar == bar, bar.label())
+                            .on_hover_text(bar.description())
+                            .clicked()
+                        {
+                            change(command, PreferenceChange::TitleBar(bar));
+                        }
+                    }
+                });
             });
             widgets::property(ui, "Interface size", |ui| {
                 ui.horizontal(|ui| {
@@ -522,10 +591,16 @@ mod tests {
         preferences.apply(PreferenceChange::ZoomSpeed(0.5));
         preferences.apply(PreferenceChange::InvertZoom(true));
         preferences.apply(PreferenceChange::Projection(Projection::Orthographic));
+        preferences.apply(PreferenceChange::TitleBar(TitleBar::System));
         let settings = preferences.settings();
         assert_eq!(settings.text("future.option"), Some("kept"));
         assert_eq!(settings.number(ZOOM_KEY), Some(0.5));
         assert_eq!(settings.text(PROJECTION_KEY), Some("orthographic"));
+        assert_eq!(settings.text(TITLE_BAR_KEY), Some("system"));
+        assert_eq!(
+            Preferences::from_settings(settings.clone()).title_bar,
+            TitleBar::System
+        );
         assert_eq!(
             Preferences::from_settings(settings.clone())
                 .navigation
@@ -540,5 +615,6 @@ mod tests {
         assert_eq!(preferences.unit, LengthUnit::Millimetre);
         assert_eq!(preferences.navigation, Navigation::default());
         assert_eq!(preferences.appearance, Appearance::default());
+        assert_eq!(preferences.title_bar, TitleBar::BuiltIn);
     }
 }

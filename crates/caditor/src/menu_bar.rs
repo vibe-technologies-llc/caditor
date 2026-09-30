@@ -1,26 +1,37 @@
-use egui::{Align, Button, Id, Label, Layout, RichText, TextStyle, Ui, vec2};
+use egui::{
+    Align, Button, Id, Label, Layout, Popup, Rect, RichText, Sense, Shape, TextStyle, Ui,
+    UiBuilder, pos2, vec2,
+};
 
 use crate::{
-    appearance,
+    appearance::{self, WIDGET_RADIUS},
     commands::{CameraMove, Command, CommandFrame, Offer, Scope, StandardView},
     editing::{SketchEditing, Tool},
-    files::{self, Files},
+    files::{self, FileCommand, Files},
+    history::HistoryCommand,
     icons,
     model::{Action, Model},
     sketch_tools::ConstraintTool,
     widgets::{self, Tone},
+    window_frame::{self, Chrome},
 };
 
 pub const SEARCH_LABEL: &str = "Search commands";
+pub const MODEL_DETAILS: &str = "Model details";
+pub const COPY_PATH: &str = "Copy file location";
 const SEARCH_WIDTH: f32 = 240.0;
 const NAME_ROOM: f32 = 160.0;
+const TITLE_PADDING: f32 = 6.0;
+const DETAILS_WIDTH: f32 = 280.0;
 const SKETCH_ONLY: &str = "Only while a sketch is being edited";
 const NOT_HERE: &str = "Not available right now";
+const NOT_SAVED: &str = "Save the model to start keeping its versions";
 
 pub struct MenuContext<'a> {
     pub files: &'a Files,
     pub editing: &'a SketchEditing,
     pub offers: &'a [Offer],
+    pub chrome: Chrome,
 }
 
 pub fn show(
@@ -31,9 +42,12 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     let trailing_id = Id::new("menu-bar-trailing");
-    egui::Panel::top("menu-bar")
+    let panel = egui::Panel::top("menu-bar")
         .show_separator_line(false)
         .show(ui, |ui| {
+            if let Some(drag) = window_frame::drag_region(ui, context.chrome) {
+                window_frame::drags_window(&drag, context.chrome, commands, actions);
+            }
             let mut wrapped = false;
             egui::MenuBar::new().ui(ui, |ui| {
                 files::menu(ui, model, context.files, context.editing, commands, actions);
@@ -51,24 +65,187 @@ pub fn show(
                 for command in chosen {
                     commands.trigger(command);
                 }
-                if ui.available_width() >= widgets::remembered_width(ui, trailing_id) {
-                    trailing(ui, model, commands, trailing_id);
-                } else {
-                    wrapped = true;
-                }
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if context.chrome.built_in() {
+                        window_frame::controls(ui, context.chrome.state, commands, actions);
+                        ui.separator();
+                    }
+                    if ui.available_width() >= widgets::remembered_width(ui, trailing_id) {
+                        trailing(ui, model, context, commands, actions, trailing_id);
+                    } else {
+                        wrapped = true;
+                    }
+                });
             });
             if wrapped {
-                trailing(ui, model, commands, trailing_id);
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    trailing(ui, model, context, commands, actions, trailing_id);
+                });
             }
         });
+    window_frame::remember_bar(ui.ctx(), panel.response.rect);
 }
 
-fn trailing(ui: &mut Ui, model: &Model, commands: &mut CommandFrame<'_>, id: Id) {
-    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        search(ui, commands);
-        widgets::remember_width(ui, id, ui.min_rect().width() + NAME_ROOM);
-        document_name(ui, model);
+fn trailing(
+    ui: &mut Ui,
+    model: &Model,
+    context: &MenuContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+    id: Id,
+) {
+    let search = search(ui, commands);
+    let spacing = ui.spacing().item_spacing.x;
+    widgets::remember_width(ui, id, search.rect.width() + spacing + NAME_ROOM);
+    title(ui, model, context, commands, actions);
+}
+
+fn title(
+    ui: &mut Ui,
+    model: &Model,
+    context: &MenuContext<'_>,
+    commands: &CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let rest = ui.available_rect_before_wrap();
+    let width_id = Id::new("model-title-width");
+    let wanted = widgets::remembered_width(ui, width_id).min(rest.width());
+    let centred = ui.ctx().content_rect().center().x - wanted / 2.0;
+    let left = centred.min(rest.right() - wanted).max(rest.left());
+    let area = Rect::from_min_max(pos2(left, rest.top()), rest.max);
+    let shown = ui.scope_builder(
+        UiBuilder::new()
+            .max_rect(area)
+            .layout(Layout::left_to_right(Align::Center)),
+        |ui| model_title(ui, model, context, commands, actions),
+    );
+    widgets::remember_width(ui, width_id, shown.inner.rect.width());
+}
+
+fn model_title(
+    ui: &mut Ui,
+    model: &Model,
+    context: &MenuContext<'_>,
+    commands: &CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) -> egui::Response {
+    let tokens = appearance::tokens(ui);
+    let text = if context.chrome.state.focused {
+        tokens.text
+    } else {
+        tokens.text_muted
+    };
+    let background = ui.painter().add(Shape::Noop);
+    let name = model.display_name();
+    let group = ui
+        .horizontal(|ui| {
+            ui.add_space(TITLE_PADDING);
+            widgets::icon_label(ui, icons::FILE, tokens.text_muted);
+            ui.add(
+                Label::new(
+                    RichText::new(&name)
+                        .text_style(TextStyle::Button)
+                        .color(text),
+                )
+                .truncate()
+                .selectable(false),
+            );
+            if model.is_dirty() {
+                widgets::pill(ui, Tone::Neutral, "Unsaved");
+            }
+            if let Some(sketch) = edited_sketch(model, context.editing) {
+                widgets::icon_label(ui, icons::BREADCRUMB, tokens.text_muted);
+                widgets::icon_label(ui, icons::SKETCH, tokens.text_muted);
+                ui.add(
+                    Label::new(RichText::new(sketch).color(text))
+                        .truncate()
+                        .selectable(false),
+                );
+            }
+            ui.add_space(TITLE_PADDING);
+        })
+        .response;
+    let response = ui.interact(group.rect, Id::new("model-title"), Sense::click_and_drag());
+    let response = widgets::named(response, &format!("{name}, {MODEL_DETAILS}"));
+    if response.hovered() || Popup::is_id_open(ui.ctx(), Popup::default_response_id(&response)) {
+        ui.painter().set(
+            background,
+            egui::epaint::RectShape::filled(
+                group.rect,
+                egui::CornerRadius::same(WIDGET_RADIUS),
+                tokens.hover,
+            ),
+        );
+    }
+    if context.chrome.built_in() && response.drag_started_by(egui::PointerButton::Primary) {
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+    let hover = match model.path() {
+        Some(path) => path.display().to_string(),
+        None => "Not saved to a file yet".to_owned(),
+    };
+    let response = response.on_hover_text(hover);
+    Popup::menu(&response)
+        .width(DETAILS_WIDTH)
+        .show(|ui| model_details(ui, model, commands, actions));
+    response
+}
+
+fn edited_sketch(model: &Model, editing: &SketchEditing) -> Option<String> {
+    let feature = editing.feature()?;
+    model
+        .document()
+        .feature(feature)
+        .map(|feature| feature.name.clone())
+}
+
+fn model_details(
+    ui: &mut Ui,
+    model: &Model,
+    commands: &CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    ui.set_min_width(DETAILS_WIDTH);
+    ui.label(widgets::section_title(&model.display_name()));
+    match model.path() {
+        Some(path) => ui.label(widgets::muted(path.display().to_string(), ui)),
+        None => ui.label(widgets::muted("Not saved to a file yet", ui)),
+    };
+    ui.horizontal_wrapped(|ui| match (model.is_dirty(), model.path()) {
+        (true, _) => widgets::pill(ui, Tone::Warning, "Unsaved changes"),
+        (false, Some(_)) => widgets::pill(ui, Tone::Success, "All changes saved"),
+        (false, None) => widgets::pill(ui, Tone::Neutral, "Nothing to save yet"),
     });
+    ui.separator();
+    let item = |ui: &mut Ui, command: Command| {
+        widgets::menu_item(
+            ui,
+            icons::command(command),
+            &command.title(),
+            commands.keys(command),
+        )
+    };
+    if item(ui, Command::Save).clicked() {
+        actions.push(Action::File(FileCommand::Save));
+    }
+    if item(ui, Command::SaveAs).clicked() {
+        actions.push(Action::File(FileCommand::SaveAs));
+    }
+    let saved = model.path().is_some();
+    let history = ui
+        .add_enabled_ui(saved, |ui| item(ui, Command::VersionHistory))
+        .inner
+        .on_disabled_hover_text(NOT_SAVED);
+    if history.clicked() {
+        actions.push(Action::File(FileCommand::History(HistoryCommand::Show)));
+    }
+    if let Some(path) = model.path() {
+        let copy = widgets::menu_item(ui, icons::COPY_PATH, COPY_PATH, None)
+            .on_hover_text("Copy the model's full path to the clipboard");
+        if copy.clicked() {
+            ui.ctx().copy_text(path.display().to_string());
+        }
+    }
 }
 
 struct Menus<'a, 'b> {
@@ -125,6 +302,7 @@ impl Menus<'_, '_> {
         ui.menu_button("View", |ui| {
             self.item(ui, Command::FitView);
             self.item(ui, Command::ToggleProjection);
+            self.item(ui, Command::FullScreen);
             self.items(
                 ui,
                 [
@@ -248,7 +426,7 @@ fn submenu(ui: &mut Ui, glyph: &str, title: &str, add: impl FnOnce(&mut Ui)) {
     widgets::named(submenu.response, title);
 }
 
-fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) {
+fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) -> egui::Response {
     let tokens = appearance::tokens(ui);
     let mut button = Button::new((
         widgets::icon(icons::SEARCH).color(tokens.text_muted),
@@ -261,22 +439,11 @@ fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) {
         button = button.shortcut_text(RichText::new(keys).text_style(TextStyle::Small));
     }
     let hover = commands.with_keys(Command::Palette, "Search every command by name");
-    if ui
+    let response = ui
         .add(widgets::Named::new(button, SEARCH_LABEL))
-        .on_hover_text(hover)
-        .clicked()
-    {
+        .on_hover_text(hover);
+    if response.clicked() {
         commands.trigger(Command::Palette);
     }
-}
-
-fn document_name(ui: &mut Ui, model: &Model) {
-    if model.is_dirty() {
-        widgets::pill(ui, Tone::Neutral, "Unsaved");
-    }
-    let name = model.display_name();
-    let shown = ui.add(Label::new(&name).truncate());
-    if let Some(path) = model.path() {
-        shown.on_hover_text(path.display().to_string());
-    }
+    response
 }

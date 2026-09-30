@@ -123,7 +123,7 @@ that makes a rule false updates it in the same commit.
 | `file-import-export.md` | DXF and STEP import, STL, 3MF and STEP export. |
 | `render.md` | Frames, devices and device loss, precision, meshes, depth, lines, projection, picking, navigation. |
 | `app.md` | App shell, `Model` and `Action`s, body meshing, offers, file session, signals, samples, CLI, accessibility. |
-| `app-look.md` | Fonts, theme tokens, widgets, screen-reader naming, bars and panels, window and panel persistence. |
+| `app-look.md` | Fonts, theme tokens, widgets, screen-reader naming, bars and panels, the title bar and window frame, window and panel persistence. |
 | `app-modelling.md` | Extrude, revolve, fillet, chamfer, shell and datum tools and panels, visibility, sketch placement. |
 | `app-files.md` | File workflow, onboarding, export and import dialogs, version history, preferences and units. |
 | `app-input.md` | Numeric fields, shortcut focus rules, commands and keymap, palette, shortcut editor, keyboard-only operation, typed points. |

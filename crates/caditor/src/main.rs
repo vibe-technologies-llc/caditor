@@ -60,6 +60,7 @@ mod view_cube;
 mod viewport;
 mod visibility;
 mod widgets;
+mod window_frame;
 
 use std::{sync::Arc, thread, time::Duration};
 

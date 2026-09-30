@@ -78,7 +78,8 @@ paths:
 - `preferences.rs`, `units.rs`. File › Preferences… (Ctrl+,) sets the length unit (µm, mm, cm or m;
   SI only, `ux.md`); the `Appearance` (theme system, dark or light, the 3D view staying dark;
   interface size 75% to 200% in eighths, Ctrl+Plus/Minus/0, the egui zoom factor with egui's
-  keyboard zoom and quit shortcut off; high contrast); orbit and zoom speed with the zoom direction;
+  keyboard zoom and quit shortcut off; high contrast); the title bar (caditor's or the system's,
+  `app-look.md`); orbit and zoom speed with the zoom direction;
   the projection (`navigation.projection`, perspective by default, also switched by Switch between
   perspective and orthographic, O, in the View menu and the palette; standard views and sketching
   never switch it by themselves, so the view only changes when asked); and opens the shortcut

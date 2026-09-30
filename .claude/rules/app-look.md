@@ -7,6 +7,8 @@ paths:
   - "crates/caditor/src/canvas.rs"
   - "crates/caditor/src/layout.rs"
   - "crates/caditor/src/menu_bar.rs"
+  - "crates/caditor/src/window_frame.rs"
+  - "crates/caditor/src/overlay.rs"
   - "crates/caditor/src/toolbar.rs"
   - "crates/caditor/src/status_bar.rs"
   - "crates/caditor/src/panels.rs"
@@ -58,8 +60,13 @@ paths:
 
 - The menu bar holds File, Edit, View, Model, Sketch and Help, built from the commands with their
   icons and shortcuts; items trigger their command and enable from the previous frame's offers
-  (`Workspace::last_offers`), reason on hover. Its right side shows the document name (with an
-  Unsaved pill) and the Search commands field.
+  (`Workspace::last_offers`), reason on hover. Then the model title, the Search commands field
+  and, with caditor's title bar, the window buttons.
+- The model title (file icon, name, Unsaved pill, and "› sketch" while one is edited) sits centred
+  on the window when it fits between the menus and the search field, else as far towards the
+  centre as it can (`model-title-width`, remembered like the bars' trailing widths). Clicking it
+  opens the model details: path, saved state, Save, Save As…, Version History… (once saved) and
+  Copy file location. Its text is muted while the window is unfocused.
 - The ribbon groups Undo and Redo, New sketch, Extrude and Revolve, Fillet, Chamfer and Shell, and
   Plane and Axis as `ToolButton`s that wrap. While a sketch is edited a tinted sketch ribbon shows
   its name and state pill, the drawing tools, the constraints in a wrapping grid, Delete and Finish
@@ -102,3 +109,28 @@ paths:
   `PanelState` restores the sections once and reports the panel as drawn each frame. Changes save
   through `Files::store_settings` a second after they stop, and on exit, where `App::finish` waits
   up to two seconds (`Files::wait_for_jobs`).
+
+## Title bar and window frame
+
+- `Preferences::title_bar` (`appearance.title_bar`: `built_in` by default, or `system`) chooses
+  between caditor's title bar (an undecorated window, the menu bar acting as its title bar) and
+  the window manager's. The window is created with that decoration and a change is applied at once
+  through `ViewportCommand::Decorations` (`window_frame::apply_title_bar`); it is offered in
+  Preferences › Appearance and in the title bar's window menu.
+- `window_frame.rs` does everything through egui `ViewportCommand`s, which `Overlay::run` hands to
+  `egui_winit::process_viewport_commands`; `Overlay` feeds the window's maximized, full-screen and
+  focus state back as the root `ViewportInfo` each frame (`WindowState::of`).
+- With caditor's title bar, the menu bar's empty space (last frame's rect, registered below its
+  widgets) and the model title drag the window (`StartDrag` once a primary drag starts), a
+  double-click on empty space maximizes or restores, and a right-click opens the window menu
+  (Minimize, Maximize or Restore, Full screen, Use the system title bar, Close). The buttons at the
+  far right are Minimize, Maximize or Restore, and Close (red tint on hover, closing through Quit
+  so unsaved work is asked about); in full screen Leave full screen replaces the first two.
+- While a dialog is open, `window_frame::over_dialogs` redraws the drag area and window buttons in
+  a foreground area moved above the modal, so the window can still be moved, maximized or closed.
+- When neither maximized nor full screen, a 1-point outline marks the window's edge and 5-point
+  strips along it (foreground areas kept on top, 16-point corners resizing diagonally) set the
+  resize cursor and start `BeginResize` on a primary press.
+- The compositor takes the pointer during a move or resize and the release never reaches the
+  window, so `Overlay` queues a synthetic primary release after `StartDrag` or `BeginResize`.
+- The window's minimum size is `layout::MIN_WINDOW_WIDTH` by `MIN_WINDOW_HEIGHT`.

@@ -1,7 +1,10 @@
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use caditor_render::{Frame, Renderer};
-use egui::{ColorImage, ImageData, TextureId, TextureOptions, epaint::ImageDelta};
+use egui::{
+    ColorImage, Event, ImageData, Modifiers, PointerButton, TextureId, TextureOptions,
+    ViewportCommand, ViewportId, ViewportInfo, epaint::ImageDelta,
+};
 use egui_wgpu::ScreenDescriptor;
 use egui_winit::accesskit_winit;
 use winit::{
@@ -24,6 +27,7 @@ pub struct Overlay {
     renderer: egui_wgpu::Renderer,
     generation: u64,
     textures: TextureMirror,
+    window: ViewportInfo,
 }
 
 impl Overlay {
@@ -43,6 +47,7 @@ impl Overlay {
             renderer: egui_renderer(renderer),
             generation: renderer.generation(),
             textures: TextureMirror::default(),
+            window: ViewportInfo::default(),
         }
     }
 
@@ -78,16 +83,26 @@ impl Overlay {
     }
 
     pub fn run(&mut self, window: &Window, run_ui: impl FnMut(&mut egui::Ui)) -> UiFrame {
-        let input = self.state.take_egui_input(window);
-        let output = self.context.run_ui(input, run_ui);
+        egui_winit::update_viewport_info(&mut self.window, &self.context, window, false);
+        let mut input = self.state.take_egui_input(window);
+        input
+            .viewports
+            .insert(ViewportId::ROOT, self.window.clone());
+        let mut output = self.context.run_ui(input, run_ui);
         self.state
             .handle_platform_output(window, output.platform_output);
 
-        let repaint_after = output
-            .viewport_output
-            .get(&egui::ViewportId::ROOT)
+        let mut root = output.viewport_output.get_mut(&ViewportId::ROOT);
+        let window_commands = root
+            .as_deref_mut()
+            .map(|viewport| std::mem::take(&mut viewport.commands))
+            .unwrap_or_default();
+        let mut repaint_after = root
             .map(|viewport| viewport.repaint_delay)
             .filter(|delay| *delay < LONGEST_SCHEDULED_REPAINT);
+        if self.follow_window_commands(window, window_commands) {
+            repaint_after = Some(Duration::ZERO);
+        }
         UiFrame {
             primitives: self
                 .context
@@ -96,6 +111,39 @@ impl Overlay {
             pixels_per_point: output.pixels_per_point,
             repaint_after,
         }
+    }
+
+    fn follow_window_commands(&mut self, window: &Window, commands: Vec<ViewportCommand>) -> bool {
+        let grabs_pointer = commands.iter().any(|command| {
+            matches!(
+                command,
+                ViewportCommand::StartDrag | ViewportCommand::BeginResize(_)
+            )
+        });
+        egui_winit::process_viewport_commands(
+            &self.context,
+            &mut self.window,
+            commands,
+            window,
+            &mut Vec::new(),
+        );
+        let Some(pos) = self
+            .context
+            .input(|input| input.pointer.interact_pos())
+            .filter(|_| grabs_pointer)
+        else {
+            return false;
+        };
+        self.state
+            .egui_input_mut()
+            .events
+            .push(Event::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::NONE,
+            });
+        true
     }
 
     pub fn paint(

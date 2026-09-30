@@ -27,7 +27,10 @@ use crate::{
     feature_tree,
     files::{self, FileCommand, Files},
     fonts,
-    layout::{LogicalSize, MonitorArea, PanelLayout, Position, WindowPlacement},
+    layout::{
+        LogicalSize, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, MonitorArea, PanelLayout, Position,
+        WindowPlacement,
+    },
     menu_bar::{self, MenuContext},
     model::{Action, Model, Notice, WakerFactory},
     offers::SelectionOffers,
@@ -35,12 +38,13 @@ use crate::{
     overlay::Overlay,
     palette::Palette,
     panels::{self, PanelState},
-    preferences::{self, Appearance, PreferenceChange, Preferences, PreferencesCommand},
+    preferences::{self, Appearance, PreferenceChange, Preferences, PreferencesCommand, TitleBar},
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar,
     status_bar::{self, StatusContext},
     toolbar::{self, ToolbarContext},
     viewport::ViewportState,
+    window_frame::{self, Chrome},
 };
 
 #[derive(Debug)]
@@ -92,6 +96,7 @@ pub struct Workspace {
     pub last_offers: Vec<Offer>,
     pub selection_offers: SelectionOffers,
     applied_appearance: Option<Appearance>,
+    applied_title_bar: Option<TitleBar>,
     keyboard_was_taken: bool,
     deferred_commands: Vec<Command>,
     session: u64,
@@ -122,6 +127,7 @@ impl Workspace {
             last_offers: Vec::new(),
             selection_offers: SelectionOffers::default(),
             applied_appearance: None,
+            applied_title_bar: None,
             keyboard_was_taken: false,
             deferred_commands: Vec::new(),
             session: 0,
@@ -208,6 +214,12 @@ pub fn show(
         Applied::Changed => ui.set_style(ui.ctx().global_style()),
         Applied::Unchanged => {}
     }
+    window_frame::apply_title_bar(
+        ui.ctx(),
+        &mut workspace.applied_title_bar,
+        workspace.preferences.title_bar,
+    );
+    let chrome = Chrome::of(ui.ctx(), workspace.preferences.title_bar);
     let text_focused = ui.ctx().text_edit_focused();
     let keyboard_taken = ui.ctx().egui_wants_keyboard_input() || workspace.keyboard_was_taken;
     let palette_open = workspace.palette.is_open();
@@ -260,6 +272,7 @@ pub fn show(
         files,
         editing,
         offers: last_offers,
+        chrome,
     };
     menu_bar::show(ui, model, &menu, &mut commands, actions);
     let toolbar = ToolbarContext {
@@ -303,6 +316,10 @@ pub fn show(
         panels.selected = None;
     }
     interface_size(&preferences.appearance, &mut commands, actions);
+    window_frame::commands(ui.ctx(), chrome.state, &mut commands);
+    if blocked {
+        window_frame::over_dialogs(ui.ctx(), chrome, &commands, actions);
+    }
     let open_palette = commands.available(Command::Palette);
     let open_shortcuts = commands.available(Command::KeyboardShortcuts);
     if commands.available(Command::Welcome) {
@@ -371,6 +388,7 @@ pub fn show(
             actions.push(Action::Preferences(PreferencesCommand::Change(change)));
         }
     }
+    window_frame::frame(ui.ctx(), chrome);
     *last_offers = offers;
     *keyboard_was_taken = ui.ctx().egui_wants_keyboard_input();
 }
@@ -629,10 +647,16 @@ impl ApplicationHandler<AppEvent> for App {
     }
 }
 
-fn window_attributes(title: &str, placement: WindowPlacement) -> WindowAttributes {
+fn window_attributes(
+    title: &str,
+    placement: WindowPlacement,
+    title_bar: TitleBar,
+) -> WindowAttributes {
     let mut attributes = Window::default_attributes()
         .with_title(title)
         .with_visible(false)
+        .with_decorations(title_bar.decorated())
+        .with_min_inner_size(dpi::LogicalSize::new(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT))
         .with_maximized(placement.maximized);
     if let Some(size) = placement.size {
         attributes = attributes.with_inner_size(dpi::LogicalSize::new(size.width, size.height));
@@ -695,7 +719,7 @@ impl Session {
         let placement = preferences.window.fitted(&monitor_areas(event_loop));
         let window = Arc::new(
             event_loop
-                .create_window(window_attributes(title, placement))
+                .create_window(window_attributes(title, placement, preferences.title_bar))
                 .context("could not open the main window")?,
         );
         let renderer = pollster::block_on(Renderer::new(
