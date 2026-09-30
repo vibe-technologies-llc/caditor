@@ -11,6 +11,7 @@ use caditor_document::{
 use caditor_file::{
     Closing, Flusher, JournalEntry, Recovered, Report, SaveRequest, Start, Storage, StorageConfig,
 };
+use caditor_kernel::MeshQuality;
 use caditor_sketch::Sketch;
 use parking_lot::Mutex;
 
@@ -142,6 +143,7 @@ pub struct Model {
     next_ticket: u64,
     file_events: Vec<FileEvent>,
     length_unit: LengthUnit,
+    mesh_quality: MeshQuality,
     mesh_requested: Option<Arc<FeatureResult>>,
     display: Display,
     shown_before: Option<Arc<FeatureResult>>,
@@ -170,6 +172,7 @@ impl Model {
             next_ticket: 0,
             file_events: Vec::new(),
             length_unit: LengthUnit::default(),
+            mesh_quality: MeshQuality::default(),
             mesh_requested: None,
             display: Display::default(),
             shown_before: None,
@@ -186,6 +189,25 @@ impl Model {
 
     pub fn set_length_unit(&mut self, unit: LengthUnit) {
         self.length_unit = unit;
+    }
+
+    #[cfg(test)]
+    pub fn mesh_quality(&self) -> MeshQuality {
+        self.mesh_quality
+    }
+
+    pub fn set_mesh_quality(&mut self, quality: MeshQuality) {
+        if self.mesh_quality == quality {
+            return;
+        }
+        self.mesh_quality = quality;
+        if let Some(recomputer) = &self.recomputer
+            && let Err(error) = recomputer.set_mesh_quality(quality)
+        {
+            log::error!("{error}");
+            self.recomputer = None;
+        }
+        self.recompute();
     }
 
     pub fn document(&self) -> &Document {
@@ -780,7 +802,12 @@ impl Model {
     fn recompute(&mut self) {
         if self.recomputer.is_none() {
             match Recomputer::spawn(ModelEvaluator, (self.services.make_waker)()) {
-                Ok(recomputer) => self.recomputer = Some(recomputer),
+                Ok(recomputer) => {
+                    if let Err(error) = recomputer.set_mesh_quality(self.mesh_quality) {
+                        log::error!("{error}");
+                    }
+                    self.recomputer = Some(recomputer);
+                }
                 Err(error) => {
                     log::error!("could not start the recompute worker: {error}");
                     self.status = RecomputeStatus::Stopped;

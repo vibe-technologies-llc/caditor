@@ -48,6 +48,10 @@ pub const FULL_SCREEN: &str = phosphor::CORNERS_OUT;
 pub const LEAVE_FULL_SCREEN: &str = phosphor::CORNERS_IN;
 pub const COPY_PATH: &str = phosphor::CLIPBOARD_TEXT;
 pub const BREADCRUMB: &str = phosphor::CARET_RIGHT;
+pub const GENERAL: &str = phosphor::SLIDERS_HORIZONTAL;
+pub const APPEARANCE: &str = phosphor::PALETTE;
+pub const NAVIGATION: &str = phosphor::COMPASS;
+pub const GRAPHICS: &str = phosphor::MONITOR;
 const ORIGIN: &str = phosphor::CROSSHAIR;
 
 pub fn command(command: Command) -> &'static str {

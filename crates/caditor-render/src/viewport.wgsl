@@ -4,6 +4,7 @@ struct View {
     viewport: vec4<f32>,
     pick_transform: vec4<f32>,
     light: vec4<f32>,
+    fill_light: vec4<f32>,
 }
 
 struct Grid {
@@ -294,9 +295,26 @@ const HEADLIGHT: f32 = 0.2;
 const SPECULAR: f32 = 0.12;
 const SHININESS: f32 = 40.0;
 
-@fragment
-fn fs_mesh(in: Varyings) -> @location(0) vec4<f32> {
-    let eye = toward_eye(in.relative);
+const GROUND_AMBIENT: f32 = 0.17;
+const SKY_AMBIENT: f32 = 0.34;
+const ENHANCED_KEY_LIGHT: f32 = 0.5;
+const ENHANCED_FILL_LIGHT: f32 = 0.17;
+const ENHANCED_HEADLIGHT: f32 = 0.12;
+const ENHANCED_SPECULAR: f32 = 0.24;
+const ENHANCED_SHININESS: f32 = 72.0;
+const SHEEN: f32 = 0.05;
+const SHEEN_SHININESS: f32 = 8.0;
+const RIM: f32 = 0.16;
+const RIM_EXPONENT: f32 = 3.0;
+const RIM_WHITENING: f32 = 0.5;
+const REFLECTANCE_PER_LUMINANCE: f32 = 1.6;
+const LUMINANCE: vec3<f32> = vec3<f32>(0.2126, 0.7152, 0.0722);
+
+fn uses_enhanced_shading() -> bool {
+    return view.light.w > 0.5;
+}
+
+fn facing_normal(in: Varyings, eye: vec3<f32>) -> vec3<f32> {
     var normal = in.normal;
     if dot(normal, normal) < 1e-12 {
         normal = eye;
@@ -305,13 +323,47 @@ fn fs_mesh(in: Varyings) -> @location(0) vec4<f32> {
     if dot(normal, eye) < 0.0 {
         normal = -normal;
     }
+    return normal;
+}
+
+fn standard_shade(color: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec3<f32> {
     let toward_light = view.light.xyz;
     let key = max(dot(normal, toward_light), 0.0);
     let head = max(dot(normal, eye), 0.0);
     let halfway = normalize(toward_light + eye);
     let shine = pow(max(dot(normal, halfway), 0.0), SHININESS) * SPECULAR;
     let shade = AMBIENT + KEY_LIGHT * key + HEADLIGHT * head;
-    return vec4<f32>(in.color.rgb * shade + vec3<f32>(shine), in.color.a);
+    return color * shade + vec3<f32>(shine);
+}
+
+fn enhanced_shade(color: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec3<f32> {
+    let key_light = view.light.xyz;
+    let hemisphere = mix(GROUND_AMBIENT, SKY_AMBIENT, normal.z * 0.5 + 0.5);
+    let key = max(dot(normal, key_light), 0.0);
+    let fill = max(dot(normal, view.fill_light.xyz), 0.0);
+    let facing = clamp(dot(normal, eye), 0.0, 1.0);
+    let diffuse = hemisphere
+        + ENHANCED_KEY_LIGHT * key
+        + ENHANCED_FILL_LIGHT * fill
+        + ENHANCED_HEADLIGHT * facing;
+
+    let reflectance = clamp(dot(color, LUMINANCE) * REFLECTANCE_PER_LUMINANCE, 0.0, 1.0);
+    let alignment = max(dot(normal, normalize(key_light + eye)), 0.0);
+    let highlight = ENHANCED_SPECULAR * pow(alignment, ENHANCED_SHININESS)
+        + SHEEN * pow(alignment, SHEEN_SHININESS);
+    let rim = RIM * pow(1.0 - facing, RIM_EXPONENT);
+    let rim_color = mix(color, vec3<f32>(1.0), RIM_WHITENING);
+    return color * diffuse + (vec3<f32>(highlight) + rim_color * rim) * reflectance;
+}
+
+@fragment
+fn fs_mesh(in: Varyings) -> @location(0) vec4<f32> {
+    let eye = toward_eye(in.relative);
+    let normal = facing_normal(in, eye);
+    if uses_enhanced_shading() {
+        return vec4<f32>(enhanced_shade(in.color.rgb, normal, eye), in.color.a);
+    }
+    return vec4<f32>(standard_shade(in.color.rgb, normal, eye), in.color.a);
 }
 
 fn marker_coverage(in: Varyings) -> f32 {

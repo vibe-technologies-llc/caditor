@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use egui::{
-    Align, Button, Color32, CornerRadius, CursorIcon, Frame, Galley, Grid, Id, Label, Layout,
-    Margin, Modal, Response, RichText, Sense, Sides, Stroke, StrokeKind, TextStyle, TextWrapMode,
-    Ui, Vec2, Widget, WidgetInfo, WidgetText, WidgetType, collapsing_header::CollapsingState, vec2,
+    Align, Button, Color32, CornerRadius, CursorIcon, FocusDirection, Frame, Galley, Grid, Id, Key,
+    Label, Layout, Margin, Modal, Modifiers, Response, RichText, Sense, Sides, Stroke, StrokeKind,
+    TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText, WidgetType, accesskit::Role,
+    collapsing_header::CollapsingState, vec2,
 };
 
 use crate::{
@@ -35,6 +36,10 @@ pub const COMPACT_TOOL_GAP: f32 = 2.0;
 const DIALOG_MARGIN: i8 = 20;
 const DIALOG_FOOTER_GAP: f32 = 14.0;
 const UNDERLINE_WIDTH: f32 = 1.0;
+const TAB_PADDING: egui::Vec2 = vec2(10.0, 6.0);
+const TAB_ICON_GAP: f32 = 6.0;
+const TAB_GAP: f32 = 2.0;
+const TAB_UNDERLINE: f32 = 2.0;
 const CAPTION_KEY: &str = "property-caption";
 const WIDTH_CHANGE: f32 = 0.5;
 
@@ -571,6 +576,192 @@ impl Widget for ToolButton<'_> {
         }
         response
     }
+}
+
+pub struct Tab<'a> {
+    pub glyph: &'a str,
+    pub label: &'a str,
+}
+
+struct TabButton<'a> {
+    id: Id,
+    tab: &'a Tab<'a>,
+    selected: bool,
+}
+
+impl Widget for TabButton<'_> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let tokens = appearance::tokens(ui);
+        let glyph = WidgetText::from(icon(self.tab.glyph)).into_galley(
+            ui,
+            Some(TextWrapMode::Extend),
+            f32::INFINITY,
+            TextStyle::Body,
+        );
+        let label = WidgetText::from(RichText::new(self.tab.label).text_style(TextStyle::Body))
+            .into_galley(
+                ui,
+                Some(TextWrapMode::Extend),
+                f32::INFINITY,
+                TextStyle::Body,
+            );
+        let content_height = glyph.size().y.max(label.size().y);
+        let size = vec2(
+            glyph.size().x + TAB_ICON_GAP + label.size().x + 2.0 * TAB_PADDING.x,
+            content_height + 2.0 * TAB_PADDING.y,
+        );
+        let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+        let response = ui.interact(rect, self.id, Sense::click());
+        response.widget_info(|| {
+            WidgetInfo::selected(
+                WidgetType::Button,
+                ui.is_enabled(),
+                self.selected,
+                self.tab.label,
+            )
+        });
+        ui.ctx()
+            .accesskit_node_builder(response.id, |node| node.set_role(Role::Tab));
+        if ui.is_rect_visible(rect) {
+            let fill = if self.selected {
+                tokens.accent_subtle
+            } else if response.is_pointer_button_down_on() {
+                tokens.pressed
+            } else if response.hovered() {
+                tokens.hover
+            } else {
+                Color32::TRANSPARENT
+            };
+            let stroke = if response.has_focus() {
+                Stroke::new(FOCUS_WIDTH, tokens.focus)
+            } else {
+                Stroke::NONE
+            };
+            let radius = CornerRadius {
+                nw: WIDGET_RADIUS,
+                ne: WIDGET_RADIUS,
+                sw: 0,
+                se: 0,
+            };
+            ui.painter()
+                .rect(rect, radius, fill, stroke, StrokeKind::Inside);
+            let color = if self.selected {
+                tokens.accent_text
+            } else {
+                tokens.text
+            };
+            let glyph_color = if self.selected {
+                tokens.accent_text
+            } else {
+                tokens.text_muted
+            };
+            if self.selected {
+                let underline = rect.bottom() - TAB_UNDERLINE / 2.0;
+                ui.painter().hline(
+                    rect.x_range(),
+                    underline,
+                    Stroke::new(TAB_UNDERLINE, tokens.accent),
+                );
+            }
+            let left = rect.left() + TAB_PADDING.x;
+            let glyph_pos = egui::pos2(left, rect.center().y - glyph.size().y / 2.0);
+            let label_pos = egui::pos2(
+                left + glyph.size().x + TAB_ICON_GAP,
+                rect.center().y - label.size().y / 2.0,
+            );
+            ui.painter().galley(glyph_pos, glyph, glyph_color);
+            ui.painter().galley(label_pos, label, color);
+        }
+        response
+    }
+}
+
+pub fn tab_id(tabs: &str, index: usize) -> Id {
+    Id::new(("tabs", tabs)).with(("tab", index))
+}
+
+fn switch_keys_step(ui: &mut Ui) -> Option<isize> {
+    ui.input_mut(|input| {
+        let backward = input.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Tab)
+            || input.consume_key(Modifiers::COMMAND, Key::PageUp);
+        let forward = input.consume_key(Modifiers::COMMAND, Key::Tab)
+            || input.consume_key(Modifiers::COMMAND, Key::PageDown);
+        match (backward, forward) {
+            (true, false) => Some(-1),
+            (false, true) => Some(1),
+            _ => None,
+        }
+    })
+}
+
+fn arrow_step(ui: &mut Ui, index: usize, count: usize) -> Option<usize> {
+    let last = count.checked_sub(1)?;
+    ui.input_mut(|input| {
+        if input.consume_key(Modifiers::NONE, Key::ArrowRight) {
+            stepped(index, 1, count)
+        } else if input.consume_key(Modifiers::NONE, Key::ArrowLeft) {
+            stepped(index, -1, count)
+        } else if input.consume_key(Modifiers::NONE, Key::Home) {
+            Some(0)
+        } else if input.consume_key(Modifiers::NONE, Key::End) {
+            Some(last)
+        } else {
+            None
+        }
+    })
+}
+
+fn stepped(index: usize, step: isize, count: usize) -> Option<usize> {
+    let count = isize::try_from(count).ok().filter(|count| *count > 0)?;
+    let index = isize::try_from(index).ok()?;
+    usize::try_from((index + step).rem_euclid(count)).ok()
+}
+
+pub fn tabs(
+    ui: &mut Ui,
+    id: &str,
+    tabs: &[Tab<'_>],
+    selected: usize,
+    switch_keys: bool,
+) -> Option<usize> {
+    let count = tabs.len();
+    let mut chosen = switch_keys
+        .then(|| switch_keys_step(ui))
+        .flatten()
+        .and_then(|step| stepped(selected, step, count));
+    let mut focus = None;
+    let row = ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = TAB_GAP;
+        for (index, tab) in tabs.iter().enumerate() {
+            let response = ui.add(TabButton {
+                id: tab_id(id, index),
+                tab,
+                selected: index == selected,
+            });
+            if response.clicked() {
+                chosen = Some(index);
+            }
+            if response.has_focus()
+                && let Some(next) = arrow_step(ui, index, count)
+            {
+                chosen = Some(next);
+                focus = Some(next);
+            }
+        }
+    });
+    let border = appearance::tokens(ui).border;
+    ui.painter().hline(
+        row.response.rect.x_range(),
+        row.response.rect.bottom(),
+        Stroke::new(UNDERLINE_WIDTH, border),
+    );
+    if let Some(next) = focus {
+        ui.memory_mut(|memory| {
+            memory.move_focus(FocusDirection::None);
+            memory.request_focus(tab_id(id, next));
+        });
+    }
+    chosen.filter(|index| *index != selected && *index < count)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -20,6 +20,7 @@ mod feature_tree;
 mod field;
 mod files;
 mod fonts;
+mod graphics;
 mod history;
 mod icons;
 mod import;

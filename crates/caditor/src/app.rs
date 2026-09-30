@@ -27,6 +27,7 @@ use crate::{
     feature_tree,
     files::{self, FileCommand, Files},
     fonts,
+    graphics::{FramePacer, Hardware},
     layout::{
         LogicalSize, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, MonitorArea, PanelLayout, Position,
         WindowPlacement,
@@ -38,7 +39,10 @@ use crate::{
     overlay::Overlay,
     palette::Palette,
     panels::{self, PanelState},
-    preferences::{self, Appearance, PreferenceChange, Preferences, PreferencesCommand, TitleBar},
+    preferences::{
+        self, Appearance, PreferenceChange, Preferences, PreferencesCommand, PreferencesTab,
+        PreferencesView, TitleBar,
+    },
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar,
     status_bar::{self, StatusContext},
@@ -89,6 +93,8 @@ pub struct Workspace {
     pub editing: SketchEditing,
     pub preferences: Preferences,
     pub preferences_open: bool,
+    pub preferences_tab: PreferencesTab,
+    pub hardware: Hardware,
     pub palette: Palette,
     pub shortcut_editor: Option<ShortcutEditor>,
     pub welcome_open: bool,
@@ -120,6 +126,8 @@ impl Workspace {
             editing: SketchEditing::default(),
             preferences,
             preferences_open: false,
+            preferences_tab: PreferencesTab::default(),
+            hardware: Hardware::default(),
             palette: Palette::default(),
             shortcut_editor: None,
             welcome_open,
@@ -144,7 +152,7 @@ impl Workspace {
 
     fn preview_preference(&mut self, change: PreferenceChange, model: &mut Model) {
         self.preferences.apply(change);
-        model.set_length_unit(self.preferences.unit);
+        apply_preferences(model, &self.preferences);
         self.viewport.set_navigation(self.preferences.navigation);
     }
 
@@ -172,6 +180,7 @@ impl Workspace {
             }
             PreferencesCommand::ShowAbout => self.about_open = true,
             PreferencesCommand::CloseAbout => self.about_open = false,
+            PreferencesCommand::Tab(tab) => self.preferences_tab = tab,
             PreferencesCommand::Change(change) => {
                 self.preview_preference(change, model);
                 files.store_settings(self.preferences.settings());
@@ -179,6 +188,11 @@ impl Workspace {
             PreferencesCommand::Preview(change) => self.preview_preference(change, model),
         }
     }
+}
+
+pub fn apply_preferences(model: &mut Model, preferences: &Preferences) {
+    model.set_length_unit(preferences.unit);
+    model.set_mesh_quality(preferences.graphics.curves.mesh_quality());
 }
 
 fn tip_commands(
@@ -236,6 +250,8 @@ pub fn show(
         editing,
         preferences,
         preferences_open,
+        preferences_tab,
+        hardware,
         palette,
         shortcut_editor,
         welcome_open,
@@ -351,7 +367,14 @@ pub fn show(
     }
     files::show(ui, model, files, actions);
     if !files.is_blocking() {
-        if *preferences_open && let Some(command) = preferences::dialog(ui.ctx(), preferences) {
+        let view = PreferencesView {
+            tab: *preferences_tab,
+            hardware,
+            switch_keys: shortcut_editor.is_none(),
+        };
+        if *preferences_open
+            && let Some(command) = preferences::dialog(ui.ctx(), preferences, &view)
+        {
             actions.push(Action::Preferences(command));
         }
         if let Some(editor) = shortcut_editor
@@ -517,7 +540,7 @@ impl App {
         open: Option<PathBuf>,
         proxy: EventLoopProxy<AppEvent>,
     ) -> Self {
-        model.set_length_unit(preferences.unit);
+        apply_preferences(&mut model, &preferences);
         files.settings_loaded(preferences.settings());
         files.start(open, &mut model);
         Self {
@@ -563,8 +586,8 @@ impl ApplicationHandler<AppEvent> for App {
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
         match event {
             AppEvent::Wake => {
-                if let Some(session) = &self.session {
-                    session.window.request_redraw();
+                if let Some(session) = &mut self.session {
+                    session.request_redraw();
                 }
             }
             AppEvent::Accessibility(event) => {
@@ -572,7 +595,7 @@ impl ApplicationHandler<AppEvent> for App {
                     && event.window_id == session.window.id()
                 {
                     session.overlay.on_accessibility_event(event.window_event);
-                    session.window.request_redraw();
+                    session.request_redraw();
                 }
             }
         }
@@ -589,12 +612,12 @@ impl ApplicationHandler<AppEvent> for App {
         };
 
         if session.overlay.on_window_event(&session.window, &event) {
-            session.window.request_redraw();
+            session.request_redraw();
         }
 
         if shows_the_window(&event) {
             session.hidden_until = None;
-            session.window.request_redraw();
+            session.request_redraw();
         }
         match event {
             WindowEvent::Occluded(true) => {
@@ -602,18 +625,23 @@ impl ApplicationHandler<AppEvent> for App {
             }
             WindowEvent::CloseRequested => {
                 self.files.perform(FileCommand::Quit, &mut self.model);
-                session.window.request_redraw();
+                session.request_redraw();
             }
             WindowEvent::Resized(size) => {
                 session.renderer.resize(surface_size(size));
                 session.note_placement();
-                session.window.request_redraw();
+                session.note_display();
+                session.request_redraw();
             }
-            WindowEvent::Moved(_) => session.note_placement(),
+            WindowEvent::Moved(_) => {
+                session.note_placement();
+                session.note_display();
+            }
+            WindowEvent::ScaleFactorChanged { .. } => session.note_display(),
             WindowEvent::RedrawRequested => session.redraw(&mut self.model, &mut self.files),
             WindowEvent::DroppedFile(path) => {
                 session.dropped.push(path);
-                session.window.request_redraw();
+                session.request_redraw();
             }
             _ => {}
         }
@@ -626,6 +654,9 @@ impl ApplicationHandler<AppEvent> for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(session) = &mut self.session {
+            session.redraw_when_due(Instant::now());
+        }
         let flow = self
             .session
             .as_ref()
@@ -686,6 +717,13 @@ fn monitor_areas(event_loop: &ActiveEventLoop) -> Vec<MonitorArea> {
         .collect()
 }
 
+fn refresh_rate(window: &Window) -> Option<f64> {
+    window
+        .current_monitor()
+        .and_then(|monitor| monitor.refresh_rate_millihertz())
+        .map(|millihertz| f64::from(millihertz) / 1000.0)
+}
+
 fn redraw_wake(proxy: EventLoopProxy<AppEvent>) -> Wake {
     let waker = Mutex::new(waker_factory(proxy)());
     Arc::new(move || (waker.lock())())
@@ -700,6 +738,7 @@ struct Session {
     workspace: Workspace,
     last_redraw: Option<Instant>,
     next_repaint: Option<Instant>,
+    pacer: FramePacer,
     dropped: Vec<PathBuf>,
     hidden_until: Option<Instant>,
     failed_frames: u32,
@@ -726,19 +765,26 @@ impl Session {
             Arc::clone(&window) as Arc<dyn WindowTarget>,
             surface_size(window.inner_size()),
             redraw_wake(proxy.clone()),
+            preferences.graphics.render(),
         ))
         .context("could not start the renderer")?;
         let layout = (preferences.window, preferences.panels);
         let mut overlay = Overlay::new(&window, &renderer);
         overlay.enable_accessibility(event_loop, &window, proxy);
         window.set_visible(true);
+        let mut workspace = Workspace::with_preferences(preferences);
+        workspace.hardware = Hardware {
+            adapter: Some(renderer.graphics_info().clone()),
+            refresh_rate: refresh_rate(&window),
+        };
         Ok(Self {
             window,
             renderer,
             overlay,
-            workspace: Workspace::with_preferences(preferences),
+            workspace,
             last_redraw: None,
             next_repaint: None,
+            pacer: FramePacer::default(),
             dropped: Vec::new(),
             hidden_until: None,
             failed_frames: 0,
@@ -747,6 +793,43 @@ impl Session {
             layout_stored: layout,
             layout_changed_at: None,
         })
+    }
+
+    fn note_display(&mut self) {
+        self.workspace.hardware.refresh_rate = refresh_rate(&self.window);
+    }
+
+    fn note_adapter(&mut self) {
+        let info = self.renderer.graphics_info();
+        if self.workspace.hardware.adapter.as_ref() != Some(info) {
+            self.workspace.hardware.adapter = Some(info.clone());
+        }
+    }
+
+    fn frame_interval(&self) -> Option<Duration> {
+        self.workspace
+            .preferences
+            .graphics
+            .frame_interval(&self.workspace.hardware)
+    }
+
+    fn request_redraw(&mut self) {
+        let now = Instant::now();
+        match self.pacer.next_frame_at(now, self.frame_interval()) {
+            Some(at) => self.schedule_redraw(at),
+            None => self.window.request_redraw(),
+        }
+    }
+
+    fn schedule_redraw(&mut self, at: Instant) {
+        self.next_repaint = Some(self.next_repaint.map_or(at, |scheduled| scheduled.min(at)));
+    }
+
+    fn redraw_when_due(&mut self, now: Instant) {
+        if self.next_repaint.is_some_and(|at| at <= now) {
+            self.next_repaint = None;
+            self.window.request_redraw();
+        }
     }
 
     fn note_placement(&mut self) {
@@ -804,6 +887,7 @@ impl Session {
 
     fn redraw(&mut self, model: &mut Model, files: &mut Files) {
         let now = Instant::now();
+        self.pacer.frame_started(now, self.frame_interval());
         let elapsed = self
             .last_redraw
             .replace(now)
@@ -834,6 +918,8 @@ impl Session {
         }
         let changed = !actions.is_empty();
         perform(actions, model, files, &mut self.workspace);
+        self.renderer
+            .set_graphics(self.workspace.preferences.graphics.render());
         let title = window_title(model);
         if title != self.title {
             self.window.set_title(&title);
@@ -898,6 +984,7 @@ impl Session {
         if pick_requested && !self.renderer.is_pick_pending() {
             self.workspace.viewport.pick_was_not_issued();
         }
+        self.note_adapter();
 
         let repaint_now = changed || repaint_after.is_some_and(|delay| delay.is_zero());
         self.next_repaint = None;
@@ -907,7 +994,7 @@ impl Session {
             || self.workspace.viewport.is_animating()
             || self.renderer.is_pick_pending()
         {
-            self.window.request_redraw();
+            self.request_redraw();
         } else {
             self.last_redraw = None;
             self.next_repaint = repaint_after.and_then(|delay| now.checked_add(delay));

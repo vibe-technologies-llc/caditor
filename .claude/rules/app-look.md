@@ -47,7 +47,14 @@ paths:
   wraps beside a remove button), `card`, `callout` and `pill` with a `Tone`, `status_pill` (the
   tone's icon before the text, for states such as a sketch's), `icon_button`, `small_button`,
   `primary_button` and `primary_icon_button`, `menu_item`, `link_label`, `choose_in_view`,
-  `dialog`/`footer` (a titled modal with a close button and the primary action rightmost).
+  `dialog`/`footer` (a titled modal with a close button and the primary action rightmost), and
+  `tabs`.
+- `tabs` is a wrapping row of `Tab`s (icon and label) over a border line: the selected one tinted
+  `accent_subtle` with `accent_text` and a 2-point accent underline, others `text` on hover or
+  pressed fills, focus outlined in `focus`. It returns the tab chosen by click, by Left/Right
+  (wrapping), Home or End on a focused tab (focus follows, egui's own arrow focus move cancelled),
+  or, when `switch_keys` is set, by Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+Page Down and Ctrl+Page Up.
+  Tab ids are `tab_id(row, index)`, so tests can focus one.
 - Dialog widths and list heights are clamped to the screen (`fitting_width`, `list_height`), so
   nothing clips at 200%. Icons and labels are separate text atoms, so tests find buttons by bare
   label, and compact ones by accessible name.
@@ -57,7 +64,8 @@ paths:
 - Every button drawn with a glyph takes a name without it (`Named`, `named`): icon buttons their
   hover text; small buttons, menu items and section headers their label; a tree row's chevron, edit
   and "⋯" buttons the action and the feature's name; the shortcut editor's chips, Add… and Reset the
-  command they act on. Decorative glyphs are hidden from the AccessKit tree (`icon_label`,
+  command they act on; a tab is an AccessKit `Role::Tab` named by its label and marked selected.
+  Decorative glyphs are hidden from the AccessKit tree (`icon_label`,
   `decorative`), meaningful ones described (`described_icon`); a property `caption` labels the text
   field, combo box or slider after it in its grid (`tie_to_caption`, via `field::commit_field`).
 

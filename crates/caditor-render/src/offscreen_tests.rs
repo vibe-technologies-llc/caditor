@@ -13,6 +13,7 @@ use crate::{
     scene::{
         Color, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Scene, Stroke, ViewportRect,
     },
+    settings::{Msaa, Shading},
     viewport::{SurfaceTarget, ViewportFrame, ViewportRenderer},
 };
 
@@ -1477,4 +1478,174 @@ fn an_orthographic_view_draws_and_picks_faces_behind_its_eye_with_edges_over_the
     assert!(greenish(pixel(&rendered, under_the_box)));
     assert!(reddish(pixel(&rendered, beside_the_box)));
     assert!(on_top.distance(under_the_box) < 1e-9);
+}
+
+fn diagonal_line(layer: Layer) -> Line {
+    Line {
+        start: Point3::new(-50.0, -37.5, 0.0),
+        end: Point3::new(50.0, 37.5, 0.0),
+        color: LINE_COLOR,
+        width: 3.0,
+        layer,
+        pick: PickId::from_index(0),
+        stroke: Stroke::Solid,
+    }
+}
+
+fn partly_covered_pixels(rendered: &Rendered) -> usize {
+    (0..SIZE)
+        .flat_map(|y| (0..SIZE).map(move |x| DVec2::new(f64::from(x), f64::from(y))))
+        .filter(|at| (70..=200).contains(&pixel(rendered, *at)[0]))
+        .count()
+}
+
+#[test]
+fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_picks_exact() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let Some(opened) = opened_device(&instance) else {
+        return;
+    };
+    let (device, queue) = (&opened.device, &opened.queue);
+    let offered = gpu::offered_msaa(
+        &opened.adapter,
+        device,
+        FORMAT,
+        crate::viewport::DEPTH_FORMAT,
+    );
+    let mut renderer = ViewportRenderer::new(device, FORMAT, 1);
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let bare = Scene {
+        lines: vec![diagonal_line(Layer::Model)],
+        ..Scene::default()
+    };
+    let through_a_box = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(box_mesh(20.0)),
+            faces: vec![
+                FaceStyle {
+                    color: Color::from_rgb8(90, 90, 90),
+                    pick: None,
+                };
+                6
+            ],
+        }],
+        lines: vec![diagonal_line(Layer::Front)],
+        ..Scene::default()
+    };
+    let inside = view.project(Point3::new(4.0, 3.0, 0.0)).unwrap();
+
+    assert!(offered.contains(&Msaa::Off));
+    assert!(offered.contains(&Msaa::X4), "{offered:?}");
+    for level in offered {
+        renderer.set_sample_count(device, level.samples());
+        let edges = render_with(
+            &mut renderer,
+            device,
+            queue,
+            &full_frame(&view, &bare, inside),
+        );
+        let front = render_with(
+            &mut renderer,
+            device,
+            queue,
+            &full_frame(&view, &through_a_box, inside),
+        );
+
+        assert_eq!(renderer.sample_count(), level.samples());
+        let softened = partly_covered_pixels(&edges);
+        if level == Msaa::Off {
+            assert_eq!(softened, 0, "{level:?}");
+        } else {
+            assert!(softened > 40, "{level:?} softened only {softened} pixels");
+        }
+        let [red, green, blue, _] = pixel(&front, inside);
+        assert!(
+            red > 230 && green < 40 && blue < 40,
+            "{level:?}: the front line inside the box was {red} {green} {blue}"
+        );
+        assert_eq!(front.pick.hits[0].id, PickId::from_index(0).unwrap());
+        assert_eq!(front.pick.hits[0].offset_points, 0.0);
+        assert!(
+            front.pick.hits[0]
+                .position
+                .distance(Point3::new(4.0, 3.0, 0.0))
+                < 0.5
+        );
+    }
+}
+
+#[test]
+fn enhanced_shading_sets_faces_apart_keeps_their_tint_and_keeps_dimmed_bodies_darker() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mesh = Arc::new(box_mesh(20.0));
+    let painted = |color: Color| Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::clone(&mesh),
+            faces: (0..6)
+                .map(|index| FaceStyle {
+                    color,
+                    pick: PickId::from_index(10 + index),
+                })
+                .collect(),
+        }],
+        ..Scene::default()
+    };
+    let green = painted(Color::from_rgb8(40, 200, 40));
+    let body = painted(Color::from_rgb8(150, 162, 180));
+    let dimmed = painted(Color::from_rgb8(92, 96, 104));
+    let viewpoint =
+        Viewpoint::looking_from(Vector3::new(0.8, -1.0, 0.9), Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let faces = [
+        Point3::new(0.0, 0.0, 20.0),
+        Point3::new(0.0, -20.0, 0.0),
+        Point3::new(20.0, 0.0, 0.0),
+    ]
+    .map(|point| view.project(point).unwrap());
+    let mut shade = |shading: Shading, scene: &Scene| {
+        renderer.set_shading(shading);
+        let rendered = render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(&view, scene, faces[0]),
+        );
+        (faces.map(|at| pixel(&rendered, at)), rendered.pick)
+    };
+    let brightness =
+        |[red, green, blue, _]: [u8; 4]| u32::from(red) + u32::from(green) + u32::from(blue);
+
+    let (standard, _) = shade(Shading::Standard, &green);
+    let (enhanced, pick) = shade(Shading::Enhanced, &green);
+    let (lit_body, _) = shade(Shading::Enhanced, &body);
+    let (lit_dimmed, _) = shade(Shading::Enhanced, &dimmed);
+
+    for [red, green, blue, _] in enhanced {
+        assert!(
+            green > 60 && green > 2 * red && green > 2 * blue,
+            "{red} {green} {blue}"
+        );
+    }
+    assert!(
+        standard
+            .iter()
+            .zip(&enhanced)
+            .any(|(a, b)| a[1].abs_diff(b[1]) > 6),
+        "{standard:?} {enhanced:?}"
+    );
+    let greens = enhanced.map(|[_, green, _, _]| green);
+    assert!(greens[0].abs_diff(greens[1]) > 5, "{greens:?}");
+    assert!(greens[1].abs_diff(greens[2]) > 5, "{greens:?}");
+    assert!(greens[0].abs_diff(greens[2]) > 5, "{greens:?}");
+    for (body, dimmed) in lit_body.into_iter().zip(lit_dimmed) {
+        assert!(
+            brightness(dimmed) + 60 < brightness(body),
+            "{body:?} {dimmed:?}"
+        );
+    }
+    assert_eq!(pick.hits[0].id, PickId::from_index(14).unwrap());
 }

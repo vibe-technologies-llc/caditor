@@ -183,6 +183,16 @@ The first release of caditor.
   it is what gets saved. Copy, paste, undo and the other editing keys stay with the field.
 - Dark, light and high-contrast themes, interface sizes from 75% to 200%, and a choice of
   micrometres, millimetres, centimetres or metres.
+- Preferences are grouped into General, Appearance, Navigation and Graphics tabs, switched with
+  the mouse, the arrow keys on a tab, or Ctrl+Tab and Ctrl+Page Down from anywhere in the dialog;
+  the last tab stays open, and Restore defaults resets only the tab in view.
+- Graphics preferences, applied at once: vsync, a frame rate limit (30 to 144 frames a second or
+  the display's rate) that saves power while the view moves, anti-aliasing off, 2×, 4× or 8× as
+  the graphics card allows, an enhanced shading with sky and fill light, crisper highlights and a
+  soft rim that makes curved faces easier to read, and coarse or smooth curves on bodies. Options
+  the graphics card cannot do are greyed out with the reason, and the Graphics tab names the
+  graphics card, backend and driver, with Copy details for bug reports. The choices are kept when
+  the graphics driver resets.
 - An orthographic view, switched on and off with O, from the View menu or in Preferences, which
   remember the choice. Zooming, orbiting, panning, fitting and picking work the same way in both
   views.
