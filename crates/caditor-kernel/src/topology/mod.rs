@@ -31,7 +31,7 @@ use crate::{
     sense::Sense,
     surface::Surface,
     tessellation::{self, Mesh, TessellationError},
-    tolerance::SamplingTolerance,
+    tolerance::{MeshQuality, SamplingTolerance},
 };
 
 macro_rules! typed_index {
@@ -584,8 +584,25 @@ impl Solid {
         tessellation::tessellate(self, tolerance)
     }
 
+    pub fn display_mesh(&self, quality: &MeshQuality) -> Result<Mesh, TessellationError> {
+        tessellation::tessellate_for_display(
+            self,
+            self.extent(),
+            quality,
+            tessellation::DISPLAY_POINTS,
+        )
+    }
+
+    pub fn tolerance_for(&self, quality: &MeshQuality) -> SamplingTolerance {
+        quality.tolerance(self.extent())
+    }
+
     pub fn default_tolerance(&self) -> SamplingTolerance {
-        SamplingTolerance::for_extent(self.bounding_box().map_or(1.0, |bounds| bounds.diagonal()))
+        self.tolerance_for(&MeshQuality::COARSE)
+    }
+
+    fn extent(&self) -> f64 {
+        self.bounding_box().map_or(1.0, |bounds| bounds.diagonal())
     }
 }
 

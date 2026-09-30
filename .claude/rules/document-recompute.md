@@ -50,7 +50,8 @@ paths:
   (`OnceLock`), so the UI only reads it.
   - Each body's final state is tessellated (`SolidResult::mesh`; intermediate states are not),
     after its bounding box is found (`SolidResult::bounding_box`, which the export dialog's
-    deviation reads).
+    deviation reads), by `Solid::display_mesh` at the recompute's `MeshQuality` (`SMOOTH` unless
+    set by `Recompute::with_mesh_quality` or `set_mesh_quality`).
   - Every sketch that a solid feature sweeps gets its regions with a triangulation each
     (`SketchResult::regions`).
 - A sketch's profile arrangement is built once per result and shared by every feature that sweeps
@@ -60,6 +61,10 @@ paths:
   sent by `Model::mesh_before` for the open feature).
 - A panic or failure while meshing leaves the body without a mesh (`mesh_failed`) but keeps its
   shape for later features. A run cancelled before every shown body was meshed is not complete.
+- A mesh is kept with its result, so `set_mesh_quality` with a different quality clears the cache:
+  the next run rebuilds every result and meshes it at the new quality (new `Arc`s, which the app's
+  body meshing keys on). `Recomputer::set_mesh_quality` passes it to the worker, where it applies
+  from the next submission and to requested meshes; a panic's cache reset keeps it.
 - `SolidResult::names` is a `NameIndex` built on first use and kept with the result: the faces of
   each name in solid order and the first edge of each name, so the app finds a face or edge it
   holds by name without scanning the solid.

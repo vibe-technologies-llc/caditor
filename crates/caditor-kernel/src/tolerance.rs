@@ -1,4 +1,4 @@
-use std::f64::consts::FRAC_PI_4;
+use std::f64::consts::{FRAC_PI_4, PI};
 
 use caditor_geometry::{Point3, Vector3};
 
@@ -12,8 +12,11 @@ pub const INTERSECTION_TOLERANCE: f64 = 0.25 * LINEAR_RESOLUTION;
 const MIN_CHORD_TOLERANCE: f64 = 10.0 * LINEAR_RESOLUTION;
 const MIN_ANGLE_TOLERANCE: f64 = 1e-3;
 const MAX_ANGLE_TOLERANCE: f64 = FRAC_PI_4;
-const DEFAULT_CHORD_FRACTION: f64 = 1e-3;
-const DEFAULT_ANGLE_TOLERANCE: f64 = 0.35;
+const COARSE_CHORD_FRACTION: f64 = 1e-3;
+const COARSE_ANGLE: f64 = 0.35;
+const SMOOTH_CHORD_FRACTION: f64 = 2.5e-4;
+const SMOOTH_ANGLE: f64 = 6.0 * PI / 180.0;
+const UNKNOWN_EXTENT_CHORD: f64 = 1.0;
 
 pub fn same_point(a: Point3, b: Point3) -> bool {
     a.distance_squared(b) <= LINEAR_RESOLUTION * LINEAR_RESOLUTION
@@ -46,15 +49,7 @@ impl SamplingTolerance {
     }
 
     pub fn for_extent(extent: f64) -> Self {
-        let chord = if extent.is_finite() && extent > 0.0 {
-            extent * DEFAULT_CHORD_FRACTION
-        } else {
-            1.0
-        };
-        Self {
-            chord: chord.max(MIN_CHORD_TOLERANCE),
-            angle: DEFAULT_ANGLE_TOLERANCE,
-        }
+        MeshQuality::COARSE.tolerance(extent)
     }
 
     pub fn chord(&self) -> f64 {
@@ -73,6 +68,66 @@ impl SamplingTolerance {
             2.0 * radius * (1.0 - self.chord / radius).clamp(-1.0, 1.0).acos()
         };
         by_angle.min(by_chord)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MeshQuality {
+    chord_fraction: f64,
+    angle: f64,
+}
+
+impl MeshQuality {
+    pub const COARSE: Self = Self {
+        chord_fraction: COARSE_CHORD_FRACTION,
+        angle: COARSE_ANGLE,
+    };
+    pub const SMOOTH: Self = Self {
+        chord_fraction: SMOOTH_CHORD_FRACTION,
+        angle: SMOOTH_ANGLE,
+    };
+
+    pub fn new(chord_fraction: f64, angle: f64) -> Option<Self> {
+        let usable =
+            chord_fraction.is_finite() && chord_fraction > 0.0 && angle.is_finite() && angle > 0.0;
+        usable.then(|| Self {
+            chord_fraction,
+            angle: angle.clamp(MIN_ANGLE_TOLERANCE, MAX_ANGLE_TOLERANCE),
+        })
+    }
+
+    pub fn chord_fraction(&self) -> f64 {
+        self.chord_fraction
+    }
+
+    pub fn angle(&self) -> f64 {
+        self.angle
+    }
+
+    #[must_use]
+    pub fn at_least(&self, coarse: &Self) -> Self {
+        Self {
+            chord_fraction: self.chord_fraction.max(coarse.chord_fraction),
+            angle: self.angle.max(coarse.angle),
+        }
+    }
+
+    pub fn tolerance(&self, extent: f64) -> SamplingTolerance {
+        let chord = if extent.is_finite() && extent > 0.0 {
+            extent * self.chord_fraction
+        } else {
+            UNKNOWN_EXTENT_CHORD
+        };
+        SamplingTolerance {
+            chord: chord.max(MIN_CHORD_TOLERANCE),
+            angle: self.angle,
+        }
+    }
+}
+
+impl Default for MeshQuality {
+    fn default() -> Self {
+        Self::SMOOTH
     }
 }
 
@@ -101,6 +156,25 @@ mod tests {
         let derived = SamplingTolerance::for_extent(100.0);
         assert!((derived.chord() - 0.1).abs() < 1e-12);
         assert_eq!(SamplingTolerance::for_extent(f64::NAN).chord(), 1.0);
+    }
+
+    #[test]
+    fn mesh_qualities_scale_the_chord_with_the_extent_and_keep_their_angle() {
+        let smooth = MeshQuality::SMOOTH.tolerance(200.0);
+        let coarse = MeshQuality::COARSE.tolerance(200.0);
+
+        assert!((smooth.chord() - 0.05).abs() < 1e-12);
+        assert!((smooth.angle().to_degrees() - 6.0).abs() < 1e-9);
+        assert!(smooth.chord() < coarse.chord() && smooth.angle() < coarse.angle());
+        assert_eq!(coarse, SamplingTolerance::for_extent(200.0));
+        assert_eq!(MeshQuality::default(), MeshQuality::SMOOTH);
+
+        assert!(MeshQuality::new(0.0, 0.1).is_none());
+        assert!(MeshQuality::new(1e-3, f64::INFINITY).is_none());
+        let clamped = MeshQuality::new(1e-3, 10.0).unwrap();
+        assert_eq!(clamped.angle(), MAX_ANGLE_TOLERANCE);
+        assert_eq!(clamped.tolerance(1e-9).chord(), MIN_CHORD_TOLERANCE);
+        assert_eq!(clamped.tolerance(f64::NAN).chord(), 1.0);
     }
 
     #[test]

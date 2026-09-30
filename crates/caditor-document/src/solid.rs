@@ -8,9 +8,9 @@ use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector2};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, EdgeId, EdgeName, FaceId, FaceName,
-    GeometryError, LinearExtent, MAX_SIZE, Mesh, Profile, ProfileCurve, ProfileError, Region,
-    RegionKey, RegionMesh, SamplingTolerance, Selection, Solid, SweepError, TessellationError,
-    boolean, extrude, revolve,
+    GeometryError, LinearExtent, MAX_SIZE, Mesh, MeshQuality, Profile, ProfileCurve, ProfileError,
+    Region, RegionKey, RegionMesh, SamplingTolerance, Selection, Solid, SweepError,
+    TessellationError, boolean, extrude, revolve,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -306,13 +306,13 @@ impl SolidResult {
         matches!(self.mesh.get(), Some(None))
     }
 
-    pub(crate) fn tessellate(&self, name: &str) {
+    pub(crate) fn tessellate(&self, name: &str, quality: &MeshQuality) {
         if self.is_meshed() {
             return;
         }
         let tessellated = panic::catch_unwind(AssertUnwindSafe(|| {
             self.bounding_box();
-            self.solid.tessellate(&self.solid.default_tolerance())
+            self.solid.display_mesh(quality)
         }));
         let mesh = match tessellated {
             Ok(Ok(mesh)) => Some(mesh),

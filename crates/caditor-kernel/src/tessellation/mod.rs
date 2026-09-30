@@ -16,7 +16,7 @@ pub use self::mass::MassProperties;
 pub(crate) use self::mass::triangles_contain;
 use crate::{
     interrupt::{self, Interrupted},
-    tolerance::SamplingTolerance,
+    tolerance::{MeshQuality, SamplingTolerance},
     topology::{Edge, EdgeId, FaceId, Solid},
 };
 
@@ -24,6 +24,7 @@ const MIN_CLOSED_EDGE_SEGMENTS: usize = 3;
 const MAX_REFINEMENTS: usize = 4;
 const REFINEMENT: f64 = 0.5;
 pub(crate) const MAX_POINTS: usize = 1 << 22;
+pub(crate) const DISPLAY_POINTS: usize = 1 << 20;
 const POLL_EVERY: usize = 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -257,6 +258,21 @@ pub(crate) fn tessellate(
     tolerance: &SamplingTolerance,
 ) -> Result<Mesh, TessellationError> {
     tessellate_within(solid, tolerance, MAX_POINTS)
+}
+
+pub(crate) fn tessellate_for_display(
+    solid: &Solid,
+    extent: f64,
+    quality: &MeshQuality,
+    limit: usize,
+) -> Result<Mesh, TessellationError> {
+    let fallback = quality.at_least(&MeshQuality::COARSE);
+    match tessellate_within(solid, &quality.tolerance(extent), limit) {
+        Err(error) if !matches!(error, TessellationError::Cancelled(_)) && fallback != *quality => {
+            tessellate(solid, &fallback.tolerance(extent))
+        }
+        meshed => meshed,
+    }
 }
 
 pub(crate) fn tessellate_within(

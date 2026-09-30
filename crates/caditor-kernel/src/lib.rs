@@ -65,7 +65,7 @@ pub use crate::{
     },
     tolerance::{
         ANGULAR_RESOLUTION, INTERSECTION_TOLERANCE, LINEAR_RESOLUTION, MAX_SIZE, MODEL_EXTENT,
-        PCURVE_TOLERANCE, SamplingTolerance, parallel, same_direction, same_point,
+        MeshQuality, PCURVE_TOLERANCE, SamplingTolerance, parallel, same_direction, same_point,
     },
     topology::{
         BoundaryClass, BuildError, Coedge, CoedgeId, Crossing, CrossingCheck, Edge, EdgeId, Face,
