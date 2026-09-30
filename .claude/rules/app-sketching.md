@@ -25,6 +25,10 @@ paths:
   the sketch disappears or another document is opened. The viewport watches it.
 - Entering faces the camera to the plane and fits it, moves the grid there, makes the origin and
   axes pickable, dims other features (unpickable) and keeps only that sketch selected.
+- The edited sketch, its origin and axes and the drawing preview go on `Layer::Front` (`render.md`),
+  so a body never hides or z-fights with them: a sketch on a face, inside or behind a body draws
+  and picks over it with its hover and selection highlights, while the dimmed body stays in view
+  for context. Other sketches, bodies and datum geometry stay on their usual layers.
 - Clicks and primary drags select unless the tool `draws`. Escape backs out one step at a time: a
   drag in progress, plane choice, shape in progress, tool, selection, then editing.
 

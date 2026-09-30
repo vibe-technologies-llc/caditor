@@ -645,6 +645,82 @@ fn faces_that_cannot_be_picked_still_hide_what_is_behind_them_from_picking() {
     assert_eq!(beside.pick.hits[0].id, PickId::from_index(0).unwrap());
 }
 
+#[test]
+fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(box_mesh(20.0)),
+            faces: vec![
+                FaceStyle {
+                    color: Color::from_rgb8(90, 90, 90),
+                    pick: None,
+                };
+                6
+            ],
+        }],
+        lines: vec![Line {
+            start: Point3::new(-50.0, 0.0, 0.0),
+            end: Point3::new(50.0, 0.0, 0.0),
+            color: LINE_COLOR,
+            width: 3.0,
+            layer: Layer::Front,
+            pick: PickId::from_index(0),
+            stroke: Stroke::Solid,
+        }],
+        markers: vec![Marker {
+            position: Point3::new(-15.0, 0.0, 0.0),
+            color: Color::from_rgb8(255, 255, 255),
+            diameter: 9.0,
+            layer: Layer::Front,
+            pick: PickId::from_index(1),
+        }],
+        fills: vec![square_fill(-5.0, 10.0, Layer::Front, 2)],
+        grid: None,
+    };
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let line_inside = view.project(Point3::new(5.0, 0.0, 0.0)).unwrap();
+    let marker_inside = view.project(Point3::new(-15.0, 0.0, 0.0)).unwrap();
+    let fill_inside = view.project(Point3::new(5.0, 6.0, -5.0)).unwrap();
+
+    let on_line = render(&device, &queue, &view, &scene, line_inside);
+    let on_marker = render(&device, &queue, &view, &scene, marker_inside);
+    let on_fill = render(&device, &queue, &view, &scene, fill_inside);
+
+    let [red, green, blue, _] = pixel(&on_line, line_inside);
+    assert!(
+        red > 230 && green < 40 && blue < 40,
+        "the line inside the box was hidden or tinted: {red} {green} {blue}"
+    );
+    let [red, green, blue, _] = pixel(&on_line, marker_inside);
+    assert!(
+        red > 200 && green > 200 && blue > 200,
+        "the marker inside the box was hidden: {red} {green} {blue}"
+    );
+    let [red, _, blue, _] = pixel(&on_line, fill_inside);
+    assert!(blue > red + 10, "the fill inside the box was hidden");
+    assert_eq!(on_line.pick.hits[0].id, PickId::from_index(0).unwrap());
+    assert_eq!(on_line.pick.hits[0].offset_points, 0.0);
+    assert!(
+        on_line.pick.hits[0]
+            .position
+            .distance(Point3::new(5.0, 0.0, 0.0))
+            < 0.5
+    );
+    assert!(
+        on_marker
+            .pick
+            .hits
+            .iter()
+            .any(|hit| hit.id == PickId::from_index(1).unwrap() && hit.offset_points == 0.0)
+    );
+    assert_eq!(on_fill.pick.hits[0].id, PickId::from_index(2).unwrap());
+    assert_eq!(on_fill.pick.hits[0].offset_points, 0.0);
+}
+
 fn square_fill(z: f64, half: f64, layer: Layer, index: usize) -> Fill {
     Fill::convex(
         &[

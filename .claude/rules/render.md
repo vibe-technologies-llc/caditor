@@ -63,9 +63,9 @@ paths:
   small uniform; styles are written only when they differ from the last ones, so hover and
   selection cost nothing in geometry.
 - Faces are lit two-sided by a key light above and left of the camera, a headlight and a small
-  specular term. They write depth, hiding edges and sketches behind them in view and picking alike;
-  a face without a pick id writes id 0 with its depth in the pick pass (`fs_mesh_pick`), not
-  discarded.
+  specular term. They write depth, hiding edges and sketches behind them in view and picking alike
+  (everything but the `Front` layer); a face without a pick id writes id 0 with its depth in the
+  pick pass (`fs_mesh_pick`), not discarded.
 
 ## Depth, buffers and layers
 
@@ -79,6 +79,13 @@ paths:
   setup lists first), else the first non-sRGB one.
 - Model geometry draws over reference geometry (datum planes, axes) through a per-`Layer` depth
   bias, and model-layer fills (sketch regions) over the faces they lie on.
+- `Layer::Front` draws over everything else whatever its depth, in view and picking alike (the app
+  puts the edited sketch there). Every line, marker and fill vertex carries an `in_front` flag:
+  `layered_depth` in the shader halves every depth into the far half of the range (an exact scaling,
+  so no precision is lost) and moves front geometry into the near half, one draw per primitive kind
+  as before. Front geometry stays depth tested among itself, with depth biases wide enough to
+  survive the coarser floats of the near half (fills under lines under markers); front fills sort
+  after every other fill.
 
 ## Lines
 
@@ -125,7 +132,8 @@ paths:
   The app asks again after a failure.
 - Reference-layer fills (principal and datum planes) are drawn first in a pass of their own,
   nearest winning, and everything else over them: a translucent plane owns a pixel only where no
-  face, line, marker or model fill covers it, and a face seen through a plane is picked.
+  face, line, marker or model or front fill covers it, and a face seen through a plane is picked.
+  Front-layer lines, markers and fills are picked through any face, as they are drawn.
 
 ## Navigation
 

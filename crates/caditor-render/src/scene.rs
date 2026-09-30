@@ -63,6 +63,7 @@ impl Color {
 pub enum Layer {
     Reference,
     Model,
+    Front,
 }
 
 pub(crate) enum Primitive {
@@ -74,13 +75,19 @@ pub(crate) enum Primitive {
 impl Layer {
     pub(crate) fn depth_bias(self, primitive: Primitive) -> f32 {
         match (self, primitive) {
-            (Self::Reference, Primitive::Fill) => 1.0,
+            (Self::Reference | Self::Front, Primitive::Fill) => 1.0,
             (Self::Model, Primitive::Fill) => 1.00002,
             (Self::Reference, Primitive::Line) => 1.00001,
             (Self::Reference, Primitive::Marker) => 1.00002,
             (Self::Model, Primitive::Line) => 1.00003,
             (Self::Model, Primitive::Marker) => 1.00004,
+            (Self::Front, Primitive::Line) => 1.002,
+            (Self::Front, Primitive::Marker) => 1.004,
         }
+    }
+
+    pub(crate) fn draws_in_front(self) -> bool {
+        self == Self::Front
     }
 }
 
