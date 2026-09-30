@@ -26,7 +26,7 @@ use parking_lot::Mutex;
 use tempfile::TempDir;
 
 use crate::{
-    annotations,
+    about, annotations,
     app::{self, Workspace},
     canvas,
     commands::{Command, Offer, RecentSlot},
@@ -39,7 +39,7 @@ use crate::{
     icons,
     image_export::{ImageCommand, ReadPixels},
     import::{self, Placement},
-    menu_bar,
+    logo, menu_bar,
     model::{Action, Model, Notice, RecomputeStatus, Services, WakerFactory},
     onboarding::Hint,
     panels::Focus,
@@ -6786,4 +6786,46 @@ fn coarse_curves_mesh_bodies_again_with_fewer_facets_and_apply_from_the_start() 
     stored.set_text("graphics.curve_quality", "coarse");
     app::apply_preferences(&mut harness.model, &Preferences::from_settings(stored));
     assert_eq!(harness.model.mesh_quality(), MeshQuality::COARSE);
+}
+
+fn logo_loaded(harness: &Harness, size: u32) -> bool {
+    harness
+        .context
+        .tex_manager()
+        .read()
+        .allocated()
+        .any(|(_, texture)| texture.name == logo::texture_name(size))
+}
+
+fn file_menu_after_title_bar(harness: &mut Harness, title_bar: TitleBar) -> f32 {
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::TitleBar(title_bar),
+    )));
+    harness.frame();
+    harness.position_of("File").x
+}
+
+#[test]
+fn the_about_dialog_shows_the_logo_beside_the_name_and_tagline() {
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+
+    harness.perform(Action::Preferences(PreferencesCommand::ShowAbout));
+    harness.show_new_windows();
+
+    assert!(harness.shows("Parametric CAD for Linux"));
+    assert!(harness.shows(about::VERSION));
+    assert!(logo_loaded(&harness, 64));
+    assert_readable(&harness, "The About dialog");
+}
+
+#[test]
+fn the_built_in_title_bar_leads_with_the_logo_and_the_system_one_leaves_it_out() {
+    let mut harness = Harness::new();
+
+    let without_logo = file_menu_after_title_bar(&mut harness, TitleBar::System);
+    let with_logo = file_menu_after_title_bar(&mut harness, TitleBar::BuiltIn);
+
+    assert!(with_logo > without_logo + 10.0);
+    assert!(logo_loaded(&harness, 32));
 }

@@ -5,7 +5,8 @@
 caditor ships as plain release binaries: one archive per release for 64-bit Linux,
 `caditor-<version>-linux-x86_64.tar.zst`, with a `.sha256` next to it, published as a GitHub
 release of the version's tag. The archive holds the program, an installer (`install.sh`, into
-`~/.local` or any prefix), the menu entry, the icon, the AppStream metainfo, the `.caditor` MIME
+`~/.local` or any prefix), the menu entry, the icon (the scalable SVG and PNG renders from 16 to
+512 px, made by `packaging/render-icons.sh` and committed), the AppStream metainfo, the `.caditor` MIME
 type (matched by extension and by the model magic), the documentation and every licence.
 `packaging/INSTALL.md` is what users read.
 

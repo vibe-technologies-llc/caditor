@@ -33,6 +33,7 @@ use crate::{
         LogicalSize, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, MonitorArea, PanelLayout, Position,
         WindowPlacement,
     },
+    logo,
     menu_bar::{self, MenuContext},
     model::{Action, Model, Notice, WakerFactory},
     offers::SelectionOffers,
@@ -695,6 +696,10 @@ fn window_attributes(
     }
     if let Some(position) = placement.position {
         attributes = attributes.with_position(PhysicalPosition::new(position.x, position.y));
+    }
+    match logo::window_icon() {
+        Ok(icon) => attributes = attributes.with_window_icon(Some(icon)),
+        Err(error) => log::warn!("opening the window without its icon: {error}"),
     }
     let attributes =
         WindowAttributesExtWayland::with_name(attributes, about::APP_ID, about::APP_ID);

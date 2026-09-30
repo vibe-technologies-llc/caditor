@@ -620,10 +620,12 @@ dependencies = [
  "jiff",
  "log",
  "parking_lot",
+ "png",
  "pollster 1.0.1",
  "rfd",
  "signal-hook",
  "tempfile",
+ "thiserror 2.0.21",
  "wgpu",
  "winit",
 ]

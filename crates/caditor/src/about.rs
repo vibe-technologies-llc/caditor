@@ -1,9 +1,16 @@
-use crate::widgets::{self, DialogWidth};
+use egui::{Align, Layout, RichText, TextStyle};
+
+use crate::{
+    logo,
+    widgets::{self, DialogWidth},
+};
 
 pub const NAME: &str = "caditor";
 pub const APP_ID: &str = "caditor";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const PARAGRAPH_GAP: f32 = 8.0;
+const LOGO_SIDE: f32 = 64.0;
+const TAGLINE: &str = "Parametric CAD for Linux";
 
 pub fn version_line() -> String {
     format!("{NAME} {VERSION}")
@@ -11,6 +18,15 @@ pub fn version_line() -> String {
 
 pub fn dialog(ctx: &egui::Context) -> bool {
     let response = widgets::dialog(ctx, "about", "About caditor", DialogWidth::Medium, |ui| {
+        ui.horizontal(|ui| {
+            logo::show(ui, LOGO_SIDE);
+            ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                ui.add_space(PARAGRAPH_GAP);
+                ui.label(RichText::new(NAME).text_style(TextStyle::Heading));
+                ui.label(widgets::muted(TAGLINE, ui));
+            });
+        });
+        ui.add_space(PARAGRAPH_GAP);
         widgets::properties(ui, "about", |ui| {
             widgets::property(ui, "Version", |ui| ui.label(VERSION));
             widgets::property(ui, "Licence", |ui| {
@@ -19,8 +35,8 @@ pub fn dialog(ctx: &egui::Context) -> bool {
         });
         ui.add_space(PARAGRAPH_GAP);
         ui.label(widgets::muted(
-            "Parametric CAD for Linux. caditor comes with no warranty; you may share and change \
-             it under the terms of its licence.",
+            "caditor comes with no warranty; you may share and change it under the terms of its \
+             licence.",
             ui,
         ));
         ui.add_space(PARAGRAPH_GAP);

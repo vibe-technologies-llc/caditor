@@ -83,6 +83,11 @@ mkdir -p "$stage"
 install -D -m 755 "$target_dir/release/caditor" "$stage/bin/caditor"
 install -D -m 644 packaging/caditor.desktop "$stage/share/applications/caditor.desktop"
 install -D -m 644 packaging/caditor.svg "$stage/share/icons/hicolor/scalable/apps/caditor.svg"
+for icon in packaging/icons/caditor-*.png; do
+    size=${icon##*/caditor-}
+    size=${size%.png}
+    install -D -m 644 "$icon" "$stage/share/icons/hicolor/${size}x$size/apps/caditor.png"
+done
 install -D -m 644 packaging/caditor-mime.xml "$stage/share/mime/packages/caditor.xml"
 install -D -m 644 LICENSE "$stage/share/licenses/caditor/LICENSE"
 install -D -m 644 crates/caditor/assets/fonts/Inter-LICENSE.txt \

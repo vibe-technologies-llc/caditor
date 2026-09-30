@@ -8,6 +8,8 @@ paths:
   - "crates/caditor/src/offers.rs"
   - "crates/caditor/src/samples.rs"
   - "crates/caditor/src/about.rs"
+  - "crates/caditor/src/logo.rs"
+  - "packaging/**"
   - "crates/caditor/src/cli.rs"
   - "crates/caditor/src/scene.rs"
   - "crates/caditor/src/selection.rs"
@@ -107,10 +109,19 @@ paths:
 
 ## About, command line, accessibility
 
-- `about.rs`: Help › About caditor shows version, licences. `cli.rs`: `caditor [MODEL]`;
+- `about.rs`: Help › About caditor shows the logo beside the name and tagline, then version and
+  licences. `cli.rs`: `caditor [MODEL]`;
   `--version`, `--help` print and exit; unknown options, several paths refused.
 - AccessKit (`egui-winit`'s `accesskit` feature): the window is created hidden, the adapter attached
   (`Overlay::enable_accessibility`), then shown; `AppEvent::Accessibility` carries the adapter's
   requests to the overlay.
 - Wayland app ID and X11 class are `about::APP_ID` (`caditor`), which must match the desktop entry's
   name.
+- The logo is `packaging/caditor.svg`; `packaging/render-icons.sh` renders it with `rsvg-convert`
+  into `packaging/icons/caditor-<size>.png`, committed beside it, so neither the build nor the
+  release needs an SVG renderer. `logo.rs` embeds the 32 to 256 px renders: the 128 px one is the
+  window icon (shown by X11 window managers; Wayland compositors take the icon from the desktop
+  entry through the app ID), and `logo::show` draws the smallest render covering the requested
+  size in physical pixels, one texture per size cached in egui's memory, hidden from AccessKit.
+  A render that fails to decode logs a warning and leaves the window without an icon or the space
+  blank; tests decode every render.

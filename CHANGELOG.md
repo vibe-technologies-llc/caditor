@@ -253,5 +253,8 @@ The first release of caditor.
 
 - Release archives for 64-bit Linux with an installer that adds the menu entry, icon and the
   `.caditor` file type.
+- A new logo, an extruded C with the sketch it was drawn from, for the menu entry, `.caditor`
+  files, the window icon, caditor's own title bar and the About dialog, installed as a scalable
+  icon and at every common size.
 - The installer works in folders whose names hold `&`, `%` or `|`, and an install that fails
   part way removes what it had copied.

@@ -74,7 +74,8 @@ paths:
 - The menu bar holds File, Edit, View, Model, Sketch and Help, built from the commands with their
   icons and shortcuts; items trigger their command and enable from the previous frame's offers
   (`Workspace::last_offers`), reason on hover. Then the model title, the Search commands field
-  and, with caditor's title bar, the window buttons.
+  and, with caditor's title bar, the window buttons; caditor's title bar also leads with the logo,
+  as tall as a control, which drags the window like the rest of the bar.
 - The model title (file icon, name, Unsaved pill, and "› sketch" while one is edited) sits centred
   on the window when it fits between the menus and the search field, else as far towards the
   centre as it can (`model-title-width`, remembered like the bars' trailing widths). Clicking it

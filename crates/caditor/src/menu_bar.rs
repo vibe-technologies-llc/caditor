@@ -9,7 +9,7 @@ use crate::{
     editing::{SketchEditing, Tool},
     files::{self, FileCommand, Files},
     history::HistoryCommand,
-    icons,
+    icons, logo,
     model::{Action, Model},
     sketch_tools::ConstraintTool,
     widgets::{self, Tone},
@@ -50,6 +50,9 @@ pub fn show(
             }
             let mut wrapped = false;
             egui::MenuBar::new().ui(ui, |ui| {
+                if context.chrome.built_in() {
+                    logo::show(ui, ui.spacing().interact_size.y);
+                }
                 files::menu(ui, model, context.files, context.editing, commands, actions);
                 let mut menus = Menus {
                     offers: context.offers,

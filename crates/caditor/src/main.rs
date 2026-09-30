@@ -26,6 +26,7 @@ mod icons;
 mod image_export;
 mod import;
 mod layout;
+mod logo;
 mod menu_bar;
 mod model;
 mod offers;

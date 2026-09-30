@@ -1,19 +1,37 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#27313f"/>
-      <stop offset="1" stop-color="#161c25"/>
+      <stop offset="0" stop-color="#26303f"/>
+      <stop offset="1" stop-color="#121821"/>
     </linearGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a9c6ff"/>
+      <stop offset="1" stop-color="#6f9dff"/>
+    </linearGradient>
+    <linearGradient id="wall" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3f7ff0"/>
+      <stop offset="0.55" stop-color="#2f6fe0"/>
+      <stop offset="1" stop-color="#1a4396"/>
+    </linearGradient>
+    <radialGradient id="shadow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#000000" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
   </defs>
   <rect x="8" y="8" width="112" height="112" rx="24" fill="url(#tile)"/>
-  <g stroke-linejoin="round">
-    <path d="M64 28 L96 46 L64 64 L32 46 Z" fill="#7aa7ff"/>
-    <path d="M32 46 L64 64 L64 100 L32 82 Z" fill="#2f6fe0"/>
-    <path d="M96 46 L64 64 L64 100 L96 82 Z" fill="#1f4fa8"/>
-    <ellipse cx="64" cy="46" rx="13" ry="7.3" fill="#161c25"/>
+  <rect x="8.5" y="8.5" width="111" height="111" rx="23.5" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+  <ellipse cx="66.00" cy="72.00" rx="41.97" ry="24.92" fill="url(#shadow)"/>
+  <path d="M79.20 40.25 A21.43 12.37 0 0 0 44.57 50.00 L44.57 70.00 A21.43 12.37 0 0 1 79.20 60.25 Z" fill="#173a82"/>
+  <path d="M79.20 40.25 L89.37 32.73 L89.37 52.73 L79.20 60.25 Z" fill="#5b8ff5"/>
+  <path d="M28.03 50.00 A37.97 21.92 0 0 0 89.37 67.27 L89.37 87.27 A37.97 21.92 0 0 1 28.03 70.00 Z" fill="url(#wall)"/>
+  <path d="M89.37 32.73 A37.97 21.92 0 1 0 89.37 67.27 L79.20 59.75 A21.43 12.37 0 1 1 79.20 40.25 Z" fill="url(#top)"/>
+  <g fill="none" stroke="#ffb454" stroke-width="2.4" stroke-linecap="round">
+    <path d="M84.29 63.51 A29.70 17.15 0 0 0 84.29 36.49" stroke-dasharray="3.2 3.6"/>
+    <path d="M66.00 50.00 L84.29 36.49" stroke-opacity="0.9" stroke-width="1.8"/>
   </g>
-  <g fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round">
-    <path d="M22 92 L22 104 L34 104" opacity="0.9"/>
-    <path d="M100 30 L106 30 M103 27 L103 33" opacity="0.9"/>
+  <g fill="#ffb454" stroke="#121821" stroke-width="1.4">
+    <circle cx="84.29" cy="36.49" r="3.4"/>
+    <circle cx="84.29" cy="63.51" r="3.4"/>
+    <circle cx="66.00" cy="50.00" r="2.8"/>
   </g>
 </svg>
