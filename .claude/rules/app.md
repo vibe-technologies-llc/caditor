@@ -55,11 +55,27 @@ paths:
 - `main.rs` installs the panic hook and a SIGTERM/SIGHUP/SIGINT handler (`signal-hook`) flushing the
   journal before exit.
 
+## Redraws and frame pacing
+
+- caditor draws only when something asks: an input or window event, a worker's wake, egui's
+  requested repaint, or a frame that must follow (an action, a camera animation, a pick in
+  flight). Every such request goes through `Session::request_redraw`, never straight to the window.
+- `FramePacer` (`graphics.rs`) holds them to the frame limit: `Graphics::frame_interval` is the
+  chosen rate's interval, or for Match the display the monitor's refresh rate
+  (`MonitorHandle::refresh_rate_millihertz`, read at startup and on move, resize and scale change)
+  only while vsync is off, since `Fifo` already paces to it; None when unlimited or the rate is
+  unknown. A request earlier than the next slot is scheduled for it (`next_repaint`, which
+  `about_to_wait` turns into `ControlFlow::WaitUntil` and requests once due), otherwise drawn at
+  once. Slots keep a steady cadence when frames arrive on time and restart from the frame after an
+  idle spell, so the first frame after idling is never delayed and idle stays idle.
+
 ## Bodies
 
 - Body meshes come from the recompute worker at its `MeshQuality` (`document-recompute.md`), smooth
-  by default; a quality preference would be passed through `Recomputer::set_mesh_quality` followed
-  by a new submission.
+  by default. The Curve smoothness preference (`graphics.curve_quality`, coarse or smooth) reaches
+  it through `Model::set_mesh_quality`, at startup and on each change (`app::apply_preferences`):
+  a different quality is sent with `Recomputer::set_mesh_quality`, also to a worker spawned again
+  later, followed by a new submission, so every body is meshed again at it.
 - `BodyMeshing` (`bodies.rs`, in `Model`) converts each body's final mesh (and the state before the
   open blend or shell, once `Model::mesh_before` finds it meshed) into a `ShadedMesh` with edge
   polylines (no seams) on its own worker, once per result keyed by its `Arc`; requested on each

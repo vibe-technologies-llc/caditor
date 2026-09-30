@@ -12,6 +12,8 @@ use caditor_document::{
 use caditor_expression::{Expression, ParameterId, Unit};
 use caditor_file::{ExportFormat, JournalEntry, Start, Storage, StorageConfig};
 use caditor_geometry::{Plane, Point2, Vector2};
+use caditor_kernel::MeshQuality;
+use caditor_render::{GraphicsInfo, Msaa, Shading};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 use egui::{
     Color32, Event, Id, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape,
@@ -32,6 +34,7 @@ use crate::{
     editing::{EditingCommand, Tool},
     export::ExportCommand,
     files::{Dialogs, FileCommand, Files, FilesConfig, Respond},
+    graphics::{CurveQuality, FrameLimit, Graphics, Hardware},
     history::HistoryCommand,
     icons,
     import::{self, Placement},
@@ -39,12 +42,12 @@ use crate::{
     model::{Action, Model, Notice, RecomputeStatus, Services, WakerFactory},
     onboarding::Hint,
     panels::Focus,
-    preferences::{PreferenceChange, Preferences, PreferencesCommand, TitleBar},
+    preferences::{PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, TitleBar},
     scene,
     selection::{Pickable, PrincipalPlane},
     status_bar, typed_point,
     units::LengthUnit,
-    window_frame,
+    widgets, window_frame,
 };
 
 const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));
@@ -868,6 +871,7 @@ fn preferences_change_units_and_navigation_and_are_remembered() {
     assert!(harness.shows("Preferences"));
     harness.click("Centimetres");
     assert_eq!(harness.model.length_unit(), LengthUnit::Centimetre);
+    harness.click("Navigation");
     harness.click("Scroll up to zoom out");
     assert!(harness.workspace.preferences.navigation.invert_zoom);
     harness.click("Close");
@@ -909,7 +913,7 @@ fn preferences_change_units_and_navigation_and_are_remembered() {
     assert_eq!(harness.expression_text("width"), "4 cm");
 
     harness.perform(Action::Preferences(PreferencesCommand::Change(
-        PreferenceChange::Defaults,
+        PreferenceChange::Defaults(PreferencesTab::General),
     )));
     assert_eq!(harness.model.length_unit(), LengthUnit::Millimetre);
     assert!(harness.shows("20 mm"));
@@ -4537,6 +4541,7 @@ fn the_interface_scales_from_the_keyboard_and_high_contrast_changes_the_colours(
     harness.key(Key::Comma, Modifiers::COMMAND);
     harness.frame();
     harness.show_new_windows();
+    harness.click("Appearance");
     harness.click("High contrast");
     assert!(harness.workspace.preferences.appearance.high_contrast);
     let panel = harness.context.global_style().visuals.panel_fill;
@@ -4939,6 +4944,7 @@ fn dragging_a_speed_slider_applies_at_once_and_is_saved_when_released() {
     harness.key(Key::Comma, Modifiers::COMMAND);
     harness.frame();
     harness.show_new_windows();
+    harness.click("Navigation");
     let label = harness.position_of("Orbit speed");
     let value = harness.position_of("1.00");
     let start = Pos2::new(value.x - 60.0, label.y);
@@ -5276,9 +5282,19 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     harness.key(Key::Comma, Modifiers::COMMAND);
     harness.show_new_windows();
     assert_readable(&harness, "Preferences");
+    for tab in PreferencesTab::ALL {
+        assert!(harness.accessible_named(Role::Tab, tab.label()), "{tab:?}");
+    }
+    harness.click("Appearance");
+    assert_readable(&harness, "The Appearance preferences");
     assert!(harness.accessible_named(Role::Button, "Make the interface smaller"));
     assert!(harness.accessible_named(Role::Button, "Make the interface larger"));
+    harness.click("Navigation");
     assert!(harness.captioned(Role::Slider, "Orbit speed"));
+    harness.click("Graphics");
+    assert_readable(&harness, "The Graphics preferences");
+    assert!(harness.captioned(Role::CheckBox, "Vsync"));
+    assert!(harness.accessible_named(Role::Button, crate::graphics::COPY_DETAILS));
 
     harness.perform(Action::Preferences(PreferencesCommand::ShowShortcuts));
     harness.show_new_windows();
@@ -6225,4 +6241,256 @@ fn the_model_title_shows_the_edited_sketch_and_saves_from_its_details() {
     let feature = harness.draw_on_new_sketch();
     let name = harness.document().feature(feature).unwrap().name.clone();
     assert!(in_bar(&harness, &name));
+}
+
+fn open_preferences(harness: &mut Harness) {
+    harness.key(Key::Comma, Modifiers::COMMAND);
+    harness.frame();
+    harness.show_new_windows();
+}
+
+fn tab_after(harness: &mut Harness, key: Key, modifiers: Modifiers) -> PreferencesTab {
+    harness.key(key, modifiers);
+    harness.frame();
+    harness.frame();
+    harness.workspace.preferences_tab
+}
+
+fn focused_tab(harness: &Harness) -> Option<usize> {
+    let focused = harness.focused()?;
+    (0..PreferencesTab::ALL.len()).find(|index| widgets::tab_id("preferences", *index) == focused)
+}
+
+#[test]
+fn preferences_tabs_switch_by_mouse_and_keyboard_and_the_last_one_stays_open() {
+    let mut harness = Harness::new();
+    open_preferences(&mut harness);
+    assert!(harness.shows("Centimetres"));
+    assert!(!harness.shows("Scroll up to zoom out"));
+
+    harness.click("Navigation");
+    assert_eq!(
+        harness.workspace.preferences_tab,
+        PreferencesTab::Navigation
+    );
+    assert!(harness.shows("Scroll up to zoom out"));
+    assert!(!harness.shows("Centimetres"));
+
+    let ctrl = Modifiers::COMMAND;
+    let ctrl_shift = Modifiers::COMMAND | Modifiers::SHIFT;
+    assert_eq!(
+        tab_after(&mut harness, Key::Tab, ctrl),
+        PreferencesTab::Graphics
+    );
+    assert!(harness.shows("Anti-aliasing"));
+    assert_eq!(
+        tab_after(&mut harness, Key::Tab, ctrl),
+        PreferencesTab::General
+    );
+    assert_eq!(
+        tab_after(&mut harness, Key::Tab, ctrl_shift),
+        PreferencesTab::Graphics
+    );
+    assert_eq!(
+        tab_after(&mut harness, Key::PageUp, ctrl),
+        PreferencesTab::Navigation
+    );
+    assert_eq!(
+        tab_after(&mut harness, Key::PageDown, ctrl),
+        PreferencesTab::Graphics
+    );
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(!harness.workspace.preferences_open);
+    open_preferences(&mut harness);
+    assert!(harness.shows("Anti-aliasing"));
+
+    for _ in 0..12 {
+        if focused_tab(&harness).is_some() {
+            break;
+        }
+        harness.key(Key::Tab, Modifiers::NONE);
+        harness.frame();
+        harness.frame();
+    }
+    assert_eq!(focused_tab(&harness), Some(0));
+    assert_eq!(harness.workspace.preferences_tab, PreferencesTab::Graphics);
+    let none = Modifiers::NONE;
+    assert_eq!(
+        tab_after(&mut harness, Key::ArrowRight, none),
+        PreferencesTab::Appearance
+    );
+    assert_eq!(focused_tab(&harness), Some(1));
+    assert_eq!(
+        tab_after(&mut harness, Key::ArrowRight, none),
+        PreferencesTab::Navigation
+    );
+    assert_eq!(
+        tab_after(&mut harness, Key::ArrowLeft, none),
+        PreferencesTab::Appearance
+    );
+    assert_eq!(
+        tab_after(&mut harness, Key::End, none),
+        PreferencesTab::Graphics
+    );
+    assert_eq!(
+        tab_after(&mut harness, Key::Home, none),
+        PreferencesTab::General
+    );
+    assert_eq!(
+        tab_after(&mut harness, Key::ArrowLeft, none),
+        PreferencesTab::Graphics
+    );
+    assert_eq!(focused_tab(&harness), Some(3));
+    assert!(harness.shows("Anti-aliasing"));
+}
+
+#[test]
+fn every_preferences_tab_fits_the_window_at_the_largest_interface_size() {
+    let mut harness = Harness::new();
+    harness.workspace.hardware.adapter = Some(test_adapter());
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Scale(2.0),
+    )));
+    harness.frame();
+    open_preferences(&mut harness);
+    let visible = Rect::from_min_size(Pos2::ZERO, SCREEN.size() / 2.0);
+
+    for tab in PreferencesTab::ALL {
+        harness.click(tab.label());
+        assert_eq!(harness.workspace.preferences_tab, tab);
+        for label in PreferencesTab::ALL
+            .map(PreferencesTab::label)
+            .into_iter()
+            .chain(["Restore defaults", "Close"])
+        {
+            let rect = harness
+                .texts
+                .iter()
+                .find(|(shown, _)| shown == label)
+                .unwrap_or_else(|| panic!("{label} is not on screen in {tab:?}"))
+                .1;
+            assert!(
+                visible.contains_rect(rect),
+                "{label} at {rect:?} in {tab:?}"
+            );
+        }
+    }
+}
+
+fn test_adapter() -> GraphicsInfo {
+    GraphicsInfo {
+        adapter: "Test Adapter 9000".to_owned(),
+        backend: "Vulkan".to_owned(),
+        driver: "test driver 1.2".to_owned(),
+        msaa_offered: vec![Msaa::Off, Msaa::X2, Msaa::X4],
+        msaa: Msaa::X4,
+        vsync_optional: false,
+        vsync: true,
+    }
+}
+
+#[test]
+fn graphics_options_apply_at_once_are_saved_and_what_the_adapter_lacks_says_why() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.workspace.hardware = Hardware {
+        adapter: Some(test_adapter()),
+        refresh_rate: Some(60.0),
+    };
+    harness.workspace.preferences.graphics.msaa = Msaa::X8;
+    open_preferences(&mut harness);
+    harness.click("Graphics");
+
+    assert!(harness.shows("Test Adapter 9000"));
+    assert!(harness.shows("Vulkan"));
+    assert!(harness.shows("test driver 1.2"));
+    assert!(harness.shows("60 Hz"));
+    assert!(harness.shows("This graphics adapter cannot draw 8× anti-aliasing, so 4× is used."));
+
+    harness.click("4×");
+    assert_eq!(harness.workspace.preferences.graphics.msaa, Msaa::X4);
+    assert!(!harness.shows("This graphics adapter cannot draw 8× anti-aliasing, so 4× is used."));
+    harness.click("8×");
+    assert_eq!(harness.workspace.preferences.graphics.msaa, Msaa::X4);
+    harness.hover("8×");
+    assert!(harness.shows("This graphics adapter cannot smooth edges with 8 samples per pixel"));
+    harness.click("Wait for the display");
+    assert!(harness.workspace.preferences.graphics.vsync);
+
+    harness.click("2×");
+    harness.click("Enhanced");
+    harness.click("120 fps");
+    let graphics = harness.workspace.preferences.graphics;
+    assert_eq!(graphics.msaa, Msaa::X2);
+    assert_eq!(graphics.shading, Shading::Enhanced);
+    assert_eq!(graphics.frame_limit, FrameLimit::Fps120);
+    assert_eq!(graphics.render().msaa, Msaa::X2);
+    assert_eq!(
+        graphics.frame_interval(&harness.workspace.hardware),
+        Some(Duration::from_secs_f64(1.0 / 120.0))
+    );
+    let config = dir.path().join("config");
+    harness.wait_until("the graphics settings are saved", |_| {
+        let saved = caditor_file::Settings::load(&config);
+        saved.number("graphics.msaa") == Some(2.0)
+            && saved.text("graphics.shading") == Some("enhanced")
+            && saved.text("graphics.frame_limit") == Some("120")
+    });
+
+    harness.click("Restore defaults");
+    assert_eq!(harness.workspace.preferences.graphics, Graphics::default());
+    assert_eq!(harness.workspace.preferences_tab, PreferencesTab::Graphics);
+}
+
+#[test]
+fn coarse_curves_mesh_bodies_again_with_fewer_facets_and_apply_from_the_start() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_circle(Point2::new(0.0, 0.0), 20.0);
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    let body = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let facets = |harness: &Harness| {
+        harness
+            .model
+            .evaluation()
+            .body_result(body)
+            .and_then(|result| result.solid())
+            .and_then(SolidResult::mesh)
+            .map(|mesh| mesh.triangles().len())
+            .expect("the body is meshed")
+    };
+    let smooth = facets(&harness);
+    assert_eq!(harness.model.mesh_quality(), MeshQuality::SMOOTH);
+
+    open_preferences(&mut harness);
+    harness.click("Graphics");
+    harness.click("Coarse");
+    assert_eq!(
+        harness.workspace.preferences.graphics.curves,
+        CurveQuality::Coarse
+    );
+    assert_eq!(harness.model.mesh_quality(), MeshQuality::COARSE);
+    harness.settle();
+    let coarse = facets(&harness);
+    assert!(coarse < smooth, "{coarse} facets coarse, {smooth} smooth");
+
+    harness.click("Smooth");
+    harness.settle();
+    assert_eq!(facets(&harness), smooth);
+
+    let mut stored = caditor_file::Settings::default();
+    stored.set_text("graphics.curve_quality", "coarse");
+    app::apply_preferences(&mut harness.model, &Preferences::from_settings(stored));
+    assert_eq!(harness.model.mesh_quality(), MeshQuality::COARSE);
 }

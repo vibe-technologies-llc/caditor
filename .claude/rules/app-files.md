@@ -6,6 +6,7 @@ paths:
   - "crates/caditor/src/import.rs"
   - "crates/caditor/src/history.rs"
   - "crates/caditor/src/preferences.rs"
+  - "crates/caditor/src/graphics.rs"
   - "crates/caditor/src/units.rs"
   - "crates/caditor/src/model.rs"
 ---
@@ -75,21 +76,42 @@ paths:
 
 ## Preferences and units
 
-- `preferences.rs`, `units.rs`. File › Preferences… (Ctrl+,) sets the length unit (µm, mm, cm or m;
-  SI only, `ux.md`); the `Appearance` (theme system, dark or light, the 3D view staying dark;
-  interface size 75% to 200% in eighths, Ctrl+Plus/Minus/0, the egui zoom factor with egui's
-  keyboard zoom and quit shortcut off; high contrast); the title bar (caditor's or the system's,
-  `app-look.md`); orbit and zoom speed with the zoom direction;
-  the projection (`navigation.projection`, perspective by default, also switched by Switch between
-  perspective and orthographic, O, in the View menu and the palette; standard views and sketching
-  never switch it by themselves, so the view only changes when asked); and opens the shortcut
-  editor.
+- `preferences.rs`, `units.rs`, `graphics.rs`. File › Preferences… (Ctrl+,) is a dialog of
+  `PreferencesTab`s (`widgets::tabs`): General, Appearance, Navigation and Graphics. The tab shown
+  is `Workspace::preferences_tab`, kept for the session (`PreferencesCommand::Tab`) but not saved.
+  Tabs switch by click, arrows, Home and End on a focused tab, and Ctrl+Tab, Ctrl+Shift+Tab,
+  Ctrl+Page Down and Ctrl+Page Up anywhere in the dialog unless the shortcut editor is open over it.
+  The body scrolls at a fixed height so switching never resizes the dialog.
+  - General: the length unit (µm, mm, cm or m; SI only, `ux.md`), the shortcut editor, tips.
+  - Appearance: the `Appearance` (theme system, dark or light, the 3D view staying dark; high
+    contrast; interface size 75% to 200% in eighths, Ctrl+Plus/Minus/0, the egui zoom factor with
+    egui's keyboard zoom and quit shortcut off) and the title bar (caditor's or the system's,
+    `app-look.md`).
+  - Navigation: the projection (`navigation.projection`, perspective by default, also switched by
+    Switch between perspective and orthographic, O, in the View menu and the palette; standard
+    views and sketching never switch it by themselves, so the view only changes when asked); orbit
+    and zoom speed with the zoom direction.
+  - Graphics: `graphics::Graphics`, under `graphics.*`, read clamped to what is offered: vsync
+    (`graphics.vsync`, on), frame rate (`graphics.frame_limit`: `unlimited`, `30`, `60`, `120`,
+    `144` or `display`, the default; another number reads as the nearest rate), anti-aliasing
+    (`graphics.msaa`, samples 1, 2, 4 (default) or 8; another number reads as the largest level
+    within it), shading (`graphics.shading`, `standard` or `enhanced`) and curve smoothness
+    (`graphics.curve_quality`, `smooth` or `coarse`). Each option has a caption and hover text;
+    one the adapter cannot do (a level it does not offer, vsync off where the surface has only
+    `Fifo`) is disabled with the reason on hover, and a stored level the adapter lacks gets an
+    info callout naming the one used. The tab ends with the adapter, backend, driver and display
+    rate (`graphics::Hardware`, which the session refreshes from the renderer and the monitor) and
+    Copy details, for bug reports.
+- Restore defaults resets only the open tab (`PreferenceChange::Defaults(tab)`, its hover text
+  listing the values); General leaves shortcuts and tips alone.
 - Every text colour of the theme is tested against its background (4.5:1, and 7:1 for body text and
   pills in high contrast, whose button and focus outlines reach 3:1).
 - Changes apply at once and save on the files worker (a slider on release,
   `PreferencesCommand::Preview` until then).
 - `Workspace` owns the `Preferences`, `Model` carries the length unit so every panel can use it, and
-  `Action::Preferences` is performed with the workspace.
+  `Action::Preferences` is performed with the workspace. `app::apply_preferences` hands the model
+  its share (length unit, mesh quality) at startup and after every change; the session passes the
+  graphics settings to the renderer after each frame's actions (`Renderer::set_graphics`).
 - The unit is for display and input only; models stay unit-explicit. Values show in it
   (`LengthUnit::show`); a plain number typed for a length gets it attached (`2` becomes `2 cm`), as
   does a plain value for a length parameter (an angle one gets degrees,

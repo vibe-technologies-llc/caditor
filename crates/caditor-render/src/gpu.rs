@@ -5,7 +5,7 @@ use std::sync::{
 
 use glam::{Mat4, Vec3};
 
-use crate::RenderError;
+use crate::{RenderError, settings::Msaa};
 
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
@@ -176,12 +176,12 @@ pub fn within(base: wgpu::Limits, offered: &wgpu::Limits) -> wgpu::Limits {
     .or_worse_values_from(offered)
 }
 
-pub fn sample_count(
+pub fn offered_msaa(
     adapter: &wgpu::Adapter,
     device: &wgpu::Device,
     color: wgpu::TextureFormat,
     depth: wgpu::TextureFormat,
-) -> u32 {
+) -> Vec<Msaa> {
     let adapter_specific = device
         .features()
         .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
@@ -198,14 +198,17 @@ pub fn sample_count(
     };
     let color = features(color);
     let depth = features(depth);
-    [4, 2]
+    let resolves = color.contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE);
+    Msaa::ALL
         .into_iter()
-        .find(|&count| {
-            color.sample_count_supported(count)
-                && depth.sample_count_supported(count)
-                && color.contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE)
+        .filter(|level| {
+            let count = level.samples();
+            count == 1
+                || (resolves
+                    && color.sample_count_supported(count)
+                    && depth.sample_count_supported(count))
         })
-        .unwrap_or(1)
+        .collect()
 }
 
 #[derive(Debug, Default)]

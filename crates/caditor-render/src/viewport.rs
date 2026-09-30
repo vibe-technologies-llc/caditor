@@ -9,6 +9,7 @@ use crate::{
     mesh::{MESH_VERTEX_STRIDE, MeshCache},
     picking::{self, PickTargets, PickWindow, Picking},
     scene::{Fill, Grid, Layer, PickId, Primitive, Scene, ViewportRect},
+    settings::Shading,
 };
 
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -24,9 +25,11 @@ const LINE_STRIDE: u64 = 60;
 const MARKER_STRIDE: u64 = 44;
 const FILL_VERTEX_STRIDE: u64 = 40;
 const FILL_TRIANGLE_STRIDE: u64 = FILL_VERTEX_STRIDE * 3;
-const VIEW_UNIFORM_SIZE: u64 = 128;
+const VIEW_UNIFORM_SIZE: u64 = 144;
 const KEY_LIGHT_UP: f64 = 0.8;
 const KEY_LIGHT_LEFT: f64 = 0.5;
+const FILL_LIGHT_DOWN: f64 = 0.35;
+const FILL_LIGHT_RIGHT: f64 = 0.8;
 const GRID_UNIFORM_SIZE: u64 = 64;
 const GRID_CELLS_ACROSS_SCALE: f64 = 100.0;
 const GRID_EXTENT_PER_SCALE: f64 = 40.0;
@@ -113,6 +116,9 @@ struct PickFills {
 pub struct ViewportRenderer {
     format: wgpu::TextureFormat,
     sample_count: u32,
+    shading: Shading,
+    view_layout: wgpu::BindGroupLayout,
+    grid_layout: wgpu::BindGroupLayout,
     pipelines: Pipelines,
     view_uniform: Uniform,
     pick_view_uniform: Uniform,
@@ -156,10 +162,13 @@ impl ViewportRenderer {
         Self {
             format,
             sample_count,
+            shading: Shading::default(),
             pipelines: Pipelines::new(device, format, sample_count, &layouts),
             view_uniform: Uniform::new(device, &view_layout, "view", VIEW_UNIFORM_SIZE),
             pick_view_uniform: Uniform::new(device, &view_layout, "pick view", VIEW_UNIFORM_SIZE),
             grid_uniform: Uniform::new(device, &grid_layout, "grid", GRID_UNIFORM_SIZE),
+            view_layout,
+            grid_layout,
             lines: GrowableBuffer::new(device, "lines", wgpu::BufferUsages::VERTEX),
             markers: GrowableBuffer::new(device, "markers", wgpu::BufferUsages::VERTEX),
             fills: GrowableBuffer::new(device, "fills", wgpu::BufferUsages::VERTEX),
@@ -173,6 +182,29 @@ impl ViewportRenderer {
 
     pub fn format(&self) -> wgpu::TextureFormat {
         self.format
+    }
+
+    #[cfg(test)]
+    pub fn sample_count(&self) -> u32 {
+        self.sample_count
+    }
+
+    pub fn set_sample_count(&mut self, device: &wgpu::Device, sample_count: u32) {
+        if sample_count == self.sample_count {
+            return;
+        }
+        let layouts = Layouts {
+            view: &self.view_layout,
+            grid: &self.grid_layout,
+            mesh: self.meshes.layout(),
+        };
+        self.pipelines = Pipelines::new(device, self.format, sample_count, &layouts);
+        self.sample_count = sample_count;
+        self.targets = None;
+    }
+
+    pub fn set_shading(&mut self, shading: Shading) {
+        self.shading = shading;
     }
 
     pub fn picking(&mut self) -> &mut Picking {
@@ -406,7 +438,13 @@ impl ViewportRenderer {
         let eye = view.eye();
 
         let pixels_per_point = valid_scale(viewport.pixels_per_point);
-        view_uniform(&mut self.staging, view, pixels_per_point, None);
+        view_uniform(
+            &mut self.staging,
+            view,
+            pixels_per_point,
+            self.shading,
+            None,
+        );
         queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
         if let Some(cursor) = viewport.pick_at
             && let Some(window) = self
@@ -417,6 +455,7 @@ impl ViewportRenderer {
                 &mut self.staging,
                 view,
                 pixels_per_point,
+                self.shading,
                 Some((cursor, window)),
             );
             queue.write_buffer(&self.pick_view_uniform.buffer, 0, self.staging.as_slice());
@@ -756,6 +795,7 @@ fn view_uniform(
     bytes: &mut Bytes,
     view: &View,
     pixels_per_point: f32,
+    shading: Shading,
     pick: Option<(DVec2, PickWindow)>,
 ) {
     let size = view.size();
@@ -774,12 +814,19 @@ fn view_uniform(
             if view.is_orthographic() { 1.0 } else { 0.0 },
         ])
         .floats(&pick_transform)
-        .vec4(key_light(view).as_vec3(), 0.0);
+        .vec4(key_light(view).as_vec3(), shading.uniform_flag())
+        .vec4(fill_light(view).as_vec3(), 0.0);
 }
 
 fn key_light(view: &View) -> Vector3 {
     let viewpoint = view.viewpoint();
     (-viewpoint.forward() + viewpoint.up() * KEY_LIGHT_UP - viewpoint.right() * KEY_LIGHT_LEFT)
+        .normalize_or(-viewpoint.forward())
+}
+
+fn fill_light(view: &View) -> Vector3 {
+    let viewpoint = view.viewpoint();
+    (-viewpoint.forward() - viewpoint.up() * FILL_LIGHT_DOWN + viewpoint.right() * FILL_LIGHT_RIGHT)
         .normalize_or(-viewpoint.forward())
 }
 

@@ -27,10 +27,27 @@ paths:
   window: integrated before discrete, virtual and software, Vulkan before GL.
 - Each adapter is asked for a device with its own limits (and adapter-specific format features),
   then default, then WebGL2-level limits that keep its texture and buffer sizes, before the next.
-- The surface is clamped to the device's largest texture side; the multisample count is read from
-  the adapter's format features only when the device may use them.
+- The surface is clamped to the device's largest texture side; the multisample levels offered
+  (`gpu::offered_msaa`: those both the surface format and `Depth32Float` support, with resolve)
+  are read from the adapter's format features only when the device may use them.
 - Nothing needs storage buffers, so downlevel and GL devices draw everything (a test renders on
   WebGL2 limits).
+
+## Graphics settings (`settings.rs`)
+
+- `GraphicsSettings` (vsync, `Msaa` level, `Shading`) is given to `Renderer::new` and applied live
+  by `Renderer::set_graphics`, which changes only what differs.
+- Vsync picks the present mode from the surface's capabilities (`settings::present_mode`): `Fifo`
+  when on; when off, `Mailbox`, else `Immediate`, else `Fifo`. A change sets `needs_reconfigure`,
+  so the next `begin_frame` reconfigures through `resize`, as for an outdated surface; a recreated
+  surface reads its present modes again.
+- MSAA uses the offered level closest to the one asked for (`Msaa::closest`: fewest doublings
+  away, ties towards more samples, Off always offered). A change rebuilds the viewport's pipelines
+  and drops its scene targets (`ViewportRenderer::set_sample_count`), keeping mesh buffers and
+  picking; the pick pass is always single-sampled.
+- Shading is a flag in the view uniform (`light.w`), so switching costs nothing.
+- `Renderer::graphics_info` is a `GraphicsInfo`: adapter name, backend, driver, the levels
+  offered, and the level and vsync actually in use, which the app shows in Preferences.
 
 ## Device loss
 
@@ -39,6 +56,8 @@ paths:
 - The next `begin_frame` after a loss opens a new device on the same surface (or a new one when
   that fails), reconfigures it and rebuilds the `ViewportRenderer` (pipelines, mesh buffers, pick
   targets, growable buffers), bumping `Renderer::generation`; a pick in flight polls `Failed`.
+  The current `GraphicsSettings` are applied to the new device: its present mode from them, and
+  the MSAA level closest to the one asked for among those the new device offers.
 - A `Frame` remembers its generation; `submit` drops one from an older generation or drawn while
   the device is lost. A failed reopening is an error for that frame, retried later.
 
@@ -62,15 +81,23 @@ paths:
 - Each frame writes only the eye's offset to the mesh centre (with face count and row width) to a
   small uniform; styles are written only when they differ from the last ones, so hover and
   selection cost nothing in geometry.
-- Faces are lit two-sided by a key light above and left of the camera, a headlight and a small
-  specular term. They write depth, hiding edges and sketches behind them in view and picking alike
+- Faces are lit two-sided. `Shading::Standard`: a key light above and left of the camera, a
+  headlight and a small specular term. `Shading::Enhanced`: a hemisphere ambient (brighter for
+  normals towards world +Z), the key light, a weaker fill light below and right of the camera (the
+  uniform's `fill_light`), a smaller headlight, a sharp Blinn-Phong highlight with a broad sheen,
+  and a rim term towards grazing angles; highlight and rim scale with the face colour's luminance,
+  so dimmed and tinted bodies stay darker and keep their hue (an offscreen test holds both). Normals
+  are the mesh's own. They write depth, hiding edges and sketches behind them in view and picking alike
   (everything but the `Front` layer); a face without a pick id writes id 0 with its depth in the
   pick pass (`fs_mesh_pick`), not discarded.
 
 ## Depth, buffers and layers
 
-- Reverse-Z with an infinite far plane and `Depth32Float`; 4x MSAA when the adapter supports it
-  (multisampled colour is resolved and discarded, never stored).
+- Reverse-Z with an infinite far plane and `Depth32Float`, multisampled at the anti-aliasing level
+  in use (4x by default; multisampled colour is resolved into the surface and discarded, never
+  stored); with MSAA off the viewport draws straight into the surface. The UI is drawn on the
+  resolved surface after the 3D pass. The front layer and line depth biases work per sample, and an
+  offscreen test draws and picks front geometry at every offered level.
 - Line, marker and fill vertices use `GrowableBuffer`s: grow to the next power of two, shrink after
   300 uploads using under a quarter. They never pass `max_buffer_size`: a larger scene draws only
   its first whole lines, markers and fill triangles (logged once) rather than invalidating the
