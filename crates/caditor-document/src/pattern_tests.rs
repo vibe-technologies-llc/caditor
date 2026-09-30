@@ -82,10 +82,7 @@ fn model(kind: impl FnOnce(ParameterId) -> PatternKind) -> Model {
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch: outline,
             regions: RegionChoice::All,
-            extent: ExtrudeExtent::OneSide {
-                distance: Expression::Parameter(height),
-                reversed: false,
-            },
+            extent: ExtrudeExtent::one_side(Expression::Parameter(height), false),
             operation: BodyOperation::NewBody,
         })),
     );

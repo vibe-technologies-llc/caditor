@@ -89,3 +89,7 @@ paths:
   nearest non-seam coedge, or of both coedges at a vertex (convex corners need both).
 - `classify_boundary_point(point, normal)` adds `Coincident { face, sense }` for a point on a face
   with a parallel normal, and `Touching(face)` otherwise.
+- `first_crossing(origin, direction, beyond)` casts one ray the same way and gives the nearest
+  clean crossing past `beyond` (the face, its distance and whether the ray enters there),
+  `Nothing`, or `Undecided` when a graze, tangent, overlap or edge comes no later than it. Hits
+  up to `beyond` are ignored, so a ray may start on a face.

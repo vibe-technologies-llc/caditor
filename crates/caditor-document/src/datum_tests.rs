@@ -111,10 +111,7 @@ fn block() -> Block {
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch: outline,
             regions: RegionChoice::All,
-            extent: ExtrudeExtent::OneSide {
-                distance: Expression::Parameter(height),
-                reversed: false,
-            },
+            extent: ExtrudeExtent::one_side(Expression::Parameter(height), false),
             operation: BodyOperation::NewBody,
         })),
     );
@@ -466,10 +463,7 @@ fn a_revolve_axis_is_shown_where_the_revolve_found_it() {
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch: strip,
             regions: RegionChoice::All,
-            extent: ExtrudeExtent::OneSide {
-                distance: millimetres(1.0),
-                reversed: false,
-            },
+            extent: ExtrudeExtent::one_side(millimetres(1.0), false),
             operation: BodyOperation::Remove(base),
         })),
     );

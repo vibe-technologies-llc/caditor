@@ -23,10 +23,7 @@ fn extrude(sketch: FeatureId, distance: Expression, operation: BodyOperation) ->
     FeatureKind::Solid(SolidFeature::Extrude(Extrude {
         sketch,
         regions: RegionChoice::All,
-        extent: ExtrudeExtent::OneSide {
-            distance,
-            reversed: false,
-        },
+        extent: ExtrudeExtent::one_side(distance, false),
         operation,
     }))
 }

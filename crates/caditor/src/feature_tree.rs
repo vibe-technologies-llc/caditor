@@ -1235,6 +1235,21 @@ fn axis_change(
     }
 }
 
+fn up_to_change(
+    model: &Model,
+    selection: &Selection,
+    feature: &Feature,
+) -> Result<Transaction, String> {
+    match feature.kind.solid() {
+        Some(SolidFeature::Extrude(extrude)) => {
+            solid_panel::up_to_selected_change(model, selection, feature.id(), extrude)
+        }
+        Some(SolidFeature::Revolve(_)) | None => {
+            Err(format!("{} is not an extrusion", feature.name))
+        }
+    }
+}
+
 fn datum_change(
     feature: &Feature,
     change: impl FnOnce(&Datum) -> Result<Transaction, String>,
@@ -1318,7 +1333,7 @@ fn feature_commands(
     if commands.invoke(Command::TogglePrincipal, &Ok::<_, String>(())) {
         actions.push(Action::Apply(visibility::toggle_principal_group(document)));
     }
-    let changes: [(Command, FeatureChange<'_>); 7] = [
+    let changes: [(Command, FeatureChange<'_>); 8] = [
         (Command::DetachSketch, &|feature| {
             detach_change(model, feature)
         }),
@@ -1327,6 +1342,9 @@ fn feature_commands(
         }),
         (Command::UseSelectedAxis, &|feature| {
             axis_change(model, selection, feature)
+        }),
+        (Command::ExtrudeUpToSelected, &|feature| {
+            up_to_change(model, selection, feature)
         }),
         (Command::DatumUseSelected, &|feature| {
             datum_change(feature, |datum| {

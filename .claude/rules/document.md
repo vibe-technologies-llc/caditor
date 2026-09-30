@@ -119,7 +119,26 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `RegionKey`s) with a `BodyOperation`: `NewBody`, or `Add`, `Remove`, `Intersect` on the body of
   the feature that made it. A body is named by that feature's ID.
 - Extents are expressions (lengths, or angles in degrees) above zero, both distances of a
-  two-sided extrusion included; one-sided extents flip with `reversed`.
+  two-sided extrusion included; one-sided extents flip with `reversed`. A revolve turns a full
+  turn, one angle, a symmetric angle, or two angles (`RevolveExtent::TwoSides`, forward and
+  backward from the sketch plane) that together may turn at most 360°.
+- An extrusion is one-sided or two-sided with an `ExtrudeEnd` per side, or symmetric by a
+  distance. An end is a `Distance`, `ThroughAll`, `UpToNext` or `UpToFace(PlaneReference)`
+  (a principal plane, a datum plane, or a flat face as a `FaceAttachment` resolved in its body's
+  state at the extrusion's place in the tree, like a datum's). Face bodies and datum planes of
+  the ends count as used (`SolidFeature::end_bodies`, `end_datums`), so recompute reuses the
+  result only while they are unchanged and a datum plane stays above the extrusion.
+  - Through all only cuts or intersects: it reaches past the target body's box along the side's
+    direction (by a twentieth of its diagonal and 1 mm), so the result does not depend on how
+    far; a body lying wholly behind fails.
+  - Up to next needs a target body and ends on the plane of the first face its profile meets
+    (the kernel's `next_face`); an addition whose profile starts inside the body, or a cut whose
+    profile first enters it, would change nothing and fails instead.
+  - Up to face ends on the face's plane, extended past the face, so a face that covers only part
+    of the profile still ends all of it. The plane must lie beyond the whole profile on its side:
+    one behind, across the profile or along the direction fails.
+  - Every failure names the face or plane and the side, with what to do: a lost face points back
+    at the extrusion.
 - A revolve's axis (`RevolveAxis`) is a line of its sketch, a sketch axis, or an `AxisReference` to
   a model axis lying in the sketch plane. A sketch line used as axis cannot be deleted; edits
   refuse an axis not a line or axis of the revolve's own sketch (`AxisNotALine`).

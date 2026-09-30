@@ -270,18 +270,27 @@ fn adjacent_regions_extrude_as_one_lump() {
 #[test]
 fn extents_run_either_way_and_both_ways() {
     let profile = regions(&[circle(1, (0.0, 0.0), 1.0)]);
-    for (name, extent, total) in [
-        ("two sided", LinearExtent::two_sided(2.0, 1.0).unwrap(), 3.0),
-        ("symmetric", LinearExtent::symmetric(4.0).unwrap(), 4.0),
-        ("reversed", LinearExtent::new(3.0, -1.0).unwrap(), 4.0),
+    for (name, extent, (low, high)) in [
+        (
+            "two sided",
+            LinearExtent::two_sided(2.0, 1.0).unwrap(),
+            (-1.0, 2.0),
+        ),
+        (
+            "symmetric",
+            LinearExtent::symmetric(4.0).unwrap(),
+            (-2.0, 2.0),
+        ),
+        (
+            "reversed",
+            LinearExtent::new(3.0, -1.0).unwrap(),
+            (-1.0, 3.0),
+        ),
     ] {
         let solid = extrude(&Plane::XY, &profile, extent, FEATURE).unwrap();
+        let total = high - low;
         check(name, &solid, PI * total, 2.0 * PI + TAU * total, 1.0);
         let bounds = solid.bounding_box().unwrap();
-        let (low, high) = (
-            extent.start().min(extent.end()),
-            extent.start().max(extent.end()),
-        );
         assert!((bounds.min().z - low).abs() < 1e-9 && (bounds.max().z - high).abs() < 1e-9);
     }
     assert_eq!(LinearExtent::one_side(0.0), Err(SweepError::ZeroLength));
@@ -702,4 +711,312 @@ fn sweeps_cancelled_anywhere_stop_with_cancelled() {
         || revolve(&Plane::XY, &profile, y_axis(), full(), FEATURE),
         cancelled,
     );
+    let tilted_top = plane_through((0.0, 0.0, 3.0), (0.2, 0.1, 1.0));
+    assert_cancelled_anywhere(
+        "tilted extrude",
+        || extrude(&Plane::XY, &profile, up_to(tilted_top), FEATURE),
+        cancelled,
+    );
+    let body = slab(5.0, 8.0, (0.0, 0.0), (12.0, 10.0));
+    assert_cancelled_anywhere(
+        "next face",
+        || next_face(&body, &Plane::XY, &profile, false),
+        |error| matches!(error, ReachError::Cancelled(_)),
+    );
+}
+
+fn plane_through(point: (f64, f64, f64), normal: (f64, f64, f64)) -> Plane {
+    Plane::new(
+        Point3::new(point.0, point.1, point.2),
+        Vector3::new(normal.0, normal.1, normal.2),
+    )
+    .unwrap()
+}
+
+fn bounded(start: LinearBound, end: LinearBound) -> LinearExtent {
+    LinearExtent::between(start, end).unwrap()
+}
+
+fn up_to(plane: Plane) -> LinearExtent {
+    bounded(LinearBound::Offset(0.0), LinearBound::Plane(plane))
+}
+
+fn cap_plane(solid: &Solid, name: FaceName) -> Plane {
+    let (_, face) = solid.faces().find(|(_, face)| face.name() == name).unwrap();
+    let crate::surface::Surface::Plane(surface) = face.surface() else {
+        panic!("a cap is flat");
+    };
+    *surface.frame()
+}
+
+fn mesh_volume(solid: &Solid) -> f64 {
+    fine_mesh(solid).mass_properties().volume
+}
+
+#[test]
+fn an_extrusion_up_to_a_tilted_plane_ends_on_it() {
+    let profile = regions(&rectangle(1, (0.0, 0.0), (4.0, 3.0)));
+    let tilted_top = plane_through((0.0, 0.0, 2.0), (-0.5, 0.0, 1.0));
+
+    let solid = extrude(&Plane::XY, &profile, up_to(tilted_top), FEATURE).unwrap();
+
+    let top = 12.0 * 1.25_f64.sqrt();
+    check(
+        "tilted top",
+        &solid,
+        36.0,
+        12.0 + top + 12.0 + 12.0 + 6.0 + 12.0,
+        f64::INFINITY,
+    );
+    assert_eq!(solid.faces().count(), 6);
+    let end = cap_plane(&solid, FaceName::end_cap(FEATURE, profile[0].key()));
+    assert!(end.normal().dot(tilted_top.normal()).abs() > 1.0 - 1e-12);
+    assert!(tilted_top.signed_distance(end.origin()).abs() < 1e-9);
+    let start = cap_plane(&solid, FaceName::start_cap(FEATURE, profile[0].key()));
+    assert!(start.origin().z.abs() < 1e-12);
+}
+
+#[test]
+fn a_circle_up_to_a_tilted_plane_ends_in_an_ellipse() {
+    let profile = regions(&[circle(1, (0.0, 0.0), 1.0)]);
+    let tilted_top = plane_through((0.0, 0.0, 3.0), (-0.5, 0.0, 1.0));
+
+    let solid = extrude(&Plane::XY, &profile, up_to(tilted_top), FEATURE).unwrap();
+
+    check(
+        "tilted cylinder",
+        &solid,
+        3.0 * PI,
+        PI + PI * 1.25_f64.sqrt() + 6.0 * PI,
+        1.0,
+    );
+    assert!(
+        solid
+            .edges()
+            .any(|(_, edge)| matches!(edge.curve(), crate::curve::Curve::Ellipse(_)))
+    );
+
+    let half = regions(&[
+        arc(1, (0.0, 0.0), (1.0, 0.0), (-1.0, 0.0)),
+        line(2, (-1.0, 0.0), (1.0, 0.0)),
+    ]);
+    let tilted_across = plane_through((0.0, 0.0, 3.0), (0.3, -0.5, 1.0));
+    let solid = extrude(&Plane::XY, &half, up_to(tilted_across), FEATURE).unwrap();
+    assert_eq!(solid.validate(), Ok(()));
+    assert_watertight("tilted half cylinder", &fine_mesh(&solid));
+    let centroid_y = 4.0 / (3.0 * PI);
+    let expected = 0.5 * PI * (3.0 + 0.5 * centroid_y);
+    let volume = mesh_volume(&solid);
+    assert!((volume - expected).abs() < 1e-2, "{volume} vs {expected}");
+}
+
+#[test]
+fn a_spline_profile_up_to_a_tilted_plane_is_valid() {
+    let profile = regions(&[spline(
+        3,
+        &[(0.0, 0.0), (6.0, -1.0), (7.0, 5.0), (1.0, 6.0), (0.0, 0.0)],
+    )]);
+    let tilted_top = plane_through((0.0, 0.0, 4.0), (0.2, -0.3, 1.0));
+    let level = |x: f64, y: f64| 4.0 - 0.2 * x + 0.3 * y;
+    let polygon = profile[0].polygons(&SamplingTolerance::new(1e-4, 0.01).unwrap());
+    let outline = &polygon[0];
+    let expected: f64 = outline
+        .iter()
+        .zip(outline.iter().cycle().skip(1))
+        .map(|(a, b)| {
+            let cross = a.x * b.y - b.x * a.y;
+            0.5 * cross * level((a.x + b.x) / 3.0, (a.y + b.y) / 3.0)
+        })
+        .sum::<f64>()
+        .abs();
+
+    let solid = extrude(&Plane::XY, &profile, up_to(tilted_top), FEATURE).unwrap();
+
+    assert_eq!(solid.validate(), Ok(()));
+    let mesh = fine_mesh(&solid);
+    assert_watertight("tilted spline", &mesh);
+    let properties = mesh.mass_properties();
+    let allowance = 2.0 * CHORD * properties.area;
+    assert!(
+        (properties.volume - expected).abs() <= allowance,
+        "{} vs {expected}",
+        properties.volume
+    );
+}
+
+#[test]
+fn two_tilted_ends_bound_an_extrusion_both_ways() {
+    let profile = regions(&rectangle(1, (0.0, 0.0), (4.0, 3.0)));
+    let below = plane_through((0.0, 0.0, -1.0), (0.0, 0.25, 1.0));
+    let above = plane_through((0.0, 0.0, 2.0), (-0.5, 0.0, 1.0));
+
+    let solid = extrude(
+        &Plane::XY,
+        &profile,
+        bounded(LinearBound::Plane(below), LinearBound::Plane(above)),
+        FEATURE,
+    )
+    .unwrap();
+
+    assert_eq!(solid.validate(), Ok(()));
+    let volume = mesh_volume(&solid);
+    assert!((volume - 52.5).abs() < 1e-6, "{volume}");
+    let start = cap_plane(&solid, FaceName::start_cap(FEATURE, profile[0].key()));
+    assert!(below.signed_distance(start.origin()).abs() < 1e-9);
+}
+
+#[test]
+fn a_plane_below_the_sketch_ends_a_reversed_extrusion() {
+    let profile = regions(&rectangle(1, (0.0, 0.0), (4.0, 3.0)));
+    let below = plane_through((0.0, 0.0, -2.0), (0.5, 0.0, 1.0));
+
+    let solid = extrude(&Plane::XY, &profile, up_to(below), FEATURE).unwrap();
+
+    assert_eq!(solid.validate(), Ok(()));
+    let volume = mesh_volume(&solid);
+    assert!((volume - 36.0).abs() < 1e-6, "{volume}");
+    let start = cap_plane(&solid, FaceName::start_cap(FEATURE, profile[0].key()));
+    assert!(start.origin().z.abs() < 1e-12);
+    assert!(solid.bounding_box().unwrap().max().z.abs() < 1e-9);
+}
+
+#[test]
+fn a_parallel_plane_ends_an_extrusion_like_a_distance() {
+    let profile = regions(&[
+        spline(1, &[(0.0, 0.0), (1.0, 2.0), (2.0, 0.0)]),
+        line(2, (2.0, 0.0), (0.0, 0.0)),
+    ]);
+    let level = plane_through((5.0, -3.0, 2.0), (0.0, 0.0, 1.0));
+
+    let through_plane = extrude(&Plane::XY, &profile, up_to(level), FEATURE).unwrap();
+    let by_distance = extrude(&Plane::XY, &profile, one_side(2.0), FEATURE).unwrap();
+
+    assert_eq!(through_plane, by_distance);
+}
+
+#[test]
+fn end_planes_along_the_direction_or_across_the_profile_are_refused() {
+    let profile = regions(&rectangle(1, (0.0, 0.0), (4.0, 3.0)));
+    let along = plane_through((0.0, 0.0, 0.0), (1.0, 0.0, 0.0));
+    let across = plane_through((2.0, 0.0, 0.0), (-1.0, 0.0, 1.0));
+    let far = plane_through((0.0, 0.0, 2.0 * MAX_SIZE), (0.0, 0.0, 1.0));
+
+    assert_eq!(
+        extrude(&Plane::XY, &profile, up_to(along), FEATURE).unwrap_err(),
+        SweepError::EndAlongDirection
+    );
+    assert_eq!(
+        extrude(&Plane::XY, &profile, up_to(across), FEATURE).unwrap_err(),
+        SweepError::EndsCross
+    );
+    assert_eq!(
+        extrude(&Plane::XY, &profile, up_to(far), FEATURE).unwrap_err(),
+        SweepError::TooLong
+    );
+    assert_eq!(
+        LinearExtent::between(LinearBound::Offset(f64::NAN), LinearBound::Plane(far)),
+        Err(SweepError::NonFinite)
+    );
+}
+
+#[test]
+fn heights_of_a_plane_over_the_profile_span_its_extremes() {
+    let mut curves = rectangle(1, (0.0, 0.0), (4.0, 3.0));
+    curves.push(circle(5, (10.0, 0.0), 1.0));
+    let profile = regions(&curves);
+    let target = plane_through((0.0, 0.0, 2.0), (-0.5, 0.0, 1.0));
+    let sideways = plane_through((0.0, 0.0, 0.0), (0.0, 1.0, 0.0));
+
+    let found = heights(&Plane::XY, &profile, &target).unwrap();
+
+    assert!((found.least - 2.0).abs() < 1e-12);
+    assert!((found.most - 7.5).abs() < 1e-12);
+    assert_eq!(
+        heights(&Plane::XY, &profile, &sideways),
+        Err(SweepError::EndAlongDirection)
+    );
+}
+
+fn slab(bottom: f64, top: f64, min: (f64, f64), max: (f64, f64)) -> Solid {
+    extrude(
+        &sketch_at(bottom),
+        &regions(&rectangle(1, min, max)),
+        one_side(top - bottom),
+        1,
+    )
+    .unwrap()
+}
+
+fn sketch_at(height: f64) -> Plane {
+    Plane::from_frame(Point3::new(0.0, 0.0, height), Vector3::Z, Vector3::X).unwrap()
+}
+
+fn face_height(solid: &Solid, face: crate::topology::FaceId) -> f64 {
+    let crate::surface::Surface::Plane(surface) = solid.face(face).unwrap().surface() else {
+        panic!("expected a flat face");
+    };
+    surface.frame().origin().z
+}
+
+#[test]
+fn the_next_face_is_where_the_profile_first_meets_the_body() {
+    let body = slab(5.0, 8.0, (0.0, 0.0), (10.0, 10.0));
+    let inside = regions(&rectangle(1, (2.0, 2.0), (6.0, 5.0)));
+
+    let entering = next_face(&body, &Plane::XY, &inside, false).unwrap();
+    let leaving = next_face(&body, &sketch_at(8.0), &inside, true).unwrap();
+    let from_inside = next_face(&body, &sketch_at(6.0), &inside, false).unwrap();
+
+    assert!(entering.entering);
+    assert!((face_height(&body, entering.face) - 5.0).abs() < 1e-12);
+    assert!(entering.plane.normal().dot(Vector3::Z) < 0.0);
+    assert!(!leaving.entering);
+    assert!((face_height(&body, leaving.face) - 5.0).abs() < 1e-12);
+    assert!(!from_inside.entering);
+    assert!((face_height(&body, from_inside.face) - 8.0).abs() < 1e-12);
+    assert_eq!(
+        next_face(&body, &Plane::XY, &inside, true),
+        Err(ReachError::Nothing)
+    );
+}
+
+#[test]
+fn a_profile_that_misses_the_next_face_in_part_or_meets_several_is_refused() {
+    let body = slab(5.0, 8.0, (0.0, 0.0), (10.0, 10.0));
+    let wider = regions(&rectangle(1, (5.0, 2.0), (15.0, 5.0)));
+    let step = slab(3.0, 8.0, (10.0, 0.0), (20.0, 10.0));
+    let stepped =
+        crate::boolean::boolean(&body, &step, crate::boolean::BooleanOperation::Union).unwrap();
+
+    let partly = next_face(&body, &Plane::XY, &wider, false);
+    let several = next_face(&stepped, &Plane::XY, &wider, false);
+
+    assert_eq!(partly, Err(ReachError::Partly));
+    let Err(ReachError::SeveralFaces(faces)) = several else {
+        panic!("expected several faces, found {several:?}");
+    };
+    let mut met: Vec<f64> = faces
+        .iter()
+        .map(|face| face_height(&stepped, *face))
+        .collect();
+    met.sort_by(f64::total_cmp);
+    assert_eq!(met.len(), 2);
+    assert!((met[0] - 3.0).abs() < 1e-9 && (met[1] - 5.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_curved_next_face_is_refused() {
+    let yz = Plane::from_frame(Point3::new(-10.0, 0.0, 10.0), Vector3::X, Vector3::Y).unwrap();
+    let rod = extrude(
+        &yz,
+        &regions(&[circle(1, (0.0, 0.0), 5.0)]),
+        one_side(20.0),
+        1,
+    )
+    .unwrap();
+    let under = regions(&rectangle(1, (1.0, -1.0), (2.0, 1.0)));
+
+    let refused = next_face(&rod, &Plane::XY, &under, false);
+
+    assert!(matches!(refused, Err(ReachError::Curved(_))), "{refused:?}");
 }

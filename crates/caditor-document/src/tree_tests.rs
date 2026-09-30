@@ -23,10 +23,7 @@ fn extrude(sketch: FeatureId, distance: &str, operation: BodyOperation) -> Featu
     FeatureKind::Solid(SolidFeature::Extrude(Extrude {
         sketch,
         regions: RegionChoice::All,
-        extent: ExtrudeExtent::OneSide {
-            distance: Expression::parse_stored(distance).unwrap(),
-            reversed: false,
-        },
+        extent: ExtrudeExtent::one_side(Expression::parse_stored(distance).unwrap(), false),
         operation,
     }))
 }
@@ -94,10 +91,7 @@ fn model() -> Model {
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch: hole,
             regions: RegionChoice::All,
-            extent: ExtrudeExtent::OneSide {
-                distance: Expression::parse_stored("2 mm").unwrap(),
-                reversed: true,
-            },
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), true),
             operation: BodyOperation::Remove(base),
         })),
     );

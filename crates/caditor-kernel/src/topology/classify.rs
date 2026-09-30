@@ -52,6 +52,17 @@ pub enum FaceContainment {
     OnBoundary,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RayCrossing {
+    Crossing {
+        face: FaceId,
+        distance: f64,
+        entering: bool,
+    },
+    Nothing,
+    Undecided,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoundaryClass {
     Inside,
@@ -473,6 +484,83 @@ impl<'a> SolidClassifier<'a> {
             Some((_, facing)) if facing > 0.0 => PointClass::Inside,
             _ => PointClass::Outside,
         })
+    }
+
+    pub fn first_crossing(&self, origin: Point3, direction: Vector3, beyond: f64) -> RayCrossing {
+        let Some(bounds) = self.bounds else {
+            return RayCrossing::Nothing;
+        };
+        let Ok(line) = Line::new(origin, direction) else {
+            return RayCrossing::Undecided;
+        };
+        let direction = line.direction();
+        let reach = bounds
+            .corners()
+            .iter()
+            .map(|corner| corner.distance(origin))
+            .fold(0.0, f64::max)
+            + RAY_REACH_MARGIN;
+        let curve = Curve::Line(line);
+        let mut nearest: Option<(f64, FaceId, f64)> = None;
+        let mut first_doubt = f64::INFINITY;
+        for data in &self.faces {
+            let Some(window) = crate::intersect::line_window(origin, direction, &data.bounds)
+            else {
+                continue;
+            };
+            let low = (window.start() - WINDOW_MARGIN).max(0.0);
+            let high = (window.end() + WINDOW_MARGIN).min(reach);
+            if high <= beyond {
+                continue;
+            }
+            let (Some(range), Some(face)) = (Interval::new(low, high), self.solid.face(data.id))
+            else {
+                continue;
+            };
+            let found =
+                match intersect_curve_surface(&curve, range, face.surface(), Some(data.uv_box)) {
+                    Ok(found) => found,
+                    Err(_) => {
+                        first_doubt = first_doubt.min(low.max(beyond));
+                        continue;
+                    }
+                };
+            for overlap in found
+                .overlaps
+                .iter()
+                .filter(|overlap| overlap.range.end() > beyond)
+            {
+                first_doubt = first_doubt.min(overlap.range.start().max(beyond));
+            }
+            for hit in found.points.iter().filter(|hit| hit.parameter > beyond) {
+                let clean = match self.point_in_face(data.id, hit.uv) {
+                    Some(FaceContainment::Outside) => continue,
+                    Some(FaceContainment::Inside) if !hit.tangent => self
+                        .outward_normal(data.id, hit.uv)
+                        .map(|normal| normal.dot(direction))
+                        .filter(|facing| facing.abs() > GRAZING_COSINE),
+                    Some(FaceContainment::Inside | FaceContainment::OnBoundary) | None => None,
+                };
+                match clean {
+                    Some(facing) => {
+                        if nearest.is_none_or(|(distance, _, _)| hit.parameter < distance) {
+                            nearest = Some((hit.parameter, data.id, facing));
+                        }
+                    }
+                    None => first_doubt = first_doubt.min(hit.parameter),
+                }
+            }
+        }
+        match nearest {
+            Some((distance, _, _)) if first_doubt <= distance + TOLERANCE => RayCrossing::Undecided,
+            Some((distance, face, facing)) => RayCrossing::Crossing {
+                face,
+                distance,
+                entering: facing < 0.0,
+            },
+            None if first_doubt.is_finite() => RayCrossing::Undecided,
+            None => RayCrossing::Nothing,
+        }
     }
 
     pub fn classify_boundary_point(&self, point: Point3, normal: Vector3) -> BoundaryClass {

@@ -1,6 +1,7 @@
 use caditor_document::{
-    BodyOperation, Document, Extrude, ExtrudeExtent, Feature, FeatureId, RegionChoice, Revolve,
-    RevolveAxis, RevolveExtent, SolidFeature, Transaction,
+    BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature, FeatureId,
+    PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature, Transaction,
+    capitalized, describe_plane,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_sketch::{Entity, EntityId, Reference};
@@ -13,13 +14,22 @@ use crate::{
     icons,
     model::{Action, Model, Notice},
     scene,
-    selection::{self, Selection},
-    solid_tools::{self, DEFAULT_PARTIAL_ANGLE},
+    selection::{self, Pickable, Selection},
+    sketch_placement::{self, FaceChoice},
+    solid_tools::{self, DEFAULT_BACKWARD_ANGLE, DEFAULT_PARTIAL_ANGLE},
     widgets::{self, FIELD_WIDTH},
 };
 
 const FULL_TURN_DEGREES: f64 = 360.0;
 const USE_SELECTED: &str = "Use selected";
+const THROUGH_ALL_NEEDS_A_CUT: &str = "Through all cuts into a body or intersects with it; choose Remove from body or Intersect \
+     with body first";
+const UP_TO_NEXT_NEEDS_A_BODY: &str = "Up to next stops at the body this feature changes; choose Add, Remove or Intersect with a \
+     body first";
+const NO_TARGET_SELECTED: &str =
+    "Select a flat face or a plane made before this feature, then choose Up to face";
+const CURVED_TARGET: &str =
+    "The selected face is curved; an extrusion can only end on a flat face or plane";
 
 struct Panel<'a> {
     model: &'a Model,
@@ -35,11 +45,55 @@ struct Choice {
     change: Result<Transaction, String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Rule {
     Positive,
     PositiveSide,
     PositiveTurn,
+    TurnBeside(f64),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EndKind {
+    Distance,
+    ThroughAll,
+    UpToNext,
+    UpToFace,
+}
+
+impl EndKind {
+    const ALL: [Self; 4] = [
+        Self::Distance,
+        Self::ThroughAll,
+        Self::UpToNext,
+        Self::UpToFace,
+    ];
+
+    fn of(end: &ExtrudeEnd) -> Self {
+        match end {
+            ExtrudeEnd::Distance(_) => Self::Distance,
+            ExtrudeEnd::ThroughAll => Self::ThroughAll,
+            ExtrudeEnd::UpToNext => Self::UpToNext,
+            ExtrudeEnd::UpToFace(_) => Self::UpToFace,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Distance => "Distance",
+            Self::ThroughAll => "Through all",
+            Self::UpToNext => "Up to next",
+            Self::UpToFace => "Up to face",
+        }
+    }
+}
+
+struct EndRows<'a> {
+    end: &'a str,
+    distance: &'a str,
+    face: &'a str,
+    salt: &'a str,
+    rule: Rule,
 }
 
 impl Panel<'_> {
@@ -53,6 +107,12 @@ impl Panel<'_> {
 
     fn change(&self, solid: SolidFeature) -> Result<Transaction, String> {
         change(self.model, self.id(), solid)
+    }
+
+    fn default_distance(&self) -> Expression {
+        self.model
+            .length_unit()
+            .default_length(solid_tools::DEFAULT_DISTANCE)
     }
 
     fn combo(
@@ -227,69 +287,163 @@ impl Panel<'_> {
         }
     }
 
+    fn end_choices(
+        &self,
+        extrude: &Extrude,
+        end: &ExtrudeEnd,
+        rebuild: &dyn Fn(ExtrudeEnd) -> ExtrudeExtent,
+    ) -> Vec<Choice> {
+        let current = EndKind::of(end);
+        EndKind::ALL
+            .into_iter()
+            .map(|kind| {
+                let candidate = match kind {
+                    EndKind::Distance => Ok(ExtrudeEnd::Distance(
+                        end.distance()
+                            .cloned()
+                            .unwrap_or_else(|| self.default_distance()),
+                    )),
+                    EndKind::ThroughAll => match extrude.operation {
+                        BodyOperation::Remove(_) | BodyOperation::Intersect(_) => {
+                            Ok(ExtrudeEnd::ThroughAll)
+                        }
+                        BodyOperation::NewBody | BodyOperation::Add(_) => {
+                            Err(THROUGH_ALL_NEEDS_A_CUT.to_owned())
+                        }
+                    },
+                    EndKind::UpToNext => extrude
+                        .operation
+                        .target()
+                        .map(|_| ExtrudeEnd::UpToNext)
+                        .ok_or_else(|| UP_TO_NEXT_NEEDS_A_BODY.to_owned()),
+                    EndKind::UpToFace => selected_target(self.model, self.selection, self.id())
+                        .map(ExtrudeEnd::UpToFace),
+                };
+                Choice {
+                    label: kind.label().to_owned(),
+                    selected: kind == current,
+                    change: candidate.and_then(|candidate| {
+                        self.change(with_extent_of(extrude, rebuild(candidate)))
+                    }),
+                }
+            })
+            .collect()
+    }
+
+    fn target_button(
+        &mut self,
+        ui: &mut Ui,
+        extrude: &Extrude,
+        target: &PlaneReference,
+        rebuild: &dyn Fn(ExtrudeEnd) -> ExtrudeExtent,
+    ) {
+        let change = selected_target(self.model, self.selection, self.id()).and_then(|chosen| {
+            if &chosen == target {
+                Err("This end already runs up to the selected face or plane".to_owned())
+            } else {
+                self.change(with_extent_of(
+                    extrude,
+                    rebuild(ExtrudeEnd::UpToFace(chosen)),
+                ))
+            }
+        });
+        let button = widgets::small_button(ui, icons::USE_SELECTED, USE_SELECTED);
+        let response = ui.add_enabled(change.is_ok(), button);
+        match change {
+            Ok(transaction) => {
+                if response
+                    .on_hover_text("Run up to the selected flat face or plane instead")
+                    .clicked()
+                {
+                    self.actions.push(Action::Apply(transaction));
+                }
+            }
+            Err(reason) => {
+                response.on_disabled_hover_text(reason);
+            }
+        }
+    }
+
+    fn end_rows(
+        &mut self,
+        ui: &mut Ui,
+        rows: &EndRows<'_>,
+        extrude: &Extrude,
+        end: &ExtrudeEnd,
+        rebuild: &dyn Fn(ExtrudeEnd) -> ExtrudeExtent,
+    ) {
+        widgets::caption(ui, rows.end);
+        let salt = format!("{}-end", rows.salt);
+        self.combo(ui, &salt, EndKind::of(end).label(), |panel| {
+            panel.end_choices(extrude, end, rebuild)
+        });
+        ui.end_row();
+        match end {
+            ExtrudeEnd::Distance(distance) => {
+                widgets::caption(ui, rows.distance);
+                self.expression(
+                    ui,
+                    rows.salt,
+                    distance,
+                    Dimension::LENGTH,
+                    rows.rule,
+                    |distance| with_extent_of(extrude, rebuild(ExtrudeEnd::Distance(distance))),
+                );
+            }
+            ExtrudeEnd::UpToFace(target) => {
+                widgets::caption(ui, rows.face);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(capitalized(&describe_plane(self.document(), target)));
+                    self.target_button(ui, extrude, target, rebuild);
+                });
+                ui.end_row();
+            }
+            ExtrudeEnd::ThroughAll | ExtrudeEnd::UpToNext => {}
+        }
+    }
+
     fn extrude_rows(&mut self, ui: &mut Ui, extrude: &Extrude) {
         widgets::caption(ui, "Extent");
         let current = extent_name(&extrude.extent);
         self.combo(ui, "extrude-extent", current, |panel| {
-            let distance = match &extrude.extent {
-                ExtrudeExtent::OneSide { distance, .. }
-                | ExtrudeExtent::Symmetric { distance }
-                | ExtrudeExtent::TwoSides {
-                    forward: distance, ..
-                } => distance.clone(),
-            };
-            [
-                ExtrudeExtent::OneSide {
-                    distance: distance.clone(),
-                    reversed: false,
-                },
-                ExtrudeExtent::Symmetric {
-                    distance: distance.clone(),
-                },
-                ExtrudeExtent::TwoSides {
-                    forward: distance.clone(),
-                    backward: distance,
-                },
-            ]
-            .into_iter()
-            .map(|extent| Choice {
-                label: extent_name(&extent).to_owned(),
-                selected: extent_name(&extent) == current,
-                change: panel.change(SolidFeature::Extrude(Extrude {
-                    extent,
-                    ..extrude.clone()
-                })),
-            })
-            .collect()
+            let fallback = panel.default_distance();
+            [Shape::OneSide, Shape::Symmetric, Shape::TwoSides]
+                .into_iter()
+                .map(|shape| {
+                    let extent = reshaped(&extrude.extent, shape, &fallback);
+                    Choice {
+                        label: extent_name(&extent).to_owned(),
+                        selected: extent_name(&extent) == current,
+                        change: panel.change(with_extent_of(extrude, extent)),
+                    }
+                })
+                .collect()
         });
         ui.end_row();
         match &extrude.extent {
-            ExtrudeExtent::OneSide { distance, reversed } => {
-                widgets::caption(ui, "Distance");
+            ExtrudeExtent::OneSide { end, reversed } => {
                 let reversed = *reversed;
-                self.expression(
-                    ui,
-                    "distance",
-                    distance,
-                    Dimension::LENGTH,
-                    Rule::Positive,
-                    |distance| {
-                        SolidFeature::Extrude(Extrude {
-                            extent: ExtrudeExtent::OneSide { distance, reversed },
-                            ..extrude.clone()
-                        })
-                    },
-                );
+                let rows = EndRows {
+                    end: "End",
+                    distance: "Distance",
+                    face: "Up to",
+                    salt: "distance",
+                    rule: Rule::Positive,
+                };
+                self.end_rows(ui, &rows, extrude, end, &|end| ExtrudeExtent::OneSide {
+                    end,
+                    reversed,
+                });
                 widgets::caption(ui, "Direction");
                 let mut flipped = reversed;
                 if ui.checkbox(&mut flipped, "Reversed").changed() {
-                    let flipped = SolidFeature::Extrude(Extrude {
-                        extent: ExtrudeExtent::OneSide {
-                            distance: distance.clone(),
+                    let flipped = with_extent_of(
+                        extrude,
+                        ExtrudeExtent::OneSide {
+                            end: end.clone(),
                             reversed: flipped,
                         },
-                        ..extrude.clone()
-                    });
+                    );
                     self.apply(flipped);
                 }
                 ui.end_row();
@@ -311,40 +465,32 @@ impl Panel<'_> {
                 );
             }
             ExtrudeExtent::TwoSides { forward, backward } => {
-                widgets::caption(ui, "Forward");
-                self.expression(
-                    ui,
-                    "forward",
-                    forward,
-                    Dimension::LENGTH,
-                    Rule::PositiveSide,
-                    |forward| {
-                        SolidFeature::Extrude(Extrude {
-                            extent: ExtrudeExtent::TwoSides {
-                                forward,
-                                backward: backward.clone(),
-                            },
-                            ..extrude.clone()
-                        })
-                    },
-                );
-                widgets::caption(ui, "Backward");
-                self.expression(
-                    ui,
-                    "backward",
-                    backward,
-                    Dimension::LENGTH,
-                    Rule::PositiveSide,
-                    |backward| {
-                        SolidFeature::Extrude(Extrude {
-                            extent: ExtrudeExtent::TwoSides {
-                                forward: forward.clone(),
-                                backward,
-                            },
-                            ..extrude.clone()
-                        })
-                    },
-                );
+                let forward_rows = EndRows {
+                    end: "Forward end",
+                    distance: "Forward distance",
+                    face: "Forward up to",
+                    salt: "forward",
+                    rule: Rule::PositiveSide,
+                };
+                self.end_rows(ui, &forward_rows, extrude, forward, &|end| {
+                    ExtrudeExtent::TwoSides {
+                        forward: end,
+                        backward: backward.clone(),
+                    }
+                });
+                let backward_rows = EndRows {
+                    end: "Backward end",
+                    distance: "Backward distance",
+                    face: "Backward up to",
+                    salt: "backward",
+                    rule: Rule::PositiveSide,
+                };
+                self.end_rows(ui, &backward_rows, extrude, backward, &|end| {
+                    ExtrudeExtent::TwoSides {
+                        forward: forward.clone(),
+                        backward: end,
+                    }
+                });
             }
         }
     }
@@ -365,6 +511,28 @@ impl Panel<'_> {
             Err(reason) => {
                 response.on_disabled_hover_text(reason);
             }
+        }
+    }
+
+    fn degrees_of(&self, angle: &Expression) -> Option<f64> {
+        self.model
+            .parameters()
+            .evaluate_expression(angle)
+            .ok()
+            .map(|value| value.value)
+    }
+
+    fn two_angles(&self, angle: &Expression) -> RevolveExtent {
+        let fits = self
+            .degrees_of(angle)
+            .is_some_and(|value| value + DEFAULT_BACKWARD_ANGLE <= FULL_TURN_DEGREES);
+        RevolveExtent::TwoSides {
+            forward: if fits {
+                angle.clone()
+            } else {
+                solid_tools::degrees(DEFAULT_PARTIAL_ANGLE)
+            },
+            backward: solid_tools::degrees(DEFAULT_BACKWARD_ANGLE),
         }
     }
 
@@ -412,9 +580,15 @@ impl Panel<'_> {
         self.combo(ui, "revolve-extent", current, |panel| {
             let angle = match &revolve.extent {
                 RevolveExtent::Full => solid_tools::degrees(DEFAULT_PARTIAL_ANGLE),
-                RevolveExtent::OneSide { angle, .. } | RevolveExtent::Symmetric { angle } => {
-                    angle.clone()
-                }
+                RevolveExtent::OneSide { angle, .. }
+                | RevolveExtent::Symmetric { angle }
+                | RevolveExtent::TwoSides { forward: angle, .. } => angle.clone(),
+            };
+            let two_angles = match &revolve.extent {
+                RevolveExtent::TwoSides { .. } => revolve.extent.clone(),
+                RevolveExtent::Full
+                | RevolveExtent::OneSide { .. }
+                | RevolveExtent::Symmetric { .. } => panel.two_angles(&angle),
             };
             [
                 RevolveExtent::Full,
@@ -423,6 +597,7 @@ impl Panel<'_> {
                     reversed: false,
                 },
                 RevolveExtent::Symmetric { angle },
+                two_angles,
             ]
             .into_iter()
             .map(|extent| Choice {
@@ -480,6 +655,45 @@ impl Panel<'_> {
                     |angle| {
                         SolidFeature::Revolve(Revolve {
                             extent: RevolveExtent::Symmetric { angle },
+                            ..revolve.clone()
+                        })
+                    },
+                );
+            }
+            RevolveExtent::TwoSides { forward, backward } => {
+                let beside =
+                    |other: &Expression| Rule::TurnBeside(self.degrees_of(other).unwrap_or(0.0));
+                let (forward_rule, backward_rule) = (beside(backward), beside(forward));
+                widgets::caption(ui, "Forward");
+                self.expression(
+                    ui,
+                    "forward-angle",
+                    forward,
+                    Dimension::ANGLE,
+                    forward_rule,
+                    |forward| {
+                        SolidFeature::Revolve(Revolve {
+                            extent: RevolveExtent::TwoSides {
+                                forward,
+                                backward: backward.clone(),
+                            },
+                            ..revolve.clone()
+                        })
+                    },
+                );
+                widgets::caption(ui, "Backward");
+                self.expression(
+                    ui,
+                    "backward-angle",
+                    backward,
+                    Dimension::ANGLE,
+                    backward_rule,
+                    |backward| {
+                        SolidFeature::Revolve(Revolve {
+                            extent: RevolveExtent::TwoSides {
+                                forward: forward.clone(),
+                                backward,
+                            },
                             ..revolve.clone()
                         })
                     },
@@ -555,6 +769,142 @@ impl Panel<'_> {
     }
 }
 
+fn with_extent_of(extrude: &Extrude, extent: ExtrudeExtent) -> SolidFeature {
+    SolidFeature::Extrude(Extrude {
+        extent,
+        ..extrude.clone()
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shape {
+    OneSide,
+    Symmetric,
+    TwoSides,
+}
+
+fn reshaped(extent: &ExtrudeExtent, shape: Shape, fallback: &Expression) -> ExtrudeExtent {
+    let distance = extent
+        .ends()
+        .into_iter()
+        .find_map(ExtrudeEnd::distance)
+        .or(match extent {
+            ExtrudeExtent::Symmetric { distance } => Some(distance),
+            ExtrudeExtent::OneSide { .. } | ExtrudeExtent::TwoSides { .. } => None,
+        })
+        .unwrap_or(fallback)
+        .clone();
+    match (extent, shape) {
+        (ExtrudeExtent::OneSide { .. }, Shape::OneSide)
+        | (ExtrudeExtent::Symmetric { .. }, Shape::Symmetric)
+        | (ExtrudeExtent::TwoSides { .. }, Shape::TwoSides) => extent.clone(),
+        (ExtrudeExtent::TwoSides { forward: end, .. }, Shape::OneSide) => ExtrudeExtent::OneSide {
+            end: end.clone(),
+            reversed: false,
+        },
+        (ExtrudeExtent::Symmetric { .. }, Shape::OneSide) => {
+            ExtrudeExtent::one_side(distance, false)
+        }
+        (ExtrudeExtent::OneSide { .. } | ExtrudeExtent::TwoSides { .. }, Shape::Symmetric) => {
+            ExtrudeExtent::Symmetric { distance }
+        }
+        (ExtrudeExtent::OneSide { end, reversed }, Shape::TwoSides) => {
+            let other = ExtrudeEnd::Distance(distance);
+            if *reversed {
+                ExtrudeExtent::TwoSides {
+                    forward: other,
+                    backward: end.clone(),
+                }
+            } else {
+                ExtrudeExtent::TwoSides {
+                    forward: end.clone(),
+                    backward: other,
+                }
+            }
+        }
+        (ExtrudeExtent::Symmetric { .. }, Shape::TwoSides) => {
+            ExtrudeExtent::two_sides(distance.clone(), distance)
+        }
+    }
+}
+
+fn not_a_target(model: &Model, pickable: Pickable, index: usize) -> Option<&'static str> {
+    match pickable {
+        Pickable::Face { body, face } => {
+            match sketch_placement::attachment_at(model, FaceChoice { body, face }, index) {
+                Err(sketch_placement::NOT_FLAT) => Some(CURVED_TARGET),
+                Err(reason) => Some(reason),
+                Ok(_) => None,
+            }
+        }
+        Pickable::Datum(datum) if datum_tools::is_plane(model.document(), datum) => {
+            Some("The selected plane comes after this feature in the tree")
+        }
+        Pickable::Datum(_) => Some("The selected datum is an axis, not a plane"),
+        _ => None,
+    }
+}
+
+pub fn selected_target(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+) -> Result<PlaneReference, String> {
+    let index = model
+        .document()
+        .feature_index(feature)
+        .ok_or_else(|| "The feature no longer exists".to_owned())?;
+    let mut targets = Vec::new();
+    let mut refused = None;
+    for pickable in selection.iter() {
+        match datum_tools::plane_reference(model, pickable, index) {
+            Some(target) => targets.push(target),
+            None => {
+                refused = refused.or_else(|| not_a_target(model, pickable, index));
+            }
+        }
+    }
+    match targets.as_slice() {
+        [target] => Ok(target.clone()),
+        [] => Err(refused.unwrap_or(NO_TARGET_SELECTED).to_owned()),
+        _ => Err("Select only one face or plane to extrude up to".to_owned()),
+    }
+}
+
+pub fn up_to_selected_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    extrude: &Extrude,
+) -> Result<Transaction, String> {
+    let end = ExtrudeEnd::UpToFace(selected_target(model, selection, feature)?);
+    let extent = match &extrude.extent {
+        ExtrudeExtent::OneSide { reversed, .. } => ExtrudeExtent::OneSide {
+            end,
+            reversed: *reversed,
+        },
+        ExtrudeExtent::Symmetric { .. } => ExtrudeExtent::OneSide {
+            end,
+            reversed: false,
+        },
+        ExtrudeExtent::TwoSides { backward, .. } => ExtrudeExtent::TwoSides {
+            forward: end,
+            backward: backward.clone(),
+        },
+    };
+    if extent == extrude.extent {
+        return Err("The extrusion already runs up to the selected face or plane".to_owned());
+    }
+    change(
+        model,
+        feature,
+        SolidFeature::Extrude(Extrude {
+            extent,
+            ..extrude.clone()
+        }),
+    )
+}
+
 pub fn selected_axis_change(
     model: &Model,
     selection: &Selection,
@@ -594,11 +944,15 @@ fn check_rule(rule: Rule, value: f64) -> Result<(), String> {
     match rule {
         Rule::Positive | Rule::PositiveSide if value > 0.0 => Ok(()),
         Rule::PositiveTurn if value > 0.0 && value <= FULL_TURN_DEGREES => Ok(()),
+        Rule::TurnBeside(other) if value > 0.0 && value + other <= FULL_TURN_DEGREES => Ok(()),
         Rule::Positive => {
             Err("Enter a value above zero. Use Reversed to go the other way".to_owned())
         }
         Rule::PositiveSide => Err("Enter a distance above zero".to_owned()),
         Rule::PositiveTurn => Err("Enter an angle above zero and at most 360°".to_owned()),
+        Rule::TurnBeside(_) => {
+            Err("Enter an angle above zero; both angles together may turn at most 360°".to_owned())
+        }
     }
 }
 
@@ -636,6 +990,7 @@ fn turn_name(extent: &RevolveExtent) -> &'static str {
         RevolveExtent::Full => "Full turn",
         RevolveExtent::OneSide { .. } => "One side",
         RevolveExtent::Symmetric { .. } => "Symmetric",
+        RevolveExtent::TwoSides { .. } => "Two angles",
     }
 }
 

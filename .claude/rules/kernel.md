@@ -12,8 +12,8 @@ paths:
 - `interruptible(interrupt, work)` installs a per-thread check while `work` runs. Polled in
   intersections (subdivision pair, march step), booleans (edge, face pair, face, fragment, split,
   branch, healing, between phases), profiles (curve, pair, spline segment, 256 box tests, face),
-  sweeps and `Plan::build` (region, face), shells (corner, edge), blends (edge, tool, corner),
-  patterns (copy, union) and tessellation (face).
+  sweeps and `Plan::build` (region, face), `next_face` (ray, and once before answering), shells
+  (corner, edge), blends (edge, tool, corner), patterns (copy, union) and tessellation (face).
 - Each fails with a `Cancelled` variant of its error; a nested cancellation becomes the outer one's.
   A boolean, shell or blend failing for any reason while its interrupt is set reports `Cancelled`
   (also while validating: `BuildError::interrupted`). `Solid::find_crossing` polls once more before

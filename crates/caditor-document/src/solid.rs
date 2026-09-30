@@ -8,21 +8,27 @@ use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector2};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, EdgeId, EdgeName, FaceId, FaceName,
-    GeometryError, LinearExtent, MAX_SIZE, Mesh, MeshQuality, Profile, ProfileCurve, ProfileError,
-    Region, RegionKey, RegionMesh, SamplingTolerance, Selection, Solid, SweepError,
-    TessellationError, VertexId, VertexName, boolean, extrude, revolve, vertex_names,
+    GeometryError, LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE, Mesh, MeshQuality,
+    Profile, ProfileCurve, ProfileError, ReachError, Region, RegionKey, RegionMesh,
+    SamplingTolerance, Selection, Solid, SweepError, TessellationError, VertexId, VertexName,
+    boolean, extrude, heights, next_face, revolve, vertex_names,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
-    datum::{AxisReference, Resolver, capitalized, describe_axis},
-    document::{Feature, FeatureId},
+    attachment::AttachmentError,
+    datum::{AxisReference, PlaneReference, Resolver, capitalized, describe_axis, describe_plane},
+    describe::describe_origin,
+    document::{Feature, FeatureId, list_names},
     recompute::{
         CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, SketchResult,
     },
     tolerance,
     values::ParameterValues,
 };
+
+const THROUGH_ALL_MARGIN: f64 = 1.0;
+const THROUGH_ALL_REACH: f64 = 0.05;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum RegionChoice {
@@ -68,13 +74,95 @@ impl BodyOperation {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum ExtrudeEnd {
+    Distance(Expression),
+    ThroughAll,
+    UpToNext,
+    UpToFace(PlaneReference),
+}
+
+impl ExtrudeEnd {
+    pub fn distance(&self) -> Option<&Expression> {
+        match self {
+            Self::Distance(distance) => Some(distance),
+            Self::ThroughAll | Self::UpToNext | Self::UpToFace(_) => None,
+        }
+    }
+
+    pub fn target(&self) -> Option<&PlaneReference> {
+        match self {
+            Self::UpToFace(target) => Some(target),
+            Self::Distance(_) | Self::ThroughAll | Self::UpToNext => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExtrudeExtent {
     OneSide {
-        distance: Expression,
+        end: ExtrudeEnd,
         reversed: bool,
     },
     Symmetric {
         distance: Expression,
+    },
+    TwoSides {
+        forward: ExtrudeEnd,
+        backward: ExtrudeEnd,
+    },
+}
+
+impl ExtrudeExtent {
+    pub fn one_side(distance: Expression, reversed: bool) -> Self {
+        Self::OneSide {
+            end: ExtrudeEnd::Distance(distance),
+            reversed,
+        }
+    }
+
+    pub fn two_sides(forward: Expression, backward: Expression) -> Self {
+        Self::TwoSides {
+            forward: ExtrudeEnd::Distance(forward),
+            backward: ExtrudeEnd::Distance(backward),
+        }
+    }
+
+    pub fn ends(&self) -> Vec<&ExtrudeEnd> {
+        match self {
+            Self::OneSide { end, .. } => vec![end],
+            Self::Symmetric { .. } => Vec::new(),
+            Self::TwoSides { forward, backward } => vec![forward, backward],
+        }
+    }
+
+    fn expressions(&self) -> Vec<&Expression> {
+        match self {
+            Self::Symmetric { distance } => vec![distance],
+            Self::OneSide { .. } | Self::TwoSides { .. } => self
+                .ends()
+                .into_iter()
+                .filter_map(ExtrudeEnd::distance)
+                .collect(),
+        }
+    }
+
+    fn targets(&self) -> Vec<&PlaneReference> {
+        self.ends()
+            .into_iter()
+            .filter_map(ExtrudeEnd::target)
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RevolveExtent {
+    Full,
+    OneSide {
+        angle: Expression,
+        reversed: bool,
+    },
+    Symmetric {
+        angle: Expression,
     },
     TwoSides {
         forward: Expression,
@@ -82,27 +170,12 @@ pub enum ExtrudeExtent {
     },
 }
 
-impl ExtrudeExtent {
-    fn expressions(&self) -> Vec<&Expression> {
-        match self {
-            Self::OneSide { distance, .. } | Self::Symmetric { distance } => vec![distance],
-            Self::TwoSides { forward, backward } => vec![forward, backward],
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum RevolveExtent {
-    Full,
-    OneSide { angle: Expression, reversed: bool },
-    Symmetric { angle: Expression },
-}
-
 impl RevolveExtent {
     fn expressions(&self) -> Vec<&Expression> {
         match self {
             Self::Full => Vec::new(),
             Self::OneSide { angle, .. } | Self::Symmetric { angle } => vec![angle],
+            Self::TwoSides { forward, backward } => vec![forward, backward],
         }
     }
 }
@@ -195,6 +268,27 @@ impl SolidFeature {
         self.axis()
             .and_then(RevolveAxis::model)
             .and_then(AxisReference::datum)
+    }
+
+    fn targets(&self) -> Vec<&PlaneReference> {
+        match self {
+            Self::Extrude(extrude) => extrude.extent.targets(),
+            Self::Revolve(_) => Vec::new(),
+        }
+    }
+
+    pub fn end_bodies(&self) -> BTreeSet<FeatureId> {
+        self.targets()
+            .into_iter()
+            .filter_map(PlaneReference::body)
+            .collect()
+    }
+
+    pub fn end_datums(&self) -> BTreeSet<FeatureId> {
+        self.targets()
+            .into_iter()
+            .filter_map(PlaneReference::datum)
+            .collect()
     }
 
     pub fn shape(&self) -> &'static str {
@@ -482,7 +576,14 @@ pub(crate) fn evaluate(
     let raw = feature.id().raw();
     let tool = match solid {
         SolidFeature::Extrude(definition) => {
-            let extent = linear_extent(&context, &definition.extent, inputs.parameters)?;
+            let ends = Ends {
+                context: &context,
+                inputs,
+                operation: definition.operation,
+                plane,
+                regions: &regions,
+            };
+            let extent = ends.extent(&definition.extent)?;
             extrude(&plane, &regions, extent, raw)
         }
         SolidFeature::Revolve(definition) => {
@@ -637,6 +738,17 @@ fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Fail
         SweepError::BeyondFullTurn => context.error(
             "The revolution turns more than once.".to_owned(),
             "Enter an angle of at most 360°.".to_owned(),
+            context.own(),
+        ),
+        SweepError::EndAlongDirection => context.error(
+            "An end of the extrusion runs along its direction, so the extrusion never reaches it."
+                .to_owned(),
+            "Choose a face or plane that faces the sketch, or enter a distance.".to_owned(),
+            context.own(),
+        ),
+        SweepError::EndsCross => context.error(
+            format!("The two ends of the extrusion meet or cross within the profile of {sketch}."),
+            "Choose ends that stay apart across the whole profile.".to_owned(),
             context.own(),
         ),
         SweepError::DegenerateAxis => context.error(
@@ -800,36 +912,352 @@ fn within_reach(context: &Context<'_>, value: f64, what: &str) -> Result<f64, Fa
     ))
 }
 
-fn linear_extent(
-    context: &Context<'_>,
-    extent: &ExtrudeExtent,
-    parameters: &ParameterValues,
-) -> Result<LinearExtent, Failure> {
-    let length = |expression: &Expression, what: &str| {
-        evaluate_value(context, expression, Dimension::LENGTH, what, parameters)
-            .and_then(|value| positive(context, value, what))
-            .and_then(|value| within_reach(context, value, what))
-    };
-    let built = match extent {
-        ExtrudeExtent::OneSide { distance, reversed } => {
-            let distance = length(distance, "distance")?;
-            LinearExtent::one_side(if *reversed { -distance } else { distance })
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Only { reversed: bool },
+    Forward,
+    Backward,
+}
+
+impl Side {
+    fn reversed(self) -> bool {
+        match self {
+            Self::Only { reversed } => reversed,
+            Self::Forward => false,
+            Self::Backward => true,
         }
-        ExtrudeExtent::Symmetric { distance } => {
-            LinearExtent::symmetric(length(distance, "distance")?)
+    }
+
+    fn sign(self) -> f64 {
+        if self.reversed() { -1.0 } else { 1.0 }
+    }
+
+    fn distance(self) -> &'static str {
+        match self {
+            Self::Only { .. } => "distance",
+            Self::Forward => "forward distance",
+            Self::Backward => "backward distance",
         }
-        ExtrudeExtent::TwoSides { forward, backward } => LinearExtent::two_sided(
-            length(forward, "forward distance")?,
-            length(backward, "backward distance")?,
-        ),
-    };
-    built.map_err(|_| {
-        context.error(
-            "The extrusion has no length.".to_owned(),
-            "Enter distances that do not cancel each other out.".to_owned(),
-            context.own(),
+    }
+
+    fn ahead(self) -> &'static str {
+        match self {
+            Self::Only { .. } => "ahead of the sketch",
+            Self::Forward => "on the forward side of the sketch",
+            Self::Backward => "on the backward side of the sketch",
+        }
+    }
+
+    fn other_way(self) -> &'static str {
+        match self {
+            Self::Only { .. } => "Turn Reversed on or off to go the other way",
+            Self::Forward | Self::Backward => "Choose another end for that side",
+        }
+    }
+}
+
+fn feature_name(inputs: &Inputs<'_>, feature: FeatureId) -> String {
+    inputs
+        .document
+        .feature(feature)
+        .map(|feature| feature.name.clone())
+        .unwrap_or_default()
+}
+
+struct Ends<'a> {
+    context: &'a Context<'a>,
+    inputs: &'a Inputs<'a>,
+    operation: BodyOperation,
+    plane: Plane,
+    regions: &'a [Region],
+}
+
+impl Ends<'_> {
+    fn error(&self, reason: String, remedy: String) -> Failure {
+        self.context.error(reason, remedy, self.context.own())
+    }
+
+    fn extent(&self, extent: &ExtrudeExtent) -> Result<LinearExtent, Failure> {
+        let built = match extent {
+            ExtrudeExtent::OneSide { end, reversed } => LinearExtent::between(
+                LinearBound::Offset(0.0),
+                self.bound(
+                    end,
+                    Side::Only {
+                        reversed: *reversed,
+                    },
+                )?,
+            ),
+            ExtrudeExtent::Symmetric { distance } => {
+                LinearExtent::symmetric(self.length(distance, "distance")?)
+            }
+            ExtrudeExtent::TwoSides { forward, backward } => LinearExtent::between(
+                self.bound(backward, Side::Backward)?,
+                self.bound(forward, Side::Forward)?,
+            ),
+        };
+        built.map_err(|error| match error {
+            SweepError::ZeroLength => self.error(
+                "The extrusion has no length.".to_owned(),
+                "Enter distances that do not cancel each other out.".to_owned(),
+            ),
+            other => sweep_failure(self.context, "extrusion", &other),
+        })
+    }
+
+    fn length(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
+        evaluate_value(
+            self.context,
+            expression,
+            Dimension::LENGTH,
+            what,
+            self.inputs.parameters,
         )
-    })
+        .and_then(|value| positive(self.context, value, what))
+        .and_then(|value| within_reach(self.context, value, what))
+    }
+
+    fn bound(&self, end: &ExtrudeEnd, side: Side) -> Result<LinearBound, Failure> {
+        match end {
+            ExtrudeEnd::Distance(distance) => Ok(LinearBound::Offset(
+                side.sign() * self.length(distance, side.distance())?,
+            )),
+            ExtrudeEnd::ThroughAll => self.through_all(side),
+            ExtrudeEnd::UpToNext => self.up_to_next(side),
+            ExtrudeEnd::UpToFace(target) => self.up_to_face(target, side),
+        }
+    }
+
+    fn body(&self, body: FeatureId) -> Result<&Solid, Failure> {
+        self.inputs
+            .body(body)
+            .ok_or_else(|| missing_body(self.inputs, body))
+    }
+
+    fn through_all(&self, side: Side) -> Result<LinearBound, Failure> {
+        let body = match self.operation {
+            BodyOperation::Remove(body) | BodyOperation::Intersect(body) => body,
+            BodyOperation::NewBody | BodyOperation::Add(_) => {
+                return Err(self.error(
+                    "Through all only cuts into a body or intersects with it, so it cannot add \
+                     material."
+                        .to_owned(),
+                    "Choose Remove from body or Intersect with body, or use Up to next or a \
+                     distance."
+                        .to_owned(),
+                ));
+            }
+        };
+        let bounds = self.body(body)?.bounding_box();
+        let direction = self.plane.normal() * side.sign();
+        let farthest = bounds.map_or(f64::NEG_INFINITY, |bounds| {
+            bounds
+                .corners()
+                .iter()
+                .map(|corner| (*corner - self.plane.origin()).dot(direction))
+                .fold(f64::NEG_INFINITY, f64::max)
+        });
+        if farthest <= LINEAR_RESOLUTION {
+            return Err(self.error(
+                format!(
+                    "No part of the body of {} lies {}, so there is nothing to go through.",
+                    feature_name(self.inputs, body),
+                    side.ahead()
+                ),
+                format!("{}, or enter a distance.", side.other_way()),
+            ));
+        }
+        let margin =
+            bounds.map_or(0.0, |bounds| bounds.diagonal()) * THROUGH_ALL_REACH + THROUGH_ALL_MARGIN;
+        Ok(LinearBound::Offset(
+            side.sign() * (farthest + margin).min(MAX_SIZE),
+        ))
+    }
+
+    fn up_to_next(&self, side: Side) -> Result<LinearBound, Failure> {
+        let Some(body) = self.operation.target() else {
+            return Err(self.error(
+                "Up to next stops at the body this extrusion changes, and it makes a new body \
+                 instead."
+                    .to_owned(),
+                "Choose Add, Remove or Intersect with a body, or enter a distance.".to_owned(),
+            ));
+        };
+        let solid = self.body(body)?;
+        let found = next_face(solid, &self.plane, self.regions, side.reversed())
+            .map_err(|error| self.next_failure(solid, body, side, &error))?;
+        let body_name = feature_name(self.inputs, body);
+        let sketch = &self.context.sketch_name;
+        match (self.operation, found.entering) {
+            (BodyOperation::Add(_), false) => Err(self.error(
+                format!(
+                    "The profile of {sketch} starts inside the body of {body_name}, so extruding \
+                     it up to the next face adds nothing."
+                ),
+                "Choose Remove from body, or place the sketch outside the body.".to_owned(),
+            )),
+            (BodyOperation::Remove(_), true) => Err(self.error(
+                format!(
+                    "The profile of {sketch} first meets the body of {body_name} where it enters \
+                     it, so extruding up to that face removes nothing."
+                ),
+                "Place the sketch on or inside the body, or use Through all or Up to face."
+                    .to_owned(),
+            )),
+            _ => {
+                let face = describe_origin(
+                    self.inputs.document,
+                    solid.face(found.face).and_then(|face| face.origin()),
+                );
+                self.check_ahead(found.plane, side, &face)?;
+                Ok(LinearBound::Plane(found.plane))
+            }
+        }
+    }
+
+    fn next_failure(
+        &self,
+        solid: &Solid,
+        body: FeatureId,
+        side: Side,
+        error: &ReachError,
+    ) -> Failure {
+        let body = feature_name(self.inputs, body);
+        let sketch = &self.context.sketch_name;
+        let describe = |face: FaceId| {
+            describe_origin(
+                self.inputs.document,
+                solid.face(face).and_then(|face| face.origin()),
+            )
+        };
+        match error {
+            ReachError::Cancelled(_) => Failure::Cancelled,
+            ReachError::NoRegions => self.error(
+                "No region of the sketch is chosen.".to_owned(),
+                "Choose at least one region.".to_owned(),
+            ),
+            ReachError::Nothing => self.error(
+                format!(
+                    "The profile of {sketch} meets nothing of the body of {body} {}.",
+                    side.ahead()
+                ),
+                format!("{}, or enter a distance.", side.other_way()),
+            ),
+            ReachError::Partly => self.error(
+                format!(
+                    "Part of the profile of {sketch} passes beside the body of {body}, so there is \
+                     no one next face to stop at."
+                ),
+                "Use Up to face to choose where it stops, or keep the profile within the \
+                 outline of the body."
+                    .to_owned(),
+            ),
+            ReachError::SeveralFaces(faces) => {
+                let names: Vec<String> = faces.iter().map(|face| describe(*face)).collect();
+                self.error(
+                    format!(
+                        "The profile of {sketch} meets several faces of {body} first: {}.",
+                        list_names(&names)
+                    ),
+                    "Use Up to face to choose which one it stops at.".to_owned(),
+                )
+            }
+            ReachError::Curved(face) => self.error(
+                format!(
+                    "The next face, {}, is curved, and an extrusion can only end on a flat face \
+                     or plane.",
+                    describe(*face)
+                ),
+                "Use Up to face with a flat face or plane, or enter a distance.".to_owned(),
+            ),
+            ReachError::Undecided => self.error(
+                format!(
+                    "The next face of the body of {body} {} could not be found.",
+                    side.ahead()
+                ),
+                "Use Up to face to choose where it stops, or enter a distance.".to_owned(),
+            ),
+        }
+    }
+
+    fn up_to_face(&self, target: &PlaneReference, side: Side) -> Result<LinearBound, Failure> {
+        let plane = self.resolve(target)?;
+        self.check_ahead(plane, side, &describe_plane(self.inputs.document, target))?;
+        Ok(LinearBound::Plane(plane))
+    }
+
+    fn resolve(&self, target: &PlaneReference) -> Result<Plane, Failure> {
+        let PlaneReference::Face(attachment) = target else {
+            return Resolver {
+                feature: self.context.feature,
+                inputs: self.inputs,
+            }
+            .plane(target);
+        };
+        let body = feature_name(self.inputs, attachment.body);
+        attachment
+            .resolve(self.body(attachment.body)?)
+            .map_err(|error| {
+                let reason = match error {
+                    AttachmentError::Missing => format!(
+                        "The face this extrusion runs up to is no longer part of the body of \
+                         {body}."
+                    ),
+                    AttachmentError::Ambiguous => format!(
+                        "The face of {body} this extrusion runs up to was split into parts that \
+                         no longer lie in one plane."
+                    ),
+                    AttachmentError::NotFlat => {
+                        format!("The face of {body} this extrusion runs up to is no longer flat.")
+                    }
+                };
+                self.error(
+                    reason,
+                    "Select a flat face or plane and use it for this end, or choose another end."
+                        .to_owned(),
+                )
+            })
+    }
+
+    fn check_ahead(&self, target: Plane, side: Side, name: &str) -> Result<(), Failure> {
+        let found = heights(&self.plane, self.regions, &target).map_err(|error| match error {
+            SweepError::EndAlongDirection => self.error(
+                format!(
+                    "{} runs along the direction of the extrusion, so the extrusion never \
+                     reaches it.",
+                    capitalized(name)
+                ),
+                "Choose a face or plane that faces the sketch, or enter a distance.".to_owned(),
+            ),
+            other => sweep_failure(self.context, "extrusion", &other),
+        })?;
+        let (least, most) = if side.reversed() {
+            (-found.most, -found.least)
+        } else {
+            (found.least, found.most)
+        };
+        if most <= LINEAR_RESOLUTION {
+            return Err(self.error(
+                format!("{} does not lie {}.", capitalized(name), side.ahead()),
+                format!(
+                    "{}, or choose a face or plane beyond the sketch.",
+                    side.other_way()
+                ),
+            ));
+        }
+        if least <= LINEAR_RESOLUTION {
+            return Err(self.error(
+                format!(
+                    "{} cuts across the profile of {}, so the extrusion would end before it \
+                     starts in places.",
+                    capitalized(name),
+                    self.context.sketch_name
+                ),
+                "Choose a face or plane that lies wholly beyond the profile.".to_owned(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn angular_extent(
@@ -837,9 +1265,9 @@ fn angular_extent(
     extent: &RevolveExtent,
     parameters: &ParameterValues,
 ) -> Result<AngularExtent, Failure> {
-    let angle = |expression: &Expression| {
-        evaluate_value(context, expression, Dimension::ANGLE, "angle", parameters)
-            .and_then(|degrees| positive(context, degrees, "angle"))
+    let angle = |expression: &Expression, what: &str| {
+        evaluate_value(context, expression, Dimension::ANGLE, what, parameters)
+            .and_then(|degrees| positive(context, degrees, what))
             .map(f64::to_radians)
     };
     let built = match extent {
@@ -848,10 +1276,24 @@ fn angular_extent(
             angle: value,
             reversed,
         } => {
-            let radians = angle(value)?;
+            let radians = angle(value, "angle")?;
             AngularExtent::one_side(if *reversed { -radians } else { radians })
         }
-        RevolveExtent::Symmetric { angle: value } => AngularExtent::symmetric(angle(value)?),
+        RevolveExtent::Symmetric { angle: value } => {
+            AngularExtent::symmetric(angle(value, "angle")?)
+        }
+        RevolveExtent::TwoSides { forward, backward } => {
+            let forward = angle(forward, "forward angle")?;
+            let backward = angle(backward, "backward angle")?;
+            return AngularExtent::new(-backward, forward).map_err(|error| match error {
+                SweepError::BeyondFullTurn => context.error(
+                    "The two angles add up to more than 360°.".to_owned(),
+                    "Enter angles that add up to at most 360°.".to_owned(),
+                    context.own(),
+                ),
+                other => sweep_failure(context, "revolution", &other),
+            });
+        }
     };
     built.map_err(|error| sweep_failure(context, "revolution", &error))
 }

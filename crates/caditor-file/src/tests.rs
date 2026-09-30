@@ -473,8 +473,11 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
     assert_eq!(
         loaded.issues,
         [
-            "This model was made by a newer version of caditor (format 4). Anything this version \
-             does not understand was left out.",
+            &format!(
+                "This model was made by a newer version of caditor (format {}). Anything this \
+                 version does not understand was left out.",
+                FORMAT_VERSION + 1
+            ),
             "The feature “Pad” is a kind this version of caditor does not know (loft), so it \
              was left out. It may come from a newer version.",
             "Record 6 holds something this version of caditor does not know (assembly), so it was \
@@ -1464,10 +1467,10 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
             regions: RegionChoice::Chosen(vec![caditor_kernel::RegionKey::from_digest(
                 0x0123_4567_89ab_cdef_0011_2233_4455_6677,
             )]),
-            extent: ExtrudeExtent::TwoSides {
-                forward: Expression::Parameter(depth),
-                backward: transaction.parse("1 mm").unwrap(),
-            },
+            extent: ExtrudeExtent::two_sides(
+                Expression::Parameter(depth),
+                transaction.parse("1 mm").unwrap(),
+            ),
             operation: BodyOperation::NewBody,
         })),
     );
@@ -2736,4 +2739,157 @@ fn a_rollback_bar_above_a_feature_that_is_gone_is_reported_and_left_at_the_end()
     );
     assert_eq!(loaded.document.rollback_bar(), RollbackBar::AtEnd);
     assert!(loaded.document.same_content(&document));
+}
+
+fn extents_model() -> (Document, [FeatureId; 4]) {
+    use caditor_document::{
+        BodyOperation, Datum, DatumPlane, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment,
+        PlaneReference, PrincipalPlane, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
+        SolidFeature,
+    };
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let sketch = document.features().next().unwrap().id();
+    let mut transaction = document.transaction("Extents");
+    let level = transaction.add_feature(
+        "Level",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xy),
+            rotation: None,
+            offset: transaction.parse("20 mm").unwrap(),
+        })),
+    );
+    let extrude = |extent| {
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent,
+            operation: BodyOperation::Remove(base),
+        }))
+    };
+    let through = transaction.add_feature(
+        "Through",
+        extrude(ExtrudeExtent::OneSide {
+            end: ExtrudeEnd::ThroughAll,
+            reversed: true,
+        }),
+    );
+    let between = transaction.add_feature(
+        "Between",
+        extrude(ExtrudeExtent::TwoSides {
+            forward: ExtrudeEnd::UpToFace(PlaneReference::Face(FaceAttachment {
+                body: base,
+                face: FaceReference::new(
+                    FaceName::from_digest(0xface),
+                    Some(FaceOrigin::EndCap {
+                        feature: base.raw(),
+                    }),
+                    [FaceName::from_digest(7)],
+                ),
+            })),
+            backward: ExtrudeEnd::UpToFace(PlaneReference::Datum(level)),
+        }),
+    );
+    let next = transaction.add_feature(
+        "Next",
+        extrude(ExtrudeExtent::TwoSides {
+            forward: ExtrudeEnd::UpToNext,
+            backward: ExtrudeEnd::Distance(transaction.parse("depth / 2").unwrap()),
+        }),
+    );
+    let turned = transaction.add_feature(
+        "Two angles",
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Sketch(EntityId::HORIZONTAL_AXIS),
+            extent: RevolveExtent::TwoSides {
+                forward: transaction.parse("30 deg").unwrap(),
+                backward: transaction.parse("45 deg").unwrap(),
+            },
+            operation: BodyOperation::Remove(base),
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, [through, between, next, turned])
+}
+
+#[test]
+fn extents_to_faces_planes_and_the_next_face_and_two_angles_are_saved_and_loaded() {
+    let (document, features) = extents_model();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"extrude\":{\"extent\":{\"two_sides\""));
+    assert!(text.contains("\"extrude_to\":{\"extent\":{\"one_side\":{\"end\":\"through_all\""));
+    assert!(text.contains("\"forward\":{\"up_to_face\":{\"face\":{\"body\":1,"));
+    assert!(text.contains("\"backward\":{\"up_to_face\":{\"datum\":"));
+    assert!(text.contains("\"forward\":\"up_to_next\""));
+    assert!(text.contains("\"backward\":{\"distance\":\"$0 / 2\"}"));
+    assert!(text.contains("\"revolve_two_angles\":{\"axis\":"));
+    assert!(text.contains("\"forward\":\"30 deg\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    for feature in features {
+        let kind = document.feature(feature).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+}
+
+#[test]
+fn unreadable_ends_and_angles_fall_back_and_are_reported() {
+    let (document, [_, between, next, turned]) = extents_model();
+    let text = encode(&document)
+        .unwrap()
+        .replacen("0000000000000000000000000000face", "not a digest", 1)
+        .replacen(
+            "\"forward\":\"up_to_next\"",
+            "\"forward\":\"up_to_vertex\"",
+            1,
+        )
+        .replacen("\"forward\":\"30 deg\"", "\"forward\":\"30 ((\"", 1);
+
+    let loaded = decode_text(&text);
+
+    assert_eq!(
+        loaded.issues,
+        [
+            "The face or plane that the forward end of “Between” runs up to could not be read, \
+             so that end was set to 10 mm.",
+            "The forward end of “Next” could not be read, so it was set to 10 mm.",
+            "The forward angle of “Two angles” could not be read, so it was set to 180 deg.",
+        ]
+    );
+    let ten = caditor_document::ExtrudeEnd::Distance(Expression::Measure(10.0, Unit::Millimetre));
+    for feature in [between, next] {
+        let caditor_document::SolidFeature::Extrude(extrude) = loaded
+            .document
+            .feature(feature)
+            .unwrap()
+            .kind
+            .solid()
+            .unwrap()
+        else {
+            panic!("an extrusion stays an extrusion");
+        };
+        let caditor_document::ExtrudeExtent::TwoSides { forward, .. } = &extrude.extent else {
+            panic!("two sides stay two sides");
+        };
+        assert_eq!(forward, &ten);
+    }
+    assert!(loaded.document.feature(turned).is_some());
+}
+
+#[test]
+fn a_model_saved_in_format_2_loads_unchanged() {
+    let (document, _, _) = patterned_model();
+    let lines = lines_of(&document);
+    let loaded = decode(&model_from_json(2, &lines)).unwrap();
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(lines.iter().all(|line| !line.contains("extrude_to")));
 }

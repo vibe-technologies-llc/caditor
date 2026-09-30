@@ -1,5 +1,6 @@
 mod extrude;
 pub(crate) mod plan;
+mod reach;
 mod revolve;
 #[cfg(test)]
 mod tests;
@@ -9,7 +10,11 @@ use std::f64::consts::TAU;
 use caditor_geometry::{Plane, Point2, Vector2, Vector3};
 use thiserror::Error;
 
-pub use self::{extrude::extrude, revolve::revolve};
+pub use self::{
+    extrude::extrude,
+    reach::{Heights, NextFace, ReachError, heights, next_face},
+    revolve::revolve,
+};
 use crate::{
     error::GeometryError,
     interrupt::Interrupted,
@@ -61,6 +66,10 @@ pub enum SweepError {
     ZeroLength,
     #[error("the extrusion reaches farther than {MAX_SIZE} mm")]
     TooLong,
+    #[error("an end plane of the extrusion runs along its direction")]
+    EndAlongDirection,
+    #[error("the end planes of the extrusion meet or cross within the profile")]
+    EndsCross,
     #[error("the revolution has no angle")]
     ZeroAngle,
     #[error("the revolution turns more than once")]
@@ -101,6 +110,8 @@ impl SweepError {
             | Self::NonFinite
             | Self::ZeroLength
             | Self::TooLong
+            | Self::EndAlongDirection
+            | Self::EndsCross
             | Self::ZeroAngle
             | Self::BeyondFullTurn
             | Self::DegenerateAxis
@@ -114,9 +125,15 @@ impl SweepError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LinearBound {
+    Offset(f64),
+    Plane(Plane),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LinearExtent {
-    start: f64,
-    end: f64,
+    start: LinearBound,
+    end: LinearBound,
 }
 
 impl LinearExtent {
@@ -130,7 +147,10 @@ impl LinearExtent {
         if start.abs().max(end.abs()) > MAX_SIZE {
             return Err(SweepError::TooLong);
         }
-        Ok(Self { start, end })
+        Ok(Self {
+            start: LinearBound::Offset(start),
+            end: LinearBound::Offset(end),
+        })
     }
 
     pub fn one_side(distance: f64) -> Result<Self, SweepError> {
@@ -145,16 +165,37 @@ impl LinearExtent {
         Self::new(-0.5 * total, 0.5 * total)
     }
 
-    pub fn start(&self) -> f64 {
+    pub fn between(start: LinearBound, end: LinearBound) -> Result<Self, SweepError> {
+        match (start, end) {
+            (LinearBound::Offset(start), LinearBound::Offset(end)) => Self::new(start, end),
+            _ => {
+                for bound in [start, end] {
+                    match bound {
+                        LinearBound::Offset(offset) if !offset.is_finite() => {
+                            return Err(SweepError::NonFinite);
+                        }
+                        LinearBound::Offset(offset) if offset.abs() > MAX_SIZE => {
+                            return Err(SweepError::TooLong);
+                        }
+                        LinearBound::Plane(plane)
+                            if !plane.origin().is_finite() || !plane.normal().is_finite() =>
+                        {
+                            return Err(SweepError::NonFinite);
+                        }
+                        LinearBound::Offset(_) | LinearBound::Plane(_) => {}
+                    }
+                }
+                Ok(Self { start, end })
+            }
+        }
+    }
+
+    pub fn start(&self) -> LinearBound {
         self.start
     }
 
-    pub fn end(&self) -> f64 {
+    pub fn end(&self) -> LinearBound {
         self.end
-    }
-
-    pub fn length(&self) -> f64 {
-        (self.end - self.start).abs()
     }
 }
 

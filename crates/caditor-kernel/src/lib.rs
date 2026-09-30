@@ -32,7 +32,10 @@ pub use crate::{
     blend::{BlendError, BlendShape, blend, blend_chain},
     boolean::{BooleanError, BooleanOperation, boolean},
     bspline::{BSpline, MAX_SPLINE_DEGREE},
-    build::{AngularExtent, Axis2, LinearExtent, SweepError, extrude, revolve},
+    build::{
+        AngularExtent, Axis2, Heights, LinearBound, LinearExtent, NextFace, ReachError, SweepError,
+        extrude, heights, next_face, revolve,
+    },
     coordinates::Coordinates,
     curve::{
         BSplineCurve, Circle, Curve, CurveDerivatives, CurveSample, Ellipse, IntersectionCurve,
@@ -78,6 +81,7 @@ pub use crate::{
     topology::{
         BoundaryClass, BuildError, Coedge, CoedgeId, Crossing, CrossingCheck, Edge, EdgeId, Face,
         FaceContainment, FaceId, Loop, LoopId, Pcurve, PcurveError, PcurveSample, PointClass,
-        Shell, ShellId, Solid, SolidBuilder, SolidClassifier, ValidationError, Vertex, VertexId,
+        RayCrossing, Shell, ShellId, Solid, SolidBuilder, SolidClassifier, ValidationError, Vertex,
+        VertexId,
     },
 };

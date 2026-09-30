@@ -80,10 +80,7 @@ fn model() -> Model {
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch: outline,
             regions: RegionChoice::All,
-            extent: ExtrudeExtent::OneSide {
-                distance: Expression::Parameter(height),
-                reversed: false,
-            },
+            extent: ExtrudeExtent::one_side(Expression::Parameter(height), false),
             operation: BodyOperation::NewBody,
         })),
     );
@@ -179,10 +176,7 @@ fn a_blend_is_not_recomputed_when_its_body_comes_out_the_same() {
     let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = &mut base else {
         panic!("the base is an extrusion");
     };
-    extrude.extent = ExtrudeExtent::OneSide {
-        distance: model.document.parse("4 mm").unwrap(),
-        reversed: false,
-    };
+    extrude.extent = ExtrudeExtent::one_side(model.document.parse("4 mm").unwrap(), false);
     model
         .document
         .apply(Transaction::single(
@@ -382,10 +376,7 @@ fn ambiguous_edges_and_faces_count_only_when_their_pieces_are_one_edge_or_face()
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch: outline,
             regions: RegionChoice::All,
-            extent: ExtrudeExtent::OneSide {
-                distance: Expression::parse_stored("4 mm").unwrap(),
-                reversed: false,
-            },
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
         })),
     );
@@ -407,10 +398,7 @@ fn ambiguous_edges_and_faces_count_only_when_their_pieces_are_one_edge_or_face()
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch: slot,
             regions: RegionChoice::All,
-            extent: ExtrudeExtent::OneSide {
-                distance: Expression::parse_stored("2 mm").unwrap(),
-                reversed: true,
-            },
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), true),
             operation: BodyOperation::Remove(base),
         })),
     );
@@ -501,10 +489,7 @@ fn a_failure_message_follows_the_renaming_of_a_feature_that_made_a_face() {
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch: outline,
             regions: RegionChoice::All,
-            extent: ExtrudeExtent::OneSide {
-                distance: Expression::parse_stored("4 mm").unwrap(),
-                reversed: false,
-            },
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
         })),
     );
@@ -523,10 +508,7 @@ fn a_failure_message_follows_the_renaming_of_a_feature_that_made_a_face() {
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch: hole,
             regions: RegionChoice::All,
-            extent: ExtrudeExtent::OneSide {
-                distance: Expression::parse_stored("2 mm").unwrap(),
-                reversed: true,
-            },
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), true),
             operation: BodyOperation::Remove(base),
         })),
     );

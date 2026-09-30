@@ -142,6 +142,7 @@ pub fn command(command: Command) -> &'static str {
         Command::DetachSketch => phosphor::LINK_BREAK,
         Command::PlaceSketch
         | Command::UseSelectedAxis
+        | Command::ExtrudeUpToSelected
         | Command::DatumUseSelected
         | Command::DatumTurnAboutSelected
         | Command::PatternUseSelected
