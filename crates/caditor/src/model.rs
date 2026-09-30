@@ -16,6 +16,7 @@ use parking_lot::Mutex;
 
 use crate::{
     display::{Display, Displayed},
+    drag_solver::{self, DragCommand, Finished, Polled},
     editing::EditingCommand,
     files::FileCommand,
     preferences::PreferencesCommand,
@@ -37,6 +38,7 @@ pub enum Action {
     CancelRecompute,
     DismissNotice,
     Inform(Notice),
+    Drag(DragCommand),
     File(FileCommand),
     Editing(EditingCommand),
     Preferences(PreferencesCommand),
@@ -372,6 +374,10 @@ impl Model {
                 self.set_notice(notice);
                 Ok(None)
             }
+            Action::Drag(command) => {
+                self.drag(command);
+                Ok(None)
+            }
             Action::File(command) => {
                 log::warn!("{command:?} reached the model instead of the file workflow");
                 Ok(None)
@@ -410,8 +416,76 @@ impl Model {
         Ok(())
     }
 
+    fn drag(&mut self, command: DragCommand) {
+        let revision = self.revision();
+        let shown = |feature| {
+            let owner = self.editor.document().feature(feature)?;
+            let shown = self.display.sketches.get(&self.evaluation, owner)?;
+            Some(Arc::new(Sketch::clone(&shown)))
+        };
+        let wake = || (self.services.make_waker)();
+        let start = drag_solver::Start {
+            revision,
+            parameters: &self.parameters,
+            shown: &shown,
+            wake: &wake,
+        };
+        let polled = self.display.dragging.perform(command, &start);
+        self.dragged(polled);
+    }
+
+    fn dragged(&mut self, polled: Polled) -> bool {
+        let Polled {
+            shown,
+            finished,
+            abandoned,
+        } = polled;
+        let changed = shown.is_some() || finished.is_some() || abandoned;
+        if abandoned {
+            self.display.sketches.stop_showing_dragged();
+        }
+        if let Some((feature, sketch)) = shown {
+            self.display.sketches.show_dragged(feature, sketch);
+        }
+        if let Some(finished) = finished {
+            self.commit_drag(finished);
+        }
+        changed
+    }
+
+    fn commit_drag(&mut self, finished: Finished) {
+        let Finished {
+            feature,
+            label,
+            sketch,
+        } = finished;
+        let Some(sketch) = sketch else {
+            self.display.sketches.stop_showing_dragged();
+            self.set_notice(Notice::info(format!(
+                "{label} did nothing, because the sketch could not be solved with it moved there."
+            )));
+            return;
+        };
+        let mut transaction = self.editor.document().transaction(label);
+        transaction.settle_sketch(feature, &sketch);
+        let transaction = transaction.finish();
+        if transaction.is_empty() {
+            self.display.sketches.stop_showing_dragged();
+            return;
+        }
+        let before = self.revision();
+        self.perform(Action::Apply(transaction));
+        if self.revision() != before {
+            self.display.sketches.show_dragged(feature, sketch);
+            self.display.sketches.hold_dragged_until(self.revision());
+        } else {
+            self.display.sketches.stop_showing_dragged();
+        }
+    }
+
     fn changed(&mut self, entry: JournalEntry) {
         self.display.sketches.forget();
+        self.display.sketches.stop_showing_dragged();
         self.notice.take_if(|notice| !notice.outlasts_edits);
         self.record(entry);
         self.dirty = !self.editor.document().same_content(&self.saved);
@@ -420,7 +494,8 @@ impl Model {
     }
 
     pub fn poll(&mut self) -> bool {
-        let stored = self.poll_storage() | self.display.meshing.poll();
+        let polled = self.display.dragging.poll();
+        let stored = self.poll_storage() | self.display.meshing.poll() | self.dragged(polled);
         let Some(recomputer) = &self.recomputer else {
             return stored;
         };
@@ -437,6 +512,9 @@ impl Model {
                 self.evaluation = update.evaluation;
                 self.evaluation_generation += 1;
                 self.display.sketches.forget();
+                self.display
+                    .sketches
+                    .evaluated(update.revision, &self.evaluation);
                 self.mesh_bodies();
                 true
             }
@@ -548,6 +626,8 @@ impl Model {
         self.evaluation = Evaluation::default();
         self.evaluation_generation += 1;
         self.display.sketches.forget();
+        self.display.dragging.cancel();
+        self.display.sketches.stop_showing_dragged();
         self.shown_before = None;
         self.mesh_bodies();
         self.start_storage(replaces, predecessor);

@@ -86,9 +86,9 @@ impl Hint {
                 keys(Command::SketchTool(Tool::Circle), "Circle"),
             ),
             Self::Constrain => "Select geometry and add constraints and dimensions from the \
-                                toolbar. The counter says how much can still move; fully \
-                                constrained geometry turns green. Nothing is lost if you stop \
-                                here."
+                                toolbar. The counter says how much can still move, and dragging \
+                                geometry shows what; fully constrained geometry turns green. \
+                                Nothing is lost if you stop here."
                 .to_owned(),
             Self::Sweep => "The sketch has a closed outline: Extrude or Revolve it to make a \
                             body. Its size stays editable in the feature's panel."

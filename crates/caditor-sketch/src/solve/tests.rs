@@ -883,7 +883,7 @@ fn a_dragged_point_goes_where_its_constraints_let_it() {
     let free = sketch.add_point(Point2::new(1.0, 1.0));
     let solved = drag(
         &sketch,
-        &[crate::Drag {
+        &[crate::Drag::Point {
             point: free,
             to: Point2::new(4.0, -2.0),
         }],
@@ -903,13 +903,53 @@ fn a_dragged_point_goes_where_its_constraints_let_it() {
     );
     let solved = drag(
         &sketch,
-        &[crate::Drag {
+        &[crate::Drag::Point {
             point: end,
             to: Point2::new(3.0, 4.0),
         }],
     );
     assert_near(at(&solved, start), Point2::ZERO);
     assert_near(at(&solved, end), Point2::new(6.0, 8.0));
+}
+
+#[test]
+fn a_dragged_radius_grows_the_circle_unless_a_dimension_holds_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let free = sketch.add_circle(Point2::new(2.0, 3.0), 4.0);
+    let held = sketch.add_circle(Point2::new(20.0, 0.0), 4.0);
+    let free_centre = center(&sketch, free);
+    add(
+        &mut sketch,
+        Constraint::Coincident(free_centre, EntityId::ORIGIN),
+    );
+    add(
+        &mut sketch,
+        Constraint::Radius {
+            entity: held,
+            value: mm(4.0),
+        },
+    );
+
+    let solved = drag(
+        &sketch,
+        &[
+            crate::Drag::Radius {
+                circle: free,
+                to: 7.5,
+            },
+            crate::Drag::Radius {
+                circle: held,
+                to: 9.0,
+            },
+        ],
+    );
+
+    let (free_center, free_radius) = solved.geometry.circle(free).unwrap();
+    let (held_center, held_radius) = solved.geometry.circle(held).unwrap();
+    assert_near(free_center, Point2::ZERO);
+    assert!((free_radius - 7.5).abs() < EXACT, "{free_radius}");
+    assert!((held_radius - 4.0).abs() < EXACT, "{held_radius}");
+    assert_near(held_center, Point2::new(20.0, 0.0));
 }
 
 #[test]
@@ -953,7 +993,7 @@ fn dragging_a_corner_of_a_free_rectangle_moves_the_rest_with_it() {
     );
     let solved = drag(
         &sketch,
-        &[crate::Drag {
+        &[crate::Drag::Point {
             point: first,
             to: Point2::new(3.0, 2.0),
         }],
@@ -1085,7 +1125,7 @@ fn growing_the_outermost_part_keeps_every_other_part_remembered() {
         .solve_from(&no_parameters, &|| false, &[], Some(&again.memo))
         .unwrap();
     let from_scratch = solve(&settled).unwrap();
-    let dragged_to = crate::Drag {
+    let dragged_to = crate::Drag::Point {
         point: corners[2],
         to: Point2::new(90.0, 45.0),
     };

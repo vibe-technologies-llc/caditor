@@ -106,9 +106,26 @@ impl SketchSolution {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Drag {
-    pub point: EntityId,
-    pub to: Point2,
+pub enum Drag {
+    Point { point: EntityId, to: Point2 },
+    Radius { circle: EntityId, to: f64 },
+}
+
+impl Drag {
+    fn targets(self, system: &System) -> Vec<(usize, f64)> {
+        match self {
+            Self::Point { point, to } => system
+                .points
+                .get(&point)
+                .map(|&x| vec![(x, to.x), (x + 1, to.y)])
+                .unwrap_or_default(),
+            Self::Radius { circle, to } => system
+                .radii
+                .get(&circle)
+                .map(|&radius| vec![(radius, to)])
+                .unwrap_or_default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -161,17 +178,16 @@ impl Sketch {
         let dimensions = self.evaluate(value_of)?;
         let mut system = System::build(self, &dimensions)?;
         let mut stiff = BTreeSet::new();
-        for drag in drags {
-            let Some(&x) = system.points.get(&drag.point) else {
-                continue;
-            };
-            for (variable, target) in [(x, drag.to.x), (x + 1, drag.to.y)] {
-                if let Some(slot) = system.values.get_mut(variable)
-                    && target.is_finite()
-                {
-                    *slot = target;
-                    stiff.insert(variable);
-                }
+        let targets: Vec<(usize, f64)> = drags
+            .iter()
+            .flat_map(|drag| drag.targets(&system))
+            .collect();
+        for (variable, target) in targets {
+            if let Some(slot) = system.values.get_mut(variable)
+                && target.is_finite()
+            {
+                *slot = target;
+                stiff.insert(variable);
             }
         }
         let every_equation: Vec<usize> = (0..system.equations.len()).collect();

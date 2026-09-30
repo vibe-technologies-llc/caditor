@@ -1,15 +1,16 @@
 use std::{cell::RefCell, collections::BTreeMap, ops::Deref, sync::Arc};
 
-use caditor_document::{Evaluation, Feature, FeatureId, FeatureResult};
+use caditor_document::{Evaluation, Feature, FeatureId, FeatureResult, FeatureState};
 use caditor_geometry::Aabb;
 use caditor_sketch::Sketch;
 
-use crate::bodies::BodyMeshing;
+use crate::{bodies::BodyMeshing, drag_solver::SketchDragging};
 
 #[derive(Default)]
 pub struct Display {
     pub meshing: BodyMeshing,
     pub sketches: DisplayedSketches,
+    pub dragging: SketchDragging,
 }
 
 #[derive(Debug, Clone)]
@@ -36,8 +37,16 @@ enum Shown {
     Merged(Arc<Sketch>),
 }
 
+#[derive(Debug, Clone)]
+struct Dragged {
+    feature: FeatureId,
+    sketch: Arc<Sketch>,
+    held_until: Option<u64>,
+}
+
 #[derive(Debug, Default)]
 pub struct DisplayedSketches {
+    dragged: Option<Dragged>,
     shown: RefCell<BTreeMap<FeatureId, Shown>>,
     bounds: RefCell<BTreeMap<FeatureId, Option<Aabb>>>,
     #[cfg(test)]
@@ -50,12 +59,52 @@ impl DisplayedSketches {
         self.bounds.get_mut().clear();
     }
 
+    pub fn show_dragged(&mut self, feature: FeatureId, sketch: Arc<Sketch>) {
+        self.bounds.get_mut().remove(&feature);
+        self.dragged = Some(Dragged {
+            feature,
+            sketch,
+            held_until: None,
+        });
+    }
+
+    pub fn hold_dragged_until(&mut self, revision: u64) {
+        if let Some(dragged) = &mut self.dragged {
+            dragged.held_until = Some(revision);
+        }
+    }
+
+    pub fn stop_showing_dragged(&mut self) {
+        if let Some(dragged) = self.dragged.take() {
+            self.bounds.get_mut().remove(&dragged.feature);
+        }
+    }
+
+    pub fn evaluated(&mut self, revision: u64, evaluation: &Evaluation) {
+        let reached = self.dragged.as_ref().is_some_and(|dragged| {
+            dragged.held_until.is_some_and(|held| revision >= held)
+                && evaluation
+                    .feature(dragged.feature)
+                    .is_some_and(|status| status.state != FeatureState::Outdated)
+        });
+        if reached {
+            self.stop_showing_dragged();
+        }
+    }
+
     pub fn get<'a>(
         &self,
         evaluation: &'a Evaluation,
         feature: &'a Feature,
     ) -> Option<Displayed<'a>> {
         let definition = feature.kind.sketch()?;
+        if let Some(dragged) = self
+            .dragged
+            .as_ref()
+            .filter(|dragged| dragged.feature == feature.id())
+        {
+            return Some(Displayed::Shared(Arc::clone(&dragged.sketch)));
+        }
         let solved = last_good(evaluation, feature);
         let known = self
             .shown

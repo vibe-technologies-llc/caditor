@@ -15,6 +15,7 @@ use crate::{
 };
 
 pub const FIELD_LABEL: &str = "Place point";
+pub const MOVE_LABEL: &str = "Move to";
 const FIELD_WIDTH: f32 = 180.0;
 const RELATIVE_MARK: char = '@';
 const SEPARATORS: [char; 2] = [',', ';'];
@@ -68,6 +69,12 @@ impl TypedPoint {
         *self = Self::default();
     }
 
+    pub fn open(&mut self) {
+        self.text = Some(String::new());
+        self.error = None;
+        self.focus_pending = true;
+    }
+
     pub fn open_with(&mut self, text: String, error: String) {
         self.text = Some(text);
         self.error = Some(error);
@@ -103,7 +110,13 @@ impl TypedPoint {
         }
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, anchor: Pos2, hint: &str) -> Option<Typed> {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        anchor: Pos2,
+        label: &str,
+        hint: &str,
+    ) -> Option<Typed> {
         let text = self.text.as_mut()?;
         let id = Id::new("typed-point");
         if self.focus_pending {
@@ -121,7 +134,7 @@ impl TypedPoint {
                 Frame::popup(ui.style())
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(FIELD_LABEL);
+                            ui.label(label);
                             let field = ui.add(
                                 TextEdit::singleline(text)
                                     .id(id)

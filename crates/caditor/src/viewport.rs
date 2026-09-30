@@ -3,8 +3,8 @@ use std::time::Duration;
 use caditor_document::{Document, Evaluation, FeatureId, FeatureKind};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{Camera, PickResult, Scene, View, Viewpoint, ViewportRect};
-use caditor_sketch::ConstraintId;
-use egui::{Align2, FontId, Key, PointerButton, Rect, Response, Sense, vec2};
+use caditor_sketch::{ConstraintId, EntityId};
+use egui::{Align2, FontId, Key, PointerButton, Rect, Response, Sense, Shape, Stroke, vec2};
 
 use crate::{
     annotations::{Annotations, Surface},
@@ -14,6 +14,7 @@ use crate::{
     commands::{CameraMove, Command, CommandFrame, StandardView},
     datum_tools,
     display::Display,
+    drag_solver::DragCommand,
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
     model::{Action, Model, Notice, RecomputeStatus},
@@ -21,7 +22,9 @@ use crate::{
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
     selection::{Pickable, Selection},
     shell_tools,
+    sketch_drag::{self, BoxMode, Grab, Moving, ScreenBox},
     sketch_placement::FaceChoice,
+    sketch_tools,
     snap::{Pointer, Screen},
     solid_tools,
     typed_point::{self, TypedPoint},
@@ -51,6 +54,13 @@ const KEYBOARD_ZOOM_FACTOR: f64 = 1.25;
 const TYPED_POINT_OFFSET: f32 = 64.0;
 const TYPE_POINT_HINT: &str = "Type x, y for an exact point";
 const TYPED_POINT_HINT: &str = "@ for relative   Enter: place   Esc: cancel";
+const MOVE_HINT: &str = "@ for an offset   Enter: move   Esc: cancel";
+const MOVE_WHILE_DRAWING: &str = "Switch to the Select tool to move geometry";
+const NOTHING_TO_SELECT: &str = "The sketch has no geometry to select";
+const BOX_FILL_OPACITY: f32 = 0.12;
+const BOX_STROKE_WIDTH: f32 = 1.0;
+const BOX_DASH: f32 = 6.0;
+const BOX_GAP: f32 = 4.0;
 const NOTHING_TO_HIGHLIGHT: &str = "Nothing in the view can be picked";
 
 struct SketchScreen {
@@ -84,6 +94,19 @@ struct Click {
     double: bool,
     primary: bool,
     toggle: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Press {
+    cursor: Vector2,
+    hovered: Option<Pickable>,
+    current: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum PrimaryDrag {
+    Grab(Grab),
+    Box { feature: FeatureId, area: ScreenBox },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -125,6 +148,9 @@ pub struct ViewportState {
     keyboard_highlight: Option<Pickable>,
     highlightable: Vec<Pickable>,
     typed_point: TypedPoint,
+    moving: Option<Moving>,
+    press: Option<Press>,
+    primary: Option<PrimaryDrag>,
     hovered_in_tree: Option<Pickable>,
     session: u64,
     fit_when_computed: bool,
@@ -164,6 +190,9 @@ impl ViewportState {
             keyboard_highlight: None,
             highlightable: Vec::new(),
             typed_point: TypedPoint::default(),
+            moving: None,
+            press: None,
+            primary: None,
             hovered_in_tree: None,
             session: 0,
             fit_when_computed: false,
@@ -192,6 +221,9 @@ impl ViewportState {
         self.drawing = Drawing::default();
         self.annotations = Annotations::default();
         self.typed_point = TypedPoint::default();
+        self.moving = None;
+        self.press = None;
+        self.primary = None;
     }
 
     pub fn set_navigation(&mut self, navigation: Navigation) {
@@ -286,6 +318,7 @@ impl ViewportState {
             self.track_sketch_cursor(model, editing);
             self.track_drawing(model, editing);
             self.navigate(ui, &response, rect);
+            self.drag_primary(ui, &response, model, editing, actions);
             self.click(ui, &response, model, editing, actions);
             if keys_free {
                 self.handle_keys(ui, model, editing, actions);
@@ -566,18 +599,157 @@ impl ViewportState {
     }
 
     fn track_sketch_cursor(&mut self, model: &Model, editing: &SketchEditing) {
-        let plane = editing
-            .feature()
-            .and_then(|feature| scene::sketch_plane(model.document(), model.evaluation(), feature));
-        self.sketch_cursor =
-            plane
-                .zip(self.cursor)
-                .zip(self.view())
-                .and_then(|((plane, cursor), view)| {
-                    let ray = view.ray_through(cursor)?;
-                    let distance = ray.intersect_plane(&plane)?;
-                    Some(plane.to_local(ray.at(distance)))
-                });
+        self.sketch_cursor = self
+            .cursor
+            .and_then(|cursor| self.on_sketch(model, editing.feature()?, cursor));
+    }
+
+    fn on_sketch(&self, model: &Model, feature: FeatureId, cursor: Vector2) -> Option<Point2> {
+        let plane = scene::sketch_plane(model.document(), model.evaluation(), feature)?;
+        let ray = self.view()?.ray_through(cursor)?;
+        let distance = ray.intersect_plane(&plane)?;
+        Some(plane.to_local(ray.at(distance)))
+    }
+
+    fn sketch_screen(&self, plane: Plane) -> Option<SketchScreen> {
+        Some(SketchScreen {
+            view: self.view()?,
+            plane,
+            pixels_per_point: f64::from(self.pixels_per_point),
+        })
+    }
+
+    fn drag_primary(
+        &mut self,
+        ui: &egui::Ui,
+        response: &Response,
+        model: &Model,
+        editing: &SketchEditing,
+        actions: &mut Vec<Action>,
+    ) {
+        let (pressed, released, toggle) = ui.input(|input| {
+            (
+                input.pointer.primary_pressed(),
+                input.pointer.primary_released(),
+                input.modifiers.shift || input.modifiers.command,
+            )
+        });
+        if pressed && response.hovered() {
+            self.press = self.cursor.map(|cursor| Press {
+                cursor,
+                hovered: self.hovered,
+                current: self.hover_is_current(),
+            });
+        } else if let Some(press) = &mut self.press
+            && !press.current
+            && self
+                .hover_source
+                .is_some_and(|source| source.cursor == press.cursor)
+        {
+            press.hovered = self.hovered;
+            press.current = true;
+        }
+        if response.drag_started_by(PointerButton::Primary) {
+            self.primary = self
+                .press
+                .take()
+                .and_then(|press| self.begin_primary(press, model, editing));
+        }
+        let edited = editing
+            .active()
+            .filter(|active| !active.tool.draws())
+            .map(|active| active.feature);
+        let cursor = self.cursor;
+        let sketch_cursor = self.sketch_cursor;
+        match &mut self.primary {
+            Some(PrimaryDrag::Grab(grab)) if Some(grab.feature()) != edited => {
+                self.primary = None;
+                actions.push(Action::Drag(DragCommand::Cancel));
+            }
+            Some(PrimaryDrag::Box { feature, .. }) if Some(*feature) != edited => {
+                self.primary = None;
+            }
+            Some(PrimaryDrag::Grab(grab)) => {
+                if let Some(command) = sketch_cursor.and_then(|at| grab.to(at)) {
+                    actions.push(Action::Drag(command));
+                }
+            }
+            Some(PrimaryDrag::Box { area, .. }) => {
+                if let Some(cursor) = cursor {
+                    area.to = cursor / f64::from(self.pixels_per_point);
+                }
+            }
+            None => {}
+        }
+        if released {
+            self.press = None;
+            match self.primary.take() {
+                Some(PrimaryDrag::Grab(grab)) if grab.has_moved() => {
+                    actions.push(Action::Drag(DragCommand::Finish));
+                }
+                Some(PrimaryDrag::Box { feature, area }) => {
+                    self.select_within(model, feature, area, toggle);
+                }
+                Some(PrimaryDrag::Grab(_)) | None => {}
+            }
+        }
+    }
+
+    fn begin_primary(
+        &self,
+        press: Press,
+        model: &Model,
+        editing: &SketchEditing,
+    ) -> Option<PrimaryDrag> {
+        let feature = editing
+            .active()
+            .filter(|active| !active.tool.draws())?
+            .feature;
+        let grabbed = match press.hovered {
+            Some(Pickable::SketchEntity {
+                feature: owner,
+                entity,
+            }) if owner == feature && !entity.is_reference() => Some(entity),
+            _ => None,
+        };
+        let Some(grabbed) = grabbed else {
+            let at = press.cursor / f64::from(self.pixels_per_point);
+            return Some(PrimaryDrag::Box {
+                feature,
+                area: ScreenBox { from: at, to: at },
+            });
+        };
+        let owner = model.document().feature(feature)?;
+        let sketch = model.displayed_sketch(owner)?;
+        let from = self.on_sketch(model, feature, press.cursor)?;
+        let selected = sketch_tools::selected_entities(&self.selection, feature);
+        Grab::of(&sketch, feature, grabbed, &selected, from).map(PrimaryDrag::Grab)
+    }
+
+    fn select_within(&mut self, model: &Model, feature: FeatureId, area: ScreenBox, toggle: bool) {
+        let Some(owner) = model.document().feature(feature) else {
+            return;
+        };
+        let Some(sketch) = model.displayed_sketch(owner) else {
+            return;
+        };
+        let Some(screen) = self.sketch_screen(sketch.plane()) else {
+            return;
+        };
+        let caught = sketch_drag::within(&sketch, &screen, area);
+        self.add_to_selection(feature, caught, toggle);
+    }
+
+    fn add_to_selection(&mut self, feature: FeatureId, entities: Vec<EntityId>, keep: bool) {
+        if !keep {
+            self.selection.clear();
+        }
+        for entity in entities {
+            let pickable = Pickable::SketchEntity { feature, entity };
+            if !self.selection.contains(pickable) {
+                self.selection.toggle(pickable);
+            }
+        }
     }
 
     fn track_drawing(&mut self, model: &Model, editing: &SketchEditing) {
@@ -732,11 +904,12 @@ impl ViewportState {
                 self.step_highlight(step);
             }
         }
-        if editing.active().is_some() {
+        if let Some(active) = editing.active() {
             let reversible = self.drawing.reversible();
             if commands.invoke(Command::ReverseArc, &reversible) {
                 self.drawing.reverse_arc();
             }
+            self.sketch_commands(model, active.feature, active.tool.draws(), commands);
         }
         let activation = self
             .keyboard_highlight
@@ -748,6 +921,42 @@ impl ViewportState {
                 Some(action) => actions.extend(action),
                 None => self.selection.toggle(highlight),
             }
+        }
+    }
+
+    fn sketch_commands(
+        &mut self,
+        model: &Model,
+        feature: FeatureId,
+        drawing: bool,
+        commands: &mut CommandFrame<'_>,
+    ) {
+        let Some(owner) = model.document().feature(feature) else {
+            return;
+        };
+        let Some(sketch) = model.displayed_sketch(owner) else {
+            return;
+        };
+        let selected = sketch_tools::selected_entities(&self.selection, feature);
+        let moving = if drawing {
+            Err(MOVE_WHILE_DRAWING.to_owned())
+        } else {
+            Moving::of(&sketch, feature, &selected)
+        };
+        if commands.invoke(Command::MoveGeometry, &moving)
+            && let Ok(moving) = moving
+        {
+            self.moving = Some(moving);
+            self.typed_point.open();
+        }
+        let everything = sketch_drag::everything(&sketch);
+        let selectable = if everything.is_empty() {
+            Err(NOTHING_TO_SELECT)
+        } else {
+            Ok(())
+        };
+        if commands.invoke(Command::SelectAll, &selectable) {
+            self.add_to_selection(feature, everything, false);
         }
     }
 
@@ -804,6 +1013,14 @@ impl ViewportState {
         keys_free: bool,
         actions: &mut Vec<Action>,
     ) {
+        self.moving = self
+            .moving
+            .take()
+            .filter(|moving| editing.feature() == Some(moving.feature));
+        if self.moving.is_some() {
+            self.type_move(ui, rect, model, actions);
+            return;
+        }
         let drawing_sketch = editing
             .active()
             .filter(|active| active.tool.draws())
@@ -818,7 +1035,10 @@ impl ViewportState {
         }
         let hint = format!("in {}   {TYPED_POINT_HINT}", model.length_unit().symbol());
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
-        let Some(typed) = self.typed_point.show(ui.ctx(), anchor, &hint) else {
+        let Some(typed) = self
+            .typed_point
+            .show(ui.ctx(), anchor, typed_point::FIELD_LABEL, &hint)
+        else {
             return;
         };
         match typed_point::parse(model, &typed.text, self.drawing.last_placed()) {
@@ -834,6 +1054,30 @@ impl ViewportState {
             }
             Err(error) => {
                 self.typed_point.open_with(typed.text, error);
+            }
+        }
+    }
+
+    fn type_move(&mut self, ui: &egui::Ui, rect: Rect, model: &Model, actions: &mut Vec<Action>) {
+        let hint = format!("in {}   {MOVE_HINT}", model.length_unit().symbol());
+        let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
+        let typed = self
+            .typed_point
+            .show(ui.ctx(), anchor, typed_point::MOVE_LABEL, &hint);
+        let Some(moving) = self.moving.take() else {
+            return;
+        };
+        let Some(typed) = typed else {
+            if self.typed_point.is_open() {
+                self.moving = Some(moving);
+            }
+            return;
+        };
+        match typed_point::parse(model, &typed.text, Some(moving.anchor)) {
+            Ok(target) => actions.extend(moving.to(target).into_iter().map(Action::Drag)),
+            Err(error) => {
+                self.typed_point.open_with(typed.text, error);
+                self.moving = Some(moving);
             }
         }
     }
@@ -871,7 +1115,11 @@ impl ViewportState {
 
     fn escape(&mut self, editing: &SketchEditing, actions: &mut Vec<Action>) {
         let active = editing.active();
-        if editing.is_choosing_plane() {
+        if let Some(primary) = self.primary.take() {
+            if matches!(primary, PrimaryDrag::Grab(_)) {
+                actions.push(Action::Drag(DragCommand::Cancel));
+            }
+        } else if editing.is_choosing_plane() {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
         } else if self.drawing.in_progress() {
             self.drawing.cancel();
@@ -951,6 +1199,9 @@ impl ViewportState {
         view_cube::show_axis_triad(ui, rect, orientation);
 
         let painter = ui.painter();
+        if let Some(PrimaryDrag::Box { area, .. }) = &self.primary {
+            paint_box(painter, rect, *area);
+        }
         let hovered = self.annotations.hovered().or(self.highlighted());
         if let Some(hovered) = hovered.filter(|_| !self.drawing.is_active()) {
             let label = canvas::label(
@@ -1056,6 +1307,42 @@ impl ViewportState {
                 FontId::monospace(11.0),
                 canvas::TEXT,
             );
+        }
+    }
+}
+
+fn paint_box(painter: &egui::Painter, rect: Rect, area: ScreenBox) {
+    let corner = |at: Vector2| rect.min + egui::Vec2::new(at.x as f32, at.y as f32);
+    let drawn = Rect::from_two_pos(corner(area.from), corner(area.to));
+    match area.mode() {
+        BoxMode::Window => {
+            painter.rect_filled(
+                drawn,
+                0.0,
+                canvas::SELECTED.gamma_multiply(BOX_FILL_OPACITY),
+            );
+            painter.rect_stroke(
+                drawn,
+                0.0,
+                Stroke::new(BOX_STROKE_WIDTH, canvas::SELECTED),
+                egui::StrokeKind::Inside,
+            );
+        }
+        BoxMode::Crossing => {
+            painter.rect_filled(drawn, 0.0, canvas::SNAP.gamma_multiply(BOX_FILL_OPACITY));
+            let outline = [
+                drawn.left_top(),
+                drawn.right_top(),
+                drawn.right_bottom(),
+                drawn.left_bottom(),
+                drawn.left_top(),
+            ];
+            painter.extend(Shape::dashed_line(
+                &outline,
+                Stroke::new(BOX_STROKE_WIDTH, canvas::SNAP),
+                BOX_DASH,
+                BOX_GAP,
+            ));
         }
     }
 }

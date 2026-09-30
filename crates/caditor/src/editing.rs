@@ -47,7 +47,10 @@ impl Tool {
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::Select => "Click geometry to select it for constraints or deletion",
+            Self::Select => {
+                "Click geometry to select it, drag it to move it, or drag across empty space to \
+                 select what the box takes in"
+            }
             Self::Point => "Place points",
             Self::Line => "Draw connected lines, one click per corner",
             Self::Rectangle => "Draw a rectangle from two opposite corners",

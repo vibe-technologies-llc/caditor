@@ -5459,3 +5459,198 @@ fn o_switches_the_view_to_orthographic_and_back_and_the_preference_remembers_it(
         caditor_render::Projection::Perspective
     );
 }
+
+fn edit_free_sketch(harness: &mut Harness, sketch: Sketch) -> FeatureId {
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    feature
+}
+
+fn drag_in_sketch(harness: &mut Harness, from: Pos2, to: Point2) {
+    harness.events.push(Event::PointerButton {
+        pos: from,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    let target = harness.on_screen(to);
+    for step in 1..=4 {
+        let position = from + (target - from) * (step as f32 / 4.0);
+        harness.events.push(Event::PointerMoved(position));
+        harness.frame();
+    }
+    harness.events.push(Event::PointerButton {
+        pos: target,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+}
+
+#[test]
+fn dragging_a_sketch_point_moves_it_as_its_constraints_allow_in_one_undoable_change() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let (start, end) = line_ends(&sketch, line);
+    sketch
+        .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
+        .unwrap();
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+
+    let grabbed = harness.hover_pickable(
+        Plane::XY,
+        Point2::new(40.0, 0.0),
+        Pickable::SketchEntity {
+            feature,
+            entity: end,
+        },
+    );
+    drag_in_sketch(&mut harness, grabbed, Point2::new(30.0, 20.0));
+    harness.wait_until("the drag is committed", |harness| {
+        harness.sketch(feature).point(end) != before.point(end)
+    });
+    harness.settle();
+
+    let dragged = harness.sketch(feature).point(end).unwrap();
+    assert!(
+        dragged.distance(Point2::new(30.0, 20.0)) < 0.5,
+        "{dragged:?}"
+    );
+    assert!(harness.sketch(feature).point(start).unwrap().length() < DRAWN);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(format!("Drag {}", before.entity_label(end)).as_str())
+    );
+    let shown = harness.shown(feature).point(end).unwrap();
+    assert!(shown.distance(dragged) < DRAWN);
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert_eq!(harness.sketch(feature).point(end), before.point(end));
+}
+
+#[test]
+fn dragging_across_empty_space_selects_what_the_box_takes_in() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let near = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(20.0, 10.0));
+    let far = sketch.add_line(Point2::new(15.0, 30.0), Point2::new(60.0, 30.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let selected = |harness: &Harness| {
+        let mut entities =
+            crate::sketch_tools::selected_entities(harness.workspace.viewport.selection(), feature);
+        entities.sort();
+        entities
+    };
+
+    let corner = harness.on_screen(Point2::new(5.0, 25.0));
+    harness.events.push(Event::PointerMoved(corner));
+    harness.frame();
+    drag_in_sketch(&mut harness, corner, Point2::new(25.0, 5.0));
+    assert_eq!(selected(&harness), vec![near]);
+
+    let corner = harness.on_screen(Point2::new(25.0, 5.0));
+    harness.events.push(Event::PointerMoved(corner));
+    harness.frame();
+    drag_in_sketch(&mut harness, corner, Point2::new(5.0, 35.0));
+    let mut both = vec![near, far];
+    both.sort();
+    assert_eq!(selected(&harness), both);
+}
+
+#[test]
+fn selected_geometry_moves_by_a_typed_offset_from_the_keyboard() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(20.0, 10.0));
+    let (start, end) = line_ends(&sketch, line);
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.key(Key::A, Modifiers::COMMAND);
+    harness.frame();
+    harness.frame();
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .selection()
+            .contains(Pickable::SketchEntity {
+                feature,
+                entity: line
+            })
+    );
+    harness.key(Key::M, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    assert!(harness.shows(typed_point::MOVE_LABEL));
+    harness.type_text("@5, -4");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.wait_until("the move is committed", |harness| {
+        harness.sketch(feature).point(start) != Some(Point2::new(10.0, 10.0))
+    });
+
+    let moved = harness.sketch(feature);
+    assert!(moved.point(start).unwrap().distance(Point2::new(15.0, 6.0)) < DRAWN);
+    assert!(moved.point(end).unwrap().distance(Point2::new(25.0, 6.0)) < DRAWN);
+    assert!(!harness.shows(typed_point::MOVE_LABEL));
+    let label = format!("Move {}", harness.sketch(feature).entity_label(line));
+    assert_eq!(harness.model.undo_label(), Some(label.as_str()));
+}
+
+#[test]
+fn escape_during_a_drag_puts_the_geometry_back_and_changes_nothing() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let circle = sketch.add_circle(Point2::new(20.0, 20.0), 10.0);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let revision = harness.model.revision();
+
+    let grabbed = harness.hover_pickable(
+        Plane::XY,
+        Point2::new(30.0, 20.0),
+        Pickable::SketchEntity {
+            feature,
+            entity: circle,
+        },
+    );
+    harness.events.push(Event::PointerButton {
+        pos: grabbed,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    let outside = harness.on_screen(Point2::new(35.0, 20.0));
+    for step in 1..=4 {
+        let position = grabbed + (outside - grabbed) * (step as f32 / 4.0);
+        harness.events.push(Event::PointerMoved(position));
+        harness.frame();
+    }
+    harness.wait_until("the dragged circle is shown", |harness| {
+        harness
+            .shown(feature)
+            .circle(circle)
+            .is_some_and(|(_, radius)| (radius - 15.0).abs() < 0.5)
+    });
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.events.push(Event::PointerButton {
+        pos: outside,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(harness.model.revision(), revision);
+    assert_eq!(harness.shown(feature).circle(circle).unwrap().1, 10.0);
+    assert_eq!(harness.sketch(feature).circle(circle).unwrap().1, 10.0);
+    assert_eq!(harness.editing(), Some(feature));
+}

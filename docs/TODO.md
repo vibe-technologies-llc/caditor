@@ -83,13 +83,12 @@ within a category run from most to least important.
 
 ## Sketching
 
-- No dragging of sketch geometry and no window selection: primary drag is never handled.
 - No projection of model edges or other sketches into a sketch, and bodies and other sketches
   are unpickable while editing.
 - Tools missing: trim, extend, offset, mirror, sketch fillet, three-point and tangent arcs, slot,
   polygon, ellipse, and polar or length input in the typed-point field.
 - Snapping has no midpoints, intersections, spline targets, grid or inference lines to other
-  points.
+  points, and dragged geometry does not snap at all.
 - Dimensions all sit at one fixed offset, so collinear chains overlap, and labels cannot be
   dragged.
 

@@ -62,6 +62,8 @@ pub fn command(command: Command) -> &'static str {
         Command::FinishSketch => phosphor::CHECK,
         Command::ReverseArc => phosphor::ARROWS_COUNTER_CLOCKWISE,
         Command::Construction => CONSTRUCTION,
+        Command::MoveGeometry => phosphor::ARROWS_OUT_CARDINAL,
+        Command::SelectAll => phosphor::SELECTION_ALL,
         Command::SketchTool(tool) => self::tool(tool),
         Command::Constraint(tool) => constraint(tool),
         Command::DeleteSelection => DELETE,

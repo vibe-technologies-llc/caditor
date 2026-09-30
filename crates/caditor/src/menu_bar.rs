@@ -213,6 +213,7 @@ impl Menus<'_, '_> {
             self.items(ui, Tool::ALL.map(Command::SketchTool));
             self.item(ui, Command::ReverseArc);
             self.item(ui, Command::Construction);
+            self.items(ui, [Command::MoveGeometry, Command::SelectAll]);
             ui.separator();
             submenu(
                 ui,

@@ -245,9 +245,9 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     value is refused in words rather than overflowing the solver's scale), then runs damped Gauss–Newton with minimal-norm steps on
     each independent part of the system (SVD from `nalgebra` for parts of up to 48 variables;
     above that CGLS from zero on the sparse Jacobian, which converges to the same minimal-norm
-    step, and the analysis uses sparse forward elimination, `sparse.rs`). `solve_dragging` starts
-    from dragged points placed at their targets and first holds them there while everything
-    else solves; when that cannot work they only weigh a hundred times more than free geometry,
+    step, and the analysis uses sparse forward elimination, `sparse.rs`). `solve_dragging` takes
+    `Drag`s, each a point or a circle's radius with its target, starts from the dragged values
+    placed at their targets and first holds them there while everything else solves; when that cannot work they only weigh a hundred times more than free geometry,
     so they end as near their targets as the constraints allow, so geometry that already
     satisfies its constraints does not move and under-constrained geometry moves as little as
     possible. Each part is solved at a scale of its own (its largest starting coordinate or length
@@ -1436,7 +1436,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     pickables in pick-table order, each once (it is drawn and described like hover, a pointer move
     or Escape clears it), Space acts on it as a click would (toggling it in the selection, or a
     region, blend edge, shell face or sketch plane as in those modes, through `pick_action`), and
-    Enter opens what it belongs to as a double-click would. While a drawing tool is active, typing a
+    Enter opens what it belongs to as a double-click would. In a sketch, M moves the selection to a
+    typed position and Ctrl+A selects all of it (see Dragging). While a drawing tool is active, typing a
     digit, sign, point, `(` or `@` opens the typed-point field (`typed_point.rs`): two length
     expressions in the preferred unit, split at top-level commas, `@` for an offset from the last
     placed point, within `MAX_LENGTH` of the sketch's origin; Enter places the point through `Drawing::type_point` (landing exactly on an
@@ -1448,8 +1449,31 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     viewport watches it: entering turns the camera to face the sketch plane and fits it, the
     grid moves to that plane, the sketch's origin and axes become pickable references, other
     features are dimmed and unpickable, and the selection keeps only that sketch. Clicks go to
-    selection unless the tool `draws`. Escape backs out one step at a time: plane choice, shape
-    in progress, tool, selection, then editing.
+    selection unless the tool `draws`, and so do primary drags (below). Escape backs out one step
+    at a time: a drag in progress, plane choice, shape in progress, tool, selection, then
+    editing.
+  - Dragging (`sketch_drag.rs`, `drag_solver.rs`): with the Select tool, a primary drag that
+    starts on a non-reference entity of the edited sketch (the hover of the press, taken once the
+    pick for the press position has arrived) is a `Grab`: a point, line, arc or spline moves its
+    points by the pointer's offset on the sketch plane, a circle alone changes its radius, and a
+    grabbed entity that is selected moves every selected entity's points together. Each frame the
+    pointer moves sends `Action::Drag(DragCommand::Move)` with the `Drag`s; `SketchDragging` (in
+    `Display`, owned by `Model`) hands the newest to a worker thread of its own, which drops
+    older ones it has not started, solves each from the previous solution of the same drag (the
+    first from the displayed sketch) with `solve_from` and its memo, and hands it back to be shown
+    (`DisplayedSketches::show_dragged`, which every consumer of a displayed sketch sees). Release
+    sends `Finish`, which waits for the solution of the last position and commits it as one
+    `settle_sketch` transaction named `Drag <what>` (nothing when nothing changed; a notice when
+    no position solved); the dragged shape stays shown until an evaluation of that revision
+    reaches the sketch, so it never jumps back. Escape (`Cancel`), another edit or document, or a
+    drag begun on an older revision drops it and shows the sketch as it was. A primary drag
+    starting anywhere else draws a box: left to right a window taking the points and curves whose
+    outline lies inside, right to left a crossing box taking what it touches, replacing the
+    selection or, with Shift or Ctrl, adding to it; a point is left out when a curve it belongs to
+    was taken. Move selected sketch geometry (M) opens the typed-point field as "Move to": the
+    selection's first point goes to the typed position (`@` for an offset from it) and the rest
+    follows, solved and committed like a drag (`Move <what>`); Select all sketch geometry
+    (Ctrl+A) selects what a box around everything would.
   - Drawing tools (`drawing.rs`: point, line, rectangle, circle, arc, spline) keep their clicked
     points, hover and arc sweep as viewport UI state and build one transaction per finished
     shape (`Draw line`, …), settled first like any sketch transaction. Lines chain, each new
@@ -1493,8 +1517,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     about (the one axis selected, else whichever of the three mirrors the other two best, pairing
     line ends by the reflection). Dimensions start at the value measured on the
     displayed geometry. Every sketch transaction first settles the sketch to the last result,
-    but only when that result is up to date (`Model::settled_sketch`). The UI never solves; it
-    reads constraint states, degrees of freedom and redundancies from the last evaluation
+    but only when that result is up to date (`Model::settled_sketch`). The UI thread never
+    solves (drags solve on their own worker); it reads constraint states, degrees of freedom and redundancies from the last evaluation
     (`sketch_status.rs`, colouring in `scene.rs`). A displayed sketch (`Model::displayed_sketch`,
     `display.rs`) is the definition with solved positions wherever the last result has the same
     entity: the solved sketch itself when every entity matches, else a merged copy.

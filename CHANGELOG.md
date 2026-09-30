@@ -25,6 +25,13 @@ The first release of caditor.
 - Construction geometry: Q (or the Construction button) turns the selected curves into dashed
   construction curves that guide a sketch, take constraints and can be revolved about, but never
   split or add to its regions; with nothing selected it switches drawing to construction curves.
+- Sketch geometry can be dragged with the Select tool: a point, line, arc or spline follows the
+  pointer, a circle grows or shrinks, and a selection moves together, each as far as its
+  constraints allow and as one undoable change; Escape puts it back. M moves the selection to a
+  typed position or by a typed offset instead.
+- Dragging across empty space in a sketch selects with a box: left to right takes what lies
+  inside it, right to left what it touches, and Shift or Ctrl adds to the selection. Ctrl+A
+  selects all of the sketch's geometry.
 - Angles at a corner of a chain of lines are measured inside the corner, tangents where a line
   meets an arc count fully towards a constrained sketch, and a constraint that would shrink a
   line to nothing is reported as a conflict.
