@@ -1,0 +1,124 @@
+---
+paths:
+  - "crates/caditor-kernel/**"
+---
+
+# Kernel
+
+- Own B-rep kernel, no truck or OpenCascade; depends only on `caditor-geometry`.
+
+## Cancellation (`interrupt.rs`)
+
+- `interruptible(interrupt, work)` installs a per-thread check while `work` runs. Polled in
+  intersections (subdivision pair, march step), booleans (edge, face pair, face, fragment, split,
+  branch, healing, between phases), profiles (curve, pair, spline segment, 256 box tests, face),
+  sweeps and `Plan::build` (region, face), shells (corner, edge), blends (edge, tool, corner) and
+  tessellation (face).
+- Each fails with a `Cancelled` variant of its error; a nested cancellation becomes the outer one's.
+  A boolean, shell or blend failing for any reason while its interrupt is set reports `Cancelled`
+  (also while validating: `BuildError::interrupted`). `Solid::find_crossing` polls once more before
+  answering.
+- The document installs its `CancelToken` around evaluation and meshing; export around its meshing
+  and STEP writing.
+
+## Tolerances (`tolerance.rs`)
+
+- `LINEAR_RESOLUTION` is 1e-6 mm; `ANGULAR_RESOLUTION` moves a point at `MODEL_EXTENT` (10 m) by it.
+  `SamplingTolerance` (chord, angle) drives sampling; `Solid::default_tolerance` derives it.
+- Constructors reject non-finite and degenerate input (radii below `LINEAR_RESOLUTION` or above
+  `MAX_SIZE`, a kilometre; extents beyond it), each with own error. Iterations are bounded; failures
+  are errors, never panics.
+
+## Curves
+
+- `Curve` (line, circle, ellipse, B-spline, intersection) and `Curve2` (line, circle, B-spline)
+  share one `BSpline<P>` (clamped, optionally rational, degree up to 9) and generic sampling, length
+  and closest-point code.
+- Lines run by arc length, circles and ellipses by angle in a `Plane` frame, splines over their
+  knots. Reversal maps t to `reversal_pivot() - t`.
+- Closest points are analytic for lines and circles, else seeded by sampling and refined by
+  bracketed Newton.
+- `Curve::Intersection(IntersectionCurve)` lies on two surfaces it carries: nodes refined onto both
+  (point, unit tangent, uv on each), cubic Hermite segments subdivided until each midpoint is within
+  `INTERSECTION_TOLERANCE` (a quarter of `LINEAR_RESOLUTION`) of the true one.
+- Closed ones are periodic over their length; sampling seeds are the nodes less those within a
+  thousandth of the resolution of each other or of the range ends. `uv_at` and `refined_point`
+  re-project onto both surfaces; `trimmed` returns a sub-range with the same parameters and shape.
+- `IntersectionCurve::through` rebuilds one from rough points (an imported edge off its faces): each
+  point solved onto both surfaces in its normal plane; where they only touch (tangent fillet edge),
+  by alternating projection accepting a gap's middle up to `LINEAR_RESOLUTION`. Only this path
+  follows touching surfaces.
+
+## `Surface`
+
+- Kinds: plane, cylinder, cone, sphere, torus, extrusion, revolution, `BSplineSurface`
+  (tensor-product, clamped, optionally rational, degree up to 9).
+- A spline surface whose first and last rows or columns meet is periodic there (C0 suffices). A row
+  collapsed to a point is a pole; a column cannot be, so importers transpose and flip the face.
+  Poles are found once, when the surface is built.
+- Spline surfaces evaluate second derivatives exactly (rational by the quotient rule), and a point
+  alone without them, bit for bit the same point. A uv box is bounded by its own control net, cut
+  out of the spans by knot insertion in homogeneous coordinates (so the hull holds for rational
+  surfaces; the spans' net when the box wraps a closed direction), so sub-patches shrink as divided.
+- Spline projection refines the hint first (its foot is the answer when on the surface), then the
+  three nearest samples of a precomputed grid (searched in 8×8 blocks with their boxes), keeping the
+  hint's foot only when as close as the best; a sample whose iterate comes within the resolution of
+  a foot already found takes that foot.
+- Refinement (`projection.rs`) is damped Newton on the squared distance: halving stops once the
+  predicted decrease is within rounding of the distance (scaled by the point's magnitude), then up
+  to two full Newton steps not measurably worse settle the foot, landing on the true foot to
+  rounding instead of stalling.
+- `project` returns the periodic representative nearest a hint, else the principal one in
+  [0, period). On spline profiles it keeps the closest point near the hint unless another is closer
+  by more than the resolution, so self-crossing profiles project consistently. A point within the
+  resolution of a pole (`pole_at`) takes the hint's u, its own angle being rounding noise.
+- u is the angle around the axis (frame normal) on rotational surfaces; v: cone slant distance from
+  its reference circle, sphere latitude, torus tube angle, revolution profile parameter; an
+  extrusion is (profile parameter, distance) and refuses a line within a millionth of a radian of
+  its direction. du × dv points outward on every elementary surface.
+- Singularities are always `Pole`s: v isolines where du vanishes (sphere poles, cone apex, a
+  revolution profile ending on its axis).
+- `same_surface` gives the `Sense` between coincident surfaces' normals: analytic for elementary
+  pairs, sampled mutual projection with an extrusion or revolution.
+
+## Topology
+
+- A `Solid` is an arena of vertices, edges, coedges, loops, faces and shells behind typed ids, built
+  by `SolidBuilder::build`, which validates. An edge: curve, interval, two vertices (one if closed).
+- A coedge has a sense and a pcurve: a uv polyline carrying each sample's edge parameter, exact
+  ends, chords within `PCURVE_TOLERANCE` in space, continuous across seams.
+- A face's first loop is its outer one; loops run counter-clockwise about the face normal (in uv the
+  outer loop is counter-clockwise when the face sense is `Same`). A face wrapping a periodic surface
+  has a seam edge used twice in its loop, opposite senses, one period apart in uv.
+- `add_loop` fits pcurves by chaining projection hints, bisecting steps over a quarter period;
+  shifts a seam's second copy a period when the chain put both on one side; puts the first loop in
+  the principal period and later loops, by whole periods, into the outer loop's range.
+- Poles have no degenerate edges: the pole is a vertex; the uv loop closes along the pole line
+  between the two coedges meeting there; a pcurve end at a pole takes its v exactly.
+
+## Validation
+
+- `Solid::validate` checks a closed, oriented 2-manifold whose geometry agrees with its topology and
+  returns the first `ValidationError` with ids: edge uses and senses; loop chaining in space and uv;
+  vertices on curve ends; edges on both surfaces; pcurves on their edges; loop winding and nesting;
+  shell connectivity; Euler–Poincaré per shell (each fan of faces at a vertex counts as one vertex,
+  so a pinched shell has the characteristic of the surface it pinches); positive volume for lumps,
+  voids inside a lump.
+- Volume checks use a coarse mesh sized by the box of the edges and vertices (never the
+  classifier-based `bounding_box`), retrying finer before reporting a void outside its lump.
+- Validation never intersects faces with each other, since every build runs it; `find_crossing`
+  does, for importers.
+
+## `Solid::find_crossing` (for importers)
+
+- A face's edges (seams aside) are intersected with each other; a transversal point or overlap away
+  from shared vertices is a `Crossing`.
+- Each pair of faces with overlapping boxes (`box_tree.rs`) is intersected; a branch point strictly
+  inside both faces (coincident faces: a sample) is a `Crossing`.
+- Neighbours skip the surface pair (the shared edge is the known branch): each one's other edges are
+  intersected with the other's surface; a transversal point or overlap strictly inside the other
+  face is a `Crossing`.
+- A failed pair is not skipped: the result is a `CrossingCheck` (`Clear`, `Crossing`, or
+  `Inconclusive` naming the first such pair when no crossing was found); STEP import keeps an
+  inconclusive solid with a note naming the face entities.
+- `bounding_box` covers the edges, a grid inside each doubly curved face, a sphere's axis extremes.

@@ -6,14 +6,10 @@ paths:
 
 # Dependencies
 
-- Write every dependency with a full three-part version, `x.y.z`, never `x` or `x.y`. This
-  applies to normal, dev, build and workspace dependencies alike.
-- Use the latest release when adding or bumping a crate. Look it up with `cargo info <crate>` or
-  `cargo search <crate> --limit 1`, not from memory.
-- Declare every dependency once, under `[workspace.dependencies]` in the root `Cargo.toml`.
-  Members refer to it with `<crate>.workspace = true`, adding only the features they need, so
-  each version lives in a single place.
-- Internal crates are `path`-only entries in `[workspace.dependencies]` with no version, since
-  they are `publish = false`.
-- Commit `Cargo.lock`.
-- After editing a `Cargo.toml`, run `rust-formatter` on it, because it formats TOML too.
+- Full three-part versions (`x.y.z`) for normal, dev, build and workspace dependencies alike.
+- Add or bump to the latest release, looked up with `cargo info <crate>` or
+  `cargo search <crate> --limit 1`, never from memory.
+- Declare each dependency once under `[workspace.dependencies]`; members use
+  `<crate>.workspace = true` plus only the features they need. Internal crates are `path`-only
+  entries with no version (`publish = false`).
+- Commit `Cargo.lock`, and run `rust-formatter` after editing a `Cargo.toml` (it formats TOML).
