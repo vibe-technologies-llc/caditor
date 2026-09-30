@@ -17,6 +17,7 @@ use crate::{
 
 pub const DEFAULT_DISTANCE: f64 = 10.0;
 pub const DEFAULT_PARTIAL_ANGLE: f64 = 180.0;
+pub const DEFAULT_BACKWARD_ANGLE: f64 = 30.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sweep {
@@ -163,10 +164,7 @@ pub fn create(
         Sweep::Extrude => SolidFeature::Extrude(Extrude {
             sketch: source.sketch,
             regions: RegionChoice::All,
-            extent: ExtrudeExtent::OneSide {
-                distance: unit.default_length(DEFAULT_DISTANCE),
-                reversed: false,
-            },
+            extent: ExtrudeExtent::one_side(unit.default_length(DEFAULT_DISTANCE), false),
             operation,
         }),
         Sweep::Revolve => SolidFeature::Revolve(Revolve {

@@ -30,10 +30,7 @@ fn extrude(
     FeatureKind::Solid(SolidFeature::Extrude(Extrude {
         sketch,
         regions: RegionChoice::All,
-        extent: ExtrudeExtent::OneSide {
-            distance: Expression::parse_stored(distance).unwrap(),
-            reversed,
-        },
+        extent: ExtrudeExtent::one_side(Expression::parse_stored(distance).unwrap(), reversed),
         operation,
     }))
 }
@@ -81,10 +78,7 @@ fn model() -> Model {
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch: hole,
             regions: RegionChoice::All,
-            extent: ExtrudeExtent::OneSide {
-                distance: Expression::Parameter(depth),
-                reversed: true,
-            },
+            extent: ExtrudeExtent::one_side(Expression::Parameter(depth), true),
             operation: BodyOperation::Remove(base),
         })),
     );
@@ -496,10 +490,10 @@ fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch: outline,
             regions: RegionChoice::All,
-            extent: ExtrudeExtent::TwoSides {
-                forward: Expression::parse_stored("5 mm").unwrap(),
-                backward: Expression::parse_stored("-2 mm").unwrap(),
-            },
+            extent: ExtrudeExtent::two_sides(
+                Expression::parse_stored("5 mm").unwrap(),
+                Expression::parse_stored("-2 mm").unwrap(),
+            ),
             operation: BodyOperation::NewBody,
         })),
     );
@@ -565,10 +559,7 @@ fn extruded_circle() -> (Document, FeatureId) {
     let mut sketch = Sketch::new(Plane::XY);
     sketch.add_circle(Point2::ZERO, 10.0);
     single_body(
-        extruded(ExtrudeExtent::OneSide {
-            distance: stored("20 mm"),
-            reversed: false,
-        }),
+        extruded(ExtrudeExtent::one_side(stored("20 mm"), false)),
         sketch,
     )
 }
@@ -660,10 +651,7 @@ fn symmetric_and_two_sided_extrusions_reach_both_ways() {
     assert!((reach.min().z + 3.0).abs() < 1e-9 && (reach.max().z - 3.0).abs() < 1e-9);
 
     let (document, body) = single_body(
-        extruded(ExtrudeExtent::TwoSides {
-            forward: stored("5 mm"),
-            backward: stored("1 mm"),
-        }),
+        extruded(ExtrudeExtent::two_sides(stored("5 mm"), stored("1 mm"))),
         square,
     );
     let evaluation = evaluate(&document, &mut Recompute::default());
@@ -809,10 +797,7 @@ fn a_revolve_with_regions_on_both_sides_names_the_curves_apart_from_the_rest() {
 #[test]
 fn a_distance_beyond_a_kilometre_is_refused_in_words() {
     let (document, body) = single_body(
-        extruded(ExtrudeExtent::OneSide {
-            distance: stored("2000 m"),
-            reversed: false,
-        }),
+        extruded(ExtrudeExtent::one_side(stored("2000 m"), false)),
         rectangle(Plane::XY, (0.0, 0.0), (2.0, 2.0)),
     );
     let evaluation = evaluate(&document, &mut Recompute::default());
@@ -849,10 +834,7 @@ fn construction_curves_are_left_out_of_the_profile() {
     let mut outline = rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0));
     let circle = outline.add_circle(Point2::new(5.0, 4.0), 2.0);
     let (mut document, body) = single_body(
-        extruded(ExtrudeExtent::OneSide {
-            distance: stored("1 mm"),
-            reversed: false,
-        }),
+        extruded(ExtrudeExtent::one_side(stored("1 mm"), false)),
         outline,
     );
     let section = document.features().next().unwrap().id();

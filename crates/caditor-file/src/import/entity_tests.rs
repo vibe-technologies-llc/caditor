@@ -488,10 +488,7 @@ fn a_drawing_whose_only_outline_is_a_hatch_extrudes_into_a_solid() {
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch: import.sketch,
             regions: RegionChoice::All,
-            extent: ExtrudeExtent::OneSide {
-                distance: Expression::parse_stored("2 mm").unwrap(),
-                reversed: false,
-            },
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
         })),
     );

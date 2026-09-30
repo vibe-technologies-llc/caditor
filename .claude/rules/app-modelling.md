@@ -30,6 +30,20 @@ paths:
   body); every change is one `SetFeatureKind`, checked before it is offered. Its regions are fills;
   `Pickable::Region` clicks add or leave out, turning `RegionChoice::All` into explicit keys.
 - Double-clicking a face opens the feature that made it; Escape closes an open feature last.
+- An extrusion's panel gives each side an end list (End, or Forward end and Backward end): Distance,
+  Through all, Up to next, Up to face. An end that cannot apply is offered disabled with the reason
+  on hover: Through all until the result removes or intersects, Up to next until it changes a
+  body, Up to face until a usable face or plane is selected. A distance end adds its captioned
+  field; a face end a row naming the face or plane with Use selected to take another. Switching
+  between one side and two sides keeps the end (a reversed one-sided end becomes the backward
+  side).
+- The face or plane is the selection captured where the extrusion sits in the tree
+  (`solid_panel::selected_target`, through `datum_tools::plane_reference`): one principal plane,
+  earlier datum plane or flat face, each refusal saying why (curved, made later, an axis). The
+  command Extrude up to selected face or plane sets it on the current feature (a one-sided end, or
+  the forward side).
+- A revolve's list adds Two angles, with Forward and Backward angle fields that refuse a pair
+  turning more than 360°; switching to it keeps the current angle forward and adds 30° backward.
 
 ## Fillets and chamfers
 

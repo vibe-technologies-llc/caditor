@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use caditor_document::{
     AxisReference, Blend, BlendKind, BodyOperation, CircularPattern, Datum, DatumAxis, DatumPlane,
-    Document, Edit, Extrude, ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind,
-    Import, LinearDirection, Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, RegionChoice, Revolve, RevolveAxis,
-    RevolveExtent, Shell, SketchAttachment, SketchFeature, SolidFeature, Transaction,
+    Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, Feature, FeatureId,
+    FeatureKind, Import, LinearDirection, Parameter, Pattern, PatternKind, PlaneReference,
+    PlaneRotation, PrincipalAxis, PrincipalGeometry, PrincipalPlane, RegionChoice, Revolve,
+    RevolveAxis, RevolveExtent, Shell, SketchAttachment, SketchFeature, SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -16,7 +16,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -51,7 +51,9 @@ pub(crate) struct FeatureRecord {
 pub(crate) enum FeatureKindRecord {
     Sketch(SketchRecord),
     Extrude(ExtrudeRecord),
+    ExtrudeTo(ExtrudeToRecord),
     Revolve(RevolveRecord),
+    RevolveTwoAngles(RevolveTwoAnglesRecord),
     Fillet(BlendRecord),
     Chamfer(BlendRecord),
     Shell(ShellRecord),
@@ -62,10 +64,12 @@ pub(crate) enum FeatureKindRecord {
     Import(ImportRecord),
 }
 
-pub(crate) const FEATURE_KINDS: [&str; 11] = [
+pub(crate) const FEATURE_KINDS: [&str; 13] = [
     "sketch",
     "extrude",
+    "extrude_to",
     "revolve",
+    "revolve_two_angles",
     "fillet",
     "chamfer",
     "shell",
@@ -246,6 +250,46 @@ pub(crate) struct ExtrudeRecord {
     pub sketch: u64,
     pub regions: RegionsRecord,
     pub extent: ExtrudeExtentRecord,
+    pub operation: OperationRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ExtrudeEndRecord {
+    Distance(String),
+    ThroughAll,
+    UpToNext,
+    UpToFace(PlaneReferenceRecord),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ExtrudeEndsRecord {
+    OneSide {
+        end: Lenient<ExtrudeEndRecord>,
+        reversed: bool,
+    },
+    TwoSides {
+        forward: Lenient<ExtrudeEndRecord>,
+        backward: Lenient<ExtrudeEndRecord>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ExtrudeToRecord {
+    pub sketch: u64,
+    pub regions: RegionsRecord,
+    pub extent: ExtrudeEndsRecord,
+    pub operation: OperationRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct RevolveTwoAnglesRecord {
+    pub sketch: u64,
+    pub regions: RegionsRecord,
+    pub axis: RevolveAxisRecord,
+    pub forward: String,
+    pub backward: String,
     pub operation: OperationRecord,
 }
 
@@ -590,49 +634,8 @@ pub(crate) fn feature_record(feature: &Feature) -> FeatureRecord {
 fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
     match kind {
         FeatureKind::Sketch(sketch) => FeatureKindRecord::Sketch(sketch_record(sketch)),
-        FeatureKind::Solid(SolidFeature::Extrude(extrude)) => {
-            FeatureKindRecord::Extrude(ExtrudeRecord {
-                sketch: extrude.sketch.raw(),
-                regions: regions_record(&extrude.regions),
-                extent: match &extrude.extent {
-                    ExtrudeExtent::OneSide { distance, reversed } => ExtrudeExtentRecord::OneSide {
-                        distance: distance.to_stored_text(),
-                        reversed: *reversed,
-                    },
-                    ExtrudeExtent::Symmetric { distance } => ExtrudeExtentRecord::Symmetric {
-                        distance: distance.to_stored_text(),
-                    },
-                    ExtrudeExtent::TwoSides { forward, backward } => {
-                        ExtrudeExtentRecord::TwoSides {
-                            forward: forward.to_stored_text(),
-                            backward: backward.to_stored_text(),
-                        }
-                    }
-                },
-                operation: operation_record(extrude.operation),
-            })
-        }
-        FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
-            FeatureKindRecord::Revolve(RevolveRecord {
-                sketch: revolve.sketch.raw(),
-                regions: regions_record(&revolve.regions),
-                axis: match &revolve.axis {
-                    RevolveAxis::Sketch(line) => RevolveAxisRecord::Sketch(line.raw()),
-                    RevolveAxis::Model(axis) => RevolveAxisRecord::Model(axis_record(axis)),
-                },
-                extent: match &revolve.extent {
-                    RevolveExtent::Full => RevolveExtentRecord::Full,
-                    RevolveExtent::OneSide { angle, reversed } => RevolveExtentRecord::OneSide {
-                        angle: angle.to_stored_text(),
-                        reversed: *reversed,
-                    },
-                    RevolveExtent::Symmetric { angle } => RevolveExtentRecord::Symmetric {
-                        angle: angle.to_stored_text(),
-                    },
-                },
-                operation: operation_record(revolve.operation),
-            })
-        }
+        FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude_record(extrude),
+        FeatureKind::Solid(SolidFeature::Revolve(revolve)) => revolve_record(revolve),
         FeatureKind::Blend(blend) => {
             let record = BlendRecord {
                 body: blend.body.raw(),
@@ -680,6 +683,100 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             step: import.step.to_string(),
         }),
     }
+}
+
+fn end_record(end: &ExtrudeEnd) -> Lenient<ExtrudeEndRecord> {
+    Lenient::Read(match end {
+        ExtrudeEnd::Distance(distance) => ExtrudeEndRecord::Distance(distance.to_stored_text()),
+        ExtrudeEnd::ThroughAll => ExtrudeEndRecord::ThroughAll,
+        ExtrudeEnd::UpToNext => ExtrudeEndRecord::UpToNext,
+        ExtrudeEnd::UpToFace(target) => ExtrudeEndRecord::UpToFace(plane_reference_record(target)),
+    })
+}
+
+fn extrude_record(extrude: &Extrude) -> FeatureKindRecord {
+    let distances = |extent: ExtrudeExtentRecord| {
+        FeatureKindRecord::Extrude(ExtrudeRecord {
+            sketch: extrude.sketch.raw(),
+            regions: regions_record(&extrude.regions),
+            extent,
+            operation: operation_record(extrude.operation),
+        })
+    };
+    let ends = |extent: ExtrudeEndsRecord| {
+        FeatureKindRecord::ExtrudeTo(ExtrudeToRecord {
+            sketch: extrude.sketch.raw(),
+            regions: regions_record(&extrude.regions),
+            extent,
+            operation: operation_record(extrude.operation),
+        })
+    };
+    match &extrude.extent {
+        ExtrudeExtent::Symmetric { distance } => distances(ExtrudeExtentRecord::Symmetric {
+            distance: distance.to_stored_text(),
+        }),
+        ExtrudeExtent::OneSide {
+            end: ExtrudeEnd::Distance(distance),
+            reversed,
+        } => distances(ExtrudeExtentRecord::OneSide {
+            distance: distance.to_stored_text(),
+            reversed: *reversed,
+        }),
+        ExtrudeExtent::TwoSides {
+            forward: ExtrudeEnd::Distance(forward),
+            backward: ExtrudeEnd::Distance(backward),
+        } => distances(ExtrudeExtentRecord::TwoSides {
+            forward: forward.to_stored_text(),
+            backward: backward.to_stored_text(),
+        }),
+        ExtrudeExtent::OneSide { end, reversed } => ends(ExtrudeEndsRecord::OneSide {
+            end: end_record(end),
+            reversed: *reversed,
+        }),
+        ExtrudeExtent::TwoSides { forward, backward } => ends(ExtrudeEndsRecord::TwoSides {
+            forward: end_record(forward),
+            backward: end_record(backward),
+        }),
+    }
+}
+
+fn revolve_record(revolve: &Revolve) -> FeatureKindRecord {
+    let (sketch, regions, operation) = (
+        revolve.sketch.raw(),
+        regions_record(&revolve.regions),
+        operation_record(revolve.operation),
+    );
+    let axis = match &revolve.axis {
+        RevolveAxis::Sketch(line) => RevolveAxisRecord::Sketch(line.raw()),
+        RevolveAxis::Model(axis) => RevolveAxisRecord::Model(axis_record(axis)),
+    };
+    let extent = match &revolve.extent {
+        RevolveExtent::Full => RevolveExtentRecord::Full,
+        RevolveExtent::OneSide { angle, reversed } => RevolveExtentRecord::OneSide {
+            angle: angle.to_stored_text(),
+            reversed: *reversed,
+        },
+        RevolveExtent::Symmetric { angle } => RevolveExtentRecord::Symmetric {
+            angle: angle.to_stored_text(),
+        },
+        RevolveExtent::TwoSides { forward, backward } => {
+            return FeatureKindRecord::RevolveTwoAngles(RevolveTwoAnglesRecord {
+                sketch,
+                regions,
+                axis,
+                forward: forward.to_stored_text(),
+                backward: backward.to_stored_text(),
+                operation,
+            });
+        }
+    };
+    FeatureKindRecord::Revolve(RevolveRecord {
+        sketch,
+        regions,
+        axis,
+        extent,
+        operation,
+    })
 }
 
 fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
@@ -1321,16 +1418,43 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             let mut value =
                 |text: &str, what: &str| restore_value(text, what, "10 mm", name, issues);
             let extent = match &extrude.extent {
-                ExtrudeExtentRecord::OneSide { distance, reversed } => ExtrudeExtent::OneSide {
-                    distance: value(distance, "distance"),
-                    reversed: *reversed,
-                },
+                ExtrudeExtentRecord::OneSide { distance, reversed } => {
+                    ExtrudeExtent::one_side(value(distance, "distance"), *reversed)
+                }
                 ExtrudeExtentRecord::Symmetric { distance } => ExtrudeExtent::Symmetric {
                     distance: value(distance, "distance"),
                 },
-                ExtrudeExtentRecord::TwoSides { forward, backward } => ExtrudeExtent::TwoSides {
-                    forward: value(forward, "forward distance"),
-                    backward: value(backward, "backward distance"),
+                ExtrudeExtentRecord::TwoSides { forward, backward } => ExtrudeExtent::two_sides(
+                    value(forward, "forward distance"),
+                    value(backward, "backward distance"),
+                ),
+            };
+            FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+                sketch: FeatureId::from_raw(extrude.sketch),
+                regions: restore_regions(&extrude.regions, name, issues),
+                extent,
+                operation: restore_operation(extrude.operation),
+            }))
+        }
+        FeatureKindRecord::ExtrudeTo(extrude) => {
+            let extent = match &extrude.extent {
+                ExtrudeEndsRecord::OneSide { end, reversed } => ExtrudeExtent::OneSide {
+                    end: restore_end(end, ("end", "distance"), name, issues),
+                    reversed: *reversed,
+                },
+                ExtrudeEndsRecord::TwoSides { forward, backward } => ExtrudeExtent::TwoSides {
+                    forward: restore_end(
+                        forward,
+                        ("forward end", "forward distance"),
+                        name,
+                        issues,
+                    ),
+                    backward: restore_end(
+                        backward,
+                        ("backward end", "backward distance"),
+                        name,
+                        issues,
+                    ),
                 },
             };
             FeatureKind::Solid(SolidFeature::Extrude(Extrude {
@@ -1355,21 +1479,22 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             FeatureKind::Solid(SolidFeature::Revolve(Revolve {
                 sketch: FeatureId::from_raw(revolve.sketch),
                 regions: restore_regions(&revolve.regions, name, issues),
-                axis: match &revolve.axis {
-                    RevolveAxisRecord::Sketch(line) => {
-                        RevolveAxis::Sketch(EntityId::from_raw(*line))
-                    }
-                    RevolveAxisRecord::Model(axis) => match restore_axis(axis) {
-                        Some(axis) => RevolveAxis::Model(axis),
-                        None => {
-                            issues.push(format!(
-                                "The axis of “{name}” could not be read, so it turns about the \
-                                 vertical axis of its sketch."
-                            ));
-                            RevolveAxis::Sketch(EntityId::VERTICAL_AXIS)
-                        }
-                    },
-                },
+                axis: restore_revolve_axis(&revolve.axis, name, issues),
+                extent,
+                operation: restore_operation(revolve.operation),
+            }))
+        }
+        FeatureKindRecord::RevolveTwoAngles(revolve) => {
+            let mut value =
+                |text: &str, what: &str| restore_value(text, what, "180 deg", name, issues);
+            let extent = RevolveExtent::TwoSides {
+                forward: value(&revolve.forward, "forward angle"),
+                backward: value(&revolve.backward, "backward angle"),
+            };
+            FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+                sketch: FeatureId::from_raw(revolve.sketch),
+                regions: restore_regions(&revolve.regions, name, issues),
+                axis: restore_revolve_axis(&revolve.axis, name, issues),
                 extent,
                 operation: restore_operation(revolve.operation),
             }))
@@ -1395,6 +1520,60 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
         }
         FeatureKindRecord::Import(record) => {
             FeatureKind::Import(restore_import(record, name, issues))
+        }
+    }
+}
+
+fn restore_revolve_axis(
+    record: &RevolveAxisRecord,
+    name: &str,
+    issues: &mut Vec<String>,
+) -> RevolveAxis {
+    match record {
+        RevolveAxisRecord::Sketch(line) => RevolveAxis::Sketch(EntityId::from_raw(*line)),
+        RevolveAxisRecord::Model(axis) => match restore_axis(axis) {
+            Some(axis) => RevolveAxis::Model(axis),
+            None => {
+                issues.push(format!(
+                    "The axis of “{name}” could not be read, so it turns about the vertical axis \
+                     of its sketch."
+                ));
+                RevolveAxis::Sketch(EntityId::VERTICAL_AXIS)
+            }
+        },
+    }
+}
+
+fn restore_end(
+    record: &Lenient<ExtrudeEndRecord>,
+    (what, distance): (&str, &str),
+    name: &str,
+    issues: &mut Vec<String>,
+) -> ExtrudeEnd {
+    let fallback = || ExtrudeEnd::Distance(Expression::Measure(10.0, Unit::Millimetre));
+    match record {
+        Lenient::Read(ExtrudeEndRecord::Distance(text)) => {
+            ExtrudeEnd::Distance(restore_value(text, distance, "10 mm", name, issues))
+        }
+        Lenient::Read(ExtrudeEndRecord::ThroughAll) => ExtrudeEnd::ThroughAll,
+        Lenient::Read(ExtrudeEndRecord::UpToNext) => ExtrudeEnd::UpToNext,
+        Lenient::Read(ExtrudeEndRecord::UpToFace(target)) => {
+            match restore_plane_reference(target) {
+                Some(target) => ExtrudeEnd::UpToFace(target),
+                None => {
+                    issues.push(format!(
+                    "The face or plane that the {what} of “{name}” runs up to could not be read, \
+                     so that end was set to 10 mm."
+                ));
+                    fallback()
+                }
+            }
+        }
+        Lenient::Unreadable(_) => {
+            issues.push(format!(
+                "The {what} of “{name}” could not be read, so it was set to 10 mm."
+            ));
+            fallback()
         }
     }
 }

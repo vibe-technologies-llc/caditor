@@ -14,7 +14,7 @@ use caditor_geometry::{Aabb, Point2, Point3, RigidTransform, Vector3};
 
 pub use self::{
     builder::{BuildError, SolidBuilder},
-    classify::{BoundaryClass, FaceContainment, PointClass, SolidClassifier},
+    classify::{BoundaryClass, FaceContainment, PointClass, RayCrossing, SolidClassifier},
     crossing::{Crossing, CrossingCheck},
     pcurve::{Pcurve, PcurveError, PcurveSample},
     validate::ValidationError,

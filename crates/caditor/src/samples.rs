@@ -191,13 +191,7 @@ fn plate(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
     let distance = transaction.parse("thickness")?;
     transaction.add_feature(
         "Plate",
-        extrude(
-            sketch,
-            ExtrudeExtent::OneSide {
-                distance,
-                reversed: false,
-            },
-        ),
+        extrude(sketch, ExtrudeExtent::one_side(distance, false)),
     );
     Ok(())
 }

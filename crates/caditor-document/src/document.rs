@@ -153,7 +153,10 @@ impl FeatureKind {
     pub fn bodies_used(&self) -> BTreeSet<FeatureId> {
         let mut used: BTreeSet<FeatureId> = self.body_input().into_iter().collect();
         match self {
-            Self::Solid(solid) => used.extend(solid.axis_body()),
+            Self::Solid(solid) => {
+                used.extend(solid.axis_body());
+                used.extend(solid.end_bodies());
+            }
             Self::Datum(datum) => used.extend(datum.bodies()),
             Self::Pattern(pattern) => used.extend(pattern.axis_bodies()),
             Self::Sketch(_) | Self::Blend(_) | Self::Shell(_) | Self::Import(_) => {}
@@ -169,12 +172,9 @@ impl FeatureKind {
                 .and_then(SketchAttachment::datum)
                 .into_iter()
                 .collect(),
+            Self::Solid(solid) => solid.end_datums(),
             Self::Datum(datum) => datum.plane_datums(),
-            Self::Solid(_)
-            | Self::Blend(_)
-            | Self::Shell(_)
-            | Self::Pattern(_)
-            | Self::Import(_) => BTreeSet::new(),
+            Self::Blend(_) | Self::Shell(_) | Self::Pattern(_) | Self::Import(_) => BTreeSet::new(),
         }
     }
 

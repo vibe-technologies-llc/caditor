@@ -67,6 +67,13 @@ The first release of caditor.
   copies keep their references when the count or earlier features change, and a count that is
   not whole, too large (over 100) or copies that cannot be joined fail the pattern alone with the
   reason.
+- An extrusion can now end through all of the body it cuts, up to the next face of its body, or
+  up to a flat face or plane, a tilted one too, and each side of a two-sided extrusion takes its
+  own end; a revolve can turn by two angles, one each way from its sketch. The face or plane is
+  selected in the view and taken with the panel's Use selected or the palette's Extrude up to
+  selected face or plane; an end that misses the body, lies behind the sketch or whose face is
+  gone fails that feature alone with the reason and what to do. Models using them are saved in
+  format 3.
 - A fillet or chamfer whose edge was split by an earlier cut lists it as that edge in pieces
   instead of as an edge that is no longer there, and a shell lists a split opening the same way.
 - Shells whose walls are thicker than a rounded edge or corner leave that rounding out of the

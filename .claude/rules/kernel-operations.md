@@ -20,12 +20,37 @@ paths:
   straight pcurves; the rest are fitted.
 - The start cap is the one at the extent's start (the sketch plane for `one_side`) whichever way the
   sweep runs, so flipping the direction keeps every name.
+- A `LinearExtent` runs between two `LinearBound`s: an offset along the sketch normal, or a
+  `Plane` where the profile, moved along the normal, meets it (`LinearExtent::between`). A plane
+  within half the resolution of level over the profile is an offset; otherwise its cap is tilted:
+  a line's edge is the line between its moved ends, a circle's the ellipse it maps to (the
+  parameter shifted onto the ellipse's major axis), a spline's the spline of its moved control
+  points, and a spline side keeps exact pcurves (its parameter, the height at it). Caps keep the
+  names they have at a distance, so switching an end between a distance and a plane renames
+  nothing.
+- Heights of an end over the profile are bounded exactly: line ends, a circle's extremes along
+  the plane's slope, a spline's control points. A plane along the direction is
+  `EndAlongDirection`, ends that meet or cross within the profile `EndsCross`, a height past
+  `MAX_SIZE` `TooLong`.
 - A profile on the right of the revolution axis is revolved about the reversed axis. Lines on the
   axis become shared cap edges or nothing, endpoints on it poles; a full turn has no caps (holes
   become void shells).
 - The document converts a solved sketch to `ProfileCurve`s, keeps the chosen `RegionKey`s in the
   feature and calls these with the feature id.
 - `build::plan::Plan` is also how booleans emit their result, with explicit pcurves.
+
+## Reaching faces (`build/reach.rs`)
+
+- `heights(plane, regions, target)` gives the least and most signed height of a target plane over
+  the profile, which the document uses to tell a plane ahead from one behind or across.
+- `next_face(solid, plane, regions, reversed)` finds where the profile first meets the solid along
+  the direction: rays from the centroids of each region's triangles, subdivided in proportion to
+  area (about 256 in all, at most 1024), each to its first crossing past four resolutions
+  (`SolidClassifier::first_crossing`). Rays that stay undecided are skipped; none decided is
+  `Undecided`, every one missing `Nothing`, some `Partly`. The faces met are grouped by plane
+  (coplanar fragments are one face): several groups are `SeveralFaces`, one curved face
+  `Curved`, else the face's plane with its outward normal and whether the rays enter the solid
+  there.
 
 # Booleans (`boolean/`)
 

@@ -38,8 +38,8 @@ pub use crate::{
     },
     shell::Shell,
     solid::{
-        BodyOperation, Extrude, ExtrudeExtent, NameIndex, RegionChoice, Revolve, RevolveAxis,
-        RevolveExtent, SketchRegion, SolidFeature, SolidResult, sketch_regions,
+        BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex, RegionChoice, Revolve,
+        RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult, sketch_regions,
     },
     values::{ParameterError, ParameterValues},
     worker::{Outcome, Progress, Recomputer, Update, WorkerStopped},
@@ -51,6 +51,8 @@ mod attachment_tests;
 mod blend_tests;
 #[cfg(test)]
 mod datum_tests;
+#[cfg(test)]
+mod extent_tests;
 #[cfg(test)]
 mod pattern_tests;
 #[cfg(test)]

@@ -8,6 +8,13 @@ paths:
 - Binary, zstd-compressed, xxh3-checked; no text model format. Format number restarted at 1; every
   shipped version stays readable. Version 2 added `linear_pattern` and `circular_pattern`
   feature records, which version 1 readers leave out as a kind they do not know.
+- Version 3 adds two feature records, each written only when needed: `extrude_to`, an extrusion
+  with a side that is not a distance (`extent` is `{"one_side": {"end", "reversed"}}` or
+  `{"two_sides": {"forward", "backward"}}`, each end `{"distance": text}`, `"through_all"`,
+  `"up_to_next"` or `{"up_to_face": plane reference}`), and `revolve_two_angles` (`forward` and
+  `backward` angles beside the revolve's fields). An extrusion of distances alone is still an
+  `extrude` record and a revolve of one or no angle a `revolve` record, so version 2 readers read
+  them; the new kinds they leave out as a kind they do not know rather than misreading them.
 
 ## Container (`binary/`)
 
@@ -47,11 +54,13 @@ paths:
   (`Expression::to_stored_text`, `parse_stored`); region keys and topology names 32-digit hex;
   numbers exact f64. Imports are `import` records (source name, STEP text); unreadable ones load
   empty, reported.
-- Reported fallbacks: unreadable extent becomes 10 mm or 360°; unreadable blend edge left out;
-  unreadable opened face left closed; sketch whose face or datum plane cannot be restored stays on
-  its stored plane; revolve whose axis line is gone turns about its sketch's vertical axis;
-  pattern whose direction or axis cannot be read runs along X or turns about Z, an unreadable
-  second direction is left out, an unreadable count becomes 1 and spacing 10 mm.
+- Reported fallbacks: unreadable extent becomes 10 mm or 360°; an unreadable extrusion end, or
+  one whose face or plane cannot be read, becomes 10 mm; an unreadable angle of two becomes 180°;
+  unreadable blend edge left out; unreadable opened face left closed; sketch whose face or datum
+  plane cannot be restored stays on its stored plane; revolve whose axis line is gone turns about
+  its sketch's vertical axis; pattern whose direction or axis cannot be read runs along X or
+  turns about Z, an unreadable second direction is left out, an unreadable count becomes 1 and
+  spacing 10 mm.
 
 ## Version history
 

@@ -104,8 +104,8 @@ within a category run from most to least important.
 - Patterns repeat a whole body: no pattern of chosen features (a row of holes cut into a plate),
   no instances left out, no pattern along a curve or driven by sketch points, and a copy's faces
   are described as the face they copy.
-- Extents missing: through all, up to next and up to face for extrude, and two angles for
-  revolve.
+- Extrusions end only on flat faces and planes: up to face and up to next refuse a curved face,
+  and up to next needs one flat face that the whole profile meets first.
 - No feature combines two existing bodies, and a cut affects only one body.
 - No suppress, rollback bar, insert-here, drag reorder, or delete with a preview of its
   dependents.

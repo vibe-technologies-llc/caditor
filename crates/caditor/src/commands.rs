@@ -123,6 +123,7 @@ pub enum Command {
     DetachSketch,
     PlaceSketch,
     UseSelectedAxis,
+    ExtrudeUpToSelected,
     DatumUseSelected,
     DatumTurnAboutSelected,
     PatternUseSelected,
@@ -376,7 +377,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 74] = [
+const PLAIN_COMMANDS: [Command; 75] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -441,6 +442,7 @@ const PLAIN_COMMANDS: [Command; 74] = [
     Command::DetachSketch,
     Command::PlaceSketch,
     Command::UseSelectedAxis,
+    Command::ExtrudeUpToSelected,
     Command::DatumUseSelected,
     Command::DatumTurnAboutSelected,
     Command::PatternUseSelected,
@@ -580,6 +582,7 @@ impl Command {
             Self::DetachSketch => "model.detach_sketch",
             Self::PlaceSketch => "model.place_sketch",
             Self::UseSelectedAxis => "model.use_selected_axis",
+            Self::ExtrudeUpToSelected => "model.extrude_up_to_selected",
             Self::DatumUseSelected => "model.datum_use_selected",
             Self::DatumTurnAboutSelected => "model.datum_turn_about_selected",
             Self::PatternUseSelected => "model.pattern_use_selected",
@@ -669,6 +672,7 @@ impl Command {
             Self::DetachSketch => "Detach sketch",
             Self::PlaceSketch => "Place sketch on selected plane or face",
             Self::UseSelectedAxis => "Revolve about selected axis",
+            Self::ExtrudeUpToSelected => "Extrude up to selected face or plane",
             Self::DatumUseSelected => "Base datum on selection",
             Self::DatumTurnAboutSelected => "Turn datum plane about selected axis",
             Self::PatternUseSelected => "Pattern along or about selected axis",
@@ -748,6 +752,7 @@ impl Command {
             | Self::DetachSketch
             | Self::PlaceSketch
             | Self::UseSelectedAxis
+            | Self::ExtrudeUpToSelected
             | Self::DatumUseSelected
             | Self::DatumTurnAboutSelected
             | Self::PatternUseSelected
@@ -859,6 +864,7 @@ impl Command {
             | Self::DetachSketch
             | Self::PlaceSketch
             | Self::UseSelectedAxis
+            | Self::ExtrudeUpToSelected
             | Self::DatumUseSelected
             | Self::DatumTurnAboutSelected
             | Self::PatternUseSelected
