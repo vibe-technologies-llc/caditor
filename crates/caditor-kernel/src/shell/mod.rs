@@ -1,4 +1,7 @@
+mod collapse;
+mod edge;
 mod inner;
+mod split;
 #[cfg(test)]
 mod tests;
 
@@ -21,7 +24,6 @@ use crate::{
 };
 
 const OFFSET_TOLERANCE: f64 = 10.0 * LINEAR_RESOLUTION;
-const EDGE_SAMPLES: [f64; 3] = [0.25, 0.5, 0.75];
 const OPENING_REACH: f64 = 2.0;
 const SMOOTH_TOLERANCE: f64 = 1e-6;
 
@@ -123,13 +125,9 @@ impl Offsets<'_> {
             )
             .map_err(too_thick)?
             .into(),
-            Surface::Cone(cone) => Cone::new(
-                *cone.frame(),
-                cone.radius() + along_normal / cone.half_angle().cos(),
-                cone.half_angle(),
-            )
-            .map_err(too_thick)?
-            .into(),
+            Surface::Cone(cone) => offset_cone(cone, along_normal)
+                .ok_or(ShellError::TooCurved(face))?
+                .into(),
             Surface::Extrusion(_) | Surface::Revolution(_) | Surface::BSpline(_) => {
                 return Err(ShellError::UnsupportedFace(face));
             }
@@ -142,6 +140,18 @@ impl Offsets<'_> {
                 .is_some_and(|(residual, _)| residual.abs() <= OFFSET_TOLERANCE)
         })
     }
+}
+
+fn offset_cone(cone: &Cone, along_normal: f64) -> Option<Cone> {
+    let (sin, cos) = cone.half_angle().sin_cos();
+    let radius = cone.radius() + along_normal / cos;
+    let frame = cone.frame();
+    if radius >= 0.0 {
+        return Cone::new(*frame, radius, cone.half_angle()).ok();
+    }
+    let past_apex = frame.normal() * (-2.0 * radius * cos / sin);
+    let moved = Plane::from_frame(frame.origin() + past_apex, frame.normal(), frame.x_axis())?;
+    Cone::new(moved, -radius, cone.half_angle()).ok()
 }
 
 fn planar_curves(solid: &Solid, face: FaceId, plane: &Plane) -> Option<Vec<ProfileCurve>> {
@@ -302,13 +312,20 @@ fn void_faces(solid: &Solid, open: &[FaceId]) -> Result<BTreeSet<FaceId>, ShellE
         .collect())
 }
 
-fn keeps_every_wall(offsets: &Offsets<'_>, open: &[FaceId], result: &Solid, feature: u64) -> bool {
-    let present: BTreeSet<FaceName> = result.faces().map(|(_, face)| face.name()).collect();
-    offsets
-        .solid
-        .faces()
-        .filter(|(id, _)| !open.contains(id) && !inner::collapses(offsets, *id))
-        .all(|(_, face)| present.contains(&FaceName::shell(feature, face.name())))
+struct Hollowed {
+    solid: Solid,
+    dropped: BTreeSet<FaceId>,
+}
+
+impl Hollowed {
+    fn keeps_every_wall(&self, offsets: &Offsets<'_>, open: &[FaceId], feature: u64) -> bool {
+        let present: BTreeSet<FaceName> = self.solid.faces().map(|(_, face)| face.name()).collect();
+        offsets
+            .solid
+            .faces()
+            .filter(|(id, _)| !open.contains(id) && !self.dropped.contains(id))
+            .all(|(_, face)| present.contains(&FaceName::shell(feature, face.name())))
+    }
 }
 
 fn hollow(
@@ -316,8 +333,11 @@ fn hollow(
     open: &[FaceId],
     voids: &BTreeSet<FaceId>,
     feature: u64,
-) -> Result<Solid, ShellError> {
-    let mut inner = inner::inner_solid(offsets, feature)?;
+) -> Result<Hollowed, ShellError> {
+    let inner::Inner {
+        solid: mut inner,
+        dropped,
+    } = inner::inner_solid(offsets, feature)?;
     for face in open.iter().filter(|face| !offsets.outward.contains(face)) {
         let prism = if voids.contains(face) {
             opening_behind(offsets, *face, feature)?
@@ -326,11 +346,10 @@ fn hollow(
         };
         inner = boolean(&inner, &prism, BooleanOperation::Union)?;
     }
-    Ok(boolean(
-        offsets.solid,
-        &inner,
-        BooleanOperation::Difference,
-    )?)
+    Ok(Hollowed {
+        solid: boolean(offsets.solid, &inner, BooleanOperation::Difference)?,
+        dropped,
+    })
 }
 
 pub fn shell(
@@ -368,7 +387,7 @@ fn hollow_out(
         outward: BTreeSet::new(),
     };
     if outward.is_empty() {
-        return hollow(&inward, open, &voids, feature);
+        return hollow(&inward, open, &voids, feature).map(|hollowed| hollowed.solid);
     }
     let extended = Offsets {
         solid,
@@ -376,10 +395,12 @@ fn hollow_out(
         outward,
     };
     let first = match hollow(&extended, open, &voids, feature) {
-        Ok(result) if keeps_every_wall(&extended, open, &result, feature) => return Ok(result),
+        Ok(result) if result.keeps_every_wall(&extended, open, feature) => return Ok(result.solid),
         Ok(_) => ShellError::TooThick,
         Err(error @ ShellError::Cancelled(_)) => return Err(error),
         Err(error) => error,
     };
-    hollow(&inward, open, &voids, feature).map_err(|_| first)
+    hollow(&inward, open, &voids, feature)
+        .map(|hollowed| hollowed.solid)
+        .map_err(|_| first)
 }

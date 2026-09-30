@@ -1,5 +1,5 @@
 use caditor_expression::{Expression, ParameterId};
-use caditor_geometry::{Plane, Point2, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{FaceName, FaceReference, SamplingTolerance, Solid, Surface};
 use caditor_sketch::Sketch;
 
@@ -202,7 +202,7 @@ fn shell_errors_name_the_problem_and_the_fix() {
     let error = failure(&evaluation, model.shell);
     assert_eq!(
         error.reason,
-        "The wall along the edge between Base side from Line 5 and Base start face shrinks to \
+        "The wall along the edge between Base side from Line 11 and Base start face shrinks to \
          nothing at this thickness."
     );
     assert_eq!(error.remedy, "Enter a smaller thickness.");
@@ -242,5 +242,88 @@ fn a_shell_stays_a_shell_and_keeps_its_body_in_use() {
             .document
             .dependents_of(&[model.base])
             .contains(&model.shell)
+    );
+}
+
+fn gable(plane: Plane, shoulder: f64) -> Sketch {
+    let mut sketch = Sketch::new(plane);
+    let corners = [
+        (0.0, 0.0),
+        (10.0, 0.0),
+        (10.0, shoulder),
+        (5.0, 9.0),
+        (0.0, shoulder),
+    ]
+    .map(|(x, y)| Point2::new(x, y));
+    for index in 0..corners.len() {
+        sketch.add_line(corners[index], corners[(index + 1) % corners.len()]);
+    }
+    sketch
+}
+
+#[test]
+fn a_corner_whose_walls_cannot_meet_is_named_by_its_faces() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let extrude = |sketch: FeatureId, operation: BodyOperation, length: Expression| {
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(length, false),
+            operation,
+        }))
+    };
+    let length = transaction.parse("20 mm").unwrap();
+    let hall_plane = Plane::from_frame(Point3::new(0.0, 15.0, 0.0), Vector3::NEG_Y, Vector3::X);
+    let wing_plane = Plane::from_frame(Point3::new(-5.0, 0.0, 0.0), Vector3::X, Vector3::Y);
+    let hall_sketch = transaction.add_feature(
+        "Hall outline",
+        FeatureKind::from(gable(hall_plane.unwrap(), 6.0)),
+    );
+    let wing_sketch = transaction.add_feature(
+        "Wing outline",
+        FeatureKind::from(gable(wing_plane.unwrap(), 5.0)),
+    );
+    let hall = transaction.add_feature(
+        "Hall",
+        extrude(hall_sketch, BodyOperation::NewBody, length.clone()),
+    );
+    transaction.add_feature(
+        "Wing",
+        extrude(wing_sketch, BodyOperation::Add(hall), length),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let evaluation = evaluate(&document, &mut engine);
+    let body = evaluation.body(hall).unwrap();
+    let (floor, _) = body
+        .faces()
+        .find(|(_, face)| match face.surface() {
+            Surface::Plane(plane) => plane.frame().normal() * face.sense().sign() == Vector3::NEG_Z,
+            _ => false,
+        })
+        .unwrap();
+
+    let mut transaction = document.transaction("Shell");
+    let thickness = transaction.parse("0.5 mm").unwrap();
+    let shell = transaction.add_feature(
+        "Shell 1",
+        FeatureKind::Shell(Shell {
+            body: hall,
+            open: vec![FaceReference::capture(body, floor).unwrap()],
+            thickness,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut engine);
+    let error = failure(&evaluation, shell);
+    assert_eq!(
+        error.reason,
+        "The walls of the body of Hall cannot meet at the corner where Hall side from Line 8, \
+         Hall side from Line 11, Wing side from Line 8 and Wing side from Line 11 meet."
+    );
+    assert_eq!(
+        error.remedy,
+        "Change the thickness, or open one of the faces at that corner."
     );
 }

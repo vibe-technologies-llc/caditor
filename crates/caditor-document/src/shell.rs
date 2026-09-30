@@ -1,11 +1,11 @@
 use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
-use caditor_kernel::{FaceId, FaceReference, ShellError, Solid, shell};
+use caditor_kernel::{FaceId, FaceReference, ShellError, Solid, VertexId, shell};
 
 use crate::{
     datum::capitalized,
-    describe::{describe_edge, describe_origin},
+    describe::{describe_edge, describe_origin, edge_faces},
     document::{Feature, FeatureId},
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
@@ -109,6 +109,26 @@ impl Context<'_> {
         )
     }
 
+    fn describe_corner(&self, solid: &Solid, vertex: VertexId) -> String {
+        let faces: BTreeSet<FaceId> = solid
+            .edges()
+            .filter(|(_, edge)| edge.start() == vertex || edge.end() == vertex)
+            .flat_map(|(id, _)| edge_faces(solid, id))
+            .collect();
+        let mut names: Vec<String> = Vec::with_capacity(faces.len());
+        for face in faces {
+            let name = self.describe_face(solid, face);
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        match names.as_slice() {
+            [] => "one of its corners".to_owned(),
+            [only] => format!("the corner of {only}"),
+            [rest @ .., last] => format!("the corner where {} and {last} meet", rest.join(", ")),
+        }
+    }
+
     fn failure(&self, solid: &Solid, open: &[FaceId], error: &ShellError) -> Failure {
         match error {
             ShellError::Cancelled(_) => Failure::Cancelled,
@@ -153,11 +173,11 @@ impl Context<'_> {
                 ),
                 "Enter a thickness below the smallest radius of that face.".to_owned(),
             ),
-            ShellError::Corner(_) => self.error(
+            ShellError::Corner(vertex) => self.error(
                 format!(
-                    "The walls of the body of {} cannot meet at one of its corners, where four or \
-                     more faces come together.",
-                    self.body_name
+                    "The walls of the body of {} cannot meet at {}.",
+                    self.body_name,
+                    self.describe_corner(solid, *vertex)
                 ),
                 "Change the thickness, or open one of the faces at that corner.".to_owned(),
             ),

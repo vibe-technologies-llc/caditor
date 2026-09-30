@@ -89,6 +89,11 @@ The first release of caditor.
 - Shells whose walls are thicker than a rounded edge or corner leave that rounding out of the
   cavity, corners where four or more faces meet become a short ridge inside it, and a thickness
   that would shrink a wall past nothing names the edge where it happens.
+- Shells follow round sides cut at a slant, holes that cross cones or other round faces, and
+  tapered parts whose narrow end is smaller than the thickness. Chamfers and narrow faces that the
+  thickness closes up are left out of the cavity, and a roof ridge meeting an inside corner
+  becomes a short edge inside it. A corner the walls still cannot meet is named by the faces
+  around it.
 - Opening a face of a hollow inside a body cuts through the wall behind it, and the walls beside
   that face now reach down to the cavity instead of stopping short.
 - Adding, removing and intersecting bodies succeeds in cases that used to fail: where a cut
