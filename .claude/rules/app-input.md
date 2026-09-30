@@ -76,7 +76,7 @@ paths:
 - Window commands: Minimize the window, Maximize or restore the window (refused in full screen)
   and Enter or leave full screen (F11), carried out as egui viewport commands
   (`window_frame::commands`); closing the window is Quit.
-- Viewport commands: standard views (Alt+0 to Alt+6), the projection (O), orbit (arrows), pan
+- Viewport commands: Measure (I), standard views (Alt+0 to Alt+6), the projection (O), orbit (arrows), pan
   (Shift+arrows), zoom (Page Up and Page Down). In a sketch, M moves the selection to a typed
   position and Ctrl+A selects all of it (`app-sketching.md`).
 - N and Shift+N step a keyboard highlight through the scene's pickables in pick-table order, each

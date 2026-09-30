@@ -187,6 +187,10 @@ impl Model {
         self.length_unit
     }
 
+    pub fn waker(&self) -> Waker {
+        (self.services.make_waker)()
+    }
+
     pub fn set_length_unit(&mut self, unit: LengthUnit) {
         self.length_unit = unit;
     }

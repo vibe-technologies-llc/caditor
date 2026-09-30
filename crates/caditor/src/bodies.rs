@@ -12,8 +12,8 @@ use caditor_document::{Document, Evaluation, FeatureId, FeatureKind, FeatureResu
 pub use caditor_document::{describe_origin, origin_feature};
 use caditor_geometry::{Aabb, Point3};
 use caditor_kernel::{
-    EdgeId, EdgeName, EdgeReference, FaceId, FaceName, FaceOrigin, FaceReference, Mesh, Solid,
-    Surface,
+    Curve, EdgeId, EdgeName, EdgeReference, FaceId, FaceName, FaceOrigin, FaceReference,
+    MassProperties, Mesh, Solid, Surface, VertexId, VertexName,
 };
 use caditor_render::{MeshFace, MeshPoint, ShadedMesh};
 
@@ -43,6 +43,41 @@ pub fn face_keys(solid: &Solid) -> Vec<(FaceId, FaceKey)> {
             (id, key)
         })
         .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VertexKey {
+    pub name: VertexName,
+    pub occurrence: u32,
+}
+
+pub fn vertex_keys(body: &SolidResult) -> Vec<(VertexId, VertexKey)> {
+    let names = body.names();
+    body.solid
+        .vertices()
+        .filter_map(|(id, _)| {
+            let name = names.vertex_name(id)?;
+            let occurrence = names
+                .vertices_named(name)
+                .iter()
+                .position(|same| *same == id)?;
+            Some((
+                id,
+                VertexKey {
+                    name,
+                    occurrence: u32::try_from(occurrence).ok()?,
+                },
+            ))
+        })
+        .collect()
+}
+
+pub fn find_vertex(body: &SolidResult, key: VertexKey) -> Option<VertexId> {
+    let occurrence = usize::try_from(key.occurrence).ok()?;
+    body.names()
+        .vertices_named(key.name)
+        .get(occurrence)
+        .copied()
 }
 
 pub fn shown(evaluation: &Evaluation, body: FeatureId) -> Option<&SolidResult> {
@@ -92,21 +127,70 @@ pub struct BodyEdge {
     pub points: Vec<Point3>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BodyVertex {
+    pub key: VertexKey,
+    pub position: Point3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MassAccuracy {
+    Exact,
+    Mesh { chord: f64, volume_within: f64 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BodyMass {
+    pub properties: MassProperties,
+    pub accuracy: MassAccuracy,
+}
+
+impl BodyMass {
+    fn of(solid: &Solid, mesh: &Mesh) -> Self {
+        let curved: BTreeSet<FaceId> = solid
+            .faces()
+            .filter(|(_, face)| !matches!(face.surface(), Surface::Plane(_)))
+            .map(|(id, _)| id)
+            .collect();
+        let straight = solid
+            .edges()
+            .all(|(_, edge)| matches!(edge.curve(), Curve::Line(_)));
+        let accuracy = if curved.is_empty() && straight {
+            MassAccuracy::Exact
+        } else {
+            let curved_area = mesh
+                .mass_properties_where(|face| curved.contains(&face))
+                .area;
+            MassAccuracy::Mesh {
+                chord: mesh.chord(),
+                volume_within: curved_area * mesh.chord(),
+            }
+        };
+        Self {
+            properties: mesh.mass_properties(),
+            accuracy,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BodyMesh {
     source: Arc<FeatureResult>,
     pub mesh: Arc<ShadedMesh>,
     pub faces: Vec<BodyFace>,
     pub edges: Vec<BodyEdge>,
+    pub vertices: Vec<BodyVertex>,
+    pub mass: BodyMass,
 }
 
 impl BodyMesh {
     fn of(source: &Arc<FeatureResult>) -> Option<Self> {
         let solid = source.solid()?;
-        Some(Self::build(source, &solid.solid, solid.mesh()?))
+        Some(Self::build(source, solid, solid.mesh()?))
     }
 
-    fn build(source: &Arc<FeatureResult>, solid: &Solid, mesh: &Mesh) -> Self {
+    fn build(source: &Arc<FeatureResult>, body: &SolidResult, mesh: &Mesh) -> Self {
+        let solid = &body.solid;
         let keys: BTreeMap<FaceId, FaceKey> = face_keys(solid).into_iter().collect();
         let mut faces = Vec::new();
         let mut shaded = Vec::new();
@@ -151,12 +235,30 @@ impl BodyMesh {
                 })
             })
             .collect();
+        let vertices = vertex_keys(body)
+            .into_iter()
+            .filter_map(|(id, key)| {
+                Some(BodyVertex {
+                    key,
+                    position: solid.vertex(id)?.point(),
+                })
+            })
+            .collect();
         Self {
             source: Arc::clone(source),
             mesh: Arc::new(ShadedMesh::new(shaded)),
             faces,
             edges,
+            vertices,
+            mass: BodyMass::of(solid, mesh),
         }
+    }
+
+    pub fn vertex_position(&self, key: VertexKey) -> Option<Point3> {
+        self.vertices
+            .iter()
+            .find(|vertex| vertex.key == key)
+            .map(|vertex| vertex.position)
     }
 
     pub fn bounds(&self) -> Option<Aabb> {
@@ -489,6 +591,29 @@ pub fn describe_edge_id(document: &Document, body: &SolidResult, edge: EdgeId) -
             describe_face_id(document, body, *second)
         ),
         _ => "Edge".to_owned(),
+    }
+}
+
+pub fn describe_vertex(document: &Document, body: &SolidResult, key: VertexKey) -> String {
+    let Some(vertex) = find_vertex(body, key) else {
+        return "Missing vertex".to_owned();
+    };
+    let mut faces: Vec<FaceId> = body
+        .solid
+        .edges()
+        .filter(|(_, edge)| edge.start() == vertex || edge.end() == vertex)
+        .flat_map(|(id, _)| edge_faces(&body.solid, id))
+        .collect();
+    faces.sort_unstable();
+    faces.dedup();
+    let described: Vec<String> = faces
+        .into_iter()
+        .map(|face| describe_face_id(document, body, face))
+        .collect();
+    match described.as_slice() {
+        [] => "Vertex".to_owned(),
+        [only] => format!("Vertex of {only}"),
+        [rest @ .., last] => format!("Vertex where {} and {last} meet", rest.join(", ")),
     }
 }
 

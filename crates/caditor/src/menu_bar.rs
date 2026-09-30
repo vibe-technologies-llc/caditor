@@ -303,6 +303,7 @@ impl Menus<'_, '_> {
             self.item(ui, Command::FitView);
             self.item(ui, Command::ToggleProjection);
             self.item(ui, Command::FullScreen);
+            self.item(ui, Command::Measure);
             self.items(
                 ui,
                 [

@@ -9,7 +9,7 @@ use caditor_kernel::{EdgeName, RegionKey};
 use caditor_sketch::{ConstraintId, EntityId};
 
 use crate::{
-    bodies::{self, FaceKey},
+    bodies::{self, FaceKey, VertexKey},
     datum_tools,
     editing::Context,
     visibility,
@@ -90,6 +90,10 @@ pub enum Pickable {
     Edge {
         body: FeatureId,
         edge: EdgeName,
+    },
+    Vertex {
+        body: FeatureId,
+        vertex: VertexKey,
     },
     Region {
         feature: FeatureId,
@@ -176,6 +180,18 @@ impl Pickable {
                         format!("{name} › {}", bodies::describe_edge(document, solid, edge))
                     }
                     None => format!("{name} › Edge"),
+                }
+            }
+            Self::Vertex { body, vertex } => {
+                let name = body_name(document, body);
+                match bodies::shown(evaluation, body) {
+                    Some(solid) => {
+                        format!(
+                            "{name} › {}",
+                            bodies::describe_vertex(document, solid, vertex)
+                        )
+                    }
+                    None => format!("{name} › Vertex"),
                 }
             }
             Self::Region { feature, .. } => {
@@ -291,6 +307,12 @@ impl Pickable {
                     && visibility::is_shown(document, body)
                     && bodies::shown(evaluation, body)
                         .is_some_and(|solid| bodies::find_edge(solid, edge).is_some())
+            }
+            Self::Vertex { body, vertex } => {
+                editing.is_none()
+                    && visibility::is_shown(document, body)
+                    && bodies::shown(evaluation, body)
+                        .is_some_and(|solid| bodies::find_vertex(solid, vertex).is_some())
             }
             Self::Region { feature, region } => {
                 context.solid == Some(feature)

@@ -8,7 +8,7 @@ mod reference_tests;
 mod tests;
 
 pub(crate) use self::digest::Digest;
-pub use self::reference::{EdgeNaming, EdgeReference, FaceReference, ReferenceError};
+pub use self::reference::{EdgeNaming, EdgeReference, FaceReference, ReferenceError, vertex_names};
 use crate::profile::{PieceId, RegionKey};
 
 const SIDE_FACE: u8 = 0x01;

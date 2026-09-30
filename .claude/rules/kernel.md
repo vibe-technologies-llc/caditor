@@ -110,6 +110,27 @@ paths:
 - Validation never intersects faces with each other, since every build runs it; `find_crossing`
   does, for importers.
 
+## Measuring (`measure/`)
+
+- `distance` of two `Element`s (a point, an edge or a face of a solid) returns a `Separation`: the
+  closest points and an `Accuracy`. It is `Exact` only when every step was closed form (points,
+  closest points on lines and circles, projection onto planes, cylinders and spheres, segment to
+  segment, a segment crossing a plane); anything found by seeding and alternating projection is
+  `Approximate`.
+- The minimum over a bounded item is its interior critical pair or one on its boundary, so faces
+  recurse into their edges and edges into their ends; edge pairs whose boxes are farther apart
+  than the best so far are skipped. Two flat faces need no interior search.
+- Interior pairs are seeded (48 samples per curve, a 16×16 uv grid inside a face) and the best 4
+  refined by alternating closest points, kept only when strictly inside the edge and inside the
+  face (`SolidClassifier::point_in_face`).
+- `angle`: straight edges sharing an end give the angle inside the corner (0 to 180°), otherwise
+  the acute angle between the lines; flat faces the acute angle between the planes; a line and a
+  plane the angle between them.
+- `edge_measure` (length, exact for lines and circles; line, circle or ellipse form), `face_form`
+  (plane with outward normal, cylinder, cone, sphere, torus), `planar_area` (Gauss–Legendre over
+  the boundary, exact for lines and circles) and `axis_of`/`axis_separation` for round edges and
+  faces.
+
 ## `Solid::find_crossing` (for importers)
 
 - A face's edges (seams aside) are intersected with each other; a transversal point or overlap away

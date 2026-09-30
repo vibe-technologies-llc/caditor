@@ -17,6 +17,7 @@ use crate::{
     drag_solver::DragCommand,
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
+    measure::MeasuredLine,
     model::{Action, Model, Notice, RecomputeStatus},
     preferences::{Navigation, PreferenceChange, PreferencesCommand},
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
@@ -61,6 +62,7 @@ const BOX_STROKE_WIDTH: f32 = 1.0;
 const BOX_DASH: f32 = 6.0;
 const BOX_GAP: f32 = 4.0;
 const NOTHING_TO_HIGHLIGHT: &str = "Nothing in the view can be picked";
+const MEASURE_LABEL_LIFT: f32 = 6.0;
 
 struct SketchScreen {
     view: View,
@@ -154,6 +156,7 @@ pub struct ViewportState {
     session: u64,
     fit_when_computed: bool,
     scene_bounds: Option<Aabb>,
+    measured: Option<(MeasuredLine, String)>,
 }
 
 impl ViewportState {
@@ -196,7 +199,16 @@ impl ViewportState {
             session: 0,
             fit_when_computed: false,
             scene_bounds: None,
+            measured: None,
         }
+    }
+
+    pub fn bodies(&self) -> &BodyMeshes {
+        &self.bodies
+    }
+
+    pub fn set_measured(&mut self, measured: Option<(MeasuredLine, String)>) {
+        self.measured = measured;
     }
 
     pub fn select_only(&mut self, pickable: Pickable) {
@@ -386,6 +398,9 @@ impl ViewportState {
         );
         if let Some(sketch) = built.edited {
             scene::add_preview(&mut built.scene, sketch.plane, &self.drawing.preview());
+        }
+        if let Some((line, _)) = &self.measured {
+            scene::add_measurement(&mut built.scene, line.from, line.to);
         }
         let mut seen = std::collections::BTreeSet::new();
         self.highlightable = built
@@ -1214,6 +1229,23 @@ impl ViewportState {
         let painter = ui.painter();
         if let Some(PrimaryDrag::Box { area, .. }) = &self.primary {
             paint_box(painter, rect, *area);
+        }
+        if let Some((line, label)) = &self.measured
+            && let Some(view) = self.view()
+            && let Some(pixel) = view.project(line.from.midpoint(line.to))
+        {
+            let position =
+                rect.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32) / self.pixels_per_point;
+            if rect.contains(position) {
+                canvas::label(
+                    painter,
+                    position + vec2(0.0, -MEASURE_LABEL_LIFT),
+                    Align2::CENTER_BOTTOM,
+                    label,
+                    FontId::proportional(13.0),
+                    canvas::MEASURE,
+                );
+            }
         }
         let hovered = self.annotations.hovered().or(self.highlighted());
         if let Some(hovered) = hovered.filter(|_| !self.drawing.is_active()) {

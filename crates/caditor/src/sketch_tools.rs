@@ -606,6 +606,7 @@ pub fn selected_entities(selection: &Selection, feature: FeatureId) -> Vec<Entit
             | Pickable::Plane(_)
             | Pickable::Face { .. }
             | Pickable::Edge { .. }
+            | Pickable::Vertex { .. }
             | Pickable::Region { .. }
             | Pickable::BlendEdge { .. }
             | Pickable::ShellFace { .. }
@@ -629,6 +630,7 @@ pub fn selected_constraints(selection: &Selection, feature: FeatureId) -> Vec<Co
             | Pickable::Plane(_)
             | Pickable::Face { .. }
             | Pickable::Edge { .. }
+            | Pickable::Vertex { .. }
             | Pickable::Region { .. }
             | Pickable::BlendEdge { .. }
             | Pickable::ShellFace { .. }

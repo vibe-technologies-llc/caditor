@@ -30,6 +30,9 @@ paths:
     have the same name, as on a closed edge, so reversing keeps the name)
   - as a last resort `occurrence`, ordered by position (midpoints on a grid of a hundred
     resolutions, so rounding noise cannot swap them)
+- Vertices are named `VertexName::of_faces` by the set of faces around them; `vertex_names(solid)`
+  gives every vertex's name (`EdgeNaming` and the document's `NameIndex` use it). Faces keep their
+  names through parameter changes, so a vertex does too.
 - `FaceOrigin` says in words what a face came from: side of an entity, start or end cap (with the
   raw feature and entity ids), `Fillet`, `Chamfer`, `Shell`, `Imported`.
 - `Solid::imported(feature)` names an imported solid: `FaceName::imported(feature, index)` by the

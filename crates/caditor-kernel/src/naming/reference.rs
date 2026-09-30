@@ -224,11 +224,7 @@ pub struct EdgeNaming {
 
 impl EdgeNaming {
     pub fn new(solid: &Solid) -> Self {
-        let around = faces_around_vertices(solid);
-        let vertex_names: BTreeMap<VertexId, VertexName> = around
-            .iter()
-            .map(|(vertex, faces)| (*vertex, VertexName::of_faces(faces.iter().copied())))
-            .collect();
+        let vertex_names = vertex_names(solid);
         let vertex_name = |vertex: VertexId| {
             vertex_names
                 .get(&vertex)
@@ -304,6 +300,13 @@ pub(crate) fn neighbour_names(solid: &Solid, face: FaceId) -> BTreeSet<FaceName>
         .flat_map(|coedge| edge_faces(solid, coedge.edge()))
         .filter(|other| *other != face)
         .filter_map(|other| solid.face(other).map(|other| other.name()))
+        .collect()
+}
+
+pub fn vertex_names(solid: &Solid) -> BTreeMap<VertexId, VertexName> {
+    faces_around_vertices(solid)
+        .into_iter()
+        .map(|(vertex, faces)| (vertex, VertexName::of_faces(faces)))
         .collect()
 }
 

@@ -87,6 +87,7 @@ pub enum Command {
     DatumPlane,
     DatumAxis,
     FitView,
+    Measure,
     LargerInterface,
     SmallerInterface,
     NormalInterface,
@@ -369,7 +370,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 67] = [
+const PLAIN_COMMANDS: [Command; 68] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -387,6 +388,7 @@ const PLAIN_COMMANDS: [Command; 67] = [
     Command::Redo,
     Command::FitView,
     Command::ToggleProjection,
+    Command::Measure,
     Command::LargerInterface,
     Command::SmallerInterface,
     Command::NormalInterface,
@@ -516,6 +518,7 @@ impl Command {
             Self::DatumPlane => "model.plane",
             Self::DatumAxis => "model.axis",
             Self::FitView => "view.fit",
+            Self::Measure => "view.measure",
             Self::LargerInterface => "view.interface_larger",
             Self::SmallerInterface => "view.interface_smaller",
             Self::NormalInterface => "view.interface_normal",
@@ -607,6 +610,7 @@ impl Command {
             Self::DatumPlane => "Datum plane",
             Self::DatumAxis => "Datum axis",
             Self::FitView => "Fit view",
+            Self::Measure => "Measure",
             Self::LargerInterface => "Make the interface larger",
             Self::SmallerInterface => "Make the interface smaller",
             Self::NormalInterface => "Interface at normal size",
@@ -676,6 +680,7 @@ impl Command {
             | Self::DeleteSelection
             | Self::DismissNotice => Category::Edit,
             Self::FitView
+            | Self::Measure
             | Self::LargerInterface
             | Self::SmallerInterface
             | Self::NormalInterface
@@ -760,6 +765,7 @@ impl Command {
             Self::Undo => vec![command(Key::Z)],
             Self::Redo => vec![command_shift(Key::Z), command(Key::Y)],
             Self::FitView => vec![plain(Key::F)],
+            Self::Measure => vec![plain(Key::I)],
             Self::ToggleProjection => vec![plain(Key::O)],
             Self::LargerInterface => vec![command(Key::Plus), command(Key::Equals)],
             Self::SmallerInterface => vec![command(Key::Minus)],

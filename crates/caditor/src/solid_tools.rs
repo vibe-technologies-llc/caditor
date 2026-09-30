@@ -54,6 +54,7 @@ pub fn sweep_source(
         | Pickable::SketchConstraint { .. }
         | Pickable::Face { .. }
         | Pickable::Edge { .. }
+        | Pickable::Vertex { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
         | Pickable::ShellFace { .. }
@@ -91,6 +92,7 @@ pub fn sweep_source(
         | Pickable::SketchConstraint { .. }
         | Pickable::Face { .. }
         | Pickable::Edge { .. }
+        | Pickable::Vertex { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
         | Pickable::ShellFace { .. }

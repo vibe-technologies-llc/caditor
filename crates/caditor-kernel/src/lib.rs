@@ -13,6 +13,7 @@ mod fixtures;
 mod interrupt;
 mod intersect;
 mod interval;
+mod measure;
 mod naming;
 mod numeric;
 mod parametric;
@@ -46,9 +47,14 @@ pub use crate::{
         intersect_curves, intersect_curves2, intersect_surfaces,
     },
     interval::{Domain, Interval},
+    measure::{
+        Accuracy, Angle, AngleKind, Axis, EdgeForm, EdgeMeasure, Element, FaceForm, MeasureError,
+        Separation, angle, axis_of, axis_separation, distance, edge_measure, face_form,
+        planar_area,
+    },
     naming::{
         EdgeName, EdgeNaming, EdgeReference, FaceName, FaceOrigin, FaceReference, ReferenceError,
-        VertexName,
+        VertexName, vertex_names,
     },
     profile::{
         Piece, PieceBound, PieceId, Profile, ProfileCurve, ProfileError, ProfileLoop, ProfileShape,

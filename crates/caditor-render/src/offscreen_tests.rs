@@ -1097,6 +1097,47 @@ fn markers_are_round_and_picked_only_where_they_cover() {
 }
 
 #[test]
+fn a_marker_with_no_colour_draws_nothing_but_is_still_picked() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
+    let unmarked = PickId::from_index(1).unwrap();
+    let under = Scene {
+        fills: vec![Fill::convex(
+            &[
+                Point3::new(-10.0, -10.0, 0.0),
+                Point3::new(10.0, -10.0, 0.0),
+                Point3::new(10.0, 10.0, 0.0),
+                Point3::new(-10.0, 10.0, 0.0),
+            ],
+            Color::from_rgb8(0, 0, 255),
+            Layer::Model,
+            PickId::from_index(0),
+        )],
+        ..Scene::default()
+    };
+    let over = Scene {
+        markers: vec![Marker {
+            position: Point3::ZERO,
+            color: Color::from_rgba8(0, 0, 0, 0),
+            diameter: 9.0,
+            layer: Layer::Model,
+            pick: Some(unmarked),
+        }],
+        ..under.clone()
+    };
+    let center = view.project(Point3::ZERO).unwrap();
+
+    let without = render(&device, &queue, &view, &under, center);
+    let with = render(&device, &queue, &view, &over, center);
+
+    assert_eq!(pixel(&with, center), pixel(&without, center));
+    assert!(pixel(&with, center)[2] > 200);
+    assert_eq!(with.pick.hits[0].id, unmarked);
+}
+
+#[test]
 fn the_grid_draws_its_major_lines_and_is_never_picked() {
     let Some((device, queue)) = gpu() else {
         return;

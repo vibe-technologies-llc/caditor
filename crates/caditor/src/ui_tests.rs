@@ -6647,3 +6647,108 @@ fn coarse_curves_mesh_bodies_again_with_fewer_facets_and_apply_from_the_start() 
     app::apply_preferences(&mut harness.model, &Preferences::from_settings(stored));
     assert_eq!(harness.model.mesh_quality(), MeshQuality::COARSE);
 }
+
+fn vertex_at(harness: &Harness, body: FeatureId, at: caditor_geometry::Point3) -> Pickable {
+    let vertex = harness
+        .workspace
+        .viewport
+        .bodies()
+        .get(body)
+        .expect("the body is meshed")
+        .vertices
+        .iter()
+        .find(|vertex| vertex.position.distance(at) < 1e-9)
+        .unwrap_or_else(|| panic!("no vertex at {at:?}"));
+    Pickable::Vertex {
+        body,
+        vertex: vertex.key,
+    }
+}
+
+#[test]
+fn two_picked_vertices_are_measured_in_the_panel_and_the_view() {
+    let mut harness = Harness::new();
+    let (body, _) = extruded_plate(&mut harness);
+    let revision = harness.model.revision();
+    let corner_point = caditor_geometry::Point3::ZERO;
+    let far_point = caditor_geometry::Point3::new(40.0, 40.0, 10.0);
+    let corner = vertex_at(&harness, body, corner_point);
+    let far = vertex_at(&harness, body, far_point);
+
+    harness.key(Key::I, Modifiers::NONE);
+    harness.frame();
+    assert!(harness.workspace.measure.open);
+    assert!(harness.shows(crate::measure_panel::TITLE));
+
+    harness.click_pickable(Plane::XY, Point2::ZERO, corner);
+    assert_eq!(
+        harness
+            .workspace
+            .viewport
+            .selection()
+            .iter()
+            .collect::<Vec<_>>(),
+        vec![corner]
+    );
+    let Pickable::Vertex { vertex: key, .. } = corner else {
+        panic!("a vertex was picked");
+    };
+    let shown = crate::bodies::shown(harness.model.evaluation(), body).unwrap();
+    let id = crate::bodies::find_vertex(shown, key).expect("the name resolves");
+    assert_eq!(shown.names().vertex_name(id), Some(key.name));
+    assert_eq!(shown.solid.vertex(id).unwrap().point(), corner_point);
+    harness.wait_until("the vertex is measured", |harness| {
+        harness.shows("0.000, 0.000, 0.000 mm")
+    });
+
+    harness.select([corner, far]);
+    let expected = LengthUnit::Millimetre.measured_length(corner_point.distance(far_point));
+    harness.wait_until("the distance is measured", |harness| {
+        harness.shows(&expected)
+    });
+
+    assert!(
+        harness.count_shown(&expected) >= 2,
+        "the panel and the view"
+    );
+    assert!(harness.shows("Between them"));
+    assert!(harness.shows("Along X"));
+    assert_eq!(harness.count_shown("40.000 mm"), 2);
+    assert!(harness.shows("10.000 mm"));
+    assert_eq!(harness.model.revision(), revision);
+
+    harness.key(Key::I, Modifiers::NONE);
+    harness.frame();
+    assert!(!harness.workspace.measure.open);
+    assert!(!harness.shows(&expected));
+}
+
+#[test]
+fn the_measure_panel_shows_the_mass_properties_of_a_body_and_the_area_of_a_face() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    let revision = harness.model.revision();
+
+    harness.select([]);
+    harness.click(crate::toolbar::MEASURE_LABEL);
+    assert!(harness.workspace.measure.open);
+    harness.wait_until("the mass properties are shown", |harness| {
+        harness.shows("16000.0 mm³")
+    });
+
+    assert!(harness.shows(crate::measure_panel::MASS_TITLE));
+    assert!(harness.shows("4800.00 mm²"));
+    assert!(harness.shows("20.000, 20.000, 5.000 mm"));
+    assert!(harness.shows("Extrude 1"));
+
+    harness.select([top]);
+    harness.wait_until("the face is measured", |harness| {
+        harness.shows("1600.00 mm²")
+    });
+    assert!(harness.shows("Extrude 1 › Extrude 1 end face"));
+    assert!(harness.shows("16000.0 mm³"));
+    assert_eq!(harness.model.revision(), revision);
+
+    harness.click_button(crate::measure_panel::CLOSE);
+    assert!(!harness.workspace.measure.open);
+}

@@ -25,6 +25,8 @@ mod history;
 mod icons;
 mod import;
 mod layout;
+mod measure;
+mod measure_panel;
 mod menu_bar;
 mod model;
 mod offers;

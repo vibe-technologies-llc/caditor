@@ -54,6 +54,8 @@ const HIGHLIGHT_FILL_ALPHA: f32 = 0.22;
 const PREVIEW_CURVE: Color = Color::from_rgb8(190, 150, 255);
 const PREVIEW_POINT: Color = Color::from_rgb8(214, 190, 255);
 const SNAP_MARKER: Color = Color::from_rgb8(80, 226, 236);
+const MEASURED: Color = Color::from_rgb8(80, 226, 236);
+const UNMARKED_VERTEX: Color = Color::from_rgba8(0, 0, 0, 0);
 const BODY: Color = Color::from_rgb8(150, 162, 180);
 const FAILED_BODY: Color = Color::from_rgb8(200, 134, 124);
 const OUTDATED_BODY: Color = Color::from_rgb8(182, 170, 130);
@@ -86,6 +88,8 @@ const POINT_DIAMETER: f32 = 7.0;
 const ORIGIN_DIAMETER: f32 = 8.0;
 const HIGHLIGHT_EXTRA_DIAMETER: f32 = 3.0;
 const SNAP_MARKER_DIAMETER: f32 = 13.0;
+const MEASURED_WIDTH: f32 = 2.0;
+const MEASURED_END_DIAMETER: f32 = 8.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Palette {
@@ -610,6 +614,23 @@ impl Builder<'_> {
             });
             self.scene.lines.extend(segments);
         }
+        if color.is_none() {
+            return;
+        }
+        for vertex in &mesh.vertices {
+            let pickable = Pickable::Vertex {
+                body,
+                vertex: vertex.key,
+            };
+            self.scene.markers.push(Marker {
+                position: vertex.position,
+                color: self.highlight.color(pickable, UNMARKED_VERTEX),
+                diameter: POINT_DIAMETER
+                    + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
+                layer: Layer::Model,
+                pick: self.picks.register(pickable, PickPriority::Point),
+            });
+        }
     }
 
     fn open_before(&mut self, document: &Document, evaluation: &Evaluation, open: &BodyBefore) {
@@ -966,6 +987,27 @@ pub fn add_preview(scene: &mut Scene, plane: Plane, preview: &Preview) {
     scene.markers.extend(snap.into_iter().chain(points));
 }
 
+pub fn add_measurement(scene: &mut Scene, from: Point3, to: Point3) {
+    scene.lines.push(Line {
+        start: from,
+        end: to,
+        color: MEASURED,
+        width: MEASURED_WIDTH,
+        layer: Layer::Front,
+        pick: None,
+        stroke: Stroke::Solid,
+    });
+    for position in [from, to] {
+        scene.markers.push(Marker {
+            position,
+            color: MEASURED,
+            diameter: MEASURED_END_DIAMETER,
+            layer: Layer::Front,
+            pick: None,
+        });
+    }
+}
+
 pub fn chosen_regions(choice: &RegionChoice, regions: &[SketchRegion]) -> BTreeSet<RegionKey> {
     match choice {
         RegionChoice::All => regions
@@ -1078,6 +1120,11 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
             .and_then(|mesh| mesh.edge_points(edge))
             .map(<[Point3]>::to_vec)
             .unwrap_or_default(),
+        Pickable::Vertex { body, vertex } => bodies
+            .get(body)
+            .and_then(|mesh| mesh.vertex_position(vertex))
+            .into_iter()
+            .collect(),
         Pickable::Datum(feature) => datum_points(evaluation, feature, reference_size),
         Pickable::ShellFace { feature, face } => bodies
             .body_before()

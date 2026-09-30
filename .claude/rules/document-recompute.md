@@ -65,9 +65,9 @@ paths:
   the next run rebuilds every result and meshes it at the new quality (new `Arc`s, which the app's
   body meshing keys on). `Recomputer::set_mesh_quality` passes it to the worker, where it applies
   from the next submission and to requested meshes; a panic's cache reset keeps it.
-- `SolidResult::names` is a `NameIndex` built on first use and kept with the result: the faces of
-  each name in solid order and the first edge of each name, so the app finds a face or edge it
-  holds by name without scanning the solid.
+- `SolidResult::names` is a `NameIndex` built on first use and kept with the result: the faces and
+  the vertices of each name in solid order, each vertex's name and the first edge of each name, so
+  the app finds a face, edge or vertex it holds by name without scanning the solid.
 
 ## Recomputer worker
 
