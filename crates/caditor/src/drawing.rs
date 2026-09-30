@@ -135,7 +135,12 @@ impl Shape {
             Tool::ThreePointArc => Some(Self::ThreePointArc),
             Tool::TangentArc => Some(Self::TangentArc),
             Tool::Spline => Some(Self::Spline),
-            Tool::Select | Tool::Trim | Tool::Extend => None,
+            Tool::Select
+            | Tool::Trim
+            | Tool::Extend
+            | Tool::Offset
+            | Tool::Mirror
+            | Tool::Fillet => None,
         }
     }
 

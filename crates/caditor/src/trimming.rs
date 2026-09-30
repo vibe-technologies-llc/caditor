@@ -101,7 +101,7 @@ impl Trimming {
 
     pub fn sync(&mut self, active: Option<ActiveSketch>, sketch: Option<&Sketch>) {
         let context = active
-            .filter(|active| active.tool.modifies())
+            .filter(|active| active.tool.trims())
             .map(|active| (active.feature, active.tool));
         if context != self.context {
             *self = Self {
@@ -390,7 +390,7 @@ fn targets(sketch: &Sketch, tool: Tool) -> Vec<Aim> {
     }
 }
 
-fn curve_under(
+pub fn curve_under(
     sketch: &Sketch,
     screen: &impl Screen,
     pointer: Pointer,
@@ -429,7 +429,7 @@ fn carrier(sketch: &Sketch, preferred: EntityId, point: Point2) -> Option<Entity
         .find(|curve| carries(*curve))
 }
 
-fn working(model: &Model, feature: FeatureId) -> Option<Sketch> {
+pub fn working(model: &Model, feature: FeatureId) -> Option<Sketch> {
     let owner = model.document().feature(feature)?;
     let definition = owner.kind.sketch()?;
     let shown = model.displayed_sketch(owner)?;
@@ -445,7 +445,7 @@ fn working(model: &Model, feature: FeatureId) -> Option<Sketch> {
     Some(working)
 }
 
-fn reshaped(
+pub fn reshaped(
     model: &Model,
     feature: FeatureId,
     label: String,
@@ -459,15 +459,15 @@ fn reshaped(
     Ok(transaction.finish())
 }
 
-fn refusal(tool: Tool, reason: &str) -> String {
+pub fn refusal(tool: Tool, reason: &str) -> String {
     format!("{}: {reason}.", tool.label())
 }
 
-fn sketch_gone() -> String {
+pub fn sketch_gone() -> String {
     "The sketch being edited no longer exists.".to_owned()
 }
 
-fn capitalized(text: &str) -> String {
+pub fn capitalized(text: &str) -> String {
     let mut characters = text.chars();
     match characters.next() {
         Some(first) => first.to_uppercase().chain(characters).collect(),

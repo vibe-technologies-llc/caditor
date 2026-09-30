@@ -92,8 +92,9 @@ paths:
   "Editing <name>" truncating with the full name on hover, the sketch's `status_pill`s), Select,
   Draw (the drawing tools as `ToolButton`s; rectangle, circle, polygon and slot carry a
   `corner_menu_button`, "Ways to draw a rectangle" and so on, listing their ways of drawing as
-  `menu_choice`s with the current one marked), Modify (compact Construction, Trim and Extend over
-  Move, Select all and Delete, which trigger their commands or choose their tool), Constrain (the geometric constraints, six compact buttons a
+  `menu_choice`s with the current one marked), Modify (compact Construction, Trim, Extend and Sketch
+  fillet over Offset, Mirror, Move, Select all and Delete, which trigger their commands or choose
+  their tool), Constrain (the geometric constraints, six compact buttons a
   row) and Dimension (three a row). Finish sketch is a primary button at the right of the first
   row. Compact buttons show their name, what they do and the shortcut on hover, and why they are
   unavailable while disabled.

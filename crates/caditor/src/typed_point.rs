@@ -16,6 +16,7 @@ use crate::{
 
 pub const FIELD_LABEL: &str = "Place point";
 pub const MOVE_LABEL: &str = "Move to";
+pub const POINT_PLACEHOLDER: &str = "x, y  or  length < angle";
 const FIELD_WIDTH: f32 = 180.0;
 const RELATIVE_MARK: char = '@';
 const SEPARATORS: [char; 2] = [',', ';'];
@@ -105,6 +106,10 @@ impl TypedPoint {
         self.focus_pending = true;
     }
 
+    pub fn text(&self) -> Option<&str> {
+        self.text.as_deref()
+    }
+
     pub fn open_from_typing(&mut self, ctx: &egui::Context) {
         if self.is_open() {
             return;
@@ -140,6 +145,7 @@ impl TypedPoint {
         anchor: Pos2,
         label: &str,
         hint: &str,
+        placeholder: &str,
     ) -> Option<Typed> {
         let text = self.text.as_mut()?;
         let id = Id::new("typed-point");
@@ -163,7 +169,7 @@ impl TypedPoint {
                                 TextEdit::singleline(text)
                                     .id(id)
                                     .desired_width(FIELD_WIDTH)
-                                    .hint_text("x, y  or  length < angle"),
+                                    .hint_text(placeholder),
                             );
                             ui.label(RichText::new(hint).weak());
                             field

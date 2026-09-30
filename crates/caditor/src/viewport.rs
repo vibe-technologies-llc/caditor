@@ -20,6 +20,7 @@ use crate::{
     faceting::FacetLevel,
     measure::MeasuredLine,
     model::{Action, Model, Notice, RecomputeStatus},
+    modifying::{Hint, Modifying, Outcome, Value},
     preferences::{Navigation, PreferenceChange, PreferencesCommand},
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
@@ -116,6 +117,7 @@ enum PrimaryDrag {
     Grab(Grab),
     Box { feature: FeatureId, area: ScreenBox },
     Trim { feature: FeatureId, from: Point2 },
+    Pull { feature: FeatureId },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -158,6 +160,7 @@ pub struct ViewportState {
     sketch_cursor: Option<Point2>,
     drawing: Drawing,
     trimming: Trimming,
+    modifying: Modifying,
     annotations: Annotations,
     bodies: BodyMeshes,
     navigation: Navigation,
@@ -202,6 +205,7 @@ impl ViewportState {
             sketch_cursor: None,
             drawing: Drawing::default(),
             trimming: Trimming::default(),
+            modifying: Modifying::default(),
             annotations: Annotations::default(),
             bodies: BodyMeshes::default(),
             navigation: Navigation::default(),
@@ -247,6 +251,7 @@ impl ViewportState {
         self.scenes = SceneCache::default();
         self.drawing = Drawing::default();
         self.trimming = Trimming::default();
+        self.modifying = Modifying::default();
         self.annotations = Annotations::default();
         self.typed_point = TypedPoint::default();
         self.moving = None;
@@ -396,6 +401,16 @@ impl ViewportState {
                         .map(move |entity| Pickable::SketchEntity { feature, entity })
                 })
                 .collect()
+        } else if self.modifying.is_active() {
+            edited
+                .into_iter()
+                .flat_map(|feature| {
+                    self.modifying
+                        .highlighted_entities()
+                        .into_iter()
+                        .map(move |entity| Pickable::SketchEntity { feature, entity })
+                })
+                .collect()
         } else if let Some(annotation) = self.annotations.hovered() {
             annotation.constrained_entities(document)
         } else if let Some(row) = self.hovered_in_tree {
@@ -435,6 +450,7 @@ impl ViewportState {
             previews: vec![
                 self.drawing.preview(faceting),
                 self.trimming.preview(faceting),
+                self.modifying.preview(faceting),
             ],
             measured: self.measured.as_ref().map(|(line, _)| [line.from, line.to]),
         });
@@ -638,6 +654,7 @@ impl ViewportState {
         if moved && inside.is_some() {
             self.keyboard_highlight = None;
             self.trimming.clear_highlight();
+            self.modifying.clear_highlight();
         }
         self.cursor = inside.map(|position| self.to_pixels(position - rect.min));
         if self.cursor.is_none() {
@@ -761,6 +778,11 @@ impl ViewportState {
             if let Some(PrimaryDrag::Trim { from, .. }) = &self.primary {
                 self.trimming.begin_path(*from);
             }
+            if matches!(self.primary, Some(PrimaryDrag::Pull { .. }))
+                && !self.modifying.begin_pull()
+            {
+                self.primary = None;
+            }
         }
         let edited = editing
             .active()
@@ -780,6 +802,9 @@ impl ViewportState {
                 self.primary = None;
                 self.trimming.cancel_path();
             }
+            Some(PrimaryDrag::Pull { feature }) if Some(*feature) != edited => {
+                self.primary = None;
+            }
             Some(PrimaryDrag::Grab(grab)) => {
                 if let Some(command) = sketch_cursor.and_then(|at| grab.to(at)) {
                     actions.push(Action::Drag(command));
@@ -790,7 +815,7 @@ impl ViewportState {
                     area.to = cursor / f64::from(self.pixels_per_point);
                 }
             }
-            Some(PrimaryDrag::Trim { .. }) | None => {}
+            Some(PrimaryDrag::Trim { .. } | PrimaryDrag::Pull { .. }) | None => {}
         }
         if released {
             self.press = None;
@@ -803,6 +828,13 @@ impl ViewportState {
                 }
                 Some(PrimaryDrag::Trim { .. }) => {
                     actions.extend(outcome_action(self.trimming.finish_path(model)));
+                }
+                Some(PrimaryDrag::Pull { .. }) => {
+                    let outcome = match edited_sketch(model, editing) {
+                        Some(sketch) => self.modifying.click(model, &sketch),
+                        None => Outcome::Nothing,
+                    };
+                    self.modify(editing, outcome, actions);
                 }
                 Some(PrimaryDrag::Grab(_)) | None => {}
             }
@@ -822,7 +854,8 @@ impl ViewportState {
                 let from = self.on_sketch(model, feature, press.cursor)?;
                 return Some(PrimaryDrag::Trim { feature, from });
             }
-            Tool::Extend => return None,
+            Tool::Offset | Tool::Fillet => return Some(PrimaryDrag::Pull { feature }),
+            Tool::Extend | Tool::Mirror => return None,
             _ => {}
         }
         let grabbed = match press.hovered {
@@ -880,6 +913,12 @@ impl ViewportState {
         self.drawing
             .sync(editing.active(), editing.modes(), displayed.as_deref());
         self.trimming.sync(editing.active(), displayed.as_deref());
+        let selected = editing
+            .feature()
+            .map(|feature| sketch_tools::selected_entities(&self.selection, feature))
+            .unwrap_or_default();
+        self.modifying
+            .sync(editing.active(), displayed.as_deref(), &selected);
         let scale = f64::from(self.pixels_per_point);
         let pointer = self
             .cursor
@@ -897,10 +936,13 @@ impl ViewportState {
                 };
                 self.drawing.hover(&sketch, &screen, pointer);
                 self.trimming.hover(&sketch, &screen, pointer);
+                self.modifying
+                    .hover(&sketch, &screen, pointer, self.scenes.faceting());
             }
             _ => {
                 self.drawing.leave();
                 self.trimming.leave();
+                self.modifying.leave();
             }
         }
     }
@@ -968,6 +1010,14 @@ impl ViewportState {
             actions.extend(outcome_action(self.trimming.click(model)));
             return;
         }
+        if self.modifying.is_active() {
+            let outcome = match edited_sketch(model, editing) {
+                Some(sketch) => self.modifying.click(model, &sketch),
+                None => Outcome::Nothing,
+            };
+            self.modify(editing, outcome, actions);
+            return;
+        }
         if drawing {
             match self.drawing.click(model) {
                 Ok(Some(transaction)) => actions.push(Action::Apply(transaction)),
@@ -1022,13 +1072,13 @@ impl ViewportState {
                 PreferenceChange::Projection(self.navigation.projection.other()),
             )));
         }
-        let targets = self
-            .trimming
-            .is_active()
+        let trims = self.trimming.is_active();
+        let targets = (trims || self.modifying.steps_targets())
             .then(|| edited_sketch(model, editing))
             .flatten();
         let highlightable = match &targets {
-            Some(sketch) => self.trimming.steppable(sketch),
+            Some(sketch) if trims => self.trimming.steppable(sketch),
+            Some(sketch) => self.modifying.steppable(sketch),
             None if !self.scenes.has_pickables() => Err(NOTHING_TO_HIGHLIGHT),
             None => Ok(()),
         };
@@ -1039,7 +1089,8 @@ impl ViewportState {
         for (command, step) in steps {
             if commands.invoke(command, &highlightable) {
                 match &targets {
-                    Some(sketch) => self.trimming.step(sketch, step),
+                    Some(sketch) if trims => self.trimming.step(sketch, step),
+                    Some(sketch) => self.modifying.step(sketch, step),
                     None => self.step_highlight(step),
                 }
             }
@@ -1068,6 +1119,14 @@ impl ViewportState {
             };
             if commands.invoke(Command::ActivateHighlighted, &activation) {
                 actions.extend(outcome_action(self.trimming.activate(model)));
+            }
+            return;
+        }
+        if self.modifying.steps_targets() {
+            let activation = self.modifying.highlight_needed();
+            if commands.invoke(Command::ActivateHighlighted, &activation) {
+                let outcome = self.modifying.activate(model);
+                self.modify(editing, outcome, actions);
             }
             return;
         }
@@ -1171,6 +1230,10 @@ impl ViewportState {
             self.type_move(ui, rect, model, actions);
             return;
         }
+        if self.modifying.value_field().is_some() {
+            self.type_value(ui, rect, model, editing, keys_free, actions);
+            return;
+        }
         let drawing_sketch = editing
             .active()
             .filter(|active| active.tool.draws())
@@ -1185,10 +1248,13 @@ impl ViewportState {
         }
         let hint = format!("in {}   {TYPED_POINT_HINT}", model.length_unit().symbol());
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
-        let Some(typed) = self
-            .typed_point
-            .show(ui.ctx(), anchor, typed_point::FIELD_LABEL, &hint)
-        else {
+        let Some(typed) = self.typed_point.show(
+            ui.ctx(),
+            anchor,
+            typed_point::FIELD_LABEL,
+            &hint,
+            typed_point::POINT_PLACEHOLDER,
+        ) else {
             return;
         };
         let from = typed_point::From {
@@ -1212,12 +1278,71 @@ impl ViewportState {
         }
     }
 
+    fn type_value(
+        &mut self,
+        ui: &egui::Ui,
+        rect: Rect,
+        model: &Model,
+        editing: &SketchEditing,
+        keys_free: bool,
+        actions: &mut Vec<Action>,
+    ) {
+        let Some(field) = self.modifying.value_field() else {
+            return;
+        };
+        if keys_free {
+            self.typed_point.open_from_typing(ui.ctx());
+        }
+        let shown = self
+            .typed_point
+            .text()
+            .and_then(|text| Value::typed(model, text).ok())
+            .map(|value| value.millimetres);
+        self.modifying.show_typed(shown);
+        let hint = format!(
+            "in {}   Enter: {}   Esc: cancel",
+            model.length_unit().symbol(),
+            field.action
+        );
+        let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
+        let Some(typed) =
+            self.typed_point
+                .show(ui.ctx(), anchor, field.label, &hint, field.placeholder)
+        else {
+            return;
+        };
+        self.modifying.show_typed(None);
+        let entered = Value::typed(model, &typed.text)
+            .and_then(|value| self.modifying.enter_value(model, value));
+        match entered {
+            Ok(outcome) => self.modify(editing, outcome, actions),
+            Err(error) => self.typed_point.open_with(typed.text, error),
+        }
+    }
+
+    fn modify(&mut self, editing: &SketchEditing, outcome: Outcome, actions: &mut Vec<Action>) {
+        match outcome {
+            Outcome::Nothing => {}
+            Outcome::Apply(transaction) => actions.push(Action::Apply(transaction)),
+            Outcome::Select(entities) => {
+                if let Some(feature) = editing.feature() {
+                    self.add_to_selection(feature, entities, false);
+                }
+            }
+            Outcome::Refused(reason) => actions.push(Action::Inform(Notice::info(reason))),
+        }
+    }
+
     fn type_move(&mut self, ui: &egui::Ui, rect: Rect, model: &Model, actions: &mut Vec<Action>) {
         let hint = format!("in {}   {MOVE_HINT}", model.length_unit().symbol());
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
-        let typed = self
-            .typed_point
-            .show(ui.ctx(), anchor, typed_point::MOVE_LABEL, &hint);
+        let typed = self.typed_point.show(
+            ui.ctx(),
+            anchor,
+            typed_point::MOVE_LABEL,
+            &hint,
+            typed_point::POINT_PLACEHOLDER,
+        );
         let Some(moving) = self.moving.take() else {
             return;
         };
@@ -1260,6 +1385,12 @@ impl ViewportState {
         if finish {
             if self.trimming.is_active() {
                 actions.extend(outcome_action(self.trimming.activate(model)));
+            } else if self.modifying.is_active() {
+                let outcome = match edited_sketch(model, editing) {
+                    Some(sketch) => self.modifying.finish(model, &sketch),
+                    None => Outcome::Nothing,
+                };
+                self.modify(editing, outcome, actions);
             } else if let Some(transaction) = self.drawing.finish(model) {
                 actions.push(Action::Apply(transaction));
             } else if editing.feature().is_none()
@@ -1279,7 +1410,7 @@ impl ViewportState {
             match primary {
                 PrimaryDrag::Grab(_) => actions.push(Action::Drag(DragCommand::Cancel)),
                 PrimaryDrag::Trim { .. } => self.trimming.cancel_path(),
-                PrimaryDrag::Box { .. } => {}
+                PrimaryDrag::Box { .. } | PrimaryDrag::Pull { .. } => {}
             }
         } else if editing.is_choosing_plane() {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
@@ -1289,6 +1420,8 @@ impl ViewportState {
             self.keyboard_highlight = None;
         } else if self.trimming.has_highlight() {
             self.trimming.clear_highlight();
+        } else if self.modifying.can_back_out() {
+            self.modifying.back_out();
         } else if let Some(active) = active
             && active.tool != Tool::Select
         {
@@ -1327,7 +1460,9 @@ impl ViewportState {
             rect,
             screen: &screen,
             feature,
-            interactive: !self.drawing.is_active() && !self.trimming.is_active(),
+            interactive: !self.drawing.is_active()
+                && !self.trimming.is_active()
+                && !self.modifying.is_active(),
         };
         self.annotations
             .show(ui, model, &surface, &mut self.selection, actions);
@@ -1386,6 +1521,9 @@ impl ViewportState {
         let hovered = self.annotations.hovered().or(self.highlighted());
         let description = if self.trimming.is_active() {
             edited_sketch(model, editing).and_then(|sketch| self.trimming.label(&sketch))
+        } else if self.modifying.is_active() {
+            edited_sketch(model, editing)
+                .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
         } else {
             hovered
                 .filter(|_| !self.drawing.is_active())
@@ -1433,6 +1571,14 @@ impl ViewportState {
             Some((prompt.to_owned(), CHOOSE_REGIONS_HINT.to_owned()))
         } else if let Some(prompt) = self.trimming.prompt() {
             Some((prompt.to_owned(), key_hints.targets.clone()))
+        } else if let Some(prompt) = self.modifying.prompt() {
+            (!self.typed_point.is_open()).then(|| {
+                let keys = match prompt.hint {
+                    Hint::Targets => key_hints.targets.clone(),
+                    Hint::Keys(keys) => keys.to_owned(),
+                };
+                (prompt.text.to_owned(), keys)
+            })
         } else {
             self.drawing
                 .prompt()

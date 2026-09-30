@@ -517,6 +517,9 @@ impl Command {
                 Tool::Spline => "sketch.spline",
                 Tool::Trim => "sketch.trim",
                 Tool::Extend => "sketch.extend",
+                Tool::Offset => "sketch.offset",
+                Tool::Mirror => "sketch.mirror",
+                Tool::Fillet => "sketch.fillet",
             },
             Self::ShapeMode(mode) => mode.id(),
             Self::Constraint(tool) => match tool {
@@ -643,6 +646,9 @@ impl Command {
             Self::SketchTool(Tool::Select) => "Select tool",
             Self::SketchTool(Tool::Trim) => "Trim sketch curves",
             Self::SketchTool(Tool::Extend) => "Extend a line or arc",
+            Self::SketchTool(Tool::Offset) => "Offset sketch curves",
+            Self::SketchTool(Tool::Mirror) => "Mirror sketch geometry",
+            Self::SketchTool(Tool::Fillet) => "Fillet a sketch corner",
             Self::SketchTool(tool) => return format!("Draw {}", tool.label().to_lowercase()),
             Self::ShapeMode(mode) => return mode.title(),
             Self::Constraint(tool) => return tool.label().to_owned(),
@@ -937,6 +943,9 @@ fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
         Tool::Spline => plain(Key::S),
         Tool::Trim => plain(Key::K),
         Tool::Extend => plain(Key::J),
+        Tool::Offset => plain(Key::W),
+        Tool::Mirror => plain(Key::Y),
+        Tool::Fillet => plain(Key::B),
     }
 }
 
