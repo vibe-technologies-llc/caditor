@@ -272,7 +272,7 @@ pub struct GrowableBuffer {
 
 impl GrowableBuffer {
     pub const INITIAL_SIZE: u64 = 4096;
-    pub const SHRINK_AFTER_UPLOADS: u32 = 300;
+    pub const SHRINK_AFTER_UPLOADS: u32 = 8;
 
     pub fn new(device: &wgpu::Device, label: &'static str, usage: wgpu::BufferUsages) -> Self {
         let usage = usage | wgpu::BufferUsages::COPY_DST;

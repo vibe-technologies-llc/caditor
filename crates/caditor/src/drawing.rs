@@ -2,7 +2,7 @@ use std::f64::consts::{PI, TAU};
 
 use caditor_document::{FeatureId, Transaction, TransactionBuilder};
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, EntityId, Sketch};
+use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, EntityId, Faceting, Sketch};
 
 use crate::{
     editing::{self, ActiveSketch, Tool},
@@ -20,7 +20,6 @@ const NEARBY_LINES: usize = 6;
 const HELD_TOLERANCE: f64 = 1e-9;
 const ALIGNED_CROSSING_TOLERANCE: f64 = 12.0;
 const TYPED_TOLERANCE: f64 = 1e-6;
-const PREVIEW_SEGMENT_ANGLE: f64 = PI / 60.0;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
 const CANCEL_RECTANGLE: &str = "Esc: cancel the rectangle";
 const CANCEL_CIRCLE: &str = "Esc: cancel the circle";
@@ -967,7 +966,7 @@ impl Drawing {
         Some(draft.finish())
     }
 
-    pub fn preview(&self) -> Preview {
+    pub fn preview(&self, faceting: Faceting) -> Preview {
         let Some((_, shape)) = self.context else {
             return Preview::default();
         };
@@ -1014,15 +1013,14 @@ impl Drawing {
                         None => vec![first, second],
                     });
             }
-            (Shape::Circle(CircleMode::Center), &[center]) => preview.curves.push(
-                ArcGeometry::full_circle(center, center.distance(cursor))
-                    .polyline(PREVIEW_SEGMENT_ANGLE),
-            ),
+            (Shape::Circle(CircleMode::Center), &[center]) => preview
+                .curves
+                .push(ArcGeometry::full_circle(center, center.distance(cursor)).faceted(faceting)),
             (Shape::Circle(CircleMode::TwoPoints), &[first]) => {
                 preview
                     .curves
                     .push(match shapes::circle_on_diameter(first, cursor) {
-                        Some(circle) => circle.polyline(PREVIEW_SEGMENT_ANGLE),
+                        Some(circle) => circle.faceted(faceting),
                         None => vec![first, cursor],
                     });
             }
@@ -1030,7 +1028,7 @@ impl Drawing {
                 preview
                     .curves
                     .push(match shapes::circle_through_three(first, second, cursor) {
-                        Some(circle) => circle.polyline(PREVIEW_SEGMENT_ANGLE),
+                        Some(circle) => circle.faceted(faceting),
                         None => vec![first, second],
                     });
             }
@@ -1039,7 +1037,9 @@ impl Drawing {
             }
             (Shape::Arc | Shape::Slot(SlotMode::Arc), &[center, start]) => {
                 if let Some(end) = arc_end(center, start, cursor) {
-                    preview.curves.push(self.arc_polyline(center, start, end));
+                    preview
+                        .curves
+                        .push(self.arc_polyline(center, start, end, faceting));
                     preview.points = vec![center, start, end];
                 }
             }
@@ -1048,8 +1048,8 @@ impl Drawing {
                 preview
                     .curves
                     .push(match ArcSlot::new(center, [first, last], cursor) {
-                        Some(slot) => slot.outline(PREVIEW_SEGMENT_ANGLE),
-                        None => self.arc_polyline(center, start, end),
+                        Some(slot) => slot.outline(faceting),
+                        None => self.arc_polyline(center, start, end, faceting),
                     });
                 preview.points = vec![center, start, end];
             }
@@ -1071,7 +1071,7 @@ impl Drawing {
                 preview
                     .curves
                     .push(match shapes::through_three(start, end, cursor) {
-                        Some(circular) => circular.arc(start, end).polyline(PREVIEW_SEGMENT_ANGLE),
+                        Some(circular) => circular.arc(start, end).faceted(faceting),
                         None => vec![start, end],
                     });
             }
@@ -1080,13 +1080,13 @@ impl Drawing {
                     .tangent
                     .and_then(|tangent| shapes::tangent_from(start, tangent.direction, cursor));
                 preview.curves.push(match circular {
-                    Some(circular) => circular.arc(start, cursor).polyline(PREVIEW_SEGMENT_ANGLE),
+                    Some(circular) => circular.arc(start, cursor).faceted(faceting),
                     None => vec![start, cursor],
                 });
             }
             (Shape::Slot(SlotMode::Ends), &[first, second]) => {
                 preview.curves.push(match Slot::new(first, second, cursor) {
-                    Some(slot) => slot.outline(PREVIEW_SEGMENT_ANGLE),
+                    Some(slot) => slot.outline(faceting),
                     None => vec![first, second],
                 });
                 preview.points = vec![first, second];
@@ -1094,7 +1094,7 @@ impl Drawing {
             (Shape::Slot(SlotMode::Center), &[center, end]) => {
                 let mirrored = shapes::mirrored(end, center);
                 preview.curves.push(match Slot::new(mirrored, end, cursor) {
-                    Some(slot) => slot.outline(PREVIEW_SEGMENT_ANGLE),
+                    Some(slot) => slot.outline(faceting),
                     None => vec![mirrored, end],
                 });
                 preview.points = vec![mirrored, center, end];
@@ -1125,7 +1125,7 @@ impl Drawing {
             }
             (Shape::Spline, _) if !placed.is_empty() => {
                 if let Some(spline) = BSpline::clamped(preview.points.clone()) {
-                    preview.curves.push(spline.polyline(PREVIEW_SEGMENT_ANGLE));
+                    preview.curves.push(spline.faceted(faceting));
                 }
             }
             _ => {}
@@ -1133,9 +1133,15 @@ impl Drawing {
         preview
     }
 
-    fn arc_polyline(&self, center: Point2, start: Point2, end: Point2) -> Vec<Point2> {
+    fn arc_polyline(
+        &self,
+        center: Point2,
+        start: Point2,
+        end: Point2,
+        faceting: Faceting,
+    ) -> Vec<Point2> {
         let (from, to) = arc_ends(self.counter_clockwise(), start, end);
-        ArcGeometry::from_points(center, from, to).polyline(PREVIEW_SEGMENT_ANGLE)
+        ArcGeometry::from_points(center, from, to).faceted(faceting)
     }
 
     pub fn snap_label(&self, sketch: &Sketch) -> Option<String> {
@@ -2169,7 +2175,7 @@ mod tests {
 
         drawing.hover(&sketch, &screen, Some(pointer(Point2::new(10.3, 10.2))));
         assert_eq!(drawing.snap_label(&sketch).as_deref(), Some("Stop here"));
-        let preview = drawing.preview();
+        let preview = drawing.preview(Faceting::within(0.01));
         assert_eq!(preview.curves.len(), 1);
         assert_eq!(preview.snap, Some(Point2::new(10.0, 10.0)));
     }
@@ -2279,7 +2285,10 @@ mod tests {
             Some(format!("On Line {slanted}, vertical"))
         );
         assert_eq!(drawing.snap_entities(), vec![slanted]);
-        assert_eq!(drawing.preview().snap, Some(upright.position));
+        assert_eq!(
+            drawing.preview(Faceting::within(0.01)).snap,
+            Some(upright.position)
+        );
     }
 
     #[test]

@@ -350,11 +350,20 @@ pub struct BodyBefore {
 pub struct BodyMeshes {
     bodies: BTreeMap<FeatureId, Arc<BodyMesh>>,
     open: Option<BodyBefore>,
+    generation: u64,
 }
 
 impl BodyMeshes {
     pub fn body_before(&self) -> Option<&BodyBefore> {
         self.open.as_ref()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    fn changed(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
     }
 
     pub fn update_open(
@@ -364,6 +373,7 @@ impl BodyMeshes {
         meshing: &BodyMeshing,
         feature: Option<FeatureId>,
     ) {
+        let shown_before = self.open.clone();
         let previous = self
             .open
             .take()
@@ -392,28 +402,49 @@ impl BodyMeshes {
                 choice,
             })
         });
+        let same = match (&shown_before, &self.open) {
+            (Some(shown), Some(open)) => {
+                shown.feature == open.feature
+                    && shown.body == open.body
+                    && Arc::ptr_eq(&shown.before, &open.before)
+                    && shown.choice == open.choice
+            }
+            (None, None) => true,
+            (Some(_), None) | (None, Some(_)) => false,
+        };
+        if !same {
+            self.changed();
+        }
     }
 
     pub fn update(&mut self, evaluation: &Evaluation, meshing: &BodyMeshing) {
-        let mut next = BTreeMap::new();
+        let mut previous = std::mem::take(&mut self.bodies);
+        let mut changed = false;
         for (body, _) in evaluation.bodies() {
             let Some(result) = evaluation.body_result(body) else {
                 continue;
             };
-            let previous = self.bodies.remove(&body);
-            let current = match previous {
-                Some(cached) if Arc::ptr_eq(&cached.source, result) => Some(cached),
-                previous => match meshing.lookup(result) {
+            let held = previous.remove(&body);
+            let current = match &held {
+                Some(cached) if Arc::ptr_eq(&cached.source, result) => held.clone(),
+                _ => match meshing.lookup(result) {
                     Converted::Ready(mesh) => Some(Arc::clone(mesh)),
-                    Converted::Pending => previous,
+                    Converted::Pending => held.clone(),
                     Converted::Missing => None,
                 },
             };
+            changed |= match (&held, &current) {
+                (Some(held), Some(current)) => !Arc::ptr_eq(held, current),
+                (None, None) => false,
+                (Some(_), None) | (None, Some(_)) => true,
+            };
             if let Some(current) = current {
-                next.insert(body, current);
+                self.bodies.insert(body, current);
             }
         }
-        self.bodies = next;
+        if changed || !previous.is_empty() {
+            self.changed();
+        }
     }
 
     pub fn get(&self, body: FeatureId) -> Option<&BodyMesh> {
@@ -715,6 +746,31 @@ mod tests {
             };
             assert_eq!(find_face(shown, missing), None);
         }
+    }
+
+    #[test]
+    fn the_generation_moves_only_when_a_shown_mesh_arrives_or_goes() {
+        let document = Sample::Spool.document().unwrap();
+        let evaluation = evaluate(&mut Recompute::default(), &document);
+        let (_, source) = only_body(&evaluation);
+        let mut meshing = BodyMeshing::default();
+        let mut meshes = BodyMeshes::default();
+
+        meshes.update(&evaluation, &meshing);
+        let pending = meshes.generation();
+        meshing.request(&source, no_wake);
+        wait_for(&mut meshing);
+        meshes.update(&evaluation, &meshing);
+        let arrived = meshes.generation();
+        meshes.update(&evaluation, &meshing);
+        let again = meshes.generation();
+        meshes.update(&Evaluation::default(), &meshing);
+        let gone = meshes.generation();
+
+        assert_eq!(pending, BodyMeshes::default().generation());
+        assert_ne!(arrived, pending);
+        assert_eq!(again, arrived);
+        assert_ne!(gone, again);
     }
 
     #[test]

@@ -1,4 +1,7 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use caditor_document::{
     DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
@@ -8,11 +11,12 @@ use caditor_document::{
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray};
 use caditor_kernel::RegionKey;
 use caditor_render::{
-    Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId, PickResult,
-    Scene, Stroke,
+    Batch, Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId,
+    PickResult, Scene, Stroke,
 };
 use caditor_sketch::{
-    Constraint, ConstraintId, Entity, EntityId, EntityState, Reference, Sketch, SketchSolution,
+    Constraint, ConstraintId, Entity, EntityId, EntityState, Faceting, Reference, Sketch,
+    SketchSolution,
 };
 
 use crate::{
@@ -27,7 +31,9 @@ use crate::{
 
 const MIN_REFERENCE_SIZE: f64 = 20.0;
 const EMPTY_SKETCH_HALF_SIZE: f64 = 50.0;
-const CURVE_SEGMENT_ANGLE: f64 = std::f64::consts::PI / 60.0;
+const BOUNDS_SEGMENT_ANGLE: f64 = std::f64::consts::PI / 60.0;
+const SKETCH_SEGMENT_BUDGET: usize = 1 << 19;
+const MAX_COARSENINGS: u32 = 64;
 const REFERENCE_MARGIN: f64 = 1.2;
 
 const GRID: Color = Color::from_rgba8(210, 215, 225, 90);
@@ -231,9 +237,11 @@ pub struct EditedSketch {
     pub bounds: Aabb,
 }
 
+#[derive(Debug, Clone)]
 pub struct BuiltScene {
     pub scene: Scene,
-    pub picks: PickTable,
+    pub picks: Arc<PickTable>,
+    pub generation: u64,
     pub everything: Aabb,
     pub model: Option<Aabb>,
     pub edited: Option<EditedSketch>,
@@ -268,7 +276,95 @@ impl BuiltScene {
     }
 }
 
-pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context) -> BuiltScene {
+#[derive(Debug, Clone, PartialEq)]
+enum Outline {
+    Point(Point3),
+    Curve(Vec<Segment>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Segment {
+    start: Point3,
+    end: Point3,
+    stroke: Stroke,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct SketchShape {
+    entity: EntityId,
+    palette: Palette,
+    outline: Outline,
+}
+
+#[derive(Debug, Clone)]
+pub struct SketchShapes {
+    faceting: Faceting,
+    sketches: BTreeMap<FeatureId, Option<Vec<SketchShape>>>,
+}
+
+impl SketchShapes {
+    pub fn new(faceting: Faceting) -> Self {
+        Self {
+            faceting,
+            sketches: BTreeMap::new(),
+        }
+    }
+
+    pub fn faceting(&self) -> Faceting {
+        self.faceting
+    }
+
+    fn of(&mut self, sources: &Sources<'_>, feature: &Feature) -> Option<&[SketchShape]> {
+        let faceting = self.faceting;
+        self.sketches
+            .entry(feature.id())
+            .or_insert_with(|| {
+                let displayed = sources.sketches.get(sources.evaluation, feature)?;
+                let states = ConstraintStates::of(sources.evaluation, feature)?;
+                Some(sketch_shapes(&displayed, &states, faceting))
+            })
+            .as_deref()
+    }
+}
+
+fn sketch_shapes(
+    sketch: &Sketch,
+    states: &ConstraintStates<'_>,
+    faceting: Faceting,
+) -> Vec<SketchShape> {
+    let plane = sketch.plane();
+    sketch
+        .entities()
+        .filter_map(|(entity, kind)| {
+            let outline = match kind {
+                Entity::Point(position) => Outline::Point(plane.to_world(*position)),
+                Entity::Line { .. }
+                | Entity::Circle { .. }
+                | Entity::Arc { .. }
+                | Entity::Spline { .. } => Outline::Curve(
+                    curve_segments(
+                        plane,
+                        &sketch.faceted(entity, faceting)?,
+                        sketch.is_construction(entity),
+                    )
+                    .collect(),
+                ),
+            };
+            Some(SketchShape {
+                entity,
+                palette: states.palette(entity),
+                outline,
+            })
+        })
+        .collect()
+}
+
+pub fn build(
+    sources: &Sources<'_>,
+    highlight: &Highlight<'_>,
+    context: Context,
+    shapes: &mut SketchShapes,
+) -> BuiltScene {
     let Sources {
         document,
         evaluation,
@@ -285,13 +381,8 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
         .as_ref()
         .map_or(Plane::XY, |(_, displayed)| displayed.plane());
     let mut builder = Builder {
-        scene: Scene {
-            grid: Some(Grid {
-                plane: grid_plane,
-                color: GRID,
-            }),
-            ..Scene::default()
-        },
+        scene: Batch::default(),
+        meshes: Vec::new(),
         picks: PickTable::default(),
         highlight,
     };
@@ -327,20 +418,10 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
             }
         }
     }
-    for feature in document.active_features() {
-        let presence = match editing {
-            Some(edited) if edited == feature.id() => Presence::Edited,
-            _ if feature.hidden => continue,
-            None => Presence::Normal,
-            Some(_) => Presence::Background,
-        };
-        let (Some(displayed), Some(states)) = (
-            sketches.get(evaluation, feature),
-            ConstraintStates::of(evaluation, feature),
-        ) else {
-            continue;
-        };
-        builder.sketch(feature.id(), &displayed, &states, presence);
+    for (feature, presence) in drawn_sketches(document, editing) {
+        if let Some(shapes) = shapes.of(sources, feature) {
+            builder.sketch(feature.id(), shapes, presence);
+        }
     }
     let open = bodies
         .body_before()
@@ -371,8 +452,16 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
     };
 
     BuiltScene {
-        scene: builder.scene,
-        picks: builder.picks,
+        scene: Scene {
+            meshes: builder.meshes,
+            batches: vec![Arc::new(builder.scene)],
+            grid: Some(Grid {
+                plane: grid_plane,
+                color: GRID,
+            }),
+        },
+        picks: Arc::new(builder.picks),
+        generation: 0,
         everything,
         model,
         edited: edited.map(|(feature, displayed)| EditedSketch {
@@ -384,6 +473,61 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
         }),
         reference_size,
     }
+}
+
+fn drawn_sketches(
+    document: &Document,
+    editing: Option<FeatureId>,
+) -> impl Iterator<Item = (&Feature, Presence)> {
+    document.active_features().filter_map(move |feature| {
+        let presence = match editing {
+            Some(edited) if edited == feature.id() => Presence::Edited,
+            _ if feature.hidden => return None,
+            None => Presence::Normal,
+            Some(_) => Presence::Background,
+        };
+        feature
+            .kind
+            .sketch()
+            .is_some()
+            .then_some((feature, presence))
+    })
+}
+
+pub fn drawn_faceting(sources: &Sources<'_>, context: Context, wanted: Faceting) -> Faceting {
+    let mut faceting = wanted;
+    for _ in 0..MAX_COARSENINGS {
+        if sketch_segments_within(sources, context, faceting, SKETCH_SEGMENT_BUDGET) {
+            return faceting;
+        }
+        faceting = Faceting::within(faceting.chord() * 2.0);
+    }
+    faceting
+}
+
+fn sketch_segments_within(
+    sources: &Sources<'_>,
+    context: Context,
+    faceting: Faceting,
+    budget: usize,
+) -> bool {
+    let Sources {
+        document,
+        evaluation,
+        sketches,
+        ..
+    } = *sources;
+    drawn_sketches(document, context.sketch)
+        .filter_map(|(feature, _)| sketches.get(evaluation, feature))
+        .try_fold(0usize, |total, sketch| {
+            sketch
+                .entities()
+                .filter_map(|(entity, _)| sketch.facet_segments(entity, faceting))
+                .try_fold(total, |sum, segments| {
+                    sum.checked_add(segments).filter(|sum| *sum <= budget)
+                })
+        })
+        .is_some()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -478,7 +622,8 @@ fn entities_of(sketch: &Sketch, constraints: &[ConstraintId]) -> BTreeSet<Entity
 }
 
 struct Builder<'a> {
-    scene: Scene,
+    scene: Batch,
+    meshes: Vec<MeshInstance>,
     picks: PickTable,
     highlight: &'a Highlight<'a>,
 }
@@ -588,8 +733,8 @@ impl Builder<'_> {
                 },
             })
             .collect();
-        self.scene.meshes.push(MeshInstance {
-            mesh: std::sync::Arc::clone(&mesh.mesh),
+        self.meshes.push(MeshInstance {
+            mesh: Arc::clone(&mesh.mesh),
             faces,
         });
         for edge in &mesh.edges {
@@ -673,8 +818,8 @@ impl Builder<'_> {
                 Some(_) | None => FaceStyle { color, pick: None },
             })
             .collect();
-        self.scene.meshes.push(MeshInstance {
-            mesh: std::sync::Arc::clone(&open.before.mesh),
+        self.meshes.push(MeshInstance {
+            mesh: Arc::clone(&open.before.mesh),
             faces,
         });
         for edge in &open.before.edges {
@@ -904,21 +1049,17 @@ impl Builder<'_> {
         });
     }
 
-    fn sketch(
-        &mut self,
-        feature: FeatureId,
-        sketch: &Sketch,
-        states: &ConstraintStates<'_>,
-        presence: Presence,
-    ) {
-        let plane = sketch.plane();
+    fn sketch(&mut self, feature: FeatureId, shapes: &[SketchShape], presence: Presence) {
         let layer = presence.layer();
-        for (entity, kind) in sketch.entities() {
-            let pickable = Pickable::SketchEntity { feature, entity };
+        for shape in shapes {
+            let pickable = Pickable::SketchEntity {
+                feature,
+                entity: shape.entity,
+            };
             let (palette, emphasis, pickable) = match presence {
                 Presence::Background => (BACKGROUND, 0.0, None),
                 Presence::Normal | Presence::Edited => (
-                    states.palette(entity),
+                    shape.palette,
                     self.highlight.emphasis(pickable),
                     Some(pickable),
                 ),
@@ -927,11 +1068,11 @@ impl Builder<'_> {
                 Some(pickable) => self.highlight.color(pickable, base),
                 None => base,
             };
-            match kind {
-                Entity::Point(position) => {
+            match &shape.outline {
+                Outline::Point(position) => {
                     let color = color(palette.point);
                     self.scene.markers.push(Marker {
-                        position: plane.to_world(*position),
+                        position: *position,
                         color,
                         diameter: POINT_DIAMETER + emphasis * HIGHLIGHT_EXTRA_DIAMETER,
                         layer,
@@ -940,25 +1081,20 @@ impl Builder<'_> {
                         }),
                     });
                 }
-                Entity::Line { .. }
-                | Entity::Circle { .. }
-                | Entity::Arc { .. }
-                | Entity::Spline { .. } => {
-                    let Some(points) = sketch.polyline(entity, CURVE_SEGMENT_ANGLE) else {
-                        continue;
-                    };
+                Outline::Curve(segments) => {
                     let color = color(palette.curve);
                     let width = CURVE_WIDTH + emphasis * HIGHLIGHT_EXTRA_WIDTH;
                     let pick = pickable
                         .and_then(|pickable| self.picks.register(pickable, PickPriority::Curve));
-                    let style = CurveStyle {
+                    self.scene.lines.extend(segments.iter().map(|segment| Line {
+                        start: segment.start,
+                        end: segment.end,
                         color,
                         width,
                         layer,
                         pick,
-                        dashed: sketch.is_construction(entity),
-                    };
-                    self.scene.lines.extend(curve_lines(plane, &points, style));
+                        stroke: segment.stroke,
+                    }));
                 }
             }
         }
@@ -973,11 +1109,11 @@ struct CurveStyle {
     dashed: bool,
 }
 
-fn curve_lines(plane: Plane, points: &[Point2], style: CurveStyle) -> impl Iterator<Item = Line> {
+fn curve_segments(plane: Plane, points: &[Point2], dashed: bool) -> impl Iterator<Item = Segment> {
     let mut along = 0.0;
     points.windows(2).filter_map(move |pair| match *pair {
         [start, end] => {
-            let stroke = if style.dashed {
+            let stroke = if dashed {
                 Stroke::Dashed {
                     along: along as f32,
                 }
@@ -985,13 +1121,9 @@ fn curve_lines(plane: Plane, points: &[Point2], style: CurveStyle) -> impl Itera
                 Stroke::Solid
             };
             along += start.distance(end);
-            Some(Line {
+            Some(Segment {
                 start: plane.to_world(start),
                 end: plane.to_world(end),
-                color: style.color,
-                width: style.width,
-                layer: style.layer,
-                pick: style.pick,
                 stroke,
             })
         }
@@ -999,7 +1131,19 @@ fn curve_lines(plane: Plane, points: &[Point2], style: CurveStyle) -> impl Itera
     })
 }
 
-pub fn add_preview(scene: &mut Scene, plane: Plane, preview: &Preview) {
+fn curve_lines(plane: Plane, points: &[Point2], style: CurveStyle) -> impl Iterator<Item = Line> {
+    curve_segments(plane, points, style.dashed).map(move |segment| Line {
+        start: segment.start,
+        end: segment.end,
+        color: style.color,
+        width: style.width,
+        layer: style.layer,
+        pick: style.pick,
+        stroke: segment.stroke,
+    })
+}
+
+pub fn add_preview(scene: &mut Batch, plane: Plane, preview: &Preview) {
     for curve in &preview.curves {
         let style = CurveStyle {
             color: PREVIEW_CURVE,
@@ -1037,7 +1181,7 @@ pub fn add_preview(scene: &mut Scene, plane: Plane, preview: &Preview) {
     scene.markers.extend(snap.into_iter().chain(points));
 }
 
-pub fn add_measurement(scene: &mut Scene, from: Point3, to: Point3) {
+pub fn add_measurement(scene: &mut Batch, from: Point3, to: Point3) {
     scene.lines.push(Line {
         start: from,
         end: to,
@@ -1102,7 +1246,7 @@ fn sketch_entity_points(sketch: &Sketch, entity: EntityId, reference_size: f64) 
     match sketch.entity(entity) {
         Some(Entity::Point(position)) => vec![plane.to_world(*position)],
         Some(_) => sketch
-            .polyline(entity, CURVE_SEGMENT_ANGLE)
+            .polyline(entity, BOUNDS_SEGMENT_ANGLE)
             .unwrap_or_default()
             .into_iter()
             .map(|point| plane.to_world(point))
@@ -1283,6 +1427,8 @@ mod tests {
         (document, feature, line)
     }
 
+    const FACETING: f64 = 0.01;
+
     fn build_for(
         document: &Document,
         evaluation: &Evaluation,
@@ -1301,6 +1447,7 @@ mod tests {
                 sketch: editing,
                 ..Context::default()
             },
+            &mut SketchShapes::new(Faceting::within(FACETING)),
         )
     }
 
@@ -1360,8 +1507,7 @@ mod tests {
             .and_then(PickId::from_index);
         let drawn = built
             .scene
-            .lines
-            .iter()
+            .lines()
             .find(|drawn| drawn.pick == line_pick)
             .unwrap();
         assert_eq!(drawn.end, Point3::new(40.0, 0.0, 0.0));
@@ -1403,8 +1549,7 @@ mod tests {
             .and_then(PickId::from_index);
         built
             .scene
-            .lines
-            .iter()
+            .lines()
             .find(|line| line.pick == pick)
             .unwrap()
             .color
@@ -1444,12 +1589,11 @@ mod tests {
             pickable,
             Pickable::SketchEntity { feature, .. } if *feature == side
         )));
-        assert_eq!(built.scene.fills.len(), 0);
+        assert_eq!(built.scene.fills().count(), 0);
         assert_eq!(built.scene.grid.as_ref().unwrap().plane, Plane::XZ);
         let background = built
             .scene
-            .lines
-            .iter()
+            .lines()
             .find(|drawn| drawn.end == Point3::new(40.0, 0.0, 0.0))
             .unwrap();
         assert_eq!(background.pick, None);
@@ -1494,32 +1638,20 @@ mod tests {
             hovered: &hovered,
         };
 
-        let mut editing = build_for(&document, &Evaluation::default(), &highlight, Some(side));
+        let editing = build_for(&document, &Evaluation::default(), &highlight, Some(side));
         let viewing = build_for(&document, &Evaluation::default(), &highlight, None);
 
         let in_front = |layer: Layer| layer == Layer::Front;
-        assert!(
-            editing
-                .scene
-                .lines
-                .iter()
-                .any(|drawn| !in_front(drawn.layer))
-        );
-        assert!(
-            editing
-                .scene
-                .markers
-                .iter()
-                .any(|drawn| !in_front(drawn.layer))
-        );
-        for drawn in &editing.scene.lines {
+        assert!(editing.scene.lines().any(|drawn| !in_front(drawn.layer)));
+        assert!(editing.scene.markers().any(|drawn| !in_front(drawn.layer)));
+        for drawn in editing.scene.lines() {
             assert_eq!(
                 in_front(drawn.layer),
                 is_part_of(&editing, drawn.pick, side),
                 "{drawn:?}"
             );
         }
-        for drawn in &editing.scene.markers {
+        for drawn in editing.scene.markers() {
             assert_eq!(
                 in_front(drawn.layer),
                 is_part_of(&editing, drawn.pick, side),
@@ -1529,8 +1661,7 @@ mod tests {
         let origin = editing.picks.id_of(hovered[0]);
         let highlighted = editing
             .scene
-            .markers
-            .iter()
+            .markers()
             .find(|drawn| drawn.pick == origin)
             .unwrap();
         assert_eq!(highlighted.color, HOVERED);
@@ -1539,38 +1670,14 @@ mod tests {
             feature: base,
             entity: line,
         });
-        assert!(
-            viewing
-                .scene
-                .lines
-                .iter()
-                .any(|drawn| drawn.pick == base_line)
-        );
-        assert!(
-            viewing
-                .scene
-                .lines
-                .iter()
-                .all(|drawn| !in_front(drawn.layer))
-        );
-        assert!(
-            viewing
-                .scene
-                .markers
-                .iter()
-                .all(|drawn| !in_front(drawn.layer))
-        );
-        assert!(
-            viewing
-                .scene
-                .fills
-                .iter()
-                .all(|drawn| !in_front(drawn.layer))
-        );
+        assert!(viewing.scene.lines().any(|drawn| drawn.pick == base_line));
+        assert!(viewing.scene.lines().all(|drawn| !in_front(drawn.layer)));
+        assert!(viewing.scene.markers().all(|drawn| !in_front(drawn.layer)));
+        assert!(viewing.scene.fills().all(|drawn| !in_front(drawn.layer)));
 
-        let drawn_before = (editing.scene.lines.len(), editing.scene.markers.len());
+        let mut preview = Batch::default();
         add_preview(
-            &mut editing.scene,
+            &mut preview,
             Plane::XZ,
             &Preview {
                 curves: vec![vec![Point2::ZERO, Point2::new(5.0, 5.0)]],
@@ -1580,11 +1687,9 @@ mod tests {
                 construction: false,
             },
         );
-        let preview_lines = editing.scene.lines.get(drawn_before.0..).unwrap();
-        let preview_markers = editing.scene.markers.get(drawn_before.1..).unwrap();
-        assert_eq!((preview_lines.len(), preview_markers.len()), (2, 2));
-        assert!(preview_lines.iter().all(|drawn| in_front(drawn.layer)));
-        assert!(preview_markers.iter().all(|drawn| in_front(drawn.layer)));
+        assert_eq!((preview.lines.len(), preview.markers.len()), (2, 2));
+        assert!(preview.lines.iter().all(|drawn| in_front(drawn.layer)));
+        assert!(preview.markers.iter().all(|drawn| in_front(drawn.layer)));
     }
 
     #[test]
@@ -1754,12 +1859,7 @@ mod tests {
             let (index, (_, priority)) = registered[0];
             assert_eq!(*priority, PickPriority::Curve);
             let pick = PickId::from_index(index);
-            let segments = built
-                .scene
-                .lines
-                .iter()
-                .filter(|line| line.pick == pick)
-                .count();
+            let segments = built.scene.lines().filter(|line| line.pick == pick).count();
             assert!(segments > 4, "only {segments} segments");
         }
         assert_eq!(built.everything.max().x, 48.0);
@@ -1776,5 +1876,109 @@ mod tests {
             .unwrap();
         assert!((bounds.max().x - 40.0).abs() < 1e-9);
         assert!((bounds.min().y + 30.0).abs() < 1e-9);
+    }
+
+    fn circles(radii: impl IntoIterator<Item = f64>) -> (Document, FeatureId, Vec<EntityId>) {
+        let mut sketch = Sketch::new(Plane::XY);
+        let circles = radii
+            .into_iter()
+            .enumerate()
+            .map(|(index, radius)| sketch.add_circle(Point2::new(index as f64 * 5.0, 0.0), radius))
+            .collect();
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Circles", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        (document, feature, circles)
+    }
+
+    fn segments_of(built: &BuiltScene, pickable: Pickable) -> usize {
+        let pick = built.picks.id_of(pickable);
+        built
+            .scene
+            .lines()
+            .filter(|line| line.pick.is_some() && line.pick == pick)
+            .count()
+    }
+
+    #[test]
+    fn sketch_curves_are_faceted_to_the_chord_tolerance_they_are_given() {
+        let (document, feature, circles) = circles([1.0, 100.0]);
+        let selection = Selection::default();
+        let highlight = Highlight {
+            selection: &selection,
+            hovered: &[],
+        };
+        let sources = Sources {
+            document: &document,
+            evaluation: &Evaluation::default(),
+            bodies: &BodyMeshes::default(),
+            sketches: &DisplayedSketches::default(),
+        };
+        let built_at = |chord: f64| {
+            build(
+                &sources,
+                &highlight,
+                Context::default(),
+                &mut SketchShapes::new(Faceting::within(chord)),
+            )
+        };
+        let [small, large] =
+            [circles[0], circles[1]].map(|entity| Pickable::SketchEntity { feature, entity });
+
+        let coarse = built_at(1.0);
+        let fine = built_at(0.01);
+
+        assert_eq!(segments_of(&coarse, small), 12);
+        assert_eq!(
+            segments_of(&coarse, large),
+            Faceting::within(1.0).arc_segments(100.0, std::f64::consts::TAU)
+        );
+        assert_eq!(
+            segments_of(&fine, large),
+            Faceting::within(0.01).arc_segments(100.0, std::f64::consts::TAU)
+        );
+        assert!(segments_of(&coarse, large) > segments_of(&coarse, small));
+        assert!(segments_of(&fine, small) > segments_of(&coarse, small));
+        assert!(segments_of(&fine, large) > segments_of(&coarse, large) * 9);
+    }
+
+    #[test]
+    fn sketches_needing_more_segments_than_the_budget_are_faceted_more_coarsely() {
+        let (document, _, _) = circles(std::iter::repeat_n(50.0, 700));
+        let (few, _, _) = circles([50.0]);
+        let evaluation = Evaluation::default();
+        let bodies = BodyMeshes::default();
+        let sketches = DisplayedSketches::default();
+        let sources = |document| Sources {
+            document,
+            evaluation: &evaluation,
+            bodies: &bodies,
+            sketches: &sketches,
+        };
+        let wanted = Faceting::within(1e-9);
+
+        let crowded = drawn_faceting(&sources(&document), Context::default(), wanted);
+        let alone = drawn_faceting(&sources(&few), Context::default(), wanted);
+        let selection = Selection::default();
+        let built = build(
+            &sources(&document),
+            &Highlight {
+                selection: &selection,
+                hovered: &[],
+            },
+            Context::default(),
+            &mut SketchShapes::new(crowded),
+        );
+        let drawn = built
+            .scene
+            .lines()
+            .filter(|line| line.pick.is_some())
+            .count();
+
+        assert_eq!(alone, wanted);
+        assert!(crowded.chord() > wanted.chord());
+        assert!(drawn <= SKETCH_SEGMENT_BUDGET, "{drawn}");
+        assert!(drawn > SKETCH_SEGMENT_BUDGET / 4, "{drawn}");
     }
 }

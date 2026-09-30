@@ -243,13 +243,10 @@ impl Harness {
         self.render_image();
         self.model
             .mesh_before(self.workspace.editing.context().solid);
-        let built = self.workspace.viewport.build_scene(
-            self.model.document(),
-            self.model.evaluation(),
-            self.model.display(),
-            &self.workspace.editing,
-        );
-        self.answer_pick(&built);
+        self.workspace
+            .viewport
+            .build_scene(&self.model, &self.workspace.editing);
+        self.answer_pick();
         self.texts.clear();
         self.text_colors.clear();
         for clipped in output.shapes {
@@ -283,21 +280,22 @@ impl Harness {
         self.files.image_rendered(pixels, &mut self.model);
     }
 
-    fn answer_pick(&mut self, built: &scene::BuiltScene) {
+    fn answer_pick(&mut self) {
         if self.picks_held {
             return;
         }
         let Some(cursor) = self
             .workspace
             .viewport
-            .request(built, true)
+            .request(true)
             .and_then(|request| request.pick_at)
         else {
             return;
         };
+        let picks = self.built().picks;
         let hits = self
             .forced_hover
-            .and_then(|(_, pickable)| built.picks.id_of(pickable))
+            .and_then(|(_, pickable)| picks.id_of(pickable))
             .map(|id| caditor_render::PickHit {
                 id,
                 offset_points: 0.0,
@@ -676,12 +674,11 @@ impl Harness {
     }
 
     fn built(&mut self) -> scene::BuiltScene {
-        self.workspace.viewport.build_scene(
-            self.model.document(),
-            self.model.evaluation(),
-            self.model.display(),
-            &self.workspace.editing,
-        )
+        self.workspace
+            .viewport
+            .build_scene(&self.model, &self.workspace.editing)
+            .cloned()
+            .expect("the viewport has a scene")
     }
 
     fn type_into_field(&mut self, id: Id, text: &str) {
@@ -708,9 +705,9 @@ impl Harness {
             .expect("the point is in view");
         self.events.push(Event::PointerMoved(position));
         self.frame();
-        let built = self.built();
+        self.built();
         self.forced_hover = Some((position, pickable));
-        self.workspace.viewport.hover_through_pick(&built, pickable);
+        self.workspace.viewport.hover_through_pick(pickable);
         position
     }
 
@@ -1275,13 +1272,10 @@ fn exporting_an_image_writes_a_png_of_the_view_without_highlights_at_the_chosen_
     let (_, top) = extruded_plate(&mut harness);
     harness.select([top]);
     let view = harness.workspace.viewport.view_pixels().unwrap();
-    let image = harness.workspace.viewport.image(
-        harness.model.document(),
-        harness.model.evaluation(),
-        harness.model.display(),
-        &harness.workspace.editing,
-        view,
-    );
+    let image = harness
+        .workspace
+        .viewport
+        .image(&harness.model, &harness.workspace.editing, view);
     harness.select([]);
     let mut plain = harness.built().scene;
     plain.grid = None;
@@ -3091,8 +3085,7 @@ fn q_switches_the_selected_curves_or_new_drawing_to_construction_geometry() {
         harness
             .built()
             .scene
-            .lines
-            .iter()
+            .lines()
             .filter(|line| matches!(line.stroke, caditor_render::Stroke::Dashed { .. }))
             .count()
     };

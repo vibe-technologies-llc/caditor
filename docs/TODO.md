@@ -70,9 +70,6 @@ within a category run from most to least important.
 
 ## Interface performance
 
-- The whole scene is rebuilt every frame and cloned into `PickKey` for comparison, every line and
-  fill vertex is rewritten, and fills are re-sorted (`app.rs` `build_scene`, `viewport.rs`).
-  Cache geometry per result and key picks on a generation.
 - Snapping projects every point and curve of the sketch on every hover frame (`snap.rs`), about
   1 ms for 20,000 lines in a release build, most of it walking the entities, and a line or slot
   end walks every line again to find the nearest for parallel and perpendicular inference
@@ -80,7 +77,11 @@ within a category run from most to least important.
   sketch plane, unbounded near the horizon.
 - An expanded sketch in the tree formats and evaluates every constraint every frame with an
   O(n²) `involved` check; virtualise and cache.
-- Sketch curves are faceted at a fixed 3° regardless of size or zoom.
+- The cached scene is one batch: any change to its content (each drag solution, an edit, an
+  evaluation, a new faceting level) facets every drawn sketch again, and a hover or selection
+  change restyles and uploads all of it, about 1.2 ms to rebuild and 0.5 ms to upload for a
+  sketch of 24,000 curves in a release build. A batch per feature, with pick ids of its own,
+  would limit both to what changed.
 
 ## Sketching
 

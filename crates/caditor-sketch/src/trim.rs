@@ -4,7 +4,7 @@ use caditor_geometry::{Point2, Vector2};
 
 use crate::{
     constraint::Constraint,
-    curve::{ArcGeometry, direction_angle},
+    curve::{ArcGeometry, Faceting, direction_angle},
     entity::Entity,
     id::{ConstraintId, EntityId},
     intersect::{self, Carrier, Shape},
@@ -86,8 +86,8 @@ impl Piece {
         cutters
     }
 
-    pub fn polyline(&self, max_segment_angle: f64) -> Vec<Point2> {
-        self.course.polyline(self.from, self.to, max_segment_angle)
+    pub fn faceted(&self, faceting: Faceting) -> Vec<Point2> {
+        self.course.faceted(self.from, self.to, faceting)
     }
 
     pub fn middle(&self) -> Point2 {
@@ -128,10 +128,10 @@ enum Reach {
 }
 
 impl Extension {
-    pub fn polyline(&self, max_segment_angle: f64) -> Vec<Point2> {
+    pub fn faceted(&self, faceting: Faceting) -> Vec<Point2> {
         match self.reach {
             Reach::Straight => vec![self.from, self.to],
-            Reach::Around(arc) => arc.polyline(max_segment_angle),
+            Reach::Around(arc) => arc.faceted(faceting),
         }
     }
 }
@@ -225,7 +225,7 @@ impl Course {
         if size > 0.0 { tolerance / size } else { 0.0 }
     }
 
-    fn polyline(&self, from: f64, to: f64, max_segment_angle: f64) -> Vec<Point2> {
+    fn faceted(&self, from: f64, to: f64, faceting: Faceting) -> Vec<Point2> {
         match *self {
             Self::Line { .. } => vec![self.at(from), self.at(to)],
             Self::Circle { center, radius } => ArcGeometry {
@@ -234,13 +234,13 @@ impl Course {
                 start_angle: from,
                 sweep: to - from,
             }
-            .polyline(max_segment_angle),
+            .faceted(faceting),
             Self::Arc(arc) => ArcGeometry {
                 start_angle: arc.start_angle + from,
                 sweep: to - from,
                 ..arc
             }
-            .polyline(max_segment_angle),
+            .faceted(faceting),
         }
     }
 }

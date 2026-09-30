@@ -1,11 +1,14 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    f64::consts::TAU,
+};
 
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity};
 use caditor_geometry::{Plane, Point2, Vector2};
 
 use crate::{
     constraint::{Constraint, DimensionError},
-    curve::{ArcGeometry, BSpline},
+    curve::{ArcGeometry, BSpline, Faceting},
     entity::{Entity, Role},
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
 };
@@ -216,6 +219,34 @@ impl Sketch {
             Entity::Spline { .. } => self
                 .spline(id)
                 .map(|spline| spline.polyline(max_segment_angle)),
+        }
+    }
+
+    pub fn faceted(&self, id: EntityId, faceting: Faceting) -> Option<Vec<Point2>> {
+        match self.entities.get(&id)? {
+            Entity::Point(_) => None,
+            Entity::Line { .. } => self.line_endpoints(id).map(|(start, end)| vec![start, end]),
+            Entity::Circle { .. } => self
+                .circle(id)
+                .map(|(center, radius)| ArcGeometry::full_circle(center, radius).faceted(faceting)),
+            Entity::Arc { .. } => self.arc(id).map(|arc| arc.faceted(faceting)),
+            Entity::Spline { .. } => self.spline(id).map(|spline| spline.faceted(faceting)),
+        }
+    }
+
+    pub fn facet_segments(&self, id: EntityId, faceting: Faceting) -> Option<usize> {
+        match self.entities.get(&id)? {
+            Entity::Point(_) => None,
+            Entity::Line { .. } => Some(1),
+            Entity::Circle { .. } => self
+                .circle(id)
+                .map(|(_, radius)| faceting.arc_segments(radius, TAU)),
+            Entity::Arc { .. } => self
+                .arc(id)
+                .map(|arc| faceting.arc_segments(arc.radius, arc.sweep)),
+            Entity::Spline { .. } => self
+                .spline(id)
+                .map(|spline| faceting.spline_segments(&spline)),
         }
     }
 

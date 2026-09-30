@@ -5,6 +5,7 @@ struct View {
     pick_transform: vec4<f32>,
     light: vec4<f32>,
     fill_light: vec4<f32>,
+    anchor: vec4<f32>,
 }
 
 struct Grid {
@@ -46,6 +47,10 @@ struct Varyings {
 struct PickOutput {
     @location(0) id: u32,
     @location(1) depth: u32,
+}
+
+fn from_anchor(position: vec3<f32>) -> vec3<f32> {
+    return position + view.anchor.xyz;
 }
 
 fn view_depth(position: vec3<f32>) -> f32 {
@@ -140,8 +145,9 @@ struct LineInstance {
 @vertex
 fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
     let near = view.forward_near.w * 1.01;
-    var start = line.start;
-    var end = line.end;
+    let line_start = from_anchor(line.start);
+    var start = line_start;
+    var end = from_anchor(line.end);
     let start_depth = view_depth(start);
     let end_depth = view_depth(end);
     if start_depth < near && end_depth < near {
@@ -178,7 +184,7 @@ fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
     if line.along >= 0.0 {
         let clipped_length = distance(start, end);
         let points_per_unit = length(along_pixels) / (max(clipped_length, 1e-12) * pixels_per_point());
-        let along_start = line.along + distance(line.start, start);
+        let along_start = line.along + distance(line_start, start);
         out.dash_points = (along_start + select(0.0, clipped_length, at_end)) * points_per_unit;
     }
     return out;
@@ -195,14 +201,15 @@ struct MarkerInstance {
 
 @vertex
 fn vs_marker(@builtin(vertex_index) vertex: u32, marker: MarkerInstance) -> Varyings {
-    let depth = view_depth(marker.position);
+    let position = from_anchor(marker.position);
+    let depth = view_depth(position);
     if depth < view.forward_near.w * 1.01 {
         return empty_varyings();
     }
     let corner = quad_corner(vertex);
     let diameter = marker.diameter * pixels_per_point();
     let radius = diameter * 0.5 + 1.0;
-    let center = to_clip(marker.position);
+    let center = to_clip(position);
     let clip = vec4<f32>(center.xy + pixels_to_ndc(corner * radius) * center.w, center.zw);
 
     var out = empty_varyings();
@@ -226,10 +233,11 @@ struct FillVertex {
 @vertex
 fn vs_fill(fill: FillVertex) -> Varyings {
     var out = empty_varyings();
-    out.position = finish(to_clip(fill.position), fill.depth_bias, fill.in_front);
+    let position = from_anchor(fill.position);
+    out.position = finish(to_clip(position), fill.depth_bias, fill.in_front);
     out.color = fill.color;
     out.pick = fill.pick;
-    out.depth = view_depth(fill.position);
+    out.depth = view_depth(position);
     return out;
 }
 

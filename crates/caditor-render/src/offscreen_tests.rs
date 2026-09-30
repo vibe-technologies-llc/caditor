@@ -13,10 +13,11 @@ use crate::{
     image::{Background, Image, ImagePoll, ImageRequest, PendingImage},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     scene::{
-        Color, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Scene, Stroke, ViewportRect,
+        Batch, Color, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Scene, Stroke,
+        ViewportRect,
     },
     settings::{Msaa, Shading},
-    viewport::{SurfaceTarget, ViewportFrame, ViewportRenderer},
+    viewport::{SurfaceTarget, ViewportFrame, ViewportRenderer, Work},
 };
 
 const SIZE: u32 = 200;
@@ -57,34 +58,36 @@ fn device(limits: wgpu::Limits) -> Option<(wgpu::Device, wgpu::Queue)> {
 fn scene() -> Scene {
     Scene {
         meshes: Vec::new(),
-        lines: vec![Line {
-            start: Point3::new(-20.0, 0.0, 0.0),
-            end: Point3::new(20.0, 0.0, 0.0),
-            color: LINE_COLOR,
-            width: 3.0,
-            layer: Layer::Model,
-            pick: PickId::from_index(0),
-            stroke: Stroke::Solid,
-        }],
-        fills: vec![Fill::convex(
-            &[
-                Point3::new(-30.0, -30.0, 0.0),
-                Point3::new(30.0, -30.0, 0.0),
-                Point3::new(30.0, 30.0, 0.0),
-                Point3::new(-30.0, 30.0, 0.0),
-            ],
-            Color::from_rgba8(0, 0, 255, 40),
-            Layer::Reference,
-            PickId::from_index(1),
-        )],
-        markers: vec![Marker {
-            position: Point3::new(10.0, 10.0, 0.0),
-            color: Color::from_rgb8(255, 255, 255),
-            diameter: 7.0,
-            layer: Layer::Model,
-            pick: PickId::from_index(2),
-        }],
         grid: None,
+        batches: vec![Arc::new(Batch {
+            lines: vec![Line {
+                start: Point3::new(-20.0, 0.0, 0.0),
+                end: Point3::new(20.0, 0.0, 0.0),
+                color: LINE_COLOR,
+                width: 3.0,
+                layer: Layer::Model,
+                pick: PickId::from_index(0),
+                stroke: Stroke::Solid,
+            }],
+            fills: vec![Fill::convex(
+                &[
+                    Point3::new(-30.0, -30.0, 0.0),
+                    Point3::new(30.0, -30.0, 0.0),
+                    Point3::new(30.0, 30.0, 0.0),
+                    Point3::new(-30.0, 30.0, 0.0),
+                ],
+                Color::from_rgba8(0, 0, 255, 40),
+                Layer::Reference,
+                PickId::from_index(1),
+            )],
+            markers: vec![Marker {
+                position: Point3::new(10.0, 10.0, 0.0),
+                color: Color::from_rgb8(255, 255, 255),
+                diameter: 7.0,
+                layer: Layer::Model,
+                pick: PickId::from_index(2),
+            }],
+        })],
     }
 }
 
@@ -215,24 +218,31 @@ fn row(y: f64, around: f64, reach: f64) -> impl Iterator<Item = DVec2> {
     columns.map(move |column| DVec2::new(column as f64, y))
 }
 
+fn batch_of(scene: &mut Scene) -> &mut Batch {
+    Arc::make_mut(&mut scene.batches[0])
+}
+
 fn line_and_marker() -> Scene {
     Scene {
-        lines: vec![Line {
-            start: Point3::new(-20.0, 0.0, 0.0),
-            end: Point3::new(20.0, 0.0, 0.0),
-            color: LINE_COLOR,
-            width: 3.0,
-            layer: Layer::Model,
-            pick: PickId::from_index(0),
-            stroke: Stroke::Solid,
-        }],
-        markers: vec![Marker {
-            position: Point3::new(10.0, 20.0, 0.0),
-            color: Color::from_rgb8(255, 255, 255),
-            diameter: 7.0,
-            layer: Layer::Model,
-            pick: PickId::from_index(1),
-        }],
+        batches: vec![Arc::new(Batch {
+            lines: vec![Line {
+                start: Point3::new(-20.0, 0.0, 0.0),
+                end: Point3::new(20.0, 0.0, 0.0),
+                color: LINE_COLOR,
+                width: 3.0,
+                layer: Layer::Model,
+                pick: PickId::from_index(0),
+                stroke: Stroke::Solid,
+            }],
+            markers: vec![Marker {
+                position: Point3::new(10.0, 20.0, 0.0),
+                color: Color::from_rgb8(255, 255, 255),
+                diameter: 7.0,
+                layer: Layer::Model,
+                pick: PickId::from_index(1),
+            }],
+            ..Batch::default()
+        })],
         ..Scene::default()
     }
 }
@@ -282,7 +292,7 @@ fn a_dashed_line_leaves_gaps_that_still_pick_it() {
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
     let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
     let mut scene = line_and_marker();
-    scene.markers.clear();
+    batch_of(&mut scene).markers.clear();
     let from = view.project(Point3::new(-15.0, 0.0, 0.0)).unwrap();
     let to = view.project(Point3::new(15.0, 0.0, 0.0)).unwrap();
     let lit_along = |scene: &Scene, pick_at: DVec2| {
@@ -294,7 +304,7 @@ fn a_dashed_line_leaves_gaps_that_still_pick_it() {
     };
 
     let (solid, _) = lit_along(&scene, from);
-    scene.lines[0].stroke = Stroke::Dashed { along: 0.0 };
+    batch_of(&mut scene).lines[0].stroke = Stroke::Dashed { along: 0.0 };
     let (dashed, _) = lit_along(&scene, from);
     let drawn = dashed.iter().filter(|lit| **lit).count() as f64 / dashed.len() as f64;
     let dashes = dashed.windows(2).filter(|pair| pair[0] && !pair[1]).count();
@@ -508,15 +518,18 @@ fn draws_and_picks_a_box(device: &wgpu::Device, queue: &wgpu::Queue) {
             mesh,
             faces: styles,
         }],
-        lines: vec![Line {
-            start: Point3::new(-50.0, 0.0, 0.0),
-            end: Point3::new(50.0, 0.0, 0.0),
-            color: LINE_COLOR,
-            width: 3.0,
-            layer: Layer::Model,
-            pick: PickId::from_index(0),
-            stroke: Stroke::Solid,
-        }],
+        batches: vec![Arc::new(Batch {
+            lines: vec![Line {
+                start: Point3::new(-50.0, 0.0, 0.0),
+                end: Point3::new(50.0, 0.0, 0.0),
+                color: LINE_COLOR,
+                width: 3.0,
+                layer: Layer::Model,
+                pick: PickId::from_index(0),
+                stroke: Stroke::Solid,
+            }],
+            ..Batch::default()
+        })],
         ..Scene::default()
     };
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
@@ -625,15 +638,18 @@ fn faces_that_cannot_be_picked_still_hide_what_is_behind_them_from_picking() {
                 6
             ],
         }],
-        lines: vec![Line {
-            start: Point3::new(-50.0, 0.0, 0.0),
-            end: Point3::new(50.0, 0.0, 0.0),
-            color: LINE_COLOR,
-            width: 3.0,
-            layer: Layer::Model,
-            pick: PickId::from_index(0),
-            stroke: Stroke::Solid,
-        }],
+        batches: vec![Arc::new(Batch {
+            lines: vec![Line {
+                start: Point3::new(-50.0, 0.0, 0.0),
+                end: Point3::new(50.0, 0.0, 0.0),
+                color: LINE_COLOR,
+                width: 3.0,
+                layer: Layer::Model,
+                pick: PickId::from_index(0),
+                stroke: Stroke::Solid,
+            }],
+            ..Batch::default()
+        })],
         ..Scene::default()
     };
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
@@ -664,24 +680,26 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
                 6
             ],
         }],
-        lines: vec![Line {
-            start: Point3::new(-50.0, 0.0, 0.0),
-            end: Point3::new(50.0, 0.0, 0.0),
-            color: LINE_COLOR,
-            width: 3.0,
-            layer: Layer::Front,
-            pick: PickId::from_index(0),
-            stroke: Stroke::Solid,
-        }],
-        markers: vec![Marker {
-            position: Point3::new(-15.0, 0.0, 0.0),
-            color: Color::from_rgb8(255, 255, 255),
-            diameter: 9.0,
-            layer: Layer::Front,
-            pick: PickId::from_index(1),
-        }],
-        fills: vec![square_fill(-5.0, 10.0, Layer::Front, 2)],
         grid: None,
+        batches: vec![Arc::new(Batch {
+            lines: vec![Line {
+                start: Point3::new(-50.0, 0.0, 0.0),
+                end: Point3::new(50.0, 0.0, 0.0),
+                color: LINE_COLOR,
+                width: 3.0,
+                layer: Layer::Front,
+                pick: PickId::from_index(0),
+                stroke: Stroke::Solid,
+            }],
+            markers: vec![Marker {
+                position: Point3::new(-15.0, 0.0, 0.0),
+                color: Color::from_rgb8(255, 255, 255),
+                diameter: 9.0,
+                layer: Layer::Front,
+                pick: PickId::from_index(1),
+            }],
+            fills: vec![square_fill(-5.0, 10.0, Layer::Front, 2)],
+        })],
     };
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
     let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
@@ -755,11 +773,14 @@ fn reference_fills_are_picked_only_where_nothing_else_is() {
             mesh: Arc::new(box_mesh(20.0)),
             faces: styles,
         }],
-        fills: vec![
-            square_fill(40.0, 60.0, Layer::Reference, 1),
-            square_fill(30.0, 60.0, Layer::Reference, 2),
-            square_fill(20.0, 5.0, Layer::Model, 3),
-        ],
+        batches: vec![Arc::new(Batch {
+            fills: vec![
+                square_fill(40.0, 60.0, Layer::Reference, 1),
+                square_fill(30.0, 60.0, Layer::Reference, 2),
+                square_fill(20.0, 5.0, Layer::Model, 3),
+            ],
+            ..Batch::default()
+        })],
         ..Scene::default()
     };
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
@@ -985,7 +1006,7 @@ fn a_viewport_away_from_the_corner_draws_and_picks_inside_its_rect_only() {
     let corner = DVec2::new(f64::from(rect.x), f64::from(rect.y));
     let view = looking_down(100.0, f64::from(rect.width), f64::from(rect.height));
     let mut scene = line_and_marker();
-    scene
+    batch_of(&mut scene)
         .fills
         .push(square_fill(-1.0, 500.0, Layer::Reference, 5));
     let on_line = view.project(Point3::new(-10.0, 0.0, 0.0)).unwrap();
@@ -1040,13 +1061,16 @@ fn markers_are_round_and_picked_only_where_they_cover() {
     };
     let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
     let scene = Scene {
-        markers: vec![Marker {
-            position: Point3::ZERO,
-            color: Color::from_rgb8(255, 255, 255),
-            diameter: 9.0,
-            layer: Layer::Model,
-            pick: PickId::from_index(0),
-        }],
+        batches: vec![Arc::new(Batch {
+            markers: vec![Marker {
+                position: Point3::ZERO,
+                color: Color::from_rgb8(255, 255, 255),
+                diameter: 9.0,
+                layer: Layer::Model,
+                pick: PickId::from_index(0),
+            }],
+            ..Batch::default()
+        })],
         ..Scene::default()
     };
     let center = view.project(Point3::ZERO).unwrap();
@@ -1106,29 +1130,30 @@ fn a_marker_with_no_colour_draws_nothing_but_is_still_picked() {
     let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
     let unmarked = PickId::from_index(1).unwrap();
     let under = Scene {
-        fills: vec![Fill::convex(
-            &[
-                Point3::new(-10.0, -10.0, 0.0),
-                Point3::new(10.0, -10.0, 0.0),
-                Point3::new(10.0, 10.0, 0.0),
-                Point3::new(-10.0, 10.0, 0.0),
-            ],
-            Color::from_rgb8(0, 0, 255),
-            Layer::Model,
-            PickId::from_index(0),
-        )],
+        batches: vec![Arc::new(Batch {
+            fills: vec![Fill::convex(
+                &[
+                    Point3::new(-10.0, -10.0, 0.0),
+                    Point3::new(10.0, -10.0, 0.0),
+                    Point3::new(10.0, 10.0, 0.0),
+                    Point3::new(-10.0, 10.0, 0.0),
+                ],
+                Color::from_rgb8(0, 0, 255),
+                Layer::Model,
+                PickId::from_index(0),
+            )],
+            ..Batch::default()
+        })],
         ..Scene::default()
     };
-    let over = Scene {
-        markers: vec![Marker {
-            position: Point3::ZERO,
-            color: Color::from_rgba8(0, 0, 0, 0),
-            diameter: 9.0,
-            layer: Layer::Model,
-            pick: Some(unmarked),
-        }],
-        ..under.clone()
-    };
+    let mut over = under.clone();
+    batch_of(&mut over).markers.push(Marker {
+        position: Point3::ZERO,
+        color: Color::from_rgba8(0, 0, 0, 0),
+        diameter: 9.0,
+        layer: Layer::Model,
+        pick: Some(unmarked),
+    });
     let center = view.project(Point3::ZERO).unwrap();
 
     let without = render(&device, &queue, &view, &under, center);
@@ -1183,25 +1208,28 @@ fn lines_crossing_the_near_plane_are_cut_there_and_lines_behind_the_eye_vanish()
         stroke: Stroke::Solid,
     };
     let scene = Scene {
-        lines: vec![
-            line(
-                Point3::new(-10.0, 0.0, 0.0),
-                Point3::new(-10.0, 0.0, 150.0),
-                0,
-            ),
-            line(
-                Point3::new(10.0, 0.0, 120.0),
-                Point3::new(10.0, 5.0, 180.0),
-                1,
-            ),
-        ],
-        markers: vec![Marker {
-            position: Point3::new(0.0, 0.0, 150.0),
-            color: Color::from_rgb8(255, 255, 255),
-            diameter: 9.0,
-            layer: Layer::Model,
-            pick: PickId::from_index(2),
-        }],
+        batches: vec![Arc::new(Batch {
+            lines: vec![
+                line(
+                    Point3::new(-10.0, 0.0, 0.0),
+                    Point3::new(-10.0, 0.0, 150.0),
+                    0,
+                ),
+                line(
+                    Point3::new(10.0, 0.0, 120.0),
+                    Point3::new(10.0, 5.0, 180.0),
+                    1,
+                ),
+            ],
+            markers: vec![Marker {
+                position: Point3::new(0.0, 0.0, 150.0),
+                color: Color::from_rgb8(255, 255, 255),
+                diameter: 9.0,
+                layer: Layer::Model,
+                pick: PickId::from_index(2),
+            }],
+            ..Batch::default()
+        })],
         ..Scene::default()
     };
     let near_the_eye = Point3::new(-10.0, 0.0, 50.0);
@@ -1262,7 +1290,10 @@ fn faces_that_cannot_be_picked_hide_faces_and_reference_fills_as_pickable_ones_d
     };
     let scene = Scene {
         meshes: vec![unpickable, behind],
-        fills: vec![square_fill(60.0, 80.0, Layer::Reference, 1)],
+        batches: vec![Arc::new(Batch {
+            fills: vec![square_fill(60.0, 80.0, Layer::Reference, 1)],
+            ..Batch::default()
+        })],
         ..Scene::default()
     };
     let view = looking_down(200.0, f64::from(SIZE), f64::from(SIZE));
@@ -1404,8 +1435,11 @@ fn a_scene_larger_than_a_buffer_draws_what_fits_and_splits_its_meshes() {
             mesh: Arc::clone(&mesh),
             faces: styles,
         }],
-        lines,
-        fills,
+        batches: vec![Arc::new(Batch {
+            lines,
+            fills,
+            ..Batch::default()
+        })],
         ..Scene::default()
     };
     let view = looking_down(400.0, f64::from(SIZE), f64::from(SIZE));
@@ -1477,18 +1511,21 @@ fn an_orthographic_view_draws_and_picks_faces_behind_its_eye_with_edges_over_the
             mesh: Arc::new(box_mesh(20.0)),
             faces: styles,
         }],
-        lines: vec![
-            line(
-                Point3::new(-50.0, 0.0, 20.0),
-                Point3::new(50.0, 0.0, 20.0),
-                0,
-            ),
-            line(
-                Point3::new(0.0, -50.0, -20.0),
-                Point3::new(0.0, 50.0, -20.0),
-                1,
-            ),
-        ],
+        batches: vec![Arc::new(Batch {
+            lines: vec![
+                line(
+                    Point3::new(-50.0, 0.0, 20.0),
+                    Point3::new(50.0, 0.0, 20.0),
+                    0,
+                ),
+                line(
+                    Point3::new(0.0, -50.0, -20.0),
+                    Point3::new(0.0, 50.0, -20.0),
+                    1,
+                ),
+            ],
+            ..Batch::default()
+        })],
         ..Scene::default()
     };
     let viewpoint =
@@ -1559,7 +1596,10 @@ fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
     let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
     let bare = Scene {
-        lines: vec![diagonal_line(Layer::Model)],
+        batches: vec![Arc::new(Batch {
+            lines: vec![diagonal_line(Layer::Model)],
+            ..Batch::default()
+        })],
         ..Scene::default()
     };
     let through_a_box = Scene {
@@ -1573,7 +1613,10 @@ fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_
                 6
             ],
         }],
-        lines: vec![diagonal_line(Layer::Front)],
+        batches: vec![Arc::new(Batch {
+            lines: vec![diagonal_line(Layer::Front)],
+            ..Batch::default()
+        })],
         ..Scene::default()
     };
     let inside = view.project(Point3::new(4.0, 3.0, 0.0)).unwrap();
@@ -1855,4 +1898,397 @@ fn lines_in_an_exported_image_widen_with_its_pixels_per_point() {
 
     assert!((2..=4).contains(&at_one), "{at_one}");
     assert!((5..=7).contains(&at_two), "{at_two}");
+}
+
+fn large_scene() -> Scene {
+    let lines = (0..330_000)
+        .map(|index| {
+            let at = Point3::new(f64::from(index % 600), f64::from(index / 600), 0.0);
+            Line {
+                start: at,
+                end: at + Vector3::new(0.8, 0.3, 0.0),
+                color: LINE_COLOR,
+                width: 2.0,
+                layer: Layer::Front,
+                pick: PickId::from_index(index as usize / 30),
+                stroke: Stroke::Solid,
+            }
+        })
+        .collect();
+    let markers = (0..49_000)
+        .map(|index| Marker {
+            position: Point3::new(f64::from(index % 300) * 2.0, f64::from(index / 300), 0.0),
+            color: Color::from_rgb8(255, 255, 255),
+            diameter: 7.0,
+            layer: Layer::Front,
+            pick: PickId::from_index(20_000 + index as usize),
+        })
+        .collect();
+    let fills = (0..30)
+        .map(|index| {
+            let z = f64::from(index);
+            Fill::convex(
+                &[
+                    Point3::new(0.0, 0.0, z),
+                    Point3::new(100.0, 0.0, z),
+                    Point3::new(100.0, 100.0, z),
+                    Point3::new(0.0, 100.0, z),
+                ],
+                Color::from_rgba8(100, 100, 200, 30),
+                Layer::Reference,
+                PickId::from_index(90_000 + index as usize),
+            )
+        })
+        .collect();
+    Scene {
+        batches: vec![Arc::new(Batch {
+            lines,
+            markers,
+            fills,
+        })],
+        ..Scene::default()
+    }
+}
+
+#[test]
+#[ignore = "a timing benchmark: cargo test --release -p caditor-render frame_costs -- --ignored --nocapture"]
+fn frame_costs_of_drawing_a_large_scene() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    const FRAMES: u32 = 100;
+    let size = SurfaceSize {
+        width: 1600,
+        height: 1000,
+    };
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("timing target"),
+        size: wgpu::Extent3d {
+            width: size.width,
+            height: size.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let scene = large_scene();
+    let replaced = Scene {
+        batches: scene
+            .batches
+            .iter()
+            .map(|batch| Arc::new(Batch::clone(batch)))
+            .collect(),
+        ..scene.clone()
+    };
+    let viewpoint =
+        Viewpoint::looking_from(Vector3::Z, Point3::new(300.0, 300.0, 0.0), 800.0).unwrap();
+    let time = |name: &str, moving: bool, replacing: bool| {
+        let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+        let mut elapsed = std::time::Duration::ZERO;
+        for frame in 0..FRAMES + 3 {
+            let turned = if moving {
+                Viewpoint::looking_from(
+                    Vector3::new(f64::from(frame) * 0.001, 0.0, 1.0),
+                    viewpoint.target,
+                    viewpoint.distance,
+                )
+                .unwrap()
+            } else {
+                viewpoint
+            };
+            let view = View::new(turned, f64::from(size.width), f64::from(size.height));
+            let started = std::time::Instant::now();
+            let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            renderer.draw(
+                &device,
+                &queue,
+                &mut encoder,
+                &SurfaceTarget {
+                    view: &target_view,
+                    width: size.width,
+                    height: size.height,
+                },
+                Some(&ViewportFrame {
+                    rect: ViewportRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: size.width as f32,
+                        height: size.height as f32,
+                    },
+                    view: &view,
+                    scene: if replacing && frame % 2 == 1 {
+                        &replaced
+                    } else {
+                        &scene
+                    },
+                    pick_at: None,
+                    pixels_per_point: 1.0,
+                }),
+            );
+            queue.submit([encoder.finish()]);
+            if frame >= 3 {
+                elapsed += started.elapsed();
+            }
+            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        }
+        eprintln!("{name}: {:?} per frame on the UI thread", elapsed / FRAMES);
+    };
+
+    time("large scene, idle", false, false);
+    time("large scene, camera moving", true, false);
+    time("large scene, replaced every frame", false, true);
+}
+
+fn differing_pixels(a: &Rendered, b: &Rendered) -> usize {
+    a.pixels
+        .chunks(4)
+        .zip(b.pixels.chunks(4))
+        .filter(|(a, b)| a.iter().zip(b.iter()).any(|(a, b)| a.abs_diff(*b) > 2))
+        .count()
+}
+
+fn marker_at(scene: &Scene) -> Point3 {
+    scene.markers().next().unwrap().position
+}
+
+#[test]
+fn an_unchanged_scene_is_uploaded_once_and_the_camera_moves_without_uploading_it() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let scene = scene();
+    let first_view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
+    let turned_view = View::new(
+        Viewpoint::looking_from(
+            Vector3::new(0.3, -0.2, 1.0),
+            Point3::new(5.0, 2.0, 0.0),
+            90.0,
+        )
+        .unwrap(),
+        f64::from(SIZE),
+        f64::from(SIZE),
+    );
+    let first_at = first_view.project(marker_at(&scene)).unwrap();
+    let turned_at = turned_view.project(marker_at(&scene)).unwrap();
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+
+    let first = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&first_view, &scene, first_at),
+    );
+    let idle = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&first_view, &scene, first_at),
+    );
+    let after_idle = renderer.work();
+    let turned = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&turned_view, &scene, turned_at),
+    );
+    let after_turning = renderer.work();
+    let fresh = render(&device, &queue, &turned_view, &scene, turned_at);
+
+    assert_eq!(
+        after_idle,
+        Work {
+            uploads: 1,
+            sorts: 1
+        }
+    );
+    assert_eq!(
+        after_turning,
+        Work {
+            uploads: 1,
+            sorts: 2
+        }
+    );
+    assert_eq!(idle.pixels, first.pixels);
+    assert_eq!(idle.pick, first.pick);
+    assert!(differing_pixels(&turned, &fresh) <= 2);
+    assert_eq!(
+        turned.pick.hits.first().map(|hit| hit.id),
+        fresh.pick.hits.first().map(|hit| hit.id)
+    );
+    assert_eq!(turned.pick.hits[0].id, PickId::from_index(2).unwrap());
+}
+
+#[test]
+fn only_a_changed_batch_is_uploaded_again_and_a_dropped_one_stops_drawing() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
+    let base = Arc::new(Batch {
+        lines: line_and_marker().lines().cloned().collect(),
+        ..Batch::default()
+    });
+    let marker = |x: f64| {
+        Arc::new(Batch {
+            markers: vec![Marker {
+                position: Point3::new(x, 20.0, 0.0),
+                color: Color::from_rgb8(255, 255, 255),
+                diameter: 9.0,
+                layer: Layer::Model,
+                pick: PickId::from_index(1),
+            }],
+            ..Batch::default()
+        })
+    };
+    let with = |overlay: Option<Arc<Batch>>| Scene {
+        batches: std::iter::once(Arc::clone(&base)).chain(overlay).collect(),
+        ..Scene::default()
+    };
+    let left = view.project(Point3::new(-10.0, 20.0, 0.0)).unwrap();
+    let right = view.project(Point3::new(10.0, 20.0, 0.0)).unwrap();
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut draw = |scene: &Scene| {
+        render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(&view, scene, left),
+        )
+    };
+
+    let first = draw(&with(Some(marker(-10.0))));
+    let moved = draw(&with(Some(marker(10.0))));
+    let dropped = draw(&with(None));
+    let uploaded = renderer.uploaded();
+
+    assert!(pixel(&first, left)[0] > 200);
+    assert!(pixel(&moved, left)[0] < 60 && pixel(&moved, right)[0] > 200);
+    assert!(pixel(&dropped, right)[0] < 60);
+    assert_eq!(renderer.work().uploads, 3);
+    assert_eq!(uploaded.len(), 1);
+    assert!(Arc::ptr_eq(uploaded[0].as_ref().unwrap(), &base));
+}
+
+#[test]
+fn moving_far_from_where_the_scene_was_uploaded_uploads_it_again_as_exactly_as_ever() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let far = Point3::new(4.0e6, -3.0e6, 2.0e5);
+    let lines: Vec<Line> = line_and_marker()
+        .lines()
+        .map(|line| Line {
+            start: line.start + (far - Point3::ZERO),
+            end: line.end + (far - Point3::ZERO),
+            ..line.clone()
+        })
+        .collect();
+    let scene = Scene::from(Batch {
+        lines,
+        ..Batch::default()
+    });
+    let view_at = |target: Point3| {
+        View::new(
+            Viewpoint::looking_from(Vector3::Z, target, 100.0).unwrap(),
+            f64::from(SIZE),
+            f64::from(SIZE),
+        )
+    };
+    let start = view_at(Point3::ZERO);
+    let nearby = view_at(Point3::new(150.0, 0.0, 0.0));
+    let arrived = view_at(far);
+    let on_line = arrived
+        .project(far + Vector3::new(-10.0, 0.0, 0.0))
+        .unwrap();
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let draw = |renderer: &mut ViewportRenderer, view: &View| {
+        render_with(
+            renderer,
+            &device,
+            &queue,
+            &full_frame(view, &scene, on_line),
+        );
+        renderer.anchor()
+    };
+
+    let first_anchor = draw(&mut renderer, &start);
+    let nearby_anchor = draw(&mut renderer, &nearby);
+    let cached = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&arrived, &scene, on_line),
+    );
+    let fresh = render(&device, &queue, &arrived, &scene, on_line);
+
+    assert_eq!(nearby_anchor, first_anchor);
+    assert_eq!(renderer.anchor(), Some(arrived.eye()));
+    assert_eq!(renderer.work().uploads, 2);
+    assert_eq!(cached.pixels, fresh.pixels);
+    assert!(pixel(&cached, on_line)[0] > 200);
+    assert_eq!(cached.pick, fresh.pick);
+}
+
+#[test]
+fn translucent_fills_are_ordered_again_when_the_view_turns_over() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let red = Fill {
+        color: Color::from_rgba8(255, 0, 0, 128),
+        ..square_fill(5.0, 20.0, Layer::Model, 0)
+    };
+    let green = Fill {
+        color: Color::from_rgba8(0, 255, 0, 128),
+        ..square_fill(-5.0, 20.0, Layer::Model, 1)
+    };
+    let scene = Scene::from(Batch {
+        fills: vec![red, green],
+        ..Batch::default()
+    });
+    let from = |direction: Vector3| {
+        View::new(
+            Viewpoint::looking_from(direction, Point3::ZERO, 100.0).unwrap(),
+            f64::from(SIZE),
+            f64::from(SIZE),
+        )
+    };
+    let above = from(Vector3::new(0.0, -0.1, 1.0));
+    let below = from(Vector3::new(0.0, -0.1, -1.0));
+    let middle = DVec2::splat(f64::from(SIZE) / 2.0);
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+
+    let from_above = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&above, &scene, middle),
+    );
+    let above_draws = renderer.fill_draws().to_vec();
+    let from_below = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&below, &scene, middle),
+    );
+    let fresh_below = render(&device, &queue, &below, &scene, middle);
+
+    assert!(pixel(&from_above, middle)[0] > pixel(&from_above, middle)[1]);
+    assert!(pixel(&from_below, middle)[1] > pixel(&from_below, middle)[0]);
+    assert_eq!(from_below.pixels, fresh_below.pixels);
+    assert_eq!(
+        renderer.work(),
+        Work {
+            uploads: 1,
+            sorts: 2
+        }
+    );
+    assert_eq!(above_draws, vec![(0, 6..12), (0, 0..6)]);
+    assert_eq!(renderer.fill_draws(), &[(0, 0..12)][..]);
 }

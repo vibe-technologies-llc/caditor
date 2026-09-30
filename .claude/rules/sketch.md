@@ -72,6 +72,18 @@ paths:
   way. An end shared with another curve, coincident with another point or fixed is refused
   (`ExtendError::Joined`, `Fixed`), as are circles, splines and ends with nothing beyond them.
 
+## Faceting
+
+- Curves are drawn as polylines within a chord tolerance (`Faceting`, `curve.rs`): arcs and circles
+  take the fewest equal steps whose sagitta stays within it, at least 12 and at most 1024 a turn;
+  splines take equal parameter steps from a bound on their second derivative (the convex hull of
+  its B-spline control points, a chord deviating at most h²·max|C''|/8), at least one per span and
+  enough for 12 a turn of the control polygon's turning, at most 4096. `Faceting::within` takes
+  any value (NaN or below zero as the finest), and every count is at least one.
+- `Sketch::faceted` and `facet_segments` give an entity's polyline and its count; trim pieces and
+  extensions are faceted the same way (`Piece::faceted`, `Extension::faceted`). `polyline` with a
+  largest step angle remains for sampling that is not drawn.
+
 ## Splines
 
 - Sketch splines are clamped with uniform knots and degree min(3, points − 1).

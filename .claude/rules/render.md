@@ -6,8 +6,8 @@ paths:
 # Rendering (`caditor-render`)
 
 - Owns the wgpu device and surface, the camera and the viewport. Depends on neither winit nor the
-  document: takes any `Arc<dyn WindowTarget>` and draws a `Scene` (shaded meshes, lines, markers,
-  triangle fills, grid) built by the app.
+  document: takes any `Arc<dyn WindowTarget>` and draws a `Scene` built by the app: shaded meshes,
+  a grid and `Batch`es of lines, markers and triangle fills, each shared as an `Arc<Batch>`.
 
 ## Frames
 
@@ -63,10 +63,15 @@ paths:
 
 ## Precision
 
-- Positions are converted relative to the eye in f64 before the f32 cast, and the view matrix is
-  rotation only, so geometry far from the origin stays exact.
+- Positions are converted relative to a nearby point in f64 before the f32 cast, and the view
+  matrix is rotation only, so geometry far from the origin stays exact.
 - A `ShadedMesh` stores f32 positions relative to its own centre; the eye-to-centre offset is
   computed in f64 each frame.
+- Batches store f32 positions relative to an anchor, the eye where they were uploaded; the view
+  uniform carries the anchor's offset from the current eye (`anchor`, computed in f64), which the
+  shaders add to every line, marker and fill position. The anchor stays while the eye is within
+  `REANCHOR_DISTANCES` (4) view distances of it, where the extra rounding stays far below a pixel;
+  beyond that the next frame anchors at the eye and uploads every batch again.
 
 ## Meshes
 
@@ -98,10 +103,19 @@ paths:
   stored); with MSAA off the viewport draws straight into the surface. The UI is drawn on the
   resolved surface after the 3D pass. The front layer and line depth biases work per sample, and an
   offscreen test draws and picks front geometry at every offered level.
-- Line, marker and fill vertices use `GrowableBuffer`s: grow to the next power of two, shrink after
-  300 uploads using under a quarter. They never pass `max_buffer_size`: a larger scene draws only
-  its first whole lines, markers and fill triangles (logged once) rather than invalidating the
-  frame's encoder, which the UI shares.
+- Each batch of the scene has a slot of its own (`GpuBatch`) with line, marker, fill and pick-fill
+  `GrowableBuffer`s: grow to the next power of two, shrink after 8 uploads in a row using under a
+  quarter (uploads come only with changes, so a large scene's memory goes a few changes after
+  it). A slot uploads only when the `Arc` in its place differs from the one it holds or the
+  anchor moved, so an idle frame or a camera move writes no vertices; a frame with no viewport to
+  draw keeps them. Buffers never pass `max_buffer_size`: a larger batch draws only its first whole
+  lines, markers and fill triangles (logged once) rather than invalidating the frame's encoder,
+  which the UI shares.
+- Batches draw in order: every batch's lines, then every batch's markers, then the fills.
+- Translucent fills draw back to front by their centroid's depth, front-layer fills last, across
+  all batches: each is a vertex range of its slot, and the sorted ranges are merged where they
+  follow on in one buffer into one draw each. The order is worked out again only when the eye or
+  view direction moved or a batch was uploaded (`FillOrder`).
 - The surface is `Bgra8Unorm` or `Rgba8Unorm` when offered (never a float or snorm format an HDR
   setup lists first), else the first non-sRGB one.
 - Model geometry draws over reference geometry (datum planes, axes) through a per-`Layer` depth
@@ -159,8 +173,9 @@ paths:
 - `poll_pick` says `Pending`, `Ready` or `Failed`: a failed readback (targets and buffer are then
   remade) or a pick whose frame was dropped before `submit` (the next `begin_frame` abandons it).
   The app asks again after a failure.
-- Reference-layer fills (principal and datum planes) are drawn first in a pass of their own,
-  nearest winning, and everything else over them: a translucent plane owns a pixel only where no
+- Pick fills are uploaded with their batch, reference-layer ones first. Reference-layer fills
+  (principal and datum planes) are drawn first in a pass of their own, nearest winning, and
+  everything else over them: a translucent plane owns a pixel only where no
   face, line, marker or model or front fill covers it, and a face seen through a plane is picked.
   Front-layer lines, markers and fills are picked through any face, as they are drawn.
 
@@ -174,7 +189,8 @@ paths:
   same clip-space scale and offset the pick window uses, so line widths and grid fades stay those
   of the whole image; one submit per tile, since uniform writes land at the next submit.
 - It reuses the window's `ViewportRenderer` (its pipelines at the anti-aliasing level in use, its
-  shading, its uploaded meshes) when the surface is `Rgba8Unorm` or `Bgra8Unorm`; any other
+  shading, its uploaded meshes, its batch slots, which the window's next frame uploads again) when
+  the surface is `Rgba8Unorm` or `Bgra8Unorm`; any other
   surface format draws through a throwaway `ViewportRenderer` in `Rgba8Unorm` at the offered level
   closest to the one in use. Tile targets and readback buffers are its own; the window's scene
   targets are untouched. The shader output is written unconverted, as on screen, so the pixels are

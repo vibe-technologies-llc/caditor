@@ -11,7 +11,7 @@ mod trim;
 
 pub use crate::{
     constraint::{Constraint, DimensionError, MAX_LENGTH},
-    curve::{ArcGeometry, BSpline},
+    curve::{ArcGeometry, BSpline, Faceting},
     entity::Entity,
     fit::FittedSpline,
     id::{ConstraintId, EntityId, Reference},
