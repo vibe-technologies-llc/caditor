@@ -21,7 +21,8 @@ The first release of caditor.
   horizontal and vertical apply to every selected item at once, and fix locks every point of the
   selected curves.
 - A point can be put on a spline, and a line, circle or arc made tangent to one, either where
-  they touch along it or where the spline ends on them.
+  they touch along it or where the spline ends on them. A point held beyond the end of a spline
+  pulls that end along when it is free to move.
 - Construction geometry: Q (or the Construction button) turns the selected curves into dashed
   construction curves that guide a sketch, take constraints and can be revolved about, but never
   split or add to its regions; with nothing selected it switches drawing to construction curves.
@@ -54,10 +55,13 @@ The first release of caditor.
 - Angles at a corner of a chain of lines are measured inside the corner, tangents where a line
   meets an arc count fully towards a constrained sketch, and a constraint that would shrink a
   line to nothing is reported as a conflict.
-- Conflicting constraints in large sketches are found several times faster and never hold up
-  the recompute for long; the constraints named are always a smallest set that cannot hold
-  together, and when a conflict cannot be pinned down the message names the geometry that
-  failed to solve and offers to go to its newest constraint.
+- Conflicting constraints in large sketches are found several times faster, even a conflict
+  running through a whole part of over a hundred lines, and never hold up the recompute for long.
+  Constraints are named as conflicting only when they fail to hold together from several starting
+  shapes, not when the solver merely could not reach them from the drawn one (a line that would
+  have to fold back, a chain that would have to curl up); the constraints named are always a
+  smallest set that cannot hold together, and when a conflict cannot be pinned down the message
+  names the geometry that failed to solve and offers to go to its newest constraint.
 - Extrude and revolve sketch regions into new bodies or add to, remove from or intersect
   existing ones; fillet and chamfer edges; shell bodies with open faces; datum planes and axes.
 - Linear and circular patterns (toolbar, Model menu and palette) repeat a body along a direction,

@@ -1,3 +1,6 @@
+mod diagnosis;
+#[cfg(test)]
+mod diagnosis_tests;
 mod equation;
 #[cfg(test)]
 mod kind_tests;
@@ -9,28 +12,23 @@ mod system;
 #[cfg(test)]
 mod tests;
 
-use std::{
-    cell::Cell,
-    collections::{BTreeMap, BTreeSet},
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{EvalError, ParameterId, Quantity};
 use caditor_geometry::Point2;
 
 pub use crate::solve::{memo::SolveMemo, numeric::Redundancy};
 use crate::{
-    entity::Entity,
     id::{ConstraintId, EntityId},
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{
+        diagnosis::{DIAGNOSIS_WORK, diagnose_failure},
         equation::value,
         memo::Recall,
-        numeric::{Analysis, Cancelled, Component, FROZEN, STIFF, Solver, components},
+        numeric::{Analysis, Cancelled, FROZEN, STIFF, Solver, components},
         system::System,
     },
 };
-
-const DIAGNOSIS_WORK: usize = 500_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EntityState {
@@ -238,220 +236,5 @@ impl Sketch {
             geometry.set_radius(*circle, value(values, *radius));
         }
         geometry
-    }
-}
-
-fn diagnose_failure(
-    sketch: &Sketch,
-    solver: &Solver<'_>,
-    failed: &[Component],
-    work: usize,
-) -> Result<SketchError, SketchError> {
-    let collapsed = failed.iter().find_map(|component| {
-        solver
-            .collapsed(&solver.part(component), &solver.system.values)
-            .next()
-    });
-    if let Some(entity) = collapsed {
-        return Ok(SketchError::NoLength {
-            entity,
-            label: sketch.entity_label(entity),
-        });
-    }
-    let suspects_of = |component: &Component| -> Vec<ConstraintId> {
-        component
-            .equations
-            .iter()
-            .filter_map(|index| solver.system.equations.get(*index)?.owner)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .rev()
-            .collect()
-    };
-    let Some((component, suspects)) = failed
-        .iter()
-        .map(|component| (component, suspects_of(component)))
-        .max_by_key(|(_, suspects)| suspects.first().copied())
-    else {
-        return Ok(SketchError::Unsolvable {
-            entities: Vec::new(),
-            newest: None,
-        });
-    };
-    let mut diagnosis = Diagnosis {
-        solver,
-        scope: component.equations.clone(),
-        outcomes: BTreeMap::new(),
-        work_left: Cell::new(work),
-    };
-    match diagnosis.minimal_conflict(&suspects) {
-        Ok(Some(constraints)) => Ok(SketchError::Conflict { constraints }),
-        Ok(None) | Err(Stop::Exhausted) => Ok(SketchError::Unsolvable {
-            entities: named_entities(sketch, solver.system, component),
-            newest: suspects.first().copied(),
-        }),
-        Err(Stop::Cancelled) => Err(SketchError::Cancelled),
-    }
-}
-
-fn named_entities(sketch: &Sketch, system: &System, component: &Component) -> Vec<EntityId> {
-    let moving: BTreeSet<usize> = component.variables.iter().copied().collect();
-    let involved: Vec<(EntityId, &Entity)> = system
-        .entity_variables
-        .iter()
-        .filter(|(_, variables)| variables.iter().any(|variable| moving.contains(variable)))
-        .filter_map(|(entity, _)| Some((*entity, sketch.entity(*entity)?)))
-        .collect();
-    let points_of_curves: BTreeSet<EntityId> = involved
-        .iter()
-        .flat_map(|(_, entity)| entity.points())
-        .collect();
-    involved
-        .into_iter()
-        .filter(|(id, _)| !points_of_curves.contains(id))
-        .map(|(id, _)| id)
-        .collect()
-}
-
-enum Stop {
-    Cancelled,
-    Exhausted,
-}
-
-impl From<Cancelled> for Stop {
-    fn from(_: Cancelled) -> Self {
-        Self::Cancelled
-    }
-}
-
-struct Diagnosis<'a> {
-    solver: &'a Solver<'a>,
-    scope: Vec<usize>,
-    outcomes: BTreeMap<Vec<usize>, bool>,
-    work_left: Cell<usize>,
-}
-
-impl Diagnosis<'_> {
-    fn minimal_conflict(
-        &mut self,
-        suspects: &[ConstraintId],
-    ) -> Result<Option<Vec<ConstraintId>>, Stop> {
-        if suspects.is_empty() || !self.solves_with(&[])? {
-            return Ok(None);
-        }
-        let found = self.conflict(&[], false, suspects)?;
-        if found.is_empty() || self.solves_with(&found)? {
-            return Ok(None);
-        }
-        let mut conflict = self.without_bystanders(found)?;
-        conflict.sort_unstable();
-        Ok(Some(conflict))
-    }
-
-    fn conflict(
-        &mut self,
-        kept: &[ConstraintId],
-        just_added: bool,
-        candidates: &[ConstraintId],
-    ) -> Result<Vec<ConstraintId>, Stop> {
-        if just_added && !self.solves_with(kept)? {
-            return Ok(Vec::new());
-        }
-        if candidates.len() <= 1 {
-            return Ok(candidates.to_vec());
-        }
-        let (first, second) = candidates.split_at(candidates.len() / 2);
-        let with_first: Vec<ConstraintId> = kept.iter().chain(first).copied().collect();
-        let from_second = self.conflict(&with_first, !first.is_empty(), second)?;
-        let with_found: Vec<ConstraintId> = kept.iter().chain(&from_second).copied().collect();
-        let from_first = self.conflict(&with_found, !from_second.is_empty(), first)?;
-        Ok(from_first.into_iter().chain(from_second).collect())
-    }
-
-    fn without_bystanders(
-        &mut self,
-        mut conflict: Vec<ConstraintId>,
-    ) -> Result<Vec<ConstraintId>, Stop> {
-        let oldest_first: Vec<ConstraintId> = conflict.iter().rev().copied().collect();
-        for constraint in oldest_first {
-            let rest: Vec<ConstraintId> = conflict
-                .iter()
-                .copied()
-                .filter(|kept| *kept != constraint)
-                .collect();
-            match self.solves_with(&rest) {
-                Ok(false) => conflict = rest,
-                Ok(true) | Err(Stop::Exhausted) => {}
-                Err(Stop::Cancelled) => return Err(Stop::Cancelled),
-            }
-        }
-        Ok(conflict)
-    }
-
-    fn solves_with(&mut self, constraints: &[ConstraintId]) -> Result<bool, Stop> {
-        let kept: BTreeSet<ConstraintId> = constraints.iter().copied().collect();
-        let system = self.solver.system;
-        let active: Vec<usize> = self
-            .scope
-            .iter()
-            .copied()
-            .filter(|index| {
-                system.equations.get(*index).is_some_and(|equation| {
-                    equation.owner.is_none_or(|owner| kept.contains(&owner))
-                })
-            })
-            .collect();
-        let parts = components(system, &active, &system.values);
-        if parts
-            .iter()
-            .any(|part| self.outcomes.get(&part.equations) == Some(&false))
-        {
-            return Ok(false);
-        }
-        let unknown: Vec<Component> = parts
-            .into_iter()
-            .filter(|part| !self.outcomes.contains_key(&part.equations))
-            .collect();
-        if unknown.is_empty() {
-            return Ok(true);
-        }
-        let mut values = system.values.clone();
-        for part in unknown {
-            let solved = self.budgeted(&part, &mut values)?;
-            self.outcomes.insert(part.equations, solved);
-            if !solved {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    }
-
-    fn budgeted(&self, part: &Component, values: &mut [f64]) -> Result<bool, Stop> {
-        let step_cost = part.equations.len();
-        let exhausted = Cell::new(false);
-        let stop = || {
-            if (self.solver.cancelled)() {
-                return true;
-            }
-            match self.work_left.get().checked_sub(step_cost) {
-                Some(left) => {
-                    self.work_left.set(left);
-                    false
-                }
-                None => {
-                    exhausted.set(true);
-                    true
-                }
-            }
-        };
-        let probe = Solver {
-            cancelled: &stop,
-            ..*self.solver
-        };
-        match probe.solves(part, values) {
-            Ok(solved) => Ok(solved),
-            Err(Cancelled) if exhausted.get() => Err(Stop::Exhausted),
-            Err(Cancelled) => Err(Stop::Cancelled),
-        }
     }
 }

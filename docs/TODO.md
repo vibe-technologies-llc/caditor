@@ -39,10 +39,13 @@ within a category run from most to least important.
 
 ## Sketch solver and expressions
 
-- Conflict diagnosis treats a subset that fails to converge from the starting shape as
-  inconsistent, so a reported conflict can be constraints the solver merely could not reach
-  together rather than a true contradiction. Probes also always start from the drawn shape, so a
-  conflict spanning a whole large part costs a full solve per probe and runs out of budget.
+- Conflict diagnosis confirms each constraint of a conflict with a Gauss–Newton step over the
+  whole part, so a conflict running through a part of more than about five hundred entities still
+  runs out of budget and is reported as not solving; one factorisation of the Jacobian, updated
+  per constraint left out, would make each confirmation cheap.
+- When conflict diagnosis finds that a part which failed from its drawn shape holds after all (a
+  chain whose line must fold back, reached from a solution of all but one constraint), the solve
+  still fails; the solution found could be offered instead.
 - `10 mm^2` means (10 mm)², since a power binds to the measure before it; stored text relies on
   that reading, so changing it needs a new spelling or a format change.
 

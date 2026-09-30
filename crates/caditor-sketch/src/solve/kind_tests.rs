@@ -602,17 +602,40 @@ fn a_point_already_on_a_spline_does_not_move() {
 }
 
 #[test]
-fn a_point_held_beyond_the_end_of_a_spline_conflicts_with_it() {
+fn a_point_held_beyond_the_end_of_a_free_spline_pulls_its_end_along() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline(&[
+        Point2::ZERO,
+        Point2::new(10.0, 10.0),
+        Point2::new(20.0, 0.0),
+    ]);
+    let Some(Entity::Spline { control_points }) = sketch.entity(spline).cloned() else {
+        panic!("expected a spline");
+    };
+    fix(&mut sketch, control_points[0]);
+    let point = sketch.add_point(Point2::new(30.0, -2.0));
+    fix(&mut sketch, point);
+    add(&mut sketch, Constraint::Coincident(point, spline));
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_near(at(&solved, control_points[0]), Point2::ZERO);
+    assert_near(at(&solved, control_points[2]), Point2::new(30.0, -2.0));
+}
+
+#[test]
+fn a_point_held_beyond_the_end_of_a_pinned_spline_conflicts_with_every_pin() {
     let mut sketch = Sketch::new(Plane::XY);
     let spline = arch(&mut sketch);
     let point = sketch.add_point(Point2::new(30.0, -2.0));
     fix(&mut sketch, point);
-    let on = add(&mut sketch, Constraint::Coincident(point, spline));
+    add(&mut sketch, Constraint::Coincident(point, spline));
+    let every: Vec<ConstraintId> = sketch.constraints().map(|(id, _)| id).collect();
 
-    let Err(SketchError::Conflict { constraints }) = solve(&sketch) else {
-        panic!("a point beyond the spline cannot lie on it");
-    };
-    assert!(constraints.contains(&on), "{constraints:?}");
+    let result = solve(&sketch);
+
+    assert_eq!(every.len(), 3 + 1 + 1);
+    assert_eq!(result, Err(SketchError::Conflict { constraints: every }));
 }
 
 #[test]
