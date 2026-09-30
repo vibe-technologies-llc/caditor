@@ -319,6 +319,7 @@ pub struct Feature {
     pub name: String,
     pub kind: FeatureKind,
     pub hidden: bool,
+    pub suppressed: bool,
 }
 
 impl Feature {
@@ -328,6 +329,7 @@ impl Feature {
             name,
             kind,
             hidden: false,
+            suppressed: false,
         }
     }
 
@@ -339,6 +341,7 @@ impl Feature {
         self.id == other.id
             && self.name == other.name
             && self.hidden == other.hidden
+            && self.suppressed == other.suppressed
             && self.kind.same_content(&other.kind)
     }
 
@@ -366,6 +369,19 @@ impl Feature {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum RollbackBar {
+    #[default]
+    AtEnd,
+    Before(FeatureId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TreeRow {
+    Feature(FeatureId),
+    Bar,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Document {
     pub(crate) parameters: Vec<Parameter>,
@@ -373,6 +389,7 @@ pub struct Document {
     pub(crate) next_parameter_id: u64,
     pub(crate) next_feature_id: u64,
     pub(crate) hidden_principal: BTreeSet<PrincipalGeometry>,
+    pub(crate) rollback: RollbackBar,
 }
 
 impl Document {
@@ -429,9 +446,58 @@ impl Document {
         self.hidden_principal.iter().copied()
     }
 
+    pub fn rollback_bar(&self) -> RollbackBar {
+        self.rollback
+    }
+
+    pub fn bar_index(&self) -> usize {
+        match self.rollback {
+            RollbackBar::AtEnd => self.features.len(),
+            RollbackBar::Before(feature) => {
+                self.feature_index(feature).unwrap_or(self.features.len())
+            }
+        }
+    }
+
+    pub fn is_rolled_back(&self, id: FeatureId) -> bool {
+        self.feature_index(id)
+            .is_some_and(|index| index >= self.bar_index())
+    }
+
+    pub fn is_active(&self, id: FeatureId) -> bool {
+        self.feature(id)
+            .is_some_and(|feature| !feature.suppressed && !self.is_rolled_back(id))
+    }
+
+    pub fn active_features(&self) -> impl DoubleEndedIterator<Item = &Feature> {
+        self.features()
+            .take(self.bar_index())
+            .filter(|feature| !feature.suppressed)
+    }
+
+    pub fn bar_before_index(&self, index: usize) -> RollbackBar {
+        self.features
+            .get(index)
+            .map_or(RollbackBar::AtEnd, |feature| {
+                RollbackBar::Before(feature.id)
+            })
+    }
+
+    pub fn tree_rows(&self) -> Vec<TreeRow> {
+        let bar = self.bar_index();
+        let mut rows: Vec<TreeRow> = self
+            .features
+            .iter()
+            .map(|feature| TreeRow::Feature(feature.id))
+            .collect();
+        rows.insert(bar.min(rows.len()), TreeRow::Bar);
+        rows
+    }
+
     pub fn same_content(&self, other: &Self) -> bool {
         self.parameters == other.parameters
             && self.hidden_principal == other.hidden_principal
+            && self.rollback == other.rollback
             && self.features.len() == other.features.len()
             && self
                 .features
@@ -441,11 +507,17 @@ impl Document {
     }
 
     pub fn transaction_to(&self, target: &Self, label: impl Into<String>) -> Transaction {
-        let removals = self
-            .features
-            .iter()
-            .rev()
-            .map(|feature| Edit::RemoveFeature { id: feature.id })
+        let unroll = (self.rollback != RollbackBar::AtEnd).then_some(Edit::SetRollbackBar {
+            bar: RollbackBar::AtEnd,
+        });
+        let removals = unroll
+            .into_iter()
+            .chain(
+                self.features
+                    .iter()
+                    .rev()
+                    .map(|feature| Edit::RemoveFeature { id: feature.id }),
+            )
             .chain(
                 self.parameters
                     .iter()
@@ -495,9 +567,16 @@ impl Document {
                 geometry,
                 hidden: target.is_principal_hidden(geometry),
             });
+        let rollback = (target.rollback != RollbackBar::AtEnd).then_some(Edit::SetRollbackBar {
+            bar: target.rollback,
+        });
         Transaction::new(
             label,
-            removals.chain(insertions).chain(visibility).collect(),
+            removals
+                .chain(insertions)
+                .chain(visibility)
+                .chain(rollback)
+                .collect(),
         )
     }
 
@@ -547,14 +626,6 @@ impl Document {
             .filter(|feature| feature.kind.uses_parameter(parameter))
             .map(|feature| feature.name.clone());
         parameters.chain(features).collect()
-    }
-
-    pub fn feature_dependents(&self, feature: FeatureId) -> Vec<FeatureId> {
-        self.features
-            .iter()
-            .filter(|other| other.kind.features().contains(&feature))
-            .map(|other| other.id)
-            .collect()
     }
 
     pub(crate) fn parameter_dependencies(&self) -> BTreeMap<ParameterId, BTreeSet<ParameterId>> {

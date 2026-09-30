@@ -16,3 +16,6 @@ paths:
   `hover_button`, which turn AccessKit on when needed); labelled ones by their painted label.
 - Tests may set the viewport selection directly; drawing tests click sketch positions mapped to the
   screen through the view, annotation tests the painted labels and glyphs.
+- Modifier keys reach egui only through `Event::ModifiersChanged` (`click_with` wraps a click in
+  them); tree drags hold the button across frames (`hold_drag`) so a test can read what shows
+  mid-drag before `release_drag`.

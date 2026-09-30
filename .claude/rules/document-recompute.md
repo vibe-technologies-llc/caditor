@@ -30,6 +30,12 @@ paths:
 - A failing feature is `Failed` with a `FeatureError` (reason, remedy and a `FixTarget`) and keeps
   its last good result. Its dependents fail with a pointer back to it; everything else is
   unaffected.
+- Features below the rollback bar are `RolledBack` and suppressed ones `Suppressed`, both without a
+  result and never evaluated; their cache entries stay, so rolling forward or unsuppressing
+  reuses them when nothing upstream changed. A feature using a suppressed one fails naming it
+  with `FixTarget::Unsuppress`; one using a feature that no longer exists fails saying so (an
+  attached sketch is told to detach). Which used features are suppressed is part of a failed
+  result's cache key, since its message says so.
 - A panic inside an `Evaluator` is caught and becomes that feature's error.
 
 ## Bodies
@@ -40,7 +46,8 @@ paths:
   skipped, so later features of the body build on the state before it.
 - `Evaluation::body` gives each body's final solid and `body_result` the shared result holding it.
 - A body whose creating feature failed or was not reached keeps the last good state of its latest
-  feature as a stale body (`is_stale`), drawn tinted and still exported.
+  feature as a stale body (`is_stale`), drawn tinted and still exported; a body whose creating
+  feature is suppressed or rolled back has no state at all, so the model shows as of the bar.
 - `body_seen_by` gives the state of a body a given feature used, which is where a revolve's model
   axis is drawn.
 

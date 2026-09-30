@@ -15,6 +15,8 @@ pub enum SketchStatus {
     Free(usize),
     Conflicting,
     Failed,
+    Suppressed,
+    RolledBack,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +57,16 @@ impl SketchSummary {
                 redundant: 0,
                 problem: None,
             },
+            Some(FeatureState::Suppressed) => Self {
+                status: SketchStatus::Suppressed,
+                redundant: 0,
+                problem: None,
+            },
+            Some(FeatureState::RolledBack) => Self {
+                status: SketchStatus::RolledBack,
+                redundant: 0,
+                problem: None,
+            },
         }
     }
 
@@ -68,6 +80,8 @@ impl SketchSummary {
             ),
             SketchStatus::Conflicting => "Conflicting constraints".to_owned(),
             SketchStatus::Failed => "The sketch has an error".to_owned(),
+            SketchStatus::Suppressed => "Suppressed".to_owned(),
+            SketchStatus::RolledBack => "Below the rollback bar".to_owned(),
         }
     }
 
@@ -96,7 +110,9 @@ pub fn up_to_date_solution(evaluation: &Evaluation, feature: FeatureId) -> Optio
 
 pub fn show(ui: &mut Ui, summary: &SketchSummary) -> Option<Focus> {
     let tone = match summary.status {
-        SketchStatus::NotSolved => Tone::Neutral,
+        SketchStatus::NotSolved | SketchStatus::Suppressed | SketchStatus::RolledBack => {
+            Tone::Neutral
+        }
         SketchStatus::FullyConstrained => Tone::Success,
         SketchStatus::Free(_) => Tone::Info,
         SketchStatus::Conflicting | SketchStatus::Failed => Tone::Error,

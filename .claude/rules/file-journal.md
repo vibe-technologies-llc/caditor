@@ -20,7 +20,10 @@ paths:
 - Replay stops at the first damaged or unreadable chunk (a torn tail loses only later changes);
   through an `Editor` it restores undo history.
 - New edit kinds do not bump the journal version: an older reader stops at the first entry it
-  cannot read, keeping all before.
+  cannot read, keeping all before. `set_feature_suppressed`, `set_rollback_bar` (`before`, absent
+  for the end) and `insert_feature`'s `suppressed` field (written only when set) came with model
+  format 3; the snapshot's optional `suppressed` and `rollback` fields hold the records of the
+  same names.
 - Lives at `.<name>.journal` next to the file, else `$XDG_STATE_HOME/caditor/recovery/` (untitled
   documents). Takes the model's permissions, owner-only when untitled.
 

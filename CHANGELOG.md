@@ -95,6 +95,20 @@ The first release of caditor.
   depend on it keeps working.
 - A body whose first feature fails stays in view, tinted, in its last good shape, and edits that
   leave geometry unchanged or only rename something do not rebuild what follows them.
+- Features can be suppressed and unsuppressed from their menu in the tree, the Model menu or the
+  palette, one or several at once (Ctrl+click and Shift+click choose several rows). A suppressed
+  feature is struck through and left out as if it were not there; features that use it fail
+  saying so, with a button to unsuppress it.
+- A rollback bar in the feature tree shows the model as it was at any point: drag it, choose Roll
+  back to here on a feature, press Alt+Up or Alt+Down, or Roll to end. Features below it are
+  greyed and not computed, new features go in right above it, and where it stands is undoable
+  and saved with the model.
+- Features can be dragged to a new place in the tree, or across the rollback bar; a place before
+  something a feature uses or after something using it is refused, with the reason shown while
+  dragging.
+- Deleting a feature that others use first lists them and asks whether to delete them too or to
+  keep them, where they fail with the reason until the deletion is undone; either way it is one
+  undoable step.
 - Editing or growing one part of a large sketch solves only that part again, even when the edit
   makes the sketch larger or moves its outermost point.
 - Named parameters and unit-aware expressions in every field, with comparisons and `if`,
@@ -109,6 +123,8 @@ The first release of caditor.
 ### Files
 
 - The `.caditor` model format: compressed, checksummed, and partially readable when damaged.
+- Models are saved in format 3, which keeps suppressed features and the rollback bar. Models
+  saved by earlier versions open as before.
 - Every change can be undone, a recovery journal restores unsaved work after a crash, and each
   file keeps the versions its saves replaced so they can be restored later.
 - The undo history keeps its memory bounded when large imports are deleted or replaced over and

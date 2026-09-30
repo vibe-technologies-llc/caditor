@@ -84,7 +84,7 @@ pub enum Reference {
 
 fn last_body(document: &Document) -> Option<FeatureId> {
     document
-        .features()
+        .active_features()
         .rev()
         .find(|feature| feature.makes_body())
         .map(|feature| feature.id())

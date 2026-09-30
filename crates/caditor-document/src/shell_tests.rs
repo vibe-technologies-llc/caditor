@@ -240,11 +240,10 @@ fn a_shell_stays_a_shell_and_keeps_its_body_in_use() {
         )),
         Err(EditError::KindChange(_))
     ));
-    assert!(matches!(
-        model.document.apply(Transaction::single(
-            "Delete",
-            Edit::RemoveFeature { id: model.base }
-        )),
-        Err(EditError::FeatureInUse { .. })
-    ));
+    assert!(
+        model
+            .document
+            .dependents_of(&[model.base])
+            .contains(&model.shell)
+    );
 }

@@ -5,7 +5,7 @@ use caditor_document::{
     Document, Edit, Extrude, ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind,
     Import, LinearDirection, Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation,
     PrincipalAxis, PrincipalGeometry, PrincipalPlane, RegionChoice, Revolve, RevolveAxis,
-    RevolveExtent, Shell, SketchAttachment, SketchFeature, SolidFeature, Transaction,
+    RevolveExtent, RollbackBar, Shell, SketchAttachment, SketchFeature, SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -16,7 +16,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -25,9 +25,28 @@ pub(crate) enum Record {
     Feature(Box<FeatureRecord>),
     NextIds(NextIdsRecord),
     Principal(PrincipalRecord),
+    Suppressed(SuppressedRecord),
+    Rollback(RollbackRecord),
 }
 
-pub(crate) const RECORD_KINDS: [&str; 4] = ["parameter", "feature", "next_ids", "principal"];
+pub(crate) const RECORD_KINDS: [&str; 6] = [
+    "parameter",
+    "feature",
+    "next_ids",
+    "principal",
+    "suppressed",
+    "rollback",
+];
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SuppressedRecord {
+    pub features: Vec<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub(crate) struct RollbackRecord {
+    pub before: u64,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ParameterRecord {
@@ -440,6 +459,8 @@ pub(crate) enum EditRecord {
     InsertFeature {
         index: usize,
         feature: FeatureRecord,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        suppressed: bool,
     },
     RemoveFeature {
         id: u64,
@@ -455,6 +476,13 @@ pub(crate) enum EditRecord {
     SetFeatureHidden {
         id: u64,
         hidden: bool,
+    },
+    SetFeatureSuppressed {
+        id: u64,
+        suppressed: bool,
+    },
+    SetRollbackBar {
+        before: Option<u64>,
     },
     SetPrincipalHidden {
         geometry: PrincipalGeometryRecord,
@@ -787,6 +815,30 @@ pub(crate) fn principal_record(document: &Document) -> Option<PrincipalRecord> {
     (!hidden.is_empty()).then_some(PrincipalRecord { hidden })
 }
 
+pub(crate) fn suppressed_record(document: &Document) -> Option<SuppressedRecord> {
+    let features: Vec<u64> = document
+        .features()
+        .filter(|feature| feature.suppressed)
+        .map(|feature| feature.id().raw())
+        .collect();
+    (!features.is_empty()).then_some(SuppressedRecord { features })
+}
+
+pub(crate) fn rollback_record(document: &Document) -> Option<RollbackRecord> {
+    match document.rollback_bar() {
+        RollbackBar::AtEnd => None,
+        RollbackBar::Before(feature) => Some(RollbackRecord {
+            before: feature.raw(),
+        }),
+    }
+}
+
+fn restore_rollback(before: Option<u64>) -> RollbackBar {
+    before.map_or(RollbackBar::AtEnd, |feature| {
+        RollbackBar::Before(FeatureId::from_raw(feature))
+    })
+}
+
 fn restore_principal_plane(record: PrincipalPlaneRecord) -> PrincipalPlane {
     match record {
         PrincipalPlaneRecord::Xy => PrincipalPlane::Xy,
@@ -1047,6 +1099,7 @@ fn edit_record(edit: &Edit) -> EditRecord {
         Edit::InsertFeature { index, feature } => EditRecord::InsertFeature {
             index: *index,
             feature: feature_record(feature),
+            suppressed: feature.suppressed,
         },
         Edit::RemoveFeature { id } => EditRecord::RemoveFeature { id: id.raw() },
         Edit::RenameFeature { id, name } => EditRecord::RenameFeature {
@@ -1060,6 +1113,16 @@ fn edit_record(edit: &Edit) -> EditRecord {
         Edit::SetFeatureHidden { id, hidden } => EditRecord::SetFeatureHidden {
             id: id.raw(),
             hidden: *hidden,
+        },
+        Edit::SetFeatureSuppressed { id, suppressed } => EditRecord::SetFeatureSuppressed {
+            id: id.raw(),
+            suppressed: *suppressed,
+        },
+        Edit::SetRollbackBar { bar } => EditRecord::SetRollbackBar {
+            before: match bar {
+                RollbackBar::AtEnd => None,
+                RollbackBar::Before(feature) => Some(feature.raw()),
+            },
         },
         Edit::SetPrincipalHidden { geometry, hidden } => EditRecord::SetPrincipalHidden {
             geometry: principal_geometry_record(*geometry),
@@ -1174,12 +1237,17 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             id: ParameterId::from_raw(id),
             expression: parse(&expression)?,
         },
-        EditRecord::InsertFeature { index, feature } => {
+        EditRecord::InsertFeature {
+            index,
+            feature,
+            suppressed,
+        } => {
             let mut issues = Vec::new();
-            let feature = restore_feature(&feature, &mut issues);
+            let mut feature = restore_feature(&feature, &mut issues);
             if !issues.is_empty() {
                 return None;
             }
+            feature.suppressed = suppressed;
             Edit::InsertFeature {
                 index,
                 feature: Arc::new(feature),
@@ -1199,6 +1267,13 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
         EditRecord::SetFeatureHidden { id, hidden } => Edit::SetFeatureHidden {
             id: FeatureId::from_raw(id),
             hidden,
+        },
+        EditRecord::SetFeatureSuppressed { id, suppressed } => Edit::SetFeatureSuppressed {
+            id: FeatureId::from_raw(id),
+            suppressed,
+        },
+        EditRecord::SetRollbackBar { before } => Edit::SetRollbackBar {
+            bar: restore_rollback(before),
         },
         EditRecord::SetPrincipalHidden { geometry, hidden } => Edit::SetPrincipalHidden {
             geometry: restore_principal(geometry),

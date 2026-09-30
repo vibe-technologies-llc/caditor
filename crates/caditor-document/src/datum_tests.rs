@@ -406,13 +406,7 @@ fn datum_references_are_checked_and_kept_in_use() {
         "Sketch 1",
         FeatureKind::Sketch(SketchFeature::on_datum(Sketch::new(Plane::XZ), plane)),
     );
-    assert!(matches!(
-        document.apply(Transaction::single(
-            "Delete",
-            Edit::RemoveFeature { id: plane }
-        )),
-        Err(EditError::FeatureInUse { .. })
-    ));
+    assert_eq!(document.dependents_of(&[plane]).len(), 1);
     assert!(matches!(
         document.apply(Transaction::single(
             "Change",

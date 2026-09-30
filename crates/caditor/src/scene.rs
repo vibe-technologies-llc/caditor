@@ -319,7 +319,7 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
             if visibility::is_principal_shown(document, PrincipalGeometry::Origin) {
                 builder.origin();
             }
-            for feature in document.features() {
+            for feature in document.active_features() {
                 let opened = context.solid == Some(feature.id());
                 if feature.kind.datum().is_some() && (opened || !feature.hidden) {
                     builder.datum(evaluation, feature.id(), opened, reference_size);
@@ -327,7 +327,7 @@ pub fn build(sources: &Sources<'_>, highlight: &Highlight<'_>, context: Context)
             }
         }
     }
-    for feature in document.features() {
+    for feature in document.active_features() {
         let presence = match editing {
             Some(edited) if edited == feature.id() => Presence::Edited,
             _ if feature.hidden => continue,
@@ -425,7 +425,10 @@ impl<'a> ConstraintStates<'a> {
             FeatureState::Failed(error) if !error.constraints.is_empty() => {
                 states.conflicting = entities_of(definition, &error.constraints);
             }
-            FeatureState::Failed(_) | FeatureState::Outdated => states.failed = true,
+            FeatureState::Failed(_)
+            | FeatureState::Outdated
+            | FeatureState::Suppressed
+            | FeatureState::RolledBack => states.failed = true,
             FeatureState::UpToDate => {
                 states.solution = status
                     .result
@@ -1075,7 +1078,8 @@ fn body_color(document: &Document, evaluation: &Evaluation, body: FeatureId) -> 
         match evaluation.feature(feature.id()).map(|status| &status.state) {
             Some(FeatureState::Failed(_)) => return FAILED_BODY,
             Some(FeatureState::Outdated) => color = OUTDATED_BODY,
-            Some(FeatureState::UpToDate) | None => {}
+            Some(FeatureState::UpToDate | FeatureState::Suppressed | FeatureState::RolledBack)
+            | None => {}
         }
     }
     color

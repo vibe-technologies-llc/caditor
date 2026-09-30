@@ -6,8 +6,8 @@ use std::{
 
 use ahash::{AHashMap, AHashSet};
 use caditor_document::{
-    DependencyGraph, Document, Edit, EditError, Feature, FeatureKind, Parameter, Revolve,
-    RevolveAxis, SolidFeature, Transaction,
+    DependencyGraph, Document, Edit, EditError, Feature, FeatureId, FeatureKind, Parameter,
+    Revolve, RevolveAxis, RollbackBar, SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, check_name};
 use caditor_sketch::EntityId;
@@ -95,6 +95,8 @@ pub(crate) struct Parts {
     pub features: Vec<FeatureRecord>,
     pub next_ids: Option<NextIdsRecord>,
     pub hidden_principal: Vec<PrincipalGeometryRecord>,
+    pub suppressed: Vec<u64>,
+    pub rollback: Option<u64>,
     pub lost_parameter_names: BTreeMap<u64, String>,
     pub beyond_limit: usize,
 }
@@ -117,6 +119,8 @@ impl Parts {
             Record::Feature(feature) => self.features.push(*feature),
             Record::NextIds(next_ids) => self.next_ids = Some(next_ids),
             Record::Principal(principal) => self.hidden_principal = principal.hidden,
+            Record::Suppressed(suppressed) => self.suppressed = suppressed.features,
+            Record::Rollback(rollback) => self.rollback = Some(rollback.before),
         }
     }
 }
@@ -348,10 +352,41 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
         );
     }
 
+    restore_suppressed(&mut document, &parts.suppressed, issues);
+    restore_rollback_bar(&mut document, parts.rollback, issues);
+
     if let Some(next) = parts.next_ids {
         document.reserve_ids_below(next.parameter, next.feature);
     }
     document
+}
+
+fn restore_suppressed(document: &mut Document, suppressed: &[u64], issues: &mut Vec<String>) {
+    let ids: Vec<FeatureId> = suppressed
+        .iter()
+        .map(|raw| FeatureId::from_raw(*raw))
+        .collect();
+    let transaction = document.suppression(&ids, true, "Suppress");
+    if document.apply(transaction).is_err() {
+        issues.push(
+            "Which features were suppressed could not be restored, so they are all computed."
+                .to_owned(),
+        );
+    }
+}
+
+fn restore_rollback_bar(document: &mut Document, before: Option<u64>, issues: &mut Vec<String>) {
+    let Some(before) = before.map(FeatureId::from_raw) else {
+        return;
+    };
+    let transaction = document.roll_to(RollbackBar::Before(before), "Roll back");
+    if document.apply(transaction).is_err() {
+        issues.push(
+            "The rollback bar stood above a feature that could not be restored, so it is at the \
+             end of the tree and every feature is computed."
+                .to_owned(),
+        );
+    }
 }
 
 fn with_unique_names(features: Vec<Feature>, issues: &mut Vec<String>) -> Vec<Arc<Feature>> {

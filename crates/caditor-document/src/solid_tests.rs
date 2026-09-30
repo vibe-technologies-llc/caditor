@@ -194,13 +194,7 @@ fn solid_features_protect_what_they_use() {
     let model = model();
     let mut document = model.document.clone();
     let outline = document.features().next().unwrap().id();
-    assert!(matches!(
-        document.apply(Transaction::single(
-            "Delete",
-            Edit::RemoveFeature { id: outline }
-        )),
-        Err(EditError::FeatureInUse { .. })
-    ));
+    assert!(!document.dependents_of(&[outline]).is_empty());
     let mut transaction = document.transaction("Second body");
     let other = transaction.add_feature(
         "Other",

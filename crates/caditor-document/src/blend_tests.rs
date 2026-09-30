@@ -360,13 +360,12 @@ fn a_blend_switches_between_fillet_and_chamfer_but_nothing_else() {
         )),
         Err(EditError::KindChange(_))
     ));
-    assert!(matches!(
-        model.document.apply(Transaction::single(
-            "Delete",
-            Edit::RemoveFeature { id: model.base }
-        )),
-        Err(EditError::FeatureInUse { .. })
-    ));
+    assert!(
+        model
+            .document
+            .dependents_of(&[model.base])
+            .contains(&model.fillet)
+    );
 }
 
 #[test]

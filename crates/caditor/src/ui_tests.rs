@@ -7,7 +7,7 @@ use std::{
 
 use caditor_document::{
     BodyOperation, Document, Edit, Editor, ExtrudeExtent, Feature, FeatureId, FeatureKind,
-    RegionChoice, SolidFeature, SolidResult, Transaction,
+    RegionChoice, RollbackBar, SolidFeature, SolidResult, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Unit};
 use caditor_file::{ExportFormat, JournalEntry, Start, Storage, StorageConfig};
@@ -7646,4 +7646,280 @@ fn trim_and_extend_act_on_the_keyboard_highlight() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     assert_eq!(harness.tool(), Some(Tool::Select));
+}
+
+fn is_suppressed(harness: &Harness, name: &str) -> bool {
+    harness
+        .document()
+        .feature(feature_named(harness, name))
+        .is_some_and(|feature| feature.suppressed)
+}
+
+fn click_with(harness: &mut Harness, label: &str, modifiers: Modifiers) {
+    let position = harness.position_of(label);
+    harness.events.push(Event::ModifiersChanged(modifiers));
+    harness.events.push(Event::PointerMoved(position));
+    harness.frame();
+    for pressed in [true, false] {
+        harness.events.push(Event::PointerButton {
+            pos: position,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers,
+        });
+        harness.frame();
+    }
+    harness
+        .events
+        .push(Event::ModifiersChanged(Modifiers::NONE));
+    harness.frame();
+}
+
+fn hold_drag(harness: &mut Harness, from: Pos2, to: Pos2) {
+    harness.events.push(Event::PointerMoved(from));
+    harness.frame();
+    harness.events.push(Event::PointerButton {
+        pos: from,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    for step in 1..=6 {
+        let position = from + (to - from) * (step as f32 / 6.0);
+        harness.events.push(Event::PointerMoved(position));
+        harness.frame();
+    }
+    harness.frame();
+}
+
+fn release_drag(harness: &mut Harness, at: Pos2) {
+    harness.events.push(Event::PointerButton {
+        pos: at,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    harness.settle();
+}
+
+fn upper_edge_of(harness: &Harness, label: &str) -> Pos2 {
+    let (_, rect) = harness
+        .texts
+        .iter()
+        .find(|(shown, _)| shown == label)
+        .unwrap_or_else(|| panic!("'{label}' is not on screen"));
+    Pos2::new(rect.center().x, rect.top() + 1.0)
+}
+
+#[test]
+fn suppressing_a_sketch_fails_its_extrusion_until_the_callout_unsuppresses_it() {
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+    let volume = harness.body_volume(extrude);
+
+    harness.click_beside(icons::MORE, "Plate");
+    harness.click("Suppress");
+    harness.settle();
+    let suppressed_label = harness.model.undo_label().map(str::to_owned);
+    let failed = harness.shows("It uses Plate, which is suppressed.");
+    let body_stale = harness.model.evaluation().is_stale(extrude);
+    let muted = harness.color_of("Plate");
+    harness.click_beside(icons::MORE, "Extrude 1");
+    harness.click("Suppress");
+    harness.settle();
+    harness.click("Extrude 1");
+    harness.key(Key::E, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let refused = harness.model.notice().map(|notice| notice.text.clone());
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(suppressed_label.as_deref(), Some("Suppress Plate"));
+    assert!(failed);
+    assert!(body_stale);
+    assert_ne!(muted, harness.color_of("Side sketch"));
+    assert_eq!(
+        refused.as_deref(),
+        Some("Edit feature: Extrude 1 is suppressed; unsuppress it to edit it")
+    );
+    assert!(is_suppressed(&harness, "Plate"));
+    assert!(!is_suppressed(&harness, "Extrude 1"));
+
+    harness.click("Unsuppress Plate");
+    harness.settle();
+
+    assert!(!is_suppressed(&harness, "Plate"));
+    assert_eq!(harness.model.undo_label(), Some("Unsuppress Plate"));
+    assert!(harness.shows("Up to date"));
+    assert!((harness.body_volume(extrude) - volume).abs() < 1e-6);
+}
+
+#[test]
+fn features_chosen_together_in_the_tree_are_suppressed_in_one_change_from_the_palette() {
+    let mut harness = Harness::new();
+
+    harness.click("Base sketch");
+    click_with(&mut harness, "Side sketch", Modifiers::COMMAND);
+    run_from_palette(&mut harness, "suppress or unsuppress");
+    harness.settle();
+    let both = is_suppressed(&harness, "Base sketch") && is_suppressed(&harness, "Side sketch");
+    let label = harness.model.undo_label().map(str::to_owned);
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert!(both);
+    assert_eq!(label.as_deref(), Some("Suppress 2 features"));
+    assert!(!is_suppressed(&harness, "Base sketch"));
+    assert!(!is_suppressed(&harness, "Side sketch"));
+}
+
+#[test]
+fn the_rollback_bar_moves_from_the_menu_and_keyboard_and_new_features_go_in_above_it() {
+    let mut harness = Harness::new();
+
+    harness.click_beside(icons::MORE, "Base sketch");
+    harness.click("Roll back to here");
+    harness.settle();
+    let rolled_label = harness.model.undo_label().map(str::to_owned);
+    let side_rolled_back = harness
+        .document()
+        .is_rolled_back(feature_named(&harness, "Side sketch"));
+    let caption = harness.shows("1 feature rolled back");
+    let sketch = harness.draw_on_new_sketch();
+    let order = feature_names(&harness);
+    harness.key(Key::ArrowDown, Modifiers::ALT);
+    harness.settle();
+    let at_end = harness.document().rollback_bar();
+    harness.key(Key::ArrowUp, Modifiers::ALT);
+    harness.settle();
+    harness.key(Key::ArrowUp, Modifiers::ALT);
+    harness.settle();
+    let editing_after = harness.editing();
+    let rolled_past_sketch = harness.document().is_rolled_back(sketch);
+    run_from_palette(&mut harness, "roll to end");
+    harness.settle();
+
+    assert_eq!(rolled_label.as_deref(), Some("Roll back to Base sketch"));
+    assert!(side_rolled_back);
+    assert!(caption);
+    assert_eq!(order, ["Base sketch", "Sketch 1", "Side sketch"]);
+    assert_eq!(at_end, RollbackBar::AtEnd);
+    assert!(rolled_past_sketch);
+    assert_eq!(editing_after, None);
+    assert_eq!(harness.document().rollback_bar(), RollbackBar::AtEnd);
+    assert_eq!(harness.model.undo_label(), Some("Roll to end"));
+    assert!(harness.unreadable_nodes().is_empty());
+}
+
+#[test]
+fn dragging_a_feature_reorders_the_tree_and_a_refused_place_says_why_while_dragging() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+
+    let from = harness.position_of("Extrude 1");
+    let onto = upper_edge_of(&harness, "Plate");
+    hold_drag(&mut harness, from, onto);
+    let refusal = harness.shows("Extrude 1 cannot move above Plate, which it uses");
+    release_drag(&mut harness, onto);
+    let unchanged = feature_names(&harness);
+
+    let from = harness.position_of("Side sketch");
+    let onto = upper_edge_of(&harness, "Base sketch");
+    hold_drag(&mut harness, from, onto);
+    let allowed = !harness.shows("Side sketch cannot move above Base sketch, which it uses");
+    release_drag(&mut harness, onto);
+
+    assert!(refusal);
+    assert_eq!(
+        unchanged,
+        ["Base sketch", "Side sketch", "Plate", "Extrude 1"]
+    );
+    assert!(allowed);
+    assert_eq!(
+        feature_names(&harness),
+        ["Side sketch", "Base sketch", "Plate", "Extrude 1"]
+    );
+    assert_eq!(harness.model.undo_label(), Some("Move Side sketch"));
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert_eq!(
+        feature_names(&harness),
+        ["Base sketch", "Side sketch", "Plate", "Extrude 1"]
+    );
+}
+
+#[test]
+fn dragging_the_rollback_bar_shows_the_model_as_of_where_it_is_dropped() {
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+
+    let bar = harness
+        .button_rect(crate::feature_tree::ROLLBACK_BAR_NAME)
+        .center();
+    let onto = upper_edge_of(&harness, "Plate");
+    hold_drag(&mut harness, bar, onto);
+    release_drag(&mut harness, onto);
+
+    assert_eq!(
+        harness.document().rollback_bar(),
+        RollbackBar::Before(feature_named(&harness, "Plate"))
+    );
+    assert!(harness.model.evaluation().body(extrude).is_none());
+    assert!(harness.shows("2 features rolled back"));
+    assert_eq!(harness.model.undo_label(), Some("Move the rollback bar"));
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(harness.model.evaluation().body(extrude).is_some());
+}
+
+#[test]
+fn deleting_a_feature_others_use_asks_whether_to_take_or_keep_them() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    let everything = feature_names(&harness);
+
+    harness.click("Plate");
+    harness.key(Key::Delete, Modifiers::NONE);
+    harness.show_new_windows();
+    let asked = harness.shows("Delete “Plate”?") && harness.shows("1 feature depends on “Plate”:");
+    let listed = harness.shows("uses Plate");
+    let primary = harness.position_of(crate::feature_tree::DELETE_WITH_DEPENDENTS);
+    let keep = harness.position_of(crate::feature_tree::KEEP_DEPENDENTS);
+    let cancel = harness.position_of("Cancel");
+    harness.click("Cancel");
+    let cancelled = feature_names(&harness) == everything && !harness.shows("Delete “Plate”?");
+
+    harness.click("Plate");
+    harness.key(Key::Delete, Modifiers::NONE);
+    harness.show_new_windows();
+    harness.click(crate::feature_tree::KEEP_DEPENDENTS);
+    harness.settle();
+    let kept = feature_names(&harness);
+    let failing = harness.shows("It uses a feature that no longer exists.");
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    harness.click("Plate");
+    harness.key(Key::Delete, Modifiers::NONE);
+    harness.show_new_windows();
+    harness.click(crate::feature_tree::DELETE_WITH_DEPENDENTS);
+    harness.settle();
+    let taken = feature_names(&harness);
+    let label = harness.model.undo_label().map(str::to_owned);
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert!(asked);
+    assert!(listed);
+    assert!(primary.x > keep.x && keep.x > cancel.x);
+    assert!(cancelled);
+    assert_eq!(kept, ["Base sketch", "Side sketch", "Extrude 1"]);
+    assert!(failing);
+    assert_eq!(taken, ["Base sketch", "Side sketch"]);
+    assert_eq!(label.as_deref(), Some("Delete Plate and its dependents"));
+    assert_eq!(feature_names(&harness), everything);
+    assert!(harness.shows("Up to date"));
 }

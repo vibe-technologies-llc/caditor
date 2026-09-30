@@ -75,6 +75,11 @@ paths:
   Pattern also along selected direction (`pattern_tools::selected_change`). Tab moves between
   widgets and Escape leaves them; each feature row has a "⋯" menu with what its right-click menu
   holds.
+- Tree order and the rollback bar are commands too, so nothing needs a drag: Move feature up and
+  down, Suppress or unsuppress feature (the chosen rows), Roll back to here (the bar right below
+  the current feature), Roll to end, and Move the rollback bar up or down (Alt+Up, Alt+Down, the
+  bar stepping one row). Edit feature refuses a suppressed or rolled-back feature with the
+  reason.
 - Window commands: Minimize the window, Maximize or restore the window (refused in full screen)
   and Enter or leave full screen (F11), carried out as egui viewport commands
   (`window_frame::commands`); closing the window is Quit.

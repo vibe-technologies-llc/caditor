@@ -8,6 +8,11 @@ paths:
 - Binary, zstd-compressed, xxh3-checked; no text model format. Format number restarted at 1; every
   shipped version stays readable. Version 2 added `linear_pattern` and `circular_pattern`
   feature records, which version 1 readers leave out as a kind they do not know.
+- Version 3 adds two records, each written only when needed: `suppressed` (`{"features": [ids]}`,
+  the suppressed features) and `rollback` (`{"before": id}`, the first feature below the rollback
+  bar). Losing either changes what the model computes, so they are records of their own rather
+  than feature fields: a version 2 reader reports them as unknown records from a newer version
+  and computes every feature.
 
 ## Container (`binary/`)
 
@@ -38,7 +43,8 @@ paths:
 
 - Head chunk (save time, last change's name, blake3 digest of records), one zstd chunk per record,
   version history. Records: parameters, features, ID counters, `principal` (hidden principal
-  planes, axes, origin; only when one is hidden; the journal snapshot carries it as a field).
+  planes, axes, origin; only when one is hidden), `suppressed` and `rollback`; the journal
+  snapshot carries the last three as fields.
 - A record with unchanged understood content is written back exactly as stored (newer fields kept,
   not recompressed). Unknown chunk kinds are carried unless must-understand; loading reports those
   as left out, so the original is kept as `.damaged`.
@@ -48,8 +54,9 @@ paths:
   numbers exact f64. Imports are `import` records (source name, STEP text); unreadable ones load
   empty, reported.
 - Reported fallbacks: unreadable extent becomes 10 mm or 360°; unreadable blend edge left out;
-  unreadable opened face left closed; sketch whose face or datum plane cannot be restored stays on
-  its stored plane; revolve whose axis line is gone turns about its sketch's vertical axis;
+  unreadable opened face left closed; sketch whose face cannot be read, or that lies on a feature
+  that is not a body or datum plane, stays on its stored plane; revolve whose axis line is gone
+  turns about its sketch's vertical axis;
   pattern whose direction or axis cannot be read runs along X or turns about Z, an unreadable
   second direction is left out, an unreadable count becomes 1 and spacing 10 mm.
 
@@ -107,7 +114,11 @@ paths:
   `Document::apply`, so a loaded model satisfies the document invariants.
 - Reported repairs: damaged or unknown (newer) records left out; a lost parameter still used
   becomes a stand-in of value 0; unusable or duplicate names renamed; a parameter cycle broken at
-  the parameter closing it; an unreadable dimension takes its drawn length.
+  the parameter closing it; an unreadable dimension takes its drawn length; a rollback bar above a
+  feature that is not there goes to the end. Suppressed IDs of features that are not there are
+  dropped silently (their loss is reported with the feature).
+- A feature referring to a feature that is not in the file loads as saved, since deleting a
+  feature may keep its dependents (`document.md`); it fails when computed, saying what it lost.
 - No damaged chunk but records not matching the head's digest (cut between chunks): reported as
   ending early; loads with problems and keeps its `.damaged` copy on the next save.
 - Near-linear on hostile files: names indexed; duplicate IDs and cycles (`DependencyGraph`) found

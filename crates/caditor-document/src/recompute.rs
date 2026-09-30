@@ -53,6 +53,7 @@ pub enum FixTarget {
         feature: FeatureId,
         constraint: ConstraintId,
     },
+    Unsuppress(FeatureId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -226,6 +227,8 @@ pub enum FeatureState {
     UpToDate,
     Failed(FeatureError),
     Outdated,
+    Suppressed,
+    RolledBack,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -357,6 +360,7 @@ struct CacheEntry {
     parameters: ParameterFingerprint,
     names: Names,
     upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)>,
+    suppressed_upstream: BTreeSet<FeatureId>,
     state: FeatureState,
     result: Option<Arc<FeatureResult>>,
 }
@@ -368,13 +372,19 @@ impl CacheEntry {
         parameters: &ParameterFingerprint,
         names: &Names,
         upstream: &[(FeatureId, Option<Arc<FeatureResult>>)],
+        suppressed_upstream: &BTreeSet<FeatureId>,
     ) -> bool {
         let same_definition = Arc::ptr_eq(&self.definition, definition)
             || (self.definition.id() == definition.id()
                 && self.definition.kind.same_content(&definition.kind));
         let same_message = match self.state {
-            FeatureState::Failed(_) => self.names == *names,
-            FeatureState::UpToDate | FeatureState::Outdated => true,
+            FeatureState::Failed(_) => {
+                self.names == *names && self.suppressed_upstream == *suppressed_upstream
+            }
+            FeatureState::UpToDate
+            | FeatureState::Outdated
+            | FeatureState::Suppressed
+            | FeatureState::RolledBack => true,
         };
         let same_upstream = self.upstream.len() == upstream.len()
             && self.upstream.iter().zip(upstream).all(
@@ -442,10 +452,33 @@ impl Recompute {
         let mut inputs_before = BTreeMap::new();
         let mut seen_bodies: BTreeMap<FeatureId, BTreeMap<FeatureId, FeatureId>> = BTreeMap::new();
         let mut cancelled = false;
+        let bar = document.bar_index();
+        let suppressed: BTreeSet<FeatureId> = document
+            .features()
+            .filter(|feature| feature.suppressed)
+            .map(Feature::id)
+            .collect();
 
         for (index, feature) in features.iter().enumerate() {
             progress(index, features.len());
             let id = feature.id();
+            let skipped = if index >= bar {
+                Some(FeatureState::RolledBack)
+            } else if feature.suppressed {
+                Some(FeatureState::Suppressed)
+            } else {
+                None
+            };
+            if let Some(state) = skipped {
+                statuses.insert(
+                    id,
+                    FeatureStatus {
+                        state,
+                        result: None,
+                    },
+                );
+                continue;
+            }
             let used_parameters = feature.kind.parameters();
             let parameter_fingerprint = parameters.fingerprint(&used_parameters);
             let names = Names::of(
@@ -470,10 +503,23 @@ impl Recompute {
                     }
                 }
             }
+            let suppressed_upstream: BTreeSet<FeatureId> = upstream
+                .iter()
+                .map(|(used, _)| *used)
+                .filter(|used| suppressed.contains(used))
+                .collect();
             let previous = self.cache.get(&id);
 
             let reusable = previous
-                .filter(|entry| entry.matches(feature, &parameter_fingerprint, &names, &upstream))
+                .filter(|entry| {
+                    entry.matches(
+                        feature,
+                        &parameter_fingerprint,
+                        &names,
+                        &upstream,
+                        &suppressed_upstream,
+                    )
+                })
                 .cloned();
             let entry = if let Some(entry) = reusable {
                 entry
@@ -489,7 +535,7 @@ impl Recompute {
                 continue;
             } else {
                 let last_good = previous.and_then(|entry| entry.result.clone());
-                let outcome = match missing_upstream(document, &upstream) {
+                let outcome = match missing_upstream(document, feature, &upstream) {
                     Some(error) => Err(Failure::Error(error)),
                     None => evaluate_contained(
                         evaluator,
@@ -525,6 +571,7 @@ impl Recompute {
                     parameters: parameter_fingerprint,
                     names,
                     upstream,
+                    suppressed_upstream,
                     state,
                     result,
                 };
@@ -547,8 +594,8 @@ impl Recompute {
             );
         }
         progress(features.len(), features.len());
-        let swept: BTreeSet<FeatureId> = features
-            .iter()
+        let swept: BTreeSet<FeatureId> = document
+            .active_features()
             .filter_map(|feature| feature.kind.solid().map(SolidFeature::sketch))
             .collect();
         for sketch in &swept {
@@ -617,7 +664,7 @@ fn last_good_bodies(
     current: &BTreeMap<FeatureId, FeatureId>,
 ) -> BTreeMap<FeatureId, FeatureId> {
     let made: BTreeSet<FeatureId> = document
-        .features()
+        .active_features()
         .filter(|feature| feature.makes_body())
         .map(Feature::id)
         .collect();
@@ -639,20 +686,32 @@ fn last_good_bodies(
 
 fn missing_upstream(
     document: &Document,
+    feature: &Feature,
     upstream: &[(FeatureId, Option<Arc<FeatureResult>>)],
 ) -> Option<FeatureError> {
     let (missing, _) = upstream.iter().find(|(_, result)| result.is_none())?;
-    let Some(name) = document
-        .feature(*missing)
-        .map(|feature| feature.name.clone())
-    else {
+    let Some(used) = document.feature(*missing) else {
+        let remedy = if feature.kind.attachment().is_some() {
+            "Detach the sketch to keep it where it is, or undo the deletion."
+        } else {
+            "Undo the deletion, or delete this feature too."
+        };
         return Some(FeatureError {
             reason: "It uses a feature that no longer exists.".to_owned(),
-            remedy: "Edit it so it no longer uses the missing feature.".to_owned(),
+            remedy: remedy.to_owned(),
             fix: None,
             constraints: Vec::new(),
         });
     };
+    let name = used.name.clone();
+    if used.suppressed {
+        return Some(FeatureError {
+            reason: format!("It uses {name}, which is suppressed."),
+            remedy: format!("Unsuppress {name}, or suppress this feature too."),
+            fix: Some(FixTarget::Unsuppress(*missing)),
+            constraints: Vec::new(),
+        });
+    }
     Some(FeatureError {
         reason: format!("It uses {name}, which has an error."),
         remedy: format!("Fix {name} first."),

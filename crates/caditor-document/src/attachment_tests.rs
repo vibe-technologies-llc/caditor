@@ -290,11 +290,7 @@ fn placement_edits_are_checked_and_undone() {
         document.check(&on_a_solid),
         Err(EditError::NotASketch("Boss".to_owned()))
     );
-    let remove_base = Transaction::single("Delete Base", Edit::RemoveFeature { id: stack.base });
-    assert!(matches!(
-        document.check(&remove_base),
-        Err(EditError::FeatureInUse { .. })
-    ));
+    assert!(!document.dependents_of(&[stack.base]).is_empty());
     let above_base = Transaction::single(
         "Move",
         Edit::MoveFeature {

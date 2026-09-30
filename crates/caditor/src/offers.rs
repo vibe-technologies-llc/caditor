@@ -33,7 +33,7 @@ impl Offers {
     fn of(model: &Model, selection: &Selection) -> Self {
         let document = model.document();
         let evaluation = model.evaluation();
-        let end = document.features().len();
+        let end = document.bar_index();
         let model_axis = selection
             .iter()
             .find_map(|pickable| datum_tools::axis_reference(model, pickable, end));

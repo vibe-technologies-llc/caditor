@@ -39,7 +39,8 @@ paths:
   `&Model` and returns `Action`s the app performs after its pass, so the UI never mutates the
   document directly.
 - Changes submit a snapshot to the worker; features draw from the last good result, tinted if failed
-  or outdated.
+  or outdated. Suppressed features and those below the rollback bar are not drawn or picked
+  (`scene.rs` walks `Document::active_features`), so the view shows the model as of the bar.
 - `Model` owns the file session: the path, the last saved document (the model is unsaved exactly
   when its document differs from it), the journal entries since then and the `Storage` worker, to
   which every change is recorded. While the journal cannot be written the status bar shows Not

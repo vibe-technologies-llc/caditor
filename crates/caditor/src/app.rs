@@ -246,7 +246,8 @@ pub fn show(
     let modal_open = workspace.preferences_open
         || workspace.shortcut_editor.is_some()
         || workspace.welcome_open
-        || workspace.about_open;
+        || workspace.about_open
+        || workspace.panels.deleting.is_some();
     let dialog_open = modal_open || palette_open;
     let blocked = files.is_blocking() || dialog_open;
     let keys_free = !keyboard_taken && !blocked;
@@ -431,6 +432,7 @@ pub fn show(
         if *about_open && about::dialog(ui.ctx()) {
             actions.push(Action::Preferences(PreferencesCommand::CloseAbout));
         }
+        feature_tree::delete_dialog(ui.ctx(), model.document(), panels, actions);
         if let Some((hint, rect)) = hint.filter(|_| !palette_open)
             && let Some(choice) = onboarding::show_hint(ui.ctx(), rect, hint, &preferences.keymap)
         {

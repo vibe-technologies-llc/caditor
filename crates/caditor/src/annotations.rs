@@ -161,7 +161,13 @@ impl<'a> Standings<'a> {
             .map(|status| &status.state)
         {
             Some(FeatureState::Failed(error)) => error.constraints.clone(),
-            Some(FeatureState::UpToDate | FeatureState::Outdated) | None => Vec::new(),
+            Some(
+                FeatureState::UpToDate
+                | FeatureState::Outdated
+                | FeatureState::Suppressed
+                | FeatureState::RolledBack,
+            )
+            | None => Vec::new(),
         };
         Self {
             conflicting,

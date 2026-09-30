@@ -398,13 +398,12 @@ fn a_pattern_keeps_its_body_and_datum_axis_in_use_and_undoes_as_one_step() {
     assert_eq!(evaluation.failed_count(), 0);
     assert_volume(&evaluation, model.base, 3.0 * 320.0);
     for used in [model.base, axis] {
-        assert!(matches!(
-            model.document.apply(Transaction::single(
-                "Delete",
-                Edit::RemoveFeature { id: used }
-            )),
-            Err(EditError::FeatureInUse { .. })
-        ));
+        assert!(
+            model
+                .document
+                .dependents_of(&[used])
+                .contains(&model.pattern)
+        );
     }
     assert!(matches!(
         model.document.apply(Transaction::single(

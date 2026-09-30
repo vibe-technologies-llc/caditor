@@ -11,7 +11,8 @@ use crate::{
     datum::{Datum, PrincipalGeometry},
     dependencies::DependencyGraph,
     document::{
-        Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, list_names,
+        Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, RollbackBar,
+        list_names,
     },
     solid::BodyOperation,
 };
@@ -51,6 +52,13 @@ pub enum Edit {
     SetFeatureHidden {
         id: FeatureId,
         hidden: bool,
+    },
+    SetFeatureSuppressed {
+        id: FeatureId,
+        suppressed: bool,
+    },
+    SetRollbackBar {
+        bar: RollbackBar,
     },
     SetPrincipalHidden {
         geometry: PrincipalGeometry,
@@ -147,6 +155,8 @@ impl Transaction {
                 | Edit::RemoveFeature { .. }
                 | Edit::MoveFeature { .. }
                 | Edit::SetFeatureHidden { .. }
+                | Edit::SetFeatureSuppressed { .. }
+                | Edit::SetRollbackBar { .. }
                 | Edit::SetPrincipalHidden { .. }
                 | Edit::SetSketchPlacement { .. }
                 | Edit::SetDimension { .. }
@@ -186,8 +196,8 @@ pub enum EditError {
     ParameterInUse { name: String, users: String },
     #[error("This would make {name} depend on itself ({path})")]
     Cycle { name: String, path: String },
-    #[error("{name} is used by {users}. Remove those features first.")]
-    FeatureInUse { name: String, users: String },
+    #[error("The rollback bar sits right above {0}; move the bar before deleting it")]
+    RollbackBarAbove(String),
     #[error("{name} cannot move above {other}, which it uses")]
     AboveDependency { name: String, other: String },
     #[error("{name} cannot move below {other}, which uses it")]
@@ -244,7 +254,7 @@ pub struct TransactionBuilder<'a> {
     next_parameter_id: u64,
     next_feature_id: u64,
     parameter_count: usize,
-    feature_count: usize,
+    next_feature_index: usize,
     next_sketch_ids: BTreeMap<FeatureId, u64>,
 }
 
@@ -280,10 +290,10 @@ impl TransactionBuilder<'_> {
         let id = FeatureId::from_raw(self.next_feature_id);
         self.next_feature_id = self.next_feature_id.saturating_add(1);
         self.edits.push(Edit::InsertFeature {
-            index: self.feature_count,
+            index: self.next_feature_index,
             feature: Arc::new(Feature::new(id, name.into(), kind)),
         });
-        self.feature_count += 1;
+        self.next_feature_index += 1;
         id
     }
 
@@ -307,7 +317,7 @@ impl Document {
             next_parameter_id: self.next_parameter_id,
             next_feature_id: self.next_feature_id,
             parameter_count: self.parameters.len(),
-            feature_count: self.features.len(),
+            next_feature_index: self.bar_index(),
             next_sketch_ids: BTreeMap::new(),
         }
     }
@@ -352,6 +362,10 @@ impl Document {
             Edit::RenameFeature { id, name } => self.rename_feature(id, name),
             Edit::MoveFeature { id, index } => self.move_feature(id, index),
             Edit::SetFeatureHidden { id, hidden } => self.set_feature_hidden(id, hidden),
+            Edit::SetFeatureSuppressed { id, suppressed } => {
+                self.set_feature_suppressed(id, suppressed)
+            }
+            Edit::SetRollbackBar { bar } => self.set_rollback_bar(bar),
             Edit::SetPrincipalHidden { geometry, hidden } => {
                 Ok(self.set_principal_hidden(geometry, hidden))
             }
@@ -426,25 +440,37 @@ impl Document {
     fn check_feature_references(&self, kind: &FeatureKind, index: usize) -> Result<(), EditError> {
         self.check_parameters_exist(kind.parameters())?;
         for used in kind.features() {
-            match self.feature_index(used) {
-                Some(position) if position < index => {}
-                _ => return Err(EditError::MissingFeature),
+            check_storable(used.raw())?;
+            if self
+                .feature_index(used)
+                .is_some_and(|position| position >= index)
+            {
+                return Err(EditError::MissingFeature);
             }
         }
-        for body in kind.bodies_used() {
-            let body = self.feature(body).ok_or(EditError::MissingFeature)?;
+        for body in kind
+            .bodies_used()
+            .into_iter()
+            .filter_map(|id| self.feature(id))
+        {
             if !body.makes_body() {
                 return Err(EditError::NotABody(body.name.clone()));
             }
         }
-        for plane in kind.planes_used() {
-            let plane = self.feature(plane).ok_or(EditError::MissingFeature)?;
+        for plane in kind
+            .planes_used()
+            .into_iter()
+            .filter_map(|id| self.feature(id))
+        {
             if !plane.kind.datum().is_some_and(Datum::is_plane) {
                 return Err(EditError::NotAPlane(plane.name.clone()));
             }
         }
-        for axis in kind.axes_used() {
-            let axis = self.feature(axis).ok_or(EditError::MissingFeature)?;
+        for axis in kind
+            .axes_used()
+            .into_iter()
+            .filter_map(|id| self.feature(id))
+        {
             if !axis.kind.datum().is_some_and(|datum| !datum.is_plane()) {
                 return Err(EditError::NotAnAxis(axis.name.clone()));
             }
@@ -452,9 +478,9 @@ impl Document {
         let Some(solid) = kind.solid() else {
             return Ok(());
         };
-        let sketch = self
-            .feature(solid.sketch())
-            .ok_or(EditError::MissingFeature)?;
+        let Some(sketch) = self.feature(solid.sketch()) else {
+            return Ok(());
+        };
         let Some(definition) = sketch.kind.sketch() else {
             return Err(EditError::NotASketch(sketch.name.clone()));
         };
@@ -482,6 +508,7 @@ impl Document {
             return Err(EditError::KindChange(name));
         }
         self.check_feature_references(&kind, index)?;
+        self.reserve_past_references(&kind);
         let keeps_body = kind
             .solid()
             .is_some_and(|solid| solid.operation() == BodyOperation::NewBody);
@@ -519,6 +546,7 @@ impl Document {
         placed.attachment = attachment;
         let kind = FeatureKind::Sketch(placed);
         self.check_feature_references(&kind, index)?;
+        self.reserve_past_references(&kind);
         let feature = self.feature_mut(id)?;
         let previous = std::mem::replace(&mut feature.kind, kind);
         let FeatureKind::Sketch(previous) = previous else {
@@ -627,23 +655,6 @@ impl Document {
         })
     }
 
-    pub fn can_remove_feature(&self, id: FeatureId) -> Result<(), EditError> {
-        self.feature_position(id)?;
-        let users: Vec<String> = self
-            .feature_dependents(id)
-            .iter()
-            .filter_map(|dependent| self.feature(*dependent))
-            .map(|dependent| dependent.name.clone())
-            .collect();
-        if users.is_empty() {
-            return Ok(());
-        }
-        Err(EditError::FeatureInUse {
-            name: self.feature_name(id),
-            users: list_names(&users),
-        })
-    }
-
     fn insert_feature(
         &mut self,
         index: usize,
@@ -668,13 +679,26 @@ impl Document {
         self.check_feature_references(&feature.kind, index)?;
         let id = feature.id();
         self.next_feature_id = self.next_feature_id.max(id.raw().saturating_add(1));
+        self.reserve_past_references(&feature.kind);
         self.features.insert(index, feature);
         Ok(Edit::RemoveFeature { id })
     }
 
+    fn reserve_past_references(&mut self, kind: &FeatureKind) {
+        let beyond = kind
+            .features()
+            .into_iter()
+            .map(|used| used.raw().saturating_add(1))
+            .max()
+            .unwrap_or(0);
+        self.next_feature_id = self.next_feature_id.max(beyond);
+    }
+
     fn remove_feature(&mut self, id: FeatureId) -> Result<Edit, EditError> {
-        self.can_remove_feature(id)?;
         let index = self.feature_position(id)?;
+        if self.rollback == RollbackBar::Before(id) {
+            return Err(EditError::RollbackBarAbove(self.feature_name(id)));
+        }
         let feature = self.features.remove(index);
         Ok(Edit::InsertFeature { index, feature })
     }
@@ -697,6 +721,27 @@ impl Document {
             id,
             hidden: previous,
         })
+    }
+
+    fn set_feature_suppressed(
+        &mut self,
+        id: FeatureId,
+        suppressed: bool,
+    ) -> Result<Edit, EditError> {
+        let feature = self.feature_mut(id)?;
+        let previous = std::mem::replace(&mut feature.suppressed, suppressed);
+        Ok(Edit::SetFeatureSuppressed {
+            id,
+            suppressed: previous,
+        })
+    }
+
+    fn set_rollback_bar(&mut self, bar: RollbackBar) -> Result<Edit, EditError> {
+        if let RollbackBar::Before(feature) = bar {
+            self.feature_position(feature)?;
+        }
+        let previous = std::mem::replace(&mut self.rollback, bar);
+        Ok(Edit::SetRollbackBar { bar: previous })
     }
 
     fn set_principal_hidden(&mut self, geometry: PrincipalGeometry, hidden: bool) -> Edit {

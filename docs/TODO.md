@@ -102,8 +102,7 @@ within a category run from most to least important.
 - Extents missing: through all, up to next and up to face for extrude, and two angles for
   revolve.
 - No feature combines two existing bodies, and a cut affects only one body.
-- No suppress, rollback bar, insert-here, drag reorder, or delete with a preview of its
-  dependents.
+- Several features chosen in the tree cannot be dragged together; each moves on its own.
 - Blends: only line and circle edges along planes, parallel cylinders and coaxial surfaces; no
   ellipse, spline or intersection edges; ends at steps and T-junctions refused; no variable
   radius, two-distance or distance-angle chamfer; corners only for three convex straight edges.
