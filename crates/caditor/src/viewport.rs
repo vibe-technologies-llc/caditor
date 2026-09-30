@@ -52,8 +52,9 @@ const KEYBOARD_ORBIT_FRACTION: f64 = 1.0 / 12.0;
 const KEYBOARD_PAN_FRACTION: f64 = 0.1;
 const KEYBOARD_ZOOM_FACTOR: f64 = 1.25;
 const TYPED_POINT_OFFSET: f32 = 64.0;
-const TYPE_POINT_HINT: &str = "Type x, y for an exact point";
-const TYPED_POINT_HINT: &str = "@ for relative   Enter: place   Esc: cancel";
+const TYPE_POINT_HINT: &str = "Type x, y or length < angle for an exact point";
+const TYPED_POINT_HINT: &str =
+    "@ for relative   A length alone: toward the pointer   Enter: place   Esc: cancel";
 const MOVE_HINT: &str = "@ for an offset   Enter: move   Esc: cancel";
 const MOVE_WHILE_DRAWING: &str = "Switch to the Select tool to move geometry";
 const NOTHING_TO_SELECT: &str = "The sketch has no geometry to select";
@@ -314,9 +315,9 @@ impl ViewportState {
             let response = ui.interact(rect, ui.id().with("viewport"), Sense::click_and_drag());
 
             self.track_cursor(ui, &response, rect);
-            self.type_points(ui, rect, model, editing, keys_free, actions);
             self.track_sketch_cursor(model, editing);
             self.track_drawing(model, editing);
+            self.type_points(ui, rect, model, editing, keys_free, actions);
             self.navigate(ui, &response, rect);
             self.drag_primary(ui, &response, model, editing, actions);
             self.click(ui, &response, model, editing, actions);
@@ -840,10 +841,10 @@ impl ViewportState {
             match self.drawing.click(model) {
                 Ok(Some(transaction)) => actions.push(Action::Apply(transaction)),
                 Ok(None) => {}
-                Err(degenerate) => {
+                Err(refusal) => {
                     actions.push(Action::Inform(Notice::info(format!(
                         "{}.",
-                        degenerate.reason()
+                        refusal.reason()
                     ))));
                 }
             }
@@ -908,6 +909,15 @@ impl ViewportState {
             let reversible = self.drawing.reversible();
             if commands.invoke(Command::ReverseArc, &reversible) {
                 self.drawing.reverse_arc();
+            }
+            let sides = [
+                (Command::MoreSides, self.drawing.more_sides(), 1),
+                (Command::FewerSides, self.drawing.fewer_sides(), -1),
+            ];
+            for (command, availability, change) in sides {
+                if commands.invoke(command, &availability) {
+                    self.drawing.add_sides(change);
+                }
             }
             self.sketch_commands(model, active.feature, active.tool.draws(), commands);
         }
@@ -1041,15 +1051,19 @@ impl ViewportState {
         else {
             return;
         };
-        match typed_point::parse(model, &typed.text, self.drawing.last_placed()) {
+        let from = typed_point::From {
+            last: self.drawing.last_placed(),
+            toward: self.drawing.pointer_position(),
+        };
+        match typed_point::parse(model, &typed.text, from) {
             Ok(position) => {
                 self.drawing.type_point(&sketch, position);
                 match self.drawing.click(model) {
                     Ok(Some(transaction)) => actions.push(Action::Apply(transaction)),
                     Ok(None) => {}
-                    Err(degenerate) => self
+                    Err(refusal) => self
                         .typed_point
-                        .open_with(typed.text, degenerate.reason().to_owned()),
+                        .open_with(typed.text, refusal.reason().to_owned()),
                 }
             }
             Err(error) => {
@@ -1073,7 +1087,11 @@ impl ViewportState {
             }
             return;
         };
-        match typed_point::parse(model, &typed.text, Some(moving.anchor)) {
+        let from = typed_point::From {
+            last: Some(moving.anchor),
+            toward: None,
+        };
+        match typed_point::parse(model, &typed.text, from) {
             Ok(target) => actions.extend(moving.to(target).into_iter().map(Action::Drag)),
             Err(error) => {
                 self.typed_point.open_with(typed.text, error);
@@ -1233,7 +1251,7 @@ impl ViewportState {
             rect.width() - view_cube::TRIAD_WIDTH - LABEL_MARGIN,
         );
         let prompt = if editing.is_choosing_plane() {
-            Some((CHOOSE_PLANE_PROMPT, CHOOSE_PLANE_HINT.to_owned()))
+            Some((CHOOSE_PLANE_PROMPT.to_owned(), CHOOSE_PLANE_HINT.to_owned()))
         } else if let Some(feature) = editing.solid() {
             let kind = document.feature(feature).map(|feature| &feature.kind);
             let prompt = match kind {
@@ -1242,7 +1260,7 @@ impl ViewportState {
                 Some(FeatureKind::Datum(_)) => CHOOSE_REFERENCES_PROMPT,
                 _ => CHOOSE_REGIONS_PROMPT,
             };
-            Some((prompt, CHOOSE_REGIONS_HINT.to_owned()))
+            Some((prompt.to_owned(), CHOOSE_REGIONS_HINT.to_owned()))
         } else {
             self.drawing
                 .prompt()
@@ -1254,9 +1272,17 @@ impl ViewportState {
                         .filter(|_| self.drawing.reversible().is_ok())
                         .map(|reverse| format!("{reverse}   "))
                         .unwrap_or_default();
+                    let sides = key_hints
+                        .sides
+                        .as_ref()
+                        .filter(|_| {
+                            self.drawing.more_sides().is_ok() || self.drawing.fewer_sides().is_ok()
+                        })
+                        .map(|sides| format!("{sides}   "))
+                        .unwrap_or_default();
                     (
                         prompt.text,
-                        format!("{reverse}{}   {TYPE_POINT_HINT}", prompt.keys),
+                        format!("{reverse}{sides}{}   {TYPE_POINT_HINT}", prompt.keys),
                     )
                 })
         };
@@ -1406,6 +1432,7 @@ struct KeyHints {
     highlight: String,
     fit: String,
     reverse: Option<String>,
+    sides: Option<String>,
 }
 
 impl KeyHints {
@@ -1431,6 +1458,10 @@ impl KeyHints {
             reverse: commands
                 .keys(Command::ReverseArc)
                 .map(|keys| format!("{keys}: the other way round")),
+            sides: commands
+                .keys(Command::MoreSides)
+                .zip(commands.keys(Command::FewerSides))
+                .map(|(more, fewer)| format!("{more} or {fewer}: more or fewer sides")),
         }
     }
 }

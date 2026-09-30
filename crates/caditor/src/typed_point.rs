@@ -1,5 +1,5 @@
 use caditor_expression::Dimension;
-use caditor_geometry::Point2;
+use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::MAX_LENGTH;
 use egui::{
     Align2, Area, Event, Frame, Id, Key, Order, Pos2, RichText, TextEdit,
@@ -19,10 +19,22 @@ pub const MOVE_LABEL: &str = "Move to";
 const FIELD_WIDTH: f32 = 180.0;
 const RELATIVE_MARK: char = '@';
 const SEPARATORS: [char; 2] = [',', ';'];
+const POLAR_MARK: char = '<';
 const LENGTH: Expected = Expected {
     dimension: Some(Dimension::LENGTH),
     non_negative: false,
 };
+const ANGLE: Expected = Expected {
+    dimension: Some(Dimension::ANGLE),
+    non_negative: false,
+};
+const FORMS: &str = "Type x, y such as 10, 20, or a length and an angle such as 25 < 30";
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct From {
+    pub last: Option<Point2>,
+    pub toward: Option<Point2>,
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TypedPoint {
@@ -41,15 +53,17 @@ fn starts_a_point(text: &str) -> bool {
     })
 }
 
-fn split_top_level(text: &str) -> Vec<&str> {
+fn split_top_level(text: &str, separates: impl Fn(char, Option<char>) -> bool) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut depth = 0_usize;
     let mut start = 0;
-    for (index, character) in text.char_indices() {
+    let mut characters = text.char_indices().peekable();
+    while let Some((index, character)) = characters.next() {
+        let next = characters.peek().map(|(_, next)| *next);
         match character {
             '(' => depth += 1,
             ')' => depth = depth.saturating_sub(1),
-            separator if depth == 0 && SEPARATORS.contains(&separator) => {
+            separator if depth == 0 && separates(separator, next) => {
                 parts.push(text.get(start..index).unwrap_or_default());
                 start = index + separator.len_utf8();
             }
@@ -58,6 +72,16 @@ fn split_top_level(text: &str) -> Vec<&str> {
     }
     parts.push(text.get(start..).unwrap_or_default());
     parts
+}
+
+fn coordinates(text: &str) -> Vec<&str> {
+    split_top_level(text, |character, _| SEPARATORS.contains(&character))
+}
+
+fn polar(text: &str) -> Vec<&str> {
+    split_top_level(text, |character, next| {
+        character == POLAR_MARK && next != Some('=')
+    })
 }
 
 impl TypedPoint {
@@ -139,7 +163,7 @@ impl TypedPoint {
                                 TextEdit::singleline(text)
                                     .id(id)
                                     .desired_width(FIELD_WIDTH)
-                                    .hint_text("x, y"),
+                                    .hint_text("x, y  or  length < angle"),
                             );
                             ui.label(RichText::new(hint).weak());
                             field
@@ -190,40 +214,99 @@ impl TypedPoint {
     }
 }
 
-pub fn parse(model: &Model, text: &str, last: Option<Point2>) -> Result<Point2, String> {
+struct Part {
+    label: &'static str,
+    noun: &'static str,
+    expected: Expected,
+}
+
+const X: Part = Part {
+    label: "x",
+    noun: "x coordinate",
+    expected: LENGTH,
+};
+const Y: Part = Part {
+    label: "y",
+    noun: "y coordinate",
+    expected: LENGTH,
+};
+const DISTANCE: Part = Part {
+    label: "length",
+    noun: "length",
+    expected: LENGTH,
+};
+const DIRECTION: Part = Part {
+    label: "angle",
+    noun: "angle",
+    expected: ANGLE,
+};
+
+fn value(model: &Model, text: &str, part: Part) -> Result<f64, String> {
+    let Part {
+        label,
+        noun,
+        expected,
+    } = part;
+    let text = text.trim();
+    if text.is_empty() {
+        return Err(format!("The {noun} is missing"));
+    }
+    let expression = field::parse_expression(
+        model.document(),
+        model.parameters(),
+        text,
+        expected,
+        model.length_unit(),
+    )
+    .map_err(|error| format!("{label}: {error}"))?;
+    let dimension = expected.dimension.unwrap_or(Dimension::NONE);
+    expression
+        .evaluate_as(dimension, &|id| model.parameters().value(id))
+        .map_err(|error| format!("{label}: {}", field::sentence(&error.to_string())))
+}
+
+fn offset(model: &Model, text: &str, from: From) -> Result<Vector2, String> {
+    let coordinates = coordinates(text);
+    let polar = polar(text);
+    match (coordinates.as_slice(), polar.as_slice()) {
+        ([x, y], [_]) => Ok(Vector2::new(value(model, x, X)?, value(model, y, Y)?)),
+        ([_], [length, angle]) => {
+            let length = value(model, length, DISTANCE)?;
+            let angle = value(model, angle, DIRECTION)?;
+            Ok(Vector2::from_angle(angle.to_radians()) * length)
+        }
+        ([length], [_]) => {
+            let length = value(model, length, DISTANCE)?;
+            let Some(last) = from.last else {
+                return Err(format!(
+                    "{FORMS}; a length alone needs a placed point to measure from"
+                ));
+            };
+            let direction = from
+                .toward
+                .and_then(|toward| (toward - last).try_normalize())
+                .ok_or_else(|| {
+                    "Point the way the length should go, or type length < angle".to_owned()
+                })?;
+            Ok(direction * length)
+        }
+        _ => Err(FORMS.to_owned()),
+    }
+}
+
+pub fn parse(model: &Model, text: &str, from: From) -> Result<Point2, String> {
     let (relative, text) = match text.strip_prefix(RELATIVE_MARK) {
         Some(rest) => (true, rest),
         None => (false, text),
     };
-    let parts = split_top_level(text);
-    let [x, y] = parts.as_slice() else {
-        return Err("Type two lengths separated by a comma, such as 10, 20".to_owned());
-    };
-    let coordinate = |part: &str, name: &str| {
-        let part = part.trim();
-        if part.is_empty() {
-            return Err(format!("The {name} coordinate is missing"));
-        }
-        let expression = field::parse_expression(
-            model.document(),
-            model.parameters(),
-            part,
-            LENGTH,
-            model.length_unit(),
-        )
-        .map_err(|error| format!("{name}: {error}"))?;
-        model
-            .parameters()
-            .evaluate_expression(&expression)
-            .map(|quantity| quantity.value)
-            .map_err(|error| format!("{name}: {}", field::sentence(&error.to_string())))
-    };
-    let offset = Point2::new(coordinate(x, "x")?, coordinate(y, "y")?);
-    let point = if relative {
-        last.unwrap_or(Point2::ZERO) + offset
+    let alone = coordinates(text).len() == 1 && polar(text).len() == 1;
+    let offset = offset(model, text, from)?;
+    let base = if relative || alone {
+        from.last.unwrap_or(Point2::ZERO)
     } else {
-        offset
+        Point2::ZERO
     };
+    let point = base + offset;
     if point.abs().max_element() > MAX_LENGTH {
         return Err(format!(
             "Keep the point within {} m of the sketch's origin",
@@ -249,9 +332,17 @@ mod tests {
 
     #[test]
     fn only_top_level_commas_separate_the_coordinates() {
-        assert_eq!(split_top_level("max(w, 10), 5"), ["max(w, 10)", " 5"]);
-        assert_eq!(split_top_level("1; 2"), ["1", " 2"]);
-        assert_eq!(split_top_level("min(a, b)"), ["min(a, b)"]);
-        assert_eq!(split_top_level("1, 2, 3").len(), 3);
+        assert_eq!(coordinates("max(w, 10), 5"), ["max(w, 10)", " 5"]);
+        assert_eq!(coordinates("1; 2"), ["1", " 2"]);
+        assert_eq!(coordinates("min(a, b)"), ["min(a, b)"]);
+        assert_eq!(coordinates("1, 2, 3").len(), 3);
+    }
+
+    #[test]
+    fn only_a_top_level_less_than_sign_separates_a_length_from_its_angle() {
+        assert_eq!(polar("25 < 30"), ["25 ", " 30"]);
+        assert_eq!(polar("if(a < b, 1, 2) < 45"), ["if(a < b, 1, 2) ", " 45"]);
+        assert_eq!(polar("a <= b"), ["a <= b"]);
+        assert_eq!(polar("10, 20"), ["10, 20"]);
     }
 }

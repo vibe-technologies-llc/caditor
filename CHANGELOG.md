@@ -25,6 +25,13 @@ The first release of caditor.
 - Construction geometry: Q (or the Construction button) turns the selected curves into dashed
   construction curves that guide a sketch, take constraints and can be revolved about, but never
   split or add to its regions; with nothing selected it switches drawing to construction curves.
+- New drawing tools: three-point arcs (Alt+A), tangent arcs that continue smoothly from the end
+  of a line, arc or spline and chain one after another (T), slots (U), and regular polygons of
+  3 to 64 sides (G, with ] and [ for more or fewer sides), each drawn with the constraints that
+  keep its shape.
+- A typed point can be a length and an angle, such as `25 < 30` or `@25 < 30` from the last
+  point, or a length alone, which goes from the last point toward the pointer. Typing a chain of
+  line ends no longer starts a new chain after the first line.
 - Sketch geometry can be dragged with the Select tool: a point, line, arc or spline follows the
   pointer, a circle grows or shrinks, and a selection moves together, each as far as its
   constraints allow and as one undoable change; Escape puts it back. M moves the selection to a

@@ -61,6 +61,8 @@ pub fn command(command: Command) -> &'static str {
         Command::NewSketch => phosphor::PENCIL_LINE,
         Command::FinishSketch => phosphor::CHECK,
         Command::ReverseArc => phosphor::ARROWS_COUNTER_CLOCKWISE,
+        Command::MoreSides => ADD,
+        Command::FewerSides => SUBTRACT,
         Command::Construction => CONSTRUCTION,
         Command::MoveGeometry => phosphor::ARROWS_OUT_CARDINAL,
         Command::SelectAll => phosphor::SELECTION_ALL,
@@ -129,6 +131,10 @@ pub fn tool(tool: Tool) -> &'static str {
         Tool::Rectangle => phosphor::RECTANGLE,
         Tool::Circle => phosphor::CIRCLE,
         Tool::Arc => phosphor::CIRCLE_HALF,
+        Tool::ThreePointArc => phosphor::RAINBOW,
+        Tool::TangentArc => phosphor::ARROW_BEND_UP_RIGHT,
+        Tool::Slot => phosphor::PILL,
+        Tool::Polygon => phosphor::HEXAGON,
         Tool::Spline => phosphor::BEZIER_CURVE,
     }
 }

@@ -71,6 +71,8 @@ pub enum Command {
     NewSketch,
     FinishSketch,
     ReverseArc,
+    MoreSides,
+    FewerSides,
     Construction,
     MoveGeometry,
     SelectAll,
@@ -364,7 +366,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 62] = [
+const PLAIN_COMMANDS: [Command; 64] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -402,6 +404,8 @@ const PLAIN_COMMANDS: [Command; 62] = [
     Command::DatumAxis,
     Command::FinishSketch,
     Command::ReverseArc,
+    Command::MoreSides,
+    Command::FewerSides,
     Command::Construction,
     Command::MoveGeometry,
     Command::SelectAll,
@@ -459,6 +463,8 @@ impl Command {
             Self::NewSketch => "model.new_sketch",
             Self::FinishSketch => "sketch.finish",
             Self::ReverseArc => "sketch.reverse_arc",
+            Self::MoreSides => "sketch.more_sides",
+            Self::FewerSides => "sketch.fewer_sides",
             Self::Construction => "sketch.construction",
             Self::MoveGeometry => "sketch.move",
             Self::SelectAll => "sketch.select_all",
@@ -469,6 +475,10 @@ impl Command {
                 Tool::Rectangle => "sketch.rectangle",
                 Tool::Circle => "sketch.circle",
                 Tool::Arc => "sketch.arc",
+                Tool::ThreePointArc => "sketch.three_point_arc",
+                Tool::TangentArc => "sketch.tangent_arc",
+                Tool::Slot => "sketch.slot",
+                Tool::Polygon => "sketch.polygon",
                 Tool::Spline => "sketch.spline",
             },
             Self::Constraint(tool) => match tool {
@@ -571,6 +581,8 @@ impl Command {
             Self::NewSketch => "New sketch",
             Self::FinishSketch => "Finish sketch",
             Self::ReverseArc => "Reverse the arc",
+            Self::MoreSides => "Give the polygon another side",
+            Self::FewerSides => "Give the polygon one side fewer",
             Self::Construction => "Switch to or from construction geometry",
             Self::MoveGeometry => "Move selected sketch geometry",
             Self::SelectAll => "Select all sketch geometry",
@@ -691,6 +703,8 @@ impl Command {
             | Self::ShowFirstFailed => Category::Model,
             Self::FinishSketch
             | Self::ReverseArc
+            | Self::MoreSides
+            | Self::FewerSides
             | Self::Construction
             | Self::MoveGeometry
             | Self::SelectAll
@@ -703,6 +717,8 @@ impl Command {
         match self {
             Self::FinishSketch
             | Self::ReverseArc
+            | Self::MoreSides
+            | Self::FewerSides
             | Self::Construction
             | Self::MoveGeometry
             | Self::SelectAll
@@ -740,13 +756,15 @@ impl Command {
             Self::ActivateHighlighted => vec![plain(Key::Space)],
             Self::HideSelection => vec![plain(Key::H)],
             Self::ShowAll => vec![KeyboardShortcut::new(Modifiers::ALT, Key::H)],
-            Self::SketchTool(tool) => tool_key(tool).map(plain).into_iter().collect(),
+            Self::SketchTool(tool) => tool_shortcut(tool).into_iter().collect(),
             Self::Constraint(tool) => vec![KeyboardShortcut::new(
                 Modifiers::SHIFT,
                 constraint_key(tool),
             )],
             Self::DeleteSelection => vec![plain(Key::Delete), plain(Key::Backspace)],
             Self::ReverseArc => vec![plain(Key::X)],
+            Self::MoreSides => vec![plain(Key::CloseBracket)],
+            Self::FewerSides => vec![plain(Key::OpenBracket)],
             Self::Construction => vec![plain(Key::Q)],
             Self::MoveGeometry => vec![plain(Key::M)],
             Self::SelectAll => vec![command(Key::A)],
@@ -796,15 +814,20 @@ impl Command {
     }
 }
 
-fn tool_key(tool: Tool) -> Option<Key> {
+fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
+    let plain = |key| Some(KeyboardShortcut::new(Modifiers::NONE, key));
     match tool {
         Tool::Select => None,
-        Tool::Point => Some(Key::P),
-        Tool::Line => Some(Key::L),
-        Tool::Rectangle => Some(Key::R),
-        Tool::Circle => Some(Key::C),
-        Tool::Arc => Some(Key::A),
-        Tool::Spline => Some(Key::S),
+        Tool::Point => plain(Key::P),
+        Tool::Line => plain(Key::L),
+        Tool::Rectangle => plain(Key::R),
+        Tool::Circle => plain(Key::C),
+        Tool::Arc => plain(Key::A),
+        Tool::ThreePointArc => Some(KeyboardShortcut::new(Modifiers::ALT, Key::A)),
+        Tool::TangentArc => plain(Key::T),
+        Tool::Slot => plain(Key::U),
+        Tool::Polygon => plain(Key::G),
+        Tool::Spline => plain(Key::S),
     }
 }
 

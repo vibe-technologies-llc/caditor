@@ -7,6 +7,7 @@ use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, EntityId, Sketch}
 use crate::{
     editing::{self, ActiveSketch, Tool},
     model::Model,
+    shapes::{self, Circular, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot},
     sketch_tools,
     snap::{self, Accept, Pointer, Screen, Target},
 };
@@ -14,21 +15,30 @@ use crate::{
 const ALIGN_ANGLE_DEGREES: f64 = 3.0;
 const ALIGN_TOLERANCE: f64 = 6.0;
 const MIN_ALIGN_LENGTH: f64 = 12.0;
-const DEGENERATE_LENGTH: f64 = 1e-9;
 const TYPED_TOLERANCE: f64 = 1e-6;
 const PREVIEW_SEGMENT_ANGLE: f64 = PI / 60.0;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
 
+const TOO_FEW_SIDES: &str = "A polygon needs at least three sides";
+const TOO_MANY_SIDES: &str = "A polygon has at most 64 sides";
+const NOT_A_POLYGON: &str = "Choose the Polygon tool first";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Degenerate {
+pub enum Refusal {
     Line,
     Rectangle,
     Circle,
     ArcRadius,
     ArcSweep,
+    ArcInLine,
+    TangentStart,
+    TangentStraight,
+    SlotLength,
+    SlotWidth,
+    PolygonSize,
 }
 
-impl Degenerate {
+impl Refusal {
     pub fn reason(self) -> &'static str {
         match self {
             Self::Line => "A line needs its end away from its start",
@@ -36,7 +46,36 @@ impl Degenerate {
             Self::Circle => "A circle needs its rim away from its centre",
             Self::ArcRadius => "An arc needs its start away from its centre",
             Self::ArcSweep => "An arc needs its end away from its start",
+            Self::ArcInLine => {
+                "An arc through three points needs the third point off the line through the \
+                 other two"
+            }
+            Self::TangentStart => "A tangent arc starts at the end of a line, arc or spline",
+            Self::TangentStraight => {
+                "A tangent arc needs its end off the line it continues along; draw a line there \
+                 instead"
+            }
+            Self::SlotLength => "A slot needs the centres of its two ends apart",
+            Self::SlotWidth => {
+                "A slot needs a width: click away from the line through the centres of its ends"
+            }
+            Self::PolygonSize => "A polygon needs its corner away from its centre",
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Tangent {
+    curve: EntityId,
+    direction: Vector2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sides(usize);
+
+impl Default for Sides {
+    fn default() -> Self {
+        Self(shapes::DEFAULT_SIDES)
     }
 }
 
@@ -159,9 +198,9 @@ pub struct Preview {
     pub construction: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prompt {
-    pub text: &'static str,
+    pub text: String,
     pub keys: &'static str,
 }
 
@@ -172,7 +211,9 @@ pub struct Drawing {
     placed: Vec<Placement>,
     hover: Option<Placement>,
     sweep: Option<Sweep>,
+    tangent: Option<Tangent>,
     chain_start: Vec<EntityId>,
+    sides: Sides,
 }
 
 impl Drawing {
@@ -195,17 +236,23 @@ impl Drawing {
         if context != self.context {
             *self = Self {
                 context,
+                sides: self.sides,
                 ..Self::default()
             };
         }
         self.construction = active.is_some_and(|active| active.construction);
         let lost_anchor = sketch.is_some_and(|sketch| {
-            self.placed.iter().any(|placement| {
+            let lost_point = self.placed.iter().any(|placement| {
                 placement
                     .snap
                     .entity()
                     .is_some_and(|entity| !sketch.contains(entity))
-            })
+            });
+            let lost_curve = !self.placed.is_empty()
+                && self
+                    .tangent
+                    .is_some_and(|tangent| !sketch.contains(tangent.curve));
+            lost_point || lost_curve
         });
         if lost_anchor {
             self.cancel();
@@ -221,10 +268,22 @@ impl Drawing {
         if let (Some(sweep), Some(hover)) = (&mut self.sweep, self.hover) {
             sweep.follow(hover.position);
         }
+        self.find_tangent(tool, sketch);
+    }
+
+    fn find_tangent(&mut self, tool: Tool, sketch: &Sketch) {
+        if tool == Tool::TangentArc && self.placed.is_empty() {
+            self.tangent = point_target(self.hover.map_or(Snap::Free, |hover| hover.snap))
+                .and_then(|point| continuing(sketch, point));
+        }
     }
 
     pub fn last_placed(&self) -> Option<Point2> {
         self.placed.last().map(|placement| placement.position)
+    }
+
+    pub fn pointer_position(&self) -> Option<Point2> {
+        self.hover.map(|hover| hover.position)
     }
 
     pub fn type_point(&mut self, sketch: &Sketch, position: Point2) {
@@ -252,6 +311,7 @@ impl Drawing {
         if let Some(sweep) = &mut self.sweep {
             sweep.aim(placement.position);
         }
+        self.find_tangent(tool, sketch);
     }
 
     pub fn reversible(&self) -> Result<(), &'static str> {
@@ -266,6 +326,38 @@ impl Drawing {
         }
     }
 
+    pub fn more_sides(&self) -> Result<(), &'static str> {
+        self.polygon_sides()?;
+        if self.sides.0 >= MAX_SIDES {
+            return Err(TOO_MANY_SIDES);
+        }
+        Ok(())
+    }
+
+    pub fn fewer_sides(&self) -> Result<(), &'static str> {
+        self.polygon_sides()?;
+        if self.sides.0 <= MIN_SIDES {
+            return Err(TOO_FEW_SIDES);
+        }
+        Ok(())
+    }
+
+    pub fn add_sides(&mut self, change: isize) {
+        self.sides = Sides(
+            self.sides
+                .0
+                .saturating_add_signed(change)
+                .clamp(MIN_SIDES, MAX_SIDES),
+        );
+    }
+
+    fn polygon_sides(&self) -> Result<(), &'static str> {
+        match self.context {
+            Some((_, Tool::Polygon)) => Ok(()),
+            _ => Err(NOT_A_POLYGON),
+        }
+    }
+
     pub fn leave(&mut self) {
         self.hover = None;
     }
@@ -273,6 +365,7 @@ impl Drawing {
     pub fn cancel(&mut self) {
         self.placed.clear();
         self.sweep = None;
+        self.tangent = None;
         self.chain_start.clear();
     }
 
@@ -282,11 +375,12 @@ impl Drawing {
             self.sweep = None;
         }
         if self.placed.is_empty() {
+            self.tangent = None;
             self.chain_start.clear();
         }
     }
 
-    pub fn click(&mut self, model: &Model) -> Result<Option<Transaction>, Degenerate> {
+    pub fn click(&mut self, model: &Model) -> Result<Option<Transaction>, Refusal> {
         let (Some((feature, tool)), Some(placement)) = (self.context, self.hover) else {
             return Ok(None);
         };
@@ -298,7 +392,11 @@ impl Drawing {
                 | Tool::Line
                 | Tool::Rectangle
                 | Tool::Circle
-                | Tool::Arc => {
+                | Tool::Arc
+                | Tool::ThreePointArc
+                | Tool::TangentArc
+                | Tool::Slot
+                | Tool::Polygon => {
                     self.cancel();
                     None
                 }
@@ -313,8 +411,9 @@ impl Drawing {
         feature: FeatureId,
         tool: Tool,
         placement: Placement,
-    ) -> Result<Option<Transaction>, Degenerate> {
-        let draft = || Draft::new(model, feature, tool, self.construction);
+    ) -> Result<Option<Transaction>, Refusal> {
+        let shape = tool.label().to_lowercase();
+        let draft = || Draft::new(model, feature, &shape, self.construction);
         Ok(match (tool, self.placed.as_slice()) {
             (Tool::Select, _) => None,
             (Tool::Point, _) => draft().map(|mut draft| {
@@ -323,7 +422,7 @@ impl Drawing {
             }),
             (Tool::Line, &[start]) => {
                 if start.position.distance(placement.position) < DEGENERATE_LENGTH {
-                    return Err(Degenerate::Line);
+                    return Err(Refusal::Line);
                 }
                 let Some(mut draft) = draft() else {
                     return Ok(None);
@@ -348,7 +447,7 @@ impl Drawing {
             (Tool::Rectangle, &[corner]) => {
                 let size = (placement.position - corner.position).abs();
                 if size.min_element() < DEGENERATE_LENGTH {
-                    return Err(Degenerate::Rectangle);
+                    return Err(Refusal::Rectangle);
                 }
                 let Some(mut draft) = draft() else {
                     return Ok(None);
@@ -359,7 +458,7 @@ impl Drawing {
             }
             (Tool::Circle, &[center]) => {
                 if center.position.distance(placement.position) < DEGENERATE_LENGTH {
-                    return Err(Degenerate::Circle);
+                    return Err(Refusal::Circle);
                 }
                 let Some(mut draft) = draft() else {
                     return Ok(None);
@@ -370,7 +469,7 @@ impl Drawing {
             }
             (Tool::Arc, &[center]) => {
                 if center.position.distance(placement.position) < DEGENERATE_LENGTH {
-                    return Err(Degenerate::ArcRadius);
+                    return Err(Refusal::ArcRadius);
                 }
                 self.sweep = Some(Sweep::new(center.position, placement.position));
                 self.placed.push(placement);
@@ -386,11 +485,11 @@ impl Drawing {
                     }
                     Snap::Free | Snap::Target(_) | Snap::Aligned(_) => Placement::free(
                         arc_end(center.position, start.position, placement.position)
-                            .ok_or(Degenerate::ArcSweep)?,
+                            .ok_or(Refusal::ArcSweep)?,
                     ),
                 };
                 if end.position.distance(start.position) < DEGENERATE_LENGTH {
-                    return Err(Degenerate::ArcSweep);
+                    return Err(Refusal::ArcSweep);
                 }
                 let counter_clockwise = self.sweep.is_none_or(|sweep| sweep.counter_clockwise());
                 let Some(mut draft) = draft() else {
@@ -400,7 +499,105 @@ impl Drawing {
                 self.cancel();
                 Some(draft.finish())
             }
-            (Tool::Line | Tool::Rectangle | Tool::Circle | Tool::Arc | Tool::Spline, _) => {
+            (Tool::ThreePointArc, &[start]) => {
+                if start.position.distance(placement.position) < DEGENERATE_LENGTH {
+                    return Err(Refusal::ArcSweep);
+                }
+                self.placed.push(placement);
+                None
+            }
+            (Tool::ThreePointArc, &[start, end]) => {
+                let circular =
+                    shapes::through_three(start.position, end.position, placement.position)
+                        .ok_or(Refusal::ArcInLine)?;
+                let Some(mut draft) = draft() else {
+                    return Ok(None);
+                };
+                draft.three_point_arc(start, end, placement, circular);
+                self.cancel();
+                Some(draft.finish())
+            }
+            (Tool::TangentArc, &[]) => {
+                if self.tangent.is_none() {
+                    return Err(Refusal::TangentStart);
+                }
+                self.placed.push(placement);
+                None
+            }
+            (Tool::TangentArc, &[start]) => {
+                if start.position.distance(placement.position) < DEGENERATE_LENGTH {
+                    return Err(Refusal::ArcSweep);
+                }
+                let tangent = self.tangent.ok_or(Refusal::TangentStart)?;
+                let circular =
+                    shapes::tangent_from(start.position, tangent.direction, placement.position)
+                        .ok_or(Refusal::TangentStraight)?;
+                let Some(mut draft) = draft() else {
+                    return Ok(None);
+                };
+                let drawn = draft.tangent_arc(start, placement, tangent.curve, circular);
+                if self.chain_start.is_empty() {
+                    self.chain_start.push(drawn.start);
+                    self.chain_start.extend(point_target(start.snap));
+                }
+                let closed = point_target(placement.snap)
+                    .is_some_and(|target| self.chain_start.contains(&target));
+                match shapes::leaving(circular, placement.position) {
+                    Some(direction) if !closed => {
+                        self.placed = vec![Placement {
+                            position: placement.position,
+                            snap: Snap::Target(Target::Point(drawn.end)),
+                        }];
+                        self.tangent = Some(Tangent {
+                            curve: drawn.arc,
+                            direction,
+                        });
+                    }
+                    Some(_) | None => self.cancel(),
+                }
+                Some(draft.finish())
+            }
+            (Tool::Slot, &[first]) => {
+                if first.position.distance(placement.position) < DEGENERATE_LENGTH {
+                    return Err(Refusal::SlotLength);
+                }
+                self.placed.push(placement);
+                None
+            }
+            (Tool::Slot, &[first, second]) => {
+                let slot = Slot::new(first.position, second.position, placement.position)
+                    .ok_or(Refusal::SlotWidth)?;
+                let Some(mut draft) = draft() else {
+                    return Ok(None);
+                };
+                draft.slot(first, second, &slot);
+                self.cancel();
+                Some(draft.finish())
+            }
+            (Tool::Polygon, &[center]) => {
+                if center.position.distance(placement.position) < DEGENERATE_LENGTH {
+                    return Err(Refusal::PolygonSize);
+                }
+                let name = shapes::polygon_name(self.sides.0);
+                let Some(mut draft) = Draft::new(model, feature, &name, self.construction) else {
+                    return Ok(None);
+                };
+                draft.polygon(center, placement, self.sides.0);
+                self.cancel();
+                Some(draft.finish())
+            }
+            (
+                Tool::Line
+                | Tool::Rectangle
+                | Tool::Circle
+                | Tool::Arc
+                | Tool::ThreePointArc
+                | Tool::Slot
+                | Tool::Polygon
+                | Tool::Spline,
+                _,
+            )
+            | (Tool::TangentArc, _) => {
                 self.placed.push(placement);
                 None
             }
@@ -416,7 +613,12 @@ impl Drawing {
         if placed.len() < 2 {
             return None;
         }
-        let mut draft = Draft::new(model, feature, tool, self.construction)?;
+        let mut draft = Draft::new(
+            model,
+            feature,
+            &tool.label().to_lowercase(),
+            self.construction,
+        )?;
         draft.spline(&placed);
         Some(draft.finish())
     }
@@ -465,6 +667,38 @@ impl Drawing {
                     preview.points = vec![center, start, end];
                 }
             }
+            (Tool::ThreePointArc | Tool::Slot, &[start]) => {
+                preview.curves.push(vec![start, cursor]);
+            }
+            (Tool::ThreePointArc, &[start, end]) => {
+                preview
+                    .curves
+                    .push(match shapes::through_three(start, end, cursor) {
+                        Some(circular) => circular.arc(start, end).polyline(PREVIEW_SEGMENT_ANGLE),
+                        None => vec![start, end],
+                    });
+            }
+            (Tool::TangentArc, &[start]) => {
+                let circular = self
+                    .tangent
+                    .and_then(|tangent| shapes::tangent_from(start, tangent.direction, cursor));
+                preview.curves.push(match circular {
+                    Some(circular) => circular.arc(start, cursor).polyline(PREVIEW_SEGMENT_ANGLE),
+                    None => vec![start, cursor],
+                });
+            }
+            (Tool::Slot, &[first, second]) => {
+                preview.curves.push(match Slot::new(first, second, cursor) {
+                    Some(slot) => slot.outline(PREVIEW_SEGMENT_ANGLE),
+                    None => vec![first, second],
+                });
+                preview.points = vec![first, second];
+            }
+            (Tool::Polygon, &[center]) => {
+                let mut corners = shapes::polygon_corners(center, cursor, self.sides.0);
+                corners.extend(corners.first().copied());
+                preview.curves.push(corners);
+            }
             (Tool::Spline, _) if !placed.is_empty() => {
                 if let Some(spline) = BSpline::clamped(preview.points.clone()) {
                     preview.curves.push(spline.polyline(PREVIEW_SEGMENT_ANGLE));
@@ -485,6 +719,13 @@ impl Drawing {
                 "Finish the spline".to_owned()
             }
             Snap::Target(Target::Pending(_)) => "Stop here".to_owned(),
+            Snap::Target(Target::Point(_))
+                if tool == Tool::TangentArc
+                    && self.placed.is_empty()
+                    && let Some(tangent) = self.tangent =>
+            {
+                format!("Continue {}", sketch.entity_label(tangent.curve))
+            }
             Snap::Target(Target::Point(EntityId::ORIGIN)) => "Origin".to_owned(),
             Snap::Target(Target::Point(entity) | Target::Curve(entity)) => {
                 format!("On {}", sketch.entity_label(entity))
@@ -494,7 +735,12 @@ impl Drawing {
 
     pub fn prompt(&self) -> Option<Prompt> {
         let (_, tool) = self.context?;
-        let prompt = |text, keys| Some(Prompt { text, keys });
+        let prompt = |text: &str, keys| {
+            Some(Prompt {
+                text: text.to_owned(),
+                keys,
+            })
+        };
         match (tool, self.placed.len()) {
             (Tool::Select, _) => None,
             (Tool::Point, _) => prompt("Click to place a point", BACK_TO_SELECT),
@@ -516,6 +762,37 @@ impl Drawing {
                 "The arc follows your sweep around the centre, a typed end the shorter way   Esc: \
                  cancel the arc",
             ),
+            (Tool::ThreePointArc, 0) => prompt("Click where the arc starts", BACK_TO_SELECT),
+            (Tool::ThreePointArc, 1) => prompt("Click where the arc ends", "Esc: cancel the arc"),
+            (Tool::ThreePointArc, _) => prompt(
+                "Click a point the arc passes through",
+                "Esc: cancel the arc",
+            ),
+            (Tool::TangentArc, 0) => prompt(
+                "Click the end of a line, arc or spline to continue from",
+                BACK_TO_SELECT,
+            ),
+            (Tool::TangentArc, _) => prompt(
+                "Click where the arc ends, Escape to stop",
+                "Click the start to close, or the last point again to stop",
+            ),
+            (Tool::Slot, 0) => prompt("Click the centre of the slot's first end", BACK_TO_SELECT),
+            (Tool::Slot, 1) => prompt(
+                "Click the centre of the slot's other end",
+                "Esc: cancel the slot",
+            ),
+            (Tool::Slot, _) => prompt("Click to set the slot's width", "Esc: cancel the slot"),
+            (Tool::Polygon, 0) => Some(Prompt {
+                text: format!("Click the {}'s centre", shapes::polygon_name(self.sides.0)),
+                keys: BACK_TO_SELECT,
+            }),
+            (Tool::Polygon, _) => Some(Prompt {
+                text: format!(
+                    "Click a corner of the {}",
+                    shapes::polygon_name(self.sides.0)
+                ),
+                keys: "Esc: cancel the polygon",
+            }),
             (Tool::Spline, 0) => prompt("Click the spline's first control point", BACK_TO_SELECT),
             (Tool::Spline, _) => prompt(
                 "Click the next control point",
@@ -531,6 +808,9 @@ impl Drawing {
         screen: &impl Screen,
         pointer: Pointer,
     ) -> Placement {
+        if let (Tool::Slot, &[_, _]) = (tool, self.placed.as_slice()) {
+            return Placement::free(pointer.sketch);
+        }
         let pending = self.pending(tool);
         let accept = self.accept(tool);
         if let Some(snapped) = snap::resolve(sketch, screen, pointer, &pending, accept) {
@@ -540,7 +820,7 @@ impl Drawing {
             };
         }
         match (tool, self.placed.as_slice()) {
-            (Tool::Line, &[start]) => align(start.position, screen, pointer),
+            (Tool::Line | Tool::Slot, &[start]) => align(start.position, screen, pointer),
             _ => None,
         }
         .unwrap_or(Placement::free(pointer.sketch))
@@ -550,7 +830,9 @@ impl Drawing {
 impl Drawing {
     fn accept(&self, tool: Tool) -> Accept {
         match (tool, self.placed.as_slice()) {
-            (Tool::Circle, &[_]) => Accept::Points,
+            (Tool::Circle, &[_]) | (Tool::ThreePointArc, &[_, _]) | (Tool::TangentArc, &[]) => {
+                Accept::Points
+            }
             (Tool::Arc, &[center, start]) => Accept::OnCircle {
                 center: center.position,
                 radius: center.position.distance(start.position),
@@ -561,12 +843,19 @@ impl Drawing {
 
     fn pending(&self, tool: Tool) -> Vec<(usize, Point2)> {
         match tool {
-            Tool::Line => self.placed.first().map(|start| (0, start.position)),
+            Tool::Line | Tool::TangentArc => self.placed.first().map(|start| (0, start.position)),
             Tool::Spline => self
                 .placed
                 .last()
                 .map(|last| (self.placed.len() - 1, last.position)),
-            Tool::Select | Tool::Point | Tool::Rectangle | Tool::Circle | Tool::Arc => None,
+            Tool::Select
+            | Tool::Point
+            | Tool::Rectangle
+            | Tool::Circle
+            | Tool::Arc
+            | Tool::ThreePointArc
+            | Tool::Slot
+            | Tool::Polygon => None,
         }
         .into_iter()
         .collect()
@@ -599,6 +888,38 @@ pub fn align(start: Point2, screen: &impl Screen, pointer: Pointer) -> Option<Pl
     })
 }
 
+fn continuing(sketch: &Sketch, point: EntityId) -> Option<Tangent> {
+    let at = |id: EntityId| sketch.point(id);
+    sketch
+        .entities()
+        .filter_map(|(curve, entity)| {
+            let direction = match entity {
+                Entity::Line { start, end } if *end == point => at(*end)? - at(*start)?,
+                Entity::Line { start, end } if *start == point => at(*start)? - at(*end)?,
+                Entity::Arc { center, end, .. } if *end == point => {
+                    (at(*end)? - at(*center)?).perp()
+                }
+                Entity::Arc { center, start, .. } if *start == point => {
+                    -(at(*start)? - at(*center)?).perp()
+                }
+                Entity::Spline { control_points } => match control_points.as_slice() {
+                    [first, second, ..] if *first == point => at(*first)? - at(*second)?,
+                    [.., before, last] if *last == point => at(*last)? - at(*before)?,
+                    _ => return None,
+                },
+                Entity::Point(_)
+                | Entity::Line { .. }
+                | Entity::Circle { .. }
+                | Entity::Arc { .. } => return None,
+            };
+            Some(Tangent {
+                curve,
+                direction: direction.try_normalize()?,
+            })
+        })
+        .last()
+}
+
 fn arc_end(center: Point2, start: Point2, toward: Point2) -> Option<Point2> {
     snap::closest_on_circle(center, center.distance(start), toward)
 }
@@ -619,13 +940,19 @@ struct Draft<'a> {
     construction: bool,
 }
 
+struct TangentArc {
+    arc: EntityId,
+    start: EntityId,
+    end: EntityId,
+}
+
 impl<'a> Draft<'a> {
-    fn new(model: &'a Model, feature: FeatureId, tool: Tool, construction: bool) -> Option<Self> {
+    fn new(model: &'a Model, feature: FeatureId, shape: &str, construction: bool) -> Option<Self> {
         let shadow = editing::edited_sketch(model.document(), feature)?.clone();
         let kind = if construction {
-            format!("construction {}", tool.label().to_lowercase())
+            format!("construction {shape}")
         } else {
-            tool.label().to_lowercase()
+            shape.to_owned()
         };
         Some(Self {
             feature,
@@ -641,6 +968,10 @@ impl<'a> Draft<'a> {
 
     fn entity(&mut self, entity: Entity) -> EntityId {
         let construction = self.construction && !matches!(entity, Entity::Point(_));
+        self.entity_as(entity, construction)
+    }
+
+    fn entity_as(&mut self, entity: Entity, construction: bool) -> EntityId {
         let id = self
             .transaction
             .add_sketch_entity_as(self.feature, entity.clone(), construction);
@@ -733,6 +1064,125 @@ impl<'a> Draft<'a> {
         let end = self.point(end);
         let (start, end) = arc_ends(counter_clockwise, start, end);
         self.entity(Entity::Arc { center, start, end });
+    }
+
+    fn arc_through(
+        &mut self,
+        center: EntityId,
+        start: Point2,
+        end: Point2,
+    ) -> (EntityId, EntityId, EntityId) {
+        let start = self.entity(Entity::Point(start));
+        let end = self.entity(Entity::Point(end));
+        let arc = self.entity(Entity::Arc { center, start, end });
+        (arc, start, end)
+    }
+
+    fn free_line(&mut self, start: Point2, end: Point2) -> (EntityId, EntityId, EntityId) {
+        let start = self.entity(Entity::Point(start));
+        let end = self.entity(Entity::Point(end));
+        let line = self.entity(Entity::Line { start, end });
+        (line, start, end)
+    }
+
+    fn three_point_arc(
+        &mut self,
+        start: Placement,
+        end: Placement,
+        through: Placement,
+        circular: Circular,
+    ) {
+        let center = self.entity(Entity::Point(circular.center));
+        let start = self.point(start);
+        let end = self.point(end);
+        let (start, end) = arc_ends(circular.counter_clockwise, start, end);
+        let arc = self.entity(Entity::Arc { center, start, end });
+        if let Some(point) = point_target(through.snap) {
+            self.constrain(Constraint::Coincident(point, arc));
+        }
+    }
+
+    fn tangent_arc(
+        &mut self,
+        start: Placement,
+        end: Placement,
+        from: EntityId,
+        circular: Circular,
+    ) -> TangentArc {
+        let center = self.entity(Entity::Point(circular.center));
+        let start = self.point(start);
+        let end = self.point(end);
+        let (first, last) = arc_ends(circular.counter_clockwise, start, end);
+        let arc = self.entity(Entity::Arc {
+            center,
+            start: first,
+            end: last,
+        });
+        self.constrain(Constraint::Tangent(from, arc));
+        TangentArc { arc, start, end }
+    }
+
+    fn slot(&mut self, first: Placement, second: Placement, slot: &Slot) {
+        let first_center = self.point(first);
+        let second_center = self.point(second);
+        let [a, b, c, d] = slot.corners();
+        let (second_arc, second_start, second_end) = self.arc_through(second_center, a, b);
+        let (first_arc, first_start, first_end) = self.arc_through(first_center, c, d);
+        let (top, top_start, top_end) = self.free_line(b, c);
+        let (bottom, bottom_start, bottom_end) = self.free_line(d, a);
+        for (point, other) in [
+            (top_start, second_end),
+            (top_end, first_start),
+            (bottom_start, first_end),
+            (bottom_end, second_start),
+        ] {
+            self.constrain(Constraint::Coincident(point, other));
+        }
+        for (line, arc) in [
+            (top, second_arc),
+            (top, first_arc),
+            (bottom, first_arc),
+            (bottom, second_arc),
+        ] {
+            self.constrain(Constraint::Tangent(line, arc));
+        }
+        self.constrain(Constraint::Equal(first_arc, second_arc));
+        match second.snap {
+            Snap::Aligned(Direction::Horizontal) => self.constrain(Constraint::Horizontal(top)),
+            Snap::Aligned(Direction::Vertical) => self.constrain(Constraint::Vertical(top)),
+            Snap::Free | Snap::Target(_) => {}
+        }
+    }
+
+    fn polygon(&mut self, center: Placement, corner: Placement, sides: usize) {
+        let corners = shapes::polygon_corners(center.position, corner.position, sides);
+        let radius = center.position.distance(corner.position);
+        let center = self.point(center);
+        let circle = self.entity_as(Entity::Circle { center, radius }, true);
+        let mut edges = Vec::with_capacity(corners.len());
+        for (index, position) in corners.iter().copied().enumerate() {
+            let next = corners
+                .get((index + 1) % corners.len())
+                .copied()
+                .unwrap_or(position);
+            let snap = if index == 0 { corner.snap } else { Snap::Free };
+            let start = self.point(Placement { position, snap });
+            let end = self.point(Placement::free(next));
+            let line = self.entity(Entity::Line { start, end });
+            edges.push((line, start, end));
+        }
+        let Some(&(first, _, _)) = edges.first() else {
+            return;
+        };
+        for (index, (line, start, end)) in edges.iter().copied().enumerate() {
+            if let Some((_, next_start, _)) = edges.get((index + 1) % edges.len()) {
+                self.constrain(Constraint::Coincident(end, *next_start));
+            }
+            self.constrain(Constraint::Coincident(start, circle));
+            if line != first {
+                self.constrain(Constraint::Equal(first, line));
+            }
+        }
     }
 
     fn spline(&mut self, placed: &[Placement]) {

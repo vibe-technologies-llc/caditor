@@ -19,17 +19,25 @@ pub enum Tool {
     Rectangle,
     Circle,
     Arc,
+    ThreePointArc,
+    TangentArc,
+    Slot,
+    Polygon,
     Spline,
 }
 
 impl Tool {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 11] = [
         Self::Select,
         Self::Point,
         Self::Line,
         Self::Rectangle,
         Self::Circle,
         Self::Arc,
+        Self::ThreePointArc,
+        Self::TangentArc,
+        Self::Slot,
+        Self::Polygon,
         Self::Spline,
     ];
 
@@ -41,6 +49,10 @@ impl Tool {
             Self::Rectangle => "Rectangle",
             Self::Circle => "Circle",
             Self::Arc => "Arc",
+            Self::ThreePointArc => "3-point arc",
+            Self::TangentArc => "Tangent arc",
+            Self::Slot => "Slot",
+            Self::Polygon => "Polygon",
             Self::Spline => "Spline",
         }
     }
@@ -56,6 +68,12 @@ impl Tool {
             Self::Rectangle => "Draw a rectangle from two opposite corners",
             Self::Circle => "Draw a circle from its centre and a point on it",
             Self::Arc => "Draw an arc from its centre, start and end",
+            Self::ThreePointArc => "Draw an arc from its start and end through a third point",
+            Self::TangentArc => {
+                "Draw arcs that continue smoothly from the end of a line, arc or spline"
+            }
+            Self::Slot => "Draw a slot from the centres of its round ends and its width",
+            Self::Polygon => "Draw a regular polygon from its centre and a corner",
             Self::Spline => "Draw a smooth curve through control points",
         }
     }
@@ -68,6 +86,10 @@ impl Tool {
             | Self::Rectangle
             | Self::Circle
             | Self::Arc
+            | Self::ThreePointArc
+            | Self::TangentArc
+            | Self::Slot
+            | Self::Polygon
             | Self::Spline => true,
         }
     }

@@ -38,6 +38,7 @@ mod reference_rows;
 mod samples;
 mod scene;
 mod selection;
+mod shapes;
 mod shell_panel;
 mod shell_tools;
 mod shortcut_editor;

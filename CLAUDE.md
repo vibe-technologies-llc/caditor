@@ -1439,10 +1439,15 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     Enter opens what it belongs to as a double-click would. In a sketch, M moves the selection to a
     typed position and Ctrl+A selects all of it (see Dragging). While a drawing tool is active, typing a
     digit, sign, point, `(` or `@` opens the typed-point field (`typed_point.rs`): two length
-    expressions in the preferred unit, split at top-level commas, `@` for an offset from the last
-    placed point, within `MAX_LENGTH` of the sketch's origin; Enter places the point through `Drawing::type_point` (landing exactly on an
-    existing point or the pending one snaps to it, like a click), an error keeps the field open with
-    the reason, and Escape closes it without touching the shape.
+    expressions in the preferred unit split at top-level commas, or a length and an angle split at
+    a top-level `<` (not `<=`; the angle in degrees unless it names a unit, measured from the
+    sketch's x axis), with `@` for an offset from the last placed point, or a length alone, which
+    goes from the last placed point toward the pointer; the point must lie within `MAX_LENGTH` of
+    the sketch's origin. Enter places the point through `Drawing::type_point` (landing exactly on
+    an existing point or the pending one snaps to it, like a click), an error keeps the field open
+    with the reason, and Escape closes it without touching the shape. The field is handled after
+    the drawing has synced with the displayed sketch in each frame, so the end a typed segment
+    adds is in the sketch by the next sync and a typed chain carries on from it.
   - Sketch editing is a context, not a mode: `editing.rs` holds which sketch is edited and the
     active `Tool`, changed by `Action::Editing` commands that `app::perform` routes after the UI
     pass; it ends by itself when the sketch disappears or another document is opened. The
@@ -1474,9 +1479,10 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     selection's first point goes to the typed position (`@` for an offset from it) and the rest
     follows, solved and committed like a drag (`Move <what>`); Select all sketch geometry
     (Ctrl+A) selects what a box around everything would.
-  - Drawing tools (`drawing.rs`: point, line, rectangle, circle, arc, spline) keep their clicked
-    points, hover and arc sweep as viewport UI state and build one transaction per finished
-    shape (`Draw line`, …), settled first like any sketch transaction. Lines chain, each new
+  - Drawing tools (`drawing.rs`: point, line, rectangle, circle, arc, three-point arc, tangent
+    arc, slot, polygon, spline; the geometry in `shapes.rs`) keep their clicked points, hover and
+    arc sweep as viewport UI state and build one transaction per finished shape (`Draw line`, …,
+    `Draw hexagon` for a polygon), settled first like any sketch transaction. Lines chain, each new
     line joined to the last end by `Coincident`, until Escape, a click on the last point or a line
     ending on the chain's first point (or the point it snapped to), which closes the outline;
     splines finish on Enter or a click on the last control point. An arc runs the way the
@@ -1486,8 +1492,21 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
     other way; its end is projected onto the circle through its start, keeping its snap only when
     the target lies on that circle (a typed end on a point off it lands free). Every inferred
     constraint is checked with `Sketch::check_constraint` on a shadow of the sketch and skipped
-    if refused. A shape with no size (a flat rectangle, a line, circle or
-    arc ending where it starts) is refused with a `Degenerate` reason: a notice for a click, the
+    if refused. A three-point arc runs from its start through its third point to its end; its
+    third point takes only points, which it is then kept on. A tangent arc starts on a point that
+    ends a line, arc or spline (the newest when several end there, named in the snap label as
+    "Continue …"), leaves it along that curve's direction with a `Tangent` to it, and
+    chains like lines, each arc tangent to the one before. A slot is two centres (the second
+    aligning like a line end) and a width point that never snaps: two semicircular arcs and two
+    lines joined by `Coincident`, each line `Tangent` to both arcs and the arcs `Equal`, so it
+    keeps five degrees of freedom. A polygon is its centre and a first corner: its sides joined
+    corner to corner, every corner on a construction circle about the centre and every side
+    `Equal` to the first, so it stays regular with four degrees of freedom; it has 3 to 64 sides,
+    six at first, kept until another document is opened and changed by Give the polygon another
+    side (]) and one side fewer ([), offered only with the Polygon tool and named in its prompt. A
+    shape with no size (a flat rectangle, a line, circle or arc ending where it starts, a slot
+    without width, three points in line) or a tangent arc without a curve to continue or ending on
+    the line it continues along is refused with a `Refusal` reason: a notice for a click, the
     field's error for a typed point.
   - Construction geometry: Switch to or from construction geometry (Q, the Construction button
     after the drawing tools, `Command::Construction`) makes the selected curves construction
@@ -1511,7 +1530,8 @@ meshes. `caditor-zstd` has no workspace dependencies and only `caditor-file` use
   - `sketch_tools.rs` turns the selection into candidate constraints checked by
     `Sketch::check_constraint`; `sketch_toolbar.rs` offers them as buttons and commands
     (Shift+letter by default), disabled with what to select, and the drawing tools on plain
-    letters (P, L, R, C, A, S). Parallel, equal, collinear, concentric and horizontal or vertical
+    letters (P, L, R, C, A, T for the tangent arc, U for the slot, G for the polygon, S) and Alt+A
+    for the three-point arc. Parallel, equal, collinear, concentric and horizontal or vertical
     points chain every selected item to the first in one transaction; fix locks every point of the
     selection where it is shown; symmetric takes two points or two lines and what to mirror them
     about (the one axis selected, else whichever of the three mirrors the other two best, pairing

@@ -26,6 +26,7 @@ use crate::{
     app::{self, Workspace},
     canvas,
     commands::{Command, Offer, RecentSlot},
+    drawing::Refusal,
     editing::{EditingCommand, Tool},
     export::ExportCommand,
     files::{Dialogs, FileCommand, Files, FilesConfig, Respond},
@@ -457,7 +458,11 @@ impl Harness {
     }
 
     fn use_tool(&mut self, key: Key) {
-        self.key(key, Modifiers::NONE);
+        self.use_tool_with(key, Modifiers::NONE);
+    }
+
+    fn use_tool_with(&mut self, key: Key, modifiers: Modifiers) {
+        self.key(key, modifiers);
         self.frame();
         self.frame();
     }
@@ -2862,7 +2867,7 @@ fn a_typed_arc_goes_the_shorter_way_and_x_sends_it_the_long_way() {
     assert!(offer(&harness, Command::ReverseArc).availability.is_err());
     type_point(&mut harness, "0, 0");
     type_point(&mut harness, "10 mm, 0");
-    assert!(harness.shows("X: the other way round   The arc follows your sweep around the centre, a typed end the shorter way   Esc: cancel the arc   Type x, y for an exact point"));
+    assert!(harness.shows("X: the other way round   The arc follows your sweep around the centre, a typed end the shorter way   Esc: cancel the arc   Type x, y or length < angle for an exact point"));
     type_point(&mut harness, "0, -10 mm");
     let arcs = entities_of_kind(harness.sketch(feature), "Arc");
     let short = harness.sketch(feature).arc(arcs[0]).unwrap();
@@ -2907,6 +2912,256 @@ fn a_typed_arc_goes_the_shorter_way_and_x_sends_it_the_long_way() {
     let half = harness.sketch(feature).arc(arcs[3]).unwrap();
     assert!((half.sweep - PI).abs() < DRAWN, "{}", half.sweep);
     assert!(half.start_angle.abs() < DRAWN, "{}", half.start_angle);
+}
+
+fn line_lengths(sketch: &Sketch) -> Vec<f64> {
+    entities_of_kind(sketch, "Line")
+        .into_iter()
+        .map(|line| {
+            let (start, end) = sketch.line_endpoints(line).unwrap();
+            start.distance(end)
+        })
+        .collect()
+}
+
+#[test]
+fn a_three_point_arc_runs_from_its_start_through_the_third_point_to_its_end() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool_with(Key::A, Modifiers::ALT);
+    assert_eq!(harness.tool(), Some(Tool::ThreePointArc));
+    assert!(harness.shows("Click where the arc starts"));
+    type_point(&mut harness, "10, 0");
+    assert!(harness.shows("Click where the arc ends"));
+    type_point(&mut harness, "-10, 0");
+    assert!(harness.shows("Click a point the arc passes through"));
+    type_point(&mut harness, "30, 0");
+    assert!(harness.shows(Refusal::ArcInLine.reason()));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.point_at(Point2::new(1.0, -5.0));
+    type_point(&mut harness, "6, -8");
+
+    let sketch = harness.sketch(feature);
+    let arcs = entities_of_kind(sketch, "Arc");
+    assert_eq!(arcs.len(), 1);
+    let arc = sketch.arc(arcs[0]).unwrap();
+    assert!(near(arc.center, Point2::ZERO), "{}", arc.center);
+    assert!((arc.radius - 10.0).abs() < DRAWN);
+    assert!((arc.sweep - PI).abs() < DRAWN, "{}", arc.sweep);
+    assert!(
+        (arc.start_angle.abs() - PI).abs() < DRAWN,
+        "{}",
+        arc.start_angle
+    );
+    assert_eq!(harness.model.undo_label(), Some("Draw 3-point arc"));
+    assert!(harness.shows("Click where the arc starts"));
+}
+
+#[test]
+fn tangent_arcs_continue_smoothly_from_a_line_and_from_each_other() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    type_point(&mut harness, "0, 0");
+    type_point(&mut harness, "20, 0");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let line = entities_of_kind(harness.sketch(feature), "Line")[0];
+    let continue_line = format!("Continue {}", harness.sketch(feature).entity_label(line));
+
+    harness.use_tool(Key::T);
+    assert!(harness.shows("Click the end of a line, arc or spline to continue from"));
+    type_point(&mut harness, "40, 40");
+    let refused = harness.shows(Refusal::TangentStart.reason());
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.point_at(Point2::new(20.0, 0.0));
+    let offered = harness.shows(&continue_line);
+    type_point(&mut harness, "20, 0");
+    type_point(&mut harness, "30, 10");
+    type_point(&mut harness, "40, 20");
+    assert!(harness.shows("Click where the arc ends, Escape to stop"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let arcs = entities_of_kind(sketch, "Arc");
+    assert!(refused);
+    assert!(offered);
+    assert_eq!(arcs.len(), 2);
+    assert_eq!(constraints_of_kind(sketch, "Tangent").len(), 2);
+    let first = harness.shown(feature).arc(arcs[0]).unwrap();
+    let second = harness.shown(feature).arc(arcs[1]).unwrap();
+    assert!(
+        near(first.center, Point2::new(20.0, 10.0)),
+        "{}",
+        first.center
+    );
+    assert!((first.sweep - FRAC_PI_2).abs() < DRAWN, "{}", first.sweep);
+    assert!(
+        near(second.center, Point2::new(40.0, 10.0)),
+        "{}",
+        second.center
+    );
+    assert!((second.sweep - FRAC_PI_2).abs() < DRAWN, "{}", second.sweep);
+    assert!(harness.shows("6 degrees of freedom left"));
+    assert_eq!(harness.model.undo_label(), Some("Draw tangent arc"));
+    assert!(harness.shows("Click the end of a line, arc or spline to continue from"));
+}
+
+#[test]
+fn a_slot_has_round_ends_of_one_radius_tangent_to_its_sides() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::U);
+    assert!(harness.shows("Click the centre of the slot's first end"));
+    type_point(&mut harness, "0, 0");
+    type_point(&mut harness, "30, 10");
+    type_point(&mut harness, "@0, 0");
+    assert!(harness.shows(Refusal::SlotWidth.reason()));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.point_at(Point2::new(20.0, 20.0));
+    type_point(&mut harness, "@-5, 15");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let arcs = entities_of_kind(sketch, "Arc");
+    assert_eq!(arcs.len(), 2);
+    assert_eq!(entities_of_kind(sketch, "Line").len(), 2);
+    assert_eq!(constraints_of_kind(sketch, "Tangent").len(), 4);
+    assert_eq!(constraints_of_kind(sketch, "Equal").len(), 1);
+    let radius = 10f64.hypot(30.0) / 2.0;
+    for arc in &arcs {
+        let arc = harness.shown(feature).arc(*arc).unwrap();
+        assert!((arc.radius - radius).abs() < DRAWN, "{}", arc.radius);
+        assert!((arc.sweep - PI).abs() < DRAWN, "{}", arc.sweep);
+    }
+    for length in line_lengths(&harness.shown(feature)) {
+        assert!((length - 10f64.hypot(30.0)).abs() < DRAWN, "{length}");
+    }
+    assert!(harness.shows("3 degrees of freedom left"));
+    assert_eq!(harness.model.undo_label(), Some("Draw slot"));
+
+    harness.click_at(Point2::new(5.0, -40.0));
+    harness.click_at(Point2::new(35.0, -39.9));
+    harness.click_at(Point2::new(15.0, -35.0));
+    harness.settle();
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Horizontal").len(),
+        1
+    );
+    assert!(harness.shows("7 degrees of freedom left"));
+
+    harness.click("Extrude");
+    harness.settle();
+    let extrude = harness
+        .document()
+        .features()
+        .find(|feature| feature.name == "Extrude 1")
+        .map(Feature::id)
+        .expect("the slots were extruded");
+    let slot_area = |length: f64, radius: f64| length * 2.0 * radius + PI * radius * radius;
+    let area = slot_area(10f64.hypot(30.0), radius) + slot_area(30.0, 5.0);
+    let volume = harness.body_volume(extrude);
+    assert!((volume / (10.0 * area) - 1.0).abs() < 1e-2, "{volume}");
+}
+
+#[test]
+fn a_polygon_is_regular_with_as_many_sides_as_chosen() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    assert!(offer(&harness, Command::MoreSides).availability.is_err());
+    harness.use_tool(Key::G);
+    assert!(harness.shows("Click the hexagon's centre"));
+    harness.key(Key::CloseBracket, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    assert!(harness.shows("Click the heptagon's centre"));
+    for _ in 0..4 {
+        harness.key(Key::OpenBracket, Modifiers::NONE);
+        harness.frame();
+    }
+    harness.frame();
+    assert!(harness.shows("Click the triangle's centre"));
+    assert!(offer(&harness, Command::FewerSides).availability.is_err());
+    run_from_palette(&mut harness, "another side");
+    harness.frame();
+    assert!(harness.shows("Click the square's centre"));
+
+    harness.use_tool(Key::L);
+    harness.use_tool(Key::G);
+    assert!(harness.shows("Click the square's centre"));
+    type_point(&mut harness, "5, 5");
+    assert!(harness.shows("Click a corner of the square"));
+    type_point(&mut harness, "15, 5");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let lines = entities_of_kind(sketch, "Line");
+    let circles = entities_of_kind(sketch, "Circle");
+    assert_eq!(lines.len(), 4);
+    assert_eq!(circles.len(), 1);
+    assert!(sketch.is_construction(circles[0]));
+    assert!(lines.iter().all(|line| !sketch.is_construction(*line)));
+    assert_eq!(constraints_of_kind(sketch, "Equal").len(), 3);
+    assert_eq!(constraints_of_kind(sketch, "Coincident").len(), 8);
+    for length in line_lengths(&harness.shown(feature)) {
+        assert!((length - 10.0 * 2f64.sqrt()).abs() < DRAWN, "{length}");
+    }
+    assert!(harness.shows("4 degrees of freedom left"));
+    assert_eq!(harness.model.undo_label(), Some("Draw square"));
+
+    harness.click("Extrude");
+    harness.settle();
+    let extrude = harness
+        .document()
+        .features()
+        .find(|feature| feature.name == "Extrude 1")
+        .map(Feature::id)
+        .expect("the square was extruded");
+    assert!((harness.body_volume(extrude) - 2000.0).abs() < 1.0);
+}
+
+#[test]
+fn a_typed_point_can_be_a_length_and_angle_or_a_length_toward_the_pointer() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    type_point(&mut harness, "12");
+    let alone_first = harness.shows(
+        "Type x, y such as 10, 20, or a length and an angle such as 25 < 30; a length alone \
+         needs a placed point to measure from",
+    );
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    type_point(&mut harness, "0, 0");
+    type_point(&mut harness, "@10 < 90");
+    type_point(&mut harness, "20 < 0");
+    harness.point_at(Point2::new(20.0, 30.0));
+    type_point(&mut harness, "5");
+    type_point(&mut harness, "@4 < (pi / 2) rad");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    let sketch = harness.sketch(feature);
+    let ends: Vec<Point2> = entities_of_kind(sketch, "Line")
+        .into_iter()
+        .map(|line| sketch.line_endpoints(line).unwrap().1)
+        .collect();
+    let expected = [
+        Point2::new(0.0, 10.0),
+        Point2::new(20.0, 0.0),
+        Point2::new(20.0, 5.0),
+        Point2::new(20.0, 9.0),
+    ];
+    assert!(alone_first);
+    assert_eq!(ends.len(), expected.len());
+    for (end, expected) in ends.iter().zip(expected) {
+        assert!(near(*end, expected), "{end} is not {expected}");
+    }
 }
 
 #[test]
