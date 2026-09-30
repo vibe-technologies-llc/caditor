@@ -474,7 +474,8 @@ impl Document {
             (FeatureKind::Solid(old), FeatureKind::Solid(new)) => old.same_kind(new),
             (FeatureKind::Datum(old), FeatureKind::Datum(new)) => old.same_kind(new),
             (FeatureKind::Blend(_), FeatureKind::Blend(_))
-            | (FeatureKind::Shell(_), FeatureKind::Shell(_)) => true,
+            | (FeatureKind::Shell(_), FeatureKind::Shell(_))
+            | (FeatureKind::Pattern(_), FeatureKind::Pattern(_)) => true,
             _ => false,
         };
         if !same_kind {

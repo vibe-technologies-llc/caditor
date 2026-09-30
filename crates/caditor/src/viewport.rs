@@ -1252,7 +1252,7 @@ impl ViewportState {
             let prompt = match kind {
                 Some(FeatureKind::Blend(_)) => CHOOSE_EDGES_PROMPT,
                 Some(FeatureKind::Shell(_)) => CHOOSE_FACES_PROMPT,
-                Some(FeatureKind::Datum(_)) => CHOOSE_REFERENCES_PROMPT,
+                Some(FeatureKind::Datum(_) | FeatureKind::Pattern(_)) => CHOOSE_REFERENCES_PROMPT,
                 _ => CHOOSE_REGIONS_PROMPT,
             };
             Some((prompt.to_owned(), CHOOSE_REGIONS_HINT.to_owned()))

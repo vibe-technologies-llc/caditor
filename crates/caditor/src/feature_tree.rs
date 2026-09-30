@@ -18,6 +18,8 @@ use crate::{
     icons,
     model::{Action, Model},
     panels::{Focus, PanelState, Renaming},
+    pattern_panel,
+    pattern_tools::{self, Reference},
     principal_tree,
     selection::{Pickable, Selection},
     shell_panel,
@@ -40,6 +42,7 @@ const CLOSE_SOLID_LABEL: &str = "Done editing this feature";
 const OPEN_BLEND_LABEL: &str = "Edit feature and choose its edges in the view";
 const OPEN_SHELL_LABEL: &str = "Edit feature and choose its open faces in the view";
 const OPEN_DATUM_LABEL: &str = "Edit this plane or axis";
+const OPEN_PATTERN_LABEL: &str = "Edit this pattern";
 const PLACE_ON_PLANE_LABEL: &str = "Place on selected plane";
 const PLACE_ON_FACE_LABEL: &str = "Place on selected face";
 const DETACH_LABEL: &str = "Detach";
@@ -288,6 +291,10 @@ fn body(
             );
             body_display(ui, model, feature);
         }
+        FeatureKind::Pattern(pattern) => {
+            pattern_panel::show(ui, model, row.selection, actions, feature, pattern);
+            body_display(ui, model, feature);
+        }
         FeatureKind::Datum(datum) => {
             datum_panel::show(ui, model, row.selection, actions, feature, datum);
         }
@@ -408,6 +415,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<(&'static str, Editin
             FeatureKind::Solid(_)
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
+            | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_),
             true,
         ) => (CLOSE_SOLID_LABEL, EditingCommand::CloseSolid),
@@ -415,6 +423,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<(&'static str, Editin
         (FeatureKind::Blend(_), false) => (OPEN_BLEND_LABEL, EditingCommand::OpenSolid(id)),
         (FeatureKind::Shell(_), false) => (OPEN_SHELL_LABEL, EditingCommand::OpenSolid(id)),
         (FeatureKind::Datum(_), false) => (OPEN_DATUM_LABEL, EditingCommand::OpenSolid(id)),
+        (FeatureKind::Pattern(_), false) => (OPEN_PATTERN_LABEL, EditingCommand::OpenSolid(id)),
         (FeatureKind::Import(_), _) => return None,
     })
 }
@@ -695,6 +704,19 @@ fn datum_change(
         .and_then(change)
 }
 
+fn pattern_change(
+    model: &Model,
+    selection: &Selection,
+    feature: &Feature,
+    reference: Reference,
+) -> Result<Transaction, String> {
+    let pattern = feature
+        .kind
+        .pattern()
+        .ok_or_else(|| format!("{} is not a pattern", feature.name))?;
+    pattern_tools::selected_change(model, selection, feature.id(), pattern, reference)
+}
+
 fn invoke_on<T>(
     commands: &mut CommandFrame<'_>,
     command: Command,
@@ -754,7 +776,7 @@ fn feature_commands(
     if commands.invoke(Command::TogglePrincipal, &Ok::<_, String>(())) {
         actions.push(Action::Apply(visibility::toggle_principal_group(document)));
     }
-    let changes: [(Command, FeatureChange<'_>); 5] = [
+    let changes: [(Command, FeatureChange<'_>); 7] = [
         (Command::DetachSketch, &|feature| {
             detach_change(model, feature)
         }),
@@ -773,6 +795,12 @@ fn feature_commands(
             datum_change(feature, |datum| {
                 datum_panel::rotation_change(model, selection, feature.id(), datum)
             })
+        }),
+        (Command::PatternUseSelected, &|feature| {
+            pattern_change(model, selection, feature, Reference::First)
+        }),
+        (Command::PatternSecondUseSelected, &|feature| {
+            pattern_change(model, selection, feature, Reference::Second)
         }),
     ];
     for (command, change) in changes {

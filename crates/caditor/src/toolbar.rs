@@ -1,4 +1,4 @@
-use caditor_document::{BlendKind, Datum};
+use caditor_document::{BlendKind, Datum, describe_axis};
 use egui::{Response, Ui};
 
 use crate::{
@@ -10,6 +10,7 @@ use crate::{
     icons,
     model::{Action, Model},
     offers::Offers,
+    pattern_tools::{self, Shape},
     selection::{Pickable, Selection},
     shell_tools,
     solid_tools::{self, Sweep},
@@ -46,6 +47,8 @@ pub fn show(
             ui.separator();
             blend_buttons(ui, model, context, commands, actions);
             shell_button(ui, model, context, commands, actions);
+            ui.separator();
+            pattern_buttons(ui, model, context, commands, actions);
             ui.separator();
             datum_buttons(ui, model, context, commands, actions);
         });
@@ -296,6 +299,60 @@ fn shell_button(
             source,
             model.length_unit(),
         ));
+    }
+}
+
+fn pattern_buttons(
+    ui: &mut Ui,
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let document = model.document();
+    let source = &context.offers.pattern;
+    for shape in Shape::ALL {
+        let command = match shape {
+            Shape::Linear => Command::LinearPattern,
+            Shape::Circular => Command::CircularPattern,
+        };
+        let invoked = commands.invoke(command, source);
+        let response = tool(ui, command, shape.title(), source.is_ok());
+        let response = match source {
+            Ok(source) => {
+                let body = document
+                    .feature(source.body)
+                    .map_or("the body", |body| body.name.as_str());
+                let hover = match (shape, &source.axis) {
+                    (Shape::Linear, Some(axis)) => format!(
+                        "Repeat the body of {body} along {}",
+                        describe_axis(document, axis)
+                    ),
+                    (Shape::Linear, None) => format!(
+                        "Repeat the body of {body} along the X axis, or along an edge or axis \
+                         you select first"
+                    ),
+                    (Shape::Circular, Some(axis)) => format!(
+                        "Repeat the body of {body} around {}",
+                        describe_axis(document, axis)
+                    ),
+                    (Shape::Circular, None) => format!(
+                        "Repeat the body of {body} around the Z axis, or around an axis or \
+                         round face you select first"
+                    ),
+                };
+                response.on_hover_text(commands.with_keys(command, &hover))
+            }
+            Err(reason) => response.on_disabled_hover_text(format!(
+                "{}. {reason}, then click here.",
+                shape.description()
+            )),
+        };
+        if (response.clicked() || invoked)
+            && let Ok(source) = source
+        {
+            actions.extend(pattern_tools::create_actions(model, shape, source));
+        }
     }
 }
 

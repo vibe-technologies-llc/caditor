@@ -16,6 +16,7 @@ mod interval;
 mod naming;
 mod numeric;
 mod parametric;
+mod pattern;
 mod profile;
 mod sense;
 mod shell;
@@ -50,6 +51,7 @@ pub use crate::{
         EdgeName, EdgeNaming, EdgeReference, FaceName, FaceOrigin, FaceReference, ReferenceError,
         VertexName,
     },
+    pattern::{PatternCopy, PatternError, pattern},
     profile::{
         Piece, PieceBound, PieceId, Profile, ProfileCurve, ProfileError, ProfileLoop, ProfileShape,
         Region, RegionKey, RegionMesh, Selection, Side,

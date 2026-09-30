@@ -13,6 +13,7 @@ use crate::{
     datum::{Datum, PrincipalGeometry},
     edit::{Edit, Transaction},
     import::Import,
+    pattern::Pattern,
     shell::Shell,
     solid::{BodyOperation, SolidFeature},
 };
@@ -65,8 +66,15 @@ pub enum FeatureKind {
     Solid(SolidFeature),
     Blend(Blend),
     Shell(Shell),
+    Pattern(Box<Pattern>),
     Datum(Datum),
     Import(Import),
+}
+
+impl From<Pattern> for FeatureKind {
+    fn from(pattern: Pattern) -> Self {
+        Self::Pattern(Box::new(pattern))
+    }
 }
 
 impl From<Sketch> for FeatureKind {
@@ -89,6 +97,7 @@ impl FeatureKind {
             Self::Import(import) => {
                 import.source.len() + import.step.len() + import.solid.approximate_size()
             }
+            Self::Pattern(_) => size_of::<Pattern>(),
             Self::Solid(_) | Self::Datum(_) => 0,
         };
         size_of::<Self>() + owned
@@ -97,27 +106,36 @@ impl FeatureKind {
     pub fn sketch(&self) -> Option<&Sketch> {
         match self {
             Self::Sketch(sketch) => Some(&sketch.sketch),
-            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) | Self::Datum(_) | Self::Import(_) => {
-                None
-            }
+            Self::Solid(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::Pattern(_)
+            | Self::Datum(_)
+            | Self::Import(_) => None,
         }
     }
 
     pub fn sketch_mut(&mut self) -> Option<&mut Sketch> {
         match self {
             Self::Sketch(sketch) => Some(&mut sketch.sketch),
-            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) | Self::Datum(_) | Self::Import(_) => {
-                None
-            }
+            Self::Solid(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::Pattern(_)
+            | Self::Datum(_)
+            | Self::Import(_) => None,
         }
     }
 
     pub fn attachment(&self) -> Option<&SketchAttachment> {
         match self {
             Self::Sketch(sketch) => sketch.attachment.as_ref(),
-            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) | Self::Datum(_) | Self::Import(_) => {
-                None
-            }
+            Self::Solid(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::Pattern(_)
+            | Self::Datum(_)
+            | Self::Import(_) => None,
         }
     }
 
@@ -127,6 +145,7 @@ impl FeatureKind {
             Self::Solid(solid) => solid.operation().target(),
             Self::Blend(blend) => Some(blend.body),
             Self::Shell(shell) => Some(shell.body),
+            Self::Pattern(pattern) => Some(pattern.body),
             Self::Datum(_) | Self::Import(_) => None,
         }
     }
@@ -136,6 +155,7 @@ impl FeatureKind {
         match self {
             Self::Solid(solid) => used.extend(solid.axis_body()),
             Self::Datum(datum) => used.extend(datum.bodies()),
+            Self::Pattern(pattern) => used.extend(pattern.axis_bodies()),
             Self::Sketch(_) | Self::Blend(_) | Self::Shell(_) | Self::Import(_) => {}
         }
         used
@@ -150,7 +170,11 @@ impl FeatureKind {
                 .into_iter()
                 .collect(),
             Self::Datum(datum) => datum.plane_datums(),
-            Self::Solid(_) | Self::Blend(_) | Self::Shell(_) | Self::Import(_) => BTreeSet::new(),
+            Self::Solid(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::Pattern(_)
+            | Self::Import(_) => BTreeSet::new(),
         }
     }
 
@@ -158,6 +182,7 @@ impl FeatureKind {
         match self {
             Self::Solid(solid) => solid.axis_datum().into_iter().collect(),
             Self::Datum(datum) => datum.axis_datums(),
+            Self::Pattern(pattern) => pattern.axis_datums(),
             Self::Sketch(_) | Self::Blend(_) | Self::Shell(_) | Self::Import(_) => BTreeSet::new(),
         }
     }
@@ -172,6 +197,7 @@ impl FeatureKind {
             Self::Sketch(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_) => None,
         }
@@ -183,6 +209,7 @@ impl FeatureKind {
             Self::Sketch(_)
             | Self::Solid(_)
             | Self::Shell(_)
+            | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_) => None,
         }
@@ -194,6 +221,19 @@ impl FeatureKind {
             Self::Sketch(_)
             | Self::Solid(_)
             | Self::Blend(_)
+            | Self::Pattern(_)
+            | Self::Datum(_)
+            | Self::Import(_) => None,
+        }
+    }
+
+    pub fn pattern(&self) -> Option<&Pattern> {
+        match self {
+            Self::Pattern(pattern) => Some(pattern.as_ref()),
+            Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
             | Self::Datum(_)
             | Self::Import(_) => None,
         }
@@ -206,6 +246,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::Pattern(_)
             | Self::Import(_) => None,
         }
     }
@@ -213,9 +254,12 @@ impl FeatureKind {
     pub fn import(&self) -> Option<&Import> {
         match self {
             Self::Import(import) => Some(import),
-            Self::Sketch(_) | Self::Solid(_) | Self::Blend(_) | Self::Shell(_) | Self::Datum(_) => {
-                None
-            }
+            Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::Pattern(_)
+            | Self::Datum(_) => None,
         }
     }
 
@@ -225,6 +269,7 @@ impl FeatureKind {
             Self::Solid(solid) => solid.parameters(),
             Self::Blend(blend) => blend.parameters(),
             Self::Shell(shell) => shell.parameters(),
+            Self::Pattern(pattern) => pattern.parameters(),
             Self::Datum(datum) => datum.parameters(),
             Self::Import(_) => BTreeSet::new(),
         }
@@ -236,6 +281,7 @@ impl FeatureKind {
             Self::Solid(solid) => solid.uses_parameter(parameter),
             Self::Blend(blend) => blend.uses_parameter(parameter),
             Self::Shell(shell) => shell.uses_parameter(parameter),
+            Self::Pattern(pattern) => pattern.uses_parameter(parameter),
             Self::Datum(datum) => datum.uses_parameter(parameter),
             Self::Import(_) => false,
         }
@@ -256,6 +302,7 @@ impl FeatureKind {
             Self::Solid(solid) => solid.features(),
             Self::Blend(blend) => blend.features(),
             Self::Shell(shell) => shell.features(),
+            Self::Pattern(pattern) => pattern.features(),
             Self::Datum(datum) => datum.features(),
             Self::Import(_) => BTreeSet::new(),
         };
@@ -300,6 +347,7 @@ impl Feature {
             FeatureKind::Solid(solid) => Some(solid.operation().target().unwrap_or(self.id)),
             FeatureKind::Blend(blend) => Some(blend.body),
             FeatureKind::Shell(shell) => Some(shell.body),
+            FeatureKind::Pattern(pattern) => Some(pattern.body),
             FeatureKind::Import(_) => Some(self.id),
             FeatureKind::Sketch(_) | FeatureKind::Datum(_) => None,
         }
@@ -312,6 +360,7 @@ impl Feature {
             FeatureKind::Sketch(_)
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
+            | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_) => false,
         }
     }

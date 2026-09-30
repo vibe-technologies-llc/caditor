@@ -84,6 +84,8 @@ pub enum Command {
     Fillet,
     Chamfer,
     Shell,
+    LinearPattern,
+    CircularPattern,
     DatumPlane,
     DatumAxis,
     FitView,
@@ -120,6 +122,8 @@ pub enum Command {
     UseSelectedAxis,
     DatumUseSelected,
     DatumTurnAboutSelected,
+    PatternUseSelected,
+    PatternSecondUseSelected,
     AddParameter,
     DeleteParameter,
     ShowFirstFailed,
@@ -369,7 +373,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 67] = [
+const PLAIN_COMMANDS: [Command; 71] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -406,6 +410,8 @@ const PLAIN_COMMANDS: [Command; 67] = [
     Command::Fillet,
     Command::Chamfer,
     Command::Shell,
+    Command::LinearPattern,
+    Command::CircularPattern,
     Command::DatumPlane,
     Command::DatumAxis,
     Command::FinishSketch,
@@ -431,6 +437,8 @@ const PLAIN_COMMANDS: [Command; 67] = [
     Command::UseSelectedAxis,
     Command::DatumUseSelected,
     Command::DatumTurnAboutSelected,
+    Command::PatternUseSelected,
+    Command::PatternSecondUseSelected,
     Command::AddParameter,
     Command::DeleteParameter,
     Command::ShowFirstFailed,
@@ -513,6 +521,8 @@ impl Command {
             Self::Fillet => "model.fillet",
             Self::Chamfer => "model.chamfer",
             Self::Shell => "model.shell",
+            Self::LinearPattern => "model.linear_pattern",
+            Self::CircularPattern => "model.circular_pattern",
             Self::DatumPlane => "model.plane",
             Self::DatumAxis => "model.axis",
             Self::FitView => "view.fit",
@@ -561,6 +571,8 @@ impl Command {
             Self::UseSelectedAxis => "model.use_selected_axis",
             Self::DatumUseSelected => "model.datum_use_selected",
             Self::DatumTurnAboutSelected => "model.datum_turn_about_selected",
+            Self::PatternUseSelected => "model.pattern_use_selected",
+            Self::PatternSecondUseSelected => "model.pattern_second_direction",
             Self::AddParameter => "model.add_parameter",
             Self::DeleteParameter => "model.delete_parameter",
             Self::ShowFirstFailed => "model.first_failed",
@@ -604,6 +616,8 @@ impl Command {
             Self::Fillet => "Fillet",
             Self::Chamfer => "Chamfer",
             Self::Shell => "Shell",
+            Self::LinearPattern => "Linear pattern",
+            Self::CircularPattern => "Circular pattern",
             Self::DatumPlane => "Datum plane",
             Self::DatumAxis => "Datum axis",
             Self::FitView => "Fit view",
@@ -641,6 +655,8 @@ impl Command {
             Self::UseSelectedAxis => "Revolve about selected axis",
             Self::DatumUseSelected => "Base datum on selection",
             Self::DatumTurnAboutSelected => "Turn datum plane about selected axis",
+            Self::PatternUseSelected => "Pattern along or about selected axis",
+            Self::PatternSecondUseSelected => "Pattern also along selected direction",
             Self::AddParameter => "Add parameter",
             Self::DeleteParameter => "Delete parameter",
             Self::ShowFirstFailed => "Go to the first failed feature",
@@ -698,6 +714,8 @@ impl Command {
             | Self::Fillet
             | Self::Chamfer
             | Self::Shell
+            | Self::LinearPattern
+            | Self::CircularPattern
             | Self::DatumPlane
             | Self::DatumAxis
             | Self::Recompute
@@ -713,6 +731,8 @@ impl Command {
             | Self::UseSelectedAxis
             | Self::DatumUseSelected
             | Self::DatumTurnAboutSelected
+            | Self::PatternUseSelected
+            | Self::PatternSecondUseSelected
             | Self::AddParameter
             | Self::DeleteParameter
             | Self::ShowFirstFailed => Category::Model,
@@ -797,6 +817,8 @@ impl Command {
             | Self::Fillet
             | Self::Chamfer
             | Self::Shell
+            | Self::LinearPattern
+            | Self::CircularPattern
             | Self::DatumPlane
             | Self::DatumAxis
             | Self::OpenSample(_)
@@ -817,6 +839,8 @@ impl Command {
             | Self::UseSelectedAxis
             | Self::DatumUseSelected
             | Self::DatumTurnAboutSelected
+            | Self::PatternUseSelected
+            | Self::PatternSecondUseSelected
             | Self::AddParameter
             | Self::DeleteParameter
             | Self::DismissNotice

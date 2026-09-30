@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use caditor_document::{
-    AxisReference, Blend, BlendKind, BodyOperation, Datum, DatumAxis, DatumPlane, Document, Edit,
-    Extrude, ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Import, Parameter,
-    PlaneReference, PlaneRotation, PrincipalAxis, PrincipalGeometry, PrincipalPlane, RegionChoice,
-    Revolve, RevolveAxis, RevolveExtent, Shell, SketchAttachment, SketchFeature, SolidFeature,
-    Transaction,
+    AxisReference, Blend, BlendKind, BodyOperation, CircularPattern, Datum, DatumAxis, DatumPlane,
+    Document, Edit, Extrude, ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind,
+    Import, LinearDirection, Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation,
+    PrincipalAxis, PrincipalGeometry, PrincipalPlane, RegionChoice, Revolve, RevolveAxis,
+    RevolveExtent, Shell, SketchAttachment, SketchFeature, SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -16,7 +16,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -55,13 +55,25 @@ pub(crate) enum FeatureKindRecord {
     Fillet(BlendRecord),
     Chamfer(BlendRecord),
     Shell(ShellRecord),
+    LinearPattern(Box<LinearPatternRecord>),
+    CircularPattern(Box<CircularPatternRecord>),
     Plane(Box<DatumPlaneRecord>),
     Axis(Box<DatumAxisRecord>),
     Import(ImportRecord),
 }
 
-pub(crate) const FEATURE_KINDS: [&str; 9] = [
-    "sketch", "extrude", "revolve", "fillet", "chamfer", "shell", "plane", "axis", "import",
+pub(crate) const FEATURE_KINDS: [&str; 11] = [
+    "sketch",
+    "extrude",
+    "revolve",
+    "fillet",
+    "chamfer",
+    "shell",
+    "linear_pattern",
+    "circular_pattern",
+    "plane",
+    "axis",
+    "import",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -149,6 +161,31 @@ pub(crate) struct ShellRecord {
     pub body: u64,
     pub thickness: String,
     pub open: Vec<Lenient<FaceRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct DirectionRecord {
+    pub axis: AxisReferenceRecord,
+    pub count: String,
+    pub spacing: String,
+    pub reversed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct LinearPatternRecord {
+    pub body: u64,
+    pub first: DirectionRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub second: Option<DirectionRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CircularPatternRecord {
+    pub body: u64,
+    pub axis: AxisReferenceRecord,
+    pub count: String,
+    pub angle: String,
+    pub reversed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -637,10 +674,42 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 .map(|face| Lenient::Read(face_record(face)))
                 .collect(),
         }),
+        FeatureKind::Pattern(pattern) => pattern_record(pattern),
         FeatureKind::Import(import) => FeatureKindRecord::Import(ImportRecord {
             source: import.source.clone(),
             step: import.step.to_string(),
         }),
+    }
+}
+
+fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
+    let body = pattern.body.raw();
+    match &pattern.kind {
+        PatternKind::Linear { first, second } => {
+            FeatureKindRecord::LinearPattern(Box::new(LinearPatternRecord {
+                body,
+                first: direction_record(first),
+                second: second.as_ref().map(direction_record),
+            }))
+        }
+        PatternKind::Circular(circular) => {
+            FeatureKindRecord::CircularPattern(Box::new(CircularPatternRecord {
+                body,
+                axis: axis_record(&circular.axis),
+                count: circular.count.to_stored_text(),
+                angle: circular.angle.to_stored_text(),
+                reversed: circular.reversed,
+            }))
+        }
+    }
+}
+
+fn direction_record(direction: &LinearDirection) -> DirectionRecord {
+    DirectionRecord {
+        axis: axis_record(&direction.axis),
+        count: direction.count.to_stored_text(),
+        spacing: direction.spacing.to_stored_text(),
+        reversed: direction.reversed,
     }
 }
 
@@ -1312,6 +1381,12 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             FeatureKind::Blend(restore_blend(record, BlendKind::Chamfer, name, issues))
         }
         FeatureKindRecord::Shell(record) => FeatureKind::Shell(restore_shell(record, name, issues)),
+        FeatureKindRecord::LinearPattern(record) => {
+            FeatureKind::from(restore_linear_pattern(record, name, issues))
+        }
+        FeatureKindRecord::CircularPattern(record) => {
+            FeatureKind::from(restore_circular_pattern(record, name, issues))
+        }
         FeatureKindRecord::Plane(record) => {
             FeatureKind::Datum(Datum::Plane(restore_datum_plane(record, name, issues)))
         }
@@ -1418,6 +1493,86 @@ fn restore_datum_axis(
         ));
         DatumAxis::Along(AxisReference::Principal(PrincipalAxis::Z))
     })
+}
+
+fn restore_direction(
+    record: &DirectionRecord,
+    which: &str,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Option<LinearDirection> {
+    let axis = restore_axis(&record.axis)?;
+    Some(LinearDirection {
+        axis,
+        count: restore_value(
+            &record.count,
+            &format!("{which}count"),
+            "1",
+            feature,
+            issues,
+        ),
+        spacing: restore_value(
+            &record.spacing,
+            &format!("{which}spacing"),
+            "10 mm",
+            feature,
+            issues,
+        ),
+        reversed: record.reversed,
+    })
+}
+
+fn restore_linear_pattern(
+    record: &LinearPatternRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Pattern {
+    let first = restore_direction(&record.first, "", feature, issues).unwrap_or_else(|| {
+        issues.push(format!(
+            "The direction of “{feature}” could not be read, so it runs along the X axis."
+        ));
+        LinearDirection {
+            axis: AxisReference::Principal(PrincipalAxis::X),
+            count: restore_value(&record.first.count, "count", "1", feature, issues),
+            spacing: restore_value(&record.first.spacing, "spacing", "10 mm", feature, issues),
+            reversed: record.first.reversed,
+        }
+    });
+    let second = record.second.as_ref().and_then(|second| {
+        let restored = restore_direction(second, "second ", feature, issues);
+        if restored.is_none() {
+            issues.push(format!(
+                "The second direction of “{feature}” could not be read, so it was left out."
+            ));
+        }
+        restored
+    });
+    Pattern {
+        body: FeatureId::from_raw(record.body),
+        kind: PatternKind::Linear { first, second },
+    }
+}
+
+fn restore_circular_pattern(
+    record: &CircularPatternRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Pattern {
+    let axis = restore_axis(&record.axis).unwrap_or_else(|| {
+        issues.push(format!(
+            "The axis of “{feature}” could not be read, so it turns about the Z axis."
+        ));
+        AxisReference::Principal(PrincipalAxis::Z)
+    });
+    Pattern {
+        body: FeatureId::from_raw(record.body),
+        kind: PatternKind::Circular(CircularPattern {
+            axis,
+            count: restore_value(&record.count, "count", "1", feature, issues),
+            angle: restore_value(&record.angle, "angle", "360 deg", feature, issues),
+            reversed: record.reversed,
+        }),
+    }
 }
 
 fn restore_shell(record: &ShellRecord, feature: &str, issues: &mut Vec<String>) -> Shell {

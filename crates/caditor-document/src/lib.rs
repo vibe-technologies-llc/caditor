@@ -7,6 +7,7 @@ mod document;
 mod edit;
 mod editor;
 mod import;
+mod pattern;
 mod pieces;
 mod recompute;
 mod shell;
@@ -29,6 +30,7 @@ pub use crate::{
     edit::{Edit, EditError, Transaction, TransactionBuilder},
     editor::{Base, Editor, Prepared, Stale},
     import::Import,
+    pattern::{CircularPattern, LinearDirection, MAX_PATTERN_INSTANCES, Pattern, PatternKind},
     pieces::{Resolution, Unresolved},
     recompute::{
         CancelToken, Evaluation, Evaluator, Failure, FeatureError, FeatureResult, FeatureState,
@@ -49,6 +51,8 @@ mod attachment_tests;
 mod blend_tests;
 #[cfg(test)]
 mod datum_tests;
+#[cfg(test)]
+mod pattern_tests;
 #[cfg(test)]
 mod shell_tests;
 #[cfg(test)]

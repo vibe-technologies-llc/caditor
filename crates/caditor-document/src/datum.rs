@@ -538,10 +538,10 @@ impl Resolver<'_> {
         what: &str,
         dimension: Dimension,
     ) -> Result<f64, Failure> {
-        let example = if dimension == Dimension::ANGLE {
-            "an angle, such as 30 deg"
-        } else {
-            "a length, such as 10 mm"
+        let example = match dimension {
+            Dimension::ANGLE => "an angle, such as 30 deg",
+            Dimension::NONE => "a plain number, such as 4",
+            _ => "a length, such as 10 mm",
         };
         expression
             .evaluate_as(dimension, &|id| self.inputs.parameters.value(id))

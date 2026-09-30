@@ -33,6 +33,8 @@ mod overlay;
 mod palette;
 mod panels;
 mod parameter_table;
+mod pattern_panel;
+mod pattern_tools;
 mod preferences;
 mod principal_tree;
 mod reference_rows;

@@ -18,7 +18,8 @@ pub fn can_hide(feature: &Feature) -> bool {
         FeatureKind::Solid(_)
         | FeatureKind::Import(_)
         | FeatureKind::Blend(_)
-        | FeatureKind::Shell(_) => feature.makes_body(),
+        | FeatureKind::Shell(_)
+        | FeatureKind::Pattern(_) => feature.makes_body(),
     }
 }
 

@@ -493,6 +493,17 @@ impl Solid {
         self
     }
 
+    pub(crate) fn with_face_names(mut self, rename: impl Fn(FaceName) -> FaceName) -> Self {
+        for face in &mut self.faces {
+            face.name = rename(face.name);
+        }
+        let names = self.derived_edge_names();
+        for (edge, name) in self.edges.iter_mut().zip(names) {
+            edge.name = name;
+        }
+        self
+    }
+
     fn derived_edge_names(&self) -> Vec<EdgeName> {
         let sides: Vec<[FaceName; 2]> = self
             .edges

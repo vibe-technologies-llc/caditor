@@ -6,7 +6,8 @@ paths:
 # File format and persistence
 
 - Binary, zstd-compressed, xxh3-checked; no text model format. Format number restarted at 1; every
-  shipped version stays readable.
+  shipped version stays readable. Version 2 added `linear_pattern` and `circular_pattern`
+  feature records, which version 1 readers leave out as a kind they do not know.
 
 ## Container (`binary/`)
 
@@ -48,7 +49,9 @@ paths:
   empty, reported.
 - Reported fallbacks: unreadable extent becomes 10 mm or 360°; unreadable blend edge left out;
   unreadable opened face left closed; sketch whose face or datum plane cannot be restored stays on
-  its stored plane; revolve whose axis line is gone turns about its sketch's vertical axis.
+  its stored plane; revolve whose axis line is gone turns about its sketch's vertical axis;
+  pattern whose direction or axis cannot be read runs along X or turns about Z, an unreadable
+  second direction is left out, an unreadable count becomes 1 and spacing 10 mm.
 
 ## Version history
 

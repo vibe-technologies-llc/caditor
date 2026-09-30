@@ -18,6 +18,7 @@ const BLEND_FACE: u8 = 0x04;
 const CORNER_FACE: u8 = 0x05;
 const SHELL_FACE: u8 = 0x06;
 const IMPORTED_FACE: u8 = 0x07;
+const PATTERN_FACE: u8 = 0x08;
 const EDGE_BETWEEN: u8 = 0x10;
 const EDGE_BETWEEN_AT: u8 = 0x11;
 const SEAM_EDGE: u8 = 0x12;
@@ -82,6 +83,16 @@ impl FaceName {
         let mut digest = Digest::new(IMPORTED_FACE);
         digest.u64(feature);
         digest.u32(index);
+        Self(digest.finish())
+    }
+
+    pub fn pattern(feature: u64, copy: [u32; 2], original: FaceName) -> Self {
+        let mut digest = Digest::new(PATTERN_FACE);
+        digest.u64(feature);
+        for step in copy {
+            digest.u32(step);
+        }
+        digest.u128(original.0);
         Self(digest.finish())
     }
 

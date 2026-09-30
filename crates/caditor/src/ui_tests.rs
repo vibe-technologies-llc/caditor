@@ -44,7 +44,7 @@ use crate::{
     panels::Focus,
     preferences::{PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, TitleBar},
     scene,
-    selection::{Pickable, PrincipalPlane},
+    selection::{Axis, Pickable, PrincipalPlane},
     sketch_toolbar,
     sketch_tools::ConstraintTool,
     status_bar, typed_point,
@@ -4291,6 +4291,72 @@ fn the_shell_button_needs_faces_of_a_body_and_opens_every_selected_one() {
         .expect("the shell is open");
     assert_eq!(shell_of(&harness, shell).open.len(), 2);
     assert!(harness.body_volume(plate) < 16000.0 - 38.0 * 38.0 * 9.0);
+}
+
+fn pattern_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Pattern {
+    harness
+        .document()
+        .feature(feature)
+        .and_then(|feature| feature.kind.pattern())
+        .unwrap()
+}
+
+fn volume_about(harness: &Harness, body: FeatureId, expected: f64) -> bool {
+    (harness.body_volume(body) - expected).abs() < 1e-3 * expected
+}
+
+#[test]
+fn a_linear_pattern_repeats_the_body_and_takes_its_count_and_directions_from_the_panel() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+
+    harness.select([]);
+    harness.hover("Linear pattern");
+    assert!(harness.shows(
+        "Repeat the body of Extrude 1 along the X axis, or along an edge or axis you select first"
+    ));
+    harness.click("Linear pattern");
+    harness.settle();
+    let pattern = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the pattern is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Linear pattern 1"));
+    assert_eq!(pattern_of(&harness, pattern).body, plate);
+    assert!(volume_about(&harness, plate, 3.0 * 16000.0));
+    assert!(harness.shows("Along"));
+    assert!(harness.shows("Spacing"));
+
+    harness.type_into_field(Id::new(("pattern-field", "count", pattern)), "4");
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Edit Linear pattern 1"));
+    assert!(volume_about(&harness, plate, 4.0 * 16000.0));
+
+    assert_eq!(
+        offer(&harness, Command::PatternSecondUseSelected).availability,
+        Err("Select an axis, straight edge or round face made before this pattern".to_owned())
+    );
+    harness.select([Pickable::Axis(Axis::Y)]);
+    run_from_palette(&mut harness, "pattern also along selected");
+    harness.settle();
+    let caditor_document::PatternKind::Linear { second, .. } = &pattern_of(&harness, pattern).kind
+    else {
+        panic!("the pattern stays linear");
+    };
+    assert!(second.is_some());
+    assert!(volume_about(&harness, plate, 8.0 * 16000.0));
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(volume_about(&harness, plate, 4.0 * 16000.0));
+    harness.perform(Action::Redo);
+    harness.settle();
+    assert!(volume_about(&harness, plate, 8.0 * 16000.0));
+
+    harness.type_into_field(Id::new(("pattern-field", "count", pattern)), "2.5");
+    assert!(harness.shows("Enter a whole number of at least 1"));
+    assert!(volume_about(&harness, plate, 8.0 * 16000.0));
 }
 
 fn datum_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Datum {

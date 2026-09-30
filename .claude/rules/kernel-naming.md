@@ -5,6 +5,7 @@ paths:
   - "crates/caditor-kernel/src/boolean/**"
   - "crates/caditor-kernel/src/blend/**"
   - "crates/caditor-kernel/src/shell/**"
+  - "crates/caditor-kernel/src/pattern/**"
   - "crates/caditor-document/**"
   - "crates/caditor-step/src/read/**"
 ---
@@ -22,6 +23,9 @@ paths:
   - `start_cap` and `end_cap(feature, RegionKey)`
   - `blend(feature, edge)`, `corner(feature, vertex)`, `shell(feature, original)`
   - `imported(feature, index)`
+  - `pattern(feature, [column, row], original)` for a patterned copy; the index is the copy's
+    step along each direction (row 0 for a circular pattern), so changing a count never renames
+    the copies it keeps
 - Edge constructors:
   - `between` (unordered face pair)
   - `seam(face)` for the profile seam of a full revolution
@@ -31,7 +35,9 @@ paths:
   - as a last resort `occurrence`, ordered by position (midpoints on a grid of a hundred
     resolutions, so rounding noise cannot swap them)
 - `FaceOrigin` says in words what a face came from: side of an entity, start or end cap (with the
-  raw feature and entity ids), `Fillet`, `Chamfer`, `Shell`, `Imported`.
+  raw feature and entity ids), `Fillet`, `Chamfer`, `Shell`, `Imported`. A patterned copy keeps
+  the origin of the face it copies, so a reference whose name is gone still falls back to faces of
+  that origin, which the copy's differently named neighbours then tell apart.
 - `Solid::imported(feature)` names an imported solid: `FaceName::imported(feature, index)` by the
   face's position in the solid (its order in the stored STEP text, which never changes),
   `FaceOrigin::Imported`, and edges `between` their faces, disambiguated like sweeps.

@@ -471,7 +471,7 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
     assert_eq!(
         loaded.issues,
         [
-            "This model was made by a newer version of caditor (format 2). Anything this version \
+            "This model was made by a newer version of caditor (format 3). Anything this version \
              does not understand was left out.",
             "The feature “Pad” is a kind this version of caditor does not know (loft), so it \
              was left out. It may come from a newer version.",
@@ -1907,6 +1907,155 @@ fn an_unreadable_opened_face_is_left_closed_and_reported() {
     );
     let restored = loaded.document.feature(shell).unwrap();
     assert!(restored.kind.shell().unwrap().open.is_empty());
+}
+
+fn patterned_model() -> (Document, FeatureId, FeatureId) {
+    use caditor_document::{
+        AxisReference, CircularPattern, LinearDirection, Pattern, PatternKind, PrincipalAxis,
+    };
+    use caditor_kernel::{
+        EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, VertexName,
+    };
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Patterns");
+    let linear = transaction.add_feature(
+        "Linear pattern 1",
+        FeatureKind::from(Pattern {
+            body: base,
+            kind: PatternKind::Linear {
+                first: LinearDirection {
+                    axis: AxisReference::Edge {
+                        body: base,
+                        edge: EdgeReference::new(
+                            EdgeName::from_digest(0xed),
+                            [FaceName::from_digest(1), FaceName::from_digest(2)],
+                            [VertexName::from_digest(3), VertexName::from_digest(4)],
+                        ),
+                    },
+                    count: transaction.parse("3").unwrap(),
+                    spacing: transaction.parse("depth * 4").unwrap(),
+                    reversed: false,
+                },
+                second: Some(LinearDirection {
+                    axis: AxisReference::Principal(PrincipalAxis::Y),
+                    count: transaction.parse("2").unwrap(),
+                    spacing: transaction.parse("12 mm").unwrap(),
+                    reversed: true,
+                }),
+            },
+        }),
+    );
+    let circular = transaction.add_feature(
+        "Circular pattern 1",
+        FeatureKind::from(Pattern {
+            body: base,
+            kind: PatternKind::Circular(CircularPattern {
+                axis: AxisReference::Face {
+                    body: base,
+                    face: FaceReference::new(
+                        FaceName::from_digest(0xfa),
+                        Some(FaceOrigin::Side {
+                            feature: 1,
+                            entity: 2,
+                        }),
+                        [FaceName::from_digest(3)],
+                    ),
+                },
+                count: transaction.parse("4").unwrap(),
+                angle: transaction.parse("180 deg").unwrap(),
+                reversed: false,
+            }),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, linear, circular)
+}
+
+#[test]
+fn patterns_are_saved_and_loaded() {
+    let (document, linear, circular) = patterned_model();
+    let text = encode(&document).unwrap();
+    assert!(
+        text.contains("\"linear_pattern\":{\"body\":1,\"first\":{\"axis\":{\"edge\":{\"body\":1,")
+    );
+    assert!(text.contains(
+        "\"second\":{\"axis\":{\"principal\":\"y\"},\"count\":\"2\",\"reversed\":true,\
+         \"spacing\":\"12 mm\"}"
+    ));
+    assert!(text.contains("\"spacing\":\"$0 * 4\""));
+    assert!(
+        text.contains(
+            "\"circular_pattern\":{\"angle\":\"180 deg\",\"axis\":{\"face\":{\"body\":1,"
+        )
+    );
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    for pattern in [linear, circular] {
+        let kind = document.feature(pattern).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: pattern, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+}
+
+#[test]
+fn a_pattern_whose_axis_cannot_be_read_falls_back_and_is_reported() {
+    use caditor_document::{AxisReference, PatternKind, PrincipalAxis};
+    let (document, linear, circular) = patterned_model();
+    let text = encode(&document)
+        .unwrap()
+        .replacen("000000000000000000000000000000ed", "not a digest", 1)
+        .replacen("000000000000000000000000000000fa", "not a digest", 1);
+    let loaded = decode_text(&text);
+    assert_eq!(
+        loaded.issues,
+        [
+            "The direction of “Linear pattern 1” could not be read, so it runs along the X axis.",
+            "The axis of “Circular pattern 1” could not be read, so it turns about the Z axis.",
+        ]
+    );
+    let restored = loaded
+        .document
+        .feature(linear)
+        .unwrap()
+        .kind
+        .pattern()
+        .unwrap();
+    let PatternKind::Linear { first, second } = &restored.kind else {
+        panic!("the pattern stays linear");
+    };
+    assert_eq!(first.axis, AxisReference::Principal(PrincipalAxis::X));
+    assert!(second.is_some());
+    let restored = loaded
+        .document
+        .feature(circular)
+        .unwrap()
+        .kind
+        .pattern()
+        .unwrap();
+    let PatternKind::Circular(turned) = &restored.kind else {
+        panic!("the pattern stays circular");
+    };
+    assert_eq!(turned.axis, AxisReference::Principal(PrincipalAxis::Z));
+}
+
+#[test]
+fn a_model_saved_in_format_1_before_patterns_loads_unchanged() {
+    let (document, _, _) = datum_model();
+    let lines = lines_of(&document);
+    let loaded = decode(&model_from_json(1, &lines)).unwrap();
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let seed = fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds/model/datums.caditor"),
+    )
+    .unwrap();
+    assert_eq!(seed.get(8..12), Some(1u32.to_le_bytes().as_slice()));
+    assert_eq!(decode(&seed).unwrap().issues, Vec::<String>::new());
 }
 
 fn datum_model() -> (Document, FeatureId, FeatureId) {

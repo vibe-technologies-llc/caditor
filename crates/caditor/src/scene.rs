@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 
 use caditor_document::{
     DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
-    PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion, SolidFeature, displayed_axis,
+    PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion, SolidFeature, SolidResult,
+    displayed_axis,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray};
 use caditor_kernel::RegionKey;
@@ -697,7 +698,42 @@ impl Builder<'_> {
         }
     }
 
+    fn pattern_axes(&mut self, sources: &Sources<'_>, feature: FeatureId, reference_size: f64) {
+        let Sources {
+            document,
+            evaluation,
+            ..
+        } = *sources;
+        let Some(pattern) = document
+            .feature(feature)
+            .and_then(|owner| owner.kind.pattern())
+        else {
+            return;
+        };
+        let near = evaluation
+            .body_result(pattern.body)
+            .and_then(|result| result.solid())
+            .and_then(SolidResult::bounding_box)
+            .map_or(Point3::ZERO, |bounds| bounds.center());
+        for axis in pattern.axes() {
+            let Some(ray) = displayed_axis(evaluation, feature, axis) else {
+                continue;
+            };
+            let [start, end] = axis_ends(ray, near, reference_size);
+            self.scene.lines.push(Line {
+                start,
+                end,
+                color: REVOLVE_AXIS,
+                width: REVOLVE_AXIS_WIDTH,
+                layer: Layer::Model,
+                pick: None,
+                stroke: Stroke::Solid,
+            });
+        }
+    }
+
     fn swept(&mut self, sources: &Sources<'_>, feature: FeatureId, reference_size: f64) {
+        self.pattern_axes(sources, feature, reference_size);
         let Sources {
             document,
             evaluation,

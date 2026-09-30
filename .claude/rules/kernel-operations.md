@@ -4,6 +4,7 @@ paths:
   - "crates/caditor-kernel/src/boolean/**"
   - "crates/caditor-kernel/src/blend/**"
   - "crates/caditor-kernel/src/shell/**"
+  - "crates/caditor-kernel/src/pattern/**"
   - "crates/caditor-kernel/src/box_tree.rs"
 ---
 
@@ -110,6 +111,18 @@ paths:
   (`corner.rs`: a hexahedron minus the rolling ball, built through `Plan`); other corners mitre.
 - Faces are `FaceName::blend(feature, edge)` and `corner(feature, vertex)`, with
   `FaceOrigin::Fillet` or `Chamfer`.
+
+# Patterns (`pattern/`)
+
+- `pattern(solid, copies, feature)` places a copy of the solid for each `PatternCopy` (an index
+  `[column, row]` and a `RigidTransform`) and unions the original with every copy: valid or a
+  `PatternError` (`Placement`, `Union` carrying the boolean's error, `Cancelled`).
+- Copies are unioned in pairs, round by round, so n copies take about log n rounds of booleans on
+  neighbours rather than n booleans against an ever larger body; copies that do not touch stay
+  separate lumps of one body, and coincident faces of touching copies merge by healing.
+- A copy's faces are renamed `FaceName::pattern(feature, index, original)` and keep the original's
+  `FaceOrigin`; its edges are named again from those faces (`Solid::with_face_names`, like
+  imports). The original keeps every name.
 
 # Shell (`shell/`)
 
