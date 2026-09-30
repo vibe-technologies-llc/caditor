@@ -44,6 +44,7 @@ pub struct Tokens {
     pub accent: Color32,
     pub accent_text: Color32,
     pub accent_subtle: Color32,
+    pub accent_surface: Color32,
     pub focus: Color32,
     pub error: Color32,
     pub error_subtle: Color32,
@@ -70,6 +71,7 @@ const DARK: Tokens = Tokens {
     accent: Color32::from_rgb(47, 111, 224),
     accent_text: Color32::from_rgb(122, 167, 255),
     accent_subtle: Color32::from_rgb(31, 49, 80),
+    accent_surface: Color32::from_rgb(25, 32, 45),
     focus: Color32::from_rgb(122, 167, 255),
     error: Color32::from_rgb(255, 123, 114),
     error_subtle: Color32::from_rgb(58, 31, 34),
@@ -96,6 +98,7 @@ const LIGHT: Tokens = Tokens {
     accent: Color32::from_rgb(37, 99, 235),
     accent_text: Color32::from_rgb(29, 78, 216),
     accent_subtle: Color32::from_rgb(221, 232, 253),
+    accent_surface: Color32::from_rgb(236, 241, 250),
     focus: Color32::from_rgb(37, 99, 235),
     error: Color32::from_rgb(192, 38, 45),
     error_subtle: Color32::from_rgb(253, 232, 232),
@@ -122,6 +125,7 @@ const DARK_HIGH_CONTRAST: Tokens = Tokens {
     accent: Color32::from_rgb(0, 80, 170),
     accent_text: Color32::from_rgb(150, 205, 255),
     accent_subtle: Color32::from_rgb(0, 50, 110),
+    accent_surface: Color32::from_rgb(0, 22, 50),
     focus: Color32::from_rgb(255, 214, 0),
     error: Color32::from_rgb(255, 150, 140),
     error_subtle: Color32::from_rgb(60, 0, 0),
@@ -148,6 +152,7 @@ const LIGHT_HIGH_CONTRAST: Tokens = Tokens {
     accent: Color32::from_rgb(0, 70, 170),
     accent_text: Color32::from_rgb(0, 60, 150),
     accent_subtle: Color32::from_rgb(214, 228, 255),
+    accent_surface: Color32::from_rgb(238, 244, 255),
     focus: Color32::from_rgb(0, 70, 200),
     error: Color32::from_rgb(150, 0, 0),
     error_subtle: Color32::from_rgb(255, 228, 228),
@@ -472,6 +477,7 @@ pub mod tests {
             );
             for (what, background) in [
                 ("accent row", tokens.accent_subtle),
+                ("accent surface", tokens.accent_surface),
                 ("error callout", tokens.error_subtle),
                 ("warning callout", tokens.warn_subtle),
                 ("success callout", tokens.success_subtle),
@@ -482,12 +488,12 @@ pub mod tests {
                 assert_readable(&case(what), tokens.text, background, body);
                 assert_readable(&case(what), tokens.text_muted, background, READABLE);
             }
-            assert_readable(
-                &case("accent text on accent row"),
-                tokens.accent_text,
-                tokens.accent_subtle,
-                READABLE,
-            );
+            for (what, background) in [
+                ("accent text on accent row", tokens.accent_subtle),
+                ("accent text on accent surface", tokens.accent_surface),
+            ] {
+                assert_readable(&case(what), tokens.accent_text, background, READABLE);
+            }
             for (what, foreground, background) in [
                 ("neutral pill", tokens.text_muted, tokens.button),
                 ("info pill", tokens.accent_text, tokens.accent_subtle),

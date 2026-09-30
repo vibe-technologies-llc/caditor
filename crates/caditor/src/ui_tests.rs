@@ -42,6 +42,8 @@ use crate::{
     preferences::{PreferenceChange, Preferences, PreferencesCommand, TitleBar},
     scene,
     selection::{Pickable, PrincipalPlane},
+    sketch_toolbar,
+    sketch_tools::ConstraintTool,
     status_bar, typed_point,
     units::LengthUnit,
     window_frame,
@@ -380,6 +382,38 @@ impl Harness {
             .unwrap_or_else(|| panic!("'{label}' is not on screen"))
             .clone();
         self.events.push(Event::PointerMoved(rect.center()));
+        for _ in 0..TOOLTIP_FRAMES {
+            self.frame();
+        }
+    }
+
+    fn button_rect(&mut self, name: &str) -> Rect {
+        if self.accessible.is_empty() {
+            self.context.enable_accesskit();
+            self.frame();
+            self.frame();
+        }
+        let bounds = self
+            .accessible
+            .iter()
+            .filter(|(_, node)| node.role() == Role::Button && node.label() == Some(name))
+            .find_map(|(_, node)| node.bounds())
+            .unwrap_or_else(|| panic!("no button named '{name}'"));
+        Rect::from_min_max(
+            Pos2::new(bounds.x0 as f32, bounds.y0 as f32),
+            Pos2::new(bounds.x1 as f32, bounds.y1 as f32),
+        )
+    }
+
+    fn click_button(&mut self, name: &str) {
+        let position = self.button_rect(name).center();
+        self.click_screen(position);
+        self.show_new_windows();
+    }
+
+    fn hover_button(&mut self, name: &str) {
+        let position = self.button_rect(name).center();
+        self.events.push(Event::PointerMoved(position));
         for _ in 0..TOOLTIP_FRAMES {
             self.frame();
         }
@@ -1876,7 +1910,7 @@ fn horizontal_from_the_selection_levels_a_line_and_updates_the_freedom() {
         feature,
         entity: line,
     }]);
-    harness.click("Horizontal");
+    harness.click_button("Horizontal");
     harness.settle();
 
     assert_eq!(harness.model.undo_label(), Some("Add Horizontal"));
@@ -2132,9 +2166,9 @@ fn a_constraint_button_explains_what_to_select_when_it_cannot_apply() {
         entity: start,
     }]);
 
-    harness.click("Parallel");
+    harness.click_button("Parallel");
     assert_eq!(harness.sketch(feature).constraints().len(), 0);
-    harness.hover("Parallel");
+    harness.hover_button("Parallel");
     assert!(harness.shows("Make lines parallel. Select two or more lines (Shift+P)"));
 
     harness.key(Key::P, Modifiers::SHIFT);
@@ -2208,7 +2242,7 @@ fn a_diameter_is_labelled_with_its_sign_and_sets_the_circle() {
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.select(entity_pickables(feature, &[circle]));
 
-    harness.click("Diameter");
+    harness.click_button("Diameter");
     harness.frame();
     let (constraint, _) = only_constraint(harness.sketch(feature));
     harness.frame();
@@ -2273,8 +2307,8 @@ fn equal_and_parallel_take_several_lines_in_one_undoable_step() {
     harness.edit(feature);
     harness.select(entity_pickables(feature, &lines));
 
-    harness.click("Parallel");
-    harness.click("Equal");
+    harness.click_button("Parallel");
+    harness.click_button("Equal");
     harness.settle();
 
     let [first, second, third] = lines;
@@ -2323,10 +2357,10 @@ fn a_point_goes_onto_a_spline_and_a_line_touches_it() {
     harness.edit(feature);
     harness.select(entity_pickables(feature, &[spline, point]));
 
-    harness.click("Coincident");
+    harness.click_button("Coincident");
     harness.settle();
     harness.select(entity_pickables(feature, &[spline, line]));
-    harness.click("Tangent");
+    harness.click_button("Tangent");
     harness.settle();
 
     assert_eq!(
@@ -2960,7 +2994,7 @@ fn q_switches_the_selected_curves_or_new_drawing_to_construction_geometry() {
     assert_eq!(harness.sketch(feature).construction().len(), 2);
 
     harness.select([]);
-    harness.click("Construction");
+    harness.click_button("Construction");
     assert!(construction(&harness));
 }
 
@@ -3339,8 +3373,127 @@ fn tool_buttons_name_their_shortcuts() {
     assert!(harness.shows("Draw connected lines, one click per corner (L)"));
     harness.click("Circle");
     assert_eq!(harness.tool(), Some(Tool::Circle));
-    harness.hover("Parallel");
+    harness.hover_button("Parallel");
     assert!(harness.shows("Make lines parallel. Select two or more lines (Shift+P)"));
+}
+
+fn sketch_bar(harness: &Harness) -> Rect {
+    egui::containers::panel::PanelState::load(&harness.context, Id::new("sketch-toolbar"))
+        .expect("the sketch bar is shown")
+        .outer_rect
+}
+
+fn sketch_bar_problems(harness: &Harness, visible: Rect) -> Vec<String> {
+    let bar = sketch_bar(harness);
+    let texts: Vec<&(String, Rect)> = harness
+        .texts
+        .iter()
+        .filter(|(_, rect)| bar.contains(rect.center()))
+        .collect();
+    let overlapping = texts.iter().enumerate().flat_map(|(index, (first, a))| {
+        texts[index + 1..]
+            .iter()
+            .filter(move |(_, b)| a.shrink(0.5).intersects(b.shrink(0.5)))
+            .map(move |(second, _)| format!("{first:?} overlaps {second:?}"))
+    });
+    let outside = texts
+        .iter()
+        .filter(|(_, rect)| !visible.expand(0.5).contains_rect(*rect))
+        .map(|(shown, _)| format!("{shown:?} is cut off"));
+    overlapping.chain(outside).collect()
+}
+
+fn sketch_bar_buttons() -> Vec<&'static str> {
+    Tool::ALL
+        .map(Tool::label)
+        .into_iter()
+        .chain(ConstraintTool::ALL.map(ConstraintTool::label))
+        .chain([
+            sketch_toolbar::CONSTRUCTION_LABEL,
+            sketch_toolbar::MOVE_LABEL,
+            sketch_toolbar::SELECT_ALL_LABEL,
+            sketch_toolbar::DELETE_LABEL,
+            sketch_toolbar::FINISH_LABEL,
+        ])
+        .collect()
+}
+
+#[test]
+fn the_sketch_bar_fits_one_row_wraps_at_200_percent_and_names_every_button() {
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+    let base = edit_base_sketch(&mut harness);
+    harness.frame();
+    let line = entities_of_kind(harness.sketch(base), "Line")[0];
+
+    let row = harness.position_of("Draw").y;
+    let bar = sketch_bar(&harness);
+    let finish = harness.position_of(sketch_toolbar::FINISH_LABEL);
+    assert!(harness.shows("Editing Base sketch"));
+    assert_eq!(sketch_bar_problems(&harness, SCREEN), Vec::<String>::new());
+    for caption in ["Modify", "Constrain", "Dimension"] {
+        assert!(
+            (harness.position_of(caption).y - row).abs() < 0.5,
+            "{caption}"
+        );
+    }
+    assert!(harness.position_of("Select").y < row);
+    assert!(finish.x > harness.position_of("Dimension").x);
+    assert!(finish.y < row);
+    assert_readable(&harness, "The sketch bar");
+    for name in sketch_bar_buttons() {
+        assert!(harness.accessible_named(Role::Button, name), "{name}");
+    }
+
+    harness.select([Pickable::SketchEntity {
+        feature: base,
+        entity: line,
+    }]);
+    harness.frame();
+    harness.frame();
+    assert_eq!(sketch_bar(&harness), bar);
+    let delete = harness.button_rect(sketch_toolbar::DELETE_LABEL);
+    assert!(bar.contains_rect(delete));
+
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Scale(2.0),
+    )));
+    harness.frame();
+    harness.frame();
+    harness.frame();
+    let visible = Rect::from_min_size(Pos2::ZERO, SCREEN.size() / 2.0);
+    assert_eq!(sketch_bar_problems(&harness, visible), Vec::<String>::new());
+    assert!(harness.position_of("Constrain").y > harness.position_of("Draw").y);
+    assert!(harness.shows(sketch_toolbar::FINISH_LABEL));
+    assert_readable(&harness, "The sketch bar at 200%");
+    for name in sketch_bar_buttons() {
+        assert!(harness.accessible_named(Role::Button, name), "{name}");
+    }
+}
+
+#[test]
+fn the_sketch_bar_selects_everything_and_moves_it_to_a_typed_point() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(20.0, 10.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let pickable = Pickable::SketchEntity {
+        feature,
+        entity: line,
+    };
+
+    harness.hover_button(sketch_toolbar::MOVE_LABEL);
+    assert!(harness.shows(
+        "Move the selected geometry to a typed position, or by a typed offset. Select sketch \
+         geometry to move it (M)"
+    ));
+    harness.click_button(sketch_toolbar::SELECT_ALL_LABEL);
+    harness.frame();
+    assert!(harness.workspace.viewport.selection().contains(pickable));
+
+    harness.click_button(sketch_toolbar::MOVE_LABEL);
+    harness.frame();
+    assert!(harness.shows(typed_point::MOVE_LABEL));
 }
 
 fn rectangle(sketch: &mut Sketch, min: Point2, max: Point2) {

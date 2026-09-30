@@ -164,6 +164,12 @@ The first release of caditor.
   it to move the window, double-click to maximize, right-click for the window menu, drag any edge
   to resize; it keeps working while a dialog is open. F11 enters and leaves full screen. Prefer
   the window manager's title bar? Choose it in Preferences › Appearance or the window menu.
+- The sketch bar is redesigned: a header with the sketch's name and its state (with an icon and
+  the degrees of freedom left), then Select, Draw, Modify, Constrain and Dimension groups under
+  small captions, with the constraints as compact icon buttons that name themselves, their
+  shortcut and what to select on hover, Move and Select all buttons beside Construction and
+  Delete, and Finish sketch as the highlighted action on the right. It fits one row on a wide
+  window and wraps whole groups at large interface sizes.
 - One environment without workbenches or modes: tools are offered where they fit the selection
   and the edited sketch.
 - A command palette, customisable keyboard shortcuts, and keyboard operation of everything,

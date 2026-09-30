@@ -10,6 +10,7 @@ paths:
   - "crates/caditor/src/window_frame.rs"
   - "crates/caditor/src/overlay.rs"
   - "crates/caditor/src/toolbar.rs"
+  - "crates/caditor/src/sketch_toolbar.rs"
   - "crates/caditor/src/status_bar.rs"
   - "crates/caditor/src/panels.rs"
   - "crates/caditor/src/feature_tree.rs"
@@ -28,7 +29,8 @@ paths:
   panels. Fonts are installed on the first frame, which draws nothing, and the style applies from
   the next.
 - `appearance.rs` holds the theme as `Tokens` (surfaces, text, a blue accent, error, warning and
-  success with tinted backgrounds) for dark, light and both high-contrast variants, builds each egui
+  success with tinted backgrounds, and `accent_surface`, a faint accent tint for a bar marking a
+  context such as the sketch ribbon) for dark, light and both high-contrast variants, builds each egui
   `Style` from them (Inter text styles plus a `section` style, spacing, radii, shadows) and tests
   every text pairing against its background. Panels read colours from `appearance::tokens(ui)` or
   the visuals, never fixed values.
@@ -38,14 +40,17 @@ paths:
 
 ## Widgets
 
-- `widgets.rs` is the kit every panel and dialog is built from: `ToolButton` (icon above label),
-  `section`, `properties`/`property`/`error_row`, `removable_row` (text that wraps beside a remove
-  button), `card`, `callout` and `pill` with a `Tone`, `icon_button`, `small_button`,
-  `primary_button`, `menu_item`, `link_label`, `choose_in_view`, `dialog`/`footer` (a titled modal
-  with a close button and the primary action rightmost).
+- `widgets.rs` is the kit every panel and dialog is built from: `ToolButton` (icon above label,
+  `tool_height` tall; `compact` draws the icon alone, named by its label, in a square of
+  `compact_tool_side` so two rows match one tool button; selected is an accent subtle fill with an
+  accent outline), `section`, `properties`/`property`/`error_row`, `removable_row` (text that
+  wraps beside a remove button), `card`, `callout` and `pill` with a `Tone`, `status_pill` (the
+  tone's icon before the text, for states such as a sketch's), `icon_button`, `small_button`,
+  `primary_button` and `primary_icon_button`, `menu_item`, `link_label`, `choose_in_view`,
+  `dialog`/`footer` (a titled modal with a close button and the primary action rightmost).
 - Dialog widths and list heights are clamped to the screen (`fitting_width`, `list_height`), so
   nothing clips at 200%. Icons and labels are separate text atoms, so tests find buttons by bare
-  label.
+  label, and compact ones by accessible name.
 
 ## Screen readers
 
@@ -68,9 +73,21 @@ paths:
   opens the model details: path, saved state, Save, Save As…, Version History… (once saved) and
   Copy file location. Its text is muted while the window is unfocused.
 - The ribbon groups Undo and Redo, New sketch, Extrude and Revolve, Fillet, Chamfer and Shell, and
-  Plane and Axis as `ToolButton`s that wrap. While a sketch is edited a tinted sketch ribbon shows
-  its name and state pill, the drawing tools, the constraints in a wrapping grid, Delete and Finish
-  sketch.
+  Plane and Axis as `ToolButton`s that wrap.
+- While a sketch is edited the sketch ribbon (`sketch_toolbar.rs`) sits under it on
+  `accent_surface` with a 2-point `accent_text` line along its top. Groups run left to right,
+  split by thin dividers and captioned in small muted text below: a fixed-width header (sketch badge,
+  "Editing <name>" truncating with the full name on hover, the sketch's `status_pill`s), Select,
+  Draw (the drawing tools as `ToolButton`s), Modify (compact Construction, Move, Select all and
+  Delete, which trigger their commands), Constrain (the geometric constraints, six compact buttons a
+  row) and Dimension (three a row). Finish sketch is a primary button at the right of the first
+  row. Compact buttons show their name, what they do and the shortcut on hover, and why they are
+  unavailable while disabled.
+- The ribbon packs whole groups into rows by last frame's natural widths (`remembered_width` per
+  group and for Finish sketch), the first row leaving room for Finish sketch, which takes a row of
+  its own when not even the header fits beside it; a group wider than its row (Draw at 200% in a
+  narrow window) wraps inside. Widths never depend on the selection, so selecting never moves the
+  3D view; at 1400 points everything fits one row.
 - The status bar shows recompute progress (or Up to date, or a failed pill that focuses the first
   failed feature), saving, importing and exporting, the current notice, the selection, the length
   unit (opening Preferences) and the interface size when not 100%. An edit clears info and

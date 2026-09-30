@@ -56,8 +56,6 @@ const TYPE_POINT_HINT: &str = "Type x, y or length < angle for an exact point";
 const TYPED_POINT_HINT: &str =
     "@ for relative   A length alone: toward the pointer   Enter: place   Esc: cancel";
 const MOVE_HINT: &str = "@ for an offset   Enter: move   Esc: cancel";
-const MOVE_WHILE_DRAWING: &str = "Switch to the Select tool to move geometry";
-const NOTHING_TO_SELECT: &str = "The sketch has no geometry to select";
 const BOX_FILL_OPACITY: f32 = 0.12;
 const BOX_STROKE_WIDTH: f32 = 1.0;
 const BOX_DASH: f32 = 6.0;
@@ -952,24 +950,17 @@ impl ViewportState {
             return;
         };
         let selected = sketch_tools::selected_entities(&self.selection, feature);
-        let moving = if drawing {
-            Err(MOVE_WHILE_DRAWING.to_owned())
-        } else {
-            Moving::of(&sketch, feature, &selected)
-        };
+        let moving = Moving::offered(&sketch, feature, &selected, drawing);
         if commands.invoke(Command::MoveGeometry, &moving)
             && let Ok(moving) = moving
         {
             self.moving = Some(moving);
             self.typed_point.open();
         }
-        let everything = sketch_drag::everything(&sketch);
-        let selectable = if everything.is_empty() {
-            Err(NOTHING_TO_SELECT)
-        } else {
-            Ok(())
-        };
-        if commands.invoke(Command::SelectAll, &selectable) {
+        let everything = sketch_drag::select_all(&sketch);
+        if commands.invoke(Command::SelectAll, &everything)
+            && let Ok(everything) = everything
+        {
             self.add_to_selection(feature, everything, false);
         }
     }
