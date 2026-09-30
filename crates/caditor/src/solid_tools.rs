@@ -66,7 +66,7 @@ pub fn sweep_source(
         .and_then(|feature| feature.kind.solid())
         .map(SolidFeature::sketch);
     let last_sketch = document
-        .features()
+        .active_features()
         .rev()
         .find(|feature| feature.kind.sketch().is_some())
         .map(|feature| feature.id());
@@ -124,12 +124,12 @@ pub fn axis_name(document: &Document, sketch: FeatureId, axis: &RevolveAxis) -> 
 fn last_body(document: &Document, before: Option<FeatureId>) -> Option<FeatureId> {
     let end = before
         .and_then(|feature| document.feature_index(feature))
-        .unwrap_or(document.features().len());
+        .unwrap_or(document.bar_index());
     document
         .features()
         .take(end)
         .rev()
-        .find(|feature| feature.makes_body())
+        .find(|feature| feature.makes_body() && !feature.suppressed)
         .map(|feature| feature.id())
 }
 

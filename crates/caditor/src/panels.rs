@@ -1,4 +1,4 @@
-use caditor_document::{FeatureId, FixTarget};
+use caditor_document::{FeatureId, FixTarget, TreeRow};
 use caditor_expression::ParameterId;
 use caditor_sketch::ConstraintId;
 use egui::Id;
@@ -67,7 +67,7 @@ impl From<FixTarget> for Focus {
                 feature,
                 constraint,
             },
-            FixTarget::Feature(id) => Self::Feature(id),
+            FixTarget::Feature(id) | FixTarget::Unsuppress(id) => Self::Feature(id),
             FixTarget::Constraint {
                 feature,
                 constraint,
@@ -91,6 +91,9 @@ pub struct PanelState {
     pub renaming: Option<Renaming>,
     pub opened_for_editing: Option<FeatureId>,
     pub selected: Option<FeatureId>,
+    also_selected: Vec<FeatureId>,
+    pub dragging: Option<TreeRow>,
+    pub deleting: Option<Vec<FeatureId>>,
     pub parameter: Option<ParameterId>,
     pub hovered_in_tree: Option<Pickable>,
     pub chosen_in_tree: Option<Pickable>,
@@ -146,6 +149,44 @@ impl PanelState {
             features_open: widgets::is_section_open(ctx, FEATURES_SECTION),
             parameters_open: widgets::is_section_open(ctx, PARAMETERS_SECTION),
         };
+    }
+
+    pub fn chosen(&self) -> Vec<FeatureId> {
+        let Some(primary) = self.selected else {
+            return Vec::new();
+        };
+        std::iter::once(primary)
+            .chain(
+                self.also_selected
+                    .iter()
+                    .copied()
+                    .filter(|id| *id != primary),
+            )
+            .collect()
+    }
+
+    pub fn choose_only(&mut self, feature: FeatureId) {
+        self.selected = Some(feature);
+        self.also_selected.clear();
+    }
+
+    pub fn toggle_chosen(&mut self, feature: FeatureId) {
+        let chosen = self.chosen();
+        if !chosen.contains(&feature) {
+            if self.selected.is_none() {
+                self.also_selected.clear();
+            }
+            self.selected.get_or_insert(feature);
+            self.also_selected.push(feature);
+            return;
+        }
+        let remaining: Vec<FeatureId> = chosen.into_iter().filter(|id| *id != feature).collect();
+        self.selected = remaining.first().copied();
+        self.also_selected = remaining;
+    }
+
+    pub fn choose_range(&mut self, features: Vec<FeatureId>) {
+        self.also_selected = features;
     }
 
     pub fn request_focus(&mut self, target: Focus) {
@@ -256,6 +297,11 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     state.begin_frame();
+    let pointer_held =
+        ui.input(|input| input.pointer.primary_down() || input.pointer.primary_released());
+    if !pointer_held {
+        state.dragging = None;
+    }
     state.restore_layout(ui.ctx());
     let panel = egui::Panel::left("model")
         .resizable(true)

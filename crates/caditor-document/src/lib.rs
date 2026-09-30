@@ -13,6 +13,7 @@ mod recompute;
 mod shell;
 mod solid;
 mod tolerance;
+mod tree;
 mod values;
 mod worker;
 
@@ -26,7 +27,10 @@ pub use crate::{
     },
     dependencies::DependencyGraph,
     describe::{describe_edge, describe_origin, edge_faces, origin_feature},
-    document::{Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter},
+    document::{
+        Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, RollbackBar,
+        TreeRow,
+    },
     edit::{Edit, EditError, Transaction, TransactionBuilder},
     editor::{Base, Editor, Prepared, Stale},
     import::Import,
@@ -59,6 +63,8 @@ mod shell_tests;
 mod sketch_tests;
 #[cfg(test)]
 mod solid_tests;
+#[cfg(test)]
+mod tree_tests;
 #[cfg(test)]
 mod tests {
     use std::sync::{

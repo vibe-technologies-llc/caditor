@@ -5,7 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use caditor_document::{Document, Edit, Editor, FeatureId, FeatureKind, Transaction};
+use caditor_document::{
+    Document, Edit, Editor, FeatureId, FeatureKind, RollbackBar, SketchAttachment, Transaction,
+};
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
@@ -471,7 +473,7 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
     assert_eq!(
         loaded.issues,
         [
-            "This model was made by a newer version of caditor (format 3). Anything this version \
+            "This model was made by a newer version of caditor (format 4). Anything this version \
              does not understand was left out.",
             "The feature “Pad” is a kind this version of caditor does not know (loft), so it \
              was left out. It may come from a newer version.",
@@ -1719,7 +1721,7 @@ fn a_sketch_whose_face_cannot_be_read_stays_where_it_was() {
 }
 
 #[test]
-fn a_sketch_on_a_lost_body_stays_where_it_was() {
+fn a_sketch_on_a_body_that_is_gone_stays_on_it_as_saved() {
     let (document, base, sketch) = attached_model();
     let lines: Vec<String> = encode(&document)
         .unwrap()
@@ -1729,13 +1731,12 @@ fn a_sketch_on_a_lost_body_stays_where_it_was() {
         .collect();
     let loaded = decode_lines(&lines);
     assert!(loaded.document.feature(base).is_none());
-    assert!(issues_mention(
-        &loaded,
-        "“Top” lay on a face of a body that could not be restored, so the sketch now stays where \
-         it was."
-    ));
     let restored = loaded.document.feature(sketch).unwrap();
-    assert!(restored.kind.attachment().is_none());
+    assert_eq!(
+        restored.kind.attachment().and_then(SketchAttachment::body),
+        Some(base)
+    );
+    assert!(loaded.document.next_feature_id() > base.raw());
 }
 
 #[test]
@@ -2161,24 +2162,20 @@ fn datum_planes_and_axes_are_saved_and_loaded() {
 }
 
 #[test]
-fn a_sketch_on_a_lost_plane_stays_where_it_was() {
+fn a_sketch_on_a_plane_that_is_gone_stays_on_it_as_saved() {
     let (document, plane, sketch) = datum_model();
     let text = encode(&document).unwrap();
-    let damaged: String = text
+    let without_plane: String = text
         .lines()
         .filter(|line| !line.contains("\"name\":\"Plane 1\""))
         .map(|line| format!("{line}\n"))
         .collect();
-    let loaded = decode_text(&damaged);
+    let loaded = decode_text(&without_plane);
     assert!(loaded.document.feature(plane).is_none());
     let restored = loaded.document.feature(sketch).unwrap();
-    assert!(restored.kind.attachment().is_none());
-    assert!(
-        loaded
-            .issues
-            .contains(&"“On plane” lay on a plane that could not be restored, so the sketch now stays where it was.".to_owned()),
-        "{:?}",
-        loaded.issues
+    assert_eq!(
+        restored.kind.attachment().and_then(SketchAttachment::datum),
+        Some(plane)
     );
 }
 
@@ -2591,4 +2588,152 @@ fn a_journal_larger_than_a_chunk_replays_whole() {
     assert_eq!(contents.base, base);
     assert_eq!(contents.entries, entries);
     assert_eq!(contents.unreadable_entries, 0);
+}
+
+fn suppressed_and_rolled_back() -> (Document, FeatureId, FeatureId, Transaction) {
+    let (mut document, base, turned) = solid_model();
+    let change = Transaction::new(
+        "Suppress and roll back",
+        vec![
+            Edit::SetFeatureSuppressed {
+                id: base,
+                suppressed: true,
+            },
+            Edit::SetRollbackBar {
+                bar: RollbackBar::Before(turned),
+            },
+        ],
+    );
+    document.apply(change.clone()).unwrap();
+    (document, base, turned, change)
+}
+
+#[test]
+fn suppressed_features_and_the_rollback_bar_stay_through_saving_the_journal_and_its_snapshot() {
+    let (plain, _, _) = solid_model();
+    let (document, base, turned, change) = suppressed_and_rolled_back();
+    let plain_text = encode(&plain).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+    let recovered =
+        journal::decode_journal(&journal::encode_journal(None, false, &document, &[]).unwrap())
+            .unwrap();
+
+    assert!(!plain_text.contains("suppressed"));
+    assert!(!plain_text.contains("rollback"));
+    assert!(text.contains(&format!(
+        r#"{{"suppressed":{{"features":[{}]}}}}"#,
+        base.raw()
+    )));
+    assert!(text.contains(&format!(r#"{{"rollback":{{"before":{}}}}}"#, turned.raw())));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+    assert_eq!(recovered.issues, Vec::<String>::new());
+    assert_eq!(recovered.base, document);
+}
+
+#[test]
+fn a_deleted_suppressed_feature_comes_back_suppressed_from_its_journaled_undo() {
+    let (document, base, _, _) = suppressed_and_rolled_back();
+    let mut deleted = document.clone();
+
+    let undo = deleted
+        .apply(document.deletion(&[base], "Delete Base"))
+        .unwrap();
+    let record = format::transaction_record(&undo);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&record).unwrap());
+    let restored = format::restore_transaction(journaled).unwrap();
+    deleted.apply(restored.clone()).unwrap();
+
+    assert_eq!(restored, undo);
+    assert!(deleted.feature(base).unwrap().suppressed);
+    assert!(deleted.same_content(&document));
+}
+
+#[test]
+fn suppressing_and_rolling_back_are_recovered_from_the_journal_after_a_crash() {
+    let dir = TempDir::new().unwrap();
+    let (base_document, base, turned, _) = suppressed_and_rolled_back();
+    let storage = Storage::spawn(config(&dir), untitled(&base_document), || {}).unwrap();
+    let mut editor = Editor::new(base_document.clone());
+    let changes = [
+        base_document.suppression(&[base], false, "Unsuppress Base"),
+        base_document.roll_to(RollbackBar::AtEnd, "Roll to end"),
+    ];
+    for change in changes {
+        editor.apply(change.clone()).unwrap();
+        storage.record(JournalEntry::Apply(change)).unwrap();
+    }
+    let delete = editor.document().deletion(&[turned], "Delete Turned");
+    editor.apply(delete.clone()).unwrap();
+    storage.record(JournalEntry::Apply(delete)).unwrap();
+    let undo = editor.next_undo().cloned().unwrap();
+    editor.undo().unwrap();
+    storage.record(JournalEntry::Undo(undo)).unwrap();
+    assert!(storage.flusher().flush(WAIT));
+    crash(storage);
+
+    let recovered = scan(Some(&dir.path().join("recovery")), &[]).remove(0);
+
+    assert_eq!(recovered.base, base_document);
+    assert_eq!(recovered.editor.document(), editor.document());
+    assert_eq!(
+        recovered.editor.document().rollback_bar(),
+        RollbackBar::AtEnd
+    );
+    assert!(
+        !recovered
+            .editor
+            .document()
+            .feature(base)
+            .unwrap()
+            .suppressed
+    );
+}
+
+#[test]
+fn models_saved_before_format_three_load_with_nothing_suppressed_or_rolled_back() {
+    let (document, _, _) = solid_model();
+    let lines = lines_of(&document);
+
+    for version in [1, 2] {
+        let loaded = decode(&model_from_json(version, &lines)).unwrap();
+
+        assert_eq!(loaded.issues, Vec::<String>::new());
+        assert_eq!(loaded.document, document);
+        assert_eq!(loaded.document.rollback_bar(), RollbackBar::AtEnd);
+        assert!(
+            loaded
+                .document
+                .features()
+                .all(|feature| !feature.suppressed)
+        );
+    }
+    let bytes = crate::encode(&document).unwrap();
+    assert_eq!(bytes.get(8..12), Some(&3_u32.to_le_bytes()[..]));
+}
+
+#[test]
+fn a_rollback_bar_above_a_feature_that_is_gone_is_reported_and_left_at_the_end() {
+    let (document, _, _) = solid_model();
+    let mut lines = lines_of(&document);
+    lines.push(r#"{"rollback":{"before":77}}"#.to_owned());
+    lines.push(r#"{"suppressed":{"features":[78]}}"#.to_owned());
+
+    let loaded = decode_lines(&lines);
+
+    assert_eq!(
+        loaded.issues,
+        [
+            "The rollback bar stood above a feature that could not be restored, so it is at the \
+             end of the tree and every feature is computed."
+        ]
+    );
+    assert_eq!(loaded.document.rollback_bar(), RollbackBar::AtEnd);
+    assert!(loaded.document.same_content(&document));
 }

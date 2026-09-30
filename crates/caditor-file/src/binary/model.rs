@@ -17,7 +17,7 @@ use super::{
 use crate::{
     format::{
         FORMAT_VERSION, Lenient, Record, Unreadable, feature_record, next_ids_record,
-        parameter_record, principal_record,
+        parameter_record, principal_record, rollback_record, suppressed_record,
     },
     load::{LoadError, Loaded, Parts, assemble, describe_unreadable_record, newer_version},
 };
@@ -310,6 +310,8 @@ fn document_records(document: &Document) -> Result<Vec<Vec<u8>>, ValueError> {
     parameters
         .chain(features)
         .chain(principal_record(document).map(Record::Principal))
+        .chain(suppressed_record(document).map(Record::Suppressed))
+        .chain(rollback_record(document).map(Record::Rollback))
         .chain(std::iter::once(Record::NextIds(next_ids_record(document))))
         .map(|record| value::to_bytes(&record))
         .collect()

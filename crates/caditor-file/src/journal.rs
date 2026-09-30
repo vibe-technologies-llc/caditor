@@ -11,8 +11,9 @@ use crate::{
     binary::{ChunkKind, EncodeError, JOURNAL_MAGIC, Piece, parse, push_packed, start_file, value},
     format::{
         FeatureRecord, Lenient, NextIdsRecord, ParameterRecord, PrincipalRecord, Record,
-        TransactionRecord, feature_record, next_ids_record, parameter_record, principal_record,
-        restore_transaction, transaction_record,
+        RollbackRecord, SuppressedRecord, TransactionRecord, feature_record, next_ids_record,
+        parameter_record, principal_record, restore_transaction, rollback_record,
+        suppressed_record, transaction_record,
     },
     load::{Parts, assemble},
 };
@@ -42,6 +43,10 @@ struct SnapshotRecord {
     next_ids: NextIdsRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     principal: Option<PrincipalRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    suppressed: Option<SuppressedRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rollback: Option<RollbackRecord>,
 }
 
 pub(crate) fn encode_journal(
@@ -100,6 +105,8 @@ fn snapshot_record(document: &Document) -> SnapshotRecord {
             .collect(),
         next_ids: next_ids_record(document),
         principal: principal_record(document),
+        suppressed: suppressed_record(document),
+        rollback: rollback_record(document),
     }
 }
 
@@ -194,6 +201,11 @@ fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {
             .principal
             .map(|principal| principal.hidden)
             .unwrap_or_default(),
+        suppressed: snapshot
+            .suppressed
+            .map(|suppressed| suppressed.features)
+            .unwrap_or_default(),
+        rollback: snapshot.rollback.map(|rollback| rollback.before),
         ..Parts::default()
     };
     for parameter in snapshot.parameters {

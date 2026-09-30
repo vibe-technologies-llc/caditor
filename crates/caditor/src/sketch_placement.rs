@@ -96,7 +96,7 @@ pub fn body_state_before(
                     .ok_or(StateError::NotRecomputed);
             }
             FeatureState::Outdated => return Err(StateError::NotRecomputed),
-            FeatureState::Failed(_) => {}
+            FeatureState::Failed(_) | FeatureState::Suppressed | FeatureState::RolledBack => {}
         }
     }
     Err(StateError::MadeAfter)
@@ -127,7 +127,7 @@ pub fn new_sketch(
     choice: FaceChoice,
 ) -> Result<(Transaction, FeatureId), &'static str> {
     let document = model.document();
-    let (attachment, plane) = attachment_at(model, choice, document.features().len())?;
+    let (attachment, plane) = attachment_at(model, choice, document.bar_index())?;
     let name = editing::next_sketch_name(document);
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(

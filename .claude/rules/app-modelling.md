@@ -18,6 +18,17 @@ paths:
 
 # Modelling tools in the app
 
+## Where new features go
+
+- Every tool creates its feature through `TransactionBuilder::add_feature`, so with the rollback bar
+  above the end new features go in right above it (`document.md`). What a tool picks by default is
+  taken from the model as of the bar: the last sketch and last body are the last active ones
+  (`Document::active_features`), and faces, edges and datums are captured where the bar stands
+  (`Document::bar_index` as the place in the tree).
+- A suppressed or rolled-back feature cannot be opened or edited (`SketchEditing` refuses it and
+  `SketchEditing::sync` closes an edited sketch or open feature that becomes one); the tree's Edit
+  says why.
+
 ## Extrude and Revolve
 
 - Extrude and Revolve take the edited sketch, else the selection's, else the last. The revolve axis

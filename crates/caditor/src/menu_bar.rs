@@ -373,7 +373,18 @@ impl Menus<'_, '_> {
                     Command::RenameFeature,
                     Command::MoveFeatureUp,
                     Command::MoveFeatureDown,
+                    Command::SuppressFeature,
                     Command::DeleteFeature,
+                ],
+            );
+            ui.separator();
+            self.items(
+                ui,
+                [
+                    Command::RollToHere,
+                    Command::RollbackUp,
+                    Command::RollbackDown,
+                    Command::RollToEnd,
                 ],
             );
             ui.separator();

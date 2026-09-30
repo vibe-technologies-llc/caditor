@@ -118,6 +118,11 @@ pub enum Command {
     MoveFeatureUp,
     MoveFeatureDown,
     DeleteFeature,
+    SuppressFeature,
+    RollToHere,
+    RollToEnd,
+    RollbackUp,
+    RollbackDown,
     EditFeature,
     CloseFeature,
     DetachSketch,
@@ -376,7 +381,7 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 74] = [
+const PLAIN_COMMANDS: [Command; 79] = [
     Command::Palette,
     Command::New,
     Command::Open,
@@ -436,6 +441,11 @@ const PLAIN_COMMANDS: [Command; 74] = [
     Command::MoveFeatureUp,
     Command::MoveFeatureDown,
     Command::DeleteFeature,
+    Command::SuppressFeature,
+    Command::RollToHere,
+    Command::RollToEnd,
+    Command::RollbackUp,
+    Command::RollbackDown,
     Command::EditFeature,
     Command::CloseFeature,
     Command::DetachSketch,
@@ -575,6 +585,11 @@ impl Command {
             Self::MoveFeatureUp => "model.move_feature_up",
             Self::MoveFeatureDown => "model.move_feature_down",
             Self::DeleteFeature => "model.delete_feature",
+            Self::SuppressFeature => "model.suppress_feature",
+            Self::RollToHere => "model.roll_to_here",
+            Self::RollToEnd => "model.roll_to_end",
+            Self::RollbackUp => "model.rollback_up",
+            Self::RollbackDown => "model.rollback_down",
             Self::EditFeature => "model.edit_feature",
             Self::CloseFeature => "model.close_feature",
             Self::DetachSketch => "model.detach_sketch",
@@ -664,6 +679,11 @@ impl Command {
             Self::MoveFeatureUp => "Move feature up",
             Self::MoveFeatureDown => "Move feature down",
             Self::DeleteFeature => "Delete feature",
+            Self::SuppressFeature => "Suppress or unsuppress feature",
+            Self::RollToHere => "Roll back to here",
+            Self::RollToEnd => "Roll to end",
+            Self::RollbackUp => "Move the rollback bar up",
+            Self::RollbackDown => "Move the rollback bar down",
             Self::EditFeature => "Edit feature",
             Self::CloseFeature => "Finish editing feature",
             Self::DetachSketch => "Detach sketch",
@@ -743,6 +763,11 @@ impl Command {
             | Self::MoveFeatureUp
             | Self::MoveFeatureDown
             | Self::DeleteFeature
+            | Self::SuppressFeature
+            | Self::RollToHere
+            | Self::RollToEnd
+            | Self::RollbackUp
+            | Self::RollbackDown
             | Self::EditFeature
             | Self::CloseFeature
             | Self::DetachSketch
@@ -828,6 +853,8 @@ impl Command {
             Self::Recompute => vec![plain(Key::F5)],
             Self::EditFeature => vec![plain(Key::E)],
             Self::ShowFirstFailed => vec![plain(Key::F8)],
+            Self::RollbackUp => vec![KeyboardShortcut::new(Modifiers::ALT, Key::ArrowUp)],
+            Self::RollbackDown => vec![KeyboardShortcut::new(Modifiers::ALT, Key::ArrowDown)],
             Self::FullScreen => vec![plain(Key::F11)],
             Self::VersionHistory
             | Self::KeyboardShortcuts
@@ -851,6 +878,9 @@ impl Command {
             | Self::MoveFeatureUp
             | Self::MoveFeatureDown
             | Self::DeleteFeature
+            | Self::SuppressFeature
+            | Self::RollToHere
+            | Self::RollToEnd
             | Self::ToggleVisibility
             | Self::TogglePrincipal
             | Self::MinimizeWindow

@@ -1,21 +1,24 @@
 use caditor_document::{
-    Datum, Document, Edit, Feature, FeatureError, FeatureKind, FeatureState, FeatureStatus,
-    FixTarget, SketchFeature, SolidFeature, SolidResult, Transaction,
+    Datum, Document, Edit, Feature, FeatureError, FeatureId, FeatureKind, FeatureState,
+    FeatureStatus, FixTarget, RollbackBar, SketchFeature, SolidFeature, SolidResult, Transaction,
+    TreeRow,
 };
 use caditor_sketch::{ConstraintId, Redundancy, Sketch};
 use egui::{
-    Align, Button, Color32, CornerRadius, Frame, Id, Label, Margin, Rect, Response, RichText,
-    Sense, Sides, Ui, collapsing_header::CollapsingState, containers::menu::MenuButton, vec2,
+    Align, Align2, Area, Button, Color32, CornerRadius, CursorIcon, FontId, Frame, Id, Key, Label,
+    Margin, Modifiers, Order, Pos2, Rect, Response, RichText, Sense, Sides, Stroke, StrokeKind,
+    TextStyle, Ui, WidgetInfo, WidgetType, collapsing_header::CollapsingState,
+    containers::menu::MenuButton, pos2, vec2,
 };
 
 use crate::{
-    appearance::{self, WIDGET_RADIUS},
+    appearance::{self, ICON_SIZE, WIDGET_RADIUS},
     blend_panel,
     commands::{Command, CommandFrame},
     datum_panel,
     editing::{EditingCommand, SketchEditing},
     field::{self, DimensionTarget},
-    icons,
+    fonts, icons,
     model::{Action, Model},
     panels::{Focus, PanelState, Renaming},
     pattern_panel,
@@ -26,14 +29,14 @@ use crate::{
     sketch_placement::{self, PlacementTarget},
     sketch_status::{self, SketchSummary},
     sketch_tools, solid_panel, visibility,
-    widgets::{self, NAME_FIELD_WIDTH, Tone},
+    widgets::{self, DialogWidth, NAME_FIELD_WIDTH, Tone},
 };
 
 const NO_FEATURE_CHOSEN: &str = "Select a feature in the tree, or open one, first";
 const NOTHING_SELECTED: &str =
     "Select geometry in an edited sketch, or a feature in the tree, to delete it";
 const NOTHING_OPEN: &str = "No feature is open; open one with Edit feature first";
-const MORE_HINT: &str = "Rename, move or delete (also on right-click)";
+const MORE_HINT: &str = "Rename, move, suppress, roll back or delete (also on right-click)";
 const DIMENSION_FIELD_WIDTH: f32 = 150.0;
 const EDIT_SKETCH_LABEL: &str = "Edit sketch";
 const FINISH_SKETCH_LABEL: &str = "Finish sketch";
@@ -47,11 +50,31 @@ const PLACE_ON_PLANE_LABEL: &str = "Place on selected plane";
 const PLACE_ON_FACE_LABEL: &str = "Place on selected face";
 const DETACH_LABEL: &str = "Detach";
 const EMPTY_TREE: &str = "The model has no features yet. Start with New sketch in the toolbar.";
+pub const ROLLBACK_BAR_NAME: &str = "Rollback bar";
+const ROLLBACK_BAR_HINT: &str = "Drag to roll the model back to any point: features below the \
+                                 bar are not computed, and new features go in above it";
+const SUPPRESSED_HINT: &str = "Suppressed: left out when the model is computed";
+const ROLLED_BACK_HINT: &str = "Below the rollback bar: not computed";
+const BAR_AT_END: &str = "The rollback bar is already at the end";
+const BAR_AT_TOP: &str = "The rollback bar is already at the top";
+pub const DELETE_WITH_DEPENDENTS: &str = "Delete with dependents";
+pub const KEEP_DEPENDENTS: &str = "Keep dependents";
 const ROW_MARGIN: Margin = Margin::symmetric(4, 2);
 const EDITED_BAR_WIDTH: f32 = 3.0;
 const BODY_INDENT: f32 = 8.0;
 const DIMENSION_INDENT: f32 = 16.0;
 const ROW_GAP: f32 = 2.0;
+const BAR_ROW_HEIGHT: f32 = 16.0;
+const BAR_THICKNESS: f32 = 3.0;
+const BAR_INDENT: f32 = 4.0;
+const BAR_GAP: f32 = 6.0;
+const FOCUS_WIDTH: f32 = 2.0;
+const DROP_LINE_WIDTH: f32 = 2.0;
+const DROP_REASON_OFFSET: egui::Vec2 = vec2(18.0, 12.0);
+const DROP_REASON_WIDTH: f32 = 280.0;
+const DEPENDENTS_HEIGHT: f32 = 220.0;
+const AUTOSCROLL_EDGE: f32 = 24.0;
+const AUTOSCROLL_RATE: f32 = 0.5;
 
 pub fn show(
     ui: &mut Ui,
@@ -67,37 +90,222 @@ pub fn show(
     let document = model.document();
     ui.spacing_mut().item_spacing.y = ROW_GAP;
     principal_tree::show(ui, model, state, actions);
-    if document.features().len() == 0 {
-        ui.label(widgets::muted(EMPTY_TREE, ui));
-    }
     let count = document.features().len();
+    if count == 0 {
+        ui.label(widgets::muted(EMPTY_TREE, ui));
+        state.dragging = None;
+        return;
+    }
+    let bar = document.bar_index();
+    let chosen = state.chosen();
+    let mut placed = Vec::with_capacity(count + 1);
     for (index, feature) in document.features().enumerate() {
+        if index == bar {
+            placed.push((TreeRow::Bar, rollback_bar(ui, document, state)));
+        }
+        let id = feature.id();
         let row = Row {
             feature,
             selection,
-            position: Position { index, count },
-            edited: editing.feature() == Some(feature.id())
-                || editing.solid() == Some(feature.id()),
-            selected: state.selected == Some(feature.id()),
+            edited: editing.feature() == Some(id) || editing.solid() == Some(id),
+            selected: chosen.contains(&id),
+            rolled_back: index >= bar,
         };
-        ui.push_id(("feature", feature.id()), |ui| {
-            feature_row(ui, model, state, actions, &row);
-        });
+        let rect = ui
+            .push_id(("feature", id), |ui| {
+                feature_row(ui, model, state, actions, &row)
+            })
+            .inner;
+        placed.push((TreeRow::Feature(id), rect));
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Position {
-    index: usize,
-    count: usize,
+    if bar >= count {
+        placed.push((TreeRow::Bar, rollback_bar(ui, document, state)));
+    }
+    drag_and_drop(ui, document, state, actions, &placed);
 }
 
 struct Row<'a> {
     feature: &'a Feature,
     selection: &'a Selection,
-    position: Position,
     edited: bool,
     selected: bool,
+    rolled_back: bool,
+}
+
+impl Row<'_> {
+    fn active(&self) -> bool {
+        !self.rolled_back && !self.feature.suppressed
+    }
+}
+
+fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rect {
+    let tokens = appearance::tokens(ui);
+    let below = document
+        .features()
+        .len()
+        .saturating_sub(document.bar_index());
+    let (rect, response) = ui.allocate_exact_size(
+        vec2(ui.available_width(), BAR_ROW_HEIGHT),
+        Sense::click_and_drag(),
+    );
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, ROLLBACK_BAR_NAME));
+    let response = response
+        .on_hover_text(ROLLBACK_BAR_HINT)
+        .on_hover_cursor(CursorIcon::Grab);
+    if response.drag_started() {
+        state.dragging = Some(TreeRow::Bar);
+    }
+    let emphasised =
+        response.hovered() || response.has_focus() || state.dragging == Some(TreeRow::Bar);
+    let color = if emphasised {
+        tokens.accent
+    } else {
+        tokens.accent_text
+    };
+    let painter = ui.painter();
+    let middle = rect.center().y;
+    let grip = painter.text(
+        pos2(rect.left() + BAR_INDENT, middle),
+        Align2::LEFT_CENTER,
+        icons::ROLLBACK_BAR,
+        FontId::new(ICON_SIZE, fonts::icons()),
+        color,
+    );
+    let mut start = grip.right() + BAR_GAP;
+    if below > 0 {
+        let caption = painter.text(
+            pos2(start, middle),
+            Align2::LEFT_CENTER,
+            format!("{} rolled back", count(below, "feature", "features")),
+            TextStyle::Small.resolve(ui.style()),
+            tokens.text_muted,
+        );
+        start = caption.right() + BAR_GAP;
+    }
+    if start < rect.right() {
+        painter.hline(
+            start..=rect.right(),
+            middle,
+            Stroke::new(BAR_THICKNESS, color),
+        );
+    }
+    if response.has_focus() {
+        painter.rect_stroke(
+            rect,
+            CornerRadius::same(WIDGET_RADIUS),
+            Stroke::new(FOCUS_WIDTH, tokens.focus),
+            StrokeKind::Inside,
+        );
+    }
+    rect
+}
+
+fn drag_and_drop(
+    ui: &mut Ui,
+    document: &Document,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    placed: &[(TreeRow, Rect)],
+) {
+    let Some(dragged) = state.dragging else {
+        return;
+    };
+    let (pointer, held, cancelled) = ui.input(|input| {
+        (
+            input.pointer.latest_pos(),
+            input.pointer.primary_down(),
+            input.key_pressed(Key::Escape),
+        )
+    });
+    let Some(pointer) = pointer.filter(|_| !cancelled) else {
+        state.dragging = None;
+        return;
+    };
+    let visible = ui.clip_rect();
+    if !visible.contains(pointer) {
+        if !held {
+            state.dragging = None;
+        }
+        return;
+    }
+    let beyond_top = visible.top() + AUTOSCROLL_EDGE - pointer.y;
+    let beyond_bottom = pointer.y - (visible.bottom() - AUTOSCROLL_EDGE);
+    if held && beyond_top > 0.0 {
+        ui.scroll_with_delta(vec2(0.0, beyond_top * AUTOSCROLL_RATE));
+    } else if held && beyond_bottom > 0.0 {
+        ui.scroll_with_delta(vec2(0.0, -beyond_bottom * AUTOSCROLL_RATE));
+    }
+    let gap = placed
+        .iter()
+        .position(|(_, rect)| pointer.y < rect.center().y)
+        .unwrap_or(placed.len());
+    let outcome = document.move_row(dragged, gap, drag_label(document, dragged));
+    if !held {
+        state.dragging = None;
+        if let Ok(transaction) = outcome
+            && !transaction.is_empty()
+        {
+            actions.push(Action::Apply(transaction));
+        }
+        return;
+    }
+    let tokens = appearance::tokens(ui);
+    let line = match placed.get(gap) {
+        Some((_, rect)) => rect.top() - ROW_GAP / 2.0,
+        None => placed
+            .last()
+            .map_or(pointer.y, |(_, rect)| rect.bottom() + ROW_GAP / 2.0),
+    };
+    let span = placed
+        .first()
+        .map_or_else(|| ui.max_rect().x_range(), |(_, rect)| rect.x_range());
+    match &outcome {
+        Ok(transaction) if transaction.is_empty() => {
+            ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+        }
+        Ok(_) => {
+            ui.painter()
+                .hline(span, line, Stroke::new(DROP_LINE_WIDTH, tokens.accent));
+            ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+        }
+        Err(error) => {
+            ui.painter()
+                .hline(span, line, Stroke::new(DROP_LINE_WIDTH, tokens.error));
+            ui.ctx().set_cursor_icon(CursorIcon::NotAllowed);
+            drop_refusal(ui.ctx(), pointer, &error.to_string());
+        }
+    }
+    ui.ctx().request_repaint();
+}
+
+fn drag_label(document: &Document, row: TreeRow) -> String {
+    match row {
+        TreeRow::Feature(id) => format!("Move {}", feature_name(document, id)),
+        TreeRow::Bar => "Move the rollback bar".to_owned(),
+    }
+}
+
+fn drop_refusal(ctx: &egui::Context, pointer: Pos2, reason: &str) {
+    Area::new(Id::new("feature-tree-drop-refusal"))
+        .order(Order::Tooltip)
+        .fixed_pos(pointer + DROP_REASON_OFFSET)
+        .interactable(false)
+        .show(ctx, |ui| {
+            Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_max_width(DROP_REASON_WIDTH);
+                ui.horizontal_wrapped(|ui| {
+                    let color = appearance::tokens(ui).error;
+                    widgets::icon_label(ui, icons::FAILED, color);
+                    ui.label(reason);
+                });
+            });
+        });
+}
+
+fn feature_name(document: &Document, id: FeatureId) -> String {
+    document
+        .feature(id)
+        .map_or_else(|| "the feature".to_owned(), |feature| feature.name.clone())
 }
 
 fn feature_row(
@@ -106,15 +314,14 @@ fn feature_row(
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     row: &Row<'_>,
-) {
+) -> Rect {
     let document = model.document();
     let feature = row.feature;
     let id = feature.id();
     let status = model.evaluation().feature(id);
 
     if let Some(renaming) = state.renaming.filter(|renaming| renaming.feature == id) {
-        rename_row(ui, document, state, actions, feature, renaming);
-        return;
+        return rename_row(ui, document, state, actions, feature, renaming);
     }
 
     let mut collapsing = CollapsingState::load_with_default_open(
@@ -160,14 +367,16 @@ fn feature_row(
                         .on_hover_text(hint);
                     let kind_color = if row.edited {
                         tokens.accent_text
+                    } else if !row.active() {
+                        tokens.text_muted
                     } else {
                         state_color(ui, status).unwrap_or(tokens.text_muted)
                     };
                     widgets::icon_label(ui, icons::feature(&feature.kind), kind_color);
                     let name = ui.add(
-                        Label::new(name_text(ui, feature, status))
+                        Label::new(name_text(ui, row, status))
                             .selectable(false)
-                            .sense(Sense::click())
+                            .sense(Sense::click_and_drag())
                             .truncate(),
                     );
                     (toggle.clicked(), name)
@@ -175,8 +384,10 @@ fn feature_row(
                 |ui| {
                     more_menu(ui, document, state, actions, row);
                     visibility_button(ui, row, actions);
-                    edit_button(ui, row, actions);
-                    status_icon(ui, status);
+                    if row.active() || row.edited {
+                        edit_button(ui, row, actions);
+                    }
+                    status_icon(ui, row, status);
                 },
             )
             .0
@@ -197,15 +408,22 @@ fn feature_row(
         ui.painter()
             .rect_filled(bar, CornerRadius::same(WIDGET_RADIUS), tokens.accent);
     }
-    if toggled || name.clicked() {
+    let modifiers = ui.input(|input| input.modifiers);
+    let plain = !modifiers.command && !modifiers.shift;
+    if toggled || (name.clicked() && plain) {
         collapsing.toggle(ui);
     }
-    if name.clicked() || name.gained_focus() {
-        state.selected = Some(id);
+    if name.clicked() {
+        choose(state, document, id, modifiers);
+    } else if name.gained_focus() {
+        state.choose_only(id);
+    }
+    if name.drag_started() {
+        state.dragging = Some(TreeRow::Feature(id));
     }
     let mut name = name;
     if state.take_focus(Focus::Feature(id)) {
-        state.selected = Some(id);
+        state.choose_only(id);
         name.scroll_to_me(Some(Align::Center));
         name = name.highlight();
     }
@@ -215,7 +433,7 @@ fn feature_row(
     name.context_menu(|ui| context_menu(ui, document, state, actions, row));
 
     match status.map(|status| &status.state) {
-        Some(FeatureState::Failed(error)) => failure(ui, document, state, error),
+        Some(FeatureState::Failed(error)) => failure(ui, document, state, actions, error),
         Some(FeatureState::Outdated) => {
             widgets::callout(ui, Tone::Warning, |ui| {
                 ui.label("Not recomputed, because the recompute was cancelled.");
@@ -224,7 +442,8 @@ fn feature_row(
                 }
             });
         }
-        Some(FeatureState::UpToDate) | None => {}
+        Some(FeatureState::UpToDate | FeatureState::Suppressed | FeatureState::RolledBack)
+        | None => {}
     }
 
     let shown = collapsing.show_body_unindented(ui, |ui| {
@@ -240,6 +459,30 @@ fn feature_row(
         ui.scroll_to_rect(card, None);
     }
     collapsing.store(ui.ctx());
+    row_rect
+}
+
+fn choose(state: &mut PanelState, document: &Document, id: FeatureId, modifiers: Modifiers) {
+    if modifiers.command {
+        state.toggle_chosen(id);
+        return;
+    }
+    let anchor = state
+        .selected
+        .and_then(|anchor| document.feature_index(anchor));
+    match (modifiers.shift, anchor, document.feature_index(id)) {
+        (true, Some(anchor), Some(end)) => {
+            let (first, last) = (anchor.min(end), anchor.max(end));
+            let range = document
+                .features()
+                .skip(first)
+                .take(last - first + 1)
+                .map(Feature::id)
+                .collect();
+            state.choose_range(range);
+        }
+        _ => state.choose_only(id),
+    }
 }
 
 fn body(
@@ -313,17 +556,26 @@ fn state_color(ui: &Ui, status: Option<&FeatureStatus>) -> Option<Color32> {
     match status.map(|status| &status.state) {
         Some(FeatureState::Failed(_)) => Some(ui.visuals().error_fg_color),
         Some(FeatureState::Outdated) => Some(ui.visuals().warn_fg_color),
-        Some(FeatureState::UpToDate) | None => None,
+        Some(FeatureState::UpToDate | FeatureState::Suppressed | FeatureState::RolledBack)
+        | None => None,
     }
 }
 
-fn name_text(ui: &Ui, feature: &Feature, status: Option<&FeatureStatus>) -> RichText {
+fn name_text(ui: &Ui, row: &Row<'_>, status: Option<&FeatureStatus>) -> RichText {
+    let feature = row.feature;
+    let muted = appearance::tokens(ui).text_muted;
     let text = RichText::new(&feature.name);
+    if feature.suppressed {
+        return text.color(muted).strikethrough();
+    }
+    if row.rolled_back {
+        return text.color(muted);
+    }
     if feature.hidden {
-        return text.color(appearance::tokens(ui).text_muted).italics();
+        return text.color(muted).italics();
     }
     match status {
-        None => text.color(appearance::tokens(ui).text_muted),
+        None => text.color(muted),
         Some(_) => match state_color(ui, status) {
             Some(color) => text.color(color),
             None => text,
@@ -353,17 +605,24 @@ fn visibility_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
     }
 }
 
-fn status_icon(ui: &mut Ui, status: Option<&FeatureStatus>) {
+fn status_icon(ui: &mut Ui, row: &Row<'_>, status: Option<&FeatureStatus>) {
     let tokens = appearance::tokens(ui);
-    let (glyph, color, hint) = match status.map(|status| &status.state) {
-        Some(FeatureState::Failed(_)) => (icons::FAILED, tokens.error, "This feature failed"),
-        Some(FeatureState::Outdated) => (
-            icons::OUTDATED,
-            tokens.warn,
-            "Not recomputed, because the recompute was cancelled",
-        ),
-        None => (icons::PENDING, tokens.text_muted, "Waiting to be computed"),
-        Some(FeatureState::UpToDate) => return,
+    let waiting = (icons::PENDING, tokens.text_muted, "Waiting to be computed");
+    let (glyph, color, hint) = if row.feature.suppressed {
+        (icons::SUPPRESS, tokens.text_muted, SUPPRESSED_HINT)
+    } else if row.rolled_back {
+        (icons::ROLLED_BACK, tokens.text_muted, ROLLED_BACK_HINT)
+    } else {
+        match status.map(|status| &status.state) {
+            Some(FeatureState::Failed(_)) => (icons::FAILED, tokens.error, "This feature failed"),
+            Some(FeatureState::Outdated) => (
+                icons::OUTDATED,
+                tokens.warn,
+                "Not recomputed, because the recompute was cancelled",
+            ),
+            Some(FeatureState::Suppressed | FeatureState::RolledBack) | None => waiting,
+            Some(FeatureState::UpToDate) => return,
+        }
     };
     widgets::described_icon(ui, glyph, color, hint);
 }
@@ -442,7 +701,7 @@ fn rename_row(
     actions: &mut Vec<Action>,
     feature: &Feature,
     renaming: Renaming,
-) {
+) -> Rect {
     let id = feature.id();
     let field = field::commit_field(
         ui,
@@ -477,6 +736,24 @@ fn rename_row(
             focus_pending: false,
         })
     };
+    field.response.rect
+}
+
+fn menu_entry<T>(ui: &mut Ui, glyph: &str, label: &str, outcome: &Result<T, String>) -> bool {
+    let response = ui
+        .add_enabled_ui(outcome.is_ok(), |ui| {
+            widgets::menu_item(ui, glyph, label, None)
+        })
+        .inner;
+    let response = match outcome {
+        Err(reason) => response.on_disabled_hover_text(reason),
+        Ok(_) => response,
+    };
+    let clicked = response.clicked();
+    if clicked {
+        ui.close();
+    }
+    clicked
 }
 
 fn context_menu(
@@ -487,11 +764,16 @@ fn context_menu(
     row: &Row<'_>,
 ) {
     let feature = row.feature;
-    let position = row.position;
-    if let Some((label, command)) = edit_command(row.feature, row.edited) {
-        if widgets::menu_item(ui, icons::EDIT, label, None).clicked() {
+    if let Some((label, command)) = edit_command(feature, row.edited) {
+        let editable = if row.edited {
+            Ok(command)
+        } else {
+            editable(document, feature).map(|()| command)
+        };
+        if menu_entry(ui, icons::EDIT, label, &editable)
+            && let Ok(command) = editable
+        {
             actions.push(Action::Editing(command));
-            ui.close();
         }
         ui.separator();
     }
@@ -510,40 +792,49 @@ fn context_menu(
             ui.close();
         }
     }
+    let chosen = state.chosen();
+    let targets = targets(document, &chosen, Some(feature));
+    let (glyph, label) = suppress_title(&targets);
+    let suppression = suppress_change(document, &targets);
+    if menu_entry(ui, glyph, label, &suppression)
+        && let Ok(transaction) = suppression
+    {
+        actions.push(Action::Apply(transaction));
+    }
     for direction in Direction::BOTH {
-        let transaction = direction.transaction(document, feature, position);
-        let response = ui
-            .add_enabled_ui(transaction.is_ok(), |ui| {
-                widgets::menu_item(ui, direction.glyph(), direction.label(), None)
-            })
-            .inner;
-        let response = match &transaction {
-            Err(reason) => response.on_disabled_hover_text(reason),
-            Ok(_) => response,
-        };
-        if response.clicked()
+        let transaction = direction.transaction(document, feature);
+        if menu_entry(ui, direction.glyph(), direction.label(), &transaction)
             && let Ok(transaction) = transaction
         {
             actions.push(Action::Apply(transaction));
-            ui.close();
         }
     }
     ui.separator();
-    let delete = delete_transaction(document, feature);
-    let response = ui
-        .add_enabled_ui(delete.is_ok(), |ui| {
-            widgets::menu_item(ui, icons::DELETE, "Delete", None)
-        })
-        .inner;
-    let response = match &delete {
-        Err(reason) => response.on_disabled_hover_text(reason),
-        Ok(_) => response,
-    };
-    if response.clicked()
-        && let Ok(delete) = delete
+    let here = roll_to_here(document, feature);
+    let here_label = format!("{} here", roll_verb(document, feature));
+    if menu_entry(ui, icons::ROLL_TO_HERE, &here_label, &here)
+        && let Ok(transaction) = here
     {
-        actions.push(Action::Apply(delete));
-        ui.close();
+        actions.push(Action::Apply(transaction));
+    }
+    if document.rollback_bar() != RollbackBar::AtEnd {
+        let end = roll_to_end(document);
+        if menu_entry(ui, icons::ROLL_TO_END, "Roll to end", &end)
+            && let Ok(transaction) = end
+        {
+            actions.push(Action::Apply(transaction));
+        }
+    }
+    ui.separator();
+    let delete = delete_request(document, &targets);
+    let label = match delete {
+        Ok(Deletion::Ask(_)) => "Delete…",
+        Ok(Deletion::Now(_)) | Err(_) => "Delete",
+    };
+    if menu_entry(ui, icons::DELETE, label, &delete)
+        && let Ok(deletion) = delete
+    {
+        deletion.perform(state, actions);
     }
 }
 
@@ -577,45 +868,291 @@ impl Direction {
         }
     }
 
-    fn transaction(
-        self,
-        document: &Document,
-        feature: &Feature,
-        position: Position,
-    ) -> Result<Transaction, String> {
+    fn transaction(self, document: &Document, feature: &Feature) -> Result<Transaction, String> {
         let name = &feature.name;
-        let index = match self {
-            Self::Up => position
-                .index
+        let row = TreeRow::Feature(feature.id());
+        let mut rows = document.tree_rows();
+        if document.rollback_bar() == RollbackBar::AtEnd {
+            rows.pop();
+        }
+        let at = rows
+            .iter()
+            .position(|candidate| *candidate == row)
+            .ok_or_else(|| format!("{name} no longer exists"))?;
+        let gap = match self {
+            Self::Up => at
                 .checked_sub(1)
                 .ok_or_else(|| format!("{name} is already the first feature"))?,
-            Self::Down => Some(position.index + 1)
-                .filter(|below| *below < position.count)
+            Self::Down => Some(at + 2)
+                .filter(|gap| *gap <= rows.len())
                 .ok_or_else(|| format!("{name} is already the last feature"))?,
         };
-        let transaction = Transaction::single(
-            format!("{} {name}", self.label()),
-            Edit::MoveFeature {
-                id: feature.id(),
-                index,
-            },
-        );
         document
-            .check(&transaction)
-            .map_err(|error| error.to_string())?;
-        Ok(transaction)
+            .move_row(row, gap, format!("{} {name}", self.label()))
+            .map_err(|error| error.to_string())
     }
 }
 
-fn delete_transaction(document: &Document, feature: &Feature) -> Result<Transaction, String> {
-    let id = feature.id();
+fn editable(document: &Document, feature: &Feature) -> Result<(), String> {
+    let name = &feature.name;
+    if feature.suppressed {
+        return Err(format!("{name} is suppressed; unsuppress it to edit it"));
+    }
+    if document.is_rolled_back(feature.id()) {
+        return Err(format!(
+            "{name} is below the rollback bar; roll forward past it to edit it"
+        ));
+    }
+    Ok(())
+}
+
+fn targets<'a>(
+    document: &'a Document,
+    chosen: &[FeatureId],
+    current: Option<&'a Feature>,
+) -> Vec<&'a Feature> {
+    match current {
+        Some(feature) if !chosen.contains(&feature.id()) => vec![feature],
+        _ if !chosen.is_empty() => document
+            .features()
+            .filter(|feature| chosen.contains(&feature.id()))
+            .collect(),
+        _ => current.into_iter().collect(),
+    }
+}
+
+fn described(targets: &[&Feature]) -> String {
+    match targets {
+        [only] => only.name.clone(),
+        _ => count(targets.len(), "feature", "features"),
+    }
+}
+
+fn suppress_title(targets: &[&Feature]) -> (&'static str, &'static str) {
+    if targets.iter().all(|feature| feature.suppressed) && !targets.is_empty() {
+        (icons::UNSUPPRESS, "Unsuppress")
+    } else {
+        (icons::SUPPRESS, "Suppress")
+    }
+}
+
+fn suppress_change(document: &Document, targets: &[&Feature]) -> Result<Transaction, String> {
+    if targets.is_empty() {
+        return Err(NO_FEATURE_CHOSEN.to_owned());
+    }
+    let suppress = targets.iter().any(|feature| !feature.suppressed);
+    let verb = if suppress { "Suppress" } else { "Unsuppress" };
+    let ids: Vec<FeatureId> = targets.iter().map(|feature| feature.id()).collect();
+    Ok(document.suppression(&ids, suppress, format!("{verb} {}", described(targets))))
+}
+
+fn unsuppress(document: &Document, id: FeatureId) -> Transaction {
+    document.suppression(
+        &[id],
+        false,
+        format!("Unsuppress {}", feature_name(document, id)),
+    )
+}
+
+fn roll_to_here(document: &Document, feature: &Feature) -> Result<Transaction, String> {
+    let name = &feature.name;
+    let index = document
+        .feature_index(feature.id())
+        .ok_or_else(|| format!("{name} no longer exists"))?;
+    let bar = document.bar_before_index(index + 1);
+    if bar == document.rollback_bar() {
+        return Err(format!("The rollback bar is already right below {name}"));
+    }
+    Ok(document.roll_to(bar, format!("{} {name}", roll_verb(document, feature))))
+}
+
+fn roll_verb(document: &Document, feature: &Feature) -> &'static str {
+    if document.is_rolled_back(feature.id()) {
+        "Roll forward to"
+    } else {
+        "Roll back to"
+    }
+}
+
+fn roll_to_end(document: &Document) -> Result<Transaction, String> {
+    if document.rollback_bar() == RollbackBar::AtEnd {
+        return Err(BAR_AT_END.to_owned());
+    }
+    Ok(document.roll_to(RollbackBar::AtEnd, "Roll to end"))
+}
+
+fn step_bar(document: &Document, up: bool) -> Result<Transaction, String> {
+    let rows = document.tree_rows();
+    let at = rows
+        .iter()
+        .position(|row| *row == TreeRow::Bar)
+        .unwrap_or(rows.len());
+    let gap = if up {
+        at.checked_sub(1).ok_or(BAR_AT_TOP)?
+    } else {
+        Some(at + 2)
+            .filter(|gap| *gap <= rows.len())
+            .ok_or(BAR_AT_END)?
+    };
+    let label = if up {
+        Command::RollbackUp.title()
+    } else {
+        Command::RollbackDown.title()
+    };
     document
-        .can_remove_feature(id)
-        .map_err(|error| error.to_string())?;
-    Ok(Transaction::single(
-        format!("Delete {}", feature.name),
-        Edit::RemoveFeature { id },
-    ))
+        .move_row(TreeRow::Bar, gap, label)
+        .map_err(|error| error.to_string())
+}
+
+#[derive(Debug, Clone)]
+enum Deletion {
+    Now(Transaction),
+    Ask(Vec<FeatureId>),
+}
+
+impl Deletion {
+    fn perform(self, state: &mut PanelState, actions: &mut Vec<Action>) {
+        match self {
+            Self::Now(transaction) => {
+                state.selected = None;
+                actions.push(Action::Apply(transaction));
+            }
+            Self::Ask(features) => state.deleting = Some(features),
+        }
+    }
+}
+
+fn delete_request(document: &Document, targets: &[&Feature]) -> Result<Deletion, String> {
+    if targets.is_empty() {
+        return Err(NO_FEATURE_CHOSEN.to_owned());
+    }
+    let ids: Vec<FeatureId> = targets.iter().map(|feature| feature.id()).collect();
+    if document.dependents_of(&ids).is_empty() {
+        let label = format!("Delete {}", described(targets));
+        return Ok(Deletion::Now(document.deletion(&ids, label)));
+    }
+    Ok(Deletion::Ask(ids))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeleteChoice {
+    WithDependents,
+    KeepDependents,
+    Cancel,
+}
+
+pub fn delete_dialog(
+    ctx: &egui::Context,
+    document: &Document,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+) {
+    let Some(doomed) = state.deleting.clone() else {
+        return;
+    };
+    let targets: Vec<&Feature> = document
+        .features()
+        .filter(|feature| doomed.contains(&feature.id()))
+        .collect();
+    let ids: Vec<FeatureId> = targets.iter().map(|feature| feature.id()).collect();
+    let dependents = document.dependents_of(&ids);
+    if targets.is_empty() {
+        state.deleting = None;
+        return;
+    }
+    let subject = match targets.as_slice() {
+        [only] => format!("“{}”", only.name),
+        _ => count(targets.len(), "feature", "features"),
+    };
+    let title = format!("Delete {subject}?");
+    let response = widgets::dialog(ctx, "delete-features", &title, DialogWidth::Medium, |ui| {
+        let verb = if dependents.len() == 1 {
+            "depends"
+        } else {
+            "depend"
+        };
+        ui.label(format!(
+            "{} {verb} on {subject}:",
+            count(dependents.len(), "feature", "features")
+        ));
+        egui::ScrollArea::vertical()
+            .max_height(widgets::list_height(ui.ctx(), DEPENDENTS_HEIGHT))
+            .show(ui, |ui| {
+                dependent_rows(ui, document, &ids, &dependents);
+            });
+        ui.label(widgets::muted(
+            format!(
+                "{DELETE_WITH_DEPENDENTS} removes them as well. {KEEP_DEPENDENTS} leaves them in \
+                 the tree, where they fail until you undo the deletion or delete them too."
+            ),
+            ui,
+        ));
+        widgets::footer(ui, |ui| {
+            if ui
+                .add(widgets::primary_button(ui, DELETE_WITH_DEPENDENTS))
+                .clicked()
+            {
+                return Some(DeleteChoice::WithDependents);
+            }
+            if ui.button(KEEP_DEPENDENTS).clicked() {
+                return Some(DeleteChoice::KeepDependents);
+            }
+            ui.button("Cancel")
+                .clicked()
+                .then_some(DeleteChoice::Cancel)
+        })
+    });
+    let closed = response.should_close().then_some(DeleteChoice::Cancel);
+    let Some(choice) = response.inner.or(closed) else {
+        return;
+    };
+    state.deleting = None;
+    let everything: Vec<FeatureId> = ids.iter().chain(&dependents).copied().collect();
+    let transaction = match choice {
+        DeleteChoice::WithDependents => {
+            let whose = if targets.len() == 1 { "its" } else { "their" };
+            document.deletion(
+                &everything,
+                format!("Delete {} and {whose} dependents", described(&targets)),
+            )
+        }
+        DeleteChoice::KeepDependents => {
+            document.deletion(&ids, format!("Delete {}", described(&targets)))
+        }
+        DeleteChoice::Cancel => return,
+    };
+    state.selected = None;
+    actions.push(Action::Apply(transaction));
+}
+
+fn dependent_rows(ui: &mut Ui, document: &Document, ids: &[FeatureId], dependents: &[FeatureId]) {
+    let muted = appearance::tokens(ui).text_muted;
+    for (index, dependent) in dependents.iter().enumerate() {
+        let Some(feature) = document.feature(*dependent) else {
+            continue;
+        };
+        let upstream: Vec<&FeatureId> = ids.iter().chain(dependents.iter().take(index)).collect();
+        let uses: Vec<String> = feature
+            .kind
+            .features()
+            .into_iter()
+            .filter(|used| upstream.contains(&used))
+            .map(|used| feature_name(document, used))
+            .collect();
+        ui.horizontal_wrapped(|ui| {
+            widgets::icon_label(ui, icons::feature(&feature.kind), muted);
+            ui.label(&feature.name);
+            ui.label(widgets::muted(format!("uses {}", in_words(&uses)), ui));
+        });
+    }
+}
+
+fn in_words(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [only] => only.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 pub fn current_feature<'a>(
@@ -647,11 +1184,16 @@ fn is_edited(editing: &SketchEditing, feature: &Feature) -> bool {
     editing.feature() == id || editing.solid() == id
 }
 
-fn edit_change(editing: &SketchEditing, feature: &Feature) -> Result<EditingCommand, String> {
+fn edit_change(
+    document: &Document,
+    editing: &SketchEditing,
+    feature: &Feature,
+) -> Result<EditingCommand, String> {
     let name = &feature.name;
     if is_edited(editing, feature) {
         return Err(format!("{name} is already being edited"));
     }
+    editable(document, feature)?;
     edit_command(feature, false)
         .map(|(_, command)| command)
         .ok_or_else(|| format!("{name} is an imported body and has no settings to edit"))
@@ -744,7 +1286,7 @@ fn feature_commands(
         editing,
     } = *context;
     if let Some(command) = invoke_on(commands, Command::EditFeature, current, |feature| {
-        edit_change(editing, feature)
+        edit_change(model.document(), editing, feature)
     }) {
         actions.push(Action::Editing(command));
     }
@@ -824,57 +1366,90 @@ pub fn commands(
     if commands.invoke(Command::RenameFeature, &chosen)
         && let Some(feature) = current
     {
-        state.selected = Some(feature.id());
+        state.choose_only(feature.id());
         start_renaming(state, feature);
     }
-    let position = current.and_then(|feature| {
-        Some(Position {
-            index: document.feature_index(feature.id())?,
-            count: document.features().len(),
-        })
-    });
     for direction in Direction::BOTH {
-        let transaction = match current.zip(position) {
-            Some((feature, position)) => direction.transaction(document, feature, position),
-            None => Err(NO_FEATURE_CHOSEN.to_owned()),
-        };
+        let transaction = current.map_or_else(
+            || Err(NO_FEATURE_CHOSEN.to_owned()),
+            |feature| direction.transaction(document, feature),
+        );
         if commands.invoke(direction.command(), &transaction)
             && let Ok(transaction) = transaction
         {
             actions.push(Action::Apply(transaction));
         }
     }
-    let delete = current.map_or_else(
-        || Err(NO_FEATURE_CHOSEN.to_owned()),
-        |feature| delete_transaction(document, feature),
-    );
-    if commands.invoke(Command::DeleteFeature, &delete)
-        && let Ok(delete) = delete
+    let targets = targets(document, &state.chosen(), current);
+    let detail = (!targets.is_empty()).then(|| described(&targets));
+    let suppression = suppress_change(document, &targets);
+    if commands.invoke_detailed(Command::SuppressFeature, detail.clone(), &suppression)
+        && let Ok(transaction) = suppression
     {
-        actions.push(Action::Apply(delete));
+        actions.push(Action::Apply(transaction));
+    }
+    if let Some(transaction) = invoke_on(commands, Command::RollToHere, current, |feature| {
+        roll_to_here(document, feature)
+    }) {
+        actions.push(Action::Apply(transaction));
+    }
+    let rolls = [
+        (Command::RollToEnd, roll_to_end(document)),
+        (Command::RollbackUp, step_bar(document, true)),
+        (Command::RollbackDown, step_bar(document, false)),
+    ];
+    for (command, roll) in rolls {
+        if commands.invoke(command, &roll)
+            && let Ok(transaction) = roll
+        {
+            actions.push(Action::Apply(transaction));
+        }
+    }
+    let delete = delete_request(document, &targets);
+    if commands.invoke_detailed(Command::DeleteFeature, detail, &delete)
+        && let Ok(deletion) = delete
+    {
+        deletion.perform(state, actions);
     }
     if editing.active().is_none() {
-        let selected = state
-            .selected
-            .and_then(|id| document.feature(id))
-            .ok_or(NOTHING_SELECTED.to_owned())
-            .and_then(|feature| delete_transaction(document, feature));
+        let chosen = state.chosen();
+        let selected = if chosen.is_empty() {
+            Err(NOTHING_SELECTED.to_owned())
+        } else {
+            let features: Vec<&Feature> = document
+                .features()
+                .filter(|feature| chosen.contains(&feature.id()))
+                .collect();
+            delete_request(document, &features)
+        };
         if commands.invoke(Command::DeleteSelection, &selected)
-            && let Ok(delete) = selected
+            && let Ok(deletion) = selected
         {
-            state.selected = None;
-            actions.push(Action::Apply(delete));
+            deletion.perform(state, actions);
         }
     }
 }
 
-fn failure(ui: &mut Ui, document: &Document, state: &mut PanelState, error: &FeatureError) {
+fn failure(
+    ui: &mut Ui,
+    document: &Document,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    error: &FeatureError,
+) {
     widgets::callout(ui, Tone::Error, |ui| {
         ui.label(&error.reason);
         ui.label(widgets::muted(&error.remedy, ui));
         let Some(target) = error.fix else {
             return;
         };
+        if let FixTarget::Unsuppress(id) = target {
+            let label = format!("Unsuppress {}", feature_name(document, id));
+            if ui.button(label).clicked() {
+                actions.push(Action::Apply(unsuppress(document, id)));
+            }
+            return;
+        }
         let label = match target {
             FixTarget::Parameter(id) => {
                 format!(
@@ -883,12 +1458,9 @@ fn failure(ui: &mut Ui, document: &Document, state: &mut PanelState, error: &Fea
                 )
             }
             FixTarget::Dimension { .. } => "Edit the dimension".to_owned(),
-            FixTarget::Feature(id) => format!(
-                "Go to {}",
-                document
-                    .feature(id)
-                    .map_or("the feature", |feature| feature.name.as_str())
-            ),
+            FixTarget::Feature(id) | FixTarget::Unsuppress(id) => {
+                format!("Go to {}", feature_name(document, id))
+            }
             FixTarget::Constraint {
                 feature,
                 constraint,
@@ -1131,7 +1703,13 @@ fn involved_constraints(model: &Model, feature: &Feature) -> Vec<ConstraintId> {
         .map(|status| &status.state)
     {
         Some(FeatureState::Failed(error)) => error.constraints.clone(),
-        Some(FeatureState::UpToDate | FeatureState::Outdated) | None => Vec::new(),
+        Some(
+            FeatureState::UpToDate
+            | FeatureState::Outdated
+            | FeatureState::Suppressed
+            | FeatureState::RolledBack,
+        )
+        | None => Vec::new(),
     }
 }
 

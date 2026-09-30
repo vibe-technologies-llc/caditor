@@ -210,7 +210,7 @@ impl SketchEditing {
                 }
             }
             EditingCommand::OpenSolid(feature) => {
-                if opened_solid(model.document(), feature) {
+                if opened_solid(model.document(), feature) && model.document().is_active(feature) {
                     self.active = None;
                     self.choosing_plane = false;
                     self.solid = Some(feature);
@@ -227,13 +227,15 @@ impl SketchEditing {
             self.solid = None;
             self.choosing_plane = false;
         }
+        let document = model.document();
         if let Some(active) = self.active
-            && edited_sketch(model.document(), active.feature).is_none()
+            && (edited_sketch(document, active.feature).is_none()
+                || !document.is_active(active.feature))
         {
             self.active = None;
         }
         if let Some(solid) = self.solid
-            && !opened_solid(model.document(), solid)
+            && (!opened_solid(document, solid) || !document.is_active(solid))
         {
             self.solid = None;
         }
@@ -272,7 +274,7 @@ impl SketchEditing {
     }
 
     fn enter(&mut self, feature: FeatureId, document: &Document) {
-        if edited_sketch(document, feature).is_some() {
+        if edited_sketch(document, feature).is_some() && document.is_active(feature) {
             self.choosing_plane = false;
             self.solid = None;
             self.active = Some(ActiveSketch {

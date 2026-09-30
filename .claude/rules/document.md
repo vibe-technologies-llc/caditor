@@ -20,19 +20,28 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Edits carry their IDs, so redo restores them; ID counters never move backwards. Parameter and
   feature IDs stay below 2^63 (`FIRST_UNSTORABLE_ID`, as in sketches): edits refuse larger ones as
   `ReservedId`, `reserve_ids_below` clamps to it.
-- Edits refuse to break invariants: unknown references, parameter cycles, deleting something in
-  use, moving a feature past one it depends on, two features sharing a name (names trimmed on
-  every insert and rename; loading renames the second, with a report).
+- Edits refuse to break invariants: references to a feature below the one using it, unknown
+  parameters, parameter cycles, deleting a parameter in use, moving a feature past one it depends
+  on, two features sharing a name (names trimmed on every insert and rename; loading renames the
+  second, with a report).
+- Deleting a feature others use is allowed: they keep referring to its ID and fail with a reason
+  until the deletion is undone. A feature may be inserted or changed while referring to a feature
+  that is not in the document (undoing the deletion of a dependent, loading a file saved that
+  way); the feature ID counter is raised past every referenced ID, so a dangling reference is
+  never handed to a new feature. `dependents_of` gives every feature using the given ones,
+  directly or through others, in tree order; the app asks before deleting a feature that has any
+  (`app-look.md`).
 - `same_content` compares documents without ID counters; it decides whether a model is unsaved.
 - `Document::check` runs a transaction on a clone so the UI can report the error before
-  committing; `can_remove_parameter` and `can_remove_feature` answer the common case without one.
+  committing; `can_remove_parameter` answers the common case without one.
 - Parameter dependencies are built once per `apply` as a `DependencyGraph` that also knows each
   parameter's users. A cycle check searches back from the edited parameter (nothing while no one
   uses it) and evaluation orders parameters topologically first, so both stay near linear.
-- `Document::transaction_to` builds the transaction turning one document into another (every
-  feature and parameter removed, then the target's inserted with their IDs), keeping every
-  sketch's ID counter at least where it is so IDs are never reused; it restores an earlier version
-  as one undoable change.
+- `Document::transaction_to` builds the transaction turning one document into another (the
+  rollback bar moved to the end, every feature and parameter removed, then the target's inserted
+  with their IDs and suppressed flags, then the target's rollback bar), keeping every sketch's ID
+  counter at least where it is so IDs are never reused; it restores an earlier version as one
+  undoable change.
 - Large changes can be applied off the UI thread: `Editor::base` hands out the document with the
   editor's revision, `Base::prepare` applies a transaction to that copy on any thread, and
   `Editor::commit` swaps it in and pushes its inverse only if the revision is unchanged, else
@@ -46,6 +55,31 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   document content too (`Edit::SetPrincipalHidden`), compared by `same_content` and carried by
   `transaction_to`; not a view preference, so hiding a mixed selection, showing everything and
   undoing either are one change, and a model reopens as it was left.
+
+## Suppression, the rollback bar and tree order (`tree.rs`)
+
+- A feature's `suppressed` flag is changed by `Edit::SetFeatureSuppressed` (`Document::suppression`
+  builds one transaction for several features). It is content like `hidden`, compared by
+  `same_content`, carried by `InsertFeature`, so undoing the deletion of a suppressed feature
+  brings it back suppressed. Recompute skips a suppressed feature as if it were absent
+  (`document-recompute.md`).
+- The rollback bar is document state, `RollbackBar::AtEnd` or `Before(first feature below it)`,
+  changed by `Edit::SetRollbackBar` (`Document::roll_to`): undoable, journaled, saved, compared by
+  `same_content`. SolidWorks, Fusion 360 and Onshape all keep it with the model, and it has to
+  move with the features inserted at it in the same undoable step; a view-only bar would reopen
+  models whole and could not be undone with the insertions it takes part in.
+- Features at or after the bar are rolled back (`is_rolled_back`, `bar_index`); `is_active` is
+  neither rolled back nor suppressed, and `active_features` lists those in tree order.
+- Insert here: `TransactionBuilder::add_feature` inserts at the bar, so every tool puts new
+  features right above it and the bar, naming the first feature below, stays under them without
+  an edit of its own.
+- The bar is attached to the feature below it: `MoveFeature` of that feature carries it along, and
+  `RemoveFeature` of it is refused (`RollbackBarAbove`); `Document::deletion` first moves the bar
+  to the next surviving feature (or the end), then removes the features last to first.
+- `tree_rows` lists the features with the bar as a row between them; `move_row(row, gap)` moves a
+  feature or the bar to a gap between rows as one `MoveFeature` and, when the bar's place
+  changes, one `SetRollbackBar`, checked, so a feature crossing the bar is rolled back or forward
+  and a refused place returns `AboveDependency` or `BelowDependent` naming the feature in the way.
 
 ## Sketch edits
 
@@ -89,8 +123,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - A revolve's axis (`RevolveAxis`) is a line of its sketch, a sketch axis, or an `AxisReference` to
   a model axis lying in the sketch plane. A sketch line used as axis cannot be deleted; edits
   refuse an axis not a line or axis of the revolve's own sketch (`AxisNotALine`).
-- Inserting one checks its sketch is a sketch and its target makes a body. A feature whose body
-  others change keeps making a new body.
+- Inserting one checks its sketch, when present, is a sketch and its target makes a body. A
+  feature whose body others change keeps making a new body.
 - Profile, sweep and boolean errors become sentences naming the sketch curves involved.
 
 ### Blend (`blend.rs`, `FeatureKind::Blend`)
@@ -121,8 +155,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `PatternKind::Linear` has a first `LinearDirection` and optionally a second (axis, count,
   spacing, reversed); `PatternKind::Circular` an axis, count, total angle and reversed. Every axis
   is an `AxisReference` resolved like a datum's (`Resolver::axis`), in the state at the pattern's
-  place in the tree; its body and datum count as used, so they cannot be deleted or moved below
-  it.
+  place in the tree; its body and datum count as used, so they are its dependencies (deleting
+  them lists the pattern first) and cannot be moved below it.
 - Counts are plain expressions, whole and from 1 (the body alone) up to `MAX_PATTERN_INSTANCES`
   (100) instances in all, both directions multiplied, since each copy costs a boolean. Spacing
   is a length above zero (Reversed goes the other way) and the reach may not pass `MAX_SIZE`;
@@ -143,7 +177,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Fragments of a split face are accepted when in one plane; a lost, split or curved face fails the
   sketch alone with a fix pointing at it.
 - `SetSketchPlacement` sets plane and attachment together (attach, move to another face, or detach
-  in place). A body with attached sketches cannot be deleted or stop making a body.
+  in place). A body with attached sketches cannot stop making a body; they depend on it, so
+  deleting it lists them first.
 
 ### Datum (`datum.rs`, `FeatureKind::Datum`)
 

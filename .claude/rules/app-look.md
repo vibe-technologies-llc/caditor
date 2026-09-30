@@ -118,10 +118,29 @@ paths:
 - A feature row is its kind icon, name, state icon, edit and more buttons, highlighted with an
   accent bar while open, with failures and outdated states as callouts under it and its properties
   in a card; an opening feature scrolls into view while its card expands (`PanelState::reveal`).
+  A suppressed row's name is struck through and muted with the suppress icon as its state; a row
+  below the rollback bar is muted with the rolled-back icon; neither offers the edit button. A
+  failure caused by a suppressed feature carries an Unsuppress button (`FixTarget::Unsuppress`).
 - Clicking or tabbing to a row name selects it (`PanelState::selected`, cleared when the view
-  selection changes); Rename feature (F2), Move feature up or down and Delete feature act on it,
-  else on the open feature (`feature_tree::current_feature`); Delete selection (Delete) deletes it
-  outside sketch editing.
+  selection changes); Ctrl+click adds or removes a row and Shift+click takes the rows from the
+  selected one (`PanelState::chosen`, the primary first). Rename feature (F2) and Move feature up
+  or down act on the primary, else on the open feature (`feature_tree::current_feature`);
+  Suppress or unsuppress feature and Delete feature act on every chosen row (a row's menu on the
+  chosen rows when it is one of them); Delete selection (Delete) deletes them outside sketch
+  editing.
+- The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar" for
+  screen readers): a grip glyph, "N features rolled back" when any are, and an accent line, drawn
+  at the end of the tree when nothing is rolled back. It and every row name can be dragged
+  (`PanelState::dragging`): the gap under the pointer gets an accent line, or an error-coloured
+  line and a tooltip-order popup with the reason when `Document::move_row` refuses it; release
+  applies it, Escape or a release outside the tree cancels, and the tree scrolls near its edges.
+  Move up and Move down step past the bar when it is next to the row, except past the bar at the
+  end.
+- Deleting features others depend on opens the "Delete …?" dialog (`feature_tree::delete_dialog`,
+  `PanelState::deleting`, counted as a modal): the dependents in tree order with what each uses,
+  then Delete with dependents (primary, rightmost), Keep dependents and Cancel; either deletion is
+  one transaction. Without dependents Delete acts at once; the menu item reads "Delete…" when it
+  will ask.
 - A sketch's constraint rows highlight their entities on hover and, clicked, edit the sketch and
   select the constraint (`PanelState::hovered_in_tree`, `chosen_in_tree`, handed to the viewport
   after the panels are drawn).
