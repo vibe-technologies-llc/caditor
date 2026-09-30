@@ -4,6 +4,7 @@ paths:
   - "crates/caditor/src/sketch_drag.rs"
   - "crates/caditor/src/drag_solver.rs"
   - "crates/caditor/src/drawing.rs"
+  - "crates/caditor/src/trimming.rs"
   - "crates/caditor/src/shapes.rs"
   - "crates/caditor/src/snap.rs"
   - "crates/caditor/src/sketch_tools.rs"
@@ -29,8 +30,10 @@ paths:
   so a body never hides or z-fights with them: a sketch on a face, inside or behind a body draws
   and picks over it with its hover and selection highlights, while the dimmed body stays in view
   for context. Other sketches, bodies and datum geometry stay on their usual layers.
-- Clicks and primary drags select unless the tool `draws`. Escape backs out one step at a time: a
-  drag in progress, plane choice, shape in progress, tool, selection, then editing.
+- Clicks and primary drags select with the Select tool; a drawing tool (`Tool::draws`) draws, and
+  Trim and Extend (`Tool::modifies`) act on the curve under the pointer. Escape backs out one step
+  at a time: a drag or trim path in progress, plane choice, shape in progress, keyboard highlight,
+  tool, selection, then editing.
 
 ## Dragging and box selection
 
@@ -98,6 +101,29 @@ paths:
   stay points (the button shows pressed). Construction curves and the preview while drawing them are
   dashed (`scene::curve_lines`), coloured by constraint state like any curve. Its button leads the
   ribbon's Modify group, after the drawing tools.
+
+## Trim and extend
+
+- `trimming.rs` holds the tool's UI state; the geometry and constraint rules are the sketch's
+  (`sketch.md`). Each frame the curve under the pointer (nearest within the curve snap distance on
+  screen, splines included so they can be refused in words) is aimed at through the displayed
+  sketch: Trim's piece, drawn over the curve in a red preview with its cut points and its cutters
+  highlighted; Extend's reach from the nearer end, previewed with a marker on its target, which is
+  highlighted. The aim's words ("Trim Line 3 back to Line 5 and Circle 2", "Extend Line 3 to
+  Arc 4", or why not) stand where hover descriptions go; the prompt names the keys.
+- A click acts at once, without waiting for a GPU pick: one transaction `Trim <curve>` or
+  `Extend <curve>` built by `reshape_sketch` from a working copy (the definition with the displayed
+  positions) to the trimmed copy, settled first like any sketch transaction; a refusal is a notice
+  (`Trim: …`, `Extend: …`). The tool stays active.
+- With Trim, a primary drag is a trim path: every piece of a line, circle or arc the pointer's path
+  crosses is collected (shown red) and on release trimmed in turn, in crossing order, as one
+  transaction (`Trim 3 pieces`); each is found again by its middle, on whichever curve now carries
+  it after earlier splits. Escape drops the path. Extend ignores drags.
+- Keyboard: Trim (K) and Extend (J) are sketch tools with palette commands and compact buttons after
+  Construction in the ribbon's Modify group. While either is active, N and Shift+N step through its
+  targets instead of the scene's pickables (every piece of every line, circle and arc; every line
+  or arc end that can reach something), and Enter or Space acts on the highlighted target, or on
+  the one under the pointer.
 
 ## Snapping
 

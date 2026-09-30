@@ -53,6 +53,7 @@ const HOVERED_SELECTED: Color = Color::from_rgb8(150, 205, 255);
 const HIGHLIGHT_FILL_ALPHA: f32 = 0.22;
 const PREVIEW_CURVE: Color = Color::from_rgb8(190, 150, 255);
 const PREVIEW_POINT: Color = Color::from_rgb8(214, 190, 255);
+const TRIMMED_CURVE: Color = Color::from_rgb8(255, 96, 84);
 const SNAP_MARKER: Color = Color::from_rgb8(80, 226, 236);
 const BODY: Color = Color::from_rgb8(150, 162, 180);
 const FAILED_BODY: Color = Color::from_rgb8(200, 134, 124);
@@ -949,6 +950,16 @@ pub fn add_preview(scene: &mut Scene, plane: Plane, preview: &Preview) {
         };
         scene.lines.extend(curve_lines(plane, curve, style));
     }
+    for curve in &preview.removed {
+        let style = CurveStyle {
+            color: TRIMMED_CURVE,
+            width: CURVE_WIDTH + HIGHLIGHT_EXTRA_WIDTH,
+            layer: Layer::Front,
+            pick: None,
+            dashed: false,
+        };
+        scene.lines.extend(curve_lines(plane, curve, style));
+    }
     let snap = preview.snap.map(|position| Marker {
         position: plane.to_world(position),
         color: SNAP_MARKER,
@@ -1476,6 +1487,7 @@ mod tests {
             Plane::XZ,
             &Preview {
                 curves: vec![vec![Point2::ZERO, Point2::new(5.0, 5.0)]],
+                removed: vec![vec![Point2::new(5.0, 5.0), Point2::new(9.0, 5.0)]],
                 points: vec![Point2::new(5.0, 5.0)],
                 snap: Some(Point2::ZERO),
                 construction: false,
@@ -1483,7 +1495,7 @@ mod tests {
         );
         let preview_lines = editing.scene.lines.get(drawn_before.0..).unwrap();
         let preview_markers = editing.scene.markers.get(drawn_before.1..).unwrap();
-        assert_eq!((preview_lines.len(), preview_markers.len()), (1, 2));
+        assert_eq!((preview_lines.len(), preview_markers.len()), (2, 2));
         assert!(preview_lines.iter().all(|drawn| in_front(drawn.layer)));
         assert!(preview_markers.iter().all(|drawn| in_front(drawn.layer)));
     }

@@ -694,3 +694,40 @@ fn recompute_reanalyses_only_the_parts_of_a_sketch_an_edit_touches() {
     assert_eq!(result.geometry.circle(circle).unwrap().1, 6.0);
     assert_eq!(result.solution.degrees_of_freedom(), 2);
 }
+
+#[test]
+fn a_reshaped_sketch_is_one_undoable_change_that_keeps_every_identifier() {
+    let shape = rectangle();
+    let feature = shape.feature;
+    let mut editor = Editor::new(shape.document.clone());
+    let before = solve(editor.document(), feature);
+    let [bottom, right, top, _] = shape.sides;
+    let mut after = before.clone();
+    let cutter = after.add_line(Point2::new(10.0, -5.0), Point2::new(10.0, 15.0));
+    after.set_construction(cutter, true).unwrap();
+    after.trim(bottom, Point2::new(20.0, 0.0)).unwrap();
+    after.extend(cutter, Point2::new(10.0, 14.0)).unwrap();
+    after.trim(top, Point2::new(20.0, 20.0)).unwrap();
+
+    let mut transaction = editor.document().transaction("Trim");
+    transaction.settle_sketch(feature, &before);
+    transaction.reshape_sketch(feature, &before, &after);
+    let fresh = transaction.add_sketch_entity(feature, Entity::Point(Point2::ZERO));
+    editor.apply(transaction.finish()).unwrap();
+
+    let reshaped = sketch_of(editor.document(), feature);
+    let mut expected = after.clone();
+    expected
+        .insert_entity(fresh, Entity::Point(Point2::ZERO))
+        .unwrap();
+    assert!(same_content(reshaped, &expected));
+    assert!(reshaped.is_construction(cutter));
+    assert!(reshaped.entity(right).is_some());
+    assert!(fresh.raw() >= after.next_id());
+    assert_eq!(editor.undo_label(), Some("Trim"));
+
+    editor.undo().unwrap();
+    let restored = sketch_of(editor.document(), feature);
+    assert!(restored.same_content(sketch_of(&shape.document, feature)));
+    assert!(restored.next_id() > fresh.raw());
+}

@@ -194,6 +194,45 @@ impl Constraint {
     pub(crate) fn references(&self, id: EntityId) -> bool {
         self.entities().contains(&id)
     }
+
+    pub(crate) fn with_entity_replaced(&self, from: EntityId, to: EntityId) -> Self {
+        let swap = |entity: EntityId| if entity == from { to } else { entity };
+        let mut replaced = self.clone();
+        match &mut replaced {
+            Self::Horizontal(entity)
+            | Self::Vertical(entity)
+            | Self::Fix { point: entity, .. }
+            | Self::Radius { entity, .. }
+            | Self::Diameter { entity, .. } => *entity = swap(*entity),
+            Self::Coincident(a, b)
+            | Self::HorizontalPoints(a, b)
+            | Self::VerticalPoints(a, b)
+            | Self::Parallel(a, b)
+            | Self::Perpendicular(a, b)
+            | Self::Tangent(a, b)
+            | Self::Equal(a, b)
+            | Self::Midpoint { point: a, line: b }
+            | Self::Concentric(a, b)
+            | Self::Collinear(a, b)
+            | Self::Distance { from: a, to: b, .. }
+            | Self::HorizontalDistance { from: a, to: b, .. }
+            | Self::VerticalDistance { from: a, to: b, .. }
+            | Self::Angle { from: a, to: b, .. } => {
+                *a = swap(*a);
+                *b = swap(*b);
+            }
+            Self::Symmetric {
+                first,
+                second,
+                about,
+            } => {
+                *first = swap(*first);
+                *second = swap(*second);
+                *about = swap(*about);
+            }
+        }
+        replaced
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]

@@ -57,6 +57,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `TransactionBuilder::remove_sketch_items` expands a user's deletion into constraints, then
   curves, then points.
 - Setting an entity changes only its value, never its kind or the points it uses.
+- `reshape_sketch(feature, before, after)` turns a sketch edited as a whole (trim, extend) into
+  edits: constraints removed, curves then points removed, points then curves added, values and
+  construction flags set, constraints added. An entity whose kind or points changed is removed and
+  added again under its ID, with everything using it; the builder's counter moves past `after`'s.
 - `settle_sketch` moves the definition to a solved shape so the next solve starts from what the
   user sees.
 

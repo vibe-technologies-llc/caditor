@@ -4,8 +4,10 @@ mod curve;
 mod entity;
 mod fit;
 mod id;
+mod intersect;
 mod sketch;
 mod solve;
+mod trim;
 
 pub use crate::{
     constraint::{Constraint, DimensionError, MAX_LENGTH},
@@ -15,4 +17,5 @@ pub use crate::{
     id::{ConstraintId, EntityId, Reference},
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{Drag, EntityState, Redundancy, SketchSolution, SolveMemo, Solved},
+    trim::{Cut, ExtendError, Extension, Piece, TrimError, Trimmed},
 };

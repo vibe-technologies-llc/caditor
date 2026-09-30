@@ -46,6 +46,32 @@ paths:
 - `Sketch::measured` gives a dimension's drawn value: new dimensions start from it and unreadable
   stored ones fall back to it.
 
+## Trim and extend
+
+- `trim.rs` on top of `intersect.rs` (lines against segments, circles and arcs analytically, against
+  splines by sampling and bisection). Cutters and targets are every other curve of the sketch,
+  construction curves and splines included; the reference axes and lone points are not. A crossing
+  at a curve's own end (within `1e-7` of the curves' extent) is a joint, not a cut.
+- `trim_pieces` splits a line, circle or arc at its crossings (a circle needs two); `trim_piece`
+  finds the one nearest a point, `trim` removes it on a copy and keeps the result only if every
+  step succeeded. Splines are refused in words (`TrimError::Spline`).
+- The kept part keeps the curve's ID, its surviving end points and every constraint still true of
+  it: a changed curve is removed and inserted again with the same ID (a circle becomes an arc), and
+  its constraints return with their IDs; `Midpoint` and `Equal` on a shortened line are dropped.
+  A piece split off gets fresh IDs from the counter and the curve's construction flag; a line piece
+  is `Collinear` with the kept part, or, when the line was horizontal or vertical, takes that
+  constraint too and puts its new end on the kept line; an arc piece gets its own centre,
+  `Concentric` and `Equal` with the kept arc. Tangent, parallel, perpendicular and angle
+  constraints to a curve joined only at the far end move to the piece holding that end.
+- A new end joins its cutter: `Coincident` with the cutter's end point when the cut lies there
+  (replacing that point's now implied place on the trimmed curve), else a point on the cutter.
+  An end point no curve uses any more is removed with its constraints, as are a deleted curve's.
+- `extension` picks the end nearer the given point and the nearest crossing beyond it, along the
+  line or round the arc's circle (never past its own start); `extend` moves that end point there,
+  drops its constraints (and `Midpoint` and `Equal` on a line) and joins it to the target the same
+  way. An end shared with another curve, coincident with another point or fixed is refused
+  (`ExtendError::Joined`, `Fixed`), as are circles, splines and ends with nothing beyond them.
+
 ## Splines
 
 - Sketch splines are clamped with uniform knots and degree min(3, points − 1).
