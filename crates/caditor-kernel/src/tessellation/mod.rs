@@ -70,9 +70,14 @@ pub struct Mesh {
     triangles: Vec<[u32; 3]>,
     faces: Vec<FaceTriangles>,
     edges: Vec<EdgePolyline>,
+    chord: f64,
 }
 
 impl Mesh {
+    pub fn chord(&self) -> f64 {
+        self.chord
+    }
+
     pub fn positions(&self) -> &[Point3] {
         &self.positions
     }
@@ -518,6 +523,7 @@ impl<'a> Tessellator<'a> {
 
     fn finish(self) -> Mesh {
         let mut mesh = self.mesh;
+        mesh.chord = self.tolerances.base.chord();
         mesh.triangles.clear();
         for (id, _) in self.solid.faces() {
             let start = mesh.triangles.len();

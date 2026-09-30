@@ -10,7 +10,7 @@ use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, EdgeId, EdgeName, FaceId, FaceName,
     GeometryError, LinearExtent, MAX_SIZE, Mesh, MeshQuality, Profile, ProfileCurve, ProfileError,
     Region, RegionKey, RegionMesh, SamplingTolerance, Selection, Solid, SweepError,
-    TessellationError, boolean, extrude, revolve,
+    TessellationError, VertexId, VertexName, boolean, extrude, revolve, vertex_names,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -251,6 +251,8 @@ pub struct SolidResult {
 pub struct NameIndex {
     faces: BTreeMap<FaceName, Vec<FaceId>>,
     edges: BTreeMap<EdgeName, EdgeId>,
+    vertices: BTreeMap<VertexName, Vec<VertexId>>,
+    vertex_names: BTreeMap<VertexId, VertexName>,
 }
 
 impl NameIndex {
@@ -263,7 +265,25 @@ impl NameIndex {
         for (id, edge) in solid.edges() {
             edges.entry(edge.name()).or_insert(id);
         }
-        Self { faces, edges }
+        let vertex_names = vertex_names(solid);
+        let mut vertices: BTreeMap<VertexName, Vec<VertexId>> = BTreeMap::new();
+        for (id, name) in &vertex_names {
+            vertices.entry(*name).or_default().push(*id);
+        }
+        Self {
+            faces,
+            edges,
+            vertices,
+            vertex_names,
+        }
+    }
+
+    pub fn vertices_named(&self, name: VertexName) -> &[VertexId] {
+        self.vertices.get(&name).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn vertex_name(&self, vertex: VertexId) -> Option<VertexName> {
+        self.vertex_names.get(&vertex).copied()
     }
 
     pub fn faces_named(&self, name: FaceName) -> &[FaceId] {

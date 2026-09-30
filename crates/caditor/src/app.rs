@@ -34,6 +34,8 @@ use crate::{
         WindowPlacement,
     },
     logo,
+    measure::MeasureTool,
+    measure_panel::{self, MeasureContext},
     menu_bar::{self, MenuContext},
     model::{Action, Model, Notice, WakerFactory},
     offers::SelectionOffers,
@@ -103,6 +105,7 @@ pub struct Workspace {
     pub about_open: bool,
     pub last_offers: Vec<Offer>,
     pub selection_offers: SelectionOffers,
+    pub measure: MeasureTool,
     applied_appearance: Option<Appearance>,
     applied_title_bar: Option<TitleBar>,
     keyboard_was_taken: bool,
@@ -136,6 +139,7 @@ impl Workspace {
             about_open: false,
             last_offers: Vec::new(),
             selection_offers: SelectionOffers::default(),
+            measure: MeasureTool::default(),
             applied_appearance: None,
             applied_title_bar: None,
             keyboard_was_taken: false,
@@ -260,6 +264,7 @@ pub fn show(
         about_open,
         last_offers,
         selection_offers,
+        measure,
         keyboard_was_taken,
         deferred_commands,
         ..
@@ -297,8 +302,12 @@ pub fn show(
         selection: viewport.selection(),
         editing,
         offers,
+        measuring: measure.open,
     };
     toolbar::show(ui, model, &toolbar, &mut commands, actions);
+    if commands.available(Command::Measure) {
+        measure.toggle();
+    }
     sketch_toolbar::show(
         ui,
         model,
@@ -328,6 +337,25 @@ pub fn show(
         viewport.select_only(chosen);
     }
     viewport.hover_from_tree(panels.hovered_in_tree.take());
+    if measure.open {
+        let context = MeasureContext {
+            model,
+            selection: viewport.selection(),
+            bodies: viewport.bodies(),
+            tree_selected: panels.selected,
+        };
+        measure_panel::show(ui, &context, measure);
+    }
+    let measured = measure
+        .open
+        .then(|| measure.measurements.readout())
+        .flatten()
+        .and_then(|readout| readout.line)
+        .map(|line| {
+            let label = measure_panel::line_label(&line, model.length_unit());
+            (line, label)
+        });
+    viewport.set_measured(measured);
     let selected_before = viewport.selection().clone();
     viewport.show(ui, model, editing, keys_free, &mut commands, actions);
     if viewport.selection() != &selected_before && !viewport.selection().is_empty() {

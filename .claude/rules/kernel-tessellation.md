@@ -52,6 +52,8 @@ paths:
 - Edge polylines are the edge samplings the faces were triangulated with, so drawn outlines follow
   the faces' silhouettes exactly.
 - Computes volume, area and centroid by the divergence theorem.
+- Records the chord it was asked for (`Mesh::chord`; faces retried finer only get closer), which the
+  app quotes as the accuracy of mass properties.
 
 ## Retries
 

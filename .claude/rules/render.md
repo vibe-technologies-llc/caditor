@@ -151,6 +151,8 @@ paths:
   the scale (`PickWindow`; targets and readback recreated when it changes).
 - ID and depth targets, both `R32Uint` (depth as the bits of its f32, since GL does not always
   render to float targets), read back asynchronously so hover never blocks the UI thread.
+- A marker whose colour has no alpha draws nothing (`fs_marker` discards it, writing no depth) but
+  is still picked, so pickable points can stay invisible until hovered or selected.
 - Hits report their distance from the cursor in points (`offset_points`, compared against the
   app's pick tolerances) and their world position (navigation's orbit pivot, pan grab point, zoom
   anchor).

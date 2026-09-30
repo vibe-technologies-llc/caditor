@@ -10,6 +10,7 @@ pub const ERROR: Color32 = Color32::from_rgb(255, 128, 118);
 pub const WARNING: Color32 = Color32::from_rgb(242, 190, 80);
 pub const PROMPT: Color32 = Color32::from_rgb(255, 214, 120);
 pub const SNAP: Color32 = Color32::from_rgb(80, 226, 236);
+pub const MEASURE: Color32 = Color32::from_rgb(80, 226, 236);
 
 const PADDING: Vec2 = vec2(5.0, 2.0);
 const CORNER_RADIUS: f32 = 3.0;
@@ -77,6 +78,7 @@ mod tests {
                 ("warning", WARNING),
                 ("prompt", PROMPT),
                 ("snap", SNAP),
+                ("measure", MEASURE),
             ] {
                 let ratio = contrast_ratio(color, backdrop);
                 assert!(ratio >= READABLE, "{what} over {below:?} is {ratio:.2}:1");

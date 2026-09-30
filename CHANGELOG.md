@@ -255,6 +255,13 @@ The first release of caditor.
   levels the horizon of a view that was turned to face a tilted sketch.
 - Fit all frames the model rather than the origin planes, and fitting a small part or a small
   selection fills the view however small it is.
+- A measure tool (I, the Measure button or View › Measure) reads the selection without changing
+  the model: where a vertex or sketch point is, an edge's length, a circle's radius, diameter and
+  centre, a face's area, and between two items their shortest distance with its X, Y and Z parts,
+  the angle between lines and planes, the gap between parallel planes and the distance between
+  axes, drawn in the view as a line labelled with its length. It also gives each body's volume,
+  surface area and centroid. Values found numerically or from the display mesh are marked ≈ and
+  say how close they are, and every value can be copied. Corners of bodies can now be picked.
 
 ### Installation
 

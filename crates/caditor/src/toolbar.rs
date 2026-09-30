@@ -27,6 +27,7 @@ pub struct ToolbarContext<'a> {
     pub selection: &'a Selection,
     pub editing: &'a SketchEditing,
     pub offers: &'a Offers,
+    pub measuring: bool,
 }
 
 pub fn show(
@@ -51,8 +52,23 @@ pub fn show(
             pattern_buttons(ui, model, context, commands, actions);
             ui.separator();
             datum_buttons(ui, model, context, commands, actions);
+            ui.separator();
+            measure_button(ui, context.measuring, commands);
         });
     });
+}
+
+pub const MEASURE_LABEL: &str = "Measure";
+const MEASURE_HOVER: &str =
+    "Measure the selection: distances, angles, lengths, areas and the mass properties of bodies";
+
+fn measure_button(ui: &mut Ui, measuring: bool, commands: &mut CommandFrame<'_>) {
+    let response = ui
+        .add(ToolButton::new(icons::command(Command::Measure), MEASURE_LABEL).selected(measuring))
+        .on_hover_text(commands.with_keys(Command::Measure, MEASURE_HOVER));
+    if response.clicked() {
+        commands.trigger(Command::Measure);
+    }
 }
 
 const TOOL_GAP: f32 = 2.0;
@@ -88,6 +104,7 @@ fn sketch_buttons(
         | Pickable::SketchConstraint { .. }
         | Pickable::Face { .. }
         | Pickable::Edge { .. }
+        | Pickable::Vertex { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
         | Pickable::ShellFace { .. }

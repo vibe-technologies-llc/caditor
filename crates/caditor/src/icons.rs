@@ -54,6 +54,8 @@ pub const GENERAL: &str = phosphor::SLIDERS_HORIZONTAL;
 pub const APPEARANCE: &str = phosphor::PALETTE;
 pub const NAVIGATION: &str = phosphor::COMPASS;
 pub const GRAPHICS: &str = phosphor::MONITOR;
+pub const MEASURE: &str = phosphor::RULER;
+pub const COPY: &str = phosphor::COPY_SIMPLE;
 const ORIGIN: &str = phosphor::CROSSHAIR;
 
 pub fn command(command: Command) -> &'static str {
@@ -93,6 +95,7 @@ pub fn command(command: Command) -> &'static str {
         Command::DatumPlane => PLANE,
         Command::DatumAxis => AXIS,
         Command::FitView => phosphor::FRAME_CORNERS,
+        Command::Measure => MEASURE,
         Command::ToggleProjection => phosphor::PERSPECTIVE,
         Command::MinimizeWindow => MINIMIZE,
         Command::MaximizeWindow => MAXIMIZE,

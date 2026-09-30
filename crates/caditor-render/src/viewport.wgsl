@@ -373,7 +373,7 @@ fn marker_coverage(in: Varyings) -> f32 {
 @fragment
 fn fs_marker(in: Varyings) -> @location(0) vec4<f32> {
     let coverage = marker_coverage(in);
-    if coverage <= 0.0 {
+    if coverage <= 0.0 || in.color.a <= 0.0 {
         discard;
     }
     return vec4<f32>(in.color.rgb, in.color.a * coverage);

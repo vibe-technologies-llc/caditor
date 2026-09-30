@@ -121,8 +121,7 @@ within a category run from most to least important.
 - Section planes.
 - Transparent or X-ray bodies.
 - Line caps, joins and anti-aliasing without MSAA.
-- Measure tool with distances and angles, vertex selection, a selection filter, and mass
-  properties (volume, area and centroid are already computed by `Mesh`).
+- A selection filter, so a click takes only faces, edges, vertices or sketch geometry.
 
 ## Application
 

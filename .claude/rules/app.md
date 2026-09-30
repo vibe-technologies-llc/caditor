@@ -13,6 +13,8 @@ paths:
   - "crates/caditor/src/cli.rs"
   - "crates/caditor/src/scene.rs"
   - "crates/caditor/src/selection.rs"
+  - "crates/caditor/src/measure.rs"
+  - "crates/caditor/src/measure_panel.rs"
 ---
 
 # App shell, model and bodies
@@ -87,9 +89,16 @@ paths:
   the UI thread only uploads buffers; the first fit of a newly opened model waits for them
   (`Model::bodies_pending`).
 - A face is `Pickable::Face` with a `FaceKey` (`FaceName` plus occurrence among same-named faces, in
-  solid order), an edge `Pickable::Edge` with its `EdgeName`; found through the result's `NameIndex`
-  (`find_face`, `find_edge` on the `SolidResult` from `bodies::shown`/`input`) and described in
-  words from the `FaceOrigin` (for example "Extrude 1 side from Line 3").
+  solid order), an edge `Pickable::Edge` with its `EdgeName`, a vertex `Pickable::Vertex` with a
+  `VertexKey` (`VertexName` plus occurrence, like faces); found through the result's `NameIndex`
+  (`find_face`, `find_edge`, `find_vertex` on the `SolidResult` from `bodies::shown`/`input`) and
+  described in words from the `FaceOrigin` (for example "Extrude 1 side from Line 3"; a vertex as
+  where its faces meet).
+- Vertices are markers with no colour, so they pick (as points, winning over edges and faces
+  nearby) but show only when hovered or selected. The conversion worker also lists each body's
+  vertices and works out its `BodyMass` (the mesh's volume, area and centroid; `Exact` for flat
+  faces and straight edges only, else the mesh's chord and the volume's bound, curved area times
+  chord).
 - While a sketch is edited, bodies are dimmed and not pickable.
 
 ## Offers
@@ -99,6 +108,27 @@ paths:
   the body to pattern, the selection's descriptions) only when the selection, the model's
   revision, its evaluation (`Model::evaluation_generation`) or the length unit changes, not every
   frame.
+
+## Measure
+
+- The Measure command (I, the ribbon, View menu, palette) toggles `MeasureTool` in the `Workspace`;
+  while open, `measure_panel.rs` draws a right-hand panel before the viewport. Measuring never
+  changes the document.
+- `Measurements` resolves the selection on the UI thread into points (vertices, sketch points, the
+  origin) and edges or faces with their result's `Arc`, then measures on its own worker (newest job
+  wins, a panic becomes a failed reading, without a worker it runs inline) only when the
+  selection, revision or evaluation changes; the panel shows Measuring… until the result for the
+  current selection arrives.
+- A `Readout` is a card per item (position; length, radius, diameter, centre; area, exact for flat
+  faces from the kernel, else from the display mesh; round faces' radii) and, for two items, a
+  "Between them" card: distance and its X, Y and Z parts, centre to centre for two circles, axis to
+  axis, the gap between parallel planes and the angle. More than two asks for fewer. Values are
+  formatted in the length unit (`LengthUnit::measured_*`, a micrometre's resolution), approximate
+  ones prefixed ≈ with a note; each row and the whole panel can be copied as text.
+- Mass properties are read each frame from the bodies' `BodyMass`: the bodies of the selected
+  faces, edges and vertices and the feature selected in the tree, else every shown body.
+- The closest points are drawn in the view on the front layer (`scene::add_measurement`) with a
+  label of the distance at their middle in `canvas::MEASURE`.
 
 ## Samples
 

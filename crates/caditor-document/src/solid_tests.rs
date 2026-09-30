@@ -930,3 +930,57 @@ fn a_revolve_turns_about_a_construction_centreline_and_undoing_its_deletion_keep
     assert_eq!(removed.construction().len(), 0);
     assert!(restored.is_construction(centreline));
 }
+
+fn named_vertices(
+    evaluation: &Evaluation,
+    body: FeatureId,
+) -> std::collections::BTreeMap<caditor_kernel::VertexName, Point3> {
+    let result = evaluation.body_result(body).unwrap().solid().unwrap();
+    result
+        .solid
+        .vertices()
+        .map(|(id, vertex)| {
+            let name = result.names().vertex_name(id).unwrap();
+            assert_eq!(result.names().vertices_named(name), [id]);
+            (name, vertex.point())
+        })
+        .collect()
+}
+
+#[test]
+fn vertices_keep_their_names_when_a_parameter_moves_them() {
+    let mut model = model();
+    let mut engine = Recompute::default();
+    let before = named_vertices(&evaluate(&model.document, &mut engine), model.base);
+    let depth = model.document.parameter_named("depth").unwrap().id();
+
+    model
+        .document
+        .apply(Transaction::single(
+            "Deeper",
+            Edit::SetParameterExpression {
+                id: depth,
+                expression: Expression::parse_stored("3 mm").unwrap(),
+            },
+        ))
+        .unwrap();
+    let after = named_vertices(&evaluate(&model.document, &mut engine), model.base);
+    let moved: Vec<(f64, f64)> = before
+        .iter()
+        .filter_map(|(name, point)| {
+            let now = after.get(name)?;
+            (now.distance(*point) > 1e-9).then_some((point.z, now.z))
+        })
+        .collect();
+
+    assert_eq!(
+        before.keys().collect::<Vec<_>>(),
+        after.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(moved.len(), 4);
+    assert!(
+        moved
+            .iter()
+            .all(|(was, now)| (was - 2.0).abs() < 1e-9 && (now - 1.0).abs() < 1e-9)
+    );
+}

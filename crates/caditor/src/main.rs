@@ -27,6 +27,8 @@ mod image_export;
 mod import;
 mod layout;
 mod logo;
+mod measure;
+mod measure_panel;
 mod menu_bar;
 mod model;
 mod offers;
