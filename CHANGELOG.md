@@ -36,6 +36,8 @@ The first release of caditor.
   pointer, a circle grows or shrinks, and a selection moves together, each as far as its
   constraints allow and as one undoable change; Escape puts it back. M moves the selection to a
   typed position or by a typed offset instead.
+- The sketch being edited always draws over bodies, so its curves and points stay visible and
+  clickable on a face of a body or inside or behind it, while the dimmed body stays in view.
 - Dragging across empty space in a sketch selects with a box: left to right takes what lies
   inside it, right to left what it touches, and Shift or Ctrl adds to the selection. Ctrl+A
   selects all of the sketch's geometry.

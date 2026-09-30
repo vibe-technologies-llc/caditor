@@ -25,6 +25,8 @@ struct MeshPlacement {
 
 const CULLED: vec4<f32> = vec4<f32>(0.0, 0.0, 2.0, 1.0);
 const ORTHOGRAPHIC_DEPTH_BIAS: f32 = 0.03;
+const HALF_DEPTH_RANGE: f32 = 0.5;
+const BEHIND: u32 = 0u;
 const DASH_PERIOD_POINTS: f32 = 10.0;
 const DASH_DRAWN_FRACTION: f32 = 0.6;
 
@@ -64,11 +66,16 @@ fn biased_depth(clip: vec4<f32>, depth_bias: f32) -> f32 {
     return clip.z * depth_bias;
 }
 
-fn finish(clip: vec4<f32>, depth_bias: f32) -> vec4<f32> {
+fn layered_depth(clip: vec4<f32>, depth_bias: f32, in_front: u32) -> f32 {
+    let depth = biased_depth(clip, depth_bias) * HALF_DEPTH_RANGE;
+    return select(depth, depth + HALF_DEPTH_RANGE * clip.w, in_front != BEHIND);
+}
+
+fn finish(clip: vec4<f32>, depth_bias: f32, in_front: u32) -> vec4<f32> {
     return vec4<f32>(
         clip.x * view.pick_transform.x + view.pick_transform.z * clip.w,
         clip.y * view.pick_transform.y + view.pick_transform.w * clip.w,
-        biased_depth(clip, depth_bias),
+        layered_depth(clip, depth_bias, in_front),
         clip.w,
     );
 }
@@ -126,6 +133,7 @@ struct LineInstance {
     @location(4) pick: u32,
     @location(5) depth_bias: f32,
     @location(6) along: f32,
+    @location(7) in_front: u32,
 }
 
 @vertex
@@ -162,7 +170,7 @@ fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
     clip = vec4<f32>(clip.xy + pixels_to_ndc(offset) * clip.w, clip.zw);
 
     var out = empty_varyings();
-    out.position = finish(clip, line.depth_bias);
+    out.position = finish(clip, line.depth_bias, line.in_front);
     out.color = line.color;
     out.pick = line.pick;
     out.depth = select(view_depth(start), view_depth(end), at_end);
@@ -181,6 +189,7 @@ struct MarkerInstance {
     @location(2) diameter: f32,
     @location(3) pick: u32,
     @location(4) depth_bias: f32,
+    @location(5) in_front: u32,
 }
 
 @vertex
@@ -196,7 +205,7 @@ fn vs_marker(@builtin(vertex_index) vertex: u32, marker: MarkerInstance) -> Vary
     let clip = vec4<f32>(center.xy + pixels_to_ndc(corner * radius) * center.w, center.zw);
 
     var out = empty_varyings();
-    out.position = finish(clip, marker.depth_bias);
+    out.position = finish(clip, marker.depth_bias, marker.in_front);
     out.color = marker.color;
     out.pick = marker.pick;
     out.depth = depth;
@@ -210,12 +219,13 @@ struct FillVertex {
     @location(1) color: vec4<f32>,
     @location(2) pick: u32,
     @location(3) depth_bias: f32,
+    @location(4) in_front: u32,
 }
 
 @vertex
 fn vs_fill(fill: FillVertex) -> Varyings {
     var out = empty_varyings();
-    out.position = finish(to_clip(fill.position), fill.depth_bias);
+    out.position = finish(to_clip(fill.position), fill.depth_bias, fill.in_front);
     out.color = fill.color;
     out.pick = fill.pick;
     out.depth = view_depth(fill.position);
@@ -241,7 +251,7 @@ fn vs_mesh(vertex: MeshVertex) -> Varyings {
     let style = textureLoad(face_styles, vec2<u32>(face % columns, face / columns), 0);
 
     var out = empty_varyings();
-    out.position = finish(to_clip(relative), 1.0);
+    out.position = finish(to_clip(relative), 1.0, BEHIND);
     out.color = unpack_color(style.x);
     out.pick = style.y;
     out.depth = view_depth(relative);
@@ -258,7 +268,7 @@ fn vs_grid(@builtin(vertex_index) vertex: u32) -> Varyings {
         + grid.axis_v_fade.xyz * local.y;
 
     var out = empty_varyings();
-    out.position = finish(to_clip(position), 1.0);
+    out.position = finish(to_clip(position), 1.0, BEHIND);
     out.color = grid.color;
     out.relative = position;
     out.local = local;

@@ -20,9 +20,9 @@ pub const BACKGROUND: wgpu::Color = wgpu::Color {
 };
 const FAR_DEPTH: f32 = 0.0;
 const QUAD_VERTICES: u32 = 6;
-const LINE_STRIDE: u64 = 56;
-const MARKER_STRIDE: u64 = 40;
-const FILL_VERTEX_STRIDE: u64 = 36;
+const LINE_STRIDE: u64 = 60;
+const MARKER_STRIDE: u64 = 44;
+const FILL_VERTEX_STRIDE: u64 = 40;
 const FILL_TRIANGLE_STRIDE: u64 = FILL_VERTEX_STRIDE * 3;
 const VIEW_UNIFORM_SIZE: u64 = 128;
 const KEY_LIGHT_UP: f64 = 0.8;
@@ -107,7 +107,7 @@ struct Counts {
 #[derive(Default)]
 struct PickFills {
     reference_vertices: u32,
-    model_vertices: u32,
+    nearer_vertices: u32,
 }
 
 pub struct ViewportRenderer {
@@ -334,7 +334,7 @@ impl ViewportRenderer {
         self.draw_pick_fills(
             &mut pass,
             &self.pipelines.pick_fills,
-            fills.reference_vertices..fills.reference_vertices + fills.model_vertices,
+            fills.reference_vertices..fills.reference_vertices + fills.nearer_vertices,
         );
         self.draw_lines(&mut pass, &self.pipelines.pick_lines, counts);
         self.draw_markers(&mut pass, &self.pipelines.pick_markers, counts);
@@ -437,7 +437,8 @@ impl ViewportRenderer {
                 .f32(line.width)
                 .u32(PickId::raw(line.pick))
                 .f32(line.layer.depth_bias(Primitive::Line))
-                .f32(line.stroke.along());
+                .f32(line.stroke.along())
+                .u32(u32::from(line.layer.draws_in_front()));
         }
         let lines = self.lines.upload(device, queue, &self.staging, LINE_STRIDE);
 
@@ -448,7 +449,8 @@ impl ViewportRenderer {
                 .floats(&marker.color.to_array())
                 .f32(marker.diameter)
                 .u32(PickId::raw(marker.pick))
-                .f32(marker.layer.depth_bias(Primitive::Marker));
+                .f32(marker.layer.depth_bias(Primitive::Marker))
+                .u32(u32::from(marker.layer.draws_in_front()));
         }
         let markers = self
             .markers
@@ -456,14 +458,7 @@ impl ViewportRenderer {
 
         self.staging.clear();
         for fill in fills_back_to_front(&scene.fills, view) {
-            let depth_bias = fill.layer.depth_bias(Primitive::Fill);
-            for corner in fill.triangles.iter().flatten() {
-                self.staging
-                    .vec3(relative_to_eye(*corner, eye))
-                    .floats(&fill.color.to_array())
-                    .u32(PickId::raw(fill.pick))
-                    .f32(depth_bias);
-            }
+            stage_fill(&mut self.staging, fill, eye);
         }
         let fill_triangles = self
             .fills
@@ -490,39 +485,26 @@ impl ViewportRenderer {
         eye: Point3,
     ) -> PickFills {
         self.staging.clear();
-        let mut counts = PickFills::default();
-        for layer in [Layer::Reference, Layer::Model] {
-            let mut written = 0u32;
-            for fill in fills
-                .iter()
-                .filter(|fill| fill.layer == layer && fill.pick.is_some())
-            {
-                let depth_bias = fill.layer.depth_bias(Primitive::Fill);
-                for corner in fill.triangles.iter().flatten() {
-                    self.staging
-                        .vec3(relative_to_eye(*corner, eye))
-                        .floats(&fill.color.to_array())
-                        .u32(PickId::raw(fill.pick))
-                        .f32(depth_bias);
-                    written = written.saturating_add(1);
-                }
-            }
-            match layer {
-                Layer::Reference => counts.reference_vertices = written,
-                Layer::Model => counts.model_vertices = written,
-            }
-        }
+        let pickable = fills.iter().filter(|fill| fill.pick.is_some());
+        let (reference, nearer): (Vec<&Fill>, Vec<&Fill>) =
+            pickable.partition(|fill| fill.layer == Layer::Reference);
+        let mut stage = |fills: Vec<&Fill>| {
+            fills.into_iter().fold(0u32, |written, fill| {
+                written.saturating_add(stage_fill(&mut self.staging, fill, eye))
+            })
+        };
+        let reference_written = stage(reference);
+        let nearer_written = stage(nearer);
+
         let uploaded = count(
             self.pick_fills
                 .upload(device, queue, &self.staging, FILL_TRIANGLE_STRIDE)
                 .saturating_mul(3),
         );
-        let reference_vertices = counts.reference_vertices.min(uploaded);
+        let reference_vertices = reference_written.min(uploaded);
         PickFills {
             reference_vertices,
-            model_vertices: counts
-                .model_vertices
-                .min(uploaded.saturating_sub(reference_vertices)),
+            nearer_vertices: nearer_written.min(uploaded.saturating_sub(reference_vertices)),
         }
     }
 }
@@ -554,10 +536,9 @@ impl Pipelines {
         let mesh_pipeline_layout =
             pipeline_layout("mesh", &[Some(layouts.view), Some(layouts.mesh)]);
 
-        let line_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32, 4 => Uint32, 5 => Float32, 6 => Float32];
-        let marker_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Float32, 3 => Uint32, 4 => Float32];
-        let fill_attributes =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Uint32, 3 => Float32];
+        let line_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32, 4 => Uint32, 5 => Float32, 6 => Float32, 7 => Uint32];
+        let marker_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Float32, 3 => Uint32, 4 => Float32, 5 => Uint32];
+        let fill_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Uint32, 3 => Float32, 4 => Uint32];
         let mesh_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Uint32];
         let lines = [Some(wgpu::VertexBufferLayout {
             array_stride: LINE_STRIDE,
@@ -739,6 +720,22 @@ fn build_pipeline(device: &wgpu::Device, spec: &PipelineSpec<'_>) -> wgpu::Rende
     })
 }
 
+fn stage_fill(bytes: &mut Bytes, fill: &Fill, eye: Point3) -> u32 {
+    let depth_bias = fill.layer.depth_bias(Primitive::Fill);
+    let in_front = u32::from(fill.layer.draws_in_front());
+    let mut written = 0u32;
+    for corner in fill.triangles.iter().flatten() {
+        bytes
+            .vec3(relative_to_eye(*corner, eye))
+            .floats(&fill.color.to_array())
+            .u32(PickId::raw(fill.pick))
+            .f32(depth_bias)
+            .u32(in_front);
+        written = written.saturating_add(1);
+    }
+    written
+}
+
 pub fn relative_to_eye(point: Point3, eye: Point3) -> Vec3 {
     (point - eye).as_vec3()
 }
@@ -860,9 +857,12 @@ fn fills_back_to_front<'a>(fills: &'a [Fill], view: &View) -> Vec<&'a Fill> {
         fill.centroid()
             .map_or(f64::NEG_INFINITY, |centroid| view.view_depth(centroid))
     };
-    let mut sorted: Vec<(f64, &Fill)> = fills.iter().map(|fill| (depth(fill), fill)).collect();
-    sorted.sort_by(|a, b| b.0.total_cmp(&a.0));
-    sorted.into_iter().map(|(_, fill)| fill).collect()
+    let mut sorted: Vec<(bool, f64, &Fill)> = fills
+        .iter()
+        .map(|fill| (fill.layer.draws_in_front(), depth(fill), fill))
+        .collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.total_cmp(&a.1)));
+    sorted.into_iter().map(|(_, _, fill)| fill).collect()
 }
 
 fn scissor_rect(rect: ViewportRect, width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
@@ -934,6 +934,44 @@ mod tests {
             .filter_map(|fill| fill.centroid().map(|centroid| centroid.z))
             .collect();
         assert_eq!(order, vec![-10.0, 0.0, 10.0]);
+    }
+
+    #[test]
+    fn front_fills_draw_after_every_other_fill_whatever_their_depth() {
+        let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
+        let view = View::new(viewpoint, 100.0, 100.0);
+        let square_at = |z: f64, layer: Layer| {
+            Fill::convex(
+                &[
+                    Point3::new(0.0, 0.0, z),
+                    Point3::new(1.0, 0.0, z),
+                    Point3::new(0.0, 1.0, z),
+                ],
+                crate::scene::Color::from_rgb8(0, 0, 0),
+                layer,
+                None,
+            )
+        };
+        let fills = [
+            square_at(-20.0, Layer::Front),
+            square_at(10.0, Layer::Model),
+            square_at(-30.0, Layer::Front),
+            square_at(0.0, Layer::Reference),
+        ];
+
+        let order: Vec<(Layer, f64)> = fills_back_to_front(&fills, &view)
+            .iter()
+            .filter_map(|fill| Some((fill.layer, fill.centroid()?.z)))
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                (Layer::Reference, 0.0),
+                (Layer::Model, 10.0),
+                (Layer::Front, -30.0),
+                (Layer::Front, -20.0),
+            ]
+        );
     }
 
     #[test]

@@ -387,6 +387,15 @@ enum Presence {
     Background,
 }
 
+impl Presence {
+    fn layer(self) -> Layer {
+        match self {
+            Self::Edited => Layer::Front,
+            Self::Normal | Self::Background => Layer::Model,
+        }
+    }
+}
+
 struct ConstraintStates<'a> {
     solution: Option<&'a SketchSolution>,
     conflicting: BTreeSet<EntityId>,
@@ -815,7 +824,7 @@ impl Builder<'_> {
                 color: self.highlight.color(pickable, color),
                 width: SKETCH_AXIS_WIDTH
                     + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
-                layer: Layer::Reference,
+                layer: Layer::Front,
                 pick: self.picks.register(pickable, PickPriority::Curve),
                 stroke: Stroke::Solid,
             });
@@ -829,7 +838,7 @@ impl Builder<'_> {
             color: self.highlight.color(pickable, ORIGIN),
             diameter: ORIGIN_DIAMETER
                 + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
-            layer: Layer::Reference,
+            layer: Layer::Front,
             pick: self.picks.register(pickable, PickPriority::Point),
         });
     }
@@ -842,6 +851,7 @@ impl Builder<'_> {
         presence: Presence,
     ) {
         let plane = sketch.plane();
+        let layer = presence.layer();
         for (entity, kind) in sketch.entities() {
             let pickable = Pickable::SketchEntity { feature, entity };
             let (palette, emphasis, pickable) = match presence {
@@ -863,7 +873,7 @@ impl Builder<'_> {
                         position: plane.to_world(*position),
                         color,
                         diameter: POINT_DIAMETER + emphasis * HIGHLIGHT_EXTRA_DIAMETER,
-                        layer: Layer::Model,
+                        layer,
                         pick: pickable.and_then(|pickable| {
                             self.picks.register(pickable, PickPriority::Point)
                         }),
@@ -883,6 +893,7 @@ impl Builder<'_> {
                     let style = CurveStyle {
                         color,
                         width,
+                        layer,
                         pick,
                         dashed: sketch.is_construction(entity),
                     };
@@ -896,6 +907,7 @@ impl Builder<'_> {
 struct CurveStyle {
     color: Color,
     width: f32,
+    layer: Layer,
     pick: Option<PickId>,
     dashed: bool,
 }
@@ -917,7 +929,7 @@ fn curve_lines(plane: Plane, points: &[Point2], style: CurveStyle) -> impl Itera
                 end: plane.to_world(end),
                 color: style.color,
                 width: style.width,
-                layer: Layer::Model,
+                layer: style.layer,
                 pick: style.pick,
                 stroke,
             })
@@ -931,6 +943,7 @@ pub fn add_preview(scene: &mut Scene, plane: Plane, preview: &Preview) {
         let style = CurveStyle {
             color: PREVIEW_CURVE,
             width: CURVE_WIDTH,
+            layer: Layer::Front,
             pick: None,
             dashed: preview.construction,
         };
@@ -940,14 +953,14 @@ pub fn add_preview(scene: &mut Scene, plane: Plane, preview: &Preview) {
         position: plane.to_world(position),
         color: SNAP_MARKER,
         diameter: SNAP_MARKER_DIAMETER,
-        layer: Layer::Model,
+        layer: Layer::Front,
         pick: None,
     });
     let points = preview.points.iter().map(|position| Marker {
         position: plane.to_world(*position),
         color: PREVIEW_POINT,
         diameter: POINT_DIAMETER,
-        layer: Layer::Model,
+        layer: Layer::Front,
         pick: None,
     });
     scene.markers.extend(snap.into_iter().chain(points));
@@ -1356,6 +1369,123 @@ mod tests {
             feature: base,
             entity: line
         }));
+    }
+
+    fn is_part_of(built: &BuiltScene, pick: Option<PickId>, sketch: FeatureId) -> bool {
+        pick.and_then(|id| built.picks.resolve(id))
+            .is_some_and(|(pickable, _)| {
+                matches!(pickable, Pickable::SketchEntity { feature, .. } if feature == sketch)
+            })
+    }
+
+    #[test]
+    fn the_edited_sketch_its_references_and_the_preview_draw_in_front_of_everything_else() {
+        let (mut document, base, line) = document();
+        let mut transaction = document.transaction("Add sketch");
+        let mut other = Sketch::new(Plane::XZ);
+        other.add_line(Point2::ZERO, Point2::new(0.0, 10.0));
+        let side = transaction.add_feature("Side", FeatureKind::from(other));
+        document.apply(transaction.finish()).unwrap();
+        let selection = Selection::default();
+        let hovered = [Pickable::SketchEntity {
+            feature: side,
+            entity: EntityId::ORIGIN,
+        }];
+        let highlight = Highlight {
+            selection: &selection,
+            hovered: &hovered,
+        };
+
+        let mut editing = build_for(&document, &Evaluation::default(), &highlight, Some(side));
+        let viewing = build_for(&document, &Evaluation::default(), &highlight, None);
+
+        let in_front = |layer: Layer| layer == Layer::Front;
+        assert!(
+            editing
+                .scene
+                .lines
+                .iter()
+                .any(|drawn| !in_front(drawn.layer))
+        );
+        assert!(
+            editing
+                .scene
+                .markers
+                .iter()
+                .any(|drawn| !in_front(drawn.layer))
+        );
+        for drawn in &editing.scene.lines {
+            assert_eq!(
+                in_front(drawn.layer),
+                is_part_of(&editing, drawn.pick, side),
+                "{drawn:?}"
+            );
+        }
+        for drawn in &editing.scene.markers {
+            assert_eq!(
+                in_front(drawn.layer),
+                is_part_of(&editing, drawn.pick, side),
+                "{drawn:?}"
+            );
+        }
+        let origin = editing.picks.id_of(hovered[0]);
+        let highlighted = editing
+            .scene
+            .markers
+            .iter()
+            .find(|drawn| drawn.pick == origin)
+            .unwrap();
+        assert_eq!(highlighted.color, HOVERED);
+        assert_eq!(highlighted.layer, Layer::Front);
+        let base_line = viewing.picks.id_of(Pickable::SketchEntity {
+            feature: base,
+            entity: line,
+        });
+        assert!(
+            viewing
+                .scene
+                .lines
+                .iter()
+                .any(|drawn| drawn.pick == base_line)
+        );
+        assert!(
+            viewing
+                .scene
+                .lines
+                .iter()
+                .all(|drawn| !in_front(drawn.layer))
+        );
+        assert!(
+            viewing
+                .scene
+                .markers
+                .iter()
+                .all(|drawn| !in_front(drawn.layer))
+        );
+        assert!(
+            viewing
+                .scene
+                .fills
+                .iter()
+                .all(|drawn| !in_front(drawn.layer))
+        );
+
+        let drawn_before = (editing.scene.lines.len(), editing.scene.markers.len());
+        add_preview(
+            &mut editing.scene,
+            Plane::XZ,
+            &Preview {
+                curves: vec![vec![Point2::ZERO, Point2::new(5.0, 5.0)]],
+                points: vec![Point2::new(5.0, 5.0)],
+                snap: Some(Point2::ZERO),
+                construction: false,
+            },
+        );
+        let preview_lines = editing.scene.lines.get(drawn_before.0..).unwrap();
+        let preview_markers = editing.scene.markers.get(drawn_before.1..).unwrap();
+        assert_eq!((preview_lines.len(), preview_markers.len()), (1, 2));
+        assert!(preview_lines.iter().all(|drawn| in_front(drawn.layer)));
+        assert!(preview_markers.iter().all(|drawn| in_front(drawn.layer)));
     }
 
     #[test]
