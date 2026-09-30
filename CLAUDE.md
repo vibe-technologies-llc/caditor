@@ -55,7 +55,7 @@ and geometry crates and only `caditor-file` uses it.
 | `caditor-geometry` | Math vocabulary: f64 `glam` aliases (`Point3`, `Rotation3`, …), `Plane` (origin, normal, in-plane x axis; the frame of every circle and rotational surface), `Ray`, `Aabb`, `Aabb2`, `RigidTransform`, `RigidTransform2`. |
 | `caditor-expression` | `Quantity` (f64 in mm and degrees with a `Dimension`) and expressions over parameters by `ParameterId`. |
 | `caditor-sketch` | 2D sketches on a `Plane`: entities, construction geometry, constraints and caditor's own solver. |
-| `caditor-kernel` | caditor's own B-rep kernel (no truck, no OpenCascade): curves, surfaces, topology, validation, tessellation, naming, profiles, intersections, sweeps, booleans, blends, shells. |
+| `caditor-kernel` | caditor's own B-rep kernel (no truck, no OpenCascade): curves, surfaces, topology, validation, tessellation, naming, profiles, intersections, sweeps, booleans, blends, shells, patterns. |
 | `caditor-step` | STEP (ISO 10303-21, AP214) writing and reading of kernel solids. |
 | `caditor-zstd` | Safe wrapper over the pure-Rust zstd port; the only crate with `unsafe`. |
 | `caditor-document` | The parametric model: parameters, the feature tree, transactions, undo, recompute on a worker. |
@@ -114,7 +114,7 @@ that makes a rule false updates it in the same commit.
 | `kernel-naming.md` | Face, edge and vertex names, `FaceOrigin`, face and edge references and their resolution. |
 | `kernel-profile.md` | Profile arrangement, regions, `PieceId`, `RegionKey`, depth, selection. |
 | `kernel-intersect.md` | Curve and surface intersections, coincidence, marching, point classification. |
-| `kernel-operations.md` | Extrude, revolve and `Plan`, booleans, blends, shells. |
+| `kernel-operations.md` | Extrude, revolve and `Plan`, booleans, blends, shells, patterns. |
 | `step-write.md` | `write_step`: product structure, exact STEP forms, text and number encoding. |
 | `step-read.md` | Part 21 parser and `read_step`: units, precision, assemblies, geometry, healing, limits. |
 | `document.md` | Transactions, undo, `Editor`, hidden flags, sketch edits, every feature kind. |
@@ -125,7 +125,7 @@ that makes a rule false updates it in the same commit.
 | `render.md` | Frames, devices, graphics settings (vsync, MSAA, shading) and device loss, precision, meshes, depth, lines, projection, picking, image export, navigation. |
 | `app.md` | App shell, `Model` and `Action`s, body meshing, offers, file session, signals, redraws and frame pacing, samples, CLI, accessibility. |
 | `app-look.md` | Fonts, theme tokens, widgets and tabs, screen-reader naming, bars and panels, the title bar and window frame, window and panel persistence. |
-| `app-modelling.md` | Extrude, revolve, fillet, chamfer, shell and datum tools and panels, visibility, sketch placement. |
+| `app-modelling.md` | Extrude, revolve, fillet, chamfer, shell, pattern and datum tools and panels, visibility, sketch placement. |
 | `app-files.md` | File workflow, onboarding, export, image export and import dialogs, version history, the tabbed preferences with graphics settings, units. |
 | `app-input.md` | Numeric fields, shortcut focus rules, commands and keymap, palette, shortcut editor, keyboard-only operation, typed points. |
 | `app-sketching.md` | Sketch editing context, dragging and box selection, drawing tools, construction, snapping, constraint tools, annotations. |

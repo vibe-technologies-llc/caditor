@@ -1,0 +1,365 @@
+use std::collections::BTreeSet;
+
+use caditor_expression::{Dimension, Expression, ParameterId, format_number};
+use caditor_geometry::{Ray, RigidTransform, Vector3};
+use caditor_kernel::{BooleanError, MAX_SIZE, PatternCopy, PatternError, pattern};
+
+use crate::{
+    datum::{AxisReference, Resolver},
+    document::{Feature, FeatureId},
+    recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
+    solid::SolidResult,
+    tolerance,
+};
+
+pub const MAX_PATTERN_INSTANCES: u32 = 100;
+const WHOLE_TOLERANCE: f64 = 1e-9;
+const FULL_TURN: f64 = 360.0;
+const ANGLE_TOLERANCE: f64 = 1e-9;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinearDirection {
+    pub axis: AxisReference,
+    pub count: Expression,
+    pub spacing: Expression,
+    pub reversed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CircularPattern {
+    pub axis: AxisReference,
+    pub count: Expression,
+    pub angle: Expression,
+    pub reversed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PatternKind {
+    Linear {
+        first: LinearDirection,
+        second: Option<LinearDirection>,
+    },
+    Circular(CircularPattern),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pattern {
+    pub body: FeatureId,
+    pub kind: PatternKind,
+}
+
+impl PatternKind {
+    pub fn title(&self) -> &'static str {
+        match self {
+            Self::Linear { .. } => "Linear pattern",
+            Self::Circular(_) => "Circular pattern",
+        }
+    }
+
+    pub fn is_linear(&self) -> bool {
+        matches!(self, Self::Linear { .. })
+    }
+}
+
+impl Pattern {
+    pub fn title(&self) -> &'static str {
+        self.kind.title()
+    }
+
+    fn expressions(&self) -> Vec<&Expression> {
+        match &self.kind {
+            PatternKind::Linear { first, second } => std::iter::once(first)
+                .chain(second)
+                .flat_map(|direction| [&direction.count, &direction.spacing])
+                .collect(),
+            PatternKind::Circular(circular) => vec![&circular.count, &circular.angle],
+        }
+    }
+
+    pub fn axes(&self) -> Vec<&AxisReference> {
+        match &self.kind {
+            PatternKind::Linear { first, second } => std::iter::once(first)
+                .chain(second)
+                .map(|direction| &direction.axis)
+                .collect(),
+            PatternKind::Circular(circular) => vec![&circular.axis],
+        }
+    }
+
+    pub fn parameters(&self) -> BTreeSet<ParameterId> {
+        self.expressions()
+            .into_iter()
+            .flat_map(Expression::parameters)
+            .collect()
+    }
+
+    pub fn uses_parameter(&self, parameter: ParameterId) -> bool {
+        self.expressions()
+            .into_iter()
+            .any(|expression| expression.uses(parameter))
+    }
+
+    pub fn axis_datums(&self) -> BTreeSet<FeatureId> {
+        self.axes()
+            .into_iter()
+            .filter_map(AxisReference::datum)
+            .collect()
+    }
+
+    pub fn axis_bodies(&self) -> BTreeSet<FeatureId> {
+        self.axes()
+            .into_iter()
+            .filter_map(AxisReference::body)
+            .collect()
+    }
+
+    pub fn features(&self) -> BTreeSet<FeatureId> {
+        let mut used = BTreeSet::from([self.body]);
+        used.extend(self.axis_datums());
+        used.extend(self.axis_bodies());
+        used
+    }
+}
+
+struct Context<'a> {
+    resolver: Resolver<'a>,
+    body_name: String,
+}
+
+struct Steps {
+    count: u32,
+    offset: Vector3,
+}
+
+impl Context<'_> {
+    fn error(&self, reason: String, remedy: &str) -> Failure {
+        Failure::Error(FeatureError {
+            reason,
+            remedy: remedy.to_owned(),
+            fix: Some(FixTarget::Feature(self.resolver.feature.id())),
+            constraints: Vec::new(),
+        })
+    }
+
+    fn count(&self, expression: &Expression, what: &str) -> Result<u32, Failure> {
+        let value = self.resolver.value(expression, what, Dimension::NONE)?;
+        let whole = value.round();
+        if (value - whole).abs() > WHOLE_TOLERANCE {
+            return Err(self.error(
+                format!(
+                    "The {what} must be a whole number, and {} is not.",
+                    format_number(value)
+                ),
+                "Enter a whole number, such as 4.",
+            ));
+        }
+        if whole < 1.0 {
+            return Err(self.error(
+                format!("The {what} must be at least 1."),
+                "Enter a count of 1 or more; 1 leaves the body as it is.",
+            ));
+        }
+        if whole > f64::from(MAX_PATTERN_INSTANCES) {
+            return Err(self.too_many(whole));
+        }
+        Ok(whole as u32)
+    }
+
+    fn too_many(&self, instances: f64) -> Failure {
+        self.error(
+            format!(
+                "The pattern would make {} instances of the body of {}, and at most \
+                 {MAX_PATTERN_INSTANCES} are allowed.",
+                format_number(instances),
+                self.body_name
+            ),
+            "Lower the count.",
+        )
+    }
+
+    fn steps(&self, direction: &LinearDirection, which: &str) -> Result<(Ray, Steps), Failure> {
+        let count = self.count(&direction.count, &format!("{which}count"))?;
+        let spacing = self.resolver.value(
+            &direction.spacing,
+            &format!("{which}spacing"),
+            Dimension::LENGTH,
+        )?;
+        if spacing <= 0.0 {
+            return Err(self.error(
+                format!("The {which}spacing must be more than zero."),
+                "Enter a spacing above zero, and tick Reversed to go the other way.",
+            ));
+        }
+        if spacing * f64::from(count.saturating_sub(1)) > MAX_SIZE {
+            return Err(self.error(
+                "The copies would reach farther than a kilometre, the largest size caditor \
+                 models."
+                    .to_owned(),
+                "Lower the count or the spacing.",
+            ));
+        }
+        let ray = self.resolver.axis(&direction.axis)?;
+        let sign = if direction.reversed { -1.0 } else { 1.0 };
+        Ok((
+            ray,
+            Steps {
+                count,
+                offset: ray.direction() * spacing * sign,
+            },
+        ))
+    }
+
+    fn linear(
+        &self,
+        first: &LinearDirection,
+        second: Option<&LinearDirection>,
+    ) -> Result<Vec<PatternCopy>, Failure> {
+        let (first_ray, along) = self.steps(first, "")?;
+        let across = match second {
+            Some(direction) => {
+                let (second_ray, across) = self.steps(direction, "second ")?;
+                if tolerance::parallel(first_ray.direction(), second_ray.direction()) {
+                    return Err(self.error(
+                        "The two directions are parallel, so the copies would fall on one line."
+                            .to_owned(),
+                        "Choose a second direction across the first, or remove it.",
+                    ));
+                }
+                across
+            }
+            None => Steps {
+                count: 1,
+                offset: Vector3::ZERO,
+            },
+        };
+        let instances = u64::from(along.count) * u64::from(across.count);
+        if instances > u64::from(MAX_PATTERN_INSTANCES) {
+            return Err(self.too_many(instances as f64));
+        }
+        let mut copies = Vec::new();
+        for row in 0..across.count {
+            for column in 0..along.count {
+                if row == 0 && column == 0 {
+                    continue;
+                }
+                let offset = along.offset * f64::from(column) + across.offset * f64::from(row);
+                copies.push(self.copy([column, row], RigidTransform::translation(offset))?);
+            }
+        }
+        Ok(copies)
+    }
+
+    fn circular(&self, circular: &CircularPattern) -> Result<Vec<PatternCopy>, Failure> {
+        let count = self.count(&circular.count, "count")?;
+        let angle = self
+            .resolver
+            .value(&circular.angle, "angle", Dimension::ANGLE)?;
+        if angle <= 0.0 || angle > FULL_TURN + ANGLE_TOLERANCE {
+            return Err(self.error(
+                "The angle must be more than 0° and at most 360°.".to_owned(),
+                "Enter an angle up to 360 deg; a full turn spaces the copies evenly around the \
+                 axis.",
+            ));
+        }
+        let axis = self.resolver.axis(&circular.axis)?;
+        let full_turn = (angle - FULL_TURN).abs() <= ANGLE_TOLERANCE;
+        let step = match (full_turn, count) {
+            (true, _) => FULL_TURN / f64::from(count),
+            (false, 1) => 0.0,
+            (false, _) => angle / f64::from(count - 1),
+        };
+        let sign = if circular.reversed { -1.0 } else { 1.0 };
+        (1..count)
+            .map(|index| {
+                let turn = (step * f64::from(index) * sign).to_radians();
+                self.copy(
+                    [index, 0],
+                    RigidTransform::rotation_about(axis.origin(), axis.direction(), turn),
+                )
+            })
+            .collect()
+    }
+
+    fn copy(
+        &self,
+        index: [u32; 2],
+        placement: Option<RigidTransform>,
+    ) -> Result<PatternCopy, Failure> {
+        let placement = placement.ok_or_else(|| {
+            self.error(
+                "A copy could not be placed.".to_owned(),
+                "Change the spacing, the angle or the axis.",
+            )
+        })?;
+        Ok(PatternCopy { index, placement })
+    }
+
+    fn failure(&self, error: &PatternError) -> Failure {
+        let body = &self.body_name;
+        match error {
+            PatternError::Cancelled(_) => Failure::Cancelled,
+            PatternError::Placement { .. } => self.error(
+                format!("A copy of the body of {body} could not be placed that far away."),
+                "Lower the count or the spacing.",
+            ),
+            PatternError::Union(BooleanError::NonManifold) => self.error(
+                format!(
+                    "Copies of the body of {body} would meet only along an edge or at a corner."
+                ),
+                "Change the spacing or the angle so the copies overlap or stand apart.",
+            ),
+            PatternError::Union(BooleanError::Ambiguous) => self.error(
+                format!(
+                    "Copies of the body of {body} touch where it cannot be told which side is \
+                     inside."
+                ),
+                "Change the spacing or the angle slightly.",
+            ),
+            PatternError::Union(_) => {
+                log::warn!("{} could not be built: {error}", self.resolver.feature.name);
+                self.error(
+                    format!("The copies of the body of {body} could not be joined together."),
+                    "Change the spacing or the angle slightly, or lower the count.",
+                )
+            }
+        }
+    }
+}
+
+pub(crate) fn evaluate(
+    feature: &Feature,
+    definition: &Pattern,
+    inputs: &Inputs<'_>,
+    cancel: &CancelToken,
+) -> Result<FeatureResult, Failure> {
+    let body_name = inputs
+        .document
+        .feature(definition.body)
+        .map(|body| body.name.clone())
+        .unwrap_or_default();
+    let context = Context {
+        resolver: Resolver { feature, inputs },
+        body_name,
+    };
+    let copies = match &definition.kind {
+        PatternKind::Linear { first, second } => context.linear(first, second.as_ref())?,
+        PatternKind::Circular(circular) => context.circular(circular)?,
+    };
+    let Some(solid) = inputs.body(definition.body) else {
+        return Err(Failure::Error(FeatureError {
+            reason: format!("The body made by {} has no shape.", context.body_name),
+            remedy: format!("Fix {} first.", context.body_name),
+            fix: Some(FixTarget::Feature(definition.body)),
+            constraints: Vec::new(),
+        }));
+    };
+    if cancel.is_cancelled() {
+        return Err(Failure::Cancelled);
+    }
+    let result =
+        pattern(solid, &copies, feature.id().raw()).map_err(|error| context.failure(&error))?;
+    Ok(FeatureResult::Solid(SolidResult::new(
+        definition.body,
+        result,
+    )))
+}

@@ -3,6 +3,7 @@ use caditor_document::{AxisReference, DatumAxis, DatumPlane};
 use crate::{
     datum_tools,
     model::Model,
+    pattern_tools::{self, PatternSource},
     selection::Selection,
     shell_tools::{self, FaceSource},
     sketch_placement::{self, FaceChoice},
@@ -24,6 +25,7 @@ pub struct Offers {
     pub datum_plane: Result<DatumPlane, &'static str>,
     pub datum_axis: Result<DatumAxis, &'static str>,
     pub shell: Result<FaceSource, &'static str>,
+    pub pattern: Result<PatternSource, &'static str>,
     pub described: Vec<String>,
 }
 
@@ -32,12 +34,14 @@ impl Offers {
         let document = model.document();
         let evaluation = model.evaluation();
         let end = document.features().len();
+        let model_axis = selection
+            .iter()
+            .find_map(|pickable| datum_tools::axis_reference(model, pickable, end));
         Self {
             sketch_face: sketch_placement::selected_face(selection)
                 .filter(|face| sketch_placement::is_flat(model, *face)),
-            model_axis: selection
-                .iter()
-                .find_map(|pickable| datum_tools::axis_reference(model, pickable, end)),
+            pattern: pattern_tools::source(model, selection, model_axis.as_ref()),
+            model_axis,
             datum_plane: datum_tools::plane_from_selection(model, selection, end),
             datum_axis: datum_tools::axis_from_selection(model, selection, end),
             shell: shell_tools::selected_faces(model, selection),

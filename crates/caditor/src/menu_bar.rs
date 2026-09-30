@@ -360,6 +360,8 @@ impl Menus<'_, '_> {
             ui.separator();
             self.items(ui, [Command::Fillet, Command::Chamfer, Command::Shell]);
             ui.separator();
+            self.items(ui, [Command::LinearPattern, Command::CircularPattern]);
+            ui.separator();
             self.items(ui, [Command::DatumPlane, Command::DatumAxis]);
             ui.separator();
             self.items(

@@ -95,9 +95,10 @@ paths:
 ## Offers
 
 - `offers.rs` works out what the selection offers the toolbar and status bar (the flat face for New
-  sketch, the model axis for Revolve, the datum plane and axis, the faces to shell, the selection's
-  descriptions) only when the selection, the model's revision, its evaluation
-  (`Model::evaluation_generation`) or the length unit changes, not every frame.
+  sketch, the model axis for Revolve and patterns, the datum plane and axis, the faces to shell,
+  the body to pattern, the selection's descriptions) only when the selection, the model's
+  revision, its evaluation (`Model::evaluation_generation`) or the length unit changes, not every
+  frame.
 
 ## Samples
 

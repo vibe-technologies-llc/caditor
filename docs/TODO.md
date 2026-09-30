@@ -95,8 +95,11 @@ within a category run from most to least important.
 
 ## Modelling features
 
-- Feature kinds missing: linear and circular patterns, mirror (the kernel has no reflecting
-  transform), hole, draft, sweep, loft, split, and move or copy body.
+- Feature kinds missing: mirror (the kernel has no reflecting transform), hole, draft, sweep,
+  loft, split, and move or copy body.
+- Patterns repeat a whole body: no pattern of chosen features (a row of holes cut into a plate),
+  no instances left out, no pattern along a curve or driven by sketch points, and a copy's faces
+  are described as the face they copy.
 - Extents missing: through all, up to next and up to face for extrude, and two angles for
   revolve.
 - No feature combines two existing bodies, and a cut affects only one body.

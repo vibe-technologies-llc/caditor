@@ -63,7 +63,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 ## Feature kinds
 
 - `SetFeatureKind` replaces settings but never the kind (an import stays an import, a plane a
-  plane, an axis an axis, a solid feature its kind).
+  plane, an axis an axis, a solid feature its kind; a pattern may switch between linear and
+  circular).
 - `FeatureKind::bodies_used`, `planes_used` and `axes_used` extend `features()`, so dependents,
   moves and deletions account for them.
 
@@ -108,6 +109,25 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   A reference tied between fragments of one face, on one surface with one sense, opens all of them;
   a lost one, or one tied between separate faces, fails the feature.
 - Kernel errors become sentences naming the face or edge involved.
+
+### Pattern (`pattern.rs`, `FeatureKind::Pattern`)
+
+- Repeats the whole body as it stands before the pattern and unions the copies with it (the
+  kernel's `pattern`); boxed in `FeatureKind`, which it would otherwise double in size.
+- `PatternKind::Linear` has a first `LinearDirection` and optionally a second (axis, count,
+  spacing, reversed); `PatternKind::Circular` an axis, count, total angle and reversed. Every axis
+  is an `AxisReference` resolved like a datum's (`Resolver::axis`), in the state at the pattern's
+  place in the tree; its body and datum count as used, so they cannot be deleted or moved below
+  it.
+- Counts are plain expressions, whole and from 1 (the body alone) up to `MAX_PATTERN_INSTANCES`
+  (100) instances in all, both directions multiplied, since each copy costs a boolean. Spacing
+  is a length above zero (Reversed goes the other way) and the reach may not pass `MAX_SIZE`;
+  parallel directions are refused. A total angle of 360° divides the turn by the count, a smaller
+  one (above 0°) runs from the body to the last copy.
+- It changes its body but is not `modifies_body`: nothing is chosen on the state before it, so
+  the app shows the patterned body while it is open.
+- Kernel failures become sentences: copies meeting only along an edge, touching ambiguously, or
+  not joining.
 
 ### Sketch (`FeatureKind::Sketch(SketchFeature)`)
 

@@ -71,8 +71,10 @@ paths:
   button's availability: Edit feature (E), Finish editing feature, Detach sketch, Place sketch on
   selected plane or face (`sketch_placement::place_on_selection`), Revolve about selected axis
   (`solid_panel::selected_axis_change`), Base datum on selection and Turn datum plane about selected
-  axis (`datum_panel::base_change`, `rotation_change`). Tab moves between widgets and Escape leaves
-  them; each feature row has a "⋯" menu with what its right-click menu holds.
+  axis (`datum_panel::base_change`, `rotation_change`), Pattern along or about selected axis and
+  Pattern also along selected direction (`pattern_tools::selected_change`). Tab moves between
+  widgets and Escape leaves them; each feature row has a "⋯" menu with what its right-click menu
+  holds.
 - Window commands: Minimize the window, Maximize or restore the window (refused in full screen)
   and Enter or leave full screen (F11), carried out as egui viewport commands
   (`window_frame::commands`); closing the window is Quit.

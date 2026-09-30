@@ -8,6 +8,8 @@ paths:
   - "crates/caditor/src/shell_panel.rs"
   - "crates/caditor/src/datum_tools.rs"
   - "crates/caditor/src/datum_panel.rs"
+  - "crates/caditor/src/pattern_tools.rs"
+  - "crates/caditor/src/pattern_panel.rs"
   - "crates/caditor/src/visibility.rs"
   - "crates/caditor/src/sketch_placement.rs"
   - "crates/caditor/src/reference_rows.rs"
@@ -46,6 +48,19 @@ paths:
   opens; the body is drawn as before it (`BodyMeshes::body_before`), flat faces as
   `Pickable::ShellFace` (shared with blends), opened ones highlighted, a click opening a face or
   closing it again. The panel edits the thickness and lists the open faces.
+
+## Patterns
+
+- Linear pattern and Circular pattern take the body of the selected faces or edges (all of one
+  body), else the last body made, and the first selected axis, straight edge or round face as
+  direction or axis (the X axis or Z axis otherwise). A linear pattern starts with 3 instances
+  spaced about a fifth more than the body's length along the direction, a circular one with 6
+  over a full turn; the new feature opens.
+- While open the patterned body is shown with its directions or axis drawn like a revolve's axis.
+  The panel switches between linear and circular, takes a new direction or axis and a second
+  direction from the selection (Use selected, or the commands Pattern along or about selected
+  axis and Pattern also along selected direction), removes the second direction and edits count,
+  spacing, total angle and Reversed; fields refuse a count that is not whole or above the limit.
 
 ## Visibility
 

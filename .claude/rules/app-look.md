@@ -81,8 +81,8 @@ paths:
   centre as it can (`model-title-width`, remembered like the bars' trailing widths). Clicking it
   opens the model details: path, saved state, Save, Save As…, Version History… (once saved) and
   Copy file location. Its text is muted while the window is unfocused.
-- The ribbon groups Undo and Redo, New sketch, Extrude and Revolve, Fillet, Chamfer and Shell, and
-  Plane and Axis as `ToolButton`s that wrap.
+- The ribbon groups Undo and Redo, New sketch, Extrude and Revolve, Fillet, Chamfer and Shell,
+  Linear pattern and Circular pattern, and Plane and Axis as `ToolButton`s that wrap.
 - While a sketch is edited the sketch ribbon (`sketch_toolbar.rs`) sits under it on
   `accent_surface` with a 2-point `accent_text` line along its top. Groups run left to right,
   split by thin dividers and captioned in small muted text below: a fixed-width header (sketch badge,

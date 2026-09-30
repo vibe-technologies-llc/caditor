@@ -54,6 +54,13 @@ The first release of caditor.
   failed to solve and offers to go to its newest constraint.
 - Extrude and revolve sketch regions into new bodies or add to, remove from or intersect
   existing ones; fillet and chamfer edges; shell bodies with open faces; datum planes and axes.
+- Linear and circular patterns (toolbar, Model menu and palette) repeat a body along a direction,
+  optionally in a second direction too, or around an axis, joining the copies to it. The
+  direction or axis can be a principal or datum axis, a straight edge or a round face; count,
+  spacing and total angle take expressions, and a full turn spaces copies evenly. Faces of the
+  copies keep their references when the count or earlier features change, and a count that is
+  not whole, too large (over 100) or copies that cannot be joined fail the pattern alone with the
+  reason.
 - A fillet or chamfer whose edge was split by an earlier cut lists it as that edge in pieces
   instead of as an edge that is no longer there, and a shell lists a split opening the same way.
 - Shells whose walls are thicker than a rounded edge or corner leave that rounding out of the

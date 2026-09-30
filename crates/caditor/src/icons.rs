@@ -1,4 +1,6 @@
-use caditor_document::{BlendKind, Datum, FeatureKind, PrincipalGeometry, SolidFeature};
+use caditor_document::{
+    BlendKind, Datum, FeatureKind, PatternKind, PrincipalGeometry, SolidFeature,
+};
 use egui_phosphor::regular as phosphor;
 
 use crate::{
@@ -86,6 +88,8 @@ pub fn command(command: Command) -> &'static str {
         Command::Fillet => blend(BlendKind::Fillet),
         Command::Chamfer => blend(BlendKind::Chamfer),
         Command::Shell => SHELL,
+        Command::LinearPattern => LINEAR_PATTERN,
+        Command::CircularPattern => CIRCULAR_PATTERN,
         Command::DatumPlane => PLANE,
         Command::DatumAxis => AXIS,
         Command::FitView => phosphor::FRAME_CORNERS,
@@ -121,7 +125,9 @@ pub fn command(command: Command) -> &'static str {
         Command::PlaceSketch
         | Command::UseSelectedAxis
         | Command::DatumUseSelected
-        | Command::DatumTurnAboutSelected => USE_SELECTED,
+        | Command::DatumTurnAboutSelected
+        | Command::PatternUseSelected
+        | Command::PatternSecondUseSelected => USE_SELECTED,
         Command::AddParameter => ADD,
         Command::DeleteParameter => DELETE,
         Command::ShowFirstFailed => FAILED,
@@ -135,6 +141,8 @@ pub fn command(command: Command) -> &'static str {
 const EXTRUDE: &str = phosphor::ARROW_FAT_LINE_UP;
 const REVOLVE: &str = phosphor::ARROWS_CLOCKWISE;
 const SHELL: &str = phosphor::CUBE_TRANSPARENT;
+const LINEAR_PATTERN: &str = phosphor::SQUARES_FOUR;
+const CIRCULAR_PATTERN: &str = phosphor::SPINNER;
 const PLANE: &str = phosphor::PARALLELOGRAM;
 const AXIS: &str = phosphor::ARROW_LINE_UP_RIGHT;
 pub const SKETCH: &str = phosphor::PENCIL_LINE;
@@ -215,6 +223,10 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Solid(SolidFeature::Revolve(_)) => REVOLVE,
         FeatureKind::Blend(blend) => self::blend(blend.kind),
         FeatureKind::Shell(_) => SHELL,
+        FeatureKind::Pattern(pattern) => match pattern.kind {
+            PatternKind::Linear { .. } => LINEAR_PATTERN,
+            PatternKind::Circular(_) => CIRCULAR_PATTERN,
+        },
         FeatureKind::Datum(Datum::Plane(_)) => PLANE,
         FeatureKind::Datum(Datum::Axis(_)) => AXIS,
         FeatureKind::Import(_) => IMPORTED,
