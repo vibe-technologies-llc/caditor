@@ -622,7 +622,16 @@ fn degenerate_geometry_never_produces_nan() {
 fn a_cancelled_solve_reports_that_it_was_cancelled() {
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 3.0));
+    let (start, end) = ends(&sketch, line);
     add(&mut sketch, Constraint::Horizontal(line));
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: start,
+            to: end,
+            value: mm(20.0),
+        },
+    );
     let checks = Cell::new(0);
     let cancel_on_second_check = || {
         checks.set(checks.get() + 1);
@@ -1464,7 +1473,7 @@ fn a_diagnosis_out_of_work_names_the_part_and_its_newest_constraint() {
     use std::collections::BTreeSet;
 
     use crate::solve::{
-        DIAGNOSIS_WORK, diagnose_failure,
+        diagnosis::{DIAGNOSIS_WORK, diagnose_failure},
         numeric::{STIFF, Solver, components},
         system::System,
     };

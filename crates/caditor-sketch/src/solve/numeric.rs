@@ -12,6 +12,9 @@ use crate::{
 };
 
 const CONVERGENCE_TOLERANCE: f64 = 1e-10;
+const CLEAR_RESIDUAL: f64 = 100.0;
+const PRESSED_MARGIN: f64 = 16.0;
+const SUPPORT_SHARE: f64 = 1e-3;
 const MAX_ITERATIONS: usize = 100;
 const LINE_SEARCH_STEPS: usize = 40;
 const STALLED_COST_RATIO: f64 = 0.999;
@@ -126,12 +129,121 @@ pub(crate) struct Solver<'a> {
     pub stiffness: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ending {
+    Converged,
+    Minimum,
+    Collapse,
+    Unfinished,
+}
+
+enum Linearized {
+    Dense(Vec<Vec<f64>>, Vec<f64>),
+    Sparse(Vec<sparse::Row>, Vec<f64>),
+}
+
+impl Linearized {
+    fn step(&self, scales: &[f64], width: usize) -> Option<Vec<f64>> {
+        let scale_of = |column: usize| scales.get(column).copied().unwrap_or(1.0);
+        let mut step = match self {
+            Self::Dense(rows, residuals) => {
+                let rows: Vec<Vec<f64>> = rows
+                    .iter()
+                    .map(|row| {
+                        row.iter()
+                            .enumerate()
+                            .map(|(column, value)| value * scale_of(column))
+                            .collect()
+                    })
+                    .collect();
+                minimal_norm_step(&rows, residuals, width)
+            }
+            Self::Sparse(rows, residuals) => {
+                let rows: Vec<sparse::Row> = rows
+                    .iter()
+                    .map(|row| {
+                        row.iter()
+                            .map(|(column, value)| (*column, value * scale_of(*column)))
+                            .collect()
+                    })
+                    .collect();
+                sparse::minimal_norm_step(&rows, residuals, width)
+            }
+        }?;
+        step.iter_mut()
+            .enumerate()
+            .for_each(|(column, delta)| *delta *= scale_of(column));
+        Some(step)
+    }
+
+    fn left_after(&self, step: &[f64]) -> Vec<(f64, f64)> {
+        let along = |column: usize| step.get(column).copied().unwrap_or(0.0);
+        let left = |residual: f64, moved: f64, length: f64| {
+            let remaining = residual + moved;
+            let divisor = if length > 0.0 { length } else { 1.0 };
+            (remaining, remaining / divisor)
+        };
+        match self {
+            Self::Dense(rows, residuals) => rows
+                .iter()
+                .zip(residuals)
+                .map(|(row, residual)| {
+                    let moved = row
+                        .iter()
+                        .enumerate()
+                        .map(|(column, value)| value * along(column))
+                        .sum();
+                    left(*residual, moved, norm(row))
+                })
+                .collect(),
+            Self::Sparse(rows, residuals) => rows
+                .iter()
+                .zip(residuals)
+                .map(|(row, residual)| {
+                    let moved = row
+                        .iter()
+                        .map(|(column, value)| value * along(*column))
+                        .sum();
+                    let length = row
+                        .iter()
+                        .map(|(_, value)| value * value)
+                        .sum::<f64>()
+                        .sqrt();
+                    left(*residual, moved, length)
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Settled {
+    pub end: Vec<f64>,
+    pub cost: f64,
+    pub conclusive: bool,
+    pub pressed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Descent {
+    Solved,
+    Failed(Settled),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Failure {
+    pub component: Component,
+    pub settled: Settled,
+}
+
 impl Solver<'_> {
-    pub fn solve(&self, active: &[usize], values: &mut [f64]) -> Result<Vec<Component>, Cancelled> {
+    pub fn solve(&self, active: &[usize], values: &mut [f64]) -> Result<Vec<Failure>, Cancelled> {
         let mut failed = Vec::new();
         for component in components(self.system, active, values) {
-            if !self.solve_component(&self.part(&component), values)? {
-                failed.push(component);
+            if let Descent::Failed(settled) =
+                self.solve_component(&self.part(&component), values)?
+            {
+                failed.push(Failure { component, settled });
             }
         }
         Ok(failed)
@@ -144,13 +256,40 @@ impl Solver<'_> {
         }
     }
 
-    pub fn solves(&self, component: &Component, values: &mut [f64]) -> Result<bool, Cancelled> {
+    pub fn descend(&self, component: &Component, values: &mut [f64]) -> Result<Descent, Cancelled> {
         self.solve_component(&self.part(component), values)
     }
 
-    fn solve_component(&self, part: &Part<'_>, values: &mut [f64]) -> Result<bool, Cancelled> {
+    pub fn cost(&self, component: &Component, values: &[f64]) -> f64 {
+        squared_sum(&self.residuals(&self.part(component), values))
+    }
+
+    pub fn irreducible(&self, component: &Component, values: &[f64]) -> Vec<usize> {
+        let part = self.part(component);
+        let clear = clear_residual(&part);
+        let (linearized, step) = self.bounded_step(&part, values);
+        let Some(step) = step else {
+            return Vec::new();
+        };
+        let left = linearized.left_after(&step);
+        let largest = left
+            .iter()
+            .map(|(_, along_gradient)| along_gradient.abs())
+            .fold(0.0, f64::max);
+        component
+            .equations
+            .iter()
+            .zip(left)
+            .filter(|(_, (residual, along_gradient))| {
+                residual.abs() > clear && along_gradient.abs() >= SUPPORT_SHARE * largest
+            })
+            .map(|(index, _)| *index)
+            .collect()
+    }
+
+    fn solve_component(&self, part: &Part<'_>, values: &mut [f64]) -> Result<Descent, Cancelled> {
         if self.converged(part, values) {
-            return Ok(true);
+            return Ok(Descent::Solved);
         }
         let component = part.component;
         let start: Vec<f64> = component
@@ -158,16 +297,50 @@ impl Solver<'_> {
             .iter()
             .map(|variable| value(values, *variable))
             .collect();
+        let mut lowest_cost = squared_sum(&self.residuals(part, values));
+        let mut lowest_end = start.clone();
+        let mut pressed = false;
+        let mut unperturbed_contradicts = None;
         let attempts = std::iter::once(0.0).chain(PERTURBATIONS);
         for magnitude in attempts {
             self.restore(component, &start, values);
             self.perturb(part, magnitude, values);
-            if self.gauss_newton(part, values)? {
-                return Ok(true);
+            let ending = self.gauss_newton(part, values)?;
+            if ending == Ending::Converged {
+                return Ok(Descent::Solved);
+            }
+            unperturbed_contradicts.get_or_insert_with(|| self.contradicts(part, values, ending));
+            let cost = squared_sum(&self.residuals(part, values));
+            if cost < lowest_cost {
+                lowest_cost = cost;
+                lowest_end = component
+                    .variables
+                    .iter()
+                    .map(|variable| value(values, *variable))
+                    .collect();
+                pressed = ending == Ending::Collapse;
             }
         }
         self.restore(component, &start, values);
-        Ok(false)
+        Ok(Descent::Failed(Settled {
+            end: lowest_end,
+            cost: lowest_cost,
+            conclusive: unperturbed_contradicts == Some(true),
+            pressed,
+        }))
+    }
+
+    fn contradicts(&self, part: &Part<'_>, values: &[f64], ending: Ending) -> bool {
+        match ending {
+            Ending::Collapse => true,
+            Ending::Minimum => {
+                let clear = clear_residual(part);
+                self.residuals(part, values)
+                    .iter()
+                    .any(|residual| residual.abs() > clear)
+            }
+            Ending::Converged | Ending::Unfinished => false,
+        }
     }
 
     fn restore(&self, component: &Component, start: &[f64], values: &mut [f64]) {
@@ -249,17 +422,24 @@ impl Solver<'_> {
         part: &'b Part<'b>,
         values: &'b [f64],
     ) -> impl Iterator<Item = EntityId> + 'b {
+        self.spans_within(part, values, part.context.collapsed_length())
+    }
+
+    fn spans_within<'b>(
+        &'b self,
+        part: &'b Part<'b>,
+        values: &'b [f64],
+        limit: f64,
+    ) -> impl Iterator<Item = EntityId> + 'b {
         let moves = |handle: &PointHandle| match handle {
             PointHandle::Variable(x) => part.component.variables.binary_search(x).is_ok(),
             PointHandle::Fixed(_) => false,
         };
-        let collapsed_length = part.context.collapsed_length();
         self.system
             .spans
             .iter()
             .filter(move |(_, from, to)| {
-                (moves(from) || moves(to))
-                    && from.at(values).distance(to.at(values)) <= collapsed_length
+                (moves(from) || moves(to)) && from.at(values).distance(to.at(values)) <= limit
             })
             .map(|(entity, _, _)| *entity)
     }
@@ -273,88 +453,120 @@ impl Solver<'_> {
                 .all(|residual| residual.abs() <= tolerance)
     }
 
-    fn gauss_newton(&self, part: &Part<'_>, values: &mut [f64]) -> Result<bool, Cancelled> {
+    fn gauss_newton(&self, part: &Part<'_>, values: &mut [f64]) -> Result<Ending, Cancelled> {
         let component = part.component;
         let scale = part.context.scale;
+        if self.converged(part, values) {
+            return Ok(Ending::Converged);
+        }
+        if component.variables.is_empty() {
+            return Ok(Ending::Minimum);
+        }
         let mut stalled = 0;
         for _ in 0..MAX_ITERATIONS {
             if (self.cancelled)() {
                 return Err(Cancelled);
             }
-            if self.converged(part, values) {
-                return Ok(true);
-            }
-            let scales: Vec<f64> = component
-                .variables
-                .iter()
-                .map(|variable| {
-                    if self.stiff.contains(variable) {
-                        self.stiffness
-                    } else {
-                        1.0
-                    }
-                })
-                .collect();
-            let step = if component.variables.len() > DENSE_LIMIT {
-                let (rows, residuals) = self.sparse_linearize(part, values);
-                let rows: Vec<sparse::Row> = rows
-                    .into_iter()
-                    .map(|row| {
-                        row.into_iter()
-                            .map(|(column, value)| {
-                                (column, value * scales.get(column).copied().unwrap_or(1.0))
-                            })
-                            .collect()
-                    })
-                    .collect();
-                sparse::minimal_norm_step(&rows, &residuals, component.variables.len())
-            } else {
-                let (rows, residuals) = self.linearize(part, values);
-                let rows: Vec<Vec<f64>> = rows
-                    .into_iter()
-                    .map(|row| {
-                        row.iter()
-                            .zip(&scales)
-                            .map(|(value, scale)| value * scale)
-                            .collect()
-                    })
-                    .collect();
-                minimal_norm_step(&rows, &residuals, component.variables.len())
+            let Some(mut step) = self.bounded_step(part, values).1 else {
+                return Ok(Ending::Unfinished);
             };
-            let Some(mut step) = step else {
-                return Ok(false);
-            };
-            step.iter_mut()
-                .zip(&scales)
-                .for_each(|(delta, scale)| *delta *= scale);
             let length = step.iter().map(|delta| delta * delta).sum::<f64>().sqrt();
             if length > MAX_STEP * scale {
                 let shrink = MAX_STEP * scale / length;
                 step.iter_mut().for_each(|delta| *delta *= shrink);
             }
             let Some(remaining) = self.line_search(part, &step, values) else {
-                return Ok(false);
+                return Ok(self.minimum(part, values));
             };
+            if self.converged(part, values) {
+                return Ok(Ending::Converged);
+            }
             stalled = if remaining > STALLED_COST_RATIO {
                 stalled + 1
             } else {
                 0
             };
             if stalled >= STALLED_ITERATIONS {
-                return Ok(false);
+                return Ok(self.minimum(part, values));
             }
         }
-        Ok(self.converged(part, values))
+        Ok(Ending::Unfinished)
+    }
+
+    fn bounded_step(&self, part: &Part<'_>, values: &[f64]) -> (Linearized, Option<Vec<f64>>) {
+        let component = part.component;
+        let mut scales: Vec<f64> = component
+            .variables
+            .iter()
+            .map(|variable| {
+                if self.stiff.contains(variable) {
+                    self.stiffness
+                } else {
+                    1.0
+                }
+            })
+            .collect();
+        let linearized = if component.variables.len() > DENSE_LIMIT {
+            let (rows, residuals) = self.sparse_linearize(part, values);
+            Linearized::Sparse(rows, residuals)
+        } else {
+            let (rows, residuals) = self.linearize(part, values);
+            Linearized::Dense(rows, residuals)
+        };
+        let width = component.variables.len();
+        let step = linearized.step(&scales, width);
+        let pushed =
+            self.pushed_past_bounds(component, values, step.as_deref().unwrap_or_default());
+        if pushed.is_empty() {
+            return (linearized, step);
+        }
+        for column in pushed {
+            if let Some(scale) = scales.get_mut(column) {
+                *scale = 0.0;
+            }
+        }
+        let step = linearized.step(&scales, width);
+        (linearized, step)
+    }
+
+    fn pushed_past_bounds(
+        &self,
+        component: &Component,
+        values: &[f64],
+        step: &[f64],
+    ) -> Vec<usize> {
+        if self.system.parameter_variables.is_empty() {
+            return Vec::new();
+        }
+        component
+            .variables
+            .iter()
+            .zip(step)
+            .enumerate()
+            .filter(|(_, (variable, delta))| {
+                let current = value(values, **variable);
+                self.system.parameter_variables.contains(variable)
+                    && ((current <= 0.0 && **delta < 0.0) || (current >= 1.0 && **delta > 0.0))
+            })
+            .map(|(column, _)| column)
+            .collect()
+    }
+
+    fn minimum(&self, part: &Part<'_>, values: &[f64]) -> Ending {
+        let limit = PRESSED_MARGIN * part.context.collapsed_length();
+        let radius_pressed = part.component.variables.iter().any(|variable| {
+            self.system.radius_variables.contains(variable) && value(values, *variable) <= limit
+        });
+        if radius_pressed || self.spans_within(part, values, limit).next().is_some() {
+            Ending::Collapse
+        } else {
+            Ending::Minimum
+        }
     }
 
     fn line_search(&self, part: &Part<'_>, step: &[f64], values: &mut [f64]) -> Option<f64> {
         let component = part.component;
-        let cost = |values: &[f64]| -> f64 {
-            self.residuals(part, values)
-                .iter()
-                .map(|residual| residual * residual)
-                .sum()
-        };
+        let cost = |values: &[f64]| squared_sum(&self.residuals(part, values));
         let current = cost(values);
         let mut trial = values.to_vec();
         let mut fraction = 1.0;
@@ -614,6 +826,14 @@ fn dense_row(gradient: &Gradient, variables: &[usize]) -> Vec<f64> {
         }
     }
     row
+}
+
+fn clear_residual(part: &Part<'_>) -> f64 {
+    CLEAR_RESIDUAL * CONVERGENCE_TOLERANCE * part.context.scale
+}
+
+fn squared_sum(residuals: &[f64]) -> f64 {
+    residuals.iter().map(|residual| residual * residual).sum()
 }
 
 fn norm(row: &[f64]) -> f64 {
