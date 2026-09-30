@@ -58,6 +58,15 @@ grep -qF "Exec=\"$escaped\" " "$entry" || fail "Exec does not run the installed 
     [ ! -e "$prefix/$file" ] || fail "uninstalling left $file behind"
 done
 
+bare="$work/bare"
+bare_prefix="$work/bare-prefix"
+mkdir -p "$bare"
+cp "$package/install.sh" "$bare/install.sh"
+if "$bare/install.sh" --prefix "$bare_prefix" >/dev/null 2>&1; then
+    fail "installing from a folder without the program succeeded"
+fi
+[ ! -e "$bare_prefix" ] || fail "installing from a folder without the program wrote to the prefix"
+
 blocked_prefix="$work/blocked"
 mkdir -p "$blocked_prefix"
 : >"$blocked_prefix/share"

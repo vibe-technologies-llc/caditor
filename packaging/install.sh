@@ -57,11 +57,17 @@ case "$prefix" in
 esac
 prefix=${prefix%/}
 
+desktop_entry="share/applications/caditor.desktop"
+
+if [ ! -x "$here/bin/caditor" ] || [ ! -f "$here/$desktop_entry" ]; then
+    fail "$here is not an unpacked caditor release: bin/caditor and share/ are missing.
+Unpack caditor-<version>-linux-<arch>.tar.zst and run the install.sh inside it; from a
+source checkout, build that archive first with packaging/build-release.sh --snapshot."
+fi
+
 packaged_files() {
     (cd "$here" && find bin share -type f | LC_ALL=C sort)
 }
-
-desktop_entry="share/applications/caditor.desktop"
 
 menu_entry() {
     program="$prefix/bin/caditor"
