@@ -2523,6 +2523,96 @@ fn a_nearly_level_line_is_made_horizontal() {
     assert!(harness.shows("3 degrees of freedom left"));
 }
 
+fn unit_cross(sketch: &Sketch, a: EntityId, b: EntityId) -> (f64, f64) {
+    let (a_start, a_end) = sketch.line_endpoints(a).unwrap();
+    let (b_start, b_end) = sketch.line_endpoints(b).unwrap();
+    let a = (a_end - a_start).normalize();
+    let b = (b_end - b_start).normalize();
+    (a.perp_dot(b), a.dot(b))
+}
+
+#[test]
+fn a_line_drawn_nearly_parallel_to_a_slanted_line_is_kept_parallel_in_one_undoable_step() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    harness.click_at(Point2::new(5.0, 40.0));
+    harness.click_at(Point2::new(35.0, 60.0));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let slanted = entities_of_kind(harness.sketch(feature), "Line")[0];
+
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.point_at(Point2::new(40.0, 30.4));
+    assert!(harness.shows(&format!("Parallel to Line {slanted}")));
+    harness.click_at(Point2::new(40.0, 30.4));
+
+    let sketch = harness.sketch(feature);
+    let lines = entities_of_kind(sketch, "Line");
+    assert_eq!(lines.len(), 2);
+    let drawn = lines[1];
+    assert_eq!(
+        constraints_of_kind(sketch, "Parallel"),
+        vec![Constraint::Parallel(drawn, slanted)]
+    );
+    assert_eq!(harness.model.undo_label(), Some("Draw line"));
+    harness.settle();
+    let (cross, _) = unit_cross(&harness.shown(feature), slanted, drawn);
+    assert!(cross.abs() < 1e-9, "{cross}");
+    assert!(harness.shows("7 degrees of freedom left"));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    let sketch = harness.sketch(feature);
+    assert_eq!(entities_of_kind(sketch, "Line"), vec![slanted]);
+    assert!(constraints_of_kind(sketch, "Parallel").is_empty());
+    assert_eq!(entities_of_kind(sketch, "Point").len(), 2);
+}
+
+#[test]
+fn a_chained_line_turned_nearly_square_is_kept_perpendicular_to_the_last() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(40.0, 30.0));
+    let first = entities_of_kind(harness.sketch(feature), "Line")[0];
+
+    harness.point_at(Point2::new(20.0, 60.4));
+    assert!(harness.shows(&format!("Perpendicular to Line {first}")));
+    harness.click_at(Point2::new(20.0, 60.4));
+
+    let sketch = harness.sketch(feature);
+    let lines = entities_of_kind(sketch, "Line");
+    assert_eq!(lines.len(), 2);
+    let second = lines[1];
+    let (_, first_end) = line_ends(sketch, first);
+    let (second_start, _) = line_ends(sketch, second);
+    assert_eq!(
+        constraints_of_kind(sketch, "Coincident"),
+        vec![Constraint::Coincident(second_start, first_end)]
+    );
+    assert_eq!(
+        constraints_of_kind(sketch, "Perpendicular"),
+        vec![Constraint::Perpendicular(second, first)]
+    );
+    assert!(constraints_of_kind(sketch, "Parallel").is_empty());
+    assert_eq!(harness.model.undo_label(), Some("Draw line"));
+    harness.settle();
+    let (_, dot) = unit_cross(&harness.shown(feature), first, second);
+    assert!(dot.abs() < 1e-9, "{dot}");
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    let sketch = harness.sketch(feature);
+    assert_eq!(entities_of_kind(sketch, "Line"), vec![first]);
+    assert!(constraints_of_kind(sketch, "Perpendicular").is_empty());
+}
+
 #[test]
 fn a_line_started_on_the_origin_is_joined_to_it() {
     let mut harness = Harness::new();

@@ -101,9 +101,22 @@ paths:
 - `Accept` keeps every snap shown a constraint that already holds: a circle's rim takes points only
   (a rim on a curve would add no constraint); an arc's end, points on its circle and where it
   crosses lines, circles, arcs and the axes.
-- A line end snapped to nothing becomes exactly horizontal or vertical within 3° or 6 pixels, with
-  that constraint. The preview, snap marker and snap label are drawn from this state, and the snap
-  target replaces the GPU hover while a drawing tool is active.
+- A line end (and a slot's second centre) within 3° or 6 pixels of a direction from its start
+  takes it exactly, with that constraint (`Snap::Aligned`). Horizontal and vertical win whenever
+  either applies, so a line within 3° of level is never inferred parallel to; otherwise parallel
+  or perpendicular to one of the six lines of the edited sketch (construction lines included)
+  nearest on screen to the pointer or the start (`drawing::guides`), the smallest offset winning,
+  a tie going to the nearer line. A line is never inferred parallel to a line through its start
+  point (that only continues it straight), though perpendicular to it, as to the chain's last
+  line, is offered. The label names the reference ("Parallel to Line 3").
+- Snapping to geometry wins over a direction, which joins it only where compatible
+  (`Snap::AlignedOn`, labelled "On Line 2, vertical"): a point snap keeps a direction that already
+  holds exactly (relative 1e-9), never moving the point; a curve snap moves to where the ray of an
+  applying direction crosses that curve, if within 12 pixels of the pointer. Typed points never
+  align.
+- The preview, snap marker and snap label are drawn from this state; the snap target and a
+  direction's reference line (`Drawing::snap_entities`) replace the GPU hover while a drawing tool
+  is active, so the reference is highlighted.
 
 ## Constraint tools
 

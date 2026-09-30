@@ -1,11 +1,12 @@
 use std::f64::consts::TAU;
 
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{Entity, EntityId, Sketch};
+use caditor_sketch::{ArcGeometry, Entity, EntityId, Sketch};
 
 pub const POINT_TOLERANCE: f64 = 8.0;
 pub const CURVE_TOLERANCE: f64 = 6.0;
 const ON_CIRCLE_TOLERANCE: f64 = 1e-9;
+const PARALLEL_TOLERANCE: f64 = 1e-12;
 
 pub trait Screen {
     fn to_screen(&self, point: Point2) -> Option<Vector2>;
@@ -145,9 +146,7 @@ fn closest_on(sketch: &Sketch, id: EntityId, entity: &Entity, at: Point2) -> Opt
         Entity::Arc { .. } => {
             let arc = sketch.arc(id)?;
             let position = closest_on_circle(arc.center, arc.radius, at)?;
-            let offset = position - arc.center;
-            let turned = (offset.y.atan2(offset.x) - arc.start_angle).rem_euclid(TAU);
-            (turned <= arc.sweep).then_some(position)
+            within_sweep(&arc, position).then_some(position)
         }
         Entity::Point(_) | Entity::Spline { .. } => None,
     }
@@ -205,11 +204,7 @@ fn crossings_with(
             .map(|arc| {
                 circle_crossings(center, radius, arc.center, arc.radius)
                     .into_iter()
-                    .filter(|position| {
-                        let offset = *position - arc.center;
-                        let turned = (offset.y.atan2(offset.x) - arc.start_angle).rem_euclid(TAU);
-                        turned <= arc.sweep
-                    })
+                    .filter(|position| within_sweep(&arc, *position))
                     .collect()
             })
             .unwrap_or_default(),
@@ -258,7 +253,78 @@ fn circle_crossings(center: Point2, radius: f64, other: Point2, other_radius: f6
     vec![middle + across, middle - across]
 }
 
-fn closest_on_segment(start: Point2, end: Point2, at: Point2) -> Point2 {
+pub fn crossing_along(
+    sketch: &Sketch,
+    curve: EntityId,
+    through: Point2,
+    along: Vector2,
+    near: Point2,
+) -> Option<Point2> {
+    let crossings: Vec<Point2> = if curve == EntityId::HORIZONTAL_AXIS {
+        straight_crossing(through, along, Point2::ZERO, Vector2::X)
+            .map(|(_, position)| position)
+            .into_iter()
+            .collect()
+    } else if curve == EntityId::VERTICAL_AXIS {
+        straight_crossing(through, along, Point2::ZERO, Vector2::Y)
+            .map(|(_, position)| position)
+            .into_iter()
+            .collect()
+    } else {
+        match sketch.entity(curve)? {
+            Entity::Line { .. } => {
+                let (start, end) = sketch.line_endpoints(curve)?;
+                straight_crossing(through, along, start, end - start)
+                    .filter(|(fraction, _)| (0.0..=1.0).contains(fraction))
+                    .map(|(_, position)| position)
+                    .into_iter()
+                    .collect()
+            }
+            Entity::Circle { .. } => {
+                let (center, radius) = sketch.circle(curve)?;
+                line_crossings(through, along, center, radius)
+                    .into_iter()
+                    .map(|(_, position)| position)
+                    .collect()
+            }
+            Entity::Arc { .. } => {
+                let arc = sketch.arc(curve)?;
+                line_crossings(through, along, arc.center, arc.radius)
+                    .into_iter()
+                    .map(|(_, position)| position)
+                    .filter(|position| within_sweep(&arc, *position))
+                    .collect()
+            }
+            Entity::Point(_) | Entity::Spline { .. } => Vec::new(),
+        }
+    };
+    crossings.into_iter().min_by(|a, b| {
+        a.distance_squared(near)
+            .total_cmp(&b.distance_squared(near))
+    })
+}
+
+fn straight_crossing(
+    through: Point2,
+    along: Vector2,
+    origin: Point2,
+    direction: Vector2,
+) -> Option<(f64, Point2)> {
+    let denominator = along.perp_dot(direction);
+    if denominator.abs() <= PARALLEL_TOLERANCE * along.length() * direction.length() {
+        return None;
+    }
+    let fraction = along.perp_dot(through - origin) / denominator;
+    Some((fraction, origin + direction * fraction))
+}
+
+fn within_sweep(arc: &ArcGeometry, position: Point2) -> bool {
+    let offset = position - arc.center;
+    let turned = (offset.y.atan2(offset.x) - arc.start_angle).rem_euclid(TAU);
+    turned <= arc.sweep
+}
+
+pub fn closest_on_segment(start: Point2, end: Point2, at: Point2) -> Point2 {
     let along = end - start;
     let length_squared = along.length_squared();
     if length_squared == 0.0 {
@@ -441,5 +507,43 @@ pub mod tests {
             Some(Target::Point(point))
         );
         assert_eq!(rim(Point2::new(10.2, 30.0)), None);
+    }
+
+    #[test]
+    fn a_ray_crosses_a_curve_nearest_the_pointer() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(20.0, 10.0));
+        let circle = sketch.add_circle(Point2::new(50.0, 0.0), 10.0);
+        let arc = sketch.add_arc(
+            Point2::new(-50.0, 0.0),
+            Point2::new(-40.0, 0.0),
+            Point2::new(-60.0, 0.0),
+        );
+        let upward = |x: f64, curve, near| {
+            crossing_along(&sketch, curve, Point2::new(x, -30.0), Vector2::Y, near)
+        };
+
+        assert_eq!(
+            upward(5.0, line, Point2::new(5.0, 12.0)),
+            Some(Point2::new(5.0, 10.0))
+        );
+        assert_eq!(upward(25.0, line, Point2::new(25.0, 10.0)), None);
+        assert_eq!(
+            upward(50.0, circle, Point2::new(50.0, -8.0)),
+            Some(Point2::new(50.0, -10.0))
+        );
+        assert_eq!(
+            upward(50.0, circle, Point2::new(50.0, 8.0)),
+            Some(Point2::new(50.0, 10.0))
+        );
+        assert_eq!(
+            upward(-50.0, arc, Point2::new(-50.0, -8.0)),
+            Some(Point2::new(-50.0, 10.0))
+        );
+        assert_eq!(
+            upward(7.0, EntityId::HORIZONTAL_AXIS, Point2::ZERO),
+            Some(Point2::new(7.0, 0.0))
+        );
+        assert_eq!(upward(7.0, EntityId::VERTICAL_AXIS, Point2::ZERO), None);
     }
 }

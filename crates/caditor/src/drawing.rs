@@ -9,12 +9,15 @@ use crate::{
     model::Model,
     shapes::{self, Circular, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot},
     sketch_tools,
-    snap::{self, Accept, Pointer, Screen, Target},
+    snap::{self, Accept, Pointer, Screen, Snapped, Target},
 };
 
 const ALIGN_ANGLE_DEGREES: f64 = 3.0;
 const ALIGN_TOLERANCE: f64 = 6.0;
 const MIN_ALIGN_LENGTH: f64 = 12.0;
+const NEARBY_LINES: usize = 6;
+const HELD_TOLERANCE: f64 = 1e-9;
+const ALIGNED_CROSSING_TOLERANCE: f64 = 12.0;
 const TYPED_TOLERANCE: f64 = 1e-6;
 const PREVIEW_SEGMENT_ANGLE: f64 = PI / 60.0;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
@@ -83,6 +86,80 @@ impl Default for Sides {
 pub enum Direction {
     Horizontal,
     Vertical,
+    Parallel(EntityId),
+    Perpendicular(EntityId),
+}
+
+impl Direction {
+    fn words(self) -> (&'static str, Option<EntityId>) {
+        match self {
+            Self::Horizontal => ("Horizontal", None),
+            Self::Vertical => ("Vertical", None),
+            Self::Parallel(line) => ("Parallel to", Some(line)),
+            Self::Perpendicular(line) => ("Perpendicular to", Some(line)),
+        }
+    }
+
+    fn reference(self) -> Option<EntityId> {
+        self.words().1
+    }
+
+    fn label(self, sketch: &Sketch) -> String {
+        let (words, reference) = self.words();
+        with_reference(words.to_owned(), reference, sketch)
+    }
+
+    fn joined_label(self, sketch: &Sketch) -> String {
+        let (words, reference) = self.words();
+        with_reference(words.to_lowercase(), reference, sketch)
+    }
+
+    fn constraint(self, line: EntityId) -> Constraint {
+        match self {
+            Self::Horizontal => Constraint::Horizontal(line),
+            Self::Vertical => Constraint::Vertical(line),
+            Self::Parallel(reference) => Constraint::Parallel(line, reference),
+            Self::Perpendicular(reference) => Constraint::Perpendicular(line, reference),
+        }
+    }
+}
+
+fn with_reference(words: String, reference: Option<EntityId>, sketch: &Sketch) -> String {
+    match reference {
+        Some(line) => format!("{words} {}", sketch.entity_label(line)),
+        None => words,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Guide {
+    direction: Direction,
+    along: Vector2,
+}
+
+const LEVEL_AND_UPRIGHT: [Guide; 2] = [
+    Guide {
+        direction: Direction::Horizontal,
+        along: Vector2::X,
+    },
+    Guide {
+        direction: Direction::Vertical,
+        along: Vector2::Y,
+    },
+];
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Aligned {
+    guide: Guide,
+    position: Point2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct NearbyLine {
+    distance: f64,
+    line: EntityId,
+    along: Vector2,
+    continued: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -90,14 +167,26 @@ pub enum Snap {
     Free,
     Target(Target),
     Aligned(Direction),
+    AlignedOn(Target, Direction),
 }
 
 impl Snap {
-    fn entity(self) -> Option<EntityId> {
+    fn target(self) -> Option<Target> {
         match self {
-            Self::Target(target) => target.entity(),
+            Self::Target(target) | Self::AlignedOn(target, _) => Some(target),
             Self::Free | Self::Aligned(_) => None,
         }
+    }
+
+    fn direction(self) -> Option<Direction> {
+        match self {
+            Self::Aligned(direction) | Self::AlignedOn(_, direction) => Some(direction),
+            Self::Free | Self::Target(_) => None,
+        }
+    }
+
+    fn entity(self) -> Option<EntityId> {
+        self.target()?.entity()
     }
 }
 
@@ -112,6 +201,13 @@ impl Placement {
         Self {
             position,
             snap: Snap::Free,
+        }
+    }
+
+    fn snapped(snapped: Snapped) -> Self {
+        Self {
+            position: snapped.position,
+            snap: Snap::Target(snapped.target),
         }
     }
 }
@@ -172,9 +268,9 @@ fn shortest_turn(from: f64, to: f64) -> f64 {
 }
 
 fn point_target(snap: Snap) -> Option<EntityId> {
-    match snap {
-        Snap::Target(Target::Point(point)) => Some(point),
-        Snap::Free | Snap::Aligned(_) | Snap::Target(_) => None,
+    match snap.target()? {
+        Target::Point(point) => Some(point),
+        Target::Pending(_) | Target::Curve(_) => None,
     }
 }
 
@@ -225,8 +321,16 @@ impl Drawing {
         !self.placed.is_empty()
     }
 
-    pub fn snap_entity(&self) -> Option<EntityId> {
-        self.hover?.snap.entity()
+    pub fn snap_entities(&self) -> Vec<EntityId> {
+        let Some(hover) = self.hover else {
+            return Vec::new();
+        };
+        hover
+            .snap
+            .entity()
+            .into_iter()
+            .chain(hover.snap.direction().and_then(Direction::reference))
+            .collect()
     }
 
     pub fn sync(&mut self, active: Option<ActiveSketch>, sketch: Option<&Sketch>) {
@@ -477,16 +581,15 @@ impl Drawing {
             }
             (Tool::Arc, &[center, start]) => {
                 let radius = center.position.distance(start.position);
-                let end = match placement.snap {
-                    Snap::Target(_)
-                        if snap::on_circle(center.position, radius, placement.position) =>
-                    {
-                        placement
-                    }
-                    Snap::Free | Snap::Target(_) | Snap::Aligned(_) => Placement::free(
+                let kept = placement.snap.target().is_some()
+                    && snap::on_circle(center.position, radius, placement.position);
+                let end = if kept {
+                    placement
+                } else {
+                    Placement::free(
                         arc_end(center.position, start.position, placement.position)
                             .ok_or(Refusal::ArcSweep)?,
-                    ),
+                    )
                 };
                 if end.position.distance(start.position) < DEGENERATE_LENGTH {
                     return Err(Refusal::ArcSweep);
@@ -637,7 +740,7 @@ impl Drawing {
             points: placed.iter().copied().chain(hover).collect(),
             snap: self
                 .hover
-                .filter(|hover| matches!(hover.snap, Snap::Target(_)))
+                .filter(|hover| hover.snap.target().is_some())
                 .map(|hover| hover.position),
             construction: self.construction,
             ..Preview::default()
@@ -711,26 +814,35 @@ impl Drawing {
 
     pub fn snap_label(&self, sketch: &Sketch) -> Option<String> {
         let (_, tool) = self.context?;
-        Some(match self.hover?.snap {
-            Snap::Free => return None,
-            Snap::Aligned(Direction::Horizontal) => "Horizontal".to_owned(),
-            Snap::Aligned(Direction::Vertical) => "Vertical".to_owned(),
-            Snap::Target(Target::Pending(_)) if tool == Tool::Spline => {
-                "Finish the spline".to_owned()
-            }
-            Snap::Target(Target::Pending(_)) => "Stop here".to_owned(),
-            Snap::Target(Target::Point(_))
+        let snap = self.hover?.snap;
+        match (snap.target(), snap.direction()) {
+            (None, None) => None,
+            (None, Some(direction)) => Some(direction.label(sketch)),
+            (Some(target), None) => Some(self.target_label(tool, sketch, target)),
+            (Some(target), Some(direction)) => Some(format!(
+                "{}, {}",
+                self.target_label(tool, sketch, target),
+                direction.joined_label(sketch)
+            )),
+        }
+    }
+
+    fn target_label(&self, tool: Tool, sketch: &Sketch, target: Target) -> String {
+        match target {
+            Target::Pending(_) if tool == Tool::Spline => "Finish the spline".to_owned(),
+            Target::Pending(_) => "Stop here".to_owned(),
+            Target::Point(_)
                 if tool == Tool::TangentArc
                     && self.placed.is_empty()
                     && let Some(tangent) = self.tangent =>
             {
                 format!("Continue {}", sketch.entity_label(tangent.curve))
             }
-            Snap::Target(Target::Point(EntityId::ORIGIN)) => "Origin".to_owned(),
-            Snap::Target(Target::Point(entity) | Target::Curve(entity)) => {
+            Target::Point(EntityId::ORIGIN) => "Origin".to_owned(),
+            Target::Point(entity) | Target::Curve(entity) => {
                 format!("On {}", sketch.entity_label(entity))
             }
-        })
+        }
     }
 
     pub fn prompt(&self) -> Option<Prompt> {
@@ -813,17 +925,28 @@ impl Drawing {
         }
         let pending = self.pending(tool);
         let accept = self.accept(tool);
-        if let Some(snapped) = snap::resolve(sketch, screen, pointer, &pending, accept) {
-            return Placement {
-                position: snapped.position,
-                snap: Snap::Target(snapped.target),
-            };
+        let snapped = snap::resolve(sketch, screen, pointer, &pending, accept);
+        let Some(start) = self.aligned_from(tool) else {
+            return snapped.map_or(Placement::free(pointer.sketch), Placement::snapped);
+        };
+        let continued = match tool {
+            Tool::Line => point_target(start.snap),
+            _ => None,
+        };
+        let guides = guides(sketch, screen, pointer, start.position, continued);
+        match snapped {
+            Some(snapped) => aligned_on(sketch, screen, pointer, start.position, snapped, &guides)
+                .unwrap_or(Placement::snapped(snapped)),
+            None => align(start.position, screen, pointer, &guides)
+                .unwrap_or(Placement::free(pointer.sketch)),
         }
+    }
+
+    fn aligned_from(&self, tool: Tool) -> Option<Placement> {
         match (tool, self.placed.as_slice()) {
-            (Tool::Line | Tool::Slot, &[start]) => align(start.position, screen, pointer),
+            (Tool::Line | Tool::Slot, &[start]) => Some(start),
             _ => None,
         }
-        .unwrap_or(Placement::free(pointer.sketch))
     }
 }
 
@@ -862,30 +985,152 @@ impl Drawing {
     }
 }
 
-pub fn align(start: Point2, screen: &impl Screen, pointer: Pointer) -> Option<Placement> {
-    let from = screen.to_screen(start)?;
+fn guides(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    pointer: Pointer,
+    start: Point2,
+    continued: Option<EntityId>,
+) -> Vec<Guide> {
+    let start_on_screen = screen.to_screen(start);
+    let mut nearby: Vec<NearbyLine> = sketch
+        .entities()
+        .filter_map(|(line, entity)| {
+            let Entity::Line {
+                start: first,
+                end: last,
+            } = entity
+            else {
+                return None;
+            };
+            let (from, to) = sketch.line_endpoints(line)?;
+            let along = (to - from).try_normalize()?;
+            let (from, to) = (screen.to_screen(from)?, screen.to_screen(to)?);
+            let distance = std::iter::once(pointer.screen)
+                .chain(start_on_screen)
+                .map(|at| at.distance(snap::closest_on_segment(from, to, at)))
+                .fold(f64::INFINITY, f64::min);
+            Some(NearbyLine {
+                distance,
+                line,
+                along,
+                continued: continued.is_some_and(|point| point == *first || point == *last),
+            })
+        })
+        .collect();
+    let by_distance = |a: &NearbyLine, b: &NearbyLine| a.distance.total_cmp(&b.distance);
+    if nearby.len() > NEARBY_LINES {
+        nearby.select_nth_unstable_by(NEARBY_LINES, by_distance);
+        nearby.truncate(NEARBY_LINES);
+    }
+    nearby.sort_by(by_distance);
+    let referenced = nearby.into_iter().flat_map(|nearby| {
+        let parallel = (!nearby.continued).then_some(Guide {
+            direction: Direction::Parallel(nearby.line),
+            along: nearby.along,
+        });
+        let perpendicular = Guide {
+            direction: Direction::Perpendicular(nearby.line),
+            along: nearby.along.perp(),
+        };
+        parallel.into_iter().chain(std::iter::once(perpendicular))
+    });
+    LEVEL_AND_UPRIGHT.into_iter().chain(referenced).collect()
+}
+
+fn alignments(
+    start: Point2,
+    screen: &impl Screen,
+    pointer: Pointer,
+    guides: &[Guide],
+) -> Vec<Aligned> {
+    let Some(from) = screen.to_screen(start) else {
+        return Vec::new();
+    };
     let drawn = pointer.screen - from;
     if drawn.length() < MIN_ALIGN_LENGTH {
-        return None;
+        return Vec::new();
     }
     let max_angle = ALIGN_ANGLE_DEGREES.to_radians();
-    let end = pointer.sketch;
-    [
-        (Direction::Horizontal, Point2::new(end.x, start.y)),
-        (Direction::Vertical, Point2::new(start.x, end.y)),
-    ]
-    .into_iter()
-    .filter_map(|(direction, position)| {
-        let offset = screen.to_screen(position)?.distance(pointer.screen);
-        let along = screen.to_screen(position)? - from;
-        let angle = drawn.angle_to(along).abs();
-        (offset <= ALIGN_TOLERANCE || angle <= max_angle).then_some((offset, direction, position))
-    })
-    .min_by(|a, b| a.0.total_cmp(&b.0))
-    .map(|(_, direction, position)| Placement {
+    let mut found: Vec<(bool, f64, Aligned)> = guides
+        .iter()
+        .filter_map(|guide| {
+            let position = start + guide.along * (pointer.sketch - start).dot(guide.along);
+            let on_screen = screen.to_screen(position)?;
+            let offset = on_screen.distance(pointer.screen);
+            let angle = drawn.angle_to(on_screen - from).abs();
+            let referenced = guide.direction.reference().is_some();
+            let aligned = Aligned {
+                guide: *guide,
+                position,
+            };
+            (offset <= ALIGN_TOLERANCE || angle <= max_angle)
+                .then_some((referenced, offset, aligned))
+        })
+        .collect();
+    found.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    found.into_iter().map(|(_, _, aligned)| aligned).collect()
+}
+
+fn align(
+    start: Point2,
+    screen: &impl Screen,
+    pointer: Pointer,
+    guides: &[Guide],
+) -> Option<Placement> {
+    alignments(start, screen, pointer, guides)
+        .first()
+        .map(|aligned| Placement {
+            position: aligned.position,
+            snap: Snap::Aligned(aligned.guide.direction),
+        })
+}
+
+fn aligned_on(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    pointer: Pointer,
+    start: Point2,
+    snapped: Snapped,
+    guides: &[Guide],
+) -> Option<Placement> {
+    let on = |position: Point2, direction: Direction| Placement {
         position,
-        snap: Snap::Aligned(direction),
-    })
+        snap: Snap::AlignedOn(snapped.target, direction),
+    };
+    match snapped.target {
+        Target::Pending(_) => None,
+        Target::Point(_) => {
+            held(start, snapped.position, guides).map(|direction| on(snapped.position, direction))
+        }
+        Target::Curve(curve) => alignments(start, screen, pointer, guides)
+            .into_iter()
+            .find_map(|aligned| {
+                let crossing = snap::crossing_along(
+                    sketch,
+                    curve,
+                    start,
+                    aligned.guide.along,
+                    pointer.sketch,
+                )?;
+                let offset = screen.to_screen(crossing)?.distance(pointer.screen);
+                let away = crossing.distance(start) >= DEGENERATE_LENGTH;
+                (away && offset <= ALIGNED_CROSSING_TOLERANCE)
+                    .then(|| on(crossing, aligned.guide.direction))
+            }),
+    }
+}
+
+fn held(start: Point2, end: Point2, guides: &[Guide]) -> Option<Direction> {
+    let drawn = end - start;
+    let length = drawn.length();
+    if length < DEGENERATE_LENGTH {
+        return None;
+    }
+    guides
+        .iter()
+        .find(|guide| guide.along.perp_dot(drawn).abs() <= HELD_TOLERANCE * length)
+        .map(|guide| guide.direction)
 }
 
 fn continuing(sketch: &Sketch, point: EntityId) -> Option<Tangent> {
@@ -1009,10 +1254,8 @@ impl<'a> Draft<'a> {
             start,
             end: end_point,
         });
-        match end.snap {
-            Snap::Aligned(Direction::Horizontal) => self.constrain(Constraint::Horizontal(line)),
-            Snap::Aligned(Direction::Vertical) => self.constrain(Constraint::Vertical(line)),
-            Snap::Free | Snap::Target(_) => {}
+        if let Some(direction) = end.snap.direction() {
+            self.constrain(direction.constraint(line));
         }
         (start, end_point)
     }
@@ -1147,10 +1390,8 @@ impl<'a> Draft<'a> {
             self.constrain(Constraint::Tangent(line, arc));
         }
         self.constrain(Constraint::Equal(first_arc, second_arc));
-        match second.snap {
-            Snap::Aligned(Direction::Horizontal) => self.constrain(Constraint::Horizontal(top)),
-            Snap::Aligned(Direction::Vertical) => self.constrain(Constraint::Vertical(top)),
-            Snap::Free | Snap::Target(_) => {}
+        if let Some(direction) = second.snap.direction() {
+            self.constrain(direction.constraint(top));
         }
     }
 
@@ -1263,23 +1504,51 @@ mod tests {
         let screen = Scaled(10.0);
         let start = Point2::new(10.0, 10.0);
 
-        let level = align(start, &screen, pointer(Point2::new(40.0, 11.0))).unwrap();
+        let level = align(
+            start,
+            &screen,
+            pointer(Point2::new(40.0, 11.0)),
+            &LEVEL_AND_UPRIGHT,
+        )
+        .unwrap();
         assert_eq!(level.snap, Snap::Aligned(Direction::Horizontal));
         assert_eq!(level.position, Point2::new(40.0, 10.0));
 
-        let upright = align(start, &screen, pointer(Point2::new(10.4, -20.0))).unwrap();
+        let upright = align(
+            start,
+            &screen,
+            pointer(Point2::new(10.4, -20.0)),
+            &LEVEL_AND_UPRIGHT,
+        )
+        .unwrap();
         assert_eq!(upright.snap, Snap::Aligned(Direction::Vertical));
         assert_eq!(upright.position, Point2::new(10.0, -20.0));
 
-        let short = align(start, &screen, pointer(Point2::new(12.0, 10.5))).unwrap();
+        let short = align(
+            start,
+            &screen,
+            pointer(Point2::new(12.0, 10.5)),
+            &LEVEL_AND_UPRIGHT,
+        )
+        .unwrap();
         assert_eq!(short.position, Point2::new(12.0, 10.0));
 
         assert_eq!(
-            align(start, &screen, pointer(Point2::new(40.0, 13.0))),
+            align(
+                start,
+                &screen,
+                pointer(Point2::new(40.0, 13.0)),
+                &LEVEL_AND_UPRIGHT
+            ),
             None
         );
         assert_eq!(
-            align(start, &screen, pointer(Point2::new(10.8, 10.3))),
+            align(
+                start,
+                &screen,
+                pointer(Point2::new(10.8, 10.3)),
+                &LEVEL_AND_UPRIGHT
+            ),
             None
         );
     }
@@ -1301,7 +1570,7 @@ mod tests {
         let screen = Scaled(10.0);
 
         drawing.hover(&sketch, &screen, Some(pointer(Point2::new(40.0, 10.8))));
-        assert_eq!(drawing.snap_entity(), Some(lone));
+        assert_eq!(drawing.snap_entities(), vec![lone]);
 
         drawing.hover(&sketch, &screen, Some(pointer(Point2::new(30.0, 10.4))));
         assert_eq!(
@@ -1315,5 +1584,135 @@ mod tests {
         let preview = drawing.preview();
         assert_eq!(preview.curves.len(), 1);
         assert_eq!(preview.snap, Some(Point2::new(10.0, 10.0)));
+    }
+
+    fn drawing_a_line(sketch: &Sketch, start: Placement) -> Drawing {
+        let document = caditor_document::Document::default();
+        let feature = document.transaction("Sketch").add_feature(
+            "Sketch",
+            caditor_document::FeatureKind::from(sketch.clone()),
+        );
+        Drawing {
+            context: Some((feature, Tool::Line)),
+            placed: vec![start],
+            ..Drawing::default()
+        }
+    }
+
+    fn hovered_at(drawing: &mut Drawing, sketch: &Sketch, at: Point2) -> Option<Placement> {
+        drawing.hover(sketch, &Scaled(10.0), Some(pointer(at)));
+        drawing.hover
+    }
+
+    fn crosses(a: Vector2, b: Vector2) -> f64 {
+        a.normalize().perp_dot(b.normalize())
+    }
+
+    #[test]
+    fn a_line_end_turns_parallel_or_perpendicular_to_a_nearby_line() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let slanted = sketch.add_line(Point2::new(20.0, 20.0), Point2::new(50.0, 40.0));
+        let start = Point2::new(60.0, 10.0);
+        let mut drawing = drawing_a_line(&sketch, Placement::free(start));
+
+        let parallel = hovered_at(&mut drawing, &sketch, Point2::new(90.0, 30.3)).unwrap();
+        assert_eq!(parallel.snap, Snap::Aligned(Direction::Parallel(slanted)));
+        assert!(crosses(parallel.position - start, Vector2::new(30.0, 20.0)).abs() < 1e-12);
+        assert_eq!(
+            drawing.snap_label(&sketch),
+            Some(format!("Parallel to Line {slanted}"))
+        );
+        assert_eq!(drawing.snap_entities(), vec![slanted]);
+
+        let square = hovered_at(&mut drawing, &sketch, Point2::new(40.0, 40.4)).unwrap();
+        assert_eq!(
+            square.snap,
+            Snap::Aligned(Direction::Perpendicular(slanted))
+        );
+        assert!(
+            (square.position - start)
+                .dot(Vector2::new(30.0, 20.0))
+                .abs()
+                < 1e-9
+        );
+        assert_eq!(
+            drawing.snap_label(&sketch),
+            Some(format!("Perpendicular to Line {slanted}"))
+        );
+
+        let free = hovered_at(&mut drawing, &sketch, Point2::new(90.0, 33.0)).unwrap();
+        assert_eq!(free.snap, Snap::Free);
+        assert_eq!(drawing.snap_entities(), Vec::new());
+    }
+
+    #[test]
+    fn level_and_upright_win_over_a_nearly_level_line() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        sketch.add_line(Point2::new(10.0, 30.0), Point2::new(40.0, 31.0));
+        let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::new(10.0, 10.0)));
+
+        let level = hovered_at(&mut drawing, &sketch, Point2::new(40.0, 11.0)).unwrap();
+        assert_eq!(level.snap, Snap::Aligned(Direction::Horizontal));
+        assert_eq!(level.position, Point2::new(40.0, 10.0));
+    }
+
+    #[test]
+    fn a_chained_line_turns_square_to_the_last_but_never_continues_it() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let last = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(40.0, 30.0));
+        let end = sketch.entity(last).unwrap().points()[1];
+        let joined = Placement {
+            position: Point2::new(40.0, 30.0),
+            snap: Snap::Target(Target::Point(end)),
+        };
+        let mut drawing = drawing_a_line(&sketch, joined);
+
+        let straight_on = hovered_at(&mut drawing, &sketch, Point2::new(70.0, 50.3)).unwrap();
+        assert_eq!(straight_on.snap, Snap::Free);
+
+        let square = hovered_at(&mut drawing, &sketch, Point2::new(20.0, 60.4)).unwrap();
+        assert_eq!(square.snap, Snap::Aligned(Direction::Perpendicular(last)));
+    }
+
+    #[test]
+    fn a_line_ending_on_a_curve_keeps_its_direction_where_it_crosses() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let slanted = sketch.add_line(Point2::new(0.0, 40.0), Point2::new(60.0, 70.0));
+        let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::new(30.0, 10.0)));
+
+        let upright = hovered_at(&mut drawing, &sketch, Point2::new(30.3, 55.2)).unwrap();
+        assert_eq!(
+            upright.snap,
+            Snap::AlignedOn(Target::Curve(slanted), Direction::Vertical)
+        );
+        assert!(upright.position.distance(Point2::new(30.0, 55.0)) < 1e-12);
+        assert_eq!(
+            drawing.snap_label(&sketch),
+            Some(format!("On Line {slanted}, vertical"))
+        );
+        assert_eq!(drawing.snap_entities(), vec![slanted]);
+        assert_eq!(drawing.preview().snap, Some(upright.position));
+    }
+
+    #[test]
+    fn a_point_snap_keeps_a_direction_only_where_it_already_holds() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let level = sketch.add_point(Point2::new(40.0, 10.0));
+        let off = sketch.add_point(Point2::new(10.5, 40.0));
+        let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::new(10.0, 10.0)));
+
+        let held = hovered_at(&mut drawing, &sketch, Point2::new(40.3, 10.2)).unwrap();
+        assert_eq!(
+            held.snap,
+            Snap::AlignedOn(Target::Point(level), Direction::Horizontal)
+        );
+        assert_eq!(
+            drawing.snap_label(&sketch),
+            Some(format!("On Point {level}, horizontal"))
+        );
+
+        let not_held = hovered_at(&mut drawing, &sketch, Point2::new(10.4, 40.2)).unwrap();
+        assert_eq!(not_held.snap, Snap::Target(Target::Point(off)));
+        assert_eq!(not_held.position, Point2::new(10.5, 40.0));
     }
 }

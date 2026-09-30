@@ -32,6 +32,10 @@ The first release of caditor.
 - A typed point can be a length and an angle, such as `25 < 30` or `@25 < 30` from the last
   point, or a length alone, which goes from the last point toward the pointer. Typing a chain of
   line ends no longer starts a new chain after the first line.
+- A line or slot drawn nearly parallel or perpendicular to a nearby line of the sketch snaps to
+  it exactly and stays that way, with the label naming the line ("Parallel to Line 3") and the
+  line highlighted; level and upright still come first. A line ending on a curve keeps its
+  direction where it crosses it, so a vertical line can end exactly on a slanted one.
 - Sketch geometry can be dragged with the Select tool: a point, line, arc or spline follows the
   pointer, a circle grows or shrinks, and a selection moves together, each as far as its
   constraints allow and as one undoable change; Escape puts it back. M moves the selection to a
