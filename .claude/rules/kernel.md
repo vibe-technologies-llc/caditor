@@ -24,7 +24,8 @@ paths:
 ## Tolerances (`tolerance.rs`)
 
 - `LINEAR_RESOLUTION` is 1e-6 mm; `ANGULAR_RESOLUTION` moves a point at `MODEL_EXTENT` (10 m) by it.
-  `SamplingTolerance` (chord, angle) drives sampling; `Solid::default_tolerance` derives it.
+  `SamplingTolerance` (chord, angle) drives sampling; `Solid::default_tolerance` derives it, and
+  `MeshQuality` scales one to a solid's extent (`kernel-tessellation.md`).
 - Constructors reject non-finite and degenerate input (radii below `LINEAR_RESOLUTION` or above
   `MAX_SIZE`, a kilometre; extents beyond it), each with own error. Iterations are bounded; failures
   are errors, never panics.

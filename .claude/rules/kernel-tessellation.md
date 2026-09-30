@@ -27,10 +27,30 @@ paths:
   one ruling and have no area.
 - A face with a pole computes its density once per tolerance, for its pole edges and its grid alike.
 
+## Quality
+
+- `MeshQuality` (`tolerance.rs`) is a chord as a fraction of the solid's extent (its bounding box's
+  diagonal) plus an angle per segment; `tolerance(extent)` turns it into a `SamplingTolerance`.
+  `COARSE` (1e-3, 0.35 rad) is `Solid::default_tolerance` and `SamplingTolerance::for_extent`, for
+  validation, profiles and tests; `SMOOTH` (2.5e-4, 6°) is the default display quality.
+- The angle bounds every circle to at least 60 segments per turn whatever its radius, and every
+  curved grid direction alike; the relative chord takes over on radii large against the solid.
+- `Solid::display_mesh(quality)` meshes within `DISPLAY_POINTS` (2^20). Any failure but
+  cancellation (over the budget, a boundary still crossing after the retries) meshes again at the
+  quality made at least as coarse as `COARSE` in both terms (`MeshQuality::at_least`) with the full
+  `MAX_POINTS`, so a body is shown coarser rather than not at all.
+- Export does not use it: it has its own `MeshResolution` (`file-import-export.md`).
+
 ## `Mesh`
 
 - Holds shared positions, per-face vertices with exact surface normals, triangles, each face's
   triangle range and each edge's polyline.
+- Normals are the surface's analytic normal at each vertex (flipped by the face sense, nudged into
+  the triangle at a pole), so curved faces shade smoothly; vertices are per face, so a position
+  shared by a cylinder and its cap carries each face's own normal and the edge between them stays
+  crisp.
+- Edge polylines are the edge samplings the faces were triangulated with, so drawn outlines follow
+  the faces' silhouettes exactly.
 - Computes volume, area and centroid by the divergence theorem.
 
 ## Retries

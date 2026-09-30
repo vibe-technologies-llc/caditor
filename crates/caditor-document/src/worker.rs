@@ -8,7 +8,7 @@ use std::{
     thread,
 };
 
-use caditor_kernel::interruptible;
+use caditor_kernel::{MeshQuality, interruptible};
 use parking_lot::Mutex;
 
 use crate::{
@@ -54,6 +54,7 @@ enum Message {
         result: Arc<FeatureResult>,
         name: String,
     },
+    MeshQuality(MeshQuality),
 }
 
 struct Shared {
@@ -119,6 +120,12 @@ impl Recomputer {
             .map_err(|_| WorkerStopped)
     }
 
+    pub fn set_mesh_quality(&self, quality: MeshQuality) -> Result<(), WorkerStopped> {
+        self.jobs
+            .send(Message::MeshQuality(quality))
+            .map_err(|_| WorkerStopped)
+    }
+
     pub fn cancel(&self) {
         self.shared
             .cancelled
@@ -176,6 +183,7 @@ fn work(
                         meshes.push(PendingMesh { result, name });
                     }
                 }
+                Message::MeshQuality(quality) => recompute.set_mesh_quality(quality),
             }
         }
         if let Some(job) = latest {
@@ -204,7 +212,7 @@ fn work(
             }
             wake();
         }
-        mesh_pending(&mut meshes, shared, wake);
+        mesh_pending(&mut meshes, &recompute.mesh_quality(), shared, wake);
     }
 }
 
@@ -237,15 +245,20 @@ fn contained(
     };
     attempt(recompute).or_else(|Panicked| {
         log::error!("recompute panicked, so it runs again without its cache");
-        *recompute = Recompute::default();
+        recompute.clear_cache();
         attempt(recompute).inspect_err(|Panicked| {
             log::error!("recompute panicked again");
-            *recompute = Recompute::default();
+            recompute.clear_cache();
         })
     })
 }
 
-fn mesh_pending(meshes: &mut Vec<PendingMesh>, shared: &Arc<Shared>, wake: &dyn Fn()) {
+fn mesh_pending(
+    meshes: &mut Vec<PendingMesh>,
+    quality: &MeshQuality,
+    shared: &Arc<Shared>,
+    wake: &dyn Fn(),
+) {
     let sequence = shared.latest.load(Ordering::SeqCst);
     let watched = Arc::clone(shared);
     let cancel = CancelToken::new(move || watched.is_cancelled(sequence));
@@ -254,7 +267,9 @@ fn mesh_pending(meshes: &mut Vec<PendingMesh>, shared: &Arc<Shared>, wake: &dyn 
             return;
         }
         if let Some(solid) = pending.result.solid() {
-            interruptible(cancel.interrupt(), || solid.tessellate(&pending.name));
+            interruptible(cancel.interrupt(), || {
+                solid.tessellate(&pending.name, quality)
+            });
             if !solid.is_meshed() {
                 return;
             }

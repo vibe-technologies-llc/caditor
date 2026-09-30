@@ -190,6 +190,9 @@ The first release of caditor.
   and uses the power-saving graphics card of a laptop rather than waking the discrete one.
 - Changed bodies are prepared for display in the background, so the window stays responsive
   while a large body is redrawn after an edit.
+- Round bodies look round: cylinders, holes, revolved parts, fillets and other curved faces are
+  drawn with far more facets (at most 6° apart, however small the hole) and their outlines follow
+  the shading, instead of showing flat facets.
 - A large drawing is added to its sketch in the background, so importing thousands of curves no
   longer holds up the window, and an edit made while it is read is kept alongside it.
 - Sketches with thousands of curves no longer slow down every frame: how each sketch is shown

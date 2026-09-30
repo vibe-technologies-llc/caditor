@@ -57,6 +57,9 @@ paths:
 
 ## Bodies
 
+- Body meshes come from the recompute worker at its `MeshQuality` (`document-recompute.md`), smooth
+  by default; a quality preference would be passed through `Recomputer::set_mesh_quality` followed
+  by a new submission.
 - `BodyMeshing` (`bodies.rs`, in `Model`) converts each body's final mesh (and the state before the
   open blend or shell, once `Model::mesh_before` finds it meshed) into a `ShadedMesh` with edge
   polylines (no seams) on its own worker, once per result keyed by its `Arc`; requested on each

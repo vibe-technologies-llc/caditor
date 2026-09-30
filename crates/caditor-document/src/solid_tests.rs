@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
-use caditor_kernel::{Interrupt, ProfileError, interruptible};
+use caditor_kernel::{Interrupt, MeshQuality, ProfileError, interruptible};
 use caditor_sketch::{EntityId, Sketch, SketchSolution};
 
 use crate::*;
@@ -559,6 +559,90 @@ fn stored(text: &str) -> Expression {
 
 fn bounds(evaluation: &Evaluation, body: FeatureId) -> caditor_geometry::Aabb {
     evaluation.body(body).unwrap().bounding_box().unwrap()
+}
+
+fn extruded_circle() -> (Document, FeatureId) {
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_circle(Point2::ZERO, 10.0);
+    single_body(
+        extruded(ExtrudeExtent::OneSide {
+            distance: stored("20 mm"),
+            reversed: false,
+        }),
+        sketch,
+    )
+}
+
+fn shown_mesh(evaluation: &Evaluation, body: FeatureId) -> &caditor_kernel::Mesh {
+    evaluation
+        .body_result(body)
+        .and_then(|result| result.solid())
+        .and_then(SolidResult::mesh)
+        .unwrap()
+}
+
+#[test]
+fn bodies_are_meshed_at_the_recompute_mesh_quality_and_a_new_quality_meshes_them_again() {
+    let (document, body) = extruded_circle();
+    let mut engine = Recompute::default();
+
+    let smooth = evaluate(&document, &mut engine);
+    let smooth_mesh = shown_mesh(&smooth, body);
+    let solid = smooth.body(body).unwrap();
+
+    assert_eq!(engine.mesh_quality(), MeshQuality::SMOOTH);
+    assert_eq!(
+        smooth_mesh,
+        &solid.display_mesh(&MeshQuality::SMOOTH).unwrap()
+    );
+
+    engine.set_mesh_quality(MeshQuality::COARSE);
+    let coarse = evaluate(&document, &mut engine);
+    let coarse_mesh = shown_mesh(&coarse, body);
+
+    assert!(!Arc::ptr_eq(
+        smooth.body_result(body).unwrap(),
+        coarse.body_result(body).unwrap()
+    ));
+    assert_eq!(
+        coarse_mesh,
+        &solid.tessellate(&solid.default_tolerance()).unwrap()
+    );
+    assert!(smooth_mesh.triangles().len() > coarse_mesh.triangles().len());
+
+    engine.set_mesh_quality(MeshQuality::COARSE);
+    let again = evaluate(&document, &mut engine);
+
+    assert!(Arc::ptr_eq(
+        coarse.body_result(body).unwrap(),
+        again.body_result(body).unwrap()
+    ));
+}
+
+#[test]
+fn the_worker_meshes_bodies_at_the_quality_it_was_given() {
+    let (document, body) = extruded_circle();
+    let coarse = evaluate(
+        &document,
+        &mut Recompute::with_mesh_quality(MeshQuality::COARSE),
+    );
+    let mut worker = Recomputer::spawn(ModelEvaluator, || {}).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+
+    worker.set_mesh_quality(MeshQuality::COARSE).unwrap();
+    worker.submit(document, 1).unwrap();
+    let update = loop {
+        if let Some(update) = worker.poll().unwrap() {
+            break update;
+        }
+        assert!(std::time::Instant::now() < deadline, "no update arrived");
+        std::thread::yield_now();
+    };
+
+    assert_eq!(
+        shown_mesh(&update.evaluation, body),
+        shown_mesh(&coarse, body)
+    );
 }
 
 #[test]

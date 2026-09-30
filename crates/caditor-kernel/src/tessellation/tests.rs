@@ -416,3 +416,143 @@ fn a_mesh_needing_more_points_than_the_budget_is_refused() {
         format!("the mesh would need more than {MAX_POINTS} points")
     );
 }
+
+fn radial_distance(point: Point3, center: Point3) -> f64 {
+    (point - center).truncate().length()
+}
+
+fn assert_circle_edges_follow(solid: &Solid, mesh: &Mesh, center: Point3, radius: f64) {
+    let quality = MeshQuality::SMOOTH;
+    let chord = solid.tolerance_for(&quality).chord();
+    let circles: Vec<&EdgePolyline> = mesh
+        .edges()
+        .iter()
+        .filter(|polyline| solid.edge(polyline.edge).unwrap().is_closed())
+        .collect();
+
+    assert!(!circles.is_empty());
+    for polyline in circles {
+        let points: Vec<Point3> = polyline
+            .positions
+            .iter()
+            .map(|position| mesh.position(*position).unwrap())
+            .collect();
+        let edge = solid.edge(polyline.edge).unwrap();
+        let faces: Vec<FaceId> = edge
+            .coedges()
+            .iter()
+            .filter_map(|coedge| solid.coedge_face(*coedge))
+            .collect();
+
+        assert!(points.len() > (TAU / quality.angle()) as usize);
+        assert_eq!(faces.len(), 2);
+        for face in faces {
+            let range = mesh
+                .faces()
+                .iter()
+                .find(|found| found.face == face)
+                .unwrap();
+            let used: BTreeSet<u32> = mesh.triangles()[range.triangles.clone()]
+                .iter()
+                .flat_map(|triangle| mesh.triangle_positions(*triangle).unwrap())
+                .collect();
+            assert!(
+                polyline
+                    .positions
+                    .iter()
+                    .all(|position| used.contains(position)),
+                "the outline of {face:?} leaves its triangles"
+            );
+        }
+        for pair in points.windows(2) {
+            let (from, to) = ((pair[0] - center).truncate(), (pair[1] - center).truncate());
+            let step = from.angle_to(to).abs();
+            let sagitta = radius * (1.0 - (step / 2.0).cos());
+            assert!(step <= quality.angle() + 1e-9, "a {step} rad step");
+            assert!(sagitta <= chord + 1e-12, "a sagitta of {sagitta}");
+        }
+    }
+}
+
+#[test]
+fn a_displayed_cylinder_keeps_its_steps_within_the_angle_and_chord_and_shades_smoothly() {
+    let (radius, height) = (10.0, 20.0);
+    let solid = fixtures::cylinder(radius, height);
+    let mesh = solid.display_mesh(&MeshQuality::SMOOTH).unwrap();
+    let chord = solid.tolerance_for(&MeshQuality::SMOOTH).chord();
+    let coarse = solid.tessellate(&solid.default_tolerance()).unwrap();
+
+    assert_watertight("smooth cylinder", &mesh);
+    assert!(mesh.triangles().len() > coarse.triangles().len());
+    assert_circle_edges_follow(&solid, &mesh, Point3::ZERO, radius);
+
+    for face in mesh.faces() {
+        let curved = matches!(
+            solid.face(face.face).unwrap().surface(),
+            crate::surface::Surface::Cylinder(_)
+        );
+        for triangle in &mesh.triangles()[face.triangles.clone()] {
+            let corners = mesh.corner_points(*triangle).unwrap();
+            for (corner, point) in triangle.iter().zip(corners) {
+                let normal = mesh.vertices()[*corner as usize].normal;
+                let expected = if curved {
+                    (point - Point3::new(0.0, 0.0, point.z)).normalize()
+                } else if point.z > 0.5 * height {
+                    Vector3::Z
+                } else {
+                    Vector3::NEG_Z
+                };
+                assert!(
+                    normal.distance(expected) < 1e-9,
+                    "{normal} at {point} should be {expected}"
+                );
+            }
+            if curved {
+                let [a, b, c] = corners;
+                for inside in [
+                    (a + b + c) / 3.0,
+                    (a + b) * 0.5,
+                    (b + c) * 0.5,
+                    (c + a) * 0.5,
+                ] {
+                    let deviation = radius - radial_distance(inside, Point3::ZERO);
+                    assert!(deviation <= chord + 1e-12, "{deviation} off the cylinder");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn a_small_hole_in_a_large_block_is_as_round_as_a_large_one() {
+    let (side, radius) = (100.0, 2.0);
+    let solid = fixtures::holed_block(side, 10.0, radius);
+    let mesh = solid.display_mesh(&MeshQuality::SMOOTH).unwrap();
+
+    assert_watertight("smooth holed block", &mesh);
+    assert_circle_edges_follow(
+        &solid,
+        &mesh,
+        Point3::new(0.5 * side, 0.5 * side, 0.0),
+        radius,
+    );
+}
+
+#[test]
+fn a_display_mesh_over_its_budget_falls_back_to_the_coarse_quality() {
+    let ball = fixtures::sphere(5.0);
+    let extent = ball.bounding_box().unwrap().diagonal();
+    let smooth = ball.display_mesh(&MeshQuality::SMOOTH).unwrap();
+    let coarse = ball.tessellate(&ball.default_tolerance()).unwrap();
+    let limit = smooth.positions().len() / 2;
+
+    assert!(smooth.positions().len() > coarse.positions().len());
+    assert_eq!(
+        tessellate_for_display(&ball, extent, &MeshQuality::SMOOTH, limit),
+        Ok(coarse.clone())
+    );
+    assert_eq!(
+        tessellate_for_display(&ball, extent, &MeshQuality::COARSE, 10),
+        Err(TessellationError::TooLarge)
+    );
+}

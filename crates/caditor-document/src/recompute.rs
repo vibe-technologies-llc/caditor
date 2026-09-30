@@ -6,7 +6,7 @@ use std::{
 };
 
 use caditor_expression::{Dimension, EvalError, ParameterId, Quantity};
-use caditor_kernel::{Interrupt, Profile, ProfileError, Solid, interruptible};
+use caditor_kernel::{Interrupt, MeshQuality, Profile, ProfileError, Solid, interruptible};
 use caditor_sketch::{
     ConstraintId, DimensionError, EntityId, Sketch, SketchError, SketchSolution, SolveMemo, Solved,
 };
@@ -396,9 +396,32 @@ impl CacheEntry {
 #[derive(Debug, Clone, Default)]
 pub struct Recompute {
     cache: BTreeMap<FeatureId, CacheEntry>,
+    mesh_quality: MeshQuality,
 }
 
 impl Recompute {
+    pub fn with_mesh_quality(mesh_quality: MeshQuality) -> Self {
+        Self {
+            cache: BTreeMap::new(),
+            mesh_quality,
+        }
+    }
+
+    pub fn mesh_quality(&self) -> MeshQuality {
+        self.mesh_quality
+    }
+
+    pub fn set_mesh_quality(&mut self, mesh_quality: MeshQuality) {
+        if self.mesh_quality != mesh_quality {
+            self.mesh_quality = mesh_quality;
+            self.clear_cache();
+        }
+    }
+
+    pub(crate) fn clear_cache(&mut self) {
+        self.cache.clear();
+    }
+
     pub fn run(
         &mut self,
         document: &Document,
@@ -560,7 +583,9 @@ impl Recompute {
                 let name = document
                     .feature(*body)
                     .map_or("a feature", |feature| feature.name.as_str());
-                interruptible(cancel.interrupt(), || solid.tessellate(name));
+                interruptible(cancel.interrupt(), || {
+                    solid.tessellate(name, &self.mesh_quality);
+                });
             }
         }
         let meshed = shown.values().all(|state| {
