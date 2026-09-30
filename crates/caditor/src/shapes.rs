@@ -1,7 +1,7 @@
 use std::f64::consts::{PI, TAU};
 
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{ArcGeometry, MAX_LENGTH};
+use caditor_sketch::{ArcGeometry, Faceting, MAX_LENGTH};
 
 pub const MIN_SIDES: usize = 3;
 pub const MAX_SIDES: usize = 64;
@@ -102,11 +102,11 @@ impl Slot {
         ]
     }
 
-    pub fn outline(&self, max_segment_angle: f64) -> Vec<Point2> {
+    pub fn outline(&self, faceting: Faceting) -> Vec<Point2> {
         let [first, second] = self.centers;
         let [a, b, c, d] = self.corners();
-        let mut outline = ArcGeometry::from_points(second, a, b).polyline(max_segment_angle);
-        outline.extend(ArcGeometry::from_points(first, c, d).polyline(max_segment_angle));
+        let mut outline = ArcGeometry::from_points(second, a, b).faceted(faceting);
+        outline.extend(ArcGeometry::from_points(first, c, d).faceted(faceting));
         outline.push(a);
         outline
     }
@@ -196,21 +196,17 @@ impl ArcSlot {
         ]
     }
 
-    pub fn outline(&self, max_segment_angle: f64) -> Vec<Point2> {
+    pub fn outline(&self, faceting: Faceting) -> Vec<Point2> {
         let [first, last] = self.ends;
         let [outer_first, outer_last, inner_first, inner_last] = self.corners();
-        let mut inner = ArcGeometry::from_points(self.center, inner_first, inner_last)
-            .polyline(max_segment_angle);
+        let mut inner =
+            ArcGeometry::from_points(self.center, inner_first, inner_last).faceted(faceting);
         inner.reverse();
-        let mut outline = ArcGeometry::from_points(self.center, outer_first, outer_last)
-            .polyline(max_segment_angle);
-        outline.extend(
-            ArcGeometry::from_points(last, outer_last, inner_last).polyline(max_segment_angle),
-        );
+        let mut outline =
+            ArcGeometry::from_points(self.center, outer_first, outer_last).faceted(faceting);
+        outline.extend(ArcGeometry::from_points(last, outer_last, inner_last).faceted(faceting));
         outline.extend(inner);
-        outline.extend(
-            ArcGeometry::from_points(first, inner_first, outer_first).polyline(max_segment_angle),
-        );
+        outline.extend(ArcGeometry::from_points(first, inner_first, outer_first).faceted(faceting));
         outline
     }
 }
@@ -355,17 +351,10 @@ mod tests {
         assert!(near(b, Point2::new(10.0, 3.0)));
         assert!(near(c, Point2::new(0.0, 3.0)));
         assert!(near(d, Point2::new(0.0, -3.0)));
-        let outline = slot.outline(PI / 8.0);
-        assert!(
-            outline
-                .iter()
-                .any(|point| near(*point, Point2::new(13.0, 0.0)))
-        );
-        assert!(
-            outline
-                .iter()
-                .any(|point| near(*point, Point2::new(-3.0, 0.0)))
-        );
+        let outline = slot.outline(Faceting::within(1e-4));
+        for bulge in [Point2::new(13.0, 0.0), Point2::new(-3.0, 0.0)] {
+            assert!(outline.iter().any(|point| point.distance(bulge) < 0.05));
+        }
 
         assert_eq!(Slot::new(Point2::ZERO, Point2::ZERO, Point2::Y), None);
         assert_eq!(
@@ -515,7 +504,7 @@ mod tests {
         )
         .unwrap();
 
-        let outline = slot.outline(PI / 64.0);
+        let outline = slot.outline(Faceting::within(1e-4));
         let reaches = |bulge: Point2| outline.iter().any(|point| point.distance(bulge) < 0.06);
 
         assert!(near(slot.ends[1], Point2::new(0.0, 10.0)));

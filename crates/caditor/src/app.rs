@@ -924,13 +924,9 @@ impl Session {
     fn export_image(&mut self, model: &mut Model, files: &mut Files) {
         if let Some(job) = files.image_job() {
             let workspace = &self.workspace;
-            let image = workspace.viewport.image(
-                model.document(),
-                model.evaluation(),
-                model.display(),
-                &workspace.editing,
-                job.size,
-            );
+            let image = workspace
+                .viewport
+                .image(model, &workspace.editing, job.size);
             let started = self.renderer.render_image(&ImageRequest {
                 size: job.size,
                 view: &image.view,
@@ -995,25 +991,22 @@ impl Session {
         model.mesh_before(self.workspace.editing.context().solid);
         self.export_image(model, files);
         let workspace = &mut self.workspace;
-        let built = workspace.viewport.build_scene(
-            model.document(),
-            model.evaluation(),
-            model.display(),
-            &workspace.editing,
-        );
-        let request = workspace
-            .viewport
-            .request(&built, !self.renderer.is_pick_pending());
+        workspace.viewport.build_scene(model, &workspace.editing);
+        let request = workspace.viewport.request(!self.renderer.is_pick_pending());
         let pick_requested = request
             .as_ref()
             .is_some_and(|request| request.pick_at.is_some());
-        let viewport_frame = request.as_ref().map(|request| ViewportFrame {
-            rect: request.rect,
-            view: &request.view,
-            scene: &built.scene,
-            pick_at: request.pick_at,
-            pixels_per_point: request.pixels_per_point,
-        });
+        let scene = workspace.viewport.scene();
+        let viewport_frame = request
+            .as_ref()
+            .zip(scene)
+            .map(|(request, scene)| ViewportFrame {
+                rect: request.rect,
+                view: &request.view,
+                scene,
+                pick_at: request.pick_at,
+                pixels_per_point: request.pixels_per_point,
+            });
 
         let repaint_after = ui.repaint_after;
         let hidden = self.hidden_until.filter(|until| now < *until);

@@ -1,8 +1,8 @@
-use std::f64::consts::PI;
-
 use caditor_document::{FeatureId, Transaction};
 use caditor_geometry::Point2;
-use caditor_sketch::{Entity, EntityId, ExtendError, Extension, Piece, Sketch, TrimError};
+use caditor_sketch::{
+    Entity, EntityId, ExtendError, Extension, Faceting, Piece, Sketch, TrimError,
+};
 
 use crate::{
     drawing::Preview,
@@ -13,7 +13,6 @@ use crate::{
     snap::{self, Pointer, Screen},
 };
 
-const PREVIEW_SEGMENT_ANGLE: f64 = PI / 60.0;
 const CARRIER_TOLERANCE: f64 = 1e-7;
 const NOTHING_TO_TRIM: &str = "The sketch has no line, circle or arc to trim";
 const NOTHING_TO_EXTEND: &str = "The sketch has no line or arc to extend";
@@ -246,19 +245,19 @@ impl Trimming {
         }
     }
 
-    pub fn preview(&self) -> Preview {
+    pub fn preview(&self, faceting: Faceting) -> Preview {
         let mut preview = Preview::default();
         if let Some(path) = &self.path {
             preview.removed = path
                 .crossed
                 .iter()
-                .map(|piece| piece.polyline(PREVIEW_SEGMENT_ANGLE))
+                .map(|piece| piece.faceted(faceting))
                 .collect();
             return preview;
         }
         match self.aim().map(|aim| &aim.outcome) {
             Some(Outcome::Trim(Ok(piece))) => {
-                preview.removed.push(piece.polyline(PREVIEW_SEGMENT_ANGLE));
+                preview.removed.push(piece.faceted(faceting));
                 preview.points = [piece.start, piece.end]
                     .into_iter()
                     .flatten()
@@ -266,9 +265,7 @@ impl Trimming {
                     .collect();
             }
             Some(Outcome::Extend(Ok(extension))) => {
-                preview
-                    .curves
-                    .push(extension.polyline(PREVIEW_SEGMENT_ANGLE));
+                preview.curves.push(extension.faceted(faceting));
                 preview.snap = Some(extension.to);
             }
             _ => {}

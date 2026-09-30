@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{ops::Range, sync::Arc};
 
 use caditor_geometry::{Point2, Point3, Vector3};
 use glam::{DVec2, Vec3};
@@ -9,7 +9,7 @@ use crate::{
     image::{self, Background, ChannelOrder, ImageReadback, ImageRequest, TileReadback},
     mesh::{MESH_VERTEX_STRIDE, MeshCache},
     picking::{self, PickTargets, PickWindow, Picking},
-    scene::{Fill, Grid, Layer, PickId, Primitive, Scene, ViewportRect},
+    scene::{Batch, Fill, Grid, Layer, PickId, Primitive, Scene, ViewportRect},
     settings::Shading,
 };
 
@@ -26,7 +26,8 @@ const LINE_STRIDE: u64 = 60;
 const MARKER_STRIDE: u64 = 44;
 const FILL_VERTEX_STRIDE: u64 = 40;
 const FILL_TRIANGLE_STRIDE: u64 = FILL_VERTEX_STRIDE * 3;
-const VIEW_UNIFORM_SIZE: u64 = 144;
+const VIEW_UNIFORM_SIZE: u64 = 160;
+const REANCHOR_DISTANCES: f64 = 4.0;
 const KEY_LIGHT_UP: f64 = 0.8;
 const KEY_LIGHT_LEFT: f64 = 0.5;
 const FILL_LIGHT_DOWN: f64 = 0.35;
@@ -191,18 +192,248 @@ struct SceneTargets {
     depth: wgpu::TextureView,
 }
 
-#[derive(Default)]
-struct Counts {
-    lines: u32,
-    markers: u32,
-    fill_vertices: u32,
-    pick_fills: PickFills,
+#[derive(Debug, Clone, PartialEq)]
+struct FillSpan {
+    slot: usize,
+    vertices: Range<u32>,
+    centroid: Option<Point3>,
+    in_front: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Facing {
+    eye: Point3,
+    forward: Vector3,
+}
+
+impl Facing {
+    fn of(view: &View) -> Self {
+        Self {
+            eye: view.eye(),
+            forward: view.forward(),
+        }
+    }
+
+    fn depth(self, point: Point3) -> f64 {
+        (point - self.eye).dot(self.forward)
+    }
 }
 
 #[derive(Default)]
-struct PickFills {
-    reference_vertices: u32,
-    nearer_vertices: u32,
+struct FillOrder {
+    sorted_for: Option<Facing>,
+    draws: Vec<(usize, Range<u32>)>,
+}
+
+struct GpuBatch {
+    shown: Option<Arc<Batch>>,
+    anchor: Point3,
+    lines: GrowableBuffer,
+    markers: GrowableBuffer,
+    fills: GrowableBuffer,
+    pick_fills: GrowableBuffer,
+    line_count: u32,
+    marker_count: u32,
+    fill_vertices: u32,
+    fill_spans: Vec<FillSpan>,
+    reference_pick_vertices: u32,
+    nearer_pick_vertices: u32,
+}
+
+impl GpuBatch {
+    fn new(device: &wgpu::Device) -> Self {
+        Self {
+            shown: None,
+            anchor: Point3::ZERO,
+            lines: GrowableBuffer::new(device, "lines", wgpu::BufferUsages::VERTEX),
+            markers: GrowableBuffer::new(device, "markers", wgpu::BufferUsages::VERTEX),
+            fills: GrowableBuffer::new(device, "fills", wgpu::BufferUsages::VERTEX),
+            pick_fills: GrowableBuffer::new(device, "pick fills", wgpu::BufferUsages::VERTEX),
+            line_count: 0,
+            marker_count: 0,
+            fill_vertices: 0,
+            fill_spans: Vec::new(),
+            reference_pick_vertices: 0,
+            nearer_pick_vertices: 0,
+        }
+    }
+
+    fn holds(&self, batch: &Arc<Batch>, anchor: Point3) -> bool {
+        self.anchor == anchor
+            && self
+                .shown
+                .as_ref()
+                .is_some_and(|shown| Arc::ptr_eq(shown, batch))
+    }
+
+    fn upload(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        staging: &mut Bytes,
+        uploaded: Uploaded<'_>,
+    ) {
+        let Uploaded {
+            batch,
+            anchor,
+            slot,
+        } = uploaded;
+        staging.clear();
+        for line in &batch.lines {
+            staging
+                .vec3(relative_to_eye(line.start, anchor))
+                .vec3(relative_to_eye(line.end, anchor))
+                .floats(&line.color.to_array())
+                .f32(line.width)
+                .u32(PickId::raw(line.pick))
+                .f32(line.layer.depth_bias(Primitive::Line))
+                .f32(line.stroke.along())
+                .u32(u32::from(line.layer.draws_in_front()));
+        }
+        self.line_count = count(self.lines.upload(device, queue, staging, LINE_STRIDE));
+
+        staging.clear();
+        for marker in &batch.markers {
+            staging
+                .vec3(relative_to_eye(marker.position, anchor))
+                .floats(&marker.color.to_array())
+                .f32(marker.diameter)
+                .u32(PickId::raw(marker.pick))
+                .f32(marker.layer.depth_bias(Primitive::Marker))
+                .u32(u32::from(marker.layer.draws_in_front()));
+        }
+        self.marker_count = count(self.markers.upload(device, queue, staging, MARKER_STRIDE));
+
+        staging.clear();
+        let mut written = 0u32;
+        let mut spans = Vec::with_capacity(batch.fills.len());
+        for fill in &batch.fills {
+            let start = written;
+            written = written.saturating_add(stage_fill(staging, fill, anchor));
+            spans.push(FillSpan {
+                slot,
+                vertices: start..written,
+                centroid: fill.centroid(),
+                in_front: fill.layer.draws_in_front(),
+            });
+        }
+        self.fill_vertices = count(
+            self.fills
+                .upload(device, queue, staging, FILL_TRIANGLE_STRIDE)
+                .saturating_mul(3),
+        );
+        let uploaded = self.fill_vertices;
+        self.fill_spans = spans
+            .into_iter()
+            .map(|span| FillSpan {
+                vertices: span.vertices.start.min(uploaded)..span.vertices.end.min(uploaded),
+                ..span
+            })
+            .filter(|span| !span.vertices.is_empty())
+            .collect();
+
+        self.upload_pick_fills(device, queue, staging, &batch.fills, anchor);
+        self.shown = Some(Arc::clone(batch));
+        self.anchor = anchor;
+    }
+
+    fn upload_pick_fills(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        staging: &mut Bytes,
+        fills: &[Fill],
+        anchor: Point3,
+    ) {
+        staging.clear();
+        let pickable = fills.iter().filter(|fill| fill.pick.is_some());
+        let (reference, nearer): (Vec<&Fill>, Vec<&Fill>) =
+            pickable.partition(|fill| fill.layer == Layer::Reference);
+        let mut stage = |fills: Vec<&Fill>| {
+            fills.into_iter().fold(0u32, |written, fill| {
+                written.saturating_add(stage_fill(staging, fill, anchor))
+            })
+        };
+        let reference_written = stage(reference);
+        let nearer_written = stage(nearer);
+
+        let uploaded = count(
+            self.pick_fills
+                .upload(device, queue, staging, FILL_TRIANGLE_STRIDE)
+                .saturating_mul(3),
+        );
+        self.reference_pick_vertices = reference_written.min(uploaded);
+        self.nearer_pick_vertices =
+            nearer_written.min(uploaded.saturating_sub(self.reference_pick_vertices));
+    }
+
+    fn draw_lines(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &wgpu::RenderPipeline) {
+        if self.line_count == 0 {
+            return;
+        }
+        pass.set_pipeline(pipeline);
+        pass.set_vertex_buffer(
+            0,
+            self.lines.slice(u64::from(self.line_count) * LINE_STRIDE),
+        );
+        pass.draw(0..QUAD_VERTICES, 0..self.line_count);
+    }
+
+    fn draw_markers(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &wgpu::RenderPipeline) {
+        if self.marker_count == 0 {
+            return;
+        }
+        pass.set_pipeline(pipeline);
+        pass.set_vertex_buffer(
+            0,
+            self.markers
+                .slice(u64::from(self.marker_count) * MARKER_STRIDE),
+        );
+        pass.draw(0..QUAD_VERTICES, 0..self.marker_count);
+    }
+
+    fn bind_fills(&self, pass: &mut wgpu::RenderPass<'_>) {
+        pass.set_vertex_buffer(
+            0,
+            self.fills
+                .slice(u64::from(self.fill_vertices) * FILL_VERTEX_STRIDE),
+        );
+    }
+
+    fn draw_pick_fills(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        vertices: Range<u32>,
+    ) {
+        if vertices.is_empty() {
+            return;
+        }
+        pass.set_pipeline(pipeline);
+        pass.set_vertex_buffer(
+            0,
+            self.pick_fills
+                .slice(u64::from(vertices.end) * FILL_VERTEX_STRIDE),
+        );
+        pass.draw(vertices, 0..1);
+    }
+
+    fn reference_pick_fills(&self) -> Range<u32> {
+        0..self.reference_pick_vertices
+    }
+
+    fn nearer_pick_fills(&self) -> Range<u32> {
+        self.reference_pick_vertices
+            ..self
+                .reference_pick_vertices
+                .saturating_add(self.nearer_pick_vertices)
+    }
+}
+
+struct Uploaded<'a> {
+    batch: &'a Arc<Batch>,
+    anchor: Point3,
+    slot: usize,
 }
 
 pub struct ViewportRenderer {
@@ -215,10 +446,11 @@ pub struct ViewportRenderer {
     view_uniform: Uniform,
     pick_view_uniform: Uniform,
     grid_uniform: Uniform,
-    lines: GrowableBuffer,
-    markers: GrowableBuffer,
-    fills: GrowableBuffer,
-    pick_fills: GrowableBuffer,
+    batches: Vec<GpuBatch>,
+    anchor: Option<Point3>,
+    fill_order: FillOrder,
+    #[cfg(test)]
+    work: Work,
     meshes: MeshCache,
     staging: Bytes,
     targets: Option<SceneTargets>,
@@ -261,10 +493,11 @@ impl ViewportRenderer {
             grid_uniform: Uniform::new(device, &grid_layout, "grid", GRID_UNIFORM_SIZE),
             view_layout,
             grid_layout,
-            lines: GrowableBuffer::new(device, "lines", wgpu::BufferUsages::VERTEX),
-            markers: GrowableBuffer::new(device, "markers", wgpu::BufferUsages::VERTEX),
-            fills: GrowableBuffer::new(device, "fills", wgpu::BufferUsages::VERTEX),
-            pick_fills: GrowableBuffer::new(device, "pick fills", wgpu::BufferUsages::VERTEX),
+            batches: Vec::new(),
+            anchor: None,
+            fill_order: FillOrder::default(),
+            #[cfg(test)]
+            work: Work::default(),
             meshes,
             staging: Bytes::default(),
             targets: None,
@@ -318,9 +551,9 @@ impl ViewportRenderer {
         self.ensure_targets(device, surface.width, surface.height);
         let viewport =
             viewport.filter(|viewport| viewport.rect.width >= 1.0 && viewport.rect.height >= 1.0);
-        let counts = viewport.map_or_else(Counts::default, |viewport| {
-            self.upload(device, queue, viewport)
-        });
+        if let Some(viewport) = viewport {
+            self.upload(device, queue, viewport);
+        }
 
         let Some(targets) = self.targets.as_ref() else {
             return;
@@ -366,11 +599,11 @@ impl ViewportRenderer {
             1.0,
         );
         pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
-        self.draw_scene(&mut pass, &counts, viewport.scene.grid.is_some());
+        self.draw_scene(&mut pass, viewport.scene.grid.is_some());
         drop(pass);
 
         if let Some(cursor) = viewport.pick_at {
-            self.draw_pick(encoder, viewport.view, cursor, &counts);
+            self.draw_pick(encoder, viewport.view, cursor);
         }
     }
 
@@ -395,7 +628,7 @@ impl ViewportRenderer {
             pick_at: None,
             pixels_per_point: request.pixels_per_point,
         };
-        let counts = self.upload(device, queue, &frame);
+        self.upload(device, queue, &frame);
         let tiles = image::tiles(size, tile_side);
         let targets = ImageTargets::new(
             device,
@@ -415,10 +648,14 @@ impl ViewportRenderer {
         let grid = request.scene.grid.is_some();
 
         let mut readbacks = Vec::with_capacity(tiles.len());
+        let anchor = self.anchor.unwrap_or_else(|| request.view.eye());
         for tile in tiles {
             view_uniform(
                 &mut self.staging,
-                request.view,
+                &AnchoredView {
+                    view: request.view,
+                    anchor,
+                },
                 pixels_per_point,
                 self.shading,
                 image::tile_transform(tile, size),
@@ -436,7 +673,7 @@ impl ViewportRenderer {
             let mut pass = targets.begin_pass(&mut encoder, clear);
             pass.set_viewport(0.0, 0.0, tile.width as f32, tile.height as f32, 0.0, 1.0);
             pass.set_scissor_rect(0, 0, tile.width, tile.height);
-            self.draw_scene(&mut pass, &counts, grid);
+            self.draw_scene(&mut pass, grid);
             drop(pass);
             encoder.copy_texture_to_buffer(
                 targets.resolved.as_image_copy(),
@@ -460,118 +697,72 @@ impl ViewportRenderer {
         Some(ImageReadback::new(size, order, readbacks))
     }
 
-    fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, counts: &Counts, grid: bool) {
+    fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, grid: bool) {
         pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
         self.meshes.draw(pass, &self.pipelines.meshes);
-        self.draw_lines(pass, &self.pipelines.lines, counts);
-        self.draw_markers(pass, &self.pipelines.markers, counts);
+        for batch in &self.batches {
+            batch.draw_lines(pass, &self.pipelines.lines);
+        }
+        for batch in &self.batches {
+            batch.draw_markers(pass, &self.pipelines.markers);
+        }
         if grid {
             pass.set_pipeline(&self.pipelines.grid);
             pass.set_bind_group(1, &self.grid_uniform.bind_group, &[]);
             pass.draw(0..QUAD_VERTICES, 0..1);
         }
-        self.draw_fills(pass, &self.pipelines.fills, counts);
+        self.draw_fills(pass);
     }
 
-    fn draw_lines(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        pipeline: &wgpu::RenderPipeline,
-        counts: &Counts,
-    ) {
-        if counts.lines == 0 {
-            return;
+    fn draw_fills(&self, pass: &mut wgpu::RenderPass<'_>) {
+        let mut bound = None;
+        for (slot, vertices) in &self.fill_order.draws {
+            let Some(batch) = self.batches.get(*slot) else {
+                continue;
+            };
+            if bound.is_none() {
+                pass.set_pipeline(&self.pipelines.fills);
+            }
+            if bound != Some(*slot) {
+                batch.bind_fills(pass);
+                bound = Some(*slot);
+            }
+            pass.draw(vertices.clone(), 0..1);
         }
-        pass.set_pipeline(pipeline);
-        pass.set_vertex_buffer(0, self.lines.slice(u64::from(counts.lines) * LINE_STRIDE));
-        pass.draw(0..QUAD_VERTICES, 0..counts.lines);
     }
 
-    fn draw_markers(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        pipeline: &wgpu::RenderPipeline,
-        counts: &Counts,
-    ) {
-        if counts.markers == 0 {
-            return;
-        }
-        pass.set_pipeline(pipeline);
-        pass.set_vertex_buffer(
-            0,
-            self.markers
-                .slice(u64::from(counts.markers) * MARKER_STRIDE),
-        );
-        pass.draw(0..QUAD_VERTICES, 0..counts.markers);
-    }
-
-    fn draw_fills(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        pipeline: &wgpu::RenderPipeline,
-        counts: &Counts,
-    ) {
-        if counts.fill_vertices == 0 {
-            return;
-        }
-        pass.set_pipeline(pipeline);
-        pass.set_vertex_buffer(
-            0,
-            self.fills
-                .slice(u64::from(counts.fill_vertices) * FILL_VERTEX_STRIDE),
-        );
-        pass.draw(0..counts.fill_vertices, 0..1);
-    }
-
-    fn draw_pick(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        view: &View,
-        cursor: DVec2,
-        counts: &Counts,
-    ) {
+    fn draw_pick(&mut self, encoder: &mut wgpu::CommandEncoder, view: &View, cursor: DVec2) {
         let Some(targets) = self.picking.prepared() else {
             return;
         };
-        let fills = &counts.pick_fills;
         let mut behind = begin_pick_pass(encoder, targets, "pick reference fills", true);
         behind.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
-        self.draw_pick_fills(
-            &mut behind,
-            &self.pipelines.pick_reference_fills,
-            0..fills.reference_vertices,
-        );
+        for batch in &self.batches {
+            batch.draw_pick_fills(
+                &mut behind,
+                &self.pipelines.pick_reference_fills,
+                batch.reference_pick_fills(),
+            );
+        }
         drop(behind);
         let mut pass = begin_pick_pass(encoder, targets, "pick", false);
         pass.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
         self.meshes.draw(&mut pass, &self.pipelines.pick_meshes);
-        self.draw_pick_fills(
-            &mut pass,
-            &self.pipelines.pick_fills,
-            fills.reference_vertices..fills.reference_vertices + fills.nearer_vertices,
-        );
-        self.draw_lines(&mut pass, &self.pipelines.pick_lines, counts);
-        self.draw_markers(&mut pass, &self.pipelines.pick_markers, counts);
+        for batch in &self.batches {
+            batch.draw_pick_fills(
+                &mut pass,
+                &self.pipelines.pick_fills,
+                batch.nearer_pick_fills(),
+            );
+        }
+        for batch in &self.batches {
+            batch.draw_lines(&mut pass, &self.pipelines.pick_lines);
+        }
+        for batch in &self.batches {
+            batch.draw_markers(&mut pass, &self.pipelines.pick_markers);
+        }
         drop(pass);
         self.picking.encode_readback(encoder, *view, cursor);
-    }
-
-    fn draw_pick_fills(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        pipeline: &wgpu::RenderPipeline,
-        vertices: Range<u32>,
-    ) {
-        if vertices.is_empty() {
-            return;
-        }
-        pass.set_pipeline(pipeline);
-        pass.set_vertex_buffer(
-            0,
-            self.pick_fills
-                .slice(u64::from(vertices.end) * FILL_VERTEX_STRIDE),
-        );
-        pass.draw(vertices, 0..1);
     }
 
     fn ensure_targets(&mut self, device: &wgpu::Device, width: u32, height: u32) {
@@ -609,20 +800,18 @@ impl ViewportRenderer {
         });
     }
 
-    fn upload(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        viewport: &ViewportFrame<'_>,
-    ) -> Counts {
+    fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, viewport: &ViewportFrame<'_>) {
         let view = viewport.view;
         let scene = viewport.scene;
-        let eye = view.eye();
+        let anchored = AnchoredView {
+            view,
+            anchor: self.anchor_for(view),
+        };
 
         let pixels_per_point = valid_scale(viewport.pixels_per_point);
         view_uniform(
             &mut self.staging,
-            view,
+            &anchored,
             pixels_per_point,
             self.shading,
             WHOLE_VIEW,
@@ -635,7 +824,7 @@ impl ViewportRenderer {
         {
             view_uniform(
                 &mut self.staging,
-                view,
+                &anchored,
                 pixels_per_point,
                 self.shading,
                 picking::pick_transform(cursor, view.size(), window),
@@ -647,87 +836,139 @@ impl ViewportRenderer {
             queue.write_buffer(&self.grid_uniform.buffer, 0, self.staging.as_slice());
         }
 
-        self.meshes.prepare(device, queue, &scene.meshes, eye);
-
-        self.staging.clear();
-        for line in &scene.lines {
-            self.staging
-                .vec3(relative_to_eye(line.start, eye))
-                .vec3(relative_to_eye(line.end, eye))
-                .floats(&line.color.to_array())
-                .f32(line.width)
-                .u32(PickId::raw(line.pick))
-                .f32(line.layer.depth_bias(Primitive::Line))
-                .f32(line.stroke.along())
-                .u32(u32::from(line.layer.draws_in_front()));
-        }
-        let lines = self.lines.upload(device, queue, &self.staging, LINE_STRIDE);
-
-        self.staging.clear();
-        for marker in &scene.markers {
-            self.staging
-                .vec3(relative_to_eye(marker.position, eye))
-                .floats(&marker.color.to_array())
-                .f32(marker.diameter)
-                .u32(PickId::raw(marker.pick))
-                .f32(marker.layer.depth_bias(Primitive::Marker))
-                .u32(u32::from(marker.layer.draws_in_front()));
-        }
-        let markers = self
-            .markers
-            .upload(device, queue, &self.staging, MARKER_STRIDE);
-
-        self.staging.clear();
-        for fill in fills_back_to_front(&scene.fills, view) {
-            stage_fill(&mut self.staging, fill, eye);
-        }
-        let fill_triangles = self
-            .fills
-            .upload(device, queue, &self.staging, FILL_TRIANGLE_STRIDE);
-
-        let pick_fills = match viewport.pick_at {
-            Some(_) => self.upload_pick_fills(device, queue, &scene.fills, eye),
-            None => PickFills::default(),
-        };
-
-        Counts {
-            lines: count(lines),
-            markers: count(markers),
-            fill_vertices: count(fill_triangles.saturating_mul(3)),
-            pick_fills,
-        }
+        self.meshes
+            .prepare(device, queue, &scene.meshes, view.eye());
+        let changed = self.upload_batches(device, queue, &scene.batches, anchored.anchor);
+        self.order_fills(Facing::of(view), changed);
     }
 
-    fn upload_pick_fills(
+    fn anchor_for(&mut self, view: &View) -> Point3 {
+        let eye = view.eye();
+        let reach = REANCHOR_DISTANCES * view.viewpoint().distance;
+        let anchor = self
+            .anchor
+            .filter(|anchor| anchor.distance(eye) <= reach)
+            .unwrap_or(eye);
+        self.anchor = Some(anchor);
+        anchor
+    }
+
+    fn upload_batches(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        fills: &[Fill],
-        eye: Point3,
-    ) -> PickFills {
-        self.staging.clear();
-        let pickable = fills.iter().filter(|fill| fill.pick.is_some());
-        let (reference, nearer): (Vec<&Fill>, Vec<&Fill>) =
-            pickable.partition(|fill| fill.layer == Layer::Reference);
-        let mut stage = |fills: Vec<&Fill>| {
-            fills.into_iter().fold(0u32, |written, fill| {
-                written.saturating_add(stage_fill(&mut self.staging, fill, eye))
-            })
-        };
-        let reference_written = stage(reference);
-        let nearer_written = stage(nearer);
+        batches: &[Arc<Batch>],
+        anchor: Point3,
+    ) -> bool {
+        let mut changed = self.batches.len() != batches.len();
+        self.batches.truncate(batches.len());
+        for (slot, batch) in batches.iter().enumerate() {
+            if slot >= self.batches.len() {
+                self.batches.push(GpuBatch::new(device));
+            }
+            let Some(gpu) = self.batches.get_mut(slot) else {
+                continue;
+            };
+            if !gpu.holds(batch, anchor) {
+                gpu.upload(
+                    device,
+                    queue,
+                    &mut self.staging,
+                    Uploaded {
+                        batch,
+                        anchor,
+                        slot,
+                    },
+                );
+                changed = true;
+                #[cfg(test)]
+                {
+                    self.work.uploads += 1;
+                }
+            }
+        }
+        changed
+    }
 
-        let uploaded = count(
-            self.pick_fills
-                .upload(device, queue, &self.staging, FILL_TRIANGLE_STRIDE)
-                .saturating_mul(3),
-        );
-        let reference_vertices = reference_written.min(uploaded);
-        PickFills {
-            reference_vertices,
-            nearer_vertices: nearer_written.min(uploaded.saturating_sub(reference_vertices)),
+    fn order_fills(&mut self, facing: Facing, changed: bool) {
+        if !changed && self.fill_order.sorted_for == Some(facing) {
+            return;
+        }
+        let mut spans: Vec<FillSpan> = self
+            .batches
+            .iter()
+            .flat_map(|batch| batch.fill_spans.iter().cloned())
+            .collect();
+        sort_back_to_front(&mut spans, facing);
+        #[cfg(test)]
+        {
+            self.work.sorts += 1;
+        }
+        self.fill_order = FillOrder {
+            sorted_for: Some(facing),
+            draws: coalesced(spans),
+        };
+    }
+
+    #[cfg(test)]
+    pub fn work(&self) -> Work {
+        self.work
+    }
+
+    #[cfg(test)]
+    pub fn uploaded(&self) -> Vec<Option<Arc<Batch>>> {
+        self.batches
+            .iter()
+            .map(|batch| batch.shown.clone())
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub fn anchor(&self) -> Option<Point3> {
+        self.anchor
+    }
+
+    #[cfg(test)]
+    pub fn fill_draws(&self) -> &[(usize, Range<u32>)] {
+        &self.fill_order.draws
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Work {
+    pub uploads: usize,
+    pub sorts: usize,
+}
+
+struct AnchoredView<'a> {
+    view: &'a View,
+    anchor: Point3,
+}
+
+fn sort_back_to_front(spans: &mut [FillSpan], facing: Facing) {
+    let depth = |span: &FillSpan| {
+        span.centroid
+            .map_or(f64::NEG_INFINITY, |centroid| facing.depth(centroid))
+    };
+    spans.sort_by(|a, b| {
+        a.in_front
+            .cmp(&b.in_front)
+            .then(depth(b).total_cmp(&depth(a)))
+    });
+}
+
+fn coalesced(spans: Vec<FillSpan>) -> Vec<(usize, Range<u32>)> {
+    let mut draws: Vec<(usize, Range<u32>)> = Vec::with_capacity(spans.len());
+    for span in spans {
+        match draws.last_mut() {
+            Some((slot, vertices)) if *slot == span.slot && vertices.end == span.vertices.start => {
+                vertices.end = span.vertices.end;
+            }
+            _ => draws.push((span.slot, span.vertices)),
         }
     }
+    draws
 }
 
 struct Layouts<'a> {
@@ -941,13 +1182,13 @@ fn build_pipeline(device: &wgpu::Device, spec: &PipelineSpec<'_>) -> wgpu::Rende
     })
 }
 
-fn stage_fill(bytes: &mut Bytes, fill: &Fill, eye: Point3) -> u32 {
+fn stage_fill(bytes: &mut Bytes, fill: &Fill, anchor: Point3) -> u32 {
     let depth_bias = fill.layer.depth_bias(Primitive::Fill);
     let in_front = u32::from(fill.layer.draws_in_front());
     let mut written = 0u32;
     for corner in fill.triangles.iter().flatten() {
         bytes
-            .vec3(relative_to_eye(*corner, eye))
+            .vec3(relative_to_eye(*corner, anchor))
             .floats(&fill.color.to_array())
             .u32(PickId::raw(fill.pick))
             .f32(depth_bias)
@@ -975,11 +1216,12 @@ fn valid_scale(pixels_per_point: f32) -> f32 {
 
 fn view_uniform(
     bytes: &mut Bytes,
-    view: &View,
+    anchored: &AnchoredView<'_>,
     pixels_per_point: f32,
     shading: Shading,
     transform: [f32; 4],
 ) {
+    let view = anchored.view;
     let size = view.size();
     bytes.clear();
     bytes
@@ -993,7 +1235,8 @@ fn view_uniform(
         ])
         .floats(&transform)
         .vec4(key_light(view).as_vec3(), shading.uniform_flag())
-        .vec4(fill_light(view).as_vec3(), 0.0);
+        .vec4(fill_light(view).as_vec3(), 0.0)
+        .vec4(relative_to_eye(anchored.anchor, view.eye()), 0.0);
 }
 
 fn key_light(view: &View) -> Vector3 {
@@ -1077,19 +1320,6 @@ fn begin_pick_pass<'a>(
     })
 }
 
-fn fills_back_to_front<'a>(fills: &'a [Fill], view: &View) -> Vec<&'a Fill> {
-    let depth = |fill: &Fill| {
-        fill.centroid()
-            .map_or(f64::NEG_INFINITY, |centroid| view.view_depth(centroid))
-    };
-    let mut sorted: Vec<(bool, f64, &Fill)> = fills
-        .iter()
-        .map(|fill| (fill.layer.draws_in_front(), depth(fill), fill))
-        .collect();
-    sorted.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.total_cmp(&a.1)));
-    sorted.into_iter().map(|(_, _, fill)| fill).collect()
-}
-
 fn scissor_rect(rect: ViewportRect, width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
     let clamp = |value: f32, limit: u32| value.clamp(0.0, limit as f32) as u32;
     let left = clamp(rect.x.floor(), width);
@@ -1136,67 +1366,92 @@ mod tests {
         assert_eq!(grid_spacing(5.0), 0.01);
     }
 
+    fn looking_down() -> Facing {
+        let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
+        Facing::of(&View::new(viewpoint, 100.0, 100.0))
+    }
+
+    fn span(slot: usize, first: u32, z: f64, layer: Layer) -> FillSpan {
+        let fill = Fill::convex(
+            &[
+                Point3::new(0.0, 0.0, z),
+                Point3::new(1.0, 0.0, z),
+                Point3::new(0.0, 1.0, z),
+            ],
+            crate::scene::Color::from_rgb8(0, 0, 0),
+            layer,
+            None,
+        );
+        FillSpan {
+            slot,
+            vertices: first..first + 3,
+            centroid: fill.centroid(),
+            in_front: layer.draws_in_front(),
+        }
+    }
+
+    fn heights(spans: &[FillSpan]) -> Vec<f64> {
+        spans
+            .iter()
+            .filter_map(|span| span.centroid.map(|centroid| centroid.z))
+            .collect()
+    }
+
     #[test]
     fn sorts_fills_from_the_farthest_to_the_nearest() {
-        let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
-        let view = View::new(viewpoint, 100.0, 100.0);
-        let square_at = |z: f64| {
-            Fill::convex(
-                &[
-                    Point3::new(0.0, 0.0, z),
-                    Point3::new(1.0, 0.0, z),
-                    Point3::new(0.0, 1.0, z),
-                ],
-                crate::scene::Color::from_rgb8(0, 0, 0),
-                crate::scene::Layer::Reference,
-                None,
-            )
-        };
-        let fills = [square_at(10.0), square_at(-10.0), square_at(0.0)];
+        let mut spans = [
+            span(0, 0, 10.0, Layer::Reference),
+            span(0, 3, -10.0, Layer::Reference),
+            span(0, 6, 0.0, Layer::Reference),
+        ];
 
-        let order: Vec<f64> = fills_back_to_front(&fills, &view)
-            .iter()
-            .filter_map(|fill| fill.centroid().map(|centroid| centroid.z))
-            .collect();
-        assert_eq!(order, vec![-10.0, 0.0, 10.0]);
+        sort_back_to_front(&mut spans, looking_down());
+
+        assert_eq!(heights(&spans), vec![-10.0, 0.0, 10.0]);
     }
 
     #[test]
     fn front_fills_draw_after_every_other_fill_whatever_their_depth() {
-        let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
-        let view = View::new(viewpoint, 100.0, 100.0);
-        let square_at = |z: f64, layer: Layer| {
-            Fill::convex(
-                &[
-                    Point3::new(0.0, 0.0, z),
-                    Point3::new(1.0, 0.0, z),
-                    Point3::new(0.0, 1.0, z),
-                ],
-                crate::scene::Color::from_rgb8(0, 0, 0),
-                layer,
-                None,
-            )
-        };
-        let fills = [
-            square_at(-20.0, Layer::Front),
-            square_at(10.0, Layer::Model),
-            square_at(-30.0, Layer::Front),
-            square_at(0.0, Layer::Reference),
+        let mut spans = [
+            span(0, 0, -20.0, Layer::Front),
+            span(0, 3, 10.0, Layer::Model),
+            span(1, 0, -30.0, Layer::Front),
+            span(1, 3, 0.0, Layer::Reference),
         ];
 
-        let order: Vec<(Layer, f64)> = fills_back_to_front(&fills, &view)
-            .iter()
-            .filter_map(|fill| Some((fill.layer, fill.centroid()?.z)))
-            .collect();
+        sort_back_to_front(&mut spans, looking_down());
+
+        assert_eq!(heights(&spans), vec![0.0, 10.0, -30.0, -20.0]);
         assert_eq!(
-            order,
-            vec![
-                (Layer::Reference, 0.0),
-                (Layer::Model, 10.0),
-                (Layer::Front, -30.0),
-                (Layer::Front, -20.0),
-            ]
+            spans.iter().map(|span| span.in_front).collect::<Vec<_>>(),
+            vec![false, false, true, true]
         );
+    }
+
+    #[test]
+    fn fills_in_order_in_one_buffer_share_a_draw() {
+        let in_order = vec![
+            span(0, 0, -10.0, Layer::Model),
+            span(0, 3, 0.0, Layer::Model),
+            span(1, 0, 5.0, Layer::Model),
+            span(1, 3, 6.0, Layer::Model),
+        ];
+        let interleaved = vec![
+            span(0, 0, -10.0, Layer::Model),
+            span(1, 0, 5.0, Layer::Model),
+            span(0, 3, 0.0, Layer::Model),
+        ];
+        let reversed = vec![
+            span(0, 3, 0.0, Layer::Model),
+            span(0, 0, -10.0, Layer::Model),
+        ];
+
+        assert_eq!(coalesced(in_order), vec![(0, 0..6), (1, 0..6)]);
+        assert_eq!(
+            coalesced(interleaved),
+            vec![(0, 0..3), (1, 0..3), (0, 3..6)]
+        );
+        assert_eq!(coalesced(reversed), vec![(0, 3..6), (0, 0..3)]);
     }
 
     #[test]

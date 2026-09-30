@@ -1,12 +1,11 @@
-use std::{collections::BTreeSet, f64::consts::PI};
+use std::collections::BTreeSet;
 
 use caditor_document::FeatureId;
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{Drag, Entity, EntityId, Sketch};
+use caditor_sketch::{Drag, Entity, EntityId, Faceting, Sketch};
 
 use crate::{drag_solver::DragCommand, feature_tree::count, snap::Screen};
 
-const OUTLINE_SEGMENT_ANGLE: f64 = PI / 60.0;
 const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
 const MOVE_WHILE_DRAWING: &str = "Switch to the Select tool to move geometry";
 const NOTHING_TO_SELECT: &str = "The sketch has no geometry to select";
@@ -245,7 +244,12 @@ fn segments_cross(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool {
     first * second <= 0.0 && third * fourth <= 0.0
 }
 
-pub fn within(sketch: &Sketch, screen: &impl Screen, area: ScreenBox) -> Vec<EntityId> {
+pub fn within(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    area: ScreenBox,
+    faceting: Faceting,
+) -> Vec<EntityId> {
     let mode = area.mode();
     let caught = sketch
         .entities()
@@ -256,7 +260,7 @@ pub fn within(sketch: &Sketch, screen: &impl Screen, area: ScreenBox) -> Vec<Ent
                 .is_some_and(|point| area.contains(point)),
             _ => {
                 let outline: Option<Vec<Vector2>> = sketch
-                    .polyline(*id, OUTLINE_SEGMENT_ANGLE)
+                    .faceted(*id, faceting)
                     .map(|points| {
                         points
                             .into_iter()
@@ -435,10 +439,13 @@ mod tests {
 
         assert_eq!(window.mode(), BoxMode::Window);
         assert_eq!(
-            within(&sketch, &Flat, window),
+            within(&sketch, &Flat, window, Faceting::within(0.01)),
             vec![inside, across_start, lone]
         );
-        assert_eq!(within(&sketch, &Flat, crossing), vec![inside, across, lone]);
+        assert_eq!(
+            within(&sketch, &Flat, crossing, Faceting::within(0.01)),
+            vec![inside, across, lone]
+        );
         let all = everything(&sketch);
         assert_eq!(all, vec![inside, across, lone, circle]);
         assert!(!all.contains(&across_end));

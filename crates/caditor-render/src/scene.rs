@@ -1,4 +1,4 @@
-use std::num::NonZeroU32;
+use std::{num::NonZeroU32, sync::Arc};
 
 use caditor_geometry::{Plane, Point3};
 use glam::DVec2;
@@ -171,12 +171,46 @@ pub struct Grid {
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Scene {
-    pub meshes: Vec<MeshInstance>,
+pub struct Batch {
     pub lines: Vec<Line>,
     pub markers: Vec<Marker>,
     pub fills: Vec<Fill>,
+}
+
+impl Batch {
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty() && self.markers.is_empty() && self.fills.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Scene {
+    pub meshes: Vec<MeshInstance>,
+    pub batches: Vec<Arc<Batch>>,
     pub grid: Option<Grid>,
+}
+
+impl Scene {
+    pub fn lines(&self) -> impl Iterator<Item = &Line> {
+        self.batches.iter().flat_map(|batch| batch.lines.iter())
+    }
+
+    pub fn markers(&self) -> impl Iterator<Item = &Marker> {
+        self.batches.iter().flat_map(|batch| batch.markers.iter())
+    }
+
+    pub fn fills(&self) -> impl Iterator<Item = &Fill> {
+        self.batches.iter().flat_map(|batch| batch.fills.iter())
+    }
+}
+
+impl From<Batch> for Scene {
+    fn from(batch: Batch) -> Self {
+        Self {
+            batches: vec![Arc::new(batch)],
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -49,18 +49,25 @@ pub struct DisplayedSketches {
     dragged: Option<Dragged>,
     shown: RefCell<BTreeMap<FeatureId, Shown>>,
     bounds: RefCell<BTreeMap<FeatureId, Option<Aabb>>>,
+    generation: u64,
     #[cfg(test)]
     merges: std::cell::Cell<usize>,
 }
 
 impl DisplayedSketches {
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
     pub fn forget(&mut self) {
         self.shown.get_mut().clear();
         self.bounds.get_mut().clear();
+        self.changed();
     }
 
     pub fn show_dragged(&mut self, feature: FeatureId, sketch: Arc<Sketch>) {
         self.bounds.get_mut().remove(&feature);
+        self.changed();
         self.dragged = Some(Dragged {
             feature,
             sketch,
@@ -77,7 +84,12 @@ impl DisplayedSketches {
     pub fn stop_showing_dragged(&mut self) {
         if let Some(dragged) = self.dragged.take() {
             self.bounds.get_mut().remove(&dragged.feature);
+            self.changed();
         }
+    }
+
+    fn changed(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
     }
 
     pub fn evaluated(&mut self, revision: u64, evaluation: &Evaluation) {
@@ -333,5 +345,33 @@ mod tests {
         sketches.forget();
         sketches.bounds(&evaluation, owner, measure);
         assert_eq!(measured.get(), 2);
+    }
+
+    #[test]
+    fn the_generation_moves_whenever_what_is_shown_may_change_and_only_then() {
+        let (document, feature, evaluation) = sketched();
+        let mut sketches = DisplayedSketches::default();
+        let owner = document.feature(feature).unwrap();
+        let dragged = Arc::new(solved(&evaluation, feature).clone());
+
+        let unchanged = sketches.generation();
+        sketches.get(&evaluation, owner);
+        sketches.bounds(&evaluation, owner, |_| None);
+        sketches.stop_showing_dragged();
+        let after_reading = sketches.generation();
+        sketches.show_dragged(feature, Arc::clone(&dragged));
+        let dragging = sketches.generation();
+        sketches.hold_dragged_until(3);
+        let held = sketches.generation();
+        sketches.stop_showing_dragged();
+        let dropped = sketches.generation();
+        sketches.forget();
+        let forgotten = sketches.generation();
+
+        assert_eq!(after_reading, unchanged);
+        assert_ne!(dragging, after_reading);
+        assert_eq!(held, dragging);
+        assert_ne!(dropped, held);
+        assert_ne!(forgotten, dropped);
     }
 }

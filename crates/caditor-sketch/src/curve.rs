@@ -7,6 +7,58 @@ const MIN_SEGMENT_ANGLE: f64 = 1e-3;
 const DEFAULT_SEGMENT_ANGLE: f64 = 5.0 * TAU / 360.0;
 const SPLINE_SEGMENTS_PER_SPAN: usize = 4;
 pub(crate) const MAX_SPLINE_DEGREE: usize = 3;
+const MIN_SEGMENTS_PER_TURN: f64 = 12.0;
+const MAX_SEGMENTS_PER_TURN: f64 = 1024.0;
+const CHORD_ERROR_PER_BENDING: f64 = 8.0;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Faceting {
+    chord: f64,
+}
+
+impl Faceting {
+    pub fn within(chord: f64) -> Self {
+        Self {
+            chord: if chord.is_nan() {
+                f64::MIN_POSITIVE
+            } else {
+                chord.max(f64::MIN_POSITIVE)
+            },
+        }
+    }
+
+    pub fn chord(self) -> f64 {
+        self.chord
+    }
+
+    pub fn arc_segments(self, radius: f64, sweep: f64) -> usize {
+        let sweep = if sweep.is_finite() {
+            sweep.abs().min(TAU)
+        } else {
+            TAU
+        };
+        let cosine = (1.0 - self.chord / radius.abs()).max(-1.0);
+        let step =
+            (2.0 * cosine.acos()).clamp(TAU / MAX_SEGMENTS_PER_TURN, TAU / MIN_SEGMENTS_PER_TURN);
+        whole_segments(sweep / step)
+    }
+
+    pub fn spline_segments(self, spline: &BSpline) -> usize {
+        let by_chord = (spline.bending_bound() / (CHORD_ERROR_PER_BENDING * self.chord)).sqrt();
+        let by_turning = spline.control_polygon_turning() * MIN_SEGMENTS_PER_TURN / TAU;
+        whole_segments(by_chord.max(by_turning))
+            .max(spline.spans())
+            .min(MAX_SEGMENTS)
+    }
+}
+
+fn whole_segments(count: f64) -> usize {
+    if count.is_finite() && count > 1.0 {
+        (count.ceil() as usize).min(MAX_SEGMENTS)
+    } else {
+        1
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ArcGeometry {
@@ -46,7 +98,14 @@ impl ArcGeometry {
     }
 
     pub fn polyline(&self, max_segment_angle: f64) -> Vec<Point2> {
-        let segments = segments_for(self.sweep, max_segment_angle);
+        self.divided(segments_for(self.sweep, max_segment_angle))
+    }
+
+    pub fn faceted(&self, faceting: Faceting) -> Vec<Point2> {
+        self.divided(faceting.arc_segments(self.radius, self.sweep))
+    }
+
+    fn divided(&self, segments: usize) -> Vec<Point2> {
         (0..=segments)
             .map(|index| {
                 let fraction = index as f64 / segments as f64;
@@ -117,13 +176,62 @@ impl BSpline {
     }
 
     pub fn polyline(&self, max_segment_angle: f64) -> Vec<Point2> {
-        let spans = self.control_points.len().saturating_sub(self.degree).max(1);
         let turning = self.control_polygon_turning();
         let by_angle = segments_for(turning, max_segment_angle);
-        let segments = (spans * SPLINE_SEGMENTS_PER_SPAN + by_angle).min(MAX_SEGMENTS);
+        self.divided((self.spans() * SPLINE_SEGMENTS_PER_SPAN + by_angle).min(MAX_SEGMENTS))
+    }
+
+    pub fn faceted(&self, faceting: Faceting) -> Vec<Point2> {
+        self.divided(faceting.spline_segments(self))
+    }
+
+    fn divided(&self, segments: usize) -> Vec<Point2> {
         (0..=segments)
             .map(|index| self.point_at(index as f64 / segments as f64))
             .collect()
+    }
+
+    fn spans(&self) -> usize {
+        self.control_points.len().saturating_sub(self.degree).max(1)
+    }
+
+    fn bending_bound(&self) -> f64 {
+        let Some(lower) = self.degree.checked_sub(1).filter(|lower| *lower > 0) else {
+            return 0.0;
+        };
+        let degree = self.degree;
+        let knot = |index: usize| self.knots.get(index).copied().unwrap_or(0.0);
+        let scaled = |a: Vector2, b: Vector2, factor: usize, width: f64| {
+            if width > 0.0 {
+                (b - a) * (factor as f64 / width)
+            } else {
+                Vector2::ZERO
+            }
+        };
+        let tangents: Vec<Vector2> = self
+            .control_points
+            .windows(2)
+            .enumerate()
+            .filter_map(|(index, pair)| match pair {
+                [a, b] => Some(scaled(
+                    *a,
+                    *b,
+                    degree,
+                    knot(index + degree + 1) - knot(index + 1),
+                )),
+                _ => None,
+            })
+            .collect();
+        tangents
+            .windows(2)
+            .enumerate()
+            .filter_map(|(index, pair)| match pair {
+                [a, b] => {
+                    Some(scaled(*a, *b, lower, knot(index + degree + 1) - knot(index + 2)).length())
+                }
+                _ => None,
+            })
+            .fold(0.0, f64::max)
     }
 
     fn control_polygon_turning(&self) -> f64 {
@@ -327,6 +435,124 @@ mod tests {
                 .iter()
                 .all(|point| (point.length() - 1.0).abs() < EPSILON)
         );
+    }
+
+    fn sagitta(radius: f64, segments: usize) -> f64 {
+        radius * (1.0 - (TAU / segments as f64 / 2.0).cos())
+    }
+
+    fn distance_to_polyline(point: Point2, polyline: &[Point2]) -> f64 {
+        polyline
+            .windows(2)
+            .map(|pair| {
+                let (start, end) = (pair[0], pair[1]);
+                let along = end - start;
+                let fraction = if along.length_squared() > 0.0 {
+                    ((point - start).dot(along) / along.length_squared()).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                point.distance(start + along * fraction)
+            })
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    #[test]
+    fn circles_are_faceted_to_their_chord_tolerance_with_as_few_segments_as_that_needs() {
+        for radius in [0.5, 3.0, 40.0, 900.0] {
+            for chord in [0.001, 0.01, 0.1] {
+                let segments = Faceting::within(chord).arc_segments(radius, TAU);
+                let within_bounds = (12..=1024).contains(&segments);
+
+                assert!(within_bounds, "{radius} at {chord}: {segments}");
+                if segments > 12 && segments < 1024 {
+                    assert!(sagitta(radius, segments) <= chord * (1.0 + 1e-9));
+                    assert!(sagitta(radius, segments - 1) > chord);
+                }
+            }
+        }
+
+        let circle = ArcGeometry::full_circle(Point2::new(5.0, -2.0), 40.0);
+        let points = circle.faceted(Faceting::within(0.01));
+        let middles = points
+            .windows(2)
+            .map(|pair| pair[0].lerp(pair[1], 0.5).distance(circle.center));
+
+        assert_eq!(
+            points.len(),
+            Faceting::within(0.01).arc_segments(40.0, TAU) + 1
+        );
+        assert!(points.first().unwrap().distance(*points.last().unwrap()) < 1e-9);
+        assert!(middles.clone().all(|middle| 40.0 - middle <= 0.01 + 1e-9));
+    }
+
+    #[test]
+    fn small_curves_keep_a_minimum_and_huge_ones_a_maximum_per_turn() {
+        let fine = Faceting::within(1e-6);
+        let coarse = Faceting::within(10.0);
+
+        assert_eq!(coarse.arc_segments(1.0, TAU), 12);
+        assert_eq!(coarse.arc_segments(1.0, TAU / 4.0), 3);
+        assert_eq!(fine.arc_segments(1e6, TAU), 1024);
+        assert_eq!(fine.arc_segments(1e6, TAU / 2.0), 512);
+        assert_eq!(coarse.arc_segments(1.0, 1e-9), 1);
+        assert!(
+            Faceting::within(0.01).arc_segments(10.0, TAU)
+                < Faceting::within(0.01).arc_segments(1000.0, TAU)
+        );
+    }
+
+    #[test]
+    fn faceting_bad_values_stays_finite_and_never_empty() {
+        for chord in [0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let faceting = Faceting::within(chord);
+            assert!(faceting.chord() > 0.0);
+            for radius in [0.0, -3.0, f64::NAN, f64::INFINITY, 2.0] {
+                for sweep in [0.0, f64::NAN, -TAU, 100.0, 1.0] {
+                    let segments = faceting.arc_segments(radius, sweep);
+                    assert!((1..=1024).contains(&segments), "{chord} {radius} {sweep}");
+                }
+            }
+            let collapsed = ArcGeometry::from_points(Point2::ZERO, Point2::ZERO, Point2::ZERO);
+            assert!(
+                collapsed
+                    .faceted(faceting)
+                    .iter()
+                    .all(|point| point.is_finite())
+            );
+        }
+    }
+
+    #[test]
+    fn splines_are_faceted_within_their_chord_tolerance() {
+        let control = vec![
+            Point2::ZERO,
+            Point2::new(10.0, 30.0),
+            Point2::new(20.0, -30.0),
+            Point2::new(35.0, 10.0),
+            Point2::new(40.0, 0.0),
+            Point2::new(60.0, 25.0),
+        ];
+        let spline = BSpline::clamped(control).unwrap();
+        let dense: Vec<Point2> = (0..=4000)
+            .map(|index| spline.point_at(f64::from(index) / 4000.0))
+            .collect();
+
+        let mut previous = usize::MAX;
+        for chord in [0.001, 0.01, 0.1, 1.0] {
+            let points = spline.faceted(Faceting::within(chord));
+            let farthest = dense
+                .iter()
+                .map(|point| distance_to_polyline(*point, &points))
+                .fold(0.0, f64::max);
+
+            assert!(farthest <= chord, "{chord}: {farthest}");
+            assert!(points.len() <= previous);
+            assert!(points.len() > 3);
+            previous = points.len();
+        }
+        let line = BSpline::clamped(vec![Point2::ZERO, Point2::new(5.0, 5.0)]).unwrap();
+        assert_eq!(line.faceted(Faceting::within(1e-9)).len(), 2);
     }
 
     #[test]

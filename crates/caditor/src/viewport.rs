@@ -1,6 +1,6 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
-use caditor_document::{Document, Evaluation, FeatureId, FeatureKind, Transaction};
+use caditor_document::{FeatureId, FeatureKind, Transaction};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{Camera, PickResult, Scene, SurfaceSize, View, Viewpoint, ViewportRect};
 use caditor_sketch::{ConstraintId, EntityId};
@@ -13,14 +13,16 @@ use crate::{
     canvas,
     commands::{CameraMove, Command, CommandFrame, StandardView},
     datum_tools,
-    display::{Display, Displayed},
+    display::Displayed,
     drag_solver::DragCommand,
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
+    faceting::FacetLevel,
     measure::MeasuredLine,
     model::{Action, Model, Notice, RecomputeStatus},
     preferences::{Navigation, PreferenceChange, PreferencesCommand},
-    scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
+    scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
+    scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     selection::{Pickable, Selection},
     shape_modes::ShapeMode,
     shell_tools,
@@ -116,11 +118,11 @@ enum PrimaryDrag {
     Trim { feature: FeatureId, from: Point2 },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct PickKey {
     cursor: Vector2,
     view: View,
-    scene: Scene,
+    generation: u64,
 }
 
 pub struct ViewportRequest {
@@ -149,7 +151,7 @@ pub struct ViewportState {
     drag_anchor: Option<Point3>,
     needs_initial_fit: bool,
     fit_requested: bool,
-    picks_in_flight: Option<(PickTable, View)>,
+    picks_in_flight: Option<(Arc<PickTable>, View)>,
     last_pick: Option<PickKey>,
     edited: Option<FeatureId>,
     face_edited_sketch: bool,
@@ -160,7 +162,6 @@ pub struct ViewportState {
     bodies: BodyMeshes,
     navigation: Navigation,
     keyboard_highlight: Option<Pickable>,
-    highlightable: Vec<Pickable>,
     typed_point: TypedPoint,
     moving: Option<Moving>,
     press: Option<Press>,
@@ -170,6 +171,7 @@ pub struct ViewportState {
     fit_when_computed: bool,
     scene_bounds: Option<Aabb>,
     measured: Option<(MeasuredLine, String)>,
+    scenes: SceneCache,
 }
 
 impl ViewportState {
@@ -204,7 +206,6 @@ impl ViewportState {
             bodies: BodyMeshes::default(),
             navigation: Navigation::default(),
             keyboard_highlight: None,
-            highlightable: Vec::new(),
             typed_point: TypedPoint::default(),
             moving: None,
             press: None,
@@ -214,6 +215,7 @@ impl ViewportState {
             fit_when_computed: false,
             scene_bounds: None,
             measured: None,
+            scenes: SceneCache::default(),
         }
     }
 
@@ -242,7 +244,7 @@ impl ViewportState {
         self.pointer_hit = None;
         self.last_pick = None;
         self.keyboard_highlight = None;
-        self.highlightable.clear();
+        self.scenes = SceneCache::default();
         self.drawing = Drawing::default();
         self.trimming = Trimming::default();
         self.annotations = Annotations::default();
@@ -354,13 +356,10 @@ impl ViewportState {
         });
     }
 
-    pub fn build_scene(
-        &mut self,
-        document: &Document,
-        evaluation: &Evaluation,
-        display: &Display,
-        editing: &SketchEditing,
-    ) -> BuiltScene {
+    pub fn build_scene(&mut self, model: &Model, editing: &SketchEditing) -> Option<&BuiltScene> {
+        let document = model.document();
+        let evaluation = model.evaluation();
+        let display = model.display();
         let edited = editing.feature();
         let context = editing.context();
         if edited != self.edited {
@@ -407,39 +406,47 @@ impl ViewportState {
         } else {
             highlighted.into_iter().collect()
         };
+        let view = self.view();
         let sources = Sources {
             document,
             evaluation,
             bodies: &self.bodies,
             sketches: &display.sketches,
         };
-        let mut built = scene::build(
-            &sources,
-            &Highlight {
+        self.scenes.update(&SceneInputs {
+            sources: &sources,
+            revisions: Revisions {
+                document: model.revision(),
+                evaluation: model.evaluation_generation(),
+                sketches: display.sketches.generation(),
+                bodies: self.bodies.generation(),
+            },
+            context,
+            highlight: Highlight {
                 selection: &self.selection,
                 hovered: &hovered,
             },
-            context,
-        );
-        if let Some(sketch) = built.edited {
-            scene::add_preview(&mut built.scene, sketch.plane, &self.drawing.preview());
-            scene::add_preview(&mut built.scene, sketch.plane, &self.trimming.preview());
+            view: view.as_ref(),
+        });
+        let faceting = self.scenes.faceting();
+        let plane = self.scenes.edited_plane();
+        self.scenes.show(Overlay {
+            plane,
+            previews: vec![
+                self.drawing.preview(faceting),
+                self.trimming.preview(faceting),
+            ],
+            measured: self.measured.as_ref().map(|(line, _)| [line.from, line.to]),
+        });
+        if let Some(highlight) = self.keyboard_highlight
+            && !self.scenes.highlightable().contains(&highlight)
+        {
+            self.keyboard_highlight = None;
         }
-        if let Some((line, _)) = &self.measured {
-            scene::add_measurement(&mut built.scene, line.from, line.to);
-        }
-        let mut seen = std::collections::BTreeSet::new();
-        self.highlightable = built
-            .picks
-            .pickables()
-            .filter(|pickable| seen.insert(*pickable))
-            .collect();
-        self.keyboard_highlight = self
-            .keyboard_highlight
-            .filter(|highlight| self.highlightable.contains(highlight));
+        let built = self.scenes.built()?;
         self.scene_bounds = Some(built.everything);
         let Some(view) = self.view() else {
-            return built;
+            return Some(built);
         };
         if self.needs_initial_fit {
             self.camera = Camera::new(view.fitted(built.fit_all()));
@@ -461,23 +468,29 @@ impl ViewportState {
             self.camera.animate_to(view.fitted(bounds));
         }
         self.fit_requested = false;
-        built
+        Some(built)
     }
 
-    pub fn request(&mut self, built: &BuiltScene, can_pick: bool) -> Option<ViewportRequest> {
+    pub fn scene(&self) -> Option<&Scene> {
+        self.scenes.built().map(|built| &built.scene)
+    }
+
+    pub fn request(&mut self, can_pick: bool) -> Option<ViewportRequest> {
         let rect = self.rect?;
         let view = self.view()?;
+        let generation = self.scenes.generation();
         let pick_at = self.cursor.filter(|_| can_pick).and_then(|cursor| {
             let key = PickKey {
                 cursor,
                 view,
-                scene: built.scene.clone(),
+                generation,
             };
-            if self.last_pick.as_ref() == Some(&key) {
+            if self.last_pick == Some(key) {
                 return None;
             }
+            let picks = Arc::clone(&self.scenes.built()?.picks);
             self.last_pick = Some(key);
-            self.picks_in_flight = Some((built.picks.clone(), view));
+            self.picks_in_flight = Some((picks, view));
             Some(cursor)
         });
         let scale = self.pixels_per_point;
@@ -506,20 +519,18 @@ impl ViewportState {
         })
     }
 
-    pub fn image(
-        &self,
-        document: &Document,
-        evaluation: &Evaluation,
-        display: &Display,
-        editing: &SketchEditing,
-        size: SurfaceSize,
-    ) -> ImageView {
+    pub fn image(&self, model: &Model, editing: &SketchEditing, size: SurfaceSize) -> ImageView {
         let sources = Sources {
-            document,
-            evaluation,
+            document: model.document(),
+            evaluation: model.evaluation(),
             bodies: &self.bodies,
-            sketches: &display.sketches,
+            sketches: &model.display().sketches,
         };
+        let context = editing.context();
+        let view = self
+            .camera
+            .view(f64::from(size.width), f64::from(size.height));
+        let level = FacetLevel::following(self.scenes.level(), FacetLevel::wanted_chord(&view));
         let unselected = Selection::default();
         let mut built = scene::build(
             &sources,
@@ -527,13 +538,11 @@ impl ViewportState {
                 selection: &unselected,
                 hovered: &[],
             },
-            editing.context(),
+            context,
+            &mut SketchShapes::new(scene::drawn_faceting(&sources, context, level.faceting())),
         );
         built.scene.grid = None;
-        let view = self
-            .camera
-            .view(f64::from(size.width), f64::from(size.height))
-            .reaching(built.everything);
+        let view = view.reaching(built.everything);
         let shown_height = self.view_pixels().map_or(size.height, |shown| shown.height);
         ImageView {
             view,
@@ -579,13 +588,15 @@ impl ViewportState {
     }
 
     #[cfg(test)]
-    pub fn hover_through_pick(&mut self, built: &BuiltScene, pickable: Pickable) {
-        let (Some(cursor), Some(id), Some(view)) =
-            (self.cursor, built.picks.id_of(pickable), self.view())
-        else {
+    pub fn hover_through_pick(&mut self, pickable: Pickable) {
+        let picks = self.scenes.built().map(|built| Arc::clone(&built.picks));
+        let (Some(cursor), Some(picks), Some(view)) = (self.cursor, picks, self.view()) else {
             return;
         };
-        self.picks_in_flight = Some((built.picks.clone(), view));
+        let Some(id) = picks.id_of(pickable) else {
+            return;
+        };
+        self.picks_in_flight = Some((picks, view));
         self.apply_pick(&PickResult {
             cursor,
             hits: vec![caditor_render::PickHit {
@@ -845,7 +856,7 @@ impl ViewportState {
         let Some(screen) = self.sketch_screen(sketch.plane()) else {
             return;
         };
-        let caught = sketch_drag::within(&sketch, &screen, area);
+        let caught = sketch_drag::within(&sketch, &screen, area, self.scenes.faceting());
         self.add_to_selection(feature, caught, toggle);
     }
 
@@ -1018,7 +1029,7 @@ impl ViewportState {
             .flatten();
         let highlightable = match &targets {
             Some(sketch) => self.trimming.steppable(sketch),
-            None if self.highlightable.is_empty() => Err(NOTHING_TO_HIGHLIGHT),
+            None if !self.scenes.has_pickables() => Err(NOTHING_TO_HIGHLIGHT),
             None => Ok(()),
         };
         let steps = [
@@ -1103,24 +1114,21 @@ impl ViewportState {
     }
 
     fn step_highlight(&mut self, step: isize) {
-        let count = self.highlightable.len();
+        let highlightable = self.scenes.highlightable();
+        let count = highlightable.len();
         if count == 0 {
             return;
         }
         let current = self
             .keyboard_highlight
             .or(self.hovered)
-            .and_then(|highlight| {
-                self.highlightable
-                    .iter()
-                    .position(|item| *item == highlight)
-            });
+            .and_then(|highlight| highlightable.iter().position(|item| *item == highlight));
         let next = match current {
             Some(index) => (index as isize + step).rem_euclid(count as isize) as usize,
             None if step < 0 => count - 1,
             None => 0,
         };
-        self.keyboard_highlight = self.highlightable.get(next).copied();
+        self.keyboard_highlight = highlightable.get(next).copied();
     }
 
     fn nudge(&mut self, step: CameraMove) {
@@ -1676,12 +1684,20 @@ impl KeyHints {
 
 #[cfg(test)]
 mod tests {
-    use caditor_render::{PickHit, PickId};
+    use std::time::Instant;
+
+    use caditor_document::{Document, Edit};
+    use caditor_file::StorageConfig;
+    use caditor_kernel::Accuracy;
+    use caditor_render::{Batch, Line, PickHit, PickId};
+    use caditor_sketch::Sketch;
     use egui::pos2;
 
     use super::*;
+    use crate::model::Services;
 
     const ORIGIN_PICK_INDEX: usize = 6;
+    const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(60);
 
     fn state_with_cursor() -> ViewportState {
         let mut state = ViewportState::new();
@@ -1690,38 +1706,59 @@ mod tests {
         state
     }
 
+    pub fn model_of(document: Document) -> Model {
+        Model::new(
+            document,
+            Services {
+                make_waker: Box::new(|| Box::new(|| {})),
+                storage: StorageConfig { recovery_dir: None },
+                panic_flush: Arc::default(),
+            },
+        )
+    }
+
+    pub fn settle(model: &mut Model) {
+        let deadline = Instant::now() + RECOMPUTE_TIMEOUT;
+        while matches!(model.status(), RecomputeStatus::Running { .. }) || model.bodies_pending() {
+            assert!(Instant::now() < deadline, "the recompute did not finish");
+            model.poll();
+            std::thread::yield_now();
+        }
+    }
+
+    fn sketched(plane: Plane) -> (Document, FeatureId, EntityId, EntityId) {
+        let mut document = Document::default();
+        let mut sketch = Sketch::new(plane);
+        let line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(30.0, 20.0));
+        let circle = sketch.add_circle(Point2::new(-20.0, 5.0), 8.0);
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Side", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        (document, feature, line, circle)
+    }
+
     #[test]
     fn picks_once_per_unchanged_state_and_retries_when_not_issued() {
-        let document = Document::default();
+        let model = model_of(Document::default());
         let mut state = state_with_cursor();
-        let built = state.build_scene(
-            &document,
-            &Evaluation::default(),
-            &Display::default(),
-            &SketchEditing::default(),
-        );
+        state.build_scene(&model, &SketchEditing::default());
 
-        let first = state.request(&built, true).unwrap();
+        let first = state.request(true).unwrap();
         assert_eq!(first.pick_at, Some(Vector2::new(120.0, 80.0)));
         assert_eq!(first.rect.width, 400.0);
-        assert_eq!(state.request(&built, true).unwrap().pick_at, None);
+        assert_eq!(state.request(true).unwrap().pick_at, None);
 
         state.pick_was_not_issued();
-        assert!(state.request(&built, false).unwrap().pick_at.is_none());
-        assert!(state.request(&built, true).unwrap().pick_at.is_some());
+        assert!(state.request(false).unwrap().pick_at.is_none());
+        assert!(state.request(true).unwrap().pick_at.is_some());
     }
 
     #[test]
     fn a_pick_result_sets_the_hovered_item_and_the_hit_under_the_cursor() {
-        let document = Document::default();
+        let model = model_of(Document::default());
         let mut state = state_with_cursor();
-        let built = state.build_scene(
-            &document,
-            &Evaluation::default(),
-            &Display::default(),
-            &SketchEditing::default(),
-        );
-        state.request(&built, true);
+        state.build_scene(&model, &SketchEditing::default());
+        state.request(true);
 
         let cursor = Vector2::new(120.0, 80.0);
         state.apply_pick(&PickResult {
@@ -1740,20 +1777,10 @@ mod tests {
 
     #[test]
     fn entering_a_sketch_turns_the_camera_to_face_it_and_keeps_only_its_selection() {
-        let mut document = Document::default();
-        let mut sketch = caditor_sketch::Sketch::new(caditor_geometry::Plane::XZ);
-        let line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(30.0, 20.0));
-        let mut transaction = document.transaction("Add sketch");
-        let feature = transaction.add_feature("Side", caditor_document::FeatureKind::from(sketch));
-        document.apply(transaction.finish()).unwrap();
-        let evaluation = Evaluation::default();
+        let (document, feature, line, _) = sketched(Plane::XZ);
+        let model = model_of(document);
         let mut state = state_with_cursor();
-        state.build_scene(
-            &document,
-            &evaluation,
-            &Display::default(),
-            &SketchEditing::default(),
-        );
+        state.build_scene(&model, &SketchEditing::default());
         let entity = Pickable::SketchEntity {
             feature,
             entity: line,
@@ -1762,7 +1789,10 @@ mod tests {
         state.selection.toggle(entity);
 
         let editing = SketchEditing::editing(feature);
-        let built = state.build_scene(&document, &evaluation, &Display::default(), &editing);
+        let edited = state
+            .build_scene(&model, &editing)
+            .and_then(|built| built.edited)
+            .unwrap();
         assert!(state.is_animating());
         assert_eq!(state.selection.iter().collect::<Vec<_>>(), vec![entity]);
         state.advance(Duration::from_secs(1));
@@ -1770,41 +1800,31 @@ mod tests {
         assert!(viewpoint.forward().distance(Vector3::Y) < 1e-9);
         assert!(viewpoint.up().distance(Vector3::Z) < 1e-9);
         let view = state.view().unwrap();
-        for corner in built.edited.unwrap().bounds.corners() {
+        for corner in edited.bounds.corners() {
             let pixel = view.project(corner).unwrap();
             assert!(pixel.x >= 0.0 && pixel.x <= view.size().x);
             assert!(pixel.y >= 0.0 && pixel.y <= view.size().y);
         }
 
-        state.build_scene(&document, &evaluation, &Display::default(), &editing);
+        state.build_scene(&model, &editing);
         assert!(!state.is_animating());
         let reference = Pickable::SketchEntity {
             feature,
-            entity: caditor_sketch::EntityId::ORIGIN,
+            entity: EntityId::ORIGIN,
         };
         state.selection.toggle(reference);
-        state.build_scene(&document, &evaluation, &Display::default(), &editing);
+        state.build_scene(&model, &editing);
         assert!(state.selection.contains(reference));
-        state.build_scene(
-            &document,
-            &evaluation,
-            &Display::default(),
-            &SketchEditing::default(),
-        );
+        state.build_scene(&model, &SketchEditing::default());
         assert_eq!(state.selection.iter().collect::<Vec<_>>(), vec![entity]);
     }
 
     #[test]
     fn the_first_scene_fits_the_camera_and_later_fits_animate() {
-        let document = Document::default();
+        let model = model_of(Document::default());
         let mut state = state_with_cursor();
         let initial = state.camera.viewpoint();
-        state.build_scene(
-            &document,
-            &Evaluation::default(),
-            &Display::default(),
-            &SketchEditing::default(),
-        );
+        state.build_scene(&model, &SketchEditing::default());
         assert_ne!(state.camera.viewpoint(), initial);
         assert!(!state.is_animating());
 
@@ -1812,13 +1832,416 @@ mod tests {
         state
             .selection
             .replace_with(Pickable::Axis(crate::selection::Axis::X));
-        state.build_scene(
-            &document,
-            &Evaluation::default(),
-            &Display::default(),
-            &SketchEditing::default(),
-        );
+        state.build_scene(&model, &SketchEditing::default());
         assert!(state.is_animating());
         assert!(!state.fit_requested);
+    }
+
+    #[derive(Debug)]
+    struct Drawn {
+        generation: u64,
+        base: Arc<Batch>,
+        picks: Arc<PickTable>,
+        overlay: Option<Arc<Batch>>,
+        picked: bool,
+    }
+
+    impl Drawn {
+        fn same_scene(&self, other: &Self) -> bool {
+            self.generation == other.generation && Arc::ptr_eq(&self.base, &other.base)
+        }
+
+        fn same_overlay(&self, other: &Self) -> bool {
+            match (&self.overlay, &other.overlay) {
+                (Some(this), Some(that)) => Arc::ptr_eq(this, that),
+                (None, None) => true,
+                (Some(_), None) | (None, Some(_)) => false,
+            }
+        }
+
+        fn lines_of(&self, pickable: Pickable) -> Vec<Line> {
+            let pick = self.picks.id_of(pickable);
+            self.base
+                .lines
+                .iter()
+                .filter(|line| line.pick.is_some() && line.pick == pick)
+                .cloned()
+                .collect()
+        }
+    }
+
+    fn draw(state: &mut ViewportState, model: &Model, editing: &SketchEditing) -> Drawn {
+        let built = state.build_scene(model, editing).unwrap();
+        let drawn = Drawn {
+            generation: built.generation,
+            base: Arc::clone(&built.scene.batches[0]),
+            picks: Arc::clone(&built.picks),
+            overlay: built.scene.batches.get(1).cloned(),
+            picked: false,
+        };
+        let picked = state
+            .request(true)
+            .is_some_and(|request| request.pick_at.is_some());
+        Drawn { picked, ..drawn }
+    }
+
+    #[test]
+    fn an_unchanged_frame_reuses_the_scene_and_asks_for_no_pick() {
+        let (document, ..) = sketched(Plane::XY);
+        let mut model = model_of(document);
+        settle(&mut model);
+        let editing = SketchEditing::default();
+        let mut state = state_with_cursor();
+        draw(&mut state, &model, &editing);
+
+        let first = draw(&mut state, &model, &editing);
+        let again = draw(&mut state, &model, &editing);
+        let still = draw(&mut state, &model, &editing);
+
+        assert!(first.picked);
+        assert!(again.same_scene(&first) && still.same_scene(&first));
+        assert!(!again.picked && !still.picked);
+        assert!(first.overlay.is_none() && again.same_overlay(&first));
+    }
+
+    #[test]
+    fn moving_the_camera_keeps_the_scene_but_picks_again() {
+        let (document, ..) = sketched(Plane::XY);
+        let mut model = model_of(document);
+        settle(&mut model);
+        let editing = SketchEditing::default();
+        let mut state = state_with_cursor();
+        draw(&mut state, &model, &editing);
+        let first = draw(&mut state, &model, &editing);
+
+        state
+            .camera
+            .orbit(Point3::ZERO, Vector2::new(30.0, 10.0), 300.0);
+        let orbited = draw(&mut state, &model, &editing);
+        let target = state.camera.viewpoint().target;
+        state.camera.pan(Vector2::new(40.0, 0.0), 0.1);
+        let panned = draw(&mut state, &model, &editing);
+        state.camera.zoom(target, 1.3);
+        let zoomed_out_a_little = draw(&mut state, &model, &editing);
+
+        assert!(orbited.same_scene(&first) && orbited.picked);
+        assert!(panned.same_scene(&first) && panned.picked);
+        assert!(zoomed_out_a_little.same_scene(&first) && zoomed_out_a_little.picked);
+    }
+
+    #[test]
+    fn zooming_far_in_refacets_curves_finer_and_hover_draws_the_same_polyline() {
+        let (document, feature, _, circle) = sketched(Plane::XY);
+        let mut model = model_of(document);
+        settle(&mut model);
+        let editing = SketchEditing::default();
+        let mut state = state_with_cursor();
+        let circle = Pickable::SketchEntity {
+            feature,
+            entity: circle,
+        };
+        draw(&mut state, &model, &editing);
+        let first = draw(&mut state, &model, &editing);
+        let coarse = first.lines_of(circle);
+
+        let target = state.camera.viewpoint().target;
+        state.camera.zoom(target, 1.0 / 16.0);
+        let zoomed = draw(&mut state, &model, &editing);
+        let fine = zoomed.lines_of(circle);
+        state.hovered = Some(circle);
+        let hovered = draw(&mut state, &model, &editing);
+        let highlighted = hovered.lines_of(circle);
+
+        assert!(!zoomed.same_scene(&first));
+        assert!(
+            fine.len() > coarse.len() * 2,
+            "{} {}",
+            fine.len(),
+            coarse.len()
+        );
+        assert_eq!(
+            highlighted
+                .iter()
+                .map(|line| (line.start, line.end))
+                .collect::<Vec<_>>(),
+            fine.iter()
+                .map(|line| (line.start, line.end))
+                .collect::<Vec<_>>()
+        );
+        assert!(highlighted.iter().all(|line| line.width > fine[0].width));
+    }
+
+    #[test]
+    fn each_change_rebuilds_what_it_changes_in_the_frame_it_happens() {
+        let (document, feature, line, _) = sketched(Plane::XY);
+        let mut model = model_of(document);
+        settle(&mut model);
+        let editing = SketchEditing::default();
+        let mut state = state_with_cursor();
+        let line = Pickable::SketchEntity {
+            feature,
+            entity: line,
+        };
+        draw(&mut state, &model, &editing);
+        let idle = draw(&mut state, &model, &editing);
+
+        state.hovered = Some(line);
+        let hovered = draw(&mut state, &model, &editing);
+        let hovered_color = hovered.lines_of(line)[0].color;
+        state.selection.toggle(line);
+        let selected = draw(&mut state, &model, &editing);
+        state.set_measured(Some((
+            MeasuredLine {
+                from: Point3::ZERO,
+                to: Point3::new(10.0, 0.0, 0.0),
+                accuracy: Accuracy::Exact,
+            },
+            "10 mm".to_owned(),
+        )));
+        let measured = draw(&mut state, &model, &editing);
+        let measured_again = draw(&mut state, &model, &editing);
+        state.set_measured(None);
+        let unmeasured = draw(&mut state, &model, &editing);
+
+        assert!(!hovered.same_scene(&idle) && hovered.picked);
+        assert_ne!(hovered_color, idle.lines_of(line)[0].color);
+        assert!(!selected.same_scene(&hovered));
+        assert!(measured.same_scene(&selected) && !measured.picked);
+        assert_eq!(
+            measured.overlay.as_ref().map(|batch| batch.lines.len()),
+            Some(1)
+        );
+        assert!(measured_again.same_overlay(&measured));
+        assert!(unmeasured.same_scene(&selected) && unmeasured.overlay.is_none());
+
+        model.perform(Action::Apply(Transaction::single(
+            "Hide the sketch",
+            Edit::SetFeatureHidden {
+                id: feature,
+                hidden: true,
+            },
+        )));
+        let edited = draw(&mut state, &model, &editing);
+        settle(&mut model);
+        let evaluated = draw(&mut state, &model, &editing);
+        let entered = draw(&mut state, &model, &SketchEditing::editing(feature));
+
+        assert!(!edited.same_scene(&unmeasured) && edited.picked);
+        assert!(edited.lines_of(line).is_empty());
+        assert!(!evaluated.same_scene(&edited));
+        assert!(!entered.same_scene(&evaluated));
+    }
+}
+
+#[cfg(test)]
+mod timing {
+    use std::time::Instant;
+
+    use caditor_document::{
+        BodyOperation, Document, Extrude, ExtrudeExtent, RegionChoice, SolidFeature,
+    };
+    use caditor_sketch::Sketch;
+    use egui::pos2;
+
+    use super::{
+        tests::{model_of, settle},
+        *,
+    };
+
+    const FRAMES: u32 = 200;
+    const WARM_UP: u32 = 3;
+
+    fn large_sketch() -> Sketch {
+        let mut sketch = Sketch::new(Plane::XY);
+        for row in 0..100 {
+            for column in 0..200 {
+                let at = Point2::new(f64::from(column) * 5.0, f64::from(row) * 5.0);
+                sketch.add_line(at, at + Vector2::new(3.0, 1.0));
+            }
+        }
+        for index in 0..2000 {
+            let at = Point2::new(
+                f64::from(index % 50) * 20.0,
+                -20.0 - f64::from(index / 50) * 20.0,
+            );
+            sketch.add_circle(at, 4.0 + f64::from(index % 5));
+            sketch.add_arc(at, at + Vector2::new(8.0, 0.0), at + Vector2::new(0.0, 8.0));
+        }
+        for index in 0..200 {
+            let at = Point2::new(1100.0, f64::from(index) * 6.0);
+            sketch.add_spline(&[
+                at,
+                at + Vector2::new(10.0, 4.0),
+                at + Vector2::new(20.0, -4.0),
+                at + Vector2::new(30.0, 0.0),
+            ]);
+        }
+        sketch
+    }
+
+    fn holed_plate() -> Sketch {
+        let mut sketch = Sketch::new(Plane::XY);
+        let corners = [
+            Point2::new(0.0, 0.0),
+            Point2::new(420.0, 0.0),
+            Point2::new(420.0, 420.0),
+            Point2::new(0.0, 420.0),
+        ];
+        let points: Vec<EntityId> = corners
+            .iter()
+            .map(|corner| sketch.add_point(*corner))
+            .collect();
+        for index in 0..4 {
+            sketch
+                .insert_entity(
+                    EntityId::from_raw(sketch.next_id()),
+                    caditor_sketch::Entity::Line {
+                        start: points[index],
+                        end: points[(index + 1) % 4],
+                    },
+                )
+                .unwrap();
+        }
+        for row in 0..20 {
+            for column in 0..20 {
+                let at = Point2::new(
+                    20.0 + f64::from(column) * 20.0,
+                    20.0 + f64::from(row) * 20.0,
+                );
+                sketch.add_circle(at, 6.0);
+            }
+        }
+        sketch
+    }
+
+    fn sketch_document(sketch: Sketch) -> (Document, FeatureId) {
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Large sketch", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        (document, feature)
+    }
+
+    fn plate_document() -> Document {
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add plate");
+        let sketch = transaction.add_feature("Plate sketch", FeatureKind::from(holed_plate()));
+        let distance = transaction.parse("5 mm").unwrap();
+        transaction.add_feature(
+            "Plate",
+            FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+                sketch,
+                regions: RegionChoice::All,
+                extent: ExtrudeExtent::one_side(distance, false),
+                operation: BodyOperation::NewBody,
+            })),
+        );
+        document.apply(transaction.finish()).unwrap();
+        document
+    }
+
+    fn settled(document: Document) -> Model {
+        let started = Instant::now();
+        let mut model = model_of(document);
+        settle(&mut model);
+        eprintln!("evaluated and meshed in {:?}", started.elapsed());
+        model
+    }
+
+    fn placed_state() -> ViewportState {
+        let mut state = ViewportState::new();
+        state.rect = Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1600.0, 1000.0)));
+        state.cursor = Some(Vector2::new(800.0, 500.0));
+        state
+    }
+
+    struct Scenario<'a> {
+        model: &'a Model,
+        editing: &'a SketchEditing,
+    }
+
+    impl Scenario<'_> {
+        fn frame(&self, state: &mut ViewportState) {
+            state.build_scene(self.model, self.editing);
+            state.request(true);
+        }
+
+        fn time(&self, name: &str, mut change: impl FnMut(&mut ViewportState, u32)) {
+            let mut state = placed_state();
+            for frame in 0..WARM_UP {
+                change(&mut state, frame);
+                self.frame(&mut state);
+            }
+            let started = Instant::now();
+            for frame in 0..FRAMES {
+                change(&mut state, frame);
+                self.frame(&mut state);
+            }
+            let per_frame = started.elapsed() / FRAMES;
+            let lines = state.scene().map_or(0, |scene| scene.lines().count());
+            eprintln!("{name}: {per_frame:?} per frame, {lines} line segments");
+        }
+    }
+
+    fn hover(state: &mut ViewportState, pickable: Pickable) {
+        state.hovered = Some(pickable);
+        state.hover_source = None;
+    }
+
+    fn orbit(state: &mut ViewportState) {
+        state
+            .camera
+            .orbit(Point3::ZERO, Vector2::new(2.0, 0.0), 1000.0);
+    }
+
+    #[test]
+    #[ignore = "a timing benchmark: cargo test --release -p caditor frame_costs -- --ignored --nocapture"]
+    fn frame_costs_on_a_large_sketch_and_a_large_model() {
+        let (document, sketch) = sketch_document(large_sketch());
+        let model = settled(document);
+        let editing = SketchEditing::editing(sketch);
+        let scenario = Scenario {
+            model: &model,
+            editing: &editing,
+        };
+        let entities: Vec<EntityId> = model
+            .document()
+            .feature(sketch)
+            .and_then(|feature| feature.kind.sketch())
+            .map(|sketch| sketch.entities().map(|(id, _)| id).take(2).collect())
+            .unwrap();
+        scenario.time("sketch, idle", |_, _| {});
+        scenario.time("sketch, camera moving", |state, _| orbit(state));
+        scenario.time("sketch, hover changing", |state, frame| {
+            let entity = entities[frame as usize % entities.len()];
+            hover(
+                state,
+                Pickable::SketchEntity {
+                    feature: sketch,
+                    entity,
+                },
+            );
+        });
+
+        let model = settled(plate_document());
+        let editing = SketchEditing::default();
+        let scenario = Scenario {
+            model: &model,
+            editing: &editing,
+        };
+        let mut state = placed_state();
+        let faces: Vec<Pickable> = state
+            .build_scene(&model, &editing)
+            .unwrap()
+            .picks
+            .pickables()
+            .filter(|pickable| matches!(pickable, Pickable::Face { .. }))
+            .take(2)
+            .collect();
+        scenario.time("model, idle", |_, _| {});
+        scenario.time("model, camera moving", |state, _| orbit(state));
+        scenario.time("model, hover changing", |state, frame| {
+            hover(state, faces[frame as usize % faces.len()]);
+        });
     }
 }

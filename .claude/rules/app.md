@@ -12,6 +12,8 @@ paths:
   - "packaging/**"
   - "crates/caditor/src/cli.rs"
   - "crates/caditor/src/scene.rs"
+  - "crates/caditor/src/scene_cache.rs"
+  - "crates/caditor/src/faceting.rs"
   - "crates/caditor/src/selection.rs"
   - "crates/caditor/src/measure.rs"
   - "crates/caditor/src/measure_panel.rs"
@@ -45,6 +47,41 @@ paths:
   when its document differs from it), the journal entries since then and the `Storage` worker, to
   which every change is recorded. While the journal cannot be written the status bar shows Not
   protected.
+
+## Scene
+
+- `ViewportState::build_scene` hands the renderer a cached scene (`scene_cache.rs`), never one
+  built afresh each frame. The base scene (bodies, sketches, references, with their hover and
+  selection colours and a `PickTable`) is rebuilt only when its content or its highlight changes:
+  content is the document revision, the evaluation generation, `DisplayedSketches::generation`
+  (a drag shown or dropped, `forget`), `BodyMeshes::generation` (a mesh arrived, changed or went,
+  or the open blend or shell changed), the editing `Context` and the faceting level; highlight is
+  the selection and the hovered items. An idle frame or a camera move reuses it whole.
+- Previews, the trim preview and the measured line form a second batch, the overlay, rebuilt only
+  when it differs from the last one; it carries no pick ids, so it never asks for a pick.
+- Each rebuild of the base bumps a generation; a pick is asked for when the cursor, the view or
+  that generation differs from the last pick's (`PickKey`), and the pick table travels with it as
+  an `Arc`. The keyboard highlight's list of distinct pickables is worked out only when first
+  needed after a rebuild.
+- `SketchShapes` keeps each drawn sketch's faceted outlines and constraint palettes for the
+  current content, so a hover or selection change only restyles and re-registers them.
+- Image export builds its own scene without highlights at a level fitting the image's size,
+  following the window's level where that is fine enough.
+
+## Sketch faceting
+
+- Sketch curves, previews and trim pieces are faceted to a chord tolerance (`caditor_sketch::
+  Faceting`, `sketch.md`) set from the view (`faceting.rs`): a quarter of a pixel at the view's
+  target distance, rounded down to a power of two of millimetres (`FacetLevel`). A level is kept
+  while the wanted chord stays between it and four times it (never coarser than wanted), so
+  curves are faceted anew once per halving while zooming in, once per two doublings while zooming
+  out, and never on a small zoom back and forth. Without a view a fixed level (1/32 mm) is used.
+- `scene::drawn_faceting` doubles the chord while the drawn sketches' curves would need more than
+  `SKETCH_SEGMENT_BUDGET` (2^19) segments, so zooming far into a sketch of thousands of circles
+  never exhausts memory.
+- Picks come from the drawn polylines, hover highlights draw the same polylines wider, box
+  selection tests the same faceting (`sketch_drag::within`), and snapping stays exact on the
+  curves. Bounds and fitting sample curves at a fixed 3°.
 
 ## Sessions and main.rs
 

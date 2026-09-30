@@ -271,6 +271,13 @@ The first release of caditor.
   longer holds up the window, and an edit made while it is read is kept alongside it.
 - Sketches with thousands of curves no longer slow down every frame: how each sketch is shown
   and how far it reaches is worked out once per change instead of several times per frame.
+- Large models and sketches stay smooth to orbit, pan and zoom: the view keeps what it has drawn
+  and sends it to the graphics card again only when the model, the selection or what is under
+  the pointer changes, instead of rebuilding everything every frame, and hovering over a sketch
+  of thousands of curves only recolours it.
+- Sketch circles, arcs and splines, and the shapes previewed while drawing or trimming, are drawn
+  as finely as the zoom needs: small ones with a few segments, large ones and close-ups smooth
+  however far you zoom in, and box selection follows the curves as they are drawn.
 - Screen readers can read and operate the panels, menus and dialogs through AT-SPI.
 - An arc's end snaps only to points on its circle and to where its circle crosses other curves,
   and a circle's rim only to points, so the arc stays where it was drawn and every "On …" label

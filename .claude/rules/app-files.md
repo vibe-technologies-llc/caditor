@@ -62,7 +62,8 @@ paths:
   which can be hidden first), the camera as it is now and the graphics settings in use. Its view
   is the camera at the image's size, so the vertical extent matches the view and a wider image
   shows more at the sides; pixels per point scale with the image's height over the view's, so
-  lines and points grow with 2× and 4×.
+  lines and points grow with 2× and 4×. Sketch curves are faceted for the image's size (the
+  view's level while that is fine enough, `app.md`), so a larger image shows no facets.
 - After the save dialog (`Dialogs::pick_image_path`, `.png` appended when missing, so an export
   never replaces a model) the job waits in `Files` (`image_job`); the session renders it with
   `Renderer::render_image` before the frame's own drawing and polls it each frame, redrawing while

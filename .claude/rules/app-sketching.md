@@ -54,8 +54,9 @@ paths:
   of that revision reaches the sketch, so it never jumps back. Escape (`Cancel`), another edit or
   document, or a drag begun on an older revision drops it and shows the sketch as it was.
 - A primary drag elsewhere draws a box: left to right a window taking the points and curves whose
-  outline lies inside, right to left a crossing box taking what it touches; it replaces the
-  selection (Shift or Ctrl adds to it); a point is left out when a curve it belongs to was taken.
+  outline (faceted as drawn, `app.md`) lies inside, right to left a crossing box taking what it
+  touches; it replaces the selection (Shift or Ctrl adds to it); a point is left out when a curve
+  it belongs to was taken.
 - Move selected sketch geometry (M) opens the typed-point field (`app-input.md`) as "Move to": the
   first selected point goes there (`@` offsets from it), the rest follows, committed like a drag
   (`Move <what>`), solved like a drag. Select all sketch geometry (Ctrl+A) selects what a box around
@@ -146,7 +147,7 @@ paths:
   transaction (`sketch_tools::ConstructionChange`), ordinary when all already are; with no curve
   selected it switches drawing (`ActiveSketch::construction`): new curves are construction, points
   stay points (the button shows pressed). Construction curves and the preview while drawing them are
-  dashed (`scene::curve_lines`), coloured by constraint state like any curve. Its button leads the
+  dashed (`scene::curve_segments`), coloured by constraint state like any curve. Its button leads the
   ribbon's Modify group, after the drawing tools.
 
 ## Trim and extend
@@ -194,9 +195,10 @@ paths:
   holds exactly (relative 1e-9), never moving the point; a curve snap moves to where the ray of an
   applying direction crosses that curve, if within 12 pixels of the pointer. Typed points never
   align.
-- The preview, snap marker and snap label are drawn from this state; the snap target and a
-  direction's reference line (`Drawing::snap_entities`) replace the GPU hover while a drawing tool
-  is active, so the reference is highlighted.
+- The preview, snap marker and snap label are drawn from this state; the preview's curves are
+  faceted like the sketch's (`Drawing::preview` and `Trimming::preview` take the scene's
+  `Faceting`); the snap target and a direction's reference line (`Drawing::snap_entities`) replace
+  the GPU hover while a drawing tool is active, so the reference is highlighted.
 
 ## Constraint tools
 
@@ -219,7 +221,8 @@ paths:
   copy. `DisplayedSketches`, owned by `Model` with the body meshes in `Display` and handed to the
   scene through `Sources`, works it out once per sketch and keeps it, with the bounds of its points
   that fitting and the reference size use, until the document or evaluation changes (`forget`), so a
-  frame compares, copies and polylines no sketch for these.
+  frame compares, copies and polylines no sketch for these. Its `generation` moves on `forget` and
+  when a dragged sketch is shown or dropped, which the cached scene watches (`app.md`).
 
 ## Annotations
 

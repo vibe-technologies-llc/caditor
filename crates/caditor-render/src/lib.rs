@@ -22,7 +22,7 @@ pub use crate::{
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     picking::PickPoll,
     scene::{
-        Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene, Stroke,
+        Batch, Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene, Stroke,
         ViewportRect,
     },
     settings::{GraphicsInfo, GraphicsSettings, Msaa, Shading},
