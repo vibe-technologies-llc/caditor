@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use caditor_document::{Document, Evaluation, FeatureId, FeatureKind};
+use caditor_document::{Document, Evaluation, FeatureId, FeatureKind, Transaction};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{Camera, PickResult, Scene, SurfaceSize, View, Viewpoint, ViewportRect};
 use caditor_sketch::{ConstraintId, EntityId};
@@ -13,7 +13,7 @@ use crate::{
     canvas,
     commands::{CameraMove, Command, CommandFrame, StandardView},
     datum_tools,
-    display::Display,
+    display::{Display, Displayed},
     drag_solver::DragCommand,
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
@@ -28,6 +28,7 @@ use crate::{
     sketch_tools,
     snap::{Pointer, Screen},
     solid_tools,
+    trimming::Trimming,
     typed_point::{self, TypedPoint},
     view_cube::{self, CubeAction},
 };
@@ -63,6 +64,9 @@ const BOX_DASH: f32 = 6.0;
 const BOX_GAP: f32 = 4.0;
 const NOTHING_TO_HIGHLIGHT: &str = "Nothing in the view can be picked";
 const MEASURE_LABEL_LIFT: f32 = 6.0;
+const BACK_TO_SELECT: &str = "Esc: back to Select";
+const NO_TARGET_HIGHLIGHTED: &str =
+    "Highlight a piece or an end first, with Highlight the next item in the view";
 
 struct SketchScreen {
     view: View,
@@ -108,6 +112,7 @@ struct Press {
 enum PrimaryDrag {
     Grab(Grab),
     Box { feature: FeatureId, area: ScreenBox },
+    Trim { feature: FeatureId, from: Point2 },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -149,6 +154,7 @@ pub struct ViewportState {
     face_edited_sketch: bool,
     sketch_cursor: Option<Point2>,
     drawing: Drawing,
+    trimming: Trimming,
     annotations: Annotations,
     bodies: BodyMeshes,
     navigation: Navigation,
@@ -192,6 +198,7 @@ impl ViewportState {
             face_edited_sketch: false,
             sketch_cursor: None,
             drawing: Drawing::default(),
+            trimming: Trimming::default(),
             annotations: Annotations::default(),
             bodies: BodyMeshes::default(),
             navigation: Navigation::default(),
@@ -236,6 +243,7 @@ impl ViewportState {
         self.keyboard_highlight = None;
         self.highlightable.clear();
         self.drawing = Drawing::default();
+        self.trimming = Trimming::default();
         self.annotations = Annotations::default();
         self.typed_point = TypedPoint::default();
         self.moving = None;
@@ -378,6 +386,16 @@ impl ViewportState {
                         .map(move |entity| Pickable::SketchEntity { feature, entity })
                 })
                 .collect()
+        } else if self.trimming.is_active() {
+            edited
+                .into_iter()
+                .flat_map(|feature| {
+                    self.trimming
+                        .highlighted_entities()
+                        .into_iter()
+                        .map(move |entity| Pickable::SketchEntity { feature, entity })
+                })
+                .collect()
         } else if let Some(annotation) = self.annotations.hovered() {
             annotation.constrained_entities(document)
         } else if let Some(row) = self.hovered_in_tree {
@@ -404,6 +422,7 @@ impl ViewportState {
         );
         if let Some(sketch) = built.edited {
             scene::add_preview(&mut built.scene, sketch.plane, &self.drawing.preview());
+            scene::add_preview(&mut built.scene, sketch.plane, &self.trimming.preview());
         }
         if let Some((line, _)) = &self.measured {
             scene::add_measurement(&mut built.scene, line.from, line.to);
@@ -606,6 +625,7 @@ impl ViewportState {
             .filter(|position| rect.contains(*position));
         if moved && inside.is_some() {
             self.keyboard_highlight = None;
+            self.trimming.clear_highlight();
         }
         self.cursor = inside.map(|position| self.to_pixels(position - rect.min));
         if self.cursor.is_none() {
@@ -726,6 +746,9 @@ impl ViewportState {
                 .press
                 .take()
                 .and_then(|press| self.begin_primary(press, model, editing));
+            if let Some(PrimaryDrag::Trim { from, .. }) = &self.primary {
+                self.trimming.begin_path(*from);
+            }
         }
         let edited = editing
             .active()
@@ -741,6 +764,10 @@ impl ViewportState {
             Some(PrimaryDrag::Box { feature, .. }) if Some(*feature) != edited => {
                 self.primary = None;
             }
+            Some(PrimaryDrag::Trim { feature, .. }) if Some(*feature) != edited => {
+                self.primary = None;
+                self.trimming.cancel_path();
+            }
             Some(PrimaryDrag::Grab(grab)) => {
                 if let Some(command) = sketch_cursor.and_then(|at| grab.to(at)) {
                     actions.push(Action::Drag(command));
@@ -751,7 +778,7 @@ impl ViewportState {
                     area.to = cursor / f64::from(self.pixels_per_point);
                 }
             }
-            None => {}
+            Some(PrimaryDrag::Trim { .. }) | None => {}
         }
         if released {
             self.press = None;
@@ -761,6 +788,9 @@ impl ViewportState {
                 }
                 Some(PrimaryDrag::Box { feature, area }) => {
                     self.select_within(model, feature, area, toggle);
+                }
+                Some(PrimaryDrag::Trim { .. }) => {
+                    actions.extend(outcome_action(self.trimming.finish_path(model)));
                 }
                 Some(PrimaryDrag::Grab(_)) | None => {}
             }
@@ -773,10 +803,16 @@ impl ViewportState {
         model: &Model,
         editing: &SketchEditing,
     ) -> Option<PrimaryDrag> {
-        let feature = editing
-            .active()
-            .filter(|active| !active.tool.draws())?
-            .feature;
+        let active = editing.active().filter(|active| !active.tool.draws())?;
+        let feature = active.feature;
+        match active.tool {
+            Tool::Trim => {
+                let from = self.on_sketch(model, feature, press.cursor)?;
+                return Some(PrimaryDrag::Trim { feature, from });
+            }
+            Tool::Extend => return None,
+            _ => {}
+        }
         let grabbed = match press.hovered {
             Some(Pickable::SketchEntity {
                 feature: owner,
@@ -830,6 +866,7 @@ impl ViewportState {
             .and_then(|feature| model.document().feature(feature))
             .and_then(|feature| model.displayed_sketch(feature));
         self.drawing.sync(editing.active(), displayed.as_deref());
+        self.trimming.sync(editing.active(), displayed.as_deref());
         let scale = f64::from(self.pixels_per_point);
         let pointer = self
             .cursor
@@ -846,8 +883,12 @@ impl ViewportState {
                     pixels_per_point: scale,
                 };
                 self.drawing.hover(&sketch, &screen, pointer);
+                self.trimming.hover(&sketch, &screen, pointer);
             }
-            _ => self.drawing.leave(),
+            _ => {
+                self.drawing.leave();
+                self.trimming.leave();
+            }
         }
     }
 
@@ -859,7 +900,9 @@ impl ViewportState {
         editing: &SketchEditing,
         actions: &mut Vec<Action>,
     ) {
-        let drawing = editing.active().is_some_and(|active| active.tool.draws());
+        let drawing = editing
+            .active()
+            .is_some_and(|active| active.tool.draws() || active.tool.modifies());
         if self.hover_is_current()
             && let Some(click) = self.pending_click.take()
         {
@@ -906,6 +949,10 @@ impl ViewportState {
         }
         if let Some(action) = pick_action(self.hovered, model, editing) {
             actions.extend(action);
+            return;
+        }
+        if self.trimming.is_active() {
+            actions.extend(outcome_action(self.trimming.click(model)));
             return;
         }
         if drawing {
@@ -962,10 +1009,15 @@ impl ViewportState {
                 PreferenceChange::Projection(self.navigation.projection.other()),
             )));
         }
-        let highlightable = if self.highlightable.is_empty() {
-            Err(NOTHING_TO_HIGHLIGHT)
-        } else {
-            Ok(())
+        let targets = self
+            .trimming
+            .is_active()
+            .then(|| edited_sketch(model, editing))
+            .flatten();
+        let highlightable = match &targets {
+            Some(sketch) => self.trimming.steppable(sketch),
+            None if self.highlightable.is_empty() => Err(NOTHING_TO_HIGHLIGHT),
+            None => Ok(()),
         };
         let steps = [
             (Command::HighlightNext, 1),
@@ -973,7 +1025,10 @@ impl ViewportState {
         ];
         for (command, step) in steps {
             if commands.invoke(command, &highlightable) {
-                self.step_highlight(step);
+                match &targets {
+                    Some(sketch) => self.trimming.step(sketch, step),
+                    None => self.step_highlight(step),
+                }
             }
         }
         if let Some(active) = editing.active() {
@@ -991,6 +1046,17 @@ impl ViewportState {
                 }
             }
             self.sketch_commands(model, active.feature, active.tool.draws(), commands);
+        }
+        if self.trimming.is_active() {
+            let activation = if self.trimming.has_highlight() {
+                Ok(())
+            } else {
+                Err(NO_TARGET_HIGHLIGHTED)
+            };
+            if commands.invoke(Command::ActivateHighlighted, &activation) {
+                actions.extend(outcome_action(self.trimming.activate(model)));
+            }
+            return;
         }
         let activation = self
             .keyboard_highlight
@@ -1182,7 +1248,9 @@ impl ViewportState {
             self.escape(editing, actions);
         }
         if finish {
-            if let Some(transaction) = self.drawing.finish(model) {
+            if self.trimming.is_active() {
+                actions.extend(outcome_action(self.trimming.activate(model)));
+            } else if let Some(transaction) = self.drawing.finish(model) {
                 actions.push(Action::Apply(transaction));
             } else if editing.feature().is_none()
                 && let Some(command) = open_command(self.keyboard_highlight, model)
@@ -1198,8 +1266,10 @@ impl ViewportState {
     fn escape(&mut self, editing: &SketchEditing, actions: &mut Vec<Action>) {
         let active = editing.active();
         if let Some(primary) = self.primary.take() {
-            if matches!(primary, PrimaryDrag::Grab(_)) {
-                actions.push(Action::Drag(DragCommand::Cancel));
+            match primary {
+                PrimaryDrag::Grab(_) => actions.push(Action::Drag(DragCommand::Cancel)),
+                PrimaryDrag::Trim { .. } => self.trimming.cancel_path(),
+                PrimaryDrag::Box { .. } => {}
             }
         } else if editing.is_choosing_plane() {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
@@ -1207,6 +1277,8 @@ impl ViewportState {
             self.drawing.cancel();
         } else if self.keyboard_highlight.is_some() {
             self.keyboard_highlight = None;
+        } else if self.trimming.has_highlight() {
+            self.trimming.clear_highlight();
         } else if let Some(active) = active
             && active.tool != Tool::Select
         {
@@ -1245,7 +1317,7 @@ impl ViewportState {
             rect,
             screen: &screen,
             feature,
-            interactive: !self.drawing.is_active(),
+            interactive: !self.drawing.is_active() && !self.trimming.is_active(),
         };
         self.annotations
             .show(ui, model, &surface, &mut self.selection, actions);
@@ -1302,12 +1374,19 @@ impl ViewportState {
             }
         }
         let hovered = self.annotations.hovered().or(self.highlighted());
-        if let Some(hovered) = hovered.filter(|_| !self.drawing.is_active()) {
+        let description = if self.trimming.is_active() {
+            edited_sketch(model, editing).and_then(|sketch| self.trimming.label(&sketch))
+        } else {
+            hovered
+                .filter(|_| !self.drawing.is_active())
+                .map(|hovered| hovered.describe(document, model.evaluation()))
+        };
+        if let Some(description) = description {
             let label = canvas::label(
                 painter,
                 rect.left_top() + vec2(LABEL_MARGIN, LABEL_MARGIN),
                 Align2::LEFT_TOP,
-                hovered.describe(document, model.evaluation()),
+                description,
                 FontId::proportional(13.0),
                 canvas::TEXT,
             );
@@ -1342,6 +1421,8 @@ impl ViewportState {
                 _ => CHOOSE_REGIONS_PROMPT,
             };
             Some((prompt.to_owned(), CHOOSE_REGIONS_HINT.to_owned()))
+        } else if let Some(prompt) = self.trimming.prompt() {
+            Some((prompt.to_owned(), key_hints.targets.clone()))
         } else {
             self.drawing
                 .prompt()
@@ -1454,6 +1535,18 @@ fn paint_box(painter: &egui::Painter, rect: Rect, area: ScreenBox) {
     }
 }
 
+fn edited_sketch<'a>(model: &'a Model, editing: &SketchEditing) -> Option<Displayed<'a>> {
+    let feature = model.document().feature(editing.feature()?)?;
+    model.displayed_sketch(feature)
+}
+
+fn outcome_action(outcome: Result<Option<Transaction>, String>) -> Option<Action> {
+    match outcome {
+        Ok(transaction) => transaction.map(Action::Apply),
+        Err(reason) => Some(Action::Inform(Notice::info(reason))),
+    }
+}
+
 fn open_command(pickable: Option<Pickable>, model: &Model) -> Option<EditingCommand> {
     match pickable? {
         Pickable::SketchEntity { feature, .. } => Some(EditingCommand::Enter(feature)),
@@ -1514,6 +1607,7 @@ struct KeyHints {
     fit: String,
     reverse: Option<String>,
     sides: Option<String>,
+    targets: String,
 }
 
 impl KeyHints {
@@ -1532,9 +1626,21 @@ impl KeyHints {
         .chain(["Enter: open   Esc: stop highlighting".to_owned()])
         .collect::<Vec<_>>()
         .join("   ");
+        let targets = [
+            (Command::HighlightNext, "next"),
+            (Command::HighlightPrevious, "previous"),
+        ]
+        .into_iter()
+        .filter_map(|(command, what)| Some(format!("{}: {what}", commands.keys(command)?)))
+        .chain([format!(
+            "Enter: act on the highlighted one   {BACK_TO_SELECT}"
+        )])
+        .collect::<Vec<_>>()
+        .join("   ");
         Self {
             navigation,
             highlight,
+            targets,
             fit: commands.with_keys(Command::FitView, "Frame the view around it"),
             reverse: commands
                 .keys(Command::ReverseArc)

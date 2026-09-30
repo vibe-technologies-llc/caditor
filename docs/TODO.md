@@ -86,8 +86,8 @@ within a category run from most to least important.
 
 - No projection of model edges or other sketches into a sketch, and bodies and other sketches
   are unpickable while editing.
-- Tools missing: trim, extend, offset, mirror, sketch fillet and ellipse; a slot drawn from its
-  centre or as an arc.
+- Tools missing: offset, mirror, sketch fillet and ellipse; a slot drawn from its centre or as an
+  arc.
 - Snapping has no midpoints, intersections, spline targets, grid or inference lines to other
   points, and dragged geometry does not snap at all.
 - Dimensions all sit at one fixed offset, so collinear chains overlap, and labels cannot be

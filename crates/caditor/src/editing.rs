@@ -24,10 +24,12 @@ pub enum Tool {
     Slot,
     Polygon,
     Spline,
+    Trim,
+    Extend,
 }
 
 impl Tool {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 13] = [
         Self::Select,
         Self::Point,
         Self::Line,
@@ -39,6 +41,8 @@ impl Tool {
         Self::Slot,
         Self::Polygon,
         Self::Spline,
+        Self::Trim,
+        Self::Extend,
     ];
 
     pub fn label(self) -> &'static str {
@@ -54,6 +58,8 @@ impl Tool {
             Self::Slot => "Slot",
             Self::Polygon => "Polygon",
             Self::Spline => "Spline",
+            Self::Trim => "Trim",
+            Self::Extend => "Extend",
         }
     }
 
@@ -75,12 +81,19 @@ impl Tool {
             Self::Slot => "Draw a slot from the centres of its round ends and its width",
             Self::Polygon => "Draw a regular polygon from its centre and a corner",
             Self::Spline => "Draw a smooth curve through control points",
+            Self::Trim => {
+                "Click a piece of a line, circle or arc to cut it away up to the curves crossing \
+                 it, or drag across several pieces"
+            }
+            Self::Extend => {
+                "Click near the end of a line or arc to lengthen it to the next curve in its way"
+            }
         }
     }
 
     pub fn draws(self) -> bool {
         match self {
-            Self::Select => false,
+            Self::Select | Self::Trim | Self::Extend => false,
             Self::Point
             | Self::Line
             | Self::Rectangle
@@ -92,6 +105,10 @@ impl Tool {
             | Self::Polygon
             | Self::Spline => true,
         }
+    }
+
+    pub fn modifies(self) -> bool {
+        matches!(self, Self::Trim | Self::Extend)
     }
 }
 

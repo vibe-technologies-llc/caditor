@@ -85,6 +85,8 @@ paths:
   once (drawn and described like hover; a pointer move or Escape clears it); Space acts on it as a
   click would (toggling it in the selection, or a region, blend edge, shell face or sketch plane as
   in those modes, through `pick_action`), Enter opens what it belongs to as a double-click would.
+  With Trim or Extend active they step through that tool's targets instead, and Space or Enter
+  trims or extends the highlighted one (`app-sketching.md`).
 
 ## Typed-point field
 

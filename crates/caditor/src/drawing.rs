@@ -289,6 +289,7 @@ pub fn arc_ends<T>(counter_clockwise: bool, start: T, end: T) -> (T, T) {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Preview {
     pub curves: Vec<Vec<Point2>>,
+    pub removed: Vec<Vec<Point2>>,
     pub points: Vec<Point2>,
     pub snap: Option<Point2>,
     pub construction: bool,
@@ -492,6 +493,8 @@ impl Drawing {
             return Ok(match tool {
                 Tool::Spline => self.finish(model),
                 Tool::Select
+                | Tool::Trim
+                | Tool::Extend
                 | Tool::Point
                 | Tool::Line
                 | Tool::Rectangle
@@ -519,7 +522,7 @@ impl Drawing {
         let shape = tool.label().to_lowercase();
         let draft = || Draft::new(model, feature, &shape, self.construction);
         Ok(match (tool, self.placed.as_slice()) {
-            (Tool::Select, _) => None,
+            (Tool::Select | Tool::Trim | Tool::Extend, _) => None,
             (Tool::Point, _) => draft().map(|mut draft| {
                 draft.point(placement);
                 draft.finish()
@@ -854,7 +857,7 @@ impl Drawing {
             })
         };
         match (tool, self.placed.len()) {
-            (Tool::Select, _) => None,
+            (Tool::Select | Tool::Trim | Tool::Extend, _) => None,
             (Tool::Point, _) => prompt("Click to place a point", BACK_TO_SELECT),
             (Tool::Line, 0) => prompt("Click the start of the line", BACK_TO_SELECT),
             (Tool::Line, _) => prompt(
@@ -972,6 +975,8 @@ impl Drawing {
                 .last()
                 .map(|last| (self.placed.len() - 1, last.position)),
             Tool::Select
+            | Tool::Trim
+            | Tool::Extend
             | Tool::Point
             | Tool::Rectangle
             | Tool::Circle

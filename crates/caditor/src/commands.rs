@@ -501,6 +501,8 @@ impl Command {
                 Tool::Slot => "sketch.slot",
                 Tool::Polygon => "sketch.polygon",
                 Tool::Spline => "sketch.spline",
+                Tool::Trim => "sketch.trim",
+                Tool::Extend => "sketch.extend",
             },
             Self::Constraint(tool) => match tool {
                 ConstraintTool::Coincident => "constraint.coincident",
@@ -618,6 +620,8 @@ impl Command {
             Self::MoveGeometry => "Move selected sketch geometry",
             Self::SelectAll => "Select all sketch geometry",
             Self::SketchTool(Tool::Select) => "Select tool",
+            Self::SketchTool(Tool::Trim) => "Trim sketch curves",
+            Self::SketchTool(Tool::Extend) => "Extend a line or arc",
             Self::SketchTool(tool) => return format!("Draw {}", tool.label().to_lowercase()),
             Self::Constraint(tool) => return tool.label().to_owned(),
             Self::DeleteSelection => "Delete selection",
@@ -888,6 +892,8 @@ fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
         Tool::Slot => plain(Key::U),
         Tool::Polygon => plain(Key::G),
         Tool::Spline => plain(Key::S),
+        Tool::Trim => plain(Key::K),
+        Tool::Extend => plain(Key::J),
     }
 }
 

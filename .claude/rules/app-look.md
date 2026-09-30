@@ -88,8 +88,8 @@ paths:
   `accent_surface` with a 2-point `accent_text` line along its top. Groups run left to right,
   split by thin dividers and captioned in small muted text below: a fixed-width header (sketch badge,
   "Editing <name>" truncating with the full name on hover, the sketch's `status_pill`s), Select,
-  Draw (the drawing tools as `ToolButton`s), Modify (compact Construction, Move, Select all and
-  Delete, which trigger their commands), Constrain (the geometric constraints, six compact buttons a
+  Draw (the drawing tools as `ToolButton`s), Modify (compact Construction, Trim and Extend over
+  Move, Select all and Delete, which trigger their commands or choose their tool), Constrain (the geometric constraints, six compact buttons a
   row) and Dimension (three a row). Finish sketch is a primary button at the right of the first
   row. Compact buttons show their name, what they do and the shortcut on hover, and why they are
   unavailable while disabled.

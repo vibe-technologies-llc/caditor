@@ -59,6 +59,7 @@ mod solid_panel;
 mod solid_tools;
 mod status_bar;
 mod toolbar;
+mod trimming;
 mod typed_point;
 #[cfg(test)]
 mod ui_tests;

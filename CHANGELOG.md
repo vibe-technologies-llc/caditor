@@ -29,6 +29,12 @@ The first release of caditor.
   of a line, arc or spline and chain one after another (T), slots (U), and regular polygons of
   3 to 64 sides (G, with ] and [ for more or fewer sides), each drawn with the constraints that
   keep its shape.
+- Trim (K) and Extend (J) in the sketch ribbon's Modify group. Trim cuts away the piece of a
+  line, circle or arc between the curves crossing it, or every piece a drag passes over: a circle
+  opens into an arc, a line or arc cut in the middle splits in two, and a piece nothing crosses is
+  deleted. Extend lengthens a line or arc from the clicked end to the next curve in its way.
+  Constraints stay with the pieces kept, new ends stay on the curves that cut them, each change
+  is one undoable step, and both work from the keyboard with N to highlight and Enter to act.
 - A typed point can be a length and an angle, such as `25 < 30` or `@25 < 30` from the last
   point, or a length alone, which goes from the last point toward the pointer. Typing a chain of
   line ends no longer starts a new chain after the first line.

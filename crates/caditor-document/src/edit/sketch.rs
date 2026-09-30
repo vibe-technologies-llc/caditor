@@ -81,6 +81,25 @@ impl TransactionBuilder<'_> {
         self
     }
 
+    pub fn reshape_sketch(
+        &mut self,
+        feature: FeatureId,
+        before: &Sketch,
+        after: &Sketch,
+    ) -> &mut Self {
+        let edits = Reshape::between(before, after).edits(feature);
+        self.edits.extend(edits);
+        let next = self
+            .next_sketch_ids
+            .get(&feature)
+            .copied()
+            .or_else(|| self.sketch(feature).map(Sketch::next_id))
+            .unwrap_or(0)
+            .max(after.next_id());
+        self.next_sketch_ids.insert(feature, next);
+        self
+    }
+
     fn sketch(&self, feature: FeatureId) -> Option<&Sketch> {
         match self.document.feature(feature) {
             Some(existing) => existing.kind.sketch(),
@@ -166,6 +185,158 @@ impl Removal {
             .into_iter()
             .map(|id| Edit::RemoveSketchEntity { feature, id });
         constraints.chain(entities).collect()
+    }
+}
+
+struct Reshape {
+    removed_constraints: Vec<ConstraintId>,
+    removed_entities: Vec<EntityId>,
+    added_entities: Vec<(EntityId, Entity, bool)>,
+    changed_entities: Vec<(EntityId, Entity)>,
+    construction: Vec<(EntityId, bool)>,
+    added_constraints: Vec<(ConstraintId, Constraint)>,
+}
+
+impl Reshape {
+    fn between(before: &Sketch, after: &Sketch) -> Self {
+        let mut replaced: BTreeSet<EntityId> = before
+            .entities()
+            .filter(|(id, entity)| {
+                after
+                    .entity(*id)
+                    .is_some_and(|kept| !kept.same_structure(entity))
+            })
+            .map(|(id, _)| id)
+            .collect();
+        loop {
+            let users: Vec<EntityId> = before
+                .entities()
+                .filter(|(id, entity)| {
+                    !replaced.contains(id)
+                        && after.entity(*id).is_some()
+                        && entity.points().iter().any(|point| replaced.contains(point))
+                })
+                .map(|(id, _)| id)
+                .collect();
+            if users.is_empty() {
+                break;
+            }
+            replaced.extend(users);
+        }
+        let renewed = |constraint: &Constraint| {
+            constraint
+                .entities()
+                .iter()
+                .any(|entity| replaced.contains(entity))
+        };
+        let removed_constraints = before
+            .constraints()
+            .filter(|(id, constraint)| {
+                after.constraint(*id) != Some(*constraint) || renewed(constraint)
+            })
+            .map(|(id, _)| id)
+            .collect();
+        let gone = |id: &EntityId| after.entity(*id).is_none() || replaced.contains(id);
+        let (removed_curves, removed_points): (Vec<EntityId>, Vec<EntityId>) = before
+            .entities()
+            .map(|(id, _)| id)
+            .filter(gone)
+            .partition(|id| {
+                before
+                    .entity(*id)
+                    .is_some_and(|entity| !entity.points().is_empty())
+            });
+        let fresh = |id: &EntityId| before.entity(*id).is_none() || replaced.contains(id);
+        let (added_points, added_curves): (Vec<_>, Vec<_>) = after
+            .entities()
+            .filter(|(id, _)| fresh(id))
+            .map(|(id, entity)| (id, entity.clone(), after.is_construction(id)))
+            .partition(|(_, entity, _)| entity.points().is_empty());
+        let changed_entities = after
+            .entities()
+            .filter(|(id, entity)| {
+                !replaced.contains(id)
+                    && before
+                        .entity(*id)
+                        .is_some_and(|previous| previous != *entity)
+            })
+            .map(|(id, entity)| (id, entity.clone()))
+            .collect();
+        let construction = after
+            .entities()
+            .filter(|(id, _)| {
+                !replaced.contains(id)
+                    && before.entity(*id).is_some()
+                    && before.is_construction(*id) != after.is_construction(*id)
+            })
+            .map(|(id, _)| (id, after.is_construction(id)))
+            .collect();
+        let added_constraints = after
+            .constraints()
+            .filter(|(id, constraint)| {
+                before.constraint(*id) != Some(*constraint) || renewed(constraint)
+            })
+            .map(|(id, constraint)| (id, constraint.clone()))
+            .collect();
+        Self {
+            removed_constraints,
+            removed_entities: removed_curves.into_iter().chain(removed_points).collect(),
+            added_entities: added_points.into_iter().chain(added_curves).collect(),
+            changed_entities,
+            construction,
+            added_constraints,
+        }
+    }
+
+    fn edits(self, feature: FeatureId) -> Vec<Edit> {
+        let removed_constraints = self
+            .removed_constraints
+            .into_iter()
+            .map(|id| Edit::RemoveSketchConstraint { feature, id });
+        let removed_entities = self
+            .removed_entities
+            .into_iter()
+            .map(|id| Edit::RemoveSketchEntity { feature, id });
+        let added_entities = self
+            .added_entities
+            .into_iter()
+            .map(|(id, entity, construction)| Edit::AddSketchEntity {
+                feature,
+                id,
+                entity,
+                construction,
+            });
+        let changed_entities =
+            self.changed_entities
+                .into_iter()
+                .map(|(id, entity)| Edit::SetSketchEntity {
+                    feature,
+                    id,
+                    entity,
+                });
+        let construction =
+            self.construction
+                .into_iter()
+                .map(|(id, construction)| Edit::SetSketchConstruction {
+                    feature,
+                    id,
+                    construction,
+                });
+        let added_constraints =
+            self.added_constraints
+                .into_iter()
+                .map(|(id, constraint)| Edit::AddSketchConstraint {
+                    feature,
+                    id,
+                    constraint,
+                });
+        removed_constraints
+            .chain(removed_entities)
+            .chain(added_entities)
+            .chain(changed_entities)
+            .chain(construction)
+            .chain(added_constraints)
+            .collect()
     }
 }
 

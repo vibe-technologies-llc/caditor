@@ -164,6 +164,8 @@ pub fn tool(tool: Tool) -> &'static str {
         Tool::Slot => phosphor::PILL,
         Tool::Polygon => phosphor::HEXAGON,
         Tool::Spline => phosphor::BEZIER_CURVE,
+        Tool::Trim => phosphor::SCISSORS,
+        Tool::Extend => phosphor::ARROW_LINE_RIGHT,
     }
 }
 

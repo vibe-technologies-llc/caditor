@@ -423,6 +423,19 @@ impl Bar<'_, '_> {
         response
     }
 
+    fn compact_tool_button(&mut self, ui: &mut Ui, tool: Tool) {
+        let command = Command::SketchTool(tool);
+        let invoked = self.commands.available(command);
+        let button = ToolButton::new(icons::tool(tool), tool.label())
+            .compact()
+            .selected(self.active.tool == tool);
+        let help = Ok(self.commands.with_keys(command, tool.description()));
+        let response = explained(ui.add(button), tool.label(), &help);
+        if response.clicked() || invoked {
+            self.request.tool = Some(tool);
+        }
+    }
+
     fn drawing_tools(&mut self, ui: &mut Ui) -> f32 {
         ui.horizontal_wrapped(|ui| {
             Tool::ALL
@@ -438,12 +451,14 @@ impl Bar<'_, '_> {
     fn edit_buttons(&mut self, ui: &mut Ui) -> f32 {
         let first = ui.horizontal_top(|ui| {
             self.construction_button(ui);
+            self.compact_tool_button(ui, Tool::Trim);
+            self.compact_tool_button(ui, Tool::Extend);
+        });
+        let second = ui.horizontal_top(|ui| {
             let moving = self.moving.clone();
             if self.command_button(ui, Command::MoveGeometry, MOVE_LABEL, MOVE_HELP, &moving) {
                 self.commands.trigger(Command::MoveGeometry);
             }
-        });
-        let second = ui.horizontal_top(|ui| {
             let everything = self.select_all.clone();
             if self.command_button(
                 ui,
