@@ -112,7 +112,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Like blends: modifies a body, resolves references in the state before it, has that state meshed.
   A reference tied between fragments of one face, on one surface with one sense, opens all of them;
   a lost one, or one tied between separate faces, fails the feature.
-- Kernel errors become sentences naming the face or edge involved.
+- Kernel errors become sentences naming the face or edge involved, or the faces around a corner
+  the walls cannot meet at.
 
 ### Pattern (`pattern.rs`, `FeatureKind::Pattern`)
 

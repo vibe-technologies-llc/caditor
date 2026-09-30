@@ -127,19 +127,41 @@ paths:
 # Shell (`shell/`)
 
 - `shell(solid, open, thickness, feature)` offsets every face by the thickness and subtracts the
-  result. `inner.rs` solves each vertex by minimal-norm Newton on the offset surfaces and rebuilds
-  each line or circle edge through its offset ends, checked on both offset surfaces.
-- The topology is kept except where the offset changes it:
-  - a cylinder, sphere or torus curving more tightly than the thickness collapses and is dropped:
-    edges around its axis, centre or spine vanish and merge their vertices (positioned on every
-    surviving face around them), and the two edges along it become one between the faces on either
-    side;
-  - a vertex of four to eight faces whose offsets do not meet, all its edges convex or all concave,
-    is split along the triangulation of its cycle of faces whose corners lie inside (or outside)
-    every other offset, each diagonal a line between its two faces.
+  result. Offsets are exact planes, cylinders, spheres, tori and cones; a cone whose offset passes
+  the apex at its reference circle is framed again beyond the apex, on the same nappe.
+- `inner.rs` solves each vertex by minimal-norm Newton on the offset surfaces of its faces. A
+  vertex its faces leave free (fewer than three independent normals) is also held to the axial
+  plane through any round seam at it, so both ends of a seam stay on one ruling; a vertex at a
+  surface's pole, or where a disk closes into a cone's tip, goes to the offset surface's pole.
+- `edge.rs` rebuilds a line or circle edge through its offset ends when that lies on both offset
+  surfaces; any other edge (an ellipse where a slanted face cuts a round one, an intersection
+  curve where a hole crosses a cone, a line or circle whose offset is neither) is the branch of
+  the two offset surfaces' intersection through both ends, over windows around the original edge
+  grown by three thicknesses, taken the way the original runs. An open edge whose ends pass each
+  other (along a line, round a circle, or along the curve's parameter) shrinks to nothing.
+- The topology is kept except where the offset changes it (`collapse.rs`):
+  - a cylinder, sphere or torus curving more tightly than the thickness is dropped: every edge on
+    it but the lines along its axis and the circles around its spine vanishes;
+  - a flat face bounded only by circles of one cone is dropped when the cone's offset tip passes
+    the face's offset; its vertex becomes that tip;
+  - a face with one loop shrinks away when all its offset edges shrink to nothing (a corner facet
+    closing into a point) or all but two apart from each other (a chamfer, a narrow top or a cone
+    band closing into a ridge). Found from the solved vertices, then everything is solved again
+    without it, round after round until no face shrinks.
+  - Vanishing edges merge their vertices, placed on every surviving face around them; the two
+    edges beside a dropped face become one between the faces beyond them. A merged vertex must
+    lie strictly inside the offset of each face that shrank away there, and beyond an opened face
+    offset outward, so the cavity still opens through it; otherwise the edge shrinking to nothing
+    is reported.
+  - A vertex of four to eight faces whose offsets do not meet is split along a triangulation of
+    its cycle of faces (`split.rs`), each diagonal a line between its two faces, when its edges
+    are all convex (every corner inside every other offset), all concave (outside), or convex but
+    for one concave edge, as where a ridge meets an inside corner: that edge's faces are one
+    union intersected with the rest, so a corner holding one of them lies outside the other, a
+    corner holding neither lies inside at least one, and every corner lies inside the rest.
 - Only flat faces open. An opened face with no smooth edge to a closed face is offset outward, so
   the inner solid passes through it and the body needs room only across its walls; this attempt
-  counts only when every closed face's inner face survives the subtraction.
+  counts only when every closed face's inner face, dropped ones aside, survives the subtraction.
 - A face of a void (a shell of negative meshed volume, `Solid::void_shells`) is never offset
   outward: its opening is a prism of its own outline reaching the thickness into the material, so
   the walls beside it run down to the cavity.
@@ -148,6 +170,10 @@ paths:
   half the body in every direction.
 - Inner faces are `FaceName::shell(feature, original)` with `FaceOrigin::Shell`.
 - Failures are told apart: a face curving more tightly than the thickness that cannot be dropped
-  (`TooCurved`), a corner whose walls cannot meet (`Corner`), an edge whose wall shrinks to nothing,
-  an opening that cannot be cut, walls that cross (`Walls`), a body that cannot be meshed to find
-  its voids (`Voids`) and a thickness too large for the body.
+  (`TooCurved`), a corner whose walls cannot meet (`Corner`: its offsets do not meet and it cannot
+  be split, as where convex and concave edges alternate or one convex edge meets concave ones, the
+  offset there joining faces or giving an edge another pair of faces), an edge whose wall shrinks
+  to nothing or a face that shrinks away but cannot be closed over (`EdgeCollapses`), an edge
+  whose offset surfaces do not meet through its ends (`UnsupportedEdge`), an opening that cannot
+  be cut, walls that cross (`Walls`), a body that cannot be meshed to find its voids (`Voids`) and
+  a thickness too large for the body.

@@ -26,9 +26,16 @@ within a category run from most to least important.
 
 ## Kernel correctness
 
-- Shell cannot drop collapsing cones or faces whose edges run neither around nor along their
-  axis, and cannot split a vertex whose edges are partly convex and partly concave (both
-  reported).
+- Shell cannot split a corner whose offsets do not meet when its convex and concave edges
+  alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
+  cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps
+  apart, or runs an edge between another pair of faces, which splitting the corner into several
+  cannot give. Corners of more than eight faces are not split either. All are refused as
+  `Corner` (`shell::tests::a_corner_where_ridges_and_valleys_alternate_is_named`,
+  `a_cavity_whose_ridge_runs_over_its_inside_corner_is_named`).
+- A face the shell's thickness closes up is dropped only when it has one loop and keeps two
+  single edges apart from each other, or none; a band whose side is a chain of edges (a rim split
+  by another face's seam) is refused as `EdgeCollapses`.
 - About 2% of booleans between the fixture solids in random placements still fail
   (`boolean::tests::random_placements_of_every_fixture`, ignored, best run in release): mostly
   `Open` and `Ambiguous`, then nearly coincident tori and cones that are too intricate to

@@ -1,12 +1,12 @@
-use std::f64::consts::PI;
+use std::f64::consts::{FRAC_PI_2, PI};
 
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Rotation3, Vector2, Vector3};
 
 use super::*;
 use crate::{
     blend::{BlendShape, blend},
     build::{AngularExtent, Axis2, LinearExtent, extrude, revolve},
-    fixtures::{cuboid, cylinder, hollow_cuboid},
+    fixtures::{cone, cuboid, cylinder, frustum, hollow_cuboid},
     profile::{Profile, ProfileCurve, Selection},
     test_support::{arc, assert_cancelled_anywhere, assert_watertight, line},
     tolerance::SamplingTolerance,
@@ -269,6 +269,56 @@ fn convex_volume(planes: &[(Vector3, f64)]) -> f64 {
         .sum()
 }
 
+fn bevelled_planes(size: Vector3, chamfer: f64) -> Vec<(Vector3, f64)> {
+    let sides = [
+        (Vector3::X, size.x),
+        (Vector3::NEG_X, 0.0),
+        (Vector3::Y, size.y),
+        (Vector3::NEG_Y, 0.0),
+        (Vector3::Z, size.z),
+        (Vector3::NEG_Z, 0.0),
+    ];
+    let mut planes = sides.to_vec();
+    for (index, (first, first_offset)) in sides.iter().enumerate() {
+        for (second, second_offset) in sides.iter().skip(index + 1) {
+            if first.dot(*second) == 0.0 {
+                planes.push((
+                    (*first + *second) / 2.0_f64.sqrt(),
+                    (first_offset + second_offset - chamfer) / 2.0_f64.sqrt(),
+                ));
+            }
+        }
+    }
+    planes
+}
+
+#[test]
+fn an_opened_face_between_converging_walls_shrinks_away_and_still_opens() {
+    for size in [Vector3::splat(10.0), Vector3::new(10.0, 14.0, 10.0)] {
+        let solid = cuboid(size);
+        let every: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
+        let bevelled = blend(&solid, &every, BlendShape::Chamfer { distance: 1.0 }, 5).unwrap();
+        let top = face_facing(&bevelled, Vector3::Z, Point3::new(5.0, 5.0, size.z));
+        let outer = bevelled_planes(size, 1.0);
+        let thickness = 2.0;
+        let cavity: Vec<(Vector3, f64)> = outer
+            .iter()
+            .map(|(normal, offset)| {
+                if *normal == Vector3::Z {
+                    (*normal, *offset)
+                } else {
+                    (*normal, offset - thickness)
+                }
+            })
+            .collect();
+        check(
+            &format!("bevelled {size}"),
+            &run(&bevelled, &[top], thickness),
+            convex_volume(&outer) - convex_volume(&cavity),
+        );
+    }
+}
+
 #[test]
 fn a_corner_of_four_faces_whose_walls_do_not_meet_becomes_an_edge() {
     let mut fixture = crate::fixtures::Fixture::new();
@@ -349,65 +399,188 @@ fn fillets_tighter_than_the_thickness_disappear_from_the_cavity() {
     );
 }
 
-#[test]
-fn a_saddle_corner_whose_walls_do_not_meet_is_named() {
-    let l_shape = swept(
-        &polygon(&[
-            (0.0, 0.0),
-            (10.0, 0.0),
-            (10.0, 4.0),
-            (4.0, 4.0),
-            (4.0, 10.0),
-            (0.0, 10.0),
-        ]),
-        10.0,
-    );
-    let gable_regions = Profile::new(&polygon(&[
-        (-1.0, -1.0),
-        (11.0, -1.0),
-        (11.0, 5.0),
-        (4.0, 8.0),
-        (-1.0, 5.0),
-    ]))
-    .unwrap()
-    .select(&Selection::EvenDepth)
-    .unwrap();
-    let gable = extrude(
+fn lowered(from: (f64, f64), to: (f64, f64), by: f64) -> [Point2; 2] {
+    let (a, b) = (Point2::new(from.0, from.1), Point2::new(to.0, to.1));
+    let along = (b - a).normalize();
+    let up = Vector2::new(-along.y, along.x) * along.x.signum();
+    [a - up * by, b - up * by]
+}
+
+fn height_at([a, b]: [Point2; 2], x: f64) -> f64 {
+    a.y + (b.y - a.y) * (x - a.x) / (b.x - a.x)
+}
+
+fn meeting([a, b]: [Point2; 2], [c, d]: [Point2; 2]) -> Point2 {
+    let (r, s) = (b - a, d - c);
+    a + r * ((c - a).perp_dot(s) / r.perp_dot(s))
+}
+
+fn gable(roof: [(f64, f64); 3], entity: u64) -> Solid {
+    let [left, ridge, right] = roof;
+    let regions = Profile::new(&polygon(&[(-1.0, -1.0), (11.0, -1.0), right, ridge, left]))
+        .unwrap()
+        .select(&Selection::EvenDepth)
+        .unwrap();
+    extrude(
         &Plane::YZ,
-        &gable_regions,
+        &regions,
         LinearExtent::one_side(12.0).unwrap(),
-        2,
+        entity,
     )
     .unwrap()
     .transformed(&RigidTransform::translation(Vector3::new(-1.0, 0.0, 0.0)).unwrap())
+    .unwrap()
+}
+
+fn l_shape(inset: f64, height: f64) -> Solid {
+    let (near, far, corner) = (inset, 10.0 - inset, 4.0 - inset);
+    swept(
+        &polygon(&[
+            (near, near),
+            (far, near),
+            (far, corner),
+            (corner, corner),
+            (corner, far),
+            (near, far),
+        ]),
+        height,
+    )
+}
+
+#[test]
+fn a_saddle_corner_whose_walls_do_not_meet_becomes_an_edge() {
+    let roof = [(-1.0, 5.0), (4.0, 8.0), (11.0, 5.0)];
+    let roofed = boolean(
+        &l_shape(0.0, 10.0),
+        &gable(roof, 2),
+        BooleanOperation::Intersection,
+    )
     .unwrap();
-    let roofed = boolean(&l_shape, &gable, BooleanOperation::Intersection).unwrap();
     let saddle = roofed
         .vertices()
         .find(|(_, vertex)| vertex.point().distance(Point3::new(4.0, 4.0, 8.0)) < 1e-9)
-        .map(|(id, _)| id)
-        .expect("the ridge meets the inside corner");
+        .map(|(id, _)| id);
+    assert!(saddle.is_some(), "the ridge meets the inside corner");
     let floor = face_facing(&roofed, Vector3::NEG_Z, Point3::ZERO);
+
+    let thickness = 0.5;
+    let result = run(&roofed, &[floor], thickness);
+
+    let [left, ridge, right] = roof;
+    let (up_left, up_right) = (
+        lowered(left, ridge, thickness),
+        lowered(ridge, right, thickness),
+    );
+    let top = meeting(up_left, up_right);
+    let lowered_roof = [
+        (-1.0, height_at(up_left, -1.0)),
+        (top.x, top.y),
+        (11.0, height_at(up_right, 11.0)),
+    ];
+    let cavity = boolean(
+        &l_shape(thickness, 20.0),
+        &gable(lowered_roof, 3),
+        BooleanOperation::Intersection,
+    )
+    .unwrap();
+    check("saddle", &result, volume(&roofed) - volume(&cavity));
+}
+
+#[test]
+fn a_cavity_whose_ridge_runs_over_its_inside_corner_is_named() {
+    let roofed = boolean(
+        &l_shape(0.0, 10.0),
+        &gable([(-1.0, 5.0), (4.0, 8.0), (11.0, 5.0)], 2),
+        BooleanOperation::Intersection,
+    )
+    .unwrap();
+    let inside = RigidTransform::translation(Vector3::splat(10.0)).unwrap();
+    let hollow = boolean(
+        &cuboid(Vector3::splat(30.0)),
+        &roofed.transformed(&inside).unwrap(),
+        BooleanOperation::Difference,
+    )
+    .unwrap();
+    let saddle = hollow
+        .vertices()
+        .find(|(_, vertex)| vertex.point().distance(Point3::new(14.0, 14.0, 18.0)) < 1e-9)
+        .map(|(id, _)| id)
+        .expect("the cavity's ridge meets its inside corner");
+    assert_eq!(shell(&hollow, &[], 0.5, 1), Err(ShellError::Corner(saddle)));
+}
+
+#[test]
+fn a_corner_where_ridges_and_valleys_alternate_is_named() {
+    let gable_along = |plane: Plane, shoulder: f64, entity: u64, offset: Vector3| {
+        let regions = Profile::new(&polygon(&[
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, shoulder),
+            (5.0, 9.0),
+            (0.0, shoulder),
+        ]))
+        .unwrap()
+        .select(&Selection::EvenDepth)
+        .unwrap();
+        extrude(
+            &plane,
+            &regions,
+            LinearExtent::one_side(20.0).unwrap(),
+            entity,
+        )
+        .unwrap()
+        .transformed(&RigidTransform::translation(offset).unwrap())
+        .unwrap()
+    };
+    let crossed = boolean(
+        &gable_along(Plane::XZ, 6.0, 2, Vector3::new(0.0, 15.0, 0.0)),
+        &gable_along(Plane::YZ, 5.0, 3, Vector3::new(-5.0, 0.0, 0.0)),
+        BooleanOperation::Union,
+    )
+    .unwrap();
+    let top = crossed
+        .vertices()
+        .find(|(_, vertex)| vertex.point().distance(Point3::new(5.0, 5.0, 9.0)) < 1e-9)
+        .map(|(id, _)| id)
+        .expect("the ridges cross");
+    let floor = face_facing(&crossed, Vector3::NEG_Z, Point3::ZERO);
     assert_eq!(
-        shell(&roofed, &[floor], 0.5, 1),
-        Err(ShellError::Corner(saddle))
+        shell(&crossed, &[floor], 0.5, 1),
+        Err(ShellError::Corner(top))
     );
 }
 
 #[test]
-fn an_edge_whose_wall_shrinks_past_nothing_is_named() {
+fn a_narrow_face_between_converging_walls_closes_into_a_ridge() {
     let ridge = swept(
         &polygon(&[(0.0, 0.0), (10.0, 0.0), (5.25, 4.75), (4.75, 4.75)]),
         10.0,
     );
-    let narrow = |edge: EdgeId| {
-        let definition = ridge.edge(edge).unwrap();
-        let middle = definition.curve().point(definition.interval().middle());
-        (middle.x - 5.0).abs() < 1e-9 && (middle.y - 4.75).abs() < 1e-9
+    let result = run(&ridge, &[], 1.0);
+    let outer = 10.0 * (10.0 + 0.5) / 2.0 * 4.75;
+    let cavity = 8.0 * (4.0 - 2.0_f64.sqrt()).powi(2);
+    check("ridge", &result, outer - cavity);
+    let cavity_faces = result
+        .faces()
+        .filter(|(_, face)| face.origin() == Some(FaceOrigin::Shell { feature: 70 }))
+        .count();
+    assert_eq!(cavity_faces, 5, "the cavity is a triangular prism");
+}
+
+#[test]
+fn an_edge_whose_wall_shrinks_past_nothing_is_named() {
+    let plate = cuboid(Vector3::new(10.0, 10.0, 1.5));
+    let upright = |edge: EdgeId| {
+        let definition = plate.edge(edge).unwrap();
+        let direction = definition
+            .curve()
+            .evaluate(definition.interval().start())
+            .first;
+        direction.normalize().z.abs() > 0.999
     };
-    match shell(&ridge, &[], 1.0, 1) {
-        Err(ShellError::EdgeCollapses(edge)) => assert!(narrow(edge), "{edge:?}"),
-        other => panic!("expected the narrow top to collapse, got {other:?}"),
+    match shell(&plate, &[], 1.0, 1) {
+        Err(ShellError::EdgeCollapses(edge)) => assert!(upright(edge), "{edge:?}"),
+        other => panic!("expected the walls across the plate to cross, got {other:?}"),
     }
 }
 
@@ -499,7 +672,9 @@ fn every_refusal_names_what_cannot_be_shelled() {
         shell(&bulged, &[bottom], 1.0, 1),
         Err(ShellError::UnsupportedFace(spline))
     );
+}
 
+fn slanted_cylinder() -> Solid {
     let regions = Profile::new(&polygon(&[
         (-10.0, -1.0),
         (10.0, -1.0),
@@ -518,17 +693,18 @@ fn every_refusal_names_what_cannot_be_shelled() {
     .unwrap()
     .transformed(&RigidTransform::translation(Vector3::new(0.0, 10.0, 0.0)).unwrap())
     .unwrap();
-    let slanted = crate::boolean::boolean(
-        &cylinder(3.0, 10.0),
-        &wedge,
-        crate::boolean::BooleanOperation::Intersection,
-    )
-    .unwrap();
-    let rim = slanted
-        .edges()
-        .find(|(_, edge)| !matches!(edge.curve(), Curve::Line(_) | Curve::Circle(_)))
-        .map(|(id, _)| id)
-        .expect("the slanted top meets the side along an ellipse");
+    boolean(&cylinder(3.0, 10.0), &wedge, BooleanOperation::Intersection).unwrap()
+}
+
+#[test]
+fn round_sides_cut_by_a_slanted_face_are_offset_along_their_ellipse() {
+    let slanted = slanted_cylinder();
+    assert!(
+        slanted
+            .edges()
+            .any(|(_, edge)| matches!(edge.curve(), Curve::Ellipse(_))),
+        "the slanted lid meets the side along an ellipse"
+    );
     let lid = slanted
         .faces()
         .find(|(_, face)| match face.surface() {
@@ -537,10 +713,245 @@ fn every_refusal_names_what_cannot_be_shelled() {
         })
         .map(|(id, _)| id)
         .unwrap();
-    assert_eq!(
-        shell(&slanted, &[lid], 0.5, 1),
-        Err(ShellError::UnsupportedEdge(rim))
+    let floor = face_facing(&slanted, Vector3::NEG_Z, Point3::ZERO);
+    let column = |radius: f64, from: f64, to: f64| PI * radius * radius * (to - from);
+    let outer = column(3.0, 0.0, 4.0);
+    let lowered_lid = 4.0 - 0.5 * 1.04_f64.sqrt();
+
+    check(
+        "open lid",
+        &run(&slanted, &[lid], 0.5),
+        outer - column(2.5, 0.5, 4.0),
     );
+    check(
+        "open floor",
+        &run(&slanted, &[floor], 0.5),
+        outer - column(2.5, 0.0, lowered_lid),
+    );
+    let closed = run(&slanted, &[], 0.5);
+    check("closed", &closed, outer - column(2.5, 0.5, lowered_lid));
+    assert_eq!(closed.shells().count(), 2);
+    assert!(
+        closed.edges().any(|(_, edge)| matches!(
+            edge.curve(),
+            Curve::Ellipse(ellipse) if (ellipse.minor_radius() - 2.5).abs() < 1e-9
+        )),
+        "the cavity's rim is an ellipse on the inner side"
+    );
+}
+
+fn turned(profile: &[(f64, f64)]) -> Solid {
+    let regions = Profile::new(&polygon(profile))
+        .unwrap()
+        .select(&Selection::EvenDepth)
+        .unwrap();
+    revolve(
+        &Plane::XZ,
+        &regions,
+        Axis2::new(Point2::ZERO, Vector2::Y).unwrap(),
+        AngularExtent::full(),
+        1,
+    )
+    .unwrap()
+}
+
+fn frustum_volume(bottom: f64, top: f64, height: f64) -> f64 {
+    PI * height * (bottom * bottom + bottom * top + top * top) / 3.0
+}
+
+#[test]
+fn a_cone_crossed_by_a_hole_is_offset_along_their_intersection() {
+    let drill = |radius: f64| {
+        let across = RigidTransform::new(
+            Rotation3::from_rotation_x(FRAC_PI_2),
+            Vector3::new(0.0, 10.0, 3.0),
+        )
+        .unwrap();
+        cylinder(radius, 20.0).transformed(&across).unwrap()
+    };
+    let crossed = boolean(
+        &turned(&[(0.0, 0.0), (5.0, 0.0), (1.0, 8.0), (0.0, 8.0)]),
+        &drill(1.0),
+        BooleanOperation::Difference,
+    )
+    .unwrap();
+    let base = face_facing(&crossed, Vector3::NEG_Z, Point3::ZERO);
+
+    let thickness = 0.5;
+    let result = run(&crossed, &[base], thickness);
+
+    let inset = thickness * 5.0_f64.sqrt() / 2.0;
+    let top = 8.0 - thickness;
+    let cavity = boolean(
+        &turned(&[
+            (0.0, 0.0),
+            (5.0 - inset, 0.0),
+            (5.0 - inset - top / 2.0, top),
+            (0.0, top),
+        ]),
+        &drill(1.0 + thickness),
+        BooleanOperation::Difference,
+    )
+    .unwrap();
+    check("crossed cone", &result, volume(&crossed) - volume(&cavity));
+    let crossings = result
+        .edges()
+        .filter(|(_, edge)| matches!(edge.curve(), Curve::Intersection(_)))
+        .count();
+    assert_eq!(
+        crossings, 4,
+        "both holes cross the outer and the inner cone"
+    );
+}
+
+#[test]
+fn chamfers_narrower_than_the_thickness_disappear_from_the_cavity() {
+    let cavity_faces = |solid: &Solid| {
+        solid
+            .faces()
+            .filter(|(_, face)| face.origin() == Some(FaceOrigin::Shell { feature: 70 }))
+            .count()
+    };
+    let solid = cuboid(Vector3::splat(10.0));
+    let back = solid
+        .edges()
+        .find(|(_, edge)| {
+            let middle = edge.curve().point(edge.interval().middle());
+            middle.z > 9.0 && middle.y > 9.0
+        })
+        .map(|(id, _)| id)
+        .unwrap();
+    let chamfered = blend(&solid, &[back], BlendShape::Chamfer { distance: 1.0 }, 5).unwrap();
+    let floor = face_facing(&chamfered, Vector3::NEG_Z, Point3::ZERO);
+    let open = run(&chamfered, &[floor], 2.0);
+    check("chamfered box", &open, 995.0 - 6.0 * 6.0 * 8.0);
+    assert_eq!(cavity_faces(&open), 5, "the cavity is a box open below");
+
+    let every: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
+    let bevelled = blend(&solid, &every, BlendShape::Chamfer { distance: 1.0 }, 5).unwrap();
+    let closed = run(&bevelled, &[], 2.0);
+    check("bevelled box", &closed, volume(&bevelled) - 6.0_f64.powi(3));
+    assert_eq!(cavity_faces(&closed), 6, "the void is a plain cube");
+
+    let drum = cylinder(5.0, 10.0);
+    let rim = drum
+        .edges()
+        .find(|(_, edge)| edge.curve().point(0.0).z > 5.0)
+        .map(|(id, _)| id)
+        .unwrap();
+    let chamfered_drum = blend(&drum, &[rim], BlendShape::Chamfer { distance: 1.0 }, 5).unwrap();
+    let bottom = face_facing(&chamfered_drum, Vector3::NEG_Z, Point3::ZERO);
+    let cup = run(&chamfered_drum, &[bottom], 2.0);
+    let ring = PI * (5.0 - 1.0 / 3.0);
+    check("chamfered drum", &cup, 250.0 * PI - ring - 9.0 * PI * 8.0);
+    assert_eq!(cavity_faces(&cup), 2, "the cavity is a plain cylinder");
+}
+
+#[test]
+fn cones_whose_offset_passes_their_apex_keep_their_walls() {
+    let tapered = turned(&[(0.0, 0.0), (5.0, 0.0), (1.0, 8.0), (0.0, 8.0)]);
+    let base = face_facing(&tapered, Vector3::NEG_Z, Point3::ZERO);
+    let outer = frustum_volume(5.0, 1.0, 8.0);
+    let slant = 5.0_f64.sqrt() / 2.0;
+    for thickness in [1.5, 2.0] {
+        let radius_at = |z: f64| 5.0 - z / 2.0 - thickness * slant;
+        let apex = 2.0 * radius_at(0.0);
+        let height = (8.0 - thickness).min(apex);
+        check(
+            &format!("tapered {thickness}"),
+            &run(&tapered, &[base], thickness),
+            outer - frustum_volume(radius_at(0.0), radius_at(height), height),
+        );
+    }
+
+    let spire = frustum(3.0, 0.5, 10.0);
+    let slant = (1.0 + 0.25_f64 * 0.25).sqrt();
+    let radius_at = |z: f64| 3.0 - z / 4.0 - slant;
+    let apex = 4.0 * radius_at(0.0);
+    let hollow_spire = run(&spire, &[], 1.0);
+    check(
+        "spire",
+        &hollow_spire,
+        frustum_volume(3.0, 0.5, 10.0) - frustum_volume(radius_at(1.0), 0.0, apex - 1.0),
+    );
+    assert_eq!(
+        hollow_spire.faces().count(),
+        5,
+        "the void is a pointed cone"
+    );
+
+    let pointed = cone(5.0, 10.0);
+    let base = face_facing(&pointed, Vector3::NEG_Z, Point3::ZERO);
+    let slant = 5.0_f64.sqrt() / 2.0;
+    let radius_at = |z: f64| 5.0 - z / 2.0 - 0.5 * slant;
+    let apex = 2.0 * radius_at(0.0);
+    let outer = frustum_volume(5.0, 0.0, 10.0);
+    check(
+        "open cone",
+        &run(&pointed, &[base], 0.5),
+        outer - frustum_volume(radius_at(0.0), 0.0, apex),
+    );
+    check(
+        "closed cone",
+        &run(&pointed, &[], 0.5),
+        outer - frustum_volume(radius_at(0.5), 0.0, apex - 0.5),
+    );
+}
+
+#[test]
+fn a_fillet_ending_on_a_slanted_face_disappears_when_tighter_than_the_thickness() {
+    let regions = Profile::new(&polygon(&[
+        (0.0, 0.0),
+        (10.0, 0.0),
+        (10.0, 4.0),
+        (0.0, 8.0),
+    ]))
+    .unwrap()
+    .select(&Selection::EvenDepth)
+    .unwrap();
+    let ramp = extrude(
+        &Plane::XZ,
+        &regions,
+        LinearExtent::one_side(10.0).unwrap(),
+        2,
+    )
+    .unwrap()
+    .transformed(&RigidTransform::translation(Vector3::new(0.0, 10.0, 0.0)).unwrap())
+    .unwrap();
+    let upright = ramp
+        .edges()
+        .find(|(_, edge)| {
+            let middle = edge.curve().point(edge.interval().middle());
+            (middle.x - 10.0).abs() < 1e-9 && middle.y.abs() < 1e-9
+        })
+        .map(|(id, _)| id)
+        .unwrap();
+    let rounded = blend(&ramp, &[upright], BlendShape::Fillet { radius: 1.0 }, 5).unwrap();
+    assert!(
+        rounded
+            .edges()
+            .any(|(_, edge)| matches!(edge.curve(), Curve::Ellipse(_))),
+        "the fillet meets the slanted top along an ellipse"
+    );
+    let slope = 1.16_f64.sqrt();
+    let prism = |thickness: f64| {
+        let (near, far) = (thickness, 10.0 - thickness);
+        let top = |x: f64| 8.0 - 0.4 * x - thickness * slope - thickness;
+        (far - near) * (far - near) * (top(near) + top(far)) / 2.0
+    };
+
+    let thin = run(&rounded, &[], 0.5);
+    let corner = 9.5 - 0.5 * (10.0 - 3.0 * PI) / (12.0 - 3.0 * PI);
+    let spandrel = (1.0 - PI / 4.0) * 0.25 * (8.0 - 0.4 * corner - 0.5 * slope - 0.5);
+    check("thin", &thin, volume(&rounded) - (prism(0.5) - spandrel));
+
+    let thick = run(&rounded, &[], 2.0);
+    check("thick", &thick, volume(&rounded) - prism(2.0));
+    let round_walls = thick
+        .faces()
+        .filter(|(_, face)| matches!(face.surface(), Surface::Cylinder(_)))
+        .count();
+    assert_eq!(round_walls, 1, "only the outer fillet is round");
 }
 
 fn two_blocks() -> Solid {
@@ -642,6 +1053,25 @@ fn a_shell_cancelled_anywhere_stops_with_cancelled() {
     assert_cancelled_anywhere(
         "cup",
         || shell(&cup, &[top], 1.0, 70),
+        |error| matches!(error, ShellError::Cancelled(_)),
+    );
+
+    let slanted = slanted_cylinder();
+    assert_cancelled_anywhere(
+        "slanted",
+        || shell(&slanted, &[], 0.5, 70),
+        |error| matches!(error, ShellError::Cancelled(_)),
+    );
+
+    let rim = cup
+        .edges()
+        .find(|(_, edge)| edge.curve().point(0.0).z > 5.0)
+        .map(|(id, _)| id)
+        .unwrap();
+    let chamfered = blend(&cup, &[rim], BlendShape::Chamfer { distance: 1.0 }, 5).unwrap();
+    assert_cancelled_anywhere(
+        "chamfered",
+        || shell(&chamfered, &[], 2.0, 70),
         |error| matches!(error, ShellError::Cancelled(_)),
     );
 }
