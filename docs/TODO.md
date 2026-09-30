@@ -86,8 +86,12 @@ within a category run from most to least important.
 
 - No projection of model edges or other sketches into a sketch, and bodies and other sketches
   are unpickable while editing.
-- Tools missing: offset, mirror, sketch fillet and ellipse; a slot drawn from its centre or as an
-  arc.
+- Tools missing: offset, mirror, sketch fillet and ellipse.
+- Most shapes are drawn only one way. Missing modes: a rectangle from its centre and a corner, or
+  from three points (one side, then its width) at any angle; a circle through two ends of a
+  diameter or through three points; a polygon sized by the middle of a side rather than a corner,
+  or by one whole side; a slot drawn from its centre or as an arc. Undecided whether each mode is
+  its own tool and key or a switch within the shape's tool, like the polygon's side count.
 - Snapping has no midpoints, intersections, spline targets, grid or inference lines to other
   points, and dragged geometry does not snap at all.
 - Dimensions all sit at one fixed offset, so collinear chains overlap, and labels cannot be
@@ -125,6 +129,11 @@ within a category run from most to least important.
 
 ## Application
 
+- The modelling tools borrow Phosphor glyphs that mean something else (`icons.rs`): fillet is the
+  full-screen corners, chamfer a generic polygon, revolve the refresh arrows, circular pattern a
+  loading spinner, shell a see-through cube. Draw caditor's own icons for fillet, chamfer, shell,
+  extrude, revolve and both patterns, on Phosphor's grid and stroke weight so they sit beside it;
+  undecided whether they ship as glyphs added to the `icons` font family or as painted shapes.
 - One files worker runs everything and Open and Import cannot be cancelled, so a slow STEP import
   blocks Open behind a modal, and the opening modal is drawn before the unsaved-changes prompt,
   so closing the window during a load hides the prompt until the load ends. Give imports their
