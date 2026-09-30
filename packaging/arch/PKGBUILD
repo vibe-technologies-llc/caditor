@@ -1,0 +1,74 @@
+pkgname=caditor
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Parametric CAD for Linux'
+arch=('x86_64')
+license=('AGPL-3.0-only')
+depends=(
+  'gcc-libs'
+  'glibc'
+  'hicolor-icon-theme'
+  'libxkbcommon'
+  'vulkan-icd-loader'
+  'xdg-desktop-portal'
+)
+makedepends=('cargo' 'cargo-about')
+optdepends=(
+  'wayland: Wayland sessions'
+  'libx11: X11 sessions'
+  'libxcursor: X11 pointer cursors'
+  'libxi: X11 input'
+  'libxrandr: X11 monitor layout'
+  'libglvnd: OpenGL ES where Vulkan is missing'
+)
+
+_checkout() {
+  realpath "$startdir/../.."
+}
+
+prepare() {
+  cd "$(_checkout)"
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/^host: //p')"
+}
+
+build() {
+  cd "$(_checkout)"
+  export CARGO_TARGET_DIR="$srcdir/target"
+  cargo build --frozen --release -p caditor
+  cargo about generate --locked -c packaging/about.toml \
+    -o "$srcdir/THIRD-PARTY-LICENSES.html" packaging/about.hbs
+}
+
+check() {
+  cd "$(_checkout)"
+  export CARGO_TARGET_DIR="$srcdir/target"
+  cargo test --frozen --release --workspace
+}
+
+package() {
+  local checkout icon size
+  checkout=$(_checkout)
+
+  install -Dm755 "$srcdir/target/release/caditor" "$pkgdir/usr/bin/caditor"
+  install -Dm644 "$checkout/packaging/caditor.desktop" \
+    "$pkgdir/usr/share/applications/caditor.desktop"
+  install -Dm644 "$checkout/packaging/caditor.metainfo.xml" \
+    "$pkgdir/usr/share/metainfo/caditor.metainfo.xml"
+  install -Dm644 "$checkout/packaging/caditor-mime.xml" \
+    "$pkgdir/usr/share/mime/packages/caditor.xml"
+  install -Dm644 "$checkout/packaging/caditor.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/caditor.svg"
+  for icon in "$checkout"/packaging/icons/caditor-*.png; do
+    size=${icon##*/caditor-}
+    size=${size%.png}
+    install -Dm644 "$icon" "$pkgdir/usr/share/icons/hicolor/${size}x$size/apps/caditor.png"
+  done
+
+  install -Dm644 "$checkout/LICENSE" "$pkgdir/usr/share/licenses/caditor/LICENSE"
+  install -Dm644 "$checkout/crates/caditor/assets/fonts/Inter-LICENSE.txt" \
+    "$pkgdir/usr/share/licenses/caditor/Inter-LICENSE.txt"
+  install -Dm644 "$srcdir/THIRD-PARTY-LICENSES.html" \
+    "$pkgdir/usr/share/licenses/caditor/THIRD-PARTY-LICENSES.html"
+  install -Dm644 "$checkout/README.md" "$pkgdir/usr/share/doc/caditor/README.md"
+  install -Dm644 "$checkout/CHANGELOG.md" "$pkgdir/usr/share/doc/caditor/CHANGELOG.md"
+}

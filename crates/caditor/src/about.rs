@@ -60,6 +60,7 @@ mod tests {
     const DESKTOP_ENTRY: &str = include_str!("../../../packaging/caditor.desktop");
     const METAINFO: &str = include_str!("../../../packaging/caditor.metainfo.xml");
     const MIME_TYPE: &str = include_str!("../../../packaging/caditor-mime.xml");
+    const ARCH_PACKAGE: &str = include_str!("../../../packaging/arch/PKGBUILD");
 
     #[test]
     fn the_desktop_entry_launches_and_matches_this_window() {
@@ -80,5 +81,12 @@ mod tests {
         assert!(DESKTOP_ENTRY.contains(&format!("\nMimeType={mime_type};\n")));
         assert!(MIME_TYPE.contains(&format!("<mime-type type=\"{mime_type}\">")));
         assert!(METAINFO.contains(&format!("<mediatype>{mime_type}</mediatype>")));
+    }
+
+    #[test]
+    fn the_arch_package_has_the_version_and_desktop_entry_of_this_build() {
+        assert!(ARCH_PACKAGE.starts_with(&format!("pkgname={NAME}\npkgver={VERSION}\n")));
+        assert!(ARCH_PACKAGE.contains(&format!("/usr/share/applications/{APP_ID}.desktop")));
+        assert!(ARCH_PACKAGE.contains(&format!("/usr/bin/{NAME}\"")));
     }
 }

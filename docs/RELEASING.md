@@ -5,16 +5,21 @@
 caditor ships as plain release binaries: one archive per release for 64-bit Linux,
 `caditor-<version>-linux-x86_64.tar.zst`, with a `.sha256` next to it, published as a GitHub
 release of the version's tag. The archive holds the program, an installer (`install.sh`, into
-`~/.local` or any prefix), the menu entry, the icon (the scalable SVG and PNG renders from 16 to
-512 px, made by `packaging/render-icons.sh` and committed), the AppStream metainfo, the `.caditor` MIME
-type (matched by extension and by the model magic), the documentation and every licence.
-`packaging/INSTALL.md` is what users read.
+`~/.local` or any prefix), the menu entry, the icon (the scalable SVG and PNG renders from 16
+to 512 px, made by `packaging/render-icons.sh` and committed), the AppStream metainfo, the
+`.caditor` MIME type (matched by extension and by the model magic), the documentation and every
+licence. `packaging/INSTALL.md` is what users read.
 
 Flatpak and AUR packages were not chosen: both need a maintainer identity and repository URLs
 published in their metadata, which the project does not publish. The archive's `share/` tree
 follows the freedesktop layout, so a distribution can package it without changes. For the same
 reason the desktop ID is plain `caditor` rather than a reverse-DNS name, and the metainfo has no
 homepage or developer; `appstreamcli` warns about both and the build accepts those warnings.
+
+`packaging/arch/PKGBUILD` is for building a package on your own Arch machine only: it has no
+maintainer, URL or source download, and builds the checkout it sits in
+(`cd packaging/arch && makepkg -si`), installing the same files as the archive under `/usr`. Its
+`pkgver` must equal the workspace version, which a test in `about.rs` checks.
 
 The binary links only glibc and `libgcc_s`; Vulkan, OpenGL, Wayland and X11 libraries are loaded
 at run time. It needs the glibc it was built against or newer, so published archives are built

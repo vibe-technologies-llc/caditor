@@ -81,8 +81,9 @@ Invariants that hold across crates:
 caditor ships as a `.tar.zst` per release with an installer, built on Ubuntu 22.04 by
 `.github/workflows/release.yml` when a `v<version>` tag is pushed, and published as a GitHub
 release. `packaging/` holds the desktop entry, the logo (`caditor.svg`, rendered to `icons/` by
-`render-icons.sh`), metainfo, MIME type, installer, cargo-about licence template and
-`build-release.sh`; `docs/RELEASING.md` explains the choice and the steps.
+`render-icons.sh`), metainfo, MIME type, installer, cargo-about licence template,
+`build-release.sh` and a local-only Arch `arch/PKGBUILD`; `docs/RELEASING.md` explains the
+choice and the steps.
 `CHANGELOG.md` lists every release: a change users notice adds a line under `## [Unreleased]` in
 the same commit, written for users.
 

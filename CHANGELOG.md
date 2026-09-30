@@ -278,5 +278,7 @@ The first release of caditor.
   icon and at every common size.
 - The installer works in folders whose names hold `&`, `%` or `|`, and an install that fails
   part way removes what it had copied.
+- On Arch Linux, `makepkg -si` in `packaging/arch` builds and installs caditor from a source
+  checkout as a pacman package.
 - The installer refuses to run outside an unpacked release archive, saying how to get one,
   instead of reporting an install that copied nothing.
