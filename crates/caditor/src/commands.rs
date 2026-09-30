@@ -4,7 +4,7 @@ use caditor_file::Settings;
 use caditor_geometry::Vector3;
 use egui::{Event, Key, KeyboardShortcut, Modifiers};
 
-use crate::{editing::Tool, samples::Sample, sketch_tools::ConstraintTool};
+use crate::{editing::Tool, samples::Sample, shape_modes::ShapeMode, sketch_tools::ConstraintTool};
 
 const SETTINGS_PREFIX: &str = "keys.";
 const RESERVED_KEYS: [Key; 3] = [Key::Escape, Key::Enter, Key::Tab];
@@ -78,6 +78,7 @@ pub enum Command {
     MoveGeometry,
     SelectAll,
     SketchTool(Tool),
+    ShapeMode(ShapeMode),
     Constraint(ConstraintTool),
     DeleteSelection,
     Extrude,
@@ -458,6 +459,7 @@ impl Command {
         PLAIN_COMMANDS
             .into_iter()
             .chain(Tool::ALL.into_iter().map(Self::SketchTool))
+            .chain(ShapeMode::ALL.into_iter().map(Self::ShapeMode))
             .chain(ConstraintTool::ALL.into_iter().map(Self::Constraint))
             .chain(StandardView::ALL.into_iter().map(Self::View))
             .chain(CameraMove::ALL.into_iter().map(Self::Camera))
@@ -504,6 +506,7 @@ impl Command {
                 Tool::Trim => "sketch.trim",
                 Tool::Extend => "sketch.extend",
             },
+            Self::ShapeMode(mode) => mode.id(),
             Self::Constraint(tool) => match tool {
                 ConstraintTool::Coincident => "constraint.coincident",
                 ConstraintTool::Midpoint => "constraint.midpoint",
@@ -623,6 +626,7 @@ impl Command {
             Self::SketchTool(Tool::Trim) => "Trim sketch curves",
             Self::SketchTool(Tool::Extend) => "Extend a line or arc",
             Self::SketchTool(tool) => return format!("Draw {}", tool.label().to_lowercase()),
+            Self::ShapeMode(mode) => return mode.title(),
             Self::Constraint(tool) => return tool.label().to_owned(),
             Self::DeleteSelection => "Delete selection",
             Self::Extrude => "Extrude",
@@ -762,7 +766,8 @@ impl Command {
             | Self::Construction
             | Self::MoveGeometry
             | Self::SelectAll
-            | Self::SketchTool(_) => Category::Sketch,
+            | Self::SketchTool(_)
+            | Self::ShapeMode(_) => Category::Sketch,
             Self::Constraint(_) => Category::Constraint,
         }
     }
@@ -777,6 +782,7 @@ impl Command {
             | Self::MoveGeometry
             | Self::SelectAll
             | Self::SketchTool(_)
+            | Self::ShapeMode(_)
             | Self::Constraint(_) => Scope::Sketch,
             _ => Scope::Anywhere,
         }
@@ -842,6 +848,7 @@ impl Command {
             | Self::CircularPattern
             | Self::DatumPlane
             | Self::DatumAxis
+            | Self::ShapeMode(_)
             | Self::OpenSample(_)
             | Self::OpenRecent(_)
             | Self::RecoverUnsaved

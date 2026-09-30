@@ -80,7 +80,9 @@ paths:
   (`window_frame::commands`); closing the window is Quit.
 - Viewport commands: Measure (I), standard views (Alt+0 to Alt+6), the projection (O), orbit (arrows), pan
   (Shift+arrows), zoom (Page Up and Page Down). In a sketch, M moves the selection to a typed
-  position and Ctrl+A selects all of it (`app-sketching.md`).
+  position and Ctrl+A selects all of it (`app-sketching.md`). Each way of drawing a rectangle,
+  circle, polygon or slot is a sketch command without a default key, and a shape's tool key
+  pressed again while it is active steps to its next way (`app-sketching.md`).
 - N and Shift+N step a keyboard highlight through the scene's pickables in pick-table order, each
   once (drawn and described like hover; a pointer move or Escape clears it); Space acts on it as a
   click would (toggling it in the selection, or a region, blend edge, shell face or sketch plane as

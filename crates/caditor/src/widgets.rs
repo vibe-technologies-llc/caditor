@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use egui::{
     Align, Button, Color32, CornerRadius, CursorIcon, FocusDirection, Frame, Galley, Grid, Id, Key,
-    Label, Layout, Margin, Modal, Modifiers, Response, RichText, Sense, Sides, Stroke, StrokeKind,
-    TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText, WidgetType, accesskit::Role,
-    collapsing_header::CollapsingState, vec2,
+    Label, Layout, Margin, Modal, Modifiers, Popup, Rect, Response, RichText, Sense, Sides, Stroke,
+    StrokeKind, TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText, WidgetType,
+    accesskit::Role, collapsing_header::CollapsingState, pos2, vec2,
 };
 
 use crate::{
@@ -448,6 +448,70 @@ pub fn menu_item(ui: &mut Ui, glyph: &str, title: &str, keys: Option<String>) ->
         button = button.shortcut_text(RichText::new(keys).text_style(TextStyle::Small));
     }
     ui.add(Named::new(button, title))
+}
+
+pub fn menu_choice(
+    ui: &mut Ui,
+    glyph: &str,
+    title: &str,
+    keys: Option<String>,
+    chosen: bool,
+) -> Response {
+    let muted = appearance::tokens(ui).text_muted;
+    let mut button = Button::new((icon(glyph).color(muted), title.to_owned())).selected(chosen);
+    if let Some(keys) = keys {
+        button = button.shortcut_text(RichText::new(keys).text_style(TextStyle::Small));
+    }
+    ui.add(Named::new(button, title).selected(chosen))
+}
+
+pub fn corner_menu_button(
+    ui: &mut Ui,
+    id: Id,
+    host: Rect,
+    name: &str,
+    on_selected: bool,
+) -> Response {
+    let tokens = appearance::tokens(ui);
+    let glyph = unwrapped(
+        ui,
+        RichText::new(icons::EXPANDED).font(icon_font(SMALL_SIZE)),
+        TextStyle::Small,
+    );
+    let side = glyph.size().max_elem();
+    let rect = Rect::from_min_size(pos2(host.right() - side, host.top()), Vec2::splat(side));
+    let response = ui.interact(rect, id, Sense::click());
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), name));
+    let open = Popup::is_id_open(ui.ctx(), Popup::default_response_id(&response));
+    if ui.is_rect_visible(rect) {
+        let fill = if response.is_pointer_button_down_on() {
+            tokens.pressed
+        } else if response.hovered() || open {
+            tokens.hover
+        } else {
+            Color32::TRANSPARENT
+        };
+        let stroke = if response.has_focus() {
+            Stroke::new(FOCUS_WIDTH, tokens.focus)
+        } else {
+            Stroke::NONE
+        };
+        let color = if on_selected {
+            tokens.accent_text
+        } else {
+            tokens.text_muted
+        };
+        ui.painter().rect(
+            rect,
+            CornerRadius::same(WIDGET_RADIUS),
+            fill,
+            stroke,
+            StrokeKind::Inside,
+        );
+        ui.painter()
+            .galley(rect.center() - glyph.size() / 2.0, glyph, color);
+    }
+    response.on_hover_text(name)
 }
 
 pub struct ToolButton<'a> {

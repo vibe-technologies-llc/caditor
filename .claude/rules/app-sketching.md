@@ -6,6 +6,7 @@ paths:
   - "crates/caditor/src/drawing.rs"
   - "crates/caditor/src/trimming.rs"
   - "crates/caditor/src/shapes.rs"
+  - "crates/caditor/src/shape_modes.rs"
   - "crates/caditor/src/snap.rs"
   - "crates/caditor/src/sketch_tools.rs"
   - "crates/caditor/src/sketch_toolbar.rs"
@@ -66,13 +67,17 @@ paths:
 
 - `drawing.rs` (point, line, rectangle, circle, arc, three-point arc, tangent arc, slot, polygon,
   spline), geometry in `shapes.rs`; clicked points, hover and arc sweep are viewport UI state; each
-  finished shape is one transaction (`Draw line`, …, `Draw hexagon` for a polygon), settled first
-  like any sketch transaction; inferred constraints are checked with `Sketch::check_constraint` on a
-  shadow sketch and skipped if refused.
+  finished shape is one transaction (`Draw line`, …, `Draw arc slot`, `Draw hexagon` for a
+  polygon), settled first like any sketch transaction; inferred constraints are checked with
+  `Sketch::check_constraint` on a shadow sketch and skipped if refused. The drawing is keyed by a
+  `Shape`, the tool with its way of drawing, so changing either drops a shape in progress.
 - A shape with no size gets a `Refusal` (notice for a click, field error for a typed point): flat
   rectangle; line, circle or arc ending where it starts; slot without width; three collinear points;
-  tangent arc without a curve to continue, or ending on its line.
+  tangent arc without a curve to continue, or ending on its line; a first side, diameter or
+  polygon side of no length; a rectangle on its first side's line; an arc slot as wide as its
+  radius or with round ends that would meet.
 - Keys: P, L, R, C, A, T (tangent arc), U (slot), G (polygon), S (spline), Alt+A (three-point arc).
+
 - Lines chain, each joined to the last end by `Coincident`, until Escape, a click on the last point,
   or a line ending on the chain's first point (or the point it snapped to), closing the outline.
   Splines finish on Enter or a click on the last control point.
@@ -85,13 +90,55 @@ paths:
 - Tangent arc: starts on a point ending a line, arc or spline (the newest if several, named in the
   snap label as "Continue …"), leaves along that curve's direction with a `Tangent`, chains like
   lines, each arc tangent to the one before.
-- Slot: two centres (the second aligns like a line end) and a never-snapping width point; two
-  semicircular arcs and two lines joined by `Coincident`, lines `Tangent` to both arcs, arcs
-  `Equal`; five degrees of freedom.
-- Polygon: centre and first corner; sides joined corner to corner, corners on a construction circle
-  about the centre, sides `Equal` to the first; four degrees of freedom. 3 to 64 sides, six at
-  first, kept until another document opens; `]` (another side) and `[` (one fewer) change it,
-  offered only with the Polygon tool and named in its prompt.
+- Slot (its first way): two centres (the second aligns like a line end) and a never-snapping
+  width point; two semicircular arcs and two lines joined by `Coincident`, lines `Tangent` to both
+  arcs, arcs `Equal`; five degrees of freedom.
+- Polygon (its first way): centre and first corner; sides joined corner to corner, corners on a
+  construction circle about the centre, sides `Equal` to the first; four degrees of freedom. 3 to
+  64 sides, six at first, kept until another document opens; `]` (another side) and `[` (one
+  fewer) change it, offered only with the Polygon tool (in any of its ways) and named in its
+  prompt.
+
+## Ways of drawing a shape
+
+- `shape_modes.rs`. Rectangle, circle, polygon and slot each keep one tool with three ways of
+  drawing (`ShapeMode`), a switch within the tool like the polygon's side count, rather than a tool
+  and key per way: the ribbon and keymap stay small and a shape is always found under its one key.
+  Arcs stay three tools (Arc, 3-point arc, Tangent arc), each with its own key.
+- Pressing the tool's key (running its command) while that tool is active steps to its next way,
+  round to the first; clicking its ribbon button only chooses the tool. Every way is also its own
+  sketch command (`Command::ShapeMode`, `sketch.<shape>.<way>`, no default key, bindable in the
+  shortcut editor), offered in the palette, the corner menu on the shape's ribbon button
+  (`sketch_toolbar::modes_label`, `app-look.md`) and Sketch › Ways to draw shapes.
+  `EditingCommand::SetMode` records the way and chooses the tool.
+- `SketchEditing` remembers the last way per shape (`ShapeModes`) while caditor runs, across
+  sketches and documents; it is not a preference, as no tool state is. The prompt's key line leads
+  with the way in use and what the key does next ("Rectangle from its centre   R: from three
+  points"), and the button's tooltip is that way's description with the same key hint.
+- Rectangle from its centre: the centre, then a corner; the two-corner rectangle's lines and
+  constraints plus the centre point with opposite corners `Symmetric` about it; four degrees of
+  freedom.
+- Rectangle from three points: the two ends of its first side (the second aligns like a line
+  end) and a never-snapping width point; four joined lines, the second `Perpendicular` to the
+  first, each `Parallel` to the one opposite; five degrees of freedom, four when the side aligned.
+- Circle through two points: the ends of a diameter, taking points only; an ordinary circle with a
+  snapped end on it, or with both ends on points, the first on it and the centre between them by
+  `Symmetric`.
+- Circle through three points, taking points only: an ordinary circle with each snapped point on
+  it.
+- Polygon from its centre and a side's middle, which takes points only and stays there by
+  `Midpoint`: the corner polygon's construction, plus a construction circle inside it on the same
+  centre point, `Tangent` to the first side, so a diameter on it sets the size across flats; four
+  degrees of freedom.
+- Polygon from one side: its two ends (the second aligns like a line end); the polygon lies to the
+  left of first to second, with the corner polygon's construction and centre.
+- Slot from its centre: the centre, one end's centre (aligning like a line end), the width; the
+  two-end slot plus the centre point with the end centres `Symmetric` about it; five degrees of
+  freedom.
+- Arc slot: the arc's centre, then the centres of its two ends, the second swept round the centre
+  like an arc's end (projected onto its circle, reversible with X), then a never-snapping width
+  point; two arcs on one centre point joined by two round ends, each end `Tangent` to both (which
+  holds the ends equal, so no `Equal` is added); six degrees of freedom.
 
 ## Construction geometry
 
@@ -133,7 +180,8 @@ paths:
 - `Accept` keeps every snap shown a constraint that already holds: a circle's rim takes points only
   (a rim on a curve would add no constraint); an arc's end, points on its circle and where it
   crosses lines, circles, arcs and the axes.
-- A line end (and a slot's second centre) within 3° or 6 pixels of a direction from its start
+- A line end (and the second point of either straight slot, of a three-point rectangle's first
+  side and of a polygon's side) within 3° or 6 pixels of a direction from its start
   takes it exactly, with that constraint (`Snap::Aligned`). Horizontal and vertical win whenever
   either applies, so a line within 3° of level is never inferred parallel to; otherwise parallel
   or perpendicular to one of the six lines of the edited sketch (construction lines included)

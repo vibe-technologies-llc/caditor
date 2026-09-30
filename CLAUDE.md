@@ -129,5 +129,5 @@ that makes a rule false updates it in the same commit.
 | `app-modelling.md` | Extrude, revolve, fillet, chamfer, shell, pattern and datum tools and panels, visibility, sketch placement. |
 | `app-files.md` | File workflow, onboarding, export, image export and import dialogs, version history, the tabbed preferences with graphics settings, units. |
 | `app-input.md` | Numeric fields, shortcut focus rules, commands and keymap, palette, shortcut editor, keyboard-only operation, typed points. |
-| `app-sketching.md` | Sketch editing context, dragging and box selection, drawing tools, construction, snapping, constraint tools, annotations. |
+| `app-sketching.md` | Sketch editing context, dragging and box selection, drawing tools and their ways of drawing, construction, snapping, constraint tools, annotations. |
 | `app-tests.md` | The headless egui UI test harness. |

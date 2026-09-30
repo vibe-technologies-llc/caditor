@@ -46,6 +46,7 @@ use crate::{
     preferences::{PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, TitleBar},
     scene,
     selection::{Axis, Pickable, PrincipalPlane},
+    shape_modes::{CircleMode, RectangleMode, ShapeMode},
     sketch_toolbar,
     sketch_tools::ConstraintTool,
     status_bar, trimming, typed_point,
@@ -3408,6 +3409,468 @@ fn a_polygon_is_regular_with_as_many_sides_as_chosen() {
     assert!((harness.body_volume(extrude) - 2000.0).abs() < 1.0);
 }
 
+fn refused(harness: &mut Harness, text: &str, refusal: Refusal) {
+    type_point(harness, text);
+    assert!(harness.shows(refusal.reason()), "{text}");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+}
+
+fn with_type_hint(hint: &str, keys: &str) -> String {
+    format!("{hint}   {keys}   Type x, y or length < angle for an exact point")
+}
+
+fn radii(sketch: &Sketch, kind: &str) -> Vec<f64> {
+    let mut radii: Vec<f64> = entities_of_kind(sketch, kind)
+        .into_iter()
+        .map(|curve| match kind {
+            "Circle" => sketch.circle(curve).unwrap().1,
+            _ => sketch.arc(curve).unwrap().radius,
+        })
+        .collect();
+    radii.sort_by(f64::total_cmp);
+    radii
+}
+
+fn close(found: &[f64], expected: &[f64]) -> bool {
+    found.len() == expected.len()
+        && found
+            .iter()
+            .zip(expected)
+            .all(|(found, expected)| (found - expected).abs() < DRAWN)
+}
+
+#[test]
+fn pressing_a_shape_key_again_cycles_its_ways_of_drawing_and_each_is_remembered() {
+    let mut harness = Harness::new();
+    harness.draw_on_new_sketch();
+
+    harness.use_tool(Key::R);
+    assert!(harness.shows("Click the rectangle's first corner"));
+    assert!(harness.shows(&with_type_hint(
+        "Rectangle from two corners   R: from its centre",
+        "Esc: back to Select"
+    )));
+    harness.use_tool(Key::R);
+    assert_eq!(harness.tool(), Some(Tool::Rectangle));
+    assert!(harness.shows("Click the rectangle's centre"));
+    assert!(harness.shows(&with_type_hint(
+        "Rectangle from its centre   R: from three points",
+        "Esc: back to Select"
+    )));
+    harness.use_tool(Key::R);
+    assert!(harness.shows("Click where the rectangle's first side starts"));
+    harness.use_tool(Key::R);
+    assert!(harness.shows("Click the rectangle's first corner"));
+    harness.use_tool(Key::R);
+    harness.use_tool(Key::L);
+    harness.use_tool(Key::C);
+    assert!(harness.shows("Click the circle's centre"));
+    harness.use_tool(Key::R);
+    assert!(harness.shows("Click the rectangle's centre"));
+    assert_eq!(
+        harness.workspace.editing.modes().of(Tool::Rectangle),
+        Some(ShapeMode::Rectangle(RectangleMode::Center))
+    );
+
+    harness.use_tool(Key::U);
+    harness.click_at(Point2::new(10.0, 10.0));
+    assert!(harness.workspace.viewport.is_drawing());
+    harness.use_tool(Key::U);
+    assert!(!harness.workspace.viewport.is_drawing());
+    assert!(harness.shows("Click the slot's centre"));
+    harness.use_tool(Key::G);
+    harness.use_tool(Key::G);
+    harness.use_tool(Key::G);
+    assert!(harness.shows("Click where a side of the hexagon starts"));
+    harness.use_tool(Key::G);
+    assert!(harness.shows("Click the hexagon's centre"));
+    assert!(harness.shows(&with_type_hint(
+        "Polygon from its centre and a corner   G: from its centre and a side's middle   ] or \
+         [: more or fewer sides",
+        "Esc: back to Select"
+    )));
+}
+
+#[test]
+fn every_way_of_drawing_is_a_command_in_the_palette_and_in_a_menu_on_its_button() {
+    let mut harness = Harness::new();
+    harness.draw_on_new_sketch();
+    for mode in ShapeMode::ALL {
+        assert!(
+            offer(&harness, Command::ShapeMode(mode))
+                .availability
+                .is_ok()
+        );
+    }
+
+    run_from_palette(&mut harness, "draw circle through three points");
+    harness.frame();
+    assert_eq!(harness.tool(), Some(Tool::Circle));
+    assert!(harness.shows("Click a first point on the circle"));
+    harness.hover("Circle");
+    assert!(
+        harness.shows("Draw a circle through three points on it (C)\nC again: from its centre")
+    );
+
+    harness.hover_button(&sketch_toolbar::modes_label(Tool::Slot));
+    assert!(harness.shows(&sketch_toolbar::modes_label(Tool::Slot)));
+    assert!(!harness.shows(
+        "Draw a slot from the centres of its round ends and its width (U)\nU again: from its centre"
+    ));
+    harness.hover("Slot");
+    assert!(harness.shows(
+        "Draw a slot from the centres of its round ends and its width (U)\nU again: from its centre"
+    ));
+    harness.click_button(&sketch_toolbar::modes_label(Tool::Slot));
+    assert!(harness.shows("From the centres of its ends"));
+    assert!(harness.shows("From its centre"));
+    harness.click("Along an arc");
+    harness.frame();
+    assert_eq!(harness.tool(), Some(Tool::Slot));
+    assert!(harness.shows("Click the centre of the arc the slot follows"));
+    assert!(!harness.shows("From the centres of its ends"));
+    assert_eq!(
+        harness.workspace.editing.modes().of(Tool::Circle),
+        Some(ShapeMode::Circle(CircleMode::ThreePoints))
+    );
+
+    harness.select([]);
+    harness.frame();
+    assert_readable(&harness, "The sketch bar with its mode menus");
+
+    harness.click("Sketch");
+    harness.hover("Ways to draw shapes");
+    harness.click("Draw polygon from one side");
+    harness.frame();
+    assert_eq!(harness.tool(), Some(Tool::Polygon));
+    assert!(harness.shows("Click where a side of the hexagon starts"));
+}
+
+#[test]
+fn a_rectangle_from_its_centre_stays_centred_on_it() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::R);
+    harness.use_tool(Key::R);
+
+    type_point(&mut harness, "0, 0");
+    assert!(harness.shows("Click a corner of the rectangle"));
+    refused(&mut harness, "15, 0", Refusal::Rectangle);
+    type_point(&mut harness, "15, 10");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let mut lengths = line_lengths(&harness.shown(feature));
+    lengths.sort_by(f64::total_cmp);
+    assert_eq!(entities_of_kind(sketch, "Line").len(), 4);
+    assert_eq!(constraints_of_kind(sketch, "Symmetric").len(), 1);
+    assert_eq!(constraints_of_kind(sketch, "Horizontal").len(), 2);
+    assert_eq!(constraints_of_kind(sketch, "Vertical").len(), 2);
+    assert_eq!(constraints_of_kind(sketch, "Coincident").len(), 5);
+    assert!(close(&lengths, &[20.0, 20.0, 30.0, 30.0]), "{lengths:?}");
+    assert!(harness.shows("2 degrees of freedom left"));
+    assert_eq!(harness.model.undo_label(), Some("Draw rectangle"));
+    assert!(harness.shows("Click the rectangle's centre"));
+}
+
+#[test]
+fn a_rectangle_from_three_points_turns_with_its_first_side_and_stays_square() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::R);
+    harness.use_tool(Key::R);
+    harness.use_tool(Key::R);
+
+    type_point(&mut harness, "10, 0");
+    assert!(harness.shows("Click where its first side ends"));
+    refused(&mut harness, "10, 0", Refusal::RectangleSide);
+    type_point(&mut harness, "40, 40");
+    assert!(harness.shows("Click to set the rectangle's width"));
+    refused(&mut harness, "@3, 4", Refusal::RectangleWidth);
+    type_point(&mut harness, "@-8, 6");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let shown = harness.shown(feature);
+    let corners: Vec<Point2> = entities_of_kind(&shown, "Line")
+        .into_iter()
+        .map(|line| shown.line_endpoints(line).unwrap().0)
+        .collect();
+    let expected = [
+        Point2::new(10.0, 0.0),
+        Point2::new(40.0, 40.0),
+        Point2::new(32.0, 46.0),
+        Point2::new(2.0, 6.0),
+    ];
+    assert_eq!(constraints_of_kind(sketch, "Perpendicular").len(), 1);
+    assert_eq!(constraints_of_kind(sketch, "Parallel").len(), 2);
+    assert_eq!(constraints_of_kind(sketch, "Coincident").len(), 4);
+    assert_eq!(corners.len(), expected.len());
+    for (corner, expected) in corners.iter().zip(expected) {
+        assert!(near(*corner, expected), "{corner} is not {expected}");
+    }
+    assert!(harness.shows("5 degrees of freedom left"));
+    assert_eq!(harness.model.undo_label(), Some("Draw rectangle"));
+
+    harness.click_at(Point2::new(10.0, -30.0));
+    harness.click_at(Point2::new(40.0, -29.9));
+    harness.click_at(Point2::new(30.0, -20.0));
+    harness.settle();
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Horizontal").len(),
+        1
+    );
+    assert!(harness.shows("9 degrees of freedom left"));
+}
+
+#[test]
+fn a_circle_through_the_ends_of_a_diameter_is_centred_between_them() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::P);
+    type_point(&mut harness, "10, 10");
+    type_point(&mut harness, "30, 10");
+    harness.use_tool(Key::C);
+    harness.use_tool(Key::C);
+
+    assert!(harness.shows("Click one end of the circle's diameter"));
+    type_point(&mut harness, "10, 10");
+    assert!(harness.shows("Click the other end of the diameter"));
+    refused(&mut harness, "10, 10", Refusal::CircleDiameter);
+    type_point(&mut harness, "30, 10");
+    harness.settle();
+    let joined = harness.shows("4 degrees of freedom left");
+    type_point(&mut harness, "50, 0");
+    type_point(&mut harness, "50, 30");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let circles = entities_of_kind(sketch, "Circle");
+    let (center, radius) = sketch.circle(circles[0]).unwrap();
+    let (free_center, free_radius) = sketch.circle(circles[1]).unwrap();
+    assert!(joined);
+    assert!(near(center, Point2::new(20.0, 10.0)), "{center}");
+    assert!((radius - 10.0).abs() < DRAWN);
+    assert!(near(free_center, Point2::new(50.0, 15.0)), "{free_center}");
+    assert!((free_radius - 15.0).abs() < DRAWN);
+    assert_eq!(constraints_of_kind(sketch, "Symmetric").len(), 1);
+    assert_eq!(constraints_of_kind(sketch, "Coincident").len(), 1);
+    assert!(harness.shows("7 degrees of freedom left"));
+    assert_eq!(harness.model.undo_label(), Some("Draw circle"));
+}
+
+#[test]
+fn a_circle_through_three_points_passes_through_each() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::P);
+    type_point(&mut harness, "0, 10");
+    harness.use_tool(Key::C);
+    harness.use_tool(Key::C);
+    harness.use_tool(Key::C);
+
+    type_point(&mut harness, "10, 0");
+    assert!(harness.shows("Click a second point on the circle"));
+    refused(&mut harness, "10, 0", Refusal::CircleInLine);
+    type_point(&mut harness, "0, 10");
+    assert!(harness.shows("Click a third point on the circle"));
+    refused(&mut harness, "-10, 20", Refusal::CircleInLine);
+    type_point(&mut harness, "-6, -8");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let circles = entities_of_kind(sketch, "Circle");
+    let (center, radius) = harness.shown(feature).circle(circles[0]).unwrap();
+    assert_eq!(circles.len(), 1);
+    assert!(near(center, Point2::ZERO), "{center}");
+    assert!((radius - 10.0).abs() < DRAWN, "{radius}");
+    assert_eq!(constraints_of_kind(sketch, "Coincident").len(), 1);
+    assert!(harness.shows("4 degrees of freedom left"));
+    assert_eq!(harness.model.undo_label(), Some("Draw circle"));
+    assert!(harness.shows("Click a first point on the circle"));
+}
+
+#[test]
+fn a_polygon_sized_by_the_middle_of_a_side_keeps_a_circle_inside_touching_it() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::G);
+    harness.use_tool(Key::G);
+
+    type_point(&mut harness, "0, 0");
+    assert!(harness.shows("Click the middle of a side of the hexagon"));
+    refused(&mut harness, "0, 0", Refusal::PolygonSideMiddle);
+    type_point(&mut harness, "0, -5");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let shown = harness.shown(feature);
+    let circles = entities_of_kind(sketch, "Circle");
+    let across_corners = 5.0 / (PI / 6.0).cos();
+    assert_eq!(entities_of_kind(sketch, "Line").len(), 6);
+    assert!(circles.iter().all(|circle| sketch.is_construction(*circle)));
+    assert!(close(&radii(&shown, "Circle"), &[5.0, across_corners]));
+    assert_eq!(constraints_of_kind(sketch, "Tangent").len(), 1);
+    assert_eq!(constraints_of_kind(sketch, "Equal").len(), 5);
+    for line in entities_of_kind(&shown, "Line") {
+        let (start, end) = shown.line_endpoints(line).unwrap();
+        assert!((start.midpoint(end).length() - 5.0).abs() < DRAWN);
+    }
+    assert!(harness.shows("2 degrees of freedom left"));
+    assert_eq!(harness.model.undo_label(), Some("Draw hexagon"));
+}
+
+#[test]
+fn a_polygon_drawn_from_one_side_lies_to_its_left() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    for _ in 0..3 {
+        harness.use_tool(Key::G);
+    }
+    harness.key(Key::OpenBracket, Modifiers::NONE);
+    harness.frame();
+
+    type_point(&mut harness, "10, 0");
+    assert!(harness.shows("Click where that side of the pentagon ends"));
+    refused(&mut harness, "10, 0", Refusal::PolygonSide);
+    type_point(&mut harness, "20, 0");
+    harness.settle();
+
+    let shown = harness.shown(feature);
+    let (center, _) = shown.circle(entities_of_kind(&shown, "Circle")[0]).unwrap();
+    assert_eq!(entities_of_kind(&shown, "Line").len(), 5);
+    assert!(
+        center.y > 0.0 && (center.x - 15.0).abs() < DRAWN,
+        "{center}"
+    );
+    for length in line_lengths(&shown) {
+        assert!((length - 10.0).abs() < DRAWN, "{length}");
+    }
+    assert!(harness.shows("4 degrees of freedom left"));
+    assert_eq!(harness.model.undo_label(), Some("Draw pentagon"));
+
+    harness.click_at(Point2::new(40.0, -40.0));
+    harness.click_at(Point2::new(55.0, -39.95));
+    harness.settle();
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Horizontal").len(),
+        1
+    );
+    assert!(harness.shows("7 degrees of freedom left"));
+}
+
+#[test]
+fn a_slot_from_its_centre_stays_symmetric_about_it() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::U);
+    harness.use_tool(Key::U);
+
+    type_point(&mut harness, "0, 0");
+    assert!(harness.shows("Click the centre of one of the slot's ends"));
+    refused(&mut harness, "0, 0", Refusal::SlotLength);
+    type_point(&mut harness, "20, 0");
+    assert!(harness.shows("Click to set the slot's width"));
+    refused(&mut harness, "@0, 0", Refusal::SlotWidth);
+    type_point(&mut harness, "@0, 5");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let shown = harness.shown(feature);
+    let centers: Vec<Point2> = entities_of_kind(&shown, "Arc")
+        .into_iter()
+        .map(|arc| shown.arc(arc).unwrap().center)
+        .collect();
+    assert!(close(&radii(&shown, "Arc"), &[5.0, 5.0]));
+    assert!(
+        centers
+            .iter()
+            .any(|center| near(*center, Point2::new(-20.0, 0.0)))
+    );
+    assert!(
+        centers
+            .iter()
+            .any(|center| near(*center, Point2::new(20.0, 0.0)))
+    );
+    for length in line_lengths(&shown) {
+        assert!((length - 40.0).abs() < DRAWN, "{length}");
+    }
+    assert_eq!(constraints_of_kind(sketch, "Symmetric").len(), 1);
+    assert_eq!(constraints_of_kind(sketch, "Tangent").len(), 4);
+    assert_eq!(constraints_of_kind(sketch, "Equal").len(), 1);
+    assert!(harness.shows("3 degrees of freedom left"));
+    assert_eq!(harness.model.undo_label(), Some("Draw slot"));
+}
+
+#[test]
+fn an_arc_slot_follows_its_arc_with_round_ends_tangent_to_both_sides() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    for _ in 0..3 {
+        harness.use_tool(Key::U);
+    }
+
+    type_point(&mut harness, "0, 0");
+    refused(&mut harness, "0, 0", Refusal::ArcSlotRadius);
+    type_point(&mut harness, "20, 0");
+    assert!(harness.shows("Click the centre of the slot's other end"));
+    refused(&mut harness, "20, 0", Refusal::ArcSlotSweep);
+    type_point(&mut harness, "0, 20");
+    assert!(harness.shows("Click to set the slot's width"));
+    refused(&mut harness, "@0, 0", Refusal::ArcSlotWidth);
+    refused(&mut harness, "@0, 21", Refusal::ArcSlotWidth);
+    type_point(&mut harness, "@0, 3");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let shown = harness.shown(feature);
+    let outer = entities_of_kind(&shown, "Arc")
+        .into_iter()
+        .filter_map(|arc| shown.arc(arc))
+        .find(|arc| (arc.radius - 23.0).abs() < DRAWN)
+        .expect("the slot has an outer arc");
+    assert!(close(&radii(&shown, "Arc"), &[3.0, 3.0, 17.0, 23.0]));
+    assert!((outer.sweep - FRAC_PI_2).abs() < DRAWN, "{}", outer.sweep);
+    assert!(outer.start_angle.abs() < DRAWN, "{}", outer.start_angle);
+    assert_eq!(constraints_of_kind(sketch, "Tangent").len(), 4);
+    assert_eq!(constraints_of_kind(sketch, "Coincident").len(), 5);
+    assert!(harness.shows("4 degrees of freedom left"));
+    assert_eq!(harness.model.undo_label(), Some("Draw arc slot"));
+
+    type_point(&mut harness, "100, 0");
+    type_point(&mut harness, "120, 0");
+    harness.key(Key::X, Modifiers::NONE);
+    harness.frame();
+    type_point(&mut harness, "100, 20");
+    type_point(&mut harness, "@0, 3");
+    harness.settle();
+    let shown = harness.shown(feature);
+    let long_way = entities_of_kind(&shown, "Arc")
+        .into_iter()
+        .filter_map(|arc| shown.arc(arc))
+        .find(|arc| (arc.radius - 23.0).abs() < DRAWN && arc.center.x > 50.0)
+        .expect("the reversed slot has an outer arc");
+    assert!(
+        (long_way.sweep - 3.0 * FRAC_PI_2).abs() < DRAWN,
+        "{}",
+        long_way.sweep
+    );
+
+    harness.click("Extrude");
+    harness.settle();
+    let extrude = harness
+        .document()
+        .features()
+        .find(|feature| feature.name == "Extrude 1")
+        .map(Feature::id)
+        .expect("the arc slots were extruded");
+    let slot_area = |sweep: f64| sweep * (23.0 * 23.0 - 17.0 * 17.0) / 2.0 + PI * 9.0;
+    let area = slot_area(FRAC_PI_2) + slot_area(3.0 * FRAC_PI_2);
+    let volume = harness.body_volume(extrude);
+    assert!((volume / (10.0 * area) - 1.0).abs() < 1e-2, "{volume}");
+}
+
 #[test]
 fn a_typed_point_can_be_a_length_and_angle_or_a_length_toward_the_pointer() {
     let mut harness = Harness::new();
@@ -3547,7 +4010,7 @@ fn sketch_bar_problems(harness: &Harness, visible: Rect) -> Vec<String> {
     overlapping.chain(outside).collect()
 }
 
-fn sketch_bar_buttons() -> Vec<&'static str> {
+fn sketch_bar_buttons() -> Vec<String> {
     Tool::ALL
         .map(Tool::label)
         .into_iter()
@@ -3559,6 +4022,11 @@ fn sketch_bar_buttons() -> Vec<&'static str> {
             sketch_toolbar::DELETE_LABEL,
             sketch_toolbar::FINISH_LABEL,
         ])
+        .map(str::to_owned)
+        .chain(
+            [Tool::Rectangle, Tool::Circle, Tool::Polygon, Tool::Slot]
+                .map(sketch_toolbar::modes_label),
+        )
         .collect()
 }
 
@@ -3586,7 +4054,7 @@ fn the_sketch_bar_fits_one_row_wraps_at_200_percent_and_names_every_button() {
     assert!(finish.y < row);
     assert_readable(&harness, "The sketch bar");
     for name in sketch_bar_buttons() {
-        assert!(harness.accessible_named(Role::Button, name), "{name}");
+        assert!(harness.accessible_named(Role::Button, &name), "{name}");
     }
 
     harness.select([Pickable::SketchEntity {
@@ -3611,7 +4079,7 @@ fn the_sketch_bar_fits_one_row_wraps_at_200_percent_and_names_every_button() {
     assert!(harness.shows(sketch_toolbar::FINISH_LABEL));
     assert_readable(&harness, "The sketch bar at 200%");
     for name in sketch_bar_buttons() {
-        assert!(harness.accessible_named(Role::Button, name), "{name}");
+        assert!(harness.accessible_named(Role::Button, &name), "{name}");
     }
 }
 

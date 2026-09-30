@@ -6,6 +6,7 @@ use egui_phosphor::regular as phosphor;
 use crate::{
     commands::{CameraMove, Command},
     editing::Tool,
+    shape_modes::{CircleMode, PolygonMode, RectangleMode, ShapeMode, SlotMode},
     sketch_tools::ConstraintTool,
 };
 
@@ -83,6 +84,7 @@ pub fn command(command: Command) -> &'static str {
         Command::MoveGeometry => phosphor::ARROWS_OUT_CARDINAL,
         Command::SelectAll => phosphor::SELECTION_ALL,
         Command::SketchTool(tool) => self::tool(tool),
+        Command::ShapeMode(mode) => shape_mode(mode),
         Command::Constraint(tool) => constraint(tool),
         Command::DeleteSelection => DELETE,
         Command::Extrude => EXTRUDE,
@@ -166,6 +168,23 @@ pub fn tool(tool: Tool) -> &'static str {
         Tool::Spline => phosphor::BEZIER_CURVE,
         Tool::Trim => phosphor::SCISSORS,
         Tool::Extend => phosphor::ARROW_LINE_RIGHT,
+    }
+}
+
+pub fn shape_mode(mode: ShapeMode) -> &'static str {
+    match mode {
+        ShapeMode::Rectangle(RectangleMode::Corners) => tool(Tool::Rectangle),
+        ShapeMode::Rectangle(RectangleMode::Center) => phosphor::ARROWS_OUT,
+        ShapeMode::Rectangle(RectangleMode::ThreePoints) => phosphor::DIAMOND,
+        ShapeMode::Circle(CircleMode::Center) => tool(Tool::Circle),
+        ShapeMode::Circle(CircleMode::TwoPoints) => phosphor::PROHIBIT,
+        ShapeMode::Circle(CircleMode::ThreePoints) => phosphor::DOTS_THREE_CIRCLE,
+        ShapeMode::Polygon(PolygonMode::Corner) => tool(Tool::Polygon),
+        ShapeMode::Polygon(PolygonMode::SideMiddle) => phosphor::OCTAGON,
+        ShapeMode::Polygon(PolygonMode::Side) => phosphor::PENTAGON,
+        ShapeMode::Slot(SlotMode::Ends) => tool(Tool::Slot),
+        ShapeMode::Slot(SlotMode::Center) => phosphor::ARROWS_LEFT_RIGHT,
+        ShapeMode::Slot(SlotMode::Arc) => phosphor::MAGNET,
     }
 }
 

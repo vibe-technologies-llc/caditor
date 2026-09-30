@@ -11,6 +11,7 @@ use crate::{
     history::HistoryCommand,
     icons, logo,
     model::{Action, Model},
+    shape_modes::ShapeMode,
     sketch_tools::ConstraintTool,
     widgets::{self, Tone},
     window_frame::{self, Chrome},
@@ -23,6 +24,7 @@ const SEARCH_WIDTH: f32 = 240.0;
 const NAME_ROOM: f32 = 160.0;
 const TITLE_PADDING: f32 = 6.0;
 const DETAILS_WIDTH: f32 = 280.0;
+const WAYS_TO_DRAW: &str = "Ways to draw shapes";
 const SKETCH_ONLY: &str = "Only while a sketch is being edited";
 const NOT_HERE: &str = "Not available right now";
 const NOT_SAVED: &str = "Save the model to start keeping its versions";
@@ -395,6 +397,14 @@ impl Menus<'_, '_> {
             self.item(ui, Command::FinishSketch);
             ui.separator();
             self.items(ui, Tool::ALL.map(Command::SketchTool));
+            submenu(ui, icons::tool(Tool::Rectangle), WAYS_TO_DRAW, |ui| {
+                for tool in [Tool::Rectangle, Tool::Circle, Tool::Polygon, Tool::Slot] {
+                    if tool != Tool::Rectangle {
+                        ui.separator();
+                    }
+                    self.items(ui, ShapeMode::of_tool(tool).map(Command::ShapeMode));
+                }
+            });
             self.items(
                 ui,
                 [Command::ReverseArc, Command::MoreSides, Command::FewerSides],
