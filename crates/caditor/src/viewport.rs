@@ -354,9 +354,13 @@ impl ViewportState {
         let highlighted = self.highlighted();
         let hovered: Vec<Pickable> = if self.drawing.is_active() {
             edited
-                .zip(self.drawing.snap_entity())
-                .map(|(feature, entity)| Pickable::SketchEntity { feature, entity })
                 .into_iter()
+                .flat_map(|feature| {
+                    self.drawing
+                        .snap_entities()
+                        .into_iter()
+                        .map(move |entity| Pickable::SketchEntity { feature, entity })
+                })
                 .collect()
         } else if let Some(annotation) = self.annotations.hovered() {
             annotation.constrained_entities(document)
