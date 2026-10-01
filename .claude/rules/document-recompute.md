@@ -63,7 +63,10 @@ paths:
     (`SketchResult::regions`).
 - A sketch's profile arrangement is built once per result and shared by every feature that sweeps
   it and by the display. Regions are found under the run's cancel token; a build or triangulation
-  cancelled midway is not kept, so the next run builds it again.
+  cancelled midway is not kept, so the next run builds it again. A sketch that solves again to the
+  same geometry as the last good result (`Sketch::same_geometry`: a satisfied constraint added, a
+  dimension rewritten to its own value) shares that result's arrangement and regions
+  (`Arc<OnceLock>`), so display data already found is not rebuilt.
 - The state before an open blend or shell is meshed only when the app asks (`Recomputer::mesh`,
   sent by `Model::mesh_before` for the open feature).
 - A panic or failure while meshing leaves the body without a mesh (`mesh_failed`) but keeps its
@@ -85,5 +88,14 @@ paths:
 - Each run is contained: a panic outside any evaluator runs it again without the cache, and a
   second panic reports `Outcome::Failed` with the last good evaluation (shown as stopped, with
   Restart), so the worker lives on.
-- Requested meshes run after the queued recompute under a token that a newer submission or
-  `cancel` trips, and stay queued until they finish.
+- `cancel` counts as cancelling only the work running or queued when it is called: each job
+  records the cancel count at its submission and stops when it changes, so a `cancel` that comes
+  after a job finished (or while idle) trips nothing later. Requested meshes run after the queued
+  recompute under a token that a newer submission or a `cancel` during the meshing trips, stay
+  queued until they finish, and are served newest first (asking again for a queued result moves it
+  to the front), so the state on screen is meshed before stale ones.
+- `Recomputer::submit_retrying_failures` (the app's Recompute command, F5) makes every failed
+  feature run again even though its key is unchanged, which a plain submission reuses, as it does
+  the internal error of a caught panic; `Recompute::retry_failures` marks the cached failures, which
+  keep their last good result meanwhile, and a retrying submission superseded by a plain one still
+  retries.

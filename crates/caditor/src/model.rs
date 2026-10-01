@@ -110,6 +110,12 @@ pub struct SessionBase {
     pub session: u64,
 }
 
+#[derive(Clone, Copy)]
+enum Retry {
+    Nothing,
+    Failures,
+}
+
 struct Session {
     editor: Editor,
     saved: Document,
@@ -179,7 +185,7 @@ impl Model {
             evaluation_generation: 0,
         };
         model.start_storage(None, None);
-        model.recompute();
+        model.recompute(Retry::Nothing);
         model
     }
 
@@ -211,7 +217,7 @@ impl Model {
             log::error!("{error}");
             self.recomputer = None;
         }
-        self.recompute();
+        self.recompute(Retry::Nothing);
     }
 
     pub fn document(&self) -> &Document {
@@ -365,7 +371,7 @@ impl Model {
                     (!transaction.is_empty()).then(|| JournalEntry::Apply(transaction.clone()));
                 self.editor
                     .apply(transaction)
-                    .map(|()| entry)
+                    .map(|changed| entry.filter(|_| changed))
                     .map_err(|error| format!("{label}: {error}"))
             }
             Action::Undo => {
@@ -383,7 +389,7 @@ impl Model {
                     .map_err(|error| format!("Redo failed: {error}"))
             }
             Action::Recompute => {
-                self.recompute();
+                self.recompute(Retry::Failures);
                 Ok(None)
             }
             Action::CancelRecompute => {
@@ -516,7 +522,7 @@ impl Model {
         self.record(entry);
         self.dirty = !self.editor.document().same_content(&self.saved);
         self.parameters = ParameterValues::evaluate(self.editor.document());
-        self.recompute();
+        self.recompute(Retry::Nothing);
     }
 
     pub fn poll(&mut self) -> bool {
@@ -657,7 +663,7 @@ impl Model {
         self.shown_before = None;
         self.mesh_bodies();
         self.start_storage(replaces, predecessor);
-        self.recompute();
+        self.recompute(Retry::Nothing);
     }
 
     fn mesh_bodies(&mut self) {
@@ -803,7 +809,7 @@ impl Model {
         }
     }
 
-    fn recompute(&mut self) {
+    fn recompute(&mut self, retry: Retry) {
         if self.recomputer.is_none() {
             match Recomputer::spawn(ModelEvaluator, (self.services.make_waker)()) {
                 Ok(recomputer) => {
@@ -821,10 +827,10 @@ impl Model {
         }
         let document = self.editor.document().clone();
         let revision = self.revision();
-        let submitted = self
-            .recomputer
-            .as_mut()
-            .map(|recomputer| recomputer.submit(document, revision));
+        let submitted = self.recomputer.as_mut().map(|recomputer| match retry {
+            Retry::Nothing => recomputer.submit(document, revision),
+            Retry::Failures => recomputer.submit_retrying_failures(document, revision),
+        });
         self.status = match submitted {
             Some(Ok(())) => RecomputeStatus::Running {
                 since: Instant::now(),

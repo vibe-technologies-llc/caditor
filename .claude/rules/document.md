@@ -17,6 +17,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `MAX_UNDO_BYTES` (256 MiB, by `Transaction::approximate_size`, which counts what an inverse keeps
   alive: removed features, an import's STEP text, `Solid::approximate_size`); oldest dropped first,
   newest always kept.
+- `Editor::apply` returns whether the model changed: a transaction that leaves the content as it was
+  (`same_content`: a parameter set to its own expression, a flag to its value, edits that cancel
+  out) is dropped, so it is no undo step, keeps the redo history, does not bump the revision and
+  is neither journaled nor recomputed. `Base::prepare` decides this off the UI thread and
+  `Editor::commit` then returns an empty transaction.
 - Edits carry their IDs, so redo restores them; ID counters never move backwards. Parameter and
   feature IDs stay below 2^63 (`FIRST_UNSTORABLE_ID`, as in sketches): edits refuse larger ones as
   `ReservedId`, `reserve_ids_below` clamps to it.
@@ -31,6 +36,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   never handed to a new feature. `dependents_of` gives every feature using the given ones,
   directly or through others, in tree order; the app asks before deleting a feature that has any
   (`app-look.md`).
+- The parameters live in a `ParameterList` that indexes them by ID and by name, so
+  `Document::parameter`, `parameter_named` and the position lookups of edits cost a map lookup,
+  not a scan; appending and removing the last one is O(1), an insert or removal in the middle
+  renumbers the ones after it. `Document::apply` keeps its `DependencyGraph` across inserts and
+  removals of parameters (a removal asks the graph whether anyone uses the parameter), and
+  `transaction_to` removes parameters last to first, so restoring a version stays linear in the
+  number of parameters.
 - `same_content` compares documents without ID counters; it decides whether a model is unsaved.
 - `Document::check` runs a transaction on a clone so the UI can report the error before
   committing; `can_remove_parameter` answers the common case without one.
