@@ -1,19 +1,40 @@
+use std::path::{Path, PathBuf};
+
 use egui::{Align, Layout, RichText, TextStyle};
 
 use crate::{
-    logo,
+    appearance::SPACE_M,
+    dialog_parts, icons, logo,
     widgets::{self, DialogWidth},
 };
 
 pub const NAME: &str = "caditor";
 pub const APP_ID: &str = "caditor";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-const PARAGRAPH_GAP: f32 = 8.0;
+const PARAGRAPH_GAP: f32 = SPACE_M;
 const LOGO_SIDE: f32 = 64.0;
+const LICENCES_FILE: &str = "THIRD-PARTY-LICENSES.html";
+const LICENCES_FOLDER: [&str; 3] = ["share", "licenses", "caditor"];
+const COPY_VERSION: &str = "Copy version";
+const COPY_LICENCES_PATH: &str = "Copy path";
 const TAGLINE: &str = "Parametric CAD for Linux";
 
 pub fn version_line() -> String {
     format!("{NAME} {VERSION}")
+}
+
+fn installed_licences() -> Option<PathBuf> {
+    let program = std::env::current_exe().ok()?;
+    licences_beside(&program)
+}
+
+fn licences_beside(program: &Path) -> Option<PathBuf> {
+    let prefix = program.parent()?.parent()?;
+    let path = LICENCES_FOLDER
+        .iter()
+        .fold(prefix.to_path_buf(), |path, part| path.join(part))
+        .join(LICENCES_FILE);
+    path.is_file().then_some(path)
 }
 
 pub fn dialog(ctx: &egui::Context) -> bool {
@@ -46,21 +67,65 @@ pub fn dialog(ctx: &egui::Context) -> bool {
              THIRD-PARTY-LICENSES.html, which ships with it.",
             ui,
         ));
-        widgets::footer(ui, |ui| {
-            ui.add(widgets::primary_button(ui, "Close")).clicked()
-        })
+        if let Some(licences) = installed_licences() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(widgets::muted(licences.display().to_string(), ui));
+                let copy = widgets::small_button(ui, icons::COPY_PATH, COPY_LICENCES_PATH);
+                if ui
+                    .add(copy)
+                    .on_hover_text("Copy where the licence list is, to open it in a browser")
+                    .clicked()
+                {
+                    ui.ctx().copy_text(licences.display().to_string());
+                }
+            });
+        }
+        dialog_parts::split_footer(
+            ui,
+            |ui| {
+                let copy = widgets::small_button(ui, icons::COPY, COPY_VERSION);
+                if ui
+                    .add(copy)
+                    .on_hover_text("Copy the name and version, for a bug report")
+                    .clicked()
+                {
+                    ui.ctx().copy_text(version_line());
+                }
+                None
+            },
+            |ui| {
+                ui.add(widgets::primary_button(ui, "Close"))
+                    .clicked()
+                    .then_some(())
+            },
+        )
+        .is_some()
     });
     response.inner || response.should_close()
 }
 
 #[cfg(test)]
 mod tests {
+    use tempfile::TempDir;
+
     use super::*;
 
     const DESKTOP_ENTRY: &str = include_str!("../../../packaging/caditor.desktop");
     const METAINFO: &str = include_str!("../../../packaging/caditor.metainfo.xml");
     const MIME_TYPE: &str = include_str!("../../../packaging/caditor-mime.xml");
     const ARCH_PACKAGE: &str = include_str!("../../../packaging/arch/PKGBUILD");
+
+    #[test]
+    fn the_licence_list_is_found_where_the_release_installs_it() {
+        let prefix = TempDir::new().unwrap();
+        let program = prefix.path().join("bin").join(NAME);
+        let folder = prefix.path().join("share/licenses/caditor");
+
+        assert_eq!(licences_beside(&program), None);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(LICENCES_FILE), "<html></html>").unwrap();
+        assert_eq!(licences_beside(&program), Some(folder.join(LICENCES_FILE)));
+    }
 
     #[test]
     fn the_desktop_entry_launches_and_matches_this_window() {

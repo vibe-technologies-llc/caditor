@@ -19,12 +19,15 @@ CADITOR_SCREENSHOT_LOOKS=dark,light CADITOR_SCREENSHOTS=<dir> cargo test -p cadi
 
 - Files are `<scene>-<look>.png`, 1400×1000 physical pixels. Scenes: `welcome`, `empty`, `model`
   (the Angle bracket sample), `feature` (its extrusion open), `measure`, `sketch` (its profile
-  edited), `palette`, `preferences`, `export`.
+  edited), `palette`, `preferences`, `export`, and from `dialog_scenes`: `preferences-<tab>` for
+  each tab, `shortcuts`, `about`, `image-export`, `history`, `unsaved` (the unsaved-changes
+  prompt), `report` (a damaged file's report), `tip`, `welcome-recent` (with recent files) and
+  `recovery`.
 - Looks: `dark`, `light`, `dark-contrast`, `light-contrast`, `dark-200`, `light-150`;
   `CADITOR_SCREENSHOT_LOOKS` takes a comma-separated subset.
 - Write them to the session scratchpad, never into the repository. Take a set before a change and
   one after, and compare the two with the Read tool.
-- A new scene is a few lines in `screenshots()`: put the harness in the state (the helpers in
+- A new scene is a few lines in `screenshots()` (or `dialog_scenes()` for a dialog): put the harness in the state (the helpers in
   `ui_tests.rs` all work) and call `shoot`.
 
 ## The real app on the desktop

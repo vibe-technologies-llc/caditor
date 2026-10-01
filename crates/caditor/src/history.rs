@@ -1,7 +1,7 @@
 use std::{path::PathBuf, time::SystemTime};
 
 use caditor_file::{History, LoadError, SavedState};
-use egui::{RichText, Ui};
+use egui::Ui;
 use jiff::{Timestamp, tz::TimeZone};
 
 use crate::{
@@ -11,6 +11,9 @@ use crate::{
 };
 
 const LIST_HEIGHT: f32 = 320.0;
+pub const TITLE: &str = "Version history";
+const DAMAGED: &str = "This version is damaged inside the file, so it cannot be restored. The \
+                       other versions are not affected.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HistoryCommand {
@@ -109,11 +112,13 @@ pub fn dialog(
     history: &VersionHistory,
 ) -> Option<HistoryCommand> {
     let (path, listing) = history.shown.as_ref()?;
-    let title = format!("Versions of “{}”", display_name(Some(path)));
-    let response = widgets::dialog(ctx, "version-history", &title, DialogWidth::Medium, |ui| {
+    let name = display_name(Some(path));
+    let response = widgets::dialog(ctx, "version-history", TITLE, DialogWidth::Medium, |ui| {
         ui.label(widgets::muted(
-            "Every save keeps the state it replaces inside the file, so you can go back to it \
-             even after closing caditor. Restoring is one change that Undo reverses.",
+            format!(
+                "Every save keeps the state it replaces inside “{name}”, so you can go back to \
+                 it even after closing caditor. Restoring is one change that Undo reverses."
+            ),
             ui,
         ));
         let mut command = None;
@@ -133,11 +138,6 @@ pub fn dialog(
                 command = versions(ui, model, history, listed);
             }
         }
-        widgets::footer(ui, |ui| {
-            if ui.button("Close").clicked() {
-                command = Some(HistoryCommand::Hide);
-            }
-        });
         command
     });
     let closed = response.should_close().then_some(HistoryCommand::Hide);
@@ -151,7 +151,10 @@ fn versions(
     listed: &History,
 ) -> Option<HistoryCommand> {
     if let Some(current) = &listed.current {
-        ui.label(RichText::new(format!("Current file: {}", describe(current))).strong());
+        ui.label(widgets::strong(format!(
+            "Current file: {}",
+            describe(current)
+        )));
     }
     if model.is_dirty() {
         widgets::callout(ui, Tone::Info, |ui| {
@@ -167,35 +170,43 @@ fn versions(
         return None;
     }
     let mut command = None;
-    egui::ScrollArea::vertical()
-        .max_height(widgets::list_height(ui.ctx(), LIST_HEIGHT))
-        .min_scrolled_height(widgets::list_height(ui.ctx(), LIST_HEIGHT))
-        .show(ui, |ui| {
-            for version in &listed.versions {
-                ui.separator();
-                egui::Sides::new().shrink_left().show(
-                    ui,
-                    |ui| {
-                        let muted = appearance::tokens(ui).text_muted;
-                        widgets::icon_label(ui, icons::RECENT, muted);
-                        ui.label(describe(&version.state));
-                    },
-                    |ui| {
-                        if !version.available {
-                            let warn = ui.visuals().warn_fg_color;
-                            ui.colored_label(warn, "Damaged, cannot be restored");
-                        } else if history.restoring == Some(version.index) {
-                            ui.spinner();
-                        } else if ui
-                            .add_enabled(history.restoring.is_none(), egui::Button::new("Restore"))
-                            .clicked()
-                        {
-                            command = Some(HistoryCommand::Restore(version.index));
-                        }
-                    },
-                );
-            }
-        });
+    let height = widgets::list_height(ui.ctx(), LIST_HEIGHT);
+    widgets::card(ui, |ui| {
+        egui::ScrollArea::vertical()
+            .max_height(height)
+            .show(ui, |ui| {
+                for version in &listed.versions {
+                    egui::Sides::new().shrink_left().wrap().show(
+                        ui,
+                        |ui| {
+                            let muted = appearance::tokens(ui).text_muted;
+                            widgets::icon_label(ui, icons::RECENT, muted);
+                            ui.label(describe(&version.state));
+                        },
+                        |ui| {
+                            if !version.available {
+                                widgets::status_pill(ui, Tone::Error, "Damaged")
+                                    .on_hover_text(DAMAGED);
+                            } else if history.restoring == Some(version.index) {
+                                ui.spinner();
+                            } else if ui
+                                .add_enabled(
+                                    history.restoring.is_none(),
+                                    widgets::button("Restore"),
+                                )
+                                .on_hover_text(
+                                    "Bring the model back to this version; Undo reverses it",
+                                )
+                                .on_disabled_hover_text("Another version is being restored")
+                                .clicked()
+                            {
+                                command = Some(HistoryCommand::Restore(version.index));
+                            }
+                        },
+                    );
+                }
+            });
+    });
     command
 }
 

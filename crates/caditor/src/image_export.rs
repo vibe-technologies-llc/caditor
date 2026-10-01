@@ -16,15 +16,17 @@ use egui::{Id, Ui};
 use parking_lot::Mutex;
 
 use crate::{
+    appearance::{SPACE_M, SPACE_S},
     commands::{Command, CommandFrame},
-    field,
+    export, field,
     files::FileCommand,
     model::{Action, Model, Notice, display_name},
-    widgets::{self, DialogWidth, Tone},
+    preferences,
+    widgets::{self, DialogWidth},
 };
 
-const SECTION_GAP: f32 = 10.0;
-const FIELD_WIDTH: f32 = 80.0;
+const TITLE: &str = "Export image";
+const FAILED_OUTCOME: &str = "the image shows each body as it was before them";
 const NOT_EXPORTING: &str = "No image export is running";
 pub const IMAGE_HINT: &str = "Save the 3D view as a PNG image";
 const DEFAULT_CUSTOM: SurfaceSize = SurfaceSize {
@@ -417,7 +419,7 @@ pub fn activity(
         ui.spinner();
         ui.label(format!("Exporting “{}”…", display_name(Some(path))));
         cancel |= ui
-            .small_button("Cancel")
+            .add(widgets::button("Cancel"))
             .on_hover_text(commands.with_keys(
                 Command::CancelImageExport,
                 "Stop the image export without writing the file",
@@ -431,63 +433,57 @@ pub fn activity(
 
 pub fn dialog(
     ctx: &egui::Context,
+    model: &Model,
     exporter: &ImageExporter,
     view: Option<SurfaceSize>,
 ) -> Option<ImageCommand> {
-    let response = widgets::dialog(
-        ctx,
-        "export-image",
-        "Export Image",
-        DialogWidth::Medium,
-        |ui| {
-            let mut command = None;
-            size_choice(ui, exporter, view, &mut command);
-            scale_choice(ui, exporter, &mut command);
-            background_choice(ui, exporter, &mut command);
-            ui.add_space(SECTION_GAP);
-            ui.label(widgets::muted(LEFT_OUT, ui));
-            let size = exporter
-                .base_size(view)
-                .ok_or_else(|| "Show the 3D view to export it at its size.".to_owned())
-                .and_then(|size| scaled(size, exporter.scale));
-            let blocker = if exporter.is_running() {
-                Err("An image export is already running.".to_owned())
-            } else {
-                size
+    let response = widgets::dialog(ctx, "export-image", TITLE, DialogWidth::Medium, |ui| {
+        let mut command = None;
+        size_choice(ui, exporter, view, &mut command);
+        scale_choice(ui, exporter, &mut command);
+        background_choice(ui, exporter, &mut command);
+        ui.add_space(SPACE_M);
+        ui.label(widgets::muted(LEFT_OUT, ui));
+        let size = exporter
+            .base_size(view)
+            .ok_or_else(|| "Show the 3D view to export it at its size.".to_owned())
+            .and_then(|size| scaled(size, exporter.scale));
+        let blocker = if exporter.is_running() {
+            Err("An image export is already running.".to_owned())
+        } else {
+            size
+        };
+        if let Ok(size) = &blocker {
+            ui.add_space(SPACE_M);
+            ui.label(format!(
+                "The image will be {} × {} pixels.",
+                size.width, size.height
+            ));
+        }
+        export::warnings(
+            ui,
+            model,
+            FAILED_OUTCOME,
+            blocker.as_ref().err().map(String::as_str),
+        );
+        widgets::footer(ui, |ui| {
+            let export = widgets::primary_button(ui, "Export…");
+            let response = ui.add_enabled(blocker.is_ok(), export);
+            let response = match &blocker {
+                Err(blocker) => response.on_disabled_hover_text(blocker),
+                Ok(_) => response,
             };
-            ui.add_space(SECTION_GAP);
-            match &blocker {
-                Ok(size) => {
-                    ui.label(format!(
-                        "The image will be {} × {} pixels.",
-                        size.width, size.height
-                    ));
-                }
-                Err(blocker) => {
-                    widgets::callout(ui, Tone::Warning, |ui| {
-                        ui.label(blocker);
-                    });
-                }
+            if response.clicked()
+                && let Ok(size) = blocker
+            {
+                command = Some(ImageCommand::Choose(size));
             }
-            widgets::footer(ui, |ui| {
-                let export = widgets::primary_button(ui, "Export…");
-                let response = ui.add_enabled(blocker.is_ok(), export);
-                let response = match &blocker {
-                    Err(blocker) => response.on_disabled_hover_text(blocker),
-                    Ok(_) => response,
-                };
-                if response.clicked()
-                    && let Ok(size) = blocker
-                {
-                    command = Some(ImageCommand::Choose(size));
-                }
-                if ui.button("Cancel").clicked() {
-                    command = Some(ImageCommand::Hide);
-                }
-            });
-            command
-        },
-    );
+            if ui.add(widgets::button("Cancel")).clicked() {
+                command = Some(ImageCommand::Hide);
+            }
+        });
+        command
+    });
     let closed = response.should_close().then_some(ImageCommand::Hide);
     response.inner.or(closed)
 }
@@ -498,35 +494,28 @@ fn size_choice(
     view: Option<SurfaceSize>,
     command: &mut Option<ImageCommand>,
 ) {
-    ui.label(widgets::section_title("Size"));
+    export::heading(ui, "Size");
     let view_label = match view {
         Some(view) => format!("View size ({} × {})", view.width, view.height),
         None => "View size".to_owned(),
     };
-    ui.horizontal(|ui| {
-        let choices = [
-            (
-                SizeChoice::View,
-                view_label.as_str(),
-                "The size of the 3D view on screen.",
-            ),
-            (
-                SizeChoice::Custom,
-                "Custom",
-                "A width and height of your own, in pixels.",
-            ),
-        ];
-        for (choice, label, hint) in choices {
-            if ui
-                .selectable_label(exporter.size == choice, label)
-                .on_hover_text(hint)
-                .clicked()
-            {
-                *command = Some(ImageCommand::Size(choice));
-            }
-        }
-    });
+    let options = [
+        (
+            SizeChoice::View,
+            view_label.as_str(),
+            "The size of the 3D view on screen",
+        ),
+        (
+            SizeChoice::Custom,
+            "Custom",
+            "A width and height of your own, in pixels",
+        ),
+    ];
+    if let Some(choice) = preferences::choice(ui, &options, exporter.size) {
+        *command = Some(ImageCommand::Size(choice));
+    }
     if exporter.size == SizeChoice::Custom {
+        ui.add_space(SPACE_S);
         let mut errors = Vec::new();
         widgets::properties(ui, "image-size", |ui| {
             let sides = [
@@ -544,7 +533,7 @@ fn size_choice(
                             ui,
                             Id::new(("image-side", caption)),
                             &stored.to_string(),
-                            FIELD_WIDTH,
+                            widgets::FIELD_WIDTH,
                             false,
                             parse_side,
                         );
@@ -563,7 +552,6 @@ fn size_choice(
             }
         });
     }
-    ui.add_space(SECTION_GAP);
 }
 
 pub fn parse_side(text: &str) -> Result<u32, String> {
@@ -574,40 +562,35 @@ pub fn parse_side(text: &str) -> Result<u32, String> {
 }
 
 fn scale_choice(ui: &mut Ui, exporter: &ImageExporter, command: &mut Option<ImageCommand>) {
-    ui.label(widgets::section_title("Scale"));
-    ui.horizontal(|ui| {
-        for scale in ImageScale::ALL {
-            if ui
-                .selectable_label(exporter.scale == scale, scale.name())
-                .on_hover_text(format!(
-                    "{} times as many pixels each way, with lines and points as much thicker.",
-                    scale.factor()
-                ))
-                .clicked()
-            {
-                *command = Some(ImageCommand::Scale(scale));
-            }
-        }
+    export::heading(ui, "Scale");
+    let hovers = ImageScale::ALL.map(|scale| {
+        format!(
+            "{} times as many pixels each way, with lines and points as much thicker",
+            scale.factor()
+        )
     });
-    ui.add_space(SECTION_GAP);
+    let options: Vec<(ImageScale, &str, &str)> = ImageScale::ALL
+        .iter()
+        .zip(&hovers)
+        .map(|(scale, hover)| (*scale, scale.name(), hover.as_str()))
+        .collect();
+    if let Some(scale) = preferences::choice(ui, &options, exporter.scale) {
+        *command = Some(ImageCommand::Scale(scale));
+    }
 }
 
 fn background_choice(ui: &mut Ui, exporter: &ImageExporter, command: &mut Option<ImageCommand>) {
-    ui.label(widgets::section_title("Background"));
-    ui.horizontal(|ui| {
-        for background in [Background::Viewport, Background::Transparent] {
-            if ui
-                .selectable_label(
-                    exporter.background == background,
-                    background_name(background),
-                )
-                .on_hover_text(background_hint(background))
-                .clicked()
-            {
-                *command = Some(ImageCommand::Background(background));
-            }
-        }
+    export::heading(ui, "Background");
+    let options = [Background::Viewport, Background::Transparent].map(|background| {
+        (
+            background,
+            background_name(background),
+            background_hint(background),
+        )
     });
+    if let Some(background) = preferences::choice(ui, &options, exporter.background) {
+        *command = Some(ImageCommand::Background(background));
+    }
     ui.label(widgets::muted(background_hint(exporter.background), ui));
 }
 

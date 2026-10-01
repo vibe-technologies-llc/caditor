@@ -11,19 +11,23 @@ use std::{
 
 use caditor_document::{CancelToken, FeatureId, FeatureResult};
 use caditor_file::{ExportBody, ExportError, ExportFormat, Exported, MeshResolution};
-use egui::Ui;
+use egui::{ScrollArea, Sides, Ui};
 use parking_lot::Mutex;
 
 use crate::{
+    appearance::SPACE_M,
     commands::{Command, CommandFrame},
     feature_tree::count,
     files::FileCommand,
+    icons,
     model::{Action, Model, Notice, RecomputeStatus, display_name},
+    preferences,
     units::LengthUnit,
     widgets::{self, DialogWidth, Tone},
 };
 
-const SECTION_GAP: f32 = 10.0;
+const BODY_LIST_HEIGHT: f32 = 160.0;
+const FAILED_OUTCOME: &str = "each body is exported as it was before them";
 const NOT_EXPORTING: &str = "No export is running";
 const NO_BODIES: &str =
     "There are no bodies to export yet. Extrude or revolve a sketch to make one.";
@@ -35,6 +39,7 @@ pub enum ExportCommand {
     SetFormat(ExportFormat),
     SetResolution(MeshResolution),
     Include { body: FeatureId, included: bool },
+    IncludeAll(bool),
     Choose,
     Cancel,
 }
@@ -87,8 +92,12 @@ impl Exporter {
         self.format
     }
 
-    pub fn perform(&mut self, command: ExportCommand) {
+    pub fn perform(&mut self, command: ExportCommand, model: &Model) {
         match command {
+            ExportCommand::IncludeAll(true) => self.left_out.clear(),
+            ExportCommand::IncludeAll(false) => {
+                self.left_out = Self::bodies(model).map(|body| body.id).collect();
+            }
             ExportCommand::Show => self.open = true,
             ExportCommand::Hide => self.open = false,
             ExportCommand::Choose => {}
@@ -249,7 +258,7 @@ pub fn activity(
             display_name(Some(&running.path))
         ));
         cancel |= ui
-            .small_button("Cancel")
+            .add(widgets::button("Cancel"))
             .on_hover_text(commands.with_keys(
                 Command::CancelExport,
                 "Stop the export without writing the file",
@@ -265,10 +274,8 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
     let response = widgets::dialog(ctx, "export", "Export", DialogWidth::Medium, |ui| {
         let bodies: Vec<Body> = Exporter::bodies(model).collect();
         if bodies.is_empty() {
-            ui.label(NO_BODIES);
-            return widgets::footer(ui, |ui| {
-                ui.button("Close").clicked().then_some(ExportCommand::Hide)
-            });
+            widgets::empty_state(ui, icons::command(Command::Export), NO_BODIES, |_| {});
+            return None;
         }
         let mut command = None;
         format_choice(ui, exporter, &mut command);
@@ -276,15 +283,6 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
             resolution_choice(ui, exporter, &bodies, model.length_unit(), &mut command);
         }
         body_choice(ui, exporter, &bodies, &mut command);
-        let failed = model.evaluation().failed_count();
-        if failed > 0 {
-            widgets::callout(ui, Tone::Warning, |ui| {
-                ui.label(format!(
-                    "{} failed, so each body is exported as it was before them.",
-                    count(failed, "feature", "features")
-                ));
-            });
-        }
         let blocker = if exporter.is_running() {
             Some("An export is already running.")
         } else if matches!(model.status(), RecomputeStatus::Running { .. }) {
@@ -297,6 +295,7 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
         } else {
             None
         };
+        warnings(ui, model, FAILED_OUTCOME, blocker);
         widgets::footer(ui, |ui| {
             let export = widgets::primary_button(ui, "Export…");
             let response = ui.add_enabled(blocker.is_none(), export);
@@ -307,11 +306,8 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
             if response.clicked() {
                 command = Some(ExportCommand::Choose);
             }
-            if ui.button("Cancel").clicked() {
+            if ui.add(widgets::button("Cancel")).clicked() {
                 command = Some(ExportCommand::Hide);
-            }
-            if let Some(blocker) = blocker {
-                ui.label(widgets::muted(blocker, ui));
             }
         });
         command
@@ -320,19 +316,36 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
     response.inner.or(closed)
 }
 
+pub fn heading(ui: &mut Ui, title: &str) {
+    ui.add_space(SPACE_M);
+    ui.label(widgets::section_title(title));
+}
+
+pub fn warnings(ui: &mut Ui, model: &Model, outcome: &str, blocker: Option<&str>) {
+    let failed = model.evaluation().failed_count();
+    if failed > 0 {
+        ui.add_space(SPACE_M);
+        widgets::callout(ui, Tone::Warning, |ui| {
+            ui.label(format!(
+                "{} failed, so {outcome}.",
+                count(failed, "feature", "features")
+            ));
+        });
+    }
+    if let Some(blocker) = blocker {
+        ui.add_space(SPACE_M);
+        widgets::callout(ui, Tone::Warning, |ui| {
+            ui.label(blocker);
+        });
+    }
+}
+
 fn format_choice(ui: &mut Ui, exporter: &Exporter, command: &mut Option<ExportCommand>) {
-    ui.label(widgets::section_title("Format"));
-    ui.horizontal(|ui| {
-        for format in ExportFormat::ALL {
-            if ui
-                .selectable_label(exporter.format == format, format.name())
-                .on_hover_text(format_hint(format))
-                .clicked()
-            {
-                *command = Some(ExportCommand::SetFormat(format));
-            }
-        }
-    });
+    heading(ui, "Format");
+    let options = ExportFormat::ALL.map(|format| (format, format.name(), format_hint(format)));
+    if let Some(format) = preferences::choice(ui, &options, exporter.format) {
+        *command = Some(ExportCommand::SetFormat(format));
+    }
     ui.label(widgets::muted(format_hint(exporter.format), ui));
 }
 
@@ -356,32 +369,31 @@ fn resolution_choice(
     unit: LengthUnit,
     command: &mut Option<ExportCommand>,
 ) {
-    ui.add_space(SECTION_GAP);
-    ui.label(widgets::section_title("Resolution"));
-    ui.horizontal(|ui| {
-        for resolution in MeshResolution::ALL {
-            if ui
-                .selectable_label(exporter.resolution == resolution, resolution.name())
-                .clicked()
-            {
-                *command = Some(ExportCommand::SetResolution(resolution));
-            }
-        }
-    });
-    let bounds = bodies
+    heading(ui, "Resolution");
+    let bounds: Vec<_> = bodies
         .iter()
         .filter(|body| !exporter.left_out.contains(&body.id))
-        .filter_map(|body| body.result.solid()?.bounding_box());
-    let tolerance = exporter.resolution.tolerance_within(bounds);
-    ui.label(widgets::muted(
+        .filter_map(|body| body.result.solid()?.bounding_box())
+        .collect();
+    let describe = |resolution: MeshResolution| {
+        let tolerance = resolution.tolerance_within(bounds.iter().copied());
         format!(
             "Curved faces stay within {} of the model, with at most {}° between neighbouring \
              triangles.",
             unit.small_length_text(tolerance.chord()),
             tolerance.angle().to_degrees().round()
-        ),
-        ui,
-    ));
+        )
+    };
+    let hovers = MeshResolution::ALL.map(describe);
+    let options: Vec<(MeshResolution, &str, &str)> = MeshResolution::ALL
+        .iter()
+        .zip(&hovers)
+        .map(|(resolution, hover)| (*resolution, resolution.name(), hover.as_str()))
+        .collect();
+    if let Some(resolution) = preferences::choice(ui, &options, exporter.resolution) {
+        *command = Some(ExportCommand::SetResolution(resolution));
+    }
+    ui.label(widgets::muted(describe(exporter.resolution), ui));
 }
 
 fn body_choice(
@@ -390,15 +402,46 @@ fn body_choice(
     bodies: &[Body],
     command: &mut Option<ExportCommand>,
 ) {
-    ui.add_space(SECTION_GAP);
-    ui.label(widgets::section_title("Bodies"));
-    for body in bodies {
-        let mut included = !exporter.left_out.contains(&body.id);
-        if ui.checkbox(&mut included, &body.name).changed() {
-            *command = Some(ExportCommand::Include {
-                body: body.id,
-                included,
-            });
-        }
+    ui.add_space(SPACE_M);
+    let all = bodies
+        .iter()
+        .all(|body| !exporter.left_out.contains(&body.id));
+    let none = bodies
+        .iter()
+        .all(|body| exporter.left_out.contains(&body.id));
+    let picked = Sides::new()
+        .show(
+            ui,
+            |ui| ui.label(widgets::section_title("Bodies")),
+            |ui| {
+                let none_chosen = ui
+                    .add_enabled(!none, widgets::button("Select none"))
+                    .clicked()
+                    .then_some(false);
+                let all_chosen = ui
+                    .add_enabled(!all, widgets::button("Select all"))
+                    .clicked()
+                    .then_some(true);
+                none_chosen.or(all_chosen)
+            },
+        )
+        .1;
+    if let Some(included) = picked {
+        *command = Some(ExportCommand::IncludeAll(included));
     }
+    widgets::card(ui, |ui| {
+        ScrollArea::vertical()
+            .max_height(widgets::list_height(ui.ctx(), BODY_LIST_HEIGHT))
+            .show(ui, |ui| {
+                for body in bodies {
+                    let mut included = !exporter.left_out.contains(&body.id);
+                    if ui.checkbox(&mut included, &body.name).changed() {
+                        *command = Some(ExportCommand::Include {
+                            body: body.id,
+                            included,
+                        });
+                    }
+                }
+            });
+    });
 }

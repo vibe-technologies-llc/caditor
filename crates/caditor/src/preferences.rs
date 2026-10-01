@@ -1,10 +1,11 @@
 use caditor_file::{Settings, SettingsError};
 use caditor_render::{Msaa, Projection, Shading};
-use egui::{KeyboardShortcut, ThemePreference, Ui};
+use egui::{Id, KeyboardShortcut, Label, ThemePreference, Ui};
 
 use crate::{
-    appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
-    commands::{Command, Keymap},
+    appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, SPACE_M, SPACE_S},
+    commands::{self, Command, Keymap},
+    dialog_parts::{self, BodyRoom},
     graphics::{self, CurveQuality, FrameLimit, Graphics, Hardware},
     icons,
     layout::{PanelLayout, WindowPlacement},
@@ -25,8 +26,11 @@ const ZOOM_KEY: &str = "navigation.zoom_speed";
 const INVERT_ZOOM_KEY: &str = "navigation.invert_zoom";
 const PROJECTION_KEY: &str = "navigation.projection";
 const TITLE_BAR_KEY: &str = "appearance.title_bar";
-const SECTION_GAP: f32 = 12.0;
-const BODY_HEIGHT_SHARE: f32 = 0.75;
+const DIALOG_HEIGHT_SHARE: f32 = 0.75;
+const HEIGHT_CHANGE: f32 = 0.5;
+const CONFIRM_KEY: &str = "preferences-confirm-defaults";
+const TALLEST_KEY: &str = "preferences-tallest-body";
+const RESTORE_DEFAULTS: &str = "Restore defaults";
 
 pub fn unreadable_notice(error: &SettingsError) -> Notice {
     let cause = match error {
@@ -55,6 +59,14 @@ impl Theme {
             Self::System => "Follow the system",
             Self::Dark => "Dark",
             Self::Light => "Light",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::System => "Dark or light as the desktop is, changing when it changes",
+            Self::Dark => "Light text on dark panels",
+            Self::Light => "Dark text on light panels",
         }
     }
 
@@ -196,6 +208,15 @@ pub fn projection_label(projection: Projection) -> &'static str {
     }
 }
 
+fn projection_description(projection: Projection) -> &'static str {
+    match projection {
+        Projection::Perspective => "Farther parts look smaller, as they do to the eye",
+        Projection::Orthographic => {
+            "Parallel edges stay parallel and sizes compare across the view, as in a drawing"
+        }
+    }
+}
+
 fn projection_key(projection: Projection) -> &'static str {
     match projection {
         Projection::Perspective => "perspective",
@@ -300,6 +321,29 @@ pub enum PreferencesCommand {
     Tab(PreferencesTab),
     Change(PreferenceChange),
     Preview(PreferenceChange),
+    Undo,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Restored {
+    Defaults {
+        tab: PreferencesTab,
+        before: Box<Preferences>,
+    },
+    Shortcuts(Box<Keymap>),
+}
+
+impl Restored {
+    pub fn tab(&self) -> Option<PreferencesTab> {
+        match self {
+            Self::Defaults { tab, .. } => Some(*tab),
+            Self::Shortcuts(_) => None,
+        }
+    }
+
+    pub fn is_shortcuts(&self) -> bool {
+        matches!(self, Self::Shortcuts(_))
+    }
 }
 
 fn speed(value: Option<f64>) -> f64 {
@@ -404,15 +448,39 @@ impl Preferences {
         }
     }
 
-    fn restore_defaults(&mut self, tab: PreferencesTab) {
-        match tab {
-            PreferencesTab::General => self.unit = LengthUnit::default(),
-            PreferencesTab::Appearance => {
-                self.appearance = Appearance::default();
-                self.title_bar = TitleBar::default();
+    pub fn restoring(&self, change: PreferenceChange) -> Option<Restored> {
+        match change {
+            PreferenceChange::Defaults(tab) => Some(Restored::Defaults {
+                tab,
+                before: Box::new(self.clone()),
+            }),
+            PreferenceChange::ResetShortcuts => {
+                Some(Restored::Shortcuts(Box::new(self.keymap.clone())))
             }
-            PreferencesTab::Navigation => self.navigation = Navigation::default(),
-            PreferencesTab::Graphics => self.graphics = Graphics::default(),
+            _ => None,
+        }
+    }
+
+    pub fn undo(&mut self, restored: Restored) {
+        match restored {
+            Restored::Defaults { tab, before } => self.copy_tab(tab, &before),
+            Restored::Shortcuts(keymap) => self.keymap = *keymap,
+        }
+    }
+
+    fn restore_defaults(&mut self, tab: PreferencesTab) {
+        self.copy_tab(tab, &Self::default());
+    }
+
+    fn copy_tab(&mut self, tab: PreferencesTab, from: &Self) {
+        match tab {
+            PreferencesTab::General => self.unit = from.unit,
+            PreferencesTab::Appearance => {
+                self.appearance = from.appearance;
+                self.title_bar = from.title_bar;
+            }
+            PreferencesTab::Navigation => self.navigation = from.navigation,
+            PreferencesTab::Graphics => self.graphics = from.graphics,
         }
     }
 }
@@ -421,6 +489,7 @@ pub struct PreferencesView<'a> {
     pub tab: PreferencesTab,
     pub hardware: &'a Hardware,
     pub switch_keys: bool,
+    pub restored: Option<&'a Restored>,
 }
 
 pub fn dialog(
@@ -428,6 +497,7 @@ pub fn dialog(
     preferences: &Preferences,
     view: &PreferencesView<'_>,
 ) -> Option<PreferencesCommand> {
+    let confirm = Id::new(CONFIRM_KEY);
     let response = widgets::dialog(ctx, "preferences", "Preferences", DialogWidth::Wide, |ui| {
         let mut command = None;
         let tabs = PreferencesTab::ALL.map(|tab| Tab {
@@ -440,39 +510,105 @@ pub fn dialog(
         {
             tab = chosen;
             command = Some(PreferencesCommand::Tab(chosen));
+            ui.data_mut(|data| data.remove::<PreferencesTab>(confirm));
         }
-        let height = ui.ctx().content_rect().height() * BODY_HEIGHT_SHARE;
-        egui::ScrollArea::vertical()
-            .id_salt(("preferences", tab.label()))
-            .max_height(height)
-            .min_scrolled_height(height)
-            .show(ui, |ui| match tab {
-                PreferencesTab::General => {
-                    units(ui, preferences, &mut command);
-                    help(ui, preferences, &mut command);
+        let mut room = BodyRoom::measure(ui, "preferences", DIALOG_HEIGHT_SHARE);
+        body(ui, preferences, view, tab, room.height, &mut command);
+        room.body_ended(ui);
+        if view.restored.and_then(Restored::tab) == Some(tab)
+            && dialog_parts::undo_note(
+                ui,
+                "This tab is back to its defaults.",
+                "Put back the settings this tab had before",
+            )
+        {
+            command = Some(PreferencesCommand::Undo);
+        }
+        let confirming = ui.data(|data| data.get_temp::<PreferencesTab>(confirm)) == Some(tab);
+        if confirming {
+            ui.add_space(SPACE_M);
+            dialog_parts::confirmation(
+                ui,
+                &format!("Restore the defaults of the {} tab?", tab.label()),
+                tab.defaults(),
+            );
+            if let Some(confirmed) = dialog_parts::confirm_footer(ui, RESTORE_DEFAULTS, "Cancel") {
+                ui.data_mut(|data| data.remove::<PreferencesTab>(confirm));
+                if confirmed {
+                    command = Some(PreferencesCommand::Change(PreferenceChange::Defaults(tab)));
                 }
-                PreferencesTab::Appearance => appearance(ui, preferences, &mut command),
-                PreferencesTab::Navigation => navigation(ui, preferences, &mut command),
-                PreferencesTab::Graphics => {
-                    graphics::tab(ui, &preferences.graphics, view.hardware, &mut command);
-                }
-            });
-        widgets::footer(ui, |ui| {
-            if ui.add(widgets::primary_button(ui, "Close")).clicked() {
-                command = Some(PreferencesCommand::Hide);
             }
-            if ui
-                .button("Restore defaults")
-                .on_hover_text(tab.defaults())
-                .clicked()
-            {
-                command = Some(PreferencesCommand::Change(PreferenceChange::Defaults(tab)));
+        } else {
+            let chosen = dialog_parts::split_footer(
+                ui,
+                |ui| {
+                    ui.add(widgets::danger_button(RESTORE_DEFAULTS))
+                        .on_hover_text(tab.defaults())
+                        .clicked()
+                        .then_some(false)
+                },
+                |ui| {
+                    ui.add(widgets::primary_button(ui, "Close"))
+                        .clicked()
+                        .then_some(true)
+                },
+            );
+            match chosen {
+                Some(true) => command = Some(PreferencesCommand::Hide),
+                Some(false) => ui.data_mut(|data| {
+                    data.insert_temp(confirm, tab);
+                }),
+                None => {}
             }
-        });
+        }
+        room.dialog_ended(ui);
         command
     });
     let closed = response.should_close().then_some(PreferencesCommand::Hide);
-    response.inner.or(closed)
+    let command = response.inner.or(closed);
+    if command == Some(PreferencesCommand::Hide) {
+        ctx.data_mut(|data| data.remove::<PreferencesTab>(confirm));
+    }
+    command
+}
+
+fn body(
+    ui: &mut Ui,
+    preferences: &Preferences,
+    view: &PreferencesView<'_>,
+    tab: PreferencesTab,
+    room: f32,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let cap = room;
+    let tallest_id = Id::new(TALLEST_KEY);
+    let tallest = ui
+        .data(|data| data.get_temp::<f32>(tallest_id))
+        .unwrap_or_default()
+        .min(cap);
+    let shown = egui::ScrollArea::vertical()
+        .id_salt(("preferences", tab.label()))
+        .max_height(cap)
+        .min_scrolled_height(tallest)
+        .show(ui, |ui| {
+            ui.set_min_height(tallest);
+            ui.scope(|ui| match tab {
+                PreferencesTab::General => general(ui, preferences, command),
+                PreferencesTab::Appearance => appearance(ui, preferences, command),
+                PreferencesTab::Navigation => navigation(ui, preferences, command),
+                PreferencesTab::Graphics => {
+                    graphics::tab(ui, &preferences.graphics, view.hardware, command);
+                }
+            })
+            .response
+            .rect
+            .height()
+        });
+    let height = shown.inner.min(cap);
+    if height > tallest + HEIGHT_CHANGE {
+        ui.data_mut(|data| data.insert_temp(tallest_id, height));
+        ui.ctx().request_repaint();
+    }
 }
 
 pub fn section(
@@ -482,18 +618,38 @@ pub fn section(
     note: Option<String>,
     rows: impl FnOnce(&mut Ui),
 ) {
-    ui.add_space(SECTION_GAP);
-    ui.label(widgets::section_title(title));
-    widgets::card(ui, |ui| {
-        widgets::properties(ui, id, rows);
-        if let Some(note) = note {
-            ui.label(widgets::muted(note, ui));
-        }
+    ui.add_space(SPACE_M);
+    widgets::section(ui, &format!("preferences-{id}"), title, None, None, |ui| {
+        widgets::card(ui, |ui| {
+            widgets::properties(ui, id, rows);
+            if let Some(note) = note {
+                ui.add_space(SPACE_S);
+                ui.add(Label::new(widgets::muted(note, ui)).wrap());
+            }
+        });
     });
 }
 
 pub fn change(command: &mut Option<PreferencesCommand>, change: PreferenceChange) {
     *command = Some(PreferencesCommand::Change(change));
+}
+
+pub fn choice<T: Copy + PartialEq>(
+    ui: &mut Ui,
+    options: &[(T, &str, &str)],
+    current: T,
+) -> Option<T> {
+    let selected = options
+        .iter()
+        .position(|(value, _, _)| *value == current)
+        .unwrap_or(usize::MAX);
+    let labels: Vec<(&str, &str)> = options
+        .iter()
+        .map(|(_, label, hover)| (*label, *hover))
+        .collect();
+    widgets::segmented(ui, &labels, selected)
+        .and_then(|index| options.get(index))
+        .map(|(value, _, _)| *value)
 }
 
 fn speed_slider(
@@ -513,43 +669,93 @@ fn speed_slider(
     }
 }
 
+fn general(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
+    units(ui, preferences, command);
+    keyboard(ui, command);
+    tips(ui, preferences, command);
+}
+
 fn units(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
     let unit = preferences.unit.label().to_lowercase();
     let note = format!(
         "Lengths are shown in {unit} and plain numbers typed for a length mean {unit}. Values \
          already in the model keep the units they were entered in."
     );
+    let hovers = LengthUnit::ALL.map(|unit| {
+        format!(
+            "Show lengths in {} ({})",
+            unit.label().to_lowercase(),
+            unit.symbol()
+        )
+    });
     section(ui, "Units", "units", Some(note), |ui| {
         widgets::property(ui, "Length", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for unit in LengthUnit::ALL {
-                    if ui
-                        .selectable_label(preferences.unit == unit, unit.label())
-                        .clicked()
-                    {
-                        change(command, PreferenceChange::Unit(unit));
-                    }
-                }
-            });
+            let options: Vec<(LengthUnit, &str, &str)> = LengthUnit::ALL
+                .iter()
+                .zip(&hovers)
+                .map(|(unit, hover)| (*unit, unit.label(), hover.as_str()))
+                .collect();
+            if let Some(unit) = choice(ui, &options, preferences.unit) {
+                change(command, PreferenceChange::Unit(unit));
+            }
         });
+    });
+}
+
+fn keyboard(ui: &mut Ui, command: &mut Option<PreferencesCommand>) {
+    let note = "Search commands finds every command by name, whether or not it has a shortcut.";
+    section(ui, "Keyboard", "keyboard", Some(note.to_owned()), |ui| {
+        widgets::property(ui, "Shortcuts", |ui| {
+            let button = widgets::small_button(
+                ui,
+                icons::command(Command::KeyboardShortcuts),
+                &Command::KeyboardShortcuts.title(),
+            );
+            if ui
+                .add(button)
+                .on_hover_text("See every shortcut and change any of them")
+                .clicked()
+            {
+                *command = Some(PreferencesCommand::ShowShortcuts);
+            }
+        });
+    });
+}
+
+fn tips(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
+    let onboarding = &preferences.onboarding;
+    section(ui, "Tips", "tips", None, |ui| {
+        widgets::property(ui, "Getting started", |ui| {
+            let mut shown = onboarding.hints;
+            if ui.checkbox(&mut shown, "Show tips in the view").changed() {
+                change(command, PreferenceChange::ShowHints(shown));
+            }
+        });
+        ui.label("");
+        let restore = ui
+            .add_enabled(
+                !onboarding.dismissed.is_empty(),
+                widgets::button("Show dismissed tips again"),
+            )
+            .on_hover_text("Bring back the tips dismissed with Got it")
+            .on_disabled_hover_text("No tip has been dismissed")
+            .clicked();
+        if restore {
+            change(command, PreferenceChange::RestoreHints);
+        }
+        ui.end_row();
     });
 }
 
 fn appearance(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
     let current = preferences.appearance;
     let note = "Panels and menus follow the theme; the 3D view keeps its dark background.";
-    section(ui, "Theme", "appearance", Some(note.to_owned()), |ui| {
+    section(ui, "Colours", "colours", Some(note.to_owned()), |ui| {
         widgets::property(ui, "Theme", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for theme in Theme::ALL {
-                    if ui
-                        .selectable_label(current.theme == theme, theme.label())
-                        .clicked()
-                    {
-                        change(command, PreferenceChange::Theme(theme));
-                    }
-                }
-            });
+            let options = Theme::ALL.map(|theme| (theme, theme.label(), theme.description()));
+            if let Some(theme) = choice(ui, &options, current.theme) {
+                change(command, PreferenceChange::Theme(theme));
+            }
         });
         widgets::property(ui, "Contrast", |ui| {
             let mut high_contrast = current.high_contrast;
@@ -562,70 +768,52 @@ fn appearance(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
             }
         });
     });
-    section(ui, "Window", "window", None, |ui| {
-        widgets::property(ui, "Title bar", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for bar in TitleBar::ALL {
-                    if ui
-                        .selectable_label(preferences.title_bar == bar, bar.label())
-                        .on_hover_text(bar.description())
-                        .clicked()
-                    {
-                        change(command, PreferenceChange::TitleBar(bar));
-                    }
-                }
-            });
+    section(ui, "Interface", "interface", None, |ui| {
+        widgets::property(ui, "Size", |ui| {
+            let smaller = Command::SmallerInterface.title();
+            let larger = Command::LargerInterface.title();
+            let step = widgets::stepper(
+                ui,
+                &format!("{:.0}%", current.scale * 100.0),
+                (&smaller, current.scale > MIN_SCALE),
+                (&larger, current.scale < MAX_SCALE),
+            );
+            if let Some(step) = step {
+                let scale = current.scale + f32::from(step) * SCALE_STEP;
+                change(command, PreferenceChange::Scale(scale));
+            }
         });
-        widgets::property(ui, "Interface size", |ui| {
-            ui.horizontal(|ui| {
-                let smaller = ui
-                    .add_enabled(
-                        current.scale > MIN_SCALE,
-                        widgets::Named::new(
-                            egui::Button::new(widgets::icon(icons::SUBTRACT)),
-                            Command::SmallerInterface.title(),
-                        ),
-                    )
-                    .on_hover_text("Smaller");
-                if smaller.clicked() {
-                    change(command, PreferenceChange::Scale(current.scale - SCALE_STEP));
-                }
-                ui.label(format!("{:.0}%", current.scale * 100.0));
-                let larger = ui
-                    .add_enabled(
-                        current.scale < MAX_SCALE,
-                        widgets::Named::new(
-                            egui::Button::new(widgets::icon(icons::ADD)),
-                            Command::LargerInterface.title(),
-                        ),
-                    )
-                    .on_hover_text("Larger");
-                if larger.clicked() {
-                    change(command, PreferenceChange::Scale(current.scale + SCALE_STEP));
-                }
-            });
+        widgets::property(ui, "Title bar", |ui| {
+            let options = TitleBar::ALL.map(|bar| (bar, bar.label(), bar.description()));
+            if let Some(bar) = choice(ui, &options, preferences.title_bar) {
+                change(command, PreferenceChange::TitleBar(bar));
+            }
         });
     });
 }
 
 fn navigation(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
     let navigation = preferences.navigation;
-    section(ui, "View", "navigation-view", None, |ui| {
+    let toggle = preferences
+        .keymap
+        .first(Command::ToggleProjection)
+        .map_or_else(
+            || Command::ToggleProjection.title(),
+            |shortcut| commands::display(&shortcut),
+        );
+    let note = format!("{toggle} switches between them in the view.");
+    section(ui, "View", "navigation-view", Some(note), |ui| {
         widgets::property(ui, "Projection", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for projection in Projection::ALL {
-                    if ui
-                        .selectable_label(
-                            navigation.projection == projection,
-                            projection_label(projection),
-                        )
-                        .on_hover_text(Command::ToggleProjection.title())
-                        .clicked()
-                    {
-                        change(command, PreferenceChange::Projection(projection));
-                    }
-                }
+            let options = Projection::ALL.map(|projection| {
+                (
+                    projection,
+                    projection_label(projection),
+                    projection_description(projection),
+                )
             });
+            if let Some(projection) = choice(ui, &options, navigation.projection) {
+                change(command, PreferenceChange::Projection(projection));
+            }
         });
     });
     section(ui, "Movement", "navigation", None, |ui| {
@@ -650,46 +838,6 @@ fn navigation(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
             if ui.checkbox(&mut invert, "Scroll up to zoom out").changed() {
                 change(command, PreferenceChange::InvertZoom(invert));
             }
-        });
-    });
-}
-
-fn help(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
-    let onboarding = &preferences.onboarding;
-    section(ui, "Help", "help", None, |ui| {
-        widgets::property(ui, "Shortcuts", |ui| {
-            let button = widgets::small_button(
-                ui,
-                icons::command(Command::KeyboardShortcuts),
-                "Keyboard shortcuts…",
-            );
-            if ui
-                .add(button)
-                .on_hover_text("See every shortcut and change any of them")
-                .clicked()
-            {
-                *command = Some(PreferencesCommand::ShowShortcuts);
-            }
-        });
-        widgets::property(ui, "Tips", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                let mut shown = onboarding.hints;
-                if ui
-                    .checkbox(&mut shown, "Show tips for getting started")
-                    .changed()
-                {
-                    change(command, PreferenceChange::ShowHints(shown));
-                }
-                let restore = ui
-                    .add_enabled(
-                        !onboarding.dismissed.is_empty(),
-                        egui::Button::new("Show dismissed tips again"),
-                    )
-                    .clicked();
-                if restore {
-                    change(command, PreferenceChange::RestoreHints);
-                }
-            });
         });
     });
 }

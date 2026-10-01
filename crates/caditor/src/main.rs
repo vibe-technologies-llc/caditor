@@ -13,6 +13,7 @@ mod commands;
 mod conventions_tests;
 mod datum_panel;
 mod datum_tools;
+mod dialog_parts;
 mod display;
 mod drag_solver;
 mod drawing;

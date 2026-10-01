@@ -44,9 +44,15 @@ paths:
   survive, and a command with no readable binding keeps its defaults. Esc, Enter and Tab are
   reserved and cannot be bound. `shortcut_editor.rs` filters by `commands::is_named_by` (every key
   named, in any order and case, is held by the binding); a binding used in an overlapping scope asks
-  before moving. It opens from Preferences, the File menu or the palette and lists every command by
-  category, filtered by title, category or keys; Add records the next key press (Esc cancels),
-  clicking a binding removes it, Reset and Reset all go back to the defaults.
+  before moving. It opens from Preferences, the File menu or the palette as "Keyboard shortcuts"
+  and lists every command by category under Command and Shortcuts column headings (fixed column
+  widths, so every category lines up), filtered by title, category or keys, with an
+  `empty_state` and Clear the filter when nothing matches. Each binding is `key_cap`s with a cross
+  that removes it (named "Remove Ctrl+Z from Undo"); Add… records the next key press (an info pill
+  while recording, Esc cancels), Reset goes back to the command's defaults. Reset all shortcuts is
+  a `danger_button` at the footer's far left that asks first (a warning callout over Reset all
+  shortcuts and a primary Cancel) and then offers Undo, putting the keymap back from
+  `Workspace::restored` (`app-files.md`, as for Restore defaults).
 - `app::show` dispatches key presses to commands each frame and hands a `CommandFrame` to toolbars
   and viewport: exact modifiers first (extra Shift or Alt ignored only for punctuation keys);
   sketch-scope bindings win while a sketch is edited; Backspace and Delete are left to drawing
@@ -57,10 +63,21 @@ paths:
 
 ## Command palette
 
-- `palette.rs` (Ctrl+Shift+P or the menu bar's Search commands) lists this frame's offers, so only
-  commands that fit the context appear: title start, word starts, substring, scattered letters;
-  available before unavailable, recently used first; arrows move, Enter runs, and an unavailable
-  highlighted one shows its reason. The chosen command is triggered on the next frame.
+- `palette.rs` (Search commands, Ctrl+Shift+P or the menu bar's Search commands field) is
+  `dialog_parts::WIDE_WIDTH` wide through `fitting_width` with the dialog margin. It lists this
+  frame's offers, then the sketch commands that do not fit outside a sketch (muted, after every
+  available and unavailable offer, `palette::absence`), and, once something is typed, the features
+  (kind icon, selecting the row and scrolling the tree to it through `Focus::Feature`) and the
+  parameters (their expression beside them, focusing the value field through
+  `Focus::ParameterValue`); the chosen focus is handed to `PanelState::request_focus` the next
+  frame (`Palette::take_focus`). Matching: title start, word starts, substring, scattered letters.
+  Entries come in groups with headings: Recent (recently run commands, only while nothing is
+  typed), Commands, Features, Parameters, the groups ordered by their best match. A row is icon,
+  title, the category as small muted text and the first binding as `key_cap`s. Arrows move, Enter
+  or a click runs an available entry; a fixed two-line detail line under the list says what Enter
+  does, or why the highlighted one is not available ("… is not available: reason." for an offer,
+  "… is not available here: it works only while a sketch is edited." for one out of context).
+  Nothing matching is an `empty_state`. The chosen command is triggered on the next frame.
 
 ## Keyboard-only operation
 

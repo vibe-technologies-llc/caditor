@@ -45,7 +45,7 @@ use crate::{
     panels::{self, PanelState},
     preferences::{
         self, Appearance, PreferenceChange, Preferences, PreferencesCommand, PreferencesTab,
-        PreferencesView, TitleBar,
+        PreferencesView, Restored, TitleBar,
     },
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar,
@@ -101,6 +101,7 @@ pub struct Workspace {
     pub hardware: Hardware,
     pub palette: Palette,
     pub shortcut_editor: Option<ShortcutEditor>,
+    pub restored: Option<Restored>,
     pub welcome_open: bool,
     pub about_open: bool,
     pub last_offers: Vec<Offer>,
@@ -135,6 +136,7 @@ impl Workspace {
             hardware: Hardware::default(),
             palette: Palette::default(),
             shortcut_editor: None,
+            restored: None,
             welcome_open,
             about_open: false,
             last_offers: Vec::new(),
@@ -170,12 +172,18 @@ impl Workspace {
     ) {
         match command {
             PreferencesCommand::Show => self.preferences_open = true,
-            PreferencesCommand::Hide => self.preferences_open = false,
+            PreferencesCommand::Hide => {
+                self.preferences_open = false;
+                self.restored = None;
+            }
             PreferencesCommand::ShowShortcuts => {
                 self.shortcut_editor
                     .get_or_insert_with(ShortcutEditor::default);
             }
-            PreferencesCommand::HideShortcuts => self.shortcut_editor = None,
+            PreferencesCommand::HideShortcuts => {
+                self.shortcut_editor = None;
+                self.restored = None;
+            }
             PreferencesCommand::ShowWelcome => self.welcome_open = true,
             PreferencesCommand::CloseWelcome => {
                 self.welcome_open = false;
@@ -186,10 +194,22 @@ impl Workspace {
             }
             PreferencesCommand::ShowAbout => self.about_open = true,
             PreferencesCommand::CloseAbout => self.about_open = false,
-            PreferencesCommand::Tab(tab) => self.preferences_tab = tab,
+            PreferencesCommand::Tab(tab) => {
+                self.preferences_tab = tab;
+                self.restored = None;
+            }
             PreferencesCommand::Change(change) => {
+                self.restored = self.preferences.restoring(change);
                 self.preview_preference(change, model);
                 files.store_settings(self.preferences.settings());
+            }
+            PreferencesCommand::Undo => {
+                if let Some(restored) = self.restored.take() {
+                    self.preferences.undo(restored);
+                    apply_preferences(model, &self.preferences);
+                    self.viewport.set_navigation(self.preferences.navigation);
+                    files.store_settings(self.preferences.settings());
+                }
             }
             PreferencesCommand::Preview(change) => self.preview_preference(change, model),
         }
@@ -261,6 +281,7 @@ pub fn show(
         hardware,
         palette,
         shortcut_editor,
+        restored,
         welcome_open,
         about_open,
         last_offers,
@@ -291,6 +312,9 @@ pub fn show(
         triggered.extend(deferred);
     }
     triggered.extend(palette.take_chosen());
+    if let Some(focus) = palette.take_focus() {
+        panels.request_focus(focus);
+    }
     let mut commands = CommandFrame::new(&preferences.keymap, triggered);
     let menu = MenuContext {
         files,
@@ -402,6 +426,7 @@ pub fn show(
             tab: *preferences_tab,
             hardware,
             switch_keys: shortcut_editor.is_none(),
+            restored: restored.as_ref(),
         };
         if *preferences_open
             && let Some(command) = preferences::dialog(ui.ctx(), preferences, &view)
@@ -409,25 +434,23 @@ pub fn show(
             actions.push(Action::Preferences(command));
         }
         if let Some(editor) = shortcut_editor
-            && let Some(command) = shortcut_editor::dialog(ui.ctx(), editor, &preferences.keymap)
+            && let Some(command) = shortcut_editor::dialog(
+                ui.ctx(),
+                editor,
+                &preferences.keymap,
+                restored.as_ref().is_some_and(Restored::is_shortcuts),
+            )
         {
             actions.push(Action::Preferences(command));
         }
         if open_palette && !dialog_open {
             palette.open();
         }
-        palette.show(ui.ctx(), &offers, &preferences.keymap);
-        if *welcome_open && let Some(choice) = onboarding::welcome(ui.ctx(), &preferences.keymap) {
-            actions.push(Action::Preferences(PreferencesCommand::CloseWelcome));
-            match choice {
-                WelcomeChoice::Close => {}
-                WelcomeChoice::Empty if model.is_empty_and_untitled() => {}
-                WelcomeChoice::Empty => actions.push(Action::File(FileCommand::New)),
-                WelcomeChoice::Sample(sample) => {
-                    actions.push(Action::File(FileCommand::OpenSample(sample)));
-                }
-                WelcomeChoice::Open => actions.push(Action::File(FileCommand::Open)),
-            }
+        palette.show(ui.ctx(), &offers, &preferences.keymap, model.document());
+        if *welcome_open
+            && let Some(choice) = onboarding::welcome(ui.ctx(), &preferences.keymap, files.recent())
+        {
+            welcome_chosen(choice, model, actions);
         }
         if *about_open && about::dialog(ui.ctx()) {
             actions.push(Action::Preferences(PreferencesCommand::CloseAbout));
@@ -446,6 +469,24 @@ pub fn show(
     window_frame::frame(ui.ctx(), chrome);
     *last_offers = offers;
     *keyboard_was_taken = ui.ctx().egui_wants_keyboard_input();
+}
+
+fn welcome_chosen(choice: WelcomeChoice, model: &Model, actions: &mut Vec<Action>) {
+    if choice == WelcomeChoice::ClearRecent {
+        actions.push(Action::File(FileCommand::ClearRecent));
+        return;
+    }
+    actions.push(Action::Preferences(PreferencesCommand::CloseWelcome));
+    match choice {
+        WelcomeChoice::Close | WelcomeChoice::ClearRecent => {}
+        WelcomeChoice::Empty if model.is_empty_and_untitled() => {}
+        WelcomeChoice::Empty => actions.push(Action::File(FileCommand::New)),
+        WelcomeChoice::Sample(sample) => {
+            actions.push(Action::File(FileCommand::OpenSample(sample)));
+        }
+        WelcomeChoice::Open => actions.push(Action::File(FileCommand::Open)),
+        WelcomeChoice::OpenRecent(path) => actions.push(Action::File(FileCommand::OpenPath(path))),
+    }
 }
 
 enum Applied {
