@@ -12,7 +12,7 @@ use caditor_expression::{Expression, ParameterId, check_name};
 use caditor_sketch::EntityId;
 
 use crate::{
-    binary::{self, History},
+    binary::{self, History, UnpackError},
     format::{
         FEATURE_KINDS, FeatureRecord, NextIdsRecord, ParameterRecord, PrincipalGeometryRecord,
         RECORD_KINDS, Record, Unreadable, restore_feature, restore_principal,
@@ -84,6 +84,26 @@ pub(crate) fn describe_unreadable_record(place: &str, item: &Unreadable<'_>) -> 
              was left out. It may come from a newer version."
         ),
         _ => format!("{place} is damaged and was left out."),
+    }
+}
+
+pub(crate) fn describe_unpack_failure(place: &str, error: &UnpackError) -> String {
+    match error {
+        UnpackError::UnknownCodec => format!(
+            "{place} is stored in a way this version of caditor does not know, so it was left \
+             out. It may come from a newer version."
+        ),
+        UnpackError::OutOfMemory => format!(
+            "{place} could not be loaded because there is not enough memory, so it was left out."
+        ),
+        UnpackError::OverBudget => format!(
+            "{place} lies beyond the amount of data caditor loads from one model, so it was left \
+             out."
+        ),
+        UnpackError::MissingNewer
+        | UnpackError::Zstd(_)
+        | UnpackError::WrongLength { .. }
+        | UnpackError::MissingPart => format!("{place} is damaged and was left out."),
     }
 }
 

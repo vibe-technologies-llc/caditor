@@ -62,11 +62,17 @@ paths:
   one's settings.
 - `save_changes` re-reads the file and applies only keys changed since the last save, so windows
   keep each other's changes. An unreadable file is kept as `preferences.unreadable.json` first.
+- The read-modify-write runs under an advisory `flock` on `preferences.lock` beside the file
+  (`lock::locked_update`: polled for up to three seconds, then the update goes ahead unlocked with
+  a warning rather than losing the change), so two windows saving at once lose nothing.
 
 ## Recent files (`recent.rs`)
 
 - Non-UTF-8 paths are stored as byte arrays. Windows write `RecentChange`s applied to what is on
-  disk (`RecentFiles::save_changes`), keeping each other's entries.
+  disk (`RecentFiles::save_changes`), keeping each other's entries, under the same kind of lock on
+  `recent-files.lock`.
+- An unreadable list is kept as `recent-files.unreadable.json` (`-2`, `-3` … when taken) before
+  it is replaced, in `save_changes` and `save` alike.
 
 ## Recovery (`recovery.rs`: `scan`, `journal_for`)
 
@@ -82,3 +88,6 @@ paths:
 - A journal of an unreadable model (bad header or snapshot, or newer journal version) is renamed
   aside by `journal_for` to `<journal>.<seconds>.unreadable` (no scan picks it up) before the new
   session's journal takes its place (`FileJournal::SetAside`); opening reports where it was kept.
+  The scan removes those in the recovery directory and next to recent files once the seconds in
+  their name are over thirty days old (`paths::SET_ASIDE_KEPT_SECONDS`); none is offered for
+  restoring.

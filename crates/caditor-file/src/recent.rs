@@ -7,7 +7,11 @@ use std::{
 
 use serde_json::Value;
 
-use crate::{read::read_file, save::write_atomically};
+use crate::{
+    lock::locked_update,
+    read::read_file,
+    save::{keep_unreadable, write_atomically},
+};
 
 fn storable(path: &Path) -> Value {
     match path.to_str() {
@@ -36,6 +40,8 @@ fn stored_path(value: &Value) -> Option<PathBuf> {
 
 pub const RECENT_LIMIT: usize = 10;
 const RECENT_FILE: &str = "recent-files.json";
+const UNREADABLE_STEM: &str = "recent-files.unreadable";
+const LOCK_FILE: &str = "recent-files.lock";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecentChange {
@@ -54,6 +60,10 @@ impl RecentFiles {
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Vec<Value>>(&bytes).ok())
             .unwrap_or_default();
+        Self::from_stored(&stored)
+    }
+
+    fn from_stored(stored: &[Value]) -> Self {
         let mut recent = Self::default();
         for path in stored.iter().rev().filter_map(stored_path) {
             recent.add(path);
@@ -62,11 +72,33 @@ impl RecentFiles {
     }
 
     pub fn save_changes(state_dir: &Path, changes: &[RecentChange]) -> io::Result<()> {
-        let mut stored = Self::load(state_dir);
-        for change in changes {
-            stored.apply(change);
+        locked_update(state_dir, LOCK_FILE, || {
+            let mut stored = Self::load_keeping_unreadable(state_dir)?;
+            for change in changes {
+                stored.apply(change);
+            }
+            stored.write(state_dir)
+        })
+    }
+
+    fn load_keeping_unreadable(state_dir: &Path) -> io::Result<Self> {
+        let path = state_dir.join(RECENT_FILE);
+        match read_file(&path) {
+            Ok(bytes) => match serde_json::from_slice::<Vec<Value>>(&bytes) {
+                Ok(stored) => Ok(Self::from_stored(&stored)),
+                Err(error) => {
+                    let kept = keep_unreadable(&path, UNREADABLE_STEM)?;
+                    log::warn!(
+                        "the recent files in {} were unreadable ({error}) and were kept as {}",
+                        path.display(),
+                        kept.display()
+                    );
+                    Ok(Self::default())
+                }
+            },
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(error) => Err(error),
         }
-        stored.save(state_dir)
     }
 
     pub fn apply(&mut self, change: &RecentChange) {
@@ -77,9 +109,15 @@ impl RecentFiles {
     }
 
     pub fn save(&self, state_dir: &Path) -> io::Result<()> {
+        locked_update(state_dir, LOCK_FILE, || {
+            Self::load_keeping_unreadable(state_dir)?;
+            self.write(state_dir)
+        })
+    }
+
+    fn write(&self, state_dir: &Path) -> io::Result<()> {
         let stored: Vec<Value> = self.paths.iter().map(|path| storable(path)).collect();
         let contents = serde_json::to_vec_pretty(&stored).map_err(io::Error::other)?;
-        std::fs::create_dir_all(state_dir)?;
         write_atomically(&state_dir.join(RECENT_FILE), &contents)
     }
 
@@ -114,6 +152,47 @@ mod tests {
         recent.add(plain.clone());
         recent.save(dir.path()).unwrap();
         assert_eq!(RecentFiles::load(dir.path()).paths(), [plain, odd]);
+    }
+
+    #[test]
+    fn an_unreadable_list_is_kept_aside_before_it_is_replaced() {
+        let dir = TempDir::new().unwrap();
+        let opened = PathBuf::from("/models/plate.caditor");
+        std::fs::write(dir.path().join(RECENT_FILE), "[ broken").unwrap();
+
+        RecentFiles::save_changes(dir.path(), &[RecentChange::Opened(opened.clone())]).unwrap();
+
+        assert_eq!(RecentFiles::load(dir.path()).paths(), [opened]);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("recent-files.unreadable.json")).unwrap(),
+            "[ broken"
+        );
+
+        std::fs::write(dir.path().join(RECENT_FILE), "{}").unwrap();
+        RecentFiles::default().save(dir.path()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("recent-files.unreadable-2.json")).unwrap(),
+            "{}"
+        );
+    }
+
+    #[test]
+    fn windows_updating_at_once_lose_nothing() {
+        let dir = TempDir::new().unwrap();
+        let windows: Vec<_> = (0..8)
+            .map(|index| {
+                let state = dir.path().to_path_buf();
+                std::thread::spawn(move || {
+                    let path = PathBuf::from(format!("/models/{index}.caditor"));
+                    RecentFiles::save_changes(&state, &[RecentChange::Opened(path)]).unwrap();
+                })
+            })
+            .collect();
+        for window in windows {
+            window.join().unwrap();
+        }
+
+        assert_eq!(RecentFiles::load(dir.path()).paths().len(), 8);
     }
 
     #[test]

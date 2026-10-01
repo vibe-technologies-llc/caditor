@@ -34,6 +34,9 @@ paths:
   damage or another kind, and a continuation with no run, is one damaged piece (a resync mid-run
   never yields partial content). Older readers see only the first slice, which fails its digest.
 - Records decode one at a time; one load, listing or restore decompresses at most 2 GiB.
+  `Budget::unpack` keeps the `UnpackError`, so a record in an unknown codec reads like content from
+  a newer version, one that ran out of memory or the budget says it is too large to load, and only
+  the rest is "damaged".
 
 ## Values (`binary/value.rs`)
 
@@ -101,9 +104,13 @@ paths:
   and extended attributes (ACLs too, via `xattr`; unsettable ones skipped) are kept; the temporary
   is owner-only until applied. A symbolic link is followed and its file replaced. A failed
   directory fsync after the rename is logged, not a failed save.
-- Temporaries are `.<name>.<boot>-<pid>-<n>.tmp`, `<boot>` the start of the kernel's `boot_id`;
-  those of this boot whose process is gone are removed after each write (other machines' saves on
-  a shared folder are left alone).
+- Temporaries are `.<name>.<machine>-<boot>-<pid>-<n>.tmp`, `<machine>` the start of
+  `/etc/machine-id` and `<boot>` the start of the kernel's `boot_id`. After each write, those next
+  to the file are removed when they come from an earlier boot of this machine, or from this boot
+  with their process gone; other machines' saves on a shared folder are left alone, and with no
+  machine id only this boot's are swept. The scan of the recovery directory sweeps it the same way
+  (untitled journals' temporaries). Temporaries without a machine (`<boot>-<pid>-<n>`) are swept
+  by boot and process alone.
 - Names past 255 bytes (temporaries, `.damaged` copies) are cut and end in a hash
   (`paths::fitting`); a model whose name leaves no room for `.<name>.journal` keeps its journal in
   the recovery directory.
@@ -116,7 +123,10 @@ paths:
   was. This guards against the compressor and the shared-range copies.
 - Overwriting a file that loaded with problems first keeps the original as
   `<name>.damaged.caditor` (`keep_copy`, shared with preferences): a hard link, or where links are
-  unsupported a copy synced under a temporary name and moved into place whole.
+  unsupported a copy synced under a temporary name and moved into place whole. The same copy is
+  kept when the file being replaced is the one the versions are read from and has gone bad since
+  it was loaded (`Encoded::previous_damaged`: a damaged chunk, records not matching the head's
+  digest, or something that is no longer a model), since the save drops what it cannot read.
 
 ## Reading (`read.rs`)
 

@@ -7,8 +7,8 @@ use caditor_document::Document;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    CHUNK_HEADER_LENGTH, Chunk, ChunkKind, Codec, MODEL_MAGIC, PackError, Piece, has_magic, parse,
-    push_packed, push_packed_after, push_padding,
+    CHUNK_HEADER_LENGTH, Chunk, ChunkKind, Codec, MODEL_MAGIC, PackError, Piece, UnpackError,
+    has_magic, parse, push_packed, push_packed_after, push_padding,
     retention::retained,
     start_file,
     value::{self, ValueError, push_varint, read_varint},
@@ -18,7 +18,10 @@ use crate::{
         FORMAT_VERSION, Lenient, Record, Unreadable, feature_record, next_ids_record,
         parameter_record, principal_record, rollback_record, suppressed_record,
     },
-    load::{LoadError, Loaded, Parts, assemble, describe_unreadable_record, newer_version},
+    load::{
+        LoadError, Loaded, Parts, assemble, describe_unpack_failure, describe_unreadable_record,
+        newer_version,
+    },
     untrusted::UntrustedMap,
 };
 
@@ -40,11 +43,16 @@ impl Default for Budget {
 }
 
 impl Budget {
-    fn unpack(&mut self, chunk: &Chunk<'_>, newer: Option<&[u8]>) -> Option<Vec<u8>> {
-        self.remaining = self.remaining.checked_sub(chunk.content_length())?;
-        chunk.unpack(newer).ok()
+    fn unpack(&mut self, chunk: &Chunk<'_>, newer: Option<&[u8]>) -> Unpacked {
+        self.remaining = self
+            .remaining
+            .checked_sub(chunk.content_length())
+            .ok_or(UnpackError::OverBudget)?;
+        chunk.unpack(newer)
     }
 }
+
+type Unpacked = Result<Vec<u8>, UnpackError>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedState {
@@ -187,24 +195,24 @@ impl<'a> Parsed<'a> {
         Some(parsed)
     }
 
-    fn record_contents(&self, budget: &mut Budget) -> Vec<Option<Vec<u8>>> {
+    fn record_contents(&self, budget: &mut Budget) -> Vec<Unpacked> {
         self.records
             .iter()
             .map(|chunk| budget.unpack(chunk, None))
             .collect()
     }
 
-    fn snapshot_held(&self, contents: &[Option<Vec<u8>>]) -> Option<Vec<u8>> {
+    fn snapshot_held(&self, contents: &[Unpacked]) -> Option<Vec<u8>> {
         let head = self.head.as_ref()?;
-        let contents: Option<Vec<&[u8]>> = contents.iter().map(Option::as_deref).collect();
+        let contents: Option<Vec<&[u8]>> = contents
+            .iter()
+            .map(|content| content.as_deref().ok())
+            .collect();
         let snapshot = snapshot_of(contents?);
         head.holds(&snapshot).then_some(snapshot)
     }
 
-    fn kept_records<'b>(
-        &self,
-        contents: &'b [Option<Vec<u8>>],
-    ) -> UntrustedMap<Vec<u8>, KeptRecord<'b>>
+    fn kept_records<'b>(&self, contents: &'b [Unpacked]) -> UntrustedMap<Vec<u8>, KeptRecord<'b>>
     where
         'a: 'b,
     {
@@ -212,7 +220,7 @@ impl<'a> Parsed<'a> {
             .iter()
             .zip(contents)
             .filter_map(|(chunk, content)| {
-                let content = content.as_deref()?;
+                let content = content.as_deref().ok()?;
                 let Ok(Lenient::Read(record)) = value::from_bytes::<Lenient<Record>>(content)
                 else {
                     return None;
@@ -233,20 +241,24 @@ impl<'a> Parsed<'a> {
         let head = self.head.as_ref()?;
         let mut snapshot = Vec::new();
         for chunk in &self.records {
-            let content = budget.unpack(chunk, None)?;
+            let content = budget.unpack(chunk, None).ok()?;
             push_varint(&mut snapshot, content.len() as u64);
             snapshot.extend_from_slice(&content);
         }
         head.holds(&snapshot).then_some(snapshot)
     }
 
-    fn holds_every_record(&self, contents: &[Option<Vec<u8>>]) -> bool {
+    fn is_damaged(&self, contents: &[Unpacked]) -> bool {
+        self.damaged > 0 || !self.holds_every_record(contents)
+    }
+
+    fn holds_every_record(&self, contents: &[Unpacked]) -> bool {
         let Some(head) = &self.head else {
             return false;
         };
         let mut hasher = blake3::Hasher::new();
         for content in contents {
-            let Some(content) = content else {
+            let Ok(content) = content else {
                 return false;
             };
             let mut length = Vec::new();
@@ -272,7 +284,7 @@ impl<'a> Parsed<'a> {
         let versions = self.versions.iter().enumerate();
         let count = until.saturating_add(1).saturating_sub(from);
         for (index, version) in versions.skip(from).take(count) {
-            let snapshot = budget.unpack(&version.data, newer.as_deref());
+            let snapshot = budget.unpack(&version.data, newer.as_deref()).ok();
             let verified = snapshot
                 .as_deref()
                 .filter(|snapshot| version.holds(snapshot));
@@ -350,6 +362,7 @@ pub(crate) struct Encoded {
     pub bytes: Vec<u8>,
     pub shared: Vec<Shared>,
     pub digest: String,
+    pub previous_damaged: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -549,6 +562,11 @@ pub(crate) fn encode_over(
         .as_ref()
         .map(|prior| prior.record_contents(&mut Budget::default()))
         .unwrap_or_default();
+    let previous_damaged = match (&prior, previous) {
+        (Some(prior), _) => prior.is_damaged(&prior_contents),
+        (None, Some(bytes)) => !bytes.iter().all(u8::is_ascii_whitespace),
+        (None, None) => false,
+    };
     let prior_head = prior
         .as_ref()
         .and_then(|prior| prior.head.clone().zip(prior.snapshot_held(&prior_contents)));
@@ -600,6 +618,7 @@ pub(crate) fn encode_over(
         bytes,
         shared,
         digest: head.digest,
+        previous_damaged,
     })
 }
 
@@ -736,7 +755,7 @@ fn write_versions<'a>(
                 .get(*index)
                 .copied()
                 .unwrap_or(false)
-                .then(|| budget.unpack(&version.data, previous.as_deref()))
+                .then(|| budget.unpack(&version.data, previous.as_deref()).ok())
                 .flatten()
                 .map(Cow::Owned),
         };
@@ -828,12 +847,9 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
         });
     }
     let mut budget = Budget::default();
-    let contents: Vec<Option<Vec<u8>>> = parsed
-        .records
-        .iter()
-        .map(|chunk| budget.unpack(chunk, None))
-        .collect();
-    if parsed.damaged == 0 && !parsed.holds_every_record(&contents) {
+    let contents = parsed.record_contents(&mut budget);
+    let all_unpacked = contents.iter().all(Result::is_ok);
+    if parsed.damaged == 0 && all_unpacked && !parsed.holds_every_record(&contents) {
         issues.push(
             "The file ends early, probably because it was not copied or synced completely: \
              parts of the model saved in it are missing. Everything that remained was loaded."
@@ -847,20 +863,21 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
 }
 
 fn read_records<'a>(
-    records: impl Iterator<Item = Option<Cow<'a, [u8]>>>,
+    records: impl Iterator<Item = Result<Cow<'a, [u8]>, UnpackError>>,
     issues: &mut Vec<String>,
 ) -> Parts {
     let mut parts = Parts::default();
     for (index, content) in records.enumerate() {
         let place = format!("Record {}", index + 1);
         match content.map(|content| value::from_bytes::<Lenient<Record>>(&content)) {
-            Some(Ok(Lenient::Read(record))) => parts.add(record),
-            Some(Ok(Lenient::Unreadable(value))) => {
+            Ok(Ok(Lenient::Read(record))) => parts.add(record),
+            Ok(Ok(Lenient::Unreadable(value))) => {
                 let item = Unreadable(&value);
                 parts.remember_lost(&item);
                 issues.push(describe_unreadable_record(&place, &item));
             }
-            Some(Err(_)) | None => issues.push(format!("{place} is damaged and was left out.")),
+            Ok(Err(_)) => issues.push(format!("{place} is damaged and was left out.")),
+            Err(error) => issues.push(describe_unpack_failure(&place, &error)),
         }
     }
     parts
@@ -910,9 +927,7 @@ pub(crate) fn load_version(bytes: &[u8], index: usize) -> Result<Loaded, LoadErr
     let records = split_snapshot(&snapshot).ok_or(LoadError::VersionUnavailable)?;
     let mut issues = Vec::new();
     let parts = read_records(
-        records
-            .into_iter()
-            .map(|record| Some(Cow::Borrowed(record))),
+        records.into_iter().map(|record| Ok(Cow::Borrowed(record))),
         &mut issues,
     );
     let document = assemble(parts, &mut issues);

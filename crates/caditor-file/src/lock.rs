@@ -1,11 +1,17 @@
 use std::{
     fs::{self, File, OpenOptions, TryLockError},
     io,
-    os::unix::fs::MetadataExt,
+    os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::Path,
+    thread,
+    time::{Duration, Instant},
 };
 
 use crate::read::ensure_regular;
+
+const UPDATE_LOCK_WAIT: Duration = Duration::from_secs(3);
+const UPDATE_LOCK_POLL: Duration = Duration::from_millis(5);
+const PRIVATE_MODE: u32 = 0o600;
 
 pub(crate) enum Location {
     Gone,
@@ -116,5 +122,50 @@ fn remove(path: &Path) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => log::warn!("could not remove {}: {error}", path.display()),
+    }
+}
+
+pub(crate) fn locked_update<T>(
+    dir: &Path,
+    lock_name: &str,
+    update: impl FnOnce() -> io::Result<T>,
+) -> io::Result<T> {
+    fs::create_dir_all(dir)?;
+    let lock_path = dir.join(lock_name);
+    let _held = hold_update_lock(&lock_path);
+    update()
+}
+
+fn hold_update_lock(path: &Path) -> Option<File> {
+    let file = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(PRIVATE_MODE)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) => {
+            log::warn!("could not open {}: {error}", path.display());
+            return None;
+        }
+    };
+    let giving_up = Instant::now() + UPDATE_LOCK_WAIT;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Some(file),
+            Err(TryLockError::WouldBlock) if Instant::now() < giving_up => {
+                thread::sleep(UPDATE_LOCK_POLL);
+            }
+            Err(TryLockError::WouldBlock) => {
+                log::warn!("{} stayed locked, so it is updated anyway", path.display());
+                return None;
+            }
+            Err(TryLockError::Error(error)) => {
+                log::warn!("could not lock {}: {error}", path.display());
+                return None;
+            }
+        }
     }
 }
