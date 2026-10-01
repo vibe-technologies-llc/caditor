@@ -314,37 +314,40 @@ pub fn show(
             if state.wants_parameters() {
                 widgets::reveal_section(ui.ctx(), PARAMETERS_SECTION);
             }
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.add_space(SPACE_S);
-                let features = model.document().features().len();
-                widgets::section(
-                    ui,
-                    FEATURES_SECTION,
-                    FEATURES_TITLE,
-                    Some(features),
-                    None,
-                    |ui| {
-                        feature_tree::show(ui, model, selection, editing, state, actions);
-                    },
-                );
-                ui.add_space(SPACE_L);
-                let parameters = model.document().parameters().len();
-                let add = SectionAction {
-                    glyph: icons::ADD,
-                    hover: parameter_table::ADD_LABEL,
-                };
-                let adding = widgets::section(
-                    ui,
-                    PARAMETERS_SECTION,
-                    PARAMETERS_TITLE,
-                    Some(parameters),
-                    Some(add),
-                    |ui| parameter_table::show(ui, model, state, actions),
-                );
-                if adding {
-                    parameter_table::add(model, state, actions);
-                }
-            });
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, true])
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+                .show(ui, |ui| {
+                    ui.add_space(SPACE_S);
+                    let features = model.document().features().len();
+                    widgets::section(
+                        ui,
+                        FEATURES_SECTION,
+                        FEATURES_TITLE,
+                        Some(features),
+                        None,
+                        |ui| {
+                            feature_tree::show(ui, model, selection, editing, state, actions);
+                        },
+                    );
+                    ui.add_space(SPACE_L);
+                    let parameters = model.document().parameters().len();
+                    let add = SectionAction {
+                        glyph: icons::ADD,
+                        hover: parameter_table::ADD_LABEL,
+                    };
+                    let adding = widgets::section(
+                        ui,
+                        PARAMETERS_SECTION,
+                        PARAMETERS_TITLE,
+                        Some(parameters),
+                        Some(add),
+                        |ui| parameter_table::show(ui, model, state, actions),
+                    );
+                    if adding {
+                        parameter_table::add(model, state, actions);
+                    }
+                });
         });
     state.observe_layout(ui.ctx(), panel.response.rect.width());
 }

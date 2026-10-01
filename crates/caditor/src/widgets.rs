@@ -154,25 +154,32 @@ impl<W: Widget> Widget for Named<W> {
 
 pub fn icon_button(ui: &mut Ui, glyph: &str, hover: &str) -> Response {
     let muted = appearance::tokens(ui).text_muted;
+    let side = ui.spacing().interact_size.y;
     let button = Button::new(icon(glyph).color(muted))
         .frame_when_inactive(false)
-        .min_size(vec2(
-            ui.spacing().interact_size.y,
-            ui.spacing().interact_size.y,
-        ));
-    ui.add(Named::new(button, hover)).on_hover_text(hover)
+        .min_size(Vec2::splat(side));
+    ui.scope(|ui| {
+        let padding = ((side - ICON_SIZE) / 2.0).max(0.0);
+        ui.spacing_mut().button_padding = vec2(padding, padding.min(SPACE_XS));
+        ui.add(Named::new(button, hover))
+    })
+    .inner
+    .on_hover_text(hover)
 }
 
 pub fn removable_row(ui: &mut Ui, text: RichText, hover: &str) -> bool {
-    Sides::new()
-        .shrink_left()
-        .wrap()
-        .show(
-            ui,
-            |ui| ui.label(text),
-            |ui| icon_button(ui, icons::REMOVE, hover).clicked(),
-        )
-        .1
+    let button_side = ui.spacing().interact_size.y;
+    let gap = ui.spacing().item_spacing.x;
+    ui.horizontal_top(|ui| {
+        let room = (ui.available_width() - button_side - gap).max(button_side);
+        ui.allocate_ui_with_layout(vec2(room, 0.0), Layout::top_down(Align::Min), |ui| {
+            ui.set_min_width(room);
+            ui.set_max_width(room);
+            ui.add(Label::new(text).wrap());
+        });
+        icon_button(ui, icons::REMOVE, hover).clicked()
+    })
+    .inner
 }
 
 pub fn small_button(ui: &mut Ui, glyph: &str, text: &str) -> Named<Button<'static>> {
@@ -424,10 +431,15 @@ fn segmented_row(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Opti
 
 pub fn key_cap(ui: &mut Ui, keys: &str) -> Response {
     let tokens = appearance::tokens(ui);
-    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+    let backwards = ui.layout().prefer_right_to_left();
+    ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = SPACE_XS;
         ui.spacing_mut().interact_size.y = 0.0;
-        for key in keys.split('+').filter(|key| !key.is_empty()) {
+        let mut keys: Vec<&str> = keys.split('+').filter(|key| !key.is_empty()).collect();
+        if backwards {
+            keys.reverse();
+        }
+        for key in keys {
             Frame::new()
                 .fill(tokens.button)
                 .stroke(Stroke::new(BORDER_WIDTH, tokens.border))

@@ -4973,6 +4973,37 @@ fn blend_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Blend {
 }
 
 #[test]
+fn an_open_fillet_listing_long_edge_names_keeps_the_side_panel_width() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    let view = harness
+        .workspace
+        .viewport
+        .rect()
+        .expect("the view is shown");
+
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click("Fillet");
+    harness.settle();
+    harness.let_animations_finish();
+    let opened = harness
+        .workspace
+        .viewport
+        .rect()
+        .expect("the view is shown");
+
+    assert!(harness.workspace.editing.solid().is_some());
+    assert!(
+        (opened.min.x - view.min.x).abs() < 0.5,
+        "{view:?} became {opened:?}"
+    );
+}
+
+#[test]
 fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_view() {
     let mut harness = Harness::new();
     let (plate, _) = extruded_plate(&mut harness);

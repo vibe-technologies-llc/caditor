@@ -5,7 +5,7 @@ use egui::{
 };
 
 use crate::{
-    appearance::{self, CONTROL_HEIGHT, DIALOG_MARGIN, SPACE_M, SPACE_S, SPACE_XS, WIDGET_RADIUS},
+    appearance::{self, CONTROL_HEIGHT, DIALOG_MARGIN, SPACE_M, SPACE_S, WIDGET_RADIUS},
     commands::{self, Command, Keymap, Offer, Scope},
     icons,
     panels::Focus,
@@ -434,12 +434,7 @@ fn row(ui: &mut Ui, entry: &Entry, highlighted: bool) -> Response {
     widgets::icon_label(&mut child, entry.glyph, glyph);
     child.with_layout(Layout::right_to_left(Align::Center), |ui| {
         if let Some(keys) = &entry.keys {
-            ui.scope(|ui| {
-                ui.spacing_mut().item_spacing.x = SPACE_XS;
-                for key in keys.rsplit('+').filter(|key| !key.is_empty()) {
-                    widgets::key_cap(ui, key);
-                }
-            });
+            widgets::key_cap(ui, keys);
         }
         if let Some(note) = &entry.note {
             ui.add(
