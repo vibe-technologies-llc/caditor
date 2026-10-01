@@ -19,7 +19,9 @@ CADITOR_SCREENSHOT_LOOKS=dark,light CADITOR_SCREENSHOTS=<dir> cargo test -p cadi
 
 - Files are `<scene>-<look>.png`, 1400×1000 physical pixels. Scenes: `welcome`, `empty`, `model`
   (the Angle bracket sample), `feature` (its extrusion open), `measure`, `sketch` (its profile
-  edited), `palette`, `preferences`, `export`.
+  edited), `palette`, `preferences`, `export`, then from `tree_scenes`: `tree-selection` (two rows
+  chosen), `delete` (the delete dialog), `failed` (its profile suppressed), `rename` and
+  `measure-two` (two vertices measured).
 - Looks: `dark`, `light`, `dark-contrast`, `light-contrast`, `dark-200`, `light-150`;
   `CADITOR_SCREENSHOT_LOOKS` takes a comma-separated subset.
 - Write them to the session scratchpad, never into the repository. Take a set before a change and

@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use caditor_document::{Feature, FeatureId};
 use caditor_render::{SurfaceTarget, ViewportFrame, ViewportRenderer};
 use egui::{Key, Modifiers};
 use tempfile::TempDir;
@@ -15,8 +16,10 @@ use crate::{
     export::ExportCommand,
     files::FileCommand,
     model::Action,
+    panels::Renaming,
     preferences::{Preferences, PreferencesCommand, Theme},
     samples::Sample,
+    selection::Pickable,
 };
 
 const OUTPUT: &str = "CADITOR_SCREENSHOTS";
@@ -348,6 +351,70 @@ fn screenshots() {
         model.command(FileCommand::Export(ExportCommand::Show));
         shoot(&mut model, &gpu, &out, "export", look);
         model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+
+        tree_scenes(&mut model, &gpu, &out, look);
+    }
+}
+
+fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    let rows: Vec<FeatureId> = model.document().features().map(Feature::id).collect();
+    if let [first, second, ..] = rows.as_slice() {
+        model.workspace.panels.choose_only(*first);
+        model.workspace.panels.toggle_chosen(*second);
+        model.frame();
+        shoot(model, gpu, out, "tree-selection", look);
+
+        model.workspace.panels.deleting = Some(vec![*first]);
+        model.show_new_windows();
+        shoot(model, gpu, out, "delete", look);
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+
+        let suppression = model.document().suppression(&[*first], true, "Suppress");
+        model.perform(Action::Apply(suppression));
+        model.settle();
+        shoot(model, gpu, out, "failed", look);
+        model.perform(Action::Undo);
+        model.settle();
+
+        model.workspace.panels.renaming = Some(Renaming {
+            feature: *second,
+            focus_pending: true,
+        });
+        model.frame();
+        shoot(model, gpu, out, "rename", look);
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+    }
+
+    let body = model
+        .document()
+        .features()
+        .find(|feature| feature.kind.solid().is_some())
+        .map(Feature::id);
+    let Some(body) = body else {
+        return;
+    };
+    let keys: Vec<_> = model
+        .workspace
+        .viewport
+        .bodies()
+        .get(body)
+        .map(|mesh| mesh.vertices.iter().map(|vertex| vertex.key).collect())
+        .unwrap_or_default();
+    if let (Some(first), Some(last)) = (keys.first(), keys.last()) {
+        model.key(Key::I, Modifiers::NONE);
+        model.frame();
+        model.select([first, last].map(|vertex| Pickable::Vertex {
+            body,
+            vertex: *vertex,
+        }));
+        model.wait_until("the vertices are measured", |harness| {
+            harness.shows("Between them")
+        });
+        shoot(model, gpu, out, "measure-two", look);
+        model.key(Key::I, Modifiers::NONE);
         model.frame();
     }
 }

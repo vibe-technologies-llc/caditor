@@ -3,33 +3,36 @@ use caditor_document::{
     FeatureStatus, FixTarget, RollbackBar, SketchFeature, SolidFeature, SolidResult, Transaction,
     TreeRow,
 };
-use caditor_sketch::{ConstraintId, Redundancy, Sketch};
+use caditor_expression::Expression;
+use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch};
 use egui::{
-    Align, Align2, Area, Button, Color32, CornerRadius, CursorIcon, FontId, Frame, Id, Key, Label,
-    Margin, Modifiers, Order, Pos2, Rect, Response, RichText, Sense, Sides, Stroke, StrokeKind,
-    TextStyle, Ui, WidgetInfo, WidgetType, collapsing_header::CollapsingState,
-    containers::menu::MenuButton, pos2, vec2,
+    Align, Align2, Area, Color32, CursorIcon, FontId, Frame, Id, Key, Label, Modifiers, Order,
+    Popup, Pos2, Rect, Response, RichText, Sense, Sides, Stroke, TextStyle, Ui, WidgetInfo,
+    WidgetType, collapsing_header::CollapsingState, pos2, vec2,
 };
 
 use crate::{
-    appearance::{self, ICON_SIZE, WIDGET_RADIUS},
+    appearance::{self, ICON_SIZE, SPACE_L, SPACE_M, SPACE_S},
     blend_panel,
     commands::{Command, CommandFrame},
     datum_panel,
     editing::{EditingCommand, SketchEditing},
     field::{self, DimensionTarget},
     fonts, icons,
-    model::{Action, Model},
+    model::{Action, Model, Notice},
     panels::{Focus, PanelState, Renaming},
     pattern_panel,
     pattern_tools::{self, Reference},
+    preferences::PreferencesCommand,
     principal_tree,
     selection::{Pickable, Selection},
     shell_panel,
     sketch_placement::{self, PlacementTarget},
     sketch_status::{self, SketchSummary},
-    sketch_tools, solid_panel, visibility,
-    widgets::{self, DialogWidth, NAME_FIELD_WIDTH, Tone},
+    sketch_tools, solid_panel,
+    tree_row::{self, Look},
+    visibility,
+    widgets::{self, DialogWidth, Tone},
 };
 
 const NO_FEATURE_CHOSEN: &str = "Select a feature in the tree, or open one, first";
@@ -38,18 +41,16 @@ const NOTHING_SELECTED: &str =
 const NOTHING_OPEN: &str = "No feature is open; open one with Edit feature first";
 const MORE_HINT: &str = "Rename, move, suppress, roll back or delete (also on right-click)";
 const DIMENSION_FIELD_WIDTH: f32 = 150.0;
-const EDIT_SKETCH_LABEL: &str = "Edit sketch";
 const FINISH_SKETCH_LABEL: &str = "Finish sketch";
-const OPEN_SOLID_LABEL: &str = "Edit feature and choose its regions in the view";
-const CLOSE_SOLID_LABEL: &str = "Done editing this feature";
-const OPEN_BLEND_LABEL: &str = "Edit feature and choose its edges in the view";
-const OPEN_SHELL_LABEL: &str = "Edit feature and choose its open faces in the view";
-const OPEN_DATUM_LABEL: &str = "Edit this plane or axis";
-const OPEN_PATTERN_LABEL: &str = "Edit this pattern";
 const PLACE_ON_PLANE_LABEL: &str = "Place on selected plane";
 const PLACE_ON_FACE_LABEL: &str = "Place on selected face";
 const DETACH_LABEL: &str = "Detach";
-const EMPTY_TREE: &str = "The model has no features yet. Start with New sketch in the toolbar.";
+const RECOMPUTE_LABEL: &str = "Recompute";
+pub const OPEN_SAMPLE_LABEL: &str = "Open a sample";
+pub const EMPTY_TREE: &str = "The model has no features yet. Start with New sketch, here or in the ribbon, or open a \
+     sample to see how one is built.";
+pub const DIMENSIONS_TITLE: &str = "Dimensions";
+pub const CONSTRAINTS_TITLE: &str = "Constraints";
 pub const ROLLBACK_BAR_NAME: &str = "Rollback bar";
 const ROLLBACK_BAR_HINT: &str = "Drag to roll the model back to any point: features below the \
                                  bar are not computed, and new features go in above it";
@@ -59,16 +60,9 @@ const BAR_AT_END: &str = "The rollback bar is already at the end";
 const BAR_AT_TOP: &str = "The rollback bar is already at the top";
 pub const DELETE_WITH_DEPENDENTS: &str = "Delete with dependents";
 pub const KEEP_DEPENDENTS: &str = "Keep dependents";
-const ROW_MARGIN: Margin = Margin::symmetric(4, 2);
-const EDITED_BAR_WIDTH: f32 = 3.0;
-const BODY_INDENT: f32 = 8.0;
-const DIMENSION_INDENT: f32 = 16.0;
-const ROW_GAP: f32 = 2.0;
+pub const CANCEL_DELETE: &str = "Cancel";
 const BAR_ROW_HEIGHT: f32 = 16.0;
 const BAR_THICKNESS: f32 = 3.0;
-const BAR_INDENT: f32 = 4.0;
-const BAR_GAP: f32 = 6.0;
-const FOCUS_WIDTH: f32 = 2.0;
 const DROP_LINE_WIDTH: f32 = 2.0;
 const DROP_REASON_OFFSET: egui::Vec2 = vec2(18.0, 12.0);
 const DROP_REASON_WIDTH: f32 = 280.0;
@@ -87,12 +81,24 @@ pub fn show(
     if editing.feature().is_none() {
         state.opened_for_editing = None;
     }
+    tree_row::rows(ui, |ui| {
+        rows(ui, model, selection, editing, state, actions);
+    });
+}
+
+fn rows(
+    ui: &mut Ui,
+    model: &Model,
+    selection: &Selection,
+    editing: &SketchEditing,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+) {
     let document = model.document();
-    ui.spacing_mut().item_spacing.y = ROW_GAP;
-    principal_tree::show(ui, model, state, actions);
+    principal_tree::show(ui, model, selection, state, actions);
     let count = document.features().len();
     if count == 0 {
-        ui.label(widgets::muted(EMPTY_TREE, ui));
+        tree_row::content(ui, |ui| empty_tree(ui, actions));
         state.dragging = None;
         return;
     }
@@ -122,6 +128,28 @@ pub fn show(
         placed.push((TreeRow::Bar, rollback_bar(ui, document, state)));
     }
     drag_and_drop(ui, document, state, actions, &placed);
+}
+
+fn empty_tree(ui: &mut Ui, actions: &mut Vec<Action>) {
+    widgets::empty_state(ui, icons::FEATURES, EMPTY_TREE, |ui| {
+        let title = Command::NewSketch.title();
+        let new_sketch = widgets::small_button(ui, icons::command(Command::NewSketch), &title);
+        if ui
+            .add(new_sketch)
+            .on_hover_text("Start a sketch on the plane or flat face you click next")
+            .clicked()
+        {
+            actions.push(Action::Editing(EditingCommand::NewSketch(None)));
+        }
+        let sample = widgets::small_button(ui, icons::SAMPLE, OPEN_SAMPLE_LABEL);
+        if ui
+            .add(sample)
+            .on_hover_text("Choose one of the sample models to open")
+            .clicked()
+        {
+            actions.push(Action::Preferences(PreferencesCommand::ShowWelcome));
+        }
+    });
 }
 
 struct Row<'a> {
@@ -165,13 +193,13 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
     let painter = ui.painter();
     let middle = rect.center().y;
     let grip = painter.text(
-        pos2(rect.left() + BAR_INDENT, middle),
+        pos2(rect.left() + SPACE_S, middle),
         Align2::LEFT_CENTER,
         icons::ROLLBACK_BAR,
         FontId::new(ICON_SIZE, fonts::icons()),
         color,
     );
-    let mut start = grip.right() + BAR_GAP;
+    let mut start = grip.right() + SPACE_M;
     if below > 0 {
         let caption = painter.text(
             pos2(start, middle),
@@ -180,7 +208,7 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
             TextStyle::Small.resolve(ui.style()),
             tokens.text_muted,
         );
-        start = caption.right() + BAR_GAP;
+        start = caption.right() + SPACE_M;
     }
     if start < rect.right() {
         painter.hline(
@@ -190,12 +218,7 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
         );
     }
     if response.has_focus() {
-        painter.rect_stroke(
-            rect,
-            CornerRadius::same(WIDGET_RADIUS),
-            Stroke::new(FOCUS_WIDTH, tokens.focus),
-            StrokeKind::Inside,
-        );
+        tree_row::focus_outline(ui, rect);
     }
     rect
 }
@@ -251,10 +274,10 @@ fn drag_and_drop(
     }
     let tokens = appearance::tokens(ui);
     let line = match placed.get(gap) {
-        Some((_, rect)) => rect.top() - ROW_GAP / 2.0,
-        None => placed
-            .last()
-            .map_or(pointer.y, |(_, rect)| rect.bottom() + ROW_GAP / 2.0),
+        Some((_, rect)) => rect.top() - tree_row::ROW_GAP / 2.0,
+        None => placed.last().map_or(pointer.y, |(_, rect)| {
+            rect.bottom() + tree_row::ROW_GAP / 2.0
+        }),
     };
     let span = placed
         .first()
@@ -308,6 +331,11 @@ fn feature_name(document: &Document, id: FeatureId) -> String {
         .map_or_else(|| "the feature".to_owned(), |feature| feature.name.clone())
 }
 
+enum Name {
+    Shown(Response),
+    Renaming(field::FieldResponse<Transaction>),
+}
+
 fn feature_row(
     ui: &mut Ui,
     model: &Model,
@@ -319,10 +347,7 @@ fn feature_row(
     let feature = row.feature;
     let id = feature.id();
     let status = model.evaluation().feature(id);
-
-    if let Some(renaming) = state.renaming.filter(|renaming| renaming.feature == id) {
-        return rename_row(ui, document, state, actions, feature, renaming);
-    }
+    let renaming = state.renaming.filter(|renaming| renaming.feature == id);
 
     let mut collapsing = CollapsingState::load_with_default_open(
         ui.ctx(),
@@ -339,80 +364,117 @@ fn feature_row(
     }
 
     let tokens = appearance::tokens(ui);
-    let mut prepared = Frame::new()
-        .corner_radius(CornerRadius::same(WIDGET_RADIUS))
-        .inner_margin(ROW_MARGIN)
-        .begin(ui);
-    let (toggled, name) = {
-        let ui = &mut prepared.content_ui;
-        let open = collapsing.is_open();
-        Sides::new()
-            .shrink_left()
-            .truncate()
-            .show(
-                ui,
-                |ui| {
-                    let chevron = if open {
-                        icons::EXPANDED
-                    } else {
-                        icons::COLLAPSED
-                    };
-                    let hint = if open { "Hide details" } else { "Show details" };
-                    let toggle = ui
-                        .add(widgets::Named::new(
-                            Button::new(widgets::icon(chevron).color(tokens.text_muted))
-                                .frame(false),
-                            format!("{hint} of {}", feature.name),
-                        ))
-                        .on_hover_text(hint);
-                    let kind_color = if row.edited {
-                        tokens.accent_text
-                    } else if !row.active() {
-                        tokens.text_muted
-                    } else {
-                        state_color(ui, status).unwrap_or(tokens.text_muted)
-                    };
-                    widgets::icon_label(ui, icons::feature(&feature.kind), kind_color);
-                    let name = ui.add(
+    let open = collapsing.is_open();
+    let look = Look {
+        selected: row.selected,
+        open: row.edited,
+    };
+    let shown = tree_row::show(
+        ui,
+        look,
+        |ui| {
+            let toggle = tree_row::chevron(ui, open, &feature.name);
+            widgets::icon_label(ui, icons::feature(&feature.kind), kind_color(tokens, row));
+            let name = match renaming {
+                Some(renaming) => Name::Renaming(rename_field(ui, document, feature, renaming)),
+                None => {
+                    ui.add(
                         Label::new(name_text(ui, row, status))
                             .selectable(false)
-                            .sense(Sense::click_and_drag())
                             .truncate(),
                     );
-                    (toggle.clicked(), name)
-                },
-                |ui| {
-                    more_menu(ui, document, state, actions, row);
-                    visibility_button(ui, row, actions);
-                    if row.active() || row.edited {
-                        edit_button(ui, row, actions);
-                    }
-                    status_icon(ui, row, status);
-                },
-            )
-            .0
-    };
-    let rect = prepared.content_ui.min_rect() + ROW_MARGIN;
-    prepared.frame.fill = if row.edited {
-        tokens.accent_subtle
-    } else if row.selected {
-        tokens.hover
-    } else if ui.rect_contains_pointer(rect) {
-        tokens.stripe
-    } else {
-        Color32::TRANSPARENT
-    };
-    let row_rect = prepared.end(ui).rect;
-    if row.edited {
-        let bar = Rect::from_min_size(row_rect.min, vec2(EDITED_BAR_WIDTH, row_rect.height()));
-        ui.painter()
-            .rect_filled(bar, CornerRadius::same(WIDGET_RADIUS), tokens.accent);
-    }
-    let modifiers = ui.input(|input| input.modifiers);
-    let plain = !modifiers.command && !modifiers.shift;
-    if toggled || (name.clicked() && plain) {
+                    Name::Shown(tree_row::sense(
+                        ui,
+                        Id::new(("feature-row", id)),
+                        toggle.rect.right(),
+                        &feature.name,
+                        row.selected,
+                    ))
+                }
+            };
+            (toggle.clicked(), name)
+        },
+        |ui| {
+            tree_row::slot(ui, |ui| more_menu(ui, document, state, actions, row));
+            tree_row::slot(ui, |ui| visibility_button(ui, row, actions));
+            tree_row::slot(ui, |ui| {
+                if row.active() || row.edited {
+                    edit_button(ui, row, actions);
+                }
+            });
+            tree_row::slot(ui, |ui| status_icon(ui, row, status));
+        },
+    );
+    let row_rect = shown.rect;
+    let (toggled, name) = shown.leading;
+    if toggled {
         collapsing.toggle(ui);
     }
+    match name {
+        Name::Shown(name) => {
+            if name.has_focus() {
+                tree_row::focus_outline(ui, row_rect);
+            }
+            respond(ui, document, state, actions, row, &mut collapsing, name);
+        }
+        Name::Renaming(field) => finish_renaming(ui, state, actions, id, field),
+    }
+
+    let state_shown = status.map(|status| &status.state);
+    let has_callout = matches!(
+        state_shown,
+        Some(FeatureState::Failed(_) | FeatureState::Outdated)
+    );
+    if has_callout || collapsing.openness(ui.ctx()) > 0.0 {
+        let below = tree_row::indented(ui, |ui| {
+            match state_shown {
+                Some(FeatureState::Failed(error)) => {
+                    failure(ui, document, state, actions, error);
+                }
+                Some(FeatureState::Outdated) => outdated(ui, actions),
+                Some(
+                    FeatureState::UpToDate | FeatureState::Suppressed | FeatureState::RolledBack,
+                )
+                | None => {}
+            }
+            collapsing.show_body_unindented(ui, |ui| {
+                widgets::card(ui, |ui| body(ui, model, state, actions, row));
+            })
+        });
+        ui.add_space(SPACE_S);
+        if state.revealing(id) {
+            let card = below.map_or(row_rect, |below| row_rect.union(below.response.rect));
+            ui.scroll_to_rect(card, None);
+        }
+    } else if state.revealing(id) {
+        ui.scroll_to_rect(row_rect, None);
+    }
+    collapsing.store(ui.ctx());
+    row_rect
+}
+
+fn outdated(ui: &mut Ui, actions: &mut Vec<Action>) {
+    widgets::callout(ui, Tone::Warning, |ui| {
+        ui.label("Not recomputed, because the recompute was cancelled.");
+        let recompute =
+            widgets::small_button(ui, icons::command(Command::Recompute), RECOMPUTE_LABEL);
+        if ui.add(recompute).clicked() {
+            actions.push(Action::Recompute);
+        }
+    });
+}
+
+fn respond(
+    ui: &mut Ui,
+    document: &Document,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    row: &Row<'_>,
+    collapsing: &mut CollapsingState,
+    name: Response,
+) {
+    let id = row.feature.id();
+    let (modifiers, enter) = ui.input(|input| (input.modifiers, input.key_pressed(Key::Enter)));
     if name.clicked() {
         choose(state, document, id, modifiers);
     } else if name.gained_focus() {
@@ -421,45 +483,35 @@ fn feature_row(
     if name.drag_started() {
         state.dragging = Some(TreeRow::Feature(id));
     }
-    let mut name = name;
     if state.take_focus(Focus::Feature(id)) {
         state.choose_only(id);
         name.scroll_to_me(Some(Align::Center));
-        name = name.highlight();
     }
-    if name.double_clicked() {
-        start_renaming(state, feature);
+    if name.double_clicked() || (name.has_focus() && enter) {
+        open_feature(ui, document, actions, row, collapsing);
     }
     name.context_menu(|ui| context_menu(ui, document, state, actions, row));
+}
 
-    match status.map(|status| &status.state) {
-        Some(FeatureState::Failed(error)) => failure(ui, document, state, actions, error),
-        Some(FeatureState::Outdated) => {
-            widgets::callout(ui, Tone::Warning, |ui| {
-                ui.label("Not recomputed, because the recompute was cancelled.");
-                if ui.button("Recompute").clicked() {
-                    actions.push(Action::Recompute);
-                }
-            });
-        }
-        Some(FeatureState::UpToDate | FeatureState::Suppressed | FeatureState::RolledBack)
-        | None => {}
+fn open_feature(
+    ui: &Ui,
+    document: &Document,
+    actions: &mut Vec<Action>,
+    row: &Row<'_>,
+    collapsing: &mut CollapsingState,
+) {
+    if row.edited {
+        collapsing.set_open(true);
+        return;
     }
-
-    let shown = collapsing.show_body_unindented(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.add_space(BODY_INDENT);
-            ui.vertical(|ui| {
-                widgets::card(ui, |ui| body(ui, model, state, actions, row));
-            });
-        });
-    });
-    if state.revealing(id) {
-        let card = shown.map_or(row_rect, |shown| row_rect.union(shown.response.rect));
-        ui.scroll_to_rect(card, None);
+    let feature = row.feature;
+    match edit_command(feature, false) {
+        None => collapsing.toggle(ui),
+        Some(command) => match editable(document, feature) {
+            Ok(()) => actions.push(Action::Editing(command)),
+            Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+        },
     }
-    collapsing.store(ui.ctx());
-    row_rect
 }
 
 fn choose(state: &mut PanelState, document: &Document, id: FeatureId, modifiers: Modifiers) {
@@ -552,12 +604,21 @@ fn body(
     }
 }
 
-fn state_color(ui: &Ui, status: Option<&FeatureStatus>) -> Option<Color32> {
-    match status.map(|status| &status.state) {
-        Some(FeatureState::Failed(_)) => Some(ui.visuals().error_fg_color),
-        Some(FeatureState::Outdated) => Some(ui.visuals().warn_fg_color),
-        Some(FeatureState::UpToDate | FeatureState::Suppressed | FeatureState::RolledBack)
-        | None => None,
+fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
+    if row.edited {
+        return tokens.accent_text;
+    }
+    if !row.active() || row.feature.hidden {
+        return tokens.text_muted;
+    }
+    match row.feature.kind {
+        FeatureKind::Sketch(_) => tokens.accent_text,
+        FeatureKind::Datum(_) => tokens.text_muted,
+        FeatureKind::Solid(_)
+        | FeatureKind::Blend(_)
+        | FeatureKind::Shell(_)
+        | FeatureKind::Pattern(_)
+        | FeatureKind::Import(_) => tokens.text,
     }
 }
 
@@ -568,19 +629,13 @@ fn name_text(ui: &Ui, row: &Row<'_>, status: Option<&FeatureStatus>) -> RichText
     if feature.suppressed {
         return text.color(muted).strikethrough();
     }
-    if row.rolled_back {
+    if row.rolled_back || status.is_none() {
         return text.color(muted);
     }
     if feature.hidden {
         return text.color(muted).italics();
     }
-    match status {
-        None => text.color(muted),
-        Some(_) => match state_color(ui, status) {
-            Some(color) => text.color(color),
-            None => text,
-        },
-    }
+    text
 }
 
 fn visibility_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
@@ -588,18 +643,15 @@ fn visibility_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
     let Ok(transaction) = visibility::toggle(feature) else {
         return;
     };
-    let tokens = appearance::tokens(ui);
     let (glyph, hover) = if feature.hidden {
         (icons::HIDE, "Show")
     } else {
         (icons::SHOW, "Hide")
     };
-    let response = ui
-        .add(widgets::Named::new(
-            Button::new(widgets::icon(glyph).color(tokens.text_muted)).frame_when_inactive(false),
-            format!("{hover} {}", feature.name),
-        ))
-        .on_hover_text(hover);
+    let response = widgets::named(
+        widgets::icon_button(ui, glyph, hover),
+        &format!("{hover} {}", feature.name),
+    );
     if response.clicked() {
         actions.push(Action::Apply(transaction));
     }
@@ -634,42 +686,32 @@ fn more_menu(
     actions: &mut Vec<Action>,
     row: &Row<'_>,
 ) {
-    let muted = appearance::tokens(ui).text_muted;
-    let button = Button::new(widgets::icon(icons::MORE).color(muted)).frame_when_inactive(false);
-    let (response, _) = MenuButton::from_button(button).ui(ui, |ui| {
+    let response = widgets::named(
+        widgets::icon_button(ui, icons::MORE, MORE_HINT),
+        &format!("More actions for {}", row.feature.name),
+    );
+    Popup::menu(&response).show(|ui| {
         context_menu(ui, document, state, actions, row);
     });
-    widgets::named(response, &format!("More actions for {}", row.feature.name))
-        .on_hover_text(MORE_HINT);
 }
 
 fn edit_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
-    let Some((hover, command)) = edit_command(row.feature, row.edited) else {
+    let Some(command) = edit_command(row.feature, row.edited) else {
         return;
     };
-    let tokens = appearance::tokens(ui);
-    let (glyph, color) = if row.edited {
-        (icons::DONE, tokens.accent_text)
-    } else {
-        (icons::EDIT, tokens.text_muted)
-    };
-    let name = format!("{hover} ({})", row.feature.name);
-    let response = ui
-        .add(widgets::Named::new(
-            Button::new(widgets::icon(glyph).color(color)).frame_when_inactive(false),
-            name,
-        ))
-        .on_hover_text(hover);
+    let glyph = if row.edited { icons::DONE } else { icons::EDIT };
+    let title = edit_title(row.feature, row.edited);
+    let response = widgets::icon_button(ui, glyph, &title);
     if response.clicked() {
         actions.push(Action::Editing(command));
     }
 }
 
-fn edit_command(feature: &Feature, edited: bool) -> Option<(&'static str, EditingCommand)> {
+fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
     let id = feature.id();
     Some(match (&feature.kind, edited) {
-        (FeatureKind::Sketch(_), true) => (FINISH_SKETCH_LABEL, EditingCommand::Finish),
-        (FeatureKind::Sketch(_), false) => (EDIT_SKETCH_LABEL, EditingCommand::Enter(id)),
+        (FeatureKind::Sketch(_), true) => EditingCommand::Finish,
+        (FeatureKind::Sketch(_), false) => EditingCommand::Enter(id),
         (
             FeatureKind::Solid(_)
             | FeatureKind::Blend(_)
@@ -677,14 +719,25 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<(&'static str, Editin
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_),
             true,
-        ) => (CLOSE_SOLID_LABEL, EditingCommand::CloseSolid),
-        (FeatureKind::Solid(_), false) => (OPEN_SOLID_LABEL, EditingCommand::OpenSolid(id)),
-        (FeatureKind::Blend(_), false) => (OPEN_BLEND_LABEL, EditingCommand::OpenSolid(id)),
-        (FeatureKind::Shell(_), false) => (OPEN_SHELL_LABEL, EditingCommand::OpenSolid(id)),
-        (FeatureKind::Datum(_), false) => (OPEN_DATUM_LABEL, EditingCommand::OpenSolid(id)),
-        (FeatureKind::Pattern(_), false) => (OPEN_PATTERN_LABEL, EditingCommand::OpenSolid(id)),
+        ) => EditingCommand::CloseSolid,
+        (
+            FeatureKind::Solid(_)
+            | FeatureKind::Blend(_)
+            | FeatureKind::Shell(_)
+            | FeatureKind::Pattern(_)
+            | FeatureKind::Datum(_),
+            false,
+        ) => EditingCommand::OpenSolid(id),
         (FeatureKind::Import(_), _) => return None,
     })
+}
+
+pub fn edit_title(feature: &Feature, edited: bool) -> String {
+    match (&feature.kind, edited) {
+        (FeatureKind::Sketch(_), true) => FINISH_SKETCH_LABEL.to_owned(),
+        (_, true) => Command::CloseFeature.title(),
+        (_, false) => format!("Edit {}", feature.name),
+    }
 }
 
 fn start_renaming(state: &mut PanelState, feature: &Feature) {
@@ -694,20 +747,19 @@ fn start_renaming(state: &mut PanelState, feature: &Feature) {
     });
 }
 
-fn rename_row(
+fn rename_field(
     ui: &mut Ui,
     document: &Document,
-    state: &mut PanelState,
-    actions: &mut Vec<Action>,
     feature: &Feature,
     renaming: Renaming,
-) -> Rect {
+) -> field::FieldResponse<Transaction> {
     let id = feature.id();
-    let field = field::commit_field(
+    let width = ui.available_width();
+    field::commit_field(
         ui,
         Id::new(("rename-feature", id)),
         &feature.name,
-        NAME_FIELD_WIDTH,
+        width,
         renaming.focus_pending,
         |text| {
             field::checked(
@@ -721,9 +773,18 @@ fn rename_row(
                 ),
             )
         },
-    );
+    )
+}
+
+fn finish_renaming(
+    ui: &mut Ui,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    id: FeatureId,
+    field: field::FieldResponse<Transaction>,
+) {
     if let Some(error) = &field.error {
-        field_error(ui, error);
+        tree_row::indented(ui, |ui| field_error(ui, error));
     }
     if let Some(transaction) = field.committed {
         actions.push(Action::Apply(transaction));
@@ -736,7 +797,6 @@ fn rename_row(
             focus_pending: false,
         })
     };
-    field.response.rect
 }
 
 fn menu_entry<T>(ui: &mut Ui, glyph: &str, label: &str, outcome: &Result<T, String>) -> bool {
@@ -764,13 +824,14 @@ fn context_menu(
     row: &Row<'_>,
 ) {
     let feature = row.feature;
-    if let Some((label, command)) = edit_command(feature, row.edited) {
+    if let Some(command) = edit_command(feature, row.edited) {
         let editable = if row.edited {
             Ok(command)
         } else {
             editable(document, feature).map(|()| command)
         };
-        if menu_entry(ui, icons::EDIT, label, &editable)
+        let glyph = if row.edited { icons::DONE } else { icons::EDIT };
+        if menu_entry(ui, glyph, &edit_title(feature, row.edited), &editable)
             && let Ok(command) = editable
         {
             actions.push(Action::Editing(command));
@@ -1087,20 +1148,7 @@ pub fn delete_dialog(
             ),
             ui,
         ));
-        widgets::footer(ui, |ui| {
-            if ui
-                .add(widgets::primary_button(ui, DELETE_WITH_DEPENDENTS))
-                .clicked()
-            {
-                return Some(DeleteChoice::WithDependents);
-            }
-            if ui.button(KEEP_DEPENDENTS).clicked() {
-                return Some(DeleteChoice::KeepDependents);
-            }
-            ui.button("Cancel")
-                .clicked()
-                .then_some(DeleteChoice::Cancel)
-        })
+        delete_footer(ui)
     });
     let closed = response.should_close().then_some(DeleteChoice::Cancel);
     let Some(choice) = response.inner.or(closed) else {
@@ -1123,6 +1171,34 @@ pub fn delete_dialog(
     };
     state.selected = None;
     actions.push(Action::Apply(transaction));
+}
+
+fn delete_footer(ui: &mut Ui) -> Option<DeleteChoice> {
+    widgets::footer(ui, |ui| {
+        let cancel = ui.add(widgets::button(CANCEL_DELETE));
+        let focused_here = ui
+            .memory(|memory| memory.focused())
+            .and_then(|focused| ui.ctx().read_response(focused))
+            .is_some_and(|focused| focused.layer_id == ui.layer_id());
+        if !focused_here {
+            cancel.request_focus();
+        }
+        if cancel.has_focus() {
+            widgets::paint_focus_ring(ui, cancel.rect);
+        }
+        if cancel.clicked() {
+            return Some(DeleteChoice::Cancel);
+        }
+        if ui.add(widgets::button(KEEP_DEPENDENTS)).clicked() {
+            return Some(DeleteChoice::KeepDependents);
+        }
+        ui.with_layout(egui::Layout::left_to_right(Align::Center), |ui| {
+            ui.add(widgets::danger_button(DELETE_WITH_DEPENDENTS))
+                .clicked()
+                .then_some(DeleteChoice::WithDependents)
+        })
+        .inner
+    })
 }
 
 fn dependent_rows(ui: &mut Ui, document: &Document, ids: &[FeatureId], dependents: &[FeatureId]) {
@@ -1195,7 +1271,6 @@ fn edit_change(
     }
     editable(document, feature)?;
     edit_command(feature, false)
-        .map(|(_, command)| command)
         .ok_or_else(|| format!("{name} is an imported body and has no settings to edit"))
 }
 
@@ -1463,37 +1538,46 @@ fn failure(
         };
         if let FixTarget::Unsuppress(id) = target {
             let label = format!("Unsuppress {}", feature_name(document, id));
-            if ui.button(label).clicked() {
+            let button = widgets::small_button(ui, icons::UNSUPPRESS, &label);
+            if ui.add(button).clicked() {
                 actions.push(Action::Apply(unsuppress(document, id)));
             }
             return;
         }
-        let label = match target {
-            FixTarget::Parameter(id) => {
-                format!(
-                    "Go to {}",
-                    document.parameter_name(id).unwrap_or("the parameter")
-                )
-            }
-            FixTarget::Dimension { .. } => "Edit the dimension".to_owned(),
-            FixTarget::Feature(id) | FixTarget::Unsuppress(id) => {
-                format!("Go to {}", feature_name(document, id))
-            }
-            FixTarget::Constraint {
-                feature,
-                constraint,
-            } => match document
-                .feature(feature)
-                .and_then(|owner| owner.kind.sketch())
-            {
-                Some(sketch) => format!("Go to {}", sketch.describe_constraint(constraint)),
-                None => "Go to the constraint".to_owned(),
-            },
+        let (glyph, label) = match target {
+            FixTarget::Dimension { .. } => (icons::EDIT, "Edit the dimension".to_owned()),
+            _ => (icons::GO_TO, fix_label(document, target)),
         };
-        if ui.button(label).clicked() {
+        let button = widgets::small_button(ui, glyph, &label);
+        if ui.add(button).clicked() {
             state.request_focus(target.into());
         }
     });
+}
+
+fn fix_label(document: &Document, target: FixTarget) -> String {
+    match target {
+        FixTarget::Parameter(id) => {
+            format!(
+                "Go to {}",
+                document.parameter_name(id).unwrap_or("the parameter")
+            )
+        }
+        FixTarget::Dimension { .. } => "Edit the dimension".to_owned(),
+        FixTarget::Feature(id) | FixTarget::Unsuppress(id) => {
+            format!("Go to {}", feature_name(document, id))
+        }
+        FixTarget::Constraint {
+            feature,
+            constraint,
+        } => match document
+            .feature(feature)
+            .and_then(|owner| owner.kind.sketch())
+        {
+            Some(sketch) => format!("Go to {}", sketch.describe_constraint(constraint)),
+            None => "Go to the constraint".to_owned(),
+        },
+    }
 }
 
 fn body_display(ui: &mut Ui, model: &Model, feature: &Feature) {
@@ -1531,7 +1615,8 @@ fn placement(
                 sketch_placement::describe(model.document(), attachment)
             ));
             if let Some(transaction) = sketch_placement::detach(model, feature.id()) {
-                let detach = ui.small_button(DETACH_LABEL).on_hover_text(
+                let detach = widgets::small_button(ui, icons::DETACH, DETACH_LABEL);
+                let detach = ui.add(detach).on_hover_text(
                     "Keep the sketch where it is and stop following what it lies on",
                 );
                 if detach.clicked() {
@@ -1564,6 +1649,13 @@ fn placement(
     }
 }
 
+struct SketchCard<'a> {
+    model: &'a Model,
+    feature: &'a Feature,
+    sketch: &'a Sketch,
+    involved: Vec<ConstraintId>,
+}
+
 fn sketch_body(
     ui: &mut Ui,
     model: &Model,
@@ -1572,7 +1664,6 @@ fn sketch_body(
     feature: &Feature,
     sketch: &Sketch,
 ) {
-    let document = model.document();
     let summary = SketchSummary::of(model.evaluation(), feature.id());
     ui.horizontal_wrapped(|ui| {
         if let Some(focus) = sketch_status::show(ui, &summary) {
@@ -1580,121 +1671,173 @@ fn sketch_body(
         }
     });
     ui.label(widgets::muted(
-        format!(
-            "{} · {}",
-            count(sketch.entities().len(), "entity", "entities"),
-            count(sketch.constraints().len(), "constraint", "constraints")
-        ),
+        count(sketch.entities().len(), "entity", "entities"),
         ui,
     ));
-    let involved = involved_constraints(model, feature);
-    let solution = sketch_status::up_to_date_solution(model.evaluation(), feature.id());
-    for (constraint, definition) in sketch.constraints() {
-        let description = sketch.describe_constraint(constraint);
-        let redundancy = solution.and_then(|solution| solution.redundancy(constraint));
-        let text = if involved.contains(&constraint) {
-            RichText::new(&description).color(ui.visuals().error_fg_color)
-        } else if redundancy.is_some() {
-            RichText::new(&description).color(ui.visuals().warn_fg_color)
-        } else {
-            RichText::new(&description)
-        };
-        let delete = || {
-            Action::Apply(sketch_tools::remove_items(
-                model,
-                feature.id(),
-                format!("Delete {description}"),
-                Vec::new(),
-                vec![constraint],
-            ))
-        };
-        let (row, deleted) = Sides::new().shrink_left().truncate().show(
-            ui,
-            |ui| widgets::link_label(ui, text),
-            |ui| widgets::icon_button(ui, icons::DELETE, "Delete this constraint").clicked(),
-        );
-        let pickable = Pickable::SketchConstraint {
-            feature: feature.id(),
-            constraint,
-        };
-        if row.hovered() {
-            state.hovered_in_tree = Some(pickable);
+    let card = SketchCard {
+        model,
+        feature,
+        sketch,
+        involved: involved_constraints(model, feature),
+    };
+    let (dimensions, constraints): (Vec<_>, Vec<_>) = sketch
+        .constraints()
+        .partition(|(_, definition)| definition.dimension().is_some());
+    if dimensions.is_empty() && constraints.is_empty() {
+        ui.label(widgets::muted("No constraints yet.", ui));
+        return;
+    }
+    let sections = [
+        (DIMENSIONS_TITLE, dimensions),
+        (CONSTRAINTS_TITLE, constraints),
+    ];
+    for (title, listed) in sections {
+        if listed.is_empty() {
+            continue;
         }
-        if row.clicked() {
-            actions.push(Action::Editing(EditingCommand::Enter(feature.id())));
-            state.chosen_in_tree = Some(pickable);
+        let id = format!("{title}-{:?}", feature.id());
+        if state.focus_inside(feature.id()) {
+            widgets::reveal_section(ui.ctx(), &id);
         }
-        let mut deleted = deleted;
-        row.context_menu(|ui| {
-            if widgets::menu_item(ui, icons::DELETE, "Delete", None).clicked() {
-                deleted = true;
-                ui.close();
+        widgets::section(ui, &id, title, Some(listed.len()), None, |ui| {
+            for (constraint, definition) in listed {
+                constraint_row(ui, &card, state, actions, constraint, definition);
             }
         });
-        if deleted {
-            actions.push(delete());
+    }
+}
+
+fn constraint_row(
+    ui: &mut Ui,
+    card: &SketchCard<'_>,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    constraint: ConstraintId,
+    definition: &Constraint,
+) {
+    let SketchCard {
+        model,
+        feature,
+        sketch,
+        ..
+    } = *card;
+    let description = sketch.describe_constraint(constraint);
+    let solution = sketch_status::up_to_date_solution(model.evaluation(), feature.id());
+    let redundancy = solution.and_then(|solution| solution.redundancy(constraint));
+    let text = if card.involved.contains(&constraint) {
+        RichText::new(&description).color(ui.visuals().error_fg_color)
+    } else if redundancy.is_some() {
+        RichText::new(&description).color(ui.visuals().warn_fg_color)
+    } else {
+        RichText::new(&description)
+    };
+    let (row, deleted) = Sides::new().shrink_left().truncate().show(
+        ui,
+        |ui| widgets::link_label(ui, text),
+        |ui| widgets::icon_button(ui, icons::DELETE, "Delete this constraint").clicked(),
+    );
+    let pickable = Pickable::SketchConstraint {
+        feature: feature.id(),
+        constraint,
+    };
+    if row.hovered() {
+        state.hovered_in_tree = Some(pickable);
+    }
+    if row.clicked() {
+        actions.push(Action::Editing(EditingCommand::Enter(feature.id())));
+        state.chosen_in_tree = Some(pickable);
+    }
+    let mut deleted = deleted;
+    row.context_menu(|ui| {
+        if widgets::menu_item(ui, icons::DELETE, "Delete", None).clicked() {
+            deleted = true;
+            ui.close();
         }
-        if let Some(redundancy) = redundancy {
-            widgets::callout(ui, Tone::Warning, |ui| {
-                ui.label(redundancy_text(sketch, redundancy));
-            });
-        }
-        reveal_if_focused(
-            state,
-            row,
-            Focus::Constraint {
-                feature: feature.id(),
-                constraint,
+    });
+    if deleted {
+        actions.push(Action::Apply(sketch_tools::remove_items(
+            model,
+            feature.id(),
+            format!("Delete {description}"),
+            Vec::new(),
+            vec![constraint],
+        )));
+    }
+    if let Some(redundancy) = redundancy {
+        widgets::callout(ui, Tone::Warning, |ui| {
+            ui.label(redundancy_text(sketch, redundancy));
+        });
+    }
+    let label = row.id;
+    reveal_if_focused(
+        state,
+        row,
+        Focus::Constraint {
+            feature: feature.id(),
+            constraint,
+        },
+    );
+    if let Some(expression) = definition.dimension() {
+        dimension_field(ui, card, state, actions, constraint, expression, label);
+    }
+}
+
+fn dimension_field(
+    ui: &mut Ui,
+    card: &SketchCard<'_>,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    constraint: ConstraintId,
+    expression: &Expression,
+    label: Id,
+) {
+    let SketchCard { model, feature, .. } = *card;
+    let document = model.document();
+    let focus = Focus::Dimension {
+        feature: feature.id(),
+        constraint,
+    };
+    let target = DimensionTarget {
+        feature: feature.id(),
+        constraint,
+    };
+    let mut error = None;
+    ui.horizontal(|ui| {
+        ui.add_space(SPACE_L);
+        let field = field::commit_field(
+            ui,
+            focus.field_id(),
+            &document.expression_text(expression),
+            DIMENSION_FIELD_WIDTH,
+            state.wants_focus(focus),
+            |text| {
+                field::dimension_transaction(
+                    document,
+                    model.parameters(),
+                    target,
+                    text,
+                    model.length_unit(),
+                )
             },
         );
-        let Some(expression) = definition.dimension() else {
-            continue;
-        };
-        let focus = Focus::Dimension {
-            feature: feature.id(),
-            constraint,
-        };
-        let target = DimensionTarget {
-            feature: feature.id(),
-            constraint,
-        };
-        let mut error = None;
-        ui.horizontal(|ui| {
-            ui.add_space(DIMENSION_INDENT);
-            let field = field::commit_field(
-                ui,
-                focus.field_id(),
-                &document.expression_text(expression),
-                DIMENSION_FIELD_WIDTH,
-                state.wants_focus(focus),
-                |text| {
-                    field::dimension_transaction(
-                        document,
-                        model.parameters(),
-                        target,
-                        text,
-                        model.length_unit(),
-                    )
-                },
-            );
-            state.focus_reached(focus, field.response.has_focus());
-            if let Some(transaction) = field.committed {
-                actions.push(Action::Apply(transaction));
-            }
-            if field.error.is_none()
-                && let Some(preview) =
-                    field::value_preview(model.parameters(), expression, model.length_unit())
-            {
-                ui.label(widgets::muted(preview, ui));
-            }
-            error = field.error;
-        });
-        if let Some(error) = error {
-            ui.horizontal(|ui| {
-                ui.add_space(DIMENSION_INDENT);
-                field_error(ui, &error);
-            });
+        field.response.clone().labelled_by(label);
+        state.focus_reached(focus, field.response.has_focus());
+        if let Some(transaction) = field.committed {
+            actions.push(Action::Apply(transaction));
         }
+        if field.error.is_none()
+            && let Some(preview) =
+                field::value_preview(model.parameters(), expression, model.length_unit())
+        {
+            ui.label(widgets::muted(preview, ui));
+        }
+        error = field.error;
+    });
+    if let Some(error) = error {
+        ui.horizontal(|ui| {
+            ui.add_space(SPACE_L);
+            field_error(ui, &error);
+        });
     }
 }
 

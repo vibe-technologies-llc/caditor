@@ -65,6 +65,10 @@ pub const NAVIGATION: &str = phosphor::COMPASS;
 pub const GRAPHICS: &str = phosphor::MONITOR;
 pub const MEASURE: &str = phosphor::RULER;
 pub const COPY: &str = phosphor::COPY_SIMPLE;
+pub const FEATURES: &str = phosphor::TREE_STRUCTURE;
+pub const PARAMETERS: &str = phosphor::FUNCTION;
+pub const GO_TO: &str = phosphor::ARROW_RIGHT;
+pub const DETACH: &str = phosphor::LINK_BREAK;
 const ORIGIN: &str = phosphor::CROSSHAIR;
 
 pub fn command(command: Command) -> &'static str {

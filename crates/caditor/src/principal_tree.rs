@@ -1,22 +1,24 @@
 use caditor_document::{Document, PrincipalGeometry};
-use egui::{
-    Button, Color32, CornerRadius, Frame, Label, Margin, RichText, Sense, Sides, Ui,
-    collapsing_header::CollapsingState,
-};
+use egui::{Id, Label, RichText, Ui, collapsing_header::CollapsingState};
 
 use crate::{
-    appearance::{self, WIDGET_RADIUS},
-    icons,
+    appearance, icons,
     model::{Action, Model},
     panels::PanelState,
+    selection::Selection,
+    tree_row::{self, CHILD_INDENT, Look},
     visibility, widgets,
 };
 
-pub const GROUP_TITLE: &str = "Principal planes and axes";
-const ROW_MARGIN: Margin = Margin::symmetric(4, 2);
-const BODY_INDENT: f32 = 8.0;
+pub const GROUP_TITLE: &str = "Principal planes, axes and origin";
 
-pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
+pub fn show(
+    ui: &mut Ui,
+    model: &Model,
+    selection: &Selection,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+) {
     let document = model.document();
     let mut collapsing = CollapsingState::load_with_default_open(
         ui.ctx(),
@@ -24,72 +26,49 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
         false,
     );
     let shown = visibility::any_principal_shown(document);
-    let tokens = appearance::tokens(ui);
-    let mut prepared = Frame::new()
-        .corner_radius(CornerRadius::same(WIDGET_RADIUS))
-        .inner_margin(ROW_MARGIN)
-        .begin(ui);
-    let (toggled, name) = {
-        let ui = &mut prepared.content_ui;
-        let open = collapsing.is_open();
-        Sides::new()
-            .shrink_left()
-            .truncate()
-            .show(
+    let muted = appearance::tokens(ui).text_muted;
+    let open = collapsing.is_open();
+    let row = tree_row::show(
+        ui,
+        Look::default(),
+        |ui| {
+            let toggle = tree_row::chevron(ui, open, GROUP_TITLE);
+            widgets::icon_label(ui, icons::PRINCIPAL_GROUP, muted);
+            ui.add(
+                Label::new(title(ui, GROUP_TITLE, shown))
+                    .selectable(false)
+                    .truncate(),
+            );
+            let name = tree_row::sense(
                 ui,
-                |ui| {
-                    let chevron = if open {
-                        icons::EXPANDED
-                    } else {
-                        icons::COLLAPSED
-                    };
-                    let hint = if open { "Hide details" } else { "Show details" };
-                    let toggle = ui
-                        .add(widgets::Named::new(
-                            Button::new(widgets::icon(chevron).color(tokens.text_muted))
-                                .frame(false),
-                            format!("{hint} of {GROUP_TITLE}"),
-                        ))
-                        .on_hover_text(hint);
-                    widgets::icon_label(ui, icons::PRINCIPAL_GROUP, tokens.text_muted);
-                    let name = ui.add(
-                        Label::new(title(ui, GROUP_TITLE, shown))
-                            .selectable(false)
-                            .sense(Sense::click())
-                            .truncate(),
-                    );
-                    (toggle.clicked(), name)
-                },
-                |ui| {
-                    let transaction = visibility::toggle_principal_group(document);
-                    if eye(ui, shown, transaction.label()) {
-                        actions.push(Action::Apply(transaction));
-                    }
-                },
-            )
-            .0
-    };
-    let rect = prepared.content_ui.min_rect() + ROW_MARGIN;
-    prepared.frame.fill = if ui.rect_contains_pointer(rect) {
-        tokens.stripe
-    } else {
-        Color32::TRANSPARENT
-    };
-    prepared.end(ui);
+                Id::new("principal-group-row"),
+                toggle.rect.right(),
+                GROUP_TITLE,
+                false,
+            );
+            (toggle.clicked(), name)
+        },
+        |ui| {
+            tree_row::empty_slot(ui);
+            tree_row::slot(ui, |ui| {
+                let transaction = visibility::toggle_principal_group(document);
+                if eye(ui, shown, transaction.label()) {
+                    actions.push(Action::Apply(transaction));
+                }
+            });
+        },
+    );
+    let (toggled, name) = row.leading;
+    if name.has_focus() {
+        tree_row::focus_outline(ui, row.rect);
+    }
     if toggled || name.clicked() {
         collapsing.toggle(ui);
     }
     collapsing.show_body_unindented(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.add_space(BODY_INDENT);
-            ui.vertical(|ui| {
-                widgets::card(ui, |ui| {
-                    for geometry in PrincipalGeometry::ALL {
-                        item(ui, document, state, actions, geometry);
-                    }
-                });
-            });
-        });
+        for geometry in PrincipalGeometry::ALL {
+            item(ui, document, selection, state, actions, geometry);
+        }
     });
     collapsing.store(ui.ctx());
 }
@@ -97,33 +76,55 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
 fn item(
     ui: &mut Ui,
     document: &Document,
+    selection: &Selection,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     geometry: PrincipalGeometry,
 ) {
     let shown = visibility::is_principal_shown(document, geometry);
     let muted = appearance::tokens(ui).text_muted;
+    let pickable = visibility::pickable(geometry);
     let transaction = visibility::toggle_principal(document, geometry);
-    let (row, clicked) = Sides::new().shrink_left().truncate().show(
+    let look = Look {
+        selected: selection.contains(pickable),
+        open: false,
+    };
+    let row = tree_row::show(
         ui,
+        look,
         |ui| {
-            ui.horizontal(|ui| {
-                widgets::icon_label(ui, icons::principal(geometry), muted);
-                ui.add(
-                    Label::new(title(ui, geometry.name(), shown))
-                        .selectable(false)
-                        .sense(Sense::hover())
-                        .truncate(),
-                )
-            })
-            .inner
+            ui.add_space(CHILD_INDENT);
+            widgets::icon_label(ui, icons::principal(geometry), muted);
+            ui.add(
+                Label::new(title(ui, geometry.name(), shown))
+                    .selectable(false)
+                    .truncate(),
+            );
+            tree_row::sense(
+                ui,
+                Id::new(("principal-row", geometry)),
+                ui.min_rect().left(),
+                geometry.name(),
+                look.selected,
+            )
         },
-        |ui| eye(ui, shown, transaction.label()),
+        |ui| {
+            tree_row::empty_slot(ui);
+            tree_row::slot(ui, |ui| eye(ui, shown, transaction.label()))
+        },
     );
-    if row.hovered() && shown {
-        state.hovered_in_tree = Some(visibility::pickable(geometry));
+    let name = row.leading;
+    if name.has_focus() {
+        tree_row::focus_outline(ui, row.rect);
     }
-    if clicked {
+    if ui.rect_contains_pointer(row.rect) && shown {
+        state.hovered_in_tree = Some(pickable);
+    }
+    if (name.clicked() || name.gained_focus()) && shown {
+        state.selected = None;
+        state.chosen_in_tree = Some(pickable);
+    }
+    if row.trailing {
         actions.push(Action::Apply(transaction));
     }
 }
@@ -138,16 +139,10 @@ fn title(ui: &Ui, text: &str, shown: bool) -> RichText {
 }
 
 fn eye(ui: &mut Ui, shown: bool, name: &str) -> bool {
-    let muted = appearance::tokens(ui).text_muted;
     let (glyph, hover) = if shown {
         (icons::SHOW, "Hide")
     } else {
         (icons::HIDE, "Show")
     };
-    ui.add(widgets::Named::new(
-        Button::new(widgets::icon(glyph).color(muted)).frame_when_inactive(false),
-        name,
-    ))
-    .on_hover_text(hover)
-    .clicked()
+    widgets::named(widgets::icon_button(ui, glyph, hover), name).clicked()
 }

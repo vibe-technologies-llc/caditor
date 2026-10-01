@@ -2,13 +2,13 @@ use std::collections::BTreeSet;
 
 use caditor_document::FeatureId;
 use caditor_kernel::Accuracy;
-use egui::{Label, RichText, ScrollArea, Sides, TextWrapMode, Ui};
+use egui::{Label, ScrollArea, TextWrapMode, Ui};
 
 use crate::{
-    appearance,
+    appearance::{SPACE_M, SPACE_S},
     bodies::{BodyMass, BodyMeshes, MassAccuracy},
     icons,
-    measure::{MeasureTool, MeasuredLine, Readout, Value},
+    measure::{Freshness, MeasureTool, MeasuredLine, Readout, Value},
     model::Model,
     selection::{Pickable, Selection},
     units::{LengthUnit, angle_text},
@@ -25,7 +25,8 @@ pub const EMPTY_HINT: &str = "Select a vertex, edge, face or sketch point to mea
                               them to measure between them. Shift or Ctrl adds to the selection.";
 const PANEL_WIDTH: f32 = 300.0;
 const MIN_PANEL_WIDTH: f32 = 220.0;
-const CARD_GAP: f32 = 8.0;
+const MASS_SECTION: &str = "measure-mass";
+const STALE_OPACITY: f32 = 0.5;
 const APPROXIMATELY: &str = "≈ ";
 const MESHING: &str = "Waiting for the body's mesh.";
 const ALL_BODIES: &str = "Every body shown; select a face, edge or vertex for one body alone.";
@@ -225,8 +226,10 @@ pub fn mass_cards(context: &MeasureContext<'_>) -> (Vec<Card>, bool) {
 pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool) {
     tool.measurements.refresh(context.model, context.selection);
     let unit = context.model.length_unit();
-    let readout = tool.measurements.readout();
-    let cards = readout.map(|readout| readout_cards(readout, unit));
+    let shown = tool.measurements.shown();
+    let measuring = tool.measurements.is_measuring();
+    let cards =
+        shown.map(|(readout, freshness)| (readout, readout_cards(readout, unit), freshness));
     let (masses, everything) = mass_cards(context);
     let mut close = false;
     egui::Panel::right("measure")
@@ -234,61 +237,42 @@ pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool) {
         .default_size(PANEL_WIDTH)
         .min_size(MIN_PANEL_WIDTH)
         .show(ui, |ui| {
-            ui.add_space(CARD_GAP / 2.0);
-            Sides::new().shrink_left().show(
-                ui,
-                |ui| {
-                    let tokens = appearance::tokens(ui);
-                    widgets::icon_label(ui, icons::MEASURE, tokens.text_muted);
-                    ui.add(Label::new(widgets::section_title(TITLE)).selectable(false));
-                },
-                |ui| {
-                    close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-                    let everything_text = cards
-                        .iter()
-                        .flatten()
-                        .chain(&masses)
-                        .map(Card::text)
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    if widgets::icon_button(ui, icons::COPY, COPY_ALL).clicked() {
-                        ui.ctx().copy_text(everything_text);
-                    }
-                },
-            );
-            ui.add_space(CARD_GAP / 2.0);
+            ui.add_space(SPACE_S);
+            widgets::panel_header(ui, icons::MEASURE, TITLE, |ui| {
+                close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+                let everything_text = cards
+                    .iter()
+                    .flat_map(|(_, cards, _)| cards)
+                    .chain(&masses)
+                    .map(Card::text)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let copy = widgets::small_button(ui, icons::COPY, COPY_ALL);
+                if ui
+                    .add(copy)
+                    .on_hover_text("Copy every reading in the panel as text")
+                    .clicked()
+                {
+                    ui.ctx().copy_text(everything_text);
+                }
+                if measuring && !context.selection.is_empty() {
+                    ui.label(widgets::muted(MEASURING, ui));
+                }
+            });
+            ui.add_space(SPACE_S);
             ScrollArea::vertical().show(ui, |ui| {
                 if context.selection.is_empty() {
                     widgets::callout(ui, Tone::Info, |ui| ui.label(EMPTY_HINT));
-                    ui.add_space(CARD_GAP);
-                }
-                match (&cards, readout) {
-                    (Some(cards), Some(readout)) => {
-                        if let Some(problem) = readout.problem {
-                            widgets::callout(ui, Tone::Warning, |ui| ui.label(problem));
-                            ui.add_space(CARD_GAP);
+                    ui.add_space(SPACE_M);
+                } else if let Some((readout, cards, freshness)) = &cards {
+                    ui.scope(|ui| {
+                        if *freshness == Freshness::Stale {
+                            ui.multiply_opacity(STALE_OPACITY);
                         }
-                        for (index, card) in cards.iter().enumerate() {
-                            show_card(ui, ("measured", index), card);
-                            ui.add_space(CARD_GAP);
-                        }
-                    }
-                    _ => {
-                        ui.label(widgets::muted(MEASURING, ui));
-                        ui.add_space(CARD_GAP);
-                    }
+                        readings(ui, readout, cards);
+                    });
                 }
-                ui.label(widgets::section_title(MASS_TITLE));
-                if everything && !masses.is_empty() {
-                    ui.label(widgets::muted(ALL_BODIES, ui));
-                }
-                if masses.is_empty() {
-                    ui.label(widgets::muted("There are no bodies yet.", ui));
-                }
-                for (index, card) in masses.iter().enumerate() {
-                    ui.add_space(CARD_GAP / 2.0);
-                    show_card(ui, ("mass", index), card);
-                }
+                mass_section(ui, &masses, everything);
             });
         });
     if close {
@@ -296,10 +280,43 @@ pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool) {
     }
 }
 
+fn readings(ui: &mut Ui, readout: &Readout, cards: &[Card]) {
+    if let Some(problem) = readout.problem {
+        widgets::callout(ui, Tone::Warning, |ui| ui.label(problem));
+        ui.add_space(SPACE_M);
+    }
+    for (index, card) in cards.iter().enumerate() {
+        show_card(ui, ("measured", index), card);
+        ui.add_space(SPACE_M);
+    }
+}
+
+fn mass_section(ui: &mut Ui, masses: &[Card], everything: bool) {
+    widgets::section(
+        ui,
+        MASS_SECTION,
+        MASS_TITLE,
+        Some(masses.len()),
+        None,
+        |ui| {
+            if everything && !masses.is_empty() {
+                ui.label(widgets::muted(ALL_BODIES, ui));
+            }
+            if masses.is_empty() {
+                ui.label(widgets::muted("There are no bodies yet.", ui));
+            }
+            for (index, card) in masses.iter().enumerate() {
+                show_card(ui, ("mass", index), card);
+                ui.add_space(SPACE_S);
+            }
+        },
+    );
+}
+
 fn show_card(ui: &mut Ui, id: (&str, usize), card: &Card) {
     widgets::card(ui, |ui| {
         ui.add(
-            Label::new(RichText::new(&card.title).strong())
+            Label::new(widgets::strong(&card.title))
                 .wrap_mode(TextWrapMode::Wrap)
                 .selectable(false),
         );
@@ -307,21 +324,15 @@ fn show_card(ui: &mut Ui, id: (&str, usize), card: &Card) {
             widgets::properties(ui, id, |ui| {
                 for row in &card.rows {
                     widgets::property(ui, &row.label, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.add(Label::new(&row.text).selectable(true));
-                            let hover = format!("Copy {}", row.label.to_lowercase());
-                            if widgets::icon_button(ui, icons::COPY, &hover).clicked() {
-                                ui.ctx().copy_text(format!("{}: {}", row.label, row.text));
-                            }
-                        });
+                        ui.add(Label::new(&row.text).selectable(true));
                     });
                 }
             });
         }
-        for (tone, note) in &card.notes {
-            widgets::callout(ui, *tone, |ui| ui.label(note));
-        }
     });
+    for (tone, note) in &card.notes {
+        widgets::callout(ui, *tone, |ui| ui.label(note));
+    }
 }
 
 #[cfg(test)]

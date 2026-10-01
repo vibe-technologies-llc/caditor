@@ -827,6 +827,11 @@ impl Harness {
     }
 }
 
+fn assert_failure_shown_once(harness: &Harness, name: &str) {
+    assert_ne!(harness.color_of(name), harness.error_color());
+    assert!(harness.shows(icons::FAILED));
+}
+
 fn collect_texts(
     shape: Shape,
     texts: &mut Vec<(String, Rect)>,
@@ -877,7 +882,7 @@ fn editing_parameters_breaking_a_feature_and_undoing_it_works_through_the_panels
     harness.type_into(Focus::ParameterValue(width), "30 mm");
     harness.settle();
     assert!(harness.shows("1 feature failed"));
-    assert_eq!(harness.color_of("Side sketch"), harness.error_color());
+    assert_failure_shown_once(&harness, "Side sketch");
     assert!(harness.shows(
         "Distance between Point 0 and Point 1 cannot be evaluated: it uses height, which has an \
          error."
@@ -2141,7 +2146,7 @@ fn every_conflicting_part_of_a_sketch_is_named_in_the_error() {
     )));
     harness.settle();
 
-    assert_eq!(harness.color_of("Base sketch"), harness.error_color());
+    assert_failure_shown_once(&harness, "Base sketch");
     assert!(harness.shows_containing("The sketch has 2 separate problems."));
     assert!(harness.shows_containing("Vertical Line 2 conflicts with Horizontal Line 2."));
 }
@@ -2169,7 +2174,7 @@ fn a_constraint_conflict_is_named_and_leads_to_the_newest_constraint() {
     )));
     harness.settle();
 
-    assert_eq!(harness.color_of("Base sketch"), harness.error_color());
+    assert_failure_shown_once(&harness, "Base sketch");
     assert!(harness.shows("Vertical Line 2 conflicts with Horizontal Line 2."));
     harness.click("Go to Vertical Line 2");
     harness.let_animations_finish();
@@ -4774,7 +4779,7 @@ fn the_tree_places_a_sketch_on_the_selected_face_and_detaches_it() {
     harness.settle();
 
     harness.select([top]);
-    harness.click("Loose");
+    harness.click_button("Show details of Loose");
     harness.click("Place on selected face");
     harness.settle();
     assert_eq!(harness.model.undo_label(), Some("Place Loose on a face"));
@@ -6211,11 +6216,11 @@ fn a_parameter_is_deleted_and_a_failed_feature_found_from_the_keyboard() {
     run_from_palette(&mut harness, "add parameter");
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
-    assert!(harness.document().parameter_named("parameter").is_some());
+    assert!(harness.document().parameter_named("parameter1").is_some());
     run_from_palette(&mut harness, "delete parameter");
     harness.settle();
-    assert!(harness.document().parameter_named("parameter").is_none());
-    assert_eq!(harness.model.undo_label(), Some("Delete parameter"));
+    assert!(harness.document().parameter_named("parameter1").is_none());
+    assert_eq!(harness.model.undo_label(), Some("Delete parameter1"));
 
     assert!(
         offer(&harness, Command::ShowFirstFailed)
@@ -6244,16 +6249,8 @@ fn a_parameter_is_deleted_and_a_failed_feature_found_from_the_keyboard() {
 #[test]
 fn a_parameter_that_cannot_be_deleted_names_what_uses_it() {
     let mut harness = Harness::new();
-    let (_, trash) = harness
-        .texts
-        .iter()
-        .find(|(shown, _)| shown == crate::icons::DELETE)
-        .expect("the first parameter has a delete button")
-        .clone();
-    harness.events.push(Event::PointerMoved(trash.center()));
-    for _ in 0..TOOLTIP_FRAMES {
-        harness.frame();
-    }
+    assert!(!harness.shows(crate::icons::DELETE));
+    harness.hover_button("Delete width");
 
     assert!(harness.shows("width is used by height and Base sketch. Remove those uses first."));
 }
@@ -6294,7 +6291,7 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     assert_readable(&harness, "The empty window");
     assert!(harness.accessible_named(Role::Button, "More actions for Side sketch"));
     assert!(harness.accessible_named(Role::Button, "Show details of Base sketch"));
-    assert!(harness.accessible_named(Role::Button, "Edit sketch (Base sketch)"));
+    assert!(harness.accessible_named(Role::Button, "Edit Base sketch"));
     assert!(harness.accessible_named(Role::Button, "Add parameter"));
     assert!(harness.accessible_named(Role::Button, "Length unit: millimetres"));
 
@@ -6471,12 +6468,6 @@ fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_per
         .filter(|(_, rect)| !visible.expand(0.5).contains_rect(*rect))
         .map(|(shown, _)| shown.as_str())
         .collect();
-    let deletes: Vec<Rect> = harness
-        .texts
-        .iter()
-        .filter(|(shown, _)| shown == crate::icons::DELETE)
-        .map(|(_, rect)| *rect)
-        .collect();
 
     assert!(narrowed.width() < panel.width(), "{narrowed:?}");
     assert_eq!(settled, narrowed);
@@ -6484,7 +6475,7 @@ fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_per
     assert!(outside.is_empty(), "{outside:#?}");
     assert!(rect_of(notice).height() > 1.5 * line, "the notice wraps");
     assert!(rect_of(name).max.x <= rect_of("Search commands").min.x);
-    assert_eq!(deletes.len(), 2);
+    let deletes = ["width", "height"].map(|name| harness.button_rect(&format!("Delete {name}")));
     assert!(deletes.iter().all(|rect| rect.max.x <= narrowed.max.x));
 }
 
@@ -6501,7 +6492,7 @@ fn parameters_are_added_renamed_given_expressions_and_deleted_in_their_table() {
     let mut harness = Harness::new();
     harness.click_beside(crate::icons::ADD, "Parameters");
     harness.frame();
-    let added = harness.parameter("parameter");
+    let added = harness.parameter("parameter1");
     let added_label = harness.model.undo_label().map(str::to_owned);
     let focused_on_name = harness.focused() == Some(Focus::ParameterName(added).field_id());
     harness.key(Key::A, Modifiers::COMMAND);
@@ -6518,14 +6509,14 @@ fn parameters_are_added_renamed_given_expressions_and_deleted_in_their_table() {
     harness.settle();
     let height_text = harness.expression_text("height");
     let depth_text = harness.expression_text("depth");
-    harness.click_beside(crate::icons::DELETE, "depth");
+    harness.click_button("Delete depth");
     harness.settle();
     let deleted_label = harness.model.undo_label().map(str::to_owned);
     let deleted = harness.document().parameter(added).is_none();
     harness.perform(Action::Undo);
     harness.settle();
 
-    assert_eq!(added_label.as_deref(), Some("Add parameter"));
+    assert_eq!(added_label.as_deref(), Some("Add parameter1"));
     assert!(focused_on_name);
     assert_eq!(renamed.as_deref(), Some("depth"));
     assert!(quarter_shown);
@@ -8371,7 +8362,7 @@ fn deleting_a_feature_others_use_asks_whether_to_take_or_keep_them() {
     harness.show_new_windows();
     let asked = harness.shows("Delete “Plate”?") && harness.shows("1 feature depends on “Plate”:");
     let listed = harness.shows("uses Plate");
-    let primary = harness.position_of(crate::feature_tree::DELETE_WITH_DEPENDENTS);
+    let with_dependents = harness.position_of(crate::feature_tree::DELETE_WITH_DEPENDENTS);
     let keep = harness.position_of(crate::feature_tree::KEEP_DEPENDENTS);
     let cancel = harness.position_of("Cancel");
     harness.click("Cancel");
@@ -8399,7 +8390,7 @@ fn deleting_a_feature_others_use_asks_whether_to_take_or_keep_them() {
 
     assert!(asked);
     assert!(listed);
-    assert!(primary.x > keep.x && keep.x > cancel.x);
+    assert!(with_dependents.x < keep.x && keep.x < cancel.x);
     assert!(cancelled);
     assert_eq!(kept, ["Base sketch", "Side sketch", "Extrude 1"]);
     assert!(failing);
@@ -8407,6 +8398,164 @@ fn deleting_a_feature_others_use_asks_whether_to_take_or_keep_them() {
     assert_eq!(label.as_deref(), Some("Delete Plate and its dependents"));
     assert_eq!(feature_names(&harness), everything);
     assert!(harness.shows("Up to date"));
+}
+
+#[test]
+fn a_click_on_a_feature_name_selects_it_without_opening_or_expanding_it() {
+    let mut harness = Harness::new();
+    let base = feature_named(&harness, "Base sketch");
+    let side = feature_named(&harness, "Side sketch");
+
+    harness.click("Side sketch");
+    let chosen = harness.workspace.panels.chosen();
+    let expanded = harness.shows(crate::feature_tree::DIMENSIONS_TITLE);
+    click_with(&mut harness, "Base sketch", Modifiers::COMMAND);
+
+    assert_eq!(chosen, vec![side]);
+    assert!(!expanded);
+    assert_eq!(harness.editing(), None);
+    assert_eq!(harness.workspace.panels.chosen(), vec![side, base]);
+    assert!(!harness.shows(crate::feature_tree::DIMENSIONS_TITLE));
+}
+
+#[test]
+fn the_chevron_alone_shows_and_hides_a_feature_s_details() {
+    let mut harness = Harness::new();
+
+    harness.click_button("Show details of Side sketch");
+    harness.let_animations_finish();
+    let shown = harness.shows(crate::feature_tree::DIMENSIONS_TITLE);
+    let chosen = harness.workspace.panels.chosen();
+    harness.click_button("Hide details of Side sketch");
+    harness.let_animations_finish();
+
+    assert!(shown);
+    assert!(chosen.is_empty());
+    assert_eq!(harness.editing(), None);
+    assert!(!harness.shows(crate::feature_tree::DIMENSIONS_TITLE));
+}
+
+#[test]
+fn a_double_click_or_enter_on_a_feature_row_opens_it() {
+    let mut harness = Harness::new();
+    let base = feature_named(&harness, "Base sketch");
+    let side = feature_named(&harness, "Side sketch");
+
+    harness.double_click("Side sketch");
+    harness.settle();
+    let double_clicked = harness.editing();
+    harness.perform(Action::Editing(EditingCommand::Finish));
+    harness.settle();
+    harness
+        .context
+        .memory_mut(|memory| memory.request_focus(Id::new(("feature-row", base))));
+    harness.frame();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.settle();
+
+    assert_eq!(double_clicked, Some(side));
+    assert_eq!(harness.workspace.panels.chosen(), vec![base]);
+    assert_eq!(harness.editing(), Some(base));
+    assert!(harness.shows(crate::feature_tree::DIMENSIONS_TITLE));
+}
+
+#[test]
+fn the_delete_dialog_starts_on_cancel_so_enter_deletes_nothing() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    let everything = feature_names(&harness);
+
+    harness.click("Plate");
+    harness.key(Key::Delete, Modifiers::NONE);
+    harness.show_new_windows();
+    let asked = harness.shows("Delete “Plate”?");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+
+    assert!(asked);
+    assert!(!harness.shows("Delete “Plate”?"));
+    assert_eq!(feature_names(&harness), everything);
+    assert!(harness.workspace.panels.deleting.is_none());
+}
+
+#[test]
+fn an_empty_tree_offers_a_new_sketch_and_the_samples() {
+    let mut harness = Harness::starting(None, Document::default(), Workspace::new());
+    assert!(harness.shows(crate::feature_tree::EMPTY_TREE));
+    harness.button_rect(crate::feature_tree::OPEN_SAMPLE_LABEL);
+    let new_sketch = harness
+        .accessible
+        .iter()
+        .filter(|(_, node)| node.role() == Role::Button && node.label() == Some("New sketch"))
+        .filter_map(|(_, node)| node.bounds())
+        .max_by(|a, b| a.y0.total_cmp(&b.y0))
+        .map(|bounds| {
+            Pos2::new(
+                ((bounds.x0 + bounds.x1) / 2.0) as f32,
+                ((bounds.y0 + bounds.y1) / 2.0) as f32,
+            )
+        })
+        .expect("the empty tree has a New sketch button");
+
+    harness.click_screen(new_sketch);
+    harness.show_new_windows();
+    let choosing = harness.workspace.editing.is_choosing_plane();
+    harness.perform(Action::Editing(EditingCommand::CancelNewSketch));
+    harness.click(crate::feature_tree::OPEN_SAMPLE_LABEL);
+
+    assert!(choosing);
+    assert!(harness.workspace.welcome_open);
+}
+
+#[test]
+fn a_principal_plane_chosen_in_the_tree_is_selected_in_the_view() {
+    let mut harness = Harness::new();
+    harness.click("Side sketch");
+
+    harness.click_button("Show details of Principal planes, axes and origin");
+    harness.let_animations_finish();
+    harness.click("XY plane");
+
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .selection()
+            .contains(Pickable::Plane(PrincipalPlane::Xy))
+    );
+    assert!(harness.workspace.panels.chosen().is_empty());
+}
+
+#[test]
+fn the_measure_panel_keeps_the_last_readout_until_the_next_one_arrives() {
+    let mut harness = Harness::new();
+    let (body, _) = extruded_plate(&mut harness);
+    let corner = vertex_at(&harness, body, caditor_geometry::Point3::ZERO);
+    let far = vertex_at(
+        &harness,
+        body,
+        caditor_geometry::Point3::new(40.0, 40.0, 10.0),
+    );
+    harness.key(Key::I, Modifiers::NONE);
+    harness.frame();
+    harness.select([far]);
+    harness.wait_until("the far corner is measured", |harness| {
+        harness.shows("40.000, 40.000, 10.000 mm")
+    });
+
+    let mut blank_frames = 0;
+    harness.select([corner]);
+    let deadline = Instant::now() + FILE_TIMEOUT;
+    while !harness.shows("0.000, 0.000, 0.000 mm") {
+        assert!(Instant::now() < deadline, "the corner is never measured");
+        if !harness.shows("40.000, 40.000, 10.000 mm") {
+            blank_frames += 1;
+        }
+        harness.frame();
+    }
+
+    assert_eq!(blank_frames, 0);
+    assert!(!harness.shows(crate::measure_panel::MEASURING));
 }
 
 fn radii_of_circles(sketch: &Sketch) -> Vec<f64> {
