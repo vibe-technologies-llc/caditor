@@ -460,6 +460,17 @@ impl Harness {
         self.texts.iter().any(|(shown, _)| shown == text)
     }
 
+    fn shows_containing(&self, text: &str) -> bool {
+        self.texts.iter().any(|(shown, _)| shown.contains(text))
+    }
+
+    fn add_stored_constraint(&mut self, feature: FeatureId, constraint: Constraint) {
+        let mut transaction = self.document().transaction("Add constraint");
+        transaction.add_sketch_constraint(feature, constraint);
+        self.perform(Action::Apply(transaction.finish()));
+        self.settle();
+    }
+
     fn count_shown(&self, text: &str) -> usize {
         self.texts.iter().filter(|(shown, _)| shown == text).count()
     }
@@ -1938,6 +1949,39 @@ fn clicking_a_constraint_in_the_tree_edits_its_sketch_and_selects_it() {
 }
 
 #[test]
+fn every_conflicting_part_of_a_sketch_is_named_in_the_error() {
+    let mut harness = Harness::new();
+    let base = harness.document().features().next().unwrap().clone();
+    let mut sketch = base.kind.sketch().unwrap().clone();
+    let line = sketch
+        .entities()
+        .find_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id))
+        .unwrap();
+    sketch.add_constraint(Constraint::Vertical(line)).unwrap();
+    let other = sketch.add_line(Point2::new(0.0, 90.0), Point2::new(5.0, 90.0));
+    sketch
+        .add_constraint(Constraint::Horizontal(other))
+        .unwrap();
+    sketch.add_constraint(Constraint::Vertical(other)).unwrap();
+    let replacement = Feature::new(base.id(), base.name.clone(), FeatureKind::from(sketch));
+    harness.model.perform(Action::Apply(Transaction::new(
+        "Add conflicts",
+        vec![
+            Edit::RemoveFeature { id: base.id() },
+            Edit::InsertFeature {
+                index: 0,
+                feature: Arc::new(replacement),
+            },
+        ],
+    )));
+    harness.settle();
+
+    assert_eq!(harness.color_of("Base sketch"), harness.error_color());
+    assert!(harness.shows_containing("The sketch has 2 separate problems."));
+    assert!(harness.shows_containing("Vertical Line 2 conflicts with Horizontal Line 2."));
+}
+
+#[test]
 fn a_constraint_conflict_is_named_and_leads_to_the_newest_constraint() {
     let mut harness = Harness::new();
     let base = harness.document().features().next().unwrap().clone();
@@ -2062,6 +2106,9 @@ fn horizontal_from_the_selection_levels_a_line_and_updates_the_freedom() {
     harness.key(Key::H, Modifiers::SHIFT);
     harness.frame();
     harness.settle();
+    assert_eq!(harness.sketch(feature).constraints().len(), 1);
+
+    harness.add_stored_constraint(feature, Constraint::Horizontal(line));
     assert!(harness.shows("1 redundant constraint"));
     assert!(harness.shows("Redundant: Horizontal Line 2 already does this. Delete one of them."));
 }
@@ -2271,6 +2318,8 @@ fn a_conflict_colours_the_dimensions_and_glyphs_involved() {
     harness.key(Key::V, Modifiers::SHIFT);
     harness.frame();
     harness.settle();
+    assert!(!harness.shows("Conflicting constraints"));
+    harness.add_stored_constraint(base, Constraint::Vertical(line));
     assert!(harness.shows("Conflicting constraints"));
     for mark in ["H", "V"] {
         assert_eq!(harness.color_of(mark), canvas::ERROR, "{mark}");
@@ -2591,6 +2640,8 @@ fn a_conflicting_constraint_is_reported_and_undo_clears_it() {
     harness.key(Key::V, Modifiers::SHIFT);
     harness.frame();
     harness.settle();
+    assert!(!harness.shows("Conflicting constraints"));
+    harness.add_stored_constraint(base, Constraint::Vertical(line));
     assert!(harness.shows("Conflicting constraints"));
     assert!(harness.shows("Vertical Line 2 conflicts with Horizontal Line 2."));
 

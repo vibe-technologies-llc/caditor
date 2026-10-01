@@ -268,6 +268,7 @@ pub enum Operation {
     Add,
     Subtract,
     Compare,
+    Pair(Function),
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -322,10 +323,19 @@ pub enum EvalError {
     TooComplex,
     #[error("the result is too large or not a number")]
     NotFinite,
-    #[error("it gives {found}, but {expected} is needed")]
+    #[error(
+        "it gives {found}, but {expected} is needed{}",
+        if *.divides_by_unit {
+            "; a unit applies only to the number right before it, so in 1 / 2 mm the 2 mm is the \
+             divisor, and (1 / 2) mm gives the quotient its unit"
+        } else {
+            ""
+        }
+    )]
     WrongKind {
         expected: Dimension,
         found: Dimension,
+        divides_by_unit: bool,
     },
     #[error("it uses {name}, which has an error")]
     ParameterFailed { id: ParameterId, name: String },
@@ -338,6 +348,9 @@ fn mismatch_message(operation: Operation, left: Dimension, right: Dimension) -> 
         Operation::Add => format!("{right} cannot be added to {left}"),
         Operation::Subtract => format!("{right} cannot be subtracted from {left}"),
         Operation::Compare => format!("{left} cannot be compared with {right}"),
+        Operation::Pair(function) => {
+            format!("{function} needs values of the same kind, not {left} and {right}")
+        }
     }
 }
 
@@ -428,8 +441,17 @@ impl Expression {
             Err(EvalError::WrongKind {
                 expected,
                 found: result.dimension,
+                divides_by_unit: self.divides_by_unit(expected, result.dimension),
             })
         }
+    }
+
+    fn divides_by_unit(&self, expected: Dimension, found: Dimension) -> bool {
+        let Self::Binary(BinaryOperator::Divide, _, divisor) = self else {
+            return false;
+        };
+        matches!(**divisor, Self::Measure(..) | Self::WithUnit(..))
+            && Dimension::NONE.over(expected) == Some(found)
     }
 
     fn evaluate_unchecked<F>(&self, value_of: &F) -> Result<Quantity, EvalError>
@@ -766,6 +788,9 @@ fn power(base: Quantity, exponent: Quantity) -> Result<Quantity, EvalError> {
             found: exponent.dimension,
         });
     }
+    if base.value == 0.0 && exponent.value < 0.0 {
+        return Err(EvalError::DivisionByZero);
+    }
     if base.dimension.is_plain() {
         if base.value < 0.0 && exponent.value.fract() != 0.0 {
             return Err(EvalError::NegativeBase);
@@ -831,7 +856,7 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
             };
             match arguments.get(1) {
                 Some(step) => {
-                    let dimension = unify(Operation::Compare, first, *step)?;
+                    let dimension = unify(Operation::Pair(function), first, *step)?;
                     if step.value <= 0.0 {
                         return Err(EvalError::InvalidStep { function });
                     }
@@ -847,7 +872,7 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
             let divisor = *arguments
                 .get(1)
                 .ok_or(EvalError::WrongArgumentCount { function })?;
-            let dimension = unify(Operation::Compare, first, divisor)?;
+            let dimension = unify(Operation::Pair(function), first, divisor)?;
             if divisor.value == 0.0 {
                 return Err(EvalError::DivisionByZero);
             }
@@ -858,7 +883,7 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
             let other = *arguments
                 .get(1)
                 .ok_or(EvalError::WrongArgumentCount { function })?;
-            let dimension = unify(Operation::Compare, first, other)?;
+            let dimension = unify(Operation::Pair(function), first, other)?;
             Ok(Quantity::new(first.value.hypot(other.value), dimension))
         }
         Function::Exp => Ok(Quantity::plain(plain_number(function, first)?.exp())),
@@ -885,8 +910,12 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
             let (Some(low), Some(high)) = (arguments.get(1), arguments.get(2)) else {
                 return Err(EvalError::WrongArgumentCount { function });
             };
-            let dimension = unify(Operation::Compare, first, *low)?;
-            let dimension = unify(Operation::Compare, Quantity::new(0.0, dimension), *high)?;
+            let dimension = unify(Operation::Pair(function), first, *low)?;
+            let dimension = unify(
+                Operation::Pair(function),
+                Quantity::new(0.0, dimension),
+                *high,
+            )?;
             if low.value > high.value {
                 return Err(EvalError::InvertedLimits);
             }
@@ -921,7 +950,7 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
             let x = *arguments
                 .get(1)
                 .ok_or(EvalError::WrongArgumentCount { function })?;
-            unify(Operation::Compare, first, x)?;
+            unify(Operation::Pair(function), first, x)?;
             Ok(Quantity::angle(first.value.atan2(x.value).to_degrees()))
         }
     }
@@ -964,7 +993,7 @@ fn extreme(
     arguments: &[Quantity],
 ) -> Result<Quantity, EvalError> {
     arguments.iter().skip(1).try_fold(first, |best, next| {
-        let dimension = unify(Operation::Compare, best, *next)?;
+        let dimension = unify(Operation::Pair(function), best, *next)?;
         let value = if function == Function::Min {
             best.value.min(next.value)
         } else {

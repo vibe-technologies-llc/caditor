@@ -463,6 +463,44 @@ fn contradicting_directions_and_length_are_named_as_one_conflict() {
 }
 
 #[test]
+fn every_conflicting_part_is_reported_not_only_the_newest() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+    let first_level = add(&mut sketch, Constraint::Horizontal(first));
+    let first_upright = add(&mut sketch, Constraint::Vertical(first));
+    let second = sketch.add_line(Point2::new(0.0, 20.0), Point2::new(10.0, 20.0));
+    let second_level = add(&mut sketch, Constraint::Horizontal(second));
+    let second_upright = add(&mut sketch, Constraint::Vertical(second));
+    let third = sketch.add_line(Point2::new(0.0, 40.0), Point2::new(10.0, 40.0));
+    let third_level = add(&mut sketch, Constraint::Horizontal(third));
+    let third_upright = add(&mut sketch, Constraint::Vertical(third));
+
+    assert_eq!(
+        solve(&sketch),
+        Err(SketchError::Several(vec![
+            SketchError::Conflict {
+                constraints: vec![third_level, third_upright]
+            },
+            SketchError::Conflict {
+                constraints: vec![second_level, second_upright]
+            },
+            SketchError::Conflict {
+                constraints: vec![first_level, first_upright]
+            },
+        ]))
+    );
+
+    sketch.remove_constraint(third_upright).unwrap();
+    sketch.remove_constraint(second_upright).unwrap();
+    assert_eq!(
+        solve(&sketch),
+        Err(SketchError::Conflict {
+            constraints: vec![first_level, first_upright]
+        })
+    );
+}
+
+#[test]
 fn two_different_distances_between_the_same_points_conflict() {
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));

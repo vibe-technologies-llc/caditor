@@ -104,6 +104,12 @@ paths:
   - Otherwise the evidence is inconclusive.
 - Only a set judged unable to hold is reported, and its witnesses make it minimal. Recompute
   reports it as the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
+- Every failed part is diagnosed on its own budget, newest part first, up to `DIAGNOSED_PARTS`
+  (the rest are reported undiagnosed as `Unsolvable`). One failing part is reported as it is; two
+  or more as `SketchError::Several` holding each part's `Conflict` or `Unsolvable`, so the user
+  meets every problem at once. Recompute merges them into one `FeatureError` numbering each
+  reason and remedy, with the union of the conflicting constraints (all highlighted) and the
+  newest part's fix.
 - A failure with no such set (budget spent, the part holding after all from a warm start,
   inconclusive evidence, nothing to blame) is `SketchError::Unsolvable` with the part's curves and
   free points and its newest constraint; recompute words it as that geometry not solving from its

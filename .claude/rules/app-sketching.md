@@ -248,6 +248,13 @@ paths:
   to the first in one transaction. Fix locks selected points where shown. Symmetric takes two points
   or lines and the mirror: the one axis selected, else whichever of the three mirrors the other two
   best, pairing line ends by the reflection.
+- A candidate the sketch already has (`Sketch::restating`: the same relation on the same items in
+  either order, a level line and `HorizontalPoints` on its ends, a radius and a diameter of one
+  circle, a second dimension of one kind between the same items) is left out of a batch and, when
+  nothing is left, refused as "... is already in the sketch."; one that contradicts a constraint
+  (`Sketch::contradicting`: horizontal against vertical on a line, parallel against perpendicular)
+  is refused naming it. These checks are structural: the UI thread never solves, so a constraint
+  that only fails once solved is still reported afterwards, as a conflict naming its constraints.
 - Dimensions start at the displayed geometry's measured value. Every sketch transaction first
   settles the sketch to the last result, when up to date (`Model::settled_sketch`).
 - The UI thread never solves (drags solve on their own worker): constraint states, degrees of

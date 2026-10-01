@@ -31,6 +31,13 @@ paths:
 - `round`, `floor`, `ceil` and `trunc` take an optional step; the quotient is snapped to a whole
   number within the comparison tolerance, so `floor(0.3, 0.1)` is 0.3.
 - Chained comparisons, decimal commas, `mm2` and `width²` get messages of their own.
+- A function given values of different kinds says so in its own name (`hypot needs values of the
+  same kind, not a length and an angle`); only the comparison operators speak of comparing. A zero
+  base with a negative exponent divides by zero. A field expecting a length that gets `1 / 2 mm`
+  (a quantity in mm^-1) is told that a unit binds to the number before it and `(1 / 2) mm` gives
+  the quotient its unit.
+- `format_number` gives up to six decimals, trimmed; a nonzero value below 1e-4 or from 1e15 up is
+  written in scientific notation (`1e-7`, `1e300`), which the parser reads back.
 
 ## Limits and robustness
 

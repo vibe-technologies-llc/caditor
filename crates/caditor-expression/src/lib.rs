@@ -303,6 +303,46 @@ mod tests {
     }
 
     #[test]
+    fn function_errors_name_the_function_not_a_comparison() {
+        assert_eq!(
+            evaluate("hypot(1 mm, 1 deg)").unwrap_err().to_string(),
+            "hypot needs values of the same kind, not a length and an angle"
+        );
+        assert_eq!(
+            evaluate("min(1 mm, 1 deg)").unwrap_err().to_string(),
+            "min needs values of the same kind, not a length and an angle"
+        );
+        assert_eq!(
+            evaluate("width < 3 deg").unwrap_err().to_string(),
+            "a length cannot be compared with an angle"
+        );
+    }
+
+    #[test]
+    fn a_zero_base_with_a_negative_exponent_divides_by_zero() {
+        assert_eq!(evaluate("0 ^ -1"), Err(EvalError::DivisionByZero));
+        assert_eq!(evaluate("gap ^ -2"), Err(EvalError::DivisionByZero));
+        assert_eq!(evaluate("0 ^ 0"), Ok(Quantity::plain(1.0)));
+    }
+
+    #[test]
+    fn a_unit_after_a_divisor_is_explained() {
+        let length = |text: &str| {
+            parse(text)
+                .unwrap()
+                .evaluate_as(Dimension::LENGTH, &value_of)
+        };
+        let message = length("1 / 2 mm").unwrap_err().to_string();
+        assert!(message.starts_with("it gives a quantity in mm^-1, but a length is needed;"));
+        assert!(message.contains("(1 / 2) mm"));
+        assert_eq!(length("(1 / 2) mm"), Ok(0.5));
+        assert_eq!(
+            length("width ^ -1").unwrap_err().to_string(),
+            "it gives a quantity in mm^-1, but a length is needed"
+        );
+    }
+
+    #[test]
     fn evaluation_errors_are_plain_language() {
         assert_eq!(evaluate("width / gap"), Err(EvalError::DivisionByZero));
         assert_eq!(

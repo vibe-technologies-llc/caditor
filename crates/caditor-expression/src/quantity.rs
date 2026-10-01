@@ -1,6 +1,8 @@
 use std::fmt;
 
 const DISPLAY_DECIMALS: usize = 6;
+const SCIENTIFIC_BELOW: f64 = 1e-4;
+const SCIENTIFIC_FROM: f64 = 1e15;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Dimension {
@@ -132,15 +134,31 @@ impl fmt::Display for Quantity {
 }
 
 pub fn format_number(value: f64) -> String {
+    let magnitude = value.abs();
+    if magnitude != 0.0 && (magnitude < SCIENTIFIC_BELOW || magnitude >= SCIENTIFIC_FROM) {
+        return format_scientific(value);
+    }
     let rounded = format!("{value:.DISPLAY_DECIMALS$}");
-    let trimmed = if rounded.contains('.') {
-        rounded.trim_end_matches('0').trim_end_matches('.')
-    } else {
-        rounded.as_str()
-    };
+    let trimmed = trim_decimals(&rounded);
     match trimmed {
         "-0" => "0".to_owned(),
         other => other.to_owned(),
+    }
+}
+
+fn format_scientific(value: f64) -> String {
+    let text = format!("{value:.DISPLAY_DECIMALS$e}");
+    match text.split_once('e') {
+        Some((mantissa, exponent)) => format!("{}e{exponent}", trim_decimals(mantissa)),
+        None => text,
+    }
+}
+
+fn trim_decimals(text: &str) -> &str {
+    if text.contains('.') {
+        text.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        text
     }
 }
 
@@ -254,7 +272,15 @@ mod tests {
     fn quantities_display_with_trimmed_decimals() {
         assert_eq!(Quantity::length(40.0).to_string(), "40 mm");
         assert_eq!(Quantity::length(100.0 / 3.0).to_string(), "33.333333 mm");
-        assert_eq!(Quantity::angle(-0.0000001).to_string(), "0°");
+        assert_eq!(Quantity::angle(-0.0000001).to_string(), "-1e-7°");
+        assert_eq!(Quantity::angle(-0.0).to_string(), "0°");
+        assert_eq!(Quantity::length(1.5e-5).to_string(), "1.5e-5 mm");
+        assert_eq!(Quantity::length(0.001).to_string(), "0.001 mm");
+        assert_eq!(Quantity::length(1e300).to_string(), "1e300 mm");
+        assert_eq!(
+            Quantity::length(123456789012.5).to_string(),
+            "123456789012.5 mm"
+        );
         assert_eq!(Quantity::new(12.5, Dimension::AREA).to_string(), "12.5 mm²");
         assert_eq!(Quantity::plain(3.0).to_string(), "3");
     }
