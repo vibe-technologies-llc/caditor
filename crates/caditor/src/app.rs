@@ -47,6 +47,7 @@ use crate::{
         self, Appearance, PreferenceChange, Preferences, PreferencesCommand, PreferencesTab,
         PreferencesView, TitleBar,
     },
+    reference_picking,
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar,
     status_bar::{self, StatusContext},
@@ -331,6 +332,7 @@ pub fn show(
     };
     panels::commands(&context, panels, &mut commands, actions);
     route_dimension_focus(panels, editing, viewport);
+    reference_picking::publish(ui.ctx(), editing.picking());
     panels::show(ui, model, viewport.selection(), editing, panels, actions);
     preferences.panels = panels.layout();
     route_dimension_focus(panels, editing, viewport);

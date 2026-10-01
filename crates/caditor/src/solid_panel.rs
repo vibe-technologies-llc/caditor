@@ -5,23 +5,27 @@ use caditor_document::{
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_sketch::{Entity, EntityId, Reference};
-use egui::{Button, ComboBox, Id, Ui};
+use egui::{Id, Ui};
 
 use crate::{
     datum_tools,
     editing::EditingCommand,
-    field::{self, Expected},
-    icons,
-    model::{Action, Model, Notice},
+    feature_fields::{
+        self, Choice, MISSING_BODY, MISSING_SKETCH, Picker, Quantity, REVERSE_DIRECTION, Rule,
+        Segment, Shown,
+    },
+    feature_tree::count,
+    field,
+    model::{Action, Model},
+    reference_picking::{self, Picking, Side, Slot},
     scene,
     selection::{self, Pickable, Selection},
     sketch_placement::{self, FaceChoice},
     solid_tools::{self, DEFAULT_BACKWARD_ANGLE, DEFAULT_PARTIAL_ANGLE},
-    widgets::{self, FIELD_WIDTH},
+    widgets,
 };
 
 const FULL_TURN_DEGREES: f64 = 360.0;
-const USE_SELECTED: &str = "Use selected";
 const THROUGH_ALL_NEEDS_A_CUT: &str = "Through all cuts into a body or intersects with it; choose Remove from body or Intersect \
      with body first";
 const UP_TO_NEXT_NEEDS_A_BODY: &str = "Up to next stops at the body this feature changes; choose Add, Remove or Intersect with a \
@@ -30,6 +34,7 @@ const NO_TARGET_SELECTED: &str =
     "Select a flat face or a plane made before this feature, then choose Up to face";
 const CURVED_TARGET: &str =
     "The selected face is curved; an extrusion can only end on a flat face or plane";
+const SIDES_CHANGED: &str = "The extrusion no longer has that end; choose the face again";
 
 struct Panel<'a> {
     model: &'a Model,
@@ -37,20 +42,6 @@ struct Panel<'a> {
     feature: &'a Feature,
     solid: &'a SolidFeature,
     actions: &'a mut Vec<Action>,
-}
-
-struct Choice {
-    label: String,
-    selected: bool,
-    change: Result<Transaction, String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Rule {
-    Positive,
-    PositiveSide,
-    PositiveTurn,
-    TurnBeside(f64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,6 +84,7 @@ struct EndRows<'a> {
     distance: &'a str,
     face: &'a str,
     salt: &'a str,
+    side: Side,
     rule: Rule,
 }
 
@@ -115,117 +107,68 @@ impl Panel<'_> {
             .default_length(solid_tools::DEFAULT_DISTANCE)
     }
 
+    fn picking(&self, ui: &Ui, slot: Slot) -> bool {
+        reference_picking::current(ui.ctx()).is_some_and(|picking| picking.is_for(self.id(), slot))
+    }
+
     fn combo(
         &mut self,
         ui: &mut Ui,
         salt: &str,
-        selected: &str,
+        selected: impl Into<egui::WidgetText>,
         options: impl FnOnce(&Self) -> Vec<Choice>,
     ) {
-        let mut chosen = None;
-        let combo = ComboBox::from_id_salt((salt, self.id()))
-            .selected_text(selected)
-            .show_ui(ui, |ui| {
-                for option in options(self) {
-                    let enabled = option.change.is_ok() || option.selected;
-                    let response =
-                        ui.add_enabled(enabled, Button::selectable(option.selected, &option.label));
-                    let response = match &option.change {
-                        Err(reason) if !option.selected => response.on_disabled_hover_text(reason),
-                        Err(_) | Ok(_) => response,
-                    };
-                    if response.clicked()
-                        && !option.selected
-                        && let Ok(transaction) = option.change
-                    {
-                        chosen = Some(transaction);
-                    }
-                }
-            });
-        widgets::tie_to_caption(ui, &combo.response);
-        if let Some(transaction) = chosen {
-            self.actions.push(Action::Apply(transaction));
-        }
+        let chosen =
+            feature_fields::combo(ui, Id::new((salt, self.id())), selected, || options(self));
+        self.actions.extend(chosen);
     }
 
     fn expression(
         &mut self,
         ui: &mut Ui,
+        caption: &str,
         salt: &str,
         expression: &Expression,
-        dimension: Dimension,
-        rule: Rule,
+        (dimension, rule): (Dimension, Rule),
         rebuild: impl FnOnce(Expression) -> SolidFeature,
     ) {
         let model = self.model;
         let id = self.id();
-        let document = model.document();
-        let parameters = model.parameters();
-        let mut error = None;
-        ui.horizontal(|ui| {
-            let field = field::commit_field(
-                ui,
-                Id::new(("solid-field", salt, id)),
-                &document.expression_text(expression),
-                FIELD_WIDTH,
-                false,
-                |text| {
-                    let parsed = field::parse_expression(
-                        document,
-                        parameters,
-                        text,
-                        Expected {
-                            dimension: Some(dimension),
-                            non_negative: false,
-                        },
-                        model.length_unit(),
-                    )?;
-                    let value = parameters
-                        .evaluate_expression(&parsed)
-                        .map_err(|error| field::sentence(&error.to_string()))?
-                        .value;
-                    check_rule(rule, value)?;
-                    change(model, id, rebuild(parsed))
-                },
-            );
-            if let Some(transaction) = field.committed {
-                self.actions.push(Action::Apply(transaction));
-            }
-            if field.error.is_none()
-                && let Some(preview) =
-                    field::value_preview(parameters, expression, model.length_unit())
-            {
-                ui.label(widgets::muted(preview, ui));
-            }
-            error = field.error;
+        let quantity = Quantity {
+            id: Id::new(("solid-field", salt, id)),
+            expression,
+            dimension,
+            rule,
+        };
+        let committed = feature_fields::expression_row(ui, model, caption, quantity, |parsed| {
+            change(model, id, rebuild(parsed))
         });
-        ui.end_row();
-        if let Some(error) = error {
-            widgets::error_row(ui, &error);
-        }
+        self.actions.extend(committed.map(Action::Apply));
     }
 
     fn sketch_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, "Sketch");
         let current = self.solid.sketch();
         let model = self.model;
-        let name = model
-            .document()
-            .feature(current)
-            .map_or("a missing sketch", |sketch| sketch.name.as_str());
-        self.combo(ui, "sketch", name, |panel| {
-            let end = panel.document().feature_index(panel.id()).unwrap_or(0);
-            panel
-                .document()
-                .features()
-                .take(end)
-                .filter(|candidate| candidate.kind.sketch().is_some())
-                .map(|candidate| Choice {
-                    label: candidate.name.clone(),
-                    selected: candidate.id() == current,
-                    change: panel.change(with_sketch(panel.solid, candidate.id())),
-                })
-                .collect()
+        ui.horizontal(|ui| {
+            let name = feature_fields::feature_name(model.document(), current);
+            let text = feature_fields::combo_text(ui, name, MISSING_SKETCH);
+            self.combo(ui, "sketch", text, |panel| {
+                let end = panel.document().feature_index(panel.id()).unwrap_or(0);
+                panel
+                    .document()
+                    .features()
+                    .take(end)
+                    .filter(|candidate| candidate.kind.sketch().is_some())
+                    .map(|candidate| Choice {
+                        label: candidate.name.clone(),
+                        selected: candidate.id() == current,
+                        change: panel
+                            .change(with_sketch(panel.solid, candidate.id()))
+                            .map(Action::Apply),
+                    })
+                    .collect()
+            });
         });
         ui.end_row();
     }
@@ -242,36 +185,38 @@ impl Panel<'_> {
         });
         let mut change = None;
         ui.vertical(|ui| {
-            if ui
-                .radio(all, "All closed regions")
-                .on_hover_text("Sweep every region that is not a hole of another")
-                .clicked()
-                && !all
-            {
-                change =
-                    Some(self.change(solid_tools::with_regions(self.solid, RegionChoice::All)));
+            let choices = [
+                (
+                    "All closed",
+                    "Sweep every region that is not a hole of another",
+                ),
+                ("Chosen", "Sweep only the regions you choose in the view"),
+            ];
+            match widgets::segmented(ui, &choices, usize::from(!all)) {
+                Some(0) => {
+                    change =
+                        Some(self.change(solid_tools::with_regions(self.solid, RegionChoice::All)));
+                }
+                Some(_) => {
+                    if let Some((_, regions)) = regions {
+                        let keys = scene::chosen_regions(&RegionChoice::All, regions)
+                            .into_iter()
+                            .collect();
+                        change = Some(self.change(solid_tools::with_regions(
+                            self.solid,
+                            RegionChoice::Chosen(keys),
+                        )));
+                    }
+                }
+                None => {}
             }
-            let chosen_text = format!(
-                "Chosen: {}",
-                crate::feature_tree::count(chosen_count, "region", "regions")
-            );
-            let can_choose = regions.is_some();
-            let response = ui.add_enabled(can_choose, egui::RadioButton::new(!all, chosen_text));
-            if response.clicked()
-                && all
-                && let Some((_, regions)) = regions
-            {
-                let keys = scene::chosen_regions(&RegionChoice::All, regions)
-                    .into_iter()
-                    .collect();
-                change = Some(self.change(solid_tools::with_regions(
-                    self.solid,
-                    RegionChoice::Chosen(keys),
-                )));
+            if !all {
+                let chosen = format!("{} chosen", count(chosen_count, "region", "regions"));
+                ui.label(widgets::muted(chosen, ui));
             }
             if widgets::choose_in_view(
                 ui,
-                opened,
+                feature_fields::choosing_list(ui, opened),
                 "Click regions in the view to include or leave them out.",
                 "Show the regions of the sketch so you can click them",
             ) {
@@ -280,10 +225,9 @@ impl Panel<'_> {
             }
         });
         ui.end_row();
-        match change {
-            Some(Ok(transaction)) => self.actions.push(Action::Apply(transaction)),
-            Some(Err(reason)) => self.refuse(&reason),
-            None => {}
+        if let Some(change) = change {
+            self.actions
+                .push(feature_fields::applied(&self.feature.name, change));
         }
     }
 
@@ -291,6 +235,7 @@ impl Panel<'_> {
         &self,
         extrude: &Extrude,
         end: &ExtrudeEnd,
+        side: Side,
         rebuild: &dyn Fn(ExtrudeEnd) -> ExtrudeExtent,
     ) -> Vec<Choice> {
         let current = EndKind::of(end);
@@ -319,49 +264,22 @@ impl Panel<'_> {
                     EndKind::UpToFace => selected_target(self.model, self.selection, self.id())
                         .map(ExtrudeEnd::UpToFace),
                 };
+                let change = match candidate {
+                    Ok(candidate) => self
+                        .change(with_extent_of(extrude, rebuild(candidate)))
+                        .map(Action::Apply),
+                    Err(_) if kind == EndKind::UpToFace => Ok(Action::Editing(
+                        EditingCommand::Pick(Picking::new(self.id(), Slot::ExtrudeTarget(side))),
+                    )),
+                    Err(reason) => Err(reason),
+                };
                 Choice {
                     label: kind.label().to_owned(),
                     selected: kind == current,
-                    change: candidate.and_then(|candidate| {
-                        self.change(with_extent_of(extrude, rebuild(candidate)))
-                    }),
+                    change,
                 }
             })
             .collect()
-    }
-
-    fn target_button(
-        &mut self,
-        ui: &mut Ui,
-        extrude: &Extrude,
-        target: &PlaneReference,
-        rebuild: &dyn Fn(ExtrudeEnd) -> ExtrudeExtent,
-    ) {
-        let change = selected_target(self.model, self.selection, self.id()).and_then(|chosen| {
-            if &chosen == target {
-                Err("This end already runs up to the selected face or plane".to_owned())
-            } else {
-                self.change(with_extent_of(
-                    extrude,
-                    rebuild(ExtrudeEnd::UpToFace(chosen)),
-                ))
-            }
-        });
-        let button = widgets::small_button(ui, icons::USE_SELECTED, USE_SELECTED);
-        let response = ui.add_enabled(change.is_ok(), button);
-        match change {
-            Ok(transaction) => {
-                if response
-                    .on_hover_text("Run up to the selected flat face or plane instead")
-                    .clicked()
-                {
-                    self.actions.push(Action::Apply(transaction));
-                }
-            }
-            Err(reason) => {
-                response.on_disabled_hover_text(reason);
-            }
-        }
     }
 
     fn end_rows(
@@ -375,51 +293,76 @@ impl Panel<'_> {
         widgets::caption(ui, rows.end);
         let salt = format!("{}-end", rows.salt);
         self.combo(ui, &salt, EndKind::of(end).label(), |panel| {
-            panel.end_choices(extrude, end, rebuild)
+            panel.end_choices(extrude, end, rows.side, rebuild)
         });
         ui.end_row();
+        let slot = Slot::ExtrudeTarget(rows.side);
+        let picker = Picker {
+            feature: self.id(),
+            slot,
+            selected: target_change(self.model, self.selection, self.id(), extrude, rows.side),
+            hover: "Run up to the selected flat face or plane instead",
+        };
         match end {
             ExtrudeEnd::Distance(distance) => {
-                widgets::caption(ui, rows.distance);
                 self.expression(
                     ui,
+                    rows.distance,
                     rows.salt,
                     distance,
-                    Dimension::LENGTH,
-                    rows.rule,
+                    (Dimension::LENGTH, rows.rule),
                     |distance| with_extent_of(extrude, rebuild(ExtrudeEnd::Distance(distance))),
                 );
             }
             ExtrudeEnd::UpToFace(target) => {
-                widgets::caption(ui, rows.face);
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(capitalized(&describe_plane(self.document(), target)));
-                    self.target_button(ui, extrude, target, rebuild);
-                });
-                ui.end_row();
+                let shown = Shown::Named(capitalized(&describe_plane(self.document(), target)));
+                feature_fields::reference_row(
+                    ui,
+                    self.model,
+                    rows.face,
+                    shown,
+                    picker,
+                    None,
+                    self.actions,
+                );
+                return;
             }
             ExtrudeEnd::ThroughAll | ExtrudeEnd::UpToNext => {}
         }
+        if self.picking(ui, slot) {
+            feature_fields::reference_row(
+                ui,
+                self.model,
+                rows.face,
+                Shown::NoneChosen,
+                picker,
+                None,
+                self.actions,
+            );
+        }
+    }
+
+    fn extent_row(&mut self, ui: &mut Ui, extrude: &Extrude) {
+        let fallback = self.default_distance();
+        let current = extent_name(&extrude.extent);
+        let segments = [Shape::OneSide, Shape::Symmetric, Shape::TwoSides]
+            .into_iter()
+            .map(|shape| {
+                let extent = reshaped(&extrude.extent, shape, &fallback);
+                let label = extent_name(&extent);
+                Segment {
+                    label,
+                    hover: shape.description(),
+                    change: (label != current)
+                        .then(|| self.change(with_extent_of(extrude, extent))),
+                }
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, "Extent", &self.feature.name, segments);
+        self.actions.extend(chosen);
     }
 
     fn extrude_rows(&mut self, ui: &mut Ui, extrude: &Extrude) {
-        widgets::caption(ui, "Extent");
-        let current = extent_name(&extrude.extent);
-        self.combo(ui, "extrude-extent", current, |panel| {
-            let fallback = panel.default_distance();
-            [Shape::OneSide, Shape::Symmetric, Shape::TwoSides]
-                .into_iter()
-                .map(|shape| {
-                    let extent = reshaped(&extrude.extent, shape, &fallback);
-                    Choice {
-                        label: extent_name(&extent).to_owned(),
-                        selected: extent_name(&extent) == current,
-                        change: panel.change(with_extent_of(extrude, extent)),
-                    }
-                })
-                .collect()
-        });
-        ui.end_row();
         match &extrude.extent {
             ExtrudeExtent::OneSide { end, reversed } => {
                 let reversed = *reversed;
@@ -428,15 +371,15 @@ impl Panel<'_> {
                     distance: "Distance",
                     face: "Up to",
                     salt: "distance",
-                    rule: Rule::Positive,
+                    side: Side::One,
+                    rule: Rule::AboveZeroOrReverse,
                 };
                 self.end_rows(ui, &rows, extrude, end, &|end| ExtrudeExtent::OneSide {
                     end,
                     reversed,
                 });
-                widgets::caption(ui, "Direction");
-                let mut flipped = reversed;
-                if ui.checkbox(&mut flipped, "Reversed").changed() {
+                if let Some(flipped) = feature_fields::reverse_row(ui, REVERSE_DIRECTION, reversed)
+                {
                     let flipped = with_extent_of(
                         extrude,
                         ExtrudeExtent::OneSide {
@@ -446,16 +389,14 @@ impl Panel<'_> {
                     );
                     self.apply(flipped);
                 }
-                ui.end_row();
             }
             ExtrudeExtent::Symmetric { distance } => {
-                widgets::caption(ui, "Total distance");
                 self.expression(
                     ui,
+                    "Total distance",
                     "distance",
                     distance,
-                    Dimension::LENGTH,
-                    Rule::Positive,
+                    (Dimension::LENGTH, Rule::AboveZero),
                     |distance| {
                         SolidFeature::Extrude(Extrude {
                             extent: ExtrudeExtent::Symmetric { distance },
@@ -470,7 +411,8 @@ impl Panel<'_> {
                     distance: "Forward distance",
                     face: "Forward up to",
                     salt: "forward",
-                    rule: Rule::PositiveSide,
+                    side: Side::Forward,
+                    rule: Rule::AboveZero,
                 };
                 self.end_rows(ui, &forward_rows, extrude, forward, &|end| {
                     ExtrudeExtent::TwoSides {
@@ -483,7 +425,8 @@ impl Panel<'_> {
                     distance: "Backward distance",
                     face: "Backward up to",
                     salt: "backward",
-                    rule: Rule::PositiveSide,
+                    side: Side::Backward,
+                    rule: Rule::AboveZero,
                 };
                 self.end_rows(ui, &backward_rows, extrude, backward, &|end| {
                     ExtrudeExtent::TwoSides {
@@ -491,25 +434,6 @@ impl Panel<'_> {
                         backward: end,
                     }
                 });
-            }
-        }
-    }
-
-    fn selected_axis_button(&mut self, ui: &mut Ui, revolve: &Revolve) {
-        let change = selected_axis_change(self.model, self.selection, self.id(), revolve);
-        let button = widgets::small_button(ui, icons::USE_SELECTED, USE_SELECTED);
-        let response = ui.add_enabled(change.is_ok(), button);
-        match change {
-            Ok(transaction) => {
-                if response
-                    .on_hover_text("Turn about the selected axis, edge or round face")
-                    .clicked()
-                {
-                    self.actions.push(Action::Apply(transaction));
-                }
-            }
-            Err(reason) => {
-                response.on_disabled_hover_text(reason);
             }
         }
     }
@@ -536,45 +460,7 @@ impl Panel<'_> {
         }
     }
 
-    fn revolve_rows(&mut self, ui: &mut Ui, revolve: &Revolve) {
-        widgets::caption(ui, "Axis");
-        let model = self.model;
-        let sketch = model
-            .document()
-            .feature(revolve.sketch)
-            .and_then(|feature| feature.kind.sketch());
-        let axis_name = solid_tools::axis_name(model.document(), revolve.sketch, &revolve.axis);
-        ui.horizontal_wrapped(|ui| {
-            self.combo(ui, "axis", &axis_name, |panel| {
-                let Some(sketch) = sketch else {
-                    return Vec::new();
-                };
-                let lines = sketch
-                    .entities()
-                    .filter_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id));
-                let model_axis = revolve.axis.model().map(|_| Choice {
-                    label: axis_name.clone(),
-                    selected: true,
-                    change: Err(String::new()),
-                });
-                [Reference::HorizontalAxis.id(), Reference::VerticalAxis.id()]
-                    .into_iter()
-                    .chain(lines)
-                    .map(|axis| Choice {
-                        label: sketch.entity_label(axis),
-                        selected: revolve.axis == RevolveAxis::Sketch(axis),
-                        change: panel.change(SolidFeature::Revolve(Revolve {
-                            axis: RevolveAxis::Sketch(axis),
-                            ..revolve.clone()
-                        })),
-                    })
-                    .chain(model_axis)
-                    .collect()
-            });
-            self.selected_axis_button(ui, revolve);
-        });
-        ui.end_row();
-
+    fn turn_row(&mut self, ui: &mut Ui, revolve: &Revolve) {
         widgets::caption(ui, "Extent");
         let current = turn_name(&revolve.extent);
         self.combo(ui, "revolve-extent", current, |panel| {
@@ -603,26 +489,78 @@ impl Panel<'_> {
             .map(|extent| Choice {
                 label: turn_name(&extent).to_owned(),
                 selected: turn_name(&extent) == current,
-                change: panel.change(SolidFeature::Revolve(Revolve {
-                    extent,
-                    ..revolve.clone()
-                })),
+                change: panel
+                    .change(SolidFeature::Revolve(Revolve {
+                        extent,
+                        ..revolve.clone()
+                    }))
+                    .map(Action::Apply),
             })
             .collect()
         });
         ui.end_row();
+    }
 
+    fn axis_row(&mut self, ui: &mut Ui, revolve: &Revolve) {
+        widgets::caption(ui, "Axis");
+        let model = self.model;
+        let sketch = model
+            .document()
+            .feature(revolve.sketch)
+            .and_then(|feature| feature.kind.sketch());
+        let axis_name = solid_tools::axis_name(model.document(), revolve.sketch, &revolve.axis);
+        ui.vertical(|ui| {
+            self.combo(ui, "axis", axis_name.clone(), |panel| {
+                let Some(sketch) = sketch else {
+                    return Vec::new();
+                };
+                let lines = sketch
+                    .entities()
+                    .filter_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id));
+                let model_axis = revolve.axis.model().map(|_| Choice {
+                    label: axis_name.clone(),
+                    selected: true,
+                    change: Err(String::new()),
+                });
+                [Reference::HorizontalAxis.id(), Reference::VerticalAxis.id()]
+                    .into_iter()
+                    .chain(lines)
+                    .map(|axis| Choice {
+                        label: sketch.entity_label(axis),
+                        selected: revolve.axis == RevolveAxis::Sketch(axis),
+                        change: panel
+                            .change(SolidFeature::Revolve(Revolve {
+                                axis: RevolveAxis::Sketch(axis),
+                                ..revolve.clone()
+                            }))
+                            .map(Action::Apply),
+                    })
+                    .chain(model_axis)
+                    .collect()
+            });
+            let picker = Picker {
+                feature: self.id(),
+                slot: Slot::RevolveAxis,
+                selected: selected_axis_change(model, self.selection, self.id(), revolve),
+                hover: "Turn about the selected axis, edge or round face",
+            };
+            feature_fields::reference_picker(ui, model, picker, self.actions);
+        });
+        ui.end_row();
+    }
+
+    fn revolve_rows(&mut self, ui: &mut Ui, revolve: &Revolve) {
+        self.axis_row(ui, revolve);
         match &revolve.extent {
             RevolveExtent::Full => {}
             RevolveExtent::OneSide { angle, reversed } => {
-                widgets::caption(ui, "Angle");
                 let reversed = *reversed;
                 self.expression(
                     ui,
+                    "Angle",
                     "angle",
                     angle,
-                    Dimension::ANGLE,
-                    Rule::PositiveTurn,
+                    (Dimension::ANGLE, Rule::Turn),
                     |angle| {
                         SolidFeature::Revolve(Revolve {
                             extent: RevolveExtent::OneSide { angle, reversed },
@@ -630,9 +568,8 @@ impl Panel<'_> {
                         })
                     },
                 );
-                widgets::caption(ui, "Direction");
-                let mut flipped = reversed;
-                if ui.checkbox(&mut flipped, "Reversed").changed() {
+                if let Some(flipped) = feature_fields::reverse_row(ui, REVERSE_DIRECTION, reversed)
+                {
                     let flipped = SolidFeature::Revolve(Revolve {
                         extent: RevolveExtent::OneSide {
                             angle: angle.clone(),
@@ -642,16 +579,14 @@ impl Panel<'_> {
                     });
                     self.apply(flipped);
                 }
-                ui.end_row();
             }
             RevolveExtent::Symmetric { angle } => {
-                widgets::caption(ui, "Total angle");
                 self.expression(
                     ui,
+                    "Total angle",
                     "angle",
                     angle,
-                    Dimension::ANGLE,
-                    Rule::PositiveTurn,
+                    (Dimension::ANGLE, Rule::Turn),
                     |angle| {
                         SolidFeature::Revolve(Revolve {
                             extent: RevolveExtent::Symmetric { angle },
@@ -664,13 +599,12 @@ impl Panel<'_> {
                 let beside =
                     |other: &Expression| Rule::TurnBeside(self.degrees_of(other).unwrap_or(0.0));
                 let (forward_rule, backward_rule) = (beside(backward), beside(forward));
-                widgets::caption(ui, "Forward");
                 self.expression(
                     ui,
+                    "Forward",
                     "forward-angle",
                     forward,
-                    Dimension::ANGLE,
-                    forward_rule,
+                    (Dimension::ANGLE, forward_rule),
                     |forward| {
                         SolidFeature::Revolve(Revolve {
                             extent: RevolveExtent::TwoSides {
@@ -681,13 +615,12 @@ impl Panel<'_> {
                         })
                     },
                 );
-                widgets::caption(ui, "Backward");
                 self.expression(
                     ui,
+                    "Backward",
                     "backward-angle",
                     backward,
-                    Dimension::ANGLE,
-                    backward_rule,
+                    (Dimension::ANGLE, backward_rule),
                     |backward| {
                         SolidFeature::Revolve(Revolve {
                             extent: RevolveExtent::TwoSides {
@@ -721,7 +654,9 @@ impl Panel<'_> {
                 .map(|candidate| Choice {
                     label: operation_name(candidate).to_owned(),
                     selected: operation_name(candidate) == operation_name(operation),
-                    change: panel.change(solid_tools::with_operation(panel.solid, candidate)),
+                    change: panel
+                        .change(solid_tools::with_operation(panel.solid, candidate))
+                        .map(Action::Apply),
                 })
                 .collect()
         });
@@ -731,41 +666,35 @@ impl Panel<'_> {
         };
         widgets::caption(ui, "Body");
         let model = self.model;
-        let name = model
-            .document()
-            .feature(target)
-            .map_or("a missing body", |body| body.name.as_str());
-        self.combo(ui, "body", name, |panel| {
-            bodies
-                .iter()
-                .filter_map(|body| {
-                    let label = panel.document().feature(*body)?.name.clone();
-                    Some(Choice {
-                        label,
-                        selected: *body == target,
-                        change: panel.change(solid_tools::with_operation(
-                            panel.solid,
-                            operation.with_target(*body),
-                        )),
+        ui.horizontal(|ui| {
+            let name = feature_fields::feature_name(model.document(), target);
+            let text = feature_fields::combo_text(ui, name, MISSING_BODY);
+            self.combo(ui, "body", text, |panel| {
+                bodies
+                    .iter()
+                    .filter_map(|body| {
+                        let label = panel.document().feature(*body)?.name.clone();
+                        Some(Choice {
+                            label,
+                            selected: *body == target,
+                            change: panel
+                                .change(solid_tools::with_operation(
+                                    panel.solid,
+                                    operation.with_target(*body),
+                                ))
+                                .map(Action::Apply),
+                        })
                     })
-                })
-                .collect()
+                    .collect()
+            });
         });
         ui.end_row();
     }
 
     fn apply(&mut self, solid: SolidFeature) {
-        match self.change(solid) {
-            Ok(transaction) => self.actions.push(Action::Apply(transaction)),
-            Err(reason) => self.refuse(&reason),
-        }
-    }
-
-    fn refuse(&mut self, reason: &str) {
-        self.actions.push(Action::Inform(Notice::error(format!(
-            "{} was not changed: {reason}",
-            self.feature.name
-        ))));
+        let change = self.change(solid);
+        self.actions
+            .push(feature_fields::applied(&self.feature.name, change));
     }
 }
 
@@ -781,6 +710,16 @@ enum Shape {
     OneSide,
     Symmetric,
     TwoSides,
+}
+
+impl Shape {
+    fn description(self) -> &'static str {
+        match self {
+            Self::OneSide => "Extrude from the sketch to one side",
+            Self::Symmetric => "Extrude the same distance to both sides of the sketch",
+            Self::TwoSides => "Extrude to each side by its own end",
+        }
+    }
 }
 
 fn reshaped(extent: &ExtrudeExtent, shape: Shape, fallback: &Expression) -> ExtrudeExtent {
@@ -871,6 +810,43 @@ pub fn selected_target(
     }
 }
 
+fn with_end_on(extent: &ExtrudeExtent, side: Side, end: ExtrudeEnd) -> Option<ExtrudeExtent> {
+    match (extent, side) {
+        (ExtrudeExtent::OneSide { reversed, .. }, Side::One) => Some(ExtrudeExtent::OneSide {
+            end,
+            reversed: *reversed,
+        }),
+        (ExtrudeExtent::TwoSides { backward, .. }, Side::Forward) => {
+            Some(ExtrudeExtent::TwoSides {
+                forward: end,
+                backward: backward.clone(),
+            })
+        }
+        (ExtrudeExtent::TwoSides { forward, .. }, Side::Backward) => {
+            Some(ExtrudeExtent::TwoSides {
+                forward: forward.clone(),
+                backward: end,
+            })
+        }
+        _ => None,
+    }
+}
+
+pub fn target_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    extrude: &Extrude,
+    side: Side,
+) -> Result<Transaction, String> {
+    let end = ExtrudeEnd::UpToFace(selected_target(model, selection, feature)?);
+    let extent = with_end_on(&extrude.extent, side, end).ok_or_else(|| SIDES_CHANGED.to_owned())?;
+    if extent == extrude.extent {
+        return Err("This end already runs up to the selected face or plane".to_owned());
+    }
+    change(model, feature, with_extent_of(extrude, extent))
+}
+
 pub fn up_to_selected_change(
     model: &Model,
     selection: &Selection,
@@ -895,14 +871,7 @@ pub fn up_to_selected_change(
     if extent == extrude.extent {
         return Err("The extrusion already runs up to the selected face or plane".to_owned());
     }
-    change(
-        model,
-        feature,
-        SolidFeature::Extrude(Extrude {
-            extent,
-            ..extrude.clone()
-        }),
-    )
+    change(model, feature, with_extent_of(extrude, extent))
 }
 
 pub fn selected_axis_change(
@@ -938,22 +907,6 @@ fn change(model: &Model, feature: FeatureId, solid: SolidFeature) -> Result<Tran
     let transaction = solid_tools::edit(document, feature, solid)
         .ok_or_else(|| "The feature no longer exists".to_owned())?;
     field::checked(document, transaction)
-}
-
-fn check_rule(rule: Rule, value: f64) -> Result<(), String> {
-    match rule {
-        Rule::Positive | Rule::PositiveSide if value > 0.0 => Ok(()),
-        Rule::PositiveTurn if value > 0.0 && value <= FULL_TURN_DEGREES => Ok(()),
-        Rule::TurnBeside(other) if value > 0.0 && value + other <= FULL_TURN_DEGREES => Ok(()),
-        Rule::Positive => {
-            Err("Enter a value above zero. Use Reversed to go the other way".to_owned())
-        }
-        Rule::PositiveSide => Err("Enter a distance above zero".to_owned()),
-        Rule::PositiveTurn => Err("Enter an angle above zero and at most 360°".to_owned()),
-        Rule::TurnBeside(_) => {
-            Err("Enter an angle above zero; both angles together may turn at most 360°".to_owned())
-        }
-    }
 }
 
 fn with_sketch(solid: &SolidFeature, sketch: FeatureId) -> SolidFeature {
@@ -1020,6 +973,10 @@ pub fn show(
         actions,
     };
     widgets::properties(ui, ("solid-properties", feature.id()), |ui| {
+        match solid {
+            SolidFeature::Extrude(extrude) => panel.extent_row(ui, extrude),
+            SolidFeature::Revolve(revolve) => panel.turn_row(ui, revolve),
+        }
         panel.sketch_row(ui);
         panel.regions_row(ui, opened);
         match solid {

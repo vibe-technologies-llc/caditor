@@ -10,6 +10,8 @@ paths:
   - "crates/caditor/src/datum_panel.rs"
   - "crates/caditor/src/pattern_tools.rs"
   - "crates/caditor/src/pattern_panel.rs"
+  - "crates/caditor/src/feature_fields.rs"
+  - "crates/caditor/src/reference_picking.rs"
   - "crates/caditor/src/visibility.rs"
   - "crates/caditor/src/sketch_placement.rs"
   - "crates/caditor/src/reference_rows.rs"
@@ -29,10 +31,38 @@ paths:
   `SketchEditing::sync` closes an edited sketch or open feature that becomes one); the tree's Edit
   says why.
 
+## Feature panels
+
+- Every panel runs in one order: its shape switch (Extent for an extrusion or revolve, Shape for a
+  blend or pattern) or, for a shell or datum, a muted one-line description; then its references,
+  values and options; then Body. Small exclusive choices are `segmented` (extrusion extent, blend
+  and pattern shape, regions All closed or Chosen); longer or more lists stay combo boxes.
+- `feature_fields.rs` holds the shared rows: `expression_row` (field, muted "= value" preview,
+  `error_row`), `reference_row` and `reference_picker`, `reverse_row`, `feature_row`,
+  `segmented_row`, `combo`, `description_row` and `info_callout`. Value rules are `Rule`s with one
+  wording: Enter a value above zero (adding "Use Reverse direction to go the other way" where a
+  reverse exists), Enter an angle above 0° and up to 360°, and the two-angle and count messages.
+- Reversing is a "Reverse direction" checkbox (Reverse second direction for a pattern's second
+  direction) with an empty caption. A reference that is not set reads a muted None chosen; a body
+  or sketch that no longer exists reads Missing body or Missing sketch in the warning colour with
+  the warning icon. A refused change leaves the notice "<feature name> was not changed: <reason>".
+- A reference row shows its value with the picker below it: Use selected when the view selection
+  gives a change, else Choose in the view, which opens the feature and starts choosing that slot
+  (`reference_picking::Picking`, held by `SketchEditing` and published to the panels through egui
+  temp data each frame, since the tree's call signatures carry no editing state). While choosing,
+  the row shows the prompt and Stop choosing, the view shows the prompt with "Esc: stop choosing",
+  and a click (or the activated keyboard highlight) is tried as the selection for that slot: it
+  applies and stops, or leaves an info notice with the reason. A datum axis keeps a first plane
+  clicked pending until a second one crosses it. Escape stops choosing before anything else it
+  does; opening another feature or closing this one stops it too. Slots: revolve axis, each
+  extrusion end's face, pattern direction or axis and second direction, datum base and rotation
+  axis. The lists of regions, blend edges and shell faces keep `choose_in_view`, which opens the
+  feature so clicks toggle them.
+
 ## Extrude and Revolve
 
 - Extrude and Revolve take the edited sketch, else the selection's, else the last. The revolve axis
-  (also the panel's Use selected axis) is a selected line or sketch axis, else a principal axis,
+  (also the panel's axis picker) is a selected line or sketch axis, else a principal axis,
   datum axis, straight edge or round face (vertical otherwise).
 - A new feature is one-sided 10 mm or a full turn, adds to the last body (new if none) and opens;
   `SketchEditing` holds at most one open solid feature, never together with an edited sketch, and
@@ -44,8 +74,9 @@ paths:
 - An extrusion's panel gives each side an end list (End, or Forward end and Backward end): Distance,
   Through all, Up to next, Up to face. An end that cannot apply is offered disabled with the reason
   on hover: Through all until the result removes or intersects, Up to next until it changes a
-  body, Up to face until a usable face or plane is selected. A distance end adds its captioned
-  field; a face end a row naming the face or plane with Use selected to take another. Switching
+  body. Up to face takes the selected face or plane, or with none usable starts choosing one in the
+  view for that end. A distance end adds its captioned field; a face end a reference row naming
+  the face or plane. Switching
   between one side and two sides keeps the end (a reversed one-sided end becomes the backward
   side).
 - The face or plane is the selection captured where the extrusion sits in the tree
@@ -83,9 +114,10 @@ paths:
   over a full turn; the new feature opens.
 - While open the patterned body is shown with its directions or axis drawn like a revolve's axis.
   The panel switches between linear and circular, takes a new direction or axis and a second
-  direction from the selection (Use selected, or the commands Pattern along or about selected
-  axis and Pattern also along selected direction), removes the second direction and edits count,
-  spacing, total angle and Reversed; fields refuse a count that is not whole or above the limit.
+  direction from the selection or the view (reference pickers, or the commands Pattern along or
+  about selected axis and Pattern also along selected direction), removes the second direction
+  and edits count, spacing, total angle and Reverse direction; the circular one adds an info
+  callout on how the total angle spaces the copies; fields refuse a count that is not whole or above the limit.
 
 ## Visibility
 
@@ -108,8 +140,10 @@ paths:
   selected axis, straight edge or round face, or where two selected planes or flat faces meet. A
   selected face or edge giving neither (curved, round rim, made later, not recomputed) refuses both
   with that reason.
-- The new feature opens; its panel has Use selected for base and rotation axis (or whole axis) and
-  fields for the angle and offset.
+- The new feature opens; its panel has reference pickers for base and rotation axis (Runs along, or
+  Defined by for two crossing planes) and fields for the angle and offset. A datum cannot switch
+  between plane and axis, nor an extrusion and a revolve, since `SetFeatureKind` refuses a kind
+  change (`document.md`).
 - Outside sketch editing datums are drawn as translucent squares and lines centred where the world
   origin projects onto them, picked as `Pickable::Datum`, tinted when failed; double-clicking one
   opens it.
