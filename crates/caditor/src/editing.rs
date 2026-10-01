@@ -4,7 +4,8 @@ use caditor_sketch::Sketch;
 use crate::{
     commands::Command,
     model::{Action, Model, Notice},
-    selection::PrincipalPlane,
+    reference_picking::Picking,
+    selection::{Pickable, PrincipalPlane},
     shape_modes::{ShapeMode, ShapeModes},
     sketch_placement::{self, FaceChoice},
     variants::all_variants,
@@ -150,6 +151,9 @@ pub enum EditingCommand {
     DrawConstruction(bool),
     OpenSolid(FeatureId),
     CloseSolid,
+    Pick(Picking),
+    HoldPicked(Pickable),
+    StopPicking,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -163,6 +167,7 @@ pub struct Context {
 pub struct SketchEditing {
     active: Option<ActiveSketch>,
     solid: Option<FeatureId>,
+    picking: Option<Picking>,
     choosing_plane: bool,
     modes: ShapeModes,
     session: u64,
@@ -195,6 +200,10 @@ impl SketchEditing {
 
     pub fn is_choosing_plane(&self) -> bool {
         self.choosing_plane
+    }
+
+    pub fn picking(&self) -> Option<Picking> {
+        self.picking
     }
 
     #[cfg(test)]
@@ -239,14 +248,38 @@ impl SketchEditing {
                     active.construction = construction;
                 }
             }
-            EditingCommand::OpenSolid(feature) => {
-                if opened_solid(model.document(), feature) && model.document().is_active(feature) {
-                    self.active = None;
-                    self.choosing_plane = false;
-                    self.solid = Some(feature);
+            EditingCommand::OpenSolid(feature) => self.open_solid(feature, model.document()),
+            EditingCommand::CloseSolid => self.solid = None,
+            EditingCommand::Pick(picking) => {
+                self.open_solid(picking.feature, model.document());
+                if self.solid == Some(picking.feature) {
+                    self.picking = Some(picking);
                 }
             }
-            EditingCommand::CloseSolid => self.solid = None,
+            EditingCommand::HoldPicked(pickable) => {
+                if let Some(picking) = &mut self.picking {
+                    picking.pending = Some(pickable);
+                }
+            }
+            EditingCommand::StopPicking => self.picking = None,
+        }
+        self.drop_stale_picking();
+    }
+
+    fn open_solid(&mut self, feature: FeatureId, document: &Document) {
+        if opened_solid(document, feature) && document.is_active(feature) {
+            self.active = None;
+            self.choosing_plane = false;
+            self.solid = Some(feature);
+        }
+    }
+
+    fn drop_stale_picking(&mut self) {
+        if self
+            .picking
+            .is_some_and(|picking| Some(picking.feature) != self.solid)
+        {
+            self.picking = None;
         }
     }
 
@@ -269,6 +302,7 @@ impl SketchEditing {
         {
             self.solid = None;
         }
+        self.drop_stale_picking();
     }
 
     fn create(&mut self, plane: PrincipalPlane, model: &mut Model) {

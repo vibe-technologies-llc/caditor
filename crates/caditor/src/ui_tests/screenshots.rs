@@ -4,6 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use caditor_document::{
+    AxisReference, BlendKind, Datum, DatumAxis, FeatureKind, PrincipalAxis, SolidFeature,
+};
 use caditor_render::{SurfaceTarget, ViewportFrame, ViewportRenderer};
 use egui::{Key, Modifiers};
 use tempfile::TempDir;
@@ -11,12 +14,17 @@ use tempfile::TempDir;
 use super::{CAMERA_SETTLE, Harness, Painted};
 use crate::{
     app::Workspace,
+    blend_tools, datum_tools,
     editing::EditingCommand,
     export::ExportCommand,
     files::FileCommand,
     model::Action,
+    pattern_tools::{self, Shape},
     preferences::{Preferences, PreferencesCommand, Theme},
+    reference_picking::{Picking, Slot},
     samples::Sample,
+    selection::{Pickable, Selection},
+    shell_tools,
 };
 
 const OUTPUT: &str = "CADITOR_SCREENSHOTS";
@@ -349,5 +357,122 @@ fn screenshots() {
         shoot(&mut model, &gpu, &out, "export", look);
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
+
+        feature_panel_scenes(&mut model, &gpu, &out, look);
     }
+}
+
+fn shoot_open(harness: &mut Harness, gpu: &Gpu, out: &Path, scene: &str, look: Look) {
+    harness.settle();
+    shoot(harness, gpu, out, scene, look);
+    harness.perform(Action::Editing(EditingCommand::CloseSolid));
+    harness.settle();
+}
+
+fn open_kind(harness: &mut Harness, kind: impl Fn(&FeatureKind) -> bool) {
+    let feature = harness
+        .document()
+        .features()
+        .find(|feature| kind(&feature.kind))
+        .map(|feature| feature.id());
+    if let Some(feature) = feature {
+        harness.perform(Action::Editing(EditingCommand::OpenSolid(feature)));
+    }
+}
+
+fn perform_all(harness: &mut Harness, actions: Vec<Action>) {
+    for action in actions {
+        harness.perform(action);
+    }
+}
+
+fn only(pickable: Pickable) -> Selection {
+    let mut selection = Selection::default();
+    selection.replace_with(pickable);
+    selection
+}
+
+fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    open_kind(model, |kind| {
+        matches!(kind.solid(), Some(SolidFeature::Extrude(_)))
+    });
+    shoot_open(model, gpu, out, "panel-extrude", look);
+
+    let pickables: Vec<Pickable> = model.built().picks.pickables().collect();
+    let edge = pickables.iter().find_map(|pickable| {
+        let selection = only(*pickable);
+        blend_tools::selected_edges(&selection).ok()
+    });
+    if let Some(source) = edge {
+        let actions = blend_tools::create_actions(
+            model.document(),
+            model.model.evaluation(),
+            BlendKind::Fillet,
+            &source,
+            model.model.length_unit(),
+        );
+        perform_all(model, actions);
+        shoot_open(model, gpu, out, "panel-fillet", look);
+    }
+
+    let faces = pickables.iter().find_map(|pickable| {
+        let selection = only(*pickable);
+        let source = shell_tools::selected_faces(&model.model, &selection).ok()?;
+        shell_tools::create(
+            model.document(),
+            model.model.evaluation(),
+            &source,
+            model.model.length_unit(),
+        )
+        .ok()
+        .map(|_| source)
+    });
+    if let Some(source) = faces {
+        let actions = shell_tools::create_actions(
+            model.document(),
+            model.model.evaluation(),
+            &source,
+            model.model.length_unit(),
+        );
+        perform_all(model, actions);
+        shoot_open(model, gpu, out, "panel-shell", look);
+    }
+
+    for (shape, scene) in [
+        (Shape::Linear, "panel-linear-pattern"),
+        (Shape::Circular, "panel-circular-pattern"),
+    ] {
+        if let Ok(source) = pattern_tools::source(&model.model, &Selection::default(), None) {
+            let actions = pattern_tools::create_actions(&model.model, shape, &source);
+            perform_all(model, actions);
+            shoot_open(model, gpu, out, scene, look);
+        }
+    }
+
+    let end = model.document().features().len();
+    if let Ok(plane) = datum_tools::plane_from_selection(&model.model, &Selection::default(), end) {
+        let actions = datum_tools::create_actions(model.document(), Datum::Plane(plane));
+        perform_all(model, actions);
+        shoot_open(model, gpu, out, "panel-datum-plane", look);
+    }
+    let axis = Datum::Axis(DatumAxis::Along(AxisReference::Principal(PrincipalAxis::Z)));
+    let actions = datum_tools::create_actions(model.document(), axis);
+    perform_all(model, actions);
+    if let Some(datum) = model.workspace.editing.solid() {
+        model.settle();
+        shoot(model, gpu, out, "panel-datum-axis", look);
+        model.perform(Action::Editing(EditingCommand::Pick(Picking::new(
+            datum,
+            Slot::DatumBase,
+        ))));
+        shoot_open(model, gpu, out, "panel-picking", look);
+    }
+
+    let dir = TempDir::new().expect("a temporary directory");
+    let mut spool = Harness::styled(look, dir.path(), false);
+    spool.open_sample(Sample::Spool);
+    open_kind(&mut spool, |kind| {
+        matches!(kind.solid(), Some(SolidFeature::Revolve(_)))
+    });
+    shoot_open(&mut spool, gpu, out, "panel-revolve", look);
 }

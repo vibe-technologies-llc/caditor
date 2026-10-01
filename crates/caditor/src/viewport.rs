@@ -22,6 +22,7 @@ use crate::{
     model::{Action, Model, Notice, RecomputeStatus},
     modifying::{Hint, Modifying, Outcome, Value},
     preferences::{Navigation, PreferenceChange, PreferencesCommand},
+    reference_picking,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     selection::{Pickable, Selection},
@@ -51,8 +52,7 @@ const CHOOSE_REGIONS_PROMPT: &str = "Click regions of the sketch to include or l
 const CHOOSE_REGIONS_HINT: &str = "Esc: done";
 const CHOOSE_EDGES_PROMPT: &str = "Click edges to add them or leave them out";
 const CHOOSE_FACES_PROMPT: &str = "Click flat faces to open them or close them again";
-const CHOOSE_REFERENCES_PROMPT: &str =
-    "Select planes, faces, axes or edges, then use them from the feature's panel";
+const CHOOSE_REFERENCES_PROMPT: &str = "Select planes, faces, axes or edges for the feature's panel, or choose them in the view from it";
 const SNAP_LABEL_OFFSET: egui::Vec2 = vec2(14.0, 10.0);
 const KEYBOARD_ORBIT_FRACTION: f64 = 1.0 / 12.0;
 const KEYBOARD_PAN_FRACTION: f64 = 0.1;
@@ -1415,6 +1415,8 @@ impl ViewportState {
             }
         } else if editing.is_choosing_plane() {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
+        } else if editing.picking().is_some() {
+            actions.push(Action::Editing(EditingCommand::StopPicking));
         } else if self.drawing.in_progress() {
             self.drawing.cancel();
         } else if self.keyboard_highlight.is_some() {
@@ -1561,6 +1563,11 @@ impl ViewportState {
         );
         let prompt = if editing.is_choosing_plane() {
             Some((CHOOSE_PLANE_PROMPT.to_owned(), CHOOSE_PLANE_HINT.to_owned()))
+        } else if let Some(picking) = editing.picking() {
+            Some((
+                reference_picking::prompt(model, picking),
+                reference_picking::STOP_HINT.to_owned(),
+            ))
         } else if let Some(feature) = editing.solid() {
             let kind = document.feature(feature).map(|feature| &feature.kind);
             let prompt = match kind {
@@ -1724,18 +1731,28 @@ fn pick_action(
     pickable: Option<Pickable>,
     model: &Model,
     editing: &SketchEditing,
-) -> Option<Option<Action>> {
-    match pickable {
+) -> Option<Vec<Action>> {
+    if let Some(picking) = editing.picking() {
+        return Some(
+            pickable
+                .map(|pickable| reference_picking::click(model, picking, pickable))
+                .unwrap_or_default(),
+        );
+    }
+    let toggled = match pickable {
         Some(Pickable::Region { feature, region }) => {
-            return Some(solid_tools::toggle_region(model, feature, region).map(Action::Apply));
+            Some(solid_tools::toggle_region(model, feature, region))
         }
         Some(Pickable::BlendEdge { feature, edge }) => {
-            return Some(blend_tools::toggle_edge(model, feature, edge).map(Action::Apply));
+            Some(blend_tools::toggle_edge(model, feature, edge))
         }
         Some(Pickable::ShellFace { feature, face }) => {
-            return Some(shell_tools::toggle_face(model, feature, face).map(Action::Apply));
+            Some(shell_tools::toggle_face(model, feature, face))
         }
-        _ => {}
+        _ => None,
+    };
+    if let Some(toggled) = toggled {
+        return Some(toggled.map(Action::Apply).into_iter().collect());
     }
     if !editing.is_choosing_plane() {
         return None;
@@ -1748,7 +1765,7 @@ fn pick_action(
         Some(pickable) => FaceChoice::of(pickable).map(EditingCommand::NewSketchOnFace),
         None => None,
     };
-    Some(command.map(Action::Editing))
+    Some(command.map(Action::Editing).into_iter().collect())
 }
 
 fn facing(view: &View, sketch: &EditedSketch) -> Viewpoint {

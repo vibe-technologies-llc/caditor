@@ -56,6 +56,7 @@ use crate::{
     widgets, window_frame,
 };
 
+mod feature_panels;
 mod screenshots;
 
 const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));
@@ -4405,7 +4406,7 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
     assert!((harness.body_volume(extrude) - 15000.0).abs() < 1.0);
 
     harness.type_into_field(field, "-5 mm");
-    assert!(harness.shows("Enter a value above zero. Use Reversed to go the other way"));
+    assert!(harness.shows(crate::feature_fields::ABOVE_ZERO_OR_REVERSE));
     assert_eq!(distance_of(&harness, extrude), "25 mm");
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
@@ -4469,11 +4470,11 @@ fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
     assert!(matches!(extruded.extent, ExtrudeExtent::TwoSides { .. }));
     let before = harness.solid(extrude).clone();
     harness.type_into_field(Id::new(("solid-field", "forward", extrude)), "0 mm");
-    let refused_forward = harness.shows("Enter a distance above zero");
+    let refused_forward = harness.shows(crate::feature_fields::ABOVE_ZERO);
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.type_into_field(Id::new(("solid-field", "backward", extrude)), "-3 mm");
-    let refused_backward = harness.shows("Enter a distance above zero");
+    let refused_backward = harness.shows(crate::feature_fields::ABOVE_ZERO);
 
     assert!(refused_forward);
     assert!(refused_backward);
@@ -4879,7 +4880,7 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
     assert!(removed_about(&harness, plate, 80.0 * spandrel(2.0)));
 
     harness.type_into_field(Id::new(("blend-size", fillet)), "0 mm");
-    assert!(harness.shows("Enter a radius above zero"));
+    assert!(harness.shows(crate::feature_fields::ABOVE_ZERO));
     assert_eq!(harness.workspace.editing.solid(), Some(fillet));
 
     harness.click_pickable(
@@ -5058,7 +5059,7 @@ fn a_shell_opens_the_selected_face_and_takes_more_faces_clicked_in_the_view() {
     assert!(removed_about(&harness, plate, 36.0 * 36.0 * 10.0));
 
     harness.type_into_field(Id::new(("shell-thickness", shell)), "0 mm");
-    assert!(harness.shows("Enter a thickness above zero"));
+    assert!(harness.shows(crate::feature_fields::ABOVE_ZERO));
     assert_eq!(harness.workspace.editing.solid(), Some(shell));
 
     harness.click_pickable(
@@ -5145,7 +5146,7 @@ fn a_linear_pattern_repeats_the_body_and_takes_its_count_and_directions_from_the
     assert_eq!(harness.model.undo_label(), Some("Create Linear pattern 1"));
     assert_eq!(pattern_of(&harness, pattern).body, plate);
     assert!(volume_about(&harness, plate, 3.0 * 16000.0));
-    assert!(harness.shows("Along"));
+    assert!(harness.shows("Direction"));
     assert!(harness.shows("Spacing"));
 
     harness.type_into_field(Id::new(("pattern-field", "count", pattern)), "4");
@@ -5211,7 +5212,7 @@ fn a_datum_plane_carries_a_sketch_that_follows_its_offset() {
     assert!(harness.shows("The XY plane"));
     assert!(
         harness
-            .shows("Select planes, faces, axes or edges, then use them from the feature's panel")
+            .shows("Select planes, faces, axes or edges for the feature's panel, or choose them in the view from it")
     );
 
     harness.type_into_field(Id::new(("datum-field", "offset", plane)), "25 mm");
@@ -6309,14 +6310,15 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     harness.settle();
     assert_readable(&harness, "An open extrusion");
     assert!(harness.captioned(Role::TextInput, "Distance"));
-    assert!(harness.captioned(Role::ComboBox, "Extent"));
+    assert!(harness.accessible_named(Role::Button, "One side"));
+    assert!(harness.captioned(Role::ComboBox, "Result"));
 
     harness.select([]);
     harness.click("Plane");
     harness.settle();
     assert_readable(&harness, "An open datum plane");
     assert!(harness.captioned(Role::TextInput, "Offset"));
-    assert!(harness.accessible_named(Role::Button, "Use selected"));
+    assert!(harness.accessible_named(Role::Button, crate::feature_fields::CHOOSE_IN_VIEW));
 
     harness.key(Key::Comma, Modifiers::COMMAND);
     harness.show_new_windows();
@@ -6760,7 +6762,7 @@ fn an_extrusion_cuts_through_all_or_up_to_the_next_face_chosen_in_its_panel() {
     harness.settle();
     let while_adding = extent_of(&harness, cut);
     choose(&mut harness, "Add to body", "Remove from body");
-    harness.click_lowest("Reversed");
+    harness.click_lowest(crate::feature_fields::REVERSE_DIRECTION);
     harness.settle();
     open_combo(&mut harness, "End");
     harness.click_lowest("Through all");
@@ -6807,19 +6809,19 @@ fn an_extrusion_runs_up_to_a_face_chosen_in_the_view_and_chosen_again() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);
     let tower = extrusion_above_plate(&mut harness, 30.0);
-    harness.click_lowest("Reversed");
+    harness.click_lowest(crate::feature_fields::REVERSE_DIRECTION);
     harness.settle();
 
     open_combo(&mut harness, "End");
-    harness.hover("Up to face");
-    let asks_for_a_face = harness
-        .shows("Select a flat face or a plane made before this feature, then choose Up to face");
-    open_combo(&mut harness, "End");
-    harness.settle();
-    harness.select([top]);
-    open_combo(&mut harness, "End");
     harness.click_lowest("Up to face");
     harness.settle();
+    let asks_for_a_face = harness.shows("Click a flat face or plane to extrude up to.");
+    let still_a_distance = extent_of(&harness, tower);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    harness.settle();
+    let picking_ended = harness.workspace.editing.picking().is_none();
     let reached = extent_of(&harness, tower);
     let volume = harness.body_volume(plate);
     let named = harness.shows("Extrude 1 end face");
@@ -6844,6 +6846,14 @@ fn an_extrusion_runs_up_to_a_face_chosen_in_the_view_and_chosen_again() {
 
     let plate_feature = plate.raw();
     assert!(asks_for_a_face);
+    assert!(matches!(
+        still_a_distance,
+        ExtrudeExtent::OneSide {
+            end: caditor_document::ExtrudeEnd::Distance(_),
+            ..
+        }
+    ));
+    assert!(picking_ended);
     assert_eq!(
         target_origin(&reached),
         Some(caditor_kernel::FaceOrigin::EndCap {
@@ -6887,8 +6897,7 @@ fn a_revolve_turns_by_two_angles_set_in_its_panel() {
     let both_ways = harness.body_volume(revolve);
     let field = Id::new(("solid-field", "forward-angle", revolve));
     harness.type_into_field(field, "350 deg");
-    let refused =
-        harness.shows("Enter an angle above zero; both angles together may turn at most 360°");
+    let refused = harness.shows(crate::feature_fields::TURNS_TOGETHER);
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.type_into_field(field, "90 deg");
@@ -6938,7 +6947,7 @@ fn a_datum_takes_its_base_and_turn_from_the_selection_in_its_panel() {
     harness.type_into_field(Id::new(("datum-field", "angle", plane)), "90 deg");
     harness.settle();
     let quarter = datum_plane(&harness, plane).normal();
-    harness.click_beside(crate::icons::REMOVE, "Turned about");
+    harness.click_button("Stop turning the plane");
     harness.settle();
     let unturned = datum_plane_of(&harness, plane).rotation.is_none();
 
@@ -6957,7 +6966,7 @@ fn a_datum_takes_its_base_and_turn_from_the_selection_in_its_panel() {
         caditor_document::Datum::Axis(caditor_document::DatumAxis::Intersection(..))
     );
     harness.select([Pickable::Axis(crate::selection::Axis::Z)]);
-    harness.click_beside("Use selected", "Where");
+    harness.click_beside("Use selected", "Defined by");
     harness.settle();
 
     assert!(based.y.abs() > 0.999, "{based}");

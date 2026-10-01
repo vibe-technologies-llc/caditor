@@ -7,20 +7,21 @@ use egui::{Id, Ui};
 
 use crate::{
     datum_tools,
-    field::{self, Expected},
-    icons,
-    model::{Action, Model, Notice},
+    feature_fields::{self, Picker, Quantity, Rule, Shown},
+    field,
+    model::{Action, Model},
+    reference_picking::Slot,
     selection::Selection,
-    solid_tools,
-    widgets::{self, FIELD_WIDTH},
+    solid_tools, widgets,
 };
 
-const USE_SELECTED: &str = "Use selected";
+pub const PLANE_DESCRIPTION: &str = "A reference plane to sketch on or extrude up to";
+pub const AXIS_DESCRIPTION: &str = "A reference axis to revolve, pattern or turn planes about";
 
 struct Panel<'a> {
     model: &'a Model,
     selection: &'a Selection,
-    feature: FeatureId,
+    feature: &'a Feature,
     index: usize,
     actions: &'a mut Vec<Action>,
 }
@@ -131,11 +132,15 @@ pub fn rotation_change(
 }
 
 impl Panel<'_> {
+    fn id(&self) -> FeatureId {
+        self.feature.id()
+    }
+
     fn chooser(&self) -> Chooser<'_> {
         Chooser {
             model: self.model,
             selection: self.selection,
-            feature: self.feature,
+            feature: self.id(),
             index: self.index,
         }
     }
@@ -145,152 +150,146 @@ impl Panel<'_> {
     }
 
     fn apply(&mut self, change: Result<Transaction, String>) {
-        match change {
-            Ok(transaction) => self.actions.push(Action::Apply(transaction)),
-            Err(reason) => self.actions.push(Action::Inform(Notice::error(format!(
-                "The datum was not changed: {reason}"
-            )))),
-        }
+        self.actions
+            .push(feature_fields::applied(&self.feature.name, change));
     }
 
-    fn use_button(&mut self, ui: &mut Ui, hover: &str, change: Result<Transaction, String>) {
-        let button = widgets::small_button(ui, icons::USE_SELECTED, USE_SELECTED);
-        let response = ui.add_enabled(change.is_ok(), button);
-        match change {
-            Ok(transaction) => {
-                if response.on_hover_text(hover).clicked() {
-                    self.actions.push(Action::Apply(transaction));
-                }
-            }
-            Err(reason) => {
-                response.on_disabled_hover_text(reason);
-            }
+    fn picker(
+        &self,
+        slot: Slot,
+        selected: Result<Transaction, String>,
+        hover: &'static str,
+    ) -> Picker<'static> {
+        Picker {
+            feature: self.id(),
+            slot,
+            selected,
+            hover,
         }
     }
 
     fn expression(
         &mut self,
         ui: &mut Ui,
+        caption: &str,
         salt: &str,
         expression: &Expression,
         dimension: Dimension,
         rebuild: impl Fn(Expression) -> Datum,
     ) {
-        let model = self.model;
-        let document = model.document();
-        let parameters = model.parameters();
-        let mut error = None;
-        let mut committed = None;
-        ui.horizontal(|ui| {
-            let field = field::commit_field(
-                ui,
-                Id::new(("datum-field", salt, self.feature)),
-                &document.expression_text(expression),
-                FIELD_WIDTH,
-                false,
-                |text| {
-                    let parsed = field::parse_expression(
-                        document,
-                        parameters,
-                        text,
-                        Expected {
-                            dimension: Some(dimension),
-                            non_negative: false,
-                        },
-                        model.length_unit(),
-                    )?;
-                    self.change(rebuild(parsed))
-                },
-            );
-            committed = field.committed;
-            if field.error.is_none()
-                && let Some(preview) =
-                    field::value_preview(parameters, expression, model.length_unit())
-            {
-                ui.label(widgets::muted(preview, ui));
-            }
-            error = field.error;
-        });
-        if let Some(transaction) = committed {
-            self.actions.push(Action::Apply(transaction));
-        }
-        ui.end_row();
-        if let Some(error) = error {
-            widgets::error_row(ui, &error);
+        let quantity = Quantity {
+            id: Id::new(("datum-field", salt, self.id())),
+            expression,
+            dimension,
+            rule: Rule::Any,
+        };
+        let committed =
+            feature_fields::expression_row(ui, self.model, caption, quantity, |parsed| {
+                self.change(rebuild(parsed))
+            });
+        self.actions.extend(committed.map(Action::Apply));
+    }
+
+    fn base_row(&mut self, ui: &mut Ui, plane: &DatumPlane) {
+        let document = self.model.document();
+        let chooser = self.chooser();
+        let based = chooser.checked(chooser.base(&Datum::Plane(plane.clone())));
+        let shown = Shown::Named(capitalized(&describe_plane(document, &plane.base)));
+        let picker = self.picker(
+            Slot::DatumBase,
+            based,
+            "Start from the selected plane or flat face",
+        );
+        feature_fields::reference_row(
+            ui,
+            self.model,
+            "Starts from",
+            shown,
+            picker,
+            None,
+            self.actions,
+        );
+    }
+
+    fn rotation_row(&mut self, ui: &mut Ui, plane: &DatumPlane) {
+        let document = self.model.document();
+        let shown = match &plane.rotation {
+            Some(rotation) => Shown::Named(capitalized(&describe_axis(document, &rotation.axis))),
+            None => Shown::NoneChosen,
+        };
+        let chooser = self.chooser();
+        let turned = chooser.checked(chooser.rotation(&Datum::Plane(plane.clone())));
+        let picker = self.picker(
+            Slot::DatumRotation,
+            turned,
+            "Pass through the selected axis and turn about it by the angle",
+        );
+        let remove = plane.rotation.is_some().then_some("Stop turning the plane");
+        let removed = feature_fields::reference_row(
+            ui,
+            self.model,
+            "Turned about",
+            shown,
+            picker,
+            remove,
+            self.actions,
+        );
+        if removed {
+            let change = self.change(Datum::Plane(DatumPlane {
+                rotation: None,
+                ..plane.clone()
+            }));
+            self.apply(change);
         }
     }
 
     fn plane_rows(&mut self, ui: &mut Ui, plane: &DatumPlane) {
-        let document = self.model.document();
-        widgets::caption(ui, "Starts from");
-        ui.horizontal_wrapped(|ui| {
-            ui.label(capitalized(&describe_plane(document, &plane.base)));
-            let chooser = self.chooser();
-            let change = chooser.checked(chooser.base(&Datum::Plane(plane.clone())));
-            self.use_button(ui, "Start from the selected plane or flat face", change);
-        });
-        ui.end_row();
-
-        widgets::caption(ui, "Turned about");
-        ui.horizontal_wrapped(|ui| {
-            match &plane.rotation {
-                Some(rotation) => {
-                    ui.label(capitalized(&describe_axis(document, &rotation.axis)));
-                }
-                None => {
-                    ui.label(widgets::muted("Nothing", ui));
-                }
-            }
-            let chooser = self.chooser();
-            let change = chooser.checked(chooser.rotation(&Datum::Plane(plane.clone())));
-            self.use_button(
-                ui,
-                "Pass through the selected axis and turn about it by the angle",
-                change,
-            );
-            if plane.rotation.is_some()
-                && widgets::icon_button(ui, icons::REMOVE, "Stop turning the plane").clicked()
-            {
-                let change = self.change(Datum::Plane(DatumPlane {
-                    rotation: None,
-                    ..plane.clone()
-                }));
-                self.apply(change);
-            }
-        });
-        ui.end_row();
-
+        feature_fields::description_row(ui, PLANE_DESCRIPTION);
+        self.base_row(ui, plane);
+        self.rotation_row(ui, plane);
         if let Some(rotation) = &plane.rotation {
-            widgets::caption(ui, "Angle");
-            self.expression(ui, "angle", &rotation.angle, Dimension::ANGLE, |angle| {
+            self.expression(
+                ui,
+                "Angle",
+                "angle",
+                &rotation.angle,
+                Dimension::ANGLE,
+                |angle| {
+                    Datum::Plane(DatumPlane {
+                        rotation: Some(PlaneRotation {
+                            angle,
+                            ..rotation.clone()
+                        }),
+                        ..plane.clone()
+                    })
+                },
+            );
+        }
+        self.expression(
+            ui,
+            "Offset",
+            "offset",
+            &plane.offset,
+            Dimension::LENGTH,
+            |offset| {
                 Datum::Plane(DatumPlane {
-                    rotation: Some(PlaneRotation {
-                        angle,
-                        ..rotation.clone()
-                    }),
+                    offset,
                     ..plane.clone()
                 })
-            });
-        }
-
-        widgets::caption(ui, "Offset");
-        self.expression(ui, "offset", &plane.offset, Dimension::LENGTH, |offset| {
-            Datum::Plane(DatumPlane {
-                offset,
-                ..plane.clone()
-            })
-        });
+            },
+        );
     }
 
     fn axis_rows(&mut self, ui: &mut Ui, axis: &DatumAxis) {
         let document = self.model.document();
-        let (title, text) = match axis {
+        feature_fields::description_row(ui, AXIS_DESCRIPTION);
+        let (caption, text) = match axis {
             DatumAxis::Along(reference) => (
                 "Runs along",
                 capitalized(&describe_axis(document, reference)),
             ),
             DatumAxis::Intersection(first, second) => (
-                "Where",
+                "Defined by",
                 format!(
                     "{} meets {}",
                     capitalized(&describe_plane(document, first)),
@@ -298,19 +297,23 @@ impl Panel<'_> {
                 ),
             ),
         };
-        widgets::caption(ui, title);
-        ui.horizontal_wrapped(|ui| {
-            ui.label(text);
-            let chooser = self.chooser();
-            let change = chooser.checked(chooser.base(&Datum::Axis(axis.clone())));
-            self.use_button(
-                ui,
-                "Run along the selected edge, round face or axis, or where the two selected \
-                 planes meet",
-                change,
-            );
-        });
-        ui.end_row();
+        let chooser = self.chooser();
+        let chosen = chooser.checked(chooser.base(&Datum::Axis(axis.clone())));
+        let picker = self.picker(
+            Slot::DatumBase,
+            chosen,
+            "Run along the selected edge, round face or axis, or where the two selected planes \
+             meet",
+        );
+        feature_fields::reference_row(
+            ui,
+            self.model,
+            caption,
+            Shown::Named(text),
+            picker,
+            None,
+            self.actions,
+        );
     }
 }
 
@@ -326,7 +329,7 @@ pub fn show(
     let mut panel = Panel {
         model,
         selection,
-        feature: id,
+        feature,
         index: model.document().feature_index(id).unwrap_or(0),
         actions,
     };
