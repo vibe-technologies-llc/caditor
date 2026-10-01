@@ -34,7 +34,11 @@ paths:
 ## Commands and keymap
 
 - Every toolbar, menu and sketch action is a `Command` (`commands.rs`) with a stable id, title,
-  category, `Scope` (anywhere, or only in a sketch) and default shortcuts.
+  category, `Scope` (anywhere, or only in a sketch) and default shortcuts. `Command::all()` lists
+  every variant: the plain ones in the `plain_commands!` invocation, which also matches `Command`
+  exhaustively so a variant missing from it fails to compile, and the payload ones from the `ALL`
+  of their type, each declared by `all_variants!` (`variants.rs`) with the same guarantee (`ShapeMode`'s
+  list is checked against its mode enums by a test).
 - The `Keymap` in `Preferences` holds user bindings as overrides, stored as `keys.<id>` lists of
   text such as `Ctrl+Shift+Z`; only changed commands are written, so unreadable or newer entries
   survive, and a command with no readable binding keeps its defaults. Esc, Enter and Tab are

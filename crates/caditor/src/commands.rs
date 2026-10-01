@@ -113,6 +113,7 @@ pub enum Command {
     FullScreen,
     OpenSample(Sample),
     OpenRecent(RecentSlot),
+    ClearRecent,
     RecoverUnsaved,
     CancelExport,
     CancelImageExport,
@@ -435,6 +436,7 @@ plain_commands! {
     MoveGeometry,
     SelectAll,
     DeleteSelection,
+    ClearRecent,
     RecoverUnsaved,
     CancelExport,
     CancelImageExport,
@@ -586,6 +588,7 @@ impl Command {
                 Sample::Bracket => "file.sample.bracket",
             },
             Self::OpenRecent(slot) => slot.id(),
+            Self::ClearRecent => "file.clear_recent",
             Self::RecoverUnsaved => "file.recover",
             Self::CancelExport => "file.cancel_export",
             Self::CancelImageExport => "file.cancel_image_export",
@@ -685,6 +688,7 @@ impl Command {
             Self::FullScreen => "Enter or leave full screen",
             Self::OpenSample(sample) => return format!("Open the {} sample", sample.title()),
             Self::OpenRecent(slot) => return slot.title(),
+            Self::ClearRecent => "Clear Recent Files",
             Self::RecoverUnsaved => "Recover Unsaved Work…",
             Self::CancelExport => "Cancel the export",
             Self::CancelImageExport => "Cancel the image export",
@@ -736,6 +740,7 @@ impl Command {
             | Self::Quit
             | Self::OpenSample(_)
             | Self::OpenRecent(_)
+            | Self::ClearRecent
             | Self::RecoverUnsaved
             | Self::CancelExport
             | Self::CancelImageExport => Category::File,
@@ -891,6 +896,7 @@ impl Command {
             | Self::ShapeMode(_)
             | Self::OpenSample(_)
             | Self::OpenRecent(_)
+            | Self::ClearRecent
             | Self::RecoverUnsaved
             | Self::CancelExport
             | Self::CancelImageExport

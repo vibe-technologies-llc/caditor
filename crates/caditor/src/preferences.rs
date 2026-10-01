@@ -1,4 +1,4 @@
-use caditor_file::Settings;
+use caditor_file::{Settings, SettingsError};
 use caditor_render::{Msaa, Projection, Shading};
 use egui::{KeyboardShortcut, ThemePreference, Ui};
 
@@ -8,6 +8,7 @@ use crate::{
     graphics::{self, CurveQuality, FrameLimit, Graphics, Hardware},
     icons,
     layout::{PanelLayout, WindowPlacement},
+    model::Notice,
     onboarding::{Hint, Onboarding},
     units::LengthUnit,
     widgets::{self, DialogWidth, Tab},
@@ -26,6 +27,17 @@ const PROJECTION_KEY: &str = "navigation.projection";
 const TITLE_BAR_KEY: &str = "appearance.title_bar";
 const SECTION_GAP: f32 = 12.0;
 const BODY_HEIGHT_SHARE: f32 = 0.75;
+
+pub fn unreadable_notice(error: &SettingsError) -> Notice {
+    let cause = match error {
+        SettingsError::Unreadable { .. } => "could not be read",
+        SettingsError::Malformed { .. } => "is damaged",
+    };
+    Notice::failure(format!(
+        "Your preferences file {cause}, so caditor started with its default settings and \
+         shortcuts. A copy of it is kept beside it when you next change a preference."
+    ))
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Theme {
@@ -684,7 +696,26 @@ fn help(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Preferences
 
 #[cfg(test)]
 mod tests {
+    use tempfile::TempDir;
+
     use super::*;
+
+    #[test]
+    fn a_damaged_preferences_file_is_reported_with_what_to_expect() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("preferences.json"), "{ not json").unwrap();
+
+        let (settings, problem) = Settings::load_reporting(dir.path());
+        let notice = unreadable_notice(&problem.unwrap());
+
+        assert_eq!(settings, Settings::default());
+        assert!(notice.outlasts_edits);
+        assert_eq!(
+            notice.text,
+            "Your preferences file is damaged, so caditor started with its default settings and \
+             shortcuts. A copy of it is kept beside it when you next change a preference."
+        );
+    }
 
     #[test]
     fn preferences_read_their_settings_and_keep_the_rest() {

@@ -37,7 +37,7 @@ pub use crate::{
         FileJournal, Inspection, Recovered, describe_set_aside, discard, inspect, journal_for, scan,
     },
     save::{SaveError, SaveOptions, encode, save, save_with, write_atomically},
-    settings::{Settings, config_dir},
+    settings::{Settings, SettingsError, config_dir},
     storage::{
         Closing, Flusher, Report, SaveRequest, Start, Storage, StorageConfig, StorageStopped,
     },

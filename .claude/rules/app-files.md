@@ -42,10 +42,14 @@ paths:
 
 - `export.rs`. File › Export… (Ctrl+E): format (STL, 3MF or STEP), for meshes the resolution
   (showing the resulting deviation in millimetres), a checkbox per body, all on by default. It waits
-  for a running recompute and warns when features failed (bodies export as last good). After the
-  save dialog it runs on its own thread, with Cancel in the status bar. A path lacking the format's
-  extension gets it appended, so an export never replaces a model file (`.stp` counts as STEP). The
-  outcome is a notice with the body count and, for meshes, the triangle count.
+  for a running recompute and warns when features failed (bodies export as last good). The dialog
+  stays open behind the save dialog, so cancelling the picker keeps it and its choices; it closes
+  when the export starts. After the save dialog it runs on its own thread, with Cancel in the status
+  bar. A path lacking the format's extension gets it appended, so an export never replaces a model
+  file (`.stp` counts as STEP); when that appended name already exists, `files.rs` asks "Replace …?"
+  (`Output`, `Replacement`) like Save As does, since the native dialog only confirmed the name it
+  was given, and Cancel returns to the export dialog. The outcome is a notice with the body count
+  and, for meshes, the triangle count.
 
 ## Image export
 
@@ -64,8 +68,10 @@ paths:
   shows more at the sides; pixels per point scale with the image's height over the view's, so
   lines and points grow with 2× and 4×. Sketch curves are faceted for the image's size (the
   view's level while that is fine enough, `app.md`), so a larger image shows no facets.
-- After the save dialog (`Dialogs::pick_image_path`, `.png` appended when missing, so an export
-  never replaces a model) the job waits in `Files` (`image_job`); the session renders it with
+- The dialog stays open behind the save dialog and closes when the image starts, so cancelling the
+  picker keeps its choices. After the save dialog (`Dialogs::pick_image_path`, `.png` appended when
+  missing, so an export never replaces a model, and an existing file at the appended name asks
+  "Replace …?" as the other export does) the job waits in `Files` (`image_job`); the session renders it with
   `Renderer::render_image` before the frame's own drawing and polls it each frame, redrawing while
   it is pending (the UI tests stand in for the renderer). The readback goes to `image_rendered`,
   which reads the pixels and writes the PNG on its own thread under `catch_unwind`, with Cancel

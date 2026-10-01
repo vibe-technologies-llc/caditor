@@ -123,6 +123,7 @@ pub fn command(command: Command) -> &'static str {
         Command::TogglePrincipal => PRINCIPAL_GROUP,
         Command::OpenSample(_) => SAMPLE,
         Command::OpenRecent(_) => RECENT,
+        Command::ClearRecent => DELETE,
         Command::RecoverUnsaved => RECOVER,
         Command::CancelExport | Command::CancelImageExport | Command::CancelRecompute => {
             phosphor::STOP_CIRCLE

@@ -129,7 +129,7 @@ fn main() -> Result<()> {
     let recovery_dir = state_dir.as_deref().map(caditor_file::recovery_dir);
 
     let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
-    let model = Model::new(
+    let mut model = Model::new(
         Document::default(),
         Services {
             make_waker: app::waker_factory(event_loop.create_proxy()),
@@ -149,12 +149,14 @@ fn main() -> Result<()> {
         Box::new(NativeDialogs),
         app::waker_factory(event_loop.create_proxy()),
     );
-    let preferences = Preferences::from_settings(
-        config_dir
-            .as_deref()
-            .map(caditor_file::Settings::load)
-            .unwrap_or_default(),
-    );
+    let (settings, problem) = config_dir
+        .as_deref()
+        .map(caditor_file::Settings::load_reporting)
+        .unwrap_or_default();
+    if let Some(problem) = &problem {
+        model.set_notice(preferences::unreadable_notice(problem));
+    }
+    let preferences = Preferences::from_settings(settings);
     let mut app = App::new(model, files, preferences, open, event_loop.create_proxy());
     event_loop.run_app(&mut app)?;
     app.finish()

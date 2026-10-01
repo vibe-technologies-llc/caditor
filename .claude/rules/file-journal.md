@@ -58,7 +58,8 @@ paths:
 ## Preferences (`settings.rs`)
 
 - `Settings`: JSON key/value file `$XDG_CONFIG_HOME/caditor/preferences.json` (`config_dir`), read
-  leniently, written atomically; unknown keys are kept, so an older caditor never erases a newer
+  leniently (`load` falls back to the defaults, `load_reporting` also returns the `SettingsError`
+  that made it), written atomically; unknown keys are kept, so an older caditor never erases a newer
   one's settings.
 - `save_changes` re-reads the file and applies only keys changed since the last save, so windows
   keep each other's changes. An unreadable file is kept as `preferences.unreadable.json` first.

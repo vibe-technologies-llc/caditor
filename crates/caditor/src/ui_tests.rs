@@ -987,6 +987,28 @@ fn preferences_change_units_and_navigation_and_are_remembered() {
 }
 
 #[test]
+fn a_preference_that_could_not_be_saved_is_shown_as_a_notice() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("config"), b"not a folder").unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    assert!(harness.model.notice().is_none());
+
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Scale(1.5),
+    )));
+    harness.wait_until("the failure is shown", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Could not save your preferences: "))
+    });
+
+    let notice = harness.model.notice().unwrap();
+    assert!(notice.outlasts_edits);
+    assert!(notice.text.ends_with("change one again to retry saving."));
+}
+
+#[test]
 fn the_side_panel_opens_as_it_was_left_and_follows_changes_to_it() {
     let left = crate::layout::PanelLayout {
         side_width: 420.0,
@@ -7707,6 +7729,38 @@ fn the_about_dialog_shows_the_logo_beside_the_name_and_tagline() {
     assert!(harness.shows(about::VERSION));
     assert!(logo_loaded(&harness, 64));
     assert_readable(&harness, "The About dialog");
+}
+
+#[test]
+fn a_dialog_focuses_its_primary_action_and_enter_runs_it() {
+    let mut harness = Harness::new();
+
+    harness.perform(Action::Preferences(PreferencesCommand::ShowAbout));
+    harness.show_new_windows();
+    assert!(harness.shows("About caditor"));
+    assert!(harness.focused().is_some());
+
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(!harness.shows("About caditor"));
+}
+
+#[test]
+fn enter_acts_on_the_widget_holding_focus_in_a_dialog_not_on_its_primary_action() {
+    let mut harness = Harness::new();
+    harness.perform(Action::Preferences(PreferencesCommand::Show));
+    harness.show_new_windows();
+    assert!(harness.shows("Preferences"));
+
+    harness.key(Key::Tab, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows("Preferences"));
 }
 
 #[test]

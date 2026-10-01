@@ -180,11 +180,40 @@ pub fn small_button(ui: &mut Ui, glyph: &str, text: &str) -> Named<Button<'stati
     Named::new(button, text)
 }
 
-pub fn primary_button(ui: &Ui, text: impl Into<String>) -> Button<'static> {
+pub struct PrimaryButton(Button<'static>);
+
+impl Widget for PrimaryButton {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let response = ui.add(self.0);
+        if ui.is_enabled() {
+            ui.data_mut(|data| data.insert_temp(primary_action_key(), response.id));
+        }
+        response
+    }
+}
+
+pub fn primary_button(ui: &Ui, text: impl Into<String>) -> PrimaryButton {
     let tokens = appearance::tokens(ui);
-    Button::new(RichText::new(text).color(tokens.text_on_accent))
-        .fill(tokens.accent)
-        .stroke(Stroke::NONE)
+    PrimaryButton(
+        Button::new(RichText::new(text).color(tokens.text_on_accent))
+            .fill(tokens.accent)
+            .stroke(Stroke::NONE),
+    )
+}
+
+fn primary_action_key() -> Id {
+    Id::new("dialog-primary-action")
+}
+
+fn focus_primary_action(ctx: &egui::Context) {
+    let primary = ctx.data(|data| data.get_temp::<Id>(primary_action_key()));
+    let nothing_focused = ctx.memory(|memory| memory.focused().is_none());
+    if let Some(primary) = primary
+        && nothing_focused
+    {
+        ctx.memory_mut(|memory| memory.request_focus(primary));
+        ctx.request_repaint();
+    }
 }
 
 pub fn link_label(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
@@ -862,6 +891,7 @@ pub fn dialog<T>(
     add: impl FnOnce(&mut Ui) -> T,
 ) -> DialogResponse<T> {
     let mut closed = false;
+    ctx.data_mut(|data| data.remove::<Id>(primary_action_key()));
     let response = Modal::new(Id::new(id))
         .frame(dialog_frame(ctx))
         .show(ctx, |ui| {
@@ -872,7 +902,9 @@ pub fn dialog<T>(
                 |ui| closed = icon_button(ui, icons::CLOSE, "Close (Esc)").clicked(),
             );
             ui.add_space(ui.spacing().item_spacing.y);
-            add(ui)
+            let inner = add(ui);
+            focus_primary_action(ui.ctx());
+            inner
         });
     let close = closed || response.should_close();
     DialogResponse {

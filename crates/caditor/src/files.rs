@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     ffi::OsString,
-    fs,
+    fs, io,
     panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
@@ -300,6 +300,10 @@ enum Event {
     OutputChecked {
         output: Output,
         replaces: bool,
+    },
+    PreferencesNotSaved {
+        error: io::Error,
+        since: Settings,
     },
     Picked {
         purpose: Purpose,
@@ -786,6 +790,13 @@ impl Files {
                  again the next time it starts.",
             )),
             Event::SaveTargetChecked(target) => self.save_target_checked(target, model),
+            Event::PreferencesNotSaved { error, since } => {
+                self.stored_settings = Some(since);
+                model.set_notice(Notice::failure(format!(
+                    "Could not save your preferences: {error}. They apply until caditor closes; \
+                     change one again to retry saving."
+                )));
+            }
             Event::OutputChecked { output, replaces } => {
                 if replaces {
                     self.confirm_replace = Some(Replacement::Output(output));
@@ -1280,9 +1291,17 @@ impl Files {
             .stored_settings
             .replace(settings.clone())
             .unwrap_or_default();
+        let events = self.events.clone();
+        let wake = (self.make_waker)();
         self.run_job(Box::new(move || {
             if let Err(error) = settings.save_changes(&config_dir, &since) {
                 log::warn!("could not save the preferences: {error}");
+                if events
+                    .send(Event::PreferencesNotSaved { error, since })
+                    .is_ok()
+                {
+                    wake();
+                }
             }
         }));
     }
