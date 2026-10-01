@@ -477,8 +477,7 @@ within a category run from most to least important.
   be re-edited only by double-click or from the tree; with a drawing tool active, Space toggles
   the selection instead of placing at the highlight, so keyboard drawing cannot start from
   existing geometry.
-- View cube labels sit on the cell fill with no tested backdrop (about 1.2:1 on the hovered amber
-  cell), and high contrast reaches neither the scene colours nor the colour-only sketch states.
+- High contrast reaches neither the scene colours nor the colour-only sketch states.
 
 ## Application
 
@@ -488,8 +487,9 @@ within a category run from most to least important.
   caditor's own icons for fillet, chamfer, shell, extrude, revolve and both patterns, on
   Phosphor's grid and stroke weight so they sit beside it;
   undecided whether they ship as glyphs added to the `icons` font family or as painted shapes.
-- One files worker runs everything and Open and Import cannot be cancelled, so a slow STEP import
-  blocks Open behind a modal, and the opening modal is drawn before the unsaved-changes prompt,
+- One files worker runs everything and Import cannot be cancelled (cancelling Open only drops its
+  result while the worker reads on), so a slow STEP import blocks Open behind a modal, and the
+  opening modal is drawn before the unsaved-changes prompt,
   so closing the window during a load hides the prompt until the load ends. Give imports their
   own cancellable job. When a worker thread cannot be spawned the job runs on the UI thread.
 - A STEP or DXF path on the command line goes to Open and fails as "not a caditor model", though
@@ -499,10 +499,9 @@ within a category run from most to least important.
   only Inter and egui's defaults are loaded.
 - Notices are one slot: an info notice replaces a save or export failure, with no history.
 - Version history shows only "saved N ago" with no summary, preview or way to keep a version.
-- The palette finds commands only, not features or parameters, and omits commands that are out of
-  context instead of explaining them as the menus do; the tree has no filter or groups.
-- Angles display only in degrees though `ux.md` allows radians; Open Recent shows bare file names
-  and cannot be cleared; core modelling commands have no default shortcuts.
+- The feature tree has no filter or groups.
+- Angles display only in degrees though `ux.md` allows radians; core modelling commands have no
+  default shortcuts.
 - Dropping files on the window works only under X11, since winit 0.30 has no drag and drop on
   Wayland, and nothing shows where a drop will go while files are dragged over the window.
 - One document per process.

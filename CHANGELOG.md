@@ -376,6 +376,37 @@ The first release of caditor.
   instead of only in the log.
 - Dialogs focus their primary action when they open, and Enter runs it unless another control
   holds the focus.
+- A cleaner, more consistent look throughout: text fields have a visible outline, buttons show
+  when they are hovered, pressed and focused, and actions that throw work away (Close without
+  saving, Discard, Delete with dependents, Restore defaults, Reset all shortcuts) are red and
+  kept apart from the main action. Labels and titles use sentence case everywhere.
+- The ribbon is grouped and captioned like the sketch bar (History, Sketch, Solid, Modify,
+  Pattern, Reference, Inspect), and every button explains itself on hover, with the reason when
+  it is unavailable. Choosing a plane for a new sketch no longer reshuffles the ribbon.
+- The sketch bar's three arc tools share one Arc button whose corner menu picks the way to draw
+  it, so the bar is narrower; menus are grouped with separators, and Search commands looks and
+  behaves like a field.
+- In the feature tree a click only selects a feature; the arrow expands it, and double-click,
+  Enter or the edit button opens it. Selected rows are highlighted in blue, the row icons line up
+  in columns, and the principal planes, axes and origin can be selected from the tree. A sketch's
+  constraints are grouped into Dimensions and Constraints.
+- Deleting a feature that others use focuses Cancel, so Enter no longer deletes the dependents.
+- All feature panels share one layout, and every reference (a pattern's direction, a datum's
+  plane or axis, a revolve's axis, an extrusion's end face) can be picked in the view as well as
+  taken from the selection. Messages about values use the same wording everywhere.
+- The command palette also finds features and parameters, groups what it finds, shows shortcuts
+  as keys, and lists commands that do not fit the moment with the reason.
+- The welcome dialog lists recent files, and Open recent shows each file's folder and can be
+  cleared.
+- Restore defaults and Reset all shortcuts ask first and can be undone; Preferences use toggle
+  groups for short choices and fit their content.
+- The measure panel keeps the last reading while a new one is worked out, so it no longer
+  flickers, and copies everything at once.
+- The 3D view's labels, hints and view cube are easier to read: shortcut hints are shown as keys
+  and stay clear of the view cube, constraint marks no longer cover dimension labels, and the
+  view cube shows its parts, names them for screen readers and can be stepped with the arrow
+  keys.
+- The side panel keeps its width when a feature with long names or wide choices is opened.
 
 ### Installation
 

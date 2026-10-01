@@ -69,29 +69,53 @@ paths:
 ## Widgets
 
 - `widgets.rs` is the kit every panel and dialog is built from: `ToolButton` (icon above label,
-  `tool_height` tall; `compact` draws the icon alone, named by its label, in a square of
-  `compact_tool_side` so two rows match one tool button; selected is an accent subtle fill with an
-  accent outline), `section`, `properties`/`property`/`error_row`, `removable_row` (text that
-  wraps beside a remove button), `card`, `callout` and `pill` with a `Tone`, `status_pill` (the
-  tone's icon before the text, for states such as a sketch's), `icon_button`, `small_button`,
-  `primary_button` and `primary_icon_button`, `menu_item` and `menu_choice` (one marked as the
-  current choice), `corner_menu_button` (a small caret in another button's top-right corner,
-  opening a popup menu without taking width of its own), `link_label`, `choose_in_view`,
-  `dialog`/`footer` (a titled modal with a close button and the primary action rightmost), and
-  `tabs`. A dialog gives focus to its `primary_button` whenever no widget holds it (opening, Escape
-  out of a widget, a click on bare dialog), so Enter runs the primary action while a field or
-  another button that has focus keeps Enter for itself. A dialog whose only action would be Close
-  has no footer: its title bar's close button is enough.
-- `dialog_parts.rs` holds what dialogs share beyond the kit: `split_footer` (a footer whose
-  destructive action, a `danger_button`, sits at the far left away from the primary),
-  `confirmation` and `confirm_footer` (a warning callout asking, over the destructive action left
-  and a primary Cancel right, used before Restore defaults and Reset all shortcuts), `undo_note`
-  (a success callout with Undo after either), `titled_modal` (a titled dialog without a close
-  button, for waits that cannot be cancelled), `BodyRoom` (the height a dialog's scrolling middle
-  may take so the whole dialog stays within a share of the window, measuring what sits above it
-  and, from the last frame, below it) and `segmented_offered` (a `segmented` whose options can be
-  disabled with a reason). Sentence case everywhere: buttons, titles and commands ("Save as…",
-  "Close without saving", "Keyboard shortcuts").
+  `tool_height` tall, at least two `CONTROL_HEIGHT` rows; `compact` draws the icon alone, named by
+  its label, in a square of `compact_tool_side` so two rows match one tool button; selected is an
+  accent subtle fill with an accent outline, hovered a `border_strong` outline, pressed the pressed
+  fill even when selected), `section`, `properties`/`property`/`error_row`, `removable_row` (text
+  wrapping in the room left of its remove button), `card`, `callout` and `pill` with a `Tone`,
+  `status_pill` (the tone's icon before the text), `icon_button` (a true `CONTROL_HEIGHT` square,
+  so rows reserving that room never overflow and widen a panel), `button` (a plain secondary
+  button), `small_button` (icon and text), `primary_button` and `primary_icon_button` (accent
+  fills for rest, hover and press, a focus ring outside), `danger_button` (the same in `danger`
+  fills, for actions that throw work away; it never registers as the primary), `text_field` (the
+  scope every text edit is drawn in: a `field_border` outline, `text_muted` on hover, the focus
+  ring), `strong` (semibold text, since egui's `.strong()` only recolours here), `segmented` and
+  `segmented_with` (a joined row of 2–4 short choices, the current one raised with an accent
+  outline, options disabled with a reason through `Segment::refusal`; when the row is wider than
+  the room it falls back to a dropdown captioned like a combo box, so it never widens a panel),
+  `key_cap` (each key of "Ctrl+Shift+P" as a small cap, in reading order in either layout
+  direction), `empty_state` (a muted icon and sentence with actions under it), `stepper`
+  (− value +), `panel_header` (icon, section title, trailing actions), `menu_item`, `menu_choice`
+  (one marked as the current choice), `menu_option` (a selectable item in a dropdown),
+  `menu_item_with_detail` (a muted detail at the right, such as a recent file's folder),
+  `corner_menu_button` (a small caret in another button's top-right corner, opening a popup menu
+  without taking width of its own), `link_label`, `choose_in_view`, `dialog`/`footer` (a titled
+  modal with a close button and the primary action rightmost), `footer_split` (a footer with a
+  destructive action at the far left, away from the primary) and `tabs`. Spacing comes from
+  `appearance` (`SPACE_XS` 2, `SPACE_S` 4, `SPACE_M` 8, `SPACE_L` 12, `DIALOG_MARGIN` 20,
+  `CONTROL_HEIGHT` 24, `BORDER_WIDTH`, `FOCUS_WIDTH`). Panels and dialogs never add raw egui
+  buttons: `conventions_tests.rs` (`buttons_outside_the_widget_kit_come_from_it`) fails on
+  `ui.button`, `ui.small_button`, `Button::new`, `Button::selectable` or `selectable_label`
+  outside `widgets.rs`. A dialog gives focus to its `primary_button` whenever no widget holds it
+  (opening, Escape out of a widget, a click on bare dialog), so Enter runs the primary action
+  while a field or another button that has focus keeps Enter for itself. A dialog whose only
+  action would be Close has no footer: its title bar's close button is enough.
+- `dialog_parts.rs` holds what dialogs share beyond the kit: `confirmation` and `confirm_footer`
+  (a warning callout asking, over the destructive action left and a primary Cancel right, used
+  before Restore defaults and Reset all shortcuts), `undo_note` (a success callout with Undo after
+  either), `titled_modal` (a titled dialog without a close button, for waits that cannot be
+  cancelled) and `BodyRoom` (the height a dialog's scrolling middle may take so the whole dialog
+  stays within a share of the window, measuring what sits above it and, from the last frame,
+  below it). Sentence case everywhere: buttons, titles and commands ("Save as…", "Close without
+  saving", "Keyboard shortcuts").
+- The side panel's scroll area always keeps its scrollbar's room, so the panel keeps its width
+  when its content grows past the window's height.
+- Tokens beyond the surfaces and tones: `field_border` (3:1 against every surface a field sits
+  on), `accent_hover` and `accent_pressed`, and `danger`, `danger_hover` and `danger_pressed`
+  (white text at 4.5:1, 3:1 against panels and dialogs). `tokens_for` finds the token set from
+  the visuals' panel fill and theme, and `appearance.rs` tests text pairings, control outlines,
+  focus rings and both button kinds in all four themes.
 - `tabs` is a wrapping row of `Tab`s (icon and label) over a border line: the selected one tinted
   `accent_subtle` with `accent_text` and a 2-point accent underline, others `text` on hover or
   pressed fills, focus outlined in `focus`. It returns the tab chosen by click, by Left/Right

@@ -27,6 +27,9 @@ packaging/check-install.sh target/dist/caditor-<version>-snapshot-linux-x86_64.t
 ```
 
 `rust-formatter` formats `.rs` and `.toml` and replaces `cargo fmt` and `rustfmt` entirely.
+`CADITOR_SCREENSHOTS=<dir> cargo test -p caditor screenshots -- --ignored` renders the interface
+to PNGs headlessly; the `ui-screenshots` skill (`.claude/skills/ui-screenshots/`) says how, and
+how to capture the running app.
 Offscreen render tests skip without a GPU adapter unless `CADITOR_REQUIRE_GPU=1` (CI sets it, on
 lavapipe). CI, cargo-deny and the fuzz workspace are described in `.claude/rules/ci.md`.
 
