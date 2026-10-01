@@ -8,6 +8,7 @@ mod id;
 mod intersect;
 mod mirror;
 mod offset;
+mod relation;
 mod sketch;
 mod solve;
 mod trim;

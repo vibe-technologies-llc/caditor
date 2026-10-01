@@ -1,4 +1,4 @@
-use std::f64::consts::TAU;
+use std::{collections::BTreeSet, f64::consts::TAU};
 
 use caditor_geometry::{Point2, Vector2};
 
@@ -542,6 +542,7 @@ impl Sketch {
         Ok(match (entity, piece.start, piece.end) {
             (Entity::Line { start, end }, None, Some(cut)) => {
                 let kept = self.add_point(cut.position);
+                self.drop_length_dimensions(start, end)?;
                 self.restructure(curve, Entity::Line { start: kept, end }, &[], keeps_length)?;
                 self.join(kept, &cut, curve)?;
                 self.drop_if_unused(start)?;
@@ -549,6 +550,7 @@ impl Sketch {
             }
             (Entity::Line { start, end }, Some(cut), None) => {
                 let kept = self.add_point(cut.position);
+                self.drop_length_dimensions(start, end)?;
                 self.restructure(curve, Entity::Line { start, end: kept }, &[], keeps_length)?;
                 self.join(kept, &cut, curve)?;
                 self.drop_if_unused(end)?;
@@ -696,6 +698,49 @@ impl Sketch {
             self.insert_constraint(id, constraint)?;
         }
         Ok(())
+    }
+
+    fn drop_length_dimensions(&mut self, a: EntityId, b: EntityId) -> Result<(), SketchError> {
+        let at_a = self.joined_points(a);
+        let at_b = self.joined_points(b);
+        let between: BTreeSet<ConstraintId> = at_a
+            .iter()
+            .flat_map(|point| self.constraints_using(*point))
+            .filter(|id| match self.constraint(*id) {
+                Some(
+                    Constraint::Distance { from, to, .. }
+                    | Constraint::HorizontalDistance { from, to, .. }
+                    | Constraint::VerticalDistance { from, to, .. },
+                ) => {
+                    (at_a.contains(from) && at_b.contains(to))
+                        || (at_b.contains(from) && at_a.contains(to))
+                }
+                _ => false,
+            })
+            .collect();
+        for id in between {
+            self.remove_constraint(id)?;
+        }
+        Ok(())
+    }
+
+    fn joined_points(&self, point: EntityId) -> BTreeSet<EntityId> {
+        let mut joined = BTreeSet::from([point]);
+        let mut pending = vec![point];
+        while let Some(current) = pending.pop() {
+            for id in self.constraints_using(current) {
+                let Some(Constraint::Coincident(first, second)) = self.constraint(id) else {
+                    continue;
+                };
+                for other in [*first, *second] {
+                    let is_point = matches!(self.entity(other), Some(Entity::Point(_)));
+                    if is_point && joined.insert(other) {
+                        pending.push(other);
+                    }
+                }
+            }
+        }
+        joined
     }
 
     fn add_piece(&mut self, curve: EntityId, entity: Entity) -> Result<EntityId, SketchError> {

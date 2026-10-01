@@ -16,6 +16,7 @@ use crate::{
 
 pub(super) const DIAGNOSIS_WORK: usize = 500_000;
 const MID_RANGE: f64 = 0.5;
+const DIAGNOSED_PARTS: usize = 8;
 
 pub(super) fn diagnose_failure(
     sketch: &Sketch,
@@ -34,28 +35,58 @@ pub(super) fn diagnose_failure(
             label: sketch.entity_label(entity),
         });
     }
-    let Some((failure, suspects)) = failed
+    let mut parts: Vec<(&Failure, Vec<ConstraintId>)> = failed
         .iter()
         .map(|failure| {
             let suspects = owners_newest_first(solver.system, &failure.component.equations);
             (failure, suspects)
         })
-        .max_by_key(|(_, suspects)| suspects.first().copied())
-    else {
-        return Ok(SketchError::Unsolvable {
+        .collect();
+    parts.sort_by_key(|(_, suspects)| std::cmp::Reverse(suspects.first().copied()));
+    let mut reports = Vec::new();
+    for (index, (failure, suspects)) in parts.iter().enumerate() {
+        let report = if index < DIAGNOSED_PARTS {
+            diagnose_part(sketch, solver, failure, suspects, work)?
+        } else {
+            unsolvable(sketch, solver, failure, suspects)
+        };
+        reports.push(report);
+    }
+    match reports.len() {
+        0 => Ok(SketchError::Unsolvable {
             entities: Vec::new(),
             newest: None,
-        });
-    };
+        }),
+        1 => Ok(reports.swap_remove(0)),
+        _ => Ok(SketchError::Several(reports)),
+    }
+}
+
+fn diagnose_part(
+    sketch: &Sketch,
+    solver: &Solver<'_>,
+    failure: &Failure,
+    suspects: &[ConstraintId],
+    work: usize,
+) -> Result<SketchError, SketchError> {
     let mut diagnosis = Diagnosis::new(solver, failure, work);
     let support = diagnosis.irreducible_where_it_settled(failure);
-    match diagnosis.minimal_conflict(&suspects, support) {
+    match diagnosis.minimal_conflict(suspects, support) {
         Ok(Some(constraints)) => Ok(SketchError::Conflict { constraints }),
-        Ok(None) | Err(Stop::Exhausted) => Ok(SketchError::Unsolvable {
-            entities: named_entities(sketch, solver.system, &failure.component),
-            newest: suspects.first().copied(),
-        }),
+        Ok(None) | Err(Stop::Exhausted) => Ok(unsolvable(sketch, solver, failure, suspects)),
         Err(Stop::Cancelled) => Err(SketchError::Cancelled),
+    }
+}
+
+fn unsolvable(
+    sketch: &Sketch,
+    solver: &Solver<'_>,
+    failure: &Failure,
+    suspects: &[ConstraintId],
+) -> SketchError {
+    SketchError::Unsolvable {
+        entities: named_entities(sketch, solver.system, &failure.component),
+        newest: suspects.first().copied(),
     }
 }
 

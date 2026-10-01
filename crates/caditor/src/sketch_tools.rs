@@ -178,7 +178,7 @@ impl ConstraintTool {
                 .check_constraint(constraint)
                 .map_err(|error| format!("{}.", sentence(&error.to_string())))?;
         }
-        Ok(constraints)
+        new_relations(definition, constraints)
     }
 
     fn propose(
@@ -273,6 +273,32 @@ impl ConstraintTool {
             Self::VerticalDistance => Constraint::VerticalDistance { from, to, value },
             _ => Constraint::HorizontalDistance { from, to, value },
         })
+    }
+}
+
+fn new_relations(
+    definition: &Sketch,
+    constraints: Vec<Constraint>,
+) -> Result<Vec<Constraint>, String> {
+    for constraint in &constraints {
+        if let Some(existing) = definition.contradicting(constraint) {
+            return Err(format!(
+                "{} would contradict {}, which is already in the sketch. Delete that first.",
+                definition.describe(constraint),
+                definition.describe_constraint(existing)
+            ));
+        }
+    }
+    let (restated, fresh): (Vec<Constraint>, Vec<Constraint>) = constraints
+        .into_iter()
+        .partition(|constraint| definition.restating(constraint).is_some());
+    match (fresh.is_empty(), restated.first()) {
+        (true, Some(first)) if restated.len() == 1 => Err(format!(
+            "{} is already in the sketch.",
+            definition.describe(first)
+        )),
+        (true, Some(_)) => Err("Every one of these is already in the sketch.".to_owned()),
+        _ => Ok(fresh),
     }
 }
 
@@ -814,6 +840,56 @@ mod tests {
         assert_eq!(
             candidates(&f, ConstraintTool::Horizontal, &[EntityId::HORIZONTAL_AXIS]),
             Err("It only uses reference geometry, which never moves.".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_constraint_the_sketch_already_has_is_refused_and_a_batch_skips_it() {
+        let mut f = fixture();
+        f.sketch
+            .add_constraint(Constraint::Horizontal(f.horizontal))
+            .unwrap();
+        f.sketch
+            .add_constraint(Constraint::Parallel(f.horizontal, f.slanted))
+            .unwrap();
+
+        let level = f.sketch.entity_label(f.horizontal);
+        let slanted = f.sketch.entity_label(f.slanted);
+
+        assert_eq!(
+            candidates(&f, ConstraintTool::Horizontal, &[f.horizontal]),
+            Err(format!("Horizontal {level} is already in the sketch."))
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Horizontal, &[f.horizontal, f.slanted]),
+            Ok(vec![Constraint::Horizontal(f.slanted)])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Parallel, &[f.slanted, f.horizontal]),
+            Err(format!(
+                "Parallel {slanted} and {level} is already in the sketch."
+            ))
+        );
+        assert!(candidates(&f, ConstraintTool::Equal, &[f.slanted, f.horizontal]).is_ok());
+    }
+
+    #[test]
+    fn a_constraint_that_contradicts_one_in_the_sketch_is_refused() {
+        let mut f = fixture();
+        f.sketch
+            .add_constraint(Constraint::Horizontal(f.horizontal))
+            .unwrap();
+
+        let level = f.sketch.entity_label(f.horizontal);
+
+        let refused = candidates(&f, ConstraintTool::Vertical, &[f.horizontal]);
+
+        assert_eq!(
+            refused,
+            Err(format!(
+                "Vertical {level} would contradict Horizontal {level}, which is already in the \
+                 sketch. Delete that first."
+            ))
         );
     }
 

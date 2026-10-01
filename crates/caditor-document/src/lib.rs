@@ -756,6 +756,50 @@ mod tests {
     }
 
     #[test]
+    fn every_conflicting_part_of_a_sketch_is_reported_together() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let mut conflicts = Vec::new();
+        for row in 0..2 {
+            let y = f64::from(row) * 20.0;
+            let line = sketch.add_line(Point2::new(0.0, y), Point2::new(10.0, y));
+            let horizontal = sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+            let vertical = sketch.add_constraint(Constraint::Vertical(line)).unwrap();
+            conflicts.push((horizontal, vertical));
+        }
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Base sketch", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+
+        let evaluation = recompute(&mut Recompute::default(), &document);
+
+        let error = failure(&evaluation, feature);
+        assert!(
+            error
+                .reason
+                .starts_with("The sketch has 2 separate problems. (1) ")
+        );
+        assert!(error.reason.contains(" (2) "));
+        assert!(error.remedy.starts_with("Fix each of them. (1) "));
+        assert_eq!(
+            error.constraints,
+            [
+                conflicts[1].0,
+                conflicts[1].1,
+                conflicts[0].0,
+                conflicts[0].1
+            ]
+        );
+        assert_eq!(
+            error.fix,
+            Some(FixTarget::Constraint {
+                feature,
+                constraint: conflicts[1].1
+            })
+        );
+    }
+
+    #[test]
     fn conflicting_constraints_are_named_and_the_fix_points_at_the_newest() {
         let (mut sketch, _) = line_with_distance(Plane::XY, 40.0, Expression::Number(40.0));
         let line = sketch

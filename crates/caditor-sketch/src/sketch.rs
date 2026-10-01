@@ -70,6 +70,10 @@ pub enum SketchError {
     Cancelled,
     #[error("some constraints conflict with each other")]
     Conflict { constraints: Vec<ConstraintId> },
+    #[error("{reason}")]
+    DimensionValue { reason: DimensionError },
+    #[error("the sketch has {} separate problems", .0.len())]
+    Several(Vec<SketchError>),
     #[error("the sketch could not be solved from its current shape")]
     Unsolvable {
         entities: Vec<EntityId>,
@@ -495,10 +499,28 @@ impl Sketch {
 
     pub fn add_constraint(&mut self, constraint: Constraint) -> Result<ConstraintId, SketchError> {
         self.check_constraint(&constraint)?;
+        self.check_literal_dimension(&constraint)?;
         let id = ConstraintId::from_raw(self.allocate());
         self.count_uses(&constraint.entities(), true);
         self.constraints.insert(id, constraint);
         Ok(id)
+    }
+
+    fn check_literal_dimension(&self, constraint: &Constraint) -> Result<(), SketchError> {
+        let (Some(expression), Some(kind)) = (constraint.dimension(), constraint.dimension_kind())
+        else {
+            return Ok(());
+        };
+        if !expression.parameters().is_empty() {
+            return Ok(());
+        }
+        let no_parameters = |_| Err(EvalError::ParameterMissing);
+        let Ok(value) = expression.evaluate_as(kind, &no_parameters) else {
+            return Ok(());
+        };
+        constraint
+            .check_dimension_value(value)
+            .map_err(|reason| SketchError::DimensionValue { reason })
     }
 
     pub fn check_constraint(&self, constraint: &Constraint) -> Result<(), SketchError> {
@@ -680,46 +702,6 @@ impl Sketch {
             .ok_or(SketchError::MissingConstraint(id))?;
         self.count_uses(&removed.entities(), false);
         Ok(removed)
-    }
-
-    pub fn remove_entity(&mut self, id: EntityId) -> Option<Entity> {
-        let removed = self.entities.remove(&id)?;
-        let mut gone = BTreeSet::from([id]);
-        let mut dropped = vec![removed.clone()];
-        loop {
-            let dependents: Vec<EntityId> = self
-                .entities
-                .iter()
-                .filter(|(_, entity)| entity.points().iter().any(|point| gone.contains(point)))
-                .map(|(dependent, _)| *dependent)
-                .collect();
-            if dependents.is_empty() {
-                break;
-            }
-            for dependent in dependents {
-                if let Some(entity) = self.entities.remove(&dependent) {
-                    dropped.push(entity);
-                }
-                gone.insert(dependent);
-            }
-        }
-        let doomed: Vec<ConstraintId> = self
-            .constraints
-            .iter()
-            .filter(|(_, constraint)| constraint.entities().iter().any(|used| gone.contains(used)))
-            .map(|(constraint, _)| *constraint)
-            .collect();
-        for constraint in doomed {
-            if let Some(constraint) = self.constraints.remove(&constraint) {
-                self.count_uses(&constraint.entities(), false);
-            }
-        }
-        for entity in &dropped {
-            self.count_uses(&entity.points(), false);
-        }
-        self.uses.retain(|used, _| !gone.contains(used));
-        self.construction.retain(|curve| !gone.contains(curve));
-        Some(removed)
     }
 
     fn count_uses(&mut self, used: &[EntityId], add: bool) {
@@ -1017,7 +999,7 @@ mod tests {
         let first = sketch.add_point(Point2::ZERO);
         let second = sketch.add_point(Point2::X);
 
-        sketch.remove_entity(first);
+        sketch.remove_unused_entity(first).unwrap();
         let third = sketch.add_point(Point2::Y);
 
         assert_eq!(sketch.entity(second), Some(&Entity::Point(Point2::X)));
@@ -1026,38 +1008,38 @@ mod tests {
     }
 
     #[test]
-    fn removing_a_point_removes_dependent_curves_and_constraints() {
+    fn a_used_entity_is_refused_until_its_users_are_removed_and_counts_stay_exact() {
         let mut sketch = Sketch::new(Plane::XY);
         let line = sketch.add_line(Point2::ZERO, Point2::X);
-        sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+        let horizontal = sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
         let (start, end) = endpoints(&sketch, line);
-        let arc = sketch.add_arc(Point2::ZERO, Point2::X, Point2::Y);
-        let spline = sketch.add_spline(&[Point2::ZERO, Point2::X, Point2::Y]);
         let circle = sketch.add_circle(Point2::ZERO, 2.0);
-        sketch
+        let tangent = sketch
             .add_constraint(Constraint::Tangent(line, circle))
             .unwrap();
-        let Some(Entity::Arc { center, .. }) = sketch.entity(arc).cloned() else {
-            panic!("expected an arc");
-        };
-        let Some(Entity::Spline { control_points }) = sketch.entity(spline).cloned() else {
-            panic!("expected a spline");
-        };
 
-        sketch.remove_entity(start);
+        assert!(matches!(
+            sketch.remove_unused_entity(start),
+            Err(SketchError::InUse { entity, .. }) if entity == start
+        ));
         assert_eq!(sketch.uses, sketch.counted_from_scratch());
-        sketch.remove_entity(center);
+
+        sketch.remove_constraint(horizontal).unwrap();
+        sketch.remove_constraint(tangent).unwrap();
         assert_eq!(sketch.uses, sketch.counted_from_scratch());
-        sketch.remove_entity(control_points[1]);
+
+        sketch.remove_unused_entity(line).unwrap();
+        sketch.remove_unused_entity(start).unwrap();
+        sketch.remove_unused_entity(circle).unwrap();
         assert_eq!(sketch.uses, sketch.counted_from_scratch());
 
         assert_eq!(sketch.entity(line), None);
-        assert_eq!(sketch.entity(arc), None);
-        assert_eq!(sketch.entity(spline), None);
+        assert_eq!(sketch.entity(start), None);
         assert!(sketch.entity(end).is_some());
-        assert!(sketch.entity(circle).is_some());
-        assert_eq!(sketch.constraints().len(), 0);
-        assert_eq!(sketch.remove_entity(EntityId::ORIGIN), None);
+        assert!(matches!(
+            sketch.remove_unused_entity(EntityId::ORIGIN),
+            Err(SketchError::ReferenceGeometry { .. })
+        ));
     }
 
     #[test]
@@ -1618,6 +1600,7 @@ mod tests {
                 reason: DimensionError::Evaluation(EvalError::WrongKind {
                     expected: Dimension::LENGTH,
                     found: Dimension::ANGLE,
+                    divides_by_unit: false,
                 }),
             }
         );
@@ -1645,16 +1628,20 @@ mod tests {
                 value: Expression::Parameter(WIDTH),
             })
             .unwrap();
-        sketch.remove_entity(circle);
+        sketch.remove_unused_entity(circle).unwrap();
         let evaluated = sketch.evaluate(&width_is(Quantity::angle(-30.0))).unwrap();
         assert_eq!(evaluated.dimension(angle), Some(-30.0));
 
         let circle = sketch.add_circle(Point2::ZERO, 1.0);
-        let radius = sketch
-            .add_constraint(Constraint::Radius {
-                entity: circle,
-                value: Expression::Number(0.0),
-            })
+        let radius = ConstraintId::from_raw(sketch.next_id());
+        sketch
+            .insert_constraint(
+                radius,
+                Constraint::Radius {
+                    entity: circle,
+                    value: Expression::Number(0.0),
+                },
+            )
             .unwrap();
         let error = sketch
             .evaluate(&width_is(Quantity::angle(1.0)))
@@ -1758,12 +1745,11 @@ mod tests {
         let mut sketch = Sketch::new(Plane::XY);
         let line = sketch.add_line(Point2::ZERO, Point2::X);
         let circle = sketch.add_circle(Point2::Y, 1.0);
-        let (start, _) = endpoints(&sketch, line);
 
         sketch.set_construction(line, true).unwrap();
         sketch.set_construction(circle, true).unwrap();
         sketch.remove_unused_entity(circle).unwrap();
-        sketch.remove_entity(start);
+        sketch.remove_unused_entity(line).unwrap();
 
         assert_eq!(sketch.construction().len(), 0);
     }

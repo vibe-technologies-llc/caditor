@@ -163,6 +163,102 @@ fn trimming_an_end_piece_shortens_the_line_and_drops_its_old_end() {
 }
 
 #[test]
+fn a_shortened_line_loses_the_length_dimension_that_ran_to_a_shared_old_end() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
+    let (corner, end) = ends(&sketch, line);
+    let top = sketch.add_point(Point2::new(0.0, 20.0));
+    let other = EntityId::from_raw(sketch.next_id());
+    sketch
+        .insert_entity(
+            other,
+            Entity::Line {
+                start: corner,
+                end: top,
+            },
+        )
+        .unwrap();
+    let length = sketch
+        .add_constraint(Constraint::Distance {
+            from: corner,
+            to: end,
+            value: mm(30.0),
+        })
+        .unwrap();
+    let across = sketch
+        .add_constraint(Constraint::HorizontalDistance {
+            from: end,
+            to: corner,
+            value: mm(30.0),
+        })
+        .unwrap();
+    let height = sketch
+        .add_constraint(Constraint::Distance {
+            from: corner,
+            to: top,
+            value: mm(20.0),
+        })
+        .unwrap();
+    let cutter = vertical(&mut sketch, 10.0);
+
+    assert_eq!(
+        sketch.trim(line, Point2::new(5.0, 0.0)),
+        Ok(Trimmed::Shortened)
+    );
+
+    assert!(sketch.entity(corner).is_some());
+    assert!(sketch.constraint(length).is_none());
+    assert!(sketch.constraint(across).is_none());
+    assert!(sketch.constraint(height).is_some());
+    assert!(sketch.entity(cutter).is_some());
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn a_shortened_line_loses_a_dimension_from_a_point_joined_to_its_old_end() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
+    let (corner, end) = ends(&sketch, line);
+    let other = sketch.add_line(Point2::ZERO, Point2::new(0.0, 20.0));
+    let (joined, top) = ends(&sketch, other);
+    sketch
+        .add_constraint(Constraint::Coincident(corner, joined))
+        .unwrap();
+    let length = sketch
+        .add_constraint(Constraint::Distance {
+            from: joined,
+            to: end,
+            value: mm(30.0),
+        })
+        .unwrap();
+    let across = sketch
+        .add_constraint(Constraint::HorizontalDistance {
+            from: end,
+            to: joined,
+            value: mm(30.0),
+        })
+        .unwrap();
+    let height = sketch
+        .add_constraint(Constraint::Distance {
+            from: joined,
+            to: top,
+            value: mm(20.0),
+        })
+        .unwrap();
+    vertical(&mut sketch, 10.0);
+
+    assert_eq!(
+        sketch.trim(line, Point2::new(5.0, 0.0)),
+        Ok(Trimmed::Shortened)
+    );
+
+    assert!(sketch.constraint(length).is_none());
+    assert!(sketch.constraint(across).is_none());
+    assert!(sketch.constraint(height).is_some());
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
 fn a_cut_at_the_end_of_a_joined_line_takes_over_its_joint() {
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));

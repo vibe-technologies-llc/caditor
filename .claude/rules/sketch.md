@@ -20,8 +20,9 @@ paths:
   - It can still be a revolve axis.
 - `insert_entity` and `insert_constraint` take explicit IDs and check references, for loading.
 - The sketch counts each entity's uses by curves and constraints, so refusing to remove a used one
-  never scans the sketch and undoing a large import stays fast. `remove_entity` removes a whole
-  cascade in one pass, updating the counts incrementally.
+  never scans the sketch and undoing a large import stays fast. `remove_unused_entity` and
+  `remove_constraint` update the counts incrementally; the sketch never cascades a removal, the
+  document's `remove_sketch_items` expands a deletion into its users first (`document.md`).
 
 ## Constraints
 
@@ -42,7 +43,16 @@ paths:
 - An angle measures from its first line's direction (or its reverse when `reversed`, which the UI
   sets so a corner of a chain is measured inside it) to its second's.
 - `check_constraint` refuses constraints that do not fit the entity kinds; the UI asks before
-  offering one.
+  offering one. `restating` and `contradicting` (`relation.rs`) find the constraint already in the
+  sketch that a new one repeats (same kind on the same items, order ignored; a level line is the
+  same as `HorizontalPoints` on its ends; a radius and a diameter of one circle) or cannot hold
+  with (horizontal and vertical on one line, parallel and perpendicular on one pair); the sketch
+  itself still accepts both, since stored files may hold them.
+- A dimension is a magnitude: distances (horizontal and vertical included) are never negative, the
+  side coming from the drawn geometry. `add_constraint` refuses a literal value that could never
+  hold (`SketchError::Value`, so a negative distance fails when typed, not at solve); loading and
+  undo go through `insert_constraint` and stay lenient, and a parameter-driven value that turns
+  negative fails that dimension at solve with its own message.
 - `Sketch::measured` gives a dimension's drawn value: new dimensions start from it and unreadable
   stored ones fall back to it.
 
@@ -57,7 +67,10 @@ paths:
   step succeeded. Splines are refused in words (`TrimError::Spline`).
 - The kept part keeps the curve's ID, its surviving end points and every constraint still true of
   it: a changed curve is removed and inserted again with the same ID (a circle becomes an arc), and
-  its constraints return with their IDs; `Midpoint` and `Equal` on a shortened line are dropped.
+  its constraints return with their IDs; `Midpoint` and `Equal` on a shortened line are dropped, as
+  is any distance dimension between its two old end points or points joined to them by
+  `Coincident` (one end often outlives the trim, shared with another curve, and would keep
+  measuring to the far end).
   A piece split off gets fresh IDs from the counter and the curve's construction flag; a line piece
   is `Collinear` with the kept part, or, when the line was horizontal or vertical, takes that
   constraint too and puts its new end on the kept line; an arc piece gets its own centre,

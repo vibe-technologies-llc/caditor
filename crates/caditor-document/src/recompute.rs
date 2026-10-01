@@ -832,6 +832,7 @@ fn sketch_error(feature: FeatureId, sketch: &Sketch, error: &SketchError) -> Fea
             dimension_error(feature, sketch, *constraint, reason)
         }
         SketchError::Conflict { constraints } => conflict_error(feature, sketch, constraints),
+        SketchError::Several(parts) => several_errors(feature, sketch, parts),
         SketchError::NoLength { label, .. } => FeatureError {
             reason: format!("{label} has no length, so the sketch cannot be solved."),
             remedy: format!(
@@ -850,6 +851,37 @@ fn sketch_error(feature: FeatureId, sketch: &Sketch, error: &SketchError) -> Fea
             fix: None,
             constraints: Vec::new(),
         },
+    }
+}
+
+fn several_errors(feature: FeatureId, sketch: &Sketch, parts: &[SketchError]) -> FeatureError {
+    let errors: Vec<FeatureError> = parts
+        .iter()
+        .map(|part| sketch_error(feature, sketch, part))
+        .collect();
+    let numbered = |pick: fn(&FeatureError) -> &str| {
+        errors
+            .iter()
+            .enumerate()
+            .map(|(index, error)| format!("({}) {}", index + 1, pick(error)))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let mut constraints: Vec<ConstraintId> = Vec::new();
+    for constraint in errors.iter().flat_map(|error| &error.constraints) {
+        if !constraints.contains(constraint) {
+            constraints.push(*constraint);
+        }
+    }
+    FeatureError {
+        reason: format!(
+            "The sketch has {} separate problems. {}",
+            errors.len(),
+            numbered(|error| &error.reason)
+        ),
+        remedy: format!("Fix each of them. {}", numbered(|error| &error.remedy)),
+        fix: errors.iter().find_map(|error| error.fix),
+        constraints,
     }
 }
 

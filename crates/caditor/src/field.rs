@@ -1,6 +1,6 @@
 use caditor_document::{Document, Edit, FeatureId, ParameterValues, Transaction};
 use caditor_expression::{Dimension, Expression, Unit};
-use caditor_sketch::{Constraint, ConstraintId};
+use caditor_sketch::{Constraint, ConstraintId, DimensionError};
 use egui::{Align, Id, Key, Response, Stroke, StrokeKind, TextEdit, Ui, vec2};
 
 use crate::{
@@ -179,9 +179,13 @@ pub fn dimension_transaction(
         .sketch()
         .and_then(|sketch| sketch.constraint(target.constraint))
         .ok_or_else(|| "The dimension no longer exists".to_owned())?;
+    let offset = matches!(
+        definition,
+        Constraint::HorizontalDistance { .. } | Constraint::VerticalDistance { .. }
+    );
     let expected = Expected {
         dimension: definition.dimension_kind(),
-        non_negative: !matches!(definition, Constraint::Angle { .. }),
+        non_negative: !offset && !matches!(definition, Constraint::Angle { .. }),
     };
     let value = parse_expression(document, parameters, text, expected, unit)?;
     let quantity = parameters
@@ -189,7 +193,14 @@ pub fn dimension_transaction(
         .map_err(|error| sentence(&error.to_string()))?;
     definition
         .check_dimension_value(quantity.value)
-        .map_err(|error| sentence(&error.to_string()))?;
+        .map_err(|error| match error {
+            DimensionError::Negative if offset => format!(
+                "A {} cannot be negative. It keeps the side the points are drawn on, so enter \
+                 its size alone.",
+                definition.kind_name().to_lowercase()
+            ),
+            other => sentence(&other.to_string()),
+        })?;
     checked(
         document,
         Transaction::single(
@@ -348,6 +359,43 @@ mod tests {
             edit("5 deg").err(),
             Some("It gives an angle, but a length is needed".to_owned())
         );
+        assert!(edit("width / 8").is_ok());
+    }
+
+    #[test]
+    fn a_negative_horizontal_or_vertical_distance_is_refused_with_its_reason() {
+        let mut document = document();
+        let mut sketch = caditor_sketch::Sketch::new(caditor_geometry::Plane::XY);
+        let from = sketch.add_point(caditor_geometry::Point2::ZERO);
+        let to = sketch.add_point(caditor_geometry::Point2::X);
+        let across = sketch
+            .add_constraint(Constraint::HorizontalDistance {
+                from,
+                to,
+                value: Expression::Measure(1.0, Unit::Millimetre),
+            })
+            .unwrap();
+        let mut transaction = document.transaction("Sketch");
+        let feature = transaction.add_feature("Holes", caditor_document::FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        let parameters = ParameterValues::evaluate(&document);
+        let target = DimensionTarget {
+            feature,
+            constraint: across,
+        };
+        let edit = |text| {
+            dimension_transaction(&document, &parameters, target, text, LengthUnit::Millimetre)
+        };
+
+        assert_eq!(
+            edit("-2 mm").err(),
+            Some(
+                "A horizontal distance cannot be negative. It keeps the side the points are \
+                 drawn on, so enter its size alone."
+                    .to_owned()
+            )
+        );
+        assert_eq!(edit("-width").err(), edit("-2 mm").err());
         assert!(edit("width / 8").is_ok());
     }
 

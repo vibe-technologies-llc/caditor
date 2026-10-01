@@ -35,6 +35,12 @@ fn add(sketch: &mut Sketch, constraint: Constraint) -> ConstraintId {
     sketch.add_constraint(constraint).unwrap()
 }
 
+fn add_stored(sketch: &mut Sketch, constraint: Constraint) -> ConstraintId {
+    let id = ConstraintId::from_raw(sketch.next_id());
+    sketch.insert_constraint(id, constraint).unwrap();
+    id
+}
+
 fn at(solved: &Solved, point: EntityId) -> Point2 {
     solved.geometry.point(point).unwrap()
 }
@@ -302,11 +308,40 @@ fn horizontal_and_vertical_distances_keep_their_drawn_side() {
 }
 
 #[test]
+fn a_negative_distance_is_refused_when_added() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let from = sketch.add_point(Point2::ZERO);
+    let to = sketch.add_point(Point2::X);
+
+    let horizontal = sketch.add_constraint(Constraint::HorizontalDistance {
+        from,
+        to,
+        value: mm(-1.0),
+    });
+    let vertical = sketch.add_constraint(Constraint::VerticalDistance {
+        from,
+        to,
+        value: Expression::Number(-1.0),
+    });
+
+    let expected = Err(SketchError::DimensionValue {
+        reason: crate::DimensionError::Negative,
+    });
+    assert_eq!(horizontal, expected);
+    assert_eq!(vertical, expected);
+    assert_eq!(sketch.constraints().len(), 0);
+    assert_eq!(
+        horizontal.unwrap_err().to_string(),
+        "a distance cannot be negative"
+    );
+}
+
+#[test]
 fn a_negative_horizontal_distance_is_refused_before_solving() {
     let mut sketch = Sketch::new(Plane::XY);
     let from = sketch.add_point(Point2::ZERO);
     let to = sketch.add_point(Point2::X);
-    add(
+    add_stored(
         &mut sketch,
         Constraint::HorizontalDistance {
             from,
@@ -374,7 +409,7 @@ fn a_diameter_sets_twice_the_radius() {
     assert_close(solved.geometry.circle(arc).unwrap().1, 3.5);
     assert_eq!(solved.solution.degrees_of_freedom(), 2 + 4);
 
-    let refused = add(
+    let refused = add_stored(
         &mut sketch,
         Constraint::Diameter {
             entity: circle,
