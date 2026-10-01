@@ -51,10 +51,6 @@ within a category run from most to least important.
 
 ## Persistence and recovery
 
-- Saving over a file that went bad after it was loaded (bit rot, a sync client) silently drops
-  its damaged chunks and every version delta that depended on an unreadable head, without a
-  `.damaged` copy, since `keep_original` comes only from the load's own report. Count damaged
-  and unreachable pieces in `Parsed::of(previous)` and keep the backup whenever there are any.
 - A save does not notice that the file changed on disk since it was opened; the outside change
   survives only as a version until retention thins it. Remember the head digest at load and
   report "changed since you opened it" so the UI can offer a copy or an overwrite.
@@ -69,20 +65,13 @@ within a category run from most to least important.
   whole transaction (undoing and redoing an import repeats its STEP text), the worker's
   `entries` grow all session, and a journal over 2 GiB cannot be recovered. Rebase the snapshot
   in the background past a size, and journal undo and redo by reference.
-- Temporaries left by a power cut in an earlier boot, and those of untitled journals, are never
-  removed, since cleanup matches only the current boot's tag and the path just written. Tag them
-  by machine as well and sweep the recovery folder in `recovery::scan`.
-- Records that use an unknown codec, ran out of memory or exceeded the budget are all reported as
-  "damaged", because `Budget::unpack` drops the `UnpackError`; an unknown codec should read like
-  a chunk from a newer version.
 - One flipped byte in the 12-byte magic refuses the whole file as not a model even when every
   chunk checksum is intact; offer a salvage open.
 - Load and save hold five or six copies of the model (every record unpacked before any is
   parsed, the unchanged-record check keyed by full bytes), contradicting "records decode one at
   a time" in `file-format.md`. Opening Version History decompresses every version to verify it.
-- An unreadable recent-files list is silently reset without the backup that preferences keep;
-  preferences and recent files are read, modified and written with no lock, so two windows can
-  lose an update; and set-aside `.unreadable` journals are never offered or pruned.
+- Set-aside `.unreadable` journals are never offered for restoring; they are only pruned after
+  thirty days.
 
 ## Reliability and diagnostics
 
@@ -95,18 +84,6 @@ within a category run from most to least important.
   symbols make backtraces empty. Write a log in the state directory, show startup errors in a
   native dialog naming the cause and the `WGPU_BACKEND=gl` workaround, and say where the log is
   after an unclean exit.
-- GPU allocations are not in error scopes outside image export and surface configuration: a mesh,
-  batch, pick target or 4K MSAA 8x target that does not fit leaves the encoder the UI shares
-  invalid, and every later frame fails. Scope `ViewportRenderer::upload` and `ensure_targets`,
-  drop what failed or step MSAA down, and report it.
-- A persistent `SurfaceValidation` error never heals, because `begin_frame` neither
-  reconfigures nor recreates the surface; fall back to a conservative configuration.
-- Device-loss recovery runs `pollster::block_on(Gpu::open(..))` on the UI thread at every retry
-  while the GPU resets; open the replacement on a worker.
-- A single surface `Timeout` is treated as occlusion and blanks the viewport for five seconds,
-  since cursor movement does not count as showing the window; treat it as a skipped frame.
-- A NaN depth read back from a pick reaches `unproject` unchecked and becomes the zoom anchor or
-  orbit pivot, poisoning the camera until the next fit; reject non-finite hits and anchors.
 - `rfd`'s portal backend `dlopen`s `libdbus` (C) and, when it is missing, returns `None`, which
   the app treats as the user cancelling, so Open and Save As do nothing without a word. Use a
   `zbus` portal call (zbus is already in the tree) and report a missing portal.
@@ -175,24 +152,19 @@ within a category run from most to least important.
   boundary of face … crosses itself") unless the tangent point is at a multiple of 90°, and a
   partial revolve of it fails too; a full revolve of a profile tangent to the axis fails with a
   loop winding the wrong way.
-- Two blends whose feet cross on one face are accepted: both rims of a cylinder 10 tall filleted
-  at 5.5 give a valid solid of intersecting tori with no side face left, and all horizontal edges
-  of a 40×40×10 box at 6 likewise. `fits` checks each edge alone; refuse as `TooLarge` when feet
-  on one face cross.
-- `volumes()` retries a finer validation mesh only after `VoidOutside`, so a thin valid region
-  (a 0.05 mm² lens) fails the whole extrusion as "encloses no volume"; retry on `EmptyVolume` too.
 - `validate` accepts lumps that overlap, nest or coincide (two boxes in one solid double their
   volume), since `volumes_at` never tests outward shells against each other, and accepts a
   dangling edge used twice inside a planar face, since a repeated edge is never checked to be a
   seam one period apart on a periodic surface.
 - `same_surface` samples a 7×7 grid, so a spline patch with a bump narrower than a seventh of
   it is declared coincident with a plane and booleans treat it so.
-- Sphere and torus meshes deviate about 1.7 times the requested chord, since only spline,
-  revolution, extrusion and cone faces get the `grid_deviation` refinement, so the volume bound
-  the app shows (`BodyMass::volume_within`) is violated. Add them to `measured` and test the
-  deviation of every surface kind, not only the cylinder.
+- A torus whose tube is far thinner than its ring (20 and 0.5) still meshes at 2.7 to 4.4 times
+  the requested chord, since the Delaunay triangulation of the stretched parameter grid picks long
+  triangles; mesh it finer or triangulate by cell.
 - Up to next samples at most about 256 rays over the profile, so a feature covering under about
   1% of it is never seen and the extrusion passes through it to the far plane without a word.
+- Filleting both rims of a cylinder 10 tall at 4 fails as `Boolean(Ambiguous)` although its
+  feet do not cross; the tests use 2 instead.
 - Near-duplicate lines in a profile make phantom sliver regions, because a face counts as real
   when its area exceeds tolerance² though a sliver thinner than the tolerance can be far larger;
   judge it by its width.
@@ -201,14 +173,12 @@ within a category run from most to least important.
   of one body, and name the copies in `PatternError::Union`.
 - The spline-surface projection seed grid is capped at 48 samples per direction, so on dense
   imported nets an on-surface point's foot is missed (28 in 600 at 60×60 control points).
-- `select::classify` takes the first coincident sample of a fragment and never checks the others,
-  so a partly coincident fragment is classified by one point.
+- `select::classify` lets inside or outside samples win over coincident ones in a partly
+  coincident fragment (only coincident samples of opposite senses make it `Ambiguous`); treating
+  every partly coincident fragment as `Ambiguous` fails `stress_cylinders_on_a_grid` on noise near
+  tolerance boundaries, so split fragments exactly at coincident boundaries instead.
 - Meshes fold where two faces meet at a very small dihedral (lens tips, a plane nearly tangent to
   a torus), giving self-overlapping triangles that `validate` does not see.
-- `Revolution::new` does not check that the profile lies in a meridian plane, which
-  `project_seed` assumes; a skew STEP `SURFACE_OF_REVOLUTION` is accepted and seeded wrongly.
-- `parallel_within` compares `|a×b|`, so a knife edge between anti-parallel faces counts as
-  smooth.
 
 ## Kernel feedback
 
@@ -220,9 +190,7 @@ within a category run from most to least important.
   each open end with its nearest candidate and gap, as `kernel-profile.md` says errors should.
   `SweepError::Invalid` cannot say which region failed, since all regions build in one `Plan`.
 - `BlendError::Boolean`, `Sweep` and `Profile` return no edge although `applied` knows which tool
-  failed, contrary to `kernel-operations.md`. Shell discards the inward attempt's specific error
-  and reports `TooThick`, and `ShellError::Walls` names nothing. `InvalidSize` says "not above
-  zero" for sizes up to 1e-6 mm.
+  failed, contrary to `kernel-operations.md`, and `ShellError::Walls` names nothing.
 
 ## Kernel performance
 
@@ -270,18 +238,6 @@ within a category run from most to least important.
   size-bounded history per feature.
 - Recompute is single-threaded: independent bodies and the final meshing of each body could run
   in parallel over the dependency data the document already has.
-- Parameter lookups by ID and by name scan the whole list (`Document::parameter`,
-  `parameter_named`, `parameter_position`), so a transaction touching every parameter is
-  quadratic: restoring a chain of 1,200 takes about 0.1 s in a debug build. Index them.
-- `Recomputer::cancel()` after a job has finished marks that sequence cancelled, so every later
-  mesh request returns at once and a fillet or shell panel's "before" mesh never appears; mesh
-  requests are also served oldest first, finishing stale states ahead of the current one.
-- "Recompute" cannot force a re-run: a cached failure, including the internal error from a caught
-  panic, matches its key and is reused until the feature is edited.
-- The `Editor` records no-op edits (setting a parameter to its own expression, a flag to its
-  value) as undo steps that bump the revision and recompute.
-- A sketch that re-solves to identical geometry gets fresh `OnceLock`s, so its profile
-  arrangement and region triangulation are rebuilt for display.
 - The undo size estimate counts only inline sizes, not spline control lists, expression trees or
   reference neighbour sets, so heavy histories exceed the 256 MiB budget.
 - `SetFeatureKind` refuses an import although `document.md` says an import stays an import;
@@ -303,24 +259,14 @@ within a category run from most to least important.
   whole part, so a conflict running through a part of more than about five hundred entities still
   runs out of budget and is reported as not solving; one factorisation of the Jacobian, updated
   per constraint left out, would make each confirmation cheap.
-- A solve with several conflicting parts reports only the one owning the newest constraint
-  (`max_by_key` in `diagnose_failure`), so users fix one and meet the next.
 - When conflict diagnosis finds that a part which failed from its drawn shape holds after all (a
   chain whose line must fold back, reached from a solution of all but one constraint), the solve
   still fails; the solution found could be offered instead.
 - A point on a line segment or arc is held to the infinite line or full circle, so it can solve
   beyond the segment's ends or outside the sweep, and the line rotates to meet it; bound it or
   say so.
-- Horizontal and vertical distances accept a negative value when added and fail only at solve;
-  allow signed values to flip the side, or refuse them up front.
-- Several function errors say "compared" (`hypot(1 mm, 1 deg)` reads "an angle cannot be compared
-  with a length"), `0^-1` reports "too large" rather than division by zero, `1/2 mm` gives no hint
-  that the unit binds to the 2, and `format_number`'s fixed six decimals show `1e-7` as `0` and
-  print `1e300` in full.
 - `10 mm^2` means (10 mm)², since a power binds to the measure before it; stored text relies on
   that reading, so changing it needs a new spelling or a format change.
-- `Sketch::remove_entity` has no non-test caller and scans every entity and constraint per call,
-  contrary to `sketch.md`'s "in one pass"; remove it or index it.
 
 ## STEP import and export
 
@@ -429,12 +375,9 @@ within a category run from most to least important.
 - Typed lengths and angles (`@40, 20`, `25 < 30`, `width / 2, 10`) are evaluated once and place
   free points, keeping neither a dimension nor the parameter link; offer to create the
   dimensions.
-- Trimming a line whose removed end is shared with another curve leaves its length dimension
-  between the old corner and the far end, since `keeps_length` filters only constraints on the
-  curve itself.
-- Duplicate or contradicting constraints are accepted and reported afterwards (Horizontal twice
-  on a line adds a redundant one; Vertical on it fails the sketch); refuse duplicates and trial-
-  solve before committing.
+- A constraint that fails only once solved (one contradicting the sketch through other
+  constraints) is still accepted and reported afterwards; trial-solve it off the UI thread before
+  committing.
 - A drag to a position with no solution freezes the geometry without a cue, and in a conflicting
   sketch every drag does nothing and then blames the move.
 - While a drawing tool is active, a click that moves 6 px or is held 0.8 s is dropped silently;
@@ -536,8 +479,6 @@ within a category run from most to least important.
   existing geometry.
 - View cube labels sit on the cell fill with no tested backdrop (about 1.2:1 on the hovered amber
   cell), and high contrast reaches neither the scene colours nor the colour-only sketch states.
-- Dialogs set no initial focus and bind no Enter to the primary action, contrary to
-  `app-input.md`.
 
 ## Application
 
@@ -551,24 +492,17 @@ within a category run from most to least important.
   blocks Open behind a modal, and the opening modal is drawn before the unsaved-changes prompt,
   so closing the window during a load hides the prompt until the load ends. Give imports their
   own cancellable job. When a worker thread cannot be spawned the job runs on the UI thread.
-- Export and image export append the extension after the save dialog returns, so an existing
-  `part.stl` is replaced without the confirmation Save As gives; cancelling their file picker
-  also drops the dialog and its settings.
 - A STEP or DXF path on the command line goes to Open and fails as "not a caditor model", though
   dropping it imports; the desktop entry registers only `application/x-caditor`, and there is no
   headless export or conversion.
 - Text outside Latin, Greek and Cyrillic shows as missing glyphs in feature and file names, since
   only Inter and egui's defaults are loaded.
-- A corrupt preferences file resets the keymap with only a log line, and a failed preference save
-  is never shown.
 - Notices are one slot: an info notice replaces a save or export failure, with no history.
 - Version history shows only "saved N ago" with no summary, preview or way to keep a version.
 - The palette finds commands only, not features or parameters, and omits commands that are out of
   context instead of explaining them as the menus do; the tree has no filter or groups.
 - Angles display only in degrees though `ux.md` allows radians; Open Recent shows bare file names
   and cannot be cleared; core modelling commands have no default shortcuts.
-- `Command::all()` is a hand-kept array of 80, so a new variant can miss the keymap and shortcut
-  editor; test that every variant is listed.
 - Dropping files on the window works only under X11, since winit 0.30 has no drag and drop on
   Wayland, and nothing shows where a drop will go while files are dragged over the window.
 - One document per process.
@@ -577,8 +511,5 @@ within a category run from most to least important.
 
 ## Dependencies
 
-- `wgpu` builds `dx12`, `metal`, `webgl`, `webgpu` and `renderdoc` by default, `egui-winit`'s
-  `links` pulls `webbrowser` though no URL is opened, and `env_logger` pulls `regex`; turn off
-  default features and list what is used.
 - `libzstd-rs-sys` assembles a C file on x86_64, contrary to `zstd.md`'s "pure-Rust port", and is
   a pre-release decoding untrusted data; record it and add `gcc` to the PKGBUILD.

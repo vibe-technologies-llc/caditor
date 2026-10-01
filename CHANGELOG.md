@@ -144,6 +144,32 @@ The first release of caditor.
 - `cbrt`, `log10`, `log2`, `trunc` and the logical `and`, `or` and `not` in expressions; rounding
   to a step no longer falls one step short (`floor(0.3, 0.1)` is 0.3), and chained comparisons,
   decimal commas and `mm2` are explained rather than reported as a missing operator or name.
+- Recompute (F5) re-runs features that failed, including after an internal error, instead of
+  showing the old failure again.
+- Setting a value or flag to what it already is no longer adds an undo step or recomputes, and
+  models with very many parameters edit and restore versions faster.
+- Cancelling a recompute that has already finished no longer stops the "before" preview of a
+  fillet or shell from appearing, and previews of the current state are prepared before older
+  ones.
+- Filleting or chamfering edges whose rounded areas would run into each other on one face (both
+  rims of a short cylinder, all horizontal edges of a thin plate) is refused as too large instead
+  of producing a broken body.
+- Very thin lens-shaped regions extrude instead of failing as "encloses no volume".
+- Fillet, chamfer and shell sizes of a nanometre or less say how small is too small instead of
+  "must be more than zero", and a shell that fails inwards gives its specific reason instead of
+  always "too thick".
+- Sphere and torus faces stay within the requested mesh deviation, so the volume bound shown by
+  the measure tool holds for them.
+- Expression errors name the function (`hypot(1 mm, 1 deg)`), `0^-1` reports division by zero,
+  `1/2 mm` explains that the unit applies to the 2, and tiny or huge numbers show in scientific
+  notation instead of `0` or a long string of digits.
+- A sketch with several conflicting parts reports and highlights all of them at once, not only the
+  newest.
+- Constraint tools refuse a constraint the sketch already has or one that contradicts it (such as
+  Vertical on a horizontal line), saying which, and a negative horizontal or vertical distance is
+  refused as it is typed, with an explanation.
+- Trimming a line no longer leaves its length dimension measuring to the old corner when that
+  corner is shared with another curve.
 
 ### Files
 
@@ -226,6 +252,15 @@ The first release of caditor.
   declares is taken into account: small repairs within it are no longer reported, and a body
   whose faces meet only as closely as that precision is refused with a message that says so.
 - STEP faces on offsets of planes, cylinders, spheres, tori and cones import as exact surfaces.
+- Saving over a model file that was damaged after it was opened (disk errors, a sync client) keeps
+  the damaged original as a `.damaged` copy first.
+- Records stored in a form from a newer caditor are reported that way instead of as damaged.
+- Two windows changing preferences or recent files at once no longer lose each other's changes,
+  and an unreadable recent-files list is kept as a backup before it is replaced.
+- Old set-aside journals and temporary files left by interrupted saves, including those from an
+  earlier boot, are cleaned up automatically.
+- STEP files with a skewed surface of revolution are refused with a clear message instead of being
+  read wrongly.
 
 ### Interface
 
@@ -329,6 +364,18 @@ The first release of caditor.
   axes, drawn in the view as a line labelled with its length. It also gives each body's volume,
   surface area and centroid. Values found numerically or from the display mesh are marked ≈ and
   say how close they are, and every value can be copied. Corners of bodies can now be picked.
+- The 3D view no longer goes blank for five seconds after a single slow frame from the display,
+  and a bad pick result can no longer leave the camera stuck while zooming or orbiting.
+- When the graphics card runs out of memory, caditor lowers anti-aliasing or leaves out what does
+  not fit and says so, instead of failing every frame afterwards; a drawing surface that keeps
+  failing is repaired, and recovering from a lost graphics device no longer freezes the window.
+- Exporting a mesh, STEP file or image asks before replacing an existing file even when the
+  extension was added after the file picker closed, and cancelling the picker keeps the export
+  dialog and its settings.
+- An unreadable preferences file and a preference that could not be saved are reported in a notice
+  instead of only in the log.
+- Dialogs focus their primary action when they open, and Enter runs it unless another control
+  holds the focus.
 
 ### Installation
 
