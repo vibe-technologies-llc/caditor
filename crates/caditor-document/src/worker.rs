@@ -44,7 +44,9 @@ pub struct WorkerStopped;
 
 struct Job {
     sequence: u64,
+    cancels: u64,
     revision: u64,
+    retry_failures: bool,
     document: Document,
 }
 
@@ -59,14 +61,14 @@ enum Message {
 
 struct Shared {
     latest: AtomicU64,
-    cancelled: AtomicU64,
+    cancels: AtomicU64,
     progress: Mutex<Option<Progress>>,
 }
 
 impl Shared {
-    fn is_cancelled(&self, sequence: u64) -> bool {
+    fn is_cancelled(&self, sequence: u64, cancels: u64) -> bool {
         self.latest.load(Ordering::SeqCst) != sequence
-            || (sequence != NO_JOB && self.cancelled.load(Ordering::SeqCst) == sequence)
+            || self.cancels.load(Ordering::SeqCst) != cancels
     }
 }
 
@@ -86,7 +88,7 @@ impl Recomputer {
         let (sender, updates) = mpsc::channel();
         let shared = Arc::new(Shared {
             latest: AtomicU64::new(NO_JOB),
-            cancelled: AtomicU64::new(NO_JOB),
+            cancels: AtomicU64::new(0),
             progress: Mutex::new(None),
         });
         let worker = Arc::clone(&shared);
@@ -102,13 +104,32 @@ impl Recomputer {
     }
 
     pub fn submit(&mut self, document: Document, revision: u64) -> Result<(), WorkerStopped> {
+        self.enqueue(document, revision, false)
+    }
+
+    pub fn submit_retrying_failures(
+        &mut self,
+        document: Document,
+        revision: u64,
+    ) -> Result<(), WorkerStopped> {
+        self.enqueue(document, revision, true)
+    }
+
+    fn enqueue(
+        &mut self,
+        document: Document,
+        revision: u64,
+        retry_failures: bool,
+    ) -> Result<(), WorkerStopped> {
         let sequence = self.next_sequence;
         self.next_sequence += 1;
         self.shared.latest.store(sequence, Ordering::SeqCst);
         self.jobs
             .send(Message::Recompute(Job {
                 sequence,
+                cancels: self.shared.cancels.load(Ordering::SeqCst),
                 revision,
+                retry_failures,
                 document,
             }))
             .map_err(|_| WorkerStopped)
@@ -127,9 +148,7 @@ impl Recomputer {
     }
 
     pub fn cancel(&self) {
-        self.shared
-            .cancelled
-            .store(self.shared.latest.load(Ordering::SeqCst), Ordering::SeqCst);
+        self.shared.cancels.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn progress(&self) -> Option<Progress> {
@@ -171,22 +190,24 @@ fn work(
     let mut reported = Evaluation::default();
     let mut meshes: Vec<PendingMesh> = Vec::new();
     while let Ok(first) = queue.recv() {
-        let mut latest = None;
+        let mut latest: Option<Job> = None;
         for message in std::iter::once(first).chain(std::iter::from_fn(|| queue.try_recv().ok())) {
             match message {
-                Message::Recompute(job) => latest = Some(job),
+                Message::Recompute(mut job) => {
+                    job.retry_failures |= latest.as_ref().is_some_and(|job| job.retry_failures);
+                    latest = Some(job);
+                }
                 Message::Mesh { result, name } => {
-                    if !meshes
-                        .iter()
-                        .any(|pending| Arc::ptr_eq(&pending.result, &result))
-                    {
-                        meshes.push(PendingMesh { result, name });
-                    }
+                    meshes.retain(|pending| !Arc::ptr_eq(&pending.result, &result));
+                    meshes.push(PendingMesh { result, name });
                 }
                 Message::MeshQuality(quality) => recompute.set_mesh_quality(quality),
             }
         }
         if let Some(job) = latest {
+            if job.retry_failures {
+                recompute.retry_failures();
+            }
             let Some(ran) = run_contained(&mut recompute, &job, evaluator, shared) else {
                 continue;
             };
@@ -224,9 +245,9 @@ fn run_contained(
     evaluator: &dyn Evaluator,
     shared: &Arc<Shared>,
 ) -> Option<Result<Evaluation, Panicked>> {
-    let sequence = job.sequence;
+    let (sequence, cancels) = (job.sequence, job.cancels);
     let watched = Arc::clone(shared);
-    let cancel = CancelToken::new(move || watched.is_cancelled(sequence));
+    let cancel = CancelToken::new(move || watched.is_cancelled(sequence, cancels));
     let report = |done, total| *shared.progress.lock() = Some(Progress { done, total });
     let evaluation = contained(recompute, |recompute| {
         recompute.run(&job.document, evaluator, &cancel, &report)
@@ -260,9 +281,10 @@ fn mesh_pending(
     wake: &dyn Fn(),
 ) {
     let sequence = shared.latest.load(Ordering::SeqCst);
+    let cancels = shared.cancels.load(Ordering::SeqCst);
     let watched = Arc::clone(shared);
-    let cancel = CancelToken::new(move || watched.is_cancelled(sequence));
-    while let Some(pending) = meshes.first() {
+    let cancel = CancelToken::new(move || watched.is_cancelled(sequence, cancels));
+    while let Some(pending) = meshes.last() {
         if cancel.is_cancelled() {
             return;
         }
@@ -275,7 +297,7 @@ fn mesh_pending(
             }
             wake();
         }
-        meshes.remove(0);
+        meshes.pop();
     }
 }
 
@@ -286,12 +308,34 @@ mod tests {
         atomic::{AtomicBool, AtomicUsize},
     };
 
+    use caditor_kernel::Solid;
+
     use super::*;
     use crate::{
-        document::Feature,
+        document::{Feature, FeatureId},
         recompute::{Failure, FeatureResult, FeatureState, Inputs, ModelEvaluator},
+        solid::SolidResult,
         tests::sample,
     };
+
+    fn empty_body(raw: u64) -> Arc<FeatureResult> {
+        Arc::new(FeatureResult::Solid(SolidResult::new(
+            FeatureId::from_raw(raw),
+            Solid::default(),
+        )))
+    }
+
+    fn is_meshed(result: &Arc<FeatureResult>) -> bool {
+        result.solid().is_some_and(SolidResult::is_meshed)
+    }
+
+    fn idle_shared() -> Arc<Shared> {
+        Arc::new(Shared {
+            latest: AtomicU64::new(NO_JOB),
+            cancels: AtomicU64::new(0),
+            progress: Mutex::new(None),
+        })
+    }
 
     struct Blocking {
         started: Arc<AtomicUsize>,
@@ -453,5 +497,78 @@ mod tests {
         assert_eq!(runs.load(Ordering::SeqCst), 2);
         assert!(always.is_err());
         assert!(after.is_ok());
+    }
+
+    #[test]
+    fn requested_meshes_are_served_newest_first() {
+        let (old, new) = (empty_body(1), empty_body(2));
+        let mut meshes = vec![
+            PendingMesh {
+                result: Arc::clone(&old),
+                name: "Old".to_owned(),
+            },
+            PendingMesh {
+                result: Arc::clone(&new),
+                name: "New".to_owned(),
+            },
+        ];
+        let seen = Mutex::new(Vec::new());
+        let wake = || seen.lock().push((is_meshed(&old), is_meshed(&new)));
+
+        mesh_pending(&mut meshes, &MeshQuality::default(), &idle_shared(), &wake);
+
+        assert_eq!(*seen.lock(), [(false, true), (true, true)]);
+        assert!(meshes.is_empty());
+    }
+
+    #[test]
+    fn a_cancel_while_idle_does_not_trip_the_next_job() {
+        let mut worker = Recomputer::spawn(ModelEvaluator, || {}).unwrap();
+        let (document, _) = sample();
+
+        worker.cancel();
+        worker.submit(document.clone(), 1).unwrap();
+        let first = worker.wait();
+        worker.cancel();
+        worker.submit(document, 2).unwrap();
+        let second = worker.wait();
+
+        assert_eq!(first.outcome, Outcome::Finished);
+        assert_eq!(second.outcome, Outcome::Finished);
+    }
+
+    struct Counting(Arc<AtomicUsize>);
+
+    impl Evaluator for Counting {
+        fn evaluate(
+            &self,
+            _feature: &Feature,
+            _inputs: &Inputs<'_>,
+            _cancel: &CancelToken,
+        ) -> Result<FeatureResult, Failure> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            panic!("a bug that a second attempt may avoid")
+        }
+    }
+
+    #[test]
+    fn retrying_failures_reruns_a_cached_failure_but_a_plain_run_reuses_it() {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let mut worker = Recomputer::spawn(Counting(Arc::clone(&runs)), || {}).unwrap();
+        let (document, _) = sample();
+
+        worker.submit(document.clone(), 1).unwrap();
+        worker.wait();
+        let after_first = runs.load(Ordering::SeqCst);
+        worker.submit(document.clone(), 2).unwrap();
+        worker.wait();
+        let after_plain = runs.load(Ordering::SeqCst);
+        worker.submit_retrying_failures(document, 3).unwrap();
+        worker.wait();
+        let after_retry = runs.load(Ordering::SeqCst);
+
+        assert_eq!(after_first, 2);
+        assert_eq!(after_plain, after_first);
+        assert_eq!(after_retry, after_plain + 2);
     }
 }

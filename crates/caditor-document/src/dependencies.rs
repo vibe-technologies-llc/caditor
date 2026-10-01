@@ -46,6 +46,19 @@ impl DependencyGraph {
         None
     }
 
+    pub fn has_users(&self, id: ParameterId) -> bool {
+        self.users.get(&id).is_some_and(|users| !users.is_empty())
+    }
+
+    pub fn forget(&mut self, id: ParameterId) {
+        for old in self.uses.remove(&id).into_iter().flatten() {
+            if let Some(users) = self.users.get_mut(&old) {
+                users.remove(&id);
+            }
+        }
+        self.users.remove(&id);
+    }
+
     pub fn set(&mut self, id: ParameterId, expression: &Expression) {
         let used = expression.parameters();
         for old in self.uses.get(&id).into_iter().flatten() {

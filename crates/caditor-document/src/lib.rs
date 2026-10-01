@@ -7,6 +7,7 @@ mod document;
 mod edit;
 mod editor;
 mod import;
+mod parameter_list;
 mod pattern;
 mod pieces;
 mod recompute;
@@ -204,10 +205,8 @@ mod tests {
         };
 
         editor.apply(hide(xy)).unwrap();
-        editor.apply(hide(xy)).unwrap();
         editor.apply(hide(PrincipalGeometry::Origin)).unwrap();
         let hidden = editor.document().clone();
-        editor.undo().unwrap();
         editor.undo().unwrap();
         let hidden_once = editor.document().clone();
         editor.undo().unwrap();
@@ -350,16 +349,16 @@ mod tests {
             .unwrap();
         editor
             .apply(Transaction::single(
-                "Move Side sketch",
-                Edit::MoveFeature {
+                "Hide Base sketch",
+                Edit::SetFeatureHidden {
                     id: ids.base,
-                    index: 0,
+                    hidden: true,
                 },
             ))
             .unwrap();
         let end = editor.document().clone();
         assert_eq!(editor.revision(), 3);
-        assert_eq!(editor.undo_label(), Some("Move Side sketch"));
+        assert_eq!(editor.undo_label(), Some("Hide Base sketch"));
 
         while editor.undo().unwrap().is_some() {}
         assert_eq!(*editor.document(), start);
@@ -571,6 +570,102 @@ mod tests {
     }
 
     #[test]
+    fn a_parameter_is_removable_once_the_same_transaction_stops_using_it() {
+        let (mut document, ids) = sample();
+        let before = document.clone();
+        let mut transaction = document.transaction("Chain");
+        let wide = transaction.add_parameter("wide", transaction.parse("width + 1 mm").unwrap());
+        let wider = transaction.add_parameter("wider", Expression::Parameter(wide));
+        document.apply(transaction.finish()).unwrap();
+        let drop_wide = |document: &Document| {
+            Transaction::new(
+                "Drop",
+                vec![
+                    Edit::SetParameterExpression {
+                        id: wider,
+                        expression: document.parse("1 mm").unwrap(),
+                    },
+                    Edit::RemoveParameter { id: wide },
+                ],
+            )
+        };
+        let still_used = Transaction::single("Drop", Edit::RemoveParameter { id: wide });
+        let snapshot = document.clone();
+
+        assert!(matches!(
+            document.apply(still_used),
+            Err(EditError::ParameterInUse { .. })
+        ));
+        assert_eq!(document, snapshot);
+
+        let inverse = document.apply(drop_wide(&document)).unwrap();
+
+        assert!(document.parameter(wide).is_none());
+        assert!(document.parameter_named("wide").is_none());
+        assert_eq!(
+            document.parameter_named("wider").map(Parameter::id),
+            Some(wider)
+        );
+        assert!(document.parameter(ids.width).is_some());
+
+        document.apply(inverse).unwrap();
+
+        assert!(document.same_content(&snapshot));
+        assert!(!document.same_content(&before));
+        assert_eq!(
+            document.parameter_named("wide").map(Parameter::id),
+            Some(wide)
+        );
+    }
+
+    fn dimension_as(document: &Document, ids: &Ids, text: &str) -> Transaction {
+        Transaction::single(
+            "Set dimension",
+            Edit::SetDimension {
+                feature: ids.base,
+                constraint: ids.base_distance,
+                value: document.parse(text).unwrap(),
+            },
+        )
+    }
+
+    fn found_regions(evaluation: &Evaluation, feature: FeatureId) -> bool {
+        evaluation
+            .feature(feature)
+            .and_then(|status| status.result.as_deref())
+            .and_then(FeatureResult::sketch)
+            .is_some_and(|sketch| sketch.regions().is_some())
+    }
+
+    #[test]
+    fn a_sketch_that_solves_to_the_same_geometry_keeps_its_found_regions() {
+        let (mut document, ids) = sample();
+        let mut engine = Recompute::default();
+        let first = recompute(&mut engine, &document);
+        first
+            .feature(ids.base)
+            .and_then(|status| status.result.as_deref())
+            .and_then(FeatureResult::sketch)
+            .unwrap()
+            .find_regions();
+        assert!(found_regions(&first, ids.base));
+
+        document
+            .apply(dimension_as(&document, &ids, "40 mm"))
+            .unwrap();
+        let same = recompute(&mut engine, &document);
+        assert!(same.recomputed().contains(&ids.base));
+        assert!(found_regions(&same, ids.base));
+
+        document
+            .apply(dimension_as(&document, &ids, "30 mm"))
+            .unwrap();
+        let moved = recompute(&mut engine, &document);
+        assert!(moved.recomputed().contains(&ids.base));
+        assert!(!found_regions(&moved, ids.base));
+    }
+
+    #[test]
     fn recompute_only_revisits_features_whose_inputs_changed() {
         let (mut document, ids) = sample();
         let mut engine = Recompute::default();
@@ -684,9 +779,7 @@ mod tests {
             )
         };
         for (id, expression) in [cyclic(ids.width, ids.height), cyclic(ids.height, ids.width)] {
-            if let Some(parameter) = document.parameters.iter_mut().find(|p| p.id() == id) {
-                parameter.expression = expression;
-            }
+            document.parameters.replace_expression(id, expression);
         }
         document
             .apply(set_expression(&document, ids.gap, "width * 2"))

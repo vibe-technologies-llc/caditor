@@ -241,8 +241,16 @@ impl ParameterGraph {
         self.0.get_or_insert_with(|| DependencyGraph::of(document))
     }
 
-    fn invalidate(&mut self) {
-        self.0 = None;
+    fn inserted(&mut self, id: ParameterId, expression: &Expression) {
+        if let Some(graph) = &mut self.0 {
+            graph.set(id, expression);
+        }
+    }
+
+    fn removed(&mut self, id: ParameterId) {
+        if let Some(graph) = &mut self.0 {
+            graph.forget(id);
+        }
     }
 }
 
@@ -346,13 +354,9 @@ impl Document {
     fn apply_edit(&mut self, edit: Edit, graph: &mut ParameterGraph) -> Result<Edit, EditError> {
         match edit {
             Edit::InsertParameter { index, parameter } => {
-                graph.invalidate();
-                self.insert_parameter(index, parameter)
+                self.insert_parameter(index, parameter, graph)
             }
-            Edit::RemoveParameter { id } => {
-                graph.invalidate();
-                self.remove_parameter(id)
-            }
+            Edit::RemoveParameter { id } => self.remove_parameter(id, graph),
             Edit::RenameParameter { id, name } => self.rename_parameter(id, name),
             Edit::SetParameterExpression { id, expression } => {
                 self.set_parameter_expression(id, expression, graph)
@@ -561,15 +565,7 @@ impl Document {
 
     fn parameter_position(&self, id: ParameterId) -> Result<usize, EditError> {
         self.parameters
-            .iter()
-            .position(|parameter| parameter.id() == id)
-            .ok_or(EditError::MissingParameter)
-    }
-
-    fn parameter_mut(&mut self, id: ParameterId) -> Result<&mut Parameter, EditError> {
-        self.parameters
-            .iter_mut()
-            .find(|parameter| parameter.id() == id)
+            .position(id)
             .ok_or(EditError::MissingParameter)
     }
 
@@ -585,7 +581,12 @@ impl Document {
             .ok_or(EditError::MissingFeature)
     }
 
-    fn insert_parameter(&mut self, index: usize, parameter: Parameter) -> Result<Edit, EditError> {
+    fn insert_parameter(
+        &mut self,
+        index: usize,
+        parameter: Parameter,
+        graph: &mut ParameterGraph,
+    ) -> Result<Edit, EditError> {
         if self.parameter(parameter.id()).is_some() {
             return Err(EditError::DuplicateId);
         }
@@ -597,21 +598,39 @@ impl Document {
         self.check_references(&parameter.expression)?;
         let id = parameter.id();
         self.next_parameter_id = self.next_parameter_id.max(id.raw().saturating_add(1));
+        graph.inserted(id, &parameter.expression);
         self.parameters.insert(index, parameter);
         Ok(Edit::RemoveParameter { id })
     }
 
-    fn remove_parameter(&mut self, id: ParameterId) -> Result<Edit, EditError> {
-        self.can_remove_parameter(id)?;
+    fn remove_parameter(
+        &mut self,
+        id: ParameterId,
+        graph: &mut ParameterGraph,
+    ) -> Result<Edit, EditError> {
         let index = self.parameter_position(id)?;
-        let parameter = self.parameters.remove(index);
+        let used = graph.of(self).has_users(id)
+            || self
+                .features
+                .iter()
+                .any(|feature| feature.kind.uses_parameter(id));
+        if used {
+            self.can_remove_parameter(id)?;
+        }
+        graph.removed(id);
+        let parameter = self
+            .parameters
+            .remove(index)
+            .ok_or(EditError::MissingParameter)?;
         Ok(Edit::InsertParameter { index, parameter })
     }
 
     fn rename_parameter(&mut self, id: ParameterId, name: String) -> Result<Edit, EditError> {
         self.check_parameter_name(&name, Some(id))?;
-        let parameter = self.parameter_mut(id)?;
-        let previous = std::mem::replace(&mut parameter.name, name);
+        let previous = self
+            .parameters
+            .rename(id, name)
+            .ok_or(EditError::MissingParameter)?;
         Ok(Edit::RenameParameter { id, name: previous })
     }
 
@@ -635,8 +654,10 @@ impl Document {
             });
         }
         dependencies.set(id, &expression);
-        let parameter = self.parameter_mut(id)?;
-        let previous = std::mem::replace(&mut parameter.expression, expression);
+        let previous = self
+            .parameters
+            .replace_expression(id, expression)
+            .ok_or(EditError::MissingParameter)?;
         Ok(Edit::SetParameterExpression {
             id,
             expression: previous,

@@ -13,6 +13,7 @@ use crate::{
     datum::{Datum, PrincipalGeometry},
     edit::{Edit, Transaction},
     import::Import,
+    parameter_list::ParameterList,
     pattern::Pattern,
     shell::Shell,
     solid::{BodyOperation, SolidFeature},
@@ -384,7 +385,7 @@ pub enum TreeRow {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Document {
-    pub(crate) parameters: Vec<Parameter>,
+    pub(crate) parameters: ParameterList,
     pub(crate) features: Vec<Arc<Feature>>,
     pub(crate) next_parameter_id: u64,
     pub(crate) next_feature_id: u64,
@@ -398,13 +399,11 @@ impl Document {
     }
 
     pub fn parameter(&self, id: ParameterId) -> Option<&Parameter> {
-        self.parameters.iter().find(|parameter| parameter.id == id)
+        self.parameters.get(id)
     }
 
     pub fn parameter_named(&self, name: &str) -> Option<&Parameter> {
-        self.parameters
-            .iter()
-            .find(|parameter| parameter.name == name)
+        self.parameters.named(name)
     }
 
     pub fn parameter_name(&self, id: ParameterId) -> Option<&str> {
@@ -529,6 +528,7 @@ impl Document {
             .chain(
                 self.parameters
                     .iter()
+                    .rev()
                     .map(|parameter| Edit::RemoveParameter { id: parameter.id }),
             );
         let insertions = target

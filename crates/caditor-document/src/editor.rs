@@ -77,12 +77,15 @@ impl Base {
 
     pub fn prepare(self, transaction: Transaction) -> Result<Prepared, EditError> {
         let mut document = self.document;
+        let before = document.clone();
         let inverse = document.apply(transaction.clone())?;
+        let changes_content = !document.same_content(&before);
         Ok(Prepared {
-            document,
+            document: if changes_content { document } else { before },
             transaction,
             inverse,
             revision: self.revision,
+            changes_content,
         })
     }
 }
@@ -93,6 +96,7 @@ pub struct Prepared {
     transaction: Transaction,
     inverse: Transaction,
     revision: u64,
+    changes_content: bool,
 }
 
 impl Prepared {
@@ -137,15 +141,20 @@ impl Editor {
         self.redo.last()
     }
 
-    pub fn apply(&mut self, transaction: Transaction) -> Result<(), EditError> {
+    pub fn apply(&mut self, transaction: Transaction) -> Result<bool, EditError> {
         if transaction.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
-        let inverse = self.document.apply(transaction)?;
+        let mut applied = self.document.clone();
+        let inverse = applied.apply(transaction)?;
+        if applied.same_content(&self.document) {
+            return Ok(false);
+        }
+        self.document = applied;
         self.undo.push(inverse);
         self.redo.clear();
         self.revision += 1;
-        Ok(())
+        Ok(true)
     }
 
     pub fn base(&self) -> Base {
@@ -159,8 +168,8 @@ impl Editor {
         if prepared.revision != self.revision {
             return Err(Stale);
         }
-        if prepared.transaction.is_empty() {
-            return Ok(prepared.transaction);
+        if prepared.transaction.is_empty() || !prepared.changes_content {
+            return Ok(Transaction::new(prepared.transaction.label(), Vec::new()));
         }
         self.document = prepared.document;
         self.undo.push(prepared.inverse);
@@ -361,5 +370,108 @@ mod tests {
         let twice = transaction.finish();
 
         assert!(base.prepare(twice).is_err());
+    }
+
+    fn editor_with_parameter() -> (Editor, caditor_expression::ParameterId) {
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add");
+        let width = transaction.add_parameter("width", Expression::Number(3.0));
+        document.apply(transaction.finish()).unwrap();
+        (Editor::new(document), width)
+    }
+
+    fn set_width(id: caditor_expression::ParameterId, value: f64) -> Transaction {
+        Transaction::single(
+            "Set width",
+            Edit::SetParameterExpression {
+                id,
+                expression: Expression::Number(value),
+            },
+        )
+    }
+
+    #[test]
+    fn an_edit_that_changes_nothing_is_not_an_undo_step_and_keeps_the_redo_history() {
+        let (mut editor, width) = editor_with_parameter();
+        editor.apply(set_width(width, 4.0)).unwrap();
+        editor.undo().unwrap();
+        let revision = editor.revision();
+
+        let same = editor.apply(set_width(width, 3.0)).unwrap();
+        let hidden_twice = Transaction::new(
+            "Hide",
+            vec![
+                Edit::SetPrincipalHidden {
+                    geometry: crate::datum::PrincipalGeometry::ALL[0],
+                    hidden: true,
+                },
+                Edit::SetPrincipalHidden {
+                    geometry: crate::datum::PrincipalGeometry::ALL[0],
+                    hidden: false,
+                },
+            ],
+        );
+        let round_trip = editor.apply(hidden_twice).unwrap();
+
+        assert!(!same);
+        assert!(!round_trip);
+        assert_eq!(editor.revision(), revision);
+        assert_eq!(editor.undo_label(), None);
+        assert_eq!(editor.redo_label(), Some("Set width"));
+    }
+
+    #[test]
+    fn a_real_edit_reports_that_it_changed_the_model() {
+        let (mut editor, width) = editor_with_parameter();
+
+        let changed = editor.apply(set_width(width, 5.0)).unwrap();
+
+        assert!(changed);
+        assert_eq!(editor.revision(), 1);
+        assert_eq!(editor.undo_label(), Some("Set width"));
+    }
+
+    #[test]
+    fn a_prepared_edit_that_changes_nothing_commits_as_an_empty_change() {
+        let (mut editor, width) = editor_with_parameter();
+        let prepared = editor.base().prepare(set_width(width, 3.0)).unwrap();
+
+        let committed = editor.commit(prepared).unwrap();
+
+        assert!(committed.is_empty());
+        assert_eq!(editor.revision(), 0);
+        assert_eq!(editor.undo_label(), None);
+    }
+
+    #[test]
+    fn a_flag_set_to_its_value_changes_nothing() {
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add");
+        let feature = transaction.add_feature(
+            "Imported",
+            FeatureKind::Import(Import::new("part.step", Solid::default(), String::new())),
+        );
+        document.apply(transaction.finish()).unwrap();
+        let mut editor = Editor::new(document);
+        let hide = |hidden| {
+            Transaction::single(
+                "Hide",
+                Edit::SetFeatureHidden {
+                    id: feature,
+                    hidden,
+                },
+            )
+        };
+
+        let unchanged = editor.apply(hide(false)).unwrap();
+        let changed = editor.apply(hide(true)).unwrap();
+        let again = editor.apply(hide(true)).unwrap();
+
+        assert!(!unchanged);
+        assert!(changed);
+        assert!(!again);
+        assert_eq!(editor.revision(), 1);
+        assert_eq!(editor.undo().unwrap().as_deref(), Some("Hide"));
+        assert_eq!(editor.undo().unwrap(), None);
     }
 }

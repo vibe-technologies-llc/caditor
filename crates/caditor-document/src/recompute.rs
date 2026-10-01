@@ -80,8 +80,8 @@ pub struct SketchResult {
     pub geometry: Sketch,
     pub solution: SketchSolution,
     memo: SolveMemo,
-    profile: OnceLock<Box<Result<Profile, ProfileError>>>,
-    regions: OnceLock<Result<Vec<SketchRegion>, ProfileError>>,
+    profile: Arc<OnceLock<Box<Result<Profile, ProfileError>>>>,
+    regions: Arc<OnceLock<Result<Vec<SketchRegion>, ProfileError>>>,
 }
 
 impl PartialEq for SketchResult {
@@ -102,9 +102,19 @@ impl SketchResult {
             geometry,
             solution,
             memo,
-            profile: OnceLock::new(),
-            regions: OnceLock::new(),
+            profile: Arc::default(),
+            regions: Arc::default(),
         }
+    }
+
+    fn sharing_display_with(mut self, previous: Option<&Self>) -> Self {
+        if let Some(previous) = previous
+            && previous.geometry.same_geometry(&self.geometry)
+        {
+            self.profile = Arc::clone(&previous.profile);
+            self.regions = Arc::clone(&previous.regions);
+        }
+        self
     }
 
     pub fn memo(&self) -> &SolveMemo {
@@ -363,6 +373,7 @@ struct CacheEntry {
     suppressed_upstream: BTreeSet<FeatureId>,
     state: FeatureState,
     result: Option<Arc<FeatureResult>>,
+    retry: bool,
 }
 
 impl CacheEntry {
@@ -399,7 +410,11 @@ impl CacheEntry {
                         }
                 },
             );
-        same_definition && same_message && self.parameters == *parameters && same_upstream
+        !self.retry
+            && same_definition
+            && same_message
+            && self.parameters == *parameters
+            && same_upstream
     }
 }
 
@@ -425,6 +440,14 @@ impl Recompute {
         if self.mesh_quality != mesh_quality {
             self.mesh_quality = mesh_quality;
             self.clear_cache();
+        }
+    }
+
+    pub fn retry_failures(&mut self) {
+        for entry in self.cache.values_mut() {
+            if matches!(entry.state, FeatureState::Failed(_)) {
+                entry.retry = true;
+            }
         }
     }
 
@@ -574,6 +597,7 @@ impl Recompute {
                     suppressed_upstream,
                     state,
                     result,
+                    retry: false,
                 };
                 self.cache.insert(id, entry.clone());
                 entry
@@ -806,9 +830,9 @@ impl Evaluator for ModelEvaluator {
                         if let Some(plane) = plane {
                             geometry.set_plane(plane);
                         }
-                        Ok(FeatureResult::Sketch(SketchResult::remembering(
-                            geometry, solution, memo,
-                        )))
+                        let result = SketchResult::remembering(geometry, solution, memo)
+                            .sharing_display_with(inputs.previous.and_then(FeatureResult::sketch));
+                        Ok(FeatureResult::Sketch(result))
                     }
                     Err(SketchError::Cancelled) => Err(Failure::Cancelled),
                     Err(error) => Err(Failure::Error(sketch_error(feature.id(), sketch, &error))),
