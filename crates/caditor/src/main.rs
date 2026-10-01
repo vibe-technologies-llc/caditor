@@ -49,6 +49,7 @@ mod pattern_tools;
 mod preferences;
 mod principal_tree;
 mod reference_rows;
+mod ribbon;
 mod samples;
 mod scene;
 mod scene_cache;

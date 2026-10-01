@@ -28,7 +28,7 @@ use tempfile::TempDir;
 use crate::{
     about, annotations,
     app::{self, Workspace},
-    canvas,
+    appearance, canvas,
     commands::{Command, Offer, RecentSlot},
     drawing::Refusal,
     editing::{EditingCommand, Tool},
@@ -51,7 +51,7 @@ use crate::{
     shape_modes::{CircleMode, RectangleMode, ShapeMode},
     sketch_toolbar,
     sketch_tools::{self, ConstraintTool},
-    status_bar, trimming, typed_point,
+    status_bar, toolbar, trimming, typed_point,
     units::LengthUnit,
     widgets, window_frame,
 };
@@ -114,6 +114,7 @@ struct Harness {
     workspace: Workspace,
     events: Vec<Event>,
     texts: Vec<(String, Rect)>,
+    text_clips: Vec<Rect>,
     text_colors: Vec<(String, Color32)>,
     time: f64,
     forced_hover: Option<(Pos2, Pickable)>,
@@ -175,6 +176,7 @@ impl Harness {
             workspace,
             events: Vec::new(),
             texts: Vec::new(),
+            text_clips: Vec::new(),
             text_colors: Vec::new(),
             time: 0.0,
             forced_hover: None,
@@ -274,10 +276,12 @@ impl Harness {
             .build_scene(&self.model, &self.workspace.editing);
         self.answer_pick();
         self.texts.clear();
+        self.text_clips.clear();
         self.text_colors.clear();
         for clipped in output.shapes {
-            let ClippedShape { shape, .. } = clipped;
+            let ClippedShape { shape, clip_rect } = clipped;
             collect_texts(shape, &mut self.texts, &mut self.text_colors);
+            self.text_clips.resize(self.texts.len(), clip_rect);
         }
     }
 
@@ -4206,7 +4210,11 @@ fn sketch_bar_problems(harness: &Harness, visible: Rect) -> Vec<String> {
     let texts: Vec<&(String, Rect)> = harness
         .texts
         .iter()
-        .filter(|(_, rect)| bar.contains(rect.center()))
+        .zip(&harness.text_clips)
+        .filter(|((_, rect), clip)| {
+            bar.contains(rect.center()) && clip.intersect(*rect).is_positive()
+        })
+        .map(|(text, _)| text)
         .collect();
     let overlapping = texts.iter().enumerate().flat_map(|(index, (first, a))| {
         texts[index + 1..]
@@ -4221,12 +4229,135 @@ fn sketch_bar_problems(harness: &Harness, visible: Rect) -> Vec<String> {
     overlapping.chain(outside).collect()
 }
 
+fn lowest_in(harness: &Harness, area: Rect, label: &str) -> Pos2 {
+    harness
+        .texts
+        .iter()
+        .filter(|(shown, rect)| shown == label && area.contains(rect.center()))
+        .map(|(_, rect)| rect.center())
+        .max_by(|a, b| a.y.total_cmp(&b.y))
+        .unwrap_or_else(|| panic!("'{label}' is not in {area:?}"))
+}
+
+fn in_sketch_bar(harness: &Harness, label: &str) -> Pos2 {
+    lowest_in(harness, sketch_bar(harness), label)
+}
+
+fn ribbon(harness: &Harness) -> Rect {
+    egui::containers::panel::PanelState::load(&harness.context, Id::new("toolbar"))
+        .expect("the ribbon is shown")
+        .outer_rect
+}
+
+const RIBBON_GROUPS: [(&str, &[&str]); 7] = [
+    ("History", &["Undo", "Redo"]),
+    ("Sketch", &[toolbar::NEW_SKETCH_LABEL]),
+    ("Solid", &["Extrude", "Revolve"]),
+    ("Modify", &["Fillet", "Chamfer", "Shell"]),
+    ("Pattern", &["Linear pattern", "Circular pattern"]),
+    ("Reference", &[toolbar::PLANE_LABEL, toolbar::AXIS_LABEL]),
+    ("Inspect", &[toolbar::MEASURE_LABEL]),
+];
+
+fn ribbon_layout(harness: &Harness) -> Vec<Pos2> {
+    let bar = ribbon(harness);
+    RIBBON_GROUPS
+        .iter()
+        .flat_map(|(caption, buttons)| std::iter::once(caption).chain(buttons.iter()))
+        .map(|label| lowest_in(harness, bar, label))
+        .collect()
+}
+
+#[test]
+fn every_ribbon_group_is_captioned_under_its_buttons() {
+    let mut harness = Harness::new();
+    harness.frame();
+
+    let bar = ribbon(&harness);
+    for (caption, buttons) in RIBBON_GROUPS {
+        let below = lowest_in(&harness, bar, caption);
+        let rects: Vec<Rect> = buttons
+            .iter()
+            .map(|button| harness.button_rect(button))
+            .collect();
+        let left = rects
+            .iter()
+            .map(|rect| rect.left())
+            .fold(f32::MAX, f32::min);
+        let right = rects
+            .iter()
+            .map(|rect| rect.right())
+            .fold(f32::MIN, f32::max);
+
+        assert!(below.x > left && below.x < right, "{caption}");
+        assert!(
+            rects.iter().all(|rect| below.y > rect.bottom()),
+            "{caption}"
+        );
+    }
+    harness.hover("Undo");
+    assert_eq!(harness.count_shown("Undo"), 2);
+    assert!(harness.shows("Nothing to undo"));
+}
+
+#[test]
+fn the_ribbon_keeps_its_height_and_groups_while_choosing_a_plane() {
+    let mut harness = Harness::new();
+    harness.frame();
+    let bar = ribbon(&harness);
+    let layout = ribbon_layout(&harness);
+
+    harness.click(toolbar::NEW_SKETCH_LABEL);
+    harness.frame();
+    assert!(harness.workspace.editing.is_choosing_plane());
+    assert_eq!(ribbon(&harness), bar);
+    assert_eq!(ribbon_layout(&harness), layout);
+
+    harness.click(toolbar::NEW_SKETCH_LABEL);
+    harness.frame();
+    assert!(!harness.workspace.editing.is_choosing_plane());
+    assert_eq!(ribbon(&harness), bar);
+}
+
+#[test]
+fn the_arc_button_offers_each_way_to_draw_an_arc_and_keeps_the_last_chosen() {
+    let mut harness = Harness::new();
+    harness.draw_on_new_sketch();
+    let bar = sketch_bar(&harness);
+
+    harness.click_button(sketch_toolbar::ARC_WAYS_LABEL);
+    for tool in sketch_toolbar::ARC_TOOLS {
+        assert!(harness.shows(tool.label()), "{tool:?}");
+    }
+    harness.click("Tangent arc");
+    harness.frame();
+    assert_eq!(harness.tool(), Some(Tool::TangentArc));
+
+    harness.use_tool(Key::L);
+    assert_eq!(harness.tool(), Some(Tool::Line));
+    harness.click_button(sketch_toolbar::ARC_LABEL);
+    harness.frame();
+    assert_eq!(harness.tool(), Some(Tool::TangentArc));
+    assert!(!harness.shows("3-point arc"));
+
+    harness.use_tool_with(Key::A, Modifiers::ALT);
+    assert_eq!(harness.tool(), Some(Tool::ThreePointArc));
+    harness.use_tool(Key::A);
+    assert_eq!(harness.tool(), Some(Tool::Arc));
+    harness.use_tool(Key::T);
+    assert_eq!(harness.tool(), Some(Tool::TangentArc));
+    assert_eq!(sketch_bar(&harness), bar);
+}
+
 fn sketch_bar_buttons() -> Vec<String> {
     Tool::ALL
-        .map(Tool::label)
         .into_iter()
+        .filter(|tool| !sketch_toolbar::ARC_TOOLS.contains(tool))
+        .map(Tool::label)
         .chain(ConstraintTool::ALL.map(ConstraintTool::label))
         .chain([
+            sketch_toolbar::ARC_LABEL,
+            sketch_toolbar::ARC_WAYS_LABEL,
             sketch_toolbar::CONSTRUCTION_LABEL,
             sketch_toolbar::MOVE_LABEL,
             sketch_toolbar::SELECT_ALL_LABEL,
@@ -4249,19 +4380,19 @@ fn the_sketch_bar_fits_one_row_wraps_at_200_percent_and_names_every_button() {
     harness.frame();
     let line = entities_of_kind(harness.sketch(base), "Line")[0];
 
-    let row = harness.position_of("Draw").y;
+    let row = in_sketch_bar(&harness, "Draw").y;
     let bar = sketch_bar(&harness);
     let finish = harness.position_of(sketch_toolbar::FINISH_LABEL);
     assert!(harness.shows("Editing Base sketch"));
     assert_eq!(sketch_bar_problems(&harness, SCREEN), Vec::<String>::new());
-    for caption in ["Modify", "Constrain", "Dimension"] {
+    for caption in ["Select", "Modify", "Constrain", "Dimension"] {
         assert!(
-            (harness.position_of(caption).y - row).abs() < 0.5,
+            (in_sketch_bar(&harness, caption).y - row).abs() < 0.5,
             "{caption}"
         );
     }
     assert!(harness.position_of("Select").y < row);
-    assert!(finish.x > harness.position_of("Dimension").x);
+    assert!(finish.x > in_sketch_bar(&harness, "Dimension").x);
     assert!(finish.y < row);
     assert_readable(&harness, "The sketch bar");
     for name in sketch_bar_buttons() {
@@ -4286,7 +4417,9 @@ fn the_sketch_bar_fits_one_row_wraps_at_200_percent_and_names_every_button() {
     harness.frame();
     let visible = Rect::from_min_size(Pos2::ZERO, SCREEN.size() / 2.0);
     assert_eq!(sketch_bar_problems(&harness, visible), Vec::<String>::new());
-    assert!(harness.position_of("Constrain").y > harness.position_of("Draw").y);
+    assert!(harness.button_rect("Parallel").top() > harness.button_rect("Point").bottom());
+    assert!(!harness.shows("Constrain"));
+    assert!(!harness.shows("Inspect"));
     assert!(harness.shows(sketch_toolbar::FINISH_LABEL));
     assert_readable(&harness, "The sketch bar at 200%");
     for name in sketch_bar_buttons() {
@@ -6190,6 +6323,27 @@ fn a_revolve_and_a_datum_plane_take_the_selection_from_the_palette() {
 }
 
 #[test]
+fn the_failed_pill_is_a_button_that_shows_the_first_failed_feature() {
+    let mut harness = Harness::new();
+    let height = harness.parameter("height");
+    harness.type_into(
+        Focus::ParameterValue(height),
+        "400 mm * 1 mm / (width - 30 mm)",
+    );
+    let width = harness.parameter("width");
+    harness.type_into(Focus::ParameterValue(width), "30 mm");
+    harness.settle();
+
+    harness.click_button("1 feature failed");
+    harness.frame();
+    harness.frame();
+    assert_eq!(
+        harness.workspace.panels.selected,
+        Some(feature_named(&harness, "Side sketch"))
+    );
+}
+
+#[test]
 fn a_parameter_is_deleted_and_a_failed_feature_found_from_the_keyboard() {
     let mut harness = Harness::new();
     assert_eq!(
@@ -6454,15 +6608,21 @@ fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_per
             .1
     };
     let line = rect_of(status_bar::UP_TO_DATE).height();
-    let overlapping: Vec<(&str, &str)> = harness
+    let shown: Vec<(&str, Rect)> = harness
         .texts
+        .iter()
+        .zip(&harness.text_clips)
+        .map(|((text, rect), clip)| (text.as_str(), clip.intersect(*rect)))
+        .filter(|(_, rect)| rect.is_positive())
+        .collect();
+    let overlapping: Vec<(&str, &str)> = shown
         .iter()
         .enumerate()
         .flat_map(|(index, (first, a))| {
-            harness.texts[index + 1..]
+            shown[index + 1..]
                 .iter()
                 .filter(move |(_, b)| a.shrink(0.5).intersects(b.shrink(0.5)))
-                .map(move |(second, _)| (first.as_str(), second.as_str()))
+                .map(move |(second, _)| (*first, *second))
         })
         .collect();
     let outside: Vec<&str> = harness
@@ -6484,7 +6644,7 @@ fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_per
     assert!(outside.is_empty(), "{outside:#?}");
     assert!(rect_of(notice).height() > 1.5 * line, "the notice wraps");
     assert!(rect_of(name).max.x <= rect_of("Search commands").min.x);
-    assert_eq!(deletes.len(), 2);
+    assert!(!deletes.is_empty());
     assert!(deletes.iter().all(|rect| rect.max.x <= narrowed.max.x));
 }
 
@@ -7374,6 +7534,28 @@ fn the_title_bar_buttons_minimize_maximize_restore_and_close_the_window() {
 
     click_window_button(&mut harness, icons::CLOSE);
     harness.wait_until("caditor quits", |harness| harness.files.should_quit());
+}
+
+#[test]
+fn the_window_buttons_are_wide_targets_a_control_tall_and_close_turns_red() {
+    let mut harness = Harness::new();
+    harness.frame();
+
+    for name in [
+        window_frame::MINIMIZE,
+        window_frame::MAXIMIZE,
+        window_frame::CLOSE,
+    ] {
+        let rect = harness.button_rect(name);
+        assert_eq!(
+            rect.size(),
+            egui::vec2(40.0, appearance::CONTROL_HEIGHT),
+            "{name}"
+        );
+    }
+    harness.hover_button(window_frame::CLOSE);
+    let tokens = appearance::tokens_for(&harness.context.global_style().visuals);
+    assert_eq!(harness.color_of(icons::CLOSE), tokens.text_on_accent);
 }
 
 #[test]

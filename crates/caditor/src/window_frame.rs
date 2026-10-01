@@ -1,11 +1,11 @@
 use egui::{
     Align, Area, Context, CornerRadius, CursorIcon, Id, LayerId, Layout, Order, PointerButton,
-    Rect, Response, Sense, Stroke, StrokeKind, Ui, UiBuilder, ViewportCommand, WidgetInfo,
+    Rect, Response, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2, ViewportCommand, WidgetInfo,
     WidgetType, pos2, vec2, viewport::ResizeDirection,
 };
 
 use crate::{
-    appearance::{self, WIDGET_RADIUS},
+    appearance::{self, BORDER_WIDTH, CONTROL_HEIGHT, FOCUS_WIDTH, SPACE_XS, WIDGET_RADIUS},
     commands::{Command, CommandFrame},
     files::FileCommand,
     icons,
@@ -24,9 +24,8 @@ pub const SYSTEM_TITLE_BAR: &str = "Use the system title bar";
 const IN_FULL_SCREEN: &str = "Leave full screen first";
 const EDGE: f32 = 5.0;
 const CORNER: f32 = 16.0;
-const CONTROL_EXTRA_WIDTH: f32 = 10.0;
-const CONTROL_GAP: f32 = 2.0;
-const OUTLINE_WIDTH: f32 = 1.0;
+const CONTROL_SIZE: Vec2 = vec2(40.0, CONTROL_HEIGHT);
+const CONTROL_GAP: f32 = SPACE_XS;
 const BAR_RECT_KEY: &str = "title-bar-rect";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -228,23 +227,20 @@ pub fn controls(
 
 fn control(ui: &mut Ui, glyph: &str, name: &str, hover: &str, closes: bool) -> Response {
     let tokens = appearance::tokens(ui);
-    let height = ui.spacing().interact_size.y;
-    let size = vec2(height + CONTROL_EXTRA_WIDTH, height);
-    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let (rect, response) = ui.allocate_exact_size(CONTROL_SIZE, Sense::click());
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), name));
     if ui.is_rect_visible(rect) {
-        let fill = match (
-            closes,
-            response.is_pointer_button_down_on(),
-            response.hovered(),
-        ) {
-            (true, _, true) => tokens.error_subtle,
+        let pressed = response.is_pointer_button_down_on();
+        let hovered = response.hovered();
+        let fill = match (closes, pressed, hovered) {
+            (true, true, _) => tokens.danger_pressed,
+            (true, false, true) => tokens.danger,
             (false, true, _) => tokens.pressed,
             (false, false, true) => tokens.hover,
-            _ => egui::Color32::TRANSPARENT,
+            (_, false, false) => egui::Color32::TRANSPARENT,
         };
         let stroke = if response.has_focus() {
-            Stroke::new(2.0, tokens.focus)
+            Stroke::new(FOCUS_WIDTH, tokens.focus)
         } else {
             Stroke::NONE
         };
@@ -255,10 +251,10 @@ fn control(ui: &mut Ui, glyph: &str, name: &str, hover: &str, closes: bool) -> R
             stroke,
             StrokeKind::Inside,
         );
-        let color = if closes && response.hovered() {
-            tokens.error
-        } else {
-            tokens.text_muted
+        let color = match (closes, pressed || hovered) {
+            (true, true) => tokens.text_on_accent,
+            (false, true) => tokens.text,
+            (_, false) => tokens.text_muted,
         };
         ui.painter().text(
             rect.center(),
@@ -319,7 +315,7 @@ pub fn frame(ctx: &Context, chrome: Chrome) {
     ctx.layer_painter(outline).rect_stroke(
         screen,
         CornerRadius::ZERO,
-        Stroke::new(OUTLINE_WIDTH, border),
+        Stroke::new(BORDER_WIDTH, border),
         StrokeKind::Inside,
     );
     ctx.move_to_top(outline);

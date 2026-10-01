@@ -1,5 +1,5 @@
 use caditor_document::{BlendKind, Datum, describe_axis};
-use egui::{Response, Ui};
+use egui::{Frame, Response, Ui, Vec2};
 
 use crate::{
     blend_panel, blend_tools,
@@ -11,23 +11,63 @@ use crate::{
     model::{Action, Model},
     offers::Offers,
     pattern_tools::{self, Shape},
+    ribbon,
     selection::{Pickable, Selection},
     shell_tools,
     solid_tools::{self, Sweep},
     viewport::CHOOSE_PLANE_PROMPT,
-    widgets::{self, Tone, ToolButton},
+    widgets::ToolButton,
 };
 
 pub const NEW_SKETCH_LABEL: &str = "New sketch";
 pub const PLANE_LABEL: &str = "Plane";
 pub const AXIS_LABEL: &str = "Axis";
+pub const MEASURE_LABEL: &str = "Measure";
 const NO_SKETCH_TO_SWEEP: &str = "Draw a sketch with a closed outline first";
+const MEASURE_HOVER: &str =
+    "Measure the selection: distances, angles, lengths, areas and the mass properties of bodies";
+const RIBBON: &str = "main-ribbon";
 
 pub struct ToolbarContext<'a> {
     pub selection: &'a Selection,
     pub editing: &'a SketchEditing,
     pub offers: &'a Offers,
     pub measuring: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Group {
+    History,
+    Sketch,
+    Solid,
+    Modify,
+    Pattern,
+    Reference,
+    Inspect,
+}
+
+impl Group {
+    const ALL: [Self; 7] = [
+        Self::History,
+        Self::Sketch,
+        Self::Solid,
+        Self::Modify,
+        Self::Pattern,
+        Self::Reference,
+        Self::Inspect,
+    ];
+
+    fn caption(self) -> &'static str {
+        match self {
+            Self::History => "History",
+            Self::Sketch => "Sketch",
+            Self::Solid => "Solid",
+            Self::Modify => "Modify",
+            Self::Pattern => "Pattern",
+            Self::Reference => "Reference",
+            Self::Inspect => "Inspect",
+        }
+    }
 }
 
 pub fn show(
@@ -37,44 +77,68 @@ pub fn show(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    egui::Panel::top("toolbar").show(ui, |ui| {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = TOOL_GAP;
-            history_buttons(ui, model, commands, actions);
-            ui.separator();
-            sketch_buttons(ui, model, context, commands, actions);
-            ui.separator();
-            solid_buttons(ui, model, context, commands, actions);
-            ui.separator();
-            blend_buttons(ui, model, context, commands, actions);
-            shell_button(ui, model, context, commands, actions);
-            ui.separator();
-            pattern_buttons(ui, model, context, commands, actions);
-            ui.separator();
-            datum_buttons(ui, model, context, commands, actions);
-            ui.separator();
-            measure_button(ui, context.measuring, commands);
-        });
+    let frame = Frame::side_top_panel(ui.style()).inner_margin(ribbon::BAR_MARGIN);
+    egui::Panel::top("toolbar").frame(frame).show(ui, |ui| {
+        ui.spacing_mut().item_spacing = Vec2::splat(ribbon::TOOL_GAP);
+        let full = ui.available_width();
+        let widths = ribbon::remembered_widths(ui, RIBBON, &Group::ALL);
+        let rows = ribbon::rows(&widths, full, full);
+        let captions = rows.len() == 1;
+        for (index, row) in rows.into_iter().enumerate() {
+            if index > 0 {
+                ui.add_space(ribbon::ROW_GAP);
+            }
+            ui.horizontal_top(|ui| {
+                ribbon::row(ui, RIBBON, &row, |ui, group| {
+                    let caption = captions.then(|| group.caption());
+                    ribbon::captioned(ui, caption, |ui| {
+                        ui.horizontal_top(|ui| {
+                            group_buttons(ui, group, model, context, commands, actions);
+                        })
+                        .response
+                        .rect
+                        .width()
+                    })
+                });
+            });
+        }
     });
 }
 
-pub const MEASURE_LABEL: &str = "Measure";
-const MEASURE_HOVER: &str =
-    "Measure the selection: distances, angles, lengths, areas and the mass properties of bodies";
+fn group_buttons(
+    ui: &mut Ui,
+    group: Group,
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    match group {
+        Group::History => history_buttons(ui, model, commands, actions),
+        Group::Sketch => sketch_buttons(ui, model, context, commands, actions),
+        Group::Solid => solid_buttons(ui, model, context, commands, actions),
+        Group::Modify => {
+            blend_buttons(ui, model, context, commands, actions);
+            shell_button(ui, model, context, commands, actions);
+        }
+        Group::Pattern => pattern_buttons(ui, model, context, commands, actions),
+        Group::Reference => datum_buttons(ui, model, context, commands, actions),
+        Group::Inspect => measure_button(ui, context.measuring, commands),
+    }
+}
 
 fn measure_button(ui: &mut Ui, measuring: bool, commands: &mut CommandFrame<'_>) {
-    let response = ui
-        .add(ToolButton::new(icons::command(Command::Measure), MEASURE_LABEL).selected(measuring))
-        .on_hover_text(commands.with_keys(Command::Measure, MEASURE_HOVER));
-    if response.clicked() {
+    let button =
+        ToolButton::new(icons::command(Command::Measure), MEASURE_LABEL).selected(measuring);
+    let help = Ok(commands.with_keys(Command::Measure, MEASURE_HOVER));
+    if ribbon::explained(ui.add(button), MEASURE_LABEL, &help).clicked() {
         commands.trigger(Command::Measure);
     }
 }
 
-const TOOL_GAP: f32 = 2.0;
-
-fn tool(ui: &mut Ui, command: Command, label: &str, enabled: bool) -> Response {
-    ui.add_enabled(enabled, ToolButton::new(icons::command(command), label))
+fn tool(ui: &mut Ui, command: Command, label: &str, help: &Result<String, String>) -> Response {
+    let button = ToolButton::new(icons::command(command), label);
+    ribbon::explained(ui.add_enabled(help.is_ok(), button), label, help)
 }
 
 fn sketch_buttons(
@@ -86,12 +150,12 @@ fn sketch_buttons(
 ) {
     let (selection, editing) = (context.selection, context.editing);
     if editing.is_choosing_plane() {
-        widgets::pill(ui, Tone::Info, CHOOSE_PLANE_PROMPT);
-        if ui
-            .button("Cancel")
-            .on_hover_text("Stop choosing a plane (Esc)")
-            .clicked()
-        {
+        let button =
+            ToolButton::new(icons::command(Command::NewSketch), NEW_SKETCH_LABEL).selected(true);
+        let help = Ok(format!(
+            "{CHOOSE_PLANE_PROMPT}, or click here to stop choosing (Esc)"
+        ));
+        if ribbon::explained(ui.add(button), NEW_SKETCH_LABEL, &help).clicked() {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
         }
         return;
@@ -137,9 +201,9 @@ fn sketch_buttons(
             EditingCommand::NewSketch(None),
         ),
     };
-    let hover = commands.with_keys(Command::NewSketch, &hover);
+    let help = Ok(commands.with_keys(Command::NewSketch, &hover));
     let invoked = commands.available(Command::NewSketch);
-    let response = tool(ui, Command::NewSketch, NEW_SKETCH_LABEL, true).on_hover_text(hover);
+    let response = tool(ui, Command::NewSketch, NEW_SKETCH_LABEL, &help);
     if response.clicked() || invoked {
         actions.push(Action::Editing(command));
     }
@@ -161,8 +225,7 @@ fn solid_buttons(
             Sweep::Revolve => Command::Revolve,
         };
         let invoked = commands.invoke(command, &source.as_ref().ok_or(NO_SKETCH_TO_SWEEP));
-        let response = tool(ui, command, sweep.label(), source.is_some());
-        let response = match &source {
+        let help = match &source {
             Some(source) => {
                 let sketch = document
                     .feature(source.sketch)
@@ -178,10 +241,11 @@ fn solid_buttons(
                          a line or axis you select first"
                     ),
                 };
-                response.on_hover_text(commands.with_keys(command, &hover))
+                Ok(commands.with_keys(command, &hover))
             }
-            None => response.on_disabled_hover_text(NO_SKETCH_TO_SWEEP),
+            None => Err(NO_SKETCH_TO_SWEEP.to_owned()),
         };
+        let response = tool(ui, command, sweep.label(), &help);
         if (response.clicked() || invoked)
             && let Some(source) = &source
         {
@@ -209,9 +273,8 @@ fn blend_buttons(
             BlendKind::Chamfer => Command::Chamfer,
         };
         let invoked = commands.invoke(command, &source);
-        let response = tool(ui, command, kind.title(), source.is_ok());
-        let response = match &source {
-            Ok(source) => response.on_hover_text(commands.with_keys(
+        let help = match &source {
+            Ok(source) => Ok(commands.with_keys(
                 command,
                 &format!(
                     "{} ({})",
@@ -219,11 +282,12 @@ fn blend_buttons(
                     count(source.edges.len(), "edge", "edges")
                 ),
             )),
-            Err(reason) => response.on_disabled_hover_text(format!(
+            Err(reason) => Err(format!(
                 "{}. {reason}, then click here.",
                 blend_panel::describe_kind(kind)
             )),
         };
+        let response = tool(ui, command, kind.title(), &help);
         if (response.clicked() || invoked)
             && let Ok(source) = &source
         {
@@ -248,15 +312,15 @@ fn datum_buttons(
     let document = model.document();
     let plane = context.offers.datum_plane.clone();
     let invoked = commands.invoke(Command::DatumPlane, &plane);
-    let response = tool(ui, Command::DatumPlane, PLANE_LABEL, plane.is_ok());
-    let response = match &plane {
-        Ok(_) => response.on_hover_text(commands.with_keys(
+    let help = match &plane {
+        Ok(_) => Ok(commands.with_keys(
             Command::DatumPlane,
             "Add a plane offset from the selected plane or flat face (the XY plane when none is \
              selected), turned about the selected axis or straight edge if there is one",
         )),
-        Err(reason) => response.on_disabled_hover_text(format!("{reason}.")),
+        Err(reason) => Err(format!("{reason}.")),
     };
+    let response = tool(ui, Command::DatumPlane, PLANE_LABEL, &help);
     if (response.clicked() || invoked)
         && let Ok(plane) = plane
     {
@@ -265,17 +329,15 @@ fn datum_buttons(
 
     let axis = context.offers.datum_axis.clone();
     let invoked = commands.invoke(Command::DatumAxis, &axis);
-    let response = tool(ui, Command::DatumAxis, AXIS_LABEL, axis.is_ok());
-    let response = match &axis {
-        Ok(_) => response.on_hover_text(commands.with_keys(
+    let help = match &axis {
+        Ok(_) => Ok(commands.with_keys(
             Command::DatumAxis,
             "Add an axis along the selected edge, round face or axis, or where the two selected \
              planes meet",
         )),
-        Err(reason) => {
-            response.on_disabled_hover_text(format!("Add an axis. {reason}, then click here."))
-        }
+        Err(reason) => Err(format!("Add an axis. {reason}, then click here.")),
     };
+    let response = tool(ui, Command::DatumAxis, AXIS_LABEL, &help);
     if (response.clicked() || invoked)
         && let Ok(axis) = axis
     {
@@ -292,9 +354,8 @@ fn shell_button(
 ) {
     let source = &context.offers.shell;
     let invoked = commands.invoke(Command::Shell, source);
-    let response = tool(ui, Command::Shell, shell_tools::TITLE, source.is_ok());
-    let response = match source {
-        Ok(source) => response.on_hover_text(commands.with_keys(
+    let help = match source {
+        Ok(source) => Ok(commands.with_keys(
             Command::Shell,
             &format!(
                 "{} ({} open)",
@@ -302,11 +363,12 @@ fn shell_button(
                 count(source.faces.len(), "face", "faces")
             ),
         )),
-        Err(reason) => response.on_disabled_hover_text(format!(
+        Err(reason) => Err(format!(
             "{}. {reason}, then click here.",
             shell_tools::DESCRIPTION
         )),
     };
+    let response = tool(ui, Command::Shell, shell_tools::TITLE, &help);
     if (response.clicked() || invoked)
         && let Ok(source) = source
     {
@@ -334,8 +396,7 @@ fn pattern_buttons(
             Shape::Circular => Command::CircularPattern,
         };
         let invoked = commands.invoke(command, source);
-        let response = tool(ui, command, shape.title(), source.is_ok());
-        let response = match source {
+        let help = match source {
             Ok(source) => {
                 let body = document
                     .feature(source.body)
@@ -358,13 +419,14 @@ fn pattern_buttons(
                          round face you select first"
                     ),
                 };
-                response.on_hover_text(commands.with_keys(command, &hover))
+                Ok(commands.with_keys(command, &hover))
             }
-            Err(reason) => response.on_disabled_hover_text(format!(
+            Err(reason) => Err(format!(
                 "{}. {reason}, then click here.",
                 shape.description()
             )),
         };
+        let response = tool(ui, command, shape.title(), &help);
         if (response.clicked() || invoked)
             && let Ok(source) = source
         {
@@ -396,13 +458,11 @@ fn history_buttons(
     for (label, command, action, idle) in buttons {
         let invoked = commands.invoke(command, &label.ok_or(idle));
         let verb = command.title();
-        let response = tool(ui, command, &verb, label.is_some());
-        let response = match label {
-            Some(label) => {
-                response.on_hover_text(commands.with_keys(command, &format!("{verb} {label}")))
-            }
-            None => response.on_disabled_hover_text(idle),
+        let help = match label {
+            Some(label) => Ok(commands.with_keys(command, &format!("{verb} {label}"))),
+            None => Err(idle.to_owned()),
         };
+        let response = tool(ui, command, &verb, &help);
         if response.clicked() || invoked {
             actions.push(action);
         }

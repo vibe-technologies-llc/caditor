@@ -1,20 +1,19 @@
-use std::sync::Arc;
-
 use caditor_document::Feature;
 use caditor_sketch::{Constraint, ConstraintId, EntityId, Sketch};
 use egui::{
-    Align, Align2, CornerRadius, FontId, Frame, Galley, Id, Label, Layout, Margin, Popup, Rect,
-    Response, RichText, Stroke, TextStyle, TextWrapMode, Ui, Vec2, WidgetText, pos2, vec2,
+    Align, Align2, CornerRadius, FontId, Frame, Id, Label, Layout, Margin, Popup, Rect, Response,
+    RichText, Stroke, TextStyle, TextWrapMode, Ui, Vec2, WidgetText, vec2,
 };
 
 use crate::{
-    appearance::{self, ICON_SIZE, Tokens, WIDGET_RADIUS},
+    appearance::{self, CONTROL_HEIGHT, ICON_SIZE, SPACE_M, SPACE_S, Tokens, WIDGET_RADIUS},
     commands::{Command, CommandFrame},
     editing::{ActiveSketch, EditingCommand, SketchEditing, Tool},
     feature_tree::count,
     fonts, icons,
     model::{Action, Model},
     panels::{Focus, PanelState},
+    ribbon::{self, explained},
     selection::Selection,
     shape_modes::{ShapeMode, ShapeModes},
     sketch_drag::{self, Moving},
@@ -24,6 +23,9 @@ use crate::{
 };
 
 pub const FINISH_LABEL: &str = "Finish sketch";
+pub const ARC_LABEL: &str = "Arc";
+pub const ARC_WAYS_LABEL: &str = "Ways to draw an arc";
+pub const ARC_TOOLS: [Tool; 3] = [Tool::Arc, Tool::ThreePointArc, Tool::TangentArc];
 pub const DELETE_LABEL: &str = "Delete";
 pub const MOVE_LABEL: &str = "Move";
 pub const SELECT_ALL_LABEL: &str = "Select all";
@@ -42,23 +44,18 @@ const MAKE_CONSTRUCTION: &str =
     "Make the selected curves construction geometry, which guides the sketch but makes no profile";
 const MAKE_ORDINARY: &str = "Make the selected curves ordinary geometry again";
 
-const TOOL_GAP: f32 = widgets::COMPACT_TOOL_GAP;
-const DIVIDER_SPACE: f32 = 12.0;
-const GROUP_SPACE: f32 = DIVIDER_SPACE + TOOL_GAP;
-const CAPTION_GAP: f32 = 2.0;
-const HEADER_WIDTH: f32 = 220.0;
-const HEADER_GAP: f32 = 10.0;
-const HEADER_LINE_GAP: f32 = 4.0;
-const BADGE_SIDE: f32 = 32.0;
-const FINISH_HEIGHT: f32 = 32.0;
+const RIBBON: &str = "sketch-ribbon";
+const HEADER_TEXT_MIN_WIDTH: f32 = 160.0;
+const HEADER_TEXT_MAX_WIDTH: f32 = 240.0;
+const HEADER_GAP: f32 = SPACE_M;
+const HEADER_LINE_GAP: f32 = SPACE_S;
+const BADGE_SIDE: f32 = CONTROL_HEIGHT;
+const FINISH_HEIGHT: f32 = CONTROL_HEIGHT;
 const ACCENT_LINE_WIDTH: f32 = 2.0;
 const BAR_MARGIN: Margin = Margin {
-    left: 8,
-    right: 8,
-    top: 7,
-    bottom: 4,
+    top: ribbon::BAR_MARGIN.top + ACCENT_LINE_WIDTH as i8,
+    ..ribbon::BAR_MARGIN
 };
-const WIDTH_TOLERANCE: f32 = 0.5;
 const GEOMETRIC_COLUMNS: usize = 6;
 const DIMENSION_COLUMNS: usize = 3;
 
@@ -234,40 +231,20 @@ impl Group {
 
     fn caption(self) -> Option<&'static str> {
         match self {
-            Self::Header | Self::Select => None,
+            Self::Header => None,
+            Self::Select => Some("Select"),
             Self::Draw => Some("Draw"),
             Self::Modify => Some("Modify"),
             Self::Constrain => Some("Constrain"),
             Self::Dimension => Some("Dimension"),
         }
     }
-
-    fn width_id(self) -> Id {
-        Id::new(("sketch-bar-group", self))
-    }
 }
 
-fn rows(widths: &[(Group, f32)], first: f32, rest: f32) -> Vec<Vec<Group>> {
-    let mut rows = Vec::new();
-    let mut row: Vec<Group> = Vec::new();
-    let mut used = 0.0;
-    for &(group, width) in widths {
-        let room = if rows.is_empty() { first } else { rest };
-        let needed = used + GROUP_SPACE + width;
-        if row.is_empty() {
-            used = width;
-        } else if needed <= room + WIDTH_TOLERANCE {
-            used = needed;
-        } else {
-            rows.push(std::mem::take(&mut row));
-            used = width;
-        }
-        row.push(group);
-    }
-    if !row.is_empty() {
-        rows.push(row);
-    }
-    rows
+#[derive(Debug, Clone, Copy)]
+struct Packing {
+    header: f32,
+    captions: bool,
 }
 
 struct Bar<'a, 'b> {
@@ -286,19 +263,19 @@ struct Bar<'a, 'b> {
 
 impl Bar<'_, '_> {
     fn show(&mut self, ui: &mut Ui) {
-        ui.spacing_mut().item_spacing = Vec2::splat(TOOL_GAP);
+        ui.spacing_mut().item_spacing = Vec2::splat(ribbon::TOOL_GAP);
         let full = ui.available_width();
         let band = widgets::tool_height(ui);
-        let header = HEADER_WIDTH.min(full);
+        let header = self.header_width(ui).min(full);
         let finish_id = Id::new("sketch-bar-finish");
-        let widths: Vec<(Group, f32)> = Group::ALL
+        let widths: Vec<(Group, f32)> = ribbon::remembered_widths(ui, RIBBON, &Group::ALL)
             .into_iter()
-            .map(|group| match group {
+            .map(|(group, width)| match group {
                 Group::Header => (group, header),
-                _ => (group, widgets::remembered_width(ui, group.width_id())),
+                _ => (group, width),
             })
             .collect();
-        let beside_finish = full - widgets::remembered_width(ui, finish_id) - GROUP_SPACE;
+        let beside_finish = full - widgets::remembered_width(ui, finish_id) - ribbon::GROUP_SPACE;
         let finish_apart = beside_finish < header;
         if finish_apart {
             ui.allocate_ui_with_layout(
@@ -306,26 +283,20 @@ impl Bar<'_, '_> {
                 Layout::right_to_left(Align::Center),
                 |ui| self.finish(ui, finish_id),
             );
+            ui.add_space(ribbon::ROW_GAP);
         }
         let first = if finish_apart { full } else { beside_finish };
-        for (index, row) in rows(&widths, first, full).into_iter().enumerate() {
+        let rows = ribbon::rows(&widths, first, full);
+        let packing = Packing {
+            header,
+            captions: rows.len() == 1 && !finish_apart,
+        };
+        for (index, row) in rows.into_iter().enumerate() {
+            if index > 0 {
+                ui.add_space(ribbon::ROW_GAP);
+            }
             ui.horizontal_top(|ui| {
-                let mut previous: Option<f32> = None;
-                for group in row {
-                    if previous.is_some() {
-                        ui.add_space(DIVIDER_SPACE);
-                    }
-                    let (rect, natural) = self.group(ui, group, band);
-                    if let Some(right) = previous {
-                        let divider = ui.visuals().widgets.noninteractive.bg_stroke;
-                        ui.painter()
-                            .vline((right + rect.left()) / 2.0, rect.y_range(), divider);
-                    }
-                    previous = Some(rect.right());
-                    if group != Group::Header {
-                        widgets::remember_width(ui, group.width_id(), natural);
-                    }
-                }
+                ribbon::row(ui, RIBBON, &row, |ui, group| self.group(ui, group, packing));
                 if index == 0 && !finish_apart {
                     ui.allocate_ui_with_layout(
                         vec2(ui.available_width(), band),
@@ -337,46 +308,55 @@ impl Bar<'_, '_> {
         }
     }
 
-    fn group(&mut self, ui: &mut Ui, group: Group, band: f32) -> (Rect, f32) {
-        let caption = group.caption().map(|text| caption_galley(ui, text));
-        let shown = ui.vertical(|ui| {
-            let content = match group {
-                Group::Header => self.header(ui, band),
-                Group::Select => self.tool_button(ui, Tool::Select).rect.width(),
-                Group::Draw => self.drawing_tools(ui),
-                Group::Modify => self.edit_buttons(ui),
-                Group::Constrain => self.constraint_buttons(ui, false, GEOMETRIC_COLUMNS),
-                Group::Dimension => self.constraint_buttons(ui, true, DIMENSION_COLUMNS),
-            };
-            let height = ui.text_style_height(&TextStyle::Small);
-            let top = ui.min_rect().bottom() + CAPTION_GAP;
-            match caption {
-                Some(galley) => {
-                    let width = ui.min_rect().width().max(galley.size().x);
-                    let rect =
-                        Rect::from_min_size(pos2(ui.min_rect().left(), top), vec2(width, height));
-                    let natural = content.max(galley.size().x);
-                    ui.put(rect, Label::new(galley).selectable(false));
-                    natural
-                }
-                None => {
-                    ui.allocate_space(vec2(0.0, height));
-                    content
-                }
-            }
-        });
-        (shown.response.rect, shown.inner)
+    fn group(&mut self, ui: &mut Ui, group: Group, packing: Packing) -> (Rect, f32) {
+        let caption = group.caption().filter(|_| packing.captions);
+        ribbon::captioned(ui, caption, |ui| self.content(ui, group, packing))
     }
 
-    fn header(&mut self, ui: &mut Ui, band: f32) -> f32 {
+    fn content(&mut self, ui: &mut Ui, group: Group, packing: Packing) -> f32 {
+        match group {
+            Group::Header => self.header(ui, packing),
+            Group::Select => {
+                let select = Tool::Select;
+                self.tool_button(ui, select, select.label()).rect.width()
+            }
+            Group::Draw => self.drawing_tools(ui),
+            Group::Modify => self.edit_buttons(ui),
+            Group::Constrain => self.constraint_buttons(ui, false, GEOMETRIC_COLUMNS),
+            Group::Dimension => self.constraint_buttons(ui, true, DIMENSION_COLUMNS),
+        }
+    }
+
+    fn title(&self) -> String {
+        format!("Editing {}", self.feature.name)
+    }
+
+    fn header_width(&self, ui: &Ui) -> f32 {
+        let title = WidgetText::from(RichText::new(self.title()).text_style(TextStyle::Button))
+            .into_galley(
+                ui,
+                Some(TextWrapMode::Extend),
+                f32::INFINITY,
+                TextStyle::Button,
+            );
+        let text = title
+            .size()
+            .x
+            .clamp(HEADER_TEXT_MIN_WIDTH, HEADER_TEXT_MAX_WIDTH);
+        BADGE_SIDE + HEADER_GAP + text
+    }
+
+    fn header(&mut self, ui: &mut Ui, packing: Packing) -> f32 {
         let tokens = appearance::tokens(ui);
-        let width = HEADER_WIDTH.min(ui.available_width());
+        let width = packing.header;
+        let height = ribbon::height(ui, packing.captions);
+        let title = self.title();
         ui.horizontal_top(|ui| {
-            ui.set_min_size(vec2(width, band));
+            ui.set_min_size(vec2(width, height));
             ui.set_max_width(width);
             ui.spacing_mut().item_spacing.x = HEADER_GAP;
             ui.vertical(|ui| {
-                ui.add_space(((band - BADGE_SIDE) / 2.0).max(0.0));
+                ui.add_space(((height - BADGE_SIDE) / 2.0).max(0.0));
                 badge(ui, tokens);
             });
             let height_id = Id::new("sketch-bar-header-height");
@@ -384,11 +364,11 @@ impl Bar<'_, '_> {
             let content = ui
                 .vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = HEADER_LINE_GAP;
-                    ui.add_space(((band - known) / 2.0).max(0.0));
+                    ui.add_space(((height - known) / 2.0).max(0.0));
                     let top = ui.cursor().min.y;
                     ui.add(
                         Label::new(
-                            RichText::new(format!("Editing {}", self.feature.name))
+                            RichText::new(&title)
                                 .text_style(TextStyle::Button)
                                 .color(tokens.text),
                         )
@@ -409,7 +389,7 @@ impl Bar<'_, '_> {
         width
     }
 
-    fn tool_button(&mut self, ui: &mut Ui, tool: Tool) -> Response {
+    fn tool_button(&mut self, ui: &mut Ui, tool: Tool, label: &str) -> Response {
         let command = Command::SketchTool(tool);
         let invoked = self.commands.available(command);
         let keys = match (self.commands.keys(command), tool) {
@@ -428,7 +408,7 @@ impl Bar<'_, '_> {
             (None, _) => description.to_owned(),
         };
         let active = self.active.tool == tool;
-        let button = ToolButton::new(icons::tool(tool), tool.label()).selected(active);
+        let button = ToolButton::new(icons::tool(tool), label).selected(active);
         let response = ui.add(button).on_hover_text(hover);
         match mode.filter(|_| invoked && active) {
             Some(mode) => self.request.mode = Some(mode.next()),
@@ -483,18 +463,58 @@ impl Bar<'_, '_> {
         ui.horizontal_wrapped(|ui| {
             Tool::ALL
                 .into_iter()
-                .filter(|tool| tool.draws())
+                .filter(|tool| tool.draws() && (*tool == Tool::Arc || !ARC_TOOLS.contains(tool)))
                 .map(|tool| {
-                    let button = self.tool_button(ui, tool).rect;
+                    if tool == Tool::Arc {
+                        return self.arc_button(ui);
+                    }
+                    let button = self.tool_button(ui, tool, tool.label()).rect;
                     if let Some(mode) = self.modes.of(tool) {
                         self.mode_menu(ui, mode, button);
                     }
                     button.width()
                 })
-                .reduce(|total, width| total + TOOL_GAP + width)
+                .reduce(|total, width| total + ribbon::TOOL_GAP + width)
                 .unwrap_or_default()
         })
         .inner
+    }
+
+    fn arc_button(&mut self, ui: &mut Ui) -> f32 {
+        let remembered = Id::new("sketch-bar-arc");
+        let current = if ARC_TOOLS.contains(&self.active.tool) {
+            ui.data_mut(|data| data.insert_temp(remembered, self.active.tool));
+            self.active.tool
+        } else {
+            ui.data(|data| data.get_temp::<Tool>(remembered))
+                .unwrap_or(Tool::Arc)
+        };
+        for tool in ARC_TOOLS {
+            if tool != current && self.commands.available(Command::SketchTool(tool)) {
+                self.request.tool = Some(tool);
+            }
+        }
+        let button = self.tool_button(ui, current, ARC_LABEL).rect;
+        let id = Id::new("sketch-bar-arc-ways");
+        let selected = ARC_TOOLS.contains(&self.active.tool);
+        let response = widgets::corner_menu_button(ui, id, button, ARC_WAYS_LABEL, selected);
+        let commands = &*self.commands;
+        let shown = Popup::menu(&response).show(|ui| {
+            let mut chosen = None;
+            for tool in ARC_TOOLS {
+                let keys = commands.keys(Command::SketchTool(tool));
+                let glyph = icons::tool(tool);
+                if widgets::menu_choice(ui, glyph, tool.label(), keys, tool == current).clicked() {
+                    chosen = Some(tool);
+                }
+            }
+            chosen
+        });
+        if let Some(tool) = shown.and_then(|shown| shown.inner) {
+            ui.data_mut(|data| data.insert_temp(remembered, tool));
+            self.request.tool = Some(tool);
+        }
+        button.width()
     }
 
     fn edit_buttons(&mut self, ui: &mut Ui) -> f32 {
@@ -655,32 +675,6 @@ pub fn modes_label(tool: Tool) -> String {
     format!("Ways to draw a {}", tool.label().to_lowercase())
 }
 
-fn explained(response: Response, title: &str, help: &Result<String, String>) -> Response {
-    let tip = |ui: &mut Ui, text: &str| {
-        ui.strong(title);
-        ui.label(text);
-    };
-    match help {
-        Ok(text) => response.on_hover_ui(|ui| tip(ui, text)),
-        Err(text) => response.on_disabled_hover_ui(|ui| tip(ui, text)),
-    }
-}
-
-fn caption_galley(ui: &Ui, text: &str) -> Arc<Galley> {
-    let muted = appearance::tokens(ui).text_muted;
-    WidgetText::from(
-        RichText::new(text)
-            .text_style(TextStyle::Small)
-            .color(muted),
-    )
-    .into_galley(
-        ui,
-        Some(TextWrapMode::Extend),
-        f32::INFINITY,
-        TextStyle::Small,
-    )
-}
-
 fn badge(ui: &mut Ui, tokens: &Tokens) {
     let (_, rect) = ui.allocate_space(Vec2::splat(BADGE_SIDE));
     let painter = ui.painter();
@@ -696,53 +690,4 @@ fn badge(ui: &mut Ui, tokens: &Tokens) {
         FontId::new(ICON_SIZE, fonts::icons()),
         tokens.accent_text,
     );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const WIDTHS: [(Group, f32); 4] = [
-        (Group::Header, 200.0),
-        (Group::Select, 50.0),
-        (Group::Draw, 500.0),
-        (Group::Modify, 50.0),
-    ];
-
-    #[test]
-    fn groups_fill_each_row_before_wrapping_and_the_first_row_leaves_room_for_finish() {
-        assert_eq!(
-            rows(&WIDTHS, 1000.0, 1000.0),
-            vec![vec![
-                Group::Header,
-                Group::Select,
-                Group::Draw,
-                Group::Modify
-            ]]
-        );
-        assert_eq!(
-            rows(&WIDTHS, 700.0, 900.0),
-            vec![
-                vec![Group::Header, Group::Select],
-                vec![Group::Draw, Group::Modify]
-            ]
-        );
-        assert_eq!(
-            rows(&WIDTHS, 300.0, 300.0),
-            vec![
-                vec![Group::Header, Group::Select],
-                vec![Group::Draw],
-                vec![Group::Modify]
-            ]
-        );
-        assert_eq!(
-            rows(&WIDTHS, 100.0, 100.0),
-            vec![
-                vec![Group::Header],
-                vec![Group::Select],
-                vec![Group::Draw],
-                vec![Group::Modify]
-            ]
-        );
-    }
 }
