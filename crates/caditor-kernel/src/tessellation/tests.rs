@@ -556,3 +556,40 @@ fn a_display_mesh_over_its_budget_falls_back_to_the_coarse_quality() {
         Err(TessellationError::TooLarge)
     );
 }
+
+fn surface_deviation(solid: &Solid, tolerance: &SamplingTolerance) -> f64 {
+    let mesh = solid.tessellate(tolerance).unwrap();
+    let mut worst: f64 = 0.0;
+    for face in mesh.faces() {
+        let surface = solid.face(face.face).unwrap().surface();
+        for triangle in &mesh.triangles()[face.triangles.clone()] {
+            let [a, b, c] = mesh.corner_points(*triangle).unwrap();
+            for point in [
+                (a + b + c) / 3.0,
+                (a + b) * 0.5,
+                (b + c) * 0.5,
+                (c + a) * 0.5,
+            ] {
+                let foot = surface.project(point, None);
+                worst = worst.max(surface.point_at(foot).distance(point));
+            }
+        }
+    }
+    worst
+}
+
+#[test]
+fn every_surface_kind_meshes_within_the_requested_chord() {
+    let mut solids = fixtures::every_solid();
+    solids.push(("fat torus", fixtures::torus(3.0, 2.5)));
+    for chord in [0.1, 0.02, 0.004] {
+        let tolerance = SamplingTolerance::new(chord, 1.0).unwrap();
+        for (name, solid) in &solids {
+            let worst = surface_deviation(solid, &tolerance);
+            assert!(
+                worst <= chord * 1.05,
+                "{name} deviates {worst} from its surface at a chord of {chord}"
+            );
+        }
+    }
+}

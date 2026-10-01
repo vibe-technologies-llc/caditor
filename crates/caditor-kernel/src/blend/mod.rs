@@ -1,4 +1,5 @@
 mod corner;
+mod feet;
 mod section;
 #[cfg(test)]
 mod tests;
@@ -63,7 +64,7 @@ impl BlendShape {
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum BlendError {
-    #[error("the size is not a finite number above zero")]
+    #[error("the size is not a finite number above 0.000001 mm")]
     InvalidSize,
     #[error("no edge is chosen")]
     NoEdges,
@@ -241,6 +242,14 @@ fn parallel_within(a: Vector3, b: Vector3, tolerance: f64) -> bool {
     a.cross(b).length() <= tolerance
 }
 
+fn smooth_within(a: Vector3, b: Vector3) -> bool {
+    a.dot(b) > 0.0 && parallel_within(a, b, SMOOTH_TOLERANCE)
+}
+
+fn knife_within(a: Vector3, b: Vector3) -> bool {
+    a.dot(b) < 0.0 && parallel_within(a, b, SMOOTH_TOLERANCE)
+}
+
 fn on_axis(point: Point3, origin: Point3, axis: Vector3) -> bool {
     (point - origin).cross(axis).length() <= LINEAR_RESOLUTION
 }
@@ -325,8 +334,11 @@ fn analyze(solid: &Solid, edge: EdgeId) -> Result<EdgeGeometry, BlendError> {
         face_normal(solid, *first_face, start).ok_or_else(unsupported)?,
         face_normal(solid, *second_face, start).ok_or_else(unsupported)?,
     ];
-    if parallel_within(normals[0], normals[1], SMOOTH_TOLERANCE) {
+    if smooth_within(normals[0], normals[1]) {
         return Err(BlendError::Smooth(edge));
+    }
+    if knife_within(normals[0], normals[1]) {
+        return Err(BlendError::TooLarge(edge));
     }
     let inward = [
         normals[0].cross(if *first_same { tangent } else { -tangent }),
@@ -476,7 +488,7 @@ fn is_sharp(solid: &Solid, edge: EdgeId, at: Point3) -> bool {
         face_normal(solid, *first, at),
         face_normal(solid, *second, at),
     ) {
-        (Some(a), Some(b)) => !parallel_within(a, b, SMOOTH_TOLERANCE),
+        (Some(a), Some(b)) => !smooth_within(a, b),
         _ => false,
     }
 }
@@ -1000,6 +1012,13 @@ fn apply_analysed(
         }
         let reach = geometry.section.reach(&blend);
         planned.push((geometry, blend, reach));
+    }
+    let feet: Vec<(EdgeGeometry, Blend)> = planned
+        .iter()
+        .map(|(geometry, blend, _)| (*geometry, *blend))
+        .collect();
+    if let Some(edge) = feet::crossing(solid, &feet) {
+        return Err(BlendError::TooLarge(edge));
     }
     let corners = match shape {
         BlendShape::Fillet { radius } => {

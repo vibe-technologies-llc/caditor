@@ -659,3 +659,82 @@ fn a_blend_cancelled_anywhere_stops_with_cancelled() {
         |error| matches!(error, BlendError::Cancelled(_)),
     );
 }
+
+fn is_too_large(result: Result<Solid, BlendError>) -> bool {
+    matches!(result, Err(BlendError::TooLarge(_)))
+}
+
+#[test]
+fn feet_that_cross_on_a_cylinder_wall_are_refused() {
+    let solid = cylinder(5.0, 10.0);
+    let rims = [
+        edge_through(&solid, (5.0, 0.0, 0.0)),
+        edge_through(&solid, (5.0, 0.0, 10.0)),
+    ];
+
+    assert!(is_too_large(blend(&solid, &rims, fillet(5.5), 50)));
+    assert!(is_too_large(blend(
+        &solid,
+        &rims,
+        BlendShape::Chamfer { distance: 5.5 },
+        50
+    )));
+
+    let result = run(&solid, &rims, fillet(3.0));
+    assert_eq!(result.validate(), Ok(()));
+    assert!(!blend_faces(&result).is_empty());
+}
+
+#[test]
+fn feet_that_cross_on_the_side_of_a_box_are_refused() {
+    let solid = cuboid(Vector3::new(40.0, 40.0, 10.0));
+    let horizontal: Vec<EdgeId> = solid
+        .edges()
+        .filter(|(_, edge)| {
+            let start = edge.curve().point(edge.interval().start());
+            let end = edge.curve().point(edge.interval().end());
+            (start.z - end.z).abs() < 1e-9
+        })
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(horizontal.len(), 8);
+
+    assert!(is_too_large(blend(&solid, &horizontal, fillet(6.0), 50)));
+
+    let result = run(&solid, &horizontal, fillet(4.0));
+    assert_eq!(result.validate(), Ok(()));
+}
+
+#[test]
+fn feet_that_meet_exactly_are_not_a_crossing() {
+    let solid = cylinder(5.0, 10.0);
+    let rims = [
+        edge_through(&solid, (5.0, 0.0, 0.0)),
+        edge_through(&solid, (5.0, 0.0, 10.0)),
+    ];
+
+    assert!(!is_too_large(blend(&solid, &rims, fillet(4.9), 50)));
+}
+
+#[test]
+fn a_knife_edge_between_antiparallel_faces_is_not_smooth() {
+    let up = Vector3::Z;
+
+    assert!(smooth_within(up, up));
+    assert!(!smooth_within(up, -up));
+    assert!(knife_within(up, -up));
+    assert!(!knife_within(up, up));
+    assert!(!knife_within(up, Vector3::X));
+    assert!(parallel_within(up, -up, SMOOTH_TOLERANCE));
+}
+
+#[test]
+fn a_size_within_the_resolution_is_refused_in_words() {
+    let solid = cuboid(Vector3::new(10.0, 10.0, 2.0));
+    let edge = edge_through(&solid, (5.0, 0.0, 2.0));
+
+    let refusal = blend(&solid, &[edge], fillet(5e-7), 1).unwrap_err();
+
+    assert_eq!(refusal, BlendError::InvalidSize);
+    assert!(refusal.to_string().contains("0.000001 mm"));
+}

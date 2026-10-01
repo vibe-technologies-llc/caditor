@@ -34,6 +34,8 @@ pub enum GeometryError {
     WeightCount { points: usize, weights: usize },
     #[error("a B-spline weight {0} is not positive")]
     Weight(f64),
+    #[error("the profile of a surface of revolution does not lie in a plane through its axis")]
+    ProfileOutsideMeridian,
     #[error("the surface collapses to a curve or a point")]
     DegenerateSurface,
 }

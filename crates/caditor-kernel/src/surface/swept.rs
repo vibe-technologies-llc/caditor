@@ -18,6 +18,7 @@ use crate::{
 
 const PROFILE_SEED_REFINEMENT: usize = 4;
 const DEGENERACY_SAMPLES: usize = 16;
+const MERIDIAN_TOLERANCE: f64 = 10.0 * LINEAR_RESOLUTION;
 const UNBOUNDED_REACH: f64 = 1.0;
 const MIN_LINE_SWEEP_SINE: f64 = 1e-6;
 
@@ -128,6 +129,16 @@ impl Revolution {
         let meridian_angle = farthest
             .dot(axis.y_axis())
             .atan2(farthest.dot(axis.x_axis()));
+        let meridian_normal = axis.normal().cross(farthest).normalize();
+        let skew = range.split(DEGENERACY_SAMPLES).any(|parameter| {
+            (profile.point(parameter) - axis.origin())
+                .dot(meridian_normal)
+                .abs()
+                > MERIDIAN_TOLERANCE
+        });
+        if skew {
+            return Err(GeometryError::ProfileOutsideMeridian);
+        }
         Ok(Self {
             profile,
             axis,

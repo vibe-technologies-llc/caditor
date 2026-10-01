@@ -14,7 +14,7 @@ use crate::{
 const EDGE_CHECK_SAMPLES: usize = 16;
 const PARAMETER_MATCH: f64 = 1e-9;
 const POLE_MATCH: f64 = 1e-9;
-const VALIDATION_COARSENESS: [f64; 3] = [20.0, 1.0, 0.1];
+const VALIDATION_COARSENESS: [f64; 4] = [20.0, 1.0, 0.1, 0.01];
 const VOID_PROBES: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -526,7 +526,10 @@ fn volumes(solid: &Solid) -> Checked<()> {
     let mut result = Ok(());
     for coarseness in VALIDATION_COARSENESS {
         result = volumes_at(solid, &SamplingTolerance::for_extent(extent * coarseness));
-        if !matches!(result, Err(ValidationError::VoidOutside(_))) {
+        if !matches!(
+            result,
+            Err(ValidationError::VoidOutside(_) | ValidationError::EmptyVolume(_))
+        ) {
             break;
         }
     }

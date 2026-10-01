@@ -88,8 +88,8 @@ paths:
 ## Classification and selection
 
 - Each fragment is classified against the other solid at up to three interior points (inside or
-  outside wins over coincident or touching; inside and outside together is `Ambiguous`) and kept by
-  the operation.
+  outside wins over coincident or touching; inside and outside together, or coincident samples of
+  opposite senses, are `Ambiguous`) and kept by the operation.
 - Faces that passed through share one class across unsplit edges that no cut or other piece shares;
   one whose box misses the other solid's is outside.
 - Of coincident faces only the first solid's fragment can stay: with the same orientation for union
@@ -122,8 +122,12 @@ paths:
 - The blend must fit on both faces at a quarter, half and three quarters of the edge, and its foot
   on each face (the line or circle it runs along) must cross no edge of that face other than seams
   and the edges at the blended edge's ends, so a hole or notch between the samples refuses it as
-  `TooLarge`. The cross-section is solved in 2D (`section.rs`: the fillet circle from the offset
-  curves, chamfer points at equal distance).
+  `TooLarge`. Feet of two blends on one face must not cross (`feet.rs`): the strip between each
+  blended edge and its foot may contain no sampled point of another's foot, except for edges
+  sharing a vertex, whose strips meet at the corner; otherwise `TooLarge` (rims 5.5 on a cylinder
+  10 tall). An edge between faces with opposite normals (a knife edge) is `TooLarge`, and only
+  faces with equal normals make an edge `Smooth`. The cross-section is solved in 2D (`section.rs`:
+  the fillet circle from the offset curves, chamfer points at equal distance).
 - Convex tools are lifted clear of the faces they cut and subtracted; concave ones are flush and
   added. All concave edges go first, then the convex ones are re-found by reference in the filled
   solid (one not found fails as `Lost`; errors about unchosen edges of the filled solid come back as
@@ -201,4 +205,6 @@ paths:
   to nothing or a face that shrinks away but cannot be closed over (`EdgeCollapses`), an edge
   whose offset surfaces do not meet through its ends (`UnsupportedEdge`), an opening that cannot
   be cut, walls that cross (`Walls`), a body that cannot be meshed to find its voids (`Voids`) and
-  a thickness too large for the body.
+  a thickness too large for the body. When the outward attempt only fails to keep every wall and
+  the inward one fails with an error that names its cause (not `EdgeCollapses` or `Walls`), that
+  error is reported instead of `TooThick`.
