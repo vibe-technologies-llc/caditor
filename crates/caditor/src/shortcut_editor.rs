@@ -121,11 +121,13 @@ pub fn dialog(
                 .horizontal(|ui| {
                     let muted = appearance::tokens(ui).text_muted;
                     widgets::icon_label(ui, icons::SEARCH, muted);
-                    ui.add(
-                        TextEdit::singleline(&mut editor.query)
-                            .hint_text("Filter by command or keys")
-                            .desired_width(f32::INFINITY),
-                    )
+                    widgets::text_field(ui, |ui| {
+                        ui.add(
+                            TextEdit::singleline(&mut editor.query)
+                                .hint_text("Filter by command or keys")
+                                .desired_width(f32::INFINITY),
+                        )
+                    })
                 })
                 .inner;
             if std::mem::take(&mut editor.focus_filter) {

@@ -30,12 +30,12 @@ pub use crate::{
         ViewportRect,
     },
     settings::{GraphicsInfo, GraphicsSettings, Msaa, Shading},
-    viewport::ViewportFrame,
+    viewport::{SurfaceTarget, ViewportFrame, ViewportRenderer},
 };
 use crate::{
     gpu::DeviceLoss,
     image::{IMAGE_FORMAT, PendingImage, TILE_SIDE},
-    viewport::{DEPTH_FORMAT, Faults, SurfaceTarget, ViewportRenderer},
+    viewport::{DEPTH_FORMAT, Faults},
 };
 
 #[derive(Debug, thiserror::Error)]

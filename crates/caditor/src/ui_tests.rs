@@ -56,6 +56,8 @@ use crate::{
     widgets, window_frame,
 };
 
+mod screenshots;
+
 const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));
 const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(10);
 const FRAME_SECONDS: f64 = 0.05;
@@ -120,6 +122,13 @@ struct Harness {
     window: ViewportInfo,
     window_commands: Vec<ViewportCommand>,
     image_failure: Option<ImageError>,
+    textures: crate::overlay::TextureMirror,
+    painted: Option<Painted>,
+}
+
+struct Painted {
+    shapes: Vec<ClippedShape>,
+    pixels_per_point: f32,
 }
 
 impl Harness {
@@ -174,6 +183,8 @@ impl Harness {
             window: ViewportInfo::default(),
             window_commands: Vec::new(),
             image_failure: None,
+            textures: crate::overlay::TextureMirror::default(),
+            painted: None,
         };
         harness.settle();
         harness
@@ -229,7 +240,20 @@ impl Harness {
         let mut output = context.run_ui(input, |ui| {
             app::show(ui, model, files, workspace, &mut actions);
         });
-        output.textures_delta.clear();
+        for (id, deltas) in std::mem::take(&mut output.textures_delta.set) {
+            for delta in deltas {
+                self.textures.apply(id, &delta);
+            }
+        }
+        for id in std::mem::take(&mut output.textures_delta.free) {
+            self.textures.free(id);
+        }
+        if self.painted.is_some() {
+            self.painted = Some(Painted {
+                shapes: output.shapes.clone(),
+                pixels_per_point: output.pixels_per_point,
+            });
+        }
         if let Some(root) = output.viewport_output.get_mut(&ViewportId::ROOT) {
             self.window_commands.append(&mut root.commands);
         }

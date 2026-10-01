@@ -230,12 +230,12 @@ fn largest_texture_side(renderer: &Renderer) -> usize {
 }
 
 #[derive(Debug, Default)]
-struct TextureMirror {
+pub(crate) struct TextureMirror {
     images: BTreeMap<TextureId, (Arc<ColorImage>, TextureOptions)>,
 }
 
 impl TextureMirror {
-    fn apply(&mut self, id: TextureId, delta: &ImageDelta) {
+    pub(crate) fn apply(&mut self, id: TextureId, delta: &ImageDelta) {
         let ImageData::Color(patch) = &delta.image;
         match delta.pos {
             None => {
@@ -250,11 +250,11 @@ impl TextureMirror {
         }
     }
 
-    fn free(&mut self, id: TextureId) {
+    pub(crate) fn free(&mut self, id: TextureId) {
         self.images.remove(&id);
     }
 
-    fn whole(&self) -> impl Iterator<Item = (TextureId, ImageDelta)> + '_ {
+    pub(crate) fn whole(&self) -> impl Iterator<Item = (TextureId, ImageDelta)> + '_ {
         self.images.iter().map(|(id, (image, options))| {
             (
                 *id,

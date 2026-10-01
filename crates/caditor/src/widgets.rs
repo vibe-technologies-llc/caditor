@@ -9,7 +9,8 @@ use egui::{
 
 use crate::{
     appearance::{
-        self, CARD_RADIUS, ICON_SIZE, SECTION, SMALL_SIZE, TOOL_ICON_SIZE, Tokens, WIDGET_RADIUS,
+        self, BORDER_WIDTH, CARD_RADIUS, CONTROL_HEIGHT, DIALOG_MARGIN, FOCUS_WIDTH, ICON_SIZE,
+        SECTION, SMALL_SIZE, SPACE_S, SPACE_XS, TOOL_ICON_SIZE, Tokens, WIDGET_RADIUS,
     },
     fonts, icons,
 };
@@ -30,10 +31,14 @@ const PILL_ICON_GAP: f32 = 4.0;
 const TOOL_PADDING: Vec2 = vec2(6.0, 5.0);
 const TOOL_MIN_WIDTH: f32 = 46.0;
 const TOOL_LABEL_GAP: f32 = 2.0;
-const FOCUS_WIDTH: f32 = 2.0;
 const SELECTED_WIDTH: f32 = 1.0;
 pub const COMPACT_TOOL_GAP: f32 = 2.0;
-const DIALOG_MARGIN: i8 = 20;
+const FOCUS_GAP: f32 = 2.0;
+const SEGMENT_INSET: i8 = 2;
+const KEY_CAP_MARGIN: Margin = Margin::symmetric(5, 1);
+const KEY_CAP_RADIUS: u8 = 4;
+const EMPTY_STATE_MARGIN: Margin = Margin::symmetric(4, 6);
+const MIN_CORNER_BUTTON_SIDE: f32 = 14.0;
 const DIALOG_FOOTER_GAP: f32 = 14.0;
 const UNDERLINE_WIDTH: f32 = 1.0;
 const TAB_PADDING: egui::Vec2 = vec2(10.0, 6.0);
@@ -180,25 +185,273 @@ pub fn small_button(ui: &mut Ui, glyph: &str, text: &str) -> Named<Button<'stati
     Named::new(button, text)
 }
 
-pub struct PrimaryButton(Button<'static>);
+pub fn button(text: impl Into<String>) -> Button<'static> {
+    Button::new(RichText::new(text.into()).text_style(TextStyle::Body))
+}
 
-impl Widget for PrimaryButton {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Emphasis {
+    Primary,
+    Danger,
+}
+
+impl Emphasis {
+    fn fills(self, tokens: &Tokens) -> [Color32; 3] {
+        match self {
+            Self::Primary => [tokens.accent, tokens.accent_hover, tokens.accent_pressed],
+            Self::Danger => [tokens.danger, tokens.danger_hover, tokens.danger_pressed],
+        }
+    }
+}
+
+pub struct EmphasizedButton {
+    glyph: Option<String>,
+    text: String,
+    emphasis: Emphasis,
+    min_size: Vec2,
+}
+
+pub type PrimaryButton = EmphasizedButton;
+
+impl EmphasizedButton {
+    fn new(glyph: Option<&str>, text: impl Into<String>, emphasis: Emphasis) -> Self {
+        Self {
+            glyph: glyph.map(str::to_owned),
+            text: text.into(),
+            emphasis,
+            min_size: Vec2::ZERO,
+        }
+    }
+
+    pub fn min_size(mut self, size: Vec2) -> Self {
+        self.min_size = size;
+        self
+    }
+}
+
+impl Widget for EmphasizedButton {
     fn ui(self, ui: &mut Ui) -> Response {
-        let response = ui.add(self.0);
-        if ui.is_enabled() {
+        let tokens = appearance::tokens(ui);
+        let [rest, hover, pressed] = self.emphasis.fills(tokens);
+        let response = ui
+            .scope(|ui| {
+                let widgets = &mut ui.visuals_mut().widgets;
+                for (state, fill) in [
+                    (&mut widgets.inactive, rest),
+                    (&mut widgets.hovered, hover),
+                    (&mut widgets.active, pressed),
+                    (&mut widgets.open, pressed),
+                ] {
+                    state.bg_fill = fill;
+                    state.weak_bg_fill = fill;
+                    state.bg_stroke = Stroke::NONE;
+                    state.fg_stroke = Stroke::new(BORDER_WIDTH, tokens.text_on_accent);
+                }
+                let text = RichText::new(self.text.clone()).color(tokens.text_on_accent);
+                let button = match &self.glyph {
+                    Some(glyph) => Button::new((icon(glyph).color(tokens.text_on_accent), text)),
+                    None => Button::new(text),
+                };
+                ui.add(Named::new(
+                    button.min_size(self.min_size),
+                    self.text.as_str(),
+                ))
+            })
+            .inner;
+        if response.has_focus() {
+            paint_focus_ring(ui, response.rect.expand(FOCUS_GAP));
+        }
+        if self.emphasis == Emphasis::Primary && ui.is_enabled() {
             ui.data_mut(|data| data.insert_temp(primary_action_key(), response.id));
         }
         response
     }
 }
 
-pub fn primary_button(ui: &Ui, text: impl Into<String>) -> PrimaryButton {
+pub fn primary_button(_ui: &Ui, text: impl Into<String>) -> PrimaryButton {
+    EmphasizedButton::new(None, text, Emphasis::Primary)
+}
+
+pub fn primary_icon_button(_ui: &Ui, glyph: &str, text: &str) -> PrimaryButton {
+    EmphasizedButton::new(Some(glyph), text, Emphasis::Primary)
+}
+
+pub fn danger_button(text: impl Into<String>) -> EmphasizedButton {
+    EmphasizedButton::new(None, text, Emphasis::Danger)
+}
+
+pub fn danger_icon_button(glyph: &str, text: &str) -> EmphasizedButton {
+    EmphasizedButton::new(Some(glyph), text, Emphasis::Danger)
+}
+
+pub fn paint_focus_ring(ui: &Ui, rect: Rect) {
+    let focus = appearance::tokens(ui).focus;
+    ui.painter().rect_stroke(
+        rect,
+        CornerRadius::same(WIDGET_RADIUS + FOCUS_GAP as u8),
+        Stroke::new(FOCUS_WIDTH, focus),
+        StrokeKind::Outside,
+    );
+}
+
+pub fn text_field<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let tokens = appearance::tokens(ui);
-    PrimaryButton(
-        Button::new(RichText::new(text).color(tokens.text_on_accent))
-            .fill(tokens.accent)
-            .stroke(Stroke::NONE),
-    )
+    ui.scope(|ui| {
+        let visuals = ui.visuals_mut();
+        visuals.widgets.inactive.bg_stroke = Stroke::new(BORDER_WIDTH, tokens.field_border);
+        visuals.widgets.hovered.bg_stroke = Stroke::new(BORDER_WIDTH, tokens.text_muted);
+        visuals.selection.stroke = Stroke::new(FOCUS_WIDTH, tokens.focus);
+        add(ui)
+    })
+    .inner
+}
+
+pub fn strong(text: impl Into<String>) -> RichText {
+    RichText::new(text).family(fonts::semibold())
+}
+
+pub fn segmented(ui: &mut Ui, choices: &[(&str, &str)], selected: usize) -> Option<usize> {
+    let tokens = appearance::tokens(ui);
+    let mut chosen = None;
+    Frame::new()
+        .fill(tokens.button)
+        .corner_radius(CornerRadius::same(WIDGET_RADIUS))
+        .inner_margin(Margin::same(SEGMENT_INSET))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = SPACE_XS;
+                let segment_height = CONTROL_HEIGHT - 2.0 * f32::from(SEGMENT_INSET);
+                for (index, (label, hover)) in choices.iter().enumerate() {
+                    let current = index == selected;
+                    let text = if current {
+                        RichText::new(*label).color(tokens.accent_text)
+                    } else {
+                        RichText::new(*label).color(tokens.text)
+                    };
+                    let mut button = Button::new(text)
+                        .min_size(vec2(0.0, segment_height))
+                        .corner_radius(CornerRadius::same(WIDGET_RADIUS - SEGMENT_INSET as u8));
+                    button = if current {
+                        button
+                            .fill(tokens.raised)
+                            .stroke(Stroke::new(BORDER_WIDTH, tokens.accent_text))
+                    } else {
+                        button.frame_when_inactive(false)
+                    };
+                    let response = ui.add(Named::new(button, *label).selected(current));
+                    let response = if hover.is_empty() {
+                        response
+                    } else {
+                        response.on_hover_text(*hover)
+                    };
+                    if response.clicked() && !current {
+                        chosen = Some(index);
+                    }
+                }
+            });
+        });
+    chosen
+}
+
+pub fn key_cap(ui: &mut Ui, keys: &str) -> Response {
+    let tokens = appearance::tokens(ui);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = SPACE_XS;
+        for key in keys.split('+').filter(|key| !key.is_empty()) {
+            Frame::new()
+                .fill(tokens.button)
+                .stroke(Stroke::new(BORDER_WIDTH, tokens.border))
+                .corner_radius(CornerRadius::same(KEY_CAP_RADIUS))
+                .inner_margin(KEY_CAP_MARGIN)
+                .show(ui, |ui| {
+                    ui.add(
+                        Label::new(
+                            RichText::new(key)
+                                .text_style(TextStyle::Small)
+                                .color(tokens.text_muted),
+                        )
+                        .selectable(false),
+                    );
+                });
+        }
+    })
+    .response
+    .on_hover_text(keys)
+}
+
+pub fn empty_state<R>(
+    ui: &mut Ui,
+    glyph: &str,
+    text: &str,
+    actions: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    let tokens = appearance::tokens(ui);
+    Frame::new()
+        .inner_margin(EMPTY_STATE_MARGIN)
+        .show(ui, |ui| {
+            ui.horizontal_top(|ui| {
+                icon_label(ui, glyph, tokens.text_muted);
+                ui.add(Label::new(RichText::new(text).color(tokens.text_muted)).wrap());
+            });
+            ui.add_space(SPACE_S);
+            ui.horizontal_wrapped(actions).inner
+        })
+        .inner
+}
+
+pub fn stepper(
+    ui: &mut Ui,
+    value: &str,
+    smaller: (&str, bool),
+    larger: (&str, bool),
+) -> Option<i8> {
+    let mut step = None;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = SPACE_XS;
+        let (smaller_name, can_shrink) = smaller;
+        if ui
+            .add_enabled_ui(can_shrink, |ui| {
+                icon_button(ui, icons::SUBTRACT, smaller_name)
+            })
+            .inner
+            .clicked()
+        {
+            step = Some(-1);
+        }
+        ui.add(
+            Label::new(RichText::new(value).family(fonts::medium()))
+                .selectable(false)
+                .wrap_mode(TextWrapMode::Extend),
+        );
+        let (larger_name, can_grow) = larger;
+        if ui
+            .add_enabled_ui(can_grow, |ui| icon_button(ui, icons::ADD, larger_name))
+            .inner
+            .clicked()
+        {
+            step = Some(1);
+        }
+    });
+    step
+}
+
+pub fn panel_header<R>(
+    ui: &mut Ui,
+    glyph: &str,
+    title: &str,
+    actions: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    let tokens = appearance::tokens(ui);
+    Sides::new()
+        .show(
+            ui,
+            |ui| {
+                icon_label(ui, glyph, tokens.text_muted);
+                ui.add(Label::new(section_title(title)).selectable(false));
+            },
+            actions,
+        )
+        .1
 }
 
 fn primary_action_key() -> Id {
@@ -278,16 +531,6 @@ pub fn status_pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response
         .response
 }
 
-pub fn primary_icon_button(ui: &Ui, glyph: &str, text: &str) -> Button<'static> {
-    let tokens = appearance::tokens(ui);
-    Button::new((
-        icon(glyph).color(tokens.text_on_accent),
-        RichText::new(text.to_owned()).color(tokens.text_on_accent),
-    ))
-    .fill(tokens.accent)
-    .stroke(Stroke::NONE)
-}
-
 pub fn callout<R>(ui: &mut Ui, tone: Tone, add: impl FnOnce(&mut Ui) -> R) -> R {
     let tokens = appearance::tokens(ui);
     Frame::new()
@@ -309,7 +552,7 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let tokens = appearance::tokens(ui);
     Frame::new()
         .fill(tokens.raised)
-        .stroke(Stroke::new(1.0, tokens.border))
+        .stroke(Stroke::new(BORDER_WIDTH, tokens.border))
         .corner_radius(CornerRadius::same(CARD_RADIUS))
         .inner_margin(Margin::same(CARD_MARGIN))
         .show(ui, |ui| {
@@ -507,7 +750,7 @@ pub fn corner_menu_button(
         RichText::new(icons::EXPANDED).font(icon_font(SMALL_SIZE)),
         TextStyle::Small,
     );
-    let side = glyph.size().max_elem();
+    let side = glyph.size().max_elem().max(MIN_CORNER_BUTTON_SIDE);
     let rect = Rect::from_min_size(pos2(host.right() - side, host.top()), Vec2::splat(side));
     let response = ui.interact(rect, id, Sense::click());
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), name));
@@ -573,7 +816,9 @@ impl<'a> ToolButton<'a> {
 
 pub fn tool_height(ui: &Ui) -> f32 {
     let glyph = ui.fonts_mut(|fonts| fonts.row_height(&icon_font(TOOL_ICON_SIZE)));
-    glyph + TOOL_LABEL_GAP + ui.text_style_height(&TextStyle::Small) + 2.0 * TOOL_PADDING.y
+    let natural =
+        glyph + TOOL_LABEL_GAP + ui.text_style_height(&TextStyle::Small) + 2.0 * TOOL_PADDING.y;
+    natural.max(2.0 * CONTROL_HEIGHT + COMPACT_TOOL_GAP)
 }
 
 pub fn compact_tool_side(ui: &Ui) -> f32 {
@@ -626,19 +871,21 @@ impl Widget for ToolButton<'_> {
         });
         if ui.is_rect_visible(rect) {
             let visuals = ui.style().interact_selectable(&response, self.selected);
-            let fill = if self.selected {
-                tokens.accent_subtle
-            } else if response.is_pointer_button_down_on() {
-                tokens.pressed
-            } else if response.hovered() {
-                tokens.hover
-            } else {
-                Color32::TRANSPARENT
+            let pressed = response.is_pointer_button_down_on();
+            let hovered = response.hovered() && ui.is_enabled();
+            let fill = match (self.selected, pressed, hovered) {
+                (true, true, _) => tokens.pressed,
+                (true, false, _) => tokens.accent_subtle,
+                (false, true, _) => tokens.pressed,
+                (false, false, true) => tokens.hover,
+                (false, false, false) => Color32::TRANSPARENT,
             };
             let stroke = if response.has_focus() {
                 Stroke::new(FOCUS_WIDTH, tokens.focus)
             } else if self.selected {
                 Stroke::new(SELECTED_WIDTH, tokens.accent_text)
+            } else if hovered {
+                Stroke::new(SELECTED_WIDTH, tokens.border_strong)
             } else {
                 Stroke::NONE
             };

@@ -165,12 +165,14 @@ impl TypedPoint {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(label);
-                            let field = ui.add(
-                                TextEdit::singleline(text)
-                                    .id(id)
-                                    .desired_width(FIELD_WIDTH)
-                                    .hint_text(placeholder),
-                            );
+                            let field = widgets::text_field(ui, |ui| {
+                                ui.add(
+                                    TextEdit::singleline(text)
+                                        .id(id)
+                                        .desired_width(FIELD_WIDTH)
+                                        .hint_text(placeholder),
+                                )
+                            });
                             ui.label(RichText::new(hint).weak());
                             field
                         })

@@ -22,8 +22,15 @@ pub const ICON_SIZE: f32 = 16.0;
 pub const TOOL_ICON_SIZE: f32 = 20.0;
 pub const SECTION: &str = "section";
 
-const BORDER_WIDTH: f32 = 1.0;
-const FOCUS_STROKE_WIDTH: f32 = 2.0;
+pub const BORDER_WIDTH: f32 = 1.0;
+pub const FOCUS_WIDTH: f32 = 2.0;
+pub const CONTROL_HEIGHT: f32 = 24.0;
+pub const SPACE_XS: f32 = 2.0;
+pub const SPACE_S: f32 = 4.0;
+pub const SPACE_M: f32 = 8.0;
+pub const SPACE_L: f32 = 12.0;
+pub const SPACE_XL: f32 = 20.0;
+pub const DIALOG_MARGIN: i8 = 20;
 const HIGH_CONTRAST_DISABLED_ALPHA: f32 = 0.7;
 const DISABLED_ALPHA: f32 = 0.5;
 const MONOSPACE_SIZE: f32 = 12.5;
@@ -38,16 +45,22 @@ pub struct Tokens {
     pub pressed: Color32,
     pub border: Color32,
     pub border_strong: Color32,
+    pub field_border: Color32,
     pub text: Color32,
     pub text_muted: Color32,
     pub text_on_accent: Color32,
     pub accent: Color32,
+    pub accent_hover: Color32,
+    pub accent_pressed: Color32,
     pub accent_text: Color32,
     pub accent_subtle: Color32,
     pub accent_surface: Color32,
     pub focus: Color32,
     pub error: Color32,
     pub error_subtle: Color32,
+    pub danger: Color32,
+    pub danger_hover: Color32,
+    pub danger_pressed: Color32,
     pub warn: Color32,
     pub warn_subtle: Color32,
     pub success: Color32,
@@ -57,7 +70,7 @@ pub struct Tokens {
 
 const DARK: Tokens = Tokens {
     panel: Color32::from_rgb(22, 24, 29),
-    raised: Color32::from_rgb(29, 32, 39),
+    raised: Color32::from_rgb(30, 33, 40),
     sunken: Color32::from_rgb(15, 17, 21),
     stripe: Color32::from_rgb(27, 30, 36),
     button: Color32::from_rgb(38, 42, 51),
@@ -65,16 +78,22 @@ const DARK: Tokens = Tokens {
     pressed: Color32::from_rgb(55, 61, 74),
     border: Color32::from_rgb(42, 46, 55),
     border_strong: Color32::from_rgb(70, 77, 91),
+    field_border: Color32::from_rgb(104, 112, 128),
     text: Color32::from_rgb(230, 232, 236),
     text_muted: Color32::from_rgb(155, 162, 174),
     text_on_accent: Color32::WHITE,
     accent: Color32::from_rgb(47, 111, 224),
+    accent_hover: Color32::from_rgb(40, 97, 204),
+    accent_pressed: Color32::from_rgb(33, 83, 178),
     accent_text: Color32::from_rgb(122, 167, 255),
     accent_subtle: Color32::from_rgb(31, 49, 80),
-    accent_surface: Color32::from_rgb(25, 32, 45),
+    accent_surface: Color32::from_rgb(26, 36, 54),
     focus: Color32::from_rgb(122, 167, 255),
     error: Color32::from_rgb(255, 123, 114),
     error_subtle: Color32::from_rgb(58, 31, 34),
+    danger: Color32::from_rgb(210, 48, 52),
+    danger_hover: Color32::from_rgb(184, 38, 43),
+    danger_pressed: Color32::from_rgb(150, 26, 32),
     warn: Color32::from_rgb(240, 181, 74),
     warn_subtle: Color32::from_rgb(56, 45, 22),
     success: Color32::from_rgb(95, 208, 138),
@@ -85,23 +104,29 @@ const DARK: Tokens = Tokens {
 const LIGHT: Tokens = Tokens {
     panel: Color32::from_rgb(244, 245, 247),
     raised: Color32::WHITE,
-    sunken: Color32::WHITE,
+    sunken: Color32::from_rgb(252, 252, 253),
     stripe: Color32::from_rgb(237, 239, 242),
     button: Color32::from_rgb(232, 234, 238),
     hover: Color32::from_rgb(222, 225, 231),
     pressed: Color32::from_rgb(210, 214, 222),
     border: Color32::from_rgb(221, 224, 230),
     border_strong: Color32::from_rgb(170, 176, 188),
+    field_border: Color32::from_rgb(128, 135, 148),
     text: Color32::from_rgb(26, 29, 35),
     text_muted: Color32::from_rgb(90, 97, 112),
     text_on_accent: Color32::WHITE,
     accent: Color32::from_rgb(37, 99, 235),
+    accent_hover: Color32::from_rgb(29, 84, 212),
+    accent_pressed: Color32::from_rgb(24, 70, 182),
     accent_text: Color32::from_rgb(29, 78, 216),
     accent_subtle: Color32::from_rgb(221, 232, 253),
-    accent_surface: Color32::from_rgb(236, 241, 250),
+    accent_surface: Color32::from_rgb(228, 236, 251),
     focus: Color32::from_rgb(37, 99, 235),
     error: Color32::from_rgb(192, 38, 45),
     error_subtle: Color32::from_rgb(253, 232, 232),
+    danger: Color32::from_rgb(196, 36, 44),
+    danger_hover: Color32::from_rgb(170, 28, 36),
+    danger_pressed: Color32::from_rgb(146, 22, 30),
     warn: Color32::from_rgb(154, 91, 0),
     warn_subtle: Color32::from_rgb(253, 242, 220),
     success: Color32::from_rgb(19, 119, 61),
@@ -119,16 +144,22 @@ const DARK_HIGH_CONTRAST: Tokens = Tokens {
     pressed: Color32::from_gray(60),
     border: Color32::from_gray(170),
     border_strong: Color32::from_gray(200),
+    field_border: Color32::from_gray(200),
     text: Color32::WHITE,
     text_muted: Color32::from_gray(205),
     text_on_accent: Color32::WHITE,
     accent: Color32::from_rgb(0, 80, 170),
+    accent_hover: Color32::from_rgb(0, 68, 150),
+    accent_pressed: Color32::from_rgb(0, 56, 128),
     accent_text: Color32::from_rgb(150, 205, 255),
     accent_subtle: Color32::from_rgb(0, 50, 110),
     accent_surface: Color32::from_rgb(0, 22, 50),
     focus: Color32::from_rgb(255, 214, 0),
     error: Color32::from_rgb(255, 150, 140),
     error_subtle: Color32::from_rgb(60, 0, 0),
+    danger: Color32::from_rgb(190, 0, 0),
+    danger_hover: Color32::from_rgb(160, 0, 0),
+    danger_pressed: Color32::from_rgb(130, 0, 0),
     warn: Color32::from_rgb(255, 205, 80),
     warn_subtle: Color32::from_rgb(50, 36, 0),
     success: Color32::from_rgb(120, 230, 150),
@@ -146,16 +177,22 @@ const LIGHT_HIGH_CONTRAST: Tokens = Tokens {
     pressed: Color32::from_gray(212),
     border: Color32::from_gray(70),
     border_strong: Color32::from_gray(40),
+    field_border: Color32::from_gray(40),
     text: Color32::BLACK,
     text_muted: Color32::from_gray(50),
     text_on_accent: Color32::WHITE,
     accent: Color32::from_rgb(0, 70, 170),
+    accent_hover: Color32::from_rgb(0, 58, 148),
+    accent_pressed: Color32::from_rgb(0, 48, 126),
     accent_text: Color32::from_rgb(0, 60, 150),
     accent_subtle: Color32::from_rgb(214, 228, 255),
     accent_surface: Color32::from_rgb(238, 244, 255),
     focus: Color32::from_rgb(0, 70, 200),
     error: Color32::from_rgb(150, 0, 0),
     error_subtle: Color32::from_rgb(255, 228, 228),
+    danger: Color32::from_rgb(160, 0, 0),
+    danger_hover: Color32::from_rgb(135, 0, 0),
+    danger_pressed: Color32::from_rgb(110, 0, 0),
     warn: Color32::from_rgb(115, 55, 0),
     warn_subtle: Color32::from_rgb(255, 240, 210),
     success: Color32::from_rgb(0, 90, 25),
@@ -179,8 +216,7 @@ pub fn tokens(ui: &Ui) -> &'static Tokens {
 }
 
 pub fn tokens_for(visuals: &Visuals) -> &'static Tokens {
-    let high_contrast =
-        visuals.panel_fill == Color32::BLACK || visuals.panel_fill == Color32::WHITE;
+    let high_contrast = Tokens::of(visuals.dark_mode, true).panel == visuals.panel_fill;
     Tokens::of(visuals.dark_mode, high_contrast)
 }
 
@@ -218,7 +254,7 @@ pub fn visuals(dark: bool, high_contrast: bool) -> Visuals {
     visuals.warn_fg_color = tokens.warn;
     visuals.hyperlink_color = tokens.accent_text;
     visuals.selection.bg_fill = tokens.accent_subtle;
-    visuals.selection.stroke = Stroke::new(BORDER_WIDTH, tokens.accent_text);
+    visuals.selection.stroke = Stroke::new(FOCUS_WIDTH, tokens.accent_text);
     visuals.slider_trailing_fill = true;
     visuals.indent_has_left_vline = false;
     visuals.disabled_alpha = if high_contrast {
@@ -250,7 +286,7 @@ pub fn visuals(dark: bool, high_contrast: bool) -> Visuals {
         (
             &mut widgets.active,
             tokens.pressed,
-            Stroke::new(BORDER_WIDTH, tokens.focus),
+            Stroke::new(FOCUS_WIDTH, tokens.focus),
         ),
     ] {
         state.bg_fill = fill;
@@ -261,10 +297,10 @@ pub fn visuals(dark: bool, high_contrast: bool) -> Visuals {
         state.expansion = 0.0;
     }
     if high_contrast {
-        widgets.hovered.bg_stroke = Stroke::new(FOCUS_STROKE_WIDTH, tokens.text);
-        widgets.active.bg_stroke = Stroke::new(FOCUS_STROKE_WIDTH, tokens.focus);
+        widgets.hovered.bg_stroke = Stroke::new(FOCUS_WIDTH, tokens.text);
+        widgets.active.bg_stroke = Stroke::new(FOCUS_WIDTH, tokens.focus);
         visuals.selection.bg_fill = tokens.accent;
-        visuals.selection.stroke = Stroke::new(FOCUS_STROKE_WIDTH, tokens.text_on_accent);
+        visuals.selection.stroke = Stroke::new(FOCUS_WIDTH, tokens.text_on_accent);
     }
     visuals
 }
@@ -280,7 +316,7 @@ pub fn style(dark: bool, high_contrast: bool) -> Style {
     spacing.button_padding = vec2(10.0, 4.0);
     spacing.interact_size = vec2(36.0, 24.0);
     spacing.menu_margin = Margin::same(6);
-    spacing.window_margin = Margin::same(18);
+    spacing.window_margin = Margin::same(DIALOG_MARGIN);
     spacing.indent = 16.0;
     spacing.icon_width = 15.0;
     spacing.icon_width_inner = 9.0;
@@ -513,6 +549,72 @@ pub mod tests {
                 tokens.panel,
                 VISIBLE_OUTLINE,
             );
+        }
+    }
+
+    #[test]
+    fn every_control_boundary_and_focus_ring_stands_out() {
+        for (dark, high_contrast) in CASES {
+            let tokens = Tokens::of(dark, high_contrast);
+            let case = |what: &str| format!("{what} (dark {dark}, high contrast {high_contrast})");
+            for (what, background) in [
+                ("panel", tokens.panel),
+                ("card", tokens.raised),
+                ("field", tokens.sunken),
+                ("accent surface", tokens.accent_surface),
+            ] {
+                assert_readable(
+                    &case(&format!("field outline on {what}")),
+                    tokens.field_border,
+                    background,
+                    VISIBLE_OUTLINE,
+                );
+                assert_readable(
+                    &case(&format!("focus ring on {what}")),
+                    tokens.focus,
+                    background,
+                    VISIBLE_OUTLINE,
+                );
+            }
+            for (what, background) in [("panel", tokens.panel), ("dialog", tokens.raised)] {
+                assert_readable(
+                    &case(&format!("destructive button on {what}")),
+                    tokens.danger,
+                    background,
+                    VISIBLE_OUTLINE,
+                );
+            }
+            for (what, fill) in [
+                ("primary button", tokens.accent),
+                ("hovered primary button", tokens.accent_hover),
+                ("pressed primary button", tokens.accent_pressed),
+                ("destructive button", tokens.danger),
+                ("hovered destructive button", tokens.danger_hover),
+                ("pressed destructive button", tokens.danger_pressed),
+            ] {
+                assert_readable(&case(what), tokens.text_on_accent, fill, READABLE);
+            }
+            assert_readable(
+                &case("selected row"),
+                tokens.text,
+                tokens.accent_subtle,
+                if high_contrast {
+                    HIGHLY_READABLE
+                } else {
+                    READABLE
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn the_tokens_are_found_again_from_the_visuals_they_built() {
+        for (dark, high_contrast) in CASES {
+            let built = visuals(dark, high_contrast);
+            assert!(std::ptr::eq(
+                tokens_for(&built),
+                Tokens::of(dark, high_contrast)
+            ));
         }
     }
 

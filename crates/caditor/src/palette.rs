@@ -109,11 +109,13 @@ impl Palette {
                 .horizontal(|ui| {
                     let muted = appearance::tokens(ui).text_muted;
                     widgets::icon_label(ui, icons::SEARCH, muted);
-                    ui.add(
-                        TextEdit::singleline(&mut self.query)
-                            .hint_text(FIELD_HINT)
-                            .desired_width(f32::INFINITY),
-                    )
+                    widgets::text_field(ui, |ui| {
+                        ui.add(
+                            TextEdit::singleline(&mut self.query)
+                                .hint_text(FIELD_HINT)
+                                .desired_width(f32::INFINITY),
+                        )
+                    })
                 })
                 .inner;
             if field.changed() {

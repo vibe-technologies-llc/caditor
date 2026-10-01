@@ -1,15 +1,16 @@
 use caditor_document::{Document, Edit, FeatureId, ParameterValues, Transaction};
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_sketch::{Constraint, ConstraintId, DimensionError};
-use egui::{Align, Id, Key, Response, Stroke, StrokeKind, TextEdit, Ui, vec2};
+use egui::{Align, Id, Key, Margin, Response, Stroke, StrokeKind, TextEdit, Ui, vec2};
 
 use crate::{
+    appearance::WIDGET_RADIUS,
     units::{LengthUnit, attach_unit},
     widgets,
 };
 
 const ERROR_OUTLINE_WIDTH: f32 = 1.5;
-const ERROR_OUTLINE_RADIUS: f32 = 2.0;
+const FIELD_MARGIN: Margin = Margin::symmetric(6, 3);
 
 #[derive(Debug, Clone, Default)]
 struct Draft {
@@ -39,12 +40,15 @@ pub fn commit_field<T>(
     let mut text = draft
         .as_ref()
         .map_or_else(|| stored.to_owned(), |draft| draft.text.clone());
-    let response = ui.add(
-        TextEdit::singleline(&mut text)
-            .id(id)
-            .desired_width(width)
-            .min_size(vec2(width, 0.0)),
-    );
+    let response = widgets::text_field(ui, |ui| {
+        ui.add(
+            TextEdit::singleline(&mut text)
+                .id(id)
+                .desired_width(width)
+                .margin(FIELD_MARGIN)
+                .min_size(vec2(width, 0.0)),
+        )
+    });
     widgets::tie_to_caption(ui, &response);
     if focus {
         response.request_focus();
@@ -84,7 +88,7 @@ pub fn commit_field<T>(
     if error.is_some() {
         ui.painter().rect_stroke(
             response.rect,
-            ERROR_OUTLINE_RADIUS,
+            f32::from(WIDGET_RADIUS),
             Stroke::new(ERROR_OUTLINE_WIDTH, ui.visuals().error_fg_color),
             StrokeKind::Outside,
         );
