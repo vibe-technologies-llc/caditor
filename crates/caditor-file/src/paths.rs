@@ -9,6 +9,7 @@ pub(crate) const JOURNAL_EXTENSION: &str = "journal";
 pub(crate) const MARKER_EXTENSION: &str = "location";
 const UNREADABLE_EXTENSION: &str = "unreadable";
 const UNREADABLE_ATTEMPTS: u32 = 100;
+pub(crate) const SET_ASIDE_KEPT_SECONDS: u64 = 30 * 24 * 60 * 60;
 const APPLICATION: &str = "caditor";
 const RECOVERY: &str = "recovery";
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
@@ -100,11 +101,26 @@ pub(crate) fn journals_for(file: &Path, recovery_dir: Option<&Path>) -> Vec<Path
         .collect()
 }
 
-pub(crate) fn unreadable_journal(journal: &Path) -> PathBuf {
-    let seconds = SystemTime::now()
+pub(crate) fn now_seconds() -> u64 {
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_secs())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+pub(crate) fn set_aside_at(name: &OsStr) -> Option<u64> {
+    let name = name.to_str()?;
+    let stamped = name.strip_suffix(UNREADABLE_EXTENSION)?.strip_suffix('.')?;
+    let (journal, stamp) = stamped.rsplit_once('.')?;
+    journal
+        .rsplit_once('.')
+        .filter(|(_, extension)| *extension == JOURNAL_EXTENSION)?;
+    let seconds = stamp.split_once('-').map_or(stamp, |(seconds, _)| seconds);
+    seconds.parse().ok()
+}
+
+pub(crate) fn unreadable_journal(journal: &Path) -> PathBuf {
+    let seconds = now_seconds();
     let base = journal.file_name().unwrap_or_default();
     let named = |suffix: String| {
         let mut name = base.to_os_string();

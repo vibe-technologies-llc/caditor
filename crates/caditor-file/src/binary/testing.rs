@@ -60,6 +60,33 @@ pub(crate) fn corrupt_chunk(bytes: &[u8], magic: &Magic, index: usize) -> Vec<u8
     corrupted
 }
 
+pub(crate) fn with_unknown_codec(bytes: &[u8], record: usize) -> Vec<u8> {
+    const UNKNOWN_CODEC: u8 = 200;
+    let container = parse(bytes, &MODEL_MAGIC).unwrap();
+    let mut rewritten = start_file(&MODEL_MAGIC, container.version);
+    let mut records = 0;
+    for chunk in container.chunks() {
+        if chunk.kind != Some(ChunkKind::Record) {
+            rewritten.extend_from_slice(chunk.whole);
+            continue;
+        }
+        if records == record {
+            let content = chunk.unpack(None).unwrap();
+            push_raw(
+                &mut rewritten,
+                [ChunkKind::Record as u8, UNKNOWN_CODEC, 0],
+                content.len(),
+                &content,
+            )
+            .unwrap();
+        } else {
+            rewritten.extend_from_slice(chunk.whole);
+        }
+        records += 1;
+    }
+    rewritten
+}
+
 pub(crate) fn model_chunk_count(bytes: &[u8]) -> usize {
     parse(bytes, &MODEL_MAGIC).unwrap().pieces.len()
 }

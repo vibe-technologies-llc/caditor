@@ -17,7 +17,7 @@ use crate::{
     lock::{Location, in_use, location, lock_existing},
     paths::{self, JOURNAL_EXTENSION, MARKER_EXTENSION},
     read::{read_file, read_open},
-    save::{sync_parent, write_atomically},
+    save::{sweep_orphaned_temporaries, sync_parent, write_atomically},
 };
 
 #[derive(Debug, Clone)]
@@ -124,6 +124,10 @@ pub fn scan(recovery_dir: Option<&Path>, recent: &[PathBuf]) -> Vec<Recovered> {
         .iter()
         .filter_map(|file| paths::adjacent_journal(file));
     let marked = recovery_dir.map(marked_journals).unwrap_or_default();
+    prune_set_aside(recovery_dir, recent);
+    if let Some(dir) = recovery_dir {
+        sweep_orphaned_temporaries(dir);
+    }
     let candidates: BTreeSet<PathBuf> = in_recovery_dir
         .chain(next_to_recent)
         .chain(marked)
@@ -149,6 +153,44 @@ pub fn scan(recovery_dir: Option<&Path>, recent: &[PathBuf]) -> Vec<Recovered> {
         .collect();
     recovered.sort_by_key(|recovered| Reverse(recovered.modified));
     recovered
+}
+
+fn prune_set_aside(recovery_dir: Option<&Path>, recent: &[PathBuf]) {
+    let now = paths::now_seconds();
+    if let Some(dir) = recovery_dir {
+        remove_expired_set_aside(dir, None, now);
+    }
+    for journal in recent
+        .iter()
+        .filter_map(|file| paths::adjacent_journal(file))
+    {
+        if let (Some(dir), Some(name)) = (journal.parent(), journal.file_name()) {
+            let mut prefix = name.to_os_string();
+            prefix.push(".");
+            remove_expired_set_aside(dir, Some(prefix.as_encoded_bytes()), now);
+        }
+    }
+}
+
+fn remove_expired_set_aside(dir: &Path, prefix: Option<&[u8]>, now: u64) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let name = entry.file_name();
+        let named_as_wanted =
+            prefix.is_none_or(|prefix| name.as_encoded_bytes().starts_with(prefix));
+        let expired = named_as_wanted
+            && paths::set_aside_at(&name)
+                .is_some_and(|at| now.saturating_sub(at) > paths::SET_ASIDE_KEPT_SECONDS);
+        if expired {
+            let set_aside = entry.path();
+            match fs::remove_file(&set_aside) {
+                Ok(()) => log::info!("removed {}, kept aside for too long", set_aside.display()),
+                Err(error) => log::warn!("could not remove {}: {error}", set_aside.display()),
+            }
+        }
+    }
 }
 
 pub(crate) fn mark_journal(journal: &Path, recovery_dir: &Path) -> io::Result<()> {

@@ -7,14 +7,15 @@ use std::{
 use serde_json::Value;
 
 use crate::{
+    lock::locked_update,
     read::read_file,
-    save::{keep_copy, write_atomically},
+    save::{keep_unreadable, write_atomically},
 };
 
 const APPLICATION: &str = "caditor";
 const SETTINGS_FILE: &str = "preferences.json";
 const UNREADABLE_STEM: &str = "preferences.unreadable";
-const MAX_KEPT: u32 = 100;
+const LOCK_FILE: &str = "preferences.lock";
 
 pub fn config_dir() -> Option<PathBuf> {
     let from_xdg = std::env::var_os("XDG_CONFIG_HOME")
@@ -59,12 +60,16 @@ impl Settings {
     }
 
     pub fn save_changes(&self, dir: &Path, since: &Self) -> io::Result<()> {
+        locked_update(dir, LOCK_FILE, || self.merge_into_file(dir, since))
+    }
+
+    fn merge_into_file(&self, dir: &Path, since: &Self) -> io::Result<()> {
         let path = dir.join(SETTINGS_FILE);
         let mut values = match read_file(&path) {
             Ok(bytes) => match serde_json::from_slice::<BTreeMap<String, Value>>(&bytes) {
                 Ok(values) => values,
                 Err(error) => {
-                    let kept = keep_unreadable(&path)?;
+                    let kept = keep_unreadable(&path, UNREADABLE_STEM)?;
                     log::warn!(
                         "the preferences in {} were unreadable ({error}) and were kept as {}",
                         path.display(),
@@ -87,7 +92,6 @@ impl Settings {
             }
         }
         let contents = serde_json::to_vec_pretty(&values).map_err(io::Error::other)?;
-        std::fs::create_dir_all(dir)?;
         write_atomically(&path, &contents)
     }
 
@@ -146,21 +150,6 @@ impl Settings {
     pub fn remove(&mut self, key: &str) {
         self.values.remove(key);
     }
-}
-
-fn keep_unreadable(path: &Path) -> io::Result<PathBuf> {
-    let candidates = (1..=MAX_KEPT).map(|attempt| {
-        path.with_file_name(match attempt {
-            1 => format!("{UNREADABLE_STEM}.json"),
-            _ => format!("{UNREADABLE_STEM}-{attempt}.json"),
-        })
-    });
-    keep_copy(path, candidates.collect())?.ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "too many unreadable copies of the preferences already exist",
-        )
-    })
 }
 
 #[cfg(test)]
@@ -232,6 +221,28 @@ mod tests {
         let merged = Settings::load(dir.path());
         assert_eq!(merged.text("units"), Some("m"));
         assert_eq!(merged.number("zoom"), Some(2.0));
+    }
+
+    #[test]
+    fn windows_saving_at_once_lose_no_change() {
+        let dir = TempDir::new().unwrap();
+        let windows: Vec<_> = (0..8)
+            .map(|index| {
+                let config = dir.path().to_path_buf();
+                std::thread::spawn(move || {
+                    let mut settings = Settings::default();
+                    settings.set_number(&format!("window.{index}"), f64::from(index));
+                    settings
+                        .save_changes(&config, &Settings::default())
+                        .unwrap();
+                })
+            })
+            .collect();
+        for window in windows {
+            window.join().unwrap();
+        }
+
+        assert_eq!(Settings::load(dir.path()).keys_under("window.").len(), 8);
     }
 
     #[test]

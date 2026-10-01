@@ -28,9 +28,10 @@ const MAX_LINK_DEPTH: usize = 40;
 const TEMPORARY_SUFFIX: &str = ".tmp";
 const PROCESSES: &str = "/proc";
 const BOOT_ID: &str = "/proc/sys/kernel/random/boot_id";
-const BOOT_TAG_LENGTH: usize = 16;
-const UNKNOWN_BOOT: &str = "unknown";
-const TEMPORARY_STEM_LIMIT: usize = 190;
+const MACHINE_IDS: [&str; 2] = ["/etc/machine-id", "/var/lib/dbus/machine-id"];
+const TAG_LENGTH: usize = 16;
+const UNKNOWN_TAG: &str = "unknown";
+const TEMPORARY_STEM_LIMIT: usize = 170;
 const BACKUP_ROOM: usize = 16;
 const PRIVATE_MODE: u32 = 0o600;
 
@@ -112,7 +113,8 @@ pub fn save_with(
         options.label,
     )
     .map_err(|error| SaveError::encoding(&error))?;
-    let backup = if options.keep_original && target.exists() {
+    let damaged_in_place = encoded.previous_damaged && reads_target(options, &target);
+    let backup = if (options.keep_original || damaged_in_place) && target.exists() {
         Some(keep_backup(&target).map_err(|error| SaveError::writing(&error))?)
     } else {
         None
@@ -128,6 +130,13 @@ pub fn save_with(
     };
     written.map_err(|error| SaveError::writing(&error))?;
     Ok(backup)
+}
+
+fn reads_target(options: &SaveOptions<'_>, target: &Path) -> bool {
+    options
+        .history_from
+        .and_then(|from| resolve_links(from).ok())
+        .is_some_and(|from| from == target)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -355,32 +364,37 @@ pub(crate) fn remove_orphaned_temporaries(path: &Path) {
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
         return;
     };
+    let prefix = temporary_prefix(name);
+    remove_orphans_in(parent, Some(prefix.as_encoded_bytes()));
+}
+
+pub(crate) fn sweep_orphaned_temporaries(dir: &Path) {
+    remove_orphans_in(dir, None);
+}
+
+fn remove_orphans_in(dir: &Path, prefix: Option<&[u8]>) {
     let processes = Path::new(PROCESSES);
-    let tag = boot_tag();
-    if tag == UNKNOWN_BOOT || !processes.join("self").exists() {
+    let host = Host::current();
+    if host.boot == UNKNOWN_TAG || !processes.join("self").exists() {
         return;
     }
-    let parent = if parent.as_os_str().is_empty() {
+    let dir = if dir.as_os_str().is_empty() {
         Path::new(".")
     } else {
-        parent
+        dir
     };
-    let Ok(entries) = fs::read_dir(parent) else {
+    let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
-    let prefix = temporary_prefix(name);
-    let prefix = prefix.as_encoded_bytes();
     let ours = std::process::id();
+    let running = |process: u32| processes.join(process.to_string()).exists();
     for entry in entries.filter_map(Result::ok) {
         let file_name = entry.file_name();
-        let Some(owner) = file_name
-            .as_encoded_bytes()
-            .strip_prefix(prefix)
-            .and_then(|suffix| temporary_owner(suffix, tag))
-        else {
-            continue;
-        };
-        if owner != ours && !processes.join(owner.to_string()).exists() {
+        let name = file_name.as_encoded_bytes();
+        let named_as_wanted = prefix.is_none_or(|prefix| name.starts_with(prefix));
+        let orphaned = named_as_wanted
+            && temporary_tag(name).is_some_and(|tag| host.orphaned(tag, ours, running));
+        if orphaned {
             let orphan = entry.path();
             match fs::remove_file(&orphan) {
                 Ok(()) => log::info!("removed {}, left by an interrupted save", orphan.display()),
@@ -390,17 +404,52 @@ pub(crate) fn remove_orphaned_temporaries(path: &Path) {
     }
 }
 
-fn temporary_owner(suffix: &[u8], tag: &str) -> Option<u32> {
-    let suffix = std::str::from_utf8(suffix).ok()?;
-    let rest = suffix
-        .strip_suffix(TEMPORARY_SUFFIX)?
-        .strip_prefix(tag)?
-        .strip_prefix('-')?;
-    let (owner, counter) = rest.split_once('-')?;
-    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
-    (digits(owner) && digits(counter))
-        .then(|| owner.parse().ok())
-        .flatten()
+fn temporary_tag(name: &[u8]) -> Option<&str> {
+    let name = std::str::from_utf8(name).ok()?;
+    let without_suffix = name.strip_prefix('.')?.strip_suffix(TEMPORARY_SUFFIX)?;
+    let (_, tag) = without_suffix.rsplit_once('.')?;
+    Some(tag)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Host<'a> {
+    machine: &'a str,
+    boot: &'a str,
+}
+
+impl Host<'static> {
+    fn current() -> Self {
+        Self {
+            machine: machine_tag(),
+            boot: boot_tag(),
+        }
+    }
+}
+
+impl Host<'_> {
+    fn orphaned(&self, tag: &str, ours: u32, running: impl Fn(u32) -> bool) -> bool {
+        let parts: Vec<&str> = tag.split('-').collect();
+        let (machine, boot, owner, counter) = match parts.as_slice() {
+            [machine, boot, owner, counter] => (Some(*machine), *boot, *owner, *counter),
+            [boot, owner, counter] => (None, *boot, *owner, *counter),
+            _ => return false,
+        };
+        let digits =
+            |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+        if !digits(counter) || !digits(owner) {
+            return false;
+        }
+        let Ok(owner) = owner.parse::<u32>() else {
+            return false;
+        };
+        match machine {
+            Some(machine) if machine != self.machine => return false,
+            Some(_) if boot != self.boot => return self.machine != UNKNOWN_TAG,
+            None if boot != self.boot => return false,
+            Some(_) | None => {}
+        }
+        owner != ours && !running(owner)
+    }
 }
 
 fn write_and_sync(
@@ -471,7 +520,8 @@ pub(crate) fn temporary_sibling(path: &Path) -> io::Result<PathBuf> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "the path has no file name"))?;
     let mut temporary = temporary_prefix(name);
     temporary.push(format!(
-        "{}-{}-{}{TEMPORARY_SUFFIX}",
+        "{}-{}-{}-{}{TEMPORARY_SUFFIX}",
+        machine_tag(),
         boot_tag(),
         std::process::id(),
         TEMPORARY_COUNTER.fetch_add(1, Ordering::Relaxed)
@@ -488,18 +538,26 @@ fn temporary_prefix(name: &OsStr) -> OsString {
 
 pub(crate) fn boot_tag() -> &'static str {
     static TAG: OnceLock<String> = OnceLock::new();
-    TAG.get_or_init(|| {
-        fs::read_to_string(BOOT_ID)
-            .ok()
-            .map(|id| {
-                id.chars()
-                    .filter(char::is_ascii_hexdigit)
-                    .take(BOOT_TAG_LENGTH)
-                    .collect::<String>()
-            })
-            .filter(|tag| tag.len() == BOOT_TAG_LENGTH)
-            .unwrap_or_else(|| UNKNOWN_BOOT.to_owned())
-    })
+    TAG.get_or_init(|| tag_from(&[BOOT_ID]))
+}
+
+pub(crate) fn machine_tag() -> &'static str {
+    static TAG: OnceLock<String> = OnceLock::new();
+    TAG.get_or_init(|| tag_from(&MACHINE_IDS))
+}
+
+fn tag_from(sources: &[&str]) -> String {
+    sources
+        .iter()
+        .filter_map(|source| fs::read_to_string(source).ok())
+        .map(|id| {
+            id.chars()
+                .filter(char::is_ascii_hexdigit)
+                .take(TAG_LENGTH)
+                .collect::<String>()
+        })
+        .find(|tag| tag.len() == TAG_LENGTH)
+        .unwrap_or_else(|| UNKNOWN_TAG.to_owned())
 }
 
 pub(crate) fn sync_parent(path: &Path) -> io::Result<()> {
@@ -535,6 +593,21 @@ fn keep_backup(path: &Path) -> io::Result<PathBuf> {
         io::Error::new(
             io::ErrorKind::AlreadyExists,
             "too many backups of this file already exist",
+        )
+    })
+}
+
+pub(crate) fn keep_unreadable(path: &Path, stem: &str) -> io::Result<PathBuf> {
+    let candidates = (1..=MAX_BACKUP_ATTEMPTS).map(|attempt| {
+        path.with_file_name(match attempt {
+            1 => format!("{stem}.json"),
+            _ => format!("{stem}-{attempt}.json"),
+        })
+    });
+    keep_copy(path, candidates.collect())?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "too many unreadable copies of this file already exist",
         )
     })
 }
@@ -632,6 +705,7 @@ mod tests {
             ],
             bytes,
             digest: String::new(),
+            previous_damaged: false,
         }
     }
 

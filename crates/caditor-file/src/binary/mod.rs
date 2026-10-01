@@ -109,6 +109,8 @@ pub(crate) enum UnpackError {
     MissingPart,
     #[error("there is not enough memory to unpack the chunk")]
     OutOfMemory,
+    #[error("the file holds more than this version unpacks")]
+    OverBudget,
 }
 
 impl<'a> Chunk<'a> {

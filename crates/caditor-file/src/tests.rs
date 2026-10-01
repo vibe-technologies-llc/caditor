@@ -16,7 +16,7 @@ use tempfile::TempDir;
 use super::{
     binary::testing::{
         corrupt_chunk, current_model_from_json, model_from_json, records_as_json, rewrite_journal,
-        sharing_from,
+        sharing_from, with_unknown_codec,
     },
     save, *,
 };
@@ -248,7 +248,7 @@ fn saves_sharing_earlier_versions_with_the_file_they_replace_keep_every_version(
 fn saving_over_a_file_keeps_its_permissions_and_leaves_no_temporary_files() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");
-    fs::write(&path, "old").unwrap();
+    save(&Document::default(), &path, false).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
 
     save(&sample(), &path, false).unwrap();
@@ -364,6 +364,87 @@ fn overwriting_a_damaged_file_keeps_the_original_as_a_backup() {
     assert_eq!(backup, dir.path().join("model.damaged-2.caditor"));
     assert_eq!(fs::read_to_string(&backup).unwrap(), "damaged original");
     assert_eq!(load(&path).unwrap().document, sample());
+}
+
+#[test]
+fn a_record_stored_in_an_unknown_way_reads_like_something_from_a_newer_version() {
+    let bytes = with_unknown_codec(&crate::encode(&sample()).unwrap(), 1);
+
+    let loaded = decode(&bytes).unwrap();
+
+    assert!(loaded.issues.contains(
+        &"Record 2 is stored in a way this version of caditor does not know, so it was left out. \
+          It may come from a newer version."
+            .to_owned()
+    ));
+    assert!(
+        !loaded
+            .issues
+            .iter()
+            .any(|issue| issue.contains("ends early"))
+    );
+}
+
+fn saved_twice_then_damaged(path: &Path) -> Vec<u8> {
+    save(&Document::default(), path, false).unwrap();
+    save(&sample(), path, false).unwrap();
+    let damaged = corrupt_chunk(&fs::read(path).unwrap(), &binary::MODEL_MAGIC, 2);
+    fs::write(path, &damaged).unwrap();
+    damaged
+}
+
+#[test]
+fn saving_over_a_file_that_went_bad_since_it_was_loaded_keeps_a_backup() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let damaged = saved_twice_then_damaged(&path);
+
+    let backup = save(&sample(), &path, false).unwrap().unwrap();
+
+    assert_eq!(backup, dir.path().join("model.damaged.caditor"));
+    assert_eq!(fs::read(&backup).unwrap(), damaged);
+    assert!(load(&path).unwrap().issues.is_empty());
+    assert_eq!(load(&path).unwrap().document, sample());
+}
+
+#[test]
+fn a_file_that_is_no_longer_a_model_is_kept_when_saved_over() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    save(&sample(), &path, false).unwrap();
+    fs::write(&path, "the sync client wrote this").unwrap();
+
+    let backup = save(&sample(), &path, false).unwrap().unwrap();
+
+    assert_eq!(
+        fs::read_to_string(backup).unwrap(),
+        "the sync client wrote this"
+    );
+}
+
+#[test]
+fn intact_and_empty_files_get_no_backup_and_a_save_as_leaves_the_damaged_source_alone() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let copy = dir.path().join("copy.caditor");
+    save(&sample(), &path, false).unwrap();
+    assert_eq!(save(&sample(), &path, false).unwrap(), None);
+    fs::write(&copy, "").unwrap();
+    assert_eq!(save(&sample(), &copy, false).unwrap(), None);
+
+    let damaged = saved_twice_then_damaged(&path);
+    let options = SaveOptions {
+        history_from: Some(&path),
+        ..SaveOptions::default()
+    };
+    let other = dir.path().join("other.caditor");
+    assert_eq!(save_with(&sample(), &other, &options).unwrap(), None);
+
+    assert_eq!(fs::read(&path).unwrap(), damaged);
+    assert_eq!(
+        files_in(dir.path()),
+        ["copy.caditor", "model.caditor", "other.caditor"]
+    );
 }
 
 #[test]
@@ -688,6 +769,39 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
         journal_for(&path, Some(&recovery)),
         FileJournal::None
     ));
+}
+
+#[test]
+fn set_aside_journals_are_pruned_once_they_are_old() {
+    let dir = TempDir::new().unwrap();
+    let recovery = dir.path().join("recovery");
+    fs::create_dir(&recovery).unwrap();
+    let model = dir.path().join("model.caditor");
+    let now = paths::now_seconds();
+    let old = now - paths::SET_ASIDE_KEPT_SECONDS - 60;
+    let kept = [
+        recovery.join(format!("untitled-1-2.journal.{now}.unreadable")),
+        recovery.join(format!("untitled-1-3.journal.{old}.notes")),
+        recovery.join("untitled-1-4.journal.unreadable"),
+        dir.path()
+            .join(format!(".other.caditor.journal.{old}.unreadable")),
+        dir.path()
+            .join(format!(".model.caditor.journal.{now}.unreadable")),
+    ];
+    let pruned = [
+        recovery.join(format!("untitled-1-5.journal.{old}.unreadable")),
+        recovery.join(format!("file-1.journal.{old}-3.unreadable")),
+        dir.path()
+            .join(format!(".model.caditor.journal.{old}.unreadable")),
+    ];
+    for file in kept.iter().chain(&pruned) {
+        fs::write(file, "set aside").unwrap();
+    }
+
+    assert!(scan(Some(&recovery), std::slice::from_ref(&model)).is_empty());
+
+    assert!(kept.iter().all(|file| file.exists()));
+    assert!(pruned.iter().all(|file| !file.exists()));
 }
 
 #[test]
@@ -2349,6 +2463,50 @@ fn orphaned_temporary_files_are_removed_by_the_next_save() {
     assert_eq!(!orphan.exists(), tag != "unknown");
     assert!(ours.exists());
     assert!(other_host.exists());
+    assert!(unrelated.exists());
+}
+
+#[test]
+fn the_scan_sweeps_temporaries_left_by_earlier_boots_of_this_machine() {
+    let dir = TempDir::new().unwrap();
+    let recovery = dir.path().join("recovery");
+    fs::create_dir(&recovery).unwrap();
+    let (machine, boot) = (save::machine_tag(), save::boot_tag());
+    let earlier_boot = recovery.join(format!(
+        ".untitled-1-2.journal.{machine}-0123456789abcdef-4294967295-3.tmp"
+    ));
+    let ended_run = recovery.join(format!(
+        ".untitled-1-2.journal.{machine}-{boot}-4294967295-4.tmp"
+    ));
+    let running = recovery.join(format!(
+        ".untitled-1-2.journal.{machine}-{boot}-{}-5.tmp",
+        std::process::id()
+    ));
+    let other_machine = recovery.join(format!(
+        ".untitled-1-2.journal.0123456789abcdef-{boot}-4294967295-6.tmp"
+    ));
+    let older_format = recovery.join(".untitled-1-2.journal.0123456789abcdef-4294967295-7.tmp");
+    let unrelated = recovery.join(".notes.tmp");
+    let all = [
+        &earlier_boot,
+        &ended_run,
+        &running,
+        &other_machine,
+        &older_format,
+        &unrelated,
+    ];
+    for file in all {
+        fs::write(file, "partial").unwrap();
+    }
+
+    assert!(scan(Some(&recovery), &[]).is_empty());
+
+    let identified = machine != "unknown" && boot != "unknown";
+    assert_eq!(!earlier_boot.exists(), identified);
+    assert_eq!(!ended_run.exists(), boot != "unknown");
+    assert!(running.exists());
+    assert!(other_machine.exists());
+    assert!(older_format.exists());
     assert!(unrelated.exists());
 }
 
