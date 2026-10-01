@@ -16,7 +16,7 @@ use rustix::io::Errno;
 use xattr::FileExt as _;
 
 use crate::{
-    binary::{self, Encoded, Shared},
+    binary::{self, EncodeError, Encoded, Shared, value::ValueError},
     paths::{MAX_NAME_BYTES, fitting},
     read::{ensure_regular, open_file, read_open},
     reason,
@@ -49,10 +49,19 @@ impl SaveError {
         }
     }
 
-    fn encoding(error: &impl std::fmt::Display) -> Self {
+    fn encoding(error: &EncodeError) -> Self {
         log::error!("could not encode the model: {error}");
+        let reason = match error {
+            EncodeError::Value(ValueError::NonFinite(_)) => {
+                "a number in the model is infinite or undefined, so it cannot be stored; undo \
+                 the last change and save again"
+            }
+            EncodeError::Value(ValueError::Malformed(_)) | EncodeError::Pack(_) => {
+                "the model could not be converted for saving"
+            }
+        };
         Self {
-            reason: "the model could not be converted for saving".to_owned(),
+            reason: reason.to_owned(),
         }
     }
 }
@@ -108,14 +117,33 @@ pub fn save_with(
     } else {
         None
     };
+    let reads_back = |file: &File| check_reads_back(file, &encoded.digest);
     let written = match &previous {
-        Some(previous) if !encoded.shared.is_empty() => {
-            replace_atomically(&target, |file| write_sharing(file, &encoded, previous))
-        }
-        _ => write_atomically(&target, &encoded.bytes),
+        Some(previous) if !encoded.shared.is_empty() => replace_checked(
+            &target,
+            |file| write_sharing(file, &encoded, previous),
+            reads_back,
+        ),
+        _ => replace_checked(&target, |file| file.write_all(&encoded.bytes), reads_back),
     };
     written.map_err(|error| SaveError::writing(&error))?;
     Ok(backup)
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("the saved copy did not read back intact, so the file was left as it was")]
+pub(crate) struct NotReadBack;
+
+fn check_reads_back(file: &File, digest: &str) -> io::Result<()> {
+    let length = usize::try_from(file.metadata()?.len()).map_err(io::Error::other)?;
+    let mut written = vec![0; length];
+    file.read_exact_at(&mut written, 0)?;
+    if binary::reads_back(&written, digest) {
+        Ok(())
+    } else {
+        log::error!("a saved model did not decode back to what was written");
+        Err(io::Error::new(io::ErrorKind::InvalidData, NotReadBack))
+    }
 }
 
 struct Previous {
@@ -249,11 +277,19 @@ fn replace_atomically(
     path: &Path,
     fill: impl FnOnce(&mut File) -> io::Result<()>,
 ) -> io::Result<()> {
+    replace_checked(path, fill, |_| Ok(()))
+}
+
+fn replace_checked(
+    path: &Path,
+    fill: impl FnOnce(&mut File) -> io::Result<()>,
+    check: impl FnOnce(&File) -> io::Result<()>,
+) -> io::Result<()> {
     let target = resolve_links(path)?;
     ensure_replaceable(&target)?;
     let temporary = temporary_sibling(&target)?;
-    let written =
-        write_and_sync(&temporary, &target, fill).and_then(|()| fs::rename(&temporary, &target));
+    let written = write_and_sync(&temporary, &target, fill, check)
+        .and_then(|()| fs::rename(&temporary, &target));
     if written.is_err() {
         let _ = fs::remove_file(&temporary);
     }
@@ -268,9 +304,22 @@ fn replace_atomically(
     Ok(())
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("the file is read-only")]
+pub(crate) struct ReadOnly;
+
 fn ensure_replaceable(target: &Path) -> io::Result<()> {
     match fs::metadata(target) {
-        Ok(metadata) => ensure_regular(&metadata),
+        Ok(metadata) => {
+            ensure_regular(&metadata)?;
+            let writable = !metadata.permissions().readonly()
+                && rustix::fs::access(target, rustix::fs::Access::WRITE_OK).is_ok();
+            if writable {
+                Ok(())
+            } else {
+                Err(io::Error::new(io::ErrorKind::PermissionDenied, ReadOnly))
+            }
+        }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     }
@@ -358,10 +407,12 @@ fn write_and_sync(
     temporary: &Path,
     target: &Path,
     fill: impl FnOnce(&mut File) -> io::Result<()>,
+    check: impl FnOnce(&File) -> io::Result<()>,
 ) -> io::Result<()> {
     let mut file = match fs::metadata(target) {
         Ok(existing) => {
             let file = OpenOptions::new()
+                .read(true)
                 .write(true)
                 .create_new(true)
                 .mode(PRIVATE_MODE)
@@ -370,10 +421,15 @@ fn write_and_sync(
             file.set_permissions(existing.permissions())?;
             file
         }
-        Err(_) => File::create_new(temporary)?,
+        Err(_) => OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(temporary)?,
     };
     fill(&mut file)?;
-    file.sync_all()
+    file.sync_all()?;
+    check(&file)
 }
 
 fn take_ownership_and_attributes(file: &File, target: &Path, existing: &Metadata) {
@@ -575,6 +631,7 @@ mod tests {
                 },
             ],
             bytes,
+            digest: String::new(),
         }
     }
 

@@ -1,6 +1,9 @@
 use std::io::{Error, ErrorKind};
 
-use crate::read::{NotAFile, TooLarge};
+use crate::{
+    read::{NotAFile, TooLarge},
+    save::{NotReadBack, ReadOnly},
+};
 
 pub(crate) fn reading(error: &Error) -> String {
     if let Some(inner) = error
@@ -22,6 +25,12 @@ pub(crate) fn reading(error: &Error) -> String {
 pub(crate) fn writing(error: &Error) -> String {
     if error.get_ref().is_some_and(|inner| inner.is::<NotAFile>()) {
         return "a device, pipe or socket with that name already exists".to_owned();
+    }
+    if let Some(inner) = error
+        .get_ref()
+        .filter(|inner| inner.is::<NotReadBack>() || inner.is::<ReadOnly>())
+    {
+        return inner.to_string();
     }
     match error.kind() {
         ErrorKind::NotFound => "its folder no longer exists".to_owned(),

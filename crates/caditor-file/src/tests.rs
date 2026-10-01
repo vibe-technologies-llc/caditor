@@ -2289,6 +2289,42 @@ fn a_save_that_cannot_read_the_earlier_versions_fails_and_changes_nothing() {
 }
 
 #[test]
+fn a_model_holding_an_undefined_number_is_refused_rather_than_saved_damaged() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_line(Point2::ZERO, Point2::new(f64::NAN, 1.0));
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Undefined");
+    transaction.add_feature("Broken sketch", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+
+    let error = save(&document, &path, false).unwrap_err();
+
+    assert!(
+        error.reason.contains("infinite or undefined"),
+        "{}",
+        error.reason
+    );
+    assert!(!path.exists());
+}
+
+#[test]
+fn a_read_only_model_is_not_replaced_and_says_why() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    save(&Document::default(), &path, false).unwrap();
+    let before = fs::read(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+
+    let error = save(&sample(), &path, false).unwrap_err();
+
+    assert_eq!(error.reason, "the file is read-only");
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert_eq!(files_in(dir.path()), ["model.caditor"]);
+}
+
+#[test]
 fn orphaned_temporary_files_are_removed_by_the_next_save() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("model.caditor");

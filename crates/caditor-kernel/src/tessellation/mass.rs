@@ -1,10 +1,12 @@
+use std::f64::consts::EULER_GAMMA;
+
 use caditor_geometry::{Aabb, Point3, Vector3};
 
 use crate::{tessellation::Mesh, topology::FaceId};
 
 const RAY_DIRECTIONS: [Vector3; 3] = [
     Vector3::new(
-        0.577_215_664_901_532_9,
+        EULER_GAMMA,
         0.618_033_988_749_894_8,
         0.533_146_667_914_491_7,
     ),

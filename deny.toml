@@ -29,11 +29,53 @@ allow = [
     "Unlicense",
     "Zlib"
 ]
+exceptions = [
+    { crate = "libfuzzer-sys", allow = ["NCSA"] }
+]
 
 [bans]
-multiple-versions = "allow"
+multiple-versions = "deny"
 wildcards = "deny"
 allow-wildcard-paths = true
+deny = [
+    { crate = "bzip2-sys", reason = "C library; caditor uses pure-Rust crates" },
+    { crate = "freetype-sys", reason = "C library; egui rasterises fonts in Rust" },
+    { crate = "libdbus-sys", reason = "C library; zbus speaks D-Bus in Rust" },
+    { crate = "libsqlite3-sys", reason = "C library; caditor uses pure-Rust crates" },
+    { crate = "libz-sys", reason = "C library; miniz_oxide and zlib-rs cover deflate" },
+    { crate = "lzma-sys", reason = "C library; caditor uses pure-Rust crates" },
+    { crate = "native-tls", reason = "C-backed TLS; rustls is the Rust alternative" },
+    { crate = "openssl", reason = "C-backed TLS; rustls is the Rust alternative" },
+    { crate = "openssl-sys", reason = "C library; rustls is the Rust alternative" },
+    { crate = "servo-fontconfig-sys", reason = "C library; caditor loads its own fonts" },
+    { crate = "zstd-sys", reason = "C library; caditor-zstd wraps the Rust port" }
+]
+skip = [
+    {
+        crate = "calloop@0.13.0",
+        reason = "winit 0.30 stays on smithay-client-toolkit 0.19 while egui's clipboard moved to 0.20"
+    },
+    {
+        crate = "calloop-wayland-source@0.3.0",
+        reason = "winit 0.30 stays on smithay-client-toolkit 0.19"
+    },
+    {
+        crate = "hashbrown@0.16.1",
+        reason = "accesskit and gpu-allocator have not moved to hashbrown 0.17"
+    },
+    { crate = "linux-raw-sys@0.4.15", reason = "rustix 0.38 under winit's calloop 0.13" },
+    { crate = "miniz_oxide@0.8.9", reason = "png 0.18 has not moved to miniz_oxide 0.9" },
+    { crate = "pollster@0.4.0", reason = "rfd 0.17 has not moved to pollster 1" },
+    { crate = "rustc-hash@1.1.0", reason = "naga 30 still uses rustc-hash 1" },
+    { crate = "rustix@0.38.44", reason = "winit's calloop 0.13" },
+    {
+        crate = "smithay-client-toolkit@0.19.2",
+        reason = "winit 0.30 stays on 0.19 while egui's clipboard moved to 0.20"
+    },
+    { crate = "syn@2.0.119", reason = "most proc macros are still on syn 2" },
+    { crate = "thiserror@1.0.69", reason = "winit's calloop 0.13 still uses thiserror 1" },
+    { crate = "thiserror-impl@1.0.69", reason = "winit's calloop 0.13 still uses thiserror 1" }
+]
 
 [sources]
 unknown-registry = "deny"

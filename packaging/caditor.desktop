@@ -12,4 +12,3 @@ Keywords=CAD;parametric;sketch;3D;model;STEP;STL;3MF;DXF;
 MimeType=application/x-caditor;
 StartupNotify=true
 StartupWMClass=caditor
-SingleMainWindow=false

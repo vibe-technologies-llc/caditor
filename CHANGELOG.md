@@ -177,6 +177,13 @@ The first release of caditor.
   shared with another computer never removes that computer's save in progress.
 - Opening, importing or saving over a device, pipe or file larger than 2 GiB is refused with
   the reason instead of hanging or closing caditor.
+- Every save reads the new file back and checks it before it replaces the old one, so a save
+  that did not come out intact leaves the earlier file as it was and says so.
+- Saving over a read-only model is refused, saying the file is read-only and offering Save As,
+  instead of silently replacing it.
+- A model holding an infinite or undefined number is refused with that reason instead of being
+  saved and then opening as damaged.
+- Restoring an earlier version of a model with a long chain of parameters is much faster.
 - Import of DXF drawings into sketches and of STEP models as bodies; export of bodies as STEP,
   STL and 3MF.
 - File › Export Image… (Ctrl+Shift+E) saves the 3D view as a PNG image at the view's size or a

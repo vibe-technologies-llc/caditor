@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use ahash::{AHashMap, AHashSet};
 use caditor_document::{
     DependencyGraph, Document, Edit, EditError, Feature, FeatureId, FeatureKind, Parameter,
     Revolve, RevolveAxis, RollbackBar, SolidFeature, Transaction,
@@ -20,6 +19,7 @@ use crate::{
     },
     read::read_file,
     reason,
+    untrusted::{UntrustedMap, UntrustedSet},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -127,8 +127,8 @@ impl Parts {
 
 #[derive(Default)]
 struct TakenNames {
-    names: AHashSet<String>,
-    next_suffix: AHashMap<String, u32>,
+    names: UntrustedSet<String>,
+    next_suffix: UntrustedMap<String, u32>,
 }
 
 impl TakenNames {
@@ -189,8 +189,8 @@ fn insert_parameters(
     document: &mut Document,
     parameters: &[Parameter],
     issues: &mut Vec<String>,
-) -> AHashSet<ParameterId> {
-    let mut failed = AHashSet::new();
+) -> UntrustedSet<ParameterId> {
+    let mut failed = UntrustedSet::new();
     apply_each(
         document,
         parameters,
@@ -224,7 +224,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
     }
 
     let mut parameter_names = TakenNames::default();
-    let mut seen = AHashSet::new();
+    let mut seen = UntrustedSet::new();
     let mut read = Vec::new();
     for record in &parts.parameters {
         if !seen.insert(record.id) {
@@ -391,7 +391,7 @@ fn restore_rollback_bar(document: &mut Document, before: Option<u64>, issues: &m
 
 fn with_unique_names(features: Vec<Feature>, issues: &mut Vec<String>) -> Vec<Arc<Feature>> {
     let mut names = TakenNames::default();
-    let mut seen = AHashSet::new();
+    let mut seen = UntrustedSet::new();
     let mut unique = Vec::with_capacity(features.len());
     for mut feature in features {
         if !seen.insert(feature.id()) {
@@ -426,7 +426,7 @@ fn without_cycles(
     expressions: Vec<(ParameterId, String, Expression)>,
     issues: &mut Vec<String>,
 ) -> Vec<(ParameterId, String, Expression)> {
-    let names: AHashMap<ParameterId, &str> = document
+    let names: UntrustedMap<ParameterId, &str> = document
         .parameters()
         .iter()
         .map(|parameter| (parameter.id(), parameter.name.as_str()))

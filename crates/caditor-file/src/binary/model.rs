@@ -3,7 +3,6 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use ahash::AHashMap;
 use caditor_document::Document;
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +19,7 @@ use crate::{
         parameter_record, principal_record, rollback_record, suppressed_record,
     },
     load::{LoadError, Loaded, Parts, assemble, describe_unreadable_record, newer_version},
+    untrusted::UntrustedMap,
 };
 
 const KEYFRAME_SPACING: usize = 8;
@@ -201,7 +201,10 @@ impl<'a> Parsed<'a> {
         head.holds(&snapshot).then_some(snapshot)
     }
 
-    fn kept_records<'b>(&self, contents: &'b [Option<Vec<u8>>]) -> AHashMap<Vec<u8>, KeptRecord<'b>>
+    fn kept_records<'b>(
+        &self,
+        contents: &'b [Option<Vec<u8>>],
+    ) -> UntrustedMap<Vec<u8>, KeptRecord<'b>>
     where
         'a: 'b,
     {
@@ -346,6 +349,7 @@ pub(crate) fn encode(document: &Document) -> Result<Vec<u8>, EncodeError> {
 pub(crate) struct Encoded {
     pub bytes: Vec<u8>,
     pub shared: Vec<Shared>,
+    pub digest: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -496,7 +500,7 @@ fn offset_within(whole: &[u8], part: &[u8]) -> Option<usize> {
     (offset.checked_add(part.len())? <= whole.len()).then_some(offset)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub(crate) enum EncodeError {
     #[error("the model could not be converted for saving: {0}")]
     Value(#[from] ValueError),
@@ -592,7 +596,24 @@ pub(crate) fn encode_over(
     )?;
     let mut shared = Vec::new();
     versions.place(&mut bytes, &mut shared)?;
-    Ok(Encoded { bytes, shared })
+    Ok(Encoded {
+        bytes,
+        shared,
+        digest: head.digest,
+    })
+}
+
+pub(crate) fn reads_back(bytes: &[u8], digest: &str) -> bool {
+    let Some(parsed) = Parsed::of(bytes) else {
+        return false;
+    };
+    let contents = parsed.record_contents(&mut Budget::default());
+    parsed.damaged == 0
+        && parsed
+            .head
+            .as_ref()
+            .is_some_and(|head| head.digest == digest)
+        && parsed.holds_every_record(&contents)
 }
 
 enum Candidate<'p, 'a> {

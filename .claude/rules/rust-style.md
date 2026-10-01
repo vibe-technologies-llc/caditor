@@ -25,6 +25,7 @@ paths:
 - No comments: `//`, `///`, `//!`, `/* */`, nor `#` in TOML. Put what one would say into a name, a
   type or an extracted function; design rationale goes in `CLAUDE.md`, a rules file or `docs/`.
 - Remove existing comments in code you touch.
+- `crates/caditor/src/conventions_tests.rs` fails on any comment in a `.rs` or `.toml` file.
 
 ## Collections and locks
 
@@ -32,6 +33,9 @@ paths:
   iteration matters, as with ID-keyed model data.
 - Hash maps and sets are `ahash::AHashMap`/`AHashSet`, never `std`'s; locks are
   `parking_lot::{Mutex, RwLock, Condvar}`. `clippy.toml`'s `disallowed-types` enforces both.
+- A map or set keyed by what a file or other outside input chose (names, IDs and record bytes read
+  from a model) keeps `std`'s DoS-resistant hasher through `caditor-file`'s `UntrustedMap` and
+  `UntrustedSet` aliases, the only place the ban is lifted.
 
 ## Unsafe
 
@@ -42,6 +46,8 @@ paths:
 - Unavoidable `unsafe` lives in the smallest crate possible, relaxed to `deny` there alone and
   allowed only at the exact item. `caditor-zstd` is that crate for zstd; it lists the workspace
   clippy lints itself, since it cannot inherit them with `unsafe_code` changed.
+  `crates/caditor/src/conventions_tests.rs` checks that every other member inherits the workspace
+  lints and that `caditor-zstd`'s list matches the workspace's.
 
 ## Language
 

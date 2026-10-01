@@ -939,15 +939,17 @@ mod scale_tests {
 
     use crate::{Document, ParameterValues};
 
-    const CHAIN: usize = 1500;
-    const BUDGET: Duration = Duration::from_secs(3);
+    const CHAIN: usize = 1200;
+    const GROWTH: usize = 4;
+    const RUNS: usize = 3;
+    const LINEAR_SLACK: f64 = 2.0;
 
-    fn chain(step: f64) -> Document {
+    fn chain(length: usize, step: f64) -> Document {
         let mut document = Document::default();
         let mut transaction = document.transaction("Chain");
         let mut previous =
             transaction.add_parameter("p0", Expression::Measure(1.0, Unit::Millimetre));
-        for index in 1..CHAIN {
+        for index in 1..length {
             previous = transaction.add_parameter(
                 format!("p{index}"),
                 Expression::binary(
@@ -961,17 +963,38 @@ mod scale_tests {
         document
     }
 
-    #[test]
-    fn long_parameter_chains_evaluate_and_restore_in_linear_time() {
+    fn evaluate_and_restore(length: usize) -> Duration {
         let started = Instant::now();
-        let mut document = chain(1.0);
+        let mut document = chain(length, 1.0);
+
         let values = ParameterValues::evaluate(&document);
         let last = document.parameters().last().unwrap().id();
-        assert_eq!(values.value(last).unwrap().value, CHAIN as f64);
-        let other = chain(2.0);
+        assert_eq!(values.value(last).unwrap().value, length as f64);
+
+        let other = chain(length, 2.0);
         let restore = document.transaction_to(&other, "Restore");
         document.apply(restore).unwrap();
         assert!(document.same_content(&other));
-        assert!(started.elapsed() < BUDGET, "{:?}", started.elapsed());
+
+        started.elapsed()
+    }
+
+    fn fastest_of_runs(length: usize) -> Duration {
+        (0..RUNS)
+            .map(|_| evaluate_and_restore(length))
+            .min()
+            .unwrap()
+    }
+
+    #[test]
+    fn long_parameter_chains_evaluate_and_restore_in_linear_time() {
+        let short = fastest_of_runs(CHAIN / GROWTH);
+        let long = fastest_of_runs(CHAIN);
+
+        let ratio = long.as_secs_f64() / short.as_secs_f64().max(f64::MIN_POSITIVE);
+        assert!(
+            ratio < GROWTH as f64 * LINEAR_SLACK,
+            "{GROWTH} times the chain took {ratio:.1} times as long ({short:?} and {long:?})"
+        );
     }
 }

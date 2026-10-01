@@ -16,10 +16,11 @@ cargo run -p caditor
 cargo build --workspace
 cargo test --workspace
 cargo test -p <crate> <test_name>
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 rust-formatter
 rust-formatter --check
 cargo deny check
+cargo deny --manifest-path fuzz/Cargo.toml --config deny.toml check
 (cd fuzz && cargo +nightly fuzz run <target> corpus/<target> seeds/<kind> -- -dict=dictionaries/<kind>.dict -max_total_time=60)
 packaging/build-release.sh --snapshot
 packaging/check-install.sh target/dist/caditor-<version>-snapshot-linux-x86_64.tar.zst

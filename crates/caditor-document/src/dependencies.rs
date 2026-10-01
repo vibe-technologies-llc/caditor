@@ -23,6 +23,9 @@ impl DependencyGraph {
 
     pub fn cycle(&self, target: ParameterId, expression: &Expression) -> Option<Vec<ParameterId>> {
         let first_steps = expression.parameters();
+        if first_steps.is_empty() {
+            return None;
+        }
         if first_steps.contains(&target) {
             return Some(vec![target, target]);
         }

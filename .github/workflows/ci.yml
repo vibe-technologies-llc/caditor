@@ -16,6 +16,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
   RUST_TOOLCHAIN: 1.98.1
   FUZZ_TOOLCHAIN: nightly-2026-09-27
   FORMAT_TOOLCHAIN: nightly-2026-09-27
@@ -33,6 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     container: ubuntu:22.04
     timeout-minutes: 45
+    env:
+      BUILDER_HOME: /home/builder
     steps:
       - name: Install build tools and a software Vulkan driver
         env:
@@ -40,28 +43,55 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            build-essential ca-certificates curl git libvulkan1 mesa-vulkan-drivers
+            build-essential ca-certificates curl git libvulkan1 mesa-vulkan-drivers zstd
+
+      - name: Add an unprivileged user, since root ignores file modes the tests rely on
+        run: |
+          useradd --uid 1001 --create-home --home-dir "$BUILDER_HOME" builder
+          printf '%s\n' '#!/bin/sh' \
+            "exec runuser -u builder -- env HOME=$BUILDER_HOME PATH=$BUILDER_HOME/.cargo/bin:\$PATH \"\$@\"" \
+            > /usr/local/bin/as-builder
+          chmod +x /usr/local/bin/as-builder
 
       - name: Check out (actions/checkout v7.0.1)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Trust the checkout
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Restore the cargo cache (actions/cache v6.1.0)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            /home/builder/.cargo/registry/index
+            /home/builder/.cargo/registry/cache
+            /home/builder/.cargo/git/db
+            target
+          key: check-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: check-${{ env.RUST_TOOLCHAIN }}-
+
+      - name: Hand the checkout and the cache to the unprivileged user
+        run: chown -R builder:builder "$GITHUB_WORKSPACE" "$BUILDER_HOME"
 
       - name: Install Rust
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
-              --component clippy
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          as-builder sh -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain '$RUST_TOOLCHAIN' \
+              --component clippy"
 
       - name: Test
         env:
           CADITOR_REQUIRE_GPU: "1"
-        run: cargo test --workspace --locked
+        run: as-builder cargo test --workspace --locked
+
+      - name: Check that the tests left the checkout clean
+        run: |
+          status=$(as-builder git status --porcelain --untracked-files=all)
+          if [ -n "$status" ]; then
+            echo "The tests changed or left files in the checkout:"
+            echo "$status"
+            exit 1
+          fi
 
       - name: Lint
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: as-builder cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
       - name: Install cargo-deny
         run: |
@@ -69,11 +99,14 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSfLO \
             "https://github.com/EmbarkStudios/cargo-deny/releases/download/$CARGO_DENY_VERSION/$name.tar.gz"
           echo "$CARGO_DENY_SHA256  $name.tar.gz" | sha256sum -c -
-          tar -xzf "$name.tar.gz" -C "$HOME/.cargo/bin" --strip-components=1 "$name/cargo-deny"
+          tar -xzf "$name.tar.gz" -C /usr/local/bin --strip-components=1 "$name/cargo-deny"
           rm "$name.tar.gz"
 
       - name: Check dependencies
-        run: cargo deny --locked check
+        run: as-builder cargo deny --locked check
+
+      - name: Check the fuzz workspace's dependencies
+        run: as-builder cargo deny --manifest-path fuzz/Cargo.toml --config deny.toml --locked check
 
   format:
     runs-on: ubuntu-latest
@@ -85,7 +118,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends build-essential ca-certificates curl git
+          apt-get install -y --no-install-recommends build-essential ca-certificates curl git zstd
 
       - name: Check out (actions/checkout v7.0.1)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -101,7 +134,15 @@ jobs:
             --profile minimal --component rustfmt
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
+      - name: Restore rust-formatter (actions/cache v6.1.0)
+        id: formatter
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.cargo/bin/rust-formatter
+          key: rust-formatter-${{ env.RUST_FORMATTER_REV }}-${{ env.RUST_TOOLCHAIN }}
+
       - name: Install rust-formatter
+        if: steps.formatter.outputs.cache-hit != 'true'
         run: |
           cargo install --locked --git https://github.com/vibe-technologies-llc/rust-formatter \
             --rev "$RUST_FORMATTER_REV" rust-formatter
@@ -135,6 +176,17 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
             | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Restore the cargo cache (actions/cache v6.1.0)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: package-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: package-${{ env.RUST_TOOLCHAIN }}-
 
       - name: Install cargo-about
         run: |
@@ -173,7 +225,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends build-essential ca-certificates curl git
+          apt-get install -y --no-install-recommends build-essential ca-certificates curl git zstd
 
       - name: Check out (actions/checkout v7.0.1)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -192,6 +244,28 @@ jobs:
           echo "$CARGO_FUZZ_SHA256  $name.tar.gz" | sha256sum -c -
           tar -xzf "$name.tar.gz" -C "$HOME/.cargo/bin" cargo-fuzz
           rm "$name.tar.gz"
+
+      - name: Check that the fuzz lock file is current
+        working-directory: fuzz
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
+      - name: Restore the fuzz build (actions/cache v6.1.0)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            fuzz/target
+          key: fuzz-${{ env.FUZZ_TOOLCHAIN }}-${{ matrix.target }}-${{ hashFiles('fuzz/Cargo.lock') }}
+          restore-keys: fuzz-${{ env.FUZZ_TOOLCHAIN }}-${{ matrix.target }}-
+
+      - name: Restore the corpus (actions/cache v6.1.0)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
 
       - name: Fuzz
         working-directory: fuzz

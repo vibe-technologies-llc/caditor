@@ -12,7 +12,7 @@ use xxhash_rust::xxh3::Xxh3;
 #[cfg(test)]
 pub(crate) use self::model::save_bytes;
 pub(crate) use self::model::{
-    EncodeError, Encoded, Shared, decode, encode, encode_over, history, load_version,
+    EncodeError, Encoded, Shared, decode, encode, encode_over, history, load_version, reads_back,
 };
 pub use self::model::{History, SavedState, Version};
 

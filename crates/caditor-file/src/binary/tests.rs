@@ -4,7 +4,7 @@ use caditor_document::{Document, Edit, Transaction};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    model::{decode, encode_over, history, load_version, save_bytes},
+    model::{decode, encode_over, history, load_version, reads_back, save_bytes},
     testing::{
         corrupt_chunk, model_chunk_count, push_foreign, records_as_json, sharing_from,
         with_slices_of,
@@ -712,4 +712,22 @@ fn padding_is_neither_a_version_nor_something_from_a_newer_version() {
     let resaved = save_bytes(&documents[11], Some(&bytes), later(20), None).unwrap();
     assert_eq!(padding_chunks(&resaved), 0);
     assert_eq!(history(&resaved), history(&bytes));
+}
+
+#[test]
+fn a_save_reads_back_only_when_every_record_matches_its_head() {
+    let document = with_width(10);
+    let encoded = encode_over(&document, None, at(1_000), None).unwrap();
+    let previous = encoded.bytes.clone();
+    let resaved = encode_over(&edited(&document, 20), Some(&previous), at(2_000), None).unwrap();
+
+    let damaged_record = corrupt_chunk(&encoded.bytes, &MODEL_MAGIC, 1);
+    let cut_short = &encoded.bytes[..encoded.bytes.len() / 2];
+
+    assert!(reads_back(&encoded.bytes, &encoded.digest));
+    assert!(reads_back(&resaved.bytes, &resaved.digest));
+    assert!(!reads_back(&encoded.bytes, &resaved.digest));
+    assert!(!reads_back(&damaged_record, &encoded.digest));
+    assert!(!reads_back(cut_short, &encoded.digest));
+    assert!(!reads_back(b"not a model", &encoded.digest));
 }

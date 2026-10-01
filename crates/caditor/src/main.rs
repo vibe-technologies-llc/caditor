@@ -9,6 +9,8 @@ mod bodies;
 mod canvas;
 mod cli;
 mod commands;
+#[cfg(test)]
+mod conventions_tests;
 mod datum_panel;
 mod datum_tools;
 mod display;

@@ -6194,12 +6194,14 @@ fn drag_screen(harness: &mut Harness, from: Pos2, to: Pos2) {
 
 #[test]
 fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_percent() {
+    let dir = TempDir::new().unwrap();
     let mut harness = Harness::new();
+
     let document = harness.document().clone();
     let name = "Bracket for the front suspension, revised after the second test.caditor";
     harness
         .model
-        .replace(document, Some(PathBuf::from(name)), false);
+        .replace(document, Some(dir.path().join(name)), false);
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::Scale(2.0),
     )));

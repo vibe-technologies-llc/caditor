@@ -40,6 +40,9 @@ paths:
 - Self-describing serde encoding: tagged null, booleans, LEB128 unsigned and negative integers, LE
   f64, strings, bytes, sequences and maps closed by an end tag; nesting limited. Enums like JSON
   (unit variant is its name, others a one-entry map).
+- Only finite floats are encoded: NaN or an infinity fails as `ValueError::NonFinite`, and a save
+  is refused with a reason saying so, since the lenient reader would turn it into `Null` and load
+  the record as damaged.
 - `Lenient` reads any record through a `serde_json::Value`: unknown fields ignored, unknown record
   kinds reported as from a newer version.
 - A newer version adding something whose loss changes the model's meaning needs a new record kind
@@ -104,7 +107,13 @@ paths:
 - Names past 255 bytes (temporaries, `.damaged` copies) are cut and end in a hash
   (`paths::fitting`); a model whose name leaves no room for `.<name>.journal` keeps its journal in
   the recovery directory.
-- A save refuses when the earlier versions in the file it replaces cannot be read.
+- A save refuses when the earlier versions in the file it replaces cannot be read, and when the
+  file is read-only (no write bit, or `access` denies writing), since `rename` would replace it
+  anyway; the failure notice offers Save As.
+- Before the rename, a model save reads the synced temporary back through the same handle and
+  checks that it parses undamaged, that its head digest is the one encoded, and that every record
+  hashes to it (`binary::reads_back`); otherwise the temporary is removed and the file left as it
+  was. This guards against the compressor and the shared-range copies.
 - Overwriting a file that loaded with problems first keeps the original as
   `<name>.damaged.caditor` (`keep_copy`, shared with preferences): a hard link, or where links are
   unsupported a copy synced under a temporary name and moved into place whole.

@@ -654,7 +654,6 @@ dependencies = [
 name = "caditor-file"
 version = "0.1.0"
 dependencies = [
- "ahash",
  "blake3",
  "caditor-document",
  "caditor-expression",

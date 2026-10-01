@@ -22,24 +22,6 @@ within a category run from most to least important.
 
 ## Checks and CI
 
-- CI has not passed since it was added, so the Release workflow's `checks` gate can never pass.
-  The `check` job runs `cargo test` as root in the `ubuntu:22.04` container, where mode bits are
-  not enforced, so the tests relying on unreadable or unwritable files fail
-  (`a_save_that_cannot_read_the_earlier_versions_fails_and_changes_nothing`,
-  `restoring_keeps_the_recovered_journal_until_a_new_one_is_written`,
-  `an_unwritable_recovery_folder_shows_that_changes_are_not_protected`): run the tests as an
-  unprivileged user.
-- `fuzz/Cargo.lock` is stale (`caditor-file` gained `png` and `rustix`, `glam` moved), so every
-  fuzz job fails before compiling. Regenerate it, and have CI build the fuzz workspace with
-  `--locked` and run `cargo deny` on `fuzz/Cargo.toml` too, since the root checks never see it.
-- The `package` job fails at "Build a snapshot archive" on Ubuntu 22.04 while the same script
-  passes locally; the likely cause is the older `desktop-file-validate` rejecting
-  `SingleMainWindow` in `packaging/caditor.desktop`. Reproduce in a 22.04 container and fix it,
-  since the release workflow runs the same step.
-- A UI test (`the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_percent`)
-  gives its model a relative path, so the storage worker writes a recovery journal into
-  `crates/caditor/`, and one was committed. Give the test a `TempDir` path, remove the tracked
-  journal, ignore `.*.journal`, and fail CI on a dirty tree after the tests.
 - No fuzz target covers the kernel or sketch operations, though "valid or an error, never a
   panic" is the central invariant: random profiles through `Profile::new`, `extrude` and
   `revolve` hit about 0.3% `Invalid` results (see Kernel correctness). Add seeded targets for
@@ -53,24 +35,11 @@ within a category run from most to least important.
 - The ignored `random_placements_of_every_fixture` and
   `a_conflict_across_hundreds_of_entities_is_named_within_seconds` guard the boolean failure rate
   and the diagnosis budget but run nowhere; run them in release on a schedule with a threshold.
-- Fuzz runs start from the seeds every time for 60 seconds, so coverage never accumulates: cache
-  `fuzz/corpus`. Ten jobs build the workspace cold on every push with no cargo cache.
 - The panic hook and signal flush in `main.rs`, the data-loss backstop, have no test: spawn the
   binary, kill it, and recover its journal. `check-install.sh` only runs `--version`; start the
   packaged binary to a first frame under Xvfb and lavapipe, check its linked libraries and highest
   glibc symbol against `docs/RELEASING.md`, and run the offscreen tests once more on the GL
   backend that `packaging/INSTALL.md` promises.
-- `deny.toml` does not ban the C-backed crates the project avoids (`openssl-sys`, `native-tls`,
-  `zstd-sys`, `libz-sys` and the like), and `multiple-versions = "allow"` hides four `glam`
-  versions.
-- `caditor-file`'s `fuzzing` module is behind a feature that neither the clippy nor the test
-  command enables, so the panic lints never see it: lint with `--all-features`.
-- `clippy.toml` bans the standard `HashMap` outright, but maps keyed by file contents (parameter
-  names in `load.rs`, record bytes in `binary/model.rs`) should keep the DoS-resistant hasher;
-  allow it there and record the rule in `rust-style.md`.
-- Rules a machine could check are prose only: no comments in source, every member inheriting the
-  workspace lints, and `caditor-zstd`'s hand-copied lint list. A test over the sources and
-  manifests would hold them.
 - Two solver tests assert under 5 seconds in a debug build and a document test waits on a
   20 second deadline; use work budgets as `DIAGNOSIS_WORK` does.
 - Action SHAs, toolchains and tool versions are bumped by hand and duplicated between `ci.yml`
@@ -82,10 +51,6 @@ within a category run from most to least important.
 
 ## Persistence and recovery
 
-- Nothing checks that a save decodes back to the model before it replaces the file, although
-  every save compresses with a pre-release zstd port (`libzstd-rs-sys` `0.0.1-prerelease.2`),
-  zstd frame checksums are off and the head digest is checked only on load. Decode the finished
-  temporary in `replace_atomically` and compare its head digest before the rename.
 - Saving over a file that went bad after it was loaded (bit rot, a sync client) silently drops
   its damaged chunks and every version delta that depended on an unreadable head, without a
   `.damaged` copy, since `keep_original` comes only from the load's own report. Count damaged
@@ -100,8 +65,6 @@ within a category run from most to least important.
 - A save never checks its size against the loader's 2 GiB `MAX_FILE_SIZE`, and retention caps
   age, not bytes, so a large history can produce a file that no longer opens and refuses the
   next save. Thin harder as the file nears the limit, and say so.
-- A read-only model file in a writable folder is replaced without asking, because `rename`
-  ignores the target's mode; check it in `ensure_replaceable` and offer Save As.
 - The recovery journal grows without bound until a save: every apply, undo and redo appends the
   whole transaction (undoing and redoing an import repeats its STEP text), the worker's
   `entries` grow all session, and a journal over 2 GiB cannot be recovered. Rebase the snapshot
@@ -114,9 +77,6 @@ within a category run from most to least important.
   a chunk from a newer version.
 - One flipped byte in the 12-byte magic refuses the whole file as not a model even when every
   chunk checksum is intact; offer a salvage open.
-- The value encoder writes NaN and infinities, which the lenient reader turns into `Null`, so
-  such a feature saves "successfully" and loads as damaged. Refuse non-finite values when
-  encoding.
 - Load and save hold five or six copies of the model (every record unpacked before any is
   parsed, the unchanged-record check keyed by full bytes), contradicting "records decode one at
   a time" in `file-format.md`. Opening Version History decompresses every version to verify it.
@@ -310,6 +270,9 @@ within a category run from most to least important.
   size-bounded history per feature.
 - Recompute is single-threaded: independent bodies and the final meshing of each body could run
   in parallel over the dependency data the document already has.
+- Parameter lookups by ID and by name scan the whole list (`Document::parameter`,
+  `parameter_named`, `parameter_position`), so a transaction touching every parameter is
+  quadratic: restoring a chain of 1,200 takes about 0.1 s in a debug build. Index them.
 - `Recomputer::cancel()` after a job has finished marks that sequence cancelled, so every later
   mesh request returns at once and a fillet or shell panel's "before" mesh never appears; mesh
   requests are also served oldest first, finishing stale states ahead of the current one.

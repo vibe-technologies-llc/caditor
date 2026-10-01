@@ -28,19 +28,23 @@ const VARINT_BITS: u32 = 7;
 const VARINT_CONTINUES: u8 = 0x80;
 const VARINT_PAYLOAD: u8 = 0x7f;
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{0}")]
-pub(crate) struct ValueError(String);
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub(crate) enum ValueError {
+    #[error("{0}")]
+    Malformed(String),
+    #[error("a value is {0}, which cannot be stored; only finite numbers can")]
+    NonFinite(f64),
+}
 
 impl ser::Error for ValueError {
     fn custom<T: Display>(message: T) -> Self {
-        Self(message.to_string())
+        Self::Malformed(message.to_string())
     }
 }
 
 impl de::Error for ValueError {
     fn custom<T: Display>(message: T) -> Self {
-        Self(message.to_string())
+        Self::Malformed(message.to_string())
     }
 }
 
@@ -58,7 +62,7 @@ pub(crate) fn from_bytes<'de, T: Deserialize<'de>>(bytes: &'de [u8]) -> Result<T
     };
     let value = T::deserialize(&mut decoder)?;
     if decoder.position != bytes.len() {
-        return Err(ValueError(
+        return Err(ValueError::Malformed(
             "the value is followed by unexpected bytes".to_owned(),
         ));
     }
@@ -187,6 +191,9 @@ impl Serializer for &mut Encoder {
     }
 
     fn serialize_f64(self, value: f64) -> Result<(), ValueError> {
+        if !value.is_finite() {
+            return Err(ValueError::NonFinite(value));
+        }
         self.tag(FLOAT);
         self.bytes.extend_from_slice(&value.to_le_bytes());
         Ok(())
@@ -431,7 +438,7 @@ struct Decoder<'de> {
 
 impl<'de> Decoder<'de> {
     fn error(&self, what: &str) -> ValueError {
-        ValueError(format!("{what} at byte {}", self.position))
+        ValueError::Malformed(format!("{what} at byte {}", self.position))
     }
 
     fn peek(&self) -> Result<u8, ValueError> {
@@ -554,7 +561,7 @@ impl<'de> Deserializer<'de> for &mut Decoder<'de> {
                 self.leave();
                 Ok(value)
             }
-            _ => Err(ValueError(format!(
+            _ => Err(ValueError::Malformed(format!(
                 "unknown value kind at byte {}",
                 self.position - 1
             ))),

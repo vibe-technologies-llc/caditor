@@ -15,6 +15,7 @@ mod recovery;
 mod save;
 mod settings;
 mod storage;
+mod untrusted;
 
 pub use crate::{
     binary::{History, SavedState, Version},
