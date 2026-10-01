@@ -539,7 +539,7 @@ pub fn dialog(
                 }
             }
         } else {
-            let chosen = dialog_parts::split_footer(
+            let chosen = widgets::footer_split(
                 ui,
                 |ui| {
                     ui.add(widgets::danger_button(RESTORE_DEFAULTS))

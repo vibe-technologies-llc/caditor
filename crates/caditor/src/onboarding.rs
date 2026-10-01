@@ -13,7 +13,7 @@ use egui::{
 use crate::{
     appearance::{self, BORDER_WIDTH, CARD_RADIUS, SPACE_M, SPACE_S, WIDGET_RADIUS},
     commands::{self, Command, Keymap, Offer},
-    dialog_parts::{self, BodyRoom},
+    dialog_parts::BodyRoom,
     editing::{SketchEditing, Tool},
     fonts, icons,
     model::{Model, display_name},
@@ -254,7 +254,7 @@ pub fn show_hint(
                         )
                         .1;
                     ui.add(Label::new(hint.text(keymap)).wrap());
-                    let chosen = dialog_parts::split_footer(
+                    let chosen = widgets::footer_split(
                         ui,
                         |ui| {
                             ui.add(widgets::button("Hide tips"))

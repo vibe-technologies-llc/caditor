@@ -182,6 +182,54 @@ fn no_source_file_or_manifest_holds_a_comment() {
     assert!(commented.is_empty(), "comments in {commented:#?}");
 }
 
+const RAW_WIDGETS: [&str; 5] = [
+    "ui.button(",
+    "ui.small_button(",
+    "Button::new(",
+    "Button::selectable(",
+    ".selectable_label(",
+];
+const KIT_FILES: [&str; 1] = ["widgets.rs"];
+
+fn raw_widget_at(line: &str) -> Option<&'static str> {
+    RAW_WIDGETS.into_iter().find(|raw| {
+        line.match_indices(raw).any(|(at, _)| {
+            let before = line.get(..at).and_then(|start| start.chars().last());
+            !before.is_some_and(|previous| previous.is_alphanumeric() || previous == '_')
+        })
+    })
+}
+
+#[test]
+fn buttons_outside_the_widget_kit_come_from_it() {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let raw: Vec<String> = files_with_extension(&source, "rs")
+        .into_iter()
+        .filter(|path| {
+            let name = path.file_name().unwrap().to_string_lossy();
+            !KIT_FILES.contains(&name.as_ref())
+                && !name.ends_with("_tests.rs")
+                && !path.components().any(|part| part.as_os_str() == "ui_tests")
+        })
+        .flat_map(|path| {
+            let text = fs::read_to_string(&path).unwrap();
+            text.lines()
+                .enumerate()
+                .filter_map(|(index, line)| {
+                    raw_widget_at(line).map(|raw| format!("{}:{} {raw}", path.display(), index + 1))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    assert!(raw.is_empty(), "use the widgets.rs kit instead of {raw:#?}");
+    assert_eq!(raw_widget_at("ToolButton::new(glyph)"), None);
+    assert_eq!(
+        raw_widget_at("egui::Button::new(text)"),
+        Some("Button::new(")
+    );
+}
+
 #[test]
 fn the_comment_scanners_tell_comments_from_strings_and_lifetimes() {
     assert_eq!(first_rust_comment("let a = 1;\n// note\n"), Some(2));

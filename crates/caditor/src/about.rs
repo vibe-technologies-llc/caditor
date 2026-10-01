@@ -4,7 +4,7 @@ use egui::{Align, Layout, RichText, TextStyle};
 
 use crate::{
     appearance::SPACE_M,
-    dialog_parts, icons, logo,
+    icons, logo,
     widgets::{self, DialogWidth},
 };
 
@@ -80,7 +80,7 @@ pub fn dialog(ctx: &egui::Context) -> bool {
                 }
             });
         }
-        dialog_parts::split_footer(
+        widgets::footer_split(
             ui,
             |ui| {
                 let copy = widgets::small_button(ui, icons::COPY, COPY_VERSION);

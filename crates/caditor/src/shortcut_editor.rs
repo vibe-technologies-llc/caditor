@@ -171,7 +171,7 @@ pub fn dialog(
             }
         } else {
             let all_default = keymap.is_all_default();
-            let chosen = dialog_parts::split_footer(
+            let chosen = widgets::footer_split(
                 ui,
                 |ui| {
                     ui.add_enabled(!all_default, widgets::danger_button(RESET_ALL))

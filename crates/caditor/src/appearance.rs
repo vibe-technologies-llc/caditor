@@ -29,7 +29,6 @@ pub const SPACE_XS: f32 = 2.0;
 pub const SPACE_S: f32 = 4.0;
 pub const SPACE_M: f32 = 8.0;
 pub const SPACE_L: f32 = 12.0;
-pub const SPACE_XL: f32 = 20.0;
 pub const DIALOG_MARGIN: i8 = 20;
 const HIGH_CONTRAST_DISABLED_ALPHA: f32 = 0.7;
 const DISABLED_ALPHA: f32 = 0.5;

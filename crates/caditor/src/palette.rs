@@ -7,7 +7,7 @@ use egui::{
 use crate::{
     appearance::{self, CONTROL_HEIGHT, DIALOG_MARGIN, SPACE_M, SPACE_S, SPACE_XS, WIDGET_RADIUS},
     commands::{self, Command, Keymap, Offer, Scope},
-    dialog_parts, icons,
+    icons,
     panels::Focus,
     widgets::{self, Tone},
 };
@@ -296,7 +296,10 @@ impl Palette {
         let area = Modal::default_area(id).anchor(Align2::CENTER_TOP, vec2(0.0, TOP_MARGIN));
         let frame = widgets::dialog_frame(ctx).inner_margin(Margin::same(DIALOG_MARGIN));
         let response = Modal::new(id).area(area).frame(frame).show(ctx, |ui| {
-            ui.set_width(widgets::fitting_width(ui.ctx(), dialog_parts::WIDE_WIDTH));
+            ui.set_width(widgets::fitting_width(
+                ui.ctx(),
+                widgets::DialogWidth::Wide.points(),
+            ));
             let field = ui
                 .horizontal(|ui| {
                     let muted = appearance::tokens(ui).text_muted;

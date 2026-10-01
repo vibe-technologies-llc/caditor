@@ -20,7 +20,6 @@ const MIN_DIALOG_WIDTH: f32 = 240.0;
 const LIST_SCREEN_SHARE: f32 = 0.4;
 const MIN_LIST_HEIGHT: f32 = 96.0;
 pub const FIELD_WIDTH: f32 = 120.0;
-pub const NAME_FIELD_WIDTH: f32 = 180.0;
 const PROPERTY_SPACING: [f32; 2] = [12.0, 8.0];
 const CAPTION_WIDTH: f32 = 84.0;
 const CARD_MARGIN: i8 = 10;
@@ -280,10 +279,6 @@ pub fn danger_button(text: impl Into<String>) -> EmphasizedButton {
     EmphasizedButton::new(None, text, Emphasis::Danger)
 }
 
-pub fn danger_icon_button(glyph: &str, text: &str) -> EmphasizedButton {
-    EmphasizedButton::new(Some(glyph), text, Emphasis::Danger)
-}
-
 pub fn paint_focus_ring(ui: &Ui, rect: Rect) {
     let focus = appearance::tokens(ui).focus;
     ui.painter().rect_stroke(
@@ -310,44 +305,74 @@ pub fn strong(text: impl Into<String>) -> RichText {
     RichText::new(text).family(fonts::semibold())
 }
 
+pub struct Segment<'a> {
+    pub label: &'a str,
+    pub hover: &'a str,
+    pub refusal: Option<&'a str>,
+}
+
 pub fn segmented(ui: &mut Ui, choices: &[(&str, &str)], selected: usize) -> Option<usize> {
-    if segmented_width(ui, choices) > ui.available_width() + WIDTH_CHANGE {
-        segmented_menu(ui, choices, selected)
+    let segments: Vec<Segment<'_>> = choices
+        .iter()
+        .map(|(label, hover)| Segment {
+            label,
+            hover,
+            refusal: None,
+        })
+        .collect();
+    segmented_with(ui, &segments, selected)
+}
+
+pub fn segmented_with(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Option<usize> {
+    if segmented_width(ui, segments) > ui.available_width() + WIDTH_CHANGE {
+        segmented_menu(ui, segments, selected)
     } else {
-        segmented_row(ui, choices, selected)
+        segmented_row(ui, segments, selected)
     }
 }
 
-fn segmented_width(ui: &Ui, choices: &[(&str, &str)]) -> f32 {
+fn segmented_width(ui: &Ui, segments: &[Segment<'_>]) -> f32 {
     let padding = ui.spacing().button_padding.x;
-    let labels: f32 = choices
+    let labels: f32 = segments
         .iter()
-        .map(|(label, _)| {
-            unwrapped(ui, RichText::new(*label), TextStyle::Button)
+        .map(|segment| {
+            unwrapped(ui, RichText::new(segment.label), TextStyle::Button)
                 .size()
                 .x
                 + 2.0 * padding
         })
         .sum();
-    let gaps = SPACE_XS * choices.len().saturating_sub(1) as f32;
+    let gaps = SPACE_XS * segments.len().saturating_sub(1) as f32;
     labels + gaps + 2.0 * f32::from(SEGMENT_INSET)
 }
 
-fn segmented_menu(ui: &mut Ui, choices: &[(&str, &str)], selected: usize) -> Option<usize> {
+fn offered(response: Response, segment: &Segment<'_>) -> Response {
+    let response = if segment.hover.is_empty() {
+        response
+    } else {
+        response.on_hover_text(segment.hover)
+    };
+    match segment.refusal {
+        Some(refusal) => response.on_disabled_hover_text(refusal),
+        None => response,
+    }
+}
+
+fn segmented_menu(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Option<usize> {
     let mut chosen = None;
-    let current = choices.get(selected).map_or("", |(label, _)| *label);
-    let salt: Vec<&str> = choices.iter().map(|(label, _)| *label).collect();
+    let current = segments.get(selected).map_or("", |segment| segment.label);
+    let salt: Vec<&str> = segments.iter().map(|segment| segment.label).collect();
     let combo = egui::ComboBox::from_id_salt(("segmented", salt))
         .selected_text(current)
         .width(ui.available_width())
         .show_ui(ui, |ui| {
-            for (index, (label, hover)) in choices.iter().enumerate() {
-                let response = ui.selectable_label(index == selected, *label);
-                let response = if hover.is_empty() {
-                    response
-                } else {
-                    response.on_hover_text(*hover)
-                };
+            for (index, segment) in segments.iter().enumerate() {
+                let response = ui
+                    .add_enabled_ui(segment.refusal.is_none(), |ui| {
+                        menu_option(ui, index == selected, segment.label)
+                    })
+                    .inner;
+                let response = offered(response, segment);
                 if response.clicked() && index != selected {
                     chosen = Some(index);
                 }
@@ -357,7 +382,7 @@ fn segmented_menu(ui: &mut Ui, choices: &[(&str, &str)], selected: usize) -> Opt
     chosen
 }
 
-fn segmented_row(ui: &mut Ui, choices: &[(&str, &str)], selected: usize) -> Option<usize> {
+fn segmented_row(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Option<usize> {
     let tokens = appearance::tokens(ui);
     let mut chosen = None;
     Frame::new()
@@ -368,14 +393,14 @@ fn segmented_row(ui: &mut Ui, choices: &[(&str, &str)], selected: usize) -> Opti
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = SPACE_XS;
                 let segment_height = CONTROL_HEIGHT - 2.0 * f32::from(SEGMENT_INSET);
-                for (index, (label, hover)) in choices.iter().enumerate() {
+                for (index, segment) in segments.iter().enumerate() {
                     let current = index == selected;
-                    let text = if current {
-                        RichText::new(*label).color(tokens.accent_text)
+                    let color = if current {
+                        tokens.accent_text
                     } else {
-                        RichText::new(*label).color(tokens.text)
+                        tokens.text
                     };
-                    let mut button = Button::new(text)
+                    let mut button = Button::new(RichText::new(segment.label).color(color))
                         .min_size(vec2(0.0, segment_height))
                         .corner_radius(CornerRadius::same(WIDGET_RADIUS - SEGMENT_INSET as u8));
                     button = if current {
@@ -385,12 +410,9 @@ fn segmented_row(ui: &mut Ui, choices: &[(&str, &str)], selected: usize) -> Opti
                     } else {
                         button.frame_when_inactive(false)
                     };
-                    let response = ui.add(Named::new(button, *label).selected(current));
-                    let response = if hover.is_empty() {
-                        response
-                    } else {
-                        response.on_hover_text(*hover)
-                    };
+                    let named = Named::new(button, segment.label).selected(current);
+                    let response =
+                        offered(ui.add_enabled(segment.refusal.is_none(), named), segment);
                     if response.clicked() && !current {
                         chosen = Some(index);
                     }
@@ -402,8 +424,9 @@ fn segmented_row(ui: &mut Ui, choices: &[(&str, &str)], selected: usize) -> Opti
 
 pub fn key_cap(ui: &mut Ui, keys: &str) -> Response {
     let tokens = appearance::tokens(ui);
-    ui.horizontal(|ui| {
+    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = SPACE_XS;
+        ui.spacing_mut().interact_size.y = 0.0;
         for key in keys.split('+').filter(|key| !key.is_empty()) {
             Frame::new()
                 .fill(tokens.button)
@@ -1158,7 +1181,7 @@ pub enum DialogWidth {
 }
 
 impl DialogWidth {
-    fn points(self) -> f32 {
+    pub fn points(self) -> f32 {
         match self {
             Self::Medium => 460.0,
             Self::Wide => 600.0,
@@ -1244,6 +1267,37 @@ pub fn dialog_frame(ctx: &egui::Context) -> Frame {
 pub fn footer<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     ui.add_space(DIALOG_FOOTER_GAP);
     Sides::new().show(ui, |_| {}, add).1
+}
+
+pub fn footer_split<T>(
+    ui: &mut Ui,
+    start: impl FnOnce(&mut Ui) -> Option<T>,
+    end: impl FnOnce(&mut Ui) -> Option<T>,
+) -> Option<T> {
+    footer(ui, |ui| {
+        let ended = end(ui);
+        let started = ui
+            .with_layout(Layout::left_to_right(Align::Center), start)
+            .inner;
+        ended.or(started)
+    })
+}
+
+pub fn menu_option(ui: &mut Ui, chosen: bool, title: &str) -> Response {
+    ui.add(Named::new(Button::selectable(chosen, title), title).selected(chosen))
+}
+
+pub fn menu_item_with_detail(ui: &mut Ui, glyph: &str, title: &str, detail: &str) -> Response {
+    let muted = appearance::tokens(ui).text_muted;
+    let button = Button::new((
+        icon(glyph).color(muted),
+        title.to_owned(),
+        egui::Atom::grow(),
+        RichText::new(detail.to_owned())
+            .text_style(TextStyle::Small)
+            .color(muted),
+    ));
+    ui.add(Named::new(button, title))
 }
 
 #[cfg(test)]

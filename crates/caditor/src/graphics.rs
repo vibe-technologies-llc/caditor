@@ -6,10 +6,9 @@ use caditor_render::{GraphicsInfo, GraphicsSettings, Msaa, Shading};
 use egui::{Label, Ui};
 
 use crate::{
-    dialog_parts::{self, Segment},
     icons,
     preferences::{self, PreferenceChange, PreferencesCommand},
-    widgets::{self, Tone},
+    widgets::{self, Segment, Tone},
 };
 
 const VSYNC_KEY: &str = "graphics.vsync";
@@ -412,10 +411,13 @@ fn display(
                     .selected_text(graphics.frame_limit.label())
                     .show_ui(ui, |ui| {
                         for limit in FrameLimit::ALL {
-                            let chosen = ui
-                                .selectable_label(graphics.frame_limit == limit, limit.label())
-                                .on_hover_text(limit.hover(hardware.refresh_rate))
-                                .clicked();
+                            let chosen = widgets::menu_option(
+                                ui,
+                                graphics.frame_limit == limit,
+                                &limit.label(),
+                            )
+                            .on_hover_text(limit.hover(hardware.refresh_rate))
+                            .clicked();
                             if chosen && graphics.frame_limit != limit {
                                 preferences::change(command, PreferenceChange::FrameLimit(limit));
                             }
@@ -460,7 +462,7 @@ fn quality(
                 .iter()
                 .position(|msaa| *msaa == graphics.msaa)
                 .unwrap_or(usize::MAX);
-            if let Some(msaa) = dialog_parts::segmented_offered(ui, &segments, selected)
+            if let Some(msaa) = widgets::segmented_with(ui, &segments, selected)
                 .and_then(|index| Msaa::ALL.get(index).copied())
             {
                 preferences::change(command, PreferenceChange::Msaa(msaa));

@@ -20,7 +20,7 @@ use caditor_file::{
     describe_set_aside, journal_for, load, load_version, read_dxf, read_step_file, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
-use egui::{RichText, Sides, Ui};
+use egui::{Sides, Ui};
 use parking_lot::Mutex;
 
 use crate::{
@@ -1687,18 +1687,9 @@ fn menu_item(ui: &mut Ui, commands: &CommandFrame<'_>, command: Command) -> egui
 }
 
 fn recent_item(ui: &mut Ui, path: &Path) -> egui::Response {
-    let muted = appearance::tokens(ui).text_muted;
     let name = display_name(Some(path));
     let folder = onboarding::folder_name(path);
-    let button = egui::Button::new((
-        widgets::icon(icons::FILE).color(muted),
-        name.clone(),
-        egui::Atom::grow(),
-        RichText::new(folder)
-            .text_style(egui::TextStyle::Small)
-            .color(muted),
-    ));
-    ui.add(widgets::Named::new(button, name))
+    widgets::menu_item_with_detail(ui, icons::FILE, &name, &folder)
         .on_hover_text(path.display().to_string())
 }
 
@@ -1786,7 +1777,7 @@ fn guard(ctx: &egui::Context, model: &Model, intent: &Intent) -> Option<GuardCho
     let title = format!("Save changes to “{name}”?");
     let response = widgets::dialog(ctx, "unsaved-changes", &title, DialogWidth::Medium, |ui| {
         ui.label(consequence);
-        dialog_parts::split_footer(
+        widgets::footer_split(
             ui,
             |ui| {
                 ui.add(widgets::danger_button(discard))
