@@ -72,6 +72,7 @@ pub fn show(
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if context.chrome.built_in() {
+                        window_frame::remember_controls_row(ui.ctx(), ui.max_rect());
                         window_frame::controls(ui, context.chrome.state, commands, actions);
                         ui.separator();
                     }

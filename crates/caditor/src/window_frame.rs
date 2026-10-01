@@ -27,6 +27,7 @@ const CORNER: f32 = 16.0;
 const CONTROL_SIZE: Vec2 = vec2(40.0, CONTROL_HEIGHT);
 const CONTROL_GAP: f32 = SPACE_XS;
 const BAR_RECT_KEY: &str = "title-bar-rect";
+const CONTROLS_ROW_KEY: &str = "title-bar-controls-row";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowState {
@@ -107,6 +108,10 @@ pub fn drag_region(ui: &Ui, chrome: Chrome) -> Option<Response> {
 
 pub fn remember_bar(ctx: &Context, rect: Rect) {
     ctx.data_mut(|data| data.insert_temp(Id::new(BAR_RECT_KEY), rect));
+}
+
+pub fn remember_controls_row(ctx: &Context, rect: Rect) {
+    ctx.data_mut(|data| data.insert_temp(Id::new(CONTROLS_ROW_KEY), rect));
 }
 
 pub fn drags_window(
@@ -289,9 +294,12 @@ pub fn over_dialogs(
             ui.set_min_size(bar.size());
             let response = ui.interact(bar, id.with("drag"), Sense::click_and_drag());
             drags_window(&response, chrome, commands, actions);
+            let row = ctx
+                .data(|data| data.get_temp::<Rect>(Id::new(CONTROLS_ROW_KEY)))
+                .unwrap_or_else(|| bar.shrink2(vec2(ui.spacing().item_spacing.x, 0.0)));
             ui.scope_builder(
                 UiBuilder::new()
-                    .max_rect(bar.shrink2(vec2(ui.spacing().item_spacing.x, 0.0)))
+                    .max_rect(row)
                     .layout(Layout::right_to_left(Align::Center)),
                 |ui| controls(ui, chrome.state, commands, actions),
             );
