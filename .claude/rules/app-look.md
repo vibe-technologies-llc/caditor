@@ -5,6 +5,7 @@ paths:
   - "crates/caditor/src/icons.rs"
   - "crates/caditor/src/widgets.rs"
   - "crates/caditor/src/canvas.rs"
+  - "crates/caditor/src/view_cube.rs"
   - "crates/caditor/src/layout.rs"
   - "crates/caditor/src/menu_bar.rs"
   - "crates/caditor/src/window_frame.rs"
@@ -34,9 +35,33 @@ paths:
   `Style` from them (Inter text styles plus a `section` style, spacing, radii, shadows) and tests
   every text pairing against its background. Panels read colours from `appearance::tokens(ui)` or
   the visuals, never fixed values.
-- The 3D view keeps a dark canvas in every theme; text on it takes its colours from `canvas.rs` and
-  sits on a translucent backdrop (`canvas::label`); a test holds every canvas colour to 4.5:1 (body
-  7:1) over that backdrop on black, white and highlight colours.
+- The 3D view keeps a dark canvas in every theme, and `canvas.rs` is its chrome. Colours are
+  defined there once: text, muted, dimension, hover amber, selection blue, error, warning, prompt
+  and snap, which `scene.rs` converts for the geometry it highlights (`opaque`, `translucent`), so a
+  hovered or selected line and its label share one colour. Text uses its type scale (`small` 11.5,
+  `body` 13, `title` 15 in Inter medium, `emphasis` for keys and glyph letters, `readout` monospace
+  for the cursor position) and sits on the translucent `BACKDROP` with one padding (`PADDING`) and
+  radius (`RADIUS`), as `canvas::label` or a `canvas::Label` measured before it is painted; the
+  typed-point field uses the opaque `PANEL`. A test holds every canvas colour to 4.5:1 (body 7:1)
+  over that backdrop on black, white and the hover amber, key caps and canvas controls in every
+  state, and the view cube's labels on each cell state.
+- Key hints are `canvas::Hints`: text in the `Key: action` form, items three spaces apart, is laid
+  out as key caps (several keys joined by " or ") beside a muted action, plain text where the part
+  before ": " is not keys, wrapping in rows within the width given. Each key, "or" and action is its
+  own text, so tests check a hint with `shows_hint`.
+- Overlay text keeps clear of the view cube: the prompt (`title`, prompt colour) and its key hints
+  centre on the view within the band left of `view_cube::area`, wrapping there (at most 720
+  points); the hover description starts at the band's top left, moving under the prompt when they
+  would meet; the cursor readout sits right of the axis triad; the navigation hints sit bottom
+  right, right-aligned, beside room kept for the readout while sketching, and are left out when
+  they would meet the cube or the prompt.
+- The view cube (`view_cube.rs`) draws its 26 targets as cells with thin dividers, the hovered one
+  in hover amber (darker while pressed) with a dark label; it is one focusable button named
+  "View cube: View from top, front and right" after the hovered target, else the view it is
+  nearest, with that name as its tooltip, and while focused the arrow keys step to the
+  neighbouring target on that side. Fit all (Fit selection when something is selected) under it
+  is a canvas control (`canvas::button`: backdrop fill, hover and pressed fills, the canvas focus
+  ring, an icon and the label, `BUTTON_HEIGHT` tall).
 
 ## Widgets
 

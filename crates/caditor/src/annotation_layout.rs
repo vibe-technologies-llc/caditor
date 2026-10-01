@@ -1,4 +1,7 @@
-use std::f64::consts::{FRAC_1_SQRT_2, PI};
+use std::{
+    collections::BTreeMap,
+    f64::consts::{FRAC_1_SQRT_2, PI},
+};
 
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{Constraint, Entity, EntityId, Reference, Sketch};
@@ -25,6 +28,17 @@ const CIRCLE_GLYPH_DIRECTION: Vector2 = Vector2::new(-FRAC_1_SQRT_2, -FRAC_1_SQR
 const ARC_LEADER_FRACTION: f64 = 0.5;
 const ARC_GLYPH_FRACTION: f64 = 0.25;
 const SPLINE_GLYPH_ANGLE: f64 = PI / 18.0;
+const GLYPH_SHIFT_STEP: f64 = GLYPH_SPACING / 2.0;
+const MAX_CURVE_GLYPH_SHIFT: f64 = GLYPH_SPACING * 2.0;
+const GLYPH_STEPS_BEYOND: usize = 4;
+const OBSTACLE_CELL: f64 = 32.0;
+const MAX_OBSTACLE_CELLS: i64 = 64;
+const POINT_GLYPH_QUADRANTS: [Vector2; 4] = [
+    Vector2::ONE,
+    Vector2::new(-1.0, 1.0),
+    Vector2::new(1.0, -1.0),
+    Vector2::NEG_ONE,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LineSpan {
@@ -687,26 +701,187 @@ pub fn glyph_anchor(
     }
 }
 
-pub fn stack_glyphs(anchor: GlyphAnchor, count: usize, centre: Option<Vector2>) -> Vec<Vector2> {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Footprint {
+    pub center: Vector2,
+    pub half: Vector2,
+}
+
+impl Footprint {
+    pub fn overlap(&self, other: &Self) -> f64 {
+        let reach = self.half + other.half;
+        let apart = (self.center - other.center).abs();
+        let narrower = self.half.min(other.half) * 2.0;
+        let shared = (reach - apart).min(narrower).max(Vector2::ZERO);
+        shared.x * shared.y
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Obstacles {
+    footprints: Vec<Footprint>,
+    cells: BTreeMap<(i64, i64), Vec<usize>>,
+}
+
+impl Obstacles {
+    pub fn add(&mut self, footprint: Footprint) {
+        let index = self.footprints.len();
+        self.footprints.push(footprint);
+        for cell in cells_under(&footprint) {
+            self.cells.entry(cell).or_default().push(index);
+        }
+    }
+
+    fn overlap(&self, footprint: &Footprint) -> f64 {
+        let mut near: Vec<usize> = cells_under(footprint)
+            .filter_map(|cell| self.cells.get(&cell))
+            .flatten()
+            .copied()
+            .collect();
+        near.sort_unstable();
+        near.dedup();
+        near.into_iter()
+            .filter_map(|index| self.footprints.get(index))
+            .map(|other| footprint.overlap(other))
+            .sum()
+    }
+}
+
+fn cells_under(footprint: &Footprint) -> impl Iterator<Item = (i64, i64)> {
+    let cell = |at: f64| (at / OBSTACLE_CELL).floor() as i64;
+    let low = footprint.center - footprint.half;
+    let high = footprint.center + footprint.half;
+    let span = |low: f64, high: f64| {
+        let first = cell(low);
+        first..=cell(high).min(first.saturating_add(MAX_OBSTACLE_CELLS))
+    };
+    let (columns, rows) = (span(low.x, high.x), span(low.y, high.y));
+    columns.flat_map(move |column| rows.clone().map(move |row| (column, row)))
+}
+
+pub fn place_glyphs(
+    anchor: GlyphAnchor,
+    count: usize,
+    centre: Option<Vector2>,
+    half: Vector2,
+    blocked: &Obstacles,
+) -> Vec<Vector2> {
+    let overlap = |positions: &[Vector2]| {
+        positions
+            .iter()
+            .map(|center| {
+                blocked.overlap(&Footprint {
+                    center: *center,
+                    half,
+                })
+            })
+            .sum::<f64>()
+    };
+    let mut best: Option<(f64, Vec<Vector2>)> = None;
+    for placement in placements(anchor, count) {
+        let positions = stacked(anchor, count, centre, placement);
+        let overlapping = overlap(&positions);
+        if overlapping <= 0.0 {
+            return positions;
+        }
+        if best.as_ref().is_none_or(|(least, _)| overlapping < *least) {
+            best = Some((overlapping, positions));
+        }
+    }
+    best.map(|(_, positions)| positions).unwrap_or_default()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Placement {
+    flipped: bool,
+    shift: f64,
+    quadrant: usize,
+}
+
+impl Default for Placement {
+    fn default() -> Self {
+        Self {
+            flipped: false,
+            shift: 0.0,
+            quadrant: 0,
+        }
+    }
+}
+
+fn placements(anchor: GlyphAnchor, count: usize) -> Vec<Placement> {
+    let extent = count.saturating_sub(1) as f64 * GLYPH_SPACING;
+    let reach = match anchor {
+        GlyphAnchor::Segment(start, end) => ((start.distance(end) - extent) / 2.0).max(0.0),
+        GlyphAnchor::Curve { .. } => MAX_CURVE_GLYPH_SHIFT,
+        GlyphAnchor::Point(_) => {
+            return (0..POINT_GLYPH_QUADRANTS.len())
+                .map(|quadrant| Placement {
+                    quadrant,
+                    ..Placement::default()
+                })
+                .collect();
+        }
+    };
+    let within = (reach / GLYPH_SHIFT_STEP).floor() as usize;
+    let shifts = |steps: std::ops::RangeInclusive<usize>| {
+        steps
+            .flat_map(|step| {
+                let shift = step as f64 * GLYPH_SHIFT_STEP;
+                [shift, -shift]
+            })
+            .collect::<Vec<f64>>()
+    };
+    let near: Vec<f64> = std::iter::once(0.0).chain(shifts(1..=within)).collect();
+    let beyond = shifts(within + 1..=within + GLYPH_STEPS_BEYOND);
+    let sides = |shifts: Vec<f64>| {
+        [false, true].into_iter().flat_map(move |flipped| {
+            shifts.clone().into_iter().map(move |shift| Placement {
+                flipped,
+                shift,
+                quadrant: 0,
+            })
+        })
+    };
+    sides(near).chain(sides(beyond)).collect()
+}
+
+fn stacked(
+    anchor: GlyphAnchor,
+    count: usize,
+    centre: Option<Vector2>,
+    placement: Placement,
+) -> Vec<Vector2> {
+    let side = if placement.flipped { -1.0 } else { 1.0 };
     let centred = |base: Vector2, step: Vector2| {
         let middle = count.saturating_sub(1) as f64 / 2.0;
+        let along = step.try_normalize().unwrap_or(Vector2::ZERO);
         (0..count)
-            .map(|index| base + step * (index as f64 - middle))
+            .map(|index| base + along * placement.shift + step * (index as f64 - middle))
             .collect()
     };
     match anchor {
         GlyphAnchor::Segment(start, end) => {
             let middle = (start + end) / 2.0;
             let along = (end - start).try_normalize().unwrap_or(Vector2::X);
-            let normal = toward(along.perp(), middle, centre);
+            let normal = toward(along.perp(), middle, centre) * side;
             centred(middle + normal * GLYPH_OFFSET, along * GLYPH_SPACING)
         }
-        GlyphAnchor::Curve { at, outward } => {
-            centred(at + outward * GLYPH_OFFSET, outward.perp() * GLYPH_SPACING)
+        GlyphAnchor::Curve { at, outward } => centred(
+            at + outward * side * GLYPH_OFFSET,
+            outward.perp() * GLYPH_SPACING,
+        ),
+        GlyphAnchor::Point(at) => {
+            let quadrant = POINT_GLYPH_QUADRANTS
+                .get(placement.quadrant)
+                .copied()
+                .unwrap_or(Vector2::ONE);
+            let offset = POINT_GLYPH_OFFSET * quadrant;
+            (0..count)
+                .map(|index| {
+                    at + offset + Vector2::X * quadrant.x * POINT_GLYPH_SPACING * index as f64
+                })
+                .collect()
         }
-        GlyphAnchor::Point(at) => (0..count)
-            .map(|index| at + POINT_GLYPH_OFFSET + Vector2::X * POINT_GLYPH_SPACING * index as f64)
-            .collect(),
     }
 }
 
@@ -730,6 +905,21 @@ mod tests {
 
     fn assert_close(actual: Vector2, expected: Vector2) {
         assert!(close(actual, expected), "{actual} is not {expected}");
+    }
+
+    const GLYPH_HALF: Vector2 = Vector2::splat(8.0);
+
+    fn stack_glyphs(anchor: GlyphAnchor, count: usize, centre: Option<Vector2>) -> Vec<Vector2> {
+        place_glyphs(anchor, count, centre, GLYPH_HALF, &Obstacles::default())
+    }
+
+    fn label_at(center: Vector2, size: Vector2) -> Obstacles {
+        let mut obstacles = Obstacles::default();
+        obstacles.add(Footprint {
+            center,
+            half: size / 2.0,
+        });
+        obstacles
     }
 
     #[test]
@@ -973,6 +1163,29 @@ mod tests {
             point,
             vec![Vector2::new(15.0, -5.0), Vector2::new(27.0, -5.0)]
         );
+    }
+
+    #[test]
+    fn glyphs_move_along_their_line_off_a_label_then_to_its_other_side() {
+        let anchor = GlyphAnchor::Segment(Vector2::ZERO, Vector2::new(0.0, 100.0));
+        let centre = Some(Vector2::new(50.0, 50.0));
+        let label = label_at(Vector2::new(10.0, 50.0), Vector2::new(80.0, 18.0));
+
+        let moved = place_glyphs(anchor, 1, centre, GLYPH_HALF, &label);
+        assert_eq!(moved, vec![Vector2::new(14.0, 68.0)]);
+
+        let tall = label_at(Vector2::new(14.0, 50.0), Vector2::new(20.0, 120.0));
+        let flipped = place_glyphs(anchor, 1, centre, GLYPH_HALF, &tall);
+        assert_eq!(flipped, vec![Vector2::new(-14.0, 50.0)]);
+
+        let everywhere = label_at(Vector2::new(0.0, 50.0), Vector2::new(200.0, 200.0));
+        let least = place_glyphs(anchor, 1, centre, GLYPH_HALF, &everywhere);
+        assert_eq!(least, vec![Vector2::new(14.0, 50.0)]);
+
+        let point = GlyphAnchor::Point(Vector2::new(5.0, 5.0));
+        let upper_right = label_at(Vector2::new(15.0, -5.0), Vector2::new(10.0, 10.0));
+        let left = place_glyphs(point, 1, None, GLYPH_HALF, &upper_right);
+        assert_eq!(left, vec![Vector2::new(-5.0, -5.0)]);
     }
 
     #[test]

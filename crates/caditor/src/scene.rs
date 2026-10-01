@@ -21,13 +21,21 @@ use caditor_sketch::{
 
 use crate::{
     bodies::{BodyBefore, BodyMesh, BodyMeshes, OpenChoice},
-    datum_tools,
+    canvas, datum_tools,
     display::DisplayedSketches,
     drawing::Preview,
     editing::Context,
     selection::{self, Axis, Pickable, PrincipalPlane, Selection},
     visibility,
 };
+
+const fn opaque(color: egui::Color32) -> Color {
+    Color::from_rgb8(color.r(), color.g(), color.b())
+}
+
+const fn translucent(color: egui::Color32, alpha: u8) -> Color {
+    Color::from_rgba8(color.r(), color.g(), color.b(), alpha)
+}
 
 const MIN_REFERENCE_SIZE: f64 = 20.0;
 const EMPTY_SKETCH_HALF_SIZE: f64 = 50.0;
@@ -54,15 +62,16 @@ const SKETCH_VERTICAL_AXIS: Color = Color::from_rgb8(112, 196, 88);
 const ORIGIN: Color = Color::from_rgb8(235, 235, 235);
 const PLANE_FILL: Color = Color::from_rgba8(120, 150, 200, 22);
 const PLANE_EDGE: Color = Color::from_rgba8(140, 170, 215, 150);
-const HOVERED: Color = Color::from_rgb8(255, 196, 84);
-const SELECTED: Color = Color::from_rgb8(86, 170, 255);
+const HOVERED: Color = opaque(canvas::HOVERED);
+const SELECTED: Color = opaque(canvas::SELECTED);
 const HOVERED_SELECTED: Color = Color::from_rgb8(150, 205, 255);
 const HIGHLIGHT_FILL_ALPHA: f32 = 0.22;
+const CHOSEN_REGION_ALPHA: u8 = 90;
 const PREVIEW_CURVE: Color = Color::from_rgb8(190, 150, 255);
 const PREVIEW_POINT: Color = Color::from_rgb8(214, 190, 255);
 const TRIMMED_CURVE: Color = Color::from_rgb8(255, 96, 84);
-const SNAP_MARKER: Color = Color::from_rgb8(80, 226, 236);
-const MEASURED: Color = Color::from_rgb8(80, 226, 236);
+const SNAP_MARKER: Color = opaque(canvas::SNAP);
+const MEASURED: Color = opaque(canvas::MEASURE);
 const UNMARKED_VERTEX: Color = Color::from_rgba8(0, 0, 0, 0);
 const BODY: Color = Color::from_rgb8(150, 162, 180);
 const FAILED_BODY: Color = Color::from_rgb8(200, 134, 124);
@@ -70,13 +79,13 @@ const OUTDATED_BODY: Color = Color::from_rgb8(182, 170, 130);
 const BACKGROUND_BODY: Color = Color::from_rgb8(92, 96, 104);
 const BODY_EDGE: Color = Color::from_rgb8(30, 32, 38);
 const BACKGROUND_BODY_EDGE: Color = Color::from_rgb8(62, 64, 70);
-const CHOSEN_REGION: Color = Color::from_rgba8(86, 170, 255, 90);
+const CHOSEN_REGION: Color = translucent(canvas::SELECTED, CHOSEN_REGION_ALPHA);
 const OPEN_REGION: Color = Color::from_rgba8(210, 214, 224, 26);
 const HOVERED_REGION_ALPHA: f32 = 0.4;
 const REVOLVE_AXIS: Color = Color::from_rgb8(255, 150, 60);
-const CHOSEN_EDGE: Color = Color::from_rgb8(86, 170, 255);
+const CHOSEN_EDGE: Color = SELECTED;
 const FOLLOWED_EDGE: Color = Color::from_rgb8(150, 200, 250);
-const OPENED_FACE: Color = Color::from_rgb8(86, 170, 255);
+const OPENED_FACE: Color = SELECTED;
 const DATUM_EDGE: Color = Color::from_rgba8(236, 178, 92, 220);
 const DATUM_FILL: Color = Color::from_rgba8(236, 178, 92, 26);
 const FAILED_DATUM_EDGE: Color = Color::from_rgba8(214, 120, 110, 220);

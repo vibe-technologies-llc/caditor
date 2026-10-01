@@ -2,12 +2,14 @@ use caditor_expression::Dimension;
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::MAX_LENGTH;
 use egui::{
-    Align2, Area, Event, Frame, Id, Key, Order, Pos2, RichText, TextEdit,
+    Align, Align2, Area, Event, Frame, Id, Key, Label, Margin, Order, Pos2, Rect, RichText, Sense,
+    TextEdit,
     text::{CCursor, CCursorRange},
     text_edit::TextEditState,
 };
 
 use crate::{
+    canvas,
     field::{self, Expected},
     icons,
     model::Model,
@@ -18,6 +20,8 @@ pub const FIELD_LABEL: &str = "Place point";
 pub const MOVE_LABEL: &str = "Move to";
 pub const POINT_PLACEHOLDER: &str = "x, y  or  length < angle";
 const FIELD_WIDTH: f32 = 180.0;
+const FRAME_MARGIN: Margin = Margin::symmetric(8, 6);
+const HINT_GAP: f32 = 6.0;
 const RELATIVE_MARK: char = '@';
 const SEPARATORS: [char; 2] = [',', ';'];
 const POLAR_MARK: char = '<';
@@ -142,6 +146,7 @@ impl TypedPoint {
     pub fn show(
         &mut self,
         ctx: &egui::Context,
+        bounds: Rect,
         anchor: Pos2,
         label: &str,
         hint: &str,
@@ -156,46 +161,52 @@ impl TypedPoint {
             state.store(ctx, id);
         }
         let error = self.error.clone();
+        let inner_width = (bounds.width() - FRAME_MARGIN.sum().x).max(FIELD_WIDTH);
         let response = Area::new(id.with("area"))
             .order(Order::Foreground)
             .pivot(Align2::CENTER_TOP)
             .fixed_pos(anchor)
+            .constrain_to(bounds)
             .show(ctx, |ui| {
-                Frame::popup(ui.style())
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(label);
-                            let field = widgets::text_field(ui, |ui| {
+                canvas_frame().show(ui, |ui| {
+                    ui.set_max_width(inner_width);
+                    let field = ui
+                        .horizontal(|ui| {
+                            canvas_text(ui, label, canvas::TEXT);
+                            widgets::text_field(ui, |ui| {
                                 ui.add(
                                     TextEdit::singleline(text)
                                         .id(id)
                                         .desired_width(FIELD_WIDTH)
                                         .hint_text(placeholder),
                                 )
-                            });
-                            ui.label(RichText::new(hint).weak());
-                            field
+                            })
                         })
-                        .inner
-                    })
-                    .inner
+                        .inner;
+                    ui.add_space(HINT_GAP);
+                    let hints = canvas::Hints::bare(ui.painter(), hint, inner_width, Align::Min);
+                    let (rect, _) = ui.allocate_exact_size(hints.size(), Sense::hover());
+                    hints.paint(ui.painter(), rect.min);
+                    field
+                })
             });
         if let Some(error) = &error {
             Area::new(id.with("error"))
                 .order(Order::Foreground)
                 .pivot(Align2::CENTER_TOP)
                 .fixed_pos(response.response.rect.center_bottom())
+                .constrain_to(bounds)
                 .show(ctx, |ui| {
-                    Frame::popup(ui.style()).show(ui, |ui| {
+                    canvas_frame().show(ui, |ui| {
+                        ui.set_max_width(inner_width);
                         ui.horizontal(|ui| {
-                            let color = ui.visuals().error_fg_color;
-                            widgets::icon_label(ui, icons::FAILED, color);
-                            ui.colored_label(color, error);
+                            widgets::icon_label(ui, icons::FAILED, canvas::ERROR);
+                            canvas_text(ui, error, canvas::ERROR);
                         });
                     });
                 });
         }
-        let field = response.inner;
+        let field = response.inner.inner;
         if self.focus_pending {
             field.request_focus();
             self.focus_pending = false;
@@ -220,6 +231,17 @@ impl TypedPoint {
         self.close();
         None
     }
+}
+
+fn canvas_frame() -> Frame {
+    Frame::new()
+        .fill(canvas::PANEL)
+        .corner_radius(canvas::RADIUS)
+        .inner_margin(FRAME_MARGIN)
+}
+
+fn canvas_text(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
+    ui.add(Label::new(RichText::new(text).font(canvas::body()).color(color)).selectable(false));
 }
 
 struct Part {

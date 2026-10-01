@@ -89,7 +89,8 @@ paths:
   and Enter or leave full screen (F11), carried out as egui viewport commands
   (`window_frame::commands`); closing the window is Quit.
 - Viewport commands: Measure (I), standard views (Alt+0 to Alt+6), the projection (O), orbit (arrows), pan
-  (Shift+arrows), zoom (Page Up and Page Down). In a sketch, M moves the selection to a typed
+  (Shift+arrows), zoom (Page Up and Page Down). The view cube takes focus like a button and, while
+  it has it, the arrows step to the neighbouring view on that side (`app-look.md`). In a sketch, M moves the selection to a typed
   position and Ctrl+A selects all of it (`app-sketching.md`). Each way of drawing a rectangle,
   circle, polygon or slot is a sketch command without a default key, and a shape's tool key
   pressed again while it is active steps to its next way (`app-sketching.md`).
@@ -111,6 +112,9 @@ paths:
   split at a top-level `<` (not `<=`; degrees unless a unit is named, from the sketch's x axis); `@`
   for an offset from the last placed point; a lone length goes from it toward the pointer. The point
   must be within `MAX_LENGTH` of the origin.
+- It is canvas chrome (`canvas::PANEL`, `canvas::body`): its label and field in a row, the unit and
+  key hints under them as `canvas::Hints`, an error below in the canvas error colour, all kept in
+  the band left of the view cube.
 - Enter places the point through `Drawing::type_point` (landing exactly on an existing or the
   pending point snaps to it, like a click); an error keeps it open with the reason; Escape closes it
   without touching the shape. It is handled after the drawing syncs with the displayed sketch each

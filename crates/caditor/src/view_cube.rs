@@ -1,24 +1,30 @@
 use caditor_geometry::{Rotation3, Vector3};
-use egui::{Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense, Shape, Stroke, pos2, vec2};
+use egui::{
+    Align2, Color32, CursorIcon, EventFilter, Key, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2,
+    WidgetInfo, WidgetType, pos2, vec2,
+};
 
-use crate::selection::Axis;
+use crate::{canvas, commands::Command, icons, selection::Axis};
+
+pub const NAME: &str = "View cube";
 
 const CUBE_SIZE: f32 = 104.0;
 const MARGIN: f32 = 12.0;
 const PROJECTION_SCALE: f32 = 0.29;
 const INNER_CELL_EXTENT: f64 = 0.55;
 const MIN_VISIBLE_FACING: f64 = 0.02;
-const MIN_LABEL_FACING: f64 = 0.3;
-const FIT_BUTTON_HEIGHT: f32 = 22.0;
+const FIT_BUTTON_GAP: f32 = 6.0;
+const DIVIDER_WIDTH: f32 = 1.0;
+const EDGE_WIDTH: f32 = 1.0;
+const PAINT_ROOM: f32 = 2.0;
+const SIDE_COMPONENT: f64 = 0.5;
+const NEIGHBOUR_MIN_COSINE: f64 = 0.5;
+const STEP_MIN_ALIGNMENT: f32 = 0.5;
 const TRIAD_LENGTH: f32 = 26.0;
 const TRIAD_OFFSET: f32 = 34.0;
 const TRIAD_LABEL_REACH: f32 = 1.35;
 const TRIAD_LABEL_ROOM: f32 = 8.0;
-
-const FACE_FILL: [u8; 3] = [58, 64, 76];
-const FACE_HOVER: Color32 = Color32::from_rgb(255, 196, 84);
-const FACE_EDGE: Color32 = Color32::from_rgb(120, 130, 150);
-const LABEL: [u8; 3] = [225, 228, 235];
+const TRIAD_STROKE: f32 = 2.0;
 
 struct Face {
     normal: Vector3,
@@ -72,6 +78,13 @@ const CELL_SPANS: [(i8, f64, f64); 3] = [
     (1, INNER_CELL_EXTENT, 1.0),
 ];
 
+const ARROWS: [(Key, Vec2); 4] = [
+    (Key::ArrowLeft, vec2(-1.0, 0.0)),
+    (Key::ArrowRight, vec2(1.0, 0.0)),
+    (Key::ArrowUp, vec2(0.0, -1.0)),
+    (Key::ArrowDown, vec2(0.0, 1.0)),
+];
+
 pub enum CubeAction {
     LookFrom(Vector3),
     Fit,
@@ -91,8 +104,12 @@ struct Projector {
 
 impl Projector {
     fn project(&self, point: Vector3) -> Pos2 {
-        let local = self.to_view * point;
-        self.center + vec2(local.x as f32, -(local.y as f32)) * self.scale
+        self.center + self.on_screen(point) * self.scale
+    }
+
+    fn on_screen(&self, direction: Vector3) -> Vec2 {
+        let local = self.to_view * direction;
+        vec2(local.x as f32, -(local.y as f32))
     }
 
     fn facing(&self, normal: Vector3) -> f64 {
@@ -100,21 +117,63 @@ impl Projector {
     }
 }
 
-pub fn show(
-    ui: &mut egui::Ui,
-    viewport: Rect,
-    orientation: Rotation3,
-    fit_label: &str,
-    fit_hover: &str,
-) -> Option<CubeAction> {
-    let rect = Rect::from_min_size(
+fn cube_rect(viewport: Rect) -> Rect {
+    Rect::from_min_size(
         pos2(
             viewport.right() - MARGIN - CUBE_SIZE,
             viewport.top() + MARGIN,
         ),
         vec2(CUBE_SIZE, CUBE_SIZE),
-    );
-    let response = ui.interact(rect, ui.id().with("view cube"), Sense::click());
+    )
+}
+
+fn fit_rect(viewport: Rect) -> Rect {
+    let cube = cube_rect(viewport);
+    Rect::from_min_size(
+        pos2(cube.left(), cube.bottom() + FIT_BUTTON_GAP),
+        vec2(CUBE_SIZE, canvas::BUTTON_HEIGHT),
+    )
+}
+
+pub fn area(viewport: Rect) -> Rect {
+    cube_rect(viewport).union(fit_rect(viewport))
+}
+
+pub fn view_name(direction: Vector3) -> String {
+    let sides: Vec<&str> = [
+        (direction.z, "top", "bottom"),
+        (-direction.y, "front", "back"),
+        (direction.x, "right", "left"),
+    ]
+    .into_iter()
+    .filter_map(|(along, positive, negative)| {
+        if along > SIDE_COMPONENT {
+            Some(positive)
+        } else if along < -SIDE_COMPONENT {
+            Some(negative)
+        } else {
+            None
+        }
+    })
+    .collect();
+    match sides.as_slice() {
+        [first, second, third] => format!("View from {first}, {second} and {third}"),
+        [first, second] => format!("View from {first} and {second}"),
+        [only] => format!("View from {only}"),
+        _ => "View".to_owned(),
+    }
+}
+
+pub fn show(
+    ui: &mut Ui,
+    viewport: Rect,
+    orientation: Rotation3,
+    fit_label: &str,
+    fit_hover: &str,
+) -> Option<CubeAction> {
+    let rect = cube_rect(viewport);
+    let id = ui.id().with("view cube");
+    let response = ui.interact(rect, id, Sense::click());
     let projector = Projector {
         to_view: orientation.inverse(),
         center: rect.center(),
@@ -125,18 +184,47 @@ pub fn show(
         .hover_pos()
         .and_then(|pointer| cells.iter().find(|cell| contains(&cell.corners, pointer)))
         .map(|cell| cell.direction);
+    let pressed = response.is_pointer_button_down_on();
+    let current = nearest_target(orientation * Vector3::Z);
+    let target = hovered.unwrap_or(current);
+    let name = format!("{NAME}: {}", view_name(target));
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), &name));
+    let focused = response.has_focus();
+    if focused {
+        ui.memory_mut(|memory| {
+            memory.set_focus_lock_filter(
+                id,
+                EventFilter {
+                    horizontal_arrows: true,
+                    vertical_arrows: true,
+                    ..EventFilter::default()
+                },
+            );
+        });
+    }
+    let stepped = focused
+        .then(|| {
+            ARROWS
+                .into_iter()
+                .find(|(key, _)| ui.input(|input| input.key_pressed(*key)))
+        })
+        .flatten()
+        .and_then(|(_, step)| neighbour(&projector, current, step));
 
-    let painter = ui.painter_at(rect.expand(2.0));
-    for cell in &cells {
-        let fill = if hovered == Some(cell.direction) {
-            FACE_HOVER
+    let lit = |direction: Vector3| {
+        (hovered == Some(direction)).then_some(if pressed {
+            canvas::CUBE_PRESSED
         } else {
-            shade(FACE_FILL, cell.facing)
-        };
+            canvas::CUBE_HOVERED
+        })
+    };
+    let painter = ui.painter_at(rect.expand(PAINT_ROOM));
+    for cell in &cells {
+        let fill = lit(cell.direction).unwrap_or_else(|| canvas::cube_face(cell.facing));
         painter.add(Shape::convex_polygon(
             cell.corners.to_vec(),
             fill,
-            Stroke::NONE,
+            Stroke::new(DIVIDER_WIDTH, canvas::CUBE_DIVIDER),
         ));
     }
     for face in &FACES {
@@ -148,45 +236,92 @@ pub fn show(
             .map(|(a, b)| projector.project(face.normal + face.u * a + face.v * b));
         painter.add(Shape::closed_line(
             outline.to_vec(),
-            Stroke::new(1.0, FACE_EDGE),
+            Stroke::new(EDGE_WIDTH, canvas::CUBE_EDGE),
         ));
-        if facing > MIN_LABEL_FACING {
-            let [red, green, blue] = LABEL;
-            let alpha = (facing.clamp(0.0, 1.0) * 255.0) as u8;
+        if facing > canvas::CUBE_DIMMEST_LABELLED_FACING {
+            let color = if lit(face.normal).is_some() {
+                canvas::CUBE_LABEL_ON_HOVER
+            } else {
+                canvas::CUBE_LABEL
+            };
             painter.text(
                 projector.project(face.normal),
                 Align2::CENTER_CENTER,
                 face.label,
-                FontId::proportional(12.0),
-                Color32::from_rgba_unmultiplied(red, green, blue, alpha),
+                canvas::emphasis(),
+                color,
             );
         }
     }
-
+    if focused {
+        canvas::paint_focus_ring(ui.painter(), rect);
+    }
     if hovered.is_some() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
-    let fit_rect = Rect::from_min_size(
-        pos2(rect.left(), rect.bottom() + 6.0),
-        vec2(CUBE_SIZE, FIT_BUTTON_HEIGHT),
-    );
-    let fit = ui
-        .put(fit_rect, egui::Button::new(fit_label))
-        .on_hover_text(fit_hover);
+    let response = match hovered {
+        Some(direction) => response.on_hover_text(view_name(direction)),
+        None => response,
+    };
+
+    let fit = canvas::button(
+        ui,
+        fit_rect(viewport),
+        ui.id().with("fit view"),
+        icons::command(Command::FitView),
+        fit_label,
+    )
+    .on_hover_text(fit_hover);
 
     if fit.clicked() {
         Some(CubeAction::Fit)
-    } else if response.clicked() {
+    } else if response.clicked() && hovered.is_some() {
         hovered.map(CubeAction::LookFrom)
     } else {
-        None
+        stepped.map(CubeAction::LookFrom)
     }
+}
+
+fn targets() -> impl Iterator<Item = Vector3> {
+    (-1..=1).flat_map(|x| {
+        (-1..=1).flat_map(move |y| {
+            (-1..=1)
+                .map(move |z| Vector3::new(f64::from(x), f64::from(y), f64::from(z)))
+                .filter(|direction| *direction != Vector3::ZERO)
+        })
+    })
+}
+
+fn nearest_target(looking_from: Vector3) -> Vector3 {
+    let toward = looking_from.normalize_or_zero();
+    targets()
+        .max_by(|a, b| {
+            a.normalize()
+                .dot(toward)
+                .total_cmp(&b.normalize().dot(toward))
+        })
+        .unwrap_or(Vector3::Z)
+}
+
+fn neighbour(projector: &Projector, current: Vector3, step: Vec2) -> Option<Vector3> {
+    let from = current.normalize_or_zero();
+    targets()
+        .filter(|target| *target != current)
+        .filter_map(|target| {
+            let closeness = target.normalize().dot(from);
+            let moved = projector.on_screen(target.normalize() - from).normalized();
+            let alignment = moved.dot(step);
+            (closeness >= NEIGHBOUR_MIN_COSINE && alignment >= STEP_MIN_ALIGNMENT)
+                .then_some((target, alignment, closeness))
+        })
+        .max_by(|a, b| a.1.total_cmp(&b.1).then(a.2.total_cmp(&b.2)))
+        .map(|(target, _, _)| target)
 }
 
 pub const TRIAD_WIDTH: f32 =
     MARGIN + TRIAD_OFFSET + TRIAD_LENGTH * TRIAD_LABEL_REACH + TRIAD_LABEL_ROOM;
 
-pub fn show_axis_triad(ui: &egui::Ui, viewport: Rect, orientation: Rotation3) {
+pub fn show_axis_triad(ui: &Ui, viewport: Rect, orientation: Rotation3) {
     let projector = Projector {
         to_view: orientation.inverse(),
         center: pos2(
@@ -207,12 +342,12 @@ pub fn show_axis_triad(ui: &egui::Ui, viewport: Rect, orientation: Rotation3) {
         let color = Color32::from_rgb(red, green, blue);
         let tip = projector.project(axis.direction());
         let label = projector.project(axis.direction() * f64::from(TRIAD_LABEL_REACH));
-        painter.line_segment([projector.center, tip], Stroke::new(2.0, color));
+        painter.line_segment([projector.center, tip], Stroke::new(TRIAD_STROKE, color));
         painter.text(
             label,
             Align2::CENTER_CENTER,
             axis.letter(),
-            FontId::proportional(11.0),
+            canvas::emphasis(),
             color,
         );
     }
@@ -243,12 +378,6 @@ fn visible_cells(projector: &Projector) -> Vec<Cell> {
         }
     }
     cells
-}
-
-fn shade(rgb: [u8; 3], facing: f64) -> Color32 {
-    let brightness = 0.75 + 0.35 * facing.clamp(0.0, 1.0);
-    let [red, green, blue] = rgb.map(|channel| (f64::from(channel) * brightness).min(255.0) as u8);
-    Color32::from_rgb(red, green, blue)
 }
 
 fn contains(corners: &[Pos2; 4], point: Pos2) -> bool {
@@ -325,5 +454,55 @@ mod tests {
             assert!(contains(&corners, pos2(0.5, 0.5)));
             assert!(!contains(&corners, pos2(1.5, 0.5)));
         }
+    }
+
+    #[test]
+    fn every_target_is_named_by_the_sides_it_looks_from() {
+        assert_eq!(view_name(Vector3::Z), "View from top");
+        assert_eq!(
+            view_name(Vector3::new(0.0, -1.0, 1.0)),
+            "View from top and front"
+        );
+        assert_eq!(
+            view_name(Vector3::new(-1.0, 1.0, -1.0)),
+            "View from bottom, back and left"
+        );
+        let names: Vec<String> = targets().map(view_name).collect();
+        assert_eq!(names.len(), 26);
+        for (index, name) in names.iter().enumerate() {
+            assert!(!names[..index].contains(name), "{name} is named twice");
+        }
+    }
+
+    #[test]
+    fn arrows_step_to_the_neighbouring_target_on_that_side_of_the_cube() {
+        let front = projector_looking_from(Vector3::NEG_Y);
+        assert_eq!(
+            neighbour(&front, Vector3::NEG_Y, vec2(1.0, 0.0)),
+            Some(Vector3::new(1.0, -1.0, 0.0))
+        );
+        assert_eq!(
+            neighbour(&front, Vector3::NEG_Y, vec2(0.0, -1.0)),
+            Some(Vector3::new(0.0, -1.0, 1.0))
+        );
+        let edge = projector_looking_from(Vector3::new(1.0, -1.0, 0.0));
+        assert_eq!(
+            neighbour(&edge, Vector3::new(1.0, -1.0, 0.0), vec2(1.0, 0.0)),
+            Some(Vector3::X)
+        );
+        assert_eq!(
+            nearest_target(Vector3::new(0.9, -1.1, 1.0)),
+            Vector3::new(1.0, -1.0, 1.0)
+        );
+    }
+
+    #[test]
+    fn the_fit_button_sits_under_the_cube_inside_its_area() {
+        let viewport = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
+        let area = area(viewport);
+        assert!(area.contains_rect(cube_rect(viewport)));
+        assert!(area.contains_rect(fit_rect(viewport)));
+        assert!(fit_rect(viewport).top() > cube_rect(viewport).bottom());
+        assert_eq!(fit_rect(viewport).height(), canvas::BUTTON_HEIGHT);
     }
 }

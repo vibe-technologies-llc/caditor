@@ -4,7 +4,7 @@ use caditor_document::{FeatureId, FeatureKind, Transaction};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{Camera, PickResult, Scene, SurfaceSize, View, Viewpoint, ViewportRect};
 use caditor_sketch::{ConstraintId, EntityId};
-use egui::{Align2, FontId, Key, PointerButton, Rect, Response, Sense, Shape, Stroke, vec2};
+use egui::{Align, Align2, Key, PointerButton, Rect, Response, Sense, Shape, Stroke, pos2, vec2};
 
 use crate::{
     annotations::{Annotations, Surface},
@@ -41,8 +41,9 @@ const INITIAL_LOOK_FROM: Vector3 = Vector3::new(1.0, -1.0, 1.0);
 const INITIAL_DISTANCE: f64 = 200.0;
 const ZOOM_PER_SCROLL_POINT: f64 = 0.0025;
 const HIT_CURSOR_TOLERANCE_POINTS: f64 = 1.5;
-const LABEL_MARGIN: f32 = 12.0;
 const PROMPT_MARGIN: f32 = 16.0;
+const PROMPT_MAX_WIDTH: f32 = 720.0;
+const READOUT_ROOM: f32 = 200.0;
 const NAVIGATION_HINT: &str =
     "Right-drag: orbit   Middle-drag or Shift+right-drag: pan   Scroll: zoom";
 pub const CHOOSE_PLANE_PROMPT: &str = "Click a plane or a flat face to sketch on";
@@ -59,9 +60,9 @@ const KEYBOARD_PAN_FRACTION: f64 = 0.1;
 const KEYBOARD_ZOOM_FACTOR: f64 = 1.25;
 const TYPED_POINT_OFFSET: f32 = 64.0;
 const TYPE_POINT_HINT: &str = "Type x, y or length < angle for an exact point";
-const TYPED_POINT_HINT: &str =
-    "@ for relative   A length alone: toward the pointer   Enter: place   Esc: cancel";
-const MOVE_HINT: &str = "@ for an offset   Enter: move   Esc: cancel";
+const TYPED_POINT_HINT: &str = "@: from the last point   A length alone goes toward the pointer   \
+                                Enter: place   Esc: cancel";
+const MOVE_HINT: &str = "@: by an offset   Enter: move   Esc: cancel";
 const BOX_FILL_OPACITY: f32 = 0.12;
 const BOX_STROKE_WIDTH: f32 = 1.0;
 const BOX_DASH: f32 = 6.0;
@@ -1247,10 +1248,14 @@ impl ViewportState {
         if keys_free {
             self.typed_point.open_from_typing(ui.ctx());
         }
-        let hint = format!("in {}   {TYPED_POINT_HINT}", model.length_unit().symbol());
+        let hint = format!(
+            "Lengths in {}   {TYPED_POINT_HINT}",
+            model.length_unit().symbol()
+        );
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
         let Some(typed) = self.typed_point.show(
             ui.ctx(),
+            top_band(rect),
             anchor,
             typed_point::FIELD_LABEL,
             &hint,
@@ -1301,15 +1306,19 @@ impl ViewportState {
             .map(|value| value.millimetres);
         self.modifying.show_typed(shown);
         let hint = format!(
-            "in {}   Enter: {}   Esc: cancel",
+            "Lengths in {}   Enter: {}   Esc: cancel",
             model.length_unit().symbol(),
             field.action
         );
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
-        let Some(typed) =
-            self.typed_point
-                .show(ui.ctx(), anchor, field.label, &hint, field.placeholder)
-        else {
+        let Some(typed) = self.typed_point.show(
+            ui.ctx(),
+            top_band(rect),
+            anchor,
+            field.label,
+            &hint,
+            field.placeholder,
+        ) else {
             return;
         };
         self.modifying.show_typed(None);
@@ -1335,10 +1344,11 @@ impl ViewportState {
     }
 
     fn type_move(&mut self, ui: &egui::Ui, rect: Rect, model: &Model, actions: &mut Vec<Action>) {
-        let hint = format!("in {}   {MOVE_HINT}", model.length_unit().symbol());
+        let hint = format!("Lengths in {}   {MOVE_HINT}", model.length_unit().symbol());
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
         let typed = self.typed_point.show(
             ui.ctx(),
+            top_band(rect),
             anchor,
             typed_point::MOVE_LABEL,
             &hint,
@@ -1514,52 +1524,77 @@ impl ViewportState {
                     position + vec2(0.0, -MEASURE_LABEL_LIFT),
                     Align2::CENTER_BOTTOM,
                     label,
-                    FontId::proportional(13.0),
+                    canvas::body(),
                     canvas::MEASURE,
                 );
             }
         }
-        let hovered = self.annotations.hovered().or(self.highlighted());
-        let description = if self.trimming.is_active() {
-            edited_sketch(model, editing).and_then(|sketch| self.trimming.label(&sketch))
-        } else if self.modifying.is_active() {
-            edited_sketch(model, editing)
-                .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
-        } else {
-            hovered
-                .filter(|_| !self.drawing.is_active())
-                .map(|hovered| hovered.describe(document, model.evaluation()))
-        };
-        if let Some(description) = description {
-            let label = canvas::label(
+        let band = top_band(rect);
+        let prompt = self
+            .prompt(model, editing, key_hints)
+            .map(|(text, keys)| paint_prompt(painter, rect, band, &text, &keys));
+        self.paint_description(painter, model, editing, key_hints, band, prompt);
+        let snap_label = editing
+            .feature()
+            .and_then(|feature| editing::edited_sketch(document, feature))
+            .and_then(|sketch| self.drawing.snap_label(sketch));
+        if let (Some(label), Some(cursor)) = (snap_label, self.cursor) {
+            let position = rect.min
+                + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
+            canvas::label(
                 painter,
-                rect.left_top() + vec2(LABEL_MARGIN, LABEL_MARGIN),
+                position + SNAP_LABEL_OFFSET,
                 Align2::LEFT_TOP,
-                description,
-                FontId::proportional(13.0),
+                label,
+                canvas::small(),
+                canvas::SNAP,
+            );
+        }
+        let readout_left = rect.left() + view_cube::TRIAD_WIDTH;
+        if let Some(position) = self.sketch_cursor {
+            canvas::label(
+                painter,
+                pos2(readout_left, rect.bottom() - canvas::MARGIN),
+                Align2::LEFT_BOTTOM,
+                format!(
+                    "x {}   y {}",
+                    model.length_unit().readout_text(position.x),
+                    model.length_unit().readout_text(position.y)
+                ),
+                canvas::readout(),
                 canvas::TEXT,
             );
-            if self.keyboard_highlight.is_some() {
-                canvas::label(
-                    painter,
-                    label.left_bottom() + vec2(0.0, LABEL_MARGIN / 3.0),
-                    Align2::LEFT_TOP,
-                    &key_hints.highlight,
-                    FontId::proportional(11.0),
-                    canvas::MUTED,
-                );
-            }
         }
-        canvas::wrapped_label(
+        let hints_left = if editing.feature().is_some() {
+            readout_left + READOUT_ROOM
+        } else {
+            readout_left
+        };
+        let hints = canvas::Hints::new(
             painter,
-            rect.right_bottom() - vec2(LABEL_MARGIN, LABEL_MARGIN),
-            Align2::RIGHT_BOTTOM,
             &key_hints.navigation,
-            FontId::proportional(11.0),
-            canvas::MUTED,
-            rect.width() - view_cube::TRIAD_WIDTH - LABEL_MARGIN,
+            rect.right() - canvas::MARGIN - hints_left,
+            Align::Max,
         );
-        let prompt = if editing.is_choosing_plane() {
+        let anchor = rect.right_bottom() - vec2(canvas::MARGIN, canvas::MARGIN);
+        let placed = Align2::RIGHT_BOTTOM.anchor_size(anchor, hints.size());
+        let clear = !placed.intersects(view_cube::area(rect))
+            && prompt.is_none_or(|prompt| !placed.intersects(prompt))
+            && placed.left() >= hints_left
+            && placed.top() >= rect.top();
+        if clear {
+            hints.paint(painter, placed.min);
+        }
+    }
+
+    fn prompt(
+        &self,
+        model: &Model,
+        editing: &SketchEditing,
+        key_hints: &KeyHints,
+    ) -> Option<(String, String)> {
+        let document = model.document();
+        if editing.is_choosing_plane() {
             Some((CHOOSE_PLANE_PROMPT.to_owned(), CHOOSE_PLANE_HINT.to_owned()))
         } else if let Some(feature) = editing.solid() {
             let kind = document.feature(feature).map(|feature| &feature.kind);
@@ -1609,56 +1644,85 @@ impl ViewportState {
                         format!("{mode}{reverse}{sides}{}   {TYPE_POINT_HINT}", prompt.keys),
                     )
                 })
+        }
+    }
+
+    fn paint_description(
+        &self,
+        painter: &egui::Painter,
+        model: &Model,
+        editing: &SketchEditing,
+        key_hints: &KeyHints,
+        band: Rect,
+        prompt: Option<Rect>,
+    ) {
+        let hovered = self.annotations.hovered().or(self.highlighted());
+        let description = if self.trimming.is_active() {
+            edited_sketch(model, editing).and_then(|sketch| self.trimming.label(&sketch))
+        } else if self.modifying.is_active() {
+            edited_sketch(model, editing)
+                .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
+        } else {
+            hovered
+                .filter(|_| !self.drawing.is_active())
+                .map(|hovered| hovered.describe(model.document(), model.evaluation()))
         };
-        if let Some((text, keys)) = prompt {
-            let prompt = canvas::label(
-                painter,
-                rect.center_top() + vec2(0.0, PROMPT_MARGIN),
-                Align2::CENTER_TOP,
-                text,
-                FontId::proportional(16.0),
-                canvas::PROMPT,
-            );
-            canvas::label(
-                painter,
-                prompt.center_bottom() + vec2(0.0, LABEL_MARGIN / 2.0),
-                Align2::CENTER_TOP,
-                keys,
-                FontId::proportional(11.0),
-                canvas::MUTED,
-            );
+        let Some(description) = description else {
+            return;
+        };
+        let label = canvas::Label::new(
+            painter,
+            description,
+            canvas::body(),
+            canvas::TEXT,
+            band.width(),
+        );
+        let mut min = band.left_top();
+        if let Some(prompt) = prompt
+            && Rect::from_min_size(min, label.size()).intersects(prompt)
+        {
+            min.y = prompt.bottom() + canvas::MARGIN / 2.0;
         }
-        let snap_label = editing
-            .feature()
-            .and_then(|feature| editing::edited_sketch(document, feature))
-            .and_then(|sketch| self.drawing.snap_label(sketch));
-        if let (Some(label), Some(cursor)) = (snap_label, self.cursor) {
-            let position = rect.min
-                + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
-            canvas::label(
+        let shown = label.paint(painter, min);
+        if self.keyboard_highlight.is_some() {
+            canvas::Hints::new(painter, &key_hints.highlight, band.width(), Align::Min).paint(
                 painter,
-                position + SNAP_LABEL_OFFSET,
-                Align2::LEFT_TOP,
-                label,
-                FontId::proportional(12.0),
-                canvas::SNAP,
-            );
-        }
-        if let Some(position) = self.sketch_cursor {
-            canvas::label(
-                painter,
-                rect.left_bottom() + vec2(LABEL_MARGIN, -LABEL_MARGIN),
-                Align2::LEFT_BOTTOM,
-                format!(
-                    "x {}   y {}",
-                    model.length_unit().readout_text(position.x),
-                    model.length_unit().readout_text(position.y)
-                ),
-                FontId::monospace(11.0),
-                canvas::TEXT,
+                shown.left_bottom() + vec2(0.0, canvas::MARGIN / 3.0),
             );
         }
     }
+}
+
+fn top_band(rect: Rect) -> Rect {
+    let right = view_cube::area(rect).left() - canvas::MARGIN;
+    let left = rect.left() + canvas::MARGIN;
+    Rect::from_min_max(
+        pos2(left, rect.top() + canvas::MARGIN),
+        pos2(right.max(left), rect.bottom()),
+    )
+}
+
+fn paint_prompt(painter: &egui::Painter, rect: Rect, band: Rect, text: &str, keys: &str) -> Rect {
+    let width = band.width().min(PROMPT_MAX_WIDTH);
+    let title = canvas::Label::new(painter, text, canvas::title(), canvas::PROMPT, width);
+    let hints = canvas::Hints::new(painter, keys, width, Align::Center);
+    let half = title.size().x.max(hints.size().x) / 2.0;
+    let x = rect
+        .center()
+        .x
+        .min(band.right() - half)
+        .max(band.left() + half);
+    let shown = title.paint_at(
+        painter,
+        pos2(x, rect.top() + PROMPT_MARGIN),
+        Align2::CENTER_TOP,
+    );
+    let hinted = hints.paint_at(
+        painter,
+        pos2(x, shown.bottom() + canvas::MARGIN / 2.0),
+        Align2::CENTER_TOP,
+    );
+    shown.union(hinted)
 }
 
 fn paint_box(painter: &egui::Painter, rect: Rect, area: ScreenBox) {

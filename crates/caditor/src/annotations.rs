@@ -5,14 +5,13 @@ use caditor_expression::Expression;
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchSolution};
 use egui::{
-    Align2, Color32, FontId, Galley, Id, Key, Order, Pos2, Rect, Sense, Shape, Stroke, TextEdit,
-    Ui,
+    Align2, Color32, Galley, Id, Key, Order, Pos2, Rect, Sense, Shape, Stroke, TextEdit, Ui,
     text::{CCursor, CCursorRange},
     vec2,
 };
 
 use crate::{
-    annotation_layout::{self, DimensionLayout, GlyphKind},
+    annotation_layout::{self, DimensionLayout, Footprint, GlyphAnchor, GlyphKind, Obstacles},
     canvas,
     field::{self, DimensionTarget},
     model::{Action, Model},
@@ -21,11 +20,8 @@ use crate::{
     snap::Screen,
 };
 
-const LABEL_FONT_SIZE: f32 = 13.0;
-const GLYPH_FONT_SIZE: f32 = 11.0;
-const LABEL_PADDING: egui::Vec2 = vec2(4.0, 2.0);
 const LABEL_GAP: f32 = 3.0;
-const CORNER_RADIUS: f32 = 3.0;
+const GLYPH_CLEARANCE: f32 = 1.5;
 const STROKE_WIDTH: f32 = 1.2;
 const ARROW_LENGTH: f32 = 9.0;
 const ARROW_HALF_WIDTH: f32 = 3.2;
@@ -84,9 +80,23 @@ struct GlyphMark {
     description: String,
 }
 
+struct GlyphItem {
+    constraint: ConstraintId,
+    kind: GlyphKind,
+    standing: Standing,
+    description: String,
+}
+
+struct GlyphGroup {
+    anchor: EntityId,
+    place: GlyphAnchor,
+    items: Vec<GlyphItem>,
+}
+
 struct Marks {
     dimensions: Vec<DimensionMark>,
-    glyphs: Vec<GlyphMark>,
+    groups: Vec<GlyphGroup>,
+    screen_centre: Option<Vector2>,
 }
 
 impl Marks {
@@ -118,27 +128,64 @@ impl Marks {
                 });
             }
         }
-        let glyphs = groups
+        let groups = groups
             .into_iter()
-            .flat_map(|(anchor, items)| {
-                let positions = annotation_layout::glyph_anchor(&shown, anchor, screen)
-                    .map(|place| annotation_layout::stack_glyphs(place, items.len(), screen_centre))
-                    .unwrap_or_default();
-                items
-                    .into_iter()
-                    .zip(positions)
-                    .map(|((constraint, kind), center)| GlyphMark {
-                        constraint,
-                        anchor,
-                        kind,
-                        center,
-                        standing: standings.of(constraint),
-                        description: definition.describe_constraint(constraint),
-                    })
-                    .collect::<Vec<_>>()
+            .filter_map(|(anchor, items)| {
+                Some(GlyphGroup {
+                    anchor,
+                    place: annotation_layout::glyph_anchor(&shown, anchor, screen)?,
+                    items: items
+                        .into_iter()
+                        .map(|(constraint, kind)| GlyphItem {
+                            constraint,
+                            kind,
+                            standing: standings.of(constraint),
+                            description: definition.describe_constraint(constraint),
+                        })
+                        .collect(),
+                })
             })
             .collect();
-        Some(Self { dimensions, glyphs })
+        Some(Self {
+            dimensions,
+            groups,
+            screen_centre,
+        })
+    }
+
+    fn glyphs(&self, mut blocked: Obstacles) -> Vec<GlyphMark> {
+        let half = Vector2::splat(f64::from(GLYPH_SIZE / 2.0 + GLYPH_CLEARANCE));
+        let mut glyphs = Vec::new();
+        for group in &self.groups {
+            let positions = annotation_layout::place_glyphs(
+                group.place,
+                group.items.len(),
+                self.screen_centre,
+                half,
+                &blocked,
+            );
+            for center in &positions {
+                blocked.add(Footprint {
+                    center: *center,
+                    half,
+                });
+            }
+            glyphs.extend(
+                group
+                    .items
+                    .iter()
+                    .zip(positions)
+                    .map(|(item, center)| GlyphMark {
+                        constraint: item.constraint,
+                        anchor: group.anchor,
+                        kind: item.kind,
+                        center,
+                        standing: item.standing,
+                        description: item.description.clone(),
+                    }),
+            );
+        }
+        glyphs
     }
 
     fn dimension(&self, constraint: ConstraintId) -> Option<&DimensionMark> {
@@ -303,7 +350,7 @@ impl Annotations {
                 (editing != Some(mark.constraint)).then(|| {
                     let galley = painter.layout_no_wrap(
                         mark.text.clone(),
-                        FontId::proportional(LABEL_FONT_SIZE),
+                        canvas::body(),
                         Color32::PLACEHOLDER,
                     );
                     let rect = label_rect(surface.rect, &mark.layout, galley.size());
@@ -311,6 +358,11 @@ impl Annotations {
                 })
             })
             .collect();
+        let mut blocked = Obstacles::default();
+        for (_, rect) in labels.iter().flatten() {
+            blocked.add(footprint(surface.rect, rect.expand(GLYPH_CLEARANCE)));
+        }
+        let glyphs = marks.glyphs(blocked);
         let pickable = |constraint| Pickable::SketchConstraint {
             feature: surface.feature,
             constraint,
@@ -328,7 +380,7 @@ impl Annotations {
                     editable: true,
                 })
             })
-            .chain(marks.glyphs.iter().map(|mark| Placed {
+            .chain(glyphs.iter().map(|mark| Placed {
                 pickable: pickable(mark.constraint),
                 hit: Rect::from_center_size(
                     to_pos(surface.rect, mark.center),
@@ -367,7 +419,7 @@ impl Annotations {
                 color(mark.constraint, mark.standing),
             );
         }
-        for mark in &marks.glyphs {
+        for mark in &glyphs {
             paint_glyph(
                 &painter,
                 to_pos(surface.rect, mark.center),
@@ -550,8 +602,17 @@ fn to_vec(vector: Vector2) -> egui::Vec2 {
     vec2(vector.x as f32, vector.y as f32)
 }
 
+fn footprint(surface: Rect, rect: Rect) -> Footprint {
+    let center = rect.center() - surface.min;
+    let half = rect.size() / 2.0;
+    Footprint {
+        center: Vector2::new(f64::from(center.x), f64::from(center.y)),
+        half: Vector2::new(f64::from(half.x), f64::from(half.y)),
+    }
+}
+
 fn label_rect(rect: Rect, layout: &DimensionLayout, text: egui::Vec2) -> Rect {
-    let size = text + LABEL_PADDING * 2.0;
+    let size = canvas::chip_size(text);
     let side = to_vec(layout.label_side);
     let reach = if side == egui::Vec2::ZERO {
         0.0
@@ -585,8 +646,8 @@ fn paint_dimension(
         ));
     }
     if let Some((galley, label)) = label {
-        painter.rect_filled(label, CORNER_RADIUS, canvas::BACKDROP);
-        painter.galley(label.min + LABEL_PADDING, galley, color);
+        canvas::paint_backdrop(painter, label);
+        painter.galley(label.min + canvas::PADDING, galley, color);
     }
 }
 
@@ -632,17 +693,13 @@ fn paint_glyph(painter: &egui::Painter, center: Pos2, kind: GlyphKind, color: Co
         | GlyphKind::Symmetric
         | GlyphKind::Fix => {}
     }
-    painter.rect_filled(
+    canvas::paint_backdrop(
+        painter,
         Rect::from_center_size(center, egui::Vec2::splat(GLYPH_SIZE)),
-        CORNER_RADIUS,
-        canvas::BACKDROP,
     );
     if let Some(letter) = glyph_letter(kind) {
-        let galley = painter.layout_no_wrap(
-            letter.to_owned(),
-            FontId::proportional(GLYPH_FONT_SIZE),
-            Color32::PLACEHOLDER,
-        );
+        let galley =
+            painter.layout_no_wrap(letter.to_owned(), canvas::emphasis(), Color32::PLACEHOLDER);
         painter.galley(center - galley.size() / 2.0, galley, color);
         return;
     }
@@ -736,7 +793,7 @@ fn paint_glyph(painter: &egui::Painter, center: Pos2, kind: GlyphKind, color: Co
 
 #[cfg(test)]
 mod tests {
-    use egui::{FontId, RawInput};
+    use egui::RawInput;
 
     use super::*;
 
@@ -767,9 +824,7 @@ mod tests {
             "0123456789.,+-*/()= mm deg °",
         ]);
         for text in texts {
-            let renders = context.fonts_mut(|fonts| {
-                fonts.has_glyphs(&FontId::proportional(LABEL_FONT_SIZE), text.trim())
-            });
+            let renders = context.fonts_mut(|fonts| fonts.has_glyphs(&canvas::body(), text.trim()));
             assert!(renders, "'{text}' cannot be drawn with the app fonts");
         }
     }

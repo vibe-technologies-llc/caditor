@@ -11,7 +11,7 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, ParameterId, Unit};
 use caditor_file::{ExportFormat, JournalEntry, Start, Storage, StorageConfig};
-use caditor_geometry::{Plane, Point2, Vector2};
+use caditor_geometry::{Plane, Point2, Vector2, Vector3};
 use caditor_kernel::MeshQuality;
 use caditor_render::{Background, GraphicsInfo, Image, ImageError, Msaa, Shading};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
@@ -53,7 +53,7 @@ use crate::{
     sketch_tools::{self, ConstraintTool},
     status_bar, trimming, typed_point,
     units::LengthUnit,
-    widgets, window_frame,
+    view_cube, widgets, window_frame,
 };
 
 mod screenshots;
@@ -482,6 +482,12 @@ impl Harness {
 
     fn shows(&self, text: &str) -> bool {
         self.texts.iter().any(|(shown, _)| shown == text)
+    }
+
+    fn shows_hint(&self, hint: &str) -> bool {
+        canvas::hint_texts(hint)
+            .into_iter()
+            .all(|text| self.shows(text))
     }
 
     fn shows_containing(&self, text: &str) -> bool {
@@ -3362,7 +3368,7 @@ fn a_typed_arc_goes_the_shorter_way_and_x_sends_it_the_long_way() {
     assert!(offer(&harness, Command::ReverseArc).availability.is_err());
     type_point(&mut harness, "0, 0");
     type_point(&mut harness, "10 mm, 0");
-    assert!(harness.shows("X: the other way round   The arc follows your sweep around the centre, a typed end the shorter way   Esc: cancel the arc   Type x, y or length < angle for an exact point"));
+    assert!(harness.shows_hint("X: the other way round   The arc follows your sweep around the centre, a typed end the shorter way   Esc: cancel the arc   Type x, y or length < angle for an exact point"));
     type_point(&mut harness, "0, -10 mm");
     let arcs = entities_of_kind(harness.sketch(feature), "Arc");
     let short = harness.sketch(feature).arc(arcs[0]).unwrap();
@@ -3658,14 +3664,14 @@ fn pressing_a_shape_key_again_cycles_its_ways_of_drawing_and_each_is_remembered(
 
     harness.use_tool(Key::R);
     assert!(harness.shows("Click the rectangle's first corner"));
-    assert!(harness.shows(&with_type_hint(
+    assert!(harness.shows_hint(&with_type_hint(
         "Rectangle from two corners   R: from its centre",
         "Esc: back to Select"
     )));
     harness.use_tool(Key::R);
     assert_eq!(harness.tool(), Some(Tool::Rectangle));
     assert!(harness.shows("Click the rectangle's centre"));
-    assert!(harness.shows(&with_type_hint(
+    assert!(harness.shows_hint(&with_type_hint(
         "Rectangle from its centre   R: from three points",
         "Esc: back to Select"
     )));
@@ -3696,7 +3702,7 @@ fn pressing_a_shape_key_again_cycles_its_ways_of_drawing_and_each_is_remembered(
     assert!(harness.shows("Click where a side of the hexagon starts"));
     harness.use_tool(Key::G);
     assert!(harness.shows("Click the hexagon's centre"));
-    assert!(harness.shows(&with_type_hint(
+    assert!(harness.shows_hint(&with_type_hint(
         "Polygon from its centre and a corner   G: from its centre and a side's middle   ] or \
          [: more or fewer sides",
         "Esc: back to Select"
@@ -5397,12 +5403,13 @@ fn a_shortcut_recorded_in_the_editor_runs_its_command_and_is_remembered() {
     harness.show_new_windows();
     assert!(harness.shows("Alt+U"));
 
+    let shown_before = harness.count_shown("F");
     harness.click("Add…");
     harness.key(Key::F, Modifiers::NONE);
     harness.show_new_windows();
     assert!(harness.shows("F is already used by Fit view. Use it for Undo instead?"));
     harness.click("Keep it where it is");
-    assert!(!harness.shows("F"));
+    assert_eq!(harness.count_shown("F"), shown_before);
 
     harness.click("Add…");
     harness.key(Key::Enter, Modifiers::NONE);
@@ -8736,4 +8743,142 @@ fn the_modify_tools_name_their_keys_and_what_they_do() {
             "{name}"
         );
     }
+}
+
+fn view_cube_node(harness: &Harness) -> Option<(NodeId, String)> {
+    harness
+        .accessible
+        .iter()
+        .find(|(_, node)| {
+            node.role() == Role::Button
+                && node
+                    .label()
+                    .is_some_and(|label| label.starts_with(view_cube::NAME))
+        })
+        .and_then(|(id, node)| Some((*id, node.label()?.to_owned())))
+}
+
+#[test]
+fn the_view_cube_names_its_view_and_steps_to_a_neighbour_from_the_keyboard() {
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.let_animations_finish();
+
+    let (cube, name) = view_cube_node(&harness).expect("the view cube is named");
+    assert_eq!(name, "View cube: View from top, front and right");
+    assert!(harness.accessible_named(Role::Button, "Fit all"));
+    assert!(harness.shows("Fit all"));
+
+    harness.events.push(Event::AccessKitActionRequest(
+        egui::accesskit::ActionRequest {
+            action: egui::accesskit::Action::Focus,
+            target_node: cube,
+            target_tree: egui::accesskit::TreeId::ROOT,
+            data: None,
+        },
+    ));
+    harness.frame();
+    harness.frame();
+    harness.key(Key::ArrowRight, Modifiers::NONE);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.let_animations_finish();
+
+    let looking_from = harness.workspace.viewport.viewpoint().orientation * Vector3::Z;
+    let expected = Vector3::new(1.0, 0.0, 1.0).normalize();
+    assert!(looking_from.distance(expected) < 1e-6, "{looking_from}");
+    let (_, name) = view_cube_node(&harness).expect("the view cube is named");
+    assert_eq!(name, "View cube: View from top and right");
+}
+
+fn bracket_profile(harness: &mut Harness) -> FeatureId {
+    let session = harness.model.session();
+    harness.command(FileCommand::OpenSample(crate::samples::Sample::Bracket));
+    if harness.shows("Continue Without Saving") {
+        harness.click("Continue Without Saving");
+    }
+    harness.wait_until("the sample opens", |harness| {
+        harness.model.session() != session
+    });
+    harness.settle();
+    let profile = harness
+        .document()
+        .features()
+        .find(|feature| feature.name == "Bracket profile")
+        .map(|feature| feature.id())
+        .expect("the bracket has its profile sketch");
+    harness.edit(profile);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.let_animations_finish();
+    profile
+}
+
+#[test]
+fn constraint_glyphs_keep_clear_of_dimension_labels_in_the_bracket_profile() {
+    let mut harness = Harness::new();
+    bracket_profile(&mut harness);
+    let view = harness.workspace.viewport.rect().unwrap();
+    let in_view = |rect: &Rect| view.contains_rect(*rect);
+
+    let labels: Vec<Rect> = harness
+        .texts
+        .iter()
+        .filter(|(text, rect)| text.contains(" = ") && in_view(rect))
+        .map(|(_, rect)| rect.expand2(canvas::PADDING))
+        .collect();
+    let glyphs: Vec<Rect> = harness
+        .texts
+        .iter()
+        .filter(|(text, rect)| (text == "H" || text == "V") && in_view(rect))
+        .map(|(_, rect)| Rect::from_center_size(rect.center(), egui::Vec2::splat(15.0)))
+        .collect();
+
+    assert_eq!(labels.len(), 4);
+    assert_eq!(glyphs.len(), 6);
+    for glyph in &glyphs {
+        for label in &labels {
+            assert!(!glyph.intersects(*label), "{glyph:?} overlaps {label:?}");
+        }
+    }
+}
+
+#[test]
+fn the_prompt_and_key_hints_wrap_clear_of_the_view_cube_in_a_small_view() {
+    let mut harness = Harness::new();
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Scale(1.5),
+    )));
+    harness.frame();
+    harness.draw_on_new_sketch();
+    harness.use_tool(Key::R);
+    harness.frame();
+
+    let view = harness.workspace.viewport.rect().unwrap();
+    let cube = view_cube::area(view);
+    let prompt = "Click the rectangle's first corner";
+    let keys = with_type_hint(
+        "Rectangle from two corners   R: from its centre",
+        "Esc: back to Select",
+    );
+    assert!(harness.shows(prompt));
+    assert!(harness.shows_hint(&keys));
+    let hinted: Vec<&str> = std::iter::once(prompt)
+        .chain(canvas::hint_texts(&keys))
+        .collect();
+    let rows: Vec<f32> = harness
+        .texts
+        .iter()
+        .filter(|(text, _)| hinted.contains(&text.as_str()))
+        .map(|(text, rect)| {
+            assert!(!rect.intersects(cube), "'{text}' runs under the view cube");
+            assert!(
+                view.contains_rect(*rect),
+                "'{text}' leaves the view {view:?} at {rect:?}"
+            );
+            rect.top()
+        })
+        .collect();
+    let first = rows.iter().copied().fold(f32::INFINITY, f32::min);
+    assert!(rows.iter().any(|top| *top > first + 30.0), "{rows:?}");
 }

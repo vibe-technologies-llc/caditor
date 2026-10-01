@@ -284,6 +284,12 @@ paths:
 - Other constraints are glyphs stacked beside each constrained entity on the opposite side
   (horizontal or vertical points, concentric, collinear and symmetric on each item, midpoint and fix
   on the point), painted as shapes or as letters the default fonts carry.
+- Glyphs keep clear of dimension labels and of each other (`annotation_layout::place_glyphs` over
+  an `Obstacles` grid of the labels and the glyphs placed before): a stack slides along its line
+  (or round its curve) in half-spacing steps, then tries the other side, then slides past the
+  line's ends; a point's glyphs try the other corners. When nothing is free the least covered place
+  wins. Labels are `canvas::body` on the canvas backdrop with its padding and radius; glyph letters
+  `canvas::emphasis`.
 - Labels show the expression in the document's naming, followed by its value when not a literal;
   conflicting and redundant constraints take the error and warning colours. Labels and glyphs are
   `Pickable::SketchConstraint`: hover highlights the entities, click selects (Shift/Ctrl toggles),

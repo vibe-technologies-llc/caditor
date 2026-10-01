@@ -5,7 +5,7 @@ use std::{
 };
 
 use caditor_render::{SurfaceTarget, ViewportFrame, ViewportRenderer};
-use egui::{Key, Modifiers};
+use egui::{Event, Key, Modifiers};
 use tempfile::TempDir;
 
 use super::{CAMERA_SETTLE, Harness, Painted};
@@ -17,6 +17,7 @@ use crate::{
     model::Action,
     preferences::{Preferences, PreferencesCommand, Theme},
     samples::Sample,
+    view_cube,
 };
 
 const OUTPUT: &str = "CADITOR_SCREENSHOTS";
@@ -349,5 +350,40 @@ fn screenshots() {
         shoot(&mut model, &gpu, &out, "export", look);
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
+
+        canvas_scenes(&mut model, &gpu, &out, look);
+    }
+}
+
+fn canvas_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    let Some(viewport) = model.workspace.viewport.rect() else {
+        return;
+    };
+    let cube = view_cube::area(viewport);
+    model.events.push(Event::PointerMoved(
+        cube.center_top() + egui::vec2(0.0, 40.0),
+    ));
+    model.frame();
+    shoot(model, gpu, out, "cube-hover", look);
+    model.events.push(Event::PointerMoved(viewport.center()));
+    model.frame();
+
+    let sketch = model
+        .document()
+        .features()
+        .find(|feature| feature.kind.sketch().is_some())
+        .map(|feature| feature.id());
+    if let Some(sketch) = sketch {
+        model.edit(sketch);
+        model.use_tool(Key::R);
+        shoot(model, gpu, out, "drawing", look);
+        model.type_text("10");
+        shoot(model, gpu, out, "typed-point", look);
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+        model.perform(Action::Editing(EditingCommand::Finish));
+        model.settle();
     }
 }
