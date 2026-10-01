@@ -2292,3 +2292,80 @@ fn translucent_fills_are_ordered_again_when_the_view_turns_over() {
     assert_eq!(above_draws, vec![(0, 6..12), (0, 0..6)]);
     assert_eq!(renderer.fill_draws(), &[(0, 0..12)][..]);
 }
+
+#[test]
+fn an_allocation_the_device_refuses_comes_back_as_an_error_instead_of_a_lost_encoder() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+
+    let (buffer, refused) = gpu::scoped(&device, || {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("too large"),
+            size: device.limits().max_buffer_size.saturating_add(1),
+            usage: wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    });
+    let (_, fitting) = gpu::scoped(&device, || {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("small"),
+            size: 64,
+            usage: wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    });
+    drop(buffer);
+    queue.submit([]);
+
+    assert!(refused.is_some());
+    assert!(fitting.is_none());
+}
+
+#[test]
+fn viewport_targets_the_device_refuses_are_reported_once_and_the_frame_is_still_cleared() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("offscreen target"),
+        size: wgpu::Extent3d {
+            width: SIZE,
+            height: SIZE,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let mut draw = |side: u32| {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        let faults = renderer.draw(
+            &device,
+            &queue,
+            &mut encoder,
+            &SurfaceTarget {
+                view: &target_view,
+                width: side,
+                height: side,
+            },
+            None,
+        );
+        queue.submit([encoder.finish()]);
+        faults
+    };
+    let too_large = device.limits().max_texture_dimension_2d + 1;
+
+    let refused = draw(too_large);
+    let repeated = draw(too_large);
+    let fitting = draw(SIZE);
+
+    assert!(refused.targets);
+    assert!(!repeated.any());
+    assert!(!fitting.any());
+}

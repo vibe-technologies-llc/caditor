@@ -267,16 +267,20 @@ impl View {
     }
 
     pub fn unproject(&self, pixel: DVec2, depth: f64) -> Option<Point3> {
-        match self.projection {
+        if !depth.is_finite() || !pixel.is_finite() {
+            return None;
+        }
+        let point = match self.projection {
             Projection::Perspective => {
                 let ray = self.ray_through(pixel)?;
                 let facing = ray.direction().dot(self.forward());
-                (facing > 0.0).then(|| ray.at(depth / facing))
+                (facing > 0.0).then(|| ray.at(depth / facing))?
             }
             Projection::Orthographic => {
-                Some(self.eye() + self.orthographic_offset(pixel) + self.forward() * depth)
+                self.eye() + self.orthographic_offset(pixel) + self.forward() * depth
             }
-        }
+        };
+        point.is_finite().then_some(point)
     }
 
     pub fn project(&self, point: Point3) -> Option<DVec2> {
@@ -434,6 +438,9 @@ impl Camera {
     }
 
     pub fn orbit(&mut self, pivot: Point3, drag: DVec2, viewport_height: f64) {
+        if !pivot.is_finite() || !drag.is_finite() || !viewport_height.is_finite() {
+            return;
+        }
         self.transition = None;
         let radians_per_pixel = ORBIT_RADIANS_PER_VIEWPORT_HEIGHT / viewport_height.max(1.0);
         let forward = self.viewpoint.forward();
@@ -454,6 +461,9 @@ impl Camera {
     }
 
     pub fn pan(&mut self, drag: DVec2, units_per_pixel: f64) {
+        if !drag.is_finite() || !units_per_pixel.is_finite() {
+            return;
+        }
         self.transition = None;
         let offset =
             (self.viewpoint.up() * drag.y - self.viewpoint.right() * drag.x) * units_per_pixel;
@@ -461,7 +471,7 @@ impl Camera {
     }
 
     pub fn zoom(&mut self, anchor: Point3, factor: f64) {
-        if !factor.is_finite() || factor <= 0.0 {
+        if !factor.is_finite() || factor <= 0.0 || !anchor.is_finite() {
             return;
         }
         self.transition = None;
@@ -905,6 +915,35 @@ mod tests {
             (grab_pixel + drag).extend(0.0),
             1e-6,
         );
+    }
+
+    #[test]
+    fn a_non_finite_depth_unprojects_to_nothing_in_both_projections() {
+        let pixel = DVec2::new(400.0, 300.0);
+
+        for view in [
+            View::new(isometric(), WIDTH, HEIGHT),
+            orthographic(isometric()),
+        ] {
+            assert!(view.unproject(pixel, f64::NAN).is_none());
+            assert!(view.unproject(pixel, f64::INFINITY).is_none());
+            assert!(view.unproject(DVec2::NAN, 10.0).is_none());
+            assert!(view.unproject(pixel, 10.0).is_some());
+        }
+    }
+
+    #[test]
+    fn a_non_finite_anchor_or_pivot_leaves_the_camera_where_it_was() {
+        let mut camera = orthographic_camera();
+        let before = camera.viewpoint();
+        let poisoned = Point3::new(f64::NAN, 0.0, 1.0);
+
+        camera.zoom(poisoned, 0.5);
+        camera.orbit(poisoned, DVec2::new(40.0, 10.0), HEIGHT);
+        camera.orbit(Point3::ZERO, DVec2::new(f64::NAN, 10.0), HEIGHT);
+        camera.pan(DVec2::new(5.0, 5.0), f64::NAN);
+
+        assert_eq!(camera.viewpoint(), before);
     }
 
     #[test]

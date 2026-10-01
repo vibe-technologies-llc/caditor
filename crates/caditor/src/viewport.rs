@@ -634,6 +634,7 @@ impl ViewportState {
                     <= HIT_CURSOR_TOLERANCE_POINTS * f64::from(self.pixels_per_point)
             })
             .map(|hit| hit.position)
+            .filter(|position| position.is_finite())
     }
 
     fn highlighted(&self) -> Option<Pickable> {

@@ -5,10 +5,10 @@ use glam::{DVec2, Vec3};
 
 use crate::{
     camera::{Projection, View},
-    gpu::{Bytes, GrowableBuffer},
+    gpu::{self, Bytes, GrowableBuffer},
     image::{self, Background, ChannelOrder, ImageReadback, ImageRequest, TileReadback},
     mesh::{MESH_VERTEX_STRIDE, MeshCache},
-    picking::{self, PickTargets, PickWindow, Picking},
+    picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
     scene::{Batch, Fill, Grid, Layer, PickId, Primitive, Scene, ViewportRect},
     settings::Shading,
 };
@@ -192,6 +192,56 @@ struct SceneTargets {
     depth: wgpu::TextureView,
 }
 
+impl SceneTargets {
+    fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        sample_count: u32,
+        width: u32,
+        height: u32,
+    ) -> Self {
+        let texture = |label, format| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        };
+        Self {
+            width,
+            height,
+            multisampled_color: (sample_count > 1)
+                .then(|| texture("multisampled viewport color", format)),
+            depth: texture("viewport depth", DEPTH_FORMAT),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Faults {
+    pub targets: bool,
+    pub meshes: u32,
+    pub batches: u32,
+    pub picking: bool,
+}
+
+impl Faults {
+    pub fn any(self) -> bool {
+        self.targets || self.meshes > 0 || self.batches > 0 || self.picking
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct FillSpan {
     slot: usize,
@@ -255,6 +305,14 @@ impl GpuBatch {
             fill_spans: Vec::new(),
             reference_pick_vertices: 0,
             nearer_pick_vertices: 0,
+        }
+    }
+
+    fn refused(device: &wgpu::Device, batch: &Arc<Batch>, anchor: Point3) -> Self {
+        Self {
+            shown: Some(Arc::clone(batch)),
+            anchor,
+            ..Self::new(device)
         }
     }
 
@@ -454,7 +512,9 @@ pub struct ViewportRenderer {
     meshes: MeshCache,
     staging: Bytes,
     targets: Option<SceneTargets>,
+    targets_refused: Option<(u32, u32)>,
     picking: Picking,
+    pick_refused: bool,
 }
 
 impl ViewportRenderer {
@@ -501,7 +561,9 @@ impl ViewportRenderer {
             meshes,
             staging: Bytes::default(),
             targets: None,
+            targets_refused: None,
             picking: Picking::new(device, DEPTH_FORMAT),
+            pick_refused: false,
         }
     }
 
@@ -526,6 +588,7 @@ impl ViewportRenderer {
         self.pipelines = Pipelines::new(device, self.format, sample_count, &layouts);
         self.sample_count = sample_count;
         self.targets = None;
+        self.targets_refused = None;
     }
 
     pub fn set_shading(&mut self, shading: Shading) {
@@ -547,16 +610,23 @@ impl ViewportRenderer {
         encoder: &mut wgpu::CommandEncoder,
         surface: &SurfaceTarget<'_>,
         viewport: Option<&ViewportFrame<'_>>,
-    ) {
-        self.ensure_targets(device, surface.width, surface.height);
+    ) -> Faults {
+        let mut faults = Faults {
+            targets: self.ensure_targets(device, surface.width, surface.height),
+            ..Faults::default()
+        };
         let viewport =
             viewport.filter(|viewport| viewport.rect.width >= 1.0 && viewport.rect.height >= 1.0);
         if let Some(viewport) = viewport {
-            self.upload(device, queue, viewport);
+            let uploaded = self.upload(device, queue, viewport);
+            faults.meshes = uploaded.meshes;
+            faults.batches = uploaded.batches;
+            faults.picking = uploaded.picking;
         }
 
         let Some(targets) = self.targets.as_ref() else {
-            return;
+            clear_surface(encoder, surface);
+            return faults;
         };
         let (color_view, resolve_target, store) = match &targets.multisampled_color {
             Some(multisampled) => (multisampled, Some(surface.view), wgpu::StoreOp::Discard),
@@ -585,10 +655,10 @@ impl ViewportRenderer {
             ..Default::default()
         });
         let Some(viewport) = viewport else {
-            return;
+            return faults;
         };
         let Some(scissor) = scissor_rect(viewport.rect, surface.width, surface.height) else {
-            return;
+            return faults;
         };
         pass.set_viewport(
             viewport.rect.x,
@@ -605,6 +675,7 @@ impl ViewportRenderer {
         if let Some(cursor) = viewport.pick_at {
             self.draw_pick(encoder, viewport.view, cursor);
         }
+        faults
     }
 
     pub fn encode_image(
@@ -628,7 +699,9 @@ impl ViewportRenderer {
             pick_at: None,
             pixels_per_point: request.pixels_per_point,
         };
-        self.upload(device, queue, &frame);
+        if self.upload(device, queue, &frame).any() {
+            return None;
+        }
         let tiles = image::tiles(size, tile_side);
         let targets = ImageTargets::new(
             device,
@@ -765,42 +838,42 @@ impl ViewportRenderer {
         self.picking.encode_readback(encoder, *view, cursor);
     }
 
-    fn ensure_targets(&mut self, device: &wgpu::Device, width: u32, height: u32) {
+    fn ensure_targets(&mut self, device: &wgpu::Device, width: u32, height: u32) -> bool {
         let current = self
             .targets
             .as_ref()
             .is_some_and(|targets| targets.width == width && targets.height == height);
-        if current {
-            return;
+        if current || self.targets_refused == Some((width, height)) {
+            return false;
         }
-        let texture = |label, format| {
-            device
-                .create_texture(&wgpu::TextureDescriptor {
-                    label: Some(label),
-                    size: wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: self.sample_count,
-                    dimension: wgpu::TextureDimension::D2,
-                    format,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                    view_formats: &[],
-                })
-                .create_view(&wgpu::TextureViewDescriptor::default())
-        };
-        self.targets = Some(SceneTargets {
-            width,
-            height,
-            multisampled_color: (self.sample_count > 1)
-                .then(|| texture("multisampled viewport color", self.format)),
-            depth: texture("viewport depth", DEPTH_FORMAT),
+        let (targets, error) = gpu::scoped(device, || {
+            SceneTargets::new(device, self.format, self.sample_count, width, height)
         });
+        match error {
+            None => {
+                self.targets = Some(targets);
+                self.targets_refused = None;
+                false
+            }
+            Some(error) => {
+                log::warn!(
+                    "the graphics device refused {width}x{height} viewport targets at {}x multisampling: {error}",
+                    self.sample_count
+                );
+                self.targets = None;
+                self.targets_refused = Some((width, height));
+                true
+            }
+        }
     }
 
-    fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, viewport: &ViewportFrame<'_>) {
+    fn upload(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        viewport: &ViewportFrame<'_>,
+    ) -> Faults {
+        let mut faults = Faults::default();
         let view = viewport.view;
         let scene = viewport.scene;
         let anchored = AnchoredView {
@@ -817,11 +890,17 @@ impl ViewportRenderer {
             WHOLE_VIEW,
         );
         queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
-        if let Some(cursor) = viewport.pick_at
-            && let Some(window) = self
-                .picking
-                .prepare(device, PickWindow::for_scale(pixels_per_point))
-        {
+        let prepared = viewport.pick_at.map(|cursor| {
+            (
+                cursor,
+                self.picking
+                    .prepare(device, PickWindow::for_scale(pixels_per_point)),
+            )
+        });
+        let refused = matches!(prepared, Some((_, PickPrepared::Refused)));
+        faults.picking = refused && !self.pick_refused;
+        self.pick_refused = refused;
+        if let Some((cursor, PickPrepared::Ready(window))) = prepared {
             view_uniform(
                 &mut self.staging,
                 &anchored,
@@ -836,10 +915,14 @@ impl ViewportRenderer {
             queue.write_buffer(&self.grid_uniform.buffer, 0, self.staging.as_slice());
         }
 
-        self.meshes
+        faults.meshes = self
+            .meshes
             .prepare(device, queue, &scene.meshes, view.eye());
-        let changed = self.upload_batches(device, queue, &scene.batches, anchored.anchor);
+        let (changed, refused_batches) =
+            self.upload_batches(device, queue, &scene.batches, anchored.anchor);
+        faults.batches = refused_batches;
         self.order_fills(Facing::of(view), changed);
+        faults
     }
 
     fn anchor_for(&mut self, view: &View) -> Point3 {
@@ -859,8 +942,9 @@ impl ViewportRenderer {
         queue: &wgpu::Queue,
         batches: &[Arc<Batch>],
         anchor: Point3,
-    ) -> bool {
+    ) -> (bool, u32) {
         let mut changed = self.batches.len() != batches.len();
+        let mut refused = 0;
         self.batches.truncate(batches.len());
         for (slot, batch) in batches.iter().enumerate() {
             if slot >= self.batches.len() {
@@ -870,16 +954,29 @@ impl ViewportRenderer {
                 continue;
             };
             if !gpu.holds(batch, anchor) {
-                gpu.upload(
-                    device,
-                    queue,
-                    &mut self.staging,
-                    Uploaded {
-                        batch,
-                        anchor,
-                        slot,
-                    },
-                );
+                let staging = &mut self.staging;
+                let ((), error) = gpu::scoped(device, || {
+                    gpu.upload(
+                        device,
+                        queue,
+                        staging,
+                        Uploaded {
+                            batch,
+                            anchor,
+                            slot,
+                        },
+                    );
+                });
+                if let Some(error) = error {
+                    log::warn!(
+                        "the graphics device refused a batch of {} lines, {} markers and {} fills, so it is not drawn: {error}",
+                        batch.lines.len(),
+                        batch.markers.len(),
+                        batch.fills.len()
+                    );
+                    *gpu = GpuBatch::refused(device, batch, anchor);
+                    refused += 1;
+                }
                 changed = true;
                 #[cfg(test)]
                 {
@@ -887,7 +984,7 @@ impl ViewportRenderer {
                 }
             }
         }
-        changed
+        (changed, refused)
     }
 
     fn order_fills(&mut self, facing: Facing, changed: bool) {
@@ -944,6 +1041,22 @@ pub struct Work {
 struct AnchoredView<'a> {
     view: &'a View,
     anchor: Point3,
+}
+
+fn clear_surface(encoder: &mut wgpu::CommandEncoder, surface: &SurfaceTarget<'_>) {
+    drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("viewport background"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: surface.view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(BACKGROUND),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        ..Default::default()
+    }));
 }
 
 fn sort_back_to_front(spans: &mut [FillSpan], facing: Facing) {

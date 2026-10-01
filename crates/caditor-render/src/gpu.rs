@@ -32,6 +32,15 @@ impl DeviceLoss {
     }
 }
 
+pub fn scoped<T>(device: &wgpu::Device, work: impl FnOnce() -> T) -> (T, Option<wgpu::Error>) {
+    let out_of_memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+    let invalid = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let value = work();
+    let refused = pollster::block_on(invalid.pop());
+    let exhausted = pollster::block_on(out_of_memory.pop());
+    (value, exhausted.or(refused))
+}
+
 pub struct OpenedDevice {
     pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,

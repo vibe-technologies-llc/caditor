@@ -6,6 +6,7 @@ use parking_lot::Mutex;
 
 use crate::{
     camera::View,
+    gpu,
     scene::{PickHit, PickId, PickResult},
 };
 
@@ -134,10 +135,18 @@ impl WindowResources {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PickPrepared {
+    Ready(PickWindow),
+    Busy,
+    Refused,
+}
+
 pub struct Picking {
     depth_buffer_format: wgpu::TextureFormat,
     resources: WindowResources,
     readback_failed: bool,
+    refused: bool,
     in_flight: Option<InFlight>,
 }
 
@@ -148,6 +157,7 @@ impl Picking {
             depth_buffer_format,
             resources: WindowResources::new(device, depth_buffer_format, window),
             readback_failed: false,
+            refused: false,
             in_flight: None,
         }
     }
@@ -156,21 +166,29 @@ impl Picking {
         self.in_flight.is_some()
     }
 
-    pub fn prepare(&mut self, device: &wgpu::Device, window: PickWindow) -> Option<PickWindow> {
+    pub fn prepare(&mut self, device: &wgpu::Device, window: PickWindow) -> PickPrepared {
         if self.is_pending() {
-            return None;
+            return PickPrepared::Busy;
         }
-        if self.resources.window.same_size(window) && !self.readback_failed {
+        if self.resources.window.same_size(window) && !self.readback_failed && !self.refused {
             self.resources.window = window;
-        } else {
-            self.resources = WindowResources::new(device, self.depth_buffer_format, window);
-            self.readback_failed = false;
+            return PickPrepared::Ready(window);
         }
-        Some(window)
+        let (resources, error) = gpu::scoped(device, || {
+            WindowResources::new(device, self.depth_buffer_format, window)
+        });
+        self.resources = resources;
+        self.readback_failed = false;
+        self.refused = error.is_some();
+        if let Some(error) = error {
+            log::warn!("the graphics device refused the picking targets: {error}");
+            return PickPrepared::Refused;
+        }
+        PickPrepared::Ready(window)
     }
 
     pub fn prepared(&self) -> Option<&PickTargets> {
-        (!self.is_pending()).then_some(&self.resources.targets)
+        (!self.is_pending() && !self.refused).then_some(&self.resources.targets)
     }
 
     pub fn encode_readback(

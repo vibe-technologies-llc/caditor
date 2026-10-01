@@ -1045,6 +1045,9 @@ impl Session {
             self.workspace.viewport.pick_was_not_issued();
         }
         self.note_adapter();
+        for fault in self.renderer.take_faults() {
+            model.set_notice(Notice::error(fault.to_string()));
+        }
 
         let repaint_now = changed || repaint_after.is_some_and(|delay| delay.is_zero());
         self.next_repaint = None;

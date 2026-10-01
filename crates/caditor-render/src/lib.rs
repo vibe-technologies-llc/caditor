@@ -9,7 +9,11 @@ mod scene;
 mod settings;
 mod viewport;
 
-use std::{fmt::Debug, sync::Arc};
+use std::{
+    fmt::Debug,
+    sync::{Arc, mpsc},
+    thread,
+};
 
 use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 
@@ -31,7 +35,7 @@ pub use crate::{
 use crate::{
     gpu::DeviceLoss,
     image::{IMAGE_FORMAT, PendingImage, TILE_SIDE},
-    viewport::{DEPTH_FORMAT, SurfaceTarget, ViewportRenderer},
+    viewport::{DEPTH_FORMAT, Faults, SurfaceTarget, ViewportRenderer},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -48,6 +52,30 @@ pub enum RenderError {
     ConfigureSurface,
     #[error("the window's drawing surface raised a validation error")]
     SurfaceValidation,
+    #[error("could not start a thread to open a new graphics device: {0}")]
+    RecoveryThread(std::io::Error),
+    #[error("the thread opening a new graphics device ended without an answer")]
+    RecoveryInterrupted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum RenderFault {
+    #[error(
+        "The graphics device ran out of memory for the viewport at {from}x anti-aliasing, so it now uses {to}x."
+    )]
+    MultisamplingReduced { from: u32, to: u32 },
+    #[error(
+        "The graphics device could not provide memory for the viewport, so the 3D view stays blank. Close other programs that use the graphics card or make the window smaller."
+    )]
+    ViewportRefused,
+    #[error(
+        "The graphics device ran out of memory, so {meshes} bodies and {batches} sets of lines are not drawn. Hide some bodies or close other programs that use the graphics card."
+    )]
+    GeometryRefused { meshes: u32, batches: u32 },
+    #[error(
+        "The graphics device refused the memory used to tell what is under the cursor, so hovering and selecting in the 3D view may not work."
+    )]
+    PickingRefused,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +102,48 @@ pub trait WindowTarget: HasWindowHandle + HasDisplayHandle + Debug + Send + Sync
 impl<T> WindowTarget for T where
     T: HasWindowHandle + HasDisplayHandle + Debug + Send + Sync + 'static
 {
+}
+
+struct Recovered {
+    gpu: Gpu,
+    surface: Option<Arc<wgpu::Surface<'static>>>,
+}
+
+struct Reopening {
+    instance: wgpu::Instance,
+    surface: Arc<wgpu::Surface<'static>>,
+    window: Arc<dyn WindowTarget>,
+    wake: Wake,
+    size: SurfaceSize,
+    vsync: bool,
+}
+
+impl Reopening {
+    async fn run(&self) -> Result<Recovered, RenderError> {
+        let reused = Gpu::open(
+            &self.instance,
+            &self.surface,
+            self.size,
+            &self.wake,
+            self.vsync,
+        )
+        .await;
+        match reused {
+            Ok(gpu) => Ok(Recovered { gpu, surface: None }),
+            Err(error) => {
+                log::warn!(
+                    "the window's surface could not be reused ({error}), creating a new one"
+                );
+                let surface = Arc::new(self.instance.create_surface(Arc::clone(&self.window))?);
+                let gpu =
+                    Gpu::open(&self.instance, &surface, self.size, &self.wake, self.vsync).await?;
+                Ok(Recovered {
+                    gpu,
+                    surface: Some(surface),
+                })
+            }
+        }
+    }
 }
 
 struct Gpu {
@@ -203,7 +273,7 @@ pub struct Renderer {
     window: Arc<dyn WindowTarget>,
     wake: Wake,
     instance: wgpu::Instance,
-    surface: wgpu::Surface<'static>,
+    surface: Arc<wgpu::Surface<'static>>,
     gpu: Gpu,
     graphics: GraphicsSettings,
     needs_reconfigure: bool,
@@ -211,6 +281,9 @@ pub struct Renderer {
     generation: u64,
     pick_dropped: bool,
     image: Option<PendingImage>,
+    recovery: Option<mpsc::Receiver<Result<Recovered, RenderError>>>,
+    validation_failures: u32,
+    faults: Vec<RenderFault>,
 }
 
 impl Renderer {
@@ -224,7 +297,7 @@ impl Renderer {
             wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle_from_env(
                 Box::new(Arc::clone(&window)),
             ));
-        let surface = instance.create_surface(Arc::clone(&window))?;
+        let surface = Arc::new(instance.create_surface(Arc::clone(&window))?);
         let mut gpu = Gpu::open(&instance, &surface, size, &wake, graphics.vsync).await?;
         let viewport = gpu.viewport(graphics);
 
@@ -240,7 +313,14 @@ impl Renderer {
             generation: 0,
             pick_dropped: false,
             image: None,
+            recovery: None,
+            validation_failures: 0,
+            faults: Vec::new(),
         })
+    }
+
+    pub fn take_faults(&mut self) -> Vec<RenderFault> {
+        std::mem::take(&mut self.faults)
     }
 
     pub fn device(&self) -> &wgpu::Device {
@@ -291,6 +371,9 @@ impl Renderer {
         let size = clamp_size(size, self.gpu.largest_side());
         self.gpu.config.width = size.width;
         self.gpu.config.height = size.height;
+        if self.recovery.is_some() {
+            return;
+        }
         self.surface.configure(&self.gpu.device, &self.gpu.config);
         self.needs_reconfigure = false;
     }
@@ -301,7 +384,10 @@ impl Renderer {
         viewport: Option<&ViewportFrame<'_>>,
     ) -> Result<FrameStart, RenderError> {
         if self.gpu.loss.is_lost() {
-            self.recover()?;
+            self.start_recovery()?;
+        }
+        if !self.finish_recovery()? {
+            return Ok(FrameStart::Skipped);
         }
         self.viewport.picking().abandon_unsubmitted();
         if self.needs_reconfigure || clamp_size(window_size, self.gpu.largest_side()) != self.size()
@@ -310,12 +396,20 @@ impl Renderer {
         }
 
         let surface_texture = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(texture) => texture,
+            wgpu::CurrentSurfaceTexture::Success(texture) => {
+                self.validation_failures = 0;
+                texture
+            }
             wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
+                self.validation_failures = 0;
                 self.needs_reconfigure = true;
                 texture
             }
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+            wgpu::CurrentSurfaceTexture::Timeout => {
+                log::debug!("acquiring the next surface texture timed out, skipping the frame");
+                return Ok(FrameStart::Skipped);
+            }
+            wgpu::CurrentSurfaceTexture::Occluded => {
                 return Ok(FrameStart::Hidden);
             }
             wgpu::CurrentSurfaceTexture::Outdated => {
@@ -327,6 +421,7 @@ impl Renderer {
                 return Ok(FrameStart::Skipped);
             }
             wgpu::CurrentSurfaceTexture::Validation => {
+                self.heal_surface()?;
                 return Err(RenderError::SurfaceValidation);
             }
         };
@@ -334,23 +429,30 @@ impl Renderer {
         let view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self
-            .gpu
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("frame"),
-            });
-        self.viewport.draw(
+        let target = SurfaceTarget {
+            view: &view,
+            width: surface_texture.texture.width(),
+            height: surface_texture.texture.height(),
+        };
+        let mut encoder = self.new_frame_encoder();
+        let mut faults = self.viewport.draw(
             &self.gpu.device,
             &self.gpu.queue,
             &mut encoder,
-            &SurfaceTarget {
-                view: &view,
-                width: surface_texture.texture.width(),
-                height: surface_texture.texture.height(),
-            },
+            &target,
             viewport,
         );
+        while faults.targets && self.step_multisampling_down() {
+            encoder = self.new_frame_encoder();
+            faults = self.viewport.draw(
+                &self.gpu.device,
+                &self.gpu.queue,
+                &mut encoder,
+                &target,
+                viewport,
+            );
+        }
+        self.report(faults);
 
         Ok(FrameStart::Ready(Box::new(Frame {
             surface_texture,
@@ -447,46 +549,138 @@ impl Renderer {
         self.image.is_some()
     }
 
-    fn recover(&mut self) -> Result<(), RenderError> {
-        log::warn!("opening a new graphics device to replace the lost one");
-        let size = self.size();
-        let vsync = self.graphics.vsync;
-        let reused = pollster::block_on(Gpu::open(
-            &self.instance,
-            &self.surface,
-            size,
-            &self.wake,
-            vsync,
-        ));
-        let mut gpu = match reused {
-            Ok(gpu) => gpu,
-            Err(error) => {
-                log::warn!(
-                    "the window's surface could not be reused ({error}), creating a new one"
-                );
-                let surface = self.instance.create_surface(Arc::clone(&self.window))?;
-                let gpu = pollster::block_on(Gpu::open(
-                    &self.instance,
-                    &surface,
-                    size,
-                    &self.wake,
-                    vsync,
-                ))?;
-                self.surface = surface;
-                gpu
+    fn new_frame_encoder(&self) -> wgpu::CommandEncoder {
+        self.gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("frame"),
+            })
+    }
+
+    fn step_multisampling_down(&mut self) -> bool {
+        let current = self.gpu.info.msaa;
+        let lower = self
+            .gpu
+            .info
+            .msaa_offered
+            .iter()
+            .copied()
+            .filter(|level| *level < current)
+            .max()
+            .unwrap_or(Msaa::Off);
+        if lower >= current {
+            return false;
+        }
+        log::warn!(
+            "lowering multisampling from {}x to {}x after the graphics device refused the viewport targets",
+            current.samples(),
+            lower.samples()
+        );
+        self.gpu.info.msaa = lower;
+        self.viewport
+            .set_sample_count(&self.gpu.device, lower.samples());
+        self.faults.push(RenderFault::MultisamplingReduced {
+            from: current.samples(),
+            to: lower.samples(),
+        });
+        true
+    }
+
+    fn report(&mut self, faults: Faults) {
+        if faults.targets {
+            self.faults.push(RenderFault::ViewportRefused);
+        }
+        if faults.meshes > 0 || faults.batches > 0 {
+            self.faults.push(RenderFault::GeometryRefused {
+                meshes: faults.meshes,
+                batches: faults.batches,
+            });
+        }
+        if faults.picking {
+            self.faults.push(RenderFault::PickingRefused);
+        }
+    }
+
+    fn heal_surface(&mut self) -> Result<(), RenderError> {
+        self.validation_failures = self.validation_failures.saturating_add(1);
+        match self.validation_failures {
+            1 => self.needs_reconfigure = true,
+            2 => self.recreate_surface()?,
+            3 => self.configure_conservatively(),
+            _ => {
+                self.validation_failures = 0;
+                self.start_recovery()?;
             }
+        }
+        Ok(())
+    }
+
+    fn configure_conservatively(&mut self) {
+        log::warn!(
+            "the drawing surface keeps failing validation, configuring it conservatively with Fifo presentation"
+        );
+        let config = &mut self.gpu.config;
+        config.present_mode = wgpu::PresentMode::Fifo;
+        config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
+        config.desired_maximum_frame_latency = CONSERVATIVE_FRAME_LATENCY;
+        config.view_formats.clear();
+        self.gpu.note_presentation();
+        self.resize(self.size());
+    }
+
+    fn start_recovery(&mut self) -> Result<(), RenderError> {
+        if self.recovery.is_some() {
+            return Ok(());
+        }
+        log::warn!("opening a new graphics device to replace the lost one");
+        let reopening = Reopening {
+            instance: self.instance.clone(),
+            surface: Arc::clone(&self.surface),
+            window: Arc::clone(&self.window),
+            wake: Arc::clone(&self.wake),
+            size: self.size(),
+            vsync: self.graphics.vsync,
         };
+        let (sender, receiver) = mpsc::channel();
+        thread::Builder::new()
+            .name("graphics-recovery".into())
+            .spawn(move || {
+                let outcome = pollster::block_on(reopening.run());
+                let _ = sender.send(outcome);
+                (reopening.wake)();
+            })
+            .map_err(RenderError::RecoveryThread)?;
+        self.recovery = Some(receiver);
+        Ok(())
+    }
+
+    fn finish_recovery(&mut self) -> Result<bool, RenderError> {
+        let Some(receiver) = &self.recovery else {
+            return Ok(true);
+        };
+        let outcome = match receiver.try_recv() {
+            Ok(outcome) => outcome,
+            Err(mpsc::TryRecvError::Empty) => return Ok(false),
+            Err(mpsc::TryRecvError::Disconnected) => Err(RenderError::RecoveryInterrupted),
+        };
+        self.recovery = None;
+        let recovered = outcome?;
+        if let Some(surface) = recovered.surface {
+            self.surface = surface;
+        }
+        let mut gpu = recovered.gpu;
         self.pick_dropped |= self.viewport.is_pick_pending();
         self.viewport = gpu.viewport(self.graphics);
         self.gpu = gpu;
         self.generation = self.generation.wrapping_add(1);
         self.needs_reconfigure = false;
-        Ok(())
+        self.validation_failures = 0;
+        Ok(true)
     }
 
     fn recreate_surface(&mut self) -> Result<(), RenderError> {
         log::warn!("drawing surface was lost, recreating it");
-        let surface = self.instance.create_surface(Arc::clone(&self.window))?;
+        let surface = Arc::new(self.instance.create_surface(Arc::clone(&self.window))?);
         let capabilities = surface.get_capabilities(&self.gpu.adapter);
         if !capabilities.formats.contains(&self.viewport.format()) {
             return Err(RenderError::UnsupportedSurface);
@@ -498,6 +692,8 @@ impl Renderer {
         Ok(())
     }
 }
+
+const CONSERVATIVE_FRAME_LATENCY: u32 = 2;
 
 const PREFERRED_FORMATS: [wgpu::TextureFormat; 2] = [
     wgpu::TextureFormat::Bgra8Unorm,

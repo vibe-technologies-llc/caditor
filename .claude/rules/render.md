@@ -14,11 +14,25 @@ paths:
 - `begin_frame` takes the window's current size (reconfiguring the surface when it differs or was
   outdated), draws the 3D viewport into its rect and returns `FrameStart::Ready` with a `Frame`
   whose encoder the app draws the UI into; `submit` presents it.
-- An acquire that timed out or was occluded is `Hidden`; an outdated or lost surface `Skipped`.
-  The app then stops drawing (UI and workers keep running) until the window is shown again
-  (`Occluded(false)`, resize, focus, cursor entering) or five seconds pass, so a window hidden on
-  Wayland does not block the UI thread for the acquire timeout every frame.
+- An acquire that was occluded is `Hidden`; one that timed out, or an outdated or lost surface,
+  is `Skipped` (a retry, never a reason to stop drawing). For `Hidden` the app then stops drawing
+  (UI and workers keep running) until the window is shown again (`Occluded(false)`, resize, focus,
+  cursor entering) or five seconds pass, so a window hidden on Wayland does not block the UI thread
+  for the acquire timeout every frame.
 - Skipped or failed frames retry after 16 ms, doubling up to a second.
+- A `SurfaceValidation` acquire climbs a ladder, one rung per consecutive failure (a good acquire
+  resets it): reconfigure, recreate the surface, configure conservatively (`Fifo`, automatic
+  alpha, two frames of latency), then open a replacement device as after a loss.
+- GPU allocations of the viewport run inside out-of-memory and validation error scopes
+  (`gpu::scoped`) so a refusal never invalidates the frame's encoder, which the UI shares:
+  - Scene targets that are refused drop the targets, and `begin_frame` steps multisampling down
+    to the next offered level and draws again (down to Off), leaving the preference as chosen;
+    until they fit, the viewport only clears the surface.
+  - A mesh or batch that is refused is dropped alone and not retried until it leaves the scene
+    or (for a batch) its anchor moves; the pick targets that are refused disable picking.
+  - Each refusal is reported once as a `RenderFault`, which the app takes with
+    `Renderer::take_faults` and shows as a notice. An image export whose upload is refused fails
+    as `Refused`.
 
 ## Devices (`gpu.rs`)
 
@@ -53,9 +67,12 @@ paths:
 
 - `DeviceLoss::watch` registers the device-lost callback (which also wakes the app through the
   `Wake` given to `Renderer::new`) and the uncaptured-error handler, which logs.
-- The next `begin_frame` after a loss opens a new device on the same surface (or a new one when
-  that fails), reconfigures it and rebuilds the `ViewportRenderer` (pipelines, mesh buffers, pick
-  targets, growable buffers), bumping `Renderer::generation`; a pick in flight polls `Failed`.
+- The next `begin_frame` after a loss starts opening a new device on a worker thread (the surface
+  is shared as an `Arc`; the worker wakes the app when done), on the same surface or a new one
+  when that fails. Until it answers, frames are `Skipped` and `resize` only records the size. The
+  answer is installed on the UI thread: it reconfigures and rebuilds the `ViewportRenderer`
+  (pipelines, mesh buffers, pick targets, growable buffers), bumping `Renderer::generation`; a
+  pick in flight polls `Failed`.
   The current `GraphicsSettings` are applied to the new device: its present mode from them, and
   the MSAA level closest to the one asked for among those the new device offers.
 - A `Frame` remembers its generation; `submit` drops one from an older generation or drawn while
@@ -147,8 +164,11 @@ paths:
     spans at least forty distances either way, so geometry behind the eye is drawn and the grid
     fades before the range ends.
 - Rays start at the near plane along the view direction; picks are placed by `View::unproject`
-  (point at a pixel and view depth, either projection). Fitting uses the tangent of the half angle,
-  not its sine; grid spacing follows the distance, not the eye's height.
+  (point at a pixel and view depth, either projection), which gives nothing for a non-finite depth
+  or result, so a NaN read back from a pick never becomes a hit. `Camera::orbit`, `pan` and `zoom`
+  ignore non-finite pivots, anchors and drags, and the app drops a non-finite pick position.
+  Fitting uses the tangent of the half angle, not its sine; grid spacing follows the distance, not
+  the eye's height.
 - The view uniform flags orthographic views: shaders light faces from the view direction and turn
   each layer's depth bias into a fixed depth offset (`ORTHOGRAPHIC_DEPTH_BIAS`), since depth is
   linear there and a factor would push edges far through faces.

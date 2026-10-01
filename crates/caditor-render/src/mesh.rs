@@ -385,6 +385,7 @@ impl GpuMesh {
 pub struct MeshCache {
     layout: wgpu::BindGroupLayout,
     meshes: Vec<GpuMesh>,
+    rejected: Vec<Arc<ShadedMesh>>,
     staging: Bytes,
 }
 
@@ -418,6 +419,7 @@ impl MeshCache {
         Self {
             layout,
             meshes: Vec::new(),
+            rejected: Vec::new(),
             staging: Bytes::default(),
         }
     }
@@ -432,21 +434,47 @@ impl MeshCache {
         queue: &wgpu::Queue,
         instances: &[MeshInstance],
         eye: Point3,
-    ) {
+    ) -> u32 {
         let mut previous = std::mem::take(&mut self.meshes);
+        let mut rejected = std::mem::take(&mut self.rejected);
+        let mut kept_rejected = Vec::new();
+        let mut newly_rejected = 0;
         for instance in instances
             .iter()
             .filter(|instance| !instance.mesh.is_empty())
         {
+            if let Some(index) = rejected
+                .iter()
+                .position(|refused| Arc::ptr_eq(refused, &instance.mesh))
+            {
+                kept_rejected.push(rejected.swap_remove(index));
+                continue;
+            }
             let reused = previous
                 .iter()
                 .position(|cached| Arc::ptr_eq(&cached.mesh, &instance.mesh))
                 .map(|index| previous.swap_remove(index));
-            let mut gpu = reused
-                .unwrap_or_else(|| GpuMesh::new(device, &self.layout, Arc::clone(&instance.mesh)));
-            gpu.write_styles(queue, &mut self.staging, instance, eye);
-            self.meshes.push(gpu);
+            let (gpu, error) = gpu::scoped(device, || {
+                let mut gpu = reused.unwrap_or_else(|| {
+                    GpuMesh::new(device, &self.layout, Arc::clone(&instance.mesh))
+                });
+                gpu.write_styles(queue, &mut self.staging, instance, eye);
+                gpu
+            });
+            match error {
+                None => self.meshes.push(gpu),
+                Some(error) => {
+                    log::warn!(
+                        "the graphics device refused a mesh of {} vertices, so it is not drawn: {error}",
+                        instance.mesh.vertices.len()
+                    );
+                    kept_rejected.push(Arc::clone(&instance.mesh));
+                    newly_rejected += 1;
+                }
+            }
         }
+        self.rejected = kept_rejected;
+        newly_rejected
     }
 
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &wgpu::RenderPipeline) {
