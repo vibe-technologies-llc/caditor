@@ -1257,6 +1257,125 @@ fn exporting_writes_the_chosen_bodies_in_the_chosen_format_beside_the_model() {
     assert!(step.contains("MANIFOLD_SOLID_BREP("));
 }
 
+#[test]
+fn cancelling_the_export_file_picker_keeps_the_dialog_and_its_settings() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.click("STEP");
+    harness.answer_dialog(None);
+
+    harness.click("Export…");
+    harness.settle();
+
+    assert!(harness.shows("Format"));
+    assert!(!harness.shows("Resolution"));
+    assert!(harness.files.is_blocking());
+    assert!(std::fs::read_dir(dir.path()).unwrap().all(|entry| {
+        let name = entry.unwrap().file_name();
+        name != "plate.step"
+    }));
+}
+
+#[test]
+fn exporting_asks_before_replacing_a_file_the_picker_did_not_name() {
+    let dir = TempDir::new().unwrap();
+    let existing = dir.path().join("plate.stl");
+    std::fs::write(&existing, b"precious").unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.click("STL");
+    harness.answer_dialog(Some(dir.path().join("plate")));
+
+    harness.click("Export…");
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “plate.stl”?")
+    });
+    assert!(harness.shows(&format!(
+        "A file named “plate.stl” already exists in “{}”. Replacing it overwrites what it holds.",
+        dir.path().display()
+    )));
+    harness.click("Cancel");
+    assert_eq!(std::fs::read(&existing).unwrap(), b"precious");
+    assert!(!harness.shows("Replace “plate.stl”?"));
+    assert!(harness.shows("Resolution"));
+
+    harness.click("Export…");
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “plate.stl”?")
+    });
+    harness.click("Replace");
+    harness.wait_until("the STL is written", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Exported 1 body to “plate.stl”"))
+    });
+    assert_ne!(std::fs::read(&existing).unwrap(), b"precious");
+    assert!(!harness.shows("Resolution"));
+}
+
+#[test]
+fn exporting_replaces_a_file_the_picker_named_itself_without_asking_again() {
+    let dir = TempDir::new().unwrap();
+    let existing = dir.path().join("plate.stl");
+    std::fs::write(&existing, b"precious").unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.click("STL");
+    harness.answer_dialog(Some(existing.clone()));
+
+    harness.click("Export…");
+    harness.wait_until("the STL is written", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Exported 1 body to “plate.stl”"))
+    });
+    assert!(!harness.shows("Replace “plate.stl”?"));
+    assert_ne!(std::fs::read(&existing).unwrap(), b"precious");
+}
+
+#[test]
+fn exporting_an_image_keeps_its_dialog_when_the_picker_is_cancelled_and_asks_before_replacing() {
+    let dir = TempDir::new().unwrap();
+    let existing = dir.path().join("plate.png");
+    std::fs::write(&existing, b"precious").unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.command(FileCommand::ExportImage(ImageCommand::Show));
+    harness.click("Transparent");
+    harness.answer_dialog(None);
+
+    harness.click("Export…");
+    harness.settle();
+    assert!(harness.shows("Export Image"));
+    assert!(!harness.files.is_exporting_image());
+
+    harness.answer_dialog(Some(dir.path().join("plate")));
+    harness.click("Export…");
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “plate.png”?")
+    });
+    harness.click("Cancel");
+    assert_eq!(std::fs::read(&existing).unwrap(), b"precious");
+    assert!(harness.shows("Export Image"));
+
+    harness.click("Export…");
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “plate.png”?")
+    });
+    harness.click("Replace");
+    harness.wait_until("the image is written", |harness| {
+        !harness.files.is_exporting_image() && !harness.shows("Replace “plate.png”?")
+    });
+    harness.settle();
+    assert_ne!(std::fs::read(&existing).unwrap(), b"precious");
+    assert!(!harness.shows("Export Image"));
+}
+
 fn png_size(path: &Path) -> (u32, u32, u8) {
     const RGBA: u8 = 6;
     let bytes = std::fs::read(path).unwrap();

@@ -6,6 +6,8 @@ use caditor_document::{
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 
+use crate::variants::all_variants;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Sample {
     Plate,
@@ -13,9 +15,9 @@ pub enum Sample {
     Bracket,
 }
 
-impl Sample {
-    pub const ALL: [Self; 3] = [Self::Plate, Self::Spool, Self::Bracket];
+all_variants!(Sample: Plate, Spool, Bracket);
 
+impl Sample {
     pub fn title(self) -> &'static str {
         match self {
             Self::Plate => "Mounting plate",

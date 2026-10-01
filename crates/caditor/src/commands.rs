@@ -4,7 +4,10 @@ use caditor_file::Settings;
 use caditor_geometry::Vector3;
 use egui::{Event, Key, KeyboardShortcut, Modifiers};
 
-use crate::{editing::Tool, samples::Sample, shape_modes::ShapeMode, sketch_tools::ConstraintTool};
+use crate::{
+    editing::Tool, samples::Sample, shape_modes::ShapeMode, sketch_tools::ConstraintTool,
+    variants::all_variants,
+};
 
 const SETTINGS_PREFIX: &str = "keys.";
 const RESERVED_KEYS: [Key; 3] = [Key::Escape, Key::Enter, Key::Tab];
@@ -216,17 +219,9 @@ pub enum StandardView {
     Left,
 }
 
-impl StandardView {
-    pub const ALL: [Self; 7] = [
-        Self::Isometric,
-        Self::Front,
-        Self::Top,
-        Self::Right,
-        Self::Back,
-        Self::Bottom,
-        Self::Left,
-    ];
+all_variants!(StandardView: Isometric, Front, Top, Right, Back, Bottom, Left);
 
+impl StandardView {
     pub fn looking_from(self) -> Vector3 {
         match self {
             Self::Isometric => Vector3::new(1.0, -1.0, 1.0),
@@ -278,20 +273,9 @@ pub enum CameraMove {
     ZoomOut,
 }
 
-impl CameraMove {
-    pub const ALL: [Self; 10] = [
-        Self::OrbitLeft,
-        Self::OrbitRight,
-        Self::OrbitUp,
-        Self::OrbitDown,
-        Self::PanLeft,
-        Self::PanRight,
-        Self::PanUp,
-        Self::PanDown,
-        Self::ZoomIn,
-        Self::ZoomOut,
-    ];
+all_variants!(CameraMove: OrbitLeft, OrbitRight, OrbitUp, OrbitDown, PanLeft, PanRight, PanUp, PanDown, ZoomIn, ZoomOut);
 
+impl CameraMove {
     fn id(self) -> &'static str {
         match self {
             Self::OrbitLeft => "view.orbit_left",
@@ -383,93 +367,111 @@ impl Scope {
     }
 }
 
-const PLAIN_COMMANDS: [Command; 80] = [
-    Command::Palette,
-    Command::New,
-    Command::Open,
-    Command::Save,
-    Command::SaveAs,
-    Command::VersionHistory,
-    Command::Import,
-    Command::Export,
-    Command::ExportImage,
-    Command::Preferences,
-    Command::KeyboardShortcuts,
-    Command::Welcome,
-    Command::About,
-    Command::Quit,
-    Command::Undo,
-    Command::Redo,
-    Command::FitView,
-    Command::ToggleProjection,
-    Command::Measure,
-    Command::LargerInterface,
-    Command::SmallerInterface,
-    Command::NormalInterface,
-    Command::HighlightNext,
-    Command::HighlightPrevious,
-    Command::ActivateHighlighted,
-    Command::HideSelection,
-    Command::ToggleVisibility,
-    Command::ShowAll,
-    Command::TogglePrincipal,
-    Command::MinimizeWindow,
-    Command::MaximizeWindow,
-    Command::FullScreen,
-    Command::NewSketch,
-    Command::Extrude,
-    Command::Revolve,
-    Command::Fillet,
-    Command::Chamfer,
-    Command::Shell,
-    Command::LinearPattern,
-    Command::CircularPattern,
-    Command::DatumPlane,
-    Command::DatumAxis,
-    Command::FinishSketch,
-    Command::ReverseArc,
-    Command::MoreSides,
-    Command::FewerSides,
-    Command::Construction,
-    Command::MoveGeometry,
-    Command::SelectAll,
-    Command::DeleteSelection,
-    Command::RecoverUnsaved,
-    Command::CancelExport,
-    Command::CancelImageExport,
-    Command::Recompute,
-    Command::CancelRecompute,
-    Command::RenameFeature,
-    Command::MoveFeatureUp,
-    Command::MoveFeatureDown,
-    Command::DeleteFeature,
-    Command::SuppressFeature,
-    Command::RollToHere,
-    Command::RollToEnd,
-    Command::RollbackUp,
-    Command::RollbackDown,
-    Command::EditFeature,
-    Command::CloseFeature,
-    Command::DetachSketch,
-    Command::PlaceSketch,
-    Command::UseSelectedAxis,
-    Command::ExtrudeUpToSelected,
-    Command::DatumUseSelected,
-    Command::DatumTurnAboutSelected,
-    Command::PatternUseSelected,
-    Command::PatternSecondUseSelected,
-    Command::AddParameter,
-    Command::DeleteParameter,
-    Command::ShowFirstFailed,
-    Command::DismissNotice,
-    Command::DismissTip,
-    Command::HideTips,
-];
+macro_rules! plain_commands {
+    ($($variant:ident,)*) => {
+        const PLAIN_COMMANDS: &[Command] = &[$(Command::$variant,)*];
+
+        const _: fn(Command) = |command| match command {
+            $(Command::$variant)|* => {}
+            Command::SketchTool(_)
+            | Command::ShapeMode(_)
+            | Command::Constraint(_)
+            | Command::View(_)
+            | Command::Camera(_)
+            | Command::OpenSample(_)
+            | Command::OpenRecent(_) => {}
+        };
+    };
+}
+
+plain_commands! {
+    Palette,
+    New,
+    Open,
+    Save,
+    SaveAs,
+    VersionHistory,
+    Import,
+    Export,
+    ExportImage,
+    Preferences,
+    KeyboardShortcuts,
+    Welcome,
+    About,
+    Quit,
+    Undo,
+    Redo,
+    FitView,
+    ToggleProjection,
+    Measure,
+    LargerInterface,
+    SmallerInterface,
+    NormalInterface,
+    HighlightNext,
+    HighlightPrevious,
+    ActivateHighlighted,
+    HideSelection,
+    ToggleVisibility,
+    ShowAll,
+    TogglePrincipal,
+    MinimizeWindow,
+    MaximizeWindow,
+    FullScreen,
+    NewSketch,
+    Extrude,
+    Revolve,
+    Fillet,
+    Chamfer,
+    Shell,
+    LinearPattern,
+    CircularPattern,
+    DatumPlane,
+    DatumAxis,
+    FinishSketch,
+    ReverseArc,
+    MoreSides,
+    FewerSides,
+    Construction,
+    MoveGeometry,
+    SelectAll,
+    DeleteSelection,
+    RecoverUnsaved,
+    CancelExport,
+    CancelImageExport,
+    Recompute,
+    CancelRecompute,
+    RenameFeature,
+    MoveFeatureUp,
+    MoveFeatureDown,
+    DeleteFeature,
+    SuppressFeature,
+    RollToHere,
+    RollToEnd,
+    RollbackUp,
+    RollbackDown,
+    EditFeature,
+    CloseFeature,
+    DetachSketch,
+    PlaceSketch,
+    UseSelectedAxis,
+    ExtrudeUpToSelected,
+    DatumUseSelected,
+    DatumTurnAboutSelected,
+    PatternUseSelected,
+    PatternSecondUseSelected,
+    AddParameter,
+    DeleteParameter,
+    ShowFirstFailed,
+    DismissNotice,
+    DismissTip,
+    HideTips,
+}
 
 impl Command {
     pub fn all() -> impl Iterator<Item = Self> {
         PLAIN_COMMANDS
-            .into_iter()
+            .iter()
+            .copied()
             .chain(Tool::ALL.into_iter().map(Self::SketchTool))
             .chain(ShapeMode::ALL.into_iter().map(Self::ShapeMode))
             .chain(ConstraintTool::ALL.into_iter().map(Self::Constraint))

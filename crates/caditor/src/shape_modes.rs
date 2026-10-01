@@ -232,6 +232,25 @@ impl ShapeModes {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::variants::all_variants;
+
+    all_variants!(RectangleMode: Corners, Center, ThreePoints);
+    all_variants!(CircleMode: Center, TwoPoints, ThreePoints);
+    all_variants!(PolygonMode: Corner, SideMiddle, Side);
+    all_variants!(SlotMode: Ends, Center, Arc);
+
+    #[test]
+    fn every_way_of_drawing_a_shape_is_listed() {
+        let listed: Vec<ShapeMode> = RectangleMode::ALL
+            .into_iter()
+            .map(ShapeMode::Rectangle)
+            .chain(CircleMode::ALL.into_iter().map(ShapeMode::Circle))
+            .chain(PolygonMode::ALL.into_iter().map(ShapeMode::Polygon))
+            .chain(SlotMode::ALL.into_iter().map(ShapeMode::Slot))
+            .collect();
+
+        assert_eq!(listed, ShapeMode::ALL);
+    }
 
     #[test]
     fn each_shape_cycles_through_its_own_modes_and_back() {

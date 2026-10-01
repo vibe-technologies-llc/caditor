@@ -90,7 +90,8 @@ impl Exporter {
     pub fn perform(&mut self, command: ExportCommand) {
         match command {
             ExportCommand::Show => self.open = true,
-            ExportCommand::Hide | ExportCommand::Choose => self.open = false,
+            ExportCommand::Hide => self.open = false,
+            ExportCommand::Choose => {}
             ExportCommand::SetFormat(format) => self.format = format,
             ExportCommand::SetResolution(resolution) => self.resolution = resolution,
             ExportCommand::Include { body, included } => {
@@ -123,7 +124,6 @@ impl Exporter {
         model: &Model,
         finished: Finished,
     ) {
-        let path = with_format_extension(path, format);
         let bodies: Vec<(String, Arc<FeatureResult>)> = self
             .chosen(model)
             .map(|body| (body.name, body.result))
@@ -224,7 +224,7 @@ fn export_results(
     caditor_file::export_bodies(path, format, resolution, &bodies, cancel)
 }
 
-fn with_format_extension(path: PathBuf, format: ExportFormat) -> PathBuf {
+pub fn with_format_extension(path: PathBuf, format: ExportFormat) -> PathBuf {
     if format.matches(&path) {
         return path;
     }
