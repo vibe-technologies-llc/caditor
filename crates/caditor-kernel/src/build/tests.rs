@@ -1020,3 +1020,50 @@ fn a_curved_next_face_is_refused() {
 
     assert!(matches!(refused, Err(ReachError::Curved(_))), "{refused:?}");
 }
+
+#[test]
+fn a_tall_extrusion_of_a_thin_lens_is_valid() {
+    let half_width = 0.5;
+    let sagitta = 0.03;
+    let radius = (half_width * half_width + sagitta * sagitta) / (2.0 * sagitta);
+    let offset = radius - sagitta;
+    let lens = [
+        arc(1, (0.0, -offset), (half_width, 0.0), (-half_width, 0.0)),
+        arc(2, (0.0, offset), (-half_width, 0.0), (half_width, 0.0)),
+    ];
+
+    let solid = extrude(
+        &Plane::XY,
+        &regions(&lens),
+        LinearExtent::one_side(1000.0).unwrap(),
+        FEATURE,
+    )
+    .unwrap();
+
+    assert_eq!(solid.validate(), Ok(()));
+}
+
+#[test]
+fn a_lens_of_a_tenth_of_a_square_millimetre_is_valid_and_has_volume() {
+    let sag = 0.01;
+    let radius = (25.0 + sag * sag) / (2.0 * sag);
+    let curves = [
+        arc(1, (5.0, sag - radius), (10.0, 0.0), (0.0, 0.0)),
+        arc(2, (5.0, radius - sag), (0.0, 0.0), (10.0, 0.0)),
+    ];
+
+    let solid = extrude(
+        &Plane::XY,
+        &regions(&curves),
+        LinearExtent::one_side(1.0).unwrap(),
+        FEATURE,
+    )
+    .unwrap();
+
+    assert_eq!(solid.validate(), Ok(()));
+    let volume = fine_mesh(&solid).mass_properties().volume;
+    assert!(
+        (volume - 4.0 / 3.0 * 10.0 * sag).abs() < 0.1 * volume,
+        "{volume}"
+    );
+}

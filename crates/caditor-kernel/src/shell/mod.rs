@@ -29,7 +29,7 @@ const SMOOTH_TOLERANCE: f64 = 1e-6;
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum ShellError {
-    #[error("the thickness is not a finite number above zero")]
+    #[error("the thickness is not a finite number above 0.000001 mm")]
     InvalidThickness,
     #[error("face {0:?} is not part of the solid")]
     MissingFace(FaceId),
@@ -55,6 +55,15 @@ pub enum ShellError {
     Boolean(BooleanError),
     #[error(transparent)]
     Cancelled(#[from] Interrupted),
+}
+
+impl ShellError {
+    fn names_the_cause(&self) -> bool {
+        !matches!(
+            self,
+            Self::TooThick | Self::EdgeCollapses(_) | Self::Walls | Self::InvalidThickness
+        )
+    }
 }
 
 impl From<BooleanError> for ShellError {
@@ -402,5 +411,8 @@ fn hollow_out(
     };
     hollow(&inward, open, &voids, feature)
         .map(|hollowed| hollowed.solid)
-        .map_err(|_| first)
+        .map_err(|inward_error| match first {
+            ShellError::TooThick if inward_error.names_the_cause() => inward_error,
+            other => other,
+        })
 }

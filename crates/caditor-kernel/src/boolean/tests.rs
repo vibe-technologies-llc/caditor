@@ -990,3 +990,29 @@ fn random_placements_of_every_fixture() {
 
     eprintln!("{outcomes:?}");
 }
+
+#[test]
+fn a_face_flush_with_faces_of_both_senses_of_the_other_solid_is_split_by_them() {
+    let table = block((0.0, 0.0, 0.0), (2.0, 1.0, 1.0));
+    let high = block((-1.0, 0.0, 1.0), (1.0, 1.0, 2.0));
+    let low = block((1.0, 0.0, -1.0), (3.0, 1.0, 1.0));
+    let link = block((0.5, 0.0, 0.5), (1.5, 1.0, 1.5));
+    let step = run(
+        &run(&high, &link, BooleanOperation::Union),
+        &low,
+        BooleanOperation::Union,
+    );
+    check("step", &step, 6.5);
+
+    check("union", &run(&table, &step, BooleanOperation::Union), 7.25);
+    check(
+        "difference",
+        &run(&table, &step, BooleanOperation::Difference),
+        0.75,
+    );
+    check(
+        "intersection",
+        &run(&table, &step, BooleanOperation::Intersection),
+        1.25,
+    );
+}

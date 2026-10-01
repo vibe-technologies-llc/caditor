@@ -78,6 +78,9 @@ paths:
   its reference circle, sphere latitude, torus tube angle, revolution profile parameter; an
   extrusion is (profile parameter, distance) and refuses a line within a millionth of a radian of
   its direction. du × dv points outward on every elementary surface.
+- A `Revolution`'s profile must lie in a plane through its axis (sampled within ten resolutions),
+  else `GeometryError::ProfileOutsideMeridian`; `project_seed` relies on it, and a STEP
+  `SURFACE_OF_REVOLUTION` that is skew is refused with that message naming its entity.
 - Singularities are always `Pole`s: v isolines where du vanishes (sphere poles, cone apex, a
   revolution profile ending on its axis).
 - `same_surface` gives the `Sense` between coincident surfaces' normals: analytic for elementary
@@ -107,7 +110,9 @@ paths:
   so a pinched shell has the characteristic of the surface it pinches); positive volume for lumps,
   voids inside a lump.
 - Volume checks use a coarse mesh sized by the box of the edges and vertices (never the
-  classifier-based `bounding_box`), retrying finer before reporting a void outside its lump.
+  classifier-based `bounding_box`), retrying finer before reporting a void outside its lump or a
+  shell of no volume (a thin lens is empty on a coarse mesh), over four chords (20, 1,
+  0.1 and 0.01 times the coarse one).
 - Validation never intersects faces with each other, since every build runs it; `find_crossing`
   does, for importers.
 

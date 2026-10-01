@@ -462,6 +462,19 @@ fn constructors_reject_degenerate_surfaces() {
         Revolution::new(profile_spline(), Point3::ZERO, Vector3::ZERO),
         Err(GeometryError::ZeroDirection)
     );
+    let skew =
+        Curve::from(Line::new(Point3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 1.0)).unwrap());
+    assert_eq!(
+        Revolution::new(skew, Point3::ZERO, Vector3::Z),
+        Err(GeometryError::ProfileOutsideMeridian)
+    );
+    let flat_ring = Curve::from(Circle::new(Plane::XY, 3.0).unwrap());
+    assert_eq!(
+        Revolution::new(flat_ring, Point3::ZERO, Vector3::Z),
+        Err(GeometryError::ProfileOutsideMeridian)
+    );
+    let straddling = Curve::from(Circle::new(Plane::XZ, 1.0).unwrap());
+    assert!(Revolution::new(straddling, Point3::new(-5.0, 0.0, 0.0), Vector3::Z).is_ok());
     let _ = PI;
 }
 
@@ -503,4 +516,20 @@ fn a_pole_far_from_the_origin_keeps_the_hints_angle() {
         assert_eq!(found.x, hint.x, "{found:?}");
         assert!(surface.pole_at(found).is_some());
     }
+}
+
+#[test]
+fn a_revolution_profile_outside_a_plane_through_its_axis_is_refused() {
+    let skew: Curve = Line::new(Point3::new(3.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 1.0))
+        .unwrap()
+        .into();
+    assert_eq!(
+        Revolution::new(skew, Point3::ZERO, Vector3::Z),
+        Err(GeometryError::ProfileOutsideMeridian)
+    );
+
+    let meridian: Curve = Line::new(Point3::new(3.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 1.0))
+        .unwrap()
+        .into();
+    assert!(Revolution::new(meridian, Point3::ZERO, Vector3::Z).is_ok());
 }

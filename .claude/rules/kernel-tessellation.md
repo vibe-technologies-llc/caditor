@@ -10,8 +10,9 @@ paths:
   mean surface speeds, plus a uniform grid of interior points:
   - spaced by curvature (normal curvature and twist), sampled on a lattice that also covers every
     knot span;
-  - spline, revolution, extrusion and cone faces are then refined, by the square root of the excess,
-    until the grid's cells stay within the chord tolerance;
+  - spline, revolution, extrusion, cone, sphere and torus faces are then refined, by the square root
+    of the excess, until the grid's cells (diagonal and edge midpoints) stay within 70% of the chord
+    tolerance, which keeps the triangles the triangulation actually picks within the chord;
   - kept clear of the boundary;
   - a direction without curvature gets cells at most four times longer than the curved one's.
 - Triangles are kept by the parity of constraint crossings from outside.

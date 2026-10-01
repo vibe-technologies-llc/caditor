@@ -64,7 +64,8 @@ pub(super) fn classify(
 ) -> Result<Class, BooleanError> {
     let classifier = input.classifier(key.operand.other());
     let mut solid_side = None;
-    let mut coincident = None;
+    let mut coincident: Option<Class> = None;
+    let mut mixed = false;
     for uv in interior_points(fragment, surface) {
         let Some(normal) = surface.normal(uv.x, uv.y) else {
             continue;
@@ -83,10 +84,15 @@ pub(super) fn classify(
                 solid_side = Some(class);
             }
             BoundaryClass::Coincident { sense, .. } => {
-                coincident = coincident.or(Some(Class::Coincident(sense)));
+                let class = Class::Coincident(sense);
+                mixed |= coincident.is_some_and(|known| known != class);
+                coincident = Some(class);
             }
             BoundaryClass::Touching(_) | BoundaryClass::Undecided => {}
         }
+    }
+    if mixed {
+        return Err(BooleanError::Ambiguous);
     }
     solid_side.or(coincident).ok_or(BooleanError::Ambiguous)
 }

@@ -270,6 +270,13 @@ fn blend_errors_name_the_edge_and_the_fix() {
     assert_eq!(error.fix, Some(FixTarget::Feature(model.fillet)));
 
     let id = model.radius;
+    set(&mut model, id, "0.0000005 mm");
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let error = failure(&evaluation, model.fillet);
+    assert_eq!(error.reason, "The radius must be more than 0.000001 mm.");
+    assert_eq!(error.remedy, "Enter a larger radius.");
+
+    let id = model.radius;
     set(&mut model, id, "5 mm");
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.fillet);

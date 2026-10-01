@@ -151,8 +151,8 @@ impl Context<'_> {
         match error {
             BlendError::Cancelled(_) => Failure::Cancelled,
             BlendError::InvalidSize => self.error(
-                format!("The {what} must be more than zero."),
-                format!("Enter a {what} above zero."),
+                format!("The {what} must be more than 0.000001 mm."),
+                format!("Enter a larger {what}."),
             ),
             BlendError::NoEdges => self.error(
                 "No edge is chosen.".to_owned(),

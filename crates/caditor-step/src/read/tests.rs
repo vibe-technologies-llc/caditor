@@ -718,3 +718,70 @@ fn faces_that_meet_only_as_closely_as_the_file_declares_are_refused_with_its_pre
         "{precise}"
     );
 }
+
+fn bulged_vase() -> caditor_kernel::Solid {
+    use caditor_geometry::{Plane, Point2, Vector2};
+    use caditor_kernel::{AngularExtent, Axis2, Profile, ProfileCurve, Selection, revolve};
+
+    let curves = vec![
+        ProfileCurve::spline(
+            1,
+            3,
+            vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+            vec![
+                Point2::new(2.0, 0.0),
+                Point2::new(6.0, 4.0),
+                Point2::new(6.0, 8.0),
+                Point2::new(2.0, 12.0),
+            ],
+        ),
+        ProfileCurve::line(2, Point2::new(2.0, 12.0), Point2::new(0.0, 12.0)),
+        ProfileCurve::line(3, Point2::new(0.0, 12.0), Point2::new(0.0, 0.0)),
+        ProfileCurve::line(4, Point2::new(0.0, 0.0), Point2::new(2.0, 0.0)),
+    ];
+    let regions = Profile::new(&curves)
+        .unwrap()
+        .select(&Selection::EvenDepth)
+        .unwrap();
+    let axis = Axis2::new(Point2::ZERO, Vector2::Y).unwrap();
+    revolve(&Plane::XZ, &regions, axis, AngularExtent::full(), 1).unwrap()
+}
+
+#[test]
+fn a_surface_of_revolution_whose_profile_is_not_in_a_meridian_plane_is_refused() {
+    let vase = bulged_vase();
+    let text = write_step(
+        &[StepBody {
+            name: "Vase",
+            solid: &vase,
+        }],
+        "Vase",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+    assert!(text.contains("SURFACE_OF_REVOLUTION"));
+    assert_same_shape("vase", &vase, &round_trip("Vase", &vase));
+
+    let placement = text
+        .lines()
+        .find(|line| line.contains("AXIS1_PLACEMENT"))
+        .unwrap();
+    let direction_id = placement
+        .trim_end_matches(");")
+        .rsplit('#')
+        .next()
+        .unwrap()
+        .to_owned();
+    let direction_line = text
+        .lines()
+        .find(|line| line.starts_with(&format!("#{direction_id}=DIRECTION")))
+        .unwrap();
+    let skewed = text.replace(
+        direction_line,
+        &format!("#{direction_id}=DIRECTION('',(0.0,0.6,0.8));"),
+    );
+
+    let refusal = read_step(&skewed).unwrap_err().to_string();
+
+    assert!(refusal.contains("plane through its axis"), "{refusal}");
+}

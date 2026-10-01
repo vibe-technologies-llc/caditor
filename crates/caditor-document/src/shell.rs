@@ -133,8 +133,8 @@ impl Context<'_> {
         match error {
             ShellError::Cancelled(_) => Failure::Cancelled,
             ShellError::InvalidThickness => self.error(
-                "The thickness must be more than zero.".to_owned(),
-                "Enter a thickness above zero.".to_owned(),
+                "The thickness must be more than 0.000001 mm.".to_owned(),
+                "Enter a larger thickness.".to_owned(),
             ),
             ShellError::MissingFace(_) => self.error(
                 format!(

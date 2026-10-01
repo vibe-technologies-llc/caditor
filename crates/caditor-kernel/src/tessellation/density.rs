@@ -11,6 +11,7 @@ const SPAN_SAMPLES: usize = 4;
 const MAX_LATTICE: usize = 64;
 const REFINEMENTS: usize = 4;
 const REFINEMENT_MARGIN: f64 = 1.05;
+const GRID_SHARE: f64 = 0.7;
 const MIN_GROWTH: f64 = 1.1;
 const CHECKED_CELLS: usize = 16;
 const COLLAPSED_EDGE: f64 = 1e-9;
@@ -103,14 +104,20 @@ pub(crate) fn density(surface: &Surface, bounds: Aabb2, tolerance: &SamplingTole
     }
     let measured = matches!(
         surface,
-        Surface::BSpline(_) | Surface::Revolution(_) | Surface::Extrusion(_) | Surface::Cone(_)
+        Surface::BSpline(_)
+            | Surface::Revolution(_)
+            | Surface::Extrusion(_)
+            | Surface::Cone(_)
+            | Surface::Sphere(_)
+            | Surface::Torus(_)
     );
     for _ in 0..if measured { REFINEMENTS } else { 0 } {
+        let allowed = tolerance.chord() * GRID_SHARE;
         let deviation = grid_deviation(surface, bounds, u_segments, v_segments);
-        if !deviation.is_finite() || deviation <= tolerance.chord() {
+        if !deviation.is_finite() || deviation <= allowed {
             break;
         }
-        let factor = ((deviation / tolerance.chord()).sqrt() * REFINEMENT_MARGIN).max(MIN_GROWTH);
+        let factor = ((deviation / allowed).sqrt() * REFINEMENT_MARGIN).max(MIN_GROWTH);
         u_segments = segments(u_segments as f64 * factor);
         v_segments = segments(v_segments as f64 * factor);
     }
@@ -157,10 +164,20 @@ fn grid_deviation(surface: &Surface, bounds: Aabb2, u_segments: usize, v_segment
                 let on_edge = surface.point_at(low + Point2::new(u_step * at.x, v_step * at.y));
                 on_edge.distance((from + to) * 0.5)
             } else {
-                let middle = surface.point_at(low + Point2::new(u_step, v_step) * 0.5);
-                middle
+                let at =
+                    |u: f64, v: f64| surface.point_at(low + Point2::new(u_step * u, v_step * v));
+                let diagonal = at(0.5, 0.5)
                     .distance((a + d) * 0.5)
-                    .min(middle.distance((b + c) * 0.5))
+                    .max(at(0.5, 0.5).distance((b + c) * 0.5));
+                [
+                    (at(0.5, 0.0), a, b),
+                    (at(0.5, 1.0), c, d),
+                    (at(0.0, 0.5), a, c),
+                    (at(1.0, 0.5), b, d),
+                ]
+                .into_iter()
+                .map(|(middle, from, to)| middle.distance((from + to) * 0.5))
+                .fold(diagonal, f64::max)
             };
             worst = worst.max(deviation);
         }

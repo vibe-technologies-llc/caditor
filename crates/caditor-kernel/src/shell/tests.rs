@@ -1075,3 +1075,26 @@ fn a_shell_cancelled_anywhere_stops_with_cancelled() {
         |error| matches!(error, ShellError::Cancelled(_)),
     );
 }
+
+#[test]
+fn only_a_specific_inward_error_replaces_too_thick() {
+    let face = FaceId::from_index(0).unwrap();
+    let edge = EdgeId::from_index(0).unwrap();
+
+    assert!(ShellError::TooCurved(face).names_the_cause());
+    assert!(ShellError::UnsupportedFace(face).names_the_cause());
+    assert!(!ShellError::EdgeCollapses(edge).names_the_cause());
+    assert!(!ShellError::Walls.names_the_cause());
+    assert!(!ShellError::TooThick.names_the_cause());
+}
+
+#[test]
+fn a_thickness_of_a_nanometre_is_refused_in_words() {
+    let block = cuboid(Vector3::new(10.0, 10.0, 4.0));
+    let top = face_facing(&block, Vector3::Z, Point3::new(0.0, 0.0, 4.0));
+
+    let refusal = shell(&block, &[top], 5e-7, 1).unwrap_err();
+
+    assert_eq!(refusal, ShellError::InvalidThickness);
+    assert!(refusal.to_string().contains("0.000001 mm"));
+}
