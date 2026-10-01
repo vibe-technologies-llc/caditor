@@ -6468,7 +6468,7 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
     harness.settle();
     assert_readable(&harness, "An open extrusion");
     assert!(harness.captioned(Role::TextInput, "Distance"));
-    assert!(harness.accessible_named(Role::Button, "One side"));
+    assert!(harness.captioned(Role::ComboBox, "Extent"));
     assert!(harness.captioned(Role::ComboBox, "Result"));
 
     harness.select([]);

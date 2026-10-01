@@ -311,6 +311,53 @@ pub fn strong(text: impl Into<String>) -> RichText {
 }
 
 pub fn segmented(ui: &mut Ui, choices: &[(&str, &str)], selected: usize) -> Option<usize> {
+    if segmented_width(ui, choices) > ui.available_width() + WIDTH_CHANGE {
+        segmented_menu(ui, choices, selected)
+    } else {
+        segmented_row(ui, choices, selected)
+    }
+}
+
+fn segmented_width(ui: &Ui, choices: &[(&str, &str)]) -> f32 {
+    let padding = ui.spacing().button_padding.x;
+    let labels: f32 = choices
+        .iter()
+        .map(|(label, _)| {
+            unwrapped(ui, RichText::new(*label), TextStyle::Button)
+                .size()
+                .x
+                + 2.0 * padding
+        })
+        .sum();
+    let gaps = SPACE_XS * choices.len().saturating_sub(1) as f32;
+    labels + gaps + 2.0 * f32::from(SEGMENT_INSET)
+}
+
+fn segmented_menu(ui: &mut Ui, choices: &[(&str, &str)], selected: usize) -> Option<usize> {
+    let mut chosen = None;
+    let current = choices.get(selected).map_or("", |(label, _)| *label);
+    let salt: Vec<&str> = choices.iter().map(|(label, _)| *label).collect();
+    let combo = egui::ComboBox::from_id_salt(("segmented", salt))
+        .selected_text(current)
+        .width(ui.available_width())
+        .show_ui(ui, |ui| {
+            for (index, (label, hover)) in choices.iter().enumerate() {
+                let response = ui.selectable_label(index == selected, *label);
+                let response = if hover.is_empty() {
+                    response
+                } else {
+                    response.on_hover_text(*hover)
+                };
+                if response.clicked() && index != selected {
+                    chosen = Some(index);
+                }
+            }
+        });
+    tie_to_caption(ui, &combo.response);
+    chosen
+}
+
+fn segmented_row(ui: &mut Ui, choices: &[(&str, &str)], selected: usize) -> Option<usize> {
     let tokens = appearance::tokens(ui);
     let mut chosen = None;
     Frame::new()
