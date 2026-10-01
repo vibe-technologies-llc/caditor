@@ -44,6 +44,7 @@ use crate::{
     model::{Action, Model, Notice, RecomputeStatus, Services, WakerFactory},
     offsetting,
     onboarding::Hint,
+    palette::{Choice, State},
     panels::Focus,
     preferences::{PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, TitleBar},
     scene,
@@ -1107,7 +1108,7 @@ fn closing_with_unsaved_changes_asks_first_and_the_title_marks_them() {
     assert!(!harness.files.should_quit());
 
     harness.command(FileCommand::Quit);
-    harness.click("Close Without Saving");
+    harness.click("Close without saving");
     harness.wait_until("caditor quits", |harness| harness.files.should_quit());
 }
 
@@ -1217,7 +1218,7 @@ fn saving_from_the_close_prompt_writes_the_file_then_quits() {
 
     harness.answer_dialog(Some(dir.path().join("bracket")));
     harness.command(FileCommand::Quit);
-    harness.click("Save As…");
+    harness.click("Save as…");
     harness.wait_until("the model is saved", |harness| harness.files.should_quit());
 
     let path = dir.path().join("bracket.caditor");
@@ -1269,7 +1270,9 @@ fn exporting_writes_the_chosen_bodies_in_the_chosen_format_beside_the_model() {
         harness
             .shows("There are no bodies to export yet. Extrude or revolve a sketch to make one.")
     );
-    harness.click("Close");
+    assert!(!harness.shows("Close"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
     assert!(!harness.files.is_blocking());
 
     let (extrude, _) = extruded_plate(&mut harness);
@@ -1424,7 +1427,7 @@ fn exporting_an_image_keeps_its_dialog_when_the_picker_is_cancelled_and_asks_bef
 
     harness.click("Export…");
     harness.settle();
-    assert!(harness.shows("Export Image"));
+    assert!(harness.shows("Export image"));
     assert!(!harness.files.is_exporting_image());
 
     harness.answer_dialog(Some(dir.path().join("plate")));
@@ -1434,7 +1437,7 @@ fn exporting_an_image_keeps_its_dialog_when_the_picker_is_cancelled_and_asks_bef
     });
     harness.click("Cancel");
     assert_eq!(std::fs::read(&existing).unwrap(), b"precious");
-    assert!(harness.shows("Export Image"));
+    assert!(harness.shows("Export image"));
 
     harness.click("Export…");
     harness.wait_until("the replacement is confirmed", |harness| {
@@ -1446,7 +1449,7 @@ fn exporting_an_image_keeps_its_dialog_when_the_picker_is_cancelled_and_asks_bef
     });
     harness.settle();
     assert_ne!(std::fs::read(&existing).unwrap(), b"precious");
-    assert!(!harness.shows("Export Image"));
+    assert!(!harness.shows("Export image"));
 }
 
 fn png_size(path: &Path) -> (u32, u32, u8) {
@@ -1484,7 +1487,7 @@ fn exporting_an_image_writes_a_png_of_the_view_without_highlights_at_the_chosen_
     harness.key(Key::E, Modifiers::COMMAND | Modifiers::SHIFT);
     harness.frame();
     harness.show_new_windows();
-    assert!(harness.shows("Export Image"));
+    assert!(harness.shows("Export image"));
     assert!(harness.shows(&format!("View size ({} × {})", view.width, view.height)));
     harness.click("2×");
     assert!(harness.shows(&format!(
@@ -1609,7 +1612,7 @@ fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
     assert!(harness.shows(
         "The drawing does not say which unit it uses, so its numbers were read as millimetres."
     ));
-    harness.click("OK");
+    harness.click("Close");
     assert!(!harness.files.is_blocking());
     harness.perform(Action::Undo);
     assert_eq!(harness.sketch(sketch).entities().len(), before);
@@ -1629,7 +1632,7 @@ fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
          splines to import."
     );
     assert_eq!(harness.sketch(sketch).entities().len(), before);
-    harness.click("OK");
+    harness.click("Close");
 
     let picture = dir.path().join("photo.dxf");
     std::fs::write(&picture, b"\x89PNG\r\n\x1a\n").unwrap();
@@ -1765,7 +1768,7 @@ fn dropped_drawings_are_imported_one_after_another_and_a_dropped_model_opens() {
     });
     harness.frame();
     assert!(harness.shows("If you continue without saving, your changes will be lost."));
-    harness.click("Continue Without Saving");
+    harness.click("Continue without saving");
     harness.wait_until("the model is open", |harness| {
         harness.model.path() == Some(path.as_path())
     });
@@ -1789,8 +1792,8 @@ fn a_step_export_imports_back_as_a_body_that_later_features_can_use() {
     });
     harness.command(FileCommand::New);
     harness.frame();
-    if harness.shows("Continue Without Saving") {
-        harness.click("Continue Without Saving");
+    if harness.shows("Continue without saving") {
+        harness.click("Continue without saving");
     }
     harness.settle();
     let before = harness.document().features().len();
@@ -1895,7 +1898,7 @@ fn every_save_keeps_a_version_that_can_be_restored_and_undone() {
     harness.wait_until("the versions are listed", |harness| {
         harness.shows("Restore")
     });
-    assert!(harness.shows("Versions of “plate.caditor”"));
+    assert!(harness.shows("Version history"));
     harness.click("Restore");
     harness.wait_until("the version is restored", |harness| {
         harness
@@ -1948,7 +1951,7 @@ fn opening_a_damaged_file_reports_what_was_lost_and_keeps_the_original_on_save()
         harness.shows("A damaged part of the file was skipped; anything it held was left out.")
     );
     assert_eq!(harness.model.document().features().len(), 1);
-    harness.click("OK");
+    harness.click("Close");
     assert!(!harness.shows("Parts of “damaged.caditor” could not be read"));
 
     harness.command(FileCommand::Save);
@@ -1979,7 +1982,7 @@ fn an_unreadable_journal_is_kept_aside_and_reported_when_its_model_opens() {
     assert_eq!(kept.len(), 1);
     let note = caditor_file::describe_set_aside(&dir.path().join(&kept[0]));
     assert!(harness.shows(&note), "{note}");
-    harness.click("OK");
+    harness.click("Close");
     assert!(!harness.model.is_dirty());
 }
 
@@ -2083,8 +2086,8 @@ fn a_newly_opened_model_starts_with_nothing_selected_or_left_out_of_export() {
         included: false,
     }));
     harness.command(FileCommand::OpenSample(crate::samples::Sample::Plate));
-    if harness.shows("Continue Without Saving") {
-        harness.click("Continue Without Saving");
+    if harness.shows("Continue without saving") {
+        harness.click("Continue without saving");
     }
     harness.wait_until("the sample opens", |harness| {
         harness.model.session() != session
@@ -5501,10 +5504,17 @@ fn the_command_palette_runs_what_fits_the_context_and_explains_the_rest() {
     assert!(harness.workspace.palette.is_open());
 
     harness.replace_text("draw line");
+    assert!(harness.shows("Draw line"));
     assert!(
-        harness
-            .shows("No command matches. Commands that do not fit what you are doing are left out.")
+        harness.shows("Draw line is not available here: it works only while a sketch is edited.")
     );
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(harness.workspace.palette.is_open());
+    assert_eq!(harness.tool(), None);
+
+    harness.replace_text("zqzqzq");
+    assert!(harness.shows("Nothing is called “zqzqzq”. Try another word, or fewer letters."));
 
     harness.replace_text("undo");
     harness.key(Key::Enter, Modifiers::NONE);
@@ -5531,16 +5541,24 @@ fn a_shortcut_recorded_in_the_editor_runs_its_command_and_is_remembered() {
     harness.show_new_windows();
     harness.frame();
     harness.click("Keyboard shortcuts…");
-    assert!(harness.shows("Keyboard Shortcuts"));
+    assert!(harness.shows("Keyboard shortcuts"));
     harness.type_text("undo");
     assert_eq!(harness.count_shown("Redo"), 1);
-    harness.click("Keyboard Shortcuts");
+    harness.click("Keyboard shortcuts");
 
     harness.click("Add…");
     assert!(harness.shows("Press the keys… (Esc cancels)"));
     harness.key(Key::U, Modifiers::ALT);
     harness.show_new_windows();
-    assert!(harness.shows("Alt+U"));
+    assert!(
+        harness
+            .workspace
+            .preferences
+            .keymap
+            .shortcuts(Command::Undo)
+            .contains(&egui::KeyboardShortcut::new(Modifiers::ALT, Key::U))
+    );
+    assert!(harness.shows("U"));
 
     let shown_before = harness.count_shown("F");
     harness.click("Add…");
@@ -5575,6 +5593,100 @@ fn a_shortcut_recorded_in_the_editor_runs_its_command_and_is_remembered() {
     });
     harness.hover("Redo");
     assert!(harness.shows("Redo Edit width (Ctrl+Shift+Z)"));
+}
+
+#[test]
+fn resetting_all_shortcuts_asks_first_and_can_be_undone() {
+    let mut harness = Harness::new();
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Bind(
+            Command::Undo,
+            egui::KeyboardShortcut::new(Modifiers::ALT, Key::U),
+        ),
+    )));
+    harness.perform(Action::Preferences(PreferencesCommand::ShowShortcuts));
+    let bound = harness.workspace.preferences.keymap.clone();
+    assert!(!bound.is_all_default());
+
+    harness.click("Reset all shortcuts");
+    assert!(harness.shows("Reset all shortcuts?"));
+    assert_eq!(harness.workspace.preferences.keymap, bound);
+    harness.click("Cancel");
+    assert!(!harness.shows("Reset all shortcuts?"));
+    assert_eq!(harness.workspace.preferences.keymap, bound);
+
+    harness.click("Reset all shortcuts");
+    harness.click("Reset all shortcuts");
+    assert!(harness.workspace.preferences.keymap.is_all_default());
+    assert!(harness.shows("Every shortcut is back to the one caditor starts with."));
+    harness.click_lowest("Undo");
+    assert_eq!(harness.workspace.preferences.keymap, bound);
+    assert!(!harness.shows("Every shortcut is back to the one caditor starts with."));
+    assert!(harness.workspace.shortcut_editor.is_some());
+}
+
+#[test]
+fn the_palette_finds_features_and_parameters_and_goes_to_them() {
+    let mut harness = Harness::new();
+    let side = feature_named(&harness, "Side sketch");
+    let height = harness.parameter("height");
+
+    harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.show_new_windows();
+    harness.type_text("side sk");
+    assert!(harness.shows("Features"));
+    assert!(harness.shows("Press Enter to select it in the feature tree."));
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(!harness.workspace.palette.is_open());
+    assert_eq!(harness.workspace.panels.selected, Some(side));
+
+    harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.show_new_windows();
+    harness.type_text("heig");
+    assert!(harness.shows("Parameters"));
+    assert!(harness.shows("width / 2"));
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(!harness.workspace.palette.is_open());
+    assert_eq!(
+        harness.focused(),
+        Some(Focus::ParameterValue(height).field_id())
+    );
+}
+
+#[test]
+fn the_palette_lists_what_does_not_fit_the_context_last_with_the_reason() {
+    let mut harness = Harness::new();
+    harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.show_new_windows();
+    harness.type_text("trim");
+    assert!(harness.shows("Trim sketch curves"));
+    let entries = harness.workspace.palette.entries(
+        &harness.workspace.last_offers,
+        &harness.workspace.preferences.keymap,
+        harness.model.document(),
+    );
+    let trim = entries
+        .iter()
+        .position(|entry| entry.choice == Choice::Command(Command::SketchTool(Tool::Trim)))
+        .unwrap();
+    let last_ready = entries
+        .iter()
+        .rposition(|entry| entry.state == State::Ready)
+        .unwrap_or_default();
+    assert!(trim > last_ready, "{entries:#?}");
+    for _ in 0..trim {
+        harness.key(Key::ArrowDown, Modifiers::NONE);
+    }
+    harness.frame();
+    assert!(harness.shows(
+        "Trim sketch curves is not available here: it works only while a sketch is edited."
+    ));
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(harness.workspace.palette.is_open());
+    assert_eq!(harness.tool(), None);
 }
 
 fn run_from_palette(harness: &mut Harness, query: &str) {
@@ -5792,10 +5904,42 @@ fn a_first_run_welcomes_opens_a_sample_and_offers_tips_until_they_are_hidden() {
     assert!(harness.shows("Welcome to caditor"));
     harness.click("Start with an empty model");
     assert!(!harness.shows("Welcome to caditor"));
-    harness.click("Continue Without Saving");
+    harness.click("Continue without saving");
     harness.settle();
     assert_eq!(harness.document().features().len(), 0);
     assert!(!harness.model.is_dirty());
+}
+
+#[test]
+fn the_welcome_lists_recent_files_opens_one_and_clears_them() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("kept.caditor");
+    caditor_file::save(&sample_document().unwrap(), &path, false).unwrap();
+    let mut earlier = Harness::with_directories(Some(dir.path()));
+    earlier.command(FileCommand::OpenPath(path.clone()));
+    earlier.wait_until("the file is open", |harness| harness.model.path().is_some());
+    assert!(earlier.files.wait_for_jobs(FILE_TIMEOUT));
+    drop(earlier);
+
+    let mut harness = Harness::first_run(dir.path());
+    harness.wait_until("the recent files are read", |harness| {
+        !harness.files.recent().is_empty()
+    });
+    assert!(harness.shows("Welcome to caditor"));
+    assert!(harness.shows("Recent files"));
+    assert!(harness.shows("kept.caditor"));
+    harness.click("kept.caditor");
+    harness.wait_until("the recent file opens", |harness| {
+        harness.model.path().is_some()
+    });
+    assert!(!harness.shows("Welcome to caditor"));
+
+    harness.perform(Action::Preferences(PreferencesCommand::ShowWelcome));
+    assert!(harness.shows("Recent files"));
+    harness.click("Clear recent files");
+    assert!(harness.files.recent().is_empty());
+    assert!(harness.shows("Welcome to caditor"));
+    assert!(!harness.shows("Recent files"));
 }
 
 #[test]
@@ -6053,7 +6197,7 @@ fn dialogs_fit_the_screen_at_the_largest_interface_size() {
     harness.frame();
     harness.show_new_windows();
     let visible = SCREEN.size() / 2.0;
-    for label in ["Close", "Reset all shortcuts", "Keyboard Shortcuts"] {
+    for label in ["Close", "Reset all shortcuts", "Keyboard shortcuts"] {
         let rect = harness
             .texts
             .iter()
@@ -6459,7 +6603,7 @@ fn icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers() {
 
     harness.click("File");
     assert_readable(&harness, "The File menu");
-    assert!(harness.accessible_named(Role::Button, "Open Sample"));
+    assert!(harness.accessible_named(Role::Button, "Open sample"));
     harness.key(Key::Escape, Modifiers::NONE);
     harness.show_new_windows();
 
@@ -7908,6 +8052,7 @@ fn graphics_options_apply_at_once_are_saved_and_what_the_adapter_lacks_says_why(
 
     harness.click("2×");
     harness.click("Enhanced");
+    harness.click("Match the display");
     harness.click("120 fps");
     let graphics = harness.workspace.preferences.graphics;
     assert_eq!(graphics.msaa, Msaa::X2);
@@ -7927,8 +8072,24 @@ fn graphics_options_apply_at_once_are_saved_and_what_the_adapter_lacks_says_why(
     });
 
     harness.click("Restore defaults");
+    assert_eq!(harness.workspace.preferences.graphics, graphics);
+    assert!(harness.shows("Restore the defaults of the Graphics tab?"));
+    harness.click("Cancel");
+    assert!(!harness.shows("Restore the defaults of the Graphics tab?"));
+    assert_eq!(harness.workspace.preferences.graphics, graphics);
+    assert!(harness.workspace.preferences_open);
+
+    harness.click("Restore defaults");
+    harness.click("Restore defaults");
     assert_eq!(harness.workspace.preferences.graphics, Graphics::default());
     assert_eq!(harness.workspace.preferences_tab, PreferencesTab::Graphics);
+    assert!(harness.shows("This tab is back to its defaults."));
+    harness.click_lowest("Undo");
+    assert_eq!(harness.workspace.preferences.graphics, graphics);
+    assert!(!harness.shows("This tab is back to its defaults."));
+    harness.wait_until("the undone settings are saved", |_| {
+        caditor_file::Settings::load(&config).text("graphics.frame_limit") == Some("120")
+    });
 }
 
 #[test]

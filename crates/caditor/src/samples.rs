@@ -30,7 +30,7 @@ impl Sample {
         match self {
             Self::Plate => {
                 "A plate with two holes, extruded from one fully constrained sketch. Change its \
-                 length, width or hole in the parameter table."
+                 length, width or hole in Parameters."
             }
             Self::Spool => {
                 "A spool revolved from a profile about the sketch's vertical axis. Its diameters \

@@ -8,6 +8,7 @@ use caditor_document::{
     AxisReference, BlendKind, Datum, DatumAxis, Feature, FeatureId, FeatureKind, PrincipalAxis,
     SolidFeature,
 };
+use caditor_file::{JournalEntry, Start, Storage, StorageConfig};
 use caditor_render::{SurfaceTarget, ViewportFrame, ViewportRenderer};
 use egui::{Event, Key, Modifiers};
 use tempfile::TempDir;
@@ -19,10 +20,12 @@ use crate::{
     editing::EditingCommand,
     export::ExportCommand,
     files::FileCommand,
+    history::HistoryCommand,
+    image_export::ImageCommand,
     model::Action,
     panels::Renaming,
     pattern_tools::{self, Shape},
-    preferences::{Preferences, PreferencesCommand, Theme},
+    preferences::{Preferences, PreferencesCommand, PreferencesTab, Theme},
     reference_picking::{Picking, Slot},
     samples::Sample,
     selection::{Pickable, Selection},
@@ -363,6 +366,7 @@ fn screenshots() {
         canvas_scenes(&mut model, &gpu, &out, look);
         tree_scenes(&mut model, &gpu, &out, look);
         feature_panel_scenes(&mut model, &gpu, &out, look);
+        dialog_scenes(&gpu, &out, look);
     }
 }
 
@@ -574,4 +578,125 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         matches!(kind.solid(), Some(SolidFeature::Revolve(_)))
     });
     shoot_open(&mut spool, gpu, out, "panel-revolve", look);
+}
+
+fn close_dialog(harness: &mut Harness) {
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+}
+
+fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
+    let dir = TempDir::new().expect("a temporary directory");
+    let mut model = Harness::styled(look, dir.path(), false);
+    model.open_sample(Sample::Plate);
+
+    for tab in PreferencesTab::ALL {
+        model.perform(Action::Preferences(PreferencesCommand::Tab(tab)));
+        model.perform(Action::Preferences(PreferencesCommand::Show));
+        let scene = format!("preferences-{}", tab.label().to_lowercase());
+        shoot(&mut model, gpu, out, &scene, look);
+        close_dialog(&mut model);
+    }
+
+    model.perform(Action::Preferences(PreferencesCommand::ShowShortcuts));
+    shoot(&mut model, gpu, out, "shortcuts", look);
+    close_dialog(&mut model);
+
+    model.perform(Action::Preferences(PreferencesCommand::ShowAbout));
+    shoot(&mut model, gpu, out, "about", look);
+    close_dialog(&mut model);
+
+    model.command(FileCommand::ExportImage(ImageCommand::Show));
+    shoot(&mut model, gpu, out, "image-export", look);
+    close_dialog(&mut model);
+
+    let path = dir.path().join("plate.caditor");
+    model.answer_dialog(Some(path.clone()));
+    model.command(FileCommand::SaveAs);
+    model.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
+    for width in ["45 mm", "50 mm"] {
+        model.edit_width(width);
+        model.command(FileCommand::Save);
+        model.wait_until("the change is saved", |harness| !harness.model.is_dirty());
+    }
+    model.command(FileCommand::History(HistoryCommand::Show));
+    model.wait_until("the versions are listed", |harness| {
+        harness.shows("Restore")
+    });
+    shoot(&mut model, gpu, out, "history", look);
+    close_dialog(&mut model);
+
+    model.edit_width("55 mm");
+    model.command(FileCommand::New);
+    shoot(&mut model, gpu, out, "unsaved", look);
+    close_dialog(&mut model);
+    model.command(FileCommand::Save);
+    model.wait_until("the change is saved", |harness| !harness.model.is_dirty());
+
+    let damaged = dir.path().join("damaged.caditor");
+    let bytes = caditor_file::encode(&super::sample_document().expect("the sample builds"))
+        .expect("the sample encodes");
+    std::fs::write(&damaged, super::damage_chunk(&bytes, 4)).expect("the damaged file is written");
+    model.command(FileCommand::OpenPath(damaged.clone()));
+    model.wait_until("the damaged file opens", |harness| {
+        harness.model.path() == Some(damaged.as_path())
+    });
+    model.settle();
+    shoot(&mut model, gpu, out, "report", look);
+    close_dialog(&mut model);
+    drop(model);
+
+    let mut tip = Harness::styled(look, dir.path(), false);
+    tip.workspace.preferences.onboarding.hints = true;
+    tip.settle();
+    shoot(&mut tip, gpu, out, "tip", look);
+    drop(tip);
+
+    let mut welcome = Harness::styled(look, dir.path(), true);
+    welcome.wait_until("the recent files are read", |harness| {
+        !harness.files.recent().is_empty()
+    });
+    shoot(&mut welcome, gpu, out, "welcome-recent", look);
+    drop(welcome);
+
+    let crash = TempDir::new().expect("a temporary directory");
+    crashed_session(crash.path());
+    let mut recovery = Harness::styled(look, crash.path(), false);
+    recovery.wait_until("recovery is offered", |harness| {
+        harness.files.has_recoverable()
+    });
+    recovery.perform(Action::File(FileCommand::ShowRecovery));
+    shoot(&mut recovery, gpu, out, "recovery", look);
+}
+
+fn crashed_session(dir: &Path) {
+    let base = super::sample_document().expect("the sample builds");
+    let width = base.parameter_named("width").expect("a width").id();
+    let change = caditor_document::Transaction::single(
+        "Edit width",
+        caditor_document::Edit::SetParameterExpression {
+            id: width,
+            expression: base.parse("55 mm").expect("a length"),
+        },
+    );
+    let crashed = Storage::spawn(
+        StorageConfig {
+            recovery_dir: Some(dir.join("recovery")),
+        },
+        Start {
+            file: None,
+            loaded_with_problems: false,
+            base,
+            entries: vec![JournalEntry::Apply(change)],
+            replaces: None,
+            after: None,
+        },
+        || {},
+    )
+    .expect("the storage starts");
+    assert!(crashed.flusher().flush(super::FILE_TIMEOUT));
+    assert!(crashed.close(false).wait(super::FILE_TIMEOUT));
 }

@@ -180,7 +180,7 @@ paths:
 - `samples.rs` builds three parametric models through the document API (always the current format):
   a two-hole plate (extrude), a flanged spool (full revolve about the sketch's vertical axis), an
   angle bracket (symmetric extrude, hole removed by a second one); fully constrained, dimensions
-  naming parameters; a test recomputes each and checks its volume. Open Sample (menu, palette,
+  naming parameters; a test recomputes each and checks its volume. Open sample (menu, palette,
   welcome dialog) opens one untitled and unmodified after the unsaved-changes prompt.
 
 ## About, command line, accessibility

@@ -4,6 +4,7 @@ paths:
   - "crates/caditor/src/appearance.rs"
   - "crates/caditor/src/icons.rs"
   - "crates/caditor/src/widgets.rs"
+  - "crates/caditor/src/dialog_parts.rs"
   - "crates/caditor/src/canvas.rs"
   - "crates/caditor/src/view_cube.rs"
   - "crates/caditor/src/layout.rs"
@@ -79,7 +80,18 @@ paths:
   `dialog`/`footer` (a titled modal with a close button and the primary action rightmost), and
   `tabs`. A dialog gives focus to its `primary_button` whenever no widget holds it (opening, Escape
   out of a widget, a click on bare dialog), so Enter runs the primary action while a field or
-  another button that has focus keeps Enter for itself.
+  another button that has focus keeps Enter for itself. A dialog whose only action would be Close
+  has no footer: its title bar's close button is enough.
+- `dialog_parts.rs` holds what dialogs share beyond the kit: `split_footer` (a footer whose
+  destructive action, a `danger_button`, sits at the far left away from the primary),
+  `confirmation` and `confirm_footer` (a warning callout asking, over the destructive action left
+  and a primary Cancel right, used before Restore defaults and Reset all shortcuts), `undo_note`
+  (a success callout with Undo after either), `titled_modal` (a titled dialog without a close
+  button, for waits that cannot be cancelled), `BodyRoom` (the height a dialog's scrolling middle
+  may take so the whole dialog stays within a share of the window, measuring what sits above it
+  and, from the last frame, below it) and `segmented_offered` (a `segmented` whose options can be
+  disabled with a reason). Sentence case everywhere: buttons, titles and commands ("Save as…",
+  "Close without saving", "Keyboard shortcuts").
 - `tabs` is a wrapping row of `Tab`s (icon and label) over a border line: the selected one tinted
   `accent_subtle` with `accent_text` and a 2-point accent underline, others `text` on hover or
   pressed fills, focus outlined in `focus`. It returns the tab chosen by click, by Left/Right
@@ -96,8 +108,10 @@ paths:
   hover text; small buttons, menu items and section headers their label; a tree row's chevron and
   "⋯" buttons the action and the feature's name, its edit button "Edit <name>" (or what closes it),
   the row itself a selectable label named by the feature or item and marked selected; a sketch
-  dimension's field is labelled by its constraint's description; the shortcut editor's chips, Add…
-  and Reset the command they act on; a tab is an AccessKit `Role::Tab` named by its label and marked selected.
+  dimension's field is labelled by its constraint's description; the shortcut editor's remove
+  crosses, Add… and Reset the command they act on; palette rows and the welcome's sample cards and
+  recent files what choosing them does; a tab is an AccessKit `Role::Tab` named by its label and
+  marked selected.
   Decorative glyphs are hidden from the AccessKit tree (`icon_label`,
   `decorative`), meaningful ones described (`described_icon`); a property `caption` labels the text
   field, combo box or slider after it in its grid (`tie_to_caption`, via `field::commit_field`).
@@ -124,7 +138,7 @@ paths:
   and the search field, else as far towards the centre as it can (`model-title-width`, remembered
   like the bars' trailing widths). It fills with `hover` on hover or while its menu is open,
   `pressed` while pressed, and shows the focus ring when focused. Clicking it opens the model
-  details: path, saved state, Save, Save As…, Version History… (once saved) and Copy file location.
+  details: path, saved state, Save, Save as…, Version history… (once saved) and Copy file location.
   Its text is muted while the window is unfocused.
 - Both ribbons are built by `ribbon.rs`: whole groups packed into rows by last frame's natural
   widths (`ribbon::rows`, `remembered_width` per group), `SPACE_L` apart with a 1-point

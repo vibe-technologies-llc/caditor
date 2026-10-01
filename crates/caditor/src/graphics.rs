@@ -3,9 +3,10 @@ use std::time::{Duration, Instant};
 use caditor_file::Settings;
 use caditor_kernel::MeshQuality;
 use caditor_render::{GraphicsInfo, GraphicsSettings, Msaa, Shading};
-use egui::{Button, Label, Ui};
+use egui::{Label, Ui};
 
 use crate::{
+    dialog_parts::{self, Segment},
     icons,
     preferences::{self, PreferenceChange, PreferencesCommand},
     widgets::{self, Tone},
@@ -388,34 +389,42 @@ fn display(
             widgets::property(ui, "Vsync", |ui| {
                 let mut vsync = graphics.vsync || !vsync_optional;
                 let response = ui
-                .add_enabled(
-                    vsync_optional,
-                    egui::Checkbox::new(&mut vsync, "Wait for the display"),
-                )
-                .on_hover_text(
-                    "On: each frame waits for the display's refresh, so nothing tears. Off: a \
-                     frame is shown as soon as it is drawn, for less delay after a mouse move",
-                )
-                .on_disabled_hover_text(
-                    "This display only shows frames in step with its refresh, so vsync stays on",
-                );
+                    .add_enabled(
+                        vsync_optional,
+                        egui::Checkbox::new(&mut vsync, "Wait for the display"),
+                    )
+                    .on_hover_text(
+                        "On: each frame waits for the display's refresh, so nothing tears. Off: \
+                         a frame is shown as soon as it is drawn, for less delay after a mouse \
+                         move",
+                    )
+                    .on_disabled_hover_text(
+                        "This display only shows frames in step with its refresh, so vsync stays \
+                         on",
+                    );
                 widgets::tie_to_caption(ui, &response);
                 if response.changed() {
                     preferences::change(command, PreferenceChange::Vsync(vsync));
                 }
             });
             widgets::property(ui, "Frame rate", |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    for limit in FrameLimit::ALL {
-                        if ui
-                            .selectable_label(graphics.frame_limit == limit, limit.label())
-                            .on_hover_text(limit.hover(hardware.refresh_rate))
-                            .clicked()
-                        {
-                            preferences::change(command, PreferenceChange::FrameLimit(limit));
+                let combo = egui::ComboBox::from_id_salt("frame-rate")
+                    .selected_text(graphics.frame_limit.label())
+                    .show_ui(ui, |ui| {
+                        for limit in FrameLimit::ALL {
+                            let chosen = ui
+                                .selectable_label(graphics.frame_limit == limit, limit.label())
+                                .on_hover_text(limit.hover(hardware.refresh_rate))
+                                .clicked();
+                            if chosen && graphics.frame_limit != limit {
+                                preferences::change(command, PreferenceChange::FrameLimit(limit));
+                            }
                         }
-                    }
-                });
+                    });
+                widgets::tie_to_caption(ui, &combo.response);
+                combo
+                    .response
+                    .on_hover_text(graphics.frame_limit.hover(hardware.refresh_rate));
             });
         },
     );
@@ -433,22 +442,29 @@ fn quality(
         .map(|adapter| adapter.msaa);
     preferences::section(ui, "Quality", "graphics-quality", None, |ui| {
         widgets::property(ui, "Anti-aliasing", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for msaa in Msaa::ALL {
-                    let offered = adapter.is_none_or(|adapter| adapter.offers(msaa));
-                    let chosen = ui
-                        .add_enabled(
-                            offered,
-                            Button::selectable(graphics.msaa == msaa, msaa_label(msaa)),
-                        )
-                        .on_hover_text(msaa_hover(msaa))
-                        .on_disabled_hover_text(msaa_refusal(msaa))
-                        .clicked();
-                    if chosen {
-                        preferences::change(command, PreferenceChange::Msaa(msaa));
-                    }
-                }
+            let hovers = Msaa::ALL.map(msaa_hover);
+            let refusals = Msaa::ALL.map(|msaa| {
+                let offered = adapter.is_none_or(|adapter| adapter.offers(msaa));
+                (!offered).then(|| msaa_refusal(msaa))
             });
+            let segments: Vec<Segment<'_>> = Msaa::ALL
+                .iter()
+                .zip(hovers.iter().zip(&refusals))
+                .map(|(msaa, (hover, refusal))| Segment {
+                    label: msaa_label(*msaa),
+                    hover,
+                    refusal: refusal.as_deref(),
+                })
+                .collect();
+            let selected = Msaa::ALL
+                .iter()
+                .position(|msaa| *msaa == graphics.msaa)
+                .unwrap_or(usize::MAX);
+            if let Some(msaa) = dialog_parts::segmented_offered(ui, &segments, selected)
+                .and_then(|index| Msaa::ALL.get(index).copied())
+            {
+                preferences::change(command, PreferenceChange::Msaa(msaa));
+            }
         });
         if let Some(used) = fallback {
             ui.label("");
@@ -462,30 +478,17 @@ fn quality(
             ui.end_row();
         }
         widgets::property(ui, "Shading", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for shading in Shading::ALL {
-                    if ui
-                        .selectable_label(graphics.shading == shading, shading_label(shading))
-                        .on_hover_text(shading_hover(shading))
-                        .clicked()
-                    {
-                        preferences::change(command, PreferenceChange::Shading(shading));
-                    }
-                }
-            });
+            let options = Shading::ALL
+                .map(|shading| (shading, shading_label(shading), shading_hover(shading)));
+            if let Some(shading) = preferences::choice(ui, &options, graphics.shading) {
+                preferences::change(command, PreferenceChange::Shading(shading));
+            }
         });
         widgets::property(ui, "Curve smoothness", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for curves in CurveQuality::ALL {
-                    if ui
-                        .selectable_label(graphics.curves == curves, curves.label())
-                        .on_hover_text(curves.hover())
-                        .clicked()
-                    {
-                        preferences::change(command, PreferenceChange::CurveQuality(curves));
-                    }
-                }
-            });
+            let options = CurveQuality::ALL.map(|curves| (curves, curves.label(), curves.hover()));
+            if let Some(curves) = preferences::choice(ui, &options, graphics.curves) {
+                preferences::change(command, PreferenceChange::CurveQuality(curves));
+            }
         });
     });
 }
