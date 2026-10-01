@@ -454,12 +454,19 @@ impl Worker {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Freshness {
+    Current,
+    Stale,
+}
+
 #[derive(Default)]
 pub struct Measurements {
     worker: Option<Worker>,
     basis: Option<Basis>,
     ticket: u64,
     readout: Option<Readout>,
+    previous: Option<Readout>,
 }
 
 impl Measurements {
@@ -471,11 +478,29 @@ impl Measurements {
         };
         if self.basis.as_ref() != Some(&basis) {
             self.basis = Some(basis);
-            self.ticket = self.ticket.wrapping_add(1);
-            self.readout = None;
-            self.submit(model, items_of(model, selection));
+            self.restart();
+            let items = items_of(model, selection);
+            if items.is_empty() {
+                self.arrive(self.ticket, Readout::default());
+            } else {
+                self.submit(model, items);
+            }
         }
         self.poll();
+    }
+
+    fn restart(&mut self) {
+        self.ticket = self.ticket.wrapping_add(1);
+        if let Some(current) = self.readout.take() {
+            self.previous = Some(current);
+        }
+    }
+
+    fn arrive(&mut self, ticket: u64, readout: Readout) {
+        if ticket == self.ticket {
+            self.readout = Some(readout);
+            self.previous = None;
+        }
     }
 
     fn submit(&mut self, model: &Model, items: Vec<Item>) {
@@ -493,7 +518,7 @@ impl Measurements {
         if let Some(job) = refused {
             log::error!("no measure worker, so the selection is measured on the UI thread");
             self.worker = None;
-            self.readout = Some(measure(&job.items));
+            self.arrive(job.ticket, measure(&job.items));
         }
     }
 
@@ -501,10 +526,9 @@ impl Measurements {
         let Some(worker) = &self.worker else {
             return;
         };
-        while let Ok((ticket, readout)) = worker.done.try_recv() {
-            if ticket == self.ticket {
-                self.readout = Some(readout);
-            }
+        let arrived: Vec<(u64, Readout)> = worker.done.try_iter().collect();
+        for (ticket, readout) in arrived {
+            self.arrive(ticket, readout);
         }
     }
 
@@ -512,9 +536,25 @@ impl Measurements {
         self.readout.as_ref()
     }
 
+    pub fn shown(&self) -> Option<(&Readout, Freshness)> {
+        self.readout
+            .as_ref()
+            .map(|readout| (readout, Freshness::Current))
+            .or_else(|| {
+                self.previous
+                    .as_ref()
+                    .map(|readout| (readout, Freshness::Stale))
+            })
+    }
+
+    pub fn is_measuring(&self) -> bool {
+        self.basis.is_some() && self.readout.is_none()
+    }
+
     pub fn forget(&mut self) {
         self.basis = None;
         self.readout = None;
+        self.previous = None;
     }
 }
 
@@ -584,6 +624,31 @@ mod tests {
         assert_eq!(readout.groups.len(), 3);
         assert_eq!(readout.problem, Some(TOO_MANY));
         assert_eq!(readout.line, None);
+    }
+
+    #[test]
+    fn the_last_readout_stays_shown_as_stale_until_the_new_one_arrives() {
+        let first = measure(&[point(0.0, 0.0, 0.0)]);
+        let second = measure(&[point(1.0, 0.0, 0.0), point(2.0, 0.0, 0.0)]);
+        let mut measurements = Measurements::default();
+        measurements.restart();
+        let started = measurements.ticket;
+        measurements.arrive(started, first.clone());
+
+        measurements.restart();
+        let stale = measurements
+            .shown()
+            .map(|(readout, freshness)| (readout.clone(), freshness));
+        let line_while_stale = measurements.readout().cloned();
+        measurements.arrive(started, Readout::default());
+        let after_outdated = measurements.shown().map(|(_, freshness)| freshness);
+        measurements.arrive(measurements.ticket, second.clone());
+
+        assert_eq!(stale, Some((first, Freshness::Stale)));
+        assert_eq!(line_while_stale, None);
+        assert_eq!(after_outdated, Some(Freshness::Stale));
+        assert_eq!(measurements.shown(), Some((&second, Freshness::Current)));
+        assert_eq!(measurements.readout(), Some(&second));
     }
 
     #[test]

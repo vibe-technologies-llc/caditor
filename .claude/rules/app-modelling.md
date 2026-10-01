@@ -96,9 +96,9 @@ paths:
   tree's current feature); H hides the bodies, sketches and datums of the selection and Alt+H shows
   everything. Extrude and Revolve hide their sketch in the same transaction.
 - Principal planes, axes and origin hide the same way (H on them in the view, Alt+H); a collapsible
-  "Principal planes and axes" row at the top of the tree (`principal_tree.rs`) has an eye button for
-  the group (also the command Hide or show principal planes, axes and origin) and one per item,
-  hovering an item highlighting it in the view. Hidden ones are drawn and offered anyway while a
+  "Principal planes, axes and origin" row at the top of the tree (`principal_tree.rs`) has an eye
+  button for the group (also the command Hide or show principal planes, axes and origin) and one per
+  item, hovering an item highlighting it in the view. Hidden ones are drawn and offered anyway while a
   sketch's plane is chosen (`Context::choosing_plane`).
 
 ## Datums

@@ -1,21 +1,24 @@
 use caditor_document::{Document, Edit, Parameter, Transaction};
-use egui::{Grid, Label, RichText, Ui};
+use egui::{Grid, Id, Label, Rect, Ui, Vec2, vec2};
 
 use crate::{
+    appearance::{CONTROL_HEIGHT, SPACE_M, SPACE_S, SPACE_XS},
     commands::{Command, CommandFrame},
     field, icons,
     model::{Action, Model},
     panels::{Focus, PanelState},
-    widgets,
+    tree_row, widgets,
 };
 
 pub const ADD_LABEL: &str = "Add parameter";
+pub const EMPTY_PARAMETERS: &str =
+    "Parameters are named values that any dimension can use, such as width / 2.";
 const COLUMNS: usize = 4;
-const SPACING: [f32; 2] = [6.0, 4.0];
-const VALUE_WIDTH: f32 = 72.0;
-const FIELD_MARGIN: f32 = 8.0;
-const SLACK: f32 = 2.0;
-const NAME_SHARE: f32 = 0.42;
+const SPACING: Vec2 = vec2(SPACE_M, SPACE_S);
+const VALUE_WIDTH: f32 = 88.0;
+const FIELD_MARGIN: f32 = SPACE_M;
+const SLACK: f32 = SPACE_XS;
+const NAME_SHARE: f32 = 0.45;
 const MIN_NAME_WIDTH: f32 = 48.0;
 const MIN_EXPRESSION_WIDTH: f32 = 64.0;
 const NEW_PARAMETER_NAME: &str = "parameter";
@@ -26,17 +29,15 @@ const NO_PARAMETER_CHOSEN: &str =
 pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
     let document = model.document();
     if document.parameters().is_empty() {
-        ui.label(widgets::muted(
-            "Parameters are named values that any dimension can use, such as width / 2.",
-            ui,
-        ));
-        let button = widgets::small_button(ui, icons::ADD, ADD_LABEL);
-        if ui.add(button).clicked() {
-            add(model, state, actions);
-        }
+        widgets::empty_state(ui, icons::PARAMETERS, EMPTY_PARAMETERS, |ui| {
+            let button = widgets::small_button(ui, icons::ADD, ADD_LABEL);
+            if ui.add(button).clicked() {
+                add(model, state, actions);
+            }
+        });
         return;
     }
-    let widths = FieldWidths::fitting(ui.available_width(), ui.spacing().interact_size.y);
+    let widths = FieldWidths::fitting(ui.available_width(), CONTROL_HEIGHT);
     Grid::new("parameters")
         .num_columns(COLUMNS)
         .striped(true)
@@ -45,20 +46,12 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
             for caption in ["Name", "Expression", "Value"] {
                 widgets::column_caption(ui, caption);
             }
-            ui.label("");
             ui.end_row();
             for parameter in document.parameters() {
                 let error = row(ui, model, state, actions, parameter, widths);
                 ui.end_row();
                 if let Some(error) = error {
-                    ui.label("");
-                    let color = ui.visuals().error_fg_color;
-                    ui.horizontal_wrapped(|ui| {
-                        ui.set_max_width(widths.expression);
-                        widgets::icon_label(ui, icons::FAILED, color);
-                        ui.colored_label(color, error);
-                    });
-                    ui.end_row();
+                    widgets::error_row(ui, &error);
                 }
             }
         });
@@ -73,7 +66,7 @@ struct FieldWidths {
 
 impl FieldWidths {
     fn fitting(available: f32, delete: f32) -> Self {
-        let gaps = (COLUMNS - 1) as f32 * SPACING[0];
+        let gaps = (COLUMNS - 1) as f32 * SPACING.x;
         let fields = available - VALUE_WIDTH - delete - gaps - 2.0 * FIELD_MARGIN - SLACK;
         Self {
             name: (fields * NAME_SHARE).max(MIN_NAME_WIDTH),
@@ -175,16 +168,25 @@ fn row(
             }
             Some(Err(error)) => {
                 let color = ui.visuals().error_fg_color;
-                widgets::icon_label(ui, icons::FAILED, color).on_hover_text(format!(
-                    "{} cannot be evaluated: {error}. Edit its expression.",
-                    parameter.name
-                ));
-                ui.add(Label::new(RichText::new("Error").color(color)).truncate());
+                widgets::described_icon(
+                    ui,
+                    icons::FAILED,
+                    color,
+                    &format!(
+                        "{} cannot be evaluated: {error}. Edit its expression.",
+                        parameter.name
+                    ),
+                );
             }
             None => {}
         });
     });
-    delete_button(ui, document, actions, parameter);
+    let band = Rect::from_x_y_ranges(
+        ui.clip_rect().x_range(),
+        name.response.rect.expand(SPACING.y / 2.0).y_range(),
+    );
+    let hovered = ui.rect_contains_pointer(band);
+    delete_button(ui, document, actions, parameter, hovered);
     name.error.or(expression.error)
 }
 
@@ -229,15 +231,26 @@ fn delete_button(
     document: &Document,
     actions: &mut Vec<Action>,
     parameter: &Parameter,
+    row_hovered: bool,
 ) {
     let delete = delete_transaction(parameter);
     let check = document.can_remove_parameter(parameter.id());
     let hover = format!("Delete {}", parameter.name);
-    let response = ui
-        .add_enabled_ui(check.is_ok(), |ui| {
+    let focus_key = Id::new(("parameter-delete-focused", parameter.id()));
+    let focused = ui.data(|data| data.get_temp::<bool>(focus_key).unwrap_or(false));
+    let response = tree_row::slot(ui, |ui| {
+        if !row_hovered && !focused {
+            ui.set_opacity(0.0);
+        }
+        ui.add_enabled_ui(check.is_ok(), |ui| {
             widgets::icon_button(ui, icons::DELETE, &hover)
         })
-        .inner;
+        .inner
+    });
+    if response.has_focus() != focused {
+        ui.data_mut(|data| data.insert_temp(focus_key, response.has_focus()));
+        ui.ctx().request_repaint();
+    }
     let response = match check {
         Ok(()) => response,
         Err(reason) => response.on_disabled_hover_text(reason.to_string()),
@@ -249,10 +262,7 @@ fn delete_button(
 
 fn unused_name(document: &Document) -> String {
     (1..)
-        .map(|number| match number {
-            1 => NEW_PARAMETER_NAME.to_owned(),
-            _ => format!("{NEW_PARAMETER_NAME}{number}"),
-        })
+        .map(|number| format!("{NEW_PARAMETER_NAME}{number}"))
         .find(|name| document.parameter_named(name).is_none())
         .unwrap_or_else(|| NEW_PARAMETER_NAME.to_owned())
 }

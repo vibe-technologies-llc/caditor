@@ -155,14 +155,21 @@ paths:
 - `Measurements` resolves the selection on the UI thread into points (vertices, sketch points, the
   origin) and edges or faces with their result's `Arc`, then measures on its own worker (newest job
   wins, a panic becomes a failed reading, without a worker it runs inline) only when the
-  selection, revision or evaluation changes; the panel shows Measuring… until the result for the
-  current selection arrives.
+  selection, revision or evaluation changes; an empty selection is read at once. Until the result
+  for the current selection arrives the previous readout stays in the panel, dimmed
+  (`Measurements::shown`, `Freshness::Stale`), and the header says Measuring…, so nothing jumps; the
+  measured line in the view comes only from the current readout (`Measurements::readout`).
 - A `Readout` is a card per item (position; length, radius, diameter, centre; area, exact for flat
   faces from the kernel, else from the display mesh; round faces' radii) and, for two items, a
   "Between them" card: distance and its X, Y and Z parts, centre to centre for two circles, axis to
   axis, the gap between parallel planes and the angle. More than two asks for fewer. Values are
   formatted in the length unit (`LengthUnit::measured_*`, a micrometre's resolution), approximate
-  ones prefixed ≈ with a note; each row and the whole panel can be copied as text.
+  ones prefixed ≈ with a note. Values are selectable text and the header's Copy all copies the
+  whole panel as text.
+- The panel opens with `panel_header` (Measure, Copy all, Close); with nothing selected it shows the
+  hint alone. Notes (approximations, a body waiting for its mesh) are callouts under their card,
+  never inside it. Mass properties is a collapsible section counting its bodies. egui keeps the
+  panel's width for the session; it is not stored in the preferences.
 - Mass properties are read each frame from the bodies' `BodyMass`: the bodies of the selected
   faces, edges and vertices and the feature selected in the tree, else every shown body.
 - The closest points are drawn in the view on the front layer (`scene::add_measurement`) with a

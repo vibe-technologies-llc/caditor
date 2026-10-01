@@ -68,6 +68,7 @@ mod solid_panel;
 mod solid_tools;
 mod status_bar;
 mod toolbar;
+mod tree_row;
 mod trimming;
 mod typed_point;
 #[cfg(test)]

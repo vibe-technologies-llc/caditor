@@ -17,6 +17,7 @@ paths:
   - "crates/caditor/src/feature_tree.rs"
   - "crates/caditor/src/parameter_table.rs"
   - "crates/caditor/src/principal_tree.rs"
+  - "crates/caditor/src/tree_row.rs"
 ---
 
 # Look, layout and panels
@@ -91,9 +92,11 @@ paths:
 ## Screen readers
 
 - Every button drawn with a glyph takes a name without it (`Named`, `named`): icon buttons their
-  hover text; small buttons, menu items and section headers their label; a tree row's chevron, edit
-  and "⋯" buttons the action and the feature's name; the shortcut editor's chips, Add… and Reset the
-  command they act on; a tab is an AccessKit `Role::Tab` named by its label and marked selected.
+  hover text; small buttons, menu items and section headers their label; a tree row's chevron and
+  "⋯" buttons the action and the feature's name, its edit button "Edit <name>" (or what closes it),
+  the row itself a selectable label named by the feature or item and marked selected; a sketch
+  dimension's field is labelled by its constraint's description; the shortcut editor's chips, Add…
+  and Reset the command they act on; a tab is an AccessKit `Role::Tab` named by its label and marked selected.
   Decorative glyphs are hidden from the AccessKit tree (`icon_label`,
   `decorative`), meaningful ones described (`described_icon`); a property `caption` labels the text
   field, combo box or slider after it in its grid (`tie_to_caption`, via `field::commit_field`).
@@ -144,22 +147,46 @@ paths:
 ## Side panel
 
 - The parameter table's name and expression fields share the panel's width beside a fixed value
-  column, since content wider than a side panel widens it the next frame.
-- The side panel has collapsible Features and Parameters sections, opening by themselves when a
-  rename or focus request needs something inside.
-- A feature row is its kind icon, name, state icon, edit and more buttons, highlighted with an
-  accent bar while open, with failures and outdated states as callouts under it and its properties
-  in a card; an opening feature scrolls into view while its card expands (`PanelState::reveal`).
-  A suppressed row's name is struck through and muted with the suppress icon as its state; a row
-  below the rollback bar is muted with the rolled-back icon; neither offers the edit button. A
-  failure caused by a suppressed feature carries an Unsuppress button (`FixTarget::Unsuppress`).
-- Clicking or tabbing to a row name selects it (`PanelState::selected`, cleared when the view
-  selection changes); Ctrl+click adds or removes a row and Shift+click takes the rows from the
-  selected one (`PanelState::chosen`, the primary first). Rename feature (F2) and Move feature up
-  or down act on the primary, else on the open feature (`feature_tree::current_feature`);
-  Suppress or unsuppress feature and Delete feature act on every chosen row (a row's menu on the
-  chosen rows when it is one of them); Delete selection (Delete) deletes them outside sketch
-  editing.
+  column (`VALUE_WIDTH`, 88 points), since content wider than a side panel widens it the next
+  frame. A value that cannot be evaluated is an error icon with the reason on hover, a refused edit
+  an `error_row` under the fields. A row's delete button is drawn only while the row is hovered or
+  the button holds keyboard focus; it stays in the Tab order. Added parameters are named
+  parameter1, parameter2 and so on, the first free number.
+- The side panel has collapsible Features and Parameters sections (`widgets::section`, `SPACE_S`
+  above and `SPACE_L` between), opening by themselves when a rename or focus request needs
+  something inside. Empty, each is an `empty_state`: the tree offers New sketch (choosing a plane
+  next) and Open a sample (the welcome dialog), the table Add parameter.
+- Tree rows come from `tree_row.rs`, shared by the feature tree and `principal_tree.rs`: a
+  20-point chevron, the kind icon, the name and fixed trailing slots, each `CONTROL_HEIGHT` square
+  and left empty when the row has nothing for it, so icons line up in columns: status, edit,
+  visibility and "⋯" for features, the visibility column alone for principal geometry. Rows are
+  `ROW_GAP` apart; the callouts and cards under a row (`tree_row::indented`) keep the normal
+  spacing. Selected rows fill with `accent_subtle`, the open row with `accent_surface` and an
+  accent bar, a hovered one with `hover`; keyboard focus outlines the row.
+- Kind icons are tinted by category: sketches `accent_text`, bodies and what modifies them `text`,
+  datums `text_muted`, and any row inactive or hidden `text_muted`. A failure shows once, as the
+  status icon and its callout, never by recolouring the icon or the name; an outdated row the same
+  with a Recompute button. A suppressed row's name is struck through and muted with the suppress
+  icon as its state; a row below the rollback bar is muted with the rolled-back icon; neither offers
+  the edit button. A failure caused by a suppressed feature carries an Unsuppress button
+  (`FixTarget::Unsuppress`); callout actions (Recompute, Unsuppress, Go to, Edit the dimension,
+  Detach) are `small_button`s with icons.
+- A click on a row's name only selects it (`PanelState::selected`, cleared when the view selection
+  changes), as does tabbing to it; Ctrl+click adds or removes a row and Shift+click takes the rows
+  from the selected one (`PanelState::chosen`, the primary first). The chevron alone shows or hides
+  the details. A double-click, Enter on the focused row, the edit button or the menu's Edit opens
+  the feature: a sketch for editing, any other feature as its open panel, an imported body by
+  showing its details; a suppressed or rolled-back one leaves a notice with the reason instead. Edit
+  buttons read "Edit <name>", and while open Finish sketch or Finish editing feature. An open
+  feature scrolls into view while its card expands (`PanelState::reveal`).
+- Rename feature (F2) and the menu's Rename turn the name into a field filling the name's place,
+  chevron and icon kept. Rename and Move feature up or down act on the primary, else on the open
+  feature (`feature_tree::current_feature`); Suppress or unsuppress feature and Delete feature act on
+  every chosen row (a row's menu on the chosen rows when it is one of them); Delete selection
+  (Delete) deletes them outside sketch editing.
+- The principal group's items are indented rows: hovering one highlights it in the view, a click
+  or tabbing to it selects it in the view when shown (clearing the tree's feature selection), and a
+  row reads as selected while its pickable is.
 - The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar" for
   screen readers): a grip glyph, "N features rolled back" when any are, and an accent line, drawn
   at the end of the tree when nothing is rolled back. It and every row name can be dragged
@@ -170,12 +197,15 @@ paths:
   end.
 - Deleting features others depend on opens the "Delete …?" dialog (`feature_tree::delete_dialog`,
   `PanelState::deleting`, counted as a modal): the dependents in tree order with what each uses,
-  then Delete with dependents (primary, rightmost), Keep dependents and Cancel; either deletion is
-  one transaction. Without dependents Delete acts at once; the menu item reads "Delete…" when it
+  then Delete with dependents (`danger_button`, leftmost), Keep dependents and Cancel (rightmost);
+  Cancel takes focus whenever focus is outside the dialog, so Enter never deletes. Either deletion
+  is one transaction. Without dependents Delete acts at once; the menu item reads "Delete…" when it
   will ask.
-- A sketch's constraint rows highlight their entities on hover and, clicked, edit the sketch and
-  select the constraint (`PanelState::hovered_in_tree`, `chosen_in_tree`, handed to the viewport
-  after the panels are drawn).
+- A sketch's card gives its entity count, then collapsible Dimensions and Constraints sections with
+  their counts (opening when a focus request targets something inside); each dimension's field sits
+  under its description. Constraint rows highlight their entities on hover and, clicked, edit the
+  sketch and select the constraint (`PanelState::hovered_in_tree`, `chosen_in_tree`, handed to the
+  viewport after the panels are drawn).
 
 ## Window and panel persistence
 

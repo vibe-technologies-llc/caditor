@@ -4,6 +4,7 @@ use caditor_sketch::ConstraintId;
 use egui::Id;
 
 use crate::{
+    appearance::{SPACE_L, SPACE_S},
     commands::CommandFrame,
     editing::SketchEditing,
     feature_tree, icons,
@@ -15,7 +16,6 @@ use crate::{
     widgets::{self, SectionAction},
 };
 
-const SECTION_GAP: f32 = 10.0;
 pub const FEATURES_TITLE: &str = "Features";
 pub const PARAMETERS_TITLE: &str = "Parameters";
 const FEATURES_SECTION: &str = "features";
@@ -315,7 +315,7 @@ pub fn show(
                 widgets::reveal_section(ui.ctx(), PARAMETERS_SECTION);
             }
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.add_space(SECTION_GAP / 2.0);
+                ui.add_space(SPACE_S);
                 let features = model.document().features().len();
                 widgets::section(
                     ui,
@@ -327,7 +327,7 @@ pub fn show(
                         feature_tree::show(ui, model, selection, editing, state, actions);
                     },
                 );
-                ui.add_space(SECTION_GAP);
+                ui.add_space(SPACE_L);
                 let parameters = model.document().parameters().len();
                 let add = SectionAction {
                     glyph: icons::ADD,
