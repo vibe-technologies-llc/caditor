@@ -50,7 +50,9 @@ paths:
   current choice), `corner_menu_button` (a small caret in another button's top-right corner,
   opening a popup menu without taking width of its own), `link_label`, `choose_in_view`,
   `dialog`/`footer` (a titled modal with a close button and the primary action rightmost), and
-  `tabs`.
+  `tabs`. A dialog gives focus to its `primary_button` whenever no widget holds it (opening, Escape
+  out of a widget, a click on bare dialog), so Enter runs the primary action while a field or
+  another button that has focus keeps Enter for itself.
 - `tabs` is a wrapping row of `Tab`s (icon and label) over a border line: the selected one tinted
   `accent_subtle` with `accent_text` and a 2-point accent underline, others `text` on hover or
   pressed fills, focus outlined in `focus`. It returns the tab chosen by click, by Left/Right
@@ -159,7 +161,10 @@ paths:
   position are recorded only while the window is not maximised, so unmaximising returns to them.
   `PanelState` restores the sections once and reports the panel as drawn each frame. Changes save
   through `Files::store_settings` a second after they stop, and on exit, where `App::finish` waits
-  up to two seconds (`Files::wait_for_jobs`).
+  up to two seconds (`Files::wait_for_jobs`). A preferences file that cannot be read
+  (`Settings::load_reporting`) leaves the defaults in use and opens a notice saying so at startup
+  (`preferences::unreadable_notice`); a failed save becomes a notice too (`Event::PreferencesNotSaved`)
+  and the next change writes everything the failed save held.
 
 ## Title bar and window frame
 

@@ -5,6 +5,7 @@ use std::{
 };
 
 use serde_json::Value;
+use thiserror::Error;
 
 use crate::{
     lock::locked_update,
@@ -32,6 +33,25 @@ pub fn config_dir() -> Option<PathBuf> {
         .map(|base| base.join(APPLICATION))
 }
 
+#[derive(Debug, Error)]
+pub enum SettingsError {
+    #[error("the preferences in {} are not valid JSON: {source}", path.display())]
+    Malformed {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+    #[error("the preferences in {} could not be read: {source}", path.display())]
+    Unreadable { path: PathBuf, source: io::Error },
+}
+
+impl SettingsError {
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::Malformed { path, .. } | Self::Unreadable { path, .. } => path,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Settings {
     values: BTreeMap<String, Value>,
@@ -39,20 +59,32 @@ pub struct Settings {
 
 impl Settings {
     pub fn load(dir: &Path) -> Self {
-        let path = dir.join(SETTINGS_FILE);
-        let Ok(bytes) = read_file(&path) else {
-            return Self::default();
-        };
-        match serde_json::from_slice::<BTreeMap<String, Value>>(&bytes) {
-            Ok(values) => Self { values },
+        Self::try_load(dir).unwrap_or_else(|error| {
+            log::warn!("ignoring the preferences: {error}");
+            Self::default()
+        })
+    }
+
+    pub fn load_reporting(dir: &Path) -> (Self, Option<SettingsError>) {
+        match Self::try_load(dir) {
+            Ok(settings) => (settings, None),
             Err(error) => {
-                log::warn!(
-                    "ignoring unreadable preferences in {}: {error}",
-                    path.display()
-                );
-                Self::default()
+                log::warn!("ignoring the preferences: {error}");
+                (Self::default(), Some(error))
             }
         }
+    }
+
+    pub fn try_load(dir: &Path) -> Result<Self, SettingsError> {
+        let path = dir.join(SETTINGS_FILE);
+        let bytes = match read_file(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(source) => return Err(SettingsError::Unreadable { path, source }),
+        };
+        serde_json::from_slice::<BTreeMap<String, Value>>(&bytes)
+            .map(|values| Self { values })
+            .map_err(|source| SettingsError::Malformed { path, source })
     }
 
     pub fn save(&self, dir: &Path) -> io::Result<()> {
@@ -184,6 +216,11 @@ mod tests {
 
         std::fs::write(dir.path().join(SETTINGS_FILE), "not json").unwrap();
         assert_eq!(Settings::load(dir.path()), Settings::default());
+        assert!(matches!(
+            Settings::try_load(dir.path()),
+            Err(SettingsError::Malformed { .. })
+        ));
+        assert!(Settings::try_load(&dir.path().join("missing")).is_ok());
         assert_eq!(
             Settings::load(&dir.path().join("missing")),
             Settings::default()

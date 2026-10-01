@@ -164,10 +164,7 @@ impl ImageExporter {
             ImageCommand::Height(height) => self.custom.height = height,
             ImageCommand::Scale(scale) => self.scale = scale,
             ImageCommand::Background(background) => self.background = background,
-            ImageCommand::Choose(size) => {
-                self.open = false;
-                self.chosen = Some(size);
-            }
+            ImageCommand::Choose(size) => self.chosen = Some(size),
             ImageCommand::Cancel => match &mut self.stage {
                 Stage::Queued(queued) | Stage::Rendering(queued) => queued.cancelled = true,
                 Stage::Writing { cancelled, .. } => cancelled.store(true, Ordering::SeqCst),
@@ -184,11 +181,15 @@ impl ImageExporter {
         format!("{stem}.{PNG_EXTENSION}")
     }
 
-    pub fn picked(&mut self, path: Option<PathBuf>) {
-        let (Some(path), Some(size)) = (path, self.chosen.take()) else {
+    pub fn pick_cancelled(&mut self) {
+        self.chosen = None;
+    }
+
+    pub fn picked(&mut self, path: PathBuf) {
+        let Some(size) = self.chosen.take() else {
             return;
         };
-        let path = with_png_extension(path);
+        self.open = false;
         self.folder = path.parent().map(Path::to_path_buf);
         self.stage = Stage::Queued(Queued {
             path,

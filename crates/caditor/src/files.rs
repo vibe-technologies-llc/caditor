@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     ffi::OsString,
-    fs,
+    fs, io,
     panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
@@ -246,9 +246,65 @@ enum SaveTarget {
     Failed(PathBuf),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Output {
+    Export { path: PathBuf, format: ExportFormat },
+    Image { path: PathBuf },
+}
+
+impl Output {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Export { path, .. } | Self::Image { path } => path,
+        }
+    }
+
+    fn named(self) -> Self {
+        match self {
+            Self::Export { path, format } => Self::Export {
+                path: export::with_format_extension(path, format),
+                format,
+            },
+            Self::Image { path } => Self::Image {
+                path: image_export::with_png_extension(path),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Replacement {
+    Model(PathBuf),
+    Output(Output),
+}
+
+impl Replacement {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Model(path) => path,
+            Self::Output(output) => output.path(),
+        }
+    }
+
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Model(_) => "model",
+            Self::Output(_) => "file",
+        }
+    }
+}
+
 enum Event {
     ScanFailed,
     SaveTargetChecked(SaveTarget),
+    OutputChecked {
+        output: Output,
+        replaces: bool,
+    },
+    PreferencesNotSaved {
+        error: io::Error,
+        since: Settings,
+    },
     Picked {
         purpose: Purpose,
         path: Option<PathBuf>,
@@ -350,7 +406,7 @@ pub struct Files {
     image: ImageExporter,
     history: VersionHistory,
     picking: bool,
-    confirm_replace: Option<PathBuf>,
+    confirm_replace: Option<Replacement>,
     closing: Option<(Closing, Instant)>,
     stored_settings: Option<Settings>,
     quit: bool,
@@ -484,13 +540,17 @@ impl Files {
             }
             FileCommand::DismissReport => self.report = None,
             FileCommand::Replace(confirmed) => {
-                let Some(path) = self.confirm_replace.take() else {
+                let Some(replacement) = self.confirm_replace.take() else {
                     return;
                 };
-                if confirmed {
-                    model.save_to(path);
-                } else {
-                    self.after_save = None;
+                match (replacement, confirmed) {
+                    (Replacement::Model(path), true) => model.save_to(path),
+                    (Replacement::Model(_), false) => self.after_save = None,
+                    (Replacement::Output(output), true) => self.start_output(output, model),
+                    (Replacement::Output(Output::Image { .. }), false) => {
+                        self.image.pick_cancelled()
+                    }
+                    (Replacement::Output(Output::Export { .. }), false) => {}
                 }
             }
             FileCommand::QuitAnyway => {
@@ -730,17 +790,35 @@ impl Files {
                  again the next time it starts.",
             )),
             Event::SaveTargetChecked(target) => self.save_target_checked(target, model),
+            Event::PreferencesNotSaved { error, since } => {
+                self.stored_settings = Some(since);
+                model.set_notice(Notice::failure(format!(
+                    "Could not save your preferences: {error}. They apply until caditor closes; \
+                     change one again to retry saving."
+                )));
+            }
+            Event::OutputChecked { output, replaces } => {
+                if replaces {
+                    self.confirm_replace = Some(Replacement::Output(output));
+                } else {
+                    self.start_output(output, model);
+                }
+            }
             Event::Picked { purpose, path } => {
                 self.picking = false;
                 match (purpose, path) {
                     (Purpose::Open, Some(path)) => self.open(path, model),
                     (Purpose::SaveAs, Some(path)) => self.save_as(path, model),
-                    (Purpose::Export(format), Some(path)) => self.export(path, format, model),
+                    (Purpose::Export(format), Some(path)) => {
+                        self.check_output(Output::Export { path, format });
+                    }
+                    (Purpose::Image, Some(path)) => self.check_output(Output::Image { path }),
                     (Purpose::Import, Some(path)) => {
                         let into = self.importing.as_ref().and_then(|importing| importing.into);
                         self.import(path, into, model);
                     }
-                    (Purpose::Image, path) => self.image.picked(path),
+                    (Purpose::Image, None) => self.image.pick_cancelled(),
+                    (Purpose::Export(_), None) => {}
                     (Purpose::Import, None) => self.importing = None,
                     (_, None) => self.after_save = None,
                 }
@@ -901,6 +979,30 @@ impl Files {
         );
     }
 
+    fn check_output(&mut self, output: Output) {
+        let picked = output.path().to_path_buf();
+        let named = output.named();
+        let renamed = named.path() != picked;
+        let failed = named.clone();
+        self.spawn(
+            move || Event::OutputChecked {
+                replaces: renamed && named.path().exists(),
+                output: named,
+            },
+            move || Event::OutputChecked {
+                output: failed,
+                replaces: true,
+            },
+        );
+    }
+
+    fn start_output(&mut self, output: Output, model: &mut Model) {
+        match output {
+            Output::Export { path, format } => self.export(path, format, model),
+            Output::Image { path } => self.image.picked(path),
+        }
+    }
+
     fn export(&mut self, path: PathBuf, format: ExportFormat, model: &mut Model) {
         if self.exporter.is_running() {
             model.set_notice(Notice::info("An export is already running."));
@@ -918,6 +1020,7 @@ impl Files {
                 }
             }),
         );
+        self.exporter.perform(ExportCommand::Hide);
     }
 
     fn opened(&mut self, path: PathBuf, revision: u64, outcome: OpenOutcome, model: &mut Model) {
@@ -1117,7 +1220,7 @@ impl Files {
                 return;
             }
             SaveTarget::Confirm(path) => {
-                self.confirm_replace = Some(path.clone());
+                self.confirm_replace = Some(Replacement::Model(path.clone()));
                 return;
             }
             SaveTarget::InUse(path) => format!(
@@ -1188,9 +1291,17 @@ impl Files {
             .stored_settings
             .replace(settings.clone())
             .unwrap_or_default();
+        let events = self.events.clone();
+        let wake = (self.make_waker)();
         self.run_job(Box::new(move || {
             if let Err(error) = settings.save_changes(&config_dir, &since) {
                 log::warn!("could not save the preferences: {error}");
+                if events
+                    .send(Event::PreferencesNotSaved { error, since })
+                    .is_ok()
+                {
+                    wake();
+                }
             }
         }));
     }
@@ -1573,8 +1684,8 @@ pub fn show(
             });
     } else if let Some(intent) = &files.guard {
         command = guard(&ctx, model, intent).map(FileCommand::Guard);
-    } else if let Some(path) = &files.confirm_replace {
-        command = confirm_replace(&ctx, path).map(FileCommand::Replace);
+    } else if let Some(replacement) = &files.confirm_replace {
+        command = confirm_replace(&ctx, replacement).map(FileCommand::Replace);
     } else if let Some(report) = &files.report {
         command = show_report(&ctx, report);
     } else if files.showing_recovery() {
@@ -1660,7 +1771,9 @@ fn closing(ctx: &egui::Context, since: Instant) -> Option<FileCommand> {
         .inner
 }
 
-fn confirm_replace(ctx: &egui::Context, path: &Path) -> Option<bool> {
+fn confirm_replace(ctx: &egui::Context, replacement: &Replacement) -> Option<bool> {
+    let path = replacement.path();
+    let kind = replacement.kind();
     let name = display_name(Some(path));
     let title = format!("Replace “{name}”?");
     let response = widgets::dialog(ctx, "replace-model", &title, DialogWidth::Medium, |ui| {
@@ -1669,7 +1782,7 @@ fn confirm_replace(ctx: &egui::Context, path: &Path) -> Option<bool> {
             .map(|folder| folder.display().to_string())
             .unwrap_or_default();
         ui.label(format!(
-            "A model named “{name}” already exists in “{folder}”. Replacing it overwrites what \
+            "A {kind} named “{name}” already exists in “{folder}”. Replacing it overwrites what \
              it holds."
         ));
         widgets::footer(ui, |ui| {

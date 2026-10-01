@@ -998,6 +998,28 @@ fn preferences_change_units_and_navigation_and_are_remembered() {
 }
 
 #[test]
+fn a_preference_that_could_not_be_saved_is_shown_as_a_notice() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("config"), b"not a folder").unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    assert!(harness.model.notice().is_none());
+
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Scale(1.5),
+    )));
+    harness.wait_until("the failure is shown", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Could not save your preferences: "))
+    });
+
+    let notice = harness.model.notice().unwrap();
+    assert!(notice.outlasts_edits);
+    assert!(notice.text.ends_with("change one again to retry saving."));
+}
+
+#[test]
 fn the_side_panel_opens_as_it_was_left_and_follows_changes_to_it() {
     let left = crate::layout::PanelLayout {
         side_width: 420.0,
@@ -1266,6 +1288,125 @@ fn exporting_writes_the_chosen_bodies_in_the_chosen_format_beside_the_model() {
     let step = std::fs::read_to_string(dir.path().join("plate.stp")).unwrap();
     assert!(step.starts_with("ISO-10303-21;"));
     assert!(step.contains("MANIFOLD_SOLID_BREP("));
+}
+
+#[test]
+fn cancelling_the_export_file_picker_keeps_the_dialog_and_its_settings() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.click("STEP");
+    harness.answer_dialog(None);
+
+    harness.click("Export…");
+    harness.settle();
+
+    assert!(harness.shows("Format"));
+    assert!(!harness.shows("Resolution"));
+    assert!(harness.files.is_blocking());
+    assert!(std::fs::read_dir(dir.path()).unwrap().all(|entry| {
+        let name = entry.unwrap().file_name();
+        name != "plate.step"
+    }));
+}
+
+#[test]
+fn exporting_asks_before_replacing_a_file_the_picker_did_not_name() {
+    let dir = TempDir::new().unwrap();
+    let existing = dir.path().join("plate.stl");
+    std::fs::write(&existing, b"precious").unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.click("STL");
+    harness.answer_dialog(Some(dir.path().join("plate")));
+
+    harness.click("Export…");
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “plate.stl”?")
+    });
+    assert!(harness.shows(&format!(
+        "A file named “plate.stl” already exists in “{}”. Replacing it overwrites what it holds.",
+        dir.path().display()
+    )));
+    harness.click("Cancel");
+    assert_eq!(std::fs::read(&existing).unwrap(), b"precious");
+    assert!(!harness.shows("Replace “plate.stl”?"));
+    assert!(harness.shows("Resolution"));
+
+    harness.click("Export…");
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “plate.stl”?")
+    });
+    harness.click("Replace");
+    harness.wait_until("the STL is written", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Exported 1 body to “plate.stl”"))
+    });
+    assert_ne!(std::fs::read(&existing).unwrap(), b"precious");
+    assert!(!harness.shows("Resolution"));
+}
+
+#[test]
+fn exporting_replaces_a_file_the_picker_named_itself_without_asking_again() {
+    let dir = TempDir::new().unwrap();
+    let existing = dir.path().join("plate.stl");
+    std::fs::write(&existing, b"precious").unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.click("STL");
+    harness.answer_dialog(Some(existing.clone()));
+
+    harness.click("Export…");
+    harness.wait_until("the STL is written", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Exported 1 body to “plate.stl”"))
+    });
+    assert!(!harness.shows("Replace “plate.stl”?"));
+    assert_ne!(std::fs::read(&existing).unwrap(), b"precious");
+}
+
+#[test]
+fn exporting_an_image_keeps_its_dialog_when_the_picker_is_cancelled_and_asks_before_replacing() {
+    let dir = TempDir::new().unwrap();
+    let existing = dir.path().join("plate.png");
+    std::fs::write(&existing, b"precious").unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.command(FileCommand::ExportImage(ImageCommand::Show));
+    harness.click("Transparent");
+    harness.answer_dialog(None);
+
+    harness.click("Export…");
+    harness.settle();
+    assert!(harness.shows("Export Image"));
+    assert!(!harness.files.is_exporting_image());
+
+    harness.answer_dialog(Some(dir.path().join("plate")));
+    harness.click("Export…");
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “plate.png”?")
+    });
+    harness.click("Cancel");
+    assert_eq!(std::fs::read(&existing).unwrap(), b"precious");
+    assert!(harness.shows("Export Image"));
+
+    harness.click("Export…");
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “plate.png”?")
+    });
+    harness.click("Replace");
+    harness.wait_until("the image is written", |harness| {
+        !harness.files.is_exporting_image() && !harness.shows("Replace “plate.png”?")
+    });
+    harness.settle();
+    assert_ne!(std::fs::read(&existing).unwrap(), b"precious");
+    assert!(!harness.shows("Export Image"));
 }
 
 fn png_size(path: &Path) -> (u32, u32, u8) {
@@ -7639,6 +7780,38 @@ fn the_about_dialog_shows_the_logo_beside_the_name_and_tagline() {
     assert!(harness.shows(about::VERSION));
     assert!(logo_loaded(&harness, 64));
     assert_readable(&harness, "The About dialog");
+}
+
+#[test]
+fn a_dialog_focuses_its_primary_action_and_enter_runs_it() {
+    let mut harness = Harness::new();
+
+    harness.perform(Action::Preferences(PreferencesCommand::ShowAbout));
+    harness.show_new_windows();
+    assert!(harness.shows("About caditor"));
+    assert!(harness.focused().is_some());
+
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(!harness.shows("About caditor"));
+}
+
+#[test]
+fn enter_acts_on_the_widget_holding_focus_in_a_dialog_not_on_its_primary_action() {
+    let mut harness = Harness::new();
+    harness.perform(Action::Preferences(PreferencesCommand::Show));
+    harness.show_new_windows();
+    assert!(harness.shows("Preferences"));
+
+    harness.key(Key::Tab, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows("Preferences"));
 }
 
 #[test]

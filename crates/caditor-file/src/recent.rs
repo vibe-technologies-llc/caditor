@@ -47,6 +47,7 @@ const LOCK_FILE: &str = "recent-files.lock";
 pub enum RecentChange {
     Opened(PathBuf),
     Forgotten(PathBuf),
+    Cleared,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -105,6 +106,7 @@ impl RecentFiles {
         match change {
             RecentChange::Opened(path) => self.add(path.clone()),
             RecentChange::Forgotten(path) => self.remove(path),
+            RecentChange::Cleared => self.clear(),
         }
     }
 
@@ -129,6 +131,10 @@ impl RecentFiles {
         self.paths.retain(|existing| *existing != path);
         self.paths.insert(0, path);
         self.paths.truncate(RECENT_LIMIT);
+    }
+
+    pub fn clear(&mut self) {
+        self.paths.clear();
     }
 
     pub fn remove(&mut self, path: &Path) {
@@ -214,5 +220,26 @@ mod tests {
         .unwrap();
 
         assert_eq!(RecentFiles::load(dir.path()).paths(), [second, first]);
+    }
+
+    #[test]
+    fn clearing_forgets_every_recent_file_on_disk_too() {
+        let dir = TempDir::new().unwrap();
+        let first = PathBuf::from("/models/first.caditor");
+        let second = PathBuf::from("/models/second.caditor");
+        RecentFiles::save_changes(
+            dir.path(),
+            &[
+                RecentChange::Opened(first.clone()),
+                RecentChange::Opened(second),
+            ],
+        )
+        .unwrap();
+
+        RecentFiles::save_changes(dir.path(), &[RecentChange::Cleared]).unwrap();
+        assert!(RecentFiles::load(dir.path()).paths().is_empty());
+
+        RecentFiles::save_changes(dir.path(), &[RecentChange::Opened(first.clone())]).unwrap();
+        assert_eq!(RecentFiles::load(dir.path()).paths(), [first]);
     }
 }

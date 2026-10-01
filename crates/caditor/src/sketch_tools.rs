@@ -9,6 +9,7 @@ use crate::{
     model::Model,
     selection::{Pickable, Selection},
     units::LengthUnit,
+    variants::all_variants,
 };
 
 const DISPLAY_DECIMALS: f64 = 3.0;
@@ -47,28 +48,9 @@ enum Shape {
 
 type Item = (EntityId, Shape);
 
-impl ConstraintTool {
-    pub const ALL: [Self; 18] = [
-        Self::Coincident,
-        Self::Midpoint,
-        Self::Concentric,
-        Self::Collinear,
-        Self::Fix,
-        Self::Horizontal,
-        Self::Vertical,
-        Self::Parallel,
-        Self::Perpendicular,
-        Self::Tangent,
-        Self::Equal,
-        Self::Symmetric,
-        Self::Distance,
-        Self::HorizontalDistance,
-        Self::VerticalDistance,
-        Self::Angle,
-        Self::Radius,
-        Self::Diameter,
-    ];
+all_variants!(ConstraintTool: Coincident, Midpoint, Concentric, Collinear, Fix, Horizontal, Vertical, Parallel, Perpendicular, Tangent, Equal, Symmetric, Distance, HorizontalDistance, VerticalDistance, Angle, Radius, Diameter);
 
+impl ConstraintTool {
     pub fn label(self) -> &'static str {
         match self {
             Self::Coincident => "Coincident",

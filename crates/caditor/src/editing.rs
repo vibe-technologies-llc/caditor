@@ -7,6 +7,7 @@ use crate::{
     selection::PrincipalPlane,
     shape_modes::{ShapeMode, ShapeModes},
     sketch_placement::{self, FaceChoice},
+    variants::all_variants,
 };
 
 const NEW_SKETCH_PREFIX: &str = "Sketch";
@@ -32,26 +33,9 @@ pub enum Tool {
     Fillet,
 }
 
-impl Tool {
-    pub const ALL: [Self; 16] = [
-        Self::Select,
-        Self::Point,
-        Self::Line,
-        Self::Rectangle,
-        Self::Circle,
-        Self::Arc,
-        Self::ThreePointArc,
-        Self::TangentArc,
-        Self::Slot,
-        Self::Polygon,
-        Self::Spline,
-        Self::Trim,
-        Self::Extend,
-        Self::Offset,
-        Self::Mirror,
-        Self::Fillet,
-    ];
+all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, Fillet);
 
+impl Tool {
     pub fn label(self) -> &'static str {
         match self {
             Self::Select => "Select",
