@@ -1,10 +1,10 @@
 use egui::{
-    Align, Button, Id, Label, Layout, Popup, Rect, RichText, Sense, Shape, TextStyle, Ui,
-    UiBuilder, pos2, vec2,
+    Align, CornerRadius, Id, Label, Layout, Popup, Rect, Response, RichText, Sense, Shape, Stroke,
+    StrokeKind, TextStyle, TextWrapMode, Ui, UiBuilder, pos2, vec2,
 };
 
 use crate::{
-    appearance::{self, WIDGET_RADIUS},
+    appearance::{self, BORDER_WIDTH, CONTROL_HEIGHT, SPACE_M, SPACE_S, WIDGET_RADIUS},
     commands::{CameraMove, Command, CommandFrame, Offer, Scope, StandardView},
     editing::{SketchEditing, Tool},
     files::{self, FileCommand, Files},
@@ -22,7 +22,7 @@ pub const MODEL_DETAILS: &str = "Model details";
 pub const COPY_PATH: &str = "Copy file location";
 const SEARCH_WIDTH: f32 = 240.0;
 const NAME_ROOM: f32 = 160.0;
-const TITLE_PADDING: f32 = 6.0;
+const TITLE_PADDING: f32 = SPACE_M;
 const DETAILS_WIDTH: f32 = 280.0;
 const WAYS_TO_DRAW: &str = "Ways to draw shapes";
 const SKETCH_ONLY: &str = "Only while a sketch is being edited";
@@ -45,7 +45,7 @@ pub fn show(
 ) {
     let trailing_id = Id::new("menu-bar-trailing");
     let panel = egui::Panel::top("menu-bar")
-        .show_separator_line(false)
+        .show_separator_line(true)
         .show(ui, |ui| {
             if let Some(drag) = window_frame::drag_region(ui, context.chrome) {
                 window_frame::drags_window(&drag, context.chrome, commands, actions);
@@ -162,9 +162,13 @@ fn model_title(
                 widgets::icon_label(ui, icons::BREADCRUMB, tokens.text_muted);
                 widgets::icon_label(ui, icons::SKETCH, tokens.text_muted);
                 ui.add(
-                    Label::new(RichText::new(sketch).color(text))
-                        .truncate()
-                        .selectable(false),
+                    Label::new(
+                        RichText::new(sketch)
+                            .text_style(TextStyle::Button)
+                            .color(text),
+                    )
+                    .truncate()
+                    .selectable(false),
                 );
             }
             ui.add_space(TITLE_PADDING);
@@ -172,15 +176,22 @@ fn model_title(
         .response;
     let response = ui.interact(group.rect, Id::new("model-title"), Sense::click_and_drag());
     let response = widgets::named(response, &format!("{name}, {MODEL_DETAILS}"));
-    if response.hovered() || Popup::is_id_open(ui.ctx(), Popup::default_response_id(&response)) {
+    let open = Popup::is_id_open(ui.ctx(), Popup::default_response_id(&response));
+    let fill = if response.is_pointer_button_down_on() {
+        Some(tokens.pressed)
+    } else if response.hovered() || open {
+        Some(tokens.hover)
+    } else {
+        None
+    };
+    if let Some(fill) = fill {
         ui.painter().set(
             background,
-            egui::epaint::RectShape::filled(
-                group.rect,
-                egui::CornerRadius::same(WIDGET_RADIUS),
-                tokens.hover,
-            ),
+            egui::epaint::RectShape::filled(group.rect, CornerRadius::same(WIDGET_RADIUS), fill),
         );
+    }
+    if response.has_focus() {
+        widgets::paint_focus_ring(ui, group.rect);
     }
     if context.chrome.built_in() && response.drag_started_by(egui::PointerButton::Primary) {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
@@ -306,18 +317,6 @@ impl Menus<'_, '_> {
     fn view(&mut self, ui: &mut Ui) {
         ui.menu_button("View", |ui| {
             self.item(ui, Command::FitView);
-            self.item(ui, Command::ToggleProjection);
-            self.item(ui, Command::FullScreen);
-            self.item(ui, Command::Measure);
-            self.items(
-                ui,
-                [
-                    Command::HideSelection,
-                    Command::ToggleVisibility,
-                    Command::ShowAll,
-                    Command::TogglePrincipal,
-                ],
-            );
             submenu(
                 ui,
                 icons::command(Command::View(StandardView::Front)),
@@ -333,6 +332,22 @@ impl Menus<'_, '_> {
                 |ui| {
                     self.items(ui, CameraMove::ALL.map(Command::Camera));
                 },
+            );
+            ui.separator();
+            self.item(ui, Command::ToggleProjection);
+            ui.separator();
+            self.item(ui, Command::FullScreen);
+            ui.separator();
+            self.item(ui, Command::Measure);
+            ui.separator();
+            self.items(
+                ui,
+                [
+                    Command::HideSelection,
+                    Command::ToggleVisibility,
+                    Command::ShowAll,
+                    Command::TogglePrincipal,
+                ],
             );
             ui.separator();
             self.items(
@@ -357,9 +372,7 @@ impl Menus<'_, '_> {
 
     fn model(&mut self, ui: &mut Ui) {
         ui.menu_button("Model", |ui| {
-            self.item(ui, Command::NewSketch);
-            ui.separator();
-            self.items(ui, [Command::Extrude, Command::Revolve]);
+            self.items(ui, [Command::NewSketch, Command::Extrude, Command::Revolve]);
             ui.separator();
             self.items(ui, [Command::Fillet, Command::Chamfer, Command::Shell]);
             ui.separator();
@@ -407,7 +420,11 @@ impl Menus<'_, '_> {
         ui.menu_button("Sketch", |ui| {
             self.item(ui, Command::FinishSketch);
             ui.separator();
-            self.items(ui, Tool::ALL.map(Command::SketchTool));
+            let (drawing, modifying): (Vec<Tool>, Vec<Tool>) = Tool::ALL
+                .into_iter()
+                .partition(|tool| *tool == Tool::Select || tool.draws());
+            self.items(ui, drawing.into_iter().map(Command::SketchTool));
+            ui.separator();
             submenu(ui, icons::tool(Tool::Rectangle), WAYS_TO_DRAW, |ui| {
                 for tool in [Tool::Rectangle, Tool::Circle, Tool::Polygon, Tool::Slot] {
                     if tool != Tool::Rectangle {
@@ -420,14 +437,26 @@ impl Menus<'_, '_> {
                 ui,
                 [Command::ReverseArc, Command::MoreSides, Command::FewerSides],
             );
+            ui.separator();
             self.item(ui, Command::Construction);
+            self.items(ui, modifying.into_iter().map(Command::SketchTool));
             self.items(ui, [Command::MoveGeometry, Command::SelectAll]);
             ui.separator();
+            let (dimensions, geometric): (Vec<ConstraintTool>, Vec<ConstraintTool>) =
+                ConstraintTool::ALL
+                    .into_iter()
+                    .partition(|tool| tool.is_dimension());
             submenu(
                 ui,
                 icons::constraint(ConstraintTool::Coincident),
                 "Constraints",
-                |ui| self.items(ui, ConstraintTool::ALL.map(Command::Constraint)),
+                |ui| self.items(ui, geometric.into_iter().map(Command::Constraint)),
+            );
+            submenu(
+                ui,
+                icons::constraint(ConstraintTool::Distance),
+                "Dimensions",
+                |ui| self.items(ui, dimensions.into_iter().map(Command::Constraint)),
             );
         });
     }
@@ -453,22 +482,64 @@ fn submenu(ui: &mut Ui, glyph: &str, title: &str, add: impl FnOnce(&mut Ui)) {
     widgets::named(submenu.response, title);
 }
 
-fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) -> egui::Response {
+fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) -> Response {
     let tokens = appearance::tokens(ui);
-    let mut button = Button::new((
-        widgets::icon(icons::SEARCH).color(tokens.text_muted),
-        RichText::new(SEARCH_LABEL).color(tokens.text_muted),
-    ))
-    .fill(tokens.sunken)
-    .stroke(egui::Stroke::new(1.0, tokens.border))
-    .min_size(vec2(SEARCH_WIDTH, 0.0));
-    if let Some(keys) = commands.keys(Command::Palette) {
-        button = button.shortcut_text(RichText::new(keys).text_style(TextStyle::Small));
-    }
+    let content_id = Id::new("search-commands-content");
+    let content = widgets::remembered_width(ui, content_id);
+    let size = vec2(SEARCH_WIDTH.max(content + 2.0 * SPACE_M), CONTROL_HEIGHT);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let hover = commands.with_keys(Command::Palette, "Search every command by name");
-    let response = ui
-        .add(widgets::Named::new(button, SEARCH_LABEL))
-        .on_hover_text(hover);
+    let response = widgets::named(response, SEARCH_LABEL).on_hover_text(hover);
+    let active = response.hovered() || response.is_pointer_button_down_on();
+    let outline = if active {
+        tokens.text_muted
+    } else {
+        tokens.field_border
+    };
+    ui.painter().rect(
+        rect,
+        CornerRadius::same(WIDGET_RADIUS),
+        tokens.sunken,
+        Stroke::new(BORDER_WIDTH, outline),
+        StrokeKind::Inside,
+    );
+    if response.has_focus() {
+        widgets::paint_focus_ring(ui, rect);
+    }
+    let inside = rect.shrink2(vec2(SPACE_M, 0.0));
+    let mut leading = ui.new_child(
+        UiBuilder::new()
+            .max_rect(inside)
+            .layout(Layout::left_to_right(Align::Center)),
+    );
+    leading.spacing_mut().item_spacing.x = SPACE_S;
+    widgets::icon_label(&mut leading, icons::SEARCH, tokens.text_muted);
+    leading.add(
+        Label::new(RichText::new(SEARCH_LABEL).color(tokens.text_muted))
+            .selectable(false)
+            .wrap_mode(TextWrapMode::Extend),
+    );
+    let mut needed = leading.min_rect().width();
+    if let Some(keys) = commands.keys(Command::Palette) {
+        let (width_id, height_id) = (Id::new("search-keys-width"), Id::new("search-keys-height"));
+        let size = vec2(
+            widgets::remembered_width(ui, width_id),
+            widgets::remembered_width(ui, height_id),
+        );
+        let place =
+            Rect::from_center_size(pos2(inside.right() - size.x / 2.0, inside.center().y), size);
+        let mut trailing = ui.new_child(
+            UiBuilder::new()
+                .max_rect(place)
+                .layout(Layout::left_to_right(Align::Min)),
+        );
+        trailing.spacing_mut().interact_size.y = 0.0;
+        let caps = widgets::key_cap(&mut trailing, &keys);
+        widgets::remember_width(ui, width_id, caps.rect.width());
+        widgets::remember_width(ui, height_id, caps.rect.height());
+        needed += SPACE_M + caps.rect.width();
+    }
+    widgets::remember_width(ui, content_id, needed);
     if response.clicked() {
         commands.trigger(Command::Palette);
     }

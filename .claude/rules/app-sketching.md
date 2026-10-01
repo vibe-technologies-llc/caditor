@@ -110,7 +110,8 @@ paths:
 - `shape_modes.rs`. Rectangle, circle, polygon and slot each keep one tool with three ways of
   drawing (`ShapeMode`), a switch within the tool like the polygon's side count, rather than a tool
   and key per way: the ribbon and keymap stay small and a shape is always found under its one key.
-  Arcs stay three tools (Arc, 3-point arc, Tangent arc), each with its own key.
+  Arcs stay three tools (Arc, 3-point arc, Tangent arc), each with its own key and command, grouped
+  on the ribbon under one Arc button whose corner menu chooses among them (`app-look.md`).
 - Pressing the tool's key (running its command) while that tool is active steps to its next way,
   round to the first; clicking its ribbon button only chooses the tool. Every way is also its own
   sketch command (`Command::ShapeMode`, `sketch.<shape>.<way>`, no default key, bindable in the

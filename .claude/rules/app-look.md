@@ -12,6 +12,7 @@ paths:
   - "crates/caditor/src/overlay.rs"
   - "crates/caditor/src/toolbar.rs"
   - "crates/caditor/src/sketch_toolbar.rs"
+  - "crates/caditor/src/ribbon.rs"
   - "crates/caditor/src/status_bar.rs"
   - "crates/caditor/src/panels.rs"
   - "crates/caditor/src/feature_tree.rs"
@@ -103,46 +104,77 @@ paths:
 
 ## Menu bar, ribbon and status bar
 
-- The menu bar holds File, Edit, View, Model, Sketch (with a Ways to draw shapes submenu) and
-  Help, built from the commands with their icons and shortcuts; items trigger their command and enable from the previous frame's offers
-  (`Workspace::last_offers`), reason on hover. Then the model title, the Search commands field
-  and, with caditor's title bar, the window buttons; caditor's title bar also leads with the logo,
-  as tall as a control, which drags the window like the rest of the bar.
-- The model title (file icon, name, Unsaved pill, and "› sketch" while one is edited) sits centred
-  on the window when it fits between the menus and the search field, else as far towards the
-  centre as it can (`model-title-width`, remembered like the bars' trailing widths). Clicking it
-  opens the model details: path, saved state, Save, Save As…, Version History… (once saved) and
-  Copy file location. Its text is muted while the window is unfocused.
-- The ribbon groups Undo and Redo, New sketch, Extrude and Revolve, Fillet, Chamfer and Shell,
-  Linear pattern and Circular pattern, Plane and Axis, and Measure (selected while its panel is
-  open) as `ToolButton`s that wrap.
+- The menu bar holds File, Edit, View, Model, Sketch and Help, built from the commands with their
+  icons and shortcuts; items trigger their command and enable from the previous frame's offers
+  (`Workspace::last_offers`), reason on hover. Separators group them: View has the camera (Fit,
+  Standard views, Camera) | projection | full screen | Measure | visibility | highlight | interface
+  size; Model has New sketch, Extrude and Revolve | Fillet, Chamfer and Shell | patterns | datums |
+  feature commands | rollback | parameters | recompute; Sketch has Finish sketch | Select and the
+  drawing tools | Ways to draw shapes, Reverse the arc, more or fewer sides | Construction, the
+  modify tools, Move and Select all | Constraints and Dimensions submenus. Then the model title, the
+  Search commands field and, with caditor's title bar, the window buttons; caditor's title bar also
+  leads with the logo, as tall as a control, which drags the window like the rest of the bar. A
+  `border` hairline (the panel's separator line) parts the menu bar from the ribbon.
+- Search commands is drawn as a field: `sunken` fill, a `field_border` outline turning
+  `text_muted` on hover or press, the focus ring when focused, the search icon and muted label,
+  and the palette's keys as `widgets::key_cap`s at its right end (the field widens to fit them).
+  Clicking it opens the palette.
+- The model title (file icon, name, Unsaved pill, and "› sketch" while one is edited, name and
+  sketch both in the `Button` text style) sits centred on the window when it fits between the menus
+  and the search field, else as far towards the centre as it can (`model-title-width`, remembered
+  like the bars' trailing widths). It fills with `hover` on hover or while its menu is open,
+  `pressed` while pressed, and shows the focus ring when focused. Clicking it opens the model
+  details: path, saved state, Save, Save As…, Version History… (once saved) and Copy file location.
+  Its text is muted while the window is unfocused.
+- Both ribbons are built by `ribbon.rs`: whole groups packed into rows by last frame's natural
+  widths (`ribbon::rows`, `remembered_width` per group), `SPACE_L` apart with a 1-point
+  `border_strong` divider between neighbours (visible on `accent_surface` too), each captioned in
+  small muted text under its buttons while the ribbon fits one row; a ribbon that wraps leaves the
+  captions out to stay short. Buttons explain themselves on hover with `ribbon::explained`: the
+  name in semibold, then what it does with its shortcut, or why it is unavailable while disabled.
+- The main ribbon (`toolbar.rs`) has History (Undo, Redo), Sketch (New sketch), Solid (Extrude,
+  Revolve), Modify (Fillet, Chamfer, Shell), Pattern (Linear pattern, Circular pattern), Reference
+  (Plane, Axis) and Inspect (Measure, selected while its panel is open), all `ToolButton`s. While a
+  plane is being chosen for a new sketch, New sketch shows selected and clicking it stops choosing
+  (as Escape does; the prompt is in the view), so the ribbon keeps its height and every group its
+  place.
 - While a sketch is edited the sketch ribbon (`sketch_toolbar.rs`) sits under it on
-  `accent_surface` with a 2-point `accent_text` line along its top. Groups run left to right,
-  split by thin dividers and captioned in small muted text below: a fixed-width header (sketch badge,
-  "Editing <name>" truncating with the full name on hover, the sketch's `status_pill`s), Select,
-  Draw (the drawing tools as `ToolButton`s; rectangle, circle, polygon and slot carry a
-  `corner_menu_button`, "Ways to draw a rectangle" and so on, listing their ways of drawing as
-  `menu_choice`s with the current one marked), Modify (compact Construction, Trim, Extend and Sketch
-  fillet over Offset, Mirror, Move, Select all and Delete, which trigger their commands or choose
-  their tool), Constrain (the geometric constraints, six compact buttons a
-  row) and Dimension (three a row). Finish sketch is a primary button at the right of the first
-  row. Compact buttons show their name, what they do and the shortcut on hover, and why they are
-  unavailable while disabled.
-- The ribbon packs whole groups into rows by last frame's natural widths (`remembered_width` per
-  group and for Finish sketch), the first row leaving room for Finish sketch, which takes a row of
-  its own when not even the header fits beside it; a group wider than its row (Draw at 200% in a
-  narrow window) wraps inside. Widths never depend on the selection, so selecting never moves the
-  3D view; at 1400 points everything fits one row.
-- The status bar shows recompute progress (or Up to date, or a failed pill that focuses the first
-  failed feature), saving, importing and exporting, the current notice, the selection, the length
-  unit (opening Preferences) and the interface size when not 100%. An edit clears info and
+  `accent_surface` with a 2-point `accent_text` line along its top. Groups run left to right: a
+  header without a caption, vertically centred on the ribbon (a `CONTROL_HEIGHT` sketch badge,
+  "Editing <name>" truncating with the full name on hover, the sketch's `status_pill`s; as wide as
+  the title between 160 and 240 points of text, never as wide as the pills, so constraining never
+  moves the groups), Select, Draw (the drawing tools as `ToolButton`s; rectangle, circle, polygon and
+  slot carry a `corner_menu_button`, "Ways to draw a rectangle" and so on, listing their ways of
+  drawing as `menu_choice`s with the current one marked), Modify (compact Construction, Trim, Extend
+  and Sketch fillet over Offset, Mirror, Move, Select all and Delete, which trigger their commands
+  or choose their tool), Constrain (the geometric constraints, six compact buttons a row) and
+  Dimension (three a row). Finish sketch is a `CONTROL_HEIGHT` primary button at the right of the
+  first row, which takes a row of its own when not even the header fits beside it.
+- The three arc tools share one Draw button labelled Arc (`sketch_toolbar::ARC_TOOLS`), showing
+  the icon of the arc tool last used or chosen (kept in egui memory while caditor runs) and choosing
+  it; its corner menu, "Ways to draw an arc", lists Arc, 3-point arc and Tangent arc with their
+  keys. Each keeps its own key and command, which the button handles whichever is shown.
+- A group wider than its row (Draw at 200% in a narrow window) wraps inside. Widths never depend
+  on the selection or the active tool, so selecting never moves the 3D view; at 1400 points the
+  sketch ribbon fits one row.
+- The status bar (`status_bar.rs`) has an explicit frame (`SPACE_M` by `SPACE_S`) and runs
+  recompute | file activity | notice, then, right-aligned, selection | unit | size, segments parted
+  by short `border_strong` dividers (file activity's only when it shows something). Recompute is
+  progress with a Cancel button, Up to date, or a failed `status_pill` that is a button (named by
+  its text, outlined on hover and press, pointing cursor, focus ring) focusing the first failed
+  feature; a cancelled or stopped recompute is a warning or error `status_pill` with the details on
+  hover and a Recompute or Restart button (`widgets::button`). The selection reads in `text`, and
+  "Nothing selected" muted. The length unit (opening Preferences) is a `small_button` and the
+  interface size, when not 100%, a `widgets::button` going back to 100%. An edit clears info and
   refused-edit notices, never a `Notice::failure` from saving, opening, importing, exporting or the
   journal.
 - Neither bar clips at large sizes or in narrow windows: the menu bar's search field and model name
   (which truncates, its path on hover) and the status bar's selection, unit and size take their own
   row when last frame's needed width does not fit (`widgets::remembered_width`); the selection has a
   fixed truncating share (all of it on hover), so selecting never moves the 3D view; a notice too
-  long for the row takes its own and wraps.
+  long for the row takes its own and wraps, its dismiss button measured from last frame.
+- Overlap checks in the UI tests compare only the visible part of each text (`Harness::text_clips`),
+  since content scrolled or squeezed under a bar is clipped there.
 
 ## Side panel
 
@@ -235,11 +267,14 @@ paths:
   widgets) and the model title drag the window (`StartDrag` once a primary drag starts), a
   double-click on empty space maximizes or restores, and a right-click opens the window menu
   (Minimize, Maximize or Restore, Full screen, Use the system title bar, Close). The buttons at the
-  far right are Minimize, Maximize or Restore, and Close (red tint on hover, closing through Quit
-  so unsaved work is asked about); in full screen Leave full screen replaces the first two.
+  far right are Minimize, Maximize or Restore, and Close, each 40 points by `CONTROL_HEIGHT` and
+  `SPACE_XS` apart: `hover` and `pressed` fills, Close solid `danger` on hover and `danger_pressed`
+  while pressed with a `text_on_accent` glyph, closing through Quit so unsaved work is asked about,
+  and a `FOCUS_WIDTH` focus outline; in full screen Leave full screen replaces the first two.
 - While a dialog is open, `window_frame::over_dialogs` redraws the drag area and window buttons in
   a foreground area moved above the modal, so the window can still be moved, maximized or closed.
-- When neither maximized nor full screen, a 1-point outline marks the window's edge and 5-point
+- When neither maximized nor full screen, a `BORDER_WIDTH` outline marks the window's edge (square:
+  the window is opaque, so rounding it would leave its corners showing) and 5-point
   strips along it (foreground areas kept on top, 16-point corners resizing diagonally) set the
   resize cursor and start `BeginResize` on a primary press.
 - The compositor takes the pointer during a move or resize and the release never reaches the
