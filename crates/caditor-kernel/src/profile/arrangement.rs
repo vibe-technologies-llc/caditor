@@ -26,6 +26,7 @@ const SAME_PATH_FRACTIONS: [f64; 3] = [0.25, 0.5, 0.75];
 const ANGLE_TIE: f64 = 1e-2;
 const PROBE_FRACTION: f64 = 0.05;
 const TANGENT_NUDGE: f64 = 1e-6;
+const ALONG_SINE: f64 = 1e-6;
 
 type Found<T> = Result<T, ProfileError>;
 
@@ -821,7 +822,7 @@ fn bounds_of(
     kept: &[usize],
 ) -> Found<Vec<PieceBound>> {
     let entity = |source: usize| sources.get(source).map(|source| source.entity);
-    let own_entity = entity(index).ok_or_else(ProfileError::unresolved)?;
+    let own = sources.get(index).ok_or_else(ProfileError::unresolved)?;
     let mut cutters: Vec<Option<Vec<u64>>> = Vec::with_capacity(kept.len());
     for event in kept {
         let current = lookup(events, *event)?;
@@ -842,30 +843,148 @@ fn bounds_of(
             .iter()
             .any(|other| other != event && vertex_of.get(*other).copied() == Some(vertex));
         if revisited {
-            set.insert(own_entity);
+            set.insert(own.entity);
         }
         cutters.push(Some(set.into_iter().collect()));
     }
+
+    let crossings = if own.closed {
+        crossing_ranks(index, sources, events, vertex_of, at_vertex, kept, &cutters)?
+    } else {
+        BTreeMap::new()
+    };
+
     let mut seen: BTreeMap<Vec<u64>, u32> = BTreeMap::new();
     Ok(kept
         .iter()
         .zip(cutters)
-        .map(|(event, cutters)| match cutters {
-            Some(entities) => {
-                let counter = seen.entry(entities.clone()).or_insert(0);
-                let occurrence = *counter;
-                *counter += 1;
-                PieceBound::Cut {
+        .enumerate()
+        .map(|(position, (event, cutters))| match cutters {
+            Some(entities) => match crossings.get(&position) {
+                Some(occurrence) => PieceBound::Crossing {
                     entities,
-                    occurrence,
+                    occurrence: *occurrence,
+                },
+                None => {
+                    let counter = seen.entry(entities.clone()).or_insert(0);
+                    let occurrence = *counter;
+                    *counter += 1;
+                    PieceBound::Cut {
+                        entities,
+                        occurrence,
+                    }
                 }
-            }
+            },
             None => match events.get(*event).map(|event| event.kind) {
                 Some(EventKind::End) => PieceBound::End,
                 _ => PieceBound::Start,
             },
         })
         .collect())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Heading {
+    Right,
+    Along,
+    Left,
+}
+
+impl Heading {
+    fn of(own: Vector2, cutter: Vector2) -> Self {
+        let scale = own.length() * cutter.length();
+        let sine = own.perp_dot(cutter);
+        if !sine.is_finite() || sine.abs() <= ALONG_SINE * scale {
+            Self::Along
+        } else if sine > 0.0 {
+            Self::Left
+        } else {
+            Self::Right
+        }
+    }
+}
+
+struct Crossing {
+    headings: Vec<(u64, Heading)>,
+    along: f64,
+}
+
+impl Crossing {
+    fn at(
+        index: usize,
+        sources: &[Source],
+        events: &[Event],
+        vertex_of: &[usize],
+        at_vertex: &BTreeMap<usize, Vec<usize>>,
+        event: usize,
+    ) -> Found<Self> {
+        let current = lookup(events, event)?;
+        let own = sources.get(index).ok_or_else(ProfileError::unresolved)?;
+        let own_tangent = own.curve.evaluate(current.parameter).first;
+        let vertex = lookup(vertex_of, event)?;
+
+        let mut headings = Vec::new();
+        let mut open_cutter: Option<(u64, f64)> = None;
+        let mut visited = BTreeSet::new();
+        for other in at_vertex.get(&vertex).into_iter().flatten() {
+            let other = lookup(events, *other)?;
+            if other.source == index || !visited.insert(other.source) {
+                continue;
+            }
+            let cutter = sources
+                .get(other.source)
+                .ok_or_else(ProfileError::unresolved)?;
+            let tangent = cutter.curve.evaluate(other.parameter).first;
+            headings.push((cutter.entity, Heading::of(own_tangent, tangent)));
+            if !cutter.closed && open_cutter.is_none_or(|(lowest, _)| cutter.entity < lowest) {
+                open_cutter = Some((cutter.entity, other.parameter));
+            }
+        }
+        headings.sort_unstable();
+
+        Ok(Self {
+            headings,
+            along: open_cutter.map_or(current.parameter, |(_, parameter)| parameter),
+        })
+    }
+
+    fn order(&self, other: &Self) -> std::cmp::Ordering {
+        self.headings
+            .cmp(&other.headings)
+            .then(self.along.total_cmp(&other.along))
+    }
+}
+
+fn crossing_ranks(
+    index: usize,
+    sources: &[Source],
+    events: &[Event],
+    vertex_of: &[usize],
+    at_vertex: &BTreeMap<usize, Vec<usize>>,
+    kept: &[usize],
+    cutters: &[Option<Vec<u64>>],
+) -> Found<BTreeMap<usize, u32>> {
+    let mut groups: BTreeMap<&[u64], Vec<usize>> = BTreeMap::new();
+    for (position, entities) in cutters.iter().enumerate() {
+        if let Some(entities) = entities {
+            groups.entry(entities).or_default().push(position);
+        }
+    }
+
+    let mut ranks = BTreeMap::new();
+    for positions in groups.into_values().filter(|positions| positions.len() > 1) {
+        let mut ordered = Vec::with_capacity(positions.len());
+        for position in positions {
+            let event = lookup(kept, position)?;
+            let crossing = Crossing::at(index, sources, events, vertex_of, at_vertex, event)?;
+            ordered.push((position, crossing));
+        }
+        ordered.sort_by(|(_, first), (_, second)| first.order(second));
+        for (rank, (position, _)) in (0..).zip(ordered) {
+            ranks.insert(position, rank);
+        }
+    }
+    Ok(ranks)
 }
 
 fn same_path(first: &GraphPiece, second: &GraphPiece, tolerance: f64) -> bool {

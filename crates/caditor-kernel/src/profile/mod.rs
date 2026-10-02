@@ -29,6 +29,7 @@ const PIECE_ID: u8 = 0x40;
 const BOUND_START: u8 = 0;
 const BOUND_END: u8 = 1;
 const BOUND_CUT: u8 = 2;
+const BOUND_CROSSING: u8 = 3;
 const SIDE_LEFT: u8 = 0;
 const SIDE_RIGHT: u8 = 1;
 
@@ -114,25 +115,29 @@ pub enum PieceBound {
     Start,
     End,
     Cut { entities: Vec<u64>, occurrence: u32 },
+    Crossing { entities: Vec<u64>, occurrence: u32 },
 }
 
 impl PieceBound {
     fn write(&self, digest: &mut Digest) {
-        match self {
-            Self::Start => digest.byte(BOUND_START),
-            Self::End => digest.byte(BOUND_END),
+        let (tag, entities, occurrence) = match self {
+            Self::Start => return digest.byte(BOUND_START),
+            Self::End => return digest.byte(BOUND_END),
             Self::Cut {
                 entities,
                 occurrence,
-            } => {
-                digest.byte(BOUND_CUT);
-                digest.count(entities.len());
-                for entity in entities {
-                    digest.u64(*entity);
-                }
-                digest.u32(*occurrence);
-            }
+            } => (BOUND_CUT, entities, occurrence),
+            Self::Crossing {
+                entities,
+                occurrence,
+            } => (BOUND_CROSSING, entities, occurrence),
+        };
+        digest.byte(tag);
+        digest.count(entities.len());
+        for entity in entities {
+            digest.u64(*entity);
         }
+        digest.u32(*occurrence);
     }
 }
 

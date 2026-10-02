@@ -28,7 +28,13 @@ paths:
 - A `Region` has a CCW outer `ProfileLoop` and CW holes of `Piece`s (entity, 2D curve, parameter
   range, reversed), with the region on the left of every piece.
 - A `PieceId` is the entity plus what bounds each end: its own start or end, or the sorted ids of
-  the curves that cut it there with an occurrence counted along the curve.
+  the curves that cut it there with an occurrence counted along the curve (`Cut`).
+  - A circle has no start, so a cutter set meeting it more than once gives `Crossing` bounds
+    instead (a tag of their own, so no older name can now mean another arc): ranked by the side
+    each cutter heads to across the circle (left, along or right of its direction), then by the
+    position along the lowest-id open cutter, and only last by the circle's own angle. Moving a
+    crossing past the circle's parameter origin never swaps the names of its arcs. A set meeting
+    the circle once keeps `Cut` with occurrence 0.
 - A `RegionKey` digests the set of (entity, side) pairs of its boundary. Regions sharing a key are
   told apart by their piece ids.
   - Whether a key is tie-broken is decided once over the whole arrangement (any two regions sharing

@@ -510,6 +510,108 @@ fn pieces_cut_by_other_curves_name_their_cutters() {
     );
 }
 
+fn piece_through(profile: &Profile, entity: u64, chosen: impl Fn(Point2) -> bool) -> PieceId {
+    let found: BTreeSet<PieceId> = profile
+        .regions()
+        .iter()
+        .flat_map(Region::pieces)
+        .filter(|piece| piece.entity() == entity)
+        .filter(|piece| chosen(piece.curve().point(piece.range().at(0.5))))
+        .map(|piece| piece.id().clone())
+        .collect();
+
+    assert_eq!(found.len(), 1, "{found:?}");
+
+    found.into_iter().next().unwrap()
+}
+
+#[test]
+fn a_chord_moved_across_the_centre_keeps_the_names_of_the_arcs() {
+    let cut = |height: f64| {
+        profile(&[
+            circle(1, (0.0, 0.0), 5.0),
+            line(2, (-6.0, height), (6.0, height)),
+        ])
+    };
+    let upper = |point: Point2| point.y > 1.0;
+    let lower = |point: Point2| point.y < -1.0;
+
+    let (above, below) = (cut(0.5), cut(-0.5));
+
+    assert_eq!(
+        piece_through(&above, 1, upper),
+        piece_through(&below, 1, upper)
+    );
+    assert_eq!(
+        piece_through(&above, 1, lower),
+        piece_through(&below, 1, lower)
+    );
+    assert!(matches!(
+        piece_through(&above, 1, upper).start(),
+        PieceBound::Crossing { .. }
+    ));
+}
+
+#[test]
+fn a_circle_moved_around_another_keeps_the_names_of_their_arcs() {
+    let crossing = |degrees: f64| {
+        let direction = Point2::from_angle(f64::to_radians(degrees)) * 6.5;
+        profile(&[
+            circle(1, (0.0, 0.0), 5.0),
+            circle(2, (direction.x, direction.y), 5.0),
+        ])
+    };
+    let facing = |point: Point2| point.x + point.y > 0.0;
+    let away = |point: Point2| point.x + point.y < 0.0;
+    let near = |point: Point2| point.length() < 6.0;
+    let far = |point: Point2| point.length() > 6.0;
+
+    let (before, after) = (crossing(45.0), crossing(60.0));
+
+    for chosen in [facing, away] {
+        assert_eq!(
+            piece_through(&before, 1, chosen),
+            piece_through(&after, 1, chosen)
+        );
+    }
+    for chosen in [near, far] {
+        assert_eq!(
+            piece_through(&before, 2, chosen),
+            piece_through(&after, 2, chosen)
+        );
+    }
+}
+
+#[test]
+fn a_circle_cut_once_by_each_curve_keeps_plain_cut_names() {
+    let profile = profile(&[
+        circle(1, (0.0, 0.0), 5.0),
+        line(2, (0.0, 0.0), (6.0, 0.0)),
+        line(3, (0.0, 0.0), (0.0, 6.0)),
+    ]);
+    let bounds: BTreeSet<PieceBound> = profile
+        .regions()
+        .iter()
+        .flat_map(Region::pieces)
+        .filter(|piece| piece.entity() == 1)
+        .flat_map(|piece| [piece.id().start().clone(), piece.id().end().clone()])
+        .collect();
+
+    assert_eq!(
+        bounds,
+        BTreeSet::from([
+            PieceBound::Cut {
+                entities: vec![2],
+                occurrence: 0
+            },
+            PieceBound::Cut {
+                entities: vec![3],
+                occurrence: 0
+            },
+        ])
+    );
+}
+
 #[test]
 fn a_spline_tangent_to_a_line_touches_it_once() {
     let profile = profile(&[
@@ -797,6 +899,17 @@ fn digests_of_piece_ids_and_tiebroken_keys_never_change() {
         },
         PieceBound::End,
     );
+    let crossing = PieceId::new(
+        4,
+        PieceBound::Crossing {
+            entities: vec![5],
+            occurrence: 1,
+        },
+        PieceBound::Crossing {
+            entities: vec![5],
+            occurrence: 0,
+        },
+    );
     let wiggle = profile(&[
         spline(
             1,
@@ -820,6 +933,7 @@ fn digests_of_piece_ids_and_tiebroken_keys_never_change() {
         .collect();
 
     assert_eq!(cut.digest(), 0xbead_433d_ef24_0826_b5b7_084a_6ec7_522f);
+    assert_eq!(crossing.digest(), 0xf81e_8206_8c7a_7404_377c_23a2_264f_750e);
     assert_eq!(
         shared,
         vec![

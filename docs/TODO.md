@@ -35,10 +35,6 @@ within a category run from most to least important.
 
 ## Model stability
 
-- A `PieceId` occurrence on a closed curve is counted from the curve's parameter origin, so when
-  a crossing moves past it the two arcs between the same cutters swap names, and side faces and
-  edges named from them silently rewire (a circle cut by a chord moved from just above to just
-  below the centre). Count occurrences from something an edit cannot reorder.
 - Edge references saved before they kept their faces' origins have no origin fallback, so a
   fillet chosen in an older model still fails on a cap edge once a hole is added; re-capture its
   edges on load by resolving them against the body as it was.
