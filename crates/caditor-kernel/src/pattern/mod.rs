@@ -8,7 +8,7 @@ use crate::{
     boolean::{BooleanError, BooleanOperation, boolean},
     error::GeometryError,
     interrupt::{self, Interrupted},
-    naming::FaceName,
+    naming::{FaceCopy, FaceName},
     topology::Solid,
 };
 
@@ -60,7 +60,13 @@ fn placed(solid: &Solid, copy: &PatternCopy, feature: u64) -> Result<Solid, Patt
             copy: copy.index,
             error,
         })?;
-    Ok(moved.with_face_names(|original| FaceName::pattern(feature, copy.index, original)))
+    let made = FaceCopy {
+        pattern: feature,
+        index: copy.index,
+    };
+    Ok(moved
+        .with_face_origins(|origin| origin.copied(made))
+        .with_face_names(|original| FaceName::pattern(feature, copy.index, original)))
 }
 
 fn joined_in_pairs(parts: Vec<Solid>) -> Result<Vec<Solid>, PatternError> {

@@ -38,9 +38,6 @@ within a category run from most to least important.
 - Edge references saved before they kept their faces' origins have no origin fallback, so a
   fillet chosen in an older model still fails on a cap edge once a hole is added; re-capture its
   edges on load by resolving them against the body as it was.
-- A patterned copy keeps the origin of the face it copies, so a fillet or sketch on a copy counts
-  as a dependent of the original's feature but not of the pattern: deleting the pattern gives no
-  prompt.
 
 ## Kernel correctness
 
@@ -390,8 +387,8 @@ within a category run from most to least important.
 - Extrusions always start on the sketch plane, with no start offset or face, taper angle or thin
   wall, though `LinearExtent::between` accepts any bounds; revolve has the same gaps.
 - Patterns repeat a whole body: no pattern of chosen features (a row of holes cut into a plate),
-  no instances left out, no pattern along a curve or driven by sketch points, no linear "total
-  length" mode, and a copy's faces are described as the face they copy.
+  no instances left out, no pattern along a curve or driven by sketch points, and no linear
+  "total length" mode.
 - Extrusions end only on flat faces and planes: up to face and up to next refuse a curved face,
   and up to next needs one flat face that the whole profile meets first.
 - No feature combines two existing bodies, and a cut affects only one body.

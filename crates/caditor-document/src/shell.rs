@@ -34,7 +34,7 @@ impl Shell {
     }
 
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
-        self.open.iter().filter_map(origins::of_face).collect()
+        self.open.iter().flat_map(origins::of_face).collect()
     }
 
     pub fn resolutions(&self, solid: &Solid) -> Vec<Resolution<FaceId>> {

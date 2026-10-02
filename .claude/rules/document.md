@@ -123,8 +123,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `dependents_of`, `MoveFeature` and the delete dialog use `dependencies()`, so deleting a boss a
   fillet's edge came from asks first and a fillet cannot move above it. Inserts and kind changes
   check only `features()`, so a model saved with a reference to a face made further down still
-  loads and edits. A patterned copy keeps the origin of the face it copies, so a reference to a
-  copy depends on the original's feature, not on the pattern.
+  loads and edits. A reference to a patterned copy's face depends on both the pattern and the
+  original's feature (`FaceOrigin::features`), and is described as "Pattern 1 copy 2 of Base end
+  face" (`describe_origin`; `origin_feature`, which a double-click opens, is the pattern).
 
 ### Import (`import.rs`, `FeatureKind::Import`)
 

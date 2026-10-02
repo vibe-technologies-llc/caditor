@@ -4,14 +4,37 @@ use caditor_sketch::EntityId;
 use crate::document::{Document, FeatureId};
 
 pub fn origin_feature(origin: FaceOrigin) -> FeatureId {
-    FeatureId::from_raw(origin.feature())
+    FeatureId::from_raw(origin.copy().map_or(origin.feature(), |copy| copy.pattern))
 }
 
 pub fn describe_origin(document: &Document, origin: Option<FaceOrigin>) -> String {
     let Some(origin) = origin else {
         return "Face".to_owned();
     };
-    let Some(feature) = document.feature(origin_feature(origin)) else {
+    let original = describe_made(document, origin.original());
+    let Some(copy) = origin.copy() else {
+        return original;
+    };
+    let pattern = document
+        .feature(FeatureId::from_raw(copy.pattern))
+        .map_or("a deleted pattern", |feature| feature.name.as_str());
+    let steps = match copy.index {
+        [step, 0] => step.to_string(),
+        [first, second] => format!("({first}, {second})"),
+    };
+    format!("{pattern} copy {steps} of {}", lowercase_first(&original))
+}
+
+fn lowercase_first(text: &str) -> String {
+    let mut characters = text.chars();
+    match characters.next() {
+        Some(first) if text.starts_with("Face") => first.to_lowercase().chain(characters).collect(),
+        _ => text.to_owned(),
+    }
+}
+
+fn describe_made(document: &Document, origin: FaceOrigin) -> String {
+    let Some(feature) = document.feature(FeatureId::from_raw(origin.feature())) else {
         return "Face of a deleted feature".to_owned();
     };
     let name = &feature.name;
@@ -30,7 +53,9 @@ pub fn describe_origin(document: &Document, origin: Option<FaceOrigin>) -> Strin
         }
         FaceOrigin::StartCap { .. } => format!("{name} start face"),
         FaceOrigin::EndCap { .. } => format!("{name} end face"),
-        FaceOrigin::Fillet { .. } | FaceOrigin::Chamfer { .. } => format!("{name} face"),
+        FaceOrigin::Fillet { .. } | FaceOrigin::Chamfer { .. } | FaceOrigin::Copy { .. } => {
+            format!("{name} face")
+        }
         FaceOrigin::Shell { .. } => format!("{name} inner face"),
         FaceOrigin::Imported { face, .. } => format!("{name} face {}", u64::from(face) + 1),
     }

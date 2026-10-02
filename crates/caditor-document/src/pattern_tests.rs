@@ -145,7 +145,7 @@ fn top_of_copy(model: &Model, solid: &Solid, copy: [u32; 2]) -> Option<FaceRefer
     };
     let tops: Vec<(FaceId, FaceName)> = solid
         .faces()
-        .filter(|(_, face)| face.origin() == Some(cap))
+        .filter(|(_, face)| face.origin().map(FaceOrigin::original) == Some(cap))
         .map(|(id, face)| (id, face.name()))
         .collect();
     let (id, _) = tops.iter().find(|(_, name)| {
@@ -205,6 +205,54 @@ fn a_reference_to_a_copied_face_survives_upstream_edits_and_a_new_count() {
     assert_eq!(evaluation.failed_count(), 0);
     let origin = plane_origin(evaluation.body(model.base).unwrap(), &reference);
     assert!((origin.x - 40.0).abs() < 1e-9 && (origin.z - 6.0).abs() < 1e-9);
+}
+
+fn opening(model: &mut Model, name: &str, top: FaceReference) -> FeatureId {
+    let mut transaction = model.document.transaction("Shell");
+    let shell = transaction.add_feature(
+        name,
+        FeatureKind::Shell(Shell {
+            body: model.base,
+            open: vec![top],
+            thickness: Expression::parse("1 mm", &|_| None).unwrap(),
+        }),
+    );
+    model.document.apply(transaction.finish()).unwrap();
+    shell
+}
+
+#[test]
+fn a_feature_holding_a_copied_face_depends_on_the_pattern_that_made_it() {
+    let mut model = model(linear);
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let solid = evaluation.body(model.base).unwrap();
+    let copied = top_of_copy(&model, solid, [2, 0]).unwrap();
+    let cap = FaceOrigin::EndCap {
+        feature: model.base.raw(),
+    };
+    let original = solid
+        .faces()
+        .find(|(_, face)| face.origin() == Some(cap))
+        .and_then(|(id, _)| FaceReference::capture(solid, id))
+        .unwrap();
+
+    let on_copy = opening(&mut model, "Shell 1", copied.clone());
+    let on_original = opening(&mut model, "Shell 2", original);
+    let dependents = model.document.dependents_of(&[model.pattern]);
+
+    assert!(dependents.contains(&on_copy));
+    assert!(!dependents.contains(&on_original));
+    assert!(
+        model
+            .document
+            .dependents_of(&[model.base])
+            .contains(&on_copy)
+    );
+    assert_eq!(
+        describe_origin(&model.document, copied.origin()),
+        "Pattern 1 copy 2 of Base end face"
+    );
+    assert_eq!(origin_feature(copied.origin().unwrap()), model.pattern);
 }
 
 #[test]

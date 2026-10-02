@@ -493,6 +493,13 @@ impl Solid {
         self
     }
 
+    pub(crate) fn with_face_origins(mut self, change: impl Fn(FaceOrigin) -> FaceOrigin) -> Self {
+        for face in &mut self.faces {
+            face.origin = face.origin.map(&change);
+        }
+        self
+    }
+
     pub(crate) fn with_face_names(mut self, rename: impl Fn(FaceName) -> FaceName) -> Self {
         for face in &mut self.faces {
             face.name = rename(face.name);

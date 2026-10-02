@@ -189,13 +189,51 @@ impl EdgeName {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FaceOrigin {
-    Side { feature: u64, entity: u64 },
-    StartCap { feature: u64 },
-    EndCap { feature: u64 },
-    Fillet { feature: u64 },
-    Chamfer { feature: u64 },
-    Shell { feature: u64 },
-    Imported { feature: u64, face: u32 },
+    Side {
+        feature: u64,
+        entity: u64,
+    },
+    StartCap {
+        feature: u64,
+    },
+    EndCap {
+        feature: u64,
+    },
+    Fillet {
+        feature: u64,
+    },
+    Chamfer {
+        feature: u64,
+    },
+    Shell {
+        feature: u64,
+    },
+    Imported {
+        feature: u64,
+        face: u32,
+    },
+    Copy {
+        copy: FaceCopy,
+        feature: u64,
+        made: Made,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FaceCopy {
+    pub pattern: u64,
+    pub index: [u32; 2],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Made {
+    Side { entity: u64 },
+    StartCap,
+    EndCap,
+    Fillet,
+    Chamfer,
+    Shell,
+    Imported { face: u32 },
 }
 
 impl FaceOrigin {
@@ -207,19 +245,71 @@ impl FaceOrigin {
             | Self::Fillet { feature }
             | Self::Chamfer { feature }
             | Self::Shell { feature }
-            | Self::Imported { feature, .. } => *feature,
+            | Self::Imported { feature, .. }
+            | Self::Copy { feature, .. } => *feature,
+        }
+    }
+
+    pub fn features(&self) -> Vec<u64> {
+        match self {
+            Self::Copy { copy, feature, .. } => vec![*feature, copy.pattern],
+            _ => vec![self.feature()],
         }
     }
 
     pub fn entity(&self) -> Option<u64> {
+        match self.original() {
+            Self::Side { entity, .. } => Some(entity),
+            _ => None,
+        }
+    }
+
+    pub fn copy(&self) -> Option<FaceCopy> {
         match self {
-            Self::Side { entity, .. } => Some(*entity),
-            Self::StartCap { .. }
-            | Self::EndCap { .. }
-            | Self::Fillet { .. }
-            | Self::Chamfer { .. }
-            | Self::Shell { .. }
-            | Self::Imported { .. } => None,
+            Self::Copy { copy, .. } => Some(*copy),
+            _ => None,
+        }
+    }
+
+    pub fn original(self) -> Self {
+        let Self::Copy { feature, made, .. } = self else {
+            return self;
+        };
+        match made {
+            Made::Side { entity } => Self::Side { feature, entity },
+            Made::StartCap => Self::StartCap { feature },
+            Made::EndCap => Self::EndCap { feature },
+            Made::Fillet => Self::Fillet { feature },
+            Made::Chamfer => Self::Chamfer { feature },
+            Made::Shell => Self::Shell { feature },
+            Made::Imported { face } => Self::Imported { feature, face },
+        }
+    }
+
+    #[must_use]
+    pub fn copied(self, copy: FaceCopy) -> Self {
+        let original = self.original();
+        let made = match original {
+            Self::Side { entity, .. } => Made::Side { entity },
+            Self::StartCap { .. } => Made::StartCap,
+            Self::EndCap { .. } => Made::EndCap,
+            Self::Fillet { .. } => Made::Fillet,
+            Self::Chamfer { .. } => Made::Chamfer,
+            Self::Shell { .. } => Made::Shell,
+            Self::Imported { face, .. } => Made::Imported { face },
+            Self::Copy { made, .. } => made,
+        };
+        Self::Copy {
+            copy,
+            feature: original.feature(),
+            made,
+        }
+    }
+
+    pub fn with_copy(self, copy: Option<FaceCopy>) -> Self {
+        match copy {
+            Some(copy) => self.copied(copy),
+            None => self.original(),
         }
     }
 }

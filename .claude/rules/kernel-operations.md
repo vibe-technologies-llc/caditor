@@ -149,9 +149,10 @@ paths:
 - Copies are unioned in pairs, round by round, so n copies take about log n rounds of booleans on
   neighbours rather than n booleans against an ever larger body; copies that do not touch stay
   separate lumps of one body, and coincident faces of touching copies merge by healing.
-- A copy's faces are renamed `FaceName::pattern(feature, index, original)` and keep the original's
-  `FaceOrigin`; its edges are named again from those faces (`Solid::with_face_names`, like
-  imports). The original keeps every name.
+- A copy's faces are renamed `FaceName::pattern(feature, index, original)` and given the origin
+  `FaceOrigin::Copy` of the original's (`Solid::with_face_origins`, `kernel-naming.md`); its edges
+  are named again from those faces (`Solid::with_face_names`, like imports). The original keeps
+  every name and origin.
 
 # Shell (`shell/`)
 

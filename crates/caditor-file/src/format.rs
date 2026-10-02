@@ -11,8 +11,8 @@ use caditor_document::{
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
-    BoundaryPiece, EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, RegionKey,
-    RegionReference, Side, Solid, VertexName,
+    BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
+    RegionKey, RegionReference, Side, Solid, VertexName,
 };
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
@@ -178,7 +178,7 @@ pub(crate) enum DatumAxisRecord {
 #[serde(untagged)]
 pub(crate) enum RevolveAxisRecord {
     Sketch(u64),
-    Model(AxisReferenceRecord),
+    Model(Box<AxisReferenceRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -218,6 +218,14 @@ pub(crate) struct FaceRecord {
     pub face: String,
     pub origin: Option<FaceOriginRecord>,
     pub neighbours: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy: Option<CopyRecord>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CopyRecord {
+    pub pattern: u64,
+    pub index: [u32; 2],
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -234,6 +242,8 @@ pub(crate) struct EdgeRecord {
     pub ends: [String; 2],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origins: Option<[Option<FaceOriginRecord>; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copies: Option<[Option<CopyRecord>; 2]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -374,6 +384,8 @@ pub(crate) struct AttachmentRecord {
     pub face: String,
     pub origin: Option<FaceOriginRecord>,
     pub neighbours: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy: Option<CopyRecord>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -814,7 +826,7 @@ fn revolve_record(revolve: &Revolve) -> FeatureKindRecord {
     );
     let axis = match &revolve.axis {
         RevolveAxis::Sketch(line) => RevolveAxisRecord::Sketch(line.raw()),
-        RevolveAxis::Model(axis) => RevolveAxisRecord::Model(axis_record(axis)),
+        RevolveAxis::Model(axis) => RevolveAxisRecord::Model(Box::new(axis_record(axis))),
     };
     let extent = match &revolve.extent {
         RevolveExtent::Full => RevolveExtentRecord::Full,
@@ -890,6 +902,15 @@ fn edge_record(edge: &EdgeReference) -> EdgeRecord {
             .iter()
             .any(Option::is_some)
             .then(|| edge.origins().map(|origin| origin.map(origin_record))),
+        copies: edge
+            .origins()
+            .iter()
+            .flatten()
+            .any(|origin| origin.copy().is_some())
+            .then(|| {
+                edge.origins()
+                    .map(|origin| origin.as_ref().and_then(copy_record))
+            }),
     }
 }
 
@@ -1081,7 +1102,15 @@ fn face_record(face: &FaceReference) -> FaceRecord {
             .iter()
             .map(|name| hex(name.digest()))
             .collect(),
+        copy: face.origin().and_then(|origin| copy_record(&origin)),
     }
+}
+
+fn copy_record(origin: &FaceOrigin) -> Option<CopyRecord> {
+    origin.copy().map(|copy| CopyRecord {
+        pattern: copy.pattern,
+        index: copy.index,
+    })
 }
 
 fn origin_record(origin: FaceOrigin) -> FaceOriginRecord {
@@ -1093,6 +1122,7 @@ fn origin_record(origin: FaceOrigin) -> FaceOriginRecord {
         FaceOrigin::Chamfer { feature } => FaceOriginRecord::Chamfer { feature },
         FaceOrigin::Shell { feature } => FaceOriginRecord::Shell { feature },
         FaceOrigin::Imported { feature, face } => FaceOriginRecord::Imported { feature, face },
+        FaceOrigin::Copy { .. } => origin_record(origin.original()),
     }
 }
 
@@ -1101,12 +1131,14 @@ fn attachment_record(attachment: &FaceAttachment) -> AttachmentRecord {
         face,
         origin,
         neighbours,
+        copy,
     } = face_record(&attachment.face);
     AttachmentRecord {
         body: attachment.body.raw(),
         face,
         origin,
         neighbours,
+        copy,
     }
 }
 
@@ -1798,7 +1830,7 @@ fn restore_axis(record: &AxisReferenceRecord) -> Option<AxisReference> {
         },
         AxisReferenceRecord::Face { body, face } => AxisReference::Face {
             body: FeatureId::from_raw(*body),
-            face: restore_face(&face.face, face.origin, &face.neighbours)?,
+            face: restore_face(&face.face, face.origin, face.copy, &face.neighbours)?,
         },
     })
 }
@@ -1938,7 +1970,9 @@ fn restore_shell(record: &ShellRecord, feature: &str, issues: &mut Vec<String>) 
         .open
         .iter()
         .filter_map(|face| match face {
-            Lenient::Read(face) => restore_face(&face.face, face.origin, &face.neighbours),
+            Lenient::Read(face) => {
+                restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+            }
             Lenient::Unreadable(_) => None,
         })
         .collect();
@@ -1987,10 +2021,10 @@ fn restore_edge(record: &EdgeRecord) -> Option<EdgeReference> {
     let vertex = |text: &str| restore_digest(text).map(VertexName::from_digest);
     let [first, second] = &record.faces;
     let [from, to] = &record.ends;
-    let [first_origin, second_origin] = record
-        .origins
-        .map(|origins| origins.map(|origin| origin.map(restore_origin)))
-        .unwrap_or_default();
+    let [first_copy, second_copy] = record.copies.unwrap_or_default();
+    let [first_origin, second_origin] = record.origins.unwrap_or_default();
+    let first_origin = first_origin.map(|origin| restore_copied_origin(origin, first_copy));
+    let second_origin = second_origin.map(|origin| restore_copied_origin(origin, second_copy));
     let mut sides = [(face(first)?, first_origin), (face(second)?, second_origin)];
     sides.sort_by_key(|(name, _)| *name);
     Some(
@@ -2176,13 +2210,14 @@ fn restore_digest(text: &str) -> Option<u128> {
 fn restore_attachment(record: &AttachmentRecord) -> Option<FaceAttachment> {
     Some(FaceAttachment {
         body: FeatureId::from_raw(record.body),
-        face: restore_face(&record.face, record.origin, &record.neighbours)?,
+        face: restore_face(&record.face, record.origin, record.copy, &record.neighbours)?,
     })
 }
 
 fn restore_face(
     face: &str,
     origin: Option<FaceOriginRecord>,
+    copy: Option<CopyRecord>,
     neighbours: &[String],
 ) -> Option<FaceReference> {
     let neighbours = neighbours
@@ -2191,9 +2226,16 @@ fn restore_face(
         .collect::<Option<Vec<FaceName>>>()?;
     Some(FaceReference::new(
         FaceName::from_digest(restore_digest(face)?),
-        origin.map(restore_origin),
+        origin.map(|origin| restore_copied_origin(origin, copy)),
         neighbours,
     ))
+}
+
+fn restore_copied_origin(origin: FaceOriginRecord, copy: Option<CopyRecord>) -> FaceOrigin {
+    restore_origin(origin).with_copy(copy.map(|copy| FaceCopy {
+        pattern: copy.pattern,
+        index: copy.index,
+    }))
 }
 
 fn restore_origin(origin: FaceOriginRecord) -> FaceOrigin {

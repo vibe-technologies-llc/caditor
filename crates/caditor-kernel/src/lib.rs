@@ -57,8 +57,8 @@ pub use crate::{
         planar_area,
     },
     naming::{
-        EdgeName, EdgeNaming, EdgeReference, FaceName, FaceOrigin, FaceReference, ReferenceError,
-        VertexName, vertex_names,
+        EdgeName, EdgeNaming, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference, Made,
+        ReferenceError, VertexName, vertex_names,
     },
     pattern::{PatternCopy, PatternError, pattern},
     profile::{

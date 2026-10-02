@@ -2193,7 +2193,7 @@ fn a_placement_change_round_trips_through_the_journal() {
 fn blended_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{Blend, BlendKind, FaceAttachment, SketchFeature};
     use caditor_kernel::{
-        EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, VertexName,
+        EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference, VertexName,
     };
     let (mut document, base, _) = solid_model();
     let edge = EdgeReference::new(
@@ -2220,10 +2220,16 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
                 edge,
                 edge.with_origins([
                     Some(FaceOrigin::EndCap { feature: 1 }),
-                    Some(FaceOrigin::Side {
-                        feature: 1,
-                        entity: 4,
-                    }),
+                    Some(
+                        FaceOrigin::Side {
+                            feature: 1,
+                            entity: 4,
+                        }
+                        .copied(FaceCopy {
+                            pattern: 9,
+                            index: [2, 1],
+                        }),
+                    ),
                 ]),
             ],
             size: transaction.parse("0.5 mm").unwrap(),
@@ -2238,7 +2244,10 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
                 body: base,
                 face: FaceReference::new(
                     FaceName::from_digest(5),
-                    Some(FaceOrigin::Chamfer { feature: 7 }),
+                    Some(FaceOrigin::Chamfer { feature: 7 }.copied(FaceCopy {
+                        pattern: 9,
+                        index: [1, 0],
+                    })),
                     [FaceName::from_digest(6)],
                 ),
             },
@@ -2263,6 +2272,8 @@ fn fillets_and_chamfers_are_saved_and_loaded() {
     assert!(text.contains(
         "\"origins\":[{\"end_cap\":{\"feature\":1}},{\"side\":{\"entity\":4,\"feature\":1}}]"
     ));
+    assert!(text.contains("\"copies\":[null,{\"index\":[2,1],\"pattern\":9}]"));
+    assert!(text.contains("\"copy\":{\"index\":[1,0],\"pattern\":9}"));
     let loaded = decode_text(&text);
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);

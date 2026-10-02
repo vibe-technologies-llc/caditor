@@ -81,8 +81,15 @@ fn copies_standing_apart_become_lumps_named_after_the_copy() {
     assert!(patterned.faces().all(|(_, face)| {
         original
             .faces()
-            .any(|(_, source)| source.origin() == face.origin())
+            .any(|(_, source)| source.origin() == face.origin().map(FaceOrigin::original))
     }));
+    let copies: BTreeSet<[u32; 2]> = patterned
+        .faces()
+        .filter_map(|(_, face)| face.origin()?.copy())
+        .inspect(|copy| assert_eq!(copy.pattern, FEATURE))
+        .map(|copy| copy.index)
+        .collect();
+    assert_eq!(copies, BTreeSet::from([[1, 0], [2, 0]]));
 }
 
 #[test]

@@ -80,6 +80,9 @@ paths:
   aligned with its keys: each region's `boundary` (`entity`, `side` `left` or `right`, `piece` id
   digest) and `anchor` (`[x, y]` on the sketch plane), written only when any is known; older
   readers drop it and lose only the fallback, and a key without one loads as a key alone.
+- A face or attachment record whose face is a patterned copy has `copy` (`pattern`, `index`) beside
+  `origin`, which holds the original's origin; an edge record has `copies` aligned with `origins`.
+  Both are written only when a copy is involved; older readers drop them and see the original.
 - An edge reference record has `origins`, its two faces' origins in the order of `faces`, written
   only when either is known; older readers drop it and lose only the fallback it gives.
 - Records carry stable IDs. Construction curves add `"construction": true` only when set (on a

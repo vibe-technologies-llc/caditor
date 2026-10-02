@@ -38,9 +38,11 @@ paths:
   gives every vertex's name (`EdgeNaming` and the document's `NameIndex` use it). Faces keep their
   names through parameter changes, so a vertex does too.
 - `FaceOrigin` says in words what a face came from: side of an entity, start or end cap (with the
-  raw feature and entity ids), `Fillet`, `Chamfer`, `Shell`, `Imported`. A patterned copy keeps
-  the origin of the face it copies, so a reference whose name is gone still falls back to faces of
-  that origin, which the copy's differently named neighbours then tell apart.
+  raw feature and entity ids), `Fillet`, `Chamfer`, `Shell`, `Imported`. A patterned copy's face
+  is `Copy`: the `FaceCopy` (pattern feature and copy index) with the original's feature and
+  `Made` kind, so `original()` gives the origin it copies and `features()` both features that
+  made it; a reference whose name is gone falls back among the faces of that same copy. A copy of
+  a copy keeps only the latest pattern.
 - `Solid::imported(feature)` names an imported solid: `FaceName::imported(feature, index)` by the
   face's position in the solid (its order in the stored STEP text, which never changes),
   `FaceOrigin::Imported`, and edges `between` their faces, disambiguated like sweeps.
