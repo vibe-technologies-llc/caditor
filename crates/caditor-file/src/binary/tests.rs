@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use super::{
     model::{decode, encode_over, history, load_version, reads_back, save_bytes},
     testing::{
-        corrupt_chunk, model_chunk_count, push_foreign, records_as_json, sharing_from,
-        with_slices_of,
+        corrupt_chunk, decompressing_at_most, model_chunk_count, push_foreign, records_as_json,
+        sharing_from, with_slices_of,
     },
     value::{from_bytes, to_bytes},
     *,
@@ -619,6 +619,43 @@ fn thinning_never_passes_off_a_damaged_version_as_another() {
         check_listed_versions(&bytes, &documents);
     }
     assert!(longest_delta_run(&bytes) < 8);
+}
+
+fn snapshot_size(bytes: &[u8]) -> usize {
+    parse(bytes, &MODEL_MAGIC)
+        .unwrap()
+        .chunks()
+        .filter(|chunk| chunk.kind == Some(ChunkKind::Record))
+        .map(|chunk| chunk.content_length() + 1)
+        .sum()
+}
+
+#[test]
+fn listing_a_long_history_bounds_memory_per_version_not_in_total() {
+    let (documents, bytes) = saved_series(20);
+    let size = snapshot_size(&bytes);
+
+    decompressing_at_most(3 * size, || {
+        let listed = check_listed_versions(&bytes, &documents);
+        assert_eq!(listed.versions.len(), 19);
+        assert!(listed.versions.iter().all(|version| version.available));
+    });
+}
+
+#[test]
+fn a_version_that_cannot_be_rewritten_keeps_the_newer_ones_it_is_stored_against() {
+    const TEN_MINUTES: u64 = 600;
+    let (_, sample) = saved_series(2);
+    let size = snapshot_size(&sample);
+
+    let (documents, starved) =
+        decompressing_at_most(3 * size, || saved_series_every(60, TEN_MINUTES));
+    let (_, unstarved) = saved_series_every(60, TEN_MINUTES);
+
+    let listed = check_listed_versions(&starved, &documents);
+    assert!(listed.versions.iter().all(|version| version.available));
+    assert!(listed.versions.len() > history(&unstarved).versions.len());
+    assert_eq!(decode(&starved).unwrap().document, documents[59]);
 }
 
 fn bulky() -> Document {

@@ -54,10 +54,6 @@ within a category run from most to least important.
 - A save does not notice that the file changed on disk since it was opened; the outside change
   survives only as a version until retention thins it. Remember the head digest at load and
   report "changed since you opened it" so the UI can offer a copy or an overwrite.
-- The 2 GiB decompression `Budget` is cumulative over a whole version walk, so with a snapshot of
-  about 20 MB a year of default retention exhausts it: `history()` then marks intact versions as
-  unrecoverable, and `write_versions` keeps a delta whose newer neighbour it just dropped,
-  leaving that version permanently undecodable. Bound live memory per step instead.
 - A save never checks its size against the loader's 2 GiB `MAX_FILE_SIZE`, and retention caps
   age, not bytes, so a large history can produce a file that no longer opens and refuses the
   next save. Thin harder as the file nears the limit, and say so.
@@ -498,6 +494,14 @@ within a category run from most to least important.
   caditor's own icons for fillet, chamfer, shell, extrude, revolve and both patterns, on
   Phosphor's grid and stroke weight so they sit beside it;
   undecided whether they ship as glyphs added to the `icons` font family or as painted shapes.
+- Themes are four fixed `Tokens` sets in `appearance.rs` (dark, light and their high-contrast
+  variants) and the 3D view is dark in all of them. Add themes as data: a few shipped ones
+  beyond dark and light, a choice of accent colour, a light 3D view (background, grid, edges and
+  the `canvas.rs` chrome) chosen with the theme or on its own, and user themes loaded from the
+  config directory and picked in Preferences with a live preview. Every theme, shipped or loaded,
+  goes through the contrast checks `appearance.rs` runs today (4.5:1, 7:1 for body text in high
+  contrast), and a loaded theme that fails them or cannot be read is refused in words, naming the
+  colour pair, with the previous theme kept.
 - One files worker runs everything and Import cannot be cancelled (cancelling Open only drops its
   result while the worker reads on), so a slow STEP import blocks Open behind a modal, and the
   opening modal is drawn before the unsaved-changes prompt,

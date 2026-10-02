@@ -152,3 +152,18 @@ pub(crate) fn sharing_from<T>(length: usize, work: impl FnOnce() -> T) -> T {
     WORTH_SHARING.set(before);
     result
 }
+
+thread_local! {
+    static MAX_DECOMPRESSED: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+pub(crate) fn max_decompressed() -> Option<usize> {
+    MAX_DECOMPRESSED.get()
+}
+
+pub(crate) fn decompressing_at_most<T>(limit: usize, work: impl FnOnce() -> T) -> T {
+    let before = MAX_DECOMPRESSED.replace(Some(limit));
+    let result = work();
+    MAX_DECOMPRESSED.set(before);
+    result
+}

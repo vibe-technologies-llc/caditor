@@ -33,7 +33,10 @@ paths:
   a run of one kind into one logical chunk of at most 2 GiB (`Chunk::unpack`); a run broken by
   damage or another kind, and a continuation with no run, is one damaged piece (a resync mid-run
   never yields partial content). Older readers see only the first slice, which fails its digest.
-- Records decode one at a time; one load, listing or restore decompresses at most 2 GiB.
+- Records decode one at a time. A load holds at most 2 GiB of decompressed records
+  (`Budget`, cumulative, since every record stays alive); a version walk (listing, restore,
+  thinning) bounds what is alive at each step instead (`unpack_beside`: the snapshots held plus
+  the one being decoded), so a long history of large snapshots still lists and restores.
   `Budget::unpack` keeps the `UnpackError`, so a record in an unknown codec reads like content from
   a newer version, one that ran out of memory or the budget says it is too large to load, and only
   the rest is "damaged".
@@ -89,9 +92,13 @@ paths:
 - Retention (`retention.rs`), on each save adding a version: the ten newest listed stay; older keep
   the newest of each hour for a day, day for thirty days, week for a year, thirty days beyond
   (slots by absolute time); unlisted always stay. A delta whose newer neighbour was dropped is
-  decoded (each version at most once per save, only along runs that need it) and recompressed
+  decoded (each version at most once per pass, only along runs that need it) and recompressed
   against the newest kept version before it, or stored whole when a dropped version was whole; one
-  that cannot be decoded is copied as it was.
+  that cannot be decoded is copied as it was. A first pass decodes along the same runs, and when a
+  delta could not be decoded for want of memory (`OverBudget`, `OutOfMemory`, or a newer neighbour
+  that failed so) the versions dropped before it are kept, so thinning never leaves a delta whose
+  newer neighbour is gone; should the second pass still run short, the save fails
+  (`EncodeError::HistoryTooLarge`) rather than write such a delta.
 - Versions copied unchanged are placed for block sharing: each run at least 256 KiB long lands at
   the same offset modulo 4 KiB as in the file being replaced (a zero-filled `Padding` chunk,
   skipped by readers, starts the versions for the first such run and precedes each later one);

@@ -195,6 +195,8 @@ The first release of caditor.
 - Earlier versions thin out as they age: the ten newest are always kept, then one per hour for
   a day, one per day for a month, one per week for a year and one per month beyond, so a model
   file no longer grows with every save.
+- A large model with a long history no longer shows its older versions as unrecoverable in
+  Version History, and thinning old versions can no longer leave one that cannot be restored.
 - Saving a large model on Btrfs or XFS shares its unchanged earlier versions with the file it
   replaces instead of writing them again, so such saves are faster and take no extra disk space.
 - Models larger than 256 MiB keep saving and keep their earlier versions and unsaved changes,

@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    rc::Rc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -30,6 +31,14 @@ const MAX_DECOMPRESSED: usize = 1 << 31;
 const SHARED_BLOCK: usize = 4096;
 const WORTH_SHARING: usize = 256 << 10;
 
+fn max_decompressed() -> usize {
+    #[cfg(test)]
+    if let Some(limit) = super::testing::max_decompressed() {
+        return limit;
+    }
+    MAX_DECOMPRESSED
+}
+
 struct Budget {
     remaining: usize,
 }
@@ -37,7 +46,7 @@ struct Budget {
 impl Default for Budget {
     fn default() -> Self {
         Self {
-            remaining: MAX_DECOMPRESSED,
+            remaining: max_decompressed(),
         }
     }
 }
@@ -50,6 +59,13 @@ impl Budget {
             .ok_or(UnpackError::OverBudget)?;
         chunk.unpack(newer)
     }
+}
+
+fn unpack_beside(chunk: &Chunk<'_>, newer: Option<&[u8]>, held: usize) -> Unpacked {
+    held.checked_add(chunk.content_length())
+        .filter(|live| *live <= max_decompressed())
+        .ok_or(UnpackError::OverBudget)?;
+    chunk.unpack(newer)
 }
 
 type Unpacked = Result<Vec<u8>, UnpackError>;
@@ -275,16 +291,16 @@ impl<'a> Parsed<'a> {
         until: usize,
         mut visit: impl FnMut(usize, Option<&[u8]>),
     ) {
-        let mut budget = Budget::default();
         let mut newer = if from == 0 {
-            self.head_snapshot(&mut budget)
+            self.head_snapshot(&mut Budget::default())
         } else {
             None
         };
         let versions = self.versions.iter().enumerate();
         let count = until.saturating_add(1).saturating_sub(from);
         for (index, version) in versions.skip(from).take(count) {
-            let snapshot = budget.unpack(&version.data, newer.as_deref()).ok();
+            let held = newer.as_ref().map_or(0, Vec::len);
+            let snapshot = unpack_beside(&version.data, newer.as_deref(), held).ok();
             let verified = snapshot
                 .as_deref()
                 .filter(|snapshot| version.holds(snapshot));
@@ -519,6 +535,8 @@ pub(crate) enum EncodeError {
     Value(#[from] ValueError),
     #[error("{0}")]
     Pack(#[from] PackError),
+    #[error("an earlier version could not be rebuilt in the memory available to thin the history")]
+    HistoryTooLarge,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -731,6 +749,123 @@ fn needing_content(
     needed
 }
 
+#[derive(Debug, Clone)]
+enum Content<'p> {
+    Borrowed(&'p [u8]),
+    Decoded(Rc<Vec<u8>>),
+}
+
+impl Content<'_> {
+    fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Borrowed(bytes) => bytes,
+            Self::Decoded(bytes) => bytes,
+        }
+    }
+
+    fn decoded_length(&self) -> usize {
+        match self {
+            Self::Borrowed(_) => 0,
+            Self::Decoded(bytes) => bytes.len(),
+        }
+    }
+}
+
+struct Rebuild<'p> {
+    needed: Vec<bool>,
+    newer: Option<Content<'p>>,
+    held: usize,
+    starved: bool,
+}
+
+impl<'p> Rebuild<'p> {
+    fn new(
+        stored: &[StoredVersion<'_>],
+        candidates: &[(Candidate<'_, '_>, bool)],
+        prior_head: Option<&'p (StateRecord, Vec<u8>)>,
+        snapshot: &[u8],
+    ) -> Self {
+        Self {
+            needed: needing_content(stored, candidates),
+            newer: prior_head.map(|(_, old)| Content::Borrowed(old.as_slice())),
+            held: snapshot
+                .len()
+                .saturating_add(prior_head.map_or(0, |(_, old)| old.len())),
+            starved: false,
+        }
+    }
+
+    fn advance(&mut self, candidate: &Candidate<'p, '_>) -> Option<&Content<'p>> {
+        let content = match candidate {
+            Candidate::Replaced { snapshot, .. } => {
+                self.starved = false;
+                Some(Content::Borrowed(snapshot))
+            }
+            Candidate::Stored { index, version } if self.needed.get(*index) == Some(&true) => {
+                let newer = self.newer.as_ref();
+                let held = self
+                    .held
+                    .saturating_add(newer.map_or(0, Content::decoded_length));
+                match unpack_beside(&version.data, newer.map(Content::bytes), held) {
+                    Ok(content) => {
+                        self.starved = false;
+                        Some(Content::Decoded(Rc::new(content)))
+                    }
+                    Err(UnpackError::MissingNewer) => None,
+                    Err(UnpackError::OverBudget | UnpackError::OutOfMemory) => {
+                        self.starved = true;
+                        None
+                    }
+                    Err(_) => {
+                        self.starved = false;
+                        None
+                    }
+                }
+            }
+            Candidate::Stored { .. } => {
+                self.starved = false;
+                None
+            }
+        };
+        self.newer = content;
+        self.newer.as_ref()
+    }
+}
+
+fn is_rewritten(candidate: &Candidate<'_, '_>, after_thinning: bool) -> bool {
+    after_thinning
+        && matches!(candidate, Candidate::Stored { version, .. } if !version.is_keyframe())
+}
+
+fn keep_what_cannot_be_rewritten<'p>(
+    stored: &[StoredVersion<'_>],
+    candidates: &mut [(Candidate<'p, '_>, bool)],
+    prior_head: Option<&'p (StateRecord, Vec<u8>)>,
+    snapshot: &[u8],
+) {
+    let mut rebuild = Rebuild::new(stored, candidates, prior_head, snapshot);
+    let mut dropped_from = None;
+    for position in 0..candidates.len() {
+        let Some((candidate, keep)) = candidates.get(position) else {
+            break;
+        };
+        let keep = *keep;
+        let rebuilt = rebuild.advance(candidate).is_some();
+        if !keep {
+            dropped_from.get_or_insert(position);
+            continue;
+        }
+        let Some(start) = dropped_from.take() else {
+            continue;
+        };
+        if is_rewritten(candidate, true) && !rebuilt && rebuild.starved {
+            for (_, keep) in candidates.get_mut(start..position).unwrap_or_default() {
+                *keep = true;
+            }
+        }
+    }
+}
+
 fn write_versions<'a>(
     section: &mut Section<'a>,
     prior: Option<&Parsed<'a>>,
@@ -740,29 +875,17 @@ fn write_versions<'a>(
     now: SystemTime,
 ) -> Result<(), EncodeError> {
     let stored = prior.map_or(&[][..], |prior| prior.versions.as_slice());
-    let candidates = thinned(prior, prior_head, adds_version, now);
-    let needed = needing_content(stored, &candidates);
-    let mut budget = Budget::default();
-    let mut previous: Option<Cow<'_, [u8]>> =
-        prior_head.map(|(_, old)| Cow::Borrowed(old.as_slice()));
-    let mut base: Option<Cow<'_, [u8]>> = Some(Cow::Borrowed(snapshot));
+    let mut candidates = thinned(prior, prior_head, adds_version, now);
+    keep_what_cannot_be_rewritten(stored, &mut candidates, prior_head, snapshot);
+    let mut rebuild = Rebuild::new(stored, &candidates, prior_head, snapshot);
+    let mut base = Some(Content::Borrowed(snapshot));
     let mut after_thinning = false;
     let mut thinned_keyframe = false;
     for (candidate, keep) in &candidates {
-        let content = match candidate {
-            Candidate::Replaced { snapshot: old, .. } => Some(Cow::Borrowed(*old)),
-            Candidate::Stored { index, version } => needed
-                .get(*index)
-                .copied()
-                .unwrap_or(false)
-                .then(|| budget.unpack(&version.data, previous.as_deref()).ok())
-                .flatten()
-                .map(Cow::Owned),
-        };
+        let content = rebuild.advance(candidate).cloned();
         if !keep {
             after_thinning = true;
             thinned_keyframe |= candidate.is_keyframe();
-            previous = content;
             continue;
         }
         match candidate {
@@ -783,22 +906,27 @@ fn write_versions<'a>(
                 if let Some(info) = &version.info {
                     section.keep(info.chunk.whole);
                 }
-                let rewritten = (after_thinning && !version.is_keyframe())
-                    .then_some(content.as_deref())
-                    .flatten();
-                match (rewritten, base.as_deref()) {
-                    (Some(content), Some(base)) if !thinned_keyframe => {
-                        push_packed_after(section.fresh(), ChunkKind::VersionData, content, base)?;
+                let rewritten = is_rewritten(candidate, after_thinning);
+                match (rewritten, content.as_ref(), base.as_ref()) {
+                    (true, Some(content), Some(base)) if !thinned_keyframe => {
+                        push_packed_after(
+                            section.fresh(),
+                            ChunkKind::VersionData,
+                            content.bytes(),
+                            base.bytes(),
+                        )?;
                     }
-                    (Some(content), _) => {
-                        push_packed(section.fresh(), ChunkKind::VersionData, content)?;
+                    (true, Some(content), _) => {
+                        push_packed(section.fresh(), ChunkKind::VersionData, content.bytes())?;
                     }
-                    (None, _) => section.keep(version.data.whole),
+                    (true, None, _) if rebuild.starved => {
+                        return Err(EncodeError::HistoryTooLarge);
+                    }
+                    (true, None, _) | (false, ..) => section.keep(version.data.whole),
                 }
             }
         }
-        base.clone_from(&content);
-        previous = content;
+        base = content;
         after_thinning = false;
         thinned_keyframe = false;
     }

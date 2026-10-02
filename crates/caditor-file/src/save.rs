@@ -60,6 +60,10 @@ impl SaveError {
             EncodeError::Value(ValueError::Malformed(_)) | EncodeError::Pack(_) => {
                 "the model could not be converted for saving"
             }
+            EncodeError::HistoryTooLarge => {
+                "there was not enough memory to rewrite the model's earlier versions; close other \
+                 programs and save again"
+            }
         };
         Self {
             reason: reason.to_owned(),
