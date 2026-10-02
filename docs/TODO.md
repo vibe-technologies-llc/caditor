@@ -45,11 +45,6 @@ within a category run from most to least important.
 - A patterned copy keeps the origin of the face it copies, so a fillet or sketch on a copy counts
   as a dependent of the original's feature but not of the pattern: deleting the pattern gives no
   prompt.
-- A reference resolved through the fallback recomputes as plain `UpToDate`; nothing tells the user
-  it now points at another face, and the stored name is never refreshed, so small edits can
-  drift it until it fails. The same holds for a chosen region healed or left out by
-  `resolve_regions` (`ResolvedRegions::healed` and `gone` are not reported). Add a healed state
-  shown as a warning and an undoable "update references".
 
 ## Kernel correctness
 

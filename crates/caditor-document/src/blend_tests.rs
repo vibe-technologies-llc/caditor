@@ -635,6 +635,24 @@ fn a_fillet_on_a_cap_edge_survives_a_hole_added_inside_the_outline() {
     let expected = 320.0 - PI * 1.5 * 1.5 * 4.0 - 10.0 * spandrel(1.0);
     let found = volume(&evaluation, base);
     assert!((found - expected).abs() < 0.02, "volume {found}");
+
+    let healing = evaluation.feature(fillet).unwrap().healing.clone().unwrap();
+    assert_eq!(healing.matched, ["its edge"]);
+    assert_eq!(
+        healing.reason(),
+        "After an upstream change, its edge was matched to the most similar geometry."
+    );
+    let update = healing.update(&document).unwrap();
+    assert_eq!(update.label(), "Update references of Fillet 1");
+    document.apply(update).unwrap();
+    let updated = evaluate(&document, &mut engine);
+
+    assert_eq!(updated.feature(fillet).unwrap().healing, None);
+    assert_eq!(
+        updated.feature(fillet).unwrap().state,
+        FeatureState::UpToDate
+    );
+    assert!((volume(&updated, base) - found).abs() < 1e-9);
 }
 
 struct Boss {

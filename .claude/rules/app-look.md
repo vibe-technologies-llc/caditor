@@ -240,7 +240,11 @@ paths:
   icon as its state; a row below the rollback bar is muted with the rolled-back icon; neither offers
   the edit button. A failure caused by a suppressed feature carries an Unsuppress button
   (`FixTarget::Unsuppress`); callout actions (Recompute, Unsuppress, Go to, Edit the dimension,
-  Detach) are `small_button`s with icons.
+  Detach, Update references) are `small_button`s with icons.
+- A feature computed with a healed reference (`FeatureStatus::healing`) shows the warning icon as
+  its status and a warning callout with the healing's reason and remedy and an Update references
+  button, offered only while the evaluation was checked against the feature as it now stands
+  (`Healing::update`).
 - A click on a row's name only selects it (`PanelState::selected`, cleared when the view selection
   changes), as does tabbing to it; Ctrl+click adds or removes a row and Shift+click takes the rows
   from the selected one (`PanelState::chosen`, the primary first). The chevron alone shows or hides

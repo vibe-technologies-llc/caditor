@@ -27,6 +27,7 @@ pub const PENDING: &str = phosphor::CIRCLE_NOTCH;
 pub const UP_TO_DATE: &str = phosphor::CHECK_CIRCLE;
 pub const INFO: &str = phosphor::INFO;
 pub const WARNING: &str = phosphor::WARNING;
+pub const UPDATE_REFERENCES: &str = phosphor::LINK_SIMPLE;
 pub const TIP: &str = phosphor::LIGHTBULB;
 pub const SELECTION: &str = phosphor::SELECTION;
 pub const UNIT: &str = phosphor::RULER;
@@ -155,6 +156,7 @@ pub fn command(command: Command) -> &'static str {
         Command::AddParameter => ADD,
         Command::DeleteParameter => DELETE,
         Command::ShowFirstFailed => FAILED,
+        Command::UpdateReferences => UPDATE_REFERENCES,
         Command::DismissNotice | Command::DismissTip => CLOSE,
         Command::HideTips => phosphor::EYE_SLASH,
         Command::Welcome => phosphor::HAND_WAVING,

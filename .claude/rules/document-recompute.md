@@ -37,6 +37,16 @@ paths:
   attached sketch is told to detach). Which used features are suppressed is part of a failed
   result's cache key, since its message says so.
 - A panic inside an `Evaluator` is caught and becomes that feature's error.
+- A feature that computes is then checked for healed references (`healing.rs`, panics caught):
+  a face or edge reference that resolved to topology of another name (the fallback by
+  neighbours, faces or origins; fragments and pieces of a split face or edge keep its name and do
+  not count), and a chosen region `resolve_regions` healed or left out. `FeatureStatus::healing`
+  then holds a `Healing`: the references in words, a reason and remedy, and the feature with
+  those references captured afresh (left-out regions removed). It is kept with the cached result
+  and, like a failure's message, recomputed when the names it could hold change.
+  `Healing::update` is the undoable "Update references" (`SetFeatureKind`, or
+  `SetSketchPlacement` for a sketch's face), refused once the feature differs from the one checked,
+  so an evaluation lagging an edit never reverts it; after it every reference resolves by name.
 
 ## Bodies
 

@@ -1,0 +1,312 @@
+use std::sync::Arc;
+
+use caditor_kernel::{EdgeNaming, EdgeReference, FaceReference, RegionReference, resolve_regions};
+
+use crate::{
+    attachment::SketchAttachment,
+    datum::{AxisReference, Datum, DatumAxis, PlaneReference},
+    document::{Document, Feature, FeatureId, FeatureKind, list_names},
+    edit::{Edit, Transaction},
+    pattern::PatternKind,
+    recompute::Inputs,
+    solid::{ExtrudeEnd, ExtrudeExtent, RegionChoice, RevolveAxis, SolidFeature},
+};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Healing {
+    pub matched: Vec<String>,
+    pub dropped: Vec<String>,
+    pub refreshed: FeatureKind,
+    checked: Arc<Feature>,
+    matched_count: usize,
+    dropped_count: usize,
+}
+
+impl Healing {
+    pub fn reason(&self) -> String {
+        let were = |count: usize| if count == 1 { "was" } else { "were" };
+        let matched = (!self.matched.is_empty()).then(|| {
+            format!(
+                "{} {} matched to the most similar geometry",
+                list_names(&self.matched),
+                were(self.matched_count)
+            )
+        });
+        let dropped = (!self.dropped.is_empty()).then(|| {
+            let exists = if self.dropped_count == 1 {
+                "exists"
+            } else {
+                "exist"
+            };
+            format!(
+                "{} no longer {exists} and {} left out",
+                list_names(&self.dropped),
+                were(self.dropped_count)
+            )
+        });
+        let parts: Vec<String> = matched.into_iter().chain(dropped).collect();
+        format!("After an upstream change, {}.", parts.join(", and "))
+    }
+
+    pub fn remedy(&self) -> &'static str {
+        "Check the result, then update its references to keep it."
+    }
+
+    pub fn update(&self, document: &Document) -> Option<Transaction> {
+        let current = document.feature(self.checked.id())?;
+        if current.kind != self.checked.kind {
+            return None;
+        }
+        let label = format!("Update references of {}", current.name);
+        let edit = match (&current.kind, &self.refreshed) {
+            (FeatureKind::Sketch(sketch), FeatureKind::Sketch(refreshed)) => {
+                Edit::SetSketchPlacement {
+                    feature: current.id(),
+                    plane: sketch.sketch.plane(),
+                    attachment: refreshed.attachment.clone(),
+                }
+            }
+            _ => Edit::SetFeatureKind {
+                id: current.id(),
+                kind: self.refreshed.clone(),
+            },
+        };
+        Some(Transaction::single(label, edit))
+    }
+}
+
+pub(crate) fn check(feature: &Arc<Feature>, inputs: &Inputs<'_>) -> Option<Healing> {
+    let mut healer = Healer {
+        inputs,
+        matched: Vec::new(),
+        dropped: Vec::new(),
+        matched_count: 0,
+        dropped_count: 0,
+    };
+    let mut refreshed = feature.kind.clone();
+    match &mut refreshed {
+        FeatureKind::Sketch(sketch) => {
+            if let Some(SketchAttachment::Face(attachment)) = &mut sketch.attachment {
+                healer.face(attachment.body, &mut attachment.face, "the face it lies on");
+            }
+        }
+        FeatureKind::Solid(solid) => healer.solid(solid),
+        FeatureKind::Blend(blend) => {
+            let count = blend.edges.len();
+            healer.edges(blend.body, &mut blend.edges, |index| {
+                if count == 1 {
+                    "its edge".to_owned()
+                } else {
+                    format!("edge {} of {count}", index + 1)
+                }
+            });
+        }
+        FeatureKind::Shell(shell) => {
+            let count = shell.open.len();
+            for (index, face) in shell.open.iter_mut().enumerate() {
+                let what = if count == 1 {
+                    "its open face".to_owned()
+                } else {
+                    format!("open face {} of {count}", index + 1)
+                };
+                healer.face(shell.body, face, &what);
+            }
+        }
+        FeatureKind::Pattern(pattern) => match &mut pattern.kind {
+            PatternKind::Linear { first, second } => {
+                healer.axis(&mut first.axis, "first direction");
+                if let Some(second) = second {
+                    healer.axis(&mut second.axis, "second direction");
+                }
+            }
+            PatternKind::Circular(circular) => healer.axis(&mut circular.axis, "axis"),
+        },
+        FeatureKind::Datum(Datum::Plane(plane)) => {
+            healer.plane(&mut plane.base, "the face it is based on");
+            if let Some(rotation) = &mut plane.rotation {
+                healer.axis(&mut rotation.axis, "rotation axis");
+            }
+        }
+        FeatureKind::Datum(Datum::Axis(DatumAxis::Along(axis))) => healer.axis(axis, "line"),
+        FeatureKind::Datum(Datum::Axis(DatumAxis::Intersection(first, second))) => {
+            healer.plane(first, "the first face it is the intersection of");
+            healer.plane(second, "the second face it is the intersection of");
+        }
+        FeatureKind::Import(_) => {}
+    }
+    (!healer.matched.is_empty() || !healer.dropped.is_empty()).then(|| Healing {
+        matched: healer.matched,
+        dropped: healer.dropped,
+        refreshed,
+        checked: Arc::clone(feature),
+        matched_count: healer.matched_count,
+        dropped_count: healer.dropped_count,
+    })
+}
+
+struct Healer<'a> {
+    inputs: &'a Inputs<'a>,
+    matched: Vec<String>,
+    dropped: Vec<String>,
+    matched_count: usize,
+    dropped_count: usize,
+}
+
+impl Healer<'_> {
+    fn matched(&mut self, what: String, count: usize) {
+        self.matched.push(what);
+        self.matched_count += count;
+    }
+
+    fn face(&mut self, body: FeatureId, face: &mut FaceReference, what: &str) {
+        let Some(solid) = self.inputs.body(body) else {
+            return;
+        };
+        let Ok(found) = face.resolve(solid) else {
+            return;
+        };
+        if solid
+            .face(found)
+            .is_none_or(|definition| definition.name() == face.name())
+        {
+            return;
+        }
+        if let Some(captured) = FaceReference::capture(solid, found) {
+            *face = captured;
+            self.matched(what.to_owned(), 1);
+        }
+    }
+
+    fn edges(
+        &mut self,
+        body: FeatureId,
+        edges: &mut [EdgeReference],
+        what: impl Fn(usize) -> String,
+    ) {
+        let Some(solid) = self.inputs.body(body) else {
+            return;
+        };
+        let naming = EdgeNaming::new(solid);
+        for (index, edge) in edges.iter_mut().enumerate() {
+            let Ok(found) = edge.resolve_in(&naming) else {
+                continue;
+            };
+            if solid
+                .edge(found)
+                .is_none_or(|definition| definition.name() == edge.name())
+            {
+                continue;
+            }
+            if let Some(captured) = EdgeReference::capture_in(&naming, found) {
+                *edge = captured;
+                self.matched(what(index), 1);
+            }
+        }
+    }
+
+    fn axis(&mut self, axis: &mut AxisReference, role: &str) {
+        match axis {
+            AxisReference::Edge { body, edge } => {
+                let what = format!("the edge giving its {role}");
+                self.edges(*body, std::slice::from_mut(edge.as_mut()), |_| what.clone());
+            }
+            AxisReference::Face { body, face } => {
+                self.face(*body, face, &format!("the face giving its {role}"));
+            }
+            AxisReference::Principal(_) | AxisReference::Datum(_) => {}
+        }
+    }
+
+    fn plane(&mut self, plane: &mut PlaneReference, what: &str) {
+        if let PlaneReference::Face(attachment) = plane {
+            self.face(attachment.body, &mut attachment.face, what);
+        }
+    }
+
+    fn solid(&mut self, solid: &mut SolidFeature) {
+        match solid {
+            SolidFeature::Extrude(extrude) => {
+                self.regions(extrude.sketch, &mut extrude.regions);
+                let ends: Vec<&mut ExtrudeEnd> = match &mut extrude.extent {
+                    ExtrudeExtent::OneSide { end, .. } => vec![end],
+                    ExtrudeExtent::Symmetric { .. } => Vec::new(),
+                    ExtrudeExtent::TwoSides { forward, backward } => vec![forward, backward],
+                };
+                let count = ends.len();
+                for (index, end) in ends.into_iter().enumerate() {
+                    if let ExtrudeEnd::UpToFace(target) = end {
+                        let what = match (count, index) {
+                            (1, _) => "the face its end runs up to",
+                            (_, 0) => "the face its forward end runs up to",
+                            _ => "the face its backward end runs up to",
+                        };
+                        self.plane(target, what);
+                    }
+                }
+            }
+            SolidFeature::Revolve(revolve) => {
+                self.regions(revolve.sketch, &mut revolve.regions);
+                if let RevolveAxis::Model(axis) = &mut revolve.axis {
+                    self.axis(axis, "axis");
+                }
+            }
+        }
+    }
+
+    fn regions(&mut self, sketch: FeatureId, choice: &mut RegionChoice) {
+        let RegionChoice::Chosen(references) = choice else {
+            return;
+        };
+        let Some(profile) = self
+            .inputs
+            .features
+            .get(&sketch)
+            .and_then(|result| result.sketch())
+            .and_then(|result| result.profile().ok())
+        else {
+            return;
+        };
+        let Ok(resolved) = resolve_regions(references, profile.regions()) else {
+            return;
+        };
+        if resolved.healed.is_empty() && resolved.gone.is_empty() {
+            return;
+        }
+
+        let sketch_name = self
+            .inputs
+            .document
+            .feature(sketch)
+            .map_or_else(|| "its sketch".to_owned(), |feature| feature.name.clone());
+        let described = |count: usize| {
+            if count == 1 {
+                format!("a chosen region of {sketch_name}")
+            } else {
+                format!("{count} chosen regions of {sketch_name}")
+            }
+        };
+        if !resolved.healed.is_empty() {
+            self.matched(described(resolved.healed.len()), resolved.healed.len());
+        }
+        if !resolved.gone.is_empty() {
+            self.dropped.push(described(resolved.gone.len()));
+            self.dropped_count += resolved.gone.len();
+        }
+
+        let kept: Vec<RegionReference> = resolved
+            .keys
+            .iter()
+            .filter_map(|key| {
+                let unchanged = references.iter().find(|reference| reference.key() == *key);
+                match unchanged {
+                    Some(reference) => Some(reference.clone()),
+                    None => {
+                        let region = profile.region(*key)?;
+                        Some(RegionReference::capture(region, region.anchor()))
+                    }
+                }
+            })
+            .collect();
+        *references = kept;
+    }
+}

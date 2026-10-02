@@ -1,7 +1,7 @@
 use caditor_document::{
     Datum, Document, Edit, Feature, FeatureError, FeatureId, FeatureKind, FeatureState,
-    FeatureStatus, FixTarget, RollbackBar, SketchFeature, SolidFeature, SolidResult, Transaction,
-    TreeRow,
+    FeatureStatus, FixTarget, Healing, RollbackBar, SketchFeature, SolidFeature, SolidResult,
+    Transaction, TreeRow,
 };
 use caditor_expression::Expression;
 use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch};
@@ -46,6 +46,10 @@ const PLACE_ON_PLANE_LABEL: &str = "Place on selected plane";
 const PLACE_ON_FACE_LABEL: &str = "Place on selected face";
 const DETACH_LABEL: &str = "Detach";
 const RECOMPUTE_LABEL: &str = "Recompute";
+const UPDATE_REFERENCES_LABEL: &str = "Update references";
+const HEALED_HINT: &str =
+    "Some of what it uses changed and was matched to the most similar geometry";
+const NOTHING_HEALED: &str = "Every reference it holds is found as it was chosen";
 pub const OPEN_SAMPLE_LABEL: &str = "Open a sample";
 pub const EMPTY_TREE: &str = "The model has no features yet. Start with New sketch, here or in the ribbon, or open a \
      sample to see how one is built.";
@@ -421,10 +425,14 @@ fn feature_row(
     }
 
     let state_shown = status.map(|status| &status.state);
-    let has_callout = matches!(
-        state_shown,
-        Some(FeatureState::Failed(_) | FeatureState::Outdated)
-    );
+    let healing = status
+        .filter(|status| status.state == FeatureState::UpToDate)
+        .and_then(|status| status.healing.as_deref());
+    let has_callout = healing.is_some()
+        || matches!(
+            state_shown,
+            Some(FeatureState::Failed(_) | FeatureState::Outdated)
+        );
     if has_callout || collapsing.openness(ui.ctx()) > 0.0 {
         let below = tree_row::indented(ui, |ui| {
             match state_shown {
@@ -436,6 +444,9 @@ fn feature_row(
                     FeatureState::UpToDate | FeatureState::Suppressed | FeatureState::RolledBack,
                 )
                 | None => {}
+            }
+            if let Some(healing) = healing {
+                healed(ui, document, actions, healing);
             }
             collapsing.show_body_unindented(ui, |ui| {
                 widgets::card(ui, |ui| body(ui, model, state, actions, row));
@@ -460,6 +471,24 @@ fn outdated(ui: &mut Ui, actions: &mut Vec<Action>) {
             widgets::small_button(ui, icons::command(Command::Recompute), RECOMPUTE_LABEL);
         if ui.add(recompute).clicked() {
             actions.push(Action::Recompute);
+        }
+    });
+}
+
+fn healed(ui: &mut Ui, document: &Document, actions: &mut Vec<Action>, healing: &Healing) {
+    widgets::callout(ui, Tone::Warning, |ui| {
+        ui.label(healing.reason());
+        ui.label(widgets::muted(healing.remedy(), ui));
+        let Some(update) = healing.update(document) else {
+            return;
+        };
+        let button = widgets::small_button(
+            ui,
+            icons::command(Command::UpdateReferences),
+            UPDATE_REFERENCES_LABEL,
+        );
+        if ui.add(button).clicked() {
+            actions.push(Action::Apply(update));
         }
     });
 }
@@ -673,6 +702,11 @@ fn status_icon(ui: &mut Ui, row: &Row<'_>, status: Option<&FeatureStatus>) {
                 "Not recomputed, because the recompute was cancelled",
             ),
             Some(FeatureState::Suppressed | FeatureState::RolledBack) | None => waiting,
+            Some(FeatureState::UpToDate)
+                if status.is_some_and(|status| status.healing.is_some()) =>
+            {
+                (icons::WARNING, tokens.warn, HEALED_HINT)
+            }
             Some(FeatureState::UpToDate) => return,
         }
     };
@@ -1005,6 +1039,38 @@ fn suppress_change(document: &Document, targets: &[&Feature]) -> Result<Transact
     let verb = if suppress { "Suppress" } else { "Unsuppress" };
     let ids: Vec<FeatureId> = targets.iter().map(|feature| feature.id()).collect();
     Ok(document.suppression(&ids, suppress, format!("{verb} {}", described(targets))))
+}
+
+fn reference_update(model: &Model, targets: &[&Feature]) -> Result<Transaction, String> {
+    if targets.is_empty() {
+        return Err(NO_FEATURE_CHOSEN.to_owned());
+    }
+    let document = model.document();
+    let updates: Vec<Transaction> = targets
+        .iter()
+        .filter_map(|feature| {
+            model
+                .evaluation()
+                .feature(feature.id())?
+                .healing
+                .as_ref()?
+                .update(document)
+        })
+        .collect();
+    match updates.as_slice() {
+        [] => Err(NOTHING_HEALED.to_owned()),
+        [only] => Ok(only.clone()),
+        _ => Ok(Transaction::new(
+            format!(
+                "Update references of {}",
+                count(updates.len(), "feature", "features")
+            ),
+            updates
+                .iter()
+                .flat_map(|update| update.edits().iter().cloned())
+                .collect(),
+        )),
+    }
 }
 
 fn unsuppress(document: &Document, id: FeatureId) -> Transaction {
@@ -1497,6 +1563,12 @@ pub fn commands(
         {
             actions.push(Action::Apply(transaction));
         }
+    }
+    let update = reference_update(model, &targets);
+    if commands.invoke_detailed(Command::UpdateReferences, detail.clone(), &update)
+        && let Ok(transaction) = update
+    {
+        actions.push(Action::Apply(transaction));
     }
     let delete = delete_request(document, &targets);
     if commands.invoke_detailed(Command::DeleteFeature, detail, &delete)

@@ -927,6 +927,57 @@ fn a_hole_drawn_inside_a_chosen_region_cuts_through_the_extrusion() {
     let after = evaluate(&document, &mut engine);
 
     assert!((volume(&before, block) - 160.0).abs() < 1e-6);
+    assert_eq!(before.feature(block).unwrap().healing, None);
     assert_eq!(after.feature(block).unwrap().state, FeatureState::UpToDate);
     assert!((volume(&after, block) - (160.0 - 8.0 * PI)).abs() < 2e-2);
+
+    let healing = after.feature(block).unwrap().healing.clone().unwrap();
+    assert_eq!(
+        healing.reason(),
+        "After an upstream change, a chosen region of Plate sketch was matched to the most \
+         similar geometry."
+    );
+    document.apply(healing.update(&document).unwrap()).unwrap();
+    let updated = evaluate(&document, &mut engine);
+
+    assert_eq!(updated.feature(block).unwrap().healing, None);
+    assert!((volume(&updated, block) - volume(&after, block)).abs() < 1e-9);
+}
+
+#[test]
+fn a_chosen_region_whose_curve_is_deleted_is_left_out_and_said_so() {
+    let mut plate = rectangle(at(0.0), (0.0, 0.0), (10.0, 8.0));
+    let disc = plate.add_circle(Point2::new(4.0, 4.0), 2.0);
+    let regions: Vec<RegionReference> = sketch_regions(&plate)
+        .unwrap()
+        .iter()
+        .map(|region| RegionReference::capture(region, region.anchor()))
+        .collect();
+    let mut document = Document::default();
+    let sketch = add(&mut document, "Plate sketch", FeatureKind::from(plate));
+    let block = add(
+        &mut document,
+        "Block",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::Chosen(regions),
+            extent: ExtrudeExtent::one_side(millimetres(2.0), false),
+            operation: BodyOperation::NewBody,
+        })),
+    );
+    let mut engine = Recompute::default();
+    evaluate(&document, &mut engine);
+
+    let mut transaction = document.transaction("Delete the disc");
+    transaction.remove_sketch_items(sketch, [disc], []);
+    document.apply(transaction.finish()).unwrap();
+    let after = evaluate(&document, &mut engine);
+
+    let healing = after.feature(block).unwrap().healing.clone().unwrap();
+    assert_eq!(
+        healing.reason(),
+        "After an upstream change, a chosen region of Plate sketch was matched to the most \
+         similar geometry, and a chosen region of Plate sketch no longer exists and was left out."
+    );
+    assert!((volume(&after, block) - 160.0).abs() < 1e-6);
 }

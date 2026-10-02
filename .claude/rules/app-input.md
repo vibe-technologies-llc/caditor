@@ -98,7 +98,8 @@ paths:
   widgets and Escape leaves them; each feature row has a "⋯" menu with what its right-click menu
   holds.
 - Tree order and the rollback bar are commands too, so nothing needs a drag: Move feature up and
-  down, Suppress or unsuppress feature (the chosen rows), Roll back to here (the bar right below
+  down, Suppress or unsuppress feature (the chosen rows), Update references (the chosen rows'
+  healed references, in one change), Roll back to here (the bar right below
   the current feature), Roll to end, and Move the rollback bar up or down (Alt+Up, Alt+Down, the
   bar stepping one row). Edit feature refuses a suppressed or rolled-back feature with the
   reason.

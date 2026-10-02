@@ -6,6 +6,7 @@ mod describe;
 mod document;
 mod edit;
 mod editor;
+mod healing;
 mod import;
 mod origins;
 mod parameter_list;
@@ -35,6 +36,7 @@ pub use crate::{
     },
     edit::{Edit, EditError, Transaction, TransactionBuilder},
     editor::{Base, Editor, Prepared, Stale},
+    healing::Healing,
     import::Import,
     pattern::{CircularPattern, LinearDirection, MAX_PATTERN_INSTANCES, Pattern, PatternKind},
     pieces::{Resolution, Unresolved},

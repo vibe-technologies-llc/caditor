@@ -141,6 +141,7 @@ pub enum Command {
     AddParameter,
     DeleteParameter,
     ShowFirstFailed,
+    UpdateReferences,
     DismissNotice,
     DismissTip,
     HideTips,
@@ -464,6 +465,7 @@ plain_commands! {
     AddParameter,
     DeleteParameter,
     ShowFirstFailed,
+    UpdateReferences,
     DismissNotice,
     DismissTip,
     HideTips,
@@ -616,6 +618,7 @@ impl Command {
             Self::AddParameter => "model.add_parameter",
             Self::DeleteParameter => "model.delete_parameter",
             Self::ShowFirstFailed => "model.first_failed",
+            Self::UpdateReferences => "model.update_references",
             Self::DismissNotice => "edit.dismiss_notice",
             Self::DismissTip => "help.dismiss_tip",
             Self::HideTips => "help.hide_tips",
@@ -716,6 +719,7 @@ impl Command {
             Self::AddParameter => "Add parameter",
             Self::DeleteParameter => "Delete parameter",
             Self::ShowFirstFailed => "Go to the first failed feature",
+            Self::UpdateReferences => "Update references",
             Self::DismissNotice => "Dismiss the notice",
             Self::DismissTip => "Dismiss the tip",
             Self::HideTips => "Hide tips",
@@ -801,7 +805,8 @@ impl Command {
             | Self::PatternSecondUseSelected
             | Self::AddParameter
             | Self::DeleteParameter
-            | Self::ShowFirstFailed => Category::Model,
+            | Self::ShowFirstFailed
+            | Self::UpdateReferences => Category::Model,
             Self::FinishSketch
             | Self::ReverseArc
             | Self::MoreSides
@@ -922,6 +927,7 @@ impl Command {
             | Self::PatternSecondUseSelected
             | Self::AddParameter
             | Self::DeleteParameter
+            | Self::UpdateReferences
             | Self::DismissNotice
             | Self::DismissTip
             | Self::HideTips

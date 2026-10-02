@@ -15,6 +15,7 @@ use crate::{
     attachment, blend,
     datum::{self, DatumResult},
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
+    healing::{self, Healing},
     import, pattern, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult},
     values::ParameterValues,
@@ -245,6 +246,7 @@ pub enum FeatureState {
 pub struct FeatureStatus {
     pub state: FeatureState,
     pub result: Option<Arc<FeatureResult>>,
+    pub healing: Option<Arc<Healing>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -373,6 +375,7 @@ struct CacheEntry {
     suppressed_upstream: BTreeSet<FeatureId>,
     state: FeatureState,
     result: Option<Arc<FeatureResult>>,
+    healing: Option<Arc<Healing>>,
     retry: bool,
 }
 
@@ -392,6 +395,7 @@ impl CacheEntry {
             FeatureState::Failed(_) => {
                 self.names == *names && self.suppressed_upstream == *suppressed_upstream
             }
+            FeatureState::UpToDate if self.healing.is_some() => self.names == *names,
             FeatureState::UpToDate
             | FeatureState::Outdated
             | FeatureState::Suppressed
@@ -498,6 +502,7 @@ impl Recompute {
                     FeatureStatus {
                         state,
                         result: None,
+                        healing: None,
                     },
                 );
                 continue;
@@ -553,29 +558,30 @@ impl Recompute {
                     FeatureStatus {
                         state: FeatureState::Outdated,
                         result: previous.and_then(|entry| entry.result.clone()),
+                        healing: None,
                     },
                 );
                 continue;
             } else {
                 let last_good = previous.and_then(|entry| entry.result.clone());
+                let inputs = Inputs {
+                    document,
+                    parameters: &parameters,
+                    features: &current,
+                    bodies: &bodies,
+                    previous: last_good.as_deref(),
+                };
                 let outcome = match missing_upstream(document, feature, &upstream) {
                     Some(error) => Err(Failure::Error(error)),
-                    None => evaluate_contained(
-                        evaluator,
-                        feature,
-                        &Inputs {
-                            document,
-                            parameters: &parameters,
-                            features: &current,
-                            bodies: &bodies,
-                            previous: last_good.as_deref(),
-                        },
-                        cancel,
-                    ),
+                    None => evaluate_contained(evaluator, feature, &inputs, cancel),
                 };
-                let (state, result) = match outcome {
-                    Ok(result) => (FeatureState::UpToDate, Some(Arc::new(result))),
-                    Err(Failure::Error(error)) => (FeatureState::Failed(error), last_good),
+                let (state, result, healing) = match outcome {
+                    Ok(result) => (
+                        FeatureState::UpToDate,
+                        Some(Arc::new(result)),
+                        check_healing(feature, &inputs),
+                    ),
+                    Err(Failure::Error(error)) => (FeatureState::Failed(error), last_good, None),
                     Err(Failure::Cancelled) => {
                         cancelled = true;
                         statuses.insert(
@@ -583,6 +589,7 @@ impl Recompute {
                             FeatureStatus {
                                 state: FeatureState::Outdated,
                                 result: last_good,
+                                healing: None,
                             },
                         );
                         continue;
@@ -597,6 +604,7 @@ impl Recompute {
                     suppressed_upstream,
                     state,
                     result,
+                    healing,
                     retry: false,
                 };
                 self.cache.insert(id, entry.clone());
@@ -614,6 +622,7 @@ impl Recompute {
                 FeatureStatus {
                     state: entry.state,
                     result: entry.result,
+                    healing: entry.healing,
                 },
             );
         }
@@ -748,6 +757,15 @@ const _: () = assert!(
     cfg!(panic = "unwind"),
     "a panicking feature is contained by unwinding, so caditor must be built with panic = \"unwind\""
 );
+
+fn check_healing(feature: &Arc<Feature>, inputs: &Inputs<'_>) -> Option<Arc<Healing>> {
+    panic::catch_unwind(AssertUnwindSafe(|| healing::check(feature, inputs)))
+        .unwrap_or_else(|_| {
+            log::error!("checking the references of {} panicked", feature.name);
+            None
+        })
+        .map(Arc::new)
+}
 
 fn evaluate_contained(
     evaluator: &dyn Evaluator,

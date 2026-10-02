@@ -412,6 +412,7 @@ impl Menus<'_, '_> {
                     Command::Recompute,
                     Command::CancelRecompute,
                     Command::ShowFirstFailed,
+                    Command::UpdateReferences,
                 ],
             );
         });

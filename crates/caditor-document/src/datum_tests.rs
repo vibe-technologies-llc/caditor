@@ -38,6 +38,7 @@ fn datum(evaluation: &Evaluation, feature: FeatureId) -> DatumResult {
         FeatureStatus {
             state: FeatureState::UpToDate,
             result: Some(result),
+            ..
         } => *result.datum().unwrap(),
         other => panic!("the datum failed: {other:?}"),
     }
