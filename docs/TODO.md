@@ -35,9 +35,6 @@ within a category run from most to least important.
 
 ## Persistence and recovery
 
-- Saving still holds several copies of the model: every record of the file it replaces unpacked
-  at once, the new records, their snapshot for the version delta and the output. Unpack the old
-  records one at a time, keeping only those written back unchanged.
 - Opening Version History decompresses every version to verify it. Listing could check the delta
   chains structurally and leave the digest check to the restore, once `Parsed` records where a
   damaged chunk broke a chain.

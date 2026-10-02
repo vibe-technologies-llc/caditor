@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    ops::Range,
     rc::Rc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -266,49 +267,38 @@ impl<'a> Parsed<'a> {
         Some(parsed)
     }
 
-    fn record_contents(&self, budget: &mut Budget) -> Vec<Unpacked> {
-        self.records
-            .iter()
-            .map(|chunk| budget.unpack(chunk, None))
-            .collect()
+    fn records_digest(&self) -> RecordDigest {
+        let mut budget = Budget::default();
+        let mut digest = RecordDigest::default();
+        for chunk in &self.records {
+            digest.add(&budget.unpack(chunk, None));
+        }
+        digest
     }
 
-    fn snapshot_held(&self, contents: &[Unpacked]) -> Option<Vec<u8>> {
-        let head = self.head.as_ref()?;
-        let contents: Option<Vec<&[u8]>> = contents
-            .iter()
-            .map(|content| content.as_deref().ok())
-            .collect();
-        let snapshot = snapshot_of(contents?);
-        head.holds(&snapshot).then_some(snapshot)
-    }
-
-    fn kept_records<'b>(
-        &self,
-        contents: &'b [Unpacked],
-    ) -> UntrustedMap<[u8; blake3::OUT_LEN], KeptRecord<'b>>
-    where
-        'a: 'b,
-    {
-        self.records
-            .iter()
-            .zip(contents)
-            .filter_map(|(chunk, content)| {
-                let content = content.as_deref().ok()?;
-                let Ok(Lenient::Read(record)) = value::from_bytes::<Lenient<Record>>(content)
-                else {
-                    return None;
-                };
-                let understood = value::to_bytes(&record).ok()?;
-                Some((
-                    *blake3::hash(&understood).as_bytes(),
+    fn prior_records(&self) -> PriorRecords<'a> {
+        let mut budget = Budget::default();
+        let mut prior = PriorRecords::default();
+        for chunk in &self.records {
+            let content = budget.unpack(chunk, None);
+            prior.digest.add(&content);
+            let Ok(content) = content else {
+                continue;
+            };
+            push_varint(&mut prior.snapshot, content.len() as u64);
+            let start = prior.snapshot.len();
+            prior.snapshot.extend_from_slice(&content);
+            if let Some(understood) = understood_digest(&content) {
+                prior.kept.insert(
+                    understood,
                     KeptRecord {
-                        content,
+                        content: start..prior.snapshot.len(),
                         stored: chunk.whole,
                     },
-                ))
-            })
-            .collect()
+                );
+            }
+        }
+        prior
     }
 
     fn head_snapshot(&self, budget: &mut Budget) -> Option<Vec<u8>> {
@@ -322,16 +312,8 @@ impl<'a> Parsed<'a> {
         head.holds(&snapshot).then_some(snapshot)
     }
 
-    fn is_damaged(&self, contents: &[Unpacked]) -> bool {
-        self.version.is_none() || self.damaged > 0 || !self.holds_every_record(contents)
-    }
-
-    fn holds_every_record(&self, contents: &[Unpacked]) -> bool {
-        let mut digest = RecordDigest::default();
-        for content in contents {
-            digest.add(content);
-        }
-        digest.matches(self.head.as_ref())
+    fn is_damaged(&self, digest: &RecordDigest) -> bool {
+        self.version.is_none() || self.damaged > 0 || !digest.matches(self.head.as_ref())
     }
 
     fn walk_versions(
@@ -374,12 +356,86 @@ impl<'a> Parsed<'a> {
     }
 }
 
+fn understood_digest(content: &[u8]) -> Option<[u8; blake3::OUT_LEN]> {
+    let Ok(Lenient::Read(record)) = value::from_bytes::<Lenient<Record>>(content) else {
+        return None;
+    };
+    let understood = value::to_bytes(&record).ok()?;
+    Some(*blake3::hash(&understood).as_bytes())
+}
+
+#[derive(Default)]
+struct PriorRecords<'a> {
+    snapshot: Vec<u8>,
+    digest: RecordDigest,
+    kept: UntrustedMap<[u8; blake3::OUT_LEN], KeptRecord<'a>>,
+}
+
+impl PriorRecords<'_> {
+    fn head<'p>(&'p self, parsed: &'p Parsed<'_>) -> Option<(&'p StateRecord, &'p [u8])> {
+        let head = parsed.head.as_ref()?;
+        self.digest
+            .matches(Some(head))
+            .then_some((head, self.snapshot.as_slice()))
+    }
+}
+
+struct NewRecords<'a> {
+    snapshot: Vec<u8>,
+    records: Vec<RecordToWrite<'a>>,
+}
+
+impl<'a> NewRecords<'a> {
+    fn of(document: &Document, prior: Option<&PriorRecords<'a>>) -> Result<Self, ValueError> {
+        let mut new = Self {
+            snapshot: Vec::new(),
+            records: Vec::new(),
+        };
+        for record in document_records(document) {
+            let record = record?;
+            let kept = prior.and_then(|prior| {
+                let kept = prior.kept.get(blake3::hash(&record).as_bytes())?;
+                Some((kept, prior.snapshot.get(kept.content.clone())?))
+            });
+            match kept {
+                Some((kept, content)) => {
+                    push_varint(&mut new.snapshot, content.len() as u64);
+                    new.snapshot.extend_from_slice(content);
+                    new.records.push(RecordToWrite::Kept(kept.stored));
+                }
+                None => {
+                    push_varint(&mut new.snapshot, record.len() as u64);
+                    let start = new.snapshot.len();
+                    new.snapshot.extend_from_slice(&record);
+                    new.records
+                        .push(RecordToWrite::Fresh(start..new.snapshot.len()));
+                }
+            }
+        }
+        Ok(new)
+    }
+
+    fn push_chunks(&self, bytes: &mut Vec<u8>) -> Result<(), PackError> {
+        for record in &self.records {
+            match record {
+                RecordToWrite::Kept(stored) => bytes.extend_from_slice(stored),
+                RecordToWrite::Fresh(content) => push_packed(
+                    bytes,
+                    ChunkKind::Record,
+                    self.snapshot.get(content.clone()).unwrap_or_default(),
+                )?,
+            }
+        }
+        Ok(())
+    }
+}
+
 fn state_record(chunk: &Chunk<'_>) -> Option<StateRecord> {
     let content = chunk.unpack(None).ok()?;
     value::from_bytes(&content).ok()
 }
 
-fn document_records(document: &Document) -> Result<Vec<Vec<u8>>, ValueError> {
+fn document_records(document: &Document) -> impl Iterator<Item = Result<Vec<u8>, ValueError>> + '_ {
     let parameters = document
         .parameters()
         .iter()
@@ -394,9 +450,9 @@ fn document_records(document: &Document) -> Result<Vec<Vec<u8>>, ValueError> {
         .chain(rollback_record(document).map(Record::Rollback))
         .chain(std::iter::once(Record::NextIds(next_ids_record(document))))
         .map(|record| value::to_bytes(&record))
-        .collect()
 }
 
+#[cfg(test)]
 fn snapshot_of<'r>(records: impl IntoIterator<Item = &'r [u8]>) -> Vec<u8> {
     let mut snapshot = Vec::new();
     for record in records {
@@ -595,24 +651,15 @@ pub(crate) enum EncodeError {
     ModelTooLarge { size: usize, largest: usize },
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct KeptRecord<'a> {
-    content: &'a [u8],
+    content: Range<usize>,
     stored: &'a [u8],
 }
 
 enum RecordToWrite<'a> {
-    Kept(KeptRecord<'a>),
-    Fresh(Vec<u8>),
-}
-
-impl RecordToWrite<'_> {
-    fn content(&self) -> &[u8] {
-        match self {
-            Self::Kept(kept) => kept.content,
-            Self::Fresh(content) => content,
-        }
-    }
+    Kept(&'a [u8]),
+    Fresh(Range<usize>),
 }
 
 #[cfg(test)]
@@ -632,46 +679,25 @@ pub(crate) fn encode_over(
     label: Option<&str>,
 ) -> Result<Encoded, EncodeError> {
     let prior = previous.and_then(Parsed::of);
-    let prior_contents = prior
-        .as_ref()
-        .map(|prior| prior.record_contents(&mut Budget::default()))
-        .unwrap_or_default();
-    let previous_damaged = match (&prior, previous) {
-        (Some(prior), _) => prior.is_damaged(&prior_contents),
+    let prior_records = prior.as_ref().map(Parsed::prior_records);
+    let read_prior = prior.as_ref().zip(prior_records.as_ref());
+    let previous_damaged = match (read_prior, previous) {
+        (Some((prior, records)), _) => prior.is_damaged(&records.digest),
         (None, Some(bytes)) => !bytes.iter().all(u8::is_ascii_whitespace),
         (None, None) => false,
     };
-    let prior_head = prior
-        .as_ref()
-        .and_then(|prior| prior.head.clone().zip(prior.snapshot_held(&prior_contents)));
-    let kept = prior
-        .as_ref()
-        .map(|prior| prior.kept_records(&prior_contents))
-        .unwrap_or_default();
-    let records: Vec<RecordToWrite<'_>> = document_records(document)?
-        .into_iter()
-        .map(|record| match kept.get(blake3::hash(&record).as_bytes()) {
-            Some(kept) => RecordToWrite::Kept(*kept),
-            None => RecordToWrite::Fresh(record),
-        })
-        .collect();
-    let snapshot = snapshot_of(records.iter().map(RecordToWrite::content));
-    let unchanged = prior_head
-        .as_ref()
-        .is_some_and(|(info, _)| info.holds(&snapshot));
-    let head = match &prior_head {
+    let prior_head = read_prior.and_then(|(prior, records)| records.head(prior));
+    let new = NewRecords::of(document, prior_records.as_ref())?;
+    let snapshot = new.snapshot.as_slice();
+    let unchanged = prior_head.is_some_and(|(info, _)| info.holds(snapshot));
+    let head = match prior_head {
         Some((info, _)) if unchanged => info.clone(),
-        _ => StateRecord::new(now, label, &snapshot),
+        _ => StateRecord::new(now, label, snapshot),
     };
 
     let mut bytes = start_file(&MODEL_MAGIC, FORMAT_VERSION);
     push_packed(&mut bytes, ChunkKind::Head, &value::to_bytes(&head)?)?;
-    for record in &records {
-        match record {
-            RecordToWrite::Kept(kept) => bytes.extend_from_slice(kept.stored),
-            RecordToWrite::Fresh(content) => push_packed(&mut bytes, ChunkKind::Record, content)?,
-        }
-    }
+    new.push_chunks(&mut bytes)?;
     for foreign in prior.iter().flat_map(|prior| &prior.foreign) {
         if !foreign.must_understand() {
             bytes.extend_from_slice(foreign.whole);
@@ -690,9 +716,9 @@ pub(crate) fn encode_over(
         let written = write_versions(
             &mut versions,
             prior.as_ref(),
-            prior_head.as_ref(),
+            prior_head,
             !unchanged,
-            &snapshot,
+            snapshot,
             now,
             cut,
         )?;
@@ -745,13 +771,12 @@ pub(crate) fn reads_back(bytes: &[u8], digest: &FileDigest) -> bool {
     let Some(parsed) = Parsed::of(bytes) else {
         return false;
     };
-    let contents = parsed.record_contents(&mut Budget::default());
     parsed.damaged == 0
         && parsed
             .head
             .as_ref()
             .is_some_and(|head| head.digest == digest.0)
-        && parsed.holds_every_record(&contents)
+        && parsed.records_digest().matches(parsed.head.as_ref())
 }
 
 enum Candidate<'p, 'a> {
@@ -784,7 +809,7 @@ impl Candidate<'_, '_> {
 
 fn thinned<'p, 'a>(
     prior: Option<&'p Parsed<'a>>,
-    prior_head: Option<&'p (StateRecord, Vec<u8>)>,
+    prior_head: Option<(&'p StateRecord, &'p [u8])>,
     adds_version: bool,
     now: SystemTime,
     cut: usize,
@@ -895,12 +920,12 @@ impl<'p> Rebuild<'p> {
     fn new(
         stored: &[StoredVersion<'_>],
         candidates: &[(Candidate<'_, '_>, bool)],
-        prior_head: Option<&'p (StateRecord, Vec<u8>)>,
+        prior_head: Option<(&'p StateRecord, &'p [u8])>,
         snapshot: &[u8],
     ) -> Self {
         Self {
             needed: needing_content(stored, candidates),
-            newer: prior_head.map(|(_, old)| Content::Borrowed(old.as_slice())),
+            newer: prior_head.map(|(_, old)| Content::Borrowed(old)),
             held: snapshot
                 .len()
                 .saturating_add(prior_head.map_or(0, |(_, old)| old.len())),
@@ -953,7 +978,7 @@ fn is_rewritten(candidate: &Candidate<'_, '_>, after_thinning: bool) -> bool {
 fn keep_what_cannot_be_rewritten<'p>(
     stored: &[StoredVersion<'_>],
     candidates: &mut [(Candidate<'p, '_>, bool)],
-    prior_head: Option<&'p (StateRecord, Vec<u8>)>,
+    prior_head: Option<(&'p StateRecord, &'p [u8])>,
     snapshot: &[u8],
 ) {
     let mut rebuild = Rebuild::new(stored, candidates, prior_head, snapshot);
@@ -982,7 +1007,7 @@ fn keep_what_cannot_be_rewritten<'p>(
 fn write_versions<'a>(
     section: &mut Section<'a>,
     prior: Option<&Parsed<'a>>,
-    prior_head: Option<&(StateRecord, Vec<u8>)>,
+    prior_head: Option<(&StateRecord, &[u8])>,
     adds_version: bool,
     snapshot: &[u8],
     now: SystemTime,

@@ -46,6 +46,11 @@ paths:
   `Budget::unpack` keeps the `UnpackError`, so a record in an unknown codec reads like content from
   a newer version, one that ran out of memory or the budget says it is too large to load, and only
   the rest is "damaged".
+- A save holds the model twice at most, uncompressed: the replaced file's records are unpacked
+  one at a time into its snapshot (`PriorRecords`), which the version delta needs whole, and
+  the new records are encoded one at a time into theirs (`NewRecords`), each record kept or
+  written fresh being a range of one of the two. The read-back check after writing streams its
+  records through `RecordDigest` the same way.
 
 ## Values (`binary/value.rs`)
 

@@ -816,3 +816,31 @@ fn a_save_reads_back_only_when_every_record_matches_its_head() {
     assert!(!reads_back(cut_short, &encoded.digest));
     assert!(!reads_back(b"not a model", &encoded.digest));
 }
+
+#[test]
+fn records_beside_a_damaged_one_are_still_written_back_as_stored() {
+    let mut document = with_width(10);
+    let mut transaction = document.transaction("Depth");
+    transaction.add_parameter("depth", transaction.parse("5 mm").unwrap());
+    document.apply(transaction.finish()).unwrap();
+    let bytes = save_bytes(&document, None, at(1_000), None).unwrap();
+    let damaged = corrupt_chunk(&bytes, &MODEL_MAGIC, 1);
+    let loaded = decode(&damaged).unwrap().document;
+    let stored = parse(&damaged, &MODEL_MAGIC).unwrap();
+    let Piece::Chunk(depth) = stored.pieces[2] else {
+        panic!("the depth record is whole");
+    };
+
+    let resaved = encode_over(&loaded, Some(&damaged), at(2_000), None).unwrap();
+
+    assert!(resaved.previous_damaged);
+    assert!(
+        resaved
+            .bytes
+            .windows(depth.whole.len())
+            .any(|window| window == depth.whole)
+    );
+    assert!(reads_back(&resaved.bytes, &resaved.digest));
+    assert_eq!(decode(&resaved.bytes).unwrap().document, loaded);
+    assert!(history(&resaved.bytes).versions.is_empty());
+}
