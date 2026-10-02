@@ -4,7 +4,7 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>AGPL-3.0-only</project_license>
   <name>caditor</name>
-  <summary>Parametric CAD for Linux</summary>
+  <summary>Parametric CAD</summary>
   <description>
     <p>
       caditor designs parts from constrained 2D sketches and features that stay editable:

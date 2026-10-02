@@ -2,7 +2,7 @@
 
 ## Direction
 
-caditor is a parametric CAD application for Linux. The project is judged on two things before
+caditor is a parametric CAD application. The project is judged on two things before
 anything else:
 
 1. **User experience.** Modelling should feel direct and predictable, without the failure modes
@@ -414,6 +414,12 @@ within a category run from most to least important.
 
 - Feature kinds missing: mirror (the kernel has no reflecting transform), hole, draft, sweep,
   loft, split, and move or copy body.
+- The whole model cannot be scaled: no command or feature resizes every body, sketch and datum by
+  a factor (uniform, about the origin or a chosen point) as one undoable change. Scaling must
+  keep references and names stable, and say what happens to dimensions and parameters (scale the
+  stored values, or the parameters they use, or leave expressions alone and scale only plain
+  values), so a part drawn at the wrong size or an import in the wrong unit can be fixed without
+  redrawing it.
 - Datums cannot be built from points: no datum point, plane through three points, mid-plane,
   plane through an axis and a point, plane normal to an edge at a point, or axis through two
   points. Model vertices are named and pickable but only the measure tool uses them, and datums
@@ -459,6 +465,11 @@ within a category run from most to least important.
 - Edge lines can be eaten by faces at grazing angles, since depth bias is a constant factor with
   no slope term, and the grid and reference fills share the mesh's bias, so a face on the XY
   plane can speckle with the grid. Neither has a test.
+- Nothing on screen says how far apart the grid's lines are: the spacing steps by tens with the
+  view distance (minor, major ×10 and coarse ×100 lines in `viewport.wgsl`), so the size of a
+  square is unknown while sketching. Show the current minor spacing in the view (for example
+  "Grid 10 mm", in the length unit, on the canvas backdrop beside the axis triad or the cursor
+  readout), updating as the grid steps, and readable by screen readers.
 - Zoom to fit uses the bounding sphere, wasting about 30% on wide flat parts, and the perspective
   branch uses the sine of the half angle although `render.md` says tangent.
 - No touchpad navigation: orbit is right-drag, pan needs a middle button or Shift, and two-finger
@@ -507,6 +518,20 @@ within a category run from most to least important.
 - One document per process.
 - No clipboard for sketch geometry or features, no parameter import or export.
 - No localisation.
+
+## Platforms
+
+- Linux only: there is no Windows build. Supporting Windows needs a Windows target in `ci.yml`,
+  `release.yml` and `deny.toml`, and a release archive or installer. `caditor-file` is written
+  against Unix: `os::unix` paths and file APIs in `journal.rs`, `recent.rs`, `recovery.rs`,
+  `paths.rs`, `lock.rs`, `storage.rs` and `save.rs` (`fchown`, `rustix::fs::copy_file_range` and
+  `access`), XDG config and state directories, and the atomic save that fsyncs the directory
+  after the rename, which Windows cannot do (use `ReplaceFileW` semantics instead). The app uses
+  `rfd`'s xdg-portal dialogs and `signal-hook` for the crash flush, both of which need Windows
+  counterparts (native dialogs, a console control handler). The own title bar needs Windows snap,
+  resize borders and DPI handling checked, the desktop entry, icons and MIME type need a Windows
+  equivalent (file association, `.ico`), and the packaging scripts, `INSTALL.md` and
+  `RELEASING.md` need a Windows section.
 
 ## Dependencies
 

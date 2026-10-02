@@ -1,5 +1,5 @@
 # caditor
-Parametric CAD software for Linux
+Parametric CAD software
 
 ## Installing
 

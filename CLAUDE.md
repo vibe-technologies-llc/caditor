@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-caditor is a parametric CAD application for Linux, written in Rust (edition 2024) with wgpu for
+caditor is a parametric CAD application, written in Rust (edition 2024) with wgpu for
 rendering, on its own B-rep kernel and constraint solver. Licensed AGPL-3.0-only. User experience
 and never losing the user's work outrank everything else; see `.claude/rules/ux.md` and
 `.claude/rules/reliability.md`.

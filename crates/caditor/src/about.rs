@@ -17,7 +17,7 @@ const LICENCES_FILE: &str = "THIRD-PARTY-LICENSES.html";
 const LICENCES_FOLDER: [&str; 3] = ["share", "licenses", "caditor"];
 const COPY_VERSION: &str = "Copy version";
 const COPY_LICENCES_PATH: &str = "Copy path";
-const TAGLINE: &str = "Parametric CAD for Linux";
+const TAGLINE: &str = "Parametric CAD";
 
 pub fn version_line() -> String {
     format!("{NAME} {VERSION}")

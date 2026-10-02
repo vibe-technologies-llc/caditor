@@ -8199,7 +8199,7 @@ fn the_about_dialog_shows_the_logo_beside_the_name_and_tagline() {
     harness.perform(Action::Preferences(PreferencesCommand::ShowAbout));
     harness.show_new_windows();
 
-    assert!(harness.shows("Parametric CAD for Linux"));
+    assert!(harness.shows("Parametric CAD"));
     assert!(harness.shows(about::VERSION));
     assert!(logo_loaded(&harness, 64));
     assert_readable(&harness, "The About dialog");
