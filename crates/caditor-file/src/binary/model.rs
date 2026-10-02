@@ -190,6 +190,7 @@ struct StoredInfo<'a> {
 struct StoredVersion<'a> {
     info: Option<StoredInfo<'a>>,
     data: Chunk<'a>,
+    after_damage: bool,
 }
 
 impl StoredVersion<'_> {
@@ -229,9 +230,11 @@ impl<'a> Parsed<'a> {
             foreign: Vec::new(),
         };
         let mut pending_info = None;
+        let mut damage_since_data = false;
         for piece in &pieces {
             let Piece::Chunk(chunk) = *piece else {
                 pending_info = None;
+                damage_since_data = true;
                 continue;
             };
             let info = pending_info.take();
@@ -244,7 +247,11 @@ impl<'a> Parsed<'a> {
                     pending_info = state_record(&chunk).map(|record| StoredInfo { record, chunk });
                 }
                 Some(ChunkKind::VersionData) => {
-                    parsed.versions.push(StoredVersion { info, data: chunk });
+                    parsed.versions.push(StoredVersion {
+                        info,
+                        data: chunk,
+                        after_damage: std::mem::take(&mut damage_since_data),
+                    });
                 }
                 Some(ChunkKind::Padding) => pending_info = info,
                 Some(
@@ -316,27 +323,51 @@ impl<'a> Parsed<'a> {
         self.version.is_none() || self.damaged > 0 || !digest.matches(self.head.as_ref())
     }
 
-    fn walk_versions(
-        &self,
-        from: usize,
-        until: usize,
-        mut visit: impl FnMut(usize, Option<&[u8]>),
-    ) {
+    fn rebuild(&self, index: usize) -> Option<Vec<u8>> {
+        let from = self.keyframe_at_or_before(index);
         let mut newer = if from == 0 {
             self.head_snapshot(&mut Budget::default())
         } else {
             None
         };
-        let versions = self.versions.iter().enumerate();
-        let count = until.saturating_add(1).saturating_sub(from);
-        for (index, version) in versions.skip(from).take(count) {
+        for version in self.versions.get(from..=index)? {
             let held = newer.as_ref().map_or(0, Vec::len);
-            let snapshot = unpack_beside(&version.data, newer.as_deref(), held).ok();
-            let verified = snapshot
-                .as_deref()
-                .filter(|snapshot| version.holds(snapshot));
-            visit(index, verified);
-            newer = snapshot;
+            newer = unpack_beside(&version.data, newer.as_deref(), held).ok();
+        }
+        newer
+    }
+
+    fn verified(&self, index: usize) -> Option<Vec<u8>> {
+        let version = self.versions.get(index)?;
+        self.rebuild(index)
+            .filter(|snapshot| version.holds(snapshot))
+    }
+
+    fn rebuildable(&self) -> Vec<bool> {
+        let mut newer_rebuilds = self
+            .versions
+            .first()
+            .is_some_and(|first| !first.is_keyframe())
+            && self.records_digest().matches(self.head.as_ref());
+        let mut newer_in_doubt = false;
+        let mut rebuildable = Vec::with_capacity(self.versions.len());
+        for (index, version) in self.versions.iter().enumerate() {
+            let in_doubt = !version.is_keyframe() && (version.after_damage || newer_in_doubt);
+            let rebuilds = version.data.codec.is_some()
+                && (version.is_keyframe()
+                    || newer_rebuilds && (!in_doubt || self.rebuilds_despite_damage(index)));
+            rebuildable.push(rebuilds);
+            newer_rebuilds = rebuilds;
+            newer_in_doubt = rebuilds && in_doubt && version.info.is_none();
+        }
+        rebuildable
+    }
+
+    fn rebuilds_despite_damage(&self, index: usize) -> bool {
+        match self.versions.get(index).map(|version| &version.info) {
+            Some(Some(_)) => self.verified(index).is_some(),
+            Some(None) => self.rebuild(index).is_some(),
+            None => false,
         }
     }
 
@@ -1172,12 +1203,7 @@ pub(crate) fn history(bytes: &[u8]) -> History {
     let Some(parsed) = Parsed::of(bytes) else {
         return History::default();
     };
-    let mut available = vec![false; parsed.versions.len()];
-    parsed.walk_versions(0, usize::MAX, |index, snapshot| {
-        if let Some(slot) = available.get_mut(index) {
-            *slot = snapshot.is_some();
-        }
-    });
+    let available = parsed.rebuildable();
     History {
         current: parsed.head.as_ref().map(StateRecord::state),
         versions: parsed
@@ -1198,17 +1224,9 @@ pub(crate) fn history(bytes: &[u8]) -> History {
 
 pub(crate) fn load_version(bytes: &[u8], index: usize) -> Result<Loaded, LoadError> {
     let parsed = Parsed::of(bytes).ok_or(LoadError::NotAModel)?;
-    let mut wanted = None;
-    parsed.walk_versions(
-        parsed.keyframe_at_or_before(index),
-        index,
-        |at, snapshot| {
-            if at == index {
-                wanted = snapshot.map(<[u8]>::to_vec);
-            }
-        },
-    );
-    let snapshot = wanted.ok_or(LoadError::VersionUnavailable)?;
+    let snapshot = parsed
+        .verified(index)
+        .ok_or(LoadError::VersionUnavailable)?;
     let records = split_snapshot(&snapshot).ok_or(LoadError::VersionUnavailable)?;
     let mut issues = Vec::new();
     let parts = read_records(

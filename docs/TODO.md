@@ -33,12 +33,6 @@ within a category run from most to least important.
   more on the GL backend that `packaging/INSTALL.md` promises.
 - Slow tests to keep an eye on: about 40 UI tests at over a second each.
 
-## Persistence and recovery
-
-- Opening Version History decompresses every version to verify it. Listing could check the delta
-  chains structurally and leave the digest check to the restore, once `Parsed` records where a
-  damaged chunk broke a chain.
-
 ## Model stability
 
 - A `PieceId` occurrence on a closed curve is counted from the curve's parameter origin, so when

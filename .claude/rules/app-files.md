@@ -141,7 +141,9 @@ paths:
 - Restore loads it in the background and applies `Document::transaction_to` (remove every feature
   and parameter, then insert the version's, keeping ID counters) as one "Restore earlier version"
   change (a refused one keeps its error; a late one, arriving after another model was opened, says
-  it was not restored), so Undo brings back what was there. The next save keeps the replaced state
+  it was not restored), so Undo brings back what was there. A version that turns out damaged
+  when restored (`LoadError::VersionUnavailable`) shows as "Damaged" in the open list from then
+  on (`VersionHistory::finish_restoring`). The next save keeps the replaced state
   as a version.
 
 ## Preferences and units

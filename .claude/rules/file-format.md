@@ -40,9 +40,10 @@ paths:
   never yields partial content). Older readers see only the first slice, which fails its digest.
 - Records decode one at a time: a load unpacks, hashes (`RecordDigest`, checked against the head
   afterwards) and parses each before the next, so only the parsed model accumulates. A load
-  unpacks at most 2 GiB of records in all (`Budget`, cumulative, bounding the parsed model too); a version walk (listing, restore,
-  thinning) bounds what is alive at each step instead (`unpack_beside`: the snapshots held plus
-  the one being decoded), so a long history of large snapshots still lists and restores.
+  unpacks at most 2 GiB of records in all (`Budget`, cumulative, bounding the parsed model too); a
+  version rebuild (restore, thinning) bounds what is alive at each step instead
+  (`unpack_beside`: the snapshots held plus the one being decoded), so a long history of large
+  snapshots still restores.
   `Budget::unpack` keeps the `UnpackError`, so a record in an unknown codec reads like content from
   a newer version, one that ran out of memory or the budget says it is too large to load, and only
   the rest is "damaged".
@@ -99,8 +100,15 @@ paths:
   newer version as zstd prefix; every eighth stored whole, bounding a damaged chunk's chain. Info
   belongs only to the data chunk right after it: data with damaged info is kept (unlisted) so older
   deltas decode; info with damaged data is dropped. Rebuilt versions are checked against their
-  digest before being offered.
-- `history` lists versions (whether each can be rebuilt), keeping only the rolling newer snapshot;
+  digest before being restored.
+- `history` lists versions and whether each can be rebuilt, judged from the chain rather than by
+  decoding (`Parsed::rebuildable`): a whole version in a known codec can; a delta can when the
+  version it is stored against can (the head's records matching its digest for the newest), and
+  when a damaged piece precedes it since the previous version's data (`StoredVersion::after_damage`,
+  so it may be stored against a version that is gone) it is decoded from the nearest whole one and
+  checked against its digest, or, having no info, against the next listed one's. An undamaged
+  file's listing thus unpacks at most the head's records. A version whose data passes its checksum
+  but does not rebuild to its digest is listed and refused on restore.
   `load_version` rebuilds from the nearest whole version at or after it. When the head cannot be
   rebuilt, the next save drops the deltas that depended on it.
 - Retention (`retention.rs`), on each save adding a version: the ten newest listed stay; older keep

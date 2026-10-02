@@ -761,7 +761,7 @@ impl Files {
         result: Result<Loaded, LoadError>,
         model: &mut Model,
     ) {
-        self.history.finish_restoring();
+        self.history.finish_restoring(path, &result);
         if model.path() != Some(path) {
             model.set_notice(Notice::info(format!(
                 "The earlier version of “{}” was not restored, because another model is open now.",

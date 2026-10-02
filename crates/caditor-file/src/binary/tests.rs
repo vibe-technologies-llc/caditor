@@ -276,7 +276,10 @@ fn a_save_time_beyond_what_the_clock_holds_does_not_break_the_history() {
     let listed = history(&bytes);
     assert_eq!(listed.current.unwrap().saved_at, UNIX_EPOCH);
     assert_eq!(listed.versions[0].state.saved_at, UNIX_EPOCH);
-    assert!(!listed.versions[0].available);
+    assert_eq!(
+        load_version(&bytes, 0).map(|loaded| loaded.document),
+        Err(crate::LoadError::VersionUnavailable)
+    );
 }
 
 #[test]
@@ -640,6 +643,18 @@ fn listing_a_long_history_bounds_memory_per_version_not_in_total() {
         assert_eq!(listed.versions.len(), 19);
         assert!(listed.versions.iter().all(|version| version.available));
     });
+}
+
+#[test]
+fn listing_an_undamaged_history_decodes_none_of_its_versions() {
+    let (documents, bytes) = saved_series(20);
+    let size = snapshot_size(&bytes);
+
+    let listed = decompressing_at_most(size, || history(&bytes));
+
+    assert_eq!(listed.versions.len(), 19);
+    assert!(listed.versions.iter().all(|version| version.available));
+    assert_eq!(check_listed_versions(&bytes, &documents), listed);
 }
 
 #[test]

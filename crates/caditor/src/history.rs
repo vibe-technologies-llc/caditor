@@ -1,6 +1,9 @@
-use std::{path::PathBuf, time::SystemTime};
+use std::{
+    path::{Path, PathBuf},
+    time::SystemTime,
+};
 
-use caditor_file::{History, LoadError, SavedState};
+use caditor_file::{History, LoadError, Loaded, SavedState};
 use egui::Ui;
 use jiff::{Timestamp, tz::TimeZone};
 
@@ -76,8 +79,16 @@ impl VersionHistory {
         Some((path.clone(), version.state.clone()))
     }
 
-    pub fn finish_restoring(&mut self) {
-        self.restoring = None;
+    pub fn finish_restoring(&mut self, path: &Path, result: &Result<Loaded, LoadError>) {
+        let restored = self.restoring.take();
+        if let (Some(index), Err(LoadError::VersionUnavailable)) = (restored, result)
+            && let Some((shown, Listing::Loaded(history))) = &mut self.shown
+            && shown == path
+        {
+            for version in &mut history.versions {
+                version.available &= version.index != index;
+            }
+        }
     }
 }
 
@@ -231,7 +242,42 @@ pub fn ago(time: SystemTime) -> String {
 mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
+    use caditor_file::Version;
+
     use super::*;
+
+    #[test]
+    fn a_version_found_damaged_when_restored_is_shown_damaged_from_then_on() {
+        let path = PathBuf::from("/models/plate.caditor");
+        let state = SavedState {
+            saved_at: UNIX_EPOCH,
+            label: None,
+        };
+        let versions = (0..2)
+            .map(|index| Version {
+                index,
+                state: state.clone(),
+                available: true,
+            })
+            .collect();
+        let mut history = VersionHistory::default();
+        history.open(path.clone());
+        history.listed(
+            &path,
+            Ok(History {
+                current: None,
+                versions,
+            }),
+        );
+
+        assert!(history.start_restoring(1).is_some());
+        history.finish_restoring(&path, &Err(LoadError::VersionUnavailable));
+
+        assert_eq!(history.start_restoring(1), None);
+        assert!(history.start_restoring(0).is_some());
+        history.finish_restoring(&path, &Err(LoadError::Empty));
+        assert!(history.start_restoring(0).is_some());
+    }
 
     #[test]
     fn versions_show_the_date_and_time_they_were_saved_in_the_given_zone() {
