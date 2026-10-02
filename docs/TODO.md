@@ -41,9 +41,6 @@ within a category run from most to least important.
 
 ## Reliability and diagnostics
 
-- `rfd`'s portal backend `dlopen`s `libdbus` (C) and, when it is missing, returns `None`, which
-  the app treats as the user cancelling, so Open and Save As do nothing without a word. Use a
-  `zbus` portal call (zbus is already in the tree) and report a missing portal.
 
 ## Model stability
 

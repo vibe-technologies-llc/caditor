@@ -74,15 +74,27 @@ const DRAWN: f64 = 1e-3;
 #[derive(Clone, Default)]
 struct ScriptedDialogs {
     answer: Arc<Mutex<Option<PathBuf>>>,
+    no_portal: Arc<Mutex<bool>>,
+}
+
+impl ScriptedDialogs {
+    fn reply(&self) -> Result<Option<PathBuf>, crate::portal::DialogError> {
+        if *self.no_portal.lock() {
+            return Err(crate::portal::DialogError::NoSessionBus(
+                zbus::Error::Unsupported,
+            ));
+        }
+        Ok(self.answer.lock().clone())
+    }
 }
 
 impl Dialogs for ScriptedDialogs {
     fn pick_model(&self, _directory: Option<PathBuf>, respond: Respond) {
-        respond(self.answer.lock().clone());
+        respond(self.reply());
     }
 
     fn pick_save_path(&self, _directory: Option<PathBuf>, _file_name: String, respond: Respond) {
-        respond(self.answer.lock().clone());
+        respond(self.reply());
     }
 
     fn pick_export_path(
@@ -92,15 +104,15 @@ impl Dialogs for ScriptedDialogs {
         _format: ExportFormat,
         respond: Respond,
     ) {
-        respond(self.answer.lock().clone());
+        respond(self.reply());
     }
 
     fn pick_import(&self, _directory: Option<PathBuf>, respond: Respond) {
-        respond(self.answer.lock().clone());
+        respond(self.reply());
     }
 
     fn pick_image_path(&self, _directory: Option<PathBuf>, _file_name: String, respond: Respond) {
-        respond(self.answer.lock().clone());
+        respond(self.reply());
     }
 }
 
@@ -2187,6 +2199,29 @@ fn a_failed_frame_resets_the_interface_and_a_second_in_a_row_suppresses_every_fe
         fail_a_frame(&mut harness);
     }
     assert_eq!(fail_a_frame(&mut harness), app::AfterFailedFrame::GiveUp);
+}
+
+#[test]
+fn a_file_dialog_that_cannot_open_says_what_to_install_rather_than_doing_nothing() {
+    let mut harness = Harness::new();
+    *harness.dialogs.no_portal.lock() = true;
+
+    harness.command(FileCommand::Open);
+    harness.wait_until("the failure is reported", |harness| {
+        harness.model.notice().is_some()
+    });
+
+    let notice = harness.model.notice().unwrap().text.clone();
+    assert!(
+        notice.starts_with("The file dialog could not be shown"),
+        "{notice}"
+    );
+    assert!(notice.contains("xdg-desktop-portal"));
+    *harness.dialogs.no_portal.lock() = false;
+    harness.answer_dialog(None);
+    harness.command(FileCommand::Open);
+    harness.frame();
+    assert!(!harness.files.is_blocking());
 }
 
 #[test]

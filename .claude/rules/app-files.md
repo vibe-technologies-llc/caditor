@@ -17,9 +17,14 @@ paths:
 ## File workflow
 
 - `files.rs` is the file workflow: the File menu and shortcuts, the recovery offer and the load
-  report, native dialogs through the XDG desktop portal (`rfd`) on their own thread; loading and
-  recovery scans on a background worker (each job under `catch_unwind`, a panic becoming its
-  failure).
+  report, native dialogs on their own thread; loading and recovery scans on a background worker
+  (each job under `catch_unwind`, a panic becoming its failure).
+- `portal.rs` asks the XDG desktop portal's `FileChooser` over `zbus` (pure Rust, no `libdbus`):
+  it subscribes to the `Request.Response` signal at the handle its `handle_token` predicts before
+  calling `OpenFile` or `SaveFile`, then reads the first `uris` entry as a local path (a remote
+  URI is refused in words). When there is no session bus or no portal, it falls back to
+  `zenity --file-selection`. A dialog that cannot be shown is a `DialogError`, never a silent
+  Cancel: the files workflow shows its `notice`, which says what to install.
 - The unsaved-changes prompt precedes New, Open, Open sample, Restore and Quit: Save (or Save as…)
   primary and rightmost, Cancel beside it, and Close without saving or Continue without saving as a
   `danger_button` at the footer's far left (`dialog_parts::split_footer`). Quit waits for the

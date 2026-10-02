@@ -37,6 +37,7 @@ use crate::{
     import::{self, DrawingPlan, IMPORT_HINT, Placement},
     model::{Action, FileEvent, Model, Notice, WakerFactory, display_name},
     onboarding,
+    portal::{self, DialogError, FileRequest, Filter, Mode},
     preferences::PreferencesCommand,
     samples::Sample,
     widgets::{self, DialogWidth, Tone},
@@ -121,7 +122,7 @@ pub enum GuardChoice {
     Cancel,
 }
 
-pub type Respond = Box<dyn FnOnce(Option<PathBuf>) + Send>;
+pub type Respond = Box<dyn FnOnce(Result<Option<PathBuf>, DialogError>) + Send>;
 
 pub trait Dialogs {
     fn pick_model(&self, directory: Option<PathBuf>, respond: Respond);
@@ -140,13 +141,13 @@ pub trait Dialogs {
 pub struct NativeDialogs;
 
 impl NativeDialogs {
-    fn spawn(respond: Respond, pick: impl FnOnce() -> Option<PathBuf> + Send + 'static) {
+    fn spawn(respond: Respond, request: FileRequest) {
         let slot = Arc::new(Mutex::new(Some(respond)));
         let worker_slot = Arc::clone(&slot);
         let spawned = thread::Builder::new()
             .name("file-dialog".to_owned())
             .spawn(move || {
-                let picked = pick();
+                let picked = portal::choose(&request);
                 if let Some(respond) = worker_slot.lock().take() {
                     respond(picked);
                 }
@@ -154,36 +155,45 @@ impl NativeDialogs {
         if let Err(error) = spawned {
             log::error!("could not open the file dialog: {error}");
             if let Some(respond) = slot.lock().take() {
-                respond(None);
+                respond(Err(DialogError::Thread(error)));
             }
         }
     }
 
-    fn dialog(directory: Option<PathBuf>, kind: &str, extensions: &[&str]) -> rfd::FileDialog {
-        let dialog = rfd::FileDialog::new().add_filter(kind, extensions);
-        match directory {
-            Some(directory) => dialog.set_directory(directory),
-            None => dialog,
+    fn request(
+        mode: Mode,
+        title: impl Into<String>,
+        directory: Option<PathBuf>,
+        file_name: Option<String>,
+        filters: Vec<Filter>,
+    ) -> FileRequest {
+        FileRequest {
+            mode,
+            title: title.into(),
+            directory,
+            file_name,
+            filters,
         }
     }
 }
 
 impl Dialogs for NativeDialogs {
     fn pick_model(&self, directory: Option<PathBuf>, respond: Respond) {
-        Self::spawn(respond, move || {
-            Self::dialog(directory, MODEL_KIND, &[FILE_EXTENSION])
-                .set_title("Open Model")
-                .pick_file()
-        });
+        let filters = vec![Filter::new(MODEL_KIND, &[FILE_EXTENSION])];
+        let request = Self::request(Mode::Open, "Open model", directory, None, filters);
+        Self::spawn(respond, request);
     }
 
     fn pick_save_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
-        Self::spawn(respond, move || {
-            Self::dialog(directory, MODEL_KIND, &[FILE_EXTENSION])
-                .set_title("Save Model")
-                .set_file_name(file_name)
-                .save_file()
-        });
+        let filters = vec![Filter::new(MODEL_KIND, &[FILE_EXTENSION])];
+        let request = Self::request(
+            Mode::Save,
+            "Save model",
+            directory,
+            Some(file_name),
+            filters,
+        );
+        Self::spawn(respond, request);
     }
 
     fn pick_export_path(
@@ -193,38 +203,39 @@ impl Dialogs for NativeDialogs {
         format: ExportFormat,
         respond: Respond,
     ) {
-        Self::spawn(respond, move || {
-            let extensions: &[&str] = match format {
-                ExportFormat::Step => &STEP_EXTENSIONS,
-                ExportFormat::Stl | ExportFormat::ThreeMf => &[format.extension()],
-            };
-            Self::dialog(directory, format.name(), extensions)
-                .set_title(format!("Export {}", format.name()))
-                .set_file_name(file_name)
-                .save_file()
-        });
+        let extensions: &[&str] = match format {
+            ExportFormat::Step => &STEP_EXTENSIONS,
+            ExportFormat::Stl | ExportFormat::ThreeMf => &[format.extension()],
+        };
+        let filters = vec![Filter::new(format.name(), extensions)];
+        let title = format!("Export {}", format.name());
+        let request = Self::request(Mode::Save, title, directory, Some(file_name), filters);
+        Self::spawn(respond, request);
     }
 
     fn pick_import(&self, directory: Option<PathBuf>, respond: Respond) {
-        Self::spawn(respond, move || {
-            let every: Vec<&str> = std::iter::once(DXF_EXTENSION)
-                .chain(STEP_IMPORT_EXTENSIONS)
-                .collect();
-            Self::dialog(directory, IMPORTABLE_KIND, &every)
-                .add_filter(DRAWING_KIND, &[DXF_EXTENSION])
-                .add_filter(MODEL_EXCHANGE_KIND, &STEP_IMPORT_EXTENSIONS)
-                .set_title("Import")
-                .pick_file()
-        });
+        let every: Vec<&str> = std::iter::once(DXF_EXTENSION)
+            .chain(STEP_IMPORT_EXTENSIONS)
+            .collect();
+        let filters = vec![
+            Filter::new(IMPORTABLE_KIND, &every),
+            Filter::new(DRAWING_KIND, &[DXF_EXTENSION]),
+            Filter::new(MODEL_EXCHANGE_KIND, &STEP_IMPORT_EXTENSIONS),
+        ];
+        let request = Self::request(Mode::Open, "Import", directory, None, filters);
+        Self::spawn(respond, request);
     }
 
     fn pick_image_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
-        Self::spawn(respond, move || {
-            Self::dialog(directory, IMAGE_KIND, &[PNG_EXTENSION])
-                .set_title("Export image")
-                .set_file_name(file_name)
-                .save_file()
-        });
+        let filters = vec![Filter::new(IMAGE_KIND, &[PNG_EXTENSION])];
+        let request = Self::request(
+            Mode::Save,
+            "Export image",
+            directory,
+            Some(file_name),
+            filters,
+        );
+        Self::spawn(respond, request);
     }
 }
 
@@ -327,7 +338,7 @@ enum Event {
     },
     Picked {
         purpose: Purpose,
-        path: Option<PathBuf>,
+        path: Result<Option<PathBuf>, DialogError>,
     },
     Started {
         recent: RecentFiles,
@@ -871,6 +882,11 @@ impl Files {
             }
             Event::Picked { purpose, path } => {
                 self.picking = false;
+                let path = path.unwrap_or_else(|error| {
+                    log::warn!("{error}");
+                    model.set_notice(Notice::failure(error.notice()));
+                    None
+                });
                 match (purpose, path) {
                     (Purpose::Open, Some(path)) => self.open(path, model),
                     (Purpose::SaveAs, Some(path)) => self.save_as(path, model),

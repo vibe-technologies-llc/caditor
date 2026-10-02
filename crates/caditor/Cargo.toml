@@ -31,11 +31,11 @@ log.workspace = true
 parking_lot.workspace = true
 png.workspace = true
 pollster.workspace = true
-rfd = { workspace = true, features = ["xdg-portal"] }
 signal-hook.workspace = true
 thiserror.workspace = true
 wgpu.workspace = true
 winit.workspace = true
+zbus.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

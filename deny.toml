@@ -65,7 +65,6 @@ skip = [
     },
     { crate = "linux-raw-sys@0.4.15", reason = "rustix 0.38 under winit's calloop 0.13" },
     { crate = "miniz_oxide@0.8.9", reason = "png 0.18 has not moved to miniz_oxide 0.9" },
-    { crate = "pollster@0.4.0", reason = "rfd 0.17 has not moved to pollster 1" },
     { crate = "rustc-hash@1.1.0", reason = "naga 30 still uses rustc-hash 1" },
     { crate = "rustix@0.38.44", reason = "winit's calloop 0.13" },
     {
