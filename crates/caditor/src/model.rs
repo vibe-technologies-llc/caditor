@@ -760,6 +760,7 @@ impl Model {
                 ticket,
                 path,
                 backup,
+                dropped_for_size,
             } => {
                 if let Some(pending) = self
                     .pending_save
@@ -772,11 +773,8 @@ impl Model {
                 self.path = Some(path.clone());
                 self.keep_original = false;
                 self.dirty = !self.editor.document().same_content(&self.saved);
-                if let Some(backup) = backup {
-                    self.set_notice(Notice::info(format!(
-                        "Saved. The damaged original was kept as “{}”.",
-                        display_name(Some(&backup))
-                    )));
+                if let Some(notice) = saved_notice(backup.as_deref(), dropped_for_size) {
+                    self.set_notice(notice);
                 }
                 self.file_events.push(FileEvent::Saved(path));
             }
@@ -849,4 +847,26 @@ pub fn display_name(path: Option<&Path>) -> String {
     path.and_then(Path::file_name)
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| UNTITLED.to_owned())
+}
+
+fn saved_notice(backup: Option<&Path>, dropped_for_size: usize) -> Option<Notice> {
+    let backup = backup.map(|backup| {
+        format!(
+            "The damaged original was kept as “{}”.",
+            display_name(Some(backup))
+        )
+    });
+    let dropped = match dropped_for_size {
+        0 => None,
+        1 => Some(
+            "The oldest earlier version was removed to keep the file small enough to open again."
+                .to_owned(),
+        ),
+        count => Some(format!(
+            "The {count} oldest earlier versions were removed to keep the file small enough to \
+             open again."
+        )),
+    };
+    let sentences: Vec<String> = backup.into_iter().chain(dropped).collect();
+    (!sentences.is_empty()).then(|| Notice::info(format!("Saved. {}", sentences.join(" "))))
 }

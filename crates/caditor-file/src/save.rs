@@ -56,18 +56,23 @@ impl SaveError {
             EncodeError::Value(ValueError::NonFinite(_)) => {
                 "a number in the model is infinite or undefined, so it cannot be stored; undo \
                  the last change and save again"
+                    .to_owned()
             }
             EncodeError::Value(ValueError::Malformed(_)) | EncodeError::Pack(_) => {
-                "the model could not be converted for saving"
+                "the model could not be converted for saving".to_owned()
             }
             EncodeError::HistoryTooLarge => {
                 "there was not enough memory to rewrite the model's earlier versions; close other \
                  programs and save again"
+                    .to_owned()
             }
+            EncodeError::ModelTooLarge { largest, .. } => format!(
+                "the model is larger than the {} GiB a model file can hold, so caditor could not \
+                 open it again; remove imported bodies or split the model and save again",
+                largest >> 30
+            ),
         };
-        Self {
-            reason: reason.to_owned(),
-        }
+        Self { reason }
     }
 }
 
@@ -82,11 +87,13 @@ pub struct SaveOptions<'a> {
     pub label: Option<&'a str>,
 }
 
-pub fn save(
-    document: &Document,
-    path: &Path,
-    keep_original: bool,
-) -> Result<Option<PathBuf>, SaveError> {
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Saved {
+    pub backup: Option<PathBuf>,
+    pub dropped_for_size: usize,
+}
+
+pub fn save(document: &Document, path: &Path, keep_original: bool) -> Result<Saved, SaveError> {
     save_with(
         document,
         path,
@@ -102,7 +109,7 @@ pub fn save_with(
     document: &Document,
     path: &Path,
     options: &SaveOptions<'_>,
-) -> Result<Option<PathBuf>, SaveError> {
+) -> Result<Saved, SaveError> {
     let target = resolve_links(path).map_err(|error| SaveError::writing(&error))?;
     ensure_replaceable(&target).map_err(|error| SaveError::writing(&error))?;
     let previous = options
@@ -133,7 +140,10 @@ pub fn save_with(
         _ => replace_checked(&target, |file| file.write_all(&encoded.bytes), reads_back),
     };
     written.map_err(|error| SaveError::writing(&error))?;
-    Ok(backup)
+    Ok(Saved {
+        backup,
+        dropped_for_size: encoded.dropped_for_size,
+    })
 }
 
 fn reads_target(options: &SaveOptions<'_>, target: &Path) -> bool {
@@ -710,6 +720,7 @@ mod tests {
             bytes,
             digest: String::new(),
             previous_damaged: false,
+            dropped_for_size: 0,
         }
     }
 

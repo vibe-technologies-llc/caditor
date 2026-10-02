@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use super::{
     model::{decode, encode_over, history, load_version, reads_back, save_bytes},
     testing::{
-        corrupt_chunk, decompressing_at_most, model_chunk_count, push_foreign, records_as_json,
-        sharing_from, with_slices_of,
+        corrupt_chunk, decompressing_at_most, files_of_at_most, model_chunk_count, push_foreign,
+        records_as_json, sharing_from, with_slices_of,
     },
     value::{from_bytes, to_bytes},
     *,
@@ -656,6 +656,54 @@ fn a_version_that_cannot_be_rewritten_keeps_the_newer_ones_it_is_stored_against(
     assert!(listed.versions.iter().all(|version| version.available));
     assert!(listed.versions.len() > history(&unstarved).versions.len());
     assert_eq!(decode(&starved).unwrap().document, documents[59]);
+}
+
+#[test]
+fn a_history_too_large_for_the_file_drops_its_oldest_versions_and_says_how_many() {
+    let (mut documents, bytes) = saved_series(20);
+    let next = edited(documents.last().unwrap(), 50);
+    documents.push(next.clone());
+    let largest = bytes.len();
+
+    let encoded = files_of_at_most(largest, || {
+        encode_over(&next, Some(&bytes), later(20), Some("Step 20")).unwrap()
+    });
+    let listed = check_listed_versions(&encoded.bytes, &documents);
+    let newest: Vec<_> = listed
+        .versions
+        .iter()
+        .map(|version| version.state.label.clone().unwrap())
+        .collect();
+
+    assert!(encoded.bytes.len() <= largest / 4 * 3);
+    assert!(encoded.dropped_for_size > 0);
+    assert_eq!(listed.versions.len() + encoded.dropped_for_size, 20);
+    assert!(listed.versions.iter().all(|version| version.available));
+    assert_eq!(newest.first().map(String::as_str), Some("Step 19"));
+    assert_eq!(decode(&encoded.bytes).unwrap().document, next);
+}
+
+#[test]
+fn a_history_that_fits_drops_nothing_for_size() {
+    let (documents, bytes) = saved_series(5);
+    let next = edited(documents.last().unwrap(), 50);
+
+    let encoded = encode_over(&next, Some(&bytes), later(5), Some("Step 5")).unwrap();
+
+    assert_eq!(encoded.dropped_for_size, 0);
+    assert_eq!(history(&encoded.bytes).versions.len(), 5);
+}
+
+#[test]
+fn a_model_larger_than_a_file_can_hold_is_refused() {
+    let document = with_width(10);
+
+    let refused = files_of_at_most(64, || encode_over(&document, None, at(1_000), None));
+
+    assert!(matches!(
+        refused,
+        Err(EncodeError::ModelTooLarge { largest: 64, .. })
+    ));
 }
 
 fn bulky() -> Document {

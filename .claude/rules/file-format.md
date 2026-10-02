@@ -99,6 +99,12 @@ paths:
   that failed so) the versions dropped before it are kept, so thinning never leaves a delta whose
   newer neighbour is gone; should the second pass still run short, the save fails
   (`EncodeError::HistoryTooLarge`) rather than write such a delta.
+- Size: a model file stays within the 2 GiB `MAX_FILE_SIZE` every reader enforces
+  (`LARGEST_FILE` in `binary/model.rs`). When the versions would take the file past three
+  quarters of it, the oldest kept versions are dropped (a tail, so nothing left depends on them)
+  until it fits, and `Encoded::dropped_for_size` counts the listed ones; the save then says how
+  many were removed. A model too large on its own is refused (`EncodeError::ModelTooLarge`), since
+  the file could not be opened again.
 - Versions copied unchanged are placed for block sharing: each run at least 256 KiB long lands at
   the same offset modulo 4 KiB as in the file being replaced (a zero-filled `Padding` chunk,
   skipped by readers, starts the versions for the first such run and precedes each later one);

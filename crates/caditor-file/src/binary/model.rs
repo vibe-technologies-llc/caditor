@@ -28,8 +28,21 @@ use crate::{
 
 const KEYFRAME_SPACING: usize = 8;
 const MAX_DECOMPRESSED: usize = 1 << 31;
+const LARGEST_FILE: usize = 2 << 30;
 const SHARED_BLOCK: usize = 4096;
 const WORTH_SHARING: usize = 256 << 10;
+
+fn largest_file() -> usize {
+    #[cfg(test)]
+    if let Some(largest) = super::testing::largest_file() {
+        return largest;
+    }
+    LARGEST_FILE
+}
+
+fn room_for_history() -> usize {
+    largest_file() / 4 * 3
+}
 
 fn max_decompressed() -> usize {
     #[cfg(test)]
@@ -379,6 +392,7 @@ pub(crate) struct Encoded {
     pub shared: Vec<Shared>,
     pub digest: String,
     pub previous_damaged: bool,
+    pub dropped_for_size: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -452,6 +466,10 @@ impl<'a> Section<'a> {
 
     fn fresh(&mut self) -> &mut Vec<u8> {
         &mut self.fresh
+    }
+
+    fn len(&self) -> usize {
+        self.parts.iter().map(Part::len).sum::<usize>() + self.fresh.len()
     }
 
     fn keep(&mut self, stored: &'a [u8]) {
@@ -537,6 +555,8 @@ pub(crate) enum EncodeError {
     Pack(#[from] PackError),
     #[error("an earlier version could not be rebuilt in the memory available to thin the history")]
     HistoryTooLarge,
+    #[error("the model takes {size} bytes, more than the {largest} a model file can hold")]
+    ModelTooLarge { size: usize, largest: usize },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -621,23 +641,64 @@ pub(crate) fn encode_over(
             bytes.extend_from_slice(foreign.whole);
         }
     }
-    let mut versions = Section::new(previous.unwrap_or_default());
-    write_versions(
-        &mut versions,
-        prior.as_ref(),
-        prior_head.as_ref(),
-        !unchanged,
-        &snapshot,
-        now,
-    )?;
+    if bytes.len() > largest_file() {
+        return Err(EncodeError::ModelTooLarge {
+            size: bytes.len(),
+            largest: largest_file(),
+        });
+    }
+    let room = room_for_history().saturating_sub(bytes.len());
+    let mut cut = 0;
+    let (versions, written) = loop {
+        let mut versions = Section::new(previous.unwrap_or_default());
+        let written = write_versions(
+            &mut versions,
+            prior.as_ref(),
+            prior_head.as_ref(),
+            !unchanged,
+            &snapshot,
+            now,
+            cut,
+        )?;
+        let excess = versions.len().saturating_sub(room);
+        if excess == 0 || written.kept.is_empty() {
+            break (versions, written);
+        }
+        cut += oldest_holding(&written.kept, excess).max(1);
+    };
     let mut shared = Vec::new();
     versions.place(&mut bytes, &mut shared)?;
+    if bytes.len() > largest_file() {
+        return Err(EncodeError::ModelTooLarge {
+            size: bytes.len(),
+            largest: largest_file(),
+        });
+    }
     Ok(Encoded {
         bytes,
         shared,
         digest: head.digest,
         previous_damaged,
+        dropped_for_size: written.cut_listed,
     })
+}
+
+fn oldest_holding(kept: &[usize], excess: usize) -> usize {
+    let mut freed = 0;
+    let mut count = 0;
+    for size in kept.iter().rev() {
+        if freed >= excess {
+            break;
+        }
+        freed += size;
+        count += 1;
+    }
+    count
+}
+
+struct Written {
+    kept: Vec<usize>,
+    cut_listed: usize,
 }
 
 pub(crate) fn reads_back(bytes: &[u8], digest: &str) -> bool {
@@ -686,7 +747,8 @@ fn thinned<'p, 'a>(
     prior_head: Option<&'p (StateRecord, Vec<u8>)>,
     adds_version: bool,
     now: SystemTime,
-) -> Vec<(Candidate<'p, 'a>, bool)> {
+    cut: usize,
+) -> (Vec<(Candidate<'p, 'a>, bool)>, usize) {
     let stored = prior.map_or(&[][..], |prior| prior.versions.as_slice());
     let leading_deltas = prior.map_or(0, Parsed::leading_deltas);
     let unreachable = if prior_head.is_some() {
@@ -711,13 +773,24 @@ fn thinned<'p, 'a>(
                 .map(|(index, version)| Candidate::Stored { index, version }),
         )
         .collect();
-    let keep = if adds_version {
+    let mut keep = if adds_version {
         let saved_at: Vec<Option<u64>> = candidates.iter().map(Candidate::saved_at).collect();
         retained(&saved_at, seconds_since_epoch(now))
     } else {
         vec![true; candidates.len()]
     };
-    candidates.into_iter().zip(keep).collect()
+    let mut cut_listed = 0;
+    let oldest_kept = keep
+        .iter_mut()
+        .zip(&candidates)
+        .rev()
+        .filter(|(keep, _)| **keep)
+        .take(cut);
+    for (keep, candidate) in oldest_kept {
+        *keep = false;
+        cut_listed += usize::from(candidate.saved_at().is_some());
+    }
+    (candidates.into_iter().zip(keep).collect(), cut_listed)
 }
 
 fn needing_content(
@@ -873,9 +946,14 @@ fn write_versions<'a>(
     adds_version: bool,
     snapshot: &[u8],
     now: SystemTime,
-) -> Result<(), EncodeError> {
+    cut: usize,
+) -> Result<Written, EncodeError> {
     let stored = prior.map_or(&[][..], |prior| prior.versions.as_slice());
-    let mut candidates = thinned(prior, prior_head, adds_version, now);
+    let (mut candidates, cut_listed) = thinned(prior, prior_head, adds_version, now, cut);
+    let mut written = Written {
+        kept: Vec::new(),
+        cut_listed,
+    };
     keep_what_cannot_be_rewritten(stored, &mut candidates, prior_head, snapshot);
     let mut rebuild = Rebuild::new(stored, &candidates, prior_head, snapshot);
     let mut base = Some(Content::Borrowed(snapshot));
@@ -888,6 +966,7 @@ fn write_versions<'a>(
             thinned_keyframe |= candidate.is_keyframe();
             continue;
         }
+        let before = section.len();
         match candidate {
             Candidate::Replaced {
                 info,
@@ -926,11 +1005,12 @@ fn write_versions<'a>(
                 }
             }
         }
+        written.kept.push(section.len() - before);
         base = content;
         after_thinning = false;
         thinned_keyframe = false;
     }
-    Ok(())
+    Ok(written)
 }
 
 #[cfg(test)]

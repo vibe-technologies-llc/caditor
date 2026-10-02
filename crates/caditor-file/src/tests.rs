@@ -177,7 +177,7 @@ fn a_saved_model_loads_back_exactly() {
     let path = dir.path().join("model.caditor");
     let document = sample();
 
-    assert_eq!(save(&document, &path, false), Ok(None));
+    assert_eq!(save(&document, &path, false), Ok(Saved::default()));
     let loaded = load(&path).unwrap();
 
     assert_eq!(loaded.issues, Vec::<String>::new());
@@ -359,7 +359,7 @@ fn overwriting_a_damaged_file_keeps_the_original_as_a_backup() {
     fs::write(&path, "damaged original").unwrap();
     fs::write(dir.path().join("model.damaged.caditor"), "earlier backup").unwrap();
 
-    let backup = save(&sample(), &path, true).unwrap().unwrap();
+    let backup = save(&sample(), &path, true).unwrap().backup.unwrap();
 
     assert_eq!(backup, dir.path().join("model.damaged-2.caditor"));
     assert_eq!(fs::read_to_string(&backup).unwrap(), "damaged original");
@@ -399,7 +399,7 @@ fn saving_over_a_file_that_went_bad_since_it_was_loaded_keeps_a_backup() {
     let path = dir.path().join("model.caditor");
     let damaged = saved_twice_then_damaged(&path);
 
-    let backup = save(&sample(), &path, false).unwrap().unwrap();
+    let backup = save(&sample(), &path, false).unwrap().backup.unwrap();
 
     assert_eq!(backup, dir.path().join("model.damaged.caditor"));
     assert_eq!(fs::read(&backup).unwrap(), damaged);
@@ -414,7 +414,7 @@ fn a_file_that_is_no_longer_a_model_is_kept_when_saved_over() {
     save(&sample(), &path, false).unwrap();
     fs::write(&path, "the sync client wrote this").unwrap();
 
-    let backup = save(&sample(), &path, false).unwrap().unwrap();
+    let backup = save(&sample(), &path, false).unwrap().backup.unwrap();
 
     assert_eq!(
         fs::read_to_string(backup).unwrap(),
@@ -428,9 +428,9 @@ fn intact_and_empty_files_get_no_backup_and_a_save_as_leaves_the_damaged_source_
     let path = dir.path().join("model.caditor");
     let copy = dir.path().join("copy.caditor");
     save(&sample(), &path, false).unwrap();
-    assert_eq!(save(&sample(), &path, false).unwrap(), None);
+    assert_eq!(save(&sample(), &path, false).unwrap().backup, None);
     fs::write(&copy, "").unwrap();
-    assert_eq!(save(&sample(), &copy, false).unwrap(), None);
+    assert_eq!(save(&sample(), &copy, false).unwrap().backup, None);
 
     let damaged = saved_twice_then_damaged(&path);
     let options = SaveOptions {
@@ -438,7 +438,7 @@ fn intact_and_empty_files_get_no_backup_and_a_save_as_leaves_the_damaged_source_
         ..SaveOptions::default()
     };
     let other = dir.path().join("other.caditor");
-    assert_eq!(save_with(&sample(), &other, &options).unwrap(), None);
+    assert_eq!(save_with(&sample(), &other, &options).unwrap().backup, None);
 
     assert_eq!(fs::read(&path).unwrap(), damaged);
     assert_eq!(
@@ -747,7 +747,8 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
         Report::Saved {
             ticket: 7,
             path: path.clone(),
-            backup: None
+            backup: None,
+            dropped_for_size: 0,
         }
     );
     let markers = files_in(&recovery);
@@ -2518,7 +2519,7 @@ fn a_model_whose_name_fills_the_limit_is_saved_backed_up_and_journaled() {
     let path = dir.path().join(&name);
     fs::write(&path, "damaged original").unwrap();
 
-    let backup = save(&sample(), &path, true).unwrap().unwrap();
+    let backup = save(&sample(), &path, true).unwrap().backup.unwrap();
     assert_eq!(fs::read_to_string(&backup).unwrap(), "damaged original");
     assert!(backup.file_name().unwrap().len() <= 255);
     assert!(backup.to_str().unwrap().ends_with(".damaged.caditor"));

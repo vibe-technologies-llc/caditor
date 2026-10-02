@@ -167,3 +167,18 @@ pub(crate) fn decompressing_at_most<T>(limit: usize, work: impl FnOnce() -> T) -
     MAX_DECOMPRESSED.set(before);
     result
 }
+
+thread_local! {
+    static LARGEST_FILE: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+pub(crate) fn largest_file() -> Option<usize> {
+    LARGEST_FILE.get()
+}
+
+pub(crate) fn files_of_at_most<T>(largest: usize, work: impl FnOnce() -> T) -> T {
+    let before = LARGEST_FILE.replace(Some(largest));
+    let result = work();
+    LARGEST_FILE.set(before);
+    result
+}

@@ -51,6 +51,7 @@ pub enum Report {
         ticket: u64,
         path: PathBuf,
         backup: Option<PathBuf>,
+        dropped_for_size: usize,
     },
     SaveFailed {
         ticket: u64,
@@ -350,7 +351,7 @@ impl Worker {
             label: request.label.as_deref(),
         };
         let report = match save::save_with(&request.document, &request.path, &options) {
-            Ok(backup) => {
+            Ok(saved) => {
                 self.file = Some(request.path.clone());
                 self.loaded_with_problems = false;
                 self.base = request.document;
@@ -359,7 +360,8 @@ impl Worker {
                 Report::Saved {
                     ticket: request.ticket,
                     path: request.path,
-                    backup,
+                    backup: saved.backup,
+                    dropped_for_size: saved.dropped_for_size,
                 }
             }
             Err(error) => Report::SaveFailed {

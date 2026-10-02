@@ -197,6 +197,9 @@ The first release of caditor.
   file no longer grows with every save.
 - A large model with a long history no longer shows its older versions as unrecoverable in
   Version History, and thinning old versions can no longer leave one that cannot be restored.
+- A model file never grows past what caditor can open again: when its earlier versions would
+  take it past 1.5 GiB, the oldest are removed and the save says how many, and a model too large
+  on its own is refused with that reason instead of being saved as a file that cannot be opened.
 - Saving a large model on Btrfs or XFS shares its unchanged earlier versions with the file it
   replaces instead of writing them again, so such saves are faster and take no extra disk space.
 - Models larger than 256 MiB keep saving and keep their earlier versions and unsaved changes,
