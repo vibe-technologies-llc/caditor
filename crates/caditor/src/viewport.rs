@@ -1939,7 +1939,7 @@ mod tests {
             document,
             Services {
                 make_waker: Box::new(|| Box::new(|| {})),
-                storage: StorageConfig { recovery_dir: None },
+                storage: StorageConfig::default(),
                 panic_flush: Arc::default(),
             },
         )

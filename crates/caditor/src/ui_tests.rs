@@ -159,6 +159,7 @@ impl Harness {
             make_waker: no_wake(),
             storage: StorageConfig {
                 recovery_dir: recovery_dir.clone(),
+                ..StorageConfig::default()
             },
             panic_flush: Arc::default(),
         };
@@ -1206,12 +1207,14 @@ fn save_as_refuses_a_model_open_in_another_window() {
     let other = Storage::spawn(
         StorageConfig {
             recovery_dir: Some(dir.path().join("recovery")),
+            ..StorageConfig::default()
         },
         Start {
             file: Some(other_path.clone()),
             on_disk: None,
             loaded_with_problems: false,
             base: Document::default(),
+            folded: 0,
             entries: Vec::new(),
             replaces: None,
             after: None,
@@ -2053,12 +2056,14 @@ fn unsaved_work_from_a_crash_is_offered_and_restored_with_its_history() {
     let crashed = Storage::spawn(
         StorageConfig {
             recovery_dir: Some(dir.path().join("recovery")),
+            ..StorageConfig::default()
         },
         Start {
             file: None,
             on_disk: None,
             loaded_with_problems: false,
             base,
+            folded: 0,
             entries: vec![JournalEntry::Apply(change)],
             replaces: None,
             after: None,

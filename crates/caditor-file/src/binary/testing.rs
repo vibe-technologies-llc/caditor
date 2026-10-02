@@ -43,7 +43,12 @@ pub(crate) fn rewrite_journal(bytes: &[u8], edit: impl Fn(usize, String) -> Stri
     let mut rewritten = start_file(&JOURNAL_MAGIC, container.version);
     for (index, chunk) in container.chunks().enumerate() {
         let kind = chunk.kind.unwrap();
-        let json = edit(index, json_of(&chunk.unpack(None).unwrap()));
+        let content = chunk.unpack(None).unwrap();
+        if content.is_empty() {
+            push_packed(&mut rewritten, kind, &content).unwrap();
+            continue;
+        }
+        let json = edit(index, json_of(&content));
         push_packed(&mut rewritten, kind, &content_of(&json)).unwrap();
     }
     rewritten

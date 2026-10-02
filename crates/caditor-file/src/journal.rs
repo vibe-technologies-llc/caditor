@@ -41,6 +41,19 @@ struct JournalHeader {
     loaded_with_problems: bool,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Logged {
+    Entry(JournalEntry),
+    UndoLast,
+    RedoNext,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RebasedSnapshotRecord {
+    snapshot: SnapshotRecord,
+    folded: u64,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct SnapshotRecord {
     parameters: Vec<Lenient<ParameterRecord>>,
@@ -54,18 +67,23 @@ struct SnapshotRecord {
     rollback: Option<RollbackRecord>,
 }
 
+pub(crate) struct JournalHead<'a> {
+    pub file: Option<&'a Path>,
+    pub on_disk: Option<&'a FileDigest>,
+    pub loaded_with_problems: bool,
+    pub folded: usize,
+}
+
 pub(crate) fn encode_journal(
-    file: Option<&Path>,
-    on_disk: Option<&FileDigest>,
-    loaded_with_problems: bool,
+    head: &JournalHead<'_>,
     base: &Document,
-    entries: &[JournalEntry],
+    entries: &[Logged],
 ) -> Result<Vec<u8>, EncodeError> {
     let header = JournalHeader {
-        file: file.and_then(Path::to_str).map(str::to_owned),
-        file_bytes: file.map(|file| file.as_os_str().as_bytes().to_vec()),
-        on_disk: on_disk.cloned(),
-        loaded_with_problems,
+        file: head.file.and_then(Path::to_str).map(str::to_owned),
+        file_bytes: head.file.map(|file| file.as_os_str().as_bytes().to_vec()),
+        on_disk: head.on_disk.cloned(),
+        loaded_with_problems: head.loaded_with_problems,
     };
     let mut bytes = start_file(&JOURNAL_MAGIC, JOURNAL_VERSION);
     push_packed(
@@ -73,30 +91,94 @@ pub(crate) fn encode_journal(
         ChunkKind::JournalHeader,
         &value::to_bytes(&header)?,
     )?;
-    push_packed(
-        &mut bytes,
-        ChunkKind::Snapshot,
-        &value::to_bytes(&snapshot_record(base))?,
-    )?;
+    let snapshot = snapshot_record(base);
+    if head.folded == 0 {
+        push_packed(
+            &mut bytes,
+            ChunkKind::Snapshot,
+            &value::to_bytes(&snapshot)?,
+        )?;
+    } else {
+        let rebased = RebasedSnapshotRecord {
+            snapshot,
+            folded: u64::try_from(head.folded).unwrap_or(u64::MAX),
+        };
+        push_packed(
+            &mut bytes,
+            ChunkKind::RebasedSnapshot,
+            &value::to_bytes(&rebased)?,
+        )?;
+    }
     for entry in entries {
         bytes.extend_from_slice(&encode_entry(entry)?);
     }
     Ok(bytes)
 }
 
-pub(crate) fn encode_entry(entry: &JournalEntry) -> Result<Vec<u8>, EncodeError> {
-    let (kind, transaction) = match entry {
-        JournalEntry::Apply(transaction) => (ChunkKind::Apply, transaction),
-        JournalEntry::Undo(transaction) => (ChunkKind::Undo, transaction),
-        JournalEntry::Redo(transaction) => (ChunkKind::Redo, transaction),
-    };
+pub(crate) fn encode_entry(entry: &Logged) -> Result<Vec<u8>, EncodeError> {
     let mut bytes = Vec::new();
+    let (kind, transaction) = match entry {
+        Logged::Entry(JournalEntry::Apply(transaction)) => (ChunkKind::Apply, transaction),
+        Logged::Entry(JournalEntry::Undo(transaction)) => (ChunkKind::Undo, transaction),
+        Logged::Entry(JournalEntry::Redo(transaction)) => (ChunkKind::Redo, transaction),
+        Logged::UndoLast => {
+            push_packed(&mut bytes, ChunkKind::UndoLast, &[])?;
+            return Ok(bytes);
+        }
+        Logged::RedoNext => {
+            push_packed(&mut bytes, ChunkKind::RedoNext, &[])?;
+            return Ok(bytes);
+        }
+    };
     push_packed(
         &mut bytes,
         kind,
         &value::to_bytes(&transaction_record(transaction))?,
     )?;
     Ok(bytes)
+}
+
+pub(crate) struct Mirror {
+    editor: Option<Editor>,
+}
+
+impl Mirror {
+    pub fn new(base: Document) -> Self {
+        Self {
+            editor: Some(Editor::new(base)),
+        }
+    }
+
+    pub fn document(&self) -> Option<&Document> {
+        self.editor.as_ref().map(Editor::document)
+    }
+
+    pub fn log(&mut self, entry: JournalEntry) -> Logged {
+        let Some(editor) = &mut self.editor else {
+            return Logged::Entry(entry);
+        };
+        let by_reference = match &entry {
+            JournalEntry::Undo(transaction) if editor.next_undo() == Some(transaction) => editor
+                .undo()
+                .is_ok_and(|undone| undone.is_some())
+                .then_some(Logged::UndoLast),
+            JournalEntry::Redo(transaction) if editor.next_redo() == Some(transaction) => editor
+                .redo()
+                .is_ok_and(|redone| redone.is_some())
+                .then_some(Logged::RedoNext),
+            JournalEntry::Apply(transaction)
+            | JournalEntry::Undo(transaction)
+            | JournalEntry::Redo(transaction) => editor
+                .apply(transaction.clone())
+                .is_ok()
+                .then(|| Logged::Entry(entry.clone())),
+        };
+        by_reference.unwrap_or_else(|| {
+            log::warn!("the recovery journal stopped following the edits; it keeps them whole");
+            self.editor = None;
+            Logged::Entry(entry)
+        })
+    }
 }
 
 fn snapshot_record(document: &Document) -> SnapshotRecord {
@@ -123,8 +205,9 @@ pub(crate) struct JournalContents {
     pub on_disk: Option<FileDigest>,
     pub loaded_with_problems: bool,
     pub base: Document,
+    pub folded: usize,
     pub issues: Vec<String>,
-    pub entries: Vec<JournalEntry>,
+    pub entries: Vec<Logged>,
     pub unreadable_entries: usize,
 }
 
@@ -137,8 +220,16 @@ pub(crate) fn decode_journal(bytes: &[u8]) -> Result<JournalContents, DamagedJou
         .filter(|container| container.version <= JOURNAL_VERSION)
         .ok_or(DamagedJournal)?;
     let mut pieces = container.pieces.iter();
-    let header: JournalHeader = next_of_kind(&mut pieces, ChunkKind::JournalHeader)?;
-    let snapshot: SnapshotRecord = next_of_kind(&mut pieces, ChunkKind::Snapshot)?;
+    let header: JournalHeader = content_of(pieces.next(), ChunkKind::JournalHeader)?;
+    let (snapshot, folded) = match pieces.next() {
+        Some(Piece::Chunk(chunk)) if chunk.kind == Some(ChunkKind::RebasedSnapshot) => {
+            let rebased: RebasedSnapshotRecord =
+                content_of(Some(&Piece::Chunk(*chunk)), ChunkKind::RebasedSnapshot)?;
+            let folded = usize::try_from(rebased.folded).unwrap_or(usize::MAX);
+            (rebased.snapshot, folded)
+        }
+        piece => (content_of(piece, ChunkKind::Snapshot)?, 0),
+    };
 
     let mut issues = Vec::new();
     let base = assemble(snapshot_parts(snapshot, &mut issues), &mut issues);
@@ -162,17 +253,18 @@ pub(crate) fn decode_journal(bytes: &[u8]) -> Result<JournalContents, DamagedJou
         on_disk: header.on_disk,
         loaded_with_problems: header.loaded_with_problems,
         base,
+        folded,
         issues,
         entries,
         unreadable_entries,
     })
 }
 
-fn next_of_kind<'a, T: for<'de> Deserialize<'de>>(
-    pieces: &mut impl Iterator<Item = &'a Piece<'a>>,
+fn content_of<T: for<'de> Deserialize<'de>>(
+    piece: Option<&Piece<'_>>,
     kind: ChunkKind,
 ) -> Result<T, DamagedJournal> {
-    let Some(Piece::Chunk(chunk)) = pieces.next() else {
+    let Some(Piece::Chunk(chunk)) = piece else {
         return Err(DamagedJournal);
     };
     if chunk.kind != Some(kind) {
@@ -182,25 +274,28 @@ fn next_of_kind<'a, T: for<'de> Deserialize<'de>>(
     value::from_bytes(&content).map_err(|_| DamagedJournal)
 }
 
-fn decode_entry(piece: &Piece<'_>) -> Option<JournalEntry> {
+fn decode_entry(piece: &Piece<'_>) -> Option<Logged> {
     let Piece::Chunk(chunk) = piece else {
         return None;
     };
-    let content = chunk.unpack(None).ok()?;
-    let record: TransactionRecord = value::from_bytes(&content).ok()?;
-    let transaction = restore_transaction(record)?;
-    match chunk.kind? {
-        ChunkKind::Apply => Some(JournalEntry::Apply(transaction)),
-        ChunkKind::Undo => Some(JournalEntry::Undo(transaction)),
-        ChunkKind::Redo => Some(JournalEntry::Redo(transaction)),
+    let entry = match chunk.kind? {
+        ChunkKind::UndoLast => return Some(Logged::UndoLast),
+        ChunkKind::RedoNext => return Some(Logged::RedoNext),
+        ChunkKind::Apply => JournalEntry::Apply,
+        ChunkKind::Undo => JournalEntry::Undo,
+        ChunkKind::Redo => JournalEntry::Redo,
         ChunkKind::Head
         | ChunkKind::Record
         | ChunkKind::VersionInfo
         | ChunkKind::VersionData
         | ChunkKind::JournalHeader
         | ChunkKind::Snapshot
-        | ChunkKind::Padding => None,
-    }
+        | ChunkKind::RebasedSnapshot
+        | ChunkKind::Padding => return None,
+    };
+    let content = chunk.unpack(None).ok()?;
+    let record: TransactionRecord = value::from_bytes(&content).ok()?;
+    Some(Logged::Entry(entry(restore_transaction(record)?)))
 }
 
 fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {
@@ -243,32 +338,61 @@ pub(crate) struct Replayed {
     pub stopped_early: bool,
 }
 
-pub(crate) fn replay(base: Document, entries: Vec<JournalEntry>) -> Replayed {
+pub(crate) fn replay(base: Document, entries: Vec<Logged>) -> Replayed {
     let mut editor = Editor::new(base);
     let mut replayed = Vec::with_capacity(entries.len());
     let mut stopped_early = false;
-    for entry in entries {
-        let applied = match &entry {
-            JournalEntry::Apply(transaction) => editor.apply(transaction.clone()).is_ok(),
-            JournalEntry::Undo(transaction) if editor.next_undo() == Some(transaction) => {
-                editor.undo().is_ok_and(|undone| undone.is_some())
-            }
-            JournalEntry::Redo(transaction) if editor.next_redo() == Some(transaction) => {
-                editor.redo().is_ok_and(|redone| redone.is_some())
-            }
-            JournalEntry::Undo(transaction) | JournalEntry::Redo(transaction) => {
-                editor.apply(transaction.clone()).is_ok()
-            }
-        };
-        if !applied {
+    for logged in entries {
+        let Some(entry) = replay_one(&mut editor, logged) else {
             stopped_early = true;
             break;
-        }
+        };
         replayed.push(entry);
     }
     Replayed {
         editor,
         entries: replayed,
         stopped_early,
+    }
+}
+
+fn replay_one(editor: &mut Editor, logged: Logged) -> Option<JournalEntry> {
+    let applied = match &logged {
+        Logged::UndoLast => {
+            let undone = editor.next_undo().cloned()?;
+            let entry = JournalEntry::Undo(undone);
+            return editor
+                .undo()
+                .is_ok_and(|undone| undone.is_some())
+                .then_some(entry);
+        }
+        Logged::RedoNext => {
+            let redone = editor.next_redo().cloned()?;
+            let entry = JournalEntry::Redo(redone);
+            return editor
+                .redo()
+                .is_ok_and(|redone| redone.is_some())
+                .then_some(entry);
+        }
+        Logged::Entry(JournalEntry::Apply(transaction)) => {
+            editor.apply(transaction.clone()).is_ok()
+        }
+        Logged::Entry(JournalEntry::Undo(transaction))
+            if editor.next_undo() == Some(transaction) =>
+        {
+            editor.undo().is_ok_and(|undone| undone.is_some())
+        }
+        Logged::Entry(JournalEntry::Redo(transaction))
+            if editor.next_redo() == Some(transaction) =>
+        {
+            editor.redo().is_ok_and(|redone| redone.is_some())
+        }
+        Logged::Entry(JournalEntry::Undo(transaction) | JournalEntry::Redo(transaction)) => {
+            editor.apply(transaction.clone()).is_ok()
+        }
+    };
+    match logged {
+        Logged::Entry(entry) if applied => Some(entry),
+        Logged::Entry(_) | Logged::UndoLast | Logged::RedoNext => None,
     }
 }

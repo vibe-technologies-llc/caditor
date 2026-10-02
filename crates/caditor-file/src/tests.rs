@@ -140,6 +140,7 @@ fn files_in(dir: &Path) -> Vec<String> {
 fn config(dir: &TempDir) -> StorageConfig {
     StorageConfig {
         recovery_dir: Some(dir.path().join("recovery")),
+        ..StorageConfig::default()
     }
 }
 
@@ -149,6 +150,7 @@ fn untitled(base: &Document) -> Start {
         on_disk: None,
         loaded_with_problems: false,
         base: base.clone(),
+        folded: 0,
         entries: Vec::new(),
         replaces: None,
         after: None,
@@ -625,6 +627,70 @@ fn a_damaged_head_keeps_every_record() {
     assert_eq!(missing.to_string(), "it no longer exists");
 }
 
+const DAMAGED_START: &str = "The start of the file is damaged, so it no longer reads as a \
+                             caditor model. Its parts still pass their checks and were loaded \
+                             from them; saving writes a sound start again.";
+
+#[test]
+fn a_model_whose_magic_is_damaged_loads_from_its_checked_parts() {
+    let bytes = crate::encode(&sample()).unwrap();
+
+    for index in 0..binary::MODEL_MAGIC.len() {
+        let mut flipped = bytes.clone();
+        flipped[index] ^= 0x20;
+        let loaded = decode(&flipped).unwrap();
+
+        assert_eq!(loaded.issues, [DAMAGED_START], "byte {index}");
+        assert_eq!(loaded.document, sample());
+    }
+
+    let mut shortened = bytes.clone();
+    shortened.remove(3);
+    let mut lengthened = bytes.clone();
+    lengthened.insert(5, b'?');
+
+    assert_eq!(decode(&shortened).unwrap().document, sample());
+    assert_eq!(decode(&lengthened).unwrap().document, sample());
+}
+
+#[test]
+fn a_damaged_magic_is_not_salvaged_without_an_intact_head_after_it() {
+    let model = crate::encode(&sample()).unwrap();
+    let mut journal = binary::start_file(&binary::JOURNAL_MAGIC, 1);
+    binary::push_packed(&mut journal, binary::ChunkKind::JournalHeader, b"header").unwrap();
+    journal[2] = b'X';
+    let mut garbled = corrupt_chunk(&model, &binary::MODEL_MAGIC, 0);
+    garbled[0] = b'#';
+
+    assert_eq!(decode(&journal), Err(LoadError::NotAModel));
+    assert_eq!(decode(&garbled), Err(LoadError::NotAModel));
+    assert_eq!(
+        decode(b"CDCK is how caditor marks its chunks"),
+        Err(LoadError::NotAModel)
+    );
+}
+
+#[test]
+fn saving_over_a_model_with_a_damaged_magic_keeps_it_and_its_versions() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    save(&Document::default(), &path, false).unwrap();
+    save(&sample(), &path, false).unwrap();
+    let mut damaged = fs::read(&path).unwrap();
+    damaged[1] = b'X';
+    fs::write(&path, &damaged).unwrap();
+
+    let backup = save(&sample(), &path, false).unwrap().backup.unwrap();
+
+    assert_eq!(fs::read(&backup).unwrap(), damaged);
+    assert!(load(&path).unwrap().issues.is_empty());
+    assert_eq!(crate::history(&path).unwrap().versions.len(), 1);
+    assert_eq!(
+        load_version(&path, 0).unwrap().document,
+        Document::default()
+    );
+}
+
 #[test]
 fn a_crashed_session_is_recovered_with_its_undo_history() {
     let dir = TempDir::new().unwrap();
@@ -922,6 +988,72 @@ fn set_aside_journals_are_pruned_once_they_are_old() {
     assert!(pruned.iter().all(|file| !file.exists()));
 }
 
+fn crashed_then_set_aside(dir: &TempDir, path: &Path, base: &Document) -> PathBuf {
+    save(base, path, false).unwrap();
+    let start = Start {
+        file: Some(path.to_path_buf()),
+        on_disk: None,
+        ..untitled(base)
+    };
+    let storage = Storage::spawn(config(dir), start, || {}).unwrap();
+    let mut editor = Editor::new(base.clone());
+    record_session(&storage, &mut editor);
+    crash(storage);
+    let journal = dir.path().join(".model.caditor.journal");
+    let set_aside = paths::unreadable_journal(&journal);
+    fs::rename(&journal, &set_aside).unwrap();
+    set_aside
+}
+
+#[test]
+fn a_set_aside_journal_this_version_reads_is_offered_for_restoring() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let recovery = dir.path().join("recovery");
+    let set_aside = crashed_then_set_aside(&dir, &path, &sample());
+
+    let scanned = scan(Some(&recovery), std::slice::from_ref(&path));
+    let FileJournal::Recoverable(opened) = journal_for(&path, Some(&recovery)) else {
+        panic!("the set-aside journal reads, so it should be offered");
+    };
+
+    assert_eq!(scanned.len(), 1);
+    assert_eq!(scanned[0].journal, set_aside);
+    assert_eq!(scanned[0].file.as_deref(), Some(path.as_path()));
+    assert_eq!(scanned[0].changes(), 3);
+    assert_eq!(opened.journal, set_aside);
+    assert_eq!(opened.editor.document(), scanned[0].editor.document());
+}
+
+#[test]
+fn restoring_a_set_aside_journal_moves_it_back_beside_its_model() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let recovery = dir.path().join("recovery");
+    let set_aside = crashed_then_set_aside(&dir, &path, &sample());
+    let recovered = scan(Some(&recovery), std::slice::from_ref(&path)).remove(0);
+
+    let start = Start {
+        file: recovered.file.clone(),
+        on_disk: recovered.on_disk.clone(),
+        loaded_with_problems: recovered.loaded_with_problems,
+        base: recovered.base.clone(),
+        folded: recovered.folded,
+        entries: recovered.entries.clone(),
+        replaces: Some(recovered.journal.clone()),
+        after: None,
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    assert!(storage.flusher().flush(WAIT));
+    crash(storage);
+
+    assert!(!set_aside.exists());
+    let again = scan(Some(&recovery), std::slice::from_ref(&path));
+    assert_eq!(again.len(), 1);
+    assert_eq!(again[0].journal, dir.path().join(".model.caditor.journal"));
+    assert_eq!(again[0].editor.document(), recovered.editor.document());
+}
+
 #[test]
 fn an_unreadable_journal_is_set_aside_before_a_new_one_replaces_it() {
     let dir = TempDir::new().unwrap();
@@ -1098,6 +1230,7 @@ fn restoring_rewrites_the_journal_in_place() {
         on_disk: None,
         loaded_with_problems: false,
         base: recovered.base.clone(),
+        folded: recovered.folded,
         entries: recovered.entries.clone(),
         replaces: Some(recovered.journal.clone()),
         after: None,
@@ -1882,7 +2015,17 @@ fn hidden_principal_geometry_stays_hidden_through_saving_the_journal_and_its_sna
     let journaled: format::TransactionRecord =
         through_binary(&serde_json::to_string(&format::transaction_record(&hide)).unwrap());
     let recovered = journal::decode_journal(
-        &journal::encode_journal(None, None, false, &document, &[]).unwrap(),
+        &journal::encode_journal(
+            &journal::JournalHead {
+                file: None,
+                on_disk: None,
+                loaded_with_problems: false,
+                folded: 0,
+            },
+            &document,
+            &[],
+        )
+        .unwrap(),
     )
     .unwrap();
 
@@ -2479,6 +2622,7 @@ fn restoring_keeps_the_recovered_journal_until_a_new_one_is_written() {
         on_disk: None,
         loaded_with_problems: false,
         base: recovered.base.clone(),
+        folded: recovered.folded,
         entries: recovered.entries.clone(),
         replaces: Some(recovered.journal.clone()),
         after: None,
@@ -2917,9 +3061,15 @@ fn records_beyond_the_limit_are_left_out_and_reported() {
 fn a_journal_larger_than_a_chunk_replays_whole() {
     let base = sample();
     let change = edit_width(&base, "50 mm");
-    let entries = [JournalEntry::Apply(change)];
+    let entries = [journal::Logged::Entry(JournalEntry::Apply(change))];
+    let head = journal::JournalHead {
+        file: None,
+        on_disk: None,
+        loaded_with_problems: false,
+        folded: 0,
+    };
     let bytes = binary::testing::with_slices_of(64, || {
-        journal::encode_journal(None, None, false, &base, &entries).unwrap()
+        journal::encode_journal(&head, &base, &entries).unwrap()
     });
 
     let contents = journal::decode_journal(&bytes).unwrap();
@@ -2927,6 +3077,194 @@ fn a_journal_larger_than_a_chunk_replays_whole() {
     assert_eq!(contents.base, base);
     assert_eq!(contents.entries, entries);
     assert_eq!(contents.unreadable_entries, 0);
+}
+
+fn journal_kinds(journal: &Path) -> Vec<binary::ChunkKind> {
+    let bytes = fs::read(journal).unwrap();
+    binary::parse(&bytes, &binary::JOURNAL_MAGIC)
+        .unwrap()
+        .chunks()
+        .map(|chunk| chunk.kind.unwrap())
+        .collect()
+}
+
+fn undo_and_redo(storage: &Storage, editor: &mut Editor) {
+    let undone = editor.next_undo().cloned().unwrap();
+    editor.undo().unwrap();
+    storage.record(JournalEntry::Undo(undone)).unwrap();
+    let redone = editor.next_redo().cloned().unwrap();
+    editor.redo().unwrap();
+    storage.record(JournalEntry::Redo(redone)).unwrap();
+    assert!(storage.flusher().flush(WAIT));
+}
+
+#[test]
+fn undo_and_redo_are_journaled_by_reference_and_replay_with_their_history() {
+    use binary::ChunkKind::{Apply, JournalHeader, RedoNext, Snapshot, UndoLast};
+    let dir = TempDir::new().unwrap();
+    let storage = Storage::spawn(config(&dir), untitled(&sample()), || {}).unwrap();
+    let mut editor = Editor::new(sample());
+    let change = edit_width(editor.document(), "50 mm");
+    editor.apply(change.clone()).unwrap();
+    storage.record(JournalEntry::Apply(change)).unwrap();
+    undo_and_redo(&storage, &mut editor);
+    crash(storage);
+    let journal = only_file_in(&dir.path().join("recovery"));
+
+    let kinds = journal_kinds(&journal);
+    let Inspection::Recoverable(recovered) = inspect(&journal).unwrap() else {
+        panic!("the session should be recoverable");
+    };
+
+    assert_eq!(kinds, [JournalHeader, Snapshot, Apply, UndoLast, RedoNext]);
+    assert_eq!(recovered.changes(), 3);
+    assert_eq!(recovered.editor.document(), editor.document());
+    assert_eq!(recovered.editor.next_undo(), editor.next_undo());
+    assert!(matches!(recovered.entries[1], JournalEntry::Undo(_)));
+}
+
+#[test]
+fn an_undo_reaching_past_the_journal_snapshot_is_journaled_whole() {
+    use binary::ChunkKind::{JournalHeader, Redo, Snapshot, Undo, UndoLast};
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let start = Start {
+        file: Some(path.clone()),
+        ..untitled(&sample())
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    let mut editor = Editor::new(sample());
+    let change = edit_width(editor.document(), "50 mm");
+    editor.apply(change.clone()).unwrap();
+    storage.record(JournalEntry::Apply(change)).unwrap();
+    storage
+        .save(SaveRequest {
+            ticket: 1,
+            document: editor.document().clone(),
+            path: path.clone(),
+            keep_original: false,
+            label: None,
+            replace_outside_changes: false,
+        })
+        .unwrap();
+    undo_and_redo(&storage, &mut editor);
+    let undone = editor.next_undo().cloned().unwrap();
+    editor.undo().unwrap();
+    storage.record(JournalEntry::Undo(undone)).unwrap();
+    assert!(storage.flusher().flush(WAIT));
+    crash(storage);
+    let journal = dir.path().join(".model.caditor.journal");
+
+    let kinds = journal_kinds(&journal);
+    let FileJournal::Recoverable(recovered) = journal_for(&path, None) else {
+        panic!("the undone change should be recoverable");
+    };
+
+    assert_eq!(kinds, [JournalHeader, Snapshot, Undo, Redo, UndoLast]);
+    assert_eq!(recovered.editor.document(), editor.document());
+    assert_eq!(recovered.changes(), 3);
+}
+
+fn rebasing(dir: &TempDir) -> StorageConfig {
+    StorageConfig {
+        rebase_journal_after: 0,
+        ..config(dir)
+    }
+}
+
+struct Rebased {
+    folded: usize,
+    recorded: usize,
+}
+
+fn edit_until_rebased(storage: &Storage, editor: &mut Editor) -> Rebased {
+    let mut states = vec![editor.document().clone()];
+    for step in 0..400 {
+        let change = edit_width(editor.document(), &format!("{} mm", 40 + step % 7));
+        editor.apply(change.clone()).unwrap();
+        states.push(editor.document().clone());
+        storage.record(JournalEntry::Apply(change)).unwrap();
+        assert!(storage.flusher().flush(WAIT));
+        let rebased = storage
+            .poll()
+            .unwrap()
+            .into_iter()
+            .find_map(|report| match report {
+                Report::Rebased { entries, base } => Some((entries, base)),
+                _ => None,
+            });
+        if let Some((folded, base)) = rebased {
+            assert_eq!(base, states[folded]);
+            return Rebased {
+                folded,
+                recorded: states.len() - 1,
+            };
+        }
+    }
+    panic!("the journal never rebased");
+}
+
+fn later_kinds_are_applies(kinds: &[binary::ChunkKind]) -> bool {
+    use binary::ChunkKind::{Apply, JournalHeader, RebasedSnapshot};
+    kinds.starts_with(&[JournalHeader, RebasedSnapshot])
+        && kinds.iter().skip(2).all(|kind| *kind == Apply)
+}
+
+#[test]
+fn a_journal_past_its_size_rebases_onto_the_model_as_edited() {
+    let dir = TempDir::new().unwrap();
+    let storage = Storage::spawn(rebasing(&dir), untitled(&sample()), || {}).unwrap();
+    let mut editor = Editor::new(sample());
+
+    let rebased = edit_until_rebased(&storage, &mut editor);
+    let change = edit_width(editor.document(), "99 mm");
+    editor.apply(change.clone()).unwrap();
+    storage.record(JournalEntry::Apply(change)).unwrap();
+    assert!(storage.flusher().flush(WAIT));
+    crash(storage);
+    let journal = only_file_in(&dir.path().join("recovery"));
+
+    let recovered = scan(Some(&dir.path().join("recovery")), &[]).remove(0);
+
+    assert!(rebased.folded > 1);
+    assert!(later_kinds_are_applies(&journal_kinds(&journal)));
+    assert!(recovered.folded >= rebased.folded);
+    assert_eq!(recovered.changes(), rebased.recorded + 1);
+    assert_eq!(recovered.editor.document(), editor.document());
+}
+
+#[test]
+fn a_rebased_journal_is_offered_and_restored_with_its_folded_changes() {
+    let dir = TempDir::new().unwrap();
+    let recovery = dir.path().join("recovery");
+    let storage = Storage::spawn(rebasing(&dir), untitled(&sample()), || {}).unwrap();
+    let mut editor = Editor::new(sample());
+    let rebased = edit_until_rebased(&storage, &mut editor);
+    crash(storage);
+    let recovered = scan(Some(&recovery), &[]).remove(0);
+
+    let start = Start {
+        file: None,
+        on_disk: None,
+        loaded_with_problems: false,
+        base: recovered.base.clone(),
+        folded: recovered.folded,
+        entries: recovered.entries.clone(),
+        replaces: Some(recovered.journal.clone()),
+        after: None,
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    assert!(storage.flusher().flush(WAIT));
+    crash(storage);
+    let journal = only_file_in(&recovery);
+    let again = scan(Some(&recovery), &[]).remove(0);
+
+    assert!(recovered.folded > 0);
+    assert_eq!(recovered.changes(), rebased.recorded);
+    assert_eq!(recovered.editor.document(), editor.document());
+    assert!(later_kinds_are_applies(&journal_kinds(&journal)));
+    assert_eq!(again.changes(), rebased.recorded);
+    assert_eq!(again.editor.document(), editor.document());
 }
 
 fn suppressed_and_rolled_back() -> (Document, FeatureId, FeatureId, Transaction) {
@@ -2958,7 +3296,17 @@ fn suppressed_features_and_the_rollback_bar_stay_through_saving_the_journal_and_
     let journaled: format::TransactionRecord =
         through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
     let recovered = journal::decode_journal(
-        &journal::encode_journal(None, None, false, &document, &[]).unwrap(),
+        &journal::encode_journal(
+            &journal::JournalHead {
+                file: None,
+                on_disk: None,
+                loaded_with_problems: false,
+                folded: 0,
+            },
+            &document,
+            &[],
+        )
+        .unwrap(),
     )
     .unwrap();
 

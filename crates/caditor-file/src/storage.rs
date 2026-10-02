@@ -12,7 +12,7 @@ use caditor_document::Document;
 
 use crate::{
     binary::FileDigest,
-    journal::{JournalEntry, encode_entry, encode_journal},
+    journal::{JournalEntry, JournalHead, Logged, Mirror, encode_entry, encode_journal},
     lock::{holds, install, locked_elsewhere, remove_held, remove_unheld},
     paths, reason,
     recovery::{mark_journal, unmark_journal},
@@ -24,10 +24,21 @@ use crate::{
 const PREDECESSOR_TIMEOUT: Duration = Duration::from_secs(5);
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 const PRIVATE_MODE: u32 = 0o600;
+const REBASE_JOURNAL_AFTER: u64 = 32 << 20;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageConfig {
     pub recovery_dir: Option<PathBuf>,
+    pub rebase_journal_after: u64,
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            recovery_dir: None,
+            rebase_journal_after: REBASE_JOURNAL_AFTER,
+        }
+    }
 }
 
 pub struct Start {
@@ -35,6 +46,7 @@ pub struct Start {
     pub on_disk: Option<FileDigest>,
     pub loaded_with_problems: bool,
     pub base: Document,
+    pub folded: usize,
     pub entries: Vec<JournalEntry>,
     pub replaces: Option<PathBuf>,
     pub after: Option<Closing>,
@@ -50,7 +62,7 @@ pub struct SaveRequest {
     pub replace_outside_changes: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Report {
     Saved {
         ticket: u64,
@@ -72,6 +84,10 @@ pub enum Report {
         reason: String,
     },
     JournalRestored,
+    Rebased {
+        entries: usize,
+        base: Document,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -106,6 +122,7 @@ impl Storage {
                     on_disk,
                     loaded_with_problems,
                     base,
+                    folded,
                     entries,
                     replaces,
                     after,
@@ -115,14 +132,21 @@ impl Storage {
                 {
                     log::warn!("the previous storage worker did not finish in time");
                 }
+                let mut mirror = Mirror::new(base.clone());
+                let entries = entries.into_iter().map(|entry| mirror.log(entry)).collect();
                 let mut worker = Worker {
                     untitled: config.recovery_dir.as_deref().map(paths::untitled_journal),
                     recovery_dir: config.recovery_dir,
+                    rebase_after: config.rebase_journal_after,
                     file,
                     on_disk,
                     loaded_with_problems,
                     base,
+                    folded,
                     entries,
+                    mirror,
+                    written: 0,
+                    appended: 0,
                     replaces,
                     journal: None,
                     protected: false,
@@ -215,11 +239,16 @@ struct OpenJournal {
 struct Worker {
     recovery_dir: Option<PathBuf>,
     untitled: Option<PathBuf>,
+    rebase_after: u64,
     file: Option<PathBuf>,
     on_disk: Option<FileDigest>,
     loaded_with_problems: bool,
     base: Document,
-    entries: Vec<JournalEntry>,
+    folded: usize,
+    entries: Vec<Logged>,
+    mirror: Mirror,
+    written: u64,
+    appended: u64,
     replaces: Option<PathBuf>,
     journal: Option<OpenJournal>,
     protected: bool,
@@ -256,6 +285,9 @@ impl Worker {
                     if self.retry_due() {
                         self.retry();
                     }
+                    if self.rebase_due() {
+                        self.rebase();
+                    }
                 }
                 Err(RecvTimeoutError::Timeout) => self.retry(),
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -291,17 +323,49 @@ impl Worker {
     }
 
     fn append(&mut self, entry: JournalEntry) {
+        let logged = self.mirror.log(entry);
         let written = match &mut self.journal {
-            Some(journal) if self.protected => encode_entry(&entry)
+            Some(journal) if self.protected => encode_entry(&logged)
                 .map_err(io::Error::other)
-                .and_then(|chunk| journal.file.write_all(&chunk)),
-            Some(_) | None => Ok(()),
+                .and_then(|chunk| {
+                    journal.file.write_all(&chunk)?;
+                    Ok(chunk.len())
+                }),
+            Some(_) | None => Ok(0),
         };
-        self.entries.push(entry);
+        self.entries.push(logged);
         match written {
-            Ok(()) => self.unsynced = self.protected,
+            Ok(length) => {
+                self.appended = self
+                    .appended
+                    .saturating_add(u64::try_from(length).unwrap_or(u64::MAX));
+                self.unsynced = self.protected;
+            }
             Err(error) => self.lose_protection(&error),
         }
+    }
+
+    fn rebase_due(&self) -> bool {
+        self.protected
+            && !self.entries.is_empty()
+            && self.mirror.document().is_some()
+            && self.appended > self.rebase_after.max(self.written)
+    }
+
+    fn rebase(&mut self) {
+        let Some(document) = self.mirror.document().cloned() else {
+            return;
+        };
+        let entries = self.entries.len();
+        self.folded = self.folded.saturating_add(entries);
+        self.entries.clear();
+        self.base = document.clone();
+        self.mirror = Mirror::new(document.clone());
+        self.rewrite();
+        self.report(Report::Rebased {
+            entries,
+            base: document,
+        });
     }
 
     fn sync(&mut self) {
@@ -372,7 +436,9 @@ impl Worker {
                 self.file = Some(request.path.clone());
                 self.on_disk = Some(saved.digest.clone());
                 self.loaded_with_problems = false;
+                self.mirror = Mirror::new(request.document.clone());
                 self.base = request.document;
+                self.folded = 0;
                 self.entries.clear();
                 self.rewrite();
                 Report::Saved {
@@ -419,13 +485,13 @@ impl Worker {
             self.fail("there is no folder to keep it in".to_owned());
             return;
         }
-        let contents = match encode_journal(
-            self.file.as_deref(),
-            self.on_disk.as_ref(),
-            self.loaded_with_problems,
-            &self.base,
-            &self.entries,
-        ) {
+        let head = JournalHead {
+            file: self.file.as_deref(),
+            on_disk: self.on_disk.as_ref(),
+            loaded_with_problems: self.loaded_with_problems,
+            folded: self.folded,
+        };
+        let contents = match encode_journal(&head, &self.base, &self.entries) {
             Ok(contents) => contents,
             Err(error) => {
                 log::error!("could not encode the recovery journal: {error}");
@@ -475,6 +541,8 @@ impl Worker {
                     }
                     self.protected = true;
                     self.unsynced = false;
+                    self.written = u64::try_from(contents.len()).unwrap_or(u64::MAX);
+                    self.appended = 0;
                     return;
                 }
                 Err(error) => {

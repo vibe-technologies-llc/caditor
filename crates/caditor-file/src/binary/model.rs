@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     CHUNK_HEADER_LENGTH, Chunk, ChunkKind, Codec, MODEL_MAGIC, PackError, Piece, UnpackError,
-    has_magic, parse, push_packed, push_packed_after, push_padding,
+    damaged, parse, push_packed, push_packed_after, push_padding,
     retention::retained,
-    start_file,
+    salvage, start_file,
     value::{self, ValueError, push_varint, read_varint},
 };
 use crate::{
@@ -173,7 +173,7 @@ impl StoredVersion<'_> {
 
 #[derive(Debug, Clone, PartialEq)]
 struct Parsed<'a> {
-    version: u32,
+    version: Option<u32>,
     damaged: usize,
     head: Option<StateRecord>,
     records: Vec<Chunk<'a>>,
@@ -183,17 +183,20 @@ struct Parsed<'a> {
 
 impl<'a> Parsed<'a> {
     fn of(bytes: &'a [u8]) -> Option<Self> {
-        let container = parse(bytes, &MODEL_MAGIC)?;
+        let (version, pieces) = match parse(bytes, &MODEL_MAGIC) {
+            Some(container) => (Some(container.version), container.pieces),
+            None => (None, salvage(bytes, ChunkKind::Head)?),
+        };
         let mut parsed = Self {
-            version: container.version,
-            damaged: container.damaged(),
+            version,
+            damaged: damaged(&pieces),
             head: None,
             records: Vec::new(),
             versions: Vec::new(),
             foreign: Vec::new(),
         };
         let mut pending_info = None;
-        for piece in &container.pieces {
+        for piece in &pieces {
             let Piece::Chunk(chunk) = *piece else {
                 pending_info = None;
                 continue;
@@ -217,7 +220,10 @@ impl<'a> Parsed<'a> {
                     | ChunkKind::Snapshot
                     | ChunkKind::Apply
                     | ChunkKind::Undo
-                    | ChunkKind::Redo,
+                    | ChunkKind::Redo
+                    | ChunkKind::UndoLast
+                    | ChunkKind::RedoNext
+                    | ChunkKind::RebasedSnapshot,
                 ) => {}
                 None => {
                     parsed.foreign.push(chunk);
@@ -282,7 +288,7 @@ impl<'a> Parsed<'a> {
     }
 
     fn is_damaged(&self, contents: &[Unpacked]) -> bool {
-        self.damaged > 0 || !self.holds_every_record(contents)
+        self.version.is_none() || self.damaged > 0 || !self.holds_every_record(contents)
     }
 
     fn holds_every_record(&self, contents: &[Unpacked]) -> bool {
@@ -1037,13 +1043,16 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Err(LoadError::Empty);
     }
-    if !has_magic(bytes, &MODEL_MAGIC) {
-        return Err(LoadError::NotAModel);
-    }
     let parsed = Parsed::of(bytes).ok_or(LoadError::NotAModel)?;
     let mut issues = Vec::new();
-    if parsed.version > FORMAT_VERSION {
-        issues.push(newer_version(parsed.version));
+    match parsed.version {
+        Some(version) if version > FORMAT_VERSION => issues.push(newer_version(version)),
+        Some(_) => {}
+        None => issues.push(
+            "The start of the file is damaged, so it no longer reads as a caditor model. Its parts \
+             still pass their checks and were loaded from them; saving writes a sound start again."
+                .to_owned(),
+        ),
     }
     if parsed.foreign.iter().any(Chunk::must_understand) {
         issues.push(

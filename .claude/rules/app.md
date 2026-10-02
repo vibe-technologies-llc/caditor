@@ -46,9 +46,10 @@ paths:
   or outdated. Suppressed features and those below the rollback bar are not drawn or picked
   (`scene.rs` walks `Document::active_features`), so the view shows the model as of the bar.
 - `Model` owns the file session: the path, the last saved document (the model is unsaved exactly
-  when its document differs from it), the journal entries since then and the `Storage` worker, to
-  which every change is recorded. While the journal cannot be written the status bar shows Not
-  protected.
+  when its document differs from it, and always when it is unknown, after restoring a journal that
+  had been rebased), the journal's base and the entries since it (kept to restart a stopped
+  `Storage`, and dropped up to a `Report::Rebased`) and the `Storage` worker, to which every change
+  is recorded. While the journal cannot be written the status bar shows Not protected.
 
 ## Scene
 

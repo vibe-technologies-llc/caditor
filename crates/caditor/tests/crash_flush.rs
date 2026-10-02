@@ -60,12 +60,14 @@ fn crash_child() {
     let storage = Storage::spawn(
         StorageConfig {
             recovery_dir: Some(dir.into()),
+            ..StorageConfig::default()
         },
         Start {
             file: None,
             on_disk: None,
             loaded_with_problems: false,
             base: Document::default(),
+            folded: 0,
             entries: Vec::new(),
             replaces: None,
             after: None,

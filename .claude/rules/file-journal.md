@@ -15,6 +15,26 @@ paths:
 
 - Model container (`file-format.md`): header chunk naming the file, snapshot of the last saved
   state, one chunk per change (`apply`, `undo`, `redo` with the transaction).
+- Undo and redo are journaled by reference when they can be: the storage worker follows the
+  journal in a `Mirror` (an `Editor` from the snapshot, fed every entry as replay would), and an
+  undo or redo whose transaction is the mirror's next one is written as an empty `UndoLast` or
+  `RedoNext` chunk, so undoing and redoing an import never repeats its STEP text. One reaching
+  past the snapshot (undoing beyond a save or a rebase) is written whole, as is everything once
+  the mirror cannot follow (it then logs a warning and stops until the next save). Replay resolves
+  the references through its own `Editor`, so `Recovered::entries` hold whole transactions.
+- Past a size the worker rebases the journal in the background: once the bytes appended since the
+  last rewrite exceed both `StorageConfig::rebase_journal_after` (32 MiB) and that rewrite's size,
+  the mirror's document becomes the snapshot, its entries are counted in `folded` and dropped, and
+  the journal is rewritten whole; `Report::Rebased` hands the app the new base and the count so it
+  drops its own copies (`Model::journal_base`, `folded`). A journal stays within about twice the
+  larger of the threshold and the model, and the worker's and app's entries within the threshold.
+  The undo steps of folded changes are not recovered.
+- A rebased snapshot is a `RebasedSnapshot` chunk (`{snapshot, folded}`), never a plain
+  `Snapshot`: it is not the saved state, so the scan must not delete it as unchanged, and an older
+  caditor, not knowing the kind, reads the journal as damaged and sets it aside rather than
+  deleting it. `Recovered::folded` and `Start::folded` carry the count; `changes()` includes it.
+  A recovered session with folded changes has no known saved state (`Model::saved` is `None`), so
+  it stays modified until saved.
 - Header carries the path as raw bytes (non-UTF-8 names survive), whether the file loaded with
   problems, so a recovered session still keeps the damaged original on its first save, and
   `on_disk`, the head digest of the file the session last loaded or saved (written only when
@@ -54,7 +74,7 @@ paths:
 
 - One worker thread per open document; owns the journal and performs saves, keeping appends, saves
   and the journal's rebase onto the saved snapshot in order. Fsyncs after each batch.
-- Keeps the saved snapshot and entries since. After a write error (`Report::JournalFailed`) it
+- Keeps the journal's snapshot (the saved state, or the last rebase) and entries since. After a write error (`Report::JournalFailed`) it
   keeps the lock, stops appending and rewrites the whole journal every few seconds until it
   succeeds (`Report::JournalRestored`).
 - A replaced journal (after a save or restore) is removed only once the new one is written; a
@@ -96,5 +116,8 @@ paths:
   aside by `journal_for` to `<journal>.<seconds>.unreadable` (no scan picks it up) before the new
   session's journal takes its place (`FileJournal::SetAside`); opening reports where it was kept.
   The scan removes those in the recovery directory and next to recent files once the seconds in
-  their name are over thirty days old (`paths::SET_ASIDE_KEPT_SECONDS`); none is offered for
-  restoring.
+  their name are over thirty days old (`paths::SET_ASIDE_KEPT_SECONDS`). Until then the scan
+  inspects them like any journal, so once a caditor that reads them runs (the newer version that
+  wrote them), they are offered for restoring, and `journal_for` offers the newest readable one
+  set aside for a model when its own journal holds nothing; restoring takes it over like any
+  recovered journal (`Start::replaces`), and one with nothing left to recover is deleted.

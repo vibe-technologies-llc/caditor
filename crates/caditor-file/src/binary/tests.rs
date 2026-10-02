@@ -300,7 +300,7 @@ fn forged_chunk_headers_cannot_make_the_resync_scan_quadratic() {
         started.elapsed()
     );
     assert_eq!(container.chunks().count(), 0);
-    assert_eq!(container.damaged(), 1);
+    assert_eq!(damaged(&container.pieces), 1);
 }
 
 #[test]

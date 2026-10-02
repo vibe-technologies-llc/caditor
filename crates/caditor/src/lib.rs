@@ -131,6 +131,7 @@ pub fn run() -> Result<()> {
             make_waker: app::waker_factory(event_loop.create_proxy()),
             storage: StorageConfig {
                 recovery_dir: recovery_dir.clone(),
+                ..StorageConfig::default()
             },
             panic_flush,
         },

@@ -29,6 +29,7 @@ const CHECKSUM: std::ops::Range<usize> = 16..CHUNK_HEADER_LENGTH;
 const MAX_CONTENT: usize = 1 << 28;
 const MAX_JOINED_CONTENT: usize = 1 << 31;
 const HASHING_ALLOWANCE: usize = 4;
+const SALVAGE_REACH: usize = 64;
 const LEVEL: Level = Level::BALANCED;
 pub(crate) const MUST_UNDERSTAND: u8 = 1;
 const CONTINUED: u8 = 2;
@@ -47,10 +48,13 @@ pub(crate) enum ChunkKind {
     Undo = 8,
     Redo = 9,
     Padding = 10,
+    UndoLast = 11,
+    RedoNext = 12,
+    RebasedSnapshot = 13,
 }
 
 impl ChunkKind {
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 13] = [
         Self::Head,
         Self::Record,
         Self::VersionInfo,
@@ -61,6 +65,9 @@ impl ChunkKind {
         Self::Undo,
         Self::Redo,
         Self::Padding,
+        Self::UndoLast,
+        Self::RedoNext,
+        Self::RebasedSnapshot,
     ];
 
     fn from_byte(byte: u8) -> Option<Self> {
@@ -210,23 +217,35 @@ impl<'a> Container<'a> {
             Piece::Damaged => None,
         })
     }
-
-    pub fn damaged(&self) -> usize {
-        self.pieces
-            .iter()
-            .filter(|piece| **piece == Piece::Damaged)
-            .count()
-    }
 }
 
-pub(crate) fn has_magic(bytes: &[u8], magic: &Magic) -> bool {
-    bytes.starts_with(magic)
+pub(crate) fn damaged(pieces: &[Piece<'_>]) -> usize {
+    pieces
+        .iter()
+        .filter(|piece| **piece == Piece::Damaged)
+        .count()
 }
 
 pub(crate) fn parse<'a>(bytes: &'a [u8], magic: &Magic) -> Option<Container<'a>> {
     let rest = bytes.strip_prefix(magic)?;
     let version = u32::from_le_bytes(rest.get(..VERSION_LENGTH)?.try_into().ok()?);
     let body = rest.get(VERSION_LENGTH..)?;
+    Some(Container {
+        version,
+        pieces: parse_body(body),
+    })
+}
+
+pub(crate) fn salvage(bytes: &[u8], leading: ChunkKind) -> Option<Vec<Piece<'_>>> {
+    let reach = bytes.len().min(SALVAGE_REACH);
+    let start = next_sync(bytes.get(..reach)?, 0);
+    let body = bytes.get(start..)?;
+    let mut hashing_budget = body.len().saturating_mul(HASHING_ALLOWANCE);
+    let (first, _) = read_chunk(body, 0, &mut hashing_budget).ok()?;
+    (first.kind == Some(leading)).then(|| parse_body(body))
+}
+
+fn parse_body(body: &[u8]) -> Vec<Piece<'_>> {
     let mut pieces = Pieces::default();
     let mut position = 0;
     let mut hashing_budget = body.len().saturating_mul(HASHING_ALLOWANCE);
@@ -246,10 +265,7 @@ pub(crate) fn parse<'a>(bytes: &'a [u8], magic: &Magic) -> Option<Container<'a>>
             }
         }
     }
-    Some(Container {
-        version,
-        pieces: pieces.finish(),
-    })
+    pieces.finish()
 }
 
 #[derive(Default)]

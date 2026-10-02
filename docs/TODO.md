@@ -35,17 +35,9 @@ within a category run from most to least important.
 
 ## Persistence and recovery
 
-- The recovery journal grows without bound until a save: every apply, undo and redo appends the
-  whole transaction (undoing and redoing an import repeats its STEP text), the worker's
-  `entries` grow all session, and a journal over 2 GiB cannot be recovered. Rebase the snapshot
-  in the background past a size, and journal undo and redo by reference.
-- One flipped byte in the 12-byte magic refuses the whole file as not a model even when every
-  chunk checksum is intact; offer a salvage open.
 - Load and save hold five or six copies of the model (every record unpacked before any is
   parsed, the unchanged-record check keyed by full bytes), contradicting "records decode one at
   a time" in `file-format.md`. Opening Version History decompresses every version to verify it.
-- Set-aside `.unreadable` journals are never offered for restoring; they are only pruned after
-  thirty days.
 
 ## Reliability and diagnostics
 

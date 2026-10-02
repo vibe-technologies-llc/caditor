@@ -120,7 +120,9 @@ enum Retry {
 
 struct Session {
     editor: Editor,
-    saved: Document,
+    saved: Option<Document>,
+    journal_base: Document,
+    folded: usize,
     path: Option<PathBuf>,
     on_disk: Option<FileDigest>,
     keep_original: bool,
@@ -144,7 +146,9 @@ pub struct Model {
     storage: Option<Storage>,
     path: Option<PathBuf>,
     on_disk: Option<FileDigest>,
-    saved: Document,
+    saved: Option<Document>,
+    journal_base: Document,
+    folded: usize,
     entries: Vec<JournalEntry>,
     keep_original: bool,
     unprotected: Option<String>,
@@ -174,7 +178,9 @@ impl Model {
             storage: None,
             path: None,
             on_disk: None,
-            saved: document,
+            saved: Some(document.clone()),
+            journal_base: document,
+            folded: 0,
             entries: Vec::new(),
             keep_original: false,
             unprotected: None,
@@ -525,7 +531,7 @@ impl Model {
         self.display.sketches.stop_showing_dragged();
         self.notice.take_if(|notice| !notice.outlasts_edits);
         self.record(entry);
-        self.dirty = !self.editor.document().same_content(&self.saved);
+        self.dirty = self.differs_from_saved();
         self.parameters = ParameterValues::evaluate(self.editor.document());
         self.recompute(Retry::Nothing);
     }
@@ -621,7 +627,9 @@ impl Model {
         self.switch_to(
             Session {
                 editor: Editor::new(document.clone()),
-                saved: document,
+                saved: Some(document.clone()),
+                journal_base: document,
+                folded: 0,
                 path,
                 on_disk,
                 keep_original: damaged,
@@ -638,6 +646,7 @@ impl Model {
             on_disk,
             loaded_with_problems,
             base,
+            folded,
             entries,
             editor,
             ..
@@ -645,7 +654,9 @@ impl Model {
         self.switch_to(
             Session {
                 editor,
-                saved: base,
+                saved: (folded == 0).then(|| base.clone()),
+                journal_base: base,
+                folded,
                 path: file,
                 on_disk,
                 keep_original: loaded_with_problems,
@@ -669,8 +680,10 @@ impl Model {
         let predecessor = self.storage.take().map(|storage| storage.close(true));
         self.revision_offset = self.revision() + 1;
         self.editor = session.editor;
-        self.dirty = !self.editor.document().same_content(&session.saved);
         self.saved = session.saved;
+        self.journal_base = session.journal_base;
+        self.folded = session.folded;
+        self.dirty = self.differs_from_saved();
         self.path = session.path;
         self.on_disk = session.on_disk;
         self.entries = entries;
@@ -713,7 +726,8 @@ impl Model {
             file: self.path.clone(),
             on_disk: self.on_disk.clone(),
             loaded_with_problems: self.keep_original,
-            base: self.saved.clone(),
+            base: self.journal_base.clone(),
+            folded: self.folded,
             entries: self.entries.clone(),
             replaces,
             after,
@@ -792,14 +806,16 @@ impl Model {
                     .pending_save
                     .take_if(|pending| pending.ticket == ticket)
                 {
-                    self.saved = pending.document;
+                    self.saved = Some(pending.document.clone());
+                    self.journal_base = pending.document;
+                    self.folded = 0;
                     self.entries
                         .drain(..pending.entries.min(self.entries.len()));
                 }
                 self.path = Some(path.clone());
                 self.on_disk = Some(digest);
                 self.keep_original = false;
-                self.dirty = !self.editor.document().same_content(&self.saved);
+                self.dirty = self.differs_from_saved();
                 if let Some(notice) = saved_notice(backup.as_deref(), dropped_for_size) {
                     self.set_notice(notice);
                 }
@@ -836,7 +852,21 @@ impl Model {
                     "Unsaved changes are protected against a crash again.",
                 ));
             }
+            Report::Rebased { entries, base } => {
+                self.journal_base = base;
+                self.folded = self.folded.saturating_add(entries);
+                self.entries.drain(..entries.min(self.entries.len()));
+                if let Some(pending) = &mut self.pending_save {
+                    pending.entries = pending.entries.saturating_sub(entries);
+                }
+            }
         }
+    }
+
+    fn differs_from_saved(&self) -> bool {
+        self.saved
+            .as_ref()
+            .is_none_or(|saved| !self.editor.document().same_content(saved))
     }
 
     fn recompute(&mut self, retry: Retry) {

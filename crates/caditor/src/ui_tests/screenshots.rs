@@ -685,12 +685,14 @@ fn crashed_session(dir: &Path) {
     let crashed = Storage::spawn(
         StorageConfig {
             recovery_dir: Some(dir.join("recovery")),
+            ..StorageConfig::default()
         },
         Start {
             file: None,
             on_disk: None,
             loaded_with_problems: false,
             base,
+            folded: 0,
             entries: vec![JournalEntry::Apply(change)],
             replaces: None,
             after: None,

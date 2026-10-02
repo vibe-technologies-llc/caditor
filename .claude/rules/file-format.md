@@ -28,6 +28,11 @@ paths:
   zero byte, stored and content lengths, xxh3-64 of header fields and payload, payload.
 - A bad chunk makes the reader scan to the next marker with a valid checksum; hashed payload bytes
   are capped at four times the file size (forged headers cannot make it quadratic).
+- A model whose magic or version is damaged is salvaged (`binary::salvage`) when a chunk passing
+  its checksum starts at the first marker within the first 64 bytes and is a head chunk: it loads
+  from its chunks with the version unknown, reported as a damaged start, and counts as damaged
+  for saving (the `.damaged` copy is kept, its versions carried). Anything else, a journal
+  included (its first chunk is a journal header), stays `LoadError::NotAModel`.
 - Chunks hold at most 256 MiB; longer content is sliced that size, each slice its own frame against
   the same prefix: all but the last `CONTINUED`, all but the first `CONTINUATION`. The parser joins
   a run of one kind into one logical chunk of at most 2 GiB (`Chunk::unpack`); a run broken by

@@ -8,7 +8,7 @@ use crate::{
         JOURNAL_MAGIC, MODEL_MAGIC, reseal, save_bytes,
         testing::{stored_copy, with_slices_of},
     },
-    journal::{decode_journal, encode_journal, replay},
+    journal::{JournalHead, Mirror, decode_journal, encode_journal, replay},
 };
 
 const WRITE_SEEDS: &str = "CADITOR_WRITE_FUZZ_SEEDS";
@@ -49,6 +49,30 @@ fn seed_model() -> Vec<u8> {
 }
 
 fn seed_journal() -> Vec<u8> {
+    let (base, entries) = seed_journal_entries();
+    let entries: Vec<_> = entries.into_iter().map(journal::Logged::Entry).collect();
+    encode_journal(&seed_journal_head(0), &base, &entries).unwrap()
+}
+
+fn seed_journal_by_reference(folded: usize) -> Vec<u8> {
+    let (base, entries) = seed_journal_entries();
+    let mut mirror = Mirror::new(base.clone());
+    let entries: Vec<_> = entries.into_iter().map(|entry| mirror.log(entry)).collect();
+    assert!(entries.contains(&journal::Logged::UndoLast));
+    assert!(entries.contains(&journal::Logged::RedoNext));
+    encode_journal(&seed_journal_head(folded), &base, &entries).unwrap()
+}
+
+fn seed_journal_head(folded: usize) -> JournalHead<'static> {
+    JournalHead {
+        file: Some(Path::new("/models/plate.caditor")),
+        on_disk: None,
+        loaded_with_problems: false,
+        folded,
+    }
+}
+
+fn seed_journal_entries() -> (Document, Vec<JournalEntry>) {
     let base = sample();
     let first = edit_width(&base, "50 mm");
     let mut editor = Editor::new(base.clone());
@@ -59,20 +83,13 @@ fn seed_journal() -> Vec<u8> {
     editor.undo().unwrap();
     let redone = editor.next_redo().cloned().unwrap();
     editor.redo().unwrap();
-    let entries = [
+    let entries = vec![
         JournalEntry::Apply(first),
         JournalEntry::Apply(second),
         JournalEntry::Undo(undone),
         JournalEntry::Redo(redone),
     ];
-    encode_journal(
-        Some(Path::new("/models/plate.caditor")),
-        None,
-        false,
-        &base,
-        &entries,
-    )
-    .unwrap()
+    (base, entries)
 }
 
 fn seed_frame(prefix: &[u8], data: &[u8]) -> Vec<u8> {
@@ -96,6 +113,8 @@ fn write_fuzz_seeds() {
         ("model/datums.caditor", model.clone()),
         ("model/stored.caditor", stored_copy(&model, &MODEL_MAGIC)),
         ("journal/plate.journal", journal.clone()),
+        ("journal/by-reference.journal", seed_journal_by_reference(0)),
+        ("journal/rebased.journal", seed_journal_by_reference(12)),
         (
             "model/sliced.caditor",
             with_slices_of(SEED_SLICE, seed_model),
