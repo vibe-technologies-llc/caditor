@@ -20,6 +20,10 @@ paths:
     `TooIntricate` error.
 - Endpoints landing on curves are found; nearby points cluster into vertices; overlapping collinear
   or co-circular pieces merge (lowest entity id kept); dangling pieces and bridges are pruned.
+  - When pruning removed anything, the arrangement is built once more without the cuts where only
+    the cut curve itself survives (a stray line touching or crossing an outline, the foot of a
+    bridge), and cutter sets list only curves with pieces surviving at the vertex, so stray
+    geometry never adds a vertex to a side or renames it.
 - Faces are traced by angle at each vertex; ties between tangent curves are decided by the position
   a short way along.
 

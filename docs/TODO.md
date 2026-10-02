@@ -38,10 +38,6 @@ within a category run from most to least important.
 - Edge references saved before they kept their faces' origins have no origin fallback, so a
   fillet chosen in an older model still fails on a cap edge once a hole is added; re-capture its
   edges on load by resolving them against the body as it was.
-- Pruned dangling pieces still cut the curves they touch, so a stray line touching an outline
-  adds a vertex and a coplanar side face and renames that side. Merge pieces of one entity
-  meeting at a degree-2 vertex after pruning, and build `PieceBound::Cut` only from surviving
-  curves.
 - A patterned copy keeps the origin of the face it copies, so a fillet or sketch on a copy counts
   as a dependent of the original's feature but not of the pattern: deleting the pattern gives no
   prompt.

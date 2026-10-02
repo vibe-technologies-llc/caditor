@@ -721,6 +721,40 @@ fn a_chosen_region_whose_curves_are_all_gone_is_gone() {
 }
 
 #[test]
+fn stray_lines_touching_or_crossing_an_outline_leave_its_sides_whole() {
+    let plain = profile(&rectangle(1, (0.0, 0.0), (10.0, 4.0)));
+    let mut curves = rectangle(1, (0.0, 0.0), (10.0, 4.0));
+    curves.push(line(5, (5.0, -3.0), (5.0, 0.0)));
+    curves.push(line(6, (2.0, 2.0), (2.0, 6.0)));
+    curves.push(arc(7, (12.0, 2.0), (12.0, 4.0), (12.0, 0.0)));
+
+    let touched = profile(&curves);
+
+    assert_eq!(signature(&touched), signature(&plain));
+    assert_eq!(touched.regions()[0].pieces().count(), 4);
+}
+
+#[test]
+fn a_stray_line_meeting_a_cut_leaves_the_cutters_of_the_outline_as_they_were() {
+    let mut divided = rectangle(1, (0.0, 0.0), (10.0, 4.0));
+    divided.push(line(5, (5.0, 0.0), (5.0, 4.0)));
+    let mut strayed = divided.clone();
+    strayed.push(line(6, (5.0, -3.0), (5.0, 0.0)));
+
+    assert_eq!(signature(&profile(&strayed)), signature(&profile(&divided)));
+}
+
+#[test]
+fn a_bridge_between_two_outlines_leaves_their_sides_whole() {
+    let mut apart = rectangle(1, (0.0, 0.0), (10.0, 4.0));
+    apart.extend(rectangle(5, (20.0, 0.0), (30.0, 4.0)));
+    let mut bridged = apart.clone();
+    bridged.push(line(9, (10.0, 2.0), (20.0, 2.0)));
+
+    assert_eq!(signature(&profile(&bridged)), signature(&profile(&apart)));
+}
+
+#[test]
 fn a_spline_tangent_to_a_line_touches_it_once() {
     let profile = profile(&[
         spline(1, &[(-1.0, 1.0), (0.0, -1.0), (1.0, 1.0)]),

@@ -116,10 +116,12 @@ impl Arrangement {
             return Ok(Self::default());
         }
         let events = events(&sources, scale)?;
-        let (vertices, vertex_of) = cluster(&events, &sources, scale.tolerance)?;
-        let raw = split(&sources, &events, &vertex_of, &vertices, scale.tolerance)?;
-        let merged = merge_overlaps(raw, &sources, scale.tolerance)?;
-        let pieces = settle(merged, vertices.len())?;
+        let alive = vec![true; events.len()];
+        let (mut vertices, vertex_of, mut pieces) =
+            settled(&sources, &events, &alive, scale.tolerance)?;
+        if let Some((events, alive)) = without_idle_cuts(&sources, &events, &vertex_of, &pieces)? {
+            (vertices, _, pieces) = settled(&sources, &events, &alive, scale.tolerance)?;
+        }
         let mut arrangement = Self {
             tolerance: scale.tolerance,
             vertices,
@@ -668,17 +670,96 @@ struct RawPiece {
     piece: GraphPiece,
 }
 
+fn settled(
+    sources: &[Source],
+    events: &[Event],
+    alive: &[bool],
+    tolerance: f64,
+) -> Found<(Vec<Point2>, Vec<usize>, Vec<GraphPiece>)> {
+    let (vertices, vertex_of) = cluster(events, sources, tolerance)?;
+    let raw = split(sources, events, &vertex_of, &vertices, tolerance, alive)?;
+    let merged = merge_overlaps(raw, sources, tolerance)?;
+    let pieces = settle(merged, vertices.len())?;
+    Ok((vertices, vertex_of, pieces))
+}
+
+fn without_idle_cuts(
+    sources: &[Source],
+    events: &[Event],
+    vertex_of: &[usize],
+    pieces: &[GraphPiece],
+) -> Found<Option<(Vec<Event>, Vec<bool>)>> {
+    let mut ends: BTreeMap<usize, BTreeMap<u64, usize>> = BTreeMap::new();
+    for piece in pieces {
+        for vertex in [piece.start, piece.end] {
+            *ends
+                .entry(vertex)
+                .or_default()
+                .entry(piece.id.entity())
+                .or_default() += 1;
+        }
+    }
+
+    let mut kept = Vec::with_capacity(events.len());
+    let mut alive = Vec::with_capacity(events.len());
+    let mut changed = false;
+    for (event, vertex) in events.iter().zip(vertex_of) {
+        let entity = sources
+            .get(event.source)
+            .ok_or_else(ProfileError::unresolved)?
+            .entity;
+        let around = ends.get(vertex);
+        let own_ends = around
+            .and_then(|around| around.get(&entity))
+            .copied()
+            .unwrap_or(0);
+        let others = around.is_some_and(|around| around.keys().any(|other| *other != entity));
+        let survives = own_ends > 0;
+        let idle = event.kind == EventKind::Cut && !(survives && (others || own_ends > 2));
+        changed |= idle || (!survives && others);
+        if !idle {
+            kept.push(*event);
+            alive.push(survives);
+        }
+    }
+    if !changed {
+        return Ok(None);
+    }
+
+    let mut has_events = vec![false; sources.len()];
+    for event in &kept {
+        if let Some(flag) = has_events.get_mut(event.source) {
+            *flag = true;
+        }
+    }
+    for ((index, source), has_events) in sources.iter().enumerate().zip(has_events) {
+        if source.closed && !has_events {
+            kept.push(Event {
+                source: index,
+                parameter: source.range.start(),
+                point: source.point(source.range.start()),
+                kind: EventKind::Synthetic,
+            });
+            alive.push(true);
+        }
+    }
+    Ok(Some((kept, alive)))
+}
+
 fn split(
     sources: &[Source],
     events: &[Event],
     vertex_of: &[usize],
     vertices: &[Point2],
     tolerance: f64,
+    alive: &[bool],
 ) -> Found<Vec<RawPiece>> {
     let merge_length = MERGE_TOLERANCES * tolerance;
     let mut at_vertex: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-    for (index, vertex) in vertex_of.iter().enumerate() {
-        at_vertex.entry(*vertex).or_default().push(index);
+    for ((index, vertex), alive) in vertex_of.iter().enumerate().zip(alive) {
+        if *alive {
+            at_vertex.entry(*vertex).or_default().push(index);
+        }
     }
     let mut by_source: Vec<Vec<usize>> = vec![Vec::new(); sources.len()];
     for (index, event) in events.iter().enumerate() {
