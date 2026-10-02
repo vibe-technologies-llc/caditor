@@ -44,6 +44,19 @@ paths:
   component lies in, so the cells of a grid keep their outline's depth.
 - `select` with `Selection::EvenDepth` (the default) or explicit keys returns the union of the
   chosen regions as new regions keyed the same way, so adjacent regions sweep as one lump.
+- A `RegionReference` keeps what a feature chose: the key, the boundary pieces (entity, side,
+  piece id digest) and an anchor, the centroid of the largest triangle of the region's
+  triangulation (`RegionMesh::anchor`). `resolve` gives `Same` when the key still exists, else
+  `Healed` to the region most like it among those sharing at least one (entity, side): most
+  pieces shared, then holding the anchor, then most (entity, side) pairs shared; a tie is
+  `ProfileError::AmbiguousRegion` naming the candidates, no region sharing anything `Gone`. So a
+  hole drawn inside a chosen region keeps the region around it (all its pieces), a line splitting
+  it keeps the part holding the anchor, and a disc whose circle was deleted is gone rather than
+  taken for the region it was a hole of. A reference of a key alone (read from an older file)
+  is `Same` or `Gone`.
+  - `resolve_regions` resolves a feature's whole choice: the keys found once each, which were
+    healed and which are gone; it fails only on a tie or when every chosen region is gone
+    (`MissingRegion`).
 - `Region::triangulate` samples the loops and keeps the constrained Delaunay triangles inside by the
   parity of constraint crossings, for drawing regions as fills.
 
@@ -55,5 +68,6 @@ paths:
 
 ## Use by builders
 
-- The document converts a solved sketch to `ProfileCurve`s, keeps the chosen `RegionKey`s in the
-  feature and calls `extrude`/`revolve` with the feature id (`kernel-operations.md`).
+- The document converts a solved sketch to `ProfileCurve`s, keeps the chosen `RegionReference`s in
+  the feature, resolves them and calls `extrude`/`revolve` with the feature id
+  (`kernel-operations.md`).

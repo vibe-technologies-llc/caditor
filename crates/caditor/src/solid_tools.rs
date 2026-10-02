@@ -239,7 +239,7 @@ pub fn toggle_region(model: &Model, feature: FeatureId, region: RegionKey) -> Op
     if !chosen.remove(&region) {
         chosen.insert(region);
     }
-    let choice = RegionChoice::Chosen(chosen.into_iter().collect());
+    let choice = RegionChoice::Chosen(scene::region_references(&chosen, regions));
     Some(Transaction::single(
         format!("Choose regions of {}", owner.name),
         Edit::SetFeatureKind {

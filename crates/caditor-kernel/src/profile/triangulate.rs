@@ -17,6 +17,23 @@ pub struct RegionMesh {
     pub triangles: Vec<[u32; 3]>,
 }
 
+impl RegionMesh {
+    pub fn anchor(&self) -> Option<Point2> {
+        self.triangles
+            .iter()
+            .filter_map(|triangle| {
+                let [a, b, c] = triangle.map(|index| self.points.get(index as usize).copied());
+                Some([a?, b?, c?])
+            })
+            .max_by(|first, second| doubled_area(*first).total_cmp(&doubled_area(*second)))
+            .map(|[a, b, c]| (a + b + c) / 3.0)
+    }
+}
+
+fn doubled_area([a, b, c]: [Point2; 3]) -> f64 {
+    (b - a).perp_dot(c - a).abs()
+}
+
 pub(super) fn loop_polygon(
     profile_loop: &ProfileLoop,
     tolerance: &SamplingTolerance,

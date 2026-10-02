@@ -62,8 +62,9 @@ pub use crate::{
     },
     pattern::{PatternCopy, PatternError, pattern},
     profile::{
-        Piece, PieceBound, PieceId, Profile, ProfileCurve, ProfileError, ProfileLoop, ProfileShape,
-        Region, RegionKey, RegionMesh, Selection, Side,
+        BoundaryPiece, Piece, PieceBound, PieceId, Profile, ProfileCurve, ProfileError,
+        ProfileLoop, ProfileShape, Region, RegionKey, RegionMatch, RegionMesh, RegionReference,
+        ResolvedRegions, Selection, Side, resolve_regions,
     },
     sense::Sense,
     shell::{ShellError, shell},

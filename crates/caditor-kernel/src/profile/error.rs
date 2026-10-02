@@ -10,6 +10,11 @@ pub enum ProfileError {
     EmptySelection,
     #[error("a chosen region no longer exists in the sketch")]
     MissingRegion(RegionKey),
+    #[error("a chosen region changed so that it matches {} regions of the sketch", candidates.len())]
+    AmbiguousRegion {
+        region: RegionKey,
+        candidates: Vec<RegionKey>,
+    },
     #[error("curve {entity} appears more than once")]
     DuplicateEntity { entity: u64 },
     #[error("curve {entity} has no length")]
@@ -46,6 +51,7 @@ impl ProfileError {
             Self::NoClosedProfile
             | Self::EmptySelection
             | Self::MissingRegion(_)
+            | Self::AmbiguousRegion { .. }
             | Self::Cancelled(_) => Vec::new(),
         }
     }

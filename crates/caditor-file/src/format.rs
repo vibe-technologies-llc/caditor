@@ -11,7 +11,8 @@ use caditor_document::{
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
-    EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, RegionKey, Solid, VertexName,
+    BoundaryPiece, EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, RegionKey,
+    RegionReference, Side, Solid, VertexName,
 };
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
@@ -242,6 +243,29 @@ pub(crate) enum RegionsRecord {
     Chosen(Vec<String>),
 }
 
+type RegionReferencesRecord = Option<Vec<Lenient<RegionReferenceRecord>>>;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct RegionReferenceRecord {
+    pub boundary: Vec<BoundaryPieceRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<[f64; 2]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct BoundaryPieceRecord {
+    pub entity: u64,
+    pub side: SideRecord,
+    pub piece: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SideRecord {
+    Left,
+    Right,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum OperationRecord {
@@ -271,6 +295,8 @@ pub(crate) enum RevolveExtentRecord {
 pub(crate) struct ExtrudeRecord {
     pub sketch: u64,
     pub regions: RegionsRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region_references: RegionReferencesRecord,
     pub extent: ExtrudeExtentRecord,
     pub operation: OperationRecord,
 }
@@ -301,6 +327,8 @@ pub(crate) enum ExtrudeEndsRecord {
 pub(crate) struct ExtrudeToRecord {
     pub sketch: u64,
     pub regions: RegionsRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region_references: RegionReferencesRecord,
     pub extent: ExtrudeEndsRecord,
     pub operation: OperationRecord,
 }
@@ -309,6 +337,8 @@ pub(crate) struct ExtrudeToRecord {
 pub(crate) struct RevolveTwoAnglesRecord {
     pub sketch: u64,
     pub regions: RegionsRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region_references: RegionReferencesRecord,
     pub axis: RevolveAxisRecord,
     pub forward: String,
     pub backward: String,
@@ -319,6 +349,8 @@ pub(crate) struct RevolveTwoAnglesRecord {
 pub(crate) struct RevolveRecord {
     pub sketch: u64,
     pub regions: RegionsRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region_references: RegionReferencesRecord,
     pub axis: RevolveAxisRecord,
     pub extent: RevolveExtentRecord,
     pub operation: OperationRecord,
@@ -730,6 +762,7 @@ fn extrude_record(extrude: &Extrude) -> FeatureKindRecord {
         FeatureKindRecord::Extrude(ExtrudeRecord {
             sketch: extrude.sketch.raw(),
             regions: regions_record(&extrude.regions),
+            region_references: region_references_record(&extrude.regions),
             extent,
             operation: operation_record(extrude.operation),
         })
@@ -738,6 +771,7 @@ fn extrude_record(extrude: &Extrude) -> FeatureKindRecord {
         FeatureKindRecord::ExtrudeTo(ExtrudeToRecord {
             sketch: extrude.sketch.raw(),
             regions: regions_record(&extrude.regions),
+            region_references: region_references_record(&extrude.regions),
             extent,
             operation: operation_record(extrude.operation),
         })
@@ -772,9 +806,10 @@ fn extrude_record(extrude: &Extrude) -> FeatureKindRecord {
 }
 
 fn revolve_record(revolve: &Revolve) -> FeatureKindRecord {
-    let (sketch, regions, operation) = (
+    let (sketch, regions, region_references, operation) = (
         revolve.sketch.raw(),
         regions_record(&revolve.regions),
+        region_references_record(&revolve.regions),
         operation_record(revolve.operation),
     );
     let axis = match &revolve.axis {
@@ -794,6 +829,7 @@ fn revolve_record(revolve: &Revolve) -> FeatureKindRecord {
             return FeatureKindRecord::RevolveTwoAngles(RevolveTwoAnglesRecord {
                 sketch,
                 regions,
+                region_references,
                 axis,
                 forward: forward.to_stored_text(),
                 backward: backward.to_stored_text(),
@@ -804,6 +840,7 @@ fn revolve_record(revolve: &Revolve) -> FeatureKindRecord {
     FeatureKindRecord::Revolve(RevolveRecord {
         sketch,
         regions,
+        region_references,
         axis,
         extent,
         operation,
@@ -859,10 +896,44 @@ fn edge_record(edge: &EdgeReference) -> EdgeRecord {
 fn regions_record(regions: &RegionChoice) -> RegionsRecord {
     match regions {
         RegionChoice::All => RegionsRecord::All,
-        RegionChoice::Chosen(keys) => {
-            RegionsRecord::Chosen(keys.iter().map(|key| hex(key.digest())).collect())
-        }
+        RegionChoice::Chosen(references) => RegionsRecord::Chosen(
+            references
+                .iter()
+                .map(|reference| hex(reference.key().digest()))
+                .collect(),
+        ),
     }
+}
+
+fn region_references_record(regions: &RegionChoice) -> RegionReferencesRecord {
+    let RegionChoice::Chosen(references) = regions else {
+        return None;
+    };
+    let captured = |reference: &RegionReference| {
+        !reference.boundary().is_empty() || reference.anchor().is_some()
+    };
+    references.iter().any(captured).then(|| {
+        references
+            .iter()
+            .map(|reference| {
+                Lenient::Read(RegionReferenceRecord {
+                    boundary: reference
+                        .boundary()
+                        .iter()
+                        .map(|piece| BoundaryPieceRecord {
+                            entity: piece.entity,
+                            side: match piece.side {
+                                Side::Left => SideRecord::Left,
+                                Side::Right => SideRecord::Right,
+                            },
+                            piece: hex(piece.piece),
+                        })
+                        .collect(),
+                    anchor: reference.anchor().map(|anchor| anchor.to_array()),
+                })
+            })
+            .collect()
+    })
 }
 
 fn operation_record(operation: BodyOperation) -> OperationRecord {
@@ -1518,7 +1589,12 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             };
             FeatureKind::Solid(SolidFeature::Extrude(Extrude {
                 sketch: FeatureId::from_raw(extrude.sketch),
-                regions: restore_regions(&extrude.regions, name, issues),
+                regions: restore_regions(
+                    &extrude.regions,
+                    &extrude.region_references,
+                    name,
+                    issues,
+                ),
                 extent,
                 operation: restore_operation(extrude.operation),
             }))
@@ -1546,7 +1622,12 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             };
             FeatureKind::Solid(SolidFeature::Extrude(Extrude {
                 sketch: FeatureId::from_raw(extrude.sketch),
-                regions: restore_regions(&extrude.regions, name, issues),
+                regions: restore_regions(
+                    &extrude.regions,
+                    &extrude.region_references,
+                    name,
+                    issues,
+                ),
                 extent,
                 operation: restore_operation(extrude.operation),
             }))
@@ -1565,7 +1646,12 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             };
             FeatureKind::Solid(SolidFeature::Revolve(Revolve {
                 sketch: FeatureId::from_raw(revolve.sketch),
-                regions: restore_regions(&revolve.regions, name, issues),
+                regions: restore_regions(
+                    &revolve.regions,
+                    &revolve.region_references,
+                    name,
+                    issues,
+                ),
                 axis: restore_revolve_axis(&revolve.axis, name, issues),
                 extent,
                 operation: restore_operation(revolve.operation),
@@ -1580,7 +1666,12 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             };
             FeatureKind::Solid(SolidFeature::Revolve(Revolve {
                 sketch: FeatureId::from_raw(revolve.sketch),
-                regions: restore_regions(&revolve.regions, name, issues),
+                regions: restore_regions(
+                    &revolve.regions,
+                    &revolve.region_references,
+                    name,
+                    issues,
+                ),
                 axis: restore_revolve_axis(&revolve.axis, name, issues),
                 extent,
                 operation: restore_operation(revolve.operation),
@@ -1928,18 +2019,54 @@ fn restore_value(
     Expression::parse_stored(fallback).unwrap_or(Expression::Number(10.0))
 }
 
+fn restore_region_reference(
+    key: RegionKey,
+    record: Option<&RegionReferenceRecord>,
+) -> RegionReference {
+    let Some(record) = record else {
+        return RegionReference::of_key(key);
+    };
+    let boundary = record
+        .boundary
+        .iter()
+        .filter_map(|piece| {
+            Some(BoundaryPiece {
+                entity: piece.entity,
+                side: match piece.side {
+                    SideRecord::Left => Side::Left,
+                    SideRecord::Right => Side::Right,
+                },
+                piece: restore_digest(&piece.piece)?,
+            })
+        })
+        .collect();
+    let anchor = record
+        .anchor
+        .map(Point2::from_array)
+        .filter(|anchor| anchor.is_finite());
+    RegionReference::new(key, boundary, anchor)
+}
+
 fn restore_regions(
     record: &RegionsRecord,
+    references: &RegionReferencesRecord,
     feature: &str,
     issues: &mut Vec<String>,
 ) -> RegionChoice {
     let RegionsRecord::Chosen(keys) = record else {
         return RegionChoice::All;
     };
-    let read: Vec<RegionKey> = keys
+    let reference_at = |index: usize| match references.as_ref()?.get(index)? {
+        Lenient::Read(record) => Some(record),
+        Lenient::Unreadable(_) => None,
+    };
+    let read: Vec<RegionReference> = keys
         .iter()
-        .filter_map(|key| restore_digest(key))
-        .map(RegionKey::from_digest)
+        .enumerate()
+        .filter_map(|(index, key)| {
+            let key = RegionKey::from_digest(restore_digest(key)?);
+            Some(restore_region_reference(key, reference_at(index)))
+        })
         .collect();
     if read.len() == keys.len() {
         return RegionChoice::Chosen(read);

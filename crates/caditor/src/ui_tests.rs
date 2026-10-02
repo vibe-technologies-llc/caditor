@@ -4871,10 +4871,15 @@ fn clicking_a_hole_region_adds_it_and_a_face_names_the_feature_that_made_it() {
     );
     harness.settle();
 
-    let RegionChoice::Chosen(keys) = harness.solid(extrude).regions() else {
+    let RegionChoice::Chosen(references) = harness.solid(extrude).regions() else {
         panic!("the regions were not chosen");
     };
-    assert_eq!(keys.len(), 2);
+    assert_eq!(references.len(), 2);
+    assert!(
+        references
+            .iter()
+            .all(|reference| !reference.boundary().is_empty() && reference.anchor().is_some())
+    );
     assert_eq!(
         harness.model.undo_label(),
         Some("Choose regions of Extrude 1")

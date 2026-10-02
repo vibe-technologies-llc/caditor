@@ -38,10 +38,6 @@ within a category run from most to least important.
 - Edge references saved before they kept their faces' origins have no origin fallback, so a
   fillet chosen in an older model still fails on a cap edge once a hole is added; re-capture its
   edges on load by resolving them against the body as it was.
-- A chosen region's `RegionKey` digests its boundary, so adding a hole or a splitting line inside
-  it fails the extrusion or revolve with "no longer exists", and `Profile::select` fails the whole
-  feature on the first stale key. Fall back to the region sharing most boundary pieces or
-  containing an anchor point, keep the surviving regions, and fail only on a tie.
 - Pruned dangling pieces still cut the curves they touch, so a stray line touching an outline
   adds a vertex and a coplanar side face and renames that side. Merge pieces of one entity
   meeting at a degree-2 vertex after pruning, and build `PieceBound::Cut` only from surviving
@@ -51,8 +47,9 @@ within a category run from most to least important.
   prompt.
 - A reference resolved through the fallback recomputes as plain `UpToDate`; nothing tells the user
   it now points at another face, and the stored name is never refreshed, so small edits can
-  drift it until it fails. Add a healed state shown as a warning and an undoable "update
-  references".
+  drift it until it fails. The same holds for a chosen region healed or left out by
+  `resolve_regions` (`ResolvedRegions::healed` and `gone` are not reported). Add a healed state
+  shown as a warning and an undoable "update references".
 
 ## Kernel correctness
 

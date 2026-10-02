@@ -612,6 +612,114 @@ fn a_circle_cut_once_by_each_curve_keeps_plain_cut_names() {
     );
 }
 
+fn captured(profile: &Profile, chosen: impl Fn(&Region) -> bool) -> RegionReference {
+    let region = profile
+        .regions()
+        .iter()
+        .find(|region| chosen(region))
+        .unwrap();
+    RegionReference::capture(region, region.anchor())
+}
+
+fn region_holding(profile: &Profile, point: (f64, f64)) -> RegionKey {
+    let point = Point2::new(point.0, point.1);
+    profile
+        .regions()
+        .iter()
+        .find(|region| region.contains(point))
+        .unwrap()
+        .key()
+}
+
+#[test]
+fn a_chosen_region_found_by_its_key_is_the_same() {
+    let plate = profile(&rectangle(1, (0.0, 0.0), (10.0, 8.0)));
+    let reference = captured(&plate, |_| true);
+
+    assert_eq!(
+        reference.resolve(plate.regions()),
+        Ok(RegionMatch::Same(reference.key()))
+    );
+}
+
+#[test]
+fn a_chosen_region_given_a_hole_is_healed_to_the_region_around_it() {
+    let plate = profile(&rectangle(1, (0.0, 0.0), (10.0, 8.0)));
+    let reference = captured(&plate, |_| true);
+    let mut curves = rectangle(1, (0.0, 0.0), (10.0, 8.0));
+    curves.push(circle(5, (4.0, 4.0), 2.0));
+
+    let holed = profile(&curves);
+    let ring = holed
+        .regions()
+        .iter()
+        .find(|region| region.depth() == 0)
+        .unwrap()
+        .key();
+
+    assert_eq!(
+        reference.resolve(holed.regions()),
+        Ok(RegionMatch::Healed(ring))
+    );
+}
+
+#[test]
+fn a_chosen_region_split_in_two_is_healed_to_the_part_holding_its_anchor() {
+    let plate = profile(&rectangle(1, (0.0, 0.0), (10.0, 8.0)));
+    let reference = captured(&plate, |_| true);
+    let anchor = reference.anchor().unwrap();
+    let mut curves = rectangle(1, (0.0, 0.0), (10.0, 8.0));
+    curves.push(line(5, (5.0, -1.0), (5.0, 9.0)));
+
+    let split = profile(&curves);
+    let holding = region_holding(&split, (anchor.x, anchor.y));
+    let unanchored = RegionReference::new(reference.key(), reference.boundary().clone(), None);
+
+    assert_eq!(split.regions().len(), 2);
+    assert_eq!(
+        reference.resolve(split.regions()),
+        Ok(RegionMatch::Healed(holding))
+    );
+    assert!(matches!(
+        unanchored.resolve(split.regions()),
+        Err(ProfileError::AmbiguousRegion { candidates, .. }) if candidates.len() == 2
+    ));
+}
+
+#[test]
+fn a_chosen_region_whose_curves_are_all_gone_is_gone() {
+    let mut curves = rectangle(1, (0.0, 0.0), (10.0, 8.0));
+    curves.push(circle(5, (4.0, 4.0), 2.0));
+    let holed = profile(&curves);
+    let disc = captured(&holed, |region| region.depth() == 1);
+    let ring = captured(&holed, |region| region.depth() == 0);
+
+    let plate = profile(&rectangle(1, (0.0, 0.0), (10.0, 8.0)));
+    let whole = plate.regions()[0].key();
+
+    assert_eq!(disc.resolve(plate.regions()), Ok(RegionMatch::Gone));
+    assert_eq!(
+        resolve_regions(&[disc.clone(), ring.clone()], plate.regions()),
+        Ok(ResolvedRegions {
+            keys: vec![whole],
+            healed: vec![(ring.key(), whole)],
+            gone: vec![disc.key()],
+        })
+    );
+    assert_eq!(
+        resolve_regions(std::slice::from_ref(&disc), plate.regions()),
+        Err(ProfileError::MissingRegion(disc.key()))
+    );
+    assert_eq!(
+        RegionReference::of_key(disc.key()).resolve(holed.regions()),
+        Ok(RegionMatch::Same(disc.key()))
+    );
+    assert_eq!(
+        RegionReference::of_key(ring.key()).resolve(plate.regions()),
+        Ok(RegionMatch::Gone)
+    );
+}
+
 #[test]
 fn a_spline_tangent_to_a_line_touches_it_once() {
     let profile = profile(&[

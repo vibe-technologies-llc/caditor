@@ -199,12 +199,10 @@ impl Panel<'_> {
                 }
                 Some(_) => {
                     if let Some((_, regions)) = regions {
-                        let keys = scene::chosen_regions(&RegionChoice::All, regions)
-                            .into_iter()
-                            .collect();
+                        let keys = scene::chosen_regions(&RegionChoice::All, regions);
                         change = Some(self.change(solid_tools::with_regions(
                             self.solid,
-                            RegionChoice::Chosen(keys),
+                            RegionChoice::Chosen(scene::region_references(&keys, regions)),
                         )));
                     }
                 }

@@ -35,8 +35,8 @@ paths:
 - A profile on the right of the revolution axis is revolved about the reversed axis. Lines on the
   axis become shared cap edges or nothing, endpoints on it poles; a full turn has no caps (holes
   become void shells).
-- The document converts a solved sketch to `ProfileCurve`s, keeps the chosen `RegionKey`s in the
-  feature and calls these with the feature id.
+- The document converts a solved sketch to `ProfileCurve`s, keeps the chosen `RegionReference`s in
+  the feature (`kernel-profile.md`) and calls these with the feature id.
 - `build::plan::Plan` is also how booleans emit their result, with explicit pcurves.
 
 ## Reaching faces (`build/reach.rs`)

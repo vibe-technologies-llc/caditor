@@ -76,6 +76,10 @@ paths:
   not recompressed); the old records are matched by the blake3 digest of their re-encoded
   understood content, not by those bytes. Unknown chunk kinds are carried unless must-understand; loading reports those
   as left out, so the original is kept as `.damaged`.
+- An extrusion or revolve record with chosen regions has `region_references` beside `regions`,
+  aligned with its keys: each region's `boundary` (`entity`, `side` `left` or `right`, `piece` id
+  digest) and `anchor` (`[x, y]` on the sketch plane), written only when any is known; older
+  readers drop it and lose only the fallback, and a key without one loads as a key alone.
 - An edge reference record has `origins`, its two faces' origins in the order of `faces`, written
   only when either is known; older readers drop it and lose only the fallback it gives.
 - Records carry stable IDs. Construction curves add `"construction": true` only when set (on a

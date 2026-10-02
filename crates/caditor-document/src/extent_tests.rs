@@ -2,8 +2,8 @@ use std::f64::consts::PI;
 
 use caditor_expression::{Expression, ParameterId, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
-use caditor_kernel::{FaceId, RegionKey, SamplingTolerance, Solid, Surface};
-use caditor_sketch::{EntityId, Sketch};
+use caditor_kernel::{FaceId, RegionReference, SamplingTolerance, Solid, Surface};
+use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::*;
 
@@ -461,16 +461,16 @@ fn up_to_face_ends_on_the_face_and_follows_it_when_the_body_changes() {
     assert!((volume(&thicker, model.plate) - (24_000.0 + 1_500.0)).abs() < 1e-6);
 }
 
-fn region_at(sketch: &Sketch, x: f64) -> RegionKey {
-    sketch_regions(sketch)
+fn region_at(sketch: &Sketch, x: f64) -> RegionReference {
+    let region = sketch_regions(sketch)
         .unwrap()
         .into_iter()
         .find(|region| {
             let bounds = region.bounds().unwrap();
             bounds.min().x <= x && x <= bounds.max().x
         })
-        .unwrap()
-        .key()
+        .unwrap();
+    RegionReference::capture(&region, region.anchor())
 }
 
 #[test]
@@ -480,7 +480,7 @@ fn up_to_a_face_that_an_upstream_edit_removes_fails_alone_and_keeps_its_last_sha
     add_rectangle(&mut lugs, (25.0, 25.0), (35.0, 35.0));
     let (first, second) = (region_at(&lugs, 10.0), region_at(&lugs, 30.0));
     let lug_sketch = add(&mut model.document, "Lug sketch", FeatureKind::from(lugs));
-    let lug_kind = |region: RegionKey| {
+    let lug_kind = |region: RegionReference| {
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch: lug_sketch,
             regions: RegionChoice::Chosen(vec![region]),
@@ -893,4 +893,40 @@ fn a_revolve_turns_by_two_angles_that_together_stay_within_a_turn() {
     let error = failure(&evaluation, too_far);
     assert_eq!(error.reason, "The two angles add up to more than 360°.");
     assert_eq!(error.remedy, "Enter angles that add up to at most 360°.");
+}
+
+#[test]
+fn a_hole_drawn_inside_a_chosen_region_cuts_through_the_extrusion() {
+    let plate = rectangle(at(0.0), (0.0, 0.0), (10.0, 8.0));
+    let chosen = region_at(&plate, 5.0);
+    let mut document = Document::default();
+    let sketch = add(&mut document, "Plate sketch", FeatureKind::from(plate));
+    let block = add(
+        &mut document,
+        "Block",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::Chosen(vec![chosen]),
+            extent: ExtrudeExtent::one_side(millimetres(2.0), false),
+            operation: BodyOperation::NewBody,
+        })),
+    );
+    let mut engine = Recompute::default();
+    let before = evaluate(&document, &mut engine);
+
+    let mut transaction = document.transaction("Draw a hole");
+    let center = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(4.0, 4.0)));
+    transaction.add_sketch_entity(
+        sketch,
+        Entity::Circle {
+            center,
+            radius: 2.0,
+        },
+    );
+    document.apply(transaction.finish()).unwrap();
+    let after = evaluate(&document, &mut engine);
+
+    assert!((volume(&before, block) - 160.0).abs() < 1e-6);
+    assert_eq!(after.feature(block).unwrap().state, FeatureState::UpToDate);
+    assert!((volume(&after, block) - (160.0 - 8.0 * PI)).abs() < 2e-2);
 }

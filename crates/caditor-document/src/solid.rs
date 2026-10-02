@@ -9,9 +9,9 @@ use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector2};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, EdgeId, EdgeName, FaceId, FaceName,
     GeometryError, LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE, Mesh, MeshQuality,
-    Profile, ProfileCurve, ProfileError, ReachError, Region, RegionKey, RegionMesh,
+    Profile, ProfileCurve, ProfileError, ReachError, Region, RegionMesh, RegionReference,
     SamplingTolerance, Selection, Solid, SweepError, TessellationError, VertexId, VertexName,
-    boolean, extrude, heights, next_face, revolve, vertex_names,
+    boolean, extrude, heights, next_face, resolve_regions, revolve, vertex_names,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -30,11 +30,11 @@ use crate::{
 const THROUGH_ALL_MARGIN: f64 = 1.0;
 const THROUGH_ALL_REACH: f64 = 0.05;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum RegionChoice {
     #[default]
     All,
-    Chosen(Vec<RegionKey>),
+    Chosen(Vec<RegionReference>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -501,6 +501,17 @@ pub struct SketchRegion {
     pub even_depth: bool,
 }
 
+impl SketchRegion {
+    pub fn reference(&self) -> RegionReference {
+        let anchor = self
+            .mesh
+            .as_ref()
+            .and_then(RegionMesh::anchor)
+            .or_else(|| self.region.anchor());
+        RegionReference::capture(&self.region, anchor)
+    }
+}
+
 pub(crate) fn display_regions(profile: &Profile) -> Result<Vec<SketchRegion>, ProfileError> {
     let extent = profile
         .regions()
@@ -654,13 +665,18 @@ fn chosen_regions(
     sketch: &SketchResult,
     choice: &RegionChoice,
 ) -> Result<Vec<Region>, Failure> {
+    let profile = sketch
+        .profile()
+        .map_err(|error| profile_failure(context, &error))?;
     let selection = match choice {
         RegionChoice::All => Selection::EvenDepth,
-        RegionChoice::Chosen(keys) => Selection::Regions(keys.clone()),
+        RegionChoice::Chosen(references) => Selection::Regions(
+            resolve_regions(references, profile.regions())
+                .map_err(|error| profile_failure(context, &error))?
+                .keys,
+        ),
     };
-    sketch
-        .profile()
-        .map_err(|error| profile_failure(context, &error))?
+    profile
         .select(&selection)
         .map_err(|error| profile_failure(context, &error))
 }
@@ -681,6 +697,14 @@ fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
         ),
         ProfileError::MissingRegion(_) => context.error(
             format!("A chosen region of {sketch} no longer exists, because the sketch changed."),
+            "Choose the regions again.".to_owned(),
+            context.own(),
+        ),
+        ProfileError::AmbiguousRegion { candidates, .. } => context.error(
+            format!(
+                "A chosen region of {sketch} was divided, and {} of the new regions match it equally.",
+                candidates.len()
+            ),
             "Choose the regions again.".to_owned(),
             context.own(),
         ),

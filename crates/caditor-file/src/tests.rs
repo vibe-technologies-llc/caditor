@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     fs,
     os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
@@ -1834,8 +1835,14 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
         "Base",
         FeatureKind::Solid(SolidFeature::Extrude(Extrude {
             sketch,
-            regions: RegionChoice::Chosen(vec![caditor_kernel::RegionKey::from_digest(
-                0x0123_4567_89ab_cdef_0011_2233_4455_6677,
+            regions: RegionChoice::Chosen(vec![caditor_kernel::RegionReference::new(
+                caditor_kernel::RegionKey::from_digest(0x0123_4567_89ab_cdef_0011_2233_4455_6677),
+                BTreeSet::from([caditor_kernel::BoundaryPiece {
+                    entity: 3,
+                    side: caditor_kernel::Side::Right,
+                    piece: 0x7766_5544_3322_1100_fedc_ba98_7654_3210,
+                }]),
+                Some(Point2::new(2.5, 1.25)),
             )]),
             extent: ExtrudeExtent::two_sides(
                 Expression::Parameter(depth),
@@ -1870,6 +1877,46 @@ fn solid_features_are_saved_and_loaded() {
     let loaded = decode_text(&text);
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
+}
+
+fn without_region_references(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(fields) => {
+            fields.remove("region_references");
+            fields.values_mut().for_each(without_region_references);
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(without_region_references),
+        _ => {}
+    }
+}
+
+#[test]
+fn chosen_regions_saved_without_references_load_by_their_keys() {
+    let (document, base, _) = solid_model();
+    let text = encode(&document).unwrap();
+    let stripped: Vec<String> = lines_of(&document)
+        .iter()
+        .map(|line| {
+            let mut record: serde_json::Value = serde_json::from_str(line).unwrap();
+            without_region_references(&mut record);
+            record.to_string()
+        })
+        .collect();
+
+    let loaded = decode_lines(&stripped);
+
+    assert!(text.contains("\"region_references\""));
+    assert!(text.contains("\"anchor\":[2.5,1.25]"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    let FeatureKind::Solid(solid) = &loaded.document.feature(base).unwrap().kind else {
+        panic!("Base should load as a solid feature");
+    };
+    assert_eq!(
+        solid.regions(),
+        &caditor_document::RegionChoice::Chosen(vec![caditor_kernel::RegionReference::of_key(
+            caditor_kernel::RegionKey::from_digest(0x0123_4567_89ab_cdef_0011_2233_4455_6677),
+        )])
+    );
 }
 
 #[test]

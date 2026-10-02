@@ -3,6 +3,7 @@ mod culprits;
 mod error;
 mod geometry;
 mod intersect;
+mod reference;
 mod region;
 mod source;
 #[cfg(test)]
@@ -18,7 +19,11 @@ use self::{
     culprits::culprits,
     region::{base_keys, lumps, shared_keys, with_keys},
 };
-pub use self::{error::ProfileError, triangulate::RegionMesh};
+pub use self::{
+    error::ProfileError,
+    reference::{BoundaryPiece, RegionMatch, RegionReference, ResolvedRegions, resolve_regions},
+    triangulate::RegionMesh,
+};
 use crate::{
     curve2::Curve2, interrupt, interval::Interval, naming::Digest, tolerance::SamplingTolerance,
 };
@@ -365,6 +370,19 @@ impl Region {
 
     pub fn triangulate(&self, tolerance: &SamplingTolerance) -> Option<RegionMesh> {
         triangulate::triangulate(self, tolerance)
+    }
+
+    pub fn contains(&self, point: Point2) -> bool {
+        let segments = self
+            .pieces()
+            .map(|piece| (&piece.curve, piece.range, piece.reversed));
+        geometry::winding(segments, point) != 0
+    }
+
+    pub fn anchor(&self) -> Option<Point2> {
+        let extent = self.bounds()?.size().length();
+        self.triangulate(&SamplingTolerance::for_extent(extent))?
+            .anchor()
     }
 }
 

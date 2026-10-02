@@ -136,8 +136,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 ### Solid (`solid.rs`, `FeatureKind::Solid`)
 
 - An `Extrude` or `Revolve` of a sketch's regions (`RegionChoice::All` for even depth, or chosen
-  `RegionKey`s) with a `BodyOperation`: `NewBody`, or `Add`, `Remove`, `Intersect` on the body of
-  the feature that made it. A body is named by that feature's ID.
+  `RegionReference`s, resolved by `resolve_regions` so a region the sketch changed is healed or
+  left out, and the feature fails only on a tie or when none is left) with a `BodyOperation`:
+  `NewBody`, or `Add`, `Remove`, `Intersect` on the body of the feature that made it. A body is
+  named by that feature's ID. The app captures references from the shown regions
+  (`SketchRegion::reference`, reusing their triangulation for the anchor) and shows a feature's
+  chosen regions as resolved, so a healed region reads as chosen and toggling stores it afresh.
 - Extents are expressions (lengths, or angles in degrees) above zero, both distances of a
   two-sided extrusion included; one-sided extents flip with `reversed`. A revolve turns a full
   turn, one angle, a symmetric angle, or two angles (`RevolveExtent::TwoSides`, forward and

@@ -9,7 +9,7 @@ use caditor_document::{
     displayed_axis,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray};
-use caditor_kernel::RegionKey;
+use caditor_kernel::{RegionKey, RegionReference, resolve_regions};
 use caditor_render::{
     Batch, Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId,
     PickResult, Scene, Stroke,
@@ -1218,8 +1218,24 @@ pub fn chosen_regions(choice: &RegionChoice, regions: &[SketchRegion]) -> BTreeS
             .filter(|region| region.even_depth)
             .map(|region| region.region.key())
             .collect(),
-        RegionChoice::Chosen(keys) => keys.iter().copied().collect(),
+        RegionChoice::Chosen(references) => {
+            match resolve_regions(references, regions.iter().map(|region| &region.region)) {
+                Ok(resolved) => resolved.keys.into_iter().collect(),
+                Err(_) => references.iter().map(RegionReference::key).collect(),
+            }
+        }
     }
+}
+
+pub fn region_references(
+    keys: &BTreeSet<RegionKey>,
+    regions: &[SketchRegion],
+) -> Vec<RegionReference> {
+    regions
+        .iter()
+        .filter(|region| keys.contains(&region.region.key()))
+        .map(SketchRegion::reference)
+        .collect()
 }
 
 fn body_color(document: &Document, evaluation: &Evaluation, body: FeatureId) -> Color {
