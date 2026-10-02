@@ -38,6 +38,7 @@ pub use crate::{
     editor::{Base, Editor, Prepared, Stale},
     healing::Healing,
     import::Import,
+    origins::complete_origins,
     pattern::{CircularPattern, LinearDirection, MAX_PATTERN_INSTANCES, Pattern, PatternKind},
     pieces::{Resolution, Unresolved},
     recompute::{

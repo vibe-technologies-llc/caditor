@@ -2,11 +2,12 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
     sync::Arc,
+    time::{Duration, Instant},
 };
 
 use caditor_document::{
-    DependencyGraph, Document, Edit, EditError, Feature, FeatureId, FeatureKind, Parameter,
-    Revolve, RevolveAxis, RollbackBar, SolidFeature, Transaction,
+    CancelToken, DependencyGraph, Document, Edit, EditError, Feature, FeatureId, FeatureKind,
+    Parameter, Revolve, RevolveAxis, RollbackBar, SolidFeature, Transaction, complete_origins,
 };
 use caditor_expression::{Expression, ParameterId, check_name};
 use caditor_sketch::EntityId;
@@ -41,9 +42,11 @@ pub enum LoadError {
     VersionUnavailable,
 }
 
+const ORIGIN_COMPLETION_TIME: Duration = Duration::from_secs(20);
+
 pub fn load(path: &Path) -> Result<Loaded, LoadError> {
     let bytes = read_file(path).map_err(|error| LoadError::Unreadable(reason::reading(&error)))?;
-    decode(&bytes)
+    decode(&bytes).map(with_origins_completed)
 }
 
 pub fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
@@ -57,7 +60,20 @@ pub fn history(path: &Path) -> Result<History, LoadError> {
 
 pub fn load_version(path: &Path, index: usize) -> Result<Loaded, LoadError> {
     let bytes = read_file(path).map_err(|error| LoadError::Unreadable(reason::reading(&error)))?;
-    binary::load_version(&bytes, index)
+    binary::load_version(&bytes, index).map(with_origins_completed)
+}
+
+fn with_origins_completed(mut loaded: Loaded) -> Loaded {
+    let started = Instant::now();
+    let cancel = CancelToken::new(move || started.elapsed() > ORIGIN_COMPLETION_TIME);
+    let completion = complete_origins(&loaded.document, &cancel);
+    if completion.is_empty() {
+        return loaded;
+    }
+    if let Err(error) = loaded.document.apply(completion) {
+        log::warn!("the references of the loaded model could not be completed: {error}");
+    }
+    loaded
 }
 
 pub(crate) fn newer_version(version: u32) -> String {

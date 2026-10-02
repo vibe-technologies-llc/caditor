@@ -733,3 +733,158 @@ fn a_fillet_on_an_edge_another_feature_made_depends_on_that_feature() {
         Err(EditError::BelowDependent { .. })
     ));
 }
+
+fn without_origins(edge: EdgeReference) -> EdgeReference {
+    EdgeReference::new(edge.name(), edge.faces(), edge.ends())
+}
+
+fn add_hole(document: &mut Document, sketch: FeatureId) {
+    let mut transaction = document.transaction("Add hole");
+    let center =
+        transaction.add_sketch_entity(sketch, caditor_sketch::Entity::Point(Point2::new(5.0, 4.0)));
+    transaction.add_sketch_entity(
+        sketch,
+        caditor_sketch::Entity::Circle {
+            center,
+            radius: 1.5,
+        },
+    );
+    document.apply(transaction.finish()).unwrap();
+}
+
+struct SavedBeforeOrigins {
+    document: Document,
+    outline: FeatureId,
+    base: FeatureId,
+    fillet: FeatureId,
+}
+
+fn fillet_saved_before_origins(rolled_back: bool) -> SavedBeforeOrigins {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
+    );
+    let base = transaction.add_feature("Base", extruded(outline, "4", BodyOperation::NewBody));
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let solid = evaluation.body(base).unwrap();
+    let edge = without_origins(edge_at(solid, Point3::new(5.0, 0.0, 4.0)));
+    let mut transaction = document.transaction("Fillet");
+    let fillet = transaction.add_feature(
+        "Fillet 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: base,
+            edges: vec![edge],
+            size: mm("1"),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    if rolled_back {
+        document
+            .apply(document.roll_to(RollbackBar::Before(fillet), "Roll back"))
+            .unwrap();
+    }
+    SavedBeforeOrigins {
+        document,
+        outline,
+        base,
+        fillet,
+    }
+}
+
+fn fillet_edges(document: &Document, fillet: FeatureId) -> Vec<EdgeReference> {
+    document
+        .feature(fillet)
+        .unwrap()
+        .kind
+        .blend()
+        .unwrap()
+        .edges
+        .clone()
+}
+
+#[test]
+fn an_edge_saved_without_origins_fails_once_its_cap_is_renamed() {
+    let SavedBeforeOrigins {
+        mut document,
+        outline,
+        fillet,
+        ..
+    } = fillet_saved_before_origins(false);
+
+    add_hole(&mut document, outline);
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    assert!(matches!(
+        evaluation.feature(fillet).unwrap().state,
+        FeatureState::Failed(_)
+    ));
+}
+
+#[test]
+fn completing_origins_keeps_a_fillet_saved_without_them_on_its_cap_edge_after_a_hole() {
+    let SavedBeforeOrigins {
+        mut document,
+        outline,
+        base,
+        fillet,
+    } = fillet_saved_before_origins(false);
+
+    let completion = complete_origins(&document, &CancelToken::never());
+    document.apply(completion).unwrap();
+    let [edge] = fillet_edges(&document, fillet).try_into().unwrap();
+
+    assert!(edge.origins().iter().all(Option::is_some));
+    assert!(complete_origins(&document, &CancelToken::never()).is_empty());
+
+    add_hole(&mut document, outline);
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    assert_eq!(
+        evaluation.feature(fillet).unwrap().state,
+        FeatureState::UpToDate
+    );
+    let expected = 320.0 - PI * 1.5 * 1.5 * 4.0 - 10.0 * spandrel(1.0);
+    let found = volume(&evaluation, base);
+    assert!((found - expected).abs() < 0.02, "volume {found}");
+}
+
+#[test]
+fn completing_origins_reaches_features_below_the_rollback_bar_and_leaves_the_bar() {
+    let SavedBeforeOrigins {
+        mut document,
+        fillet,
+        ..
+    } = fillet_saved_before_origins(true);
+
+    document
+        .apply(complete_origins(&document, &CancelToken::never()))
+        .unwrap();
+    let [edge] = fillet_edges(&document, fillet).try_into().unwrap();
+
+    assert!(edge.origins().iter().all(Option::is_some));
+    assert_eq!(document.rollback_bar(), RollbackBar::Before(fillet));
+}
+
+#[test]
+fn completing_origins_leaves_an_edge_it_cannot_find_and_stops_when_cancelled() {
+    let SavedBeforeOrigins {
+        mut document,
+        outline,
+        fillet,
+        ..
+    } = fillet_saved_before_origins(false);
+    let before = fillet_edges(&document, fillet);
+
+    let cancelled = complete_origins(&document, &CancelToken::new(|| true));
+
+    add_hole(&mut document, outline);
+    let after_hole = complete_origins(&document, &CancelToken::never());
+
+    assert!(cancelled.is_empty());
+    assert!(after_hole.is_empty());
+    assert_eq!(fillet_edges(&document, fillet), before);
+}

@@ -300,3 +300,50 @@ fn placement_edits_are_checked_and_undone() {
         Err(EditError::AboveDependency { .. })
     ));
 }
+
+fn attached_face(document: &Document, sketch: FeatureId) -> FaceReference {
+    match document.feature(sketch).unwrap().kind.attachment() {
+        Some(SketchAttachment::Face(attachment)) => attachment.face.clone(),
+        other => panic!("expected a face attachment, found {other:?}"),
+    }
+}
+
+#[test]
+fn completing_origins_gives_a_face_saved_without_one_its_origin_and_keeps_the_sketch() {
+    let Stack {
+        mut document,
+        base,
+        top,
+        ..
+    } = stack();
+    let captured = attached_face(&document, top);
+    let plane = match &document.feature(top).unwrap().kind {
+        FeatureKind::Sketch(sketch) => sketch.sketch.plane(),
+        other => panic!("expected a sketch, found {other:?}"),
+    };
+    let stripped = FaceReference::new(captured.name(), None, captured.neighbours().iter().copied());
+    document
+        .apply(Transaction::single(
+            "Saved before origins",
+            Edit::SetSketchPlacement {
+                feature: top,
+                plane,
+                attachment: Some(SketchAttachment::Face(FaceAttachment {
+                    body: base,
+                    face: stripped,
+                })),
+            },
+        ))
+        .unwrap();
+
+    let completion = complete_origins(&document, &CancelToken::never());
+    document.apply(completion).unwrap();
+
+    assert_eq!(attached_face(&document, top), captured);
+    assert_eq!(
+        captured.origin(),
+        Some(FaceOrigin::EndCap {
+            feature: base.raw()
+        })
+    );
+}

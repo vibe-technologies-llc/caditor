@@ -3709,3 +3709,101 @@ fn a_session_log_stops_at_its_size_limit_and_old_logs_are_pruned() {
     assert!(!old[0].exists());
     assert!(old.last().unwrap().exists());
 }
+
+fn fillet_saved_before_origins() -> (Document, FeatureId) {
+    use caditor_document::{
+        Blend, BlendKind, BodyOperation, CancelToken, Extrude, ExtrudeExtent, ModelEvaluator,
+        Recompute, RegionChoice, SolidFeature,
+    };
+    use caditor_kernel::{EdgeReference, FaceOrigin};
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let mut outline = Sketch::new(Plane::XY);
+    let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)];
+    for index in 0..4 {
+        let (a, b) = (corners[index], corners[(index + 1) % 4]);
+        outline.add_line(Point2::new(a.0, a.1), Point2::new(b.0, b.1));
+    }
+    let sketch = transaction.add_feature("Outline", FeatureKind::from(outline));
+    let base = transaction.add_feature(
+        "Base",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(transaction.parse("4 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = Recompute::default().run(
+        &document,
+        &ModelEvaluator,
+        &CancelToken::never(),
+        &|_, _| {},
+    );
+    let solid = evaluation.body(base).unwrap();
+
+    let cap_edge = solid
+        .edges()
+        .map(|(id, _)| EdgeReference::capture(solid, id).unwrap())
+        .find(|edge| {
+            edge.origins().contains(&Some(FaceOrigin::EndCap {
+                feature: base.raw(),
+            }))
+        })
+        .unwrap();
+    let saved = EdgeReference::new(cap_edge.name(), cap_edge.faces(), cap_edge.ends());
+
+    let mut transaction = document.transaction("Fillet");
+    let fillet = transaction.add_feature(
+        "Fillet 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: base,
+            edges: vec![saved],
+            size: transaction.parse("1 mm").unwrap(),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, fillet)
+}
+
+fn fillet_origins(document: &Document, fillet: FeatureId) -> Vec<bool> {
+    document
+        .feature(fillet)
+        .unwrap()
+        .kind
+        .blend()
+        .unwrap()
+        .edges
+        .iter()
+        .map(|edge| edge.origins().iter().all(Option::is_some))
+        .collect()
+}
+
+#[test]
+fn opening_a_model_saved_before_edges_kept_origins_completes_them() {
+    let (document, fillet) = fillet_saved_before_origins();
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("old.caditor");
+    save(&document, &path, false).unwrap();
+    let mut changed = document.clone();
+    let mut transaction = changed.transaction("Parameter");
+    transaction.add_parameter("width", transaction.parse("2 mm").unwrap());
+    changed.apply(transaction.finish()).unwrap();
+    save(&changed, &path, false).unwrap();
+
+    let decoded = decode(&fs::read(&path).unwrap()).unwrap();
+    let loaded = load(&path).unwrap();
+    let version = load_version(&path, 0).unwrap();
+
+    assert_eq!(fillet_origins(&decoded.document, fillet), [false]);
+    assert_eq!(fillet_origins(&loaded.document, fillet), [true]);
+    assert_eq!(fillet_origins(&version.document, fillet), [true]);
+    assert!(loaded.issues.is_empty());
+
+    save(&loaded.document, &path, false).unwrap();
+    let saved_again = decode(&fs::read(&path).unwrap()).unwrap();
+
+    assert_eq!(fillet_origins(&saved_again.document, fillet), [true]);
+}

@@ -84,16 +84,41 @@ pub(crate) fn check(feature: &Arc<Feature>, inputs: &Inputs<'_>) -> Option<Heali
         dropped_count: 0,
     };
     let mut refreshed = feature.kind.clone();
-    match &mut refreshed {
+    visit(&mut refreshed, &mut healer);
+    (!healer.matched.is_empty() || !healer.dropped.is_empty()).then(|| Healing {
+        matched: healer.matched,
+        dropped: healer.dropped,
+        refreshed,
+        checked: Arc::clone(feature),
+        matched_count: healer.matched_count,
+        dropped_count: healer.dropped_count,
+    })
+}
+
+pub(crate) trait ReferenceVisitor {
+    fn face(&mut self, body: FeatureId, face: &mut FaceReference, what: &str);
+
+    fn edges(
+        &mut self,
+        body: FeatureId,
+        edges: &mut [EdgeReference],
+        what: &dyn Fn(usize) -> String,
+    );
+
+    fn regions(&mut self, sketch: FeatureId, choice: &mut RegionChoice);
+}
+
+pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor) {
+    match kind {
         FeatureKind::Sketch(sketch) => {
             if let Some(SketchAttachment::Face(attachment)) = &mut sketch.attachment {
-                healer.face(attachment.body, &mut attachment.face, "the face it lies on");
+                visitor.face(attachment.body, &mut attachment.face, "the face it lies on");
             }
         }
-        FeatureKind::Solid(solid) => healer.solid(solid),
+        FeatureKind::Solid(solid) => visit_solid(solid, visitor),
         FeatureKind::Blend(blend) => {
             let count = blend.edges.len();
-            healer.edges(blend.body, &mut blend.edges, |index| {
+            visitor.edges(blend.body, &mut blend.edges, &|index| {
                 if count == 1 {
                     "its edge".to_owned()
                 } else {
@@ -109,39 +134,84 @@ pub(crate) fn check(feature: &Arc<Feature>, inputs: &Inputs<'_>) -> Option<Heali
                 } else {
                     format!("open face {} of {count}", index + 1)
                 };
-                healer.face(shell.body, face, &what);
+                visitor.face(shell.body, face, &what);
             }
         }
         FeatureKind::Pattern(pattern) => match &mut pattern.kind {
             PatternKind::Linear { first, second } => {
-                healer.axis(&mut first.axis, "first direction");
+                visit_axis(&mut first.axis, "first direction", visitor);
                 if let Some(second) = second {
-                    healer.axis(&mut second.axis, "second direction");
+                    visit_axis(&mut second.axis, "second direction", visitor);
                 }
             }
-            PatternKind::Circular(circular) => healer.axis(&mut circular.axis, "axis"),
+            PatternKind::Circular(circular) => visit_axis(&mut circular.axis, "axis", visitor),
         },
         FeatureKind::Datum(Datum::Plane(plane)) => {
-            healer.plane(&mut plane.base, "the face it is based on");
+            visit_plane(&mut plane.base, "the face it is based on", visitor);
             if let Some(rotation) = &mut plane.rotation {
-                healer.axis(&mut rotation.axis, "rotation axis");
+                visit_axis(&mut rotation.axis, "rotation axis", visitor);
             }
         }
-        FeatureKind::Datum(Datum::Axis(DatumAxis::Along(axis))) => healer.axis(axis, "line"),
+        FeatureKind::Datum(Datum::Axis(DatumAxis::Along(axis))) => {
+            visit_axis(axis, "line", visitor);
+        }
         FeatureKind::Datum(Datum::Axis(DatumAxis::Intersection(first, second))) => {
-            healer.plane(first, "the first face it is the intersection of");
-            healer.plane(second, "the second face it is the intersection of");
+            visit_plane(first, "the first face it is the intersection of", visitor);
+            visit_plane(second, "the second face it is the intersection of", visitor);
         }
         FeatureKind::Import(_) => {}
     }
-    (!healer.matched.is_empty() || !healer.dropped.is_empty()).then(|| Healing {
-        matched: healer.matched,
-        dropped: healer.dropped,
-        refreshed,
-        checked: Arc::clone(feature),
-        matched_count: healer.matched_count,
-        dropped_count: healer.dropped_count,
-    })
+}
+
+fn visit_axis(axis: &mut AxisReference, role: &str, visitor: &mut impl ReferenceVisitor) {
+    match axis {
+        AxisReference::Edge { body, edge } => {
+            let what = format!("the edge giving its {role}");
+            visitor.edges(*body, std::slice::from_mut(edge.as_mut()), &|_| {
+                what.clone()
+            });
+        }
+        AxisReference::Face { body, face } => {
+            visitor.face(*body, face, &format!("the face giving its {role}"));
+        }
+        AxisReference::Principal(_) | AxisReference::Datum(_) => {}
+    }
+}
+
+fn visit_plane(plane: &mut PlaneReference, what: &str, visitor: &mut impl ReferenceVisitor) {
+    if let PlaneReference::Face(attachment) = plane {
+        visitor.face(attachment.body, &mut attachment.face, what);
+    }
+}
+
+fn visit_solid(solid: &mut SolidFeature, visitor: &mut impl ReferenceVisitor) {
+    match solid {
+        SolidFeature::Extrude(extrude) => {
+            visitor.regions(extrude.sketch, &mut extrude.regions);
+            let ends: Vec<&mut ExtrudeEnd> = match &mut extrude.extent {
+                ExtrudeExtent::OneSide { end, .. } => vec![end],
+                ExtrudeExtent::Symmetric { .. } => Vec::new(),
+                ExtrudeExtent::TwoSides { forward, backward } => vec![forward, backward],
+            };
+            let count = ends.len();
+            for (index, end) in ends.into_iter().enumerate() {
+                if let ExtrudeEnd::UpToFace(target) = end {
+                    let what = match (count, index) {
+                        (1, _) => "the face its end runs up to",
+                        (_, 0) => "the face its forward end runs up to",
+                        _ => "the face its backward end runs up to",
+                    };
+                    visit_plane(target, what, visitor);
+                }
+            }
+        }
+        SolidFeature::Revolve(revolve) => {
+            visitor.regions(revolve.sketch, &mut revolve.regions);
+            if let RevolveAxis::Model(axis) = &mut revolve.axis {
+                visit_axis(axis, "axis", visitor);
+            }
+        }
+    }
 }
 
 struct Healer<'a> {
@@ -157,7 +227,9 @@ impl Healer<'_> {
         self.matched.push(what);
         self.matched_count += count;
     }
+}
 
+impl ReferenceVisitor for Healer<'_> {
     fn face(&mut self, body: FeatureId, face: &mut FaceReference, what: &str) {
         let Some(solid) = self.inputs.body(body) else {
             return;
@@ -181,7 +253,7 @@ impl Healer<'_> {
         &mut self,
         body: FeatureId,
         edges: &mut [EdgeReference],
-        what: impl Fn(usize) -> String,
+        what: &dyn Fn(usize) -> String,
     ) {
         let Some(solid) = self.inputs.body(body) else {
             return;
@@ -200,55 +272,6 @@ impl Healer<'_> {
             if let Some(captured) = EdgeReference::capture_in(&naming, found) {
                 *edge = captured;
                 self.matched(what(index), 1);
-            }
-        }
-    }
-
-    fn axis(&mut self, axis: &mut AxisReference, role: &str) {
-        match axis {
-            AxisReference::Edge { body, edge } => {
-                let what = format!("the edge giving its {role}");
-                self.edges(*body, std::slice::from_mut(edge.as_mut()), |_| what.clone());
-            }
-            AxisReference::Face { body, face } => {
-                self.face(*body, face, &format!("the face giving its {role}"));
-            }
-            AxisReference::Principal(_) | AxisReference::Datum(_) => {}
-        }
-    }
-
-    fn plane(&mut self, plane: &mut PlaneReference, what: &str) {
-        if let PlaneReference::Face(attachment) = plane {
-            self.face(attachment.body, &mut attachment.face, what);
-        }
-    }
-
-    fn solid(&mut self, solid: &mut SolidFeature) {
-        match solid {
-            SolidFeature::Extrude(extrude) => {
-                self.regions(extrude.sketch, &mut extrude.regions);
-                let ends: Vec<&mut ExtrudeEnd> = match &mut extrude.extent {
-                    ExtrudeExtent::OneSide { end, .. } => vec![end],
-                    ExtrudeExtent::Symmetric { .. } => Vec::new(),
-                    ExtrudeExtent::TwoSides { forward, backward } => vec![forward, backward],
-                };
-                let count = ends.len();
-                for (index, end) in ends.into_iter().enumerate() {
-                    if let ExtrudeEnd::UpToFace(target) = end {
-                        let what = match (count, index) {
-                            (1, _) => "the face its end runs up to",
-                            (_, 0) => "the face its forward end runs up to",
-                            _ => "the face its backward end runs up to",
-                        };
-                        self.plane(target, what);
-                    }
-                }
-            }
-            SolidFeature::Revolve(revolve) => {
-                self.regions(revolve.sketch, &mut revolve.regions);
-                if let RevolveAxis::Model(axis) = &mut revolve.axis {
-                    self.axis(axis, "axis");
-                }
             }
         }
     }

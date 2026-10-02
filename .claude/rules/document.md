@@ -126,6 +126,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   loads and edits. A reference to a patterned copy's face depends on both the pattern and the
   original's feature (`FaceOrigin::features`), and is described as "Pattern 1 copy 2 of Base end
   face" (`describe_origin`; `origin_feature`, which a double-click opens, is the pattern).
+- `complete_origins` (`origins.rs`) fills in the `FaceOrigin`s of face and edge references
+  saved without them, as a transaction of `SetFeatureKind` (`SetSketchPlacement` for a sketch's
+  face): it evaluates the model without display data (`Recompute::run_without_display`), with
+  the rollback bar moved below the last feature holding such a reference, and takes each origin
+  from the face or edge the reference resolves to by name in the body that feature sees (an edge
+  only when it lies between the same faces). Suppressed features, features not reached before
+  the cancel token trips, and references no longer found keep what they had. It walks a
+  feature's references with the same `ReferenceVisitor` as the healing check (`healing.rs`).
 
 ### Import (`import.rs`, `FeatureKind::Import`)
 

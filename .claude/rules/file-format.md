@@ -84,7 +84,8 @@ paths:
   `origin`, which holds the original's origin; an edge record has `copies` aligned with `origins`.
   Both are written only when a copy is involved; older readers drop them and see the original.
 - An edge reference record has `origins`, its two faces' origins in the order of `faces`, written
-  only when either is known; older readers drop it and lose only the fallback it gives.
+  only when either is known; older readers drop it and lose only the fallback it gives. Files
+  saved before origins were kept have them completed on opening (below).
 - Records carry stable IDs. Construction curves add `"construction": true` only when set (on a
   point: loads as a point, reported). Expressions are canonical text with parameters as `$<id>`
   (`Expression::to_stored_text`, `parse_stored`); region keys and topology names 32-digit hex;
@@ -194,6 +195,11 @@ paths:
   feature may keep its dependents (`document.md`); it fails when computed, saying what it lost.
 - No damaged chunk but records not matching the head's digest (cut between chunks): reported as
   ending early; loads with problems and keeps its `.damaged` copy on the next save.
+- `load` and `load_version` (not `decode`, which fuzzing and recovery scans use) then complete
+  the origins of face and edge references saved without them (`complete_origins`,
+  `document.md`), against the model exactly as saved, within `ORIGIN_COMPLETION_TIME` (20 s);
+  the completed model is the session's saved baseline, so it opens unmodified and the next save
+  writes the origins. A journal snapshot is not completed.
 - Near-linear on hostile files: names indexed; duplicate IDs and cycles (`DependencyGraph`) found
   before applying; each kind of record applied as one transaction, halved only where it fails; at
   most `MAX_RECORDS` (10 000) parameters and features loaded, the rest reported.

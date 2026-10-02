@@ -466,6 +466,26 @@ impl Recompute {
         cancel: &CancelToken,
         progress: &dyn Fn(usize, usize),
     ) -> Evaluation {
+        self.run_with(document, evaluator, cancel, progress, Display::Prepared)
+    }
+
+    pub(crate) fn run_without_display(
+        &mut self,
+        document: &Document,
+        evaluator: &dyn Evaluator,
+        cancel: &CancelToken,
+    ) -> Evaluation {
+        self.run_with(document, evaluator, cancel, &|_, _| {}, Display::Skipped)
+    }
+
+    fn run_with(
+        &mut self,
+        document: &Document,
+        evaluator: &dyn Evaluator,
+        cancel: &CancelToken,
+        progress: &dyn Fn(usize, usize),
+        display: Display,
+    ) -> Evaluation {
         let parameters = ParameterValues::evaluate(document);
         let features = document.feature_handles();
         let tree: Arc<[String]> = features
@@ -627,10 +647,13 @@ impl Recompute {
             );
         }
         progress(features.len(), features.len());
-        let swept: BTreeSet<FeatureId> = document
-            .active_features()
-            .filter_map(|feature| feature.kind.solid().map(SolidFeature::sketch))
-            .collect();
+        let swept: BTreeSet<FeatureId> = match display {
+            Display::Prepared => document
+                .active_features()
+                .filter_map(|feature| feature.kind.solid().map(SolidFeature::sketch))
+                .collect(),
+            Display::Skipped => BTreeSet::new(),
+        };
         for sketch in &swept {
             if cancel.is_cancelled() {
                 break;
@@ -652,7 +675,7 @@ impl Recompute {
             shown.insert(*body, *state);
         }
         for (body, state) in &shown {
-            if cancel.is_cancelled() {
+            if display == Display::Skipped || cancel.is_cancelled() {
                 break;
             }
             let meshable = statuses
@@ -689,6 +712,12 @@ impl Recompute {
             meshed,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Display {
+    Prepared,
+    Skipped,
 }
 
 fn last_good_bodies(

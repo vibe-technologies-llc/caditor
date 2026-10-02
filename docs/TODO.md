@@ -33,12 +33,6 @@ within a category run from most to least important.
   more on the GL backend that `packaging/INSTALL.md` promises.
 - Slow tests to keep an eye on: about 40 UI tests at over a second each.
 
-## Model stability
-
-- Edge references saved before they kept their faces' origins have no origin fallback, so a
-  fillet chosen in an older model still fails on a cap edge once a hole is added; re-capture its
-  edges on load by resolving them against the body as it was.
-
 ## Kernel correctness
 
 - Shell cannot split a corner whose offsets do not meet when its convex and concave edges
