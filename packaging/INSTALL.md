@@ -24,6 +24,20 @@ sudo ./install.sh --prefix /usr/local
 ./bin/caditor
 ```
 
+## When caditor does not start
+
+If caditor cannot open its window, it says why in a dialog (or on the terminal it was started
+from). When the graphics driver is at fault, starting it with OpenGL instead of Vulkan often
+helps:
+
+```sh
+WGPU_BACKEND=gl caditor
+```
+
+Each run keeps a log in `~/.local/state/caditor/logs/` (or `$XDG_STATE_HOME/caditor/logs/`); the
+ten newest are kept. After caditor stops unexpectedly, it names the log of that run when it next
+starts.
+
 ## Uninstall
 
 Run the same command with `--uninstall`, for example `./install.sh --uninstall`. Your models,

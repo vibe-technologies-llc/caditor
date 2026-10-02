@@ -3578,3 +3578,76 @@ fn a_model_saved_in_format_2_loads_unchanged() {
     assert_eq!(loaded.document, document);
     assert!(lines.iter().all(|line| !line.contains("extrude_to")));
 }
+
+fn fake_log(state: &Path, seconds: u64, process: u32, last: &str) -> PathBuf {
+    let dir = state.join("logs");
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(format!("caditor-{seconds:020}-{process}.log"));
+    fs::write(&path, format!("[INFO] started\n{last}\n")).unwrap();
+    path
+}
+
+const NO_SUCH_PROCESS: u32 = 99_999_999;
+
+#[test]
+fn a_session_log_ends_with_a_marker_and_one_that_does_not_is_reported_once() {
+    let dir = TempDir::new().unwrap();
+    let log = SessionLog::create(dir.path()).unwrap();
+    log.write(b"[INFO] working\n").unwrap();
+    let crashed = fake_log(dir.path(), 5, NO_SUCH_PROCESS, "[ERROR] caditor panicked");
+    let ended = fake_log(
+        dir.path(),
+        6,
+        NO_SUCH_PROCESS,
+        "caditor ended this session.",
+    );
+    let running = fake_log(dir.path(), 7, std::process::id(), "[INFO] still going");
+
+    let stopped = ended_unexpectedly(dir.path(), log.path());
+    mark_reported(&crashed).unwrap();
+    log.end();
+
+    assert_eq!(stopped, std::slice::from_ref(&crashed));
+    assert!(ended_unexpectedly(dir.path(), log.path()).is_empty());
+    assert!(ended.exists() && running.exists());
+    assert!(
+        fs::read_to_string(log.path())
+            .unwrap()
+            .ends_with("[INFO] working\ncaditor ended this session.\n")
+    );
+    let other = SessionLog::create(&dir.path().join("elsewhere")).unwrap();
+    assert!(ended_unexpectedly(dir.path(), other.path()).is_empty());
+}
+
+#[test]
+fn a_session_log_stops_at_its_size_limit_and_old_logs_are_pruned() {
+    let dir = TempDir::new().unwrap();
+    let log = SessionLog::create(dir.path()).unwrap();
+    let line = vec![b'x'; 1 << 20];
+    for _ in 0..MAX_LOG_SIZE / (1 << 20) + 3 {
+        log.write(&line).unwrap();
+    }
+    log.end();
+    let old: Vec<PathBuf> = (0..LOGS_KEPT as u64 + 3)
+        .map(|seconds| {
+            fake_log(
+                dir.path(),
+                seconds,
+                NO_SUCH_PROCESS,
+                "caditor ended this session.",
+            )
+        })
+        .collect();
+
+    prune_logs(dir.path(), log.path());
+
+    let size = fs::metadata(log.path()).unwrap().len();
+    assert!(size <= MAX_LOG_SIZE + 200, "{size}");
+    assert!(log.path().exists());
+    assert_eq!(
+        old.iter().filter(|path| path.exists()).count(),
+        LOGS_KEPT - 1
+    );
+    assert!(!old[0].exists());
+    assert!(old.last().unwrap().exists());
+}

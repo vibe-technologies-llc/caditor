@@ -23,6 +23,9 @@ maintainer, URL or source download, and builds the checkout it sits in
 (`cd packaging/arch && makepkg -si`), installing the same files as the archive under `/usr`. Its
 `pkgver` must equal the workspace version, which a test in `about.rs` checks.
 
+Release builds drop debug information but keep symbol names (`strip = "debuginfo"`), so the
+backtrace a panic writes to the log names the functions involved.
+
 The binary links only glibc and `libgcc_s`; Vulkan, OpenGL, Wayland and X11 libraries are loaded
 at run time. It needs the glibc it was built against or newer, so published archives are built
 on Ubuntu 22.04 (glibc 2.35) by the release workflow, never on a developer's machine: an

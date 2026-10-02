@@ -12,7 +12,7 @@ use std::{
 use caditor::crash::{self, PanicFlush};
 use caditor_document::Document;
 use caditor_expression::Expression;
-use caditor_file::{JournalEntry, Start, Storage, StorageConfig};
+use caditor_file::{JournalEntry, SessionLog, Start, Storage, StorageConfig};
 use parking_lot::Mutex;
 use signal_hook::consts::{SIGKILL, SIGTERM};
 
@@ -23,6 +23,7 @@ const WRITTEN: &str = "journal written";
 const CHANGES: usize = 100;
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
 const PANIC_EXIT_CODE: i32 = 101;
+const STATE: &str = "state";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Ending {
@@ -59,7 +60,7 @@ fn crash_child() {
 
     let storage = Storage::spawn(
         StorageConfig {
-            recovery_dir: Some(dir.into()),
+            recovery_dir: Some(dir.clone().into()),
             ..StorageConfig::default()
         },
         Start {
@@ -76,7 +77,8 @@ fn crash_child() {
     )
     .unwrap();
     let panic_flush: PanicFlush = Arc::new(Mutex::new(Some(storage.flusher())));
-    crash::protect(&panic_flush);
+    let log = SessionLog::create(&Path::new(&dir).join(STATE)).unwrap();
+    crash::protect(&panic_flush, Some(Arc::new(log)));
 
     let mut document = Document::default();
     for index in 0..CHANGES {
@@ -137,6 +139,12 @@ mod child {
         assert!(recovered.issues.is_empty(), "{:?}", recovered.issues);
         assert_eq!(recovered.editor.document().parameters().len(), CHANGES);
     }
+
+    pub fn ended_unexpectedly(dir: &Path) -> bool {
+        let state = dir.join(STATE);
+        let own = state.join("logs").join("none.log");
+        !caditor_file::ended_unexpectedly(&state, &own).is_empty()
+    }
 }
 
 #[test]
@@ -147,6 +155,7 @@ fn a_panic_flushes_the_changes_just_recorded() {
 
     assert_eq!(status.code(), Some(PANIC_EXIT_CODE), "{status:?}");
     child::assert_every_change_recovers(dir.path());
+    assert!(child::ended_unexpectedly(dir.path()));
 }
 
 #[test]
@@ -157,6 +166,7 @@ fn a_termination_signal_flushes_the_changes_just_recorded_and_stops_by_that_sign
 
     assert_eq!(status.signal(), Some(SIGTERM), "{status:?}");
     child::assert_every_change_recovers(dir.path());
+    assert!(!child::ended_unexpectedly(dir.path()));
 }
 
 #[test]
@@ -167,4 +177,5 @@ fn a_killed_process_leaves_a_journal_the_next_start_recovers() {
 
     assert_eq!(status.signal(), Some(SIGKILL), "{status:?}");
     child::assert_every_change_recovers(dir.path());
+    assert!(child::ended_unexpectedly(dir.path()));
 }

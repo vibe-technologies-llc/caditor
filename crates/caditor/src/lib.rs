@@ -35,6 +35,7 @@ mod icons;
 mod image_export;
 mod import;
 mod layout;
+mod logging;
 mod logo;
 mod measure;
 mod measure_panel;
@@ -88,6 +89,8 @@ mod visibility;
 mod widgets;
 mod window_frame;
 
+use std::path::PathBuf;
+
 use anyhow::{Result, bail};
 use caditor_document::Document;
 use caditor_file::StorageConfig;
@@ -97,7 +100,8 @@ use crate::{
     app::{App, AppEvent},
     cli::Invocation,
     files::{Files, FilesConfig, NativeDialogs},
-    model::{Model, PanicFlush, Services},
+    logging::Logging,
+    model::{Model, Notice, PanicFlush, Services},
     preferences::Preferences,
 };
 
@@ -114,15 +118,28 @@ pub fn run() -> Result<()> {
         }
         Invocation::Refused(reason) => bail!(reason),
     };
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    let panic_flush = PanicFlush::default();
-    crash::protect(&panic_flush);
-
     let state_dir = caditor_file::state_dir();
+    let logging = Logging::start(state_dir.as_deref());
+    let result = run_session(open, state_dir, &logging);
+    if let Err(error) = &result {
+        log::error!("{error:#}");
+        logging::show_failure(&logging::failure_text(error, logging.path()));
+    }
+    logging.end();
+    result
+}
+
+fn run_session(open: Option<PathBuf>, state_dir: Option<PathBuf>, logging: &Logging) -> Result<()> {
+    let panic_flush = PanicFlush::default();
+    crash::protect(&panic_flush, logging.ending());
+
     if state_dir.is_none() {
         log::warn!("no state directory, so unsaved work cannot be protected against a crash");
     }
     let recovery_dir = state_dir.as_deref().map(caditor_file::recovery_dir);
+    let stopped_before = state_dir
+        .as_deref()
+        .and_then(|dir| logging.earlier_unexpected_end(dir));
 
     let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
     let mut model = Model::new(
@@ -136,6 +153,9 @@ pub fn run() -> Result<()> {
             panic_flush,
         },
     );
+    if let Some(log) = &stopped_before {
+        model.set_notice(Notice::info(logging::unexpected_end_notice(log)));
+    }
     let config_dir = caditor_file::config_dir();
     let files = Files::new(
         FilesConfig {

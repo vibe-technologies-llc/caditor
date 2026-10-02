@@ -7,6 +7,7 @@ paths:
   - "crates/caditor-file/src/recent.rs"
   - "crates/caditor-file/src/recovery.rs"
   - "crates/caditor-file/src/paths.rs"
+  - "crates/caditor-file/src/logs.rs"
 ---
 
 # Journal, storage, preferences and recovery
@@ -121,3 +122,13 @@ paths:
   wrote them), they are offered for restoring, and `journal_for` offers the newest readable one
   set aside for a model when its own journal holds nothing; restoring takes it over like any
   recovered journal (`Start::replaces`), and one with nothing left to recover is deleted.
+
+## Session logs (`logs.rs`)
+
+- `SessionLog::create` makes `<state>/logs/caditor-<seconds, 20 digits>-<pid>.log`, owner-only,
+  append-only; `write` stops at `MAX_LOG_SIZE` with one line saying so, `end` appends the end
+  line past that limit and syncs. `ended_unexpectedly` lists other logs whose process is gone
+  (`/proc/<pid>`) and whose last line (read from the last 512 bytes) is neither the end line nor
+  the reported line; `mark_reported` appends the reported line; `prune_logs` keeps the
+  `LOGS_KEPT` newest by name and never removes a running process's.
+

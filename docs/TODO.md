@@ -41,11 +41,6 @@ within a category run from most to least important.
 
 ## Reliability and diagnostics
 
-- Logs go only to stderr and the desktop entry has `Terminal=false`, so a panic or a startup
-  failure ("could not start the renderer") leaves no trace for a desktop launch, and stripped
-  symbols make backtraces empty. Write a log in the state directory, show startup errors in a
-  native dialog naming the cause and the `WGPU_BACKEND=gl` workaround, and say where the log is
-  after an unclean exit.
 - `rfd`'s portal backend `dlopen`s `libdbus` (C) and, when it is missing, returns `None`, which
   the app treats as the user cancelling, so Open and Save As do nothing without a word. Use a
   `zbus` portal call (zbus is already in the tree) and report a missing portal.
@@ -579,6 +574,11 @@ Linux is the primary platform and Windows the only other one planned; macOS is n
   resize borders and DPI handling checked, the desktop entry, icons and MIME type need a Windows
   equivalent (file association, `.ico`), and the packaging scripts, `INSTALL.md` and
   `RELEASING.md` need a Windows section.
+- On Windows, Microsoft Defender's real-time scanning slows the atomic saves, the recovery journal's
+  frequent syncs and version history writes in the folders models live in. Remind the user, once
+  and dismissibly (a callout on first save to a folder, repeatable from Preferences and the user
+  guide), that they can exclude their models' working folder from Defender, saying what that
+  trades away and how to do it; never change Defender settings ourselves.
 - Linux has only the `.tar.zst` with its installer: no Flatpak, AppImage, `.deb` or `.rpm`, so
   caditor is not in software centres and installs never update themselves.
 

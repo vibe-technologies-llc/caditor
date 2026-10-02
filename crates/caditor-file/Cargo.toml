@@ -24,6 +24,7 @@ blake3.workspace = true
 crc32fast.workspace = true
 log.workspace = true
 miniz_oxide.workspace = true
+parking_lot.workspace = true
 png.workspace = true
 rustix = { workspace = true, features = ["fs", "std"] }
 serde = { workspace = true, features = ["derive"] }

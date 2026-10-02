@@ -115,6 +115,17 @@ paths:
   every feature as one undoable change (`Model::suppress_every_feature`), saying how to find the
   one at fault; after `GIVE_UP_AFTER_FAILED_FRAMES` in a row the app exits with the journal kept,
   so the next start offers it.
+- `logging.rs`: each run logs to stderr and to its own file,
+  `$XDG_STATE_HOME/caditor/logs/caditor-<seconds>-<pid>.log` (`caditor_file::SessionLog`,
+  owner-only, cut at `MAX_LOG_SIZE`), ending with an end line on a normal exit, a reported
+  failure or a termination signal. The panic hook logs the panic with a backtrace (release
+  builds keep symbol names, `strip = "debuginfo"`). At start, a log whose process is gone and
+  which has no end line is reported in a notice naming it, then marked reported; only the ten
+  newest logs are kept (`LOGS_KEPT`).
+- A failure `run` returns (no window, no renderer, a window failing frame after frame) is
+  logged and, when stderr is not a terminal (a desktop launch), shown through `zenity`, `kdialog`
+  or `notify-send`, whichever works first; `failure_text` names the cause, the `WGPU_BACKEND=gl`
+  workaround when a `RenderError` is behind it, and the log.
 - The recovery card offers Restore suppressed beside Restore: the same restore followed by
   suppressing every feature, for a model that made caditor stop.
 
