@@ -290,6 +290,7 @@ within a category run from most to least important.
   references it.
 - Only `.step` and `.stp` are recognised (no `.p21` or `.stpz`), and names in raw Latin-1 become
   U+FFFD without a note.
+- No IGES import or export, though older CAM software and many suppliers still exchange it.
 
 ## Drawing import and export
 
@@ -305,16 +306,35 @@ within a category run from most to least important.
 - Damage anywhere refuses the whole DXF, losing everything read before it, and CR-only line
   endings read as damaged at line 1.
 
-## Mesh export
+## Mesh import and export
 
+- No mesh import (STL, 3MF, OBJ), though the STEP reader already builds `FACETED_BREP`s from
+  polygons; it needs the STEP storage item above first. Importing a mesh should give a solid that
+  edits like one drawn in caditor, where Fusion and FreeCAD leave thousands of triangle faces that
+  fillets, sketches, holes and booleans choke on. The aim, to be researched before design:
+  - Repair on import without asking: weld duplicate vertices, close small holes, fix flipped and
+    inconsistent normals, split or drop non-manifold and degenerate pieces, and separate shells
+    into bodies, saying in the import report what was fixed and what could not be.
+  - Rebuild real faces: group triangles into regions and recognise planes, cylinders, cones,
+    spheres and tori within a tolerance the import chooses from the mesh's own noise (adjustable
+    with a live preview), fit splines to what remains, and join them into a B-rep whose faces and
+    edges are named, so a flat side takes a sketch, a hole edge a fillet and a bore its axis.
+  - Fall back gracefully: what cannot be fitted stays faceted but still part of a valid solid that
+    booleans, shells and direct edits (Modelling features) accept, so the import never fails as a
+    whole over a bad region.
+  - Stay quick on scans and printer files of millions of triangles, in the background with
+    progress and Cancel, and keep the source mesh in the model so the conversion can be redone at
+    another tolerance later without breaking what references its faces.
+  - Units: STL has none, so the import guesses from the size (a part 0.05 mm across is likely in
+    metres) and offers a scale before committing, rather than leaving it to the scale item.
 - One body that cannot be meshed or written aborts the whole export (`?` per body in
   `export_bodies`); export the others and name the one left out.
 - STL uses absolute f32 coordinates, which lose about 0.06 mm at 10^6 mm, and merges all bodies
   into one surface; `stl::encode` holds every triangle as f64 before writing.
 - 3MF has no colours, materials or thumbnail, builds everything in memory and cannot exceed
   4 GiB without ZIP64; it prints vertices with up to 17 digits, about doubling the XML.
-- No mesh import (STL, 3MF, OBJ), though the STEP reader already builds `FACETED_BREP`s from
-  polygons; it needs the STEP storage item above first.
+- No OBJ or glTF export, so models cannot go to renderers, game engines or web viewers without
+  another tool.
 
 ## Interface performance
 
@@ -358,6 +378,8 @@ within a category run from most to least important.
 
 - No projection of model edges or other sketches into a sketch, and bodies and other sketches
   are unpickable while editing.
+- No reference image: a photo or scan cannot be placed on a sketch plane, scaled by two points and
+  traced, as a part copied from an existing object or a drawing needs.
 - Every dimension drives: there are no reference (driven) dimensions and no way to disable a
   constraint, so dimensioning determined geometry adds a redundant constraint instead of a
   measurement.
@@ -402,17 +424,26 @@ within a category run from most to least important.
 ## Modelling features
 
 - Feature kinds missing: mirror (the kernel has no reflecting transform), hole, draft, sweep,
-  loft, split, and move or copy body.
+  loft, split, rib, emboss or deboss of sketch text onto a face, and move, copy or scale of one
+  body.
 - The whole model cannot be scaled: no command or feature resizes every body, sketch and datum by
   a factor (uniform, about the origin or a chosen point) as one undoable change. Scaling must
   keep references and names stable, and say what happens to dimensions and parameters (scale the
   stored values, or the parameters they use, or leave expressions alone and scale only plain
   values), so a part drawn at the wrong size or an import in the wrong unit can be fixed without
   redrawing it.
+- Bodies cannot be edited directly: no moving, offsetting, deleting or replacing a face (push and
+  pull) and no deleting a fillet or chamfer by its faces. An imported STEP body has no feature
+  history, so today it can only be cut, joined, filleted or shelled; a wall too thick, a hole in
+  the wrong place or a fillet to remove means remodelling it from scratch. Direct edits become
+  features of their own, named from the faces they move, so they stay parametric and undoable.
 - Datums cannot be built from points: no datum point, plane through three points, mid-plane,
   plane through an axis and a point, plane normal to an edge at a point, or axis through two
   points. Model vertices are named and pickable but only the measure tool uses them, and datums
   and pattern axes cannot take sketch geometry.
+- No helix or spiral curve and no threads: springs, coils and threaded holes and shafts cannot be
+  modelled, and the hole feature (above) has no ISO metric thread sizes or cosmetic thread to show
+  a thread without modelling it. Sweep (above) needs the helix for modelled threads.
 - Extrusions always start on the sketch plane, with no start offset or face, taper angle or thin
   wall, though `LinearExtent::between` accepts any bounds; revolve has the same gaps.
 - Patterns repeat a whole body: no pattern of chosen features (a row of holes cut into a plate),
@@ -439,8 +470,21 @@ within a category run from most to least important.
 - Parameters cannot be reordered or given a note, show no "used by" or unused flag, cannot be
   deleted by inlining their value, and expressions cannot refer to measured values or sketch
   dimensions.
+- No configurations: a model holds one set of parameter values, so sizes of one part (a bracket in
+  M4, M6 and M8) are separate copies of the file. Named parameter sets, chosen as a whole and kept
+  in the model like versions, with export of each.
 - The measure tool cannot take planes, axes, datums or sketch curves, so a hole axis to a datum
   or a circle's radius cannot be measured.
+- No interference check: nothing finds where two bodies overlap or touch, or reports the
+  overlapping volume, though booleans already compute it.
+
+## Technical drawings
+
+- No 2D drawings at all: no sheet with a title block, no projected front, top, side and isometric
+  views of the bodies, no section or detail views, no dimensions or notes taken from the model, and
+  no PDF, SVG or DXF output of a sheet, though parts made for a workshop need one. Views update
+  with the model and their dimensions refer to edges by name, so they survive edits as features
+  do. Hidden-line removal (also wanted for the Viewer's display styles) comes first.
 
 ## Viewer
 
@@ -451,6 +495,9 @@ within a category run from most to least important.
 - Transparent or X-ray bodies.
 - Line caps, joins and anti-aliasing without MSAA.
 - A selection filter, so a click takes only faces, edges, vertices or sketch geometry.
+- No box or lasso selection in the 3D view (only inside a sketch), no select all, and no selecting
+  an edge's tangent chain or a face's loop outside the fillet panel, so choosing many faces or
+  edges for a pattern, shell or export means clicking each one.
 - Edge lines can be eaten by faces at grazing angles, since depth bias is a constant factor with
   no slope term, and the grid and reference fills share the mesh's bias, so a face on the XY
   plane can speckle with the grid. Neither has a test.
@@ -507,6 +554,17 @@ within a category run from most to least important.
   only Inter and egui's defaults are loaded.
 - Notices are one slot: an info notice replaces a save or export failure, with no history.
 - Version history shows only "saved N ago" with no summary, preview or way to keep a version.
+- Undo steps are only reachable one at a time; there is no list of the undo history to see what
+  each step changed or to jump back several steps at once.
+- No user guide: Help has only the welcome, the tips and About. Nothing explains features, the
+  parameter and expression syntax, or the file workflow, and no panel links to help on itself.
+  A guide shipped with the app (and readable offline) with a page per tool, opened by F1 for the
+  current tool or panel.
+- No model properties: a model has no title, description, part number, revision or notes, so
+  exports carry only the file name (the STEP header and 3MF metadata stay empty) and nothing
+  identifies a part beyond its path. Empty unless the user fills them in.
+- Bodies have no list of their own: a body appears only as the features that build it, so showing,
+  hiding, naming or (once they exist) colouring a body means finding the feature that made it.
 - The feature tree has no filter or groups.
 - Angles display only in degrees though `ux.md` allows radians; core modelling commands have no
   default shortcuts.
@@ -515,6 +573,20 @@ within a category run from most to least important.
 - One document per process.
 - No clipboard for sketch geometry or features, no parameter import or export.
 - No localisation.
+
+## Scope decisions
+
+These are open: each is a large direction the project has not committed to, and each needs a
+decision recorded in `docs/` before work starts.
+
+- Assemblies: a model is one part of several bodies, with no components, instances of another
+  model file, joints or mates, exploded views or bill of materials, so a product of several parts
+  cannot be put together or checked for fit. Decide whether caditor stays a part modeller, or how
+  assemblies reference part files while keeping references stable across edits.
+- Surface modelling: no surface bodies, so no thicken, offset surface, trim, extend, patch or
+  knit to a solid, which shaped consumer parts and repairing open STEP imports need.
+- Sheet metal: no flanges, bends with a bend allowance, or flat patterns, though laser-cut and
+  bent parts are a common use; flat patterns would go out through the sketch DXF export.
 
 ## Platforms
 
@@ -529,6 +601,11 @@ within a category run from most to least important.
   resize borders and DPI handling checked, the desktop entry, icons and MIME type need a Windows
   equivalent (file association, `.ico`), and the packaging scripts, `INSTALL.md` and
   `RELEASING.md` need a Windows section.
+- No macOS build either; it needs the same work as Windows (native file dialogs, a menu bar in the
+  system's place, Cmd shortcuts, signing and notarisation, an app bundle) plus a Metal backend for
+  wgpu, since only Vulkan and GL are built.
+- Linux has only the `.tar.zst` with its installer: no Flatpak, AppImage, `.deb` or `.rpm`, so
+  caditor is not in software centres and installs never update themselves.
 
 ## Dependencies
 
