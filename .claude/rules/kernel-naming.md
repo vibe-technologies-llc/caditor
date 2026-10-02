@@ -56,9 +56,13 @@ paths:
     fewest differences);
   - when the name is gone (its region key or piece id changed), to the face of the same origin
     sharing at least one neighbour.
-- An `EdgeReference` is an edge's name, its two face names and its end vertex names. It resolves by
-  name, else among the edges between the same faces by matching ends; an edge sharing no end with
-  the reference is never taken for it.
+- An `EdgeReference` is an edge's name, its two face names with their `FaceOrigin`s (aligned with
+  `faces()`; `None` in references read from files saved before origins were kept) and its end
+  vertex names. It resolves by name, else among the edges between the same faces by matching ends;
+  an edge sharing no end with the reference is never taken for it. When no edge lies between the
+  same faces (a cap renamed because a hole was added inside its outline), it falls back to the
+  edges whose faces each keep the reference's name or, failing that, its origin, best by faces
+  kept by name, then by matching ends.
 - A tie is `ReferenceError::Ambiguous` with the candidates; no match is `Missing`. Resolution never
   guesses between equals.
 - `EdgeNaming` indexes a solid's edges by name, face pair and end vertex names in one pass;

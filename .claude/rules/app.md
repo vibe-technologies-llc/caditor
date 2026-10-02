@@ -99,8 +99,11 @@ paths:
 - IDs restart per document, so a new session clears the viewport's selection, hover, highlight,
   drawing state (`Workspace::sync`, at the start of each frame), the tree's selection and rename,
   the export dialog's left-out bodies.
-- `run` installs the panic hook and a SIGTERM/SIGHUP/SIGINT handler (`signal-hook`) flushing the
-  journal before exit.
+- `run` calls `crash::protect`, which installs the panic hook and a SIGTERM/SIGHUP/SIGINT handler
+  (`signal-hook`) flushing the journal before exit; the handler then stops the process by that
+  signal. `tests/crash_flush.rs` re-runs its own binary as a child that records changes to a real
+  `Storage` and panics, raises SIGTERM or is killed, and checks that a recovery scan restores
+  every change.
 
 ## Redraws and frame pacing
 

@@ -794,7 +794,8 @@ impl Document {
         }
         let moving = self.feature(id).ok_or(EditError::MissingFeature)?;
         let name = moving.name.clone();
-        let uses = moving.kind.features();
+        let mut uses = moving.kind.dependencies();
+        uses.remove(&id);
         let others: Vec<&Feature> = self.features().filter(|other| other.id() != id).collect();
         let (above, below) = others.split_at(index.min(others.len()));
         if let Some(needed) = below.iter().find(|other| uses.contains(&other.id())) {
@@ -805,7 +806,7 @@ impl Document {
         }
         if let Some(user) = above
             .iter()
-            .find(|other| other.kind.features().contains(&id))
+            .find(|other| other.kind.dependencies().contains(&id))
         {
             return Err(EditError::BelowDependent {
                 name,

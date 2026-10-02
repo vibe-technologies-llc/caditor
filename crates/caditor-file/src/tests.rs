@@ -2026,7 +2026,16 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
         FeatureKind::Blend(Blend {
             kind: BlendKind::Chamfer,
             body: base,
-            edges: vec![edge, edge],
+            edges: vec![
+                edge,
+                edge.with_origins([
+                    Some(FaceOrigin::EndCap { feature: 1 }),
+                    Some(FaceOrigin::Side {
+                        feature: 1,
+                        entity: 4,
+                    }),
+                ]),
+            ],
             size: transaction.parse("0.5 mm").unwrap(),
         }),
     );
@@ -2061,6 +2070,9 @@ fn fillets_and_chamfers_are_saved_and_loaded() {
     ));
     assert!(text.contains("\"chamfer\":{\"body\":1"));
     assert!(text.contains("\"origin\":{\"chamfer\":{\"feature\":7}}"));
+    assert!(text.contains(
+        "\"origins\":[{\"end_cap\":{\"feature\":1}},{\"side\":{\"entity\":4,\"feature\":1}}]"
+    ));
     let loaded = decode_text(&text);
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
@@ -2168,11 +2180,11 @@ fn patterned_model() -> (Document, FeatureId, FeatureId) {
                 first: LinearDirection {
                     axis: AxisReference::Edge {
                         body: base,
-                        edge: EdgeReference::new(
+                        edge: Box::new(EdgeReference::new(
                             EdgeName::from_digest(0xed),
                             [FaceName::from_digest(1), FaceName::from_digest(2)],
                             [VertexName::from_digest(3), VertexName::from_digest(4)],
-                        ),
+                        )),
                     },
                     count: transaction.parse("3").unwrap(),
                     spacing: transaction.parse("depth * 4").unwrap(),
@@ -2316,11 +2328,11 @@ fn datum_model() -> (Document, FeatureId, FeatureId) {
             rotation: Some(PlaneRotation {
                 axis: AxisReference::Edge {
                     body: base,
-                    edge: EdgeReference::new(
+                    edge: Box::new(EdgeReference::new(
                         EdgeName::from_digest(0xed),
                         [FaceName::from_digest(1), FaceName::from_digest(2)],
                         [VertexName::from_digest(3), VertexName::from_digest(4)],
-                    ),
+                    )),
                 },
                 angle: transaction.parse("depth * 10 deg / 1 mm").unwrap(),
             }),

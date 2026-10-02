@@ -4,8 +4,7 @@ Parametric CAD software
 ## Installing
 
 Each release has an archive for 64-bit Linux; extract it and run `./install.sh`. Its
-`INSTALL.md` has the details and the system requirements. `CHANGELOG.md` lists what each
-release brings.
+`INSTALL.md` has the details and the system requirements.
 
 ## Building
 

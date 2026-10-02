@@ -63,6 +63,8 @@ paths:
 - A record with unchanged understood content is written back exactly as stored (newer fields kept,
   not recompressed). Unknown chunk kinds are carried unless must-understand; loading reports those
   as left out, so the original is kept as `.damaged`.
+- An edge reference record has `origins`, its two faces' origins in the order of `faces`, written
+  only when either is known; older readers drop it and lose only the fallback it gives.
 - Records carry stable IDs. Construction curves add `"construction": true` only when set (on a
   point: loads as a point, reported). Expressions are canonical text with parameters as `$<id>`
   (`Expression::to_stored_text`, `parse_stored`); region keys and topology names 32-digit hex;

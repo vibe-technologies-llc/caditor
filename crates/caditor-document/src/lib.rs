@@ -7,6 +7,7 @@ mod document;
 mod edit;
 mod editor;
 mod import;
+mod origins;
 mod parameter_list;
 mod pattern;
 mod pieces;

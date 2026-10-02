@@ -953,6 +953,8 @@ fn outcome(result: &Result<Solid, BooleanError>) -> &'static str {
     }
 }
 
+const RANDOM_PLACEMENT_FAILURES_ALLOWED: usize = 95;
+
 #[test]
 #[ignore = "a survey of the failures left, best run in release"]
 fn random_placements_of_every_fixture() {
@@ -989,6 +991,15 @@ fn random_placements_of_every_fixture() {
     }
 
     eprintln!("{outcomes:?}");
+    let failures: usize = outcomes
+        .iter()
+        .filter(|(label, _)| !matches!(**label, "ok" | "empty"))
+        .map(|(_, count)| count)
+        .sum();
+    assert!(
+        failures <= RANDOM_PLACEMENT_FAILURES_ALLOWED,
+        "{failures} booleans failed, more than the {RANDOM_PLACEMENT_FAILURES_ALLOWED} allowed"
+    );
 }
 
 #[test]

@@ -113,6 +113,13 @@ impl Pattern {
             .collect()
     }
 
+    pub fn origin_features(&self) -> BTreeSet<FeatureId> {
+        self.axes()
+            .into_iter()
+            .flat_map(AxisReference::origin_features)
+            .collect()
+    }
+
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
         used.extend(self.axis_datums());

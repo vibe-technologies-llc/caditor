@@ -961,7 +961,7 @@ fn find_again(
     let naming = EdgeNaming::new(filled);
     let mut original = BTreeMap::new();
     for (edge, reference) in references {
-        let found = match reference.resolve_in(&naming) {
+        let found = match reference.resolve_by_names_in(&naming) {
             Ok(found) => vec![found],
             Err(ReferenceError::Ambiguous(candidates)) => candidates,
             Err(ReferenceError::Missing) => return Err(BlendError::Lost(*edge)),

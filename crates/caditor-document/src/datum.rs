@@ -10,6 +10,7 @@ use crate::{
     attachment::{AttachmentError, FaceAttachment},
     describe::describe_origin,
     document::{Document, Feature, FeatureId},
+    origins,
     recompute::{Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     tolerance,
 };
@@ -120,6 +121,13 @@ impl PlaneReference {
             Self::Principal(_) | Self::Datum(_) => None,
         }
     }
+
+    pub fn origin_features(&self) -> BTreeSet<FeatureId> {
+        match self {
+            Self::Face(attachment) => attachment.origin_features(),
+            Self::Principal(_) | Self::Datum(_) => BTreeSet::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -128,7 +136,7 @@ pub enum AxisReference {
     Datum(FeatureId),
     Edge {
         body: FeatureId,
-        edge: EdgeReference,
+        edge: Box<EdgeReference>,
     },
     Face {
         body: FeatureId,
@@ -151,11 +159,19 @@ impl AxisReference {
         }
     }
 
+    pub fn origin_features(&self) -> BTreeSet<FeatureId> {
+        match self {
+            Self::Edge { edge, .. } => origins::of_edge(edge),
+            Self::Face { face, .. } => origins::of_face(face).into_iter().collect(),
+            Self::Principal(_) | Self::Datum(_) => BTreeSet::new(),
+        }
+    }
+
     pub fn capture_edge(body: FeatureId, solid: &Solid, edge: EdgeId) -> Option<Self> {
         edge_ray(solid, edge)?;
         Some(Self::Edge {
             body,
-            edge: EdgeReference::capture(solid, edge)?,
+            edge: Box::new(EdgeReference::capture(solid, edge)?),
         })
     }
 
@@ -301,6 +317,18 @@ impl Datum {
         used.extend(self.axis_datums());
         used.extend(self.bodies());
         used
+    }
+
+    pub fn origin_features(&self) -> BTreeSet<FeatureId> {
+        self.planes()
+            .into_iter()
+            .flat_map(PlaneReference::origin_features)
+            .chain(
+                self.axes()
+                    .into_iter()
+                    .flat_map(AxisReference::origin_features),
+            )
+            .collect()
     }
 }
 

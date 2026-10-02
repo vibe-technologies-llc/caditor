@@ -26,21 +26,18 @@ within a category run from most to least important.
   coincidence only, so the near-coincident bands and long-edge clipping losses in Kernel
   correctness were invisible. Add randomised aligned contacts with high aspect ratios and offsets
   of 1e-6 to 1e-4 mm.
-- The ignored `random_placements_of_every_fixture` and
-  `a_conflict_across_hundreds_of_entities_is_named_within_seconds` guard the boolean failure rate
-  and the diagnosis budget but run nowhere; run them in release on a schedule with a threshold.
-- The panic hook and signal flush in `main.rs`, the data-loss backstop, have no test: spawn the
-  binary, kill it, and recover its journal. `check-install.sh` only runs `--version`; start the
-  packaged binary to a first frame under Xvfb and lavapipe, check its linked libraries and highest
-  glibc symbol against `docs/RELEASING.md`, and run the offscreen tests once more on the GL
-  backend that `packaging/INSTALL.md` promises.
+- `tests/crash_flush.rs` runs the crash protection with a real storage worker in a child process,
+  not the app itself. `check-install.sh` only runs `--version`; start the packaged binary to a
+  first frame under Xvfb and lavapipe, kill it there and recover its journal, check its linked
+  libraries and highest glibc symbol against `docs/RELEASING.md`, and run the offscreen tests once
+  more on the GL backend that `packaging/INSTALL.md` promises.
 - Two solver tests assert under 5 seconds in a debug build and a document test waits on a
   20 second deadline; use work budgets as `DIAGNOSIS_WORK` does.
 - Action SHAs, toolchains and tool versions are bumped by hand and duplicated between `ci.yml`
   and `release.yml`, and `rustup` is fetched by an unpinned `curl | sh`.
-- `build-release.sh` accepts an empty changelog section and any `appstreamcli` failure that is
-  not an `E:` line, the release has no signature or attestation beside its `.sha256`, and the
-  metainfo feature list lags the changelog (no patterns, trim, offset, mirror or PNG export).
+- `build-release.sh` accepts any `appstreamcli` failure that is not an `E:` line, the release has
+  no signature or attestation beside its `.sha256`, and the metainfo feature list lacks patterns,
+  trim, offset, mirror and PNG export.
 - Slow tests to keep an eye on: about 40 UI tests at over a second each.
 
 ## Persistence and recovery
@@ -78,10 +75,9 @@ within a category run from most to least important.
   a crossing moves past it the two arcs between the same cutters swap names, and side faces and
   edges named from them silently rewire (a circle cut by a chord moved from just above to just
   below the centre). Count occurrences from something an edit cannot reorder.
-- `EdgeReference` has no origin fallback, and cap names digest the region's whole boundary, so
-  adding a hole inside an extruded rectangle makes every fillet or chamfer on a cap edge fail,
-  while the cap faces themselves still resolve through `FaceOrigin`. Resolve both faces with the
-  `FaceReference` fallback and take the edge between them.
+- Edge references saved before they kept their faces' origins have no origin fallback, so a
+  fillet chosen in an older model still fails on a cap edge once a hole is added; re-capture its
+  edges on load by resolving them against the body as it was.
 - A chosen region's `RegionKey` digests its boundary, so adding a hole or a splitting line inside
   it fails the extrusion or revolve with "no longer exists", and `Profile::select` fails the whole
   feature on the first stale key. Fall back to the region sharing most boundary pieces or
@@ -90,10 +86,9 @@ within a category run from most to least important.
   adds a vertex and a coplanar side face and renames that side. Merge pieces of one entity
   meeting at a degree-2 vertex after pruning, and build `PieceBound::Cut` only from surviving
   curves.
-- Deleting, suppressing or moving a feature does not count features that hold its faces or edges
-  as dependents: `dependents_of` follows only `FeatureKind::features()`, so deleting a boss
-  extrusion that a fillet uses gives no prompt and the fillet then fails. Derive dependents from
-  the origin feature of each held reference too.
+- A patterned copy keeps the origin of the face it copies, so a fillet or sketch on a copy counts
+  as a dependent of the original's feature but not of the pattern: deleting the pattern gives no
+  prompt.
 - A reference resolved through the fallback recomputes as plain `UpToDate`; nothing tells the user
   it now points at another face, and the stored name is never refreshed, so small edits can
   drift it until it fails. Add a healed state shown as a warning and an undoable "update

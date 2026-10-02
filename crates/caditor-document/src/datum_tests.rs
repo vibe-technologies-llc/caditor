@@ -268,7 +268,7 @@ fn datums_on_body_faces_and_edges_follow_the_body() {
         "Axis 1",
         FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Edge {
             body: base,
-            edge,
+            edge: Box::new(edge),
         }))),
     );
     let crossing = add(
@@ -435,7 +435,10 @@ fn a_revolve_axis_is_shown_where_the_revolve_found_it() {
     } = block();
     let evaluation = evaluate(&document, &mut Recompute::default());
     let edge = edge_along(evaluation.body(base).unwrap(), Point3::new(5.0, 0.0, 0.0));
-    let axis = AxisReference::Edge { body: base, edge };
+    let axis = AxisReference::Edge {
+        body: base,
+        edge: Box::new(edge),
+    };
     let section = add(
         &mut document,
         "Section",

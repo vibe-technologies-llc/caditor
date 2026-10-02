@@ -231,6 +231,8 @@ pub(crate) struct EdgeRecord {
     pub name: String,
     pub faces: [String; 2],
     pub ends: [String; 2],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origins: Option<[Option<FaceOriginRecord>; 2]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -846,6 +848,11 @@ fn edge_record(edge: &EdgeReference) -> EdgeRecord {
         name: hex(edge.name().digest()),
         faces: [hex(first.digest()), hex(second.digest())],
         ends: [hex(from.digest()), hex(to.digest())],
+        origins: edge
+            .origins()
+            .iter()
+            .any(Option::is_some)
+            .then(|| edge.origins().map(|origin| origin.map(origin_record))),
     }
 }
 
@@ -997,20 +1004,24 @@ fn axis_record(reference: &AxisReference) -> AxisReferenceRecord {
 fn face_record(face: &FaceReference) -> FaceRecord {
     FaceRecord {
         face: hex(face.name().digest()),
-        origin: face.origin().map(|origin| match origin {
-            FaceOrigin::Side { feature, entity } => FaceOriginRecord::Side { feature, entity },
-            FaceOrigin::StartCap { feature } => FaceOriginRecord::StartCap { feature },
-            FaceOrigin::EndCap { feature } => FaceOriginRecord::EndCap { feature },
-            FaceOrigin::Fillet { feature } => FaceOriginRecord::Fillet { feature },
-            FaceOrigin::Chamfer { feature } => FaceOriginRecord::Chamfer { feature },
-            FaceOrigin::Shell { feature } => FaceOriginRecord::Shell { feature },
-            FaceOrigin::Imported { feature, face } => FaceOriginRecord::Imported { feature, face },
-        }),
+        origin: face.origin().map(origin_record),
         neighbours: face
             .neighbours()
             .iter()
             .map(|name| hex(name.digest()))
             .collect(),
+    }
+}
+
+fn origin_record(origin: FaceOrigin) -> FaceOriginRecord {
+    match origin {
+        FaceOrigin::Side { feature, entity } => FaceOriginRecord::Side { feature, entity },
+        FaceOrigin::StartCap { feature } => FaceOriginRecord::StartCap { feature },
+        FaceOrigin::EndCap { feature } => FaceOriginRecord::EndCap { feature },
+        FaceOrigin::Fillet { feature } => FaceOriginRecord::Fillet { feature },
+        FaceOrigin::Chamfer { feature } => FaceOriginRecord::Chamfer { feature },
+        FaceOrigin::Shell { feature } => FaceOriginRecord::Shell { feature },
+        FaceOrigin::Imported { feature, face } => FaceOriginRecord::Imported { feature, face },
     }
 }
 
@@ -1692,7 +1703,7 @@ fn restore_axis(record: &AxisReferenceRecord) -> Option<AxisReference> {
         AxisReferenceRecord::Datum(feature) => AxisReference::Datum(FeatureId::from_raw(*feature)),
         AxisReferenceRecord::Edge { body, edge } => AxisReference::Edge {
             body: FeatureId::from_raw(*body),
-            edge: restore_edge(edge)?,
+            edge: Box::new(restore_edge(edge)?),
         },
         AxisReferenceRecord::Face { body, face } => AxisReference::Face {
             body: FeatureId::from_raw(*body),
@@ -1885,11 +1896,20 @@ fn restore_edge(record: &EdgeRecord) -> Option<EdgeReference> {
     let vertex = |text: &str| restore_digest(text).map(VertexName::from_digest);
     let [first, second] = &record.faces;
     let [from, to] = &record.ends;
-    Some(EdgeReference::new(
-        EdgeName::from_digest(restore_digest(&record.name)?),
-        [face(first)?, face(second)?],
-        [vertex(from)?, vertex(to)?],
-    ))
+    let [first_origin, second_origin] = record
+        .origins
+        .map(|origins| origins.map(|origin| origin.map(restore_origin)))
+        .unwrap_or_default();
+    let mut sides = [(face(first)?, first_origin), (face(second)?, second_origin)];
+    sides.sort_by_key(|(name, _)| *name);
+    Some(
+        EdgeReference::new(
+            EdgeName::from_digest(restore_digest(&record.name)?),
+            sides.map(|(name, _)| name),
+            [vertex(from)?, vertex(to)?],
+        )
+        .with_origins(sides.map(|(_, origin)| origin)),
+    )
 }
 
 fn restore_value(
@@ -2042,7 +2062,15 @@ fn restore_face(
         .iter()
         .map(|text| restore_digest(text).map(FaceName::from_digest))
         .collect::<Option<Vec<FaceName>>>()?;
-    let origin = origin.map(|origin| match origin {
+    Some(FaceReference::new(
+        FaceName::from_digest(restore_digest(face)?),
+        origin.map(restore_origin),
+        neighbours,
+    ))
+}
+
+fn restore_origin(origin: FaceOriginRecord) -> FaceOrigin {
+    match origin {
         FaceOriginRecord::Side { feature, entity } => FaceOrigin::Side { feature, entity },
         FaceOriginRecord::StartCap { feature } => FaceOrigin::StartCap { feature },
         FaceOriginRecord::EndCap { feature } => FaceOrigin::EndCap { feature },
@@ -2050,12 +2078,7 @@ fn restore_face(
         FaceOriginRecord::Chamfer { feature } => FaceOrigin::Chamfer { feature },
         FaceOriginRecord::Shell { feature } => FaceOrigin::Shell { feature },
         FaceOriginRecord::Imported { feature, face } => FaceOrigin::Imported { feature, face },
-    });
-    Some(FaceReference::new(
-        FaceName::from_digest(restore_digest(face)?),
-        origin,
-        neighbours,
-    ))
+    }
 }
 
 fn restore_plane(record: PlaneRecord) -> Option<Plane> {

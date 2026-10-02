@@ -73,7 +73,6 @@ jobs:
           path: |
             target/dist/*.tar.zst
             target/dist/*.tar.zst.sha256
-            target/dist/release-notes.md
 
   publish:
     needs: build
@@ -95,5 +94,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "caditor ${GITHUB_REF_NAME#v}" \
-            --notes-file dist/release-notes.md \
+            --generate-notes \
             dist/*.tar.zst dist/*.tar.zst.sha256

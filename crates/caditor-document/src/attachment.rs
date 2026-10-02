@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use caditor_geometry::Plane;
 use caditor_kernel::{FaceId, FaceReference, ReferenceError, Solid, Surface};
 use caditor_sketch::Sketch;
@@ -5,6 +7,7 @@ use caditor_sketch::Sketch;
 use crate::{
     datum::DatumResult,
     document::{Feature, FeatureId},
+    origins,
     recompute::{Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     tolerance,
 };
@@ -27,6 +30,10 @@ impl FaceAttachment {
         let plane = face_plane(solid, face)?;
         let face = FaceReference::capture(solid, face)?;
         Some((Self { body, face }, plane))
+    }
+
+    pub fn origin_features(&self) -> BTreeSet<FeatureId> {
+        origins::of_face(&self.face).into_iter().collect()
     }
 
     pub fn resolve(&self, solid: &Solid) -> Result<Plane, AttachmentError> {

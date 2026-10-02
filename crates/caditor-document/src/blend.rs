@@ -6,6 +6,7 @@ use caditor_kernel::{BlendError, BlendShape, EdgeId, EdgeNaming, EdgeReference, 
 use crate::{
     describe::describe_edge,
     document::{Feature, FeatureId},
+    origins,
     pieces::{Resolution, Unresolved, pieces_of_one_edge, tally},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
@@ -66,6 +67,10 @@ impl Blend {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         BTreeSet::from([self.body])
+    }
+
+    pub fn origin_features(&self) -> BTreeSet<FeatureId> {
+        self.edges.iter().flat_map(origins::of_edge).collect()
     }
 
     pub fn resolutions(&self, solid: &Solid) -> Vec<Resolution<EdgeId>> {

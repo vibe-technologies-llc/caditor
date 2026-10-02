@@ -33,12 +33,6 @@ Versions follow semantic versioning on the workspace version in the root `Cargo.
 not versioned by release: every file format that has shipped stays readable (see
 `.claude/rules/reliability.md`).
 
-## Changelog
-
-`CHANGELOG.md` lists every release, newest first. A change that users notice adds its line under
-`## [Unreleased]` in the same commit, written for users (what they can now do, what behaves
-differently, what they must do), not as a commit message.
-
 ## Making a release
 
 1. On an up-to-date `master`, run the checks:
@@ -46,25 +40,23 @@ differently, what they must do), not as a commit message.
    `cargo test --workspace`.
 2. Set the version in `[workspace.package]` in the root `Cargo.toml` if it is not already the
    one being released, then `cargo build` so `Cargo.lock` follows.
-3. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [<version>] - <YYYY-MM-DD>` and open a new,
-   empty `## [Unreleased]` above it.
-4. Preview the archive with `packaging/build-release.sh --snapshot` (it needs `cargo-about`,
+3. Preview the archive with `packaging/build-release.sh --snapshot` (it needs `cargo-about`,
    `desktop-file-utils`, `appstream` and `zstd`) and check it with
    `packaging/check-install.sh target/dist/caditor-<version>-snapshot-linux-x86_64.tar.zst`,
    which installs it into a temporary prefix whose name holds a space, `&` and `%`, checks every
    file, the menu entry and the program, uninstalls it, and checks that a failed install leaves
    nothing behind. CI runs both on every push.
-5. Commit as `Release <version>`, tag it `v<version>` with `git tag -a`, and push `master` and
+4. Commit as `Release <version>`, tag it `v<version>` with `git tag -a`, and push `master` and
    the tag.
-6. The `Release` workflow (`.github/workflows/release.yml`) first runs the whole CI workflow
+5. The `Release` workflow (`.github/workflows/release.yml`) first runs the whole CI workflow
    on the tagged commit (tests on lavapipe, clippy, the formatting check, `cargo deny`, the packaging check and the
    fuzzing, through `workflow_call`), and only when it passes builds the archive with
    `packaging/build-release.sh` in an Ubuntu 22.04 container on the toolchain pinned by
    `RUST_TOOLCHAIN` (kept equal in `ci.yml` and raised in both at once), checks it with
    `packaging/check-install.sh`, and publishes the GitHub release with the archive, its
-   checksum and the changelog section as notes. GitHub attaches the tagged source, which is the corresponding source the AGPL asks
+   checksum and GitHub's generated notes. GitHub attaches the tagged source, which is the corresponding source the AGPL asks
    for.
 
-`packaging/build-release.sh` refuses to build a release from a dirty tree, from a commit that
-is not tagged `v<version>`, or without a dated changelog section for the version, and checks the
-desktop entry, the metainfo and that the binary reports the version.
+`packaging/build-release.sh` refuses to build a release from a dirty tree or from a commit that
+is not tagged `v<version>`, lists the release in the metainfo dated by the tagged commit, and
+checks the desktop entry, the metainfo and that the binary reports the version.

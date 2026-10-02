@@ -14,6 +14,10 @@ paths:
   the release workflow before it builds. Jobs run in Ubuntu 22.04 containers on the toolchain pinned
   by `RUST_TOOLCHAIN` (shared with the release workflow), each with a timeout; a newer push to a
   pull request cancels its older run.
+- It also runs nightly and on demand (`schedule`, `workflow_dispatch`); only then does the `stress`
+  job run, in release, the ignored `random_placements_of_every_fixture` (failing when more than
+  `RANDOM_PLACEMENT_FAILURES_ALLOWED` of its 4,500 booleans fail; lower it as kernel fixes land)
+  and `a_conflict_across_hundreds_of_entities_is_named_within_seconds`.
 - Jobs: tests with `--locked` and `CADITOR_REQUIRE_GPU=1` on the lavapipe software Vulkan driver
   (without that variable the offscreen render tests skip when no adapter exists); clippy with
   `--all-features`, so the `fuzzing` module is linted too; `rust-formatter --check` on the nightly

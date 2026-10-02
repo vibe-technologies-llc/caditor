@@ -6,6 +6,9 @@ on:
       - master
   pull_request:
   workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * *"
 
 permissions:
   contents: read
@@ -107,6 +110,49 @@ jobs:
 
       - name: Check the fuzz workspace's dependencies
         run: as-builder cargo deny --manifest-path fuzz/Cargo.toml --config deny.toml --locked check
+
+  stress:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    timeout-minutes: 45
+    steps:
+      - name: Install build tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential ca-certificates curl git zstd
+
+      - name: Check out (actions/checkout v7.0.1)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Restore the cargo cache (actions/cache v6.1.0)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: stress-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: stress-${{ env.RUST_TOOLCHAIN }}-
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Count the booleans of random placements that fail
+        run: |
+          cargo test --release --locked -p caditor-kernel -- --ignored --exact \
+            boolean::tests::random_placements_of_every_fixture
+
+      - name: Time the diagnosis of conflicts across hundreds of entities
+        run: |
+          cargo test --release --locked -p caditor-sketch -- --ignored --exact \
+            solve::diagnosis_tests::a_conflict_across_hundreds_of_entities_is_named_within_seconds
 
   format:
     runs-on: ubuntu-latest

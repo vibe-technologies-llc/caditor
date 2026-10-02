@@ -70,5 +70,4 @@ package() {
   install -Dm644 "$srcdir/THIRD-PARTY-LICENSES.html" \
     "$pkgdir/usr/share/licenses/caditor/THIRD-PARTY-LICENSES.html"
   install -Dm644 "$checkout/README.md" "$pkgdir/usr/share/doc/caditor/README.md"
-  install -Dm644 "$checkout/CHANGELOG.md" "$pkgdir/usr/share/doc/caditor/CHANGELOG.md"
 }

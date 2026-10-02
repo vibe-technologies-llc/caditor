@@ -7,6 +7,7 @@ use crate::{
     datum::capitalized,
     describe::{describe_edge, describe_origin, edge_faces},
     document::{Feature, FeatureId},
+    origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
@@ -30,6 +31,10 @@ impl Shell {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         BTreeSet::from([self.body])
+    }
+
+    pub fn origin_features(&self) -> BTreeSet<FeatureId> {
+        self.open.iter().filter_map(origins::of_face).collect()
     }
 
     pub fn resolutions(&self, solid: &Solid) -> Vec<Resolution<FaceId>> {

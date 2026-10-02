@@ -129,6 +129,7 @@ impl Match {
 pub struct EdgeReference {
     name: EdgeName,
     faces: [FaceName; 2],
+    origins: [Option<FaceOrigin>; 2],
     ends: [VertexName; 2],
 }
 
@@ -137,8 +138,13 @@ impl EdgeReference {
         Self {
             name,
             faces: sorted(faces),
+            origins: [None, None],
             ends: sorted(ends),
         }
+    }
+
+    pub fn with_origins(self, origins: [Option<FaceOrigin>; 2]) -> Self {
+        Self { origins, ..self }
     }
 
     pub fn capture(solid: &Solid, edge: EdgeId) -> Option<Self> {
@@ -147,7 +153,11 @@ impl EdgeReference {
 
     pub fn capture_in(naming: &EdgeNaming, edge: EdgeId) -> Option<Self> {
         let entry = naming.edges.get(&edge)?;
-        Some(Self::new(entry.name, entry.faces?, entry.ends))
+        let sides = entry.sides?;
+        Some(
+            Self::new(entry.name, sides.map(|side| side.name), entry.ends)
+                .with_origins(sides.map(|side| side.origin)),
+        )
     }
 
     pub fn name(&self) -> EdgeName {
@@ -156,6 +166,10 @@ impl EdgeReference {
 
     pub fn faces(&self) -> [FaceName; 2] {
         self.faces
+    }
+
+    pub fn origins(&self) -> [Option<FaceOrigin>; 2] {
+        self.origins
     }
 
     pub fn ends(&self) -> [VertexName; 2] {
@@ -167,6 +181,21 @@ impl EdgeReference {
     }
 
     pub fn resolve_in(&self, naming: &EdgeNaming) -> Result<EdgeId, ReferenceError<EdgeId>> {
+        self.resolve_with(naming, Fallback::Origins)
+    }
+
+    pub fn resolve_by_names_in(
+        &self,
+        naming: &EdgeNaming,
+    ) -> Result<EdgeId, ReferenceError<EdgeId>> {
+        self.resolve_with(naming, Fallback::None)
+    }
+
+    fn resolve_with(
+        &self,
+        naming: &EdgeNaming,
+        fallback: Fallback,
+    ) -> Result<EdgeId, ReferenceError<EdgeId>> {
         let named = naming.named(self.name);
         if let [only] = named {
             return Ok(*only);
@@ -179,40 +208,117 @@ impl EdgeReference {
         if let [only] = candidates {
             return Ok(*only);
         }
+        if candidates.is_empty() {
+            return match fallback {
+                Fallback::Origins => self.resolve_by_origins(naming),
+                Fallback::None => Err(ReferenceError::Missing),
+            };
+        }
         let scored: Vec<(EdgeId, usize)> = candidates
             .iter()
-            .filter_map(|id| {
-                let ends = naming.edges.get(id)?.ends;
-                let matching = ends.iter().filter(|end| self.ends.contains(end)).count();
-                Some((*id, matching))
+            .filter_map(|id| Some((*id, self.matching_ends(naming.edges.get(id)?))))
+            .filter(|(_, matching)| *matching > 0)
+            .collect();
+        best_of(scored)
+    }
+
+    fn resolve_by_origins(&self, naming: &EdgeNaming) -> Result<EdgeId, ReferenceError<EdgeId>> {
+        let scored: Vec<(EdgeId, (usize, usize))> = naming
+            .edges
+            .iter()
+            .filter_map(|(id, edge)| {
+                let kept = self.kept_sides(edge.sides?)?;
+                Some((*id, (kept, self.matching_ends(edge))))
             })
             .collect();
-        let Some(best) = scored
-            .iter()
-            .map(|(_, score)| *score)
+        best_of(scored)
+    }
+
+    fn kept_sides(&self, sides: [NamedSide; 2]) -> Option<usize> {
+        let [first, second] = sides;
+        let [expected_first, expected_second] = self.expected_sides();
+        let paired = |a: &ExpectedSide, b: &ExpectedSide| Some(a.kept(&first)? + b.kept(&second)?);
+        paired(&expected_first, &expected_second)
+            .into_iter()
+            .chain(paired(&expected_second, &expected_first))
             .max()
-            .filter(|best| *best > 0)
-        else {
-            return Err(ReferenceError::Missing);
-        };
-        match scored
+    }
+
+    fn expected_sides(&self) -> [ExpectedSide; 2] {
+        let [first_name, second_name] = self.faces;
+        let [first_origin, second_origin] = self.origins;
+        [
+            ExpectedSide {
+                name: first_name,
+                origin: first_origin,
+            },
+            ExpectedSide {
+                name: second_name,
+                origin: second_origin,
+            },
+        ]
+    }
+
+    fn matching_ends(&self, edge: &NamedEdge) -> usize {
+        edge.ends
             .iter()
-            .filter(|(_, score)| *score == best)
-            .map(|(id, _)| *id)
-            .collect::<Vec<EdgeId>>()
-            .as_slice()
-        {
-            [only] => Ok(*only),
-            tied => Err(ReferenceError::Ambiguous(tied.to_vec())),
+            .filter(|end| self.ends.contains(end))
+            .count()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fallback {
+    Origins,
+    None,
+}
+
+struct ExpectedSide {
+    name: FaceName,
+    origin: Option<FaceOrigin>,
+}
+
+impl ExpectedSide {
+    fn kept(&self, side: &NamedSide) -> Option<usize> {
+        if side.name == self.name {
+            Some(1)
+        } else if self.origin.is_some() && side.origin == self.origin {
+            Some(0)
+        } else {
+            None
         }
+    }
+}
+
+fn best_of<Score: Ord + Copy>(
+    scored: Vec<(EdgeId, Score)>,
+) -> Result<EdgeId, ReferenceError<EdgeId>> {
+    let Some(best) = scored.iter().map(|(_, score)| *score).max() else {
+        return Err(ReferenceError::Missing);
+    };
+    match scored
+        .iter()
+        .filter(|(_, score)| *score == best)
+        .map(|(id, _)| *id)
+        .collect::<Vec<EdgeId>>()
+        .as_slice()
+    {
+        [only] => Ok(*only),
+        tied => Err(ReferenceError::Ambiguous(tied.to_vec())),
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 struct NamedEdge {
     name: EdgeName,
-    faces: Option<[FaceName; 2]>,
+    sides: Option<[NamedSide; 2]>,
     ends: [VertexName; 2],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct NamedSide {
+    name: FaceName,
+    origin: Option<FaceOrigin>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -233,18 +339,22 @@ impl EdgeNaming {
         };
         let mut naming = Self::default();
         for (id, edge) in solid.edges() {
-            let faces = edge_face_names(solid, id);
+            let sides = edge_sides(solid, id);
             naming.edges.insert(
                 id,
                 NamedEdge {
                     name: edge.name(),
-                    faces,
+                    sides,
                     ends: [vertex_name(edge.start()), vertex_name(edge.end())],
                 },
             );
             naming.by_name.entry(edge.name()).or_default().push(id);
-            if let Some(faces) = faces {
-                naming.by_faces.entry(faces).or_default().push(id);
+            if let Some(sides) = sides {
+                naming
+                    .by_faces
+                    .entry(sides.map(|side| side.name))
+                    .or_default()
+                    .push(id);
             }
         }
         naming
@@ -276,12 +386,16 @@ fn edge_faces(solid: &Solid, edge: EdgeId) -> Vec<FaceId> {
         .collect()
 }
 
-fn edge_face_names(solid: &Solid, edge: EdgeId) -> Option<[FaceName; 2]> {
-    let names: Vec<FaceName> = edge_faces(solid, edge)
+fn edge_sides(solid: &Solid, edge: EdgeId) -> Option<[NamedSide; 2]> {
+    let sides: Vec<NamedSide> = edge_faces(solid, edge)
         .into_iter()
-        .filter_map(|face| solid.face(face).map(|face| face.name()))
+        .filter_map(|face| solid.face(face))
+        .map(|face| NamedSide {
+            name: face.name(),
+            origin: face.origin(),
+        })
         .collect();
-    match names.as_slice() {
+    match sides.as_slice() {
         [first, second] => Some(sorted([*first, *second])),
         _ => None,
     }

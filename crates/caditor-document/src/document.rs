@@ -8,7 +8,7 @@ use caditor_expression::{Expression, ParameterId, ParseError};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 
 use crate::{
-    attachment::{SketchAttachment, SketchFeature},
+    attachment::{FaceAttachment, SketchAttachment, SketchFeature},
     blend::Blend,
     datum::{Datum, PrincipalGeometry},
     edit::{Edit, Transaction},
@@ -310,6 +310,29 @@ impl FeatureKind {
         used.extend(self.bodies_used());
         used.extend(self.planes_used());
         used.extend(self.axes_used());
+        used
+    }
+
+    pub fn origin_features(&self) -> BTreeSet<FeatureId> {
+        match self {
+            Self::Sketch(sketch) => sketch
+                .attachment
+                .as_ref()
+                .and_then(SketchAttachment::face)
+                .map(FaceAttachment::origin_features)
+                .unwrap_or_default(),
+            Self::Solid(solid) => solid.origin_features(),
+            Self::Blend(blend) => blend.origin_features(),
+            Self::Shell(shell) => shell.origin_features(),
+            Self::Pattern(pattern) => pattern.origin_features(),
+            Self::Datum(datum) => datum.origin_features(),
+            Self::Import(_) => BTreeSet::new(),
+        }
+    }
+
+    pub fn dependencies(&self) -> BTreeSet<FeatureId> {
+        let mut used = self.features();
+        used.extend(self.origin_features());
         used
     }
 }

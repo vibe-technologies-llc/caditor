@@ -316,3 +316,51 @@ fn a_unique_name_is_not_trusted_when_none_of_its_neighbours_remain() {
     let unrecorded = FaceReference::new(captured.name(), captured.origin(), []);
     assert_eq!(unrecorded.resolve(&solid), Ok(hole));
 }
+
+fn plain_plate() -> Solid {
+    swept(&rectangle(1, (0.0, 0.0), (10.0, 8.0)), &Plane::XY, 2.0, 11)
+}
+
+#[test]
+fn an_edge_on_a_cap_renamed_by_a_new_hole_is_found_by_its_faces_origins() {
+    let before = plain_plate();
+    let top = FaceOrigin::EndCap { feature: 11 };
+    let [edge] = edge_between(&before, top, LEFT_WALL_OF_HOLE_PLATE)[..] else {
+        panic!("expected one edge");
+    };
+    let reference = EdgeReference::capture(&before, edge).unwrap();
+
+    let after = plate_with_hole((4.0, 4.0));
+    let [expected] = edge_between(&after, top, LEFT_WALL_OF_HOLE_PLATE)[..] else {
+        panic!("expected one edge");
+    };
+
+    assert_ne!(name_of(&before, top), name_of(&after, top));
+    assert_eq!(reference.resolve(&after), Ok(expected));
+    assert_eq!(
+        EdgeReference::new(reference.name(), reference.faces(), reference.ends()).resolve(&after),
+        Err(ReferenceError::Missing)
+    );
+}
+
+#[test]
+fn an_edge_is_found_by_its_faces_origins_alone_only_where_both_faces_meet() {
+    let before = plain_plate();
+    let top = FaceOrigin::EndCap { feature: 11 };
+    let [edge] = edge_between(&before, top, LEFT_WALL_OF_HOLE_PLATE)[..] else {
+        panic!("expected one edge");
+    };
+    let captured = EdgeReference::capture(&before, edge).unwrap();
+    let unknown = [FaceName::from_digest(5), FaceName::from_digest(6)];
+    let strangers = [VertexName::from_digest(1), VertexName::from_digest(2)];
+    let top_and_bottom = EdgeReference::new(EdgeName::from_digest(3), unknown, strangers)
+        .with_origins([Some(top), Some(FaceOrigin::StartCap { feature: 11 })]);
+    let top_and_wall = EdgeReference::new(EdgeName::from_digest(3), unknown, strangers)
+        .with_origins(captured.origins());
+
+    assert_eq!(
+        top_and_bottom.resolve(&before),
+        Err(ReferenceError::Missing)
+    );
+    assert_eq!(top_and_wall.resolve(&before), Ok(edge));
+}

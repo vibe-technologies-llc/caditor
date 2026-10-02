@@ -16,7 +16,7 @@ impl Document {
             }
             if feature
                 .kind
-                .features()
+                .dependencies()
                 .iter()
                 .any(|used| reached.contains(used))
             {

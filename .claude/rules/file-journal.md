@@ -38,7 +38,8 @@ paths:
   orphaned. Taken on read-write handles (read-only journals get a shared lock), since NFS emulates
   `flock` with byte-range locks needing a writable descriptor.
 - A spawned child shares locked descriptors until it execs, so a scan meanwhile sees a live journal
-  as locked; tests never spawn processes (FIFOs are made in-process through `rustix`).
+  as locked; unit tests never spawn processes (FIFOs are made in-process through `rustix`). The
+  only test that does is the app's `tests/crash_flush.rs`, in a binary of its own.
 
 ## Putting a journal in place
 

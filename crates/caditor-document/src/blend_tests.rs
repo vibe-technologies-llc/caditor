@@ -573,3 +573,145 @@ fn a_failure_message_follows_the_renaming_of_a_feature_that_made_a_face() {
         "{after}"
     );
 }
+
+fn mm(text: &str) -> Expression {
+    Expression::parse(&format!("{text} mm"), &|_| None).unwrap()
+}
+
+fn extruded(sketch: FeatureId, height: &str, operation: BodyOperation) -> FeatureKind {
+    FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+        sketch,
+        regions: RegionChoice::All,
+        extent: ExtrudeExtent::one_side(mm(height), false),
+        operation,
+    }))
+}
+
+#[test]
+fn a_fillet_on_a_cap_edge_survives_a_hole_added_inside_the_outline() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
+    );
+    let base = transaction.add_feature("Base", extruded(outline, "4", BodyOperation::NewBody));
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let evaluation = evaluate(&document, &mut engine);
+    let solid = evaluation.body(base).unwrap();
+    let edges = vec![edge_at(solid, Point3::new(5.0, 0.0, 4.0))];
+    let mut transaction = document.transaction("Fillet");
+    let fillet = transaction.add_feature(
+        "Fillet 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: base,
+            edges,
+            size: mm("1"),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let mut transaction = document.transaction("Add hole");
+    let center = transaction.add_sketch_entity(
+        outline,
+        caditor_sketch::Entity::Point(Point2::new(5.0, 4.0)),
+    );
+    transaction.add_sketch_entity(
+        outline,
+        caditor_sketch::Entity::Circle {
+            center,
+            radius: 1.5,
+        },
+    );
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut engine);
+
+    assert_eq!(
+        evaluation.feature(fillet).unwrap().state,
+        FeatureState::UpToDate
+    );
+    let expected = 320.0 - PI * 1.5 * 1.5 * 4.0 - 10.0 * spandrel(1.0);
+    let found = volume(&evaluation, base);
+    assert!((found - expected).abs() < 0.02, "volume {found}");
+}
+
+struct Boss {
+    document: Document,
+    boss: FeatureId,
+    fillet: FeatureId,
+}
+
+fn filleted_boss() -> Boss {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
+    );
+    let base = transaction.add_feature("Base", extruded(outline, "4", BodyOperation::NewBody));
+    let square = transaction.add_feature(
+        "Square",
+        FeatureKind::from(rectangle((2.0, 2.0), (4.0, 4.0))),
+    );
+    let boss = transaction.add_feature("Boss", extruded(square, "6", BodyOperation::Add(base)));
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let solid = evaluation.body(base).unwrap();
+    let edges = vec![edge_at(solid, Point3::new(2.0, 2.0, 5.0))];
+    let mut transaction = document.transaction("Fillet");
+    let fillet = transaction.add_feature(
+        "Fillet 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: base,
+            edges,
+            size: mm("0.5"),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    Boss {
+        document,
+        boss,
+        fillet,
+    }
+}
+
+#[test]
+fn a_fillet_on_an_edge_another_feature_made_depends_on_that_feature() {
+    let Boss {
+        document,
+        boss,
+        fillet,
+    } = filleted_boss();
+
+    let index = document.feature_index(fillet).unwrap();
+
+    assert!(
+        !document
+            .feature(fillet)
+            .unwrap()
+            .kind
+            .features()
+            .contains(&boss)
+    );
+    assert_eq!(document.dependents_of(&[boss]), vec![fillet]);
+    assert!(matches!(
+        document.check(&Transaction::single(
+            "Move",
+            Edit::MoveFeature {
+                id: fillet,
+                index: index - 1,
+            },
+        )),
+        Err(EditError::AboveDependency { .. })
+    ));
+    assert!(matches!(
+        document.check(&Transaction::single(
+            "Move",
+            Edit::MoveFeature { id: boss, index },
+        )),
+        Err(EditError::BelowDependent { .. })
+    ));
+}

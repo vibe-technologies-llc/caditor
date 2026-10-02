@@ -1210,7 +1210,7 @@ fn dependent_rows(ui: &mut Ui, document: &Document, ids: &[FeatureId], dependent
         let upstream: Vec<&FeatureId> = ids.iter().chain(dependents.iter().take(index)).collect();
         let uses: Vec<String> = feature
             .kind
-            .features()
+            .dependencies()
             .into_iter()
             .filter(|used| upstream.contains(&used))
             .map(|used| feature_name(document, used))

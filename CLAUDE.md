@@ -88,8 +88,6 @@ release. `packaging/` holds the desktop entry, the logo (`caditor.svg`, rendered
 `render-icons.sh`), metainfo, MIME type, installer, cargo-about licence template,
 `build-release.sh` and a local-only Arch `arch/PKGBUILD`; `docs/RELEASING.md` explains the
 choice and the steps.
-`CHANGELOG.md` lists every release: a change users notice adds a line under `## [Unreleased]` in
-the same commit, written for users.
 
 ## Roadmap
 

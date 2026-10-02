@@ -284,6 +284,19 @@ impl SolidFeature {
             .collect()
     }
 
+    pub fn origin_features(&self) -> BTreeSet<FeatureId> {
+        self.targets()
+            .into_iter()
+            .flat_map(PlaneReference::origin_features)
+            .chain(
+                self.axis()
+                    .and_then(RevolveAxis::model)
+                    .into_iter()
+                    .flat_map(AxisReference::origin_features),
+            )
+            .collect()
+    }
+
     pub fn end_datums(&self) -> BTreeSet<FeatureId> {
         self.targets()
             .into_iter()

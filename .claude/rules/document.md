@@ -117,6 +117,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   circular).
 - `FeatureKind::bodies_used`, `planes_used` and `axes_used` extend `features()`, so dependents,
   moves and deletions account for them.
+- `FeatureKind::origin_features` are the features that made the faces and edges a feature holds
+  (blend edges, shell faces, sketch and datum faces, axes along edges or faces, extrusion end
+  faces), from the references' `FaceOrigin`s; `dependencies()` is `features()` with them.
+  `dependents_of`, `MoveFeature` and the delete dialog use `dependencies()`, so deleting a boss a
+  fillet's edge came from asks first and a fillet cannot move above it. Inserts and kind changes
+  check only `features()`, so a model saved with a reference to a face made further down still
+  loads and edits. A patterned copy keeps the origin of the face it copies, so a reference to a
+  copy depends on the original's feature, not on the pattern.
 
 ### Import (`import.rs`, `FeatureKind::Import`)
 
