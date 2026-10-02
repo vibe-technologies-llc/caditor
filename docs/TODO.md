@@ -590,6 +590,8 @@ decision recorded in `docs/` before work starts.
 
 ## Platforms
 
+Linux is the primary platform and Windows the only other one planned; macOS is not a goal.
+
 - Linux only: there is no Windows build. Supporting Windows needs a Windows target in `ci.yml`,
   `release.yml` and `deny.toml`, and a release archive or installer. `caditor-file` is written
   against Unix: `os::unix` paths and file APIs in `journal.rs`, `recent.rs`, `recovery.rs`,
@@ -601,9 +603,6 @@ decision recorded in `docs/` before work starts.
   resize borders and DPI handling checked, the desktop entry, icons and MIME type need a Windows
   equivalent (file association, `.ico`), and the packaging scripts, `INSTALL.md` and
   `RELEASING.md` need a Windows section.
-- No macOS build either; it needs the same work as Windows (native file dialogs, a menu bar in the
-  system's place, Cmd shortcuts, signing and notarisation, an app bundle) plus a Metal backend for
-  wgpu, since only Vulkan and GL are built.
 - Linux has only the `.tar.zst` with its installer: no Flatpak, AppImage, `.deb` or `.rpm`, so
   caditor is not in software centres and installs never update themselves.
 
