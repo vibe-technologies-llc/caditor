@@ -612,17 +612,10 @@ fn the_worker_meshes_bodies_at_the_quality_it_was_given() {
         &mut Recompute::with_mesh_quality(MeshQuality::COARSE),
     );
     let mut worker = Recomputer::spawn(ModelEvaluator, || {}).unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
 
     worker.set_mesh_quality(MeshQuality::COARSE).unwrap();
     worker.submit(document, 1).unwrap();
-    let update = loop {
-        if let Some(update) = worker.poll().unwrap() {
-            break update;
-        }
-        assert!(std::time::Instant::now() < deadline, "no update arrived");
-        std::thread::yield_now();
-    };
+    let update = worker.wait();
 
     assert_eq!(
         shown_mesh(&update.evaluation, body),

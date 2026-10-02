@@ -12,11 +12,12 @@
     </p>
     <ul>
       <li>Sketches with a constraint solver that shows how much can still move</li>
-      <li>Extrude, revolve, fillet, chamfer, shell, datum planes and axes</li>
+      <li>Trim, extend, offset, mirror and fillet in sketches</li>
+      <li>Extrude, revolve, fillet, chamfer, shell, linear and circular patterns, datum planes and axes</li>
       <li>References to faces and edges that survive upstream edits</li>
       <li>Parameters and unit-aware expressions in every field</li>
       <li>Undo for every change, a crash-recovery journal and version history inside each file</li>
-      <li>DXF and STEP import; STEP, STL and 3MF export</li>
+      <li>DXF and STEP import; STEP, STL and 3MF export, and PNG images of the view</li>
       <li>A command palette, customisable shortcuts and full keyboard operation</li>
     </ul>
   </description>

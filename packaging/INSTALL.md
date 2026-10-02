@@ -37,6 +37,15 @@ Next to each archive is a `.sha256` file:
 sha256sum -c caditor-*.tar.zst.sha256
 ```
 
+Each archive also carries a build provenance attestation, signed through Sigstore by the release
+workflow that built it. With the GitHub CLI, check that the archive came from that workflow:
+
+```sh
+gh attestation verify caditor-*.tar.zst --repo <owner>/<repository>
+```
+
+naming the repository the release was downloaded from.
+
 ## Licence
 
 caditor is licensed under the GNU Affero General Public License, version 3 only

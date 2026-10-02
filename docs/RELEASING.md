@@ -14,7 +14,9 @@ Flatpak and AUR packages were not chosen: both need a maintainer identity and re
 published in their metadata, which the project does not publish. The archive's `share/` tree
 follows the freedesktop layout, so a distribution can package it without changes. For the same
 reason the desktop ID is plain `caditor` rather than a reverse-DNS name, and the metainfo has no
-homepage or developer; `appstreamcli` warns about both and the build accepts those warnings.
+homepage or developer; `appstreamcli` reports all three (`cid-desktopapp-is-not-rdns`,
+`url-homepage-missing`, `developer-info-missing`), and the build accepts exactly those and fails on
+any other finding.
 
 `packaging/arch/PKGBUILD` is for building a package on your own Arch machine only: it has no
 maintainer, URL or source download, and builds the checkout it sits in
@@ -32,6 +34,12 @@ Versions follow semantic versioning on the workspace version in the root `Cargo.
 1.0, the minor number grows with features and the patch number with fixes only. Model files are
 not versioned by release: every file format that has shipped stays readable (see
 `.claude/rules/reliability.md`).
+
+## Pins
+
+Every toolchain, tool and action CI and the release use is pinned, in `.github/versions.env` and
+by commit in the workflows. `.github/bump-pins.sh` raises them all to their latest releases with
+fresh checksums; commit its diff once CI passes on it.
 
 ## Making a release
 
@@ -52,9 +60,10 @@ not versioned by release: every file format that has shipped stays readable (see
    on the tagged commit (tests on lavapipe, clippy, the formatting check, `cargo deny`, the packaging check and the
    fuzzing, through `workflow_call`), and only when it passes builds the archive with
    `packaging/build-release.sh` in an Ubuntu 22.04 container on the toolchain pinned by
-   `RUST_TOOLCHAIN` (kept equal in `ci.yml` and raised in both at once), checks it with
-   `packaging/check-install.sh`, and publishes the GitHub release with the archive, its
-   checksum and GitHub's generated notes. GitHub attaches the tagged source, which is the corresponding source the AGPL asks
+   `RUST_TOOLCHAIN` in `.github/versions.env` (which CI reads too), checks it with
+   `packaging/check-install.sh`, attests its build provenance through GitHub's Sigstore
+   attestations, and publishes the GitHub release with the archive, its checksum and GitHub's
+   generated notes. GitHub attaches the tagged source, which is the corresponding source the AGPL asks
    for.
 
 `packaging/build-release.sh` refuses to build a release from a dirty tree or from a commit that

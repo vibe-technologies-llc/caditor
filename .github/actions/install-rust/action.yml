@@ -1,0 +1,44 @@
+name: Install Rust
+description: Installs rustup from its pinned release, checked against its SHA-256 sum, with a default toolchain.
+inputs:
+  toolchain:
+    description: The toolchain to install as the default.
+    required: true
+  components:
+    description: Components to add to it, separated by commas.
+    required: false
+    default: ""
+  run-as:
+    description: A command prefix that runs the installer as the user who will own the toolchain.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Download, check and run rustup-init ${{ env.RUSTUP_VERSION }}
+      shell: sh
+      env:
+        TOOLCHAIN: ${{ inputs.toolchain }}
+        COMPONENTS: ${{ inputs.components }}
+        RUN_AS: ${{ inputs.run-as }}
+      run: |
+        set -eu
+        [ -n "${RUSTUP_VERSION:-}" ] && [ -n "${RUSTUP_SHA256:-}" ] || {
+          echo "Load .github/versions.env before installing Rust" >&2
+          exit 1
+        }
+        directory=$(mktemp -d)
+        installer="$directory/rustup-init"
+        curl --proto '=https' --tlsv1.2 -sSfL -o "$installer" \
+          "https://static.rust-lang.org/rustup/archive/$RUSTUP_VERSION/x86_64-unknown-linux-gnu/rustup-init"
+        echo "$RUSTUP_SHA256  $installer" | sha256sum -c -
+        chmod 755 "$directory" "$installer"
+        set -- -y --no-modify-path --profile minimal --default-toolchain "$TOOLCHAIN"
+        if [ -n "$COMPONENTS" ]; then
+          set -- "$@" --component "$COMPONENTS"
+        fi
+        $RUN_AS "$installer" "$@"
+        rm -r "$directory"
+        if [ -z "$RUN_AS" ]; then
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        fi

@@ -31,13 +31,6 @@ within a category run from most to least important.
   first frame under Xvfb and lavapipe, kill it there and recover its journal, check its linked
   libraries and highest glibc symbol against `docs/RELEASING.md`, and run the offscreen tests once
   more on the GL backend that `packaging/INSTALL.md` promises.
-- Two solver tests assert under 5 seconds in a debug build and a document test waits on a
-  20 second deadline; use work budgets as `DIAGNOSIS_WORK` does.
-- Action SHAs, toolchains and tool versions are bumped by hand and duplicated between `ci.yml`
-  and `release.yml`, and `rustup` is fetched by an unpinned `curl | sh`.
-- `build-release.sh` accepts any `appstreamcli` failure that is not an `E:` line, the release has
-  no signature or attestation beside its `.sha256`, and the metainfo feature list lacks patterns,
-  trim, offset, mirror and PNG export.
 - Slow tests to keep an eye on: about 40 UI tests at over a second each.
 
 ## Persistence and recovery

@@ -9,6 +9,7 @@ mod numeric;
 mod sparse;
 mod spline;
 mod system;
+mod tally;
 #[cfg(test)]
 mod tests;
 

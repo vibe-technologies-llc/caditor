@@ -861,11 +861,13 @@ fn chain(count: usize) -> (Sketch, Vec<EntityId>) {
 }
 
 #[test]
-fn a_long_chain_solves_and_analyses_within_its_time_budget() {
+fn a_long_chain_solves_and_analyses_within_its_work_budget() {
+    const LONG_CHAIN_WORK: usize = 32_000_000;
     let (sketch, lines) = chain(400);
-    let started = std::time::Instant::now();
-    let solved = solve(&sketch).unwrap();
-    assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+
+    let (solved, work) = super::tally::measure(|| solve(&sketch).unwrap());
+
+    assert!(work < LONG_CHAIN_WORK, "{work}");
     assert!(solved.solution.is_fully_constrained());
     let (_, end) = solved.geometry.line_endpoints(lines[399]).unwrap();
     assert_near(end, Point2::new(400.0, 0.0));
@@ -906,14 +908,17 @@ fn large_parts_report_freedoms_and_redundancies_like_small_ones() {
 }
 
 #[test]
-fn a_conflict_at_the_end_of_a_long_chain_is_found_quickly() {
+fn a_conflict_at_the_end_of_a_long_chain_is_found_within_its_work_budget() {
+    const CONFLICT_WORK: usize = 60_000_000;
     let (mut sketch, lines) = chain(120);
     let vertical = add(&mut sketch, Constraint::Vertical(lines[119]));
-    let started = std::time::Instant::now();
-    let Err(SketchError::Conflict { constraints }) = solve(&sketch) else {
+
+    let (result, work) = super::tally::measure(|| solve(&sketch));
+
+    let Err(SketchError::Conflict { constraints }) = result else {
         panic!("a line cannot be horizontal and vertical");
     };
-    assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+    assert!(work < CONFLICT_WORK, "{work}");
     assert!(constraints.contains(&vertical));
     assert!(constraints.len() <= 3, "{constraints:?}");
 }

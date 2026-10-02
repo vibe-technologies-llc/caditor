@@ -24,6 +24,26 @@ need() {
     command -v "$1" >/dev/null 2>&1 || fail "$1 is needed ($2)"
 }
 
+accepted_metainfo_findings="cid-desktopapp-is-not-rdns url-homepage-missing developer-info-missing"
+
+check_metainfo() {
+    status=0
+    report=$(appstreamcli validate --no-net --no-color "$1" 2>&1) || status=$?
+    unexpected=$(printf '%s\n' "$report" | awk -v accepted="$accepted_metainfo_findings" '
+        BEGIN { split(accepted, list, " "); for (i in list) allowed[list[i]] = 1 }
+        /^[EWIP]: / { if (!($3 in allowed)) print }
+    ')
+    findings=$(printf '%s\n' "$report" | grep -c '^[EWIP]: ' || true)
+    if [ -n "$unexpected" ]; then
+        printf '%s\n' "$report" >&2
+        fail "the metainfo file has findings beyond the accepted ones: $unexpected"
+    fi
+    if [ "$status" -ne 0 ] && [ "$findings" -eq 0 ]; then
+        printf '%s\n' "$report" >&2
+        fail "appstreamcli failed (exit $status) without reporting a finding"
+    fi
+}
+
 snapshot=false
 case "${1:-}" in
     --snapshot) snapshot=true ;;
@@ -111,11 +131,7 @@ cargo about generate --locked -c packaging/about.toml \
     -o "$stage/share/licenses/caditor/THIRD-PARTY-LICENSES.html" packaging/about.hbs
 
 desktop-file-validate "$stage/share/applications/caditor.desktop"
-metainfo_report=$(appstreamcli validate --no-net "$stage/share/metainfo/caditor.metainfo.xml" || true)
-if printf '%s\n' "$metainfo_report" | grep -q '^E:'; then
-    printf '%s\n' "$metainfo_report" >&2
-    fail "the metainfo file has errors"
-fi
+check_metainfo "$stage/share/metainfo/caditor.metainfo.xml"
 
 reported=$("$stage/bin/caditor" --version)
 [ "$reported" = "caditor $version" ] || fail "the binary reports '$reported', not 'caditor $version'"

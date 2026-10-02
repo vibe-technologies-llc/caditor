@@ -15,7 +15,9 @@ paths:
   up to 48 variables; above that CGLS from zero on the sparse Jacobian (same minimal-norm step),
   with sparse forward elimination for the analysis (`sparse.rs`).
 - Convergence is checked after every step and cancellation before it, so the diagnosis budget
-  counts steps taken. An attempt ends converged, at a least-squares minimum (three steps in a row
+  counts steps taken. Tests bound the solver's cost with `solve/tally.rs`, which counts the
+  elimination, CGLS, SVD and linearisation work of a solve in test builds (a no-op otherwise), never
+  with wall-clock time. An attempt ends converged, at a least-squares minimum (three steps in a row
   lower the squared residuals by under a thousandth, or no admissible lower point lies along the
   step), pressed against a collapse (such a minimum with a moving line or arc span, or a radius,
   within sixteen times the collapse length), or unfinished (out of steps while still descending, or

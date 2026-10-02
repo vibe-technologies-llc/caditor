@@ -20,16 +20,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
-  RUST_TOOLCHAIN: 1.98.1
-  FUZZ_TOOLCHAIN: nightly-2026-09-27
-  FORMAT_TOOLCHAIN: nightly-2026-09-27
-  RUST_FORMATTER_REV: 310b16514936b50b8f9491a6f892651de3dfdf7f
-  CARGO_DENY_VERSION: 0.20.2
-  CARGO_DENY_SHA256: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
-  CARGO_FUZZ_VERSION: 0.13.2
-  CARGO_FUZZ_SHA256: b5b704018b63e0f151c17a057ac53b5111e1db545d1b9f72fee79f08a545931c
-  CARGO_ABOUT_VERSION: 0.9.2
-  CARGO_ABOUT_SHA256: 9099a59e820c38a68b9d65f300662a567d56562f9a10f6aa4c7e86c17c2566af
   FUZZ_SECONDS: 60
 
 jobs:
@@ -59,6 +49,9 @@ jobs:
       - name: Check out (actions/checkout v7.0.1)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
+      - name: Load the pinned versions
+        run: cat .github/versions.env >> "$GITHUB_ENV"
+
       - name: Restore the cargo cache (actions/cache v6.1.0)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
@@ -74,10 +67,11 @@ jobs:
         run: chown -R builder:builder "$GITHUB_WORKSPACE" "$BUILDER_HOME"
 
       - name: Install Rust
-        run: |
-          as-builder sh -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain '$RUST_TOOLCHAIN' \
-              --component clippy"
+        uses: ./.github/actions/install-rust
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
+          run-as: as-builder
 
       - name: Test
         env:
@@ -127,6 +121,9 @@ jobs:
       - name: Check out (actions/checkout v7.0.1)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
+      - name: Load the pinned versions
+        run: cat .github/versions.env >> "$GITHUB_ENV"
+
       - name: Restore the cargo cache (actions/cache v6.1.0)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
@@ -139,10 +136,9 @@ jobs:
           restore-keys: stress-${{ env.RUST_TOOLCHAIN }}-
 
       - name: Install Rust
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/install-rust
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Count the booleans of random placements that fail
         run: |
@@ -169,16 +165,19 @@ jobs:
       - name: Check out (actions/checkout v7.0.1)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
+      - name: Load the pinned versions
+        run: cat .github/versions.env >> "$GITHUB_ENV"
+
       - name: Trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install Rust
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
-          "$HOME/.cargo/bin/rustup" toolchain install "$FORMAT_TOOLCHAIN" \
-            --profile minimal --component rustfmt
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/install-rust
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Install the formatting toolchain
+        run: rustup toolchain install "$FORMAT_TOOLCHAIN" --profile minimal --component rustfmt
 
       - name: Restore rust-formatter (actions/cache v6.1.0)
         id: formatter
@@ -214,14 +213,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Load the pinned versions
+        run: cat .github/versions.env >> "$GITHUB_ENV"
+
       - name: Trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install Rust
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/install-rust
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Restore the cargo cache (actions/cache v6.1.0)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
@@ -284,11 +285,13 @@ jobs:
       - name: Check out (actions/checkout v7.0.1)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
+      - name: Load the pinned versions
+        run: cat .github/versions.env >> "$GITHUB_ENV"
+
       - name: Install Rust
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain "$FUZZ_TOOLCHAIN"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/install-rust
+        with:
+          toolchain: ${{ env.FUZZ_TOOLCHAIN }}
 
       - name: Install cargo-fuzz
         run: |

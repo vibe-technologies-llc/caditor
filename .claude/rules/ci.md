@@ -12,8 +12,7 @@ paths:
 
 - `.github/workflows/ci.yml` runs on every push to `master` and every pull request, and is called by
   the release workflow before it builds. Jobs run in Ubuntu 22.04 containers on the toolchain pinned
-  by `RUST_TOOLCHAIN` (shared with the release workflow), each with a timeout; a newer push to a
-  pull request cancels its older run.
+  by `RUST_TOOLCHAIN`, each with a timeout; a newer push to a pull request cancels its older run.
 - It also runs nightly and on demand (`schedule`, `workflow_dispatch`); only then does the `stress`
   job run, in release, the ignored `random_placements_of_every_fixture` (failing when more than
   `RANDOM_PLACEMENT_FAILURES_ALLOWED` of its 4,500 booleans fail; lower it as kernel fixes land)
@@ -32,12 +31,27 @@ paths:
   fuzz target's corpus is cached and restored from its latest run, so coverage accumulates.
 - Ubuntu 22.04's `desktop-file-validate` (0.26) rejects keys newer than its spec, such as
   `SingleMainWindow`; `packaging/caditor.desktop` uses only keys it knows.
+- `build-release.sh` fails on any `appstreamcli` finding (error, warning, info or pedantic) except
+  the three `accepted_metainfo_findings` that follow from publishing no identity
+  (`docs/RELEASING.md`), and on a failing `appstreamcli` that reports no finding.
+- The release's build job attests the archive's provenance with `actions/attest-build-provenance`
+  (Sigstore, `id-token` and `attestations` write permissions on that job alone).
 
 ## Pinning and cargo-deny
 
-- Actions are pinned by commit. `cargo-deny`, `cargo-fuzz` and `cargo-about` are their release
-  binaries, checked against pinned SHA-256 sums. `rust-formatter` is built from the commit pinned by
+- Every version pin lives once, in `.github/versions.env` (toolchains, rustup, tool versions with
+  their SHA-256 sums, `RUST_FORMATTER_REV`); each job loads it into `GITHUB_ENV` right after the
+  checkout, and both workflows read the same file. Never copy a pin into a workflow's `env`.
+- Rust comes from `.github/actions/install-rust`, which downloads `rustup-init` of the pinned
+  `RUSTUP_VERSION` and checks it against `RUSTUP_SHA256` before running it; never `curl | sh`.
+  Its `run-as` input installs for the check job's `builder` user.
+- Actions are pinned by commit, their version in the step name (`Check out (actions/checkout
+  v7.0.1)`). `cargo-deny`, `cargo-fuzz` and `cargo-about` are their release binaries, checked
+  against pinned SHA-256 sums. `rust-formatter` is built from the commit pinned by
   `RUST_FORMATTER_REV`.
+- `.github/bump-pins.sh` raises every pin to its latest release (stable and nightly Rust, rustup,
+  the tools with fresh sums, rust-formatter's head, each action to its latest release's commit
+  and the version in its step name); review the diff and let CI pass before committing it.
 - `deny.toml` covers licences, sources, advisories and bans; each ignored advisory, licence
   exception and skipped duplicate carries its reason. Duplicate versions are denied except the
   listed ones, which come from upstream crates; C-backed crates with a Rust alternative

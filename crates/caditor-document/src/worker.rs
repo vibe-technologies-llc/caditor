@@ -167,10 +167,10 @@ impl Recomputer {
     }
 
     #[cfg(test)]
-    fn wait(&self) -> Update {
+    pub(crate) fn wait(&self) -> Update {
         self.updates
-            .recv_timeout(std::time::Duration::from_secs(10))
-            .expect("the worker should report within the timeout")
+            .recv()
+            .expect("the worker should report before it stops")
     }
 }
 

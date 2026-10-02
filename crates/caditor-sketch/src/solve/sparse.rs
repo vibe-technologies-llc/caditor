@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     id::ConstraintId,
-    solve::{equation::Gradient, numeric},
+    solve::{equation::Gradient, numeric, tally},
 };
 
 const STEP_TOLERANCE: f64 = 1e-12;
@@ -106,10 +106,12 @@ pub(crate) fn minimal_norm_step(rows: &[Row], residuals: &[f64], width: usize) -
     let limit = width
         .saturating_mul(ITERATIONS_PER_VARIABLE)
         .saturating_add(EXTRA_ITERATIONS);
+    let nonzeros: usize = scaled.iter().map(Vec::len).sum();
     for _ in 0..limit {
         if gamma.sqrt() <= stop || gamma == 0.0 {
             break;
         }
+        tally::add(2 * nonzeros + width);
         let image = multiply(&direction);
         let curvature = squared(&image);
         if curvature <= 0.0 || !curvature.is_finite() {
@@ -166,6 +168,7 @@ impl Echelon {
                 continue;
             };
             let factor = value / pivot;
+            tally::add(pivot_row.len());
             for (other, entry) in pivot_row {
                 if other == column {
                     continue;

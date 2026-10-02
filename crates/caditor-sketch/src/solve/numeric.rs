@@ -8,6 +8,7 @@ use crate::{
         equation::{Context, Equation, Gradient, PointHandle, value},
         sparse,
         system::System,
+        tally,
     },
 };
 
@@ -603,6 +604,7 @@ impl Solver<'_> {
         let mut gradient = Gradient::new();
         let mut rows = Vec::with_capacity(component.equations.len());
         let mut residuals = Vec::with_capacity(component.equations.len());
+        tally::add(component.equations.len());
         for equation in self.equations(component) {
             let residual = equation.linearize(values, &part.context, &mut gradient);
             rows.push(dense_row(&gradient, &component.variables));
@@ -616,6 +618,7 @@ impl Solver<'_> {
         let mut gradient = Gradient::new();
         let mut rows = Vec::with_capacity(component.equations.len());
         let mut residuals = Vec::with_capacity(component.equations.len());
+        tally::add(component.equations.len());
         for equation in self.equations(component) {
             let residual = equation.linearize(values, &part.context, &mut gradient);
             rows.push(sparse::row(&gradient, &component.variables));
@@ -854,6 +857,7 @@ fn normalized(row: Vec<f64>) -> Vec<f64> {
 }
 
 fn orthogonalized(row: &[f64], basis: &[Vec<f64>]) -> Vec<f64> {
+    tally::add(2 * basis.len() * row.len());
     let mut remainder = row.to_vec();
     for _ in 0..2 {
         for vector in basis {
@@ -877,6 +881,7 @@ pub(crate) fn duplicates(
     if earlier.is_empty() || width == 0 {
         return Vec::new();
     }
+    tally::add(width * earlier.len() * width.min(earlier.len()));
     let transposed = DMatrix::from_fn(width, earlier.len(), |row, column| {
         earlier
             .get(column)
@@ -926,6 +931,7 @@ fn minimal_norm_step(rows: &[Vec<f64>], residuals: &[f64], width: usize) -> Opti
     {
         return None;
     }
+    tally::add(rows.len() * width * rows.len().min(width));
     let jacobian = DMatrix::from_row_slice(rows.len(), width, &data);
     let svd = SVD::try_new(jacobian, true, true, f64::EPSILON, SVD_ITERATIONS)?;
     let cutoff = svd.singular_values.max() * STEP_RANK_TOLERANCE;
