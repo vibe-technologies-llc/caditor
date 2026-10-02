@@ -38,8 +38,9 @@ paths:
   a run of one kind into one logical chunk of at most 2 GiB (`Chunk::unpack`); a run broken by
   damage or another kind, and a continuation with no run, is one damaged piece (a resync mid-run
   never yields partial content). Older readers see only the first slice, which fails its digest.
-- Records decode one at a time. A load holds at most 2 GiB of decompressed records
-  (`Budget`, cumulative, since every record stays alive); a version walk (listing, restore,
+- Records decode one at a time: a load unpacks, hashes (`RecordDigest`, checked against the head
+  afterwards) and parses each before the next, so only the parsed model accumulates. A load
+  unpacks at most 2 GiB of records in all (`Budget`, cumulative, bounding the parsed model too); a version walk (listing, restore,
   thinning) bounds what is alive at each step instead (`unpack_beside`: the snapshots held plus
   the one being decoded), so a long history of large snapshots still lists and restores.
   `Budget::unpack` keeps the `UnpackError`, so a record in an unknown codec reads like content from
@@ -66,7 +67,8 @@ paths:
   planes, axes, origin; only when one is hidden), `suppressed` and `rollback`; the journal
   snapshot carries the last three as fields.
 - A record with unchanged understood content is written back exactly as stored (newer fields kept,
-  not recompressed). Unknown chunk kinds are carried unless must-understand; loading reports those
+  not recompressed); the old records are matched by the blake3 digest of their re-encoded
+  understood content, not by those bytes. Unknown chunk kinds are carried unless must-understand; loading reports those
   as left out, so the original is kept as `.damaged`.
 - An edge reference record has `origins`, its two faces' origins in the order of `faces`, written
   only when either is known; older readers drop it and lose only the fallback it gives.

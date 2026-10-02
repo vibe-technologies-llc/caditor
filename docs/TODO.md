@@ -35,12 +35,12 @@ within a category run from most to least important.
 
 ## Persistence and recovery
 
-- Load and save hold five or six copies of the model (every record unpacked before any is
-  parsed, the unchanged-record check keyed by full bytes), contradicting "records decode one at
-  a time" in `file-format.md`. Opening Version History decompresses every version to verify it.
-
-## Reliability and diagnostics
-
+- Saving still holds several copies of the model: every record of the file it replaces unpacked
+  at once, the new records, their snapshot for the version delta and the output. Unpack the old
+  records one at a time, keeping only those written back unchanged.
+- Opening Version History decompresses every version to verify it. Listing could check the delta
+  chains structurally and leave the digest check to the restore, once `Parsed` records where a
+  damaged chunk broke a chain.
 
 ## Model stability
 

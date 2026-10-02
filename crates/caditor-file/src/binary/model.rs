@@ -83,6 +83,38 @@ fn unpack_beside(chunk: &Chunk<'_>, newer: Option<&[u8]>, held: usize) -> Unpack
 
 type Unpacked = Result<Vec<u8>, UnpackError>;
 
+struct RecordDigest {
+    hasher: blake3::Hasher,
+    whole: bool,
+}
+
+impl Default for RecordDigest {
+    fn default() -> Self {
+        Self {
+            hasher: blake3::Hasher::new(),
+            whole: true,
+        }
+    }
+}
+
+impl RecordDigest {
+    fn add(&mut self, content: &Unpacked) {
+        let Ok(content) = content else {
+            self.whole = false;
+            return;
+        };
+        let mut length = Vec::new();
+        push_varint(&mut length, content.len() as u64);
+        self.hasher.update(&length);
+        self.hasher.update(content);
+    }
+
+    fn matches(&self, head: Option<&StateRecord>) -> bool {
+        self.whole
+            && head.is_some_and(|head| head.digest == self.hasher.finalize().to_hex().to_string())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct FileDigest(pub(crate) String);
@@ -251,7 +283,10 @@ impl<'a> Parsed<'a> {
         head.holds(&snapshot).then_some(snapshot)
     }
 
-    fn kept_records<'b>(&self, contents: &'b [Unpacked]) -> UntrustedMap<Vec<u8>, KeptRecord<'b>>
+    fn kept_records<'b>(
+        &self,
+        contents: &'b [Unpacked],
+    ) -> UntrustedMap<[u8; blake3::OUT_LEN], KeptRecord<'b>>
     where
         'a: 'b,
     {
@@ -266,7 +301,7 @@ impl<'a> Parsed<'a> {
                 };
                 let understood = value::to_bytes(&record).ok()?;
                 Some((
-                    understood,
+                    *blake3::hash(&understood).as_bytes(),
                     KeptRecord {
                         content,
                         stored: chunk.whole,
@@ -292,20 +327,11 @@ impl<'a> Parsed<'a> {
     }
 
     fn holds_every_record(&self, contents: &[Unpacked]) -> bool {
-        let Some(head) = &self.head else {
-            return false;
-        };
-        let mut hasher = blake3::Hasher::new();
+        let mut digest = RecordDigest::default();
         for content in contents {
-            let Ok(content) = content else {
-                return false;
-            };
-            let mut length = Vec::new();
-            push_varint(&mut length, content.len() as u64);
-            hasher.update(&length);
-            hasher.update(content);
+            digest.add(content);
         }
-        head.digest == hasher.finalize().to_hex().to_string()
+        digest.matches(self.head.as_ref())
     }
 
     fn walk_versions(
@@ -624,7 +650,7 @@ pub(crate) fn encode_over(
         .unwrap_or_default();
     let records: Vec<RecordToWrite<'_>> = document_records(document)?
         .into_iter()
-        .map(|record| match kept.get(&record) {
+        .map(|record| match kept.get(blake3::hash(&record).as_bytes()) {
             Some(kept) => RecordToWrite::Kept(*kept),
             None => RecordToWrite::Fresh(record),
         })
@@ -1072,17 +1098,22 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
         });
     }
     let mut budget = Budget::default();
-    let contents = parsed.record_contents(&mut budget);
-    let all_unpacked = contents.iter().all(Result::is_ok);
-    if parsed.damaged == 0 && all_unpacked && !parsed.holds_every_record(&contents) {
+    let mut digest = RecordDigest::default();
+    let mut record_issues = Vec::new();
+    let records = parsed.records.iter().map(|chunk| {
+        let content = budget.unpack(chunk, None);
+        digest.add(&content);
+        content.map(Cow::Owned)
+    });
+    let parts = read_records(records, &mut record_issues);
+    if parsed.damaged == 0 && digest.whole && !digest.matches(parsed.head.as_ref()) {
         issues.push(
             "The file ends early, probably because it was not copied or synced completely: \
              parts of the model saved in it are missing. Everything that remained was loaded."
                 .to_owned(),
         );
     }
-    let records = contents.into_iter().map(|content| content.map(Cow::Owned));
-    let parts = read_records(records, &mut issues);
+    issues.extend(record_issues);
     let document = assemble(parts, &mut issues);
     Ok(Loaded {
         document,
