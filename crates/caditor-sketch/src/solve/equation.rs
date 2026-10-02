@@ -139,6 +139,13 @@ struct SplineAt {
     slopes: Vec<f64>,
 }
 
+impl SplineAt {
+    fn tangent_line(&self, fallback: Vector2, context: &Context) -> Direction {
+        let at_cusp = self.bend.try_normalize().unwrap_or(fallback);
+        Direction::of(self.tangent, at_cusp, context)
+    }
+}
+
 impl SplineHandle {
     fn at(&self, values: &[f64], parameter: usize) -> SplineAt {
         let parameter = value(values, parameter);
@@ -424,7 +431,7 @@ impl Form {
             } => {
                 let at = spline.at(values, parameter);
                 let first = line.direction(values, context);
-                let second = Direction::of(at.tangent, fallback, context);
+                let second = at.tangent_line(fallback, context);
                 let scale = context.scale;
                 line.push_vector(gradient, first.back_from_unit(-second.unit.perp() * scale));
                 let turning = second.back_from_unit(first.unit.perp() * scale);
@@ -459,7 +466,7 @@ impl Form {
                     radial_fallback,
                     context,
                 );
-                let tangent = Direction::of(at.tangent, tangent_fallback, context);
+                let tangent = at.tangent_line(tangent_fallback, context);
                 let scale = context.scale;
                 let across = radial.back_from_unit(tangent.unit * scale);
                 let turning = tangent.back_from_unit(radial.unit * scale);

@@ -149,7 +149,7 @@ pub fn default_operation(document: &Document, before: Option<FeatureId>) -> Body
 }
 
 pub fn degrees(value: f64) -> Expression {
-    Expression::Measure(value, Unit::Degree)
+    Expression::measure(value, Unit::Degree)
 }
 
 pub fn create(

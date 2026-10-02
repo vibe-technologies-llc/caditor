@@ -8,9 +8,19 @@ publish = false
 [package.metadata]
 cargo-fuzz = true
 
+[lib]
+path = "src/lib.rs"
+test = false
+doc = false
+
 [dependencies]
+caditor = { path = "../crates/caditor", features = ["fuzzing"] }
+caditor-document.path = "../crates/caditor-document"
 caditor-expression.path = "../crates/caditor-expression"
 caditor-file = { path = "../crates/caditor-file", features = ["fuzzing"] }
+caditor-geometry.path = "../crates/caditor-geometry"
+caditor-kernel.path = "../crates/caditor-kernel"
+caditor-sketch.path = "../crates/caditor-sketch"
 caditor-step.path = "../crates/caditor-step"
 caditor-zstd.path = "../crates/caditor-zstd"
 
@@ -71,6 +81,62 @@ bench = false
 [[bin]]
 name = "zstd"
 path = "fuzz_targets/zstd.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "journal_torn"
+path = "fuzz_targets/journal_torn.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "preferences"
+path = "fuzz_targets/preferences.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "recent_files"
+path = "fuzz_targets/recent_files.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "profile_sweep"
+path = "fuzz_targets/profile_sweep.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "boolean"
+path = "fuzz_targets/boolean.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sketch_solve"
+path = "fuzz_targets/sketch_solve.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "document"
+path = "fuzz_targets/document.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "save_load"
+path = "fuzz_targets/save_load.rs"
 test = false
 doc = false
 bench = false

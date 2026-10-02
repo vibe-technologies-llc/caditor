@@ -5,6 +5,7 @@ use caditor_geometry::{Aabb, Point2, Point3, RigidTransform, Vector3};
 use crate::{
     coordinates::angle_between,
     error::GeometryError,
+    interrupt,
     intersect::solve::{Contact, contact_direction, refine_on_plane},
     interval::Interval,
     surface::{Surface, periodic_near},
@@ -166,7 +167,7 @@ impl IntersectionCurve {
                 });
             }
             traced.dedup_by(|b, a| a.contact.point.distance(b.contact.point) <= 1e-12);
-            refine_traced(pair, &traced, touching)
+            refine_traced(pair, &traced, touching)?
         };
         let mut nodes = Vec::with_capacity(traced.len());
         let mut parameter = 0.0;
@@ -524,9 +525,13 @@ fn touching_contact(surfaces: [&Surface; 2], start: [Point2; 2], point: Point3) 
     None
 }
 
-fn refine_traced(surfaces: [&Surface; 2], traced: &[Traced], touching: Touching) -> Vec<Traced> {
+fn refine_traced(
+    surfaces: [&Surface; 2],
+    traced: &[Traced],
+    touching: Touching,
+) -> Option<Vec<Traced>> {
     let Some(first) = traced.first() else {
-        return Vec::new();
+        return Some(Vec::new());
     };
     let mut refined = vec![*first];
     for pair in traced.windows(2) {
@@ -535,6 +540,7 @@ fn refine_traced(surfaces: [&Surface; 2], traced: &[Traced], touching: Touching)
         };
         let mut pending = vec![(*start, *end, 0usize)];
         while let Some((low, high, depth)) = pending.pop() {
+            interrupt::check().ok()?;
             let split = (depth < MAX_REFINE_DEPTH && refined.len() + pending.len() < MAX_NODES)
                 .then(|| midpoint(surfaces, &low, &high, touching))
                 .flatten();
@@ -547,7 +553,7 @@ fn refine_traced(surfaces: [&Surface; 2], traced: &[Traced], touching: Touching)
             }
         }
     }
-    refined
+    Some(refined)
 }
 
 fn midpoint(

@@ -371,6 +371,22 @@ impl Expression {
         Self::Binary(operator, Box::new(left), Box::new(right))
     }
 
+    pub fn number(value: f64) -> Self {
+        Self::signed_literal(value, Self::Number)
+    }
+
+    pub fn measure(value: f64, unit: Unit) -> Self {
+        Self::signed_literal(value, |magnitude| Self::Measure(magnitude, unit))
+    }
+
+    fn signed_literal(value: f64, literal: impl Fn(f64) -> Self) -> Self {
+        if value.is_sign_negative() {
+            Self::Negate(Box::new(literal(-value)))
+        } else {
+            literal(value)
+        }
+    }
+
     pub fn is_literal(&self) -> bool {
         match self {
             Self::Number(_) | Self::Measure(..) => true,

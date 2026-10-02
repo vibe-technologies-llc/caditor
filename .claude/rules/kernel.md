@@ -10,7 +10,8 @@ paths:
 ## Cancellation (`interrupt.rs`)
 
 - `interruptible(interrupt, work)` installs a per-thread check while `work` runs. Polled in
-  intersections (subdivision pair, march step), booleans (edge, face pair, face, fragment, split,
+  intersections (subdivision pair, march step, each midpoint refining a traced curve, which gives up
+  the curve when interrupted), booleans (edge, face pair, face, fragment, split,
   branch, healing, between phases), profiles (curve, pair, spline segment, 256 box tests, face),
   sweeps and `Plan::build` (region, face), `next_face` (ray, and once before answering), shells
   (corner, edge, round of dropped faces), blends (edge, tool, corner), patterns (copy, union) and

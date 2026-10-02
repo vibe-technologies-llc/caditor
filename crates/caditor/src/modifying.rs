@@ -92,7 +92,6 @@ impl Value {
     pub fn negated(self) -> Self {
         let expression = match self.expression {
             Expression::Negate(inner) => *inner,
-            Expression::Measure(value, unit) => Expression::Measure(-value, unit),
             other => Expression::Negate(Box::new(other)),
         };
         Self {

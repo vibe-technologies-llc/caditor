@@ -51,13 +51,39 @@ paths:
     record loaders and the version history);
   - `journal`: the recovery journal and its replay (also resealed);
   - `zstd`: `caditor-zstd` with and without a prefix (also checks that frames round-trip);
+  - `journal_torn`: the recovery journal as it is, not resealed, so a torn or damaged tail stays
+    torn;
   - `step`: `read_step` (covers the Part 21 parser);
-  - `step_import`: STEP import end to end.
+  - `step_import`: STEP import end to end;
+  - `preferences`: preferences JSON through `Preferences::from_settings`, which must reach a fixed
+    point after one save, and stored shortcuts through `commands::parse_stored`, which must
+    round-trip;
+  - `recent_files`: the recent-files list, which must round-trip once read.
+- Structured targets decode their bytes with `arbitrary::Unstructured` (re-exported by
+  `libfuzzer-sys`) through the generators in `fuzz/src`: points on a 0.5 mm grid nudged by 1e-6 to
+  1e-4 mm, angles in 15° steps, so near-coincident and aligned cases come up often.
+  - `profile_sweep`: profiles of lines, circles, arcs, rectangles, polygons and splines through
+    `Profile::new`, region selection, triangulation and `extrude` or `revolve`;
+  - `boolean`: two swept solids, the second placed by a rigid transform, through `boolean`;
+  - `sketch_solve`: sketches with every constraint kind through `solve`, a re-solve of the solved
+    geometry and a drag;
+  - `document`: sequences of document edits, undo and redo on an `Editor`, then a recompute. Each
+    applied transaction must be undone exactly by its inverse, `transaction_to` must reach the
+    applied state, a refused one must leave the document unchanged, and undo and redo must not fail;
+  - `save_load`: the same edit sequences saved after each step over the previous file, each save
+    loading back to the same content with no issues and every kept version loading to a saved
+    state.
+  Kernel and solver work runs under a 3 s interrupt (`WORK_BUDGET`), so slow inputs cancel rather
+  than trip libFuzzer's timeout; an `Ok` solid must validate, and every panic counts, including
+  ones recompute would contain, since libFuzzer's panic hook aborts.
 - The byte-based entry points are `caditor_file::fuzzing`, behind `caditor-file`'s `fuzzing`
-  feature.
+  feature, and `caditor::fuzzing`, behind the app's `fuzzing` feature (which enables
+  `caditor-file`'s).
 - Seeds are committed in `fuzz/seeds/<kind>` and dictionaries in `fuzz/dictionaries/<kind>.dict`,
   shared by targets reading the same kind of input. The model, journal and zstd seeds are written by
   `CADITOR_WRITE_FUZZ_SEEDS=1 cargo test -p caditor-file write_fuzz_seeds -- --ignored`; tests keep
-  every seed loading cleanly. `fuzz/corpus` is not committed; CI caches it.
+  every seed loading cleanly. The structured targets share `seeds/structured`, fixed pseudo-random
+  bytes; the preferences and recent-files seeds are hand-written JSON sharing `json.dict`.
+  `fuzz/corpus` is not committed; CI caches it.
 - `fuzz/Cargo.lock` is committed and CI fails when it is stale (`cargo metadata --locked`): after
   changing a dependency of a crate the fuzz targets use, run `cargo update -w` in `fuzz/`.

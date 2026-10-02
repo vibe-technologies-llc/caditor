@@ -16,6 +16,7 @@ use crate::{
 
 const SAMPLES_PER_SPAN: usize = 16;
 const REFINEMENTS: usize = 32;
+const TIE: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wanted {
@@ -261,7 +262,8 @@ fn start_on(
             (parameter, signed(curve.point_at(parameter)))
         })
         .collect();
-    let candidates: Vec<(f64, bool, f64)> = samples
+    let size = polygon_size(curve);
+    let candidates: Vec<Candidate> = samples
         .iter()
         .enumerate()
         .filter(|(index, (_, at))| {
@@ -277,20 +279,47 @@ fn start_on(
         })
         .flat_map(|(_, (parameter, _))| [(*parameter, false), refine(curve, *parameter, &slope)])
         .map(|(parameter, stationary)| {
-            (
+            let [tangent, _] = curve.derivatives(parameter);
+            Candidate {
                 parameter,
                 stationary,
-                signed(curve.point_at(parameter)).abs(),
-            )
+                distance: signed(curve.point_at(parameter)).abs(),
+                turning: tangent.length() > TIE * size,
+            }
         })
         .collect();
-    let touching =
-        wanted == Wanted::Touching && candidates.iter().any(|(_, stationary, _)| *stationary);
-    candidates
+    let touching = wanted == Wanted::Touching && candidates.iter().any(|found| found.stationary);
+    let eligible: Vec<Candidate> = candidates
         .into_iter()
-        .filter(|(_, stationary, _)| !touching || *stationary)
-        .min_by(|a, b| a.2.total_cmp(&b.2))
-        .map_or(0.0, |(parameter, _, _)| parameter)
+        .filter(|found| !touching || found.stationary)
+        .collect();
+    let closest = eligible
+        .iter()
+        .map(|found| found.distance)
+        .fold(f64::INFINITY, f64::min);
+    eligible
+        .into_iter()
+        .filter(|found| found.distance <= closest + TIE * size)
+        .min_by(|a, b| {
+            b.turning
+                .cmp(&a.turning)
+                .then(a.distance.total_cmp(&b.distance))
+        })
+        .map_or(0.0, |found| found.parameter)
+}
+
+struct Candidate {
+    parameter: f64,
+    stationary: bool,
+    distance: f64,
+    turning: bool,
+}
+
+fn polygon_size(curve: &BSpline) -> f64 {
+    let points = curve.control_points();
+    let low = points.iter().copied().reduce(Point2::min);
+    let high = points.iter().copied().reduce(Point2::max);
+    low.zip(high).map_or(0.0, |(low, high)| low.distance(high))
 }
 
 fn is_extremum(before: Option<f64>, at: f64, after: Option<f64>) -> bool {

@@ -747,3 +747,54 @@ fn a_settled_spline_tangency_is_remembered_by_the_next_solve() {
     assert_eq!(again.solution, fresh.solution);
     assert_eq!(again.geometry, fresh.geometry);
 }
+
+#[test]
+fn a_spline_lying_along_the_axis_it_touches_solves_again_from_where_it_settled() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let start = sketch.add_point(Point2::new(0.0, -4.0));
+    let rest = [
+        Point2::new(0.0, 8.0),
+        Point2::new(0.0, 1.0),
+        Point2::new(3.0, 2.0),
+    ]
+    .map(|position| sketch.add_point(position));
+    let spline = EntityId::from_raw(sketch.next_id());
+    let control_points = [start, start, rest[0], rest[1], rest[2]].to_vec();
+    sketch
+        .insert_entity(spline, Entity::Spline { control_points })
+        .unwrap();
+    add(
+        &mut sketch,
+        Constraint::Tangent(spline, EntityId::VERTICAL_AXIS),
+    );
+
+    let solved = solve(&sketch).unwrap();
+
+    assert!(solve(&solved.geometry).is_ok());
+}
+
+#[test]
+fn a_spline_touching_an_axis_at_a_cusp_solves_again_whenever_it_solves() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let [first, turn, last] = [
+        Point2::new(9.49998, -7.00002),
+        Point2::new(-7.00002, -7.0),
+        Point2::new(-3.5, -10.0),
+    ]
+    .map(|position| sketch.add_point(position));
+    let spline = EntityId::from_raw(sketch.next_id());
+    let control_points = [first, turn, turn, last, turn].to_vec();
+    sketch
+        .insert_entity(spline, Entity::Spline { control_points })
+        .unwrap();
+    add(
+        &mut sketch,
+        Constraint::Tangent(spline, EntityId::HORIZONTAL_AXIS),
+    );
+
+    let solved = solve(&sketch);
+
+    if let Ok(solved) = solved {
+        assert!(solve(&solved.geometry).is_ok());
+    }
+}

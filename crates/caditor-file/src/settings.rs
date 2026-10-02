@@ -82,9 +82,15 @@ impl Settings {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(source) => return Err(SettingsError::Unreadable { path, source }),
         };
-        serde_json::from_slice::<BTreeMap<String, Value>>(&bytes)
-            .map(|values| Self { values })
-            .map_err(|source| SettingsError::Malformed { path, source })
+        Self::parse(&bytes).map_err(|source| SettingsError::Malformed { path, source })
+    }
+
+    pub(crate) fn parse(bytes: &[u8]) -> Result<Self, serde_json::Error> {
+        serde_json::from_slice::<BTreeMap<String, Value>>(bytes).map(|values| Self { values })
+    }
+
+    pub(crate) fn stored(&self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec_pretty(&self.values)
     }
 
     pub fn save(&self, dir: &Path) -> io::Result<()> {
@@ -123,7 +129,7 @@ impl Settings {
                 values.remove(key);
             }
         }
-        let contents = serde_json::to_vec_pretty(&values).map_err(io::Error::other)?;
+        let contents = Self { values }.stored().map_err(io::Error::other)?;
         write_atomically(&path, &contents)
     }
 

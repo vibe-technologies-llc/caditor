@@ -22,12 +22,6 @@ within a category run from most to least important.
 
 ## Checks and CI
 
-- No fuzz target covers the kernel or sketch operations, though "valid or an error, never a
-  panic" is the central invariant: random profiles through `Profile::new`, `extrude` and
-  `revolve` hit about 0.3% `Invalid` results (see Kernel correctness). Add seeded targets for
-  profile sweeps, booleans, the solver and `Document::apply`, an unsealed `journal` target for
-  torn tails, targets for `Settings::load`, recent files and `commands::parse_stored`, and a
-  save-load round trip.
 - The boolean tests use general-position placements, integer grids of aspect at most 4 and exact
   coincidence only, so the near-coincident bands and long-edge clipping losses in Kernel
   correctness were invisible. Add randomised aligned contacts with high aspect ratios and offsets
@@ -252,6 +246,11 @@ within a category run from most to least important.
 - When conflict diagnosis finds that a part which failed from its drawn shape holds after all (a
   chain whose line must fold back, reached from a solution of all but one constraint), the solve
   still fails; the solution found could be offered instead.
+- A sketch solved from a degenerate start can fail to solve again from its own result: a spline
+  with four coincident control points, tangent to a zero-size arc on one of them, with a zero
+  distance from that arc to the spline's first point. `sketch_solve` finds such cases within
+  minutes once it requires `solve_from` of a solved geometry to succeed; it does not yet, so the
+  property is unchecked.
 - A point on a line segment or arc is held to the infinite line or full circle, so it can solve
   beyond the segment's ends or outside the sweep, and the line rotates to meet it; bound it or
   say so.

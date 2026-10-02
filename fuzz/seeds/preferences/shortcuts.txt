@@ -1,0 +1,5 @@
+Ctrl+S
+Ctrl+Shift+Z
+Alt+F4
+Shift+Plus
+F11

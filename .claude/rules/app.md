@@ -3,6 +3,8 @@ paths:
   - "crates/caditor/src/app.rs"
   - "crates/caditor/src/overlay.rs"
   - "crates/caditor/src/main.rs"
+  - "crates/caditor/src/lib.rs"
+  - "crates/caditor/src/fuzzing.rs"
   - "crates/caditor/src/model.rs"
   - "crates/caditor/src/bodies.rs"
   - "crates/caditor/src/offers.rs"
@@ -83,9 +85,12 @@ paths:
   selection tests the same faceting (`sketch_drag::within`), and snapping stays exact on the
   curves. Bounds and fitting sample curves at a fixed 3°.
 
-## Sessions and main.rs
+## Sessions and startup
 
-- `main.rs` starts with an empty model.
+- The app is a library with a thin binary: `main.rs` only calls `caditor::run` in `lib.rs`, which
+  holds the modules and the startup, so the fuzz workspace can reach app code through the
+  `fuzzing` feature (`fuzzing.rs`: preferences read from settings, stored shortcuts).
+- `run` starts with an empty model.
 - Release builds unwind (`panic = "unwind"`), since containment relies on it, or `recompute.rs`
   fails to compile.
 - The viewport fits (`BuiltScene::fit_all`) once the first recompute of a newly opened model
@@ -94,7 +99,7 @@ paths:
 - IDs restart per document, so a new session clears the viewport's selection, hover, highlight,
   drawing state (`Workspace::sync`, at the start of each frame), the tree's selection and rename,
   the export dialog's left-out bodies.
-- `main.rs` installs the panic hook and a SIGTERM/SIGHUP/SIGINT handler (`signal-hook`) flushing the
+- `run` installs the panic hook and a SIGTERM/SIGHUP/SIGINT handler (`signal-hook`) flushing the
   journal before exit.
 
 ## Redraws and frame pacing

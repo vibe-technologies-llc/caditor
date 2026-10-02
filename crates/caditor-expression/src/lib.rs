@@ -120,6 +120,27 @@ mod tests {
         Expression::parse(text, &resolve)
     }
 
+    #[test]
+    fn literals_built_in_code_survive_storing_as_text() {
+        let built = [
+            Expression::number(-2.5),
+            Expression::number(-0.0),
+            Expression::number(7.0),
+            Expression::measure(-1.0, Unit::Millimetre),
+            Expression::measure(-0.0, Unit::Degree),
+            Expression::measure(1e-7, Unit::Metre),
+        ];
+
+        for expression in built {
+            let stored = expression.to_stored_text();
+            assert_eq!(
+                Expression::parse_stored(&stored),
+                Ok(expression),
+                "{stored}"
+            );
+        }
+    }
+
     fn evaluate(text: &str) -> Result<Quantity, EvalError> {
         parse(text).unwrap().evaluate(&value_of)
     }

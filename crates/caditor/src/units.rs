@@ -130,7 +130,7 @@ impl LengthUnit {
     }
 
     pub fn measured(self, millimetres: f64) -> Expression {
-        Expression::Measure(
+        Expression::measure(
             rounded_for_display(millimetres / self.millimetres()),
             self.unit(),
         )
@@ -139,11 +139,11 @@ impl LengthUnit {
     pub fn default_length(self, millimetres: f64) -> Expression {
         let value = millimetres / self.millimetres();
         if self == Self::Millimetre || value == 0.0 || !value.is_finite() {
-            return Expression::Measure(value, self.unit());
+            return Expression::measure(value, self.unit());
         }
         let magnitude = 10f64.powf(value.abs().log10().floor());
         let rounded = (value / magnitude).round() * magnitude;
-        Expression::Measure(
+        Expression::measure(
             rounded_for_display(if rounded == 0.0 { value } else { rounded }),
             self.unit(),
         )
@@ -164,7 +164,7 @@ pub fn angle_text(radians: f64) -> String {
 
 pub fn attach_unit(expression: Expression, unit: Unit) -> Expression {
     match expression {
-        Expression::Number(value) => Expression::Measure(value, unit),
+        Expression::Number(value) => Expression::measure(value, unit),
         Expression::Negate(inner) if matches!(*inner, Expression::Number(_)) => {
             Expression::Negate(Box::new(attach_unit(*inner, unit)))
         }

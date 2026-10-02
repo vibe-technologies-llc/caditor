@@ -216,9 +216,17 @@ jobs:
           - { target: model, seeds: model, dictionary: model }
           - { target: model_sealed, seeds: model, dictionary: model }
           - { target: journal, seeds: journal, dictionary: model }
+          - { target: journal_torn, seeds: journal, dictionary: model }
           - { target: zstd, seeds: zstd, dictionary: zstd }
           - { target: step, seeds: step, dictionary: step }
           - { target: step_import, seeds: step, dictionary: step }
+          - { target: preferences, seeds: preferences, dictionary: json }
+          - { target: recent_files, seeds: recent_files, dictionary: json }
+          - { target: profile_sweep, seeds: structured, dictionary: none }
+          - { target: boolean, seeds: structured, dictionary: none }
+          - { target: sketch_solve, seeds: structured, dictionary: none }
+          - { target: document, seeds: structured, dictionary: none }
+          - { target: save_load, seeds: structured, dictionary: none }
     steps:
       - name: Install build tools
         env:
@@ -269,11 +277,16 @@ jobs:
 
       - name: Fuzz
         working-directory: fuzz
+        shell: bash
         run: |
           mkdir -p "corpus/${{ matrix.target }}"
+          dictionary=()
+          if [ "${{ matrix.dictionary }}" != none ]; then
+            dictionary=(-dict="dictionaries/${{ matrix.dictionary }}.dict")
+          fi
           cargo fuzz run "${{ matrix.target }}" \
             "corpus/${{ matrix.target }}" "seeds/${{ matrix.seeds }}" -- \
-            -dict="dictionaries/${{ matrix.dictionary }}.dict" \
+            "${dictionary[@]}" \
             -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=2048 -timeout=10
 
       - name: Keep the failing input (actions/upload-artifact v7.0.1)

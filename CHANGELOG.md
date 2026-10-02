@@ -151,6 +151,8 @@ The first release of caditor.
 - Cancelling a recompute that has already finished no longer stops the "before" preview of a
   fillet or shell from appearing, and previews of the current state are prepared before older
   ones.
+- Cancelling a recompute stops within moments even while a cut or join follows intricate
+  intersection curves between curved faces, instead of carrying on for half a minute or more.
 - Filleting or chamfering edges whose rounded areas would run into each other on one face (both
   rims of a short cylinder, all horizontal edges of a thin plate) is refused as too large instead
   of producing a broken body.
@@ -170,6 +172,9 @@ The first release of caditor.
   refused as it is typed, with an explanation.
 - Trimming a line no longer leaves its length dimension measuring to the old corner when that
   corner is shared with another curve.
+- A spline that has settled along the line or axis it is tangent to, such as one whose first two
+  control points are the same point, solves again instead of being reported as unsolvable, and a
+  sharp point where a spline turns back is no longer taken as tangent to whatever it touches.
 
 ### Files
 
@@ -269,6 +274,10 @@ The first release of caditor.
   earlier boot, are cleaned up automatically.
 - STEP files with a skewed surface of revolution are refused with a clear message instead of being
   read wrongly.
+- A damaged model whose sketch plane has its x direction along its normal reports that plane as
+  damaged instead of turning the sketch to an arbitrary angle on every load.
+- A flipped offset or a negative measured value now reads back from the file and the recovery
+  journal exactly as it was saved, rather than as a different expression of the same value.
 
 ### Interface
 

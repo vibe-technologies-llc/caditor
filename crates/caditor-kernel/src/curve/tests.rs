@@ -314,5 +314,13 @@ fn an_intersection_curve_rebuilt_through_rough_points_lies_on_both_surfaces() {
         );
         assert!(across.distance(point) < 1e-6, "{}", across.distance(point));
     }
-    assert!(IntersectionCurve::through([upright, across], &[Point3::ZERO], false).is_none());
+    assert!(
+        IntersectionCurve::through([upright.clone(), across.clone()], &[Point3::ZERO], false)
+            .is_none()
+    );
+
+    let stopped = crate::interruptible(std::sync::Arc::new(|| true), || {
+        IntersectionCurve::through([upright, across], &rough, true)
+    });
+    assert!(stopped.is_none());
 }

@@ -60,7 +60,12 @@ paths:
   spline's range in the line search (a point held beyond the end of a spline that cannot move is a
   conflict), kept in the `SolveMemo`.
 - It starts at the closest point, or at the stationary point of the distance to the other curve
-  nearest touching, refined by Newton so geometry that already holds does not move.
+  nearest touching, refined by Newton so geometry that already holds does not move. Among starts
+  equally near (within 1e-9 of the control polygon's size, as along a stretch lying on the other
+  curve), one where the spline's first derivative does not vanish wins.
+- Where the first derivative vanishes (a cusp, or repeated control points), a tangency measures the
+  spline's direction by its second derivative, the limit of its tangent line there, never by a fixed
+  fallback that could line up with the other curve by chance.
 - A step that would push a parameter already at an end of its range further out is taken again
   with that parameter held, so the rest moves instead of the step being spent on the clamp: a point
   held beyond the end of a free spline pulls the end along.

@@ -17,6 +17,10 @@ paths:
   a plain result as millimetres.
 - Trigonometry reads a plain number as radians. An angle field takes a plain literal as degrees but
   refuses a computed plain result (`PlainAngle`), asking for deg or rad.
+- A literal's value is never negative: the sign is an `Expression::Negate` around it, as the parser
+  builds it, since stored text spells both the same way and reads back as the negation. Code builds
+  literals from computed values with `Expression::number` and `Expression::measure`, which keep
+  this, so an expression reads back from a file or the journal exactly as it was.
 - A unit binds to the primary before it (a number, a parenthesised group, a name or a call,
   `Expression::WithUnit`); `mm²` and `mm³` name areas and volumes.
 - Typed text accepts SI units only (`in` and `ft` stay readable in stored text); a misspelled unit

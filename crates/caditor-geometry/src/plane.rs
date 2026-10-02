@@ -34,7 +34,11 @@ impl Plane {
 
     pub fn with_x_axis(origin: Point3, normal: Vector3, x_direction: Vector3) -> Option<Self> {
         let normal = normal.try_normalize()?;
-        let x_axis = x_direction.reject_from_normalized(normal).try_normalize()?;
+        let in_plane = x_direction.reject_from_normalized(normal);
+        if in_plane.length() <= FRAME_TOLERANCE * x_direction.length() {
+            return None;
+        }
+        let x_axis = in_plane.try_normalize()?;
         Some(Self {
             origin,
             normal,
@@ -130,6 +134,16 @@ mod tests {
         assert!(plane.x_axis().dot(plane.normal()).abs() < 1e-12);
         assert!(Plane::new(Point3::ONE, Vector3::ZERO).is_none());
         assert!(Plane::with_x_axis(Point3::ONE, Vector3::Z, Vector3::Z).is_none());
+    }
+
+    #[test]
+    fn an_x_direction_along_a_slanted_normal_is_refused_rather_than_rounded() {
+        let normal = Vector3::new(-1.0, -1.0, -1.0);
+        let along = Vector3::new(1.0, 1.0, 1.0);
+
+        assert!(Plane::with_x_axis(Point3::ZERO, normal, along).is_none());
+        assert!(Plane::from_frame(Point3::ZERO, normal, along).is_none());
+        assert!(Plane::with_x_axis(Point3::ZERO, normal, along + Vector3::X * 1e-6).is_some());
     }
 
     #[test]

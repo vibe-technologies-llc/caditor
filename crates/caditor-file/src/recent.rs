@@ -57,11 +57,15 @@ pub struct RecentFiles {
 
 impl RecentFiles {
     pub fn load(state_dir: &Path) -> Self {
-        let stored = read_file(&state_dir.join(RECENT_FILE))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Vec<Value>>(&bytes).ok())
-            .unwrap_or_default();
-        Self::from_stored(&stored)
+        read_file(&state_dir.join(RECENT_FILE))
+            .map(|bytes| Self::parse(&bytes))
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn parse(bytes: &[u8]) -> Self {
+        serde_json::from_slice::<Vec<Value>>(bytes)
+            .map(|stored| Self::from_stored(&stored))
+            .unwrap_or_default()
     }
 
     fn from_stored(stored: &[Value]) -> Self {
@@ -118,9 +122,12 @@ impl RecentFiles {
     }
 
     fn write(&self, state_dir: &Path) -> io::Result<()> {
+        write_atomically(&state_dir.join(RECENT_FILE), &self.stored()?)
+    }
+
+    pub(crate) fn stored(&self) -> io::Result<Vec<u8>> {
         let stored: Vec<Value> = self.paths.iter().map(|path| storable(path)).collect();
-        let contents = serde_json::to_vec_pretty(&stored).map_err(io::Error::other)?;
-        write_atomically(&state_dir.join(RECENT_FILE), &contents)
+        serde_json::to_vec_pretty(&stored).map_err(io::Error::other)
     }
 
     pub fn paths(&self) -> &[PathBuf] {
