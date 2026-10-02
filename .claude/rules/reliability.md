@@ -13,8 +13,10 @@ A crash or any loss of the user's work is a catastrophic failure, not an edge ca
 ## Recover instead of exiting
 
 - After startup, a failing subsystem degrades alone and the rest keeps running: frame errors are
-  logged and the frame skipped, a lost surface is recreated inside `caditor-render`, a failing
-  feature is contained to that feature. Exiting is only for startup failures.
+  logged and the frame skipped, a panic in a frame resets the interface and keeps the model
+  (`app.md`), a lost surface is recreated inside `caditor-render`, a failing feature is contained
+  to that feature. Exiting is only for startup failures and a window that fails frame after frame,
+  with the journal kept.
 
 ## Persistence
 

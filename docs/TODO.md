@@ -41,10 +41,6 @@ within a category run from most to least important.
 
 ## Reliability and diagnostics
 
-- A panic on the UI thread ends the process: `Session::redraw` (egui, `Model::perform`, scene
-  building) has no `catch_unwind`, and a document whose display code panics crashes again each
-  time its journal is restored. Contain a failed frame, drop transient UI state and say so, and
-  offer a safe open (features suppressed) after a crash.
 - Logs go only to stderr and the desktop entry has `Terminal=false`, so a panic or a startup
   failure ("could not start the renderer") leaves no trace for a desktop launch, and stripped
   symbols make backtraces empty. Write a log in the state directory, show startup errors in a

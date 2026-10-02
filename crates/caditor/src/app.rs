@@ -1,10 +1,11 @@
 use std::{
+    panic::{self, AssertUnwindSafe},
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use caditor_render::{
     FrameStart, ImagePoll, ImageRequest, PickPoll, Renderer, SurfaceSize, ViewportFrame, Wake,
     WindowTarget,
@@ -91,6 +92,13 @@ const HIDDEN_PROBE: Duration = Duration::from_secs(5);
 const LAYOUT_SAVE_DELAY: Duration = Duration::from_secs(1);
 const SETTINGS_FLUSH: Duration = Duration::from_secs(2);
 const NO_TIP: &str = "No tip is shown";
+const GIVE_UP_AFTER_FAILED_FRAMES: u32 = 5;
+const FRAME_FAILED: &str = "Something went wrong while drawing the window, so caditor closed its \
+                            dialogs and tools and cleared the selection. Your model and unsaved \
+                            changes are kept.";
+const FEATURES_SUPPRESSED: &str = "The window still could not be drawn, so every feature was \
+                                   suppressed. Unsuppress them one at a time in the feature tree \
+                                   to find the one at fault, or Undo to bring them all back.";
 
 pub struct Workspace {
     pub viewport: ViewportState,
@@ -108,6 +116,7 @@ pub struct Workspace {
     pub last_offers: Vec<Offer>,
     pub selection_offers: SelectionOffers,
     pub measure: MeasureTool,
+    pub(crate) frame_failures: FrameFailures,
     applied_appearance: Option<Appearance>,
     applied_title_bar: Option<TitleBar>,
     keyboard_was_taken: bool,
@@ -143,12 +152,32 @@ impl Workspace {
             last_offers: Vec::new(),
             selection_offers: SelectionOffers::default(),
             measure: MeasureTool::default(),
+            frame_failures: FrameFailures::default(),
             applied_appearance: None,
             applied_title_bar: None,
             keyboard_was_taken: false,
             deferred_commands: Vec::new(),
             session: 0,
         }
+    }
+
+    fn after_failed_frame(&mut self) {
+        self.viewport.forget_document();
+        self.panels = PanelState::with_layout(self.preferences.panels);
+        self.editing = SketchEditing::default();
+        self.preferences_open = false;
+        self.shortcut_editor = None;
+        self.palette = Palette::default();
+        self.restored = None;
+        self.welcome_open = false;
+        self.about_open = false;
+        self.last_offers.clear();
+        self.selection_offers = SelectionOffers::default();
+        self.measure = MeasureTool::default();
+        self.applied_appearance = None;
+        self.applied_title_bar = None;
+        self.keyboard_was_taken = false;
+        self.deferred_commands.clear();
     }
 
     fn sync(&mut self, model: &Model) {
@@ -598,12 +627,59 @@ pub fn perform(
     workspace.editing.sync(model);
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AfterFailedFrame {
+    ResetInterface,
+    SuppressFeatures,
+    GiveUp,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct FrameFailures {
+    in_a_row: u32,
+}
+
+impl FrameFailures {
+    pub(crate) fn drawn(&mut self) {
+        self.in_a_row = 0;
+    }
+
+    fn failed(&mut self) -> AfterFailedFrame {
+        self.in_a_row = self.in_a_row.saturating_add(1);
+        match self.in_a_row {
+            2 => AfterFailedFrame::SuppressFeatures,
+            count if count >= GIVE_UP_AFTER_FAILED_FRAMES => AfterFailedFrame::GiveUp,
+            _ => AfterFailedFrame::ResetInterface,
+        }
+    }
+}
+
+pub(crate) fn after_failed_frame(
+    workspace: &mut Workspace,
+    model: &mut Model,
+    files: &mut Files,
+) -> AfterFailedFrame {
+    let step = workspace.frame_failures.failed();
+    workspace.after_failed_frame();
+    files.close_dialogs(model);
+    match step {
+        AfterFailedFrame::SuppressFeatures if model.suppress_every_feature() => {
+            model.set_notice(Notice::failure(FEATURES_SUPPRESSED));
+        }
+        AfterFailedFrame::ResetInterface | AfterFailedFrame::SuppressFeatures => {
+            model.set_notice(Notice::failure(FRAME_FAILED));
+        }
+        AfterFailedFrame::GiveUp => {}
+    }
+    step
+}
+
 pub struct App {
     model: Model,
     files: Files,
     preferences: Preferences,
     session: Option<Session>,
-    startup_error: Option<anyhow::Error>,
+    fatal_error: Option<anyhow::Error>,
     proxy: EventLoopProxy<AppEvent>,
 }
 
@@ -623,7 +699,7 @@ impl App {
             files,
             preferences,
             session: None,
-            startup_error: None,
+            fatal_error: None,
             proxy,
         }
     }
@@ -632,7 +708,7 @@ impl App {
         if !self.files.wait_for_jobs(SETTINGS_FLUSH) {
             log::warn!("quitting before the preferences were saved");
         }
-        self.startup_error.map_or(Ok(()), Err)
+        self.fatal_error.map_or(Ok(()), Err)
     }
 }
 
@@ -652,13 +728,69 @@ impl ApplicationHandler<AppEvent> for App {
         match Session::open(event_loop, &title, preferences, self.proxy.clone()) {
             Ok(session) => self.session = Some(session),
             Err(error) => {
-                self.startup_error = Some(error);
+                self.fatal_error = Some(error);
                 event_loop.exit();
             }
         }
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: AppEvent) {
+        self.contained(event_loop, |app| app.handle_user_event(event));
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _window: WindowId,
+        event: WindowEvent,
+    ) {
+        self.contained(event_loop, |app| app.handle_window_event(event_loop, event));
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(session) = &mut self.session {
+            session.redraw_when_due(Instant::now());
+        }
+        let flow = self
+            .session
+            .as_ref()
+            .and_then(|session| {
+                [session.next_repaint, session.layout_deadline()]
+                    .into_iter()
+                    .flatten()
+                    .min()
+            })
+            .map_or(ControlFlow::Wait, ControlFlow::WaitUntil);
+        event_loop.set_control_flow(flow);
+    }
+
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(mut session) = self.session.take() {
+            session.remember_layout(&mut self.files, Instant::now());
+            session.store_layout(&mut self.files);
+        }
+    }
+}
+
+impl App {
+    fn contained(&mut self, event_loop: &ActiveEventLoop, handle: impl FnOnce(&mut Self)) {
+        if panic::catch_unwind(AssertUnwindSafe(|| handle(self))).is_ok() {
+            return;
+        }
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+        let step = session.recover(event_loop, &mut self.model, &mut self.files, &self.proxy);
+        if step == AfterFailedFrame::GiveUp {
+            self.fatal_error = Some(anyhow!(
+                "caditor could not draw its window; unsaved changes are kept and offered when it \
+                 starts again"
+            ));
+            event_loop.exit();
+        }
+    }
+
+    fn handle_user_event(&mut self, event: AppEvent) {
         match event {
             AppEvent::Wake => {
                 if let Some(session) = &mut self.session {
@@ -676,12 +808,7 @@ impl ApplicationHandler<AppEvent> for App {
         }
     }
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        _window: WindowId,
-        event: WindowEvent,
-    ) {
+    fn handle_window_event(&mut self, event_loop: &ActiveEventLoop, event: WindowEvent) {
         let Some(session) = self.session.as_mut() else {
             return;
         };
@@ -713,7 +840,10 @@ impl ApplicationHandler<AppEvent> for App {
                 session.note_display();
             }
             WindowEvent::ScaleFactorChanged { .. } => session.note_display(),
-            WindowEvent::RedrawRequested => session.redraw(&mut self.model, &mut self.files),
+            WindowEvent::RedrawRequested => {
+                session.redraw(&mut self.model, &mut self.files);
+                session.workspace.frame_failures.drawn();
+            }
             WindowEvent::DroppedFile(path) => {
                 session.dropped.push(path);
                 session.request_redraw();
@@ -725,30 +855,6 @@ impl ApplicationHandler<AppEvent> for App {
         }
         if self.files.should_quit() {
             event_loop.exit();
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if let Some(session) = &mut self.session {
-            session.redraw_when_due(Instant::now());
-        }
-        let flow = self
-            .session
-            .as_ref()
-            .and_then(|session| {
-                [session.next_repaint, session.layout_deadline()]
-                    .into_iter()
-                    .flatten()
-                    .min()
-            })
-            .map_or(ControlFlow::Wait, ControlFlow::WaitUntil);
-        event_loop.set_control_flow(flow);
-    }
-
-    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
-        if let Some(mut session) = self.session.take() {
-            session.remember_layout(&mut self.files, Instant::now());
-            session.store_layout(&mut self.files);
         }
     }
 }
@@ -876,6 +982,22 @@ impl Session {
 
     fn note_display(&mut self) {
         self.workspace.hardware.refresh_rate = refresh_rate(&self.window);
+    }
+
+    fn recover(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        model: &mut Model,
+        files: &mut Files,
+        proxy: &EventLoopProxy<AppEvent>,
+    ) -> AfterFailedFrame {
+        log::error!("a frame failed; resetting the interface");
+        self.overlay = Overlay::new(&self.window, &self.renderer);
+        self.overlay
+            .enable_accessibility(event_loop, &self.window, proxy.clone());
+        let step = after_failed_frame(&mut self.workspace, model, files);
+        self.next_repaint = Instant::now().checked_add(self.retry_delay());
+        step
     }
 
     fn note_adapter(&mut self) {

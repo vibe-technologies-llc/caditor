@@ -105,6 +105,18 @@ paths:
   signal. `tests/crash_flush.rs` re-runs its own binary as a child that records changes to a real
   `Storage` and panics, raises SIGTERM or is killed, and checks that a recovery scan restores
   every change.
+- A panic while handling a window or user event (a frame in `Session::redraw`: polling, egui,
+  `Model::perform`, scene building, drawing; or closing, a dropped file, an accessibility event) is
+  caught in `App::contained` after the hook has flushed the journal. The window gets a fresh egui
+  context (`Overlay::new`, accessibility again), `after_failed_frame` drops the workspace's
+  transient state (selection, tools, sketch editing, palette, dialogs) and `Files::close_dialogs`
+  the file dialogs (export, image, version history, reports, recovery; prompts guarding unsaved
+  work stay), and a notice says so; the model and its undo history stay. A second failed frame in a row suppresses
+  every feature as one undoable change (`Model::suppress_every_feature`), saying how to find the
+  one at fault; after `GIVE_UP_AFTER_FAILED_FRAMES` in a row the app exits with the journal kept,
+  so the next start offers it.
+- The recovery card offers Restore suppressed beside Restore: the same restore followed by
+  suppressing every feature, for a model that made caditor stop.
 
 ## Redraws and frame pacing
 

@@ -48,6 +48,12 @@ const NO_RECENT: &str = "No model has been opened or saved yet";
 const QUIT_ANYWAY_AFTER: Duration = Duration::from_secs(5);
 const INTERNAL_ERROR: &str = "caditor ran into an internal error while reading it";
 const REPORT_HEIGHT: f32 = 280.0;
+const RESTORE_SUPPRESSED_HINT: &str = "Restore with every feature suppressed, for a model that \
+                                       made caditor stop. Unsuppress features one at a time, or \
+                                       Undo to bring them all back.";
+const RESTORED_SUPPRESSED: &str = "Restored with every feature suppressed. Unsuppress them one at \
+                                   a time in the feature tree to find any that make caditor stop, \
+                                   or Undo to bring them all back.";
 const MODEL_KIND: &str = "caditor model";
 const DRAWING_KIND: &str = "DXF drawing";
 const MODEL_EXCHANGE_KIND: &str = "STEP model";
@@ -79,6 +85,7 @@ pub enum FileCommand {
     ShowRecovery,
     HideRecovery,
     Restore(PathBuf),
+    RestoreSuppressed(PathBuf),
     AskDiscard(PathBuf),
     KeepRecovered,
     Discard(PathBuf),
@@ -370,7 +377,7 @@ enum Intent {
     New,
     Sample(Sample),
     Open(Option<PathBuf>),
-    Restore(PathBuf),
+    Restore { journal: PathBuf, suppressed: bool },
     Replace(Box<Opened>),
     Quit,
 }
@@ -510,6 +517,15 @@ impl Files {
         self.recovery_open && !self.recoverable.is_empty()
     }
 
+    pub fn close_dialogs(&mut self, model: &Model) {
+        self.exporter.perform(ExportCommand::Hide, model);
+        self.image.perform(ImageCommand::Hide);
+        self.history.close();
+        self.report = None;
+        self.recovery_open = false;
+        self.confirm_discard = None;
+    }
+
     pub fn perform(&mut self, command: FileCommand, model: &mut Model) {
         match command {
             FileCommand::New => self.request(Intent::New, model),
@@ -518,7 +534,20 @@ impl Files {
             FileCommand::OpenPath(path) => self.request(Intent::Open(Some(path)), model),
             FileCommand::Quit if self.closing.is_some() => {}
             FileCommand::Quit => self.request(Intent::Quit, model),
-            FileCommand::Restore(journal) => self.request(Intent::Restore(journal), model),
+            FileCommand::Restore(journal) => self.request(
+                Intent::Restore {
+                    journal,
+                    suppressed: false,
+                },
+                model,
+            ),
+            FileCommand::RestoreSuppressed(journal) => self.request(
+                Intent::Restore {
+                    journal,
+                    suppressed: true,
+                },
+                model,
+            ),
             FileCommand::Save => self.save(model),
             FileCommand::SaveAs => self.pick(Purpose::SaveAs, model),
             FileCommand::Guard(choice) => {
@@ -1134,7 +1163,10 @@ impl Files {
             },
             Intent::Open(None) => self.pick(Purpose::Open, model),
             Intent::Open(Some(path)) => self.open(path, model),
-            Intent::Restore(journal) => {
+            Intent::Restore {
+                journal,
+                suppressed,
+            } => {
                 let Some(index) = self
                     .recoverable
                     .iter()
@@ -1148,6 +1180,9 @@ impl Files {
                     self.remember(file.clone());
                 }
                 model.restore(candidate.recovered);
+                if suppressed && model.suppress_every_feature() {
+                    model.perform(Action::Inform(Notice::info(RESTORED_SUPPRESSED)));
+                }
             }
             Intent::Replace(opened) => self.finish_open(*opened, model),
             Intent::Quit => match model.close() {
@@ -1787,7 +1822,7 @@ fn guard(ctx: &egui::Context, model: &Model, intent: &Intent) -> Option<GuardCho
         Intent::New
         | Intent::Sample(_)
         | Intent::Open(_)
-        | Intent::Restore(_)
+        | Intent::Restore { .. }
         | Intent::Replace(_) => (
             "If you continue without saving, your changes will be lost.",
             "Continue without saving",
@@ -2025,9 +2060,16 @@ fn recovery_row(ui: &mut Ui, files: &Files, recovered: &Recovered) -> Option<Fil
         );
         return discard.or(keep);
     }
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         if ui.add(widgets::primary_button(ui, "Restore")).clicked() {
             return Some(FileCommand::Restore(journal));
+        }
+        if ui
+            .add(widgets::button("Restore suppressed"))
+            .on_hover_text(RESTORE_SUPPRESSED_HINT)
+            .clicked()
+        {
+            return Some(FileCommand::RestoreSuppressed(journal));
         }
         ui.add(widgets::button("Discard…"))
             .clicked()

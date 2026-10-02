@@ -2039,9 +2039,7 @@ fn an_unreadable_journal_is_kept_aside_and_reported_when_its_model_opens() {
     assert!(!harness.model.is_dirty());
 }
 
-#[test]
-fn unsaved_work_from_a_crash_is_offered_and_restored_with_its_history() {
-    let dir = TempDir::new().unwrap();
+fn crashed_with_a_width_change(dir: &Path) -> Editor {
     let base = sample_document().unwrap();
     let mut editor = Editor::new(base.clone());
     let width = base.parameter_named("width").unwrap().id();
@@ -2055,7 +2053,7 @@ fn unsaved_work_from_a_crash_is_offered_and_restored_with_its_history() {
     editor.apply(change.clone()).unwrap();
     let crashed = Storage::spawn(
         StorageConfig {
-            recovery_dir: Some(dir.path().join("recovery")),
+            recovery_dir: Some(dir.join("recovery")),
             ..StorageConfig::default()
         },
         Start {
@@ -2073,6 +2071,13 @@ fn unsaved_work_from_a_crash_is_offered_and_restored_with_its_history() {
     .unwrap();
     assert!(crashed.flusher().flush(FILE_TIMEOUT));
     assert!(crashed.close(false).wait(FILE_TIMEOUT));
+    editor
+}
+
+#[test]
+fn unsaved_work_from_a_crash_is_offered_and_restored_with_its_history() {
+    let dir = TempDir::new().unwrap();
+    let editor = crashed_with_a_width_change(dir.path());
 
     let mut harness = Harness::with_directories(Some(dir.path()));
     harness.wait_until("recovery is offered", |harness| {
@@ -2093,6 +2098,95 @@ fn unsaved_work_from_a_crash_is_offered_and_restored_with_its_history() {
             .count(),
         1
     );
+}
+
+#[test]
+fn unsaved_work_can_be_restored_with_every_feature_suppressed_and_brought_back_by_undo() {
+    let dir = TempDir::new().unwrap();
+    let editor = crashed_with_a_width_change(dir.path());
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.wait_until("recovery is offered", |harness| {
+        harness.shows("Recover unsaved work")
+    });
+
+    harness.click("Restore suppressed");
+
+    assert!(
+        harness
+            .model
+            .document()
+            .features()
+            .all(|feature| feature.suppressed)
+    );
+    assert!(
+        harness
+            .model
+            .notice()
+            .unwrap()
+            .text
+            .starts_with("Restored with every feature suppressed.")
+    );
+    assert_eq!(harness.model.undo_label(), Some("Suppress every feature"));
+    harness.perform(Action::Undo);
+    assert_eq!(harness.model.document(), editor.document());
+    assert_eq!(harness.model.undo_label(), Some("Edit width"));
+}
+
+fn fail_a_frame(harness: &mut Harness) -> app::AfterFailedFrame {
+    app::after_failed_frame(
+        &mut harness.workspace,
+        &mut harness.model,
+        &mut harness.files,
+    )
+}
+
+#[test]
+fn a_failed_frame_resets_the_interface_and_a_second_in_a_row_suppresses_every_feature() {
+    let mut harness = Harness::new();
+    let before = harness.model.document().clone();
+    harness.workspace.preferences_open = true;
+    harness.workspace.about_open = true;
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    assert!(harness.files.is_blocking());
+
+    let first = fail_a_frame(&mut harness);
+
+    assert_eq!(first, app::AfterFailedFrame::ResetInterface);
+    assert!(!harness.workspace.preferences_open);
+    assert!(!harness.workspace.about_open);
+    assert!(!harness.files.is_blocking());
+    assert_eq!(harness.model.document(), &before);
+    assert!(
+        harness
+            .model
+            .notice()
+            .unwrap()
+            .text
+            .starts_with("Something went wrong while drawing the window")
+    );
+
+    let second = fail_a_frame(&mut harness);
+
+    assert_eq!(second, app::AfterFailedFrame::SuppressFeatures);
+    assert!(
+        harness
+            .model
+            .document()
+            .features()
+            .all(|feature| feature.suppressed)
+    );
+    harness.perform(Action::Undo);
+    assert_eq!(harness.model.document(), &before);
+    harness.frame();
+    harness.workspace.frame_failures.drawn();
+    assert_eq!(
+        fail_a_frame(&mut harness),
+        app::AfterFailedFrame::ResetInterface
+    );
+    for _ in 0..3 {
+        fail_a_frame(&mut harness);
+    }
+    assert_eq!(fail_a_frame(&mut harness), app::AfterFailedFrame::GiveUp);
 }
 
 #[test]

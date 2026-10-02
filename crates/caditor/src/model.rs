@@ -279,6 +279,17 @@ impl Model {
         self.notice.as_ref()
     }
 
+    pub fn suppress_every_feature(&mut self) -> bool {
+        let document = self.editor.document();
+        let every: Vec<FeatureId> = document.features().map(Feature::id).collect();
+        let transaction = document.suppression(&every, true, "Suppress every feature");
+        if transaction.is_empty() {
+            return false;
+        }
+        self.perform(Action::Apply(transaction));
+        true
+    }
+
     pub fn set_notice(&mut self, notice: Notice) {
         match notice.kind {
             NoticeKind::Info => log::info!("{}", notice.text),
