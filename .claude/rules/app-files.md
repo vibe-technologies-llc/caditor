@@ -35,6 +35,12 @@ paths:
 - Save As appends `.caditor` to other names, checks the target on the worker (refused while open in
   another window or holding unrecovered changes) and asks before replacing a file the dialog did not
   name.
+- A save over a file another program changed since it was opened (`Report::ChangedOnDisk`) opens
+  "“name” was changed by another program" (`files::changed_on_disk`): Save a copy… (Save As)
+  primary and rightmost, Cancel beside it, Replace at the far left (not a danger button, since the
+  outside contents become a version). Replace resends the save with `replace_outside_changes`; a
+  save started from the unsaved-changes prompt continues after Replace or Save a copy and is
+  dropped on Cancel.
 
 ## Onboarding
 

@@ -8,7 +8,10 @@ use caditor_document::{Document, Editor, Transaction};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    binary::{ChunkKind, EncodeError, JOURNAL_MAGIC, Piece, parse, push_packed, start_file, value},
+    binary::{
+        ChunkKind, EncodeError, FileDigest, JOURNAL_MAGIC, Piece, parse, push_packed, start_file,
+        value,
+    },
     format::{
         FeatureRecord, Lenient, NextIdsRecord, ParameterRecord, PrincipalRecord, Record,
         RollbackRecord, SuppressedRecord, TransactionRecord, feature_record, next_ids_record,
@@ -32,6 +35,8 @@ struct JournalHeader {
     file: Option<String>,
     #[serde(default)]
     file_bytes: Option<Vec<u8>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    on_disk: Option<FileDigest>,
     #[serde(default)]
     loaded_with_problems: bool,
 }
@@ -51,6 +56,7 @@ struct SnapshotRecord {
 
 pub(crate) fn encode_journal(
     file: Option<&Path>,
+    on_disk: Option<&FileDigest>,
     loaded_with_problems: bool,
     base: &Document,
     entries: &[JournalEntry],
@@ -58,6 +64,7 @@ pub(crate) fn encode_journal(
     let header = JournalHeader {
         file: file.and_then(Path::to_str).map(str::to_owned),
         file_bytes: file.map(|file| file.as_os_str().as_bytes().to_vec()),
+        on_disk: on_disk.cloned(),
         loaded_with_problems,
     };
     let mut bytes = start_file(&JOURNAL_MAGIC, JOURNAL_VERSION);
@@ -113,6 +120,7 @@ fn snapshot_record(document: &Document) -> SnapshotRecord {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct JournalContents {
     pub file: Option<PathBuf>,
+    pub on_disk: Option<FileDigest>,
     pub loaded_with_problems: bool,
     pub base: Document,
     pub issues: Vec<String>,
@@ -151,6 +159,7 @@ pub(crate) fn decode_journal(bytes: &[u8]) -> Result<JournalContents, DamagedJou
     };
     Ok(JournalContents {
         file,
+        on_disk: header.on_disk,
         loaded_with_problems: header.loaded_with_problems,
         base,
         issues,

@@ -15,8 +15,13 @@ paths:
 
 - Model container (`file-format.md`): header chunk naming the file, snapshot of the last saved
   state, one chunk per change (`apply`, `undo`, `redo` with the transaction).
-- Header carries the path as raw bytes (non-UTF-8 names survive) and whether the file loaded with
-  problems, so a recovered session still keeps the damaged original on its first save.
+- Header carries the path as raw bytes (non-UTF-8 names survive), whether the file loaded with
+  problems, so a recovered session still keeps the damaged original on its first save, and
+  `on_disk`, the head digest of the file the session last loaded or saved (written only when
+  known; older readers ignore it), so a recovered session still notices an outside change.
+- The storage worker keeps `on_disk` from `Start`, passes it as `SaveOptions::unless_changed_from`
+  unless the request says `replace_outside_changes`, reports a mismatch as
+  `Report::ChangedOnDisk` and takes the new digest from each save (`Report::Saved::digest`).
 - Replay stops at the first damaged or unreadable chunk (a torn tail loses only later changes);
   through an `Editor` it restores undo history.
 - New edit kinds do not bump the journal version: an older reader stops at the first entry it

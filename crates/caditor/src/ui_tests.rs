@@ -1150,6 +1150,55 @@ fn save_as_adds_the_model_extension_and_asks_before_replacing_what_the_dialog_di
 }
 
 #[test]
+fn saving_over_a_file_another_program_changed_asks_before_replacing_it() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("plate.caditor");
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.answer_dialog(Some(path.clone()));
+    harness.key(Key::S, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
+    let mut outside = harness.model.document().clone();
+    let mut transaction = outside.transaction("Elsewhere");
+    transaction.add_parameter("elsewhere", transaction.parse("3 mm").unwrap());
+    outside.apply(transaction.finish()).unwrap();
+    caditor_file::save(&outside, &path, false).unwrap();
+    harness.edit_width("41 mm");
+
+    harness.key(Key::S, Modifiers::COMMAND);
+    harness.wait_until("the outside change is shown", |harness| {
+        harness.shows("“plate.caditor” was changed by another program")
+    });
+    harness.click("Cancel");
+
+    assert!(harness.model.is_dirty());
+    assert_eq!(caditor_file::load(&path).unwrap().document, outside);
+
+    harness.key(Key::S, Modifiers::COMMAND);
+    harness.wait_until("the outside change is shown", |harness| {
+        harness.shows("“plate.caditor” was changed by another program")
+    });
+    harness.click("Replace");
+    harness.wait_until("the change is saved", |harness| !harness.model.is_dirty());
+    let listed = caditor_file::history(&path).unwrap();
+    let kept = caditor_file::load_version(&path, listed.versions[0].index).unwrap();
+
+    assert_eq!(
+        caditor_file::load(&path).unwrap().document,
+        *harness.model.document()
+    );
+    assert_eq!(kept.document, outside);
+
+    harness.edit_width("42 mm");
+    harness.key(Key::S, Modifiers::COMMAND);
+    harness.wait_until("the next change is saved", |harness| {
+        !harness.model.is_dirty()
+    });
+    assert!(!harness.shows("“plate.caditor” was changed by another program"));
+}
+
+#[test]
 fn save_as_refuses_a_model_open_in_another_window() {
     let dir = TempDir::new().unwrap();
     let other_path = dir.path().join("other.caditor");
@@ -1160,6 +1209,7 @@ fn save_as_refuses_a_model_open_in_another_window() {
         },
         Start {
             file: Some(other_path.clone()),
+            on_disk: None,
             loaded_with_problems: false,
             base: Document::default(),
             entries: Vec::new(),
@@ -2006,6 +2056,7 @@ fn unsaved_work_from_a_crash_is_offered_and_restored_with_its_history() {
         },
         Start {
             file: None,
+            on_disk: None,
             loaded_with_problems: false,
             base,
             entries: vec![JournalEntry::Apply(change)],
@@ -6752,7 +6803,7 @@ fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_per
     let name = "Bracket for the front suspension, revised after the second test.caditor";
     harness
         .model
-        .replace(document, Some(dir.path().join(name)), false);
+        .replace(document, Some(dir.path().join(name)), None, false);
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::Scale(2.0),
     )));

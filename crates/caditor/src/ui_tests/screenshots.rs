@@ -688,6 +688,7 @@ fn crashed_session(dir: &Path) {
         },
         Start {
             file: None,
+            on_disk: None,
             loaded_with_problems: false,
             base,
             entries: vec![JournalEntry::Apply(change)],

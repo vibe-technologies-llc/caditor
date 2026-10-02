@@ -83,6 +83,10 @@ fn unpack_beside(chunk: &Chunk<'_>, newer: Option<&[u8]>, held: usize) -> Unpack
 
 type Unpacked = Result<Vec<u8>, UnpackError>;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct FileDigest(pub(crate) String);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedState {
     pub saved_at: SystemTime,
@@ -390,7 +394,7 @@ pub(crate) fn encode(document: &Document) -> Result<Vec<u8>, EncodeError> {
 pub(crate) struct Encoded {
     pub bytes: Vec<u8>,
     pub shared: Vec<Shared>,
-    pub digest: String,
+    pub digest: FileDigest,
     pub previous_damaged: bool,
     pub dropped_for_size: usize,
 }
@@ -677,7 +681,7 @@ pub(crate) fn encode_over(
     Ok(Encoded {
         bytes,
         shared,
-        digest: head.digest,
+        digest: FileDigest(head.digest),
         previous_damaged,
         dropped_for_size: written.cut_listed,
     })
@@ -701,7 +705,11 @@ struct Written {
     cut_listed: usize,
 }
 
-pub(crate) fn reads_back(bytes: &[u8], digest: &str) -> bool {
+pub(crate) fn head_digest(bytes: &[u8]) -> Option<FileDigest> {
+    Parsed::of(bytes)?.head.map(|head| FileDigest(head.digest))
+}
+
+pub(crate) fn reads_back(bytes: &[u8], digest: &FileDigest) -> bool {
     let Some(parsed) = Parsed::of(bytes) else {
         return false;
     };
@@ -710,7 +718,7 @@ pub(crate) fn reads_back(bytes: &[u8], digest: &str) -> bool {
         && parsed
             .head
             .as_ref()
-            .is_some_and(|head| head.digest == digest)
+            .is_some_and(|head| head.digest == digest.0)
         && parsed.holds_every_record(&contents)
 }
 
@@ -1067,7 +1075,11 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
     let records = contents.into_iter().map(|content| content.map(Cow::Owned));
     let parts = read_records(records, &mut issues);
     let document = assemble(parts, &mut issues);
-    Ok(Loaded { document, issues })
+    Ok(Loaded {
+        document,
+        issues,
+        digest: parsed.head.map(|head| FileDigest(head.digest)),
+    })
 }
 
 fn read_records<'a>(
@@ -1139,5 +1151,9 @@ pub(crate) fn load_version(bytes: &[u8], index: usize) -> Result<Loaded, LoadErr
         &mut issues,
     );
     let document = assemble(parts, &mut issues);
-    Ok(Loaded { document, issues })
+    Ok(Loaded {
+        document,
+        issues,
+        digest: None,
+    })
 }

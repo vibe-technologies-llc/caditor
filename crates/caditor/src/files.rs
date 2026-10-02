@@ -75,6 +75,7 @@ pub enum FileCommand {
     SaveAs,
     Quit,
     Guard(GuardChoice),
+    OutsideChange(OutsideChangeChoice),
     ShowRecovery,
     HideRecovery,
     Restore(PathBuf),
@@ -97,6 +98,13 @@ pub enum FileCommand {
     OpenSample(Sample),
     ClearRecent,
     CancelOpen,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutsideChangeChoice {
+    Replace,
+    SaveCopy,
+    Cancel,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -414,6 +422,7 @@ pub struct Files {
     history: VersionHistory,
     picking: bool,
     confirm_replace: Option<Replacement>,
+    changed_on_disk: Option<PathBuf>,
     closing: Option<(Closing, Instant)>,
     stored_settings: Option<Settings>,
     quit: bool,
@@ -445,6 +454,7 @@ impl Files {
             history: VersionHistory::default(),
             picking: false,
             confirm_replace: None,
+            changed_on_disk: None,
             closing: None,
             stored_settings: None,
             quit: false,
@@ -478,6 +488,7 @@ impl Files {
         self.guard.is_some()
             || self.closing.is_some()
             || self.confirm_replace.is_some()
+            || self.changed_on_disk.is_some()
             || self.opening.is_some()
             || self.report.is_some()
             || self.showing_recovery()
@@ -521,6 +532,16 @@ impl Files {
                     }
                     GuardChoice::DontSave => self.run(intent, model),
                     GuardChoice::Cancel => {}
+                }
+            }
+            FileCommand::OutsideChange(choice) => {
+                let Some(path) = self.changed_on_disk.take() else {
+                    return;
+                };
+                match choice {
+                    OutsideChangeChoice::Replace => model.save_replacing_outside_changes(path),
+                    OutsideChangeChoice::SaveCopy => self.pick(Purpose::SaveAs, model),
+                    OutsideChangeChoice::Cancel => self.after_save = None,
                 }
             }
             FileCommand::ShowRecovery => self.recovery_open = true,
@@ -787,6 +808,7 @@ impl Files {
                     }
                 }
                 FileEvent::SaveFailed => self.after_save = None,
+                FileEvent::ChangedOnDisk(path) => self.changed_on_disk = Some(path),
             }
         }
         while let Ok(event) = self.inbox.try_recv() {
@@ -1099,9 +1121,9 @@ impl Files {
 
     fn run(&mut self, intent: Intent, model: &mut Model) {
         match intent {
-            Intent::New => model.replace(Document::default(), None, false),
+            Intent::New => model.replace(Document::default(), None, None, false),
             Intent::Sample(sample) => match sample.document() {
-                Ok(document) => model.replace(document, None, false),
+                Ok(document) => model.replace(document, None, None, false),
                 Err(error) => {
                     log::error!("could not build a sample: {error:#}");
                     model.perform(Action::Inform(Notice::failure(format!(
@@ -1289,7 +1311,7 @@ impl Files {
             });
         }
         self.remember(path.clone());
-        model.replace(loaded.document, Some(path), damaged);
+        model.replace(loaded.document, Some(path), loaded.digest, damaged);
     }
 
     fn remember(&mut self, path: PathBuf) {
@@ -1717,6 +1739,8 @@ pub fn show(
         command = guard(&ctx, model, intent).map(FileCommand::Guard);
     } else if let Some(replacement) = &files.confirm_replace {
         command = confirm_replace(&ctx, replacement).map(FileCommand::Replace);
+    } else if let Some(path) = &files.changed_on_disk {
+        command = changed_on_disk(&ctx, path).map(FileCommand::OutsideChange);
     } else if let Some(report) = &files.report {
         command = show_report(&ctx, report);
     } else if files.showing_recovery() {
@@ -1846,6 +1870,42 @@ fn confirm_replace(ctx: &egui::Context, replacement: &Replacement) -> Option<boo
         })
     });
     let closed = response.should_close().then_some(false);
+    response.inner.or(closed)
+}
+
+fn changed_on_disk(ctx: &egui::Context, path: &Path) -> Option<OutsideChangeChoice> {
+    let name = display_name(Some(path));
+    let title = format!("“{name}” was changed by another program");
+    let response = widgets::dialog(ctx, "changed-on-disk", &title, DialogWidth::Medium, |ui| {
+        ui.label(format!(
+            "Since you opened “{name}”, another program, such as a sync client or caditor on \
+             another computer, saved over it. Replacing it keeps that version in the file's \
+             Version History, where you can restore it. Saving a copy leaves the file as it is."
+        ));
+        widgets::footer_split(
+            ui,
+            |ui| {
+                ui.add(widgets::button("Replace"))
+                    .on_hover_text("Save over the file; its current contents become a version")
+                    .clicked()
+                    .then_some(OutsideChangeChoice::Replace)
+            },
+            |ui| {
+                if ui
+                    .add(widgets::primary_button(ui, "Save a copy…"))
+                    .clicked()
+                {
+                    return Some(OutsideChangeChoice::SaveCopy);
+                }
+                ui.add(widgets::button("Cancel"))
+                    .clicked()
+                    .then_some(OutsideChangeChoice::Cancel)
+            },
+        )
+    });
+    let closed = response
+        .should_close()
+        .then_some(OutsideChangeChoice::Cancel);
     response.inner.or(closed)
 }
 

@@ -16,7 +16,7 @@ use rustix::io::Errno;
 use xattr::FileExt as _;
 
 use crate::{
-    binary::{self, EncodeError, Encoded, Shared, value::ValueError},
+    binary::{self, EncodeError, Encoded, FileDigest, Shared, value::ValueError},
     paths::{MAX_NAME_BYTES, fitting},
     read::{ensure_regular, open_file, read_open},
     reason,
@@ -38,14 +38,16 @@ const PRIVATE_MODE: u32 = 0o600;
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{reason}")]
-pub struct SaveError {
-    pub reason: String,
+pub enum SaveError {
+    #[error("{reason}")]
+    Failed { reason: String },
+    #[error("it was changed by another program since it was opened")]
+    ChangedOnDisk,
 }
 
 impl SaveError {
     fn writing(error: &io::Error) -> Self {
-        Self {
+        Self::Failed {
             reason: reason::writing(error),
         }
     }
@@ -72,7 +74,7 @@ impl SaveError {
                 largest >> 30
             ),
         };
-        Self { reason }
+        Self::Failed { reason }
     }
 }
 
@@ -85,12 +87,14 @@ pub struct SaveOptions<'a> {
     pub keep_original: bool,
     pub history_from: Option<&'a Path>,
     pub label: Option<&'a str>,
+    pub unless_changed_from: Option<&'a FileDigest>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Saved {
     pub backup: Option<PathBuf>,
     pub dropped_for_size: usize,
+    pub digest: FileDigest,
 }
 
 pub fn save(document: &Document, path: &Path, keep_original: bool) -> Result<Saved, SaveError> {
@@ -101,6 +105,7 @@ pub fn save(document: &Document, path: &Path, keep_original: bool) -> Result<Sav
             keep_original,
             history_from: Some(path),
             label: None,
+            unless_changed_from: None,
         },
     )
 }
@@ -117,6 +122,12 @@ pub fn save_with(
         .map(read_previous)
         .transpose()?
         .flatten();
+    if let (Some(expected), Some(previous)) = (options.unless_changed_from, &previous)
+        && reads_target(options, &target)
+        && binary::head_digest(&previous.bytes).as_ref() != Some(expected)
+    {
+        return Err(SaveError::ChangedOnDisk);
+    }
     let encoded = binary::encode_over(
         document,
         previous.as_ref().map(|previous| previous.bytes.as_slice()),
@@ -143,6 +154,7 @@ pub fn save_with(
     Ok(Saved {
         backup,
         dropped_for_size: encoded.dropped_for_size,
+        digest: encoded.digest,
     })
 }
 
@@ -157,7 +169,7 @@ fn reads_target(options: &SaveOptions<'_>, target: &Path) -> bool {
 #[error("the saved copy did not read back intact, so the file was left as it was")]
 pub(crate) struct NotReadBack;
 
-fn check_reads_back(file: &File, digest: &str) -> io::Result<()> {
+fn check_reads_back(file: &File, digest: &FileDigest) -> io::Result<()> {
     let length = usize::try_from(file.metadata()?.len()).map_err(io::Error::other)?;
     let mut written = vec![0; length];
     file.read_exact_at(&mut written, 0)?;
@@ -217,7 +229,7 @@ fn read_previous(path: &Path) -> Result<Option<Previous>, SaveError> {
                 path.display()
             );
             let name = path.file_name().unwrap_or(path.as_os_str()).display();
-            Err(SaveError {
+            Err(SaveError::Failed {
                 reason: format!(
                     "the earlier versions kept in “{name}” could not be read ({}), and saving now \
                      would lose them",
@@ -718,7 +730,7 @@ mod tests {
                 },
             ],
             bytes,
-            digest: String::new(),
+            digest: FileDigest(String::new()),
             previous_damaged: false,
             dropped_for_size: 0,
         }

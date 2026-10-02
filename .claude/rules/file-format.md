@@ -127,6 +127,11 @@ paths:
 - Names past 255 bytes (temporaries, `.damaged` copies) are cut and end in a hash
   (`paths::fitting`); a model whose name leaves no room for `.<name>.journal` keeps its journal in
   the recovery directory.
+- A save given `SaveOptions::unless_changed_from` (the head digest the session loaded or last
+  saved, `FileDigest`, from `Loaded::digest` or `Saved::digest`) refuses with
+  `SaveError::ChangedOnDisk` when the file it replaces, being the one its versions are read from,
+  now has another head (or none), leaving the file as it was. Replacing anyway makes the outside
+  head the newest version, as any save does.
 - A save refuses when the earlier versions in the file it replaces cannot be read, and when the
   file is read-only (no write bit, or `access` denies writing), since `rename` would replace it
   anyway; the failure notice offers Save As.

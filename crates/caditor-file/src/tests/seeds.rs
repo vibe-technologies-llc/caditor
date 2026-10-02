@@ -67,6 +67,7 @@ fn seed_journal() -> Vec<u8> {
     ];
     encode_journal(
         Some(Path::new("/models/plate.caditor")),
+        None,
         false,
         &base,
         &entries,

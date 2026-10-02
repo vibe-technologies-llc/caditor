@@ -12,6 +12,7 @@ use std::{
 use caditor_document::{Document, Editor};
 
 use crate::{
+    binary::FileDigest,
     journal::{JournalEntry, decode_journal, replay},
     load::load,
     lock::{Location, in_use, location, lock_existing},
@@ -24,6 +25,7 @@ use crate::{
 pub struct Recovered {
     pub journal: PathBuf,
     pub file: Option<PathBuf>,
+    pub on_disk: Option<FileDigest>,
     pub loaded_with_problems: bool,
     pub base: Document,
     pub entries: Vec<JournalEntry>,
@@ -100,6 +102,7 @@ fn inspect_as(journal: &Path, unreadable: Unreadable) -> io::Result<Inspection> 
     Ok(Inspection::Recoverable(Box::new(Recovered {
         journal: journal.to_path_buf(),
         file: contents.file,
+        on_disk: contents.on_disk,
         loaded_with_problems: contents.loaded_with_problems,
         base: contents.base,
         entries: replayed.entries,

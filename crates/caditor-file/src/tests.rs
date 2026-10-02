@@ -146,6 +146,7 @@ fn config(dir: &TempDir) -> StorageConfig {
 fn untitled(base: &Document) -> Start {
     Start {
         file: None,
+        on_disk: None,
         loaded_with_problems: false,
         base: base.clone(),
         entries: Vec::new(),
@@ -177,7 +178,8 @@ fn a_saved_model_loads_back_exactly() {
     let path = dir.path().join("model.caditor");
     let document = sample();
 
-    assert_eq!(save(&document, &path, false), Ok(Saved::default()));
+    let saved = save(&document, &path, false).unwrap();
+    assert_eq!((saved.backup, saved.dropped_for_size), (None, 0));
     let loaded = load(&path).unwrap();
 
     assert_eq!(loaded.issues, Vec::<String>::new());
@@ -300,7 +302,7 @@ fn a_failed_save_reports_a_plain_reason_and_leaves_the_folder_clean() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("missing").join("model.caditor");
     let error = save(&sample(), &path, false).unwrap_err();
-    assert_eq!(error.reason, "its folder no longer exists");
+    assert_eq!(error.to_string(), "its folder no longer exists");
     assert_eq!(files_in(dir.path()), Vec::<String>::new());
 }
 
@@ -347,7 +349,7 @@ fn pipes_devices_folders_and_huge_files_are_refused_without_reading_them() {
 
     let error = save(&sample(), &fifo, false).unwrap_err();
     assert_eq!(
-        error.reason,
+        error.to_string(),
         "a device, pipe or socket with that name already exists"
     );
 }
@@ -705,6 +707,7 @@ fn a_crashed_models_journal_is_offered_even_when_no_recent_file_names_it() {
     save(&base, &path, false).unwrap();
     let start = Start {
         file: Some(path.clone()),
+        on_disk: None,
         ..untitled(&base)
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
@@ -720,6 +723,115 @@ fn a_crashed_models_journal_is_offered_even_when_no_recent_file_names_it() {
     discard(&recovered[0].journal).unwrap();
     assert!(scan(Some(&recovery), &[]).is_empty());
     assert_eq!(files_in(&recovery), Vec::<String>::new());
+}
+
+fn save_request(ticket: u64, document: &Document, path: &Path, replace: bool) -> SaveRequest {
+    SaveRequest {
+        ticket,
+        document: document.clone(),
+        path: path.to_path_buf(),
+        keep_original: false,
+        label: None,
+        replace_outside_changes: replace,
+    }
+}
+
+#[test]
+fn a_save_over_a_file_changed_since_it_was_opened_is_refused_unless_replacing() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    save(&Document::default(), &path, false).unwrap();
+    let opened = load(&path).unwrap().digest.unwrap();
+    save(&sample(), &path, false).unwrap();
+    let outside = fs::read(&path).unwrap();
+
+    let options = SaveOptions {
+        history_from: Some(&path),
+        unless_changed_from: Some(&opened),
+        ..SaveOptions::default()
+    };
+    let refused = save_with(&Document::default(), &path, &options);
+
+    assert_eq!(refused, Err(SaveError::ChangedOnDisk));
+    assert_eq!(fs::read(&path).unwrap(), outside);
+
+    let current = load(&path).unwrap().digest.unwrap();
+    let options = SaveOptions {
+        unless_changed_from: Some(&current),
+        ..options
+    };
+    save_with(&Document::default(), &path, &options).unwrap();
+    let listed = crate::history(&path).unwrap();
+    let kept = load_version(&path, listed.versions[0].index).unwrap();
+
+    assert_eq!(load(&path).unwrap().document, Document::default());
+    assert_eq!(kept.document, sample());
+}
+
+#[test]
+fn the_storage_worker_reports_an_outside_change_and_replaces_it_when_asked() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let base = Document::default();
+    save(&base, &path, false).unwrap();
+    let start = Start {
+        file: Some(path.clone()),
+        on_disk: load(&path).unwrap().digest,
+        ..untitled(&base)
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    save(&sample(), &path, false).unwrap();
+    let mut edited = base.clone();
+    let mut transaction = edited.transaction("Width");
+    transaction.add_parameter("width", transaction.parse("5 mm").unwrap());
+    edited.apply(transaction.finish()).unwrap();
+
+    storage
+        .save(save_request(1, &edited, &path, false))
+        .unwrap();
+    let refused = wait_for_report(&storage);
+    storage.save(save_request(2, &edited, &path, true)).unwrap();
+    let replaced = wait_for_report(&storage);
+    storage
+        .save(save_request(3, &edited, &path, false))
+        .unwrap();
+    let again = wait_for_report(&storage);
+
+    assert_eq!(
+        refused,
+        Report::ChangedOnDisk {
+            ticket: 1,
+            path: path.clone(),
+        }
+    );
+    assert!(matches!(replaced, Report::Saved { ticket: 2, .. }));
+    assert!(matches!(again, Report::Saved { ticket: 3, .. }));
+    assert_eq!(load(&path).unwrap().document, edited);
+    assert!(storage.close(true).wait(WAIT));
+}
+
+#[test]
+fn a_recovered_session_remembers_what_its_file_held() {
+    let dir = TempDir::new().unwrap();
+    let recovery = dir.path().join("recovery");
+    let path = dir.path().join("model.caditor");
+    let base = sample();
+    save(&base, &path, false).unwrap();
+    let on_disk = load(&path).unwrap().digest;
+    let start = Start {
+        file: Some(path.clone()),
+        on_disk: on_disk.clone(),
+        ..untitled(&base)
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+    let mut editor = Editor::new(base);
+    record_session(&storage, &mut editor);
+    crash(storage);
+
+    let recovered = scan(Some(&recovery), &[]);
+
+    assert_eq!(recovered.len(), 1);
+    assert_eq!(recovered[0].on_disk, on_disk);
 }
 
 #[test]
@@ -740,15 +852,20 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
             path: path.clone(),
             keep_original: false,
             label: None,
+            replace_outside_changes: false,
         })
         .unwrap();
+    let report = wait_for_report(&storage);
+    let digest = load(&path).unwrap().digest.unwrap();
+
     assert_eq!(
-        wait_for_report(&storage),
+        report,
         Report::Saved {
             ticket: 7,
             path: path.clone(),
             backup: None,
             dropped_for_size: 0,
+            digest,
         }
     );
     let markers = files_in(&recovery);
@@ -813,6 +930,7 @@ fn an_unreadable_journal_is_set_aside_before_a_new_one_replaces_it() {
     save(&base, &path, false).unwrap();
     let start = Start {
         file: Some(path.clone()),
+        on_disk: None,
         ..untitled(&base)
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
@@ -838,6 +956,7 @@ fn an_unreadable_journal_is_set_aside_before_a_new_one_replaces_it() {
 
     let start = Start {
         file: Some(path.clone()),
+        on_disk: None,
         ..untitled(&base)
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
@@ -881,6 +1000,7 @@ fn a_window_whose_journal_is_replaced_stops_claiming_protection_and_retakes_it()
     save(&base, &path, false).unwrap();
     let start = Start {
         file: Some(path.clone()),
+        on_disk: None,
         ..untitled(&base)
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
@@ -920,6 +1040,7 @@ fn a_journal_whose_changes_reached_the_file_is_tidied_away() {
     save(&base, &path, false).unwrap();
     let start = Start {
         file: Some(path.clone()),
+        on_disk: None,
         ..untitled(&base)
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
@@ -974,6 +1095,7 @@ fn restoring_rewrites_the_journal_in_place() {
 
     let start = Start {
         file: None,
+        on_disk: None,
         loaded_with_problems: false,
         base: recovered.base.clone(),
         entries: recovered.entries.clone(),
@@ -1759,9 +1881,10 @@ fn hidden_principal_geometry_stays_hidden_through_saving_the_journal_and_its_sna
     let loaded = decode_text(&text);
     let journaled: format::TransactionRecord =
         through_binary(&serde_json::to_string(&format::transaction_record(&hide)).unwrap());
-    let recovered =
-        journal::decode_journal(&journal::encode_journal(None, false, &document, &[]).unwrap())
-            .unwrap();
+    let recovered = journal::decode_journal(
+        &journal::encode_journal(None, None, false, &document, &[]).unwrap(),
+    )
+    .unwrap();
 
     assert!(!visible.contains("principal"));
     assert!(text.contains(r#"{"principal":{"hidden":["origin",{"axis":"z"},{"plane":"xz"}]}}"#));
@@ -2341,6 +2464,7 @@ fn restoring_keeps_the_recovered_journal_until_a_new_one_is_written() {
     fs::set_permissions(&recovery, fs::Permissions::from_mode(0o500)).unwrap();
     let start = Start {
         file: None,
+        on_disk: None,
         loaded_with_problems: false,
         base: recovered.base.clone(),
         entries: recovered.entries.clone(),
@@ -2395,9 +2519,9 @@ fn a_save_that_cannot_read_the_earlier_versions_fails_and_changes_nothing() {
     let error = save(&sample(), &path, false).unwrap_err();
 
     assert!(
-        error.reason.contains("earlier versions"),
+        error.to_string().contains("earlier versions"),
         "{}",
-        error.reason
+        error.to_string()
     );
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
     assert_eq!(fs::read(&path).unwrap(), before);
@@ -2417,9 +2541,9 @@ fn a_model_holding_an_undefined_number_is_refused_rather_than_saved_damaged() {
     let error = save(&document, &path, false).unwrap_err();
 
     assert!(
-        error.reason.contains("infinite or undefined"),
+        error.to_string().contains("infinite or undefined"),
         "{}",
-        error.reason
+        error.to_string()
     );
     assert!(!path.exists());
 }
@@ -2434,7 +2558,7 @@ fn a_read_only_model_is_not_replaced_and_says_why() {
 
     let error = save(&sample(), &path, false).unwrap_err();
 
-    assert_eq!(error.reason, "the file is read-only");
+    assert_eq!(error.to_string(), "the file is read-only");
     assert_eq!(fs::read(&path).unwrap(), before);
     assert_eq!(files_in(dir.path()), ["model.caditor"]);
 }
@@ -2528,6 +2652,7 @@ fn a_model_whose_name_fills_the_limit_is_saved_backed_up_and_journaled() {
 
     let start = Start {
         file: Some(path.clone()),
+        on_disk: None,
         ..untitled(&sample())
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
@@ -2551,6 +2676,7 @@ fn a_recovered_file_remembers_that_it_loaded_with_problems() {
     save(&base, &path, false).unwrap();
     let start = Start {
         file: Some(path.clone()),
+        on_disk: None,
         loaded_with_problems: true,
         ..untitled(&base)
     };
@@ -2576,6 +2702,7 @@ fn journals_take_the_permissions_of_their_model() {
     fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
     let start = Start {
         file: Some(path.clone()),
+        on_disk: None,
         ..untitled(&base)
     };
     let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
@@ -2606,6 +2733,7 @@ fn saving_over_a_model_open_in_another_window_is_refused() {
         config(&dir),
         Start {
             file: Some(path.clone()),
+            on_disk: None,
             ..untitled(&base)
         },
         || {},
@@ -2623,6 +2751,7 @@ fn saving_over_a_model_open_in_another_window_is_refused() {
             path: path.clone(),
             keep_original: false,
             label: None,
+            replace_outside_changes: false,
         })
         .unwrap();
     let Report::SaveFailed { reason, .. } = wait_for_report(&storage) else {
@@ -2778,7 +2907,7 @@ fn a_journal_larger_than_a_chunk_replays_whole() {
     let change = edit_width(&base, "50 mm");
     let entries = [JournalEntry::Apply(change)];
     let bytes = binary::testing::with_slices_of(64, || {
-        journal::encode_journal(None, false, &base, &entries).unwrap()
+        journal::encode_journal(None, None, false, &base, &entries).unwrap()
     });
 
     let contents = journal::decode_journal(&bytes).unwrap();
@@ -2816,9 +2945,10 @@ fn suppressed_features_and_the_rollback_bar_stay_through_saving_the_journal_and_
     let loaded = decode_text(&text);
     let journaled: format::TransactionRecord =
         through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
-    let recovered =
-        journal::decode_journal(&journal::encode_journal(None, false, &document, &[]).unwrap())
-            .unwrap();
+    let recovered = journal::decode_journal(
+        &journal::encode_journal(None, None, false, &document, &[]).unwrap(),
+    )
+    .unwrap();
 
     assert!(!plain_text.contains("suppressed"));
     assert!(!plain_text.contains("rollback"));

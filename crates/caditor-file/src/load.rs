@@ -12,7 +12,7 @@ use caditor_expression::{Expression, ParameterId, check_name};
 use caditor_sketch::EntityId;
 
 use crate::{
-    binary::{self, History, UnpackError},
+    binary::{self, FileDigest, History, UnpackError},
     format::{
         FEATURE_KINDS, FeatureRecord, NextIdsRecord, ParameterRecord, PrincipalGeometryRecord,
         RECORD_KINDS, Record, Unreadable, restore_feature, restore_principal,
@@ -26,6 +26,7 @@ use crate::{
 pub struct Loaded {
     pub document: Document,
     pub issues: Vec<String>,
+    pub digest: Option<FileDigest>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

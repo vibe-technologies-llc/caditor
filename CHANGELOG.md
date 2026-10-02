@@ -197,6 +197,9 @@ The first release of caditor.
   file no longer grows with every save.
 - A large model with a long history no longer shows its older versions as unrecoverable in
   Version History, and thinning old versions can no longer leave one that cannot be restored.
+- Saving over a model that another program, such as a sync client, changed since you opened it
+  asks first: save a copy, or replace it while keeping its contents as an earlier version. This
+  holds for recovered unsaved work too.
 - A model file never grows past what caditor can open again: when its earlier versions would
   take it past 1.5 GiB, the oldest are removed and the save says how many, and a model too large
   on its own is refused with that reason instead of being saved as a file that cannot be opened.

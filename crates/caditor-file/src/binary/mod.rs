@@ -12,9 +12,10 @@ use xxhash_rust::xxh3::Xxh3;
 #[cfg(test)]
 pub(crate) use self::model::save_bytes;
 pub(crate) use self::model::{
-    EncodeError, Encoded, Shared, decode, encode, encode_over, history, load_version, reads_back,
+    EncodeError, Encoded, Shared, decode, encode, encode_over, head_digest, history, load_version,
+    reads_back,
 };
-pub use self::model::{History, SavedState, Version};
+pub use self::model::{FileDigest, History, SavedState, Version};
 
 pub(crate) type Magic = [u8; 8];
 

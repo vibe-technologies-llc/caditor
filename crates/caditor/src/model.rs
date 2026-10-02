@@ -9,7 +9,8 @@ use caditor_document::{
     ModelEvaluator, Outcome, ParameterValues, Prepared, Progress, Recomputer, Stale, Transaction,
 };
 use caditor_file::{
-    Closing, Flusher, JournalEntry, Recovered, Report, SaveRequest, Start, Storage, StorageConfig,
+    Closing, FileDigest, Flusher, JournalEntry, Recovered, Report, SaveRequest, Start, Storage,
+    StorageConfig,
 };
 use caditor_kernel::MeshQuality;
 use caditor_sketch::Sketch;
@@ -96,6 +97,7 @@ impl Notice {
 pub enum FileEvent {
     Saved(PathBuf),
     SaveFailed,
+    ChangedOnDisk(PathBuf),
 }
 
 pub struct Services {
@@ -120,6 +122,7 @@ struct Session {
     editor: Editor,
     saved: Document,
     path: Option<PathBuf>,
+    on_disk: Option<FileDigest>,
     keep_original: bool,
 }
 
@@ -140,6 +143,7 @@ pub struct Model {
     revision_offset: u64,
     storage: Option<Storage>,
     path: Option<PathBuf>,
+    on_disk: Option<FileDigest>,
     saved: Document,
     entries: Vec<JournalEntry>,
     keep_original: bool,
@@ -169,6 +173,7 @@ impl Model {
             revision_offset: 0,
             storage: None,
             path: None,
+            on_disk: None,
             saved: document,
             entries: Vec::new(),
             keep_original: false,
@@ -561,6 +566,14 @@ impl Model {
     }
 
     pub fn save_to(&mut self, path: PathBuf) {
+        self.send_save(path, false);
+    }
+
+    pub fn save_replacing_outside_changes(&mut self, path: PathBuf) {
+        self.send_save(path, true);
+    }
+
+    fn send_save(&mut self, path: PathBuf, replace_outside_changes: bool) {
         if self.is_saving() {
             self.set_notice(Notice::info("A save is already in progress."));
             return;
@@ -577,6 +590,7 @@ impl Model {
             keep_original: self.keep_original && self.path.as_ref() == Some(&path),
             label: self.editor.undo_label().map(str::to_owned),
             path,
+            replace_outside_changes,
         };
         let sent = self
             .storage
@@ -597,12 +611,19 @@ impl Model {
         }
     }
 
-    pub fn replace(&mut self, document: Document, path: Option<PathBuf>, damaged: bool) {
+    pub fn replace(
+        &mut self,
+        document: Document,
+        path: Option<PathBuf>,
+        on_disk: Option<FileDigest>,
+        damaged: bool,
+    ) {
         self.switch_to(
             Session {
                 editor: Editor::new(document.clone()),
                 saved: document,
                 path,
+                on_disk,
                 keep_original: damaged,
             },
             Vec::new(),
@@ -614,6 +635,7 @@ impl Model {
         let Recovered {
             journal,
             file,
+            on_disk,
             loaded_with_problems,
             base,
             entries,
@@ -625,6 +647,7 @@ impl Model {
                 editor,
                 saved: base,
                 path: file,
+                on_disk,
                 keep_original: loaded_with_problems,
             },
             entries,
@@ -649,6 +672,7 @@ impl Model {
         self.dirty = !self.editor.document().same_content(&session.saved);
         self.saved = session.saved;
         self.path = session.path;
+        self.on_disk = session.on_disk;
         self.entries = entries;
         self.keep_original = session.keep_original;
         self.unprotected = None;
@@ -687,6 +711,7 @@ impl Model {
     fn start_storage(&mut self, replaces: Option<PathBuf>, after: Option<Closing>) {
         let start = Start {
             file: self.path.clone(),
+            on_disk: self.on_disk.clone(),
             loaded_with_problems: self.keep_original,
             base: self.saved.clone(),
             entries: self.entries.clone(),
@@ -761,6 +786,7 @@ impl Model {
                 path,
                 backup,
                 dropped_for_size,
+                digest,
             } => {
                 if let Some(pending) = self
                     .pending_save
@@ -771,12 +797,18 @@ impl Model {
                         .drain(..pending.entries.min(self.entries.len()));
                 }
                 self.path = Some(path.clone());
+                self.on_disk = Some(digest);
                 self.keep_original = false;
                 self.dirty = !self.editor.document().same_content(&self.saved);
                 if let Some(notice) = saved_notice(backup.as_deref(), dropped_for_size) {
                     self.set_notice(notice);
                 }
                 self.file_events.push(FileEvent::Saved(path));
+            }
+            Report::ChangedOnDisk { ticket, path } => {
+                self.pending_save
+                    .take_if(|pending| pending.ticket == ticket);
+                self.file_events.push(FileEvent::ChangedOnDisk(path));
             }
             Report::SaveFailed {
                 ticket,

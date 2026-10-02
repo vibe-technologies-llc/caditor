@@ -51,9 +51,6 @@ within a category run from most to least important.
 
 ## Persistence and recovery
 
-- A save does not notice that the file changed on disk since it was opened; the outside change
-  survives only as a version until retention thins it. Remember the head digest at load and
-  report "changed since you opened it" so the UI can offer a copy or an overwrite.
 - The recovery journal grows without bound until a save: every apply, undo and redo appends the
   whole transaction (undoing and redoing an import repeats its STEP text), the worker's
   `entries` grow all session, and a journal over 2 GiB cannot be recovered. Rebase the snapshot

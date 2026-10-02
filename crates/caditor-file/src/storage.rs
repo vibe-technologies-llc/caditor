@@ -11,11 +11,14 @@ use std::{
 use caditor_document::Document;
 
 use crate::{
+    binary::FileDigest,
     journal::{JournalEntry, encode_entry, encode_journal},
     lock::{holds, install, locked_elsewhere, remove_held, remove_unheld},
     paths, reason,
     recovery::{mark_journal, unmark_journal},
-    save::{self, SaveOptions, remove_orphaned_temporaries, sync_parent, temporary_sibling},
+    save::{
+        self, SaveError, SaveOptions, remove_orphaned_temporaries, sync_parent, temporary_sibling,
+    },
 };
 
 const PREDECESSOR_TIMEOUT: Duration = Duration::from_secs(5);
@@ -29,6 +32,7 @@ pub struct StorageConfig {
 
 pub struct Start {
     pub file: Option<PathBuf>,
+    pub on_disk: Option<FileDigest>,
     pub loaded_with_problems: bool,
     pub base: Document,
     pub entries: Vec<JournalEntry>,
@@ -43,6 +47,7 @@ pub struct SaveRequest {
     pub path: PathBuf,
     pub keep_original: bool,
     pub label: Option<String>,
+    pub replace_outside_changes: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +57,11 @@ pub enum Report {
         path: PathBuf,
         backup: Option<PathBuf>,
         dropped_for_size: usize,
+        digest: FileDigest,
+    },
+    ChangedOnDisk {
+        ticket: u64,
+        path: PathBuf,
     },
     SaveFailed {
         ticket: u64,
@@ -93,6 +103,7 @@ impl Storage {
             .spawn(move || {
                 let Start {
                     file,
+                    on_disk,
                     loaded_with_problems,
                     base,
                     entries,
@@ -108,6 +119,7 @@ impl Storage {
                     untitled: config.recovery_dir.as_deref().map(paths::untitled_journal),
                     recovery_dir: config.recovery_dir,
                     file,
+                    on_disk,
                     loaded_with_problems,
                     base,
                     entries,
@@ -204,6 +216,7 @@ struct Worker {
     recovery_dir: Option<PathBuf>,
     untitled: Option<PathBuf>,
     file: Option<PathBuf>,
+    on_disk: Option<FileDigest>,
     loaded_with_problems: bool,
     base: Document,
     entries: Vec<JournalEntry>,
@@ -349,10 +362,15 @@ impl Worker {
             keep_original: request.keep_original,
             history_from: self.file.as_deref(),
             label: request.label.as_deref(),
+            unless_changed_from: self
+                .on_disk
+                .as_ref()
+                .filter(|_| !request.replace_outside_changes),
         };
         let report = match save::save_with(&request.document, &request.path, &options) {
             Ok(saved) => {
                 self.file = Some(request.path.clone());
+                self.on_disk = Some(saved.digest.clone());
                 self.loaded_with_problems = false;
                 self.base = request.document;
                 self.entries.clear();
@@ -362,12 +380,17 @@ impl Worker {
                     path: request.path,
                     backup: saved.backup,
                     dropped_for_size: saved.dropped_for_size,
+                    digest: saved.digest,
                 }
             }
-            Err(error) => Report::SaveFailed {
+            Err(SaveError::ChangedOnDisk) => Report::ChangedOnDisk {
                 ticket: request.ticket,
                 path: request.path,
-                reason: error.reason,
+            },
+            Err(SaveError::Failed { reason }) => Report::SaveFailed {
+                ticket: request.ticket,
+                path: request.path,
+                reason,
             },
         };
         self.report(report);
@@ -398,6 +421,7 @@ impl Worker {
         }
         let contents = match encode_journal(
             self.file.as_deref(),
+            self.on_disk.as_ref(),
             self.loaded_with_problems,
             &self.base,
             &self.entries,
