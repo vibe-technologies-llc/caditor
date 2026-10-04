@@ -173,10 +173,9 @@ within a category run from most to least important.
   extrusion or revolution (it would need a surface fitted within tolerance), `PARABOLA`,
   `HYPERBOLA` and the `*_REPLICA` forms. Fit a spline within the declared precision, or keep the
   other faces and say which were lost. Colours and layers are not read.
-- Import canonicalises each placement by writing and re-reading it, parses every import again on
-  each model load, journal replay and recovery scan, and stores every placement of a product as
-  its own STEP text. Build each representation once, store each product once with placements,
-  and cache solids by text digest.
+- Import canonicalises each placement by writing and re-reading it, and stores every placement of
+  a product as its own STEP text. Build each representation once and store each product once with
+  placements.
 - A file with no closed solids always reads "holds no solid bodies", whether it is IFC,
   tessellated AP242, a surface model or a wireframe; report the schema and what it holds.
 - The parse tree still holds about three times the file size (a boxed slice per record and per

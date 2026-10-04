@@ -90,7 +90,10 @@ paths:
   point: loads as a point, reported). Expressions are canonical text with parameters as `$<id>`
   (`Expression::to_stored_text`, `parse_stored`); region keys and topology names 32-digit hex;
   numbers exact f64. Imports are `import` records (source name, STEP text); unreadable ones load
-  empty, reported.
+  empty, reported. Their text is parsed through `step_cache.rs`, a process-wide cache of solids by
+  the blake3 digest of the text, bounded at 256 MiB by `Solid::approximate_size` and dropping the
+  least recently used, so a load, a journal replay and a recovery scan of one model parse each
+  import once.
 - Reported fallbacks: unreadable extent becomes 10 mm or 360°; an unreadable extrusion end, or
   one whose face or plane cannot be read, becomes 10 mm; an unreadable angle of two becomes 180°;
   unreadable blend edge left out; unreadable opened face left closed; sketch whose face cannot be

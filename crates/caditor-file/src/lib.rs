@@ -15,6 +15,7 @@ mod recent;
 mod recovery;
 mod save;
 mod settings;
+mod step_cache;
 mod storage;
 mod untrusted;
 

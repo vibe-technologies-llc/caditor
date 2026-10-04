@@ -1789,9 +1789,9 @@ fn restore_end(
 }
 
 fn restore_import(record: &ImportRecord, name: &str, issues: &mut Vec<String>) -> Import {
-    let solid = match caditor_step::read_step(&record.step) {
-        Ok(mut model) if !model.solids.is_empty() => model.solids.swap_remove(0).solid,
-        Ok(_) => Solid::default(),
+    let solid = match crate::step_cache::first_solid(&record.step) {
+        Ok(Some(solid)) => solid,
+        Ok(None) => Solid::default(),
         Err(error) => {
             issues.push(format!(
                 "The shape of “{name}”, imported from “{}”, could not be read ({error}), so the \
