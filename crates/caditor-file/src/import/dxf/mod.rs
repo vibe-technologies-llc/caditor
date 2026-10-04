@@ -651,6 +651,7 @@ struct Interpreter<'a> {
     file: &'a DxfFile<'a>,
     shapes: Vec<Shape>,
     construction: BTreeSet<usize>,
+    beyond_the_limit: usize,
     points: usize,
     tally: Tally,
     visited: usize,
@@ -666,6 +667,7 @@ impl<'a> Interpreter<'a> {
             file,
             shapes: Vec::new(),
             construction: BTreeSet::new(),
+            beyond_the_limit: 0,
             points: 0,
             tally: Tally::default(),
             visited: 0,
@@ -782,6 +784,10 @@ impl<'a> Interpreter<'a> {
         dashed: bool,
     ) -> Result<(), ImportError> {
         for shape in shapes {
+            if self.shapes.len() >= MAX_DRAWING_CURVES {
+                self.beyond_the_limit += 1;
+                continue;
+            }
             self.points = self.points.saturating_add(shape.size());
             if self.points > MAX_DRAWING_POINTS {
                 return Err(ImportError::TooDetailed);
@@ -790,9 +796,6 @@ impl<'a> Interpreter<'a> {
                 self.construction.insert(self.shapes.len());
             }
             self.shapes.push(shape.transformed(transform));
-        }
-        if self.shapes.len() > MAX_DRAWING_CURVES {
-            return Err(ImportError::TooLarge);
         }
         Ok(())
     }
@@ -882,6 +885,14 @@ impl<'a> Interpreter<'a> {
                         .values()
                         .fold(0, |sum, count| sum.saturating_add(*count))
                 )
+            ));
+        }
+        if self.beyond_the_limit > 0 {
+            drawing.notes.push(format!(
+                "Only the first {MAX_DRAWING_CURVES} curves were imported, because a sketch holds at \
+                 most that many; {} more {} left out. Split the drawing to import the rest.",
+                self.beyond_the_limit,
+                were(self.beyond_the_limit)
             ));
         }
         if tally.hatches > 0 {

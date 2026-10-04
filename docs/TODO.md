@@ -194,8 +194,8 @@ within a category run from most to least important.
 - DXF import has no options: units come only from `$INSUNITS` and `$MEASUREMENT` with no override
   or scale (templates commonly default to inches), coordinates are not recentred, and a new
   sketch always lands on the XY plane although `SketchTarget::New` takes a plane.
-- Curves carry no layer, so the import cannot offer a layer choice, and over 20,000 curves the
-  whole file is refused as `TooLarge` with nothing imported.
+- Curves carry no layer, so the import cannot offer a layer choice, and curves past the first
+  20,000 are left out in drawing order rather than by any choice of the user.
 
 ## Mesh import and export
 

@@ -67,7 +67,8 @@ paths:
   (counter-clockwise); other conics and splines not already in the sketch's uniform form are fitted
   within a millionth of the drawing's size, sampled with knot spans found by binary search.
 - Paper space and invisible entities are skipped silently; text, dimensions and other annotations
-  are counted in a note. Curve cap: `MAX_DRAWING_CURVES`.
+  are counted in a note. Curve cap: `MAX_DRAWING_CURVES`: curves past it are left out, counted in a
+  note, and the first ones import.
 - `drawing_transaction` turns a drawing into one transaction on an existing or new sketch, dropping
   curves shorter than the joint tolerance and joining ends closer than a millionth of the drawing's
   size with `Coincident` constraints.

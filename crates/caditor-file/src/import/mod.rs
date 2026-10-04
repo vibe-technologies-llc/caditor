@@ -123,11 +123,6 @@ pub enum ImportError {
     #[error("the drawing has no lines, arcs, circles or splines to import")]
     Empty { left_out: Vec<String> },
     #[error(
-        "the drawing has more than {MAX_DRAWING_CURVES} curves, more than one sketch can hold; \
-         split it into smaller drawings"
-    )]
-    TooLarge,
-    #[error(
         "its blocks repeat into more than {MAX_EXPANDED_OBJECTS} objects, more than caditor reads \
          from one drawing"
     )]

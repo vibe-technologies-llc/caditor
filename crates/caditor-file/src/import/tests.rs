@@ -761,7 +761,17 @@ fn files_that_are_not_usable_drawings_are_refused_in_words() {
         .map(|index| line((index as f64, 0.0), (index as f64, 1.0)))
         .collect();
     let huge = text(vec![section("ENTITIES", many)]);
-    assert_eq!(parse_dxf(&huge), Err(ImportError::TooLarge));
+    let kept = parse_dxf(&huge).unwrap();
+    assert_eq!(kept.curves.len(), MAX_DRAWING_CURVES);
+    assert!(
+        kept.notes.contains(&format!(
+            "Only the first {MAX_DRAWING_CURVES} curves were imported, because a sketch \
+                 holds at most that many; 1 more was left out. Split the drawing to import the \
+                 rest."
+        )),
+        "{:?}",
+        kept.notes
+    );
     let truncated = b"AutoCAD Binary DXF\r\n\x1a\0\0\0SECTION\0\x02\0ENT";
     assert_eq!(parse_dxf(truncated), Err(ImportError::Damaged));
 }
