@@ -4,6 +4,7 @@ use caditor_geometry::{Point2, Vector2};
 use thiserror::Error;
 
 use crate::{
+    interrupt::{self, Interrupted},
     sense::Sense,
     surface::Surface,
     tessellation::{MassProperties, TessellationError},
@@ -86,6 +87,8 @@ pub enum ValidationError {
     LumpsCoincide { shell: ShellId, other: ShellId },
     #[error("edge {edge:?} is used twice by face {face:?} at the same place in its domain")]
     DanglingEdge { edge: EdgeId, face: FaceId },
+    #[error(transparent)]
+    Cancelled(#[from] Interrupted),
 }
 
 type Checked<T> = Result<T, ValidationError>;
@@ -152,6 +155,7 @@ fn vertices_used(solid: &Solid) -> Checked<()> {
 
 fn edges(solid: &Solid) -> Checked<()> {
     for (id, edge) in solid.edges() {
+        interrupt::check()?;
         let length = edge.curve().length(edge.interval());
         if length.is_nan() || length <= LINEAR_RESOLUTION {
             return Err(ValidationError::ZeroLengthEdge(id));
@@ -235,6 +239,7 @@ fn same_parameter(a: f64, b: f64) -> bool {
 
 fn coedge_geometry(solid: &Solid) -> Checked<()> {
     for (id, coedge) in solid.coedges() {
+        interrupt::check()?;
         let edge = solid
             .edge(coedge.edge())
             .ok_or(ValidationError::MissingEntity)?;
@@ -395,6 +400,7 @@ pub(crate) fn inside_polygon(polygon: &[Point2], point: Point2) -> bool {
 
 fn face_domains(solid: &Solid) -> Checked<()> {
     for (_, face) in solid.faces() {
+        interrupt::check()?;
         let surface = face.surface();
         for (position, loop_id) in face.loops().iter().enumerate() {
             let face_loop = solid

@@ -80,5 +80,6 @@ paths:
 - A solid's mesh holds at most `MAX_POINTS` (2^22) points. Edges and each face's interior grid are
   counted before they are inserted; a mesh that would need more fails as `TooLarge`, which export
   names as a body too fine for the resolution.
-- Cancellation is polled per edge, per face checked for overlapping ends, per grid row and every
-  1024 points gathered or constraint edges added.
+- Cancellation is polled per edge, per face checked for overlapping ends, per grid row, per coedge
+  and every 1024 of its points projected into a face's boundary loops, and every 1024 points
+  gathered or constraint edges added.

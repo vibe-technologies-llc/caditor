@@ -104,9 +104,11 @@ within a category run from most to least important.
   the curved one, so a 1×1000 cylinder gets 121k triangles where 120 would do.
 - Blending scales worse than linearly: `crosses_boundary` tests every boundary edge with no box
   filter and recounts uses inside the loop, and tools are unioned pairwise even when disjoint.
-- Pcurve fitting, `validate::coedge_geometry` and `boundary_loops` never poll `interrupt::check`,
-  so cancelling an extrusion of a large spline waits seconds; `cast` and `first_crossing` treat
-  `Cancelled` as a doubt and keep trying every direction.
+- A boolean with an extruded spline of 6,000 control points runs 0.8 s without polling
+  `interrupt::check`: clipping the branch along its cap (`surface_surface::clip`) projects each
+  probe onto the extrusion from the patch centre, a search over the whole profile, where the
+  previous probe's foot would do. Each `Curve::length` of that spline also takes 70 ms unpolled,
+  and the builder, validation and boolean tracing each measure it again.
 - Marched curves' `closest_parameter` and `length` reseed over all nodes on every call, from
   loops over nearby vertices in `imprint.rs`.
 

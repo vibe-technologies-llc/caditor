@@ -245,6 +245,9 @@ fn boundary_loops(
             }
             let pcurve = coedge.pcurve();
             for (step, index) in order.into_iter().enumerate() {
+                if step.is_multiple_of(POLL_EVERY) {
+                    interrupt::check()?;
+                }
                 let (Some(parameter), Some(point), Some(position)) = (
                     sampling.parameters.get(index),
                     sampling.points.get(index),

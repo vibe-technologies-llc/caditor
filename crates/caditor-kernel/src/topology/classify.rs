@@ -8,7 +8,10 @@ use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector2, Vector3};
 use crate::{
     box_tree::BoxTree,
     curve::{Curve, Line},
-    intersect::{boxes_overlap, intersect_curve_surface, line_window, patch_bounds},
+    interrupt::Interrupted,
+    intersect::{
+        IntersectionError, boxes_overlap, intersect_curve_surface, line_window, patch_bounds,
+    },
     interval::Interval,
     sense::Sense,
     surface::Surface,
@@ -446,14 +449,25 @@ impl<'a> SolidClassifier<'a> {
             .map(|corner| corner.distance(point))
             .fold(0.0, f64::max)
             + RAY_REACH_MARGIN;
-        directions
-            .iter()
-            .find_map(|direction| self.cast(point, *direction, reach))
-            .unwrap_or(PointClass::Undecided)
+        for direction in directions {
+            match self.cast(point, *direction, reach) {
+                Ok(Some(class)) => return class,
+                Ok(None) => {}
+                Err(Interrupted) => break,
+            }
+        }
+        PointClass::Undecided
     }
 
-    fn cast(&self, origin: Point3, direction: Vector3, reach: f64) -> Option<PointClass> {
-        let line = Line::new(origin, direction).ok()?;
+    fn cast(
+        &self,
+        origin: Point3,
+        direction: Vector3,
+        reach: f64,
+    ) -> Result<Option<PointClass>, Interrupted> {
+        let Ok(line) = Line::new(origin, direction) else {
+            return Ok(None);
+        };
         let curve = Curve::Line(line);
         let mut nearest: Option<(f64, f64)> = None;
         let mut first_doubt = f64::INFINITY;
@@ -473,6 +487,7 @@ impl<'a> SolidClassifier<'a> {
             let found =
                 match intersect_curve_surface(&curve, range, face.surface(), Some(data.uv_box)) {
                     Ok(found) if found.overlaps.is_empty() => found,
+                    Err(IntersectionError::Cancelled(interrupted)) => return Err(interrupted),
                     _ => {
                         first_doubt = first_doubt.min(low);
                         continue;
@@ -503,12 +518,12 @@ impl<'a> SolidClassifier<'a> {
             None => first_doubt.is_finite(),
         };
         if doubtful {
-            return None;
+            return Ok(None);
         }
-        Some(match nearest {
+        Ok(Some(match nearest {
             Some((_, facing)) if facing > 0.0 => PointClass::Inside,
             _ => PointClass::Outside,
-        })
+        }))
     }
 
     pub fn first_crossing(&self, origin: Point3, direction: Vector3, beyond: f64) -> RayCrossing {
@@ -545,6 +560,7 @@ impl<'a> SolidClassifier<'a> {
             let found =
                 match intersect_curve_surface(&curve, range, face.surface(), Some(data.uv_box)) {
                     Ok(found) => found,
+                    Err(IntersectionError::Cancelled(_)) => return RayCrossing::Undecided,
                     Err(_) => {
                         first_doubt = first_doubt.min(low.max(beyond));
                         continue;

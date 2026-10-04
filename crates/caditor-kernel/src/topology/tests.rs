@@ -11,6 +11,7 @@ use crate::{
     fixtures::{self, Fixture, Tweak},
     interval::Interval,
     surface::{Cylinder, PlaneSurface, Sphere},
+    test_support::assert_cancelled_anywhere,
 };
 
 const PRISM_SIDES: usize = 4000;
@@ -544,6 +545,49 @@ fn pcurves_on_curved_faces_stay_close_to_their_edges() {
                 pcurve.samples().len()
             );
         }
+    }
+}
+
+#[test]
+fn fitting_pcurves_and_validating_cancelled_anywhere_stop_with_cancelled() {
+    for (name, solid) in [
+        ("extruded spline", fixtures::extruded_spline(3.0)),
+        ("torus", fixtures::torus(6.0, 2.0)),
+    ] {
+        let refit = || {
+            solid
+                .coedges()
+                .map(|(id, coedge)| {
+                    let edge = solid.edge(coedge.edge()).unwrap();
+                    let face = solid.face(solid.coedge_face(id).unwrap()).unwrap();
+                    fit_pcurve(
+                        face.surface(),
+                        edge.curve(),
+                        edge.interval(),
+                        coedge.sense(),
+                        Some(coedge.pcurve().start()),
+                    )
+                })
+                .collect::<Result<Vec<Pcurve>, PcurveError>>()
+        };
+
+        let fits = assert_cancelled_anywhere(name, refit, |error| {
+            matches!(error, PcurveError::Cancelled(_))
+        });
+        let checks = assert_cancelled_anywhere(
+            name,
+            || solid.validate(),
+            |error| {
+                matches!(
+                    error,
+                    ValidationError::Cancelled(_)
+                        | ValidationError::Tessellation(TessellationError::Cancelled(_))
+                )
+            },
+        );
+
+        assert!(fits > solid.coedges().count(), "{name}: {fits} polls");
+        assert!(checks > solid.coedges().count(), "{name}: {checks} polls");
     }
 }
 

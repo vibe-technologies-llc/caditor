@@ -59,11 +59,19 @@ pub enum BuildError {
 impl BuildError {
     pub fn interrupted(&self) -> Option<Interrupted> {
         match self {
-            Self::Invalid(ValidationError::Tessellation(TessellationError::Cancelled(
-                interrupted,
-            )))
+            Self::Invalid(
+                ValidationError::Tessellation(TessellationError::Cancelled(interrupted))
+                | ValidationError::Cancelled(interrupted),
+            )
             | Self::Cancelled(interrupted) => Some(*interrupted),
             _ => None,
+        }
+    }
+
+    pub(crate) fn pcurve(edge: EdgeId, error: PcurveError) -> Self {
+        match error {
+            PcurveError::Cancelled(interrupted) => Self::Cancelled(interrupted),
+            error => Self::Pcurve { edge, error },
         }
     }
 }
@@ -205,13 +213,8 @@ impl SolidBuilder {
                 .solid
                 .edge(edge_id)
                 .ok_or(BuildError::UnknownEdge(edge_id))?;
-            let pcurve =
-                fit(&surface, &edge.curve, edge.interval, sense, hint).map_err(|error| {
-                    BuildError::Pcurve {
-                        edge: edge_id,
-                        error,
-                    }
-                })?;
+            let pcurve = fit(&surface, &edge.curve, edge.interval, sense, hint)
+                .map_err(|error| BuildError::pcurve(edge_id, error))?;
             hint = Some(pcurve.end());
             fitted.push((edge_id, sense, pcurve));
         }

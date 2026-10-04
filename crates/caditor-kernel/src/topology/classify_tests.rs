@@ -5,12 +5,13 @@ use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use super::*;
 use crate::{
     build::{AngularExtent, Axis2, LinearExtent, extrude, revolve},
+    fixtures,
     fixtures::{
         cone, cuboid, cylinder, extruded_spline, frustum, holed_block, hollow_cuboid, sphere,
         spline_profile, torus,
     },
     profile::{Profile, Selection},
-    test_support::{Random, arc, circle, line, rectangle},
+    test_support::{Random, arc, cancelled_after, circle, line, rectangle},
 };
 
 const MARGIN: f64 = 1e-3;
@@ -588,4 +589,36 @@ fn built_solids_classify_like_their_shapes() {
         }
         assert!(checked > 60, "{name}: {checked}");
     }
+}
+
+#[test]
+fn a_cancelled_ray_stops_at_its_first_poll_instead_of_trying_every_direction() {
+    let mut polled = 0;
+    for (name, solid) in fixtures::every_solid() {
+        let bounds = solid.bounding_box().unwrap();
+        let classifier = solid.classifier();
+        let probes = [
+            bounds.center(),
+            bounds.min().lerp(bounds.max(), 0.3),
+            bounds.min() - Vector3::ONE,
+        ];
+        for point in probes {
+            let (class, polls) = cancelled_after(0, || classifier.classify(point));
+            let (crossing, ray_polls) = cancelled_after(0, || {
+                classifier.first_crossing(point, Vector3::new(0.3, 0.4, 0.86), 0.0)
+            });
+
+            assert!(polls <= 1, "{name}: {point:?} polled {polls} times");
+            assert!(ray_polls <= 1, "{name}: {point:?} polled {ray_polls} times");
+            if polls == 1 {
+                assert_eq!(class, PointClass::Undecided, "{name}: {point:?}");
+            }
+            if ray_polls == 1 {
+                assert_eq!(crossing, RayCrossing::Undecided, "{name}: {point:?}");
+            }
+
+            polled += polls + ray_polls;
+        }
+    }
+    assert!(polled > 4, "only {polled} casts polled");
 }

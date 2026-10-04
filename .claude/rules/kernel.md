@@ -14,12 +14,17 @@ paths:
   the curve when interrupted), booleans (edge, face pair, face, fragment, split,
   branch, healing, between phases), profiles (curve, pair, spline segment, 256 box tests, face),
   sweeps and `Plan::build` (region, face), `next_face` (ray, and once before answering), shells
-  (corner, edge, round of dropped faces), blends (edge, tool, corner), patterns (copy, union) and
+  (corner, edge, round of dropped faces), blends (edge, tool, corner), patterns (copy, union),
+  pcurve fitting (each sample followed or refined), validation (edge, coedge, face) and
   tessellation (face).
-- Each fails with a `Cancelled` variant of its error; a nested cancellation becomes the outer one's.
-  A boolean, shell or blend failing for any reason while its interrupt is set reports `Cancelled`
-  (also while validating: `BuildError::interrupted`). `Solid::find_crossing` polls once more before
-  answering.
+- Each fails with a `Cancelled` variant of its error; a nested cancellation becomes the outer one's
+  (a cancelled pcurve fit is the builder's `BuildError::Cancelled` and a boolean's `Cancelled`, not
+  a missing pcurve or a split failure). A boolean, shell or blend failing for any reason while its
+  interrupt is set reports `Cancelled` (also while validating: `BuildError::interrupted`).
+  `Solid::find_crossing` polls once more before answering.
+- A point classification or `first_crossing` whose ray intersection is cancelled answers
+  `Undecided` at once rather than taking it for a doubtful ray and casting the remaining
+  directions; its caller's next poll reports the cancellation.
 - The document installs its `CancelToken` around evaluation and meshing; export around its meshing
   and STEP writing.
 

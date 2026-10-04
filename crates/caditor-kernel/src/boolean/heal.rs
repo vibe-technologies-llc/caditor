@@ -394,7 +394,7 @@ fn replace_pair(
         sense,
         Some(current.pcurve.start()),
     )
-    .map_err(|_| BooleanError::Split)?;
+    .map_err(BooleanError::unfitted)?;
     let coedge = Coedge {
         half_edge: HalfEdge::new(merged, sense, Some(pcurve.start())),
         pcurve,

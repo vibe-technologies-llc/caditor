@@ -431,7 +431,7 @@ impl Plan {
                     hint,
                 ),
             }
-            .map_err(|error| BuildError::Pcurve { edge: id, error })?;
+            .map_err(|error| BuildError::pcurve(id, error))?;
             with_pcurves.push((id, coedge.sense, pcurve));
         }
         builder.add_loop_with_pcurves(face_id, with_pcurves)?;

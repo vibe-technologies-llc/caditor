@@ -2,7 +2,12 @@ use caditor_geometry::{Point2, Vector2};
 use thiserror::Error;
 
 use crate::{
-    curve::Curve, interval::Interval, parametric::Parametric, sense::Sense, surface::Surface,
+    curve::Curve,
+    interrupt::{self, Interrupted},
+    interval::Interval,
+    parametric::Parametric,
+    sense::Sense,
+    surface::Surface,
     tolerance::PCURVE_TOLERANCE,
 };
 
@@ -20,6 +25,8 @@ pub enum PcurveError {
     NotMonotone,
     #[error("the edge image in the surface parameters needs more than {0} samples")]
     TooComplex(usize),
+    #[error(transparent)]
+    Cancelled(#[from] Interrupted),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -191,6 +198,7 @@ fn follow(
     let mut pending = vec![(to, 0)];
     let mut last = from;
     while let Some((parameter, depth)) = pending.pop() {
+        interrupt::check()?;
         if samples.len() + pending.len() >= MAX_PCURVE_SAMPLES {
             return Err(PcurveError::TooComplex(MAX_PCURVE_SAMPLES));
         }
@@ -247,6 +255,7 @@ fn refine(
         };
         let mut pending = vec![(*start, *end, 0)];
         while let Some((low, high, depth)) = pending.pop() {
+            interrupt::check()?;
             if refined.len() + pending.len() >= MAX_PCURVE_SAMPLES {
                 return Err(PcurveError::TooComplex(MAX_PCURVE_SAMPLES));
             }

@@ -395,7 +395,7 @@ pub(super) fn fit_loop(
             half_edge.sense,
             Some(hint),
         )
-        .map_err(|_| BooleanError::Split)?;
+        .map_err(BooleanError::unfitted)?;
         coedges.push(Coedge {
             half_edge: HalfEdge {
                 hint: Some(pcurve.start()),

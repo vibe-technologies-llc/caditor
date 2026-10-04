@@ -90,7 +90,8 @@ paths:
     `intersect_curve_surface`, over the face box's window widened a little so a crossing is never
     snapped to the window's end; the nearest crossing's outward normal decides.
   - A ray that grazes, is tangent, lies in a face, or meets an edge or vertex no farther than its
-    nearest clean crossing is discarded for the next direction.
+    nearest clean crossing is discarded for the next direction. A cancelled intersection ends the
+    classification as `Undecided` instead.
 - `point_in_face(face, uv)` (`Inside`, `Outside`, `OnBoundary`) uses the pcurve polygons by parity
   over periodic shifts (poles probed just off the pole line, inwards from the nearer end of the
   domain); within a few `PCURVE_TOLERANCE` of the boundary it uses the exact edge: the side of the

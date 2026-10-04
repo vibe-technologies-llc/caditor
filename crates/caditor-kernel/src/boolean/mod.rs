@@ -16,7 +16,7 @@ use crate::{
     interrupt::{self, Interrupted},
     intersect::{IntersectionError, patch_bounds},
     tolerance::LINEAR_RESOLUTION,
-    topology::{BuildError, Face, FaceId, Solid, SolidClassifier},
+    topology::{BuildError, Face, FaceId, PcurveError, Solid, SolidClassifier},
 };
 
 const TOLERANCE: f64 = LINEAR_RESOLUTION;
@@ -62,6 +62,15 @@ impl From<BuildError> for BooleanError {
         match error.interrupted() {
             Some(interrupted) => Self::Cancelled(interrupted),
             None => Self::Invalid(error),
+        }
+    }
+}
+
+impl BooleanError {
+    fn unfitted(error: PcurveError) -> Self {
+        match error {
+            PcurveError::Cancelled(interrupted) => Self::Cancelled(interrupted),
+            _ => Self::Split,
         }
     }
 }
