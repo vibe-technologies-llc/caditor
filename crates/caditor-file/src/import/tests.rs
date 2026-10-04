@@ -767,6 +767,76 @@ fn files_that_are_not_usable_drawings_are_refused_in_words() {
 }
 
 #[test]
+fn damage_part_way_through_keeps_what_comes_before_it_and_says_so() {
+    let intact = String::from_utf8(text(vec![
+        header(Some(4)),
+        section(
+            "ENTITIES",
+            vec![
+                line((0.0, 0.0), (5.0, 0.0)),
+                line((5.0, 0.0), (5.0, 5.0)),
+                line((5.0, 5.0), (0.0, 5.0)),
+                line((0.0, 5.0), (0.0, 0.0)),
+            ],
+        ),
+    ]))
+    .unwrap();
+    let last = intact.rfind("  0\r\nLINE").unwrap();
+    let damaged = format!("{}zz{}", &intact[..last], &intact[last + 2..]);
+    let line_of_damage = damaged[..last].matches("\r\n").count() + 1;
+
+    let drawing = parse_dxf(damaged.as_bytes()).unwrap();
+
+    assert_eq!(
+        lines(&drawing),
+        vec![
+            (Point2::new(0.0, 0.0), Point2::new(5.0, 0.0)),
+            (Point2::new(5.0, 0.0), Point2::new(5.0, 5.0)),
+        ]
+    );
+    assert!(
+        drawing.notes.contains(&format!(
+            "The drawing is damaged near line {line_of_damage}, so only what comes before it was \
+             imported."
+        )),
+        "{:?}",
+        drawing.notes
+    );
+}
+
+#[test]
+fn a_binary_drawing_cut_short_keeps_its_complete_entities() {
+    let mut bytes = b"AutoCAD Binary DXF\r\n\x1a\0".to_vec();
+    let record = |bytes: &mut Vec<u8>, code: u8, value: &[u8]| {
+        bytes.push(code);
+        bytes.extend_from_slice(value);
+    };
+    record(&mut bytes, 0, b"SECTION\0");
+    record(&mut bytes, 2, b"ENTITIES\0");
+    record(&mut bytes, 0, b"LINE\0");
+    record(&mut bytes, 8, b"0\0");
+    for (code, value) in [(10, 0.0f64), (20, 0.0), (11, 3.0), (21, 4.0)] {
+        record(&mut bytes, code, &value.to_le_bytes());
+    }
+    record(&mut bytes, 0, b"LINE\0");
+    bytes.push(10);
+    bytes.extend_from_slice(&[0, 0, 0]);
+
+    let drawing = parse_dxf(&bytes).unwrap();
+
+    assert_eq!(
+        lines(&drawing),
+        vec![(Point2::new(0.0, 0.0), Point2::new(3.0, 4.0))]
+    );
+    assert!(
+        drawing
+            .notes
+            .iter()
+            .any(|note| note.starts_with("The drawing is damaged,"))
+    );
+}
+
+#[test]
 fn a_self_inserting_block_stops_with_a_note() {
     let bytes = text(vec![
         header(Some(4)),

@@ -21,6 +21,11 @@ paths:
 - `$INSUNITS`: every code up to the US survey units; an unknown code reads as millimetres with a
   note naming it; none reads as millimetres with a note, unless `$MEASUREMENT` is 0 (imperial),
   then inches, also with a note.
+- Damage (`DamagedAt`, `Damaged`) ends reading where it is found: the records before the one it
+  cuts short are interpreted as usual and a note says where, so one bad line costs the rest of the
+  file, not all of it. The record it interrupts is dropped, since it may be missing fields. A file
+  damaged before any section, or whose records before the damage draw nothing, is still refused
+  with the damage as the error.
 - Entities on off or frozen layers, and on the non-plotting `DEFPOINTS` layer (dimension
   definition points), are left out.
 - Blocks and INSERTs: base point, scale, rotation, column and row arrays, nested with cycle and

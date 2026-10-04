@@ -67,7 +67,25 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
         .map(|shape| shape.transformed(&Affine::scale(Vector3::splat(scale))))
         .collect();
     let drawing = flatten(&shapes, notes);
-    interpreter.report(drawing)
+    match (interpreter.report(drawing), file.damage) {
+        (Ok(mut drawing), Some(damage)) => {
+            drawing.notes.push(damage_note(&damage));
+            Ok(drawing)
+        }
+        (Err(ImportError::Empty { .. }), Some(damage)) => Err(damage),
+        (reported, _) => reported,
+    }
+}
+
+fn damage_note(damage: &ImportError) -> String {
+    match damage {
+        ImportError::DamagedAt(line) => format!(
+            "The drawing is damaged near line {line}, so only what comes before it was imported."
+        ),
+        _ => {
+            "The drawing is damaged, so only what comes before the damage was imported.".to_owned()
+        }
+    }
 }
 
 fn looks_like_dxf(bytes: &[u8]) -> bool {
@@ -241,6 +259,7 @@ struct DxfFile<'a> {
     blocks: BTreeMap<String, Block<'a>>,
     entities: Vec<Record<'a>>,
     line_styles: LineStyles,
+    damage: Option<ImportError>,
 }
 
 #[derive(Default)]
@@ -291,13 +310,21 @@ impl<'a> DxfFile<'a> {
             blocks: BTreeMap::new(),
             entities: Vec::new(),
             line_styles: LineStyles::default(),
+            damage: None,
         };
         let mut section = None;
         let mut sections = 0;
         let mut block: Option<(String, Block<'a>)> = None;
         let mut kept: usize = 0;
         for record in records {
-            let record = record?;
+            let record = match record {
+                Ok(record) => record,
+                Err(damage @ (ImportError::DamagedAt(_) | ImportError::Damaged)) => {
+                    file.damage = Some(damage);
+                    break;
+                }
+                Err(error) => return Err(error),
+            };
             match record.kind.as_str() {
                 "SECTION" => {
                     sections += 1;
@@ -362,7 +389,7 @@ impl<'a> DxfFile<'a> {
             }
         }
         if sections == 0 {
-            return Err(ImportError::NotDxf);
+            return Err(file.damage.take().unwrap_or(ImportError::NotDxf));
         }
         Ok(file)
     }

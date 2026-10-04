@@ -202,7 +202,6 @@ within a category run from most to least important.
   whole file is refused as `TooLarge` with nothing imported.
 - Linetypes are ignored, so centrelines and hidden lines import as profile geometry and add
   regions; map them to construction geometry.
-- Damage anywhere refuses the whole DXF, losing everything read before it.
 
 ## Mesh import and export
 
