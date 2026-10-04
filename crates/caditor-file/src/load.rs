@@ -19,7 +19,7 @@ use crate::{
         RECORD_KINDS, Record, Unreadable, restore_feature, restore_principal,
     },
     read::read_file,
-    reason,
+    reason::ReadFailure,
     untrusted::{UntrustedMap, UntrustedSet},
 };
 
@@ -33,7 +33,9 @@ pub struct Loaded {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LoadError {
     #[error("{0}")]
-    Unreadable(String),
+    Unreadable(ReadFailure),
+    #[error("caditor ran into an internal error while reading it")]
+    Crashed,
     #[error("it is not a caditor model")]
     NotAModel,
     #[error("the file is empty")]
@@ -45,7 +47,7 @@ pub enum LoadError {
 const ORIGIN_COMPLETION_TIME: Duration = Duration::from_secs(20);
 
 pub fn load(path: &Path) -> Result<Loaded, LoadError> {
-    let bytes = read_file(path).map_err(|error| LoadError::Unreadable(reason::reading(&error)))?;
+    let bytes = read_file(path).map_err(|error| LoadError::Unreadable(ReadFailure::of(&error)))?;
     decode(&bytes).map(with_origins_completed)
 }
 
@@ -54,12 +56,12 @@ pub fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
 }
 
 pub fn history(path: &Path) -> Result<History, LoadError> {
-    let bytes = read_file(path).map_err(|error| LoadError::Unreadable(reason::reading(&error)))?;
+    let bytes = read_file(path).map_err(|error| LoadError::Unreadable(ReadFailure::of(&error)))?;
     Ok(binary::history(&bytes))
 }
 
 pub fn load_version(path: &Path, index: usize) -> Result<Loaded, LoadError> {
-    let bytes = read_file(path).map_err(|error| LoadError::Unreadable(reason::reading(&error)))?;
+    let bytes = read_file(path).map_err(|error| LoadError::Unreadable(ReadFailure::of(&error)))?;
     binary::load_version(&bytes, index).map(with_origins_completed)
 }
 

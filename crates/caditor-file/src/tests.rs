@@ -332,7 +332,7 @@ fn pipes_devices_folders_and_huge_files_are_refused_without_reading_them() {
         .unwrap();
 
     let refusal = |path: &Path| match load(path) {
-        Err(LoadError::Unreadable(reason)) => reason,
+        Err(LoadError::Unreadable(reason)) => reason.to_string(),
         other => panic!("expected a refusal, got {other:?}"),
     };
     assert_eq!(refusal(&fifo), "it is a device, pipe or socket, not a file");

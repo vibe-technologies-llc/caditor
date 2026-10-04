@@ -28,23 +28,110 @@ const VARINT_BITS: u32 = 7;
 const VARINT_CONTINUES: u8 = 0x80;
 const VARINT_PAYLOAD: u8 = 0x7f;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum Damage {
+    #[error("the value ends early")]
+    EndsEarly,
+    #[error("a number is damaged")]
+    DamagedNumber,
+    #[error("a number ends early")]
+    NumberEndsEarly,
+    #[error("a number is too small")]
+    NumberTooSmall,
+    #[error("a length is too large")]
+    LengthTooLarge,
+    #[error("a length runs past the end")]
+    LengthPastEnd,
+    #[error("a text is not valid UTF-8")]
+    InvalidText,
+    #[error("the value is nested too deeply")]
+    NestedTooDeeply,
+    #[error("a list or map holds more than expected")]
+    TooManyElements,
+    #[error("expected a variant")]
+    ExpectedVariant,
+    #[error("unknown value kind")]
+    UnknownKind,
+}
+
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub(crate) enum ValueError {
-    #[error("{0}")]
-    Malformed(String),
+    #[error("{damage} at byte {position}")]
+    Malformed { damage: Damage, position: usize },
+    #[error("the value is followed by unexpected bytes")]
+    TrailingBytes,
     #[error("a value is {0}, which cannot be stored; only finite numbers can")]
     NonFinite(f64),
+    #[error("a record lacks the field “{field}”")]
+    MissingField { field: &'static str },
+    #[error("a record holds the field “{field}” twice")]
+    DuplicateField { field: &'static str },
+    #[error("a record holds the unknown field “{field}”")]
+    UnknownField { field: String },
+    #[error("“{variant}” is not one of the variants a value may take")]
+    UnknownVariant { variant: String },
+    #[error("a value holds {found} entries where {expected} were expected")]
+    WrongLength { found: usize, expected: String },
+    #[error("a value is {found} where {expected} was expected")]
+    WrongType { found: String, expected: String },
+    #[error("a type refused its stored value: {reason}")]
+    Refused { reason: String },
 }
 
 impl ser::Error for ValueError {
     fn custom<T: Display>(message: T) -> Self {
-        Self::Malformed(message.to_string())
+        Self::Refused {
+            reason: message.to_string(),
+        }
     }
 }
 
 impl de::Error for ValueError {
     fn custom<T: Display>(message: T) -> Self {
-        Self::Malformed(message.to_string())
+        Self::Refused {
+            reason: message.to_string(),
+        }
+    }
+
+    fn invalid_type(found: de::Unexpected<'_>, expected: &dyn de::Expected) -> Self {
+        Self::WrongType {
+            found: found.to_string(),
+            expected: expected.to_string(),
+        }
+    }
+
+    fn invalid_value(found: de::Unexpected<'_>, expected: &dyn de::Expected) -> Self {
+        Self::WrongType {
+            found: found.to_string(),
+            expected: expected.to_string(),
+        }
+    }
+
+    fn invalid_length(found: usize, expected: &dyn de::Expected) -> Self {
+        Self::WrongLength {
+            found,
+            expected: expected.to_string(),
+        }
+    }
+
+    fn unknown_variant(variant: &str, _expected: &'static [&'static str]) -> Self {
+        Self::UnknownVariant {
+            variant: variant.to_owned(),
+        }
+    }
+
+    fn unknown_field(field: &str, _expected: &'static [&'static str]) -> Self {
+        Self::UnknownField {
+            field: field.to_owned(),
+        }
+    }
+
+    fn missing_field(field: &'static str) -> Self {
+        Self::MissingField { field }
+    }
+
+    fn duplicate_field(field: &'static str) -> Self {
+        Self::DuplicateField { field }
     }
 }
 
@@ -62,9 +149,7 @@ pub(crate) fn from_bytes<'de, T: Deserialize<'de>>(bytes: &'de [u8]) -> Result<T
     };
     let value = T::deserialize(&mut decoder)?;
     if decoder.position != bytes.len() {
-        return Err(ValueError::Malformed(
-            "the value is followed by unexpected bytes".to_owned(),
-        ));
+        return Err(ValueError::TrailingBytes);
     }
     Ok(value)
 }
@@ -437,15 +522,18 @@ struct Decoder<'de> {
 }
 
 impl<'de> Decoder<'de> {
-    fn error(&self, what: &str) -> ValueError {
-        ValueError::Malformed(format!("{what} at byte {}", self.position))
+    fn error(&self, damage: Damage) -> ValueError {
+        ValueError::Malformed {
+            damage,
+            position: self.position,
+        }
     }
 
     fn peek(&self) -> Result<u8, ValueError> {
         self.bytes
             .get(self.position)
             .copied()
-            .ok_or_else(|| self.error("the value ends early"))
+            .ok_or_else(|| self.error(Damage::EndsEarly))
     }
 
     fn next(&mut self) -> Result<u8, ValueError> {
@@ -455,34 +543,34 @@ impl<'de> Decoder<'de> {
     }
 
     fn varint(&mut self) -> Result<u64, ValueError> {
-        read_varint(self.bytes, &mut self.position).ok_or_else(|| self.error("a number is damaged"))
+        read_varint(self.bytes, &mut self.position).ok_or_else(|| self.error(Damage::DamagedNumber))
     }
 
     fn slice(&mut self) -> Result<&'de [u8], ValueError> {
         let length =
-            usize::try_from(self.varint()?).map_err(|_| self.error("a length is too large"))?;
+            usize::try_from(self.varint()?).map_err(|_| self.error(Damage::LengthTooLarge))?;
         let end = self
             .position
             .checked_add(length)
             .filter(|end| *end <= self.bytes.len())
-            .ok_or_else(|| self.error("a length runs past the end"))?;
+            .ok_or_else(|| self.error(Damage::LengthPastEnd))?;
         let slice = self
             .bytes
             .get(self.position..end)
-            .ok_or_else(|| self.error("a length runs past the end"))?;
+            .ok_or_else(|| self.error(Damage::LengthPastEnd))?;
         self.position = end;
         Ok(slice)
     }
 
     fn string(&mut self) -> Result<&'de str, ValueError> {
         let bytes = self.slice()?;
-        std::str::from_utf8(bytes).map_err(|_| self.error("a text is not valid UTF-8"))
+        std::str::from_utf8(bytes).map_err(|_| self.error(Damage::InvalidText))
     }
 
     fn enter(&mut self) -> Result<(), ValueError> {
         self.depth += 1;
         if self.depth > MAX_DEPTH {
-            return Err(self.error("the value is nested too deeply"));
+            return Err(self.error(Damage::NestedTooDeeply));
         }
         Ok(())
     }
@@ -503,7 +591,7 @@ impl<'de> Decoder<'de> {
         if self.at_end()? {
             Ok(())
         } else {
-            Err(self.error("a list or map holds more than expected"))
+            Err(self.error(Damage::TooManyElements))
         }
     }
 }
@@ -520,7 +608,7 @@ impl<'de> Deserializer<'de> for &mut Decoder<'de> {
             NEGATIVE => {
                 let magnitude = self.varint()?;
                 let value =
-                    i64::try_from(magnitude).map_err(|_| self.error("a number is too small"))?;
+                    i64::try_from(magnitude).map_err(|_| self.error(Damage::NumberTooSmall))?;
                 visitor.visit_i64(!value)
             }
             FLOAT => {
@@ -529,7 +617,7 @@ impl<'de> Deserializer<'de> for &mut Decoder<'de> {
                     .bytes
                     .get(self.position..end)
                     .and_then(|bytes| bytes.try_into().ok())
-                    .ok_or_else(|| self.error("a number ends early"))?;
+                    .ok_or_else(|| self.error(Damage::NumberEndsEarly))?;
                 self.position = end;
                 visitor.visit_f64(f64::from_le_bytes(bytes))
             }
@@ -561,10 +649,10 @@ impl<'de> Deserializer<'de> for &mut Decoder<'de> {
                 self.leave();
                 Ok(value)
             }
-            _ => Err(ValueError::Malformed(format!(
-                "unknown value kind at byte {}",
-                self.position - 1
-            ))),
+            _ => Err(ValueError::Malformed {
+                damage: Damage::UnknownKind,
+                position: self.position - 1,
+            }),
         }
     }
 
@@ -603,7 +691,7 @@ impl<'de> Deserializer<'de> for &mut Decoder<'de> {
                 self.leave();
                 Ok(value)
             }
-            _ => Err(self.error("expected a variant")),
+            _ => Err(self.error(Damage::ExpectedVariant)),
         }
     }
 

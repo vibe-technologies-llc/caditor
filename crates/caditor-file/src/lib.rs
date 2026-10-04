@@ -35,6 +35,7 @@ pub use crate::{
     load::{LoadError, Loaded, MAX_RECORDS, decode, history, load, load_version},
     logs::{LOGS_KEPT, MAX_LOG_SIZE, SessionLog, ended_unexpectedly, mark_reported, prune_logs},
     paths::{recovery_dir, state_dir},
+    reason::{ReadFailure, WriteFailure},
     recent::{RECENT_LIMIT, RecentChange, RecentFiles},
     recovery::{
         FileJournal, Inspection, Recovered, describe_set_aside, discard, inspect, journal_for, scan,

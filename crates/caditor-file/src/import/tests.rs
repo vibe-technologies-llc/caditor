@@ -1429,7 +1429,7 @@ mod step {
                 "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n",
                 "x.step"
             ),
-            Err(ImportError::Model(_))
+            Err(ImportError::Step(caditor_step::ReadError::NoSolids(_)))
         ));
     }
 }

@@ -159,12 +159,7 @@ impl Exporter {
             Err(error) => {
                 log::error!("could not start the export: {error}");
                 if let Some(finished) = slot.lock().take() {
-                    finished(
-                        path,
-                        Err(ExportError::Writing(
-                            "the background worker could not start".to_owned(),
-                        )),
-                    );
+                    finished(path, Err(ExportError::WorkerUnavailable));
                 }
             }
         }

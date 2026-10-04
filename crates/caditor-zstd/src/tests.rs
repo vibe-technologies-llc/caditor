@@ -138,3 +138,46 @@ fn a_delta_reaches_back_across_a_prefix_of_several_mebibytes() {
         newer
     );
 }
+
+#[test]
+fn the_library_names_each_failure_with_its_own_error() {
+    let data = sample(3);
+    let frame = compress(&data, Level::BALANCED).unwrap();
+    let mut ends_wrong = frame.clone();
+    let last = ends_wrong.len() - 1;
+    ends_wrong[last] ^= 0xff;
+
+    assert_eq!(
+        decompress(&frame[..frame.len() / 2], data.len()),
+        Err(ZstdError::InputSizeWrong)
+    );
+    assert_eq!(
+        decompress(&ends_wrong, data.len()),
+        Err(ZstdError::Corrupted)
+    );
+    for (code, error) in [
+        (code::MEMORY_ALLOCATION, ZstdError::OutOfMemory),
+        (code::WORKSPACE_TOO_SMALL, ZstdError::OutOfMemory),
+        (code::PREFIX_UNKNOWN, ZstdError::NotAFrame),
+        (code::LITERALS_HEADER_WRONG, ZstdError::Corrupted),
+        (code::CHECKSUM_WRONG, ZstdError::ChecksumMismatch),
+        (code::WINDOW_TOO_LARGE, ZstdError::WindowTooLarge),
+        (code::VERSION_UNSUPPORTED, ZstdError::UnsupportedVersion),
+        (
+            code::FRAME_PARAMETER_UNSUPPORTED,
+            ZstdError::UnsupportedFrame,
+        ),
+        (code::DICTIONARY_WRONG, ZstdError::WrongPrefix),
+        (code::DICTIONARY_CORRUPTED, ZstdError::WrongPrefix),
+        (code::DESTINATION_TOO_SMALL, ZstdError::OutputTooSmall),
+        (code::PARAMETER_UNSUPPORTED, ZstdError::SettingRefused),
+        (
+            code::PARAMETER_COMBINATION_UNSUPPORTED,
+            ZstdError::SettingRefused,
+        ),
+        (code::PARAMETER_OUT_OF_BOUND, ZstdError::SettingRefused),
+        (1, ZstdError::Unclassified { code: 1 }),
+    ] {
+        assert_eq!(classified(code), error);
+    }
+}

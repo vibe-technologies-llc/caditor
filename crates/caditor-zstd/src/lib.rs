@@ -2,7 +2,7 @@
 mod tests;
 
 use std::{
-    ffi::{CStr, c_int, c_void},
+    ffi::{c_int, c_void},
     ptr::NonNull,
 };
 
@@ -11,9 +11,27 @@ use libzstd_rs_sys::{
     ZSTD_CONTENTSIZE_UNKNOWN, ZSTD_DCtx, ZSTD_DCtx_refPrefix, ZSTD_DCtx_setParameter,
     ZSTD_WINDOWLOG_MAX_64, ZSTD_WINDOWLOG_MIN, ZSTD_cParameter, ZSTD_compress2, ZSTD_compressBound,
     ZSTD_createCCtx, ZSTD_createDCtx, ZSTD_dParameter, ZSTD_decompressDCtx, ZSTD_freeCCtx,
-    ZSTD_freeDCtx, ZSTD_getErrorName, ZSTD_getFrameContentSize, ZSTD_isError, ZSTD_maxCLevel,
-    ZSTD_minCLevel,
+    ZSTD_freeDCtx, ZSTD_getFrameContentSize, ZSTD_isError, ZSTD_maxCLevel, ZSTD_minCLevel,
 };
+
+mod code {
+    pub const PREFIX_UNKNOWN: usize = 10;
+    pub const VERSION_UNSUPPORTED: usize = 12;
+    pub const FRAME_PARAMETER_UNSUPPORTED: usize = 14;
+    pub const WINDOW_TOO_LARGE: usize = 16;
+    pub const CORRUPTION_DETECTED: usize = 20;
+    pub const CHECKSUM_WRONG: usize = 22;
+    pub const LITERALS_HEADER_WRONG: usize = 24;
+    pub const DICTIONARY_CORRUPTED: usize = 30;
+    pub const DICTIONARY_WRONG: usize = 32;
+    pub const PARAMETER_UNSUPPORTED: usize = 40;
+    pub const PARAMETER_COMBINATION_UNSUPPORTED: usize = 41;
+    pub const PARAMETER_OUT_OF_BOUND: usize = 42;
+    pub const WORKSPACE_TOO_SMALL: usize = 66;
+    pub const MEMORY_ALLOCATION: usize = 64;
+    pub const DESTINATION_TOO_SMALL: usize = 70;
+    pub const SOURCE_SIZE_WRONG: usize = 72;
+}
 
 const LONG_MATCHING_ON: c_int = 1;
 
@@ -48,8 +66,26 @@ pub enum ZstdError {
     TooLarge { size: u64, limit: usize },
     #[error("the frame decoded to {actual} bytes instead of the {expected} it records")]
     WrongSize { expected: usize, actual: usize },
-    #[error("zstd reported: {0}")]
-    Library(String),
+    #[error("the frame is damaged")]
+    Corrupted,
+    #[error("the frame's checksum does not match its content")]
+    ChecksumMismatch,
+    #[error("the frame needs a window larger than zstd allows")]
+    WindowTooLarge,
+    #[error("the frame was written for a version of zstd this one does not read")]
+    UnsupportedVersion,
+    #[error("the frame uses a feature this zstd does not support")]
+    UnsupportedFrame,
+    #[error("the dictionary or prefix does not belong to this frame")]
+    WrongPrefix,
+    #[error("the output buffer is too small for the result")]
+    OutputTooSmall,
+    #[error("the input is shorter or longer than the frame records")]
+    InputSizeWrong,
+    #[error("zstd refused a setting")]
+    SettingRefused,
+    #[error("zstd failed with error code {code}")]
+    Unclassified { code: usize },
 }
 
 pub fn compress(data: &[u8], level: Level) -> Result<Vec<u8>, ZstdError> {
@@ -98,17 +134,30 @@ fn window_log(span: usize) -> c_int {
         .clamp(ZSTD_WINDOWLOG_MIN, ZSTD_WINDOWLOG_MAX_64)
 }
 
-fn checked(code: usize) -> Result<usize, ZstdError> {
-    if ZSTD_isError(code) == 0 {
-        return Ok(code);
+fn checked(result: usize) -> Result<usize, ZstdError> {
+    if ZSTD_isError(result) == 0 {
+        return Ok(result);
     }
-    let name = ZSTD_getErrorName(code);
-    if name.is_null() {
-        return Err(ZstdError::Library(format!("error {code}")));
+    Err(classified(result.wrapping_neg()))
+}
+
+fn classified(code: usize) -> ZstdError {
+    match code {
+        code::MEMORY_ALLOCATION | code::WORKSPACE_TOO_SMALL => ZstdError::OutOfMemory,
+        code::PREFIX_UNKNOWN => ZstdError::NotAFrame,
+        code::CORRUPTION_DETECTED | code::LITERALS_HEADER_WRONG => ZstdError::Corrupted,
+        code::CHECKSUM_WRONG => ZstdError::ChecksumMismatch,
+        code::WINDOW_TOO_LARGE => ZstdError::WindowTooLarge,
+        code::VERSION_UNSUPPORTED => ZstdError::UnsupportedVersion,
+        code::FRAME_PARAMETER_UNSUPPORTED => ZstdError::UnsupportedFrame,
+        code::DICTIONARY_WRONG | code::DICTIONARY_CORRUPTED => ZstdError::WrongPrefix,
+        code::DESTINATION_TOO_SMALL => ZstdError::OutputTooSmall,
+        code::SOURCE_SIZE_WRONG => ZstdError::InputSizeWrong,
+        code::PARAMETER_UNSUPPORTED
+        | code::PARAMETER_COMBINATION_UNSUPPORTED
+        | code::PARAMETER_OUT_OF_BOUND => ZstdError::SettingRefused,
+        code => ZstdError::Unclassified { code },
     }
-    #[allow(unsafe_code)]
-    let name = unsafe { CStr::from_ptr(name) };
-    Err(ZstdError::Library(name.to_string_lossy().into_owned()))
 }
 
 struct Compressor(NonNull<ZSTD_CCtx>);

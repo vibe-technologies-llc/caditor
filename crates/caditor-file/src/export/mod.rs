@@ -17,7 +17,7 @@ use caditor_kernel::{Mesh, SamplingTolerance, Solid, TessellationError, interrup
 use caditor_step::{StepBody, StepWritten, WriteError, write_step_keeping_what_can_be};
 
 pub use self::image::{ImageExportError, PNG_EXTENSION, RgbaImage, export_png};
-use crate::{reason, save::write_atomically};
+use crate::{reason::WriteFailure, save::write_atomically};
 
 const APPLICATION: &str = concat!("caditor ", env!("CARGO_PKG_VERSION"));
 const SMALLEST_EXTENT: f64 = 1.0;
@@ -163,9 +163,11 @@ pub enum ExportError {
     #[error("the model could not be converted to the file format")]
     Encoding,
     #[error("{0}")]
-    Step(String),
+    Step(WriteError),
     #[error("{0}")]
-    Writing(String),
+    Writing(WriteFailure),
+    #[error("the background worker could not start")]
+    WorkerUnavailable,
 }
 
 pub fn export_bodies(
@@ -193,7 +195,7 @@ pub fn export_bodies(
         return Err(ExportError::Cancelled);
     }
     write_atomically(path, &contents)
-        .map_err(|error| ExportError::Writing(reason::writing(&error)))?;
+        .map_err(|error| ExportError::Writing(WriteFailure::of(&error)))?;
     Ok(Exported {
         bodies: meshes.len(),
         triangles: Some(meshes.iter().map(|mesh| mesh.triangles.len()).sum()),
@@ -248,7 +250,7 @@ fn export_step(
         Ok(Err(_)) if cancel.is_cancelled() => return Err(ExportError::Cancelled),
         Ok(Ok(written)) => written,
         Ok(Err(WriteError::Empty)) => return Err(ExportError::Empty),
-        Ok(Err(error)) => return Err(ExportError::Step(error.to_string())),
+        Ok(Err(error)) => return Err(ExportError::Step(error)),
         Err(_) => {
             log::error!("writing STEP panicked");
             return Err(ExportError::Encoding);
@@ -258,13 +260,13 @@ fn export_step(
         return Err(ExportError::Cancelled);
     }
     write_atomically(path, text.as_bytes())
-        .map_err(|error| ExportError::Writing(reason::writing(&error)))?;
+        .map_err(|error| ExportError::Writing(WriteFailure::of(&error)))?;
     Ok(Exported {
         bodies: bodies.len() - left_out.len(),
         triangles: None,
         left_out: left_out
             .into_iter()
-            .map(|(_, error)| ExportError::Step(error.to_string()))
+            .map(|(_, error)| ExportError::Step(error))
             .collect(),
     })
 }

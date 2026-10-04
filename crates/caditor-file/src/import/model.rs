@@ -7,7 +7,7 @@ use caditor_step::{ReadError, StepBody, read_step, write_step};
 use crate::{
     import::ImportError,
     read::{MAX_FILE_SIZE, read_file},
-    reason,
+    reason::ReadFailure,
 };
 
 const LATIN_1_NOTE: &str = "The file is not UTF-8 text, so its names were read as Latin-1; \
@@ -38,7 +38,7 @@ pub struct ModelImport {
 }
 
 pub fn read_step_file(path: &Path) -> Result<ModelImport, ImportError> {
-    let bytes = read_file(path).map_err(|error| ImportError::Reading(reason::reading(&error)))?;
+    let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
     let bytes = if bytes.starts_with(&GZIP_MAGIC) {
         unpacked(&bytes)?
     } else {
@@ -122,7 +122,7 @@ fn unpacked(bytes: &[u8]) -> Result<Vec<u8>, ImportError> {
 pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> {
     let model = read_step(text).map_err(|error| match error {
         ReadError::NotStep => ImportError::NotStep,
-        other => ImportError::Model(other.to_string()),
+        other => ImportError::Step(other),
     })?;
     let mut imported = ModelImport {
         bodies: Vec::with_capacity(model.solids.len()),
@@ -146,9 +146,7 @@ pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> 
         ));
     }
     if imported.bodies.is_empty() {
-        return Err(ImportError::Model(
-            "none of its bodies could be stored in the model".to_owned(),
-        ));
+        return Err(ImportError::NothingStorable);
     }
     Ok(imported)
 }

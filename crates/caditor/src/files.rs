@@ -256,11 +256,17 @@ enum Purpose {
 }
 
 enum OpenOutcome {
-    Loaded { loaded: Loaded, notes: Vec<String> },
+    Loaded {
+        loaded: Box<Loaded>,
+        notes: Vec<String>,
+    },
     Recoverable(Box<Recovered>),
     AlreadyOpen,
     InUse,
-    Failed { error: LoadError, missing: bool },
+    Failed {
+        error: LoadError,
+        missing: bool,
+    },
 }
 
 struct Opened {
@@ -1030,7 +1036,7 @@ impl Files {
                 path: failed,
                 session,
                 into,
-                result: Err(ImportError::Reading(INTERNAL_ERROR.to_owned())),
+                result: Err(ImportError::Crashed),
             },
         );
     }
@@ -1060,7 +1066,7 @@ impl Files {
                 path: failed,
                 session,
                 into,
-                result: Err(ImportError::Reading(INTERNAL_ERROR.to_owned())),
+                result: Err(ImportError::Crashed),
             },
         );
     }
@@ -1115,7 +1121,7 @@ impl Files {
             OpenOutcome::Loaded { loaded, notes } => {
                 let opened = Opened {
                     path,
-                    loaded,
+                    loaded: *loaded,
                     notes,
                 };
                 if model.revision() != revision && model.is_dirty() {
@@ -1472,7 +1478,7 @@ fn open_file(path: &Path, current: Option<&Path>, recovery_dir: Option<&Path>) -
     };
     match load(path) {
         Ok(loaded) => OpenOutcome::Loaded {
-            loaded,
+            loaded: Box::new(loaded),
             notes: set_aside
                 .iter()
                 .map(|kept| describe_set_aside(kept))
@@ -1504,7 +1510,7 @@ fn spawn_worker() -> Option<Sender<Job>> {
 }
 
 fn internal_load_error() -> LoadError {
-    LoadError::Unreadable(INTERNAL_ERROR.to_owned())
+    LoadError::Crashed
 }
 
 fn run_contained(job: Job) {

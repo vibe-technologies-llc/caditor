@@ -9,6 +9,7 @@ mod tests;
 use std::{collections::BTreeSet, path::Path};
 
 use caditor_geometry::Point2;
+use caditor_step::ReadError;
 
 pub use crate::import::{
     dxf::parse_dxf,
@@ -18,7 +19,7 @@ pub use crate::import::{
     },
     sketch::{DrawingImport, SketchTarget, drawing_transaction},
 };
-use crate::{read::read_file, reason};
+use crate::{read::read_file, reason::ReadFailure};
 
 pub const DXF_EXTENSION: &str = "dxf";
 pub const MAX_DRAWING_CURVES: usize = 20_000;
@@ -109,13 +110,17 @@ impl Drawing {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ImportError {
     #[error("{0}")]
-    Reading(String),
+    Reading(ReadFailure),
+    #[error("caditor ran into an internal error while reading it")]
+    Crashed,
     #[error("it is not a DXF drawing")]
     NotDxf,
     #[error("it is not a STEP file")]
     NotStep,
     #[error("{0}")]
-    Model(String),
+    Step(ReadError),
+    #[error("none of its bodies could be stored in the model")]
+    NothingStorable,
     #[error("the compressed file is damaged, so it cannot be unpacked")]
     DamagedArchive,
     #[error(
@@ -147,6 +152,6 @@ pub enum ImportError {
 }
 
 pub fn read_dxf(path: &Path) -> Result<Drawing, ImportError> {
-    let bytes = read_file(path).map_err(|error| ImportError::Reading(reason::reading(&error)))?;
+    let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
     parse_dxf(&bytes)
 }

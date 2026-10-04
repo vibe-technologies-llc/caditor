@@ -64,3 +64,10 @@ paths:
   atomically, checking the pixel count and cancellation; errors are `ImageExportError` variants.
 - 3MF is a ZIP from a small writer (`zip.rs`; deflate through `miniz_oxide` unless storing is
   smaller, CRC32, no ZIP64): deflate and CRC32 live only here, for the foreign format.
+
+## Failures
+
+- Reading and writing a file fail as `ReadFailure` and `WriteFailure` (`reason.rs`), one variant per
+  cause an `io::Error` can name, written as a clause the UI completes ("… because it no longer
+  exists"); `LoadError::Unreadable`, `ImportError::Reading` and `ExportError::Writing` carry them.
+  A job that panicked is `LoadError::Crashed` or `ImportError::Crashed`, not a message.

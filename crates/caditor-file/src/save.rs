@@ -60,7 +60,7 @@ impl SaveError {
                  the last change and save again"
                     .to_owned()
             }
-            EncodeError::Value(ValueError::Malformed(_)) | EncodeError::Pack(_) => {
+            EncodeError::Value(_) | EncodeError::Pack(_) => {
                 "the model could not be converted for saving".to_owned()
             }
             EncodeError::HistoryTooLarge => {

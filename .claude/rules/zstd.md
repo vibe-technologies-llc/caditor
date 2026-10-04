@@ -17,3 +17,6 @@ paths:
   by guards that free them on drop.
 - The decoder reads untrusted data: frames must record their content size, and decompression
   refuses one larger than the caller's limit or decoding to a different size than recorded.
+- The port exports no error codes, so `ZstdError` classifies the failure from the negated return
+  value against the numbers in `code`, a test pins each; a code it does not know is
+  `Unclassified { code }`.
