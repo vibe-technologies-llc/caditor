@@ -6,8 +6,8 @@ use crate::{
     box_tree::BoxTree,
     interrupt::{self, Interrupted},
     intersect::{
-        SurfaceIntersection, SurfacePatch, boxes_overlap, intersect_curve_surface,
-        intersect_curves, intersect_surfaces, patch_bounds,
+        SurfaceIntersection, SurfacePatch, intersect_curve_surface, intersect_curves,
+        intersect_surfaces, patch_bounds,
     },
     tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE},
     topology::{Edge, EdgeId, Face, FaceContainment, FaceId, Solid, SolidClassifier},
@@ -94,6 +94,31 @@ struct Extent {
     bounds: Aabb,
 }
 
+struct BoundaryEdge<'a> {
+    id: EdgeId,
+    edge: &'a Edge,
+    uses: usize,
+    bounds: Aabb,
+}
+
+struct Boundary<'a> {
+    edges: Vec<BoundaryEdge<'a>>,
+    tree: BoxTree,
+}
+
+impl Boundary<'_> {
+    fn uses(&self, id: EdgeId) -> bool {
+        self.edges.binary_search_by_key(&id, |edge| edge.id).is_ok()
+    }
+
+    fn near<'s>(&'s self, bounds: &Aabb) -> impl Iterator<Item = (usize, &'s BoundaryEdge<'s>)> {
+        self.tree
+            .overlapping(bounds, LINEAR_RESOLUTION)
+            .into_iter()
+            .filter_map(|index| Some((index, self.edges.get(index)?)))
+    }
+}
+
 impl Solid {
     pub fn find_crossing(&self) -> Result<CrossingCheck, Interrupted> {
         let extents: Vec<Extent> = self
@@ -126,9 +151,14 @@ impl Solid {
                 }
             }
         }
+        let boundaries: BTreeMap<FaceId, Boundary<'_>> = self
+            .faces()
+            .map(|(id, face)| (id, self.boundary(face)))
+            .collect();
         let mut inconclusive = None;
-        for (id, face) in self.faces() {
-            match self.boundary_crossing(face)? {
+        for (id, boundary) in &boundaries {
+            let id = *id;
+            match self.boundary_crossing(boundary)? {
                 Probe::Clear => {}
                 Probe::Crossing(point) => {
                     return Ok(CrossingCheck::Crossing(Crossing {
@@ -152,8 +182,16 @@ impl Solid {
             for second in later {
                 interrupt::check()?;
                 let found = if neighbours.contains(&(first.id, second.id)) {
-                    self.edges_piercing(&classifier, first.id, second)?
-                        .then_check(|| self.edges_piercing(&classifier, second.id, first))?
+                    let (Some(first_boundary), Some(second_boundary)) =
+                        (boundaries.get(&first.id), boundaries.get(&second.id))
+                    else {
+                        inconclusive.get_or_insert([first.id, second.id]);
+                        continue;
+                    };
+                    self.edges_piercing(&classifier, first_boundary, second, second_boundary)?
+                        .then_check(|| {
+                            self.edges_piercing(&classifier, second_boundary, first, first_boundary)
+                        })?
                 } else {
                     self.crossing_between(&classifier, first, second)
                 };
@@ -178,7 +216,7 @@ impl Solid {
         })
     }
 
-    fn edge_uses(&self, face: &Face) -> BTreeMap<EdgeId, usize> {
+    fn boundary(&self, face: &Face) -> Boundary<'_> {
         let mut uses: BTreeMap<EdgeId, usize> = BTreeMap::new();
         for coedge in face
             .loops()
@@ -189,34 +227,42 @@ impl Solid {
         {
             *uses.entry(coedge.edge()).or_default() += 1;
         }
-        uses
+        let edges: Vec<BoundaryEdge<'_>> = uses
+            .into_iter()
+            .filter_map(|(id, uses)| {
+                let edge = self.edge(id)?;
+                let bounds = edge.curve().bounding_box(edge.interval());
+                Some(BoundaryEdge {
+                    id,
+                    edge,
+                    uses,
+                    bounds,
+                })
+            })
+            .collect();
+        let tree = BoxTree::new(edges.iter().map(|edge| edge.bounds));
+        Boundary { edges, tree }
     }
 
     fn edges_piercing(
         &self,
         classifier: &SolidClassifier<'_>,
-        source: FaceId,
+        source: &Boundary<'_>,
         target: &Extent,
+        target_boundary: &Boundary<'_>,
     ) -> Result<Probe, Interrupted> {
-        let (Some(source_face), Some(target_face)) = (self.face(source), self.face(target.id))
-        else {
+        let Some(target_face) = self.face(target.id) else {
             return Ok(Probe::Inconclusive);
         };
         let mut survey = Survey::default();
-        let shared = self.edge_uses(target_face);
         let surface = target_face.surface();
         let inside =
             |uv: Point2| classifier.point_in_face(target.id, uv) == Some(FaceContainment::Inside);
-        for edge in self
-            .edge_uses(source_face)
-            .keys()
-            .filter(|id| !shared.contains_key(id))
-            .filter_map(|id| self.edge(*id))
+        for (_, candidate) in source
+            .near(&target.bounds)
+            .filter(|(_, candidate)| !target_boundary.uses(candidate.id))
         {
-            let bounds = edge.curve().bounding_box(edge.interval());
-            if !boxes_overlap(&bounds, &target.bounds, LINEAR_RESOLUTION) {
-                continue;
-            }
+            let edge = candidate.edge;
             interrupt::check()?;
             let Ok(found) =
                 intersect_curve_surface(edge.curve(), edge.interval(), surface, Some(target.uv))
@@ -240,22 +286,20 @@ impl Solid {
         Ok(survey.outcome())
     }
 
-    fn boundary_crossing(&self, face: &Face) -> Result<Probe, Interrupted> {
-        let uses = self.edge_uses(face);
-        let edges: Vec<(&Edge, Aabb)> = uses
-            .iter()
-            .filter(|(_, count)| **count == 1)
-            .filter_map(|(id, _)| self.edge(*id))
-            .map(|edge| (edge, edge.curve().bounding_box(edge.interval())))
-            .collect();
+    fn boundary_crossing(&self, boundary: &Boundary<'_>) -> Result<Probe, Interrupted> {
         let mut survey = Survey::default();
-        for (index, (first, first_bounds)) in edges.iter().enumerate() {
-            for (second, second_bounds) in edges.iter().skip(index + 1) {
-                if !boxes_overlap(first_bounds, second_bounds, LINEAR_RESOLUTION) {
-                    continue;
-                }
+        let single = boundary
+            .edges
+            .iter()
+            .enumerate()
+            .filter(|(_, edge)| edge.uses == 1);
+        for (index, first) in single {
+            let later = boundary
+                .near(&first.bounds)
+                .filter(|(other, second)| *other > index && second.uses == 1);
+            for (_, second) in later {
                 interrupt::check()?;
-                if let Some(point) = survey.record(self.edges_cross(first, second)) {
+                if let Some(point) = survey.record(self.edges_cross(first.edge, second.edge)) {
                     return Ok(Probe::Crossing(point));
                 }
             }

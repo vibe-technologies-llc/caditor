@@ -95,13 +95,6 @@ within a category run from most to least important.
 
 ## Kernel performance
 
-- `find_crossing` rebuilds `edge_uses` for every neighbouring face pair and compares boundary
-  edges pairwise, quadratic in the edges of one face: reading an 8,000-face prism from STEP takes
-  9 s, of which 60% is `edge_uses`. Compute it once per face and use the `BoxTree`.
-- Point-in-face is a linear parity scan over every pcurve sample, repeated per hit and ray, and
-  `trace::group` rebuilds the outer polygon per hole, so a boolean of two plates with 12×12
-  holes takes 1.3 s and grows as about F^1.8. Index each face's boundary once per classifier,
-  and put faces in a `BoxTree` for `classify_along`, `cast` and `first_crossing`.
 - Every boolean clones, splits, reselects and revalidates every face of the body even when the
   tool touches two, so a sequence of hole features is quadratic (43 ms for the 144th hole). Carry
   untouched faces through by id, and return disjoint operands without the pipeline: a pattern of

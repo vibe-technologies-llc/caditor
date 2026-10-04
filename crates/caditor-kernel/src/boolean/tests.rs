@@ -1183,3 +1183,43 @@ fn aligned_contacts_a_micrometre_or_so_apart() {
         "{failures} booleans failed, more than the {NEAR_CONTACT_FAILURES_ALLOWED} allowed"
     );
 }
+
+fn holed_plate(holes: usize, pitch: f64) -> Solid {
+    let side = pitch * holes as f64;
+    let mut curves = rectangle(1, (0.0, 0.0), (side, side));
+    for row in 0..holes {
+        for column in 0..holes {
+            let center = (pitch * (column as f64 + 0.5), pitch * (row as f64 + 0.5));
+            curves.push(circle(
+                (10 + row * holes + column) as u64,
+                center,
+                pitch / 4.0,
+            ));
+        }
+    }
+    let regions = Profile::new(&curves)
+        .unwrap()
+        .select(&Selection::EvenDepth)
+        .unwrap();
+    extrude(
+        &Plane::XY,
+        &regions,
+        LinearExtent::one_side(2.0).unwrap(),
+        1,
+    )
+    .unwrap()
+}
+
+#[test]
+fn plates_with_many_holes_join_with_every_hole_kept() {
+    let holes = 6;
+    let first = holed_plate(holes, 10.0);
+    let second = moved(holed_plate(holes, 10.0), (5.0, 5.0, 1.0));
+    let hole_area = PI * 2.5 * 2.5;
+    let plate = 2.0 * (60.0 * 60.0 - 36.0 * hole_area);
+    let overlap = 55.0 * 55.0 - 2.0 * 5.5 * 5.5 * hole_area;
+
+    let union = run(&first, &second, BooleanOperation::Union);
+
+    check("holed plates", &union, 2.0 * plate - overlap);
+}

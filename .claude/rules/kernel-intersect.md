@@ -3,6 +3,7 @@ paths:
   - "crates/caditor-kernel/src/intersect/**"
   - "crates/caditor-kernel/src/topology/classify.rs"
   - "crates/caditor-kernel/src/topology/classify_tests.rs"
+  - "crates/caditor-kernel/src/topology/polygons.rs"
   - "crates/caditor-kernel/src/boolean/**"
 ---
 
@@ -94,6 +95,13 @@ paths:
   over periodic shifts (poles probed just off the pole line, inwards from the nearer end of the
   domain); within a few `PCURVE_TOLERANCE` of the boundary it uses the exact edge: the side of the
   nearest non-seam coedge, or of both coedges at a vertex (convex corners need both).
+- The classifier keeps a tree of face boxes (`box_tree.rs`): a point is tested against the faces
+  whose boxes hold it, a ray against those whose boxes it passes (`BoxTree::matching` with the
+  ray's window). Each face indexes its boundary on first use, a tree of its non-seam coedges'
+  boxes and a `PolygonIndex` (`topology/polygons.rs`) of its pcurve segments, whose parity test
+  visits only segments whose boxes reach the rightward ray (up to 32 segments are scanned
+  directly), so building a classifier stays linear and each query is logarithmic in the face's
+  boundary.
 - `classify_boundary_point(point, normal)` adds `Coincident { face, sense }` for a point on a face
   with a parallel normal, and `Touching(face)` otherwise.
 - `first_crossing(origin, direction, beyond)` casts one ray the same way and gives the nearest

@@ -1,12 +1,18 @@
-use std::{cmp::Ordering, collections::BTreeMap, f64::consts::TAU};
+use std::{
+    cell::OnceCell,
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+    f64::consts::TAU,
+};
 
-use caditor_geometry::{Aabb2, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector2, Vector3};
 
 use crate::{
     boolean::{BooleanError, imprint::Arrangement},
+    box_tree::BoxTree,
     sense::Sense,
     surface::Surface,
-    topology::{Pcurve, continues, fit_pcurve, inside_polygon, signed_area},
+    topology::{Pcurve, PolygonIndex, continues, fit_pcurve, signed_area},
 };
 
 const ANGLE_TIE: f64 = 1e-5;
@@ -18,6 +24,7 @@ const INTERIOR_POINTS: usize = 3;
 const SPAN_OFFSETS: [f64; 3] = [0.5, 0.37, 0.61];
 const POLE_RING: usize = 8;
 const POLE_OFFSET: f64 = 1e-3;
+const GROUP_SLACK: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct HalfEdge {
@@ -519,12 +526,7 @@ fn shifts(surface: &Surface) -> Vec<Vector2> {
         .collect()
 }
 
-fn probe_outside(hole: &TracedLoop, outer: &TracedLoop) -> Option<Point2> {
-    let pieces: Vec<usize> = outer
-        .coedges
-        .iter()
-        .map(|coedge| coedge.half_edge.piece)
-        .collect();
+fn probe_outside(hole: &TracedLoop, pieces: &BTreeSet<usize>) -> Option<Point2> {
     hole.coedges
         .iter()
         .find(|coedge| !pieces.contains(&coedge.half_edge.piece))
@@ -539,42 +541,93 @@ fn probe_outside(hole: &TracedLoop, outer: &TracedLoop) -> Option<Point2> {
         })
 }
 
+struct Outer<'a> {
+    traced: &'a TracedLoop,
+    polygon: OnceCell<PolygonIndex>,
+    pieces: BTreeSet<usize>,
+    area: f64,
+}
+
+impl<'a> Outer<'a> {
+    fn new(traced: &'a TracedLoop) -> Self {
+        Self {
+            traced,
+            polygon: OnceCell::new(),
+            pieces: traced
+                .coedges
+                .iter()
+                .map(|coedge| coedge.half_edge.piece)
+                .collect(),
+            area: traced.area.abs(),
+        }
+    }
+
+    fn contains(&self, point: Point2) -> bool {
+        self.polygon
+            .get_or_init(|| PolygonIndex::new([self.traced.polygon().as_slice()]))
+            .contains(point)
+    }
+}
+
+fn flat_box(bounds: Aabb2, offset: Vector2) -> Aabb {
+    let (low, high) = (bounds.min() + offset, bounds.max() + offset);
+    Aabb::from_point(Point3::new(low.x, low.y, 0.0)).including(Point3::new(high.x, high.y, 0.0))
+}
+
+fn uv_bounds(traced: &TracedLoop) -> Option<Aabb2> {
+    Aabb2::from_points(traced.polygon())
+}
+
 pub(super) fn group(chart: &Chart, loops: Vec<TracedLoop>) -> Result<Vec<Fragment>, BooleanError> {
     let sign = chart.sense.sign();
     let (outers, holes): (Vec<TracedLoop>, Vec<TracedLoop>) = loops
         .into_iter()
         .partition(|traced| traced.area * sign > 0.0);
-    let mut fragments: Vec<Fragment> = outers
-        .into_iter()
-        .map(|outer| Fragment { loops: vec![outer] })
+    let indexed: Vec<Outer> = outers.iter().map(Outer::new).collect();
+    let boxes: Vec<Aabb2> = outers
+        .iter()
+        .map(|outer| uv_bounds(outer).unwrap_or_else(|| Aabb2::from_point(Point2::ZERO)))
         .collect();
+    let tree = BoxTree::new(boxes.iter().map(|bounds| flat_box(*bounds, Vector2::ZERO)));
     let offsets = shifts(chart.surface);
     let mut placed: Vec<(usize, TracedLoop)> = Vec::new();
     for hole in holes {
+        let candidates: BTreeSet<usize> = uv_bounds(&hole)
+            .into_iter()
+            .flat_map(|bounds| {
+                let slack = GROUP_SLACK * (1.0 + bounds.size().max_element());
+                offsets
+                    .iter()
+                    .flat_map(|offset| tree.overlapping(&flat_box(bounds, *offset), slack))
+                    .collect::<Vec<usize>>()
+            })
+            .collect();
         let mut best: Option<(usize, f64, Vector2)> = None;
-        for (index, fragment) in fragments.iter().enumerate() {
-            let Some(outer) = fragment.loops.first() else {
+        for index in candidates {
+            let Some(outer) = indexed.get(index) else {
                 continue;
             };
-            let Some(probe) = probe_outside(&hole, outer) else {
+            let Some(probe) = probe_outside(&hole, &outer.pieces) else {
                 continue;
             };
-            let polygon = outer.polygon();
             let Some(offset) = offsets
                 .iter()
                 .copied()
-                .find(|offset| inside_polygon(&polygon, probe + *offset))
+                .find(|offset| outer.contains(probe + *offset))
             else {
                 continue;
             };
-            let area = outer.area.abs();
-            if best.is_none_or(|(_, smallest, _)| area < smallest) {
-                best = Some((index, area, offset));
+            if best.is_none_or(|(_, smallest, _)| outer.area < smallest) {
+                best = Some((index, outer.area, offset));
             }
         }
         let (index, _, offset) = best.ok_or(BooleanError::Split)?;
         placed.push((index, hole.shifted(offset)));
     }
+    let mut fragments: Vec<Fragment> = outers
+        .into_iter()
+        .map(|outer| Fragment { loops: vec![outer] })
+        .collect();
     for (index, hole) in placed {
         if let Some(fragment) = fragments.get_mut(index) {
             fragment.loops.push(hole);

@@ -1,4 +1,7 @@
-use std::f64::consts::{FRAC_PI_2, PI, TAU};
+use std::{
+    f64::consts::{FRAC_PI_2, PI, TAU},
+    time::{Duration, Instant},
+};
 
 use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 
@@ -9,6 +12,9 @@ use crate::{
     interval::Interval,
     surface::{Cylinder, PlaneSurface, Sphere},
 };
+
+const PRISM_SIDES: usize = 4000;
+const PRISM_CROSSING_TIME_LIMIT: Duration = Duration::from_secs(10);
 
 #[test]
 fn every_fixture_validates() {
@@ -798,4 +804,40 @@ fn the_approximate_size_counts_topology_pcurves_and_spline_data() {
     assert!(block.approximate_size() > arenas);
     assert!(block.approximate_size() < 64 * 1024);
     assert!(spline.approximate_size() > block.approximate_size() + pcurve_samples);
+}
+
+fn polygonal_prism(sides: usize) -> Solid {
+    let mut fixture = Fixture::new();
+
+    let ring = |fixture: &mut Fixture, z: f64| -> Vec<VertexId> {
+        (0..sides)
+            .map(|index| {
+                let angle = TAU * index as f64 / sides as f64;
+                fixture.vertex(Point3::new(100.0 * angle.cos(), 100.0 * angle.sin(), z))
+            })
+            .collect()
+    };
+    let bottom = ring(&mut fixture, 0.0);
+    let top = ring(&mut fixture, 10.0);
+
+    let reversed: Vec<VertexId> = bottom.iter().rev().copied().collect();
+    fixture.polygon(&reversed, &[]);
+    fixture.polygon(&top, &[]);
+    for index in 0..sides {
+        let next = (index + 1) % sides;
+        fixture.polygon(&[bottom[index], bottom[next], top[next], top[index]], &[]);
+    }
+    fixture.build_unchecked()
+}
+
+#[test]
+fn a_prism_of_many_sides_is_checked_for_crossings_in_bounded_time() {
+    let prism = polygonal_prism(PRISM_SIDES);
+
+    let clock = Instant::now();
+    let check = prism.find_crossing().unwrap();
+    let elapsed = clock.elapsed();
+
+    assert_eq!(check, CrossingCheck::Clear);
+    assert!(elapsed < PRISM_CROSSING_TIME_LIMIT, "{elapsed:?}");
 }

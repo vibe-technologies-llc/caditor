@@ -1,15 +1,19 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::OnceLock,
+};
 
 use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector2, Vector3};
 
 use crate::{
+    box_tree::BoxTree,
     curve::{Curve, Line},
-    intersect::{boxes_overlap, intersect_curve_surface, patch_bounds},
+    intersect::{boxes_overlap, intersect_curve_surface, line_window, patch_bounds},
     interval::Interval,
     sense::Sense,
     surface::Surface,
     tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE},
-    topology::{CoedgeId, EdgeId, FaceId, LoopId, Solid, VertexId},
+    topology::{CoedgeId, EdgeId, FaceId, LoopId, PolygonIndex, Solid, VertexId},
 };
 
 const TOLERANCE: f64 = LINEAR_RESOLUTION;
@@ -84,10 +88,27 @@ struct BoundaryCoedge {
 struct FaceData {
     id: FaceId,
     polygons: Vec<Vec<Point2>>,
+    polygon_index: OnceLock<PolygonIndex>,
     uv_box: Aabb2,
     bounds: Aabb,
     boundary: Vec<BoundaryCoedge>,
+    boundary_tree: OnceLock<BoxTree>,
     boundary_ids: BTreeSet<CoedgeId>,
+}
+
+impl FaceData {
+    fn polygon_index(&self) -> &PolygonIndex {
+        self.polygon_index
+            .get_or_init(|| PolygonIndex::new(self.polygons.iter().map(Vec::as_slice)))
+    }
+
+    fn boundary_near(&self, point: Point3) -> impl Iterator<Item = &BoundaryCoedge> {
+        self.boundary_tree
+            .get_or_init(|| BoxTree::new(self.boundary.iter().map(|coedge| coedge.bounds)))
+            .overlapping(&Aabb::from_point(point), NEAR_BOUNDARY)
+            .into_iter()
+            .filter_map(|index| self.boundary.get(index))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +116,7 @@ pub struct SolidClassifier<'a> {
     solid: &'a Solid,
     faces: Vec<FaceData>,
     positions: Vec<Option<usize>>,
+    tree: BoxTree,
     bounds: Option<Aabb>,
 }
 
@@ -151,28 +173,13 @@ fn face_data(solid: &Solid, id: FaceId) -> Option<FaceData> {
     Some(FaceData {
         id,
         polygons,
+        polygon_index: OnceLock::new(),
         uv_box,
         bounds: patch_bounds(face.surface(), uv_box).expanded(TOLERANCE),
         boundary,
+        boundary_tree: OnceLock::new(),
         boundary_ids,
     })
-}
-
-fn crossings(polygon: &[Point2], point: Point2) -> bool {
-    let count = polygon.len();
-    let mut inside = false;
-    for (index, a) in polygon.iter().enumerate() {
-        let Some(b) = polygon.get((index + 1) % count) else {
-            continue;
-        };
-        if (a.y > point.y) != (b.y > point.y) {
-            let crossing = a.x + (point.y - a.y) / (b.y - a.y) * (b.x - a.x);
-            if point.x < crossing {
-                inside = !inside;
-            }
-        }
-    }
-    inside
 }
 
 fn shifts(period: Option<f64>) -> Vec<f64> {
@@ -192,13 +199,42 @@ impl<'a> SolidClassifier<'a> {
             .faces()
             .filter_map(|(id, _)| face_data(solid, id))
             .collect::<Vec<_>>();
+        Self::of_faces(solid, faces)
+    }
+
+    fn of_faces(solid: &'a Solid, faces: Vec<FaceData>) -> Self {
         let bounds = faces.iter().map(|face| face.bounds).reduce(Aabb::union);
         Self {
             solid,
             positions: positions_of(&faces),
+            tree: BoxTree::new(faces.iter().map(|face| face.bounds)),
             faces,
             bounds,
         }
+    }
+
+    fn faces_near(&self, point: Point3) -> impl Iterator<Item = &FaceData> {
+        let query = Aabb::from_point(point);
+        self.tree
+            .overlapping(&query, TOLERANCE)
+            .into_iter()
+            .filter_map(|position| self.faces.get(position))
+    }
+
+    fn faces_along(
+        &self,
+        origin: Point3,
+        direction: Vector3,
+        reach: f64,
+    ) -> impl Iterator<Item = &FaceData> {
+        self.tree
+            .matching(|bounds| {
+                line_window(origin, direction, bounds).is_some_and(|window| {
+                    window.start() - WINDOW_MARGIN <= reach && window.end() + WINDOW_MARGIN >= 0.0
+                })
+            })
+            .into_iter()
+            .filter_map(|position| self.faces.get(position))
     }
 
     fn data(&self, face: FaceId) -> Option<&FaceData> {
@@ -227,10 +263,7 @@ impl<'a> SolidClassifier<'a> {
         let surface = self.solid.face(face)?.surface();
         let point = surface.point_at(uv);
         let mut nearest: Option<(f64, &BoundaryCoedge, f64)> = None;
-        for coedge in &data.boundary {
-            if !contains_point(&coedge.bounds, point, NEAR_BOUNDARY) {
-                continue;
-            }
+        for coedge in data.boundary_near(point) {
             let edge = self.solid.edge(coedge.edge)?;
             let parameter = edge.curve().closest_parameter(point, edge.interval());
             let distance = edge.curve().point(parameter).distance(point);
@@ -293,14 +326,7 @@ impl<'a> SolidClassifier<'a> {
             shifts(surface.u_period()).into_iter().any(|du| {
                 shifts(surface.v_period()).into_iter().any(|dv| {
                     let shifted = probe + Vector2::new(du, dv);
-                    slack.contains(shifted)
-                        && data
-                            .polygons
-                            .iter()
-                            .filter(|polygon| crossings(polygon, shifted))
-                            .count()
-                            % 2
-                            == 1
+                    slack.contains(shifted) && data.polygon_index().contains(shifted)
                 })
             })
         })
@@ -409,8 +435,7 @@ impl<'a> SolidClassifier<'a> {
             return PointClass::Outside;
         }
         if let Some(data) = self
-            .faces
-            .iter()
+            .faces_near(point)
             .find(|data| self.on_face(data, point).is_some())
         {
             return PointClass::OnBoundary(data.id);
@@ -432,7 +457,7 @@ impl<'a> SolidClassifier<'a> {
         let curve = Curve::Line(line);
         let mut nearest: Option<(f64, f64)> = None;
         let mut first_doubt = f64::INFINITY;
-        for data in &self.faces {
+        for data in self.faces_along(origin, direction, reach) {
             let Some(window) = crate::intersect::line_window(origin, direction, &data.bounds)
             else {
                 continue;
@@ -503,7 +528,7 @@ impl<'a> SolidClassifier<'a> {
         let curve = Curve::Line(line);
         let mut nearest: Option<(f64, FaceId, f64)> = None;
         let mut first_doubt = f64::INFINITY;
-        for data in &self.faces {
+        for data in self.faces_along(origin, direction, reach) {
             let Some(window) = crate::intersect::line_window(origin, direction, &data.bounds)
             else {
                 continue;
@@ -565,7 +590,7 @@ impl<'a> SolidClassifier<'a> {
 
     pub fn classify_boundary_point(&self, point: Point3, normal: Vector3) -> BoundaryClass {
         let mut touching = None;
-        for data in &self.faces {
+        for data in self.faces_near(point) {
             let Some(uv) = self.on_face(data, point) else {
                 continue;
             };
@@ -608,14 +633,7 @@ impl Solid {
 
     pub fn point_in_face(&self, face: FaceId, uv: Point2) -> Option<FaceContainment> {
         let data = face_data(self, face)?;
-        let faces = vec![data];
-        SolidClassifier {
-            solid: self,
-            positions: positions_of(&faces),
-            faces,
-            bounds: None,
-        }
-        .point_in_face(face, uv)
+        SolidClassifier::of_faces(self, vec![data]).point_in_face(face, uv)
     }
 
     pub fn classify_boundary_point(&self, point: Point3, normal: Vector3) -> BoundaryClass {

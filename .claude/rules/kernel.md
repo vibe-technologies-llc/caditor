@@ -155,12 +155,13 @@ paths:
 
 ## `Solid::find_crossing` (for importers)
 
-- A face's edges (seams aside) are intersected with each other; a transversal point or overlap away
-  from shared vertices is a `Crossing`.
+- Each face's edges, with their uses by that face, are gathered once into a tree of their boxes.
+- A face's edges (seams aside) are intersected with those of overlapping boxes; a transversal point
+  or overlap away from shared vertices is a `Crossing`.
 - Each pair of faces with overlapping boxes (`box_tree.rs`) is intersected; a branch point strictly
   inside both faces (coincident faces: a sample) is a `Crossing`.
-- Neighbours skip the surface pair (the shared edge is the known branch): each one's other edges are
-  intersected with the other's surface; a transversal point or overlap strictly inside the other
+- Neighbours skip the surface pair (the shared edge is the known branch): each one's other edges
+  whose boxes meet the other face's are intersected with the other's surface; a transversal point or overlap strictly inside the other
   face is a `Crossing`.
 - A failed pair is not skipped: the result is a `CrossingCheck` (`Clear`, `Crossing`, or
   `Inconclusive` naming the first such pair when no crossing was found); STEP import keeps an

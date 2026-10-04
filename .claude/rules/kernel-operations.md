@@ -88,7 +88,9 @@ paths:
   noise of intersection tangents) are decided by chords at a common distance.
 - Loops are fitted in the face's chart: a run of cuts leaving a pole is shifted by whole periods to
   meet the next boundary edge, pcurve ends are snapped to their vertices, and a hole goes to the
-  smallest outer loop containing a point of it not on that loop.
+  smallest outer loop containing a point of it not on that loop, among the outer loops whose uv
+  boxes (in a `box_tree.rs` tree) meet the hole's at some periodic shift, each tested through a
+  `PolygonIndex` built on first use.
 
 ## Classification and selection
 

@@ -11,6 +11,7 @@ use crate::{
     topology::{
         CoedgeId, EdgeId, Face, FaceId, LoopId, ShellId, Solid, VertexId,
         lumps::{self, Lump, ShellMesh},
+        polygons::crosses,
     },
 };
 
@@ -383,20 +384,13 @@ pub(crate) fn signed_area(polygon: &[Point2]) -> f64 {
 }
 
 pub(crate) fn inside_polygon(polygon: &[Point2], point: Point2) -> bool {
-    let count = polygon.len();
-    let mut inside = false;
-    for (index, a) in polygon.iter().enumerate() {
-        let Some(b) = polygon.get((index + 1) % count) else {
-            continue;
-        };
-        if (a.y > point.y) != (b.y > point.y) {
-            let crossing = a.x + (point.y - a.y) / (b.y - a.y) * (b.x - a.x);
-            if point.x < crossing {
-                inside = !inside;
-            }
-        }
-    }
-    inside
+    polygon
+        .iter()
+        .zip(polygon.iter().cycle().skip(1))
+        .filter(|(a, b)| crosses(**a, **b, point))
+        .count()
+        % 2
+        == 1
 }
 
 fn face_domains(solid: &Solid) -> Checked<()> {

@@ -5,6 +5,7 @@ mod classify_tests;
 mod crossing;
 mod lumps;
 mod pcurve;
+mod polygons;
 #[cfg(test)]
 mod tests;
 mod validate;
@@ -22,7 +23,8 @@ pub use self::{
 };
 pub(crate) use self::{
     pcurve::fit as fit_pcurve,
-    validate::{continues, inside_polygon, signed_area},
+    polygons::PolygonIndex,
+    validate::{continues, signed_area},
 };
 use crate::{
     curve::Curve,

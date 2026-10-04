@@ -76,6 +76,10 @@ impl BoxTree {
     }
 
     pub fn overlapping(&self, query: &Aabb, margin: f64) -> Vec<usize> {
+        self.matching(|bounds| boxes_overlap(bounds, query, margin))
+    }
+
+    pub fn matching(&self, test: impl Fn(&Aabb) -> bool) -> Vec<usize> {
         let mut found = Vec::new();
         let mut pending = Vec::new();
         if !self.nodes.is_empty() {
@@ -85,7 +89,7 @@ impl BoxTree {
             let Some(node) = self.nodes.get(index) else {
                 continue;
             };
-            if !boxes_overlap(&node.bounds, query, margin) {
+            if !test(&node.bounds) {
                 continue;
             }
             if let Some(children) = node.children {
@@ -99,7 +103,7 @@ impl BoxTree {
             found.extend(
                 members
                     .iter()
-                    .filter(|(_, bounds)| boxes_overlap(bounds, query, margin))
+                    .filter(|(_, bounds)| test(bounds))
                     .map(|(item, _)| *item),
             );
         }
@@ -110,10 +114,10 @@ impl BoxTree {
 
 #[cfg(test)]
 mod tests {
-    use caditor_geometry::{Aabb, Point3};
+    use caditor_geometry::{Aabb, Point3, Vector3};
 
     use super::BoxTree;
-    use crate::intersect::boxes_overlap;
+    use crate::intersect::{boxes_overlap, line_window};
 
     fn cube(x: f64, y: f64, z: f64, size: f64) -> Aabb {
         Aabb::from_point(Point3::new(x, y, z)).including(Point3::new(x + size, y + size, z + size))
@@ -147,6 +151,35 @@ mod tests {
                 .map(|(index, _)| index)
                 .collect();
             assert_eq!(tree.overlapping(&query, 1e-6), expected);
+        }
+    }
+
+    #[test]
+    fn finds_exactly_the_boxes_a_ray_passes() {
+        let boxes: Vec<Aabb> = (0..400)
+            .map(|index| {
+                let i = f64::from(index);
+                cube((i * 7.3) % 50.0, (i * 3.1) % 40.0, (i * 1.7) % 30.0, 0.5)
+            })
+            .collect();
+        let tree = BoxTree::new(boxes.iter().copied());
+        for (origin, direction) in [
+            (Point3::new(-5.0, 20.0, 15.0), Vector3::X),
+            (Point3::ZERO, Vector3::new(5.0, 4.0, 3.0).normalize()),
+            (
+                Point3::new(25.0, 20.0, 15.0),
+                Vector3::new(-1.0, 0.3, 0.2).normalize(),
+            ),
+            (Point3::new(-5.0, -5.0, -5.0), Vector3::NEG_Z),
+        ] {
+            let passes = |bounds: &Aabb| line_window(origin, direction, bounds).is_some();
+            let expected: Vec<usize> = boxes
+                .iter()
+                .enumerate()
+                .filter(|(_, bounds)| passes(bounds))
+                .map(|(index, _)| index)
+                .collect();
+            assert_eq!(tree.matching(passes), expected);
         }
     }
 
