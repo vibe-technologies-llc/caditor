@@ -3,6 +3,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     panic::{self, AssertUnwindSafe},
     sync::{Arc, OnceLock},
+    time::{Duration, Instant},
 };
 
 use caditor_expression::{Dimension, EvalError, ParameterId, Quantity};
@@ -422,10 +423,24 @@ impl CacheEntry {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+const FEATURES_DONE_AFTER: Duration = Duration::from_millis(250);
+
+#[derive(Debug, Clone)]
 pub struct Recompute {
     cache: BTreeMap<FeatureId, CacheEntry>,
     mesh_quality: MeshQuality,
+    features_done_after: Duration,
+}
+
+impl Default for Recompute {
+    fn default() -> Self {
+        Self::with_mesh_quality(MeshQuality::default())
+    }
+}
+
+struct Reports<'a> {
+    progress: &'a dyn Fn(usize, usize),
+    features_done: &'a dyn Fn(Evaluation),
 }
 
 impl Recompute {
@@ -433,7 +448,13 @@ impl Recompute {
         Self {
             cache: BTreeMap::new(),
             mesh_quality,
+            features_done_after: FEATURES_DONE_AFTER,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn report_features_done_after(&mut self, delay: Duration) {
+        self.features_done_after = delay;
     }
 
     pub fn mesh_quality(&self) -> MeshQuality {
@@ -466,7 +487,22 @@ impl Recompute {
         cancel: &CancelToken,
         progress: &dyn Fn(usize, usize),
     ) -> Evaluation {
-        self.run_with(document, evaluator, cancel, progress, Display::Prepared)
+        self.run_reporting(document, evaluator, cancel, progress, &|_| {})
+    }
+
+    pub fn run_reporting(
+        &mut self,
+        document: &Document,
+        evaluator: &dyn Evaluator,
+        cancel: &CancelToken,
+        progress: &dyn Fn(usize, usize),
+        features_done: &dyn Fn(Evaluation),
+    ) -> Evaluation {
+        let reports = Reports {
+            progress,
+            features_done,
+        };
+        self.run_with(document, evaluator, cancel, &reports, Display::Prepared)
     }
 
     pub(crate) fn run_without_display(
@@ -475,7 +511,11 @@ impl Recompute {
         evaluator: &dyn Evaluator,
         cancel: &CancelToken,
     ) -> Evaluation {
-        self.run_with(document, evaluator, cancel, &|_, _| {}, Display::Skipped)
+        let reports = Reports {
+            progress: &|_, _| {},
+            features_done: &|_| {},
+        };
+        self.run_with(document, evaluator, cancel, &reports, Display::Skipped)
     }
 
     fn run_with(
@@ -483,9 +523,10 @@ impl Recompute {
         document: &Document,
         evaluator: &dyn Evaluator,
         cancel: &CancelToken,
-        progress: &dyn Fn(usize, usize),
+        reports: &Reports<'_>,
         display: Display,
     ) -> Evaluation {
+        let started = Instant::now();
         let parameters = ParameterValues::evaluate(document);
         let features = document.feature_handles();
         let tree: Arc<[String]> = features
@@ -507,7 +548,7 @@ impl Recompute {
             .collect();
 
         for (index, feature) in features.iter().enumerate() {
-            progress(index, features.len());
+            (reports.progress)(index, features.len());
             let id = feature.id();
             let skipped = if index >= bar {
                 Some(FeatureState::RolledBack)
@@ -646,7 +687,30 @@ impl Recompute {
                 },
             );
         }
-        progress(features.len(), features.len());
+        (reports.progress)(features.len(), features.len());
+        let mut shown: BTreeMap<FeatureId, FeatureId> = bodies
+            .iter()
+            .map(|(body, (state, _))| (*body, *state))
+            .collect();
+        let stale_bodies = last_good_bodies(document, &statuses, &shown);
+        for (body, state) in &stale_bodies {
+            shown.insert(*body, *state);
+        }
+        if display == Display::Prepared
+            && !cancel.is_cancelled()
+            && started.elapsed() >= self.features_done_after
+        {
+            (reports.features_done)(Evaluation {
+                parameters: parameters.clone(),
+                features: statuses.clone(),
+                recomputed: recomputed.clone(),
+                bodies: shown.clone(),
+                stale_bodies: stale_bodies.keys().copied().collect(),
+                inputs_before: inputs_before.clone(),
+                seen_bodies: seen_bodies.clone(),
+                meshed: false,
+            });
+        }
         let swept: BTreeSet<FeatureId> = match display {
             Display::Prepared => document
                 .active_features()
@@ -665,14 +729,6 @@ impl Recompute {
             {
                 interruptible(cancel.interrupt(), || result.find_regions());
             }
-        }
-        let mut shown: BTreeMap<FeatureId, FeatureId> = bodies
-            .iter()
-            .map(|(body, (state, _))| (*body, *state))
-            .collect();
-        let stale_bodies = last_good_bodies(document, &statuses, &shown);
-        for (body, state) in &stale_bodies {
-            shown.insert(*body, *state);
         }
         for (body, state) in &shown {
             if display == Display::Skipped || cancel.is_cancelled() {

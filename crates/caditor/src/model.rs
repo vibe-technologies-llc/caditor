@@ -558,6 +558,7 @@ impl Model {
             Ok(Some(update)) => {
                 if update.revision == self.revision() {
                     self.status = match update.outcome {
+                        Outcome::FeaturesDone => self.status,
                         Outcome::Finished => RecomputeStatus::UpToDate,
                         Outcome::Cancelled => RecomputeStatus::Cancelled,
                         Outcome::Failed => RecomputeStatus::Stopped,

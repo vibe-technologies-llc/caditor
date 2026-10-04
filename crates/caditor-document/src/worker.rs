@@ -26,6 +26,7 @@ pub struct Progress {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
+    FeaturesDone,
     Finished,
     Cancelled,
     Failed,
@@ -168,9 +169,15 @@ impl Recomputer {
 
     #[cfg(test)]
     pub(crate) fn wait(&self) -> Update {
-        self.updates
-            .recv()
-            .expect("the worker should report before it stops")
+        loop {
+            let update = self
+                .updates
+                .recv()
+                .expect("the worker should report before it stops");
+            if update.outcome != Outcome::FeaturesDone {
+                return update;
+            }
+        }
     }
 }
 
@@ -208,7 +215,19 @@ fn work(
             if job.retry_failures {
                 recompute.retry_failures();
             }
-            let Some(ran) = run_contained(&mut recompute, &job, evaluator, shared) else {
+            let report_features = |evaluation| {
+                let update = Update {
+                    revision: job.revision,
+                    outcome: Outcome::FeaturesDone,
+                    evaluation,
+                };
+                if updates.send(update).is_ok() {
+                    wake();
+                }
+            };
+            let Some(ran) =
+                run_contained(&mut recompute, &job, evaluator, shared, &report_features)
+            else {
                 continue;
             };
             let (outcome, evaluation) = match ran {
@@ -244,13 +263,14 @@ fn run_contained(
     job: &Job,
     evaluator: &dyn Evaluator,
     shared: &Arc<Shared>,
+    features_done: &dyn Fn(Evaluation),
 ) -> Option<Result<Evaluation, Panicked>> {
     let (sequence, cancels) = (job.sequence, job.cancels);
     let watched = Arc::clone(shared);
     let cancel = CancelToken::new(move || watched.is_cancelled(sequence, cancels));
     let report = |done, total| *shared.progress.lock() = Some(Progress { done, total });
     let evaluation = contained(recompute, |recompute| {
-        recompute.run(&job.document, evaluator, &cancel, &report)
+        recompute.run_reporting(&job.document, evaluator, &cancel, &report, features_done)
     });
     *shared.progress.lock() = None;
 
@@ -303,9 +323,12 @@ fn mesh_pending(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicUsize},
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicUsize},
+        },
+        time::Duration,
     };
 
     use caditor_kernel::Solid;
@@ -464,6 +487,46 @@ mod tests {
 
         worker.submit(document, 2).unwrap();
         assert_eq!(worker.wait().revision, 2);
+    }
+
+    #[test]
+    fn a_slow_recompute_reports_its_features_before_it_has_meshed_anything() {
+        let (document, ids) = sample();
+        let reported = Mutex::new(Vec::new());
+        let mut recompute = Recompute::default();
+        recompute.report_features_done_after(Duration::ZERO);
+
+        let evaluation = recompute.run_reporting(
+            &document,
+            &ModelEvaluator,
+            &CancelToken::never(),
+            &|_, _| {},
+            &|early| reported.lock().push(early),
+        );
+
+        let reported = reported.into_inner();
+        let [early] = reported.as_slice() else {
+            panic!("the features should be reported once");
+        };
+        assert!(!early.is_complete());
+        assert!(evaluation.is_complete());
+        assert_eq!(early.feature(ids.base), evaluation.feature(ids.base));
+    }
+
+    #[test]
+    fn a_quick_recompute_reports_only_once() {
+        let (document, _) = sample();
+        let reported = Mutex::new(0);
+
+        Recompute::default().run_reporting(
+            &document,
+            &ModelEvaluator,
+            &CancelToken::never(),
+            &|_, _| {},
+            &|_| *reported.lock() += 1,
+        );
+
+        assert_eq!(reported.into_inner(), 0);
     }
 
     #[test]

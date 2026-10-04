@@ -95,6 +95,11 @@ paths:
 - A newer submission or `cancel` stops the running job between features (evaluators also receive a
   `CancelToken`). Features that were not reached are reported as `Outdated`.
 - The worker calls a wake callback after each report (UI redraw).
+- A run that has taken 250 ms by the end of its feature loop reports once more, with
+  `Outcome::FeaturesDone` and an evaluation that is not `is_complete` (nothing meshed yet), before
+  it finds the regions of swept sketches and meshes each body, so one slow late mesh does not hide
+  the features and bodies already computed. The app keeps its status while that update is the
+  latest, and the final report follows as always.
 - Each run is contained: a panic outside any evaluator runs it again without the cache, and a
   second panic reports `Outcome::Failed` with the last good evaluation (shown as stopped, with
   Restart), so the worker lives on.

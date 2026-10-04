@@ -119,8 +119,9 @@ within a category run from most to least important.
   `Recomputer` does not cancel its job. Orphan a stuck worker after a grace period and start a
   fresh one, and report which feature is running and for how long, since `Progress` is only a
   count.
-- A recompute reports once, after every feature, region and mesh, so one slow late feature hides
-  every finished body. Send an update after the feature loop and per mesh.
+- A recompute reports once more after its feature loop only; a slow late feature still hides the
+  bodies before it, and each mesh is not reported as it finishes. Send an update per feature and
+  per mesh.
 - The cache keeps one result per feature, so changing a depth and undoing recomputes everything
   after it; it also has no byte budget, holding every intermediate `Solid`. Keep a small,
   size-bounded history per feature.
