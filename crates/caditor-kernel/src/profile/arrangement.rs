@@ -11,7 +11,7 @@ use crate::{
     interrupt,
     interval::Interval,
     profile::{
-        PieceBound, PieceId, ProfileCurve, ProfileError,
+        Neighbour, OpenEnd, PieceBound, PieceId, ProfileCurve, ProfileError,
         geometry::{area_under, winding},
         intersect::{self, Scale},
         source::Source,
@@ -96,6 +96,7 @@ pub(super) struct GraphFace {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(super) struct Arrangement {
     pub tolerance: f64,
+    pub loose_ends: Vec<LooseEnd>,
     pub vertices: Vec<Point2>,
     pub pieces: Vec<GraphPiece>,
     pub order: Vec<Vec<usize>>,
@@ -104,6 +105,14 @@ pub(super) struct Arrangement {
     pub sides: Vec<[Option<usize>; 2]>,
     pub face_half_edges: Vec<Vec<usize>>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct LooseEnd {
+    pub entity: u64,
+    pub point: Point2,
+}
+
+const MAX_REPORTED_OPEN_ENDS: usize = 64;
 
 pub(super) fn piece_of(half_edge: usize) -> (usize, bool) {
     (half_edge / 2, half_edge.is_multiple_of(2))
@@ -117,13 +126,15 @@ impl Arrangement {
         }
         let events = events(&sources, scale)?;
         let alive = vec![true; events.len()];
-        let (mut vertices, vertex_of, mut pieces) =
+        let (mut vertices, vertex_of, mut pieces, mut loose_ends) =
             settled(&sources, &events, &alive, scale.tolerance)?;
         if let Some((events, alive)) = without_idle_cuts(&sources, &events, &vertex_of, &pieces)? {
-            (vertices, _, pieces) = settled(&sources, &events, &alive, scale.tolerance)?;
+            (vertices, _, pieces, loose_ends) =
+                settled(&sources, &events, &alive, scale.tolerance)?;
         }
         let mut arrangement = Self {
             tolerance: scale.tolerance,
+            loose_ends,
             vertices,
             pieces,
             ..Self::default()
@@ -136,6 +147,30 @@ impl Arrangement {
 
     pub fn tolerance(&self) -> f64 {
         self.tolerance
+    }
+
+    pub fn open_ends(&self) -> Vec<OpenEnd> {
+        self.loose_ends
+            .iter()
+            .enumerate()
+            .map(|(index, end)| {
+                let nearest = self
+                    .loose_ends
+                    .iter()
+                    .enumerate()
+                    .filter(|(other, candidate)| *other != index && candidate.entity != end.entity)
+                    .map(|(_, other)| Neighbour {
+                        entity: other.entity,
+                        gap: other.point.distance(end.point),
+                    })
+                    .min_by(|a, b| a.gap.total_cmp(&b.gap));
+                OpenEnd {
+                    entity: end.entity,
+                    point: end.point,
+                    nearest,
+                }
+            })
+            .collect()
     }
 
     pub fn face_count(&self) -> usize {
@@ -670,17 +705,38 @@ struct RawPiece {
     piece: GraphPiece,
 }
 
-fn settled(
-    sources: &[Source],
-    events: &[Event],
-    alive: &[bool],
-    tolerance: f64,
-) -> Found<(Vec<Point2>, Vec<usize>, Vec<GraphPiece>)> {
+type Settled = (Vec<Point2>, Vec<usize>, Vec<GraphPiece>, Vec<LooseEnd>);
+
+fn settled(sources: &[Source], events: &[Event], alive: &[bool], tolerance: f64) -> Found<Settled> {
     let (vertices, vertex_of) = cluster(events, sources, tolerance)?;
     let raw = split(sources, events, &vertex_of, &vertices, tolerance, alive)?;
     let merged = merge_overlaps(raw, sources, tolerance)?;
+    let loose_ends = loose_ends(&merged, &vertices);
     let pieces = settle(merged, vertices.len())?;
-    Ok((vertices, vertex_of, pieces))
+    Ok((vertices, vertex_of, pieces, loose_ends))
+}
+
+fn loose_ends(pieces: &[GraphPiece], vertices: &[Point2]) -> Vec<LooseEnd> {
+    let mut degree = vec![0usize; vertices.len()];
+    for piece in pieces {
+        for vertex in [piece.start, piece.end] {
+            if let Some(count) = degree.get_mut(vertex) {
+                *count += 1;
+            }
+        }
+    }
+    pieces
+        .iter()
+        .flat_map(|piece| [piece.start, piece.end].map(|vertex| (vertex, piece.id.entity())))
+        .filter(|(vertex, _)| degree.get(*vertex) == Some(&1))
+        .filter_map(|(vertex, entity)| {
+            Some(LooseEnd {
+                entity,
+                point: vertices.get(vertex).copied()?,
+            })
+        })
+        .take(MAX_REPORTED_OPEN_ENDS)
+        .collect()
 }
 
 fn without_idle_cuts(

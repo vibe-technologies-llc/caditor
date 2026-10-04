@@ -277,9 +277,64 @@ fn dangling_curves_bound_nothing() {
         line(2, (1.0, 0.0), (1.0, 1.0)),
     ]);
     assert!(tree.regions().is_empty());
+    let Err(ProfileError::NoClosedProfile { open_ends }) = tree.select(&Selection::EvenDepth)
+    else {
+        panic!("a chain of two lines closes nothing");
+    };
+    let gap = 2f64.sqrt();
     assert_eq!(
-        tree.select(&Selection::EvenDepth),
-        Err(ProfileError::NoClosedProfile)
+        open_ends,
+        [
+            OpenEnd {
+                entity: 1,
+                point: Point2::new(0.0, 0.0),
+                nearest: Some(Neighbour { entity: 2, gap }),
+            },
+            OpenEnd {
+                entity: 2,
+                point: Point2::new(1.0, 1.0),
+                nearest: Some(Neighbour { entity: 1, gap }),
+            },
+        ]
+    );
+}
+
+#[test]
+fn an_outline_left_open_by_a_small_gap_names_the_two_ends_and_the_gap() {
+    let open = profile(&[
+        line(1, (0.0, 0.0), (4.0, 0.0)),
+        line(2, (4.0, 0.0), (4.0, 3.0)),
+        line(3, (4.0, 3.0), (0.0, 3.0)),
+        line(4, (0.0, 3.0), (0.0, 0.4)),
+    ]);
+
+    let Err(ProfileError::NoClosedProfile { open_ends }) = open.select(&Selection::EvenDepth)
+    else {
+        panic!("an outline with a gap has no region");
+    };
+
+    let pairs: Vec<(u64, u64, f64)> = open_ends
+        .iter()
+        .map(|end| {
+            let near = end.nearest.unwrap();
+            (end.entity, near.entity, near.gap)
+        })
+        .collect();
+    assert_eq!(pairs.len(), 2);
+    assert_eq!(
+        pairs
+            .iter()
+            .map(|(from, to, _)| (*from, *to))
+            .collect::<Vec<_>>(),
+        [(1, 4), (4, 1)]
+    );
+    assert!(
+        pairs.iter().all(|(_, _, gap)| (gap - 0.4).abs() < 1e-9),
+        "{pairs:?}"
+    );
+    assert_eq!(
+        ProfileError::NoClosedProfile { open_ends }.entities(),
+        [1, 4]
     );
 }
 

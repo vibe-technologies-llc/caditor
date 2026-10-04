@@ -87,9 +87,7 @@ within a category run from most to least important.
   the document reduces five of them to one message blaming "faces or edges that exactly touch",
   wrong for the near-coincident cases. Carry the face or edge names, or a model point, so the
   error can name and highlight them.
-- `ProfileError::NoClosedProfile` names no curves although the pruned open ends are known; report
-  each open end with its nearest candidate and gap, as `kernel-profile.md` says errors should.
-  `SweepError::Invalid` cannot say which region failed, since all regions build in one `Plan`.
+- `SweepError::Invalid` cannot say which region failed, since all regions build in one `Plan`.
 - `BlendError::Boolean`, `Sweep` and `Profile` return no edge although `applied` knows which tool
   failed, contrary to `kernel-operations.md`, and `ShellError::Walls` names nothing.
 

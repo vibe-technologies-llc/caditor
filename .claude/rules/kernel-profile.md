@@ -70,6 +70,9 @@ paths:
 ## Errors
 
 - Errors name the entity ids.
+- `NoClosedProfile` carries the open ends (`OpenEnd`: the curve, the point, and the nearest end of
+  another curve with the gap), the vertices of the arrangement with one piece, found before pruning
+  and capped at 64; the document says which curves end how far from which (the two nearest gaps).
 - An arrangement that fails without knowing which curves caused it is rebuilt from fewer curves
   (`culprits.rs`, at most 64 attempts) until the failing set is small enough to name.
 

@@ -325,6 +325,49 @@ fn an_open_sketch_is_reported_against_the_sketch() {
 }
 
 #[test]
+fn an_outline_with_a_gap_names_the_two_ends_and_how_far_apart_they_are() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let mut open = Sketch::new(Plane::XY);
+    let corners = [
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 0.0),
+        Point2::new(10.0, 6.0),
+        Point2::new(0.0, 6.0),
+    ];
+    let lines: Vec<EntityId> = corners
+        .iter()
+        .enumerate()
+        .map(|(index, start)| {
+            let end = corners
+                .get(index + 1)
+                .copied()
+                .unwrap_or(Point2::new(0.0, 0.5));
+            open.add_line(*start, end)
+        })
+        .collect();
+    let sketch = transaction.add_feature("Plate", FeatureKind::from(open));
+    let solid = transaction.add_feature(
+        "Solid",
+        extrude(sketch, "1 mm", false, BodyOperation::NewBody),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let FeatureState::Failed(error) = &evaluation.feature(solid).unwrap().state else {
+        panic!("an open outline cannot be extruded");
+    };
+
+    let (first, last) = (lines.first().unwrap(), lines.last().unwrap());
+    assert_eq!(
+        error.reason,
+        format!(
+            "Plate has no closed shape to sweep: an end of Line {first} is 0.5 mm from an end of Line {last}."
+        )
+    );
+}
+
+#[test]
 fn a_body_whose_first_feature_fails_keeps_its_last_good_shape_as_stale() {
     let mut model = model();
     let mut engine = Recompute::default();

@@ -20,7 +20,7 @@ use self::{
     region::{base_keys, lumps, shared_keys, with_keys},
 };
 pub use self::{
-    error::ProfileError,
+    error::{Neighbour, OpenEnd, ProfileError},
     reference::{BoundaryPiece, RegionMatch, RegionReference, ResolvedRegions, resolve_regions},
     triangulate::RegionMesh,
 };
@@ -456,7 +456,9 @@ impl Profile {
 
     pub fn select(&self, selection: &Selection) -> Result<Vec<Region>, ProfileError> {
         if self.regions.is_empty() {
-            return Err(ProfileError::NoClosedProfile);
+            return Err(ProfileError::NoClosedProfile {
+                open_ends: self.arrangement.open_ends(),
+            });
         }
         let keys = match selection {
             Selection::EvenDepth => self.even_depth(),

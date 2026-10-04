@@ -4,12 +4,12 @@ use std::{
     sync::OnceLock,
 };
 
-use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
+use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity};
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector2};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, EdgeId, EdgeName, FaceId, FaceName,
     GeometryError, LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE, Mesh, MeshQuality,
-    Profile, ProfileCurve, ProfileError, ReachError, Region, RegionMesh, RegionReference,
+    OpenEnd, Profile, ProfileCurve, ProfileError, ReachError, Region, RegionMesh, RegionReference,
     SamplingTolerance, Selection, Solid, SweepError, TessellationError, VertexId, VertexName,
     boolean, extrude, heights, next_face, resolve_regions, revolve, vertex_names,
 };
@@ -681,15 +681,61 @@ fn chosen_regions(
         .map_err(|error| profile_failure(context, &error))
 }
 
+const MAX_NAMED_GAPS: usize = 2;
+
+fn open_gaps(context: &Context<'_>, open_ends: &[OpenEnd]) -> Option<String> {
+    let mut gaps: Vec<(u64, u64, f64)> = open_ends
+        .iter()
+        .filter_map(|end| {
+            let near = end.nearest?;
+            Some((
+                end.entity.min(near.entity),
+                end.entity.max(near.entity),
+                near.gap,
+            ))
+        })
+        .collect();
+    gaps.sort_by(|a, b| a.2.total_cmp(&b.2).then(a.0.cmp(&b.0)).then(a.1.cmp(&b.1)));
+    gaps.dedup_by(|a, b| (a.0, a.1) == (b.0, b.1));
+    let named: Vec<String> = gaps
+        .iter()
+        .take(MAX_NAMED_GAPS)
+        .map(|(first, second, gap)| {
+            format!(
+                "an end of {} is {} from an end of {}",
+                context.curves(&[*first]),
+                Quantity::length(*gap),
+                context.curves(&[*second])
+            )
+        })
+        .collect();
+    named.first()?;
+    let unnamed = gaps.len().saturating_sub(MAX_NAMED_GAPS);
+    let mut text = named.join(" and ");
+    if unnamed > 0 {
+        let noun = if unnamed == 1 { "gap" } else { "gaps" };
+        text.push_str(&format!(", plus {unnamed} more {noun}"));
+    }
+    Some(text)
+}
+
 fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
     let sketch = &context.sketch_name;
     match error {
         ProfileError::Cancelled(_) => Failure::Cancelled,
-        ProfileError::NoClosedProfile => context.error(
-            format!("{sketch} has no closed shape to sweep."),
-            format!("Close the outline in {sketch}, for example by joining the ends of its lines."),
-            context.in_sketch(),
-        ),
+        ProfileError::NoClosedProfile { open_ends } => {
+            let reason = match open_gaps(context, open_ends) {
+                Some(gaps) => format!("{sketch} has no closed shape to sweep: {gaps}."),
+                None => format!("{sketch} has no closed shape to sweep."),
+            };
+            context.error(
+                reason,
+                format!(
+                    "Close the outline in {sketch}, for example by joining the ends of its lines."
+                ),
+                context.in_sketch(),
+            )
+        }
         ProfileError::EmptySelection => context.error(
             "No region of the sketch is chosen.".to_owned(),
             "Choose at least one region.".to_owned(),

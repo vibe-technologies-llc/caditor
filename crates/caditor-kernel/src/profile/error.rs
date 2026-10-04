@@ -1,11 +1,25 @@
+use caditor_geometry::Point2;
 use thiserror::Error;
 
 use crate::{error::GeometryError, interrupt::Interrupted, profile::RegionKey};
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Neighbour {
+    pub entity: u64,
+    pub gap: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OpenEnd {
+    pub entity: u64,
+    pub point: Point2,
+    pub nearest: Option<Neighbour>,
+}
+
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum ProfileError {
     #[error("the sketch has no closed profile")]
-    NoClosedProfile,
+    NoClosedProfile { open_ends: Vec<OpenEnd> },
     #[error("no region of the sketch is chosen")]
     EmptySelection,
     #[error("a chosen region no longer exists in the sketch")]
@@ -48,8 +62,17 @@ impl ProfileError {
             | Self::SelfOverlap { entity } => vec![*entity],
             Self::Overlap { first, second } => vec![*first, *second],
             Self::TooIntricate { entities } | Self::Unresolved { entities } => entities.clone(),
-            Self::NoClosedProfile
-            | Self::EmptySelection
+            Self::NoClosedProfile { open_ends } => {
+                let mut entities: Vec<u64> = open_ends
+                    .iter()
+                    .flat_map(|end| [Some(end.entity), end.nearest.map(|near| near.entity)])
+                    .flatten()
+                    .collect();
+                entities.sort_unstable();
+                entities.dedup();
+                entities
+            }
+            Self::EmptySelection
             | Self::MissingRegion(_)
             | Self::AmbiguousRegion { .. }
             | Self::Cancelled(_) => Vec::new(),
