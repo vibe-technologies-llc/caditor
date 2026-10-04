@@ -17,7 +17,7 @@ fn polygon(points: &[(f64, f64)], first_entity: u64) -> Vec<ProfileCurve> {
         .collect()
 }
 
-fn swept(plane: Plane, curves: &[ProfileCurve], height: f64) -> Solid {
+pub fn swept(plane: Plane, curves: &[ProfileCurve], height: f64) -> Solid {
     let profile = Profile::new(curves).unwrap();
     let regions = profile.select(&Selection::EvenDepth).unwrap();
     extrude(&plane, &regions, LinearExtent::one_side(height).unwrap(), 1).unwrap()

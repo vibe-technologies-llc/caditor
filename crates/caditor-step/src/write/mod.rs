@@ -2,8 +2,9 @@ mod shape;
 #[cfg(test)]
 mod tests;
 
-use std::{fmt, time::SystemTime};
+use std::{collections::BTreeMap, fmt, time::SystemTime};
 
+use caditor_geometry::{Point3, Vector3};
 use caditor_kernel::Solid;
 
 use crate::write::shape::Shapes;
@@ -41,6 +42,13 @@ impl fmt::Display for Ref {
 pub(crate) struct Data {
     entities: Vec<String>,
     unwritable: bool,
+    points: BTreeMap<[u64; 3], Ref>,
+    directions: BTreeMap<[u64; 3], Ref>,
+    placements: BTreeMap<[Ref; 3], Ref>,
+}
+
+fn coordinate_key(coordinates: [f64; 3]) -> [u64; 3] {
+    coordinates.map(|value| (value + 0.0).to_bits())
 }
 
 impl Data {
@@ -60,6 +68,46 @@ impl Data {
     pub fn reals(&mut self, values: impl IntoIterator<Item = f64>) -> String {
         let values: Vec<String> = values.into_iter().map(|value| self.real(value)).collect();
         list(values)
+    }
+
+    pub fn point(&mut self, point: Point3) -> Ref {
+        let key = coordinate_key([point.x, point.y, point.z]);
+        if let Some(existing) = self.points.get(&key) {
+            return *existing;
+        }
+        let coordinates = self.reals([point.x, point.y, point.z]);
+        let written = self.add(format!("CARTESIAN_POINT('',{coordinates})"));
+        self.points.insert(key, written);
+        written
+    }
+
+    pub fn direction(&mut self, direction: Vector3) -> Ref {
+        let unit = direction.normalize_or_zero();
+        let key = coordinate_key([unit.x, unit.y, unit.z]);
+        if let Some(existing) = self.directions.get(&key) {
+            return *existing;
+        }
+        let coordinates = self.reals([unit.x, unit.y, unit.z]);
+        let written = self.add(format!("DIRECTION('',{coordinates})"));
+        self.directions.insert(key, written);
+        written
+    }
+
+    pub fn placement(&mut self, origin: Point3, axis: Vector3, reference: Vector3) -> Ref {
+        let parts = [
+            self.point(origin),
+            self.direction(axis),
+            self.direction(reference),
+        ];
+        if let Some(existing) = self.placements.get(&parts) {
+            return *existing;
+        }
+        let [origin, axis, reference] = parts;
+        let written = self.add(format!(
+            "AXIS2_PLACEMENT_3D('',{origin},{axis},{reference})"
+        ));
+        self.placements.insert(parts, written);
+        written
     }
 
     fn take_unwritable(&mut self) -> bool {

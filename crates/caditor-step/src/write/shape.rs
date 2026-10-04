@@ -39,7 +39,7 @@ impl<'a> Shapes<'a> {
     }
 
     pub fn origin(data: &mut Data) -> Ref {
-        placement(data, Point3::ZERO, Vector3::Z, Vector3::X)
+        data.placement(Point3::ZERO, Vector3::Z, Vector3::X)
     }
 
     pub fn body(&mut self, solid: &Solid, name: &str) -> Result<Vec<Ref>, Unsupported> {
@@ -117,10 +117,9 @@ impl<'a> Shapes<'a> {
         if let Some(existing) = self.vertices.get(&id) {
             return Ok(*existing);
         }
-        let point = point(
-            self.data,
-            solid.vertex(id).ok_or(Unsupported::Geometry)?.point(),
-        );
+        let point = self
+            .data
+            .point(solid.vertex(id).ok_or(Unsupported::Geometry)?.point());
         let vertex = self.data.add(format!("VERTEX_POINT('',{point})"));
         self.vertices.insert(id, vertex);
         Ok(vertex)
@@ -155,8 +154,8 @@ impl<'a> Shapes<'a> {
     ) -> Result<Ref, Unsupported> {
         Ok(match curve {
             Curve::Line(line) => {
-                let origin = point(self.data, line.origin());
-                let direction = direction(self.data, line.direction());
+                let origin = self.data.point(line.origin());
+                let direction = self.data.direction(line.direction());
                 let vector = self.data.add(format!("VECTOR('',{direction},1.)"));
                 self.data.add(format!("LINE('',{origin},{vector})"))
             }
@@ -187,7 +186,7 @@ impl<'a> Shapes<'a> {
         let points: Vec<Ref> = spline
             .control_points()
             .iter()
-            .map(|control| point(self.data, *control))
+            .map(|control| self.data.point(*control))
             .collect();
         let (multiplicities, knots) = knot_runs(spline.knots());
         let degree = spline.degree();
@@ -215,7 +214,7 @@ impl<'a> Shapes<'a> {
             let mut row_weights = Vec::with_capacity(spline.rows());
             for index in 0..spline.rows() {
                 let control = spline.control_point(column, index).unwrap_or(Point3::ZERO);
-                row.push(point(self.data, control));
+                row.push(self.data.point(control));
                 row_weights.push(
                     spline
                         .weights()
@@ -267,12 +266,8 @@ impl<'a> Shapes<'a> {
                 let frame = if opening > 0.0 {
                     frame_placement(self.data, source)
                 } else {
-                    placement(
-                        self.data,
-                        source.origin(),
-                        -source.normal(),
-                        source.x_axis(),
-                    )
+                    self.data
+                        .placement(source.origin(), -source.normal(), source.x_axis())
                 };
                 let radius = self.data.real(cone.radius());
                 let angle = self.data.real(opening.abs());
@@ -294,7 +289,7 @@ impl<'a> Shapes<'a> {
             }
             Surface::Extrusion(extrusion) => {
                 let profile = self.curve(extrusion.profile(), None, None)?;
-                let direction = direction(self.data, extrusion.direction());
+                let direction = self.data.direction(extrusion.direction());
                 let vector = self.data.add(format!("VECTOR('',{direction},1.)"));
                 self.data.add(format!(
                     "SURFACE_OF_LINEAR_EXTRUSION('',{profile},{vector})"
@@ -303,8 +298,8 @@ impl<'a> Shapes<'a> {
             Surface::BSpline(spline) => self.spline_surface(spline),
             Surface::Revolution(revolution) => {
                 let profile = self.curve(revolution.profile(), None, None)?;
-                let origin = point(self.data, revolution.axis_origin());
-                let axis = direction(self.data, revolution.axis_direction());
+                let origin = self.data.point(revolution.axis_origin());
+                let axis = self.data.direction(revolution.axis_direction());
                 let placement = self
                     .data
                     .add(format!("AXIS1_PLACEMENT('',{origin},{axis})"));
@@ -316,28 +311,8 @@ impl<'a> Shapes<'a> {
     }
 }
 
-fn point(data: &mut Data, point: Point3) -> Ref {
-    let coordinates = data.reals([point.x, point.y, point.z]);
-    data.add(format!("CARTESIAN_POINT('',{coordinates})"))
-}
-
-fn direction(data: &mut Data, direction: Vector3) -> Ref {
-    let unit = direction.normalize_or_zero();
-    let coordinates = data.reals([unit.x, unit.y, unit.z]);
-    data.add(format!("DIRECTION('',{coordinates})"))
-}
-
-fn placement(data: &mut Data, origin: Point3, axis: Vector3, reference: Vector3) -> Ref {
-    let origin = point(data, origin);
-    let axis = direction(data, axis);
-    let reference = direction(data, reference);
-    data.add(format!(
-        "AXIS2_PLACEMENT_3D('',{origin},{axis},{reference})"
-    ))
-}
-
 fn frame_placement(data: &mut Data, frame: &Plane) -> Ref {
-    placement(data, frame.origin(), frame.normal(), frame.x_axis())
+    data.placement(frame.origin(), frame.normal(), frame.x_axis())
 }
 
 fn knot_runs(knots: &[f64]) -> (Vec<usize>, Vec<f64>) {

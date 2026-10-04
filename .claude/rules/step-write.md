@@ -25,6 +25,10 @@ paths:
   `SURFACE_OF_LINEAR_EXTRUSION` and `SURFACE_OF_REVOLUTION`; B-splines with knot runs (rational ones
   as the complex entity); intersection curves as the cubic B-spline of their Hermite segments over
   the edge.
+- `Data` writes each `CARTESIAN_POINT`, `DIRECTION` and `AXIS2_PLACEMENT_3D` once, keyed by the
+  exact bits of its coordinates (`-0.0` as `0.0`) in `BTreeMap`s, since the coordinates come from
+  imported files; vertices, line origins, spline controls and frames reuse them. Directions stay
+  per distinct value, so planes with different normals still write their own.
 - Face `same_sense` is the face sense, since the kernel's normals are STEP's.
 
 ## Text and verification

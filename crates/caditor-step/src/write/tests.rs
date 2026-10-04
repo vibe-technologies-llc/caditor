@@ -1,5 +1,8 @@
 use std::time::{Duration, SystemTime};
 
+use caditor_geometry::{Plane, Point2};
+use caditor_kernel::ProfileCurve;
+
 use crate::{
     fixtures,
     write::{StepBody, WriteError, real, text, timestamp, write_step},
@@ -113,6 +116,45 @@ fn several_bodies_share_one_representation() {
     .unwrap();
     assert_eq!(count(&step, "MANIFOLD_SOLID_BREP"), 2);
     assert_eq!(count(&step, "ADVANCED_BREP_SHAPE_REPRESENTATION"), 1);
+}
+
+#[test]
+fn points_directions_and_placements_are_written_once() {
+    for (name, solid) in fixtures::all() {
+        let step = written(name, &solid);
+        for entity in ["CARTESIAN_POINT", "DIRECTION", "AXIS2_PLACEMENT_3D"] {
+            let mut bodies: Vec<&str> = step
+                .lines()
+                .filter_map(|line| line.split_once(&format!("={entity}(")))
+                .map(|(_, body)| body)
+                .collect();
+            let total = bodies.len();
+            bodies.sort_unstable();
+            bodies.dedup();
+            assert_eq!(bodies.len(), total, "{name}: repeated {entity}");
+        }
+    }
+}
+
+#[test]
+fn a_many_sided_prism_writes_each_corner_once() {
+    let sides = 500;
+    let corners: Vec<Point2> = (0..sides)
+        .map(|index| {
+            let angle = std::f64::consts::TAU * index as f64 / sides as f64;
+            Point2::new(50.0 * angle.cos(), 50.0 * angle.sin())
+        })
+        .collect();
+    let curves: Vec<ProfileCurve> = (0..sides)
+        .map(|index| {
+            let start = corners[index];
+            let end = corners[(index + 1) % sides];
+            ProfileCurve::line(index as u64 + 1, start, end)
+        })
+        .collect();
+    let solid = fixtures::swept(Plane::XY, &curves, 10.0);
+    let step = written("Prism", &solid);
+    assert!(count(&step, "CARTESIAN_POINT") <= 2 * sides + 8);
 }
 
 #[test]

@@ -712,14 +712,24 @@ fn only_repairs_beyond_the_precision_of_the_file_are_reported() {
         SystemTime::UNIX_EPOCH,
     )
     .unwrap();
-    let corner = "#19=CARTESIAN_POINT('',(0.0,0.0,0.0));";
-    let lifted = text.replacen(corner, "#19=CARTESIAN_POINT('',(0.0,0.0,0.0003));", 1);
+    let corner = text
+        .lines()
+        .find_map(|line| line.strip_suffix("=CARTESIAN_POINT('',(0.0,0.0,0.0));"))
+        .unwrap();
+    let vertex = format!("VERTEX_POINT('',{corner})");
+    let lifted = text
+        .replacen(&vertex, "VERTEX_POINT('',#90000)", 1)
+        .replacen(
+            "ENDSEC;\nEND-ISO",
+            "#90000=CARTESIAN_POINT('',(0.0,0.0,0.0003));\nENDSEC;\nEND-ISO",
+            1,
+        );
     let coarse = lifted.replacen("LENGTH_MEASURE(1.E-6)", "LENGTH_MEASURE(1.E-3)", 1);
 
     let fine = sample(&lifted);
     let coarse = sample(&coarse);
 
-    assert!(text.contains(corner));
+    assert!(text.contains(&vertex));
     assert_eq!(
         fine.notes,
         ["1 edge or corner that did not quite meet its faces was moved onto its faces."]

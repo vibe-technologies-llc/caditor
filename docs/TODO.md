@@ -181,9 +181,6 @@ within a category run from most to least important.
   tessellated AP242, a surface model or a wireframe; report the schema and what it holds.
 - The parse tree still holds about three times the file size (a boxed slice per record and per
   list); a flat arena of values would bring it near the file size.
-- The writer shares nothing: an 8,000-sided prism writes 48,003 `CARTESIAN_POINT`s and 40,006
-  `DIRECTION`s (13 MB), which also bloats the STEP text stored in models. Deduplicate points,
-  directions and placements.
 - The writer puts all bodies in one product with no colours, holding the output twice in memory.
 - Placements that scale or mirror are left out with a note; a uniform scale could be applied, and
   a mirror once the kernel can reflect.
