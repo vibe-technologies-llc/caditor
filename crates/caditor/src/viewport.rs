@@ -30,7 +30,7 @@ use crate::{
     reference_picking,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
-    selection::{Pickable, Selection},
+    selection::{Pickable, Selection, SelectionFilter},
     shape_modes::ShapeMode,
     shell_tools,
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenBox},
@@ -190,6 +190,8 @@ pub struct ViewportState {
     scene_bounds: Option<Aabb>,
     measured: Option<(MeasuredLine, String)>,
     scenes: SceneCache,
+    filter: SelectionFilter,
+    filter_applies: bool,
 }
 
 pub fn initial_viewpoint() -> Viewpoint {
@@ -242,6 +244,34 @@ impl ViewportState {
             scene_bounds: None,
             measured: None,
             scenes: SceneCache::default(),
+            filter: SelectionFilter::default(),
+            filter_applies: true,
+        }
+    }
+
+    pub fn filter(&self) -> SelectionFilter {
+        self.filter
+    }
+
+    pub fn filter_applies(&self) -> bool {
+        self.filter_applies
+    }
+
+    pub fn set_filter(&mut self, filter: SelectionFilter) {
+        if self.filter == filter {
+            return;
+        }
+        self.filter = filter;
+        self.hovered = None;
+        self.keyboard_highlight = None;
+        self.last_pick = None;
+    }
+
+    fn active_filter(&self) -> SelectionFilter {
+        if self.filter_applies {
+            self.filter
+        } else {
+            SelectionFilter::Everything
         }
     }
 
@@ -322,7 +352,7 @@ impl ViewportState {
         if self.cursor.is_none() {
             return;
         }
-        let best = picks.best_hit(result);
+        let best = picks.best_hit(result, self.active_filter());
         self.hovered = best.map(|(pickable, _)| pickable);
         self.hover_source = Some(PickSource {
             cursor: result.cursor,
@@ -390,6 +420,8 @@ impl ViewportState {
         let display = model.display();
         let edited = editing.feature();
         let context = editing.context();
+        self.filter_applies =
+            context.sketch.is_none() && context.solid.is_none() && !context.choosing_plane;
         if edited != self.edited {
             self.edited = edited;
             self.face_edited_sketch = edited.is_some();
@@ -1203,6 +1235,11 @@ impl ViewportState {
                 self.nudge(step);
             }
         }
+        for filter in SelectionFilter::ALL {
+            if commands.available(Command::Filter(filter)) {
+                self.set_filter(filter);
+            }
+        }
         if commands.available(Command::ToggleProjection) {
             actions.push(Action::Preferences(PreferencesCommand::Change(
                 PreferenceChange::Projection(self.navigation.projection.other()),
@@ -1309,7 +1346,14 @@ impl ViewportState {
     }
 
     fn step_highlight(&mut self, step: isize) {
-        let highlightable = self.scenes.highlightable();
+        let filter = self.active_filter();
+        let highlightable: Vec<Pickable> = self
+            .scenes
+            .highlightable()
+            .iter()
+            .copied()
+            .filter(|pickable| filter.allows(*pickable))
+            .collect();
         let count = highlightable.len();
         if count == 0 {
             return;

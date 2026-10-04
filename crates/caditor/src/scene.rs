@@ -25,7 +25,7 @@ use crate::{
     display::DisplayedSketches,
     drawing::Preview,
     editing::Context,
-    selection::{self, Axis, Pickable, PrincipalPlane, Selection},
+    selection::{self, Axis, Pickable, PrincipalPlane, Selection, SelectionFilter},
     visibility,
 };
 
@@ -184,13 +184,17 @@ impl PickTable {
         self.entries.iter().map(|(pickable, _)| *pickable)
     }
 
-    pub fn best_hit(&self, result: &PickResult) -> Option<(Pickable, PickHit)> {
+    pub fn best_hit(
+        &self,
+        result: &PickResult,
+        filter: SelectionFilter,
+    ) -> Option<(Pickable, PickHit)> {
         result
             .hits
             .iter()
             .filter_map(|hit| {
                 let (pickable, priority) = self.resolve(hit.id)?;
-                (hit.offset_points <= priority.tolerance_points())
+                (filter.allows(pickable) && hit.offset_points <= priority.tolerance_points())
                     .then_some((priority, pickable, *hit))
             })
             .min_by(|a, b| {
@@ -1794,20 +1798,32 @@ mod tests {
             hits,
         };
 
-        let best = picks.best_hit(&result(vec![
-            hit(plane, 0.0),
-            hit(axis, 1.0),
-            hit(origin, 6.0),
-        ]));
+        let best = picks.best_hit(
+            &result(vec![hit(plane, 0.0), hit(axis, 1.0), hit(origin, 6.0)]),
+            SelectionFilter::Everything,
+        );
         assert_eq!(best.map(|(pickable, _)| pickable), Some(Pickable::Origin));
 
-        let best = picks.best_hit(&result(vec![hit(plane, 0.0), hit(axis, 6.0)]));
+        let best = picks.best_hit(
+            &result(vec![hit(plane, 0.0), hit(axis, 6.0)]),
+            SelectionFilter::Everything,
+        );
         assert_eq!(
             best.map(|(pickable, _)| pickable),
             Some(Pickable::Plane(PrincipalPlane::Xy))
         );
 
-        assert_eq!(picks.best_hit(&result(vec![hit(plane, 2.0)])), None);
+        assert_eq!(
+            picks.best_hit(&result(vec![hit(plane, 2.0)]), SelectionFilter::Everything),
+            None
+        );
+        assert_eq!(
+            picks.best_hit(
+                &result(vec![hit(plane, 0.0), hit(axis, 1.0), hit(origin, 6.0)]),
+                SelectionFilter::Faces
+            ),
+            None
+        );
     }
 
     #[test]

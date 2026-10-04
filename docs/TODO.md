@@ -378,8 +378,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Viewer
 
-- [medium · easy] A selection filter, so a click takes only faces, edges, vertices or sketch
-  geometry.
 - [medium · medium] Display styles: wireframe, hidden line and shaded without edges, plus isolate or
   hide others and look normal to a face.
 - [medium · medium] Transparent or X-ray bodies.

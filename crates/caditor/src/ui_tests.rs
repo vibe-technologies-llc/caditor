@@ -50,7 +50,7 @@ use crate::{
         InputMode, PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, TitleBar,
     },
     scene,
-    selection::{Axis, Pickable, PrincipalPlane},
+    selection::{Axis, Pickable, PrincipalPlane, SelectionFilter},
     shape_modes::{CircleMode, RectangleMode, ShapeMode},
     sketch_toolbar,
     sketch_tools::{self, ConstraintTool},
@@ -5338,6 +5338,42 @@ fn a_sketch_started_on_a_selected_face_follows_it_when_the_body_changes() {
     assert_eq!(plane_height(&harness, sketch), 25.0);
     assert!((harness.body_volume(extrude) - (40000.0 + 2000.0)).abs() < 1.0);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn a_selection_filter_makes_clicks_skip_everything_but_one_kind() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    let edge = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| matches!(pickable, Pickable::Edge { .. }))
+        .expect("an edge is pickable");
+    harness.select([]);
+
+    run_from_palette(&mut harness, "select edges only");
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.filter(), SelectionFilter::Edges);
+    assert!(harness.shows("Selecting edges only"));
+
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    assert!(harness.workspace.viewport.selection().is_empty());
+
+    harness.click_pickable(Plane::XY, Point2::new(0.0, 0.0), edge);
+    assert!(harness.workspace.viewport.selection().contains(edge));
+
+    harness.click("Selecting edges only");
+    harness.frame();
+    assert_eq!(
+        harness.workspace.viewport.filter(),
+        SelectionFilter::Everything
+    );
+    assert!(!harness.shows("Selecting edges only"));
+
+    harness.select([]);
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    assert!(harness.workspace.viewport.selection().contains(top));
 }
 
 #[test]

@@ -50,6 +50,7 @@ use crate::{
         PreferencesView, Restored, TitleBar,
     },
     reference_picking,
+    selection::SelectionFilter,
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar,
     status_bar::{self, StatusContext},
@@ -392,6 +393,11 @@ pub fn show(
         files,
         offers,
         appearance: &preferences.appearance,
+        filter: if viewport.filter_applies() {
+            viewport.filter()
+        } else {
+            SelectionFilter::Everything
+        },
     };
     status_bar::show(ui, model, &status, panels, &mut commands, actions);
     let context = feature_tree::CommandContext {
@@ -665,6 +671,7 @@ pub fn perform(
             Action::File(command) => files.perform(command, model),
             Action::Editing(command) => workspace.editing.perform(command, model),
             Action::Preferences(command) => workspace.preferences_command(command, model, files),
+            Action::Filter(filter) => workspace.viewport.set_filter(filter),
             other => model.perform(other),
         }
     }

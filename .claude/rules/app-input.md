@@ -92,6 +92,12 @@ paths:
   action through `pick_action`); Enter opens what the item belongs to as a double-click would.
   With Trim, Extend, Mirror or Sketch fillet active they step through that tool's targets instead
   (`app-sketching.md`).
+- The selection filter (`SelectionFilter`, commands `select.*`, View › Selection filter) makes
+  `PickTable::best_hit` and the highlight keys skip every pickable but one kind (faces, edges,
+  vertices or sketch geometry), reference geometry included. It applies only while no sketch or
+  tool is open and no plane is being chosen (`ViewportState::filter_applies`), so tools keep
+  picking what they need; the status bar names an active filter and its button clears it. It is
+  kept for the session, not saved.
 
 ## Typed-point field
 

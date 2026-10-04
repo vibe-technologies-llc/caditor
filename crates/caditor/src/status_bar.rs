@@ -16,6 +16,7 @@ use crate::{
     offers::Offers,
     panels::{Focus, PanelState},
     preferences::{Appearance, PreferenceChange, PreferencesCommand},
+    selection::SelectionFilter,
     widgets::{self, Named, Tone},
 };
 
@@ -36,6 +37,7 @@ pub struct StatusContext<'a> {
     pub files: &'a Files,
     pub offers: &'a Offers,
     pub appearance: &'a Appearance,
+    pub filter: SelectionFilter,
 }
 
 pub fn show(
@@ -124,6 +126,10 @@ fn trailing(
         }
         unit(ui, model, actions);
         divider(ui);
+        if context.filter != SelectionFilter::Everything {
+            filter(ui, context.filter, actions);
+            divider(ui);
+        }
         widgets::remember_width(ui, id, ui.min_rect().width());
         selection(ui, &context.offers.described, selection_room);
         if with_notice {
@@ -377,6 +383,17 @@ fn selection(ui: &mut Ui, described: &[String], room: f32) {
         }
     }
     widgets::icon_label(ui, icons::SELECTION, appearance::tokens(ui).text_muted);
+}
+
+fn filter(ui: &mut Ui, filter: SelectionFilter, actions: &mut Vec<Action>) {
+    let button =
+        widgets::small_button(ui, icons::command(Command::Filter(filter)), filter.status());
+    let response = ui.add(Named::new(button, filter.status())).on_hover_text(
+        "Clicks and the highlight keys skip everything else. Click to select anything again.",
+    );
+    if response.clicked() {
+        actions.push(Action::Filter(SelectionFilter::Everything));
+    }
 }
 
 fn unit(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>) {

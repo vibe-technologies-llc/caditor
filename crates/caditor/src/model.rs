@@ -23,6 +23,7 @@ use crate::{
     editing::EditingCommand,
     files::FileCommand,
     preferences::PreferencesCommand,
+    selection::SelectionFilter,
     units::LengthUnit,
 };
 
@@ -45,6 +46,7 @@ pub enum Action {
     File(FileCommand),
     Editing(EditingCommand),
     Preferences(PreferencesCommand),
+    Filter(SelectionFilter),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -482,6 +484,10 @@ impl Model {
             }
             Action::Preferences(command) => {
                 log::warn!("{command:?} reached the model instead of the preferences");
+                Ok(None)
+            }
+            Action::Filter(filter) => {
+                log::warn!("{filter:?} reached the model instead of the viewport");
                 Ok(None)
             }
         };

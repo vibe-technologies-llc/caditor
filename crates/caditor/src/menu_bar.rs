@@ -11,6 +11,7 @@ use crate::{
     history::HistoryCommand,
     icons, logo,
     model::{Action, Model},
+    selection::SelectionFilter,
     shape_modes::ShapeMode,
     sketch_tools::ConstraintTool,
     widgets::{self, Tone},
@@ -332,6 +333,14 @@ impl Menus<'_, '_> {
                 "Camera",
                 |ui| {
                     self.items(ui, CameraMove::ALL.map(Command::Camera));
+                },
+            );
+            submenu(
+                ui,
+                icons::command(Command::Filter(SelectionFilter::Everything)),
+                "Selection filter",
+                |ui| {
+                    self.items(ui, SelectionFilter::ALL.map(Command::Filter));
                 },
             );
             ui.separator();

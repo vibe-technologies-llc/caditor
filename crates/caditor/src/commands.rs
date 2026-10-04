@@ -5,8 +5,8 @@ use caditor_geometry::Vector3;
 use egui::{Event, Key, KeyboardShortcut, Modifiers};
 
 use crate::{
-    editing::Tool, samples::Sample, shape_modes::ShapeMode, sketch_tools::ConstraintTool,
-    variants::all_variants,
+    editing::Tool, samples::Sample, selection::SelectionFilter, shape_modes::ShapeMode,
+    sketch_tools::ConstraintTool, variants::all_variants,
 };
 
 const SETTINGS_PREFIX: &str = "keys.";
@@ -101,6 +101,7 @@ pub enum Command {
     NormalInterface,
     View(StandardView),
     Camera(CameraMove),
+    Filter(SelectionFilter),
     HighlightNext,
     HighlightPrevious,
     ActivateHighlighted,
@@ -382,6 +383,7 @@ macro_rules! plain_commands {
             | Command::Constraint(_)
             | Command::View(_)
             | Command::Camera(_)
+            | Command::Filter(_)
             | Command::OpenSample(_)
             | Command::OpenRecent(_) => {}
         };
@@ -485,6 +487,7 @@ impl Command {
             .chain(ConstraintTool::ALL.into_iter().map(Self::Constraint))
             .chain(StandardView::ALL.into_iter().map(Self::View))
             .chain(CameraMove::ALL.into_iter().map(Self::Camera))
+            .chain(SelectionFilter::ALL.into_iter().map(Self::Filter))
             .chain(Sample::ALL.into_iter().map(Self::OpenSample))
             .chain(RecentSlot::ALL.into_iter().map(Self::OpenRecent))
     }
@@ -533,6 +536,7 @@ impl Command {
                 Tool::Fillet => "sketch.fillet",
             },
             Self::ShapeMode(mode) => mode.id(),
+            Self::Filter(filter) => filter.id(),
             Self::Constraint(tool) => match tool {
                 ConstraintTool::Coincident => "constraint.coincident",
                 ConstraintTool::Midpoint => "constraint.midpoint",
@@ -685,6 +689,7 @@ impl Command {
             Self::View(StandardView::Isometric) => "Isometric view",
             Self::View(view) => return format!("View from the {}", view.name()),
             Self::Camera(camera) => camera.title(),
+            Self::Filter(filter) => filter.title(),
             Self::HighlightNext => "Highlight the next item in the view",
             Self::HighlightPrevious => "Highlight the previous item in the view",
             Self::ActivateHighlighted => "Select the highlighted item",
@@ -772,6 +777,7 @@ impl Command {
             | Self::NormalInterface
             | Self::View(_)
             | Self::Camera(_)
+            | Self::Filter(_)
             | Self::HighlightNext
             | Self::HighlightPrevious
             | Self::ActivateHighlighted
@@ -912,6 +918,7 @@ impl Command {
             | Self::KeyboardShortcuts
             | Self::FinishSketch
             | Self::ShapeMode(_)
+            | Self::Filter(_)
             | Self::OpenSample(_)
             | Self::OpenRecent(_)
             | Self::ClearRecent

@@ -120,6 +120,7 @@ pub fn command(command: Command) -> &'static str {
         Command::SmallerInterface => phosphor::MAGNIFYING_GLASS_MINUS,
         Command::NormalInterface => phosphor::TEXT_AA,
         Command::View(_) => phosphor::CUBE_FOCUS,
+        Command::Filter(_) => phosphor::FUNNEL,
         Command::Camera(camera) => camera_move(camera),
         Command::HighlightNext => phosphor::ARROW_RIGHT,
         Command::HighlightPrevious => phosphor::ARROW_LEFT,

@@ -12,8 +12,68 @@ use crate::{
     bodies::{self, FaceKey, VertexKey},
     datum_tools,
     editing::Context,
+    variants::all_variants,
     visibility,
 };
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SelectionFilter {
+    #[default]
+    Everything,
+    Faces,
+    Edges,
+    Vertices,
+    SketchGeometry,
+}
+
+all_variants!(SelectionFilter: Everything, Faces, Edges, Vertices, SketchGeometry);
+
+impl SelectionFilter {
+    pub fn allows(self, pickable: Pickable) -> bool {
+        match self {
+            Self::Everything => true,
+            Self::Faces => matches!(pickable, Pickable::Face { .. }),
+            Self::Edges => matches!(pickable, Pickable::Edge { .. }),
+            Self::Vertices => matches!(pickable, Pickable::Vertex { .. }),
+            Self::SketchGeometry => matches!(
+                pickable,
+                Pickable::SketchEntity { .. }
+                    | Pickable::SketchConstraint { .. }
+                    | Pickable::Region { .. }
+            ),
+        }
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Everything => "select.everything",
+            Self::Faces => "select.faces",
+            Self::Edges => "select.edges",
+            Self::Vertices => "select.vertices",
+            Self::SketchGeometry => "select.sketch_geometry",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Everything => "Select anything",
+            Self::Faces => "Select faces only",
+            Self::Edges => "Select edges only",
+            Self::Vertices => "Select vertices only",
+            Self::SketchGeometry => "Select sketch geometry only",
+        }
+    }
+
+    pub fn status(self) -> &'static str {
+        match self {
+            Self::Everything => "Selecting anything",
+            Self::Faces => "Selecting faces only",
+            Self::Edges => "Selecting edges only",
+            Self::Vertices => "Selecting vertices only",
+            Self::SketchGeometry => "Selecting sketch geometry only",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Axis {
