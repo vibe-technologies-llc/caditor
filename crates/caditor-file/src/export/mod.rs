@@ -14,7 +14,7 @@ use std::{
 use caditor_document::CancelToken;
 use caditor_geometry::{Aabb, Point3};
 use caditor_kernel::{Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
-use caditor_step::{StepBody, WriteError, write_step};
+use caditor_step::{StepBody, StepWritten, WriteError, write_step_keeping_what_can_be};
 
 pub use self::image::{ImageExportError, PNG_EXTENSION, RgbaImage, export_png};
 use crate::{reason, save::write_atomically};
@@ -241,12 +241,12 @@ fn export_step(
         .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned());
     let written = panic::catch_unwind(AssertUnwindSafe(|| {
         interruptible(cancel.interrupt(), || {
-            write_step(&step_bodies, &model_name, SystemTime::now())
+            write_step_keeping_what_can_be(&step_bodies, &model_name, SystemTime::now())
         })
     }));
-    let contents = match written {
+    let StepWritten { text, left_out } = match written {
         Ok(Err(_)) if cancel.is_cancelled() => return Err(ExportError::Cancelled),
-        Ok(Ok(contents)) => contents,
+        Ok(Ok(written)) => written,
         Ok(Err(WriteError::Empty)) => return Err(ExportError::Empty),
         Ok(Err(error)) => return Err(ExportError::Step(error.to_string())),
         Err(_) => {
@@ -257,12 +257,15 @@ fn export_step(
     if cancel.is_cancelled() {
         return Err(ExportError::Cancelled);
     }
-    write_atomically(path, contents.as_bytes())
+    write_atomically(path, text.as_bytes())
         .map_err(|error| ExportError::Writing(reason::writing(&error)))?;
     Ok(Exported {
-        bodies: bodies.len(),
+        bodies: bodies.len() - left_out.len(),
         triangles: None,
-        left_out: Vec::new(),
+        left_out: left_out
+            .into_iter()
+            .map(|(_, error)| ExportError::Step(error.to_string()))
+            .collect(),
     })
 }
 

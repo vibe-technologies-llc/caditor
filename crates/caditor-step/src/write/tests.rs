@@ -1,11 +1,11 @@
 use std::time::{Duration, SystemTime};
 
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::ProfileCurve;
 
 use crate::{
     fixtures,
-    write::{StepBody, WriteError, real, text, timestamp, write_step},
+    write::{Data, StepBody, WriteError, real, text, timestamp, write_step},
 };
 
 fn written(name: &str, solid: &caditor_kernel::Solid) -> String {
@@ -155,6 +155,25 @@ fn a_many_sided_prism_writes_each_corner_once() {
     let solid = fixtures::swept(Plane::XY, &curves, 10.0);
     let step = written("Prism", &solid);
     assert!(count(&step, "CARTESIAN_POINT") <= 2 * sides + 8);
+}
+
+#[test]
+fn rolling_back_forgets_what_a_failed_body_wrote_and_what_it_shared() {
+    let mut data = Data::default();
+    let kept = data.point(Point3::new(1.0, 2.0, 3.0));
+    let checkpoint = data.checkpoint();
+
+    let dropped = data.point(Point3::new(4.0, 5.0, 6.0));
+    data.direction(Vector3::Z);
+    data.placement(Point3::ZERO, Vector3::Z, Vector3::X);
+    data.real(f64::NAN);
+    data.roll_back(checkpoint);
+
+    assert_eq!(data.entities.len(), 1);
+    assert!(!data.take_unwritable());
+    assert_eq!(data.point(Point3::new(1.0, 2.0, 3.0)), kept);
+    assert_eq!(data.point(Point3::new(4.0, 5.0, 6.0)), dropped);
+    assert_eq!(data.entities.len(), 2);
 }
 
 #[test]

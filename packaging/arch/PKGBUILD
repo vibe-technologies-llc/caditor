@@ -12,7 +12,7 @@ depends=(
   'vulkan-icd-loader'
   'xdg-desktop-portal'
 )
-makedepends=('cargo' 'cargo-about')
+makedepends=('cargo' 'cargo-about' 'gcc')
 optdepends=(
   'wayland: Wayland sessions'
   'libx11: X11 sessions'

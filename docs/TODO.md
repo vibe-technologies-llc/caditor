@@ -224,8 +224,6 @@ within a category run from most to least important.
     another tolerance later without breaking what references its faces.
   - Units: STL has none, so the import guesses from the size (a part 0.05 mm across is likely in
     metres) and offers a scale before committing, rather than leaving it to the scale item.
-- One body that cannot be written aborts a whole STEP export; write the others and name the one
-  left out, as the mesh formats do.
 - STL uses absolute f32 coordinates, which lose about 0.06 mm at 10^6 mm, and merges all bodies
   into one surface; `stl::encode` holds every triangle as f64 before writing.
 - 3MF has no colours, materials or thumbnail, builds everything in memory and cannot exceed
@@ -502,8 +500,3 @@ Linux is the primary platform and Windows the only other one planned; macOS is n
   trades away and how to do it; never change Defender settings ourselves.
 - Linux has only the `.tar.zst` with its installer: no Flatpak, AppImage, `.deb` or `.rpm`, so
   caditor is not in software centres and installs never update themselves.
-
-## Dependencies
-
-- `libzstd-rs-sys` assembles a C file on x86_64, contrary to `zstd.md`'s "pure-Rust port", and is
-  a pre-release decoding untrusted data; record it and add `gcc` to the PKGBUILD.

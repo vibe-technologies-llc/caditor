@@ -6,5 +6,7 @@ mod write;
 
 pub use crate::{
     read::{ReadError, StepModel, StepSolid, read_step},
-    write::{SCHEMA, StepBody, WriteError, write_step},
+    write::{
+        SCHEMA, StepBody, StepWritten, WriteError, write_step, write_step_keeping_what_can_be,
+    },
 };

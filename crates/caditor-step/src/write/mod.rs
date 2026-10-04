@@ -110,6 +110,18 @@ impl Data {
         written
     }
 
+    fn checkpoint(&self) -> usize {
+        self.entities.len()
+    }
+
+    fn roll_back(&mut self, checkpoint: usize) {
+        self.entities.truncate(checkpoint);
+        self.unwritable = false;
+        self.points.retain(|_, written| written.0 <= checkpoint);
+        self.directions.retain(|_, written| written.0 <= checkpoint);
+        self.placements.retain(|_, written| written.0 <= checkpoint);
+    }
+
     fn take_unwritable(&mut self) -> bool {
         std::mem::take(&mut self.unwritable)
     }
@@ -157,11 +169,30 @@ pub(crate) fn logical(value: bool) -> &'static str {
     if value { ".T." } else { ".F." }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepWritten {
+    pub text: String,
+    pub left_out: Vec<(usize, WriteError)>,
+}
+
 pub fn write_step(
     bodies: &[StepBody<'_>],
     model_name: &str,
     written: SystemTime,
 ) -> Result<String, WriteError> {
+    let StepWritten { text, left_out } =
+        write_step_keeping_what_can_be(bodies, model_name, written)?;
+    match left_out.into_iter().next() {
+        Some((_, error)) => Err(error),
+        None => Ok(text),
+    }
+}
+
+pub fn write_step_keeping_what_can_be(
+    bodies: &[StepBody<'_>],
+    model_name: &str,
+    written: SystemTime,
+) -> Result<StepWritten, WriteError> {
     if bodies.is_empty() {
         return Err(WriteError::Empty);
     }
@@ -192,15 +223,26 @@ pub fn write_step(
     let context = representation_context(&mut data);
     let mut items = vec![Shapes::origin(&mut data)];
     let mut shapes = Shapes::new(&mut data);
-    for body in bodies {
+    let mut left_out = Vec::new();
+    for (index, body) in bodies.iter().enumerate() {
+        let checkpoint = shapes.data().checkpoint();
         let solids = shapes.body(body.solid, body.name);
-        if shapes.data().take_unwritable() {
-            return Err(WriteError::Geometry(body.name.to_owned()));
+        let outcome = match solids {
+            _ if shapes.data().take_unwritable() => Err(WriteError::Geometry(body.name.to_owned())),
+            Ok(solids) => Ok(solids),
+            Err(shape::Unsupported::Geometry) => Err(WriteError::Geometry(body.name.to_owned())),
+            Err(shape::Unsupported::Shells) => Err(WriteError::Shells(body.name.to_owned())),
+        };
+        match outcome {
+            Ok(solids) => items.extend(solids),
+            Err(error) => {
+                shapes.data().roll_back(checkpoint);
+                left_out.push((index, error));
+            }
         }
-        items.extend(solids.map_err(|unsupported| match unsupported {
-            shape::Unsupported::Geometry => WriteError::Geometry(body.name.to_owned()),
-            shape::Unsupported::Shells => WriteError::Shells(body.name.to_owned()),
-        })?);
+    }
+    if left_out.len() == bodies.len() {
+        return Err(left_out.remove(0).1);
     }
     let representation = data.add(format!(
         "ADVANCED_BREP_SHAPE_REPRESENTATION('',{},{context})",
@@ -209,7 +251,10 @@ pub fn write_step(
     data.add(format!(
         "SHAPE_DEFINITION_REPRESENTATION({shape},{representation})"
     ));
-    Ok(document(&data, model_name, written))
+    Ok(StepWritten {
+        text: document(&data, model_name, written),
+        left_out,
+    })
 }
 
 fn representation_context(data: &mut Data) -> Ref {

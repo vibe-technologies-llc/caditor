@@ -6,8 +6,13 @@ paths:
 # caditor-zstd
 
 - Safe `compress`, `compress_after`, `decompress` and `decompress_after` over Trifecta Tech
-  Foundation's pure-Rust zstd port (`libzstd-rs-sys`). No workspace dependencies; only
+  Foundation's Rust zstd port (`libzstd-rs-sys`, a pre-release). No workspace dependencies; only
   `caditor-file` uses it.
+- The port is pure Rust except for one file: on x86_64 Unix its `build.rs` assembles
+  `huf_decompress_amd64.S` with `cc` for the Huffman decoder, so building needs a C compiler (`gcc`
+  in the PKGBUILD's `makedepends`) and no C library is linked. No other Rust zstd covers prefix
+  deltas, so the exception stands. The decoder reads untrusted data, so every frame is checked as
+  described under Safety.
 
 ## Deltas
 

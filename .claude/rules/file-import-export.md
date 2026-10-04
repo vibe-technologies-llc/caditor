@@ -84,7 +84,9 @@ paths:
 - Files are saved atomically like a model. Cancellation is checked between bodies and before
   writing; failures are sentences naming the body. A mesh export leaves out a body that cannot be
   meshed and returns its error in `Exported::left_out` (the app says so in a notice that outlasts
-  edits); it fails only when no body could be meshed.
+  edits); it fails only when no body could be meshed. A STEP export does the same through
+  `write_step_keeping_what_can_be`, which rolls a body that cannot be written back out of the file
+  (`Data::roll_back`) and names its index; `write_step` stays strict and returns that error.
 - `export_png` (`export/image.rs`) writes 8-bit RGBA with straight alpha and an sRGB chunk
   through the pure-Rust `png` crate (fast compression), checking the pixel count against the size,
   cancellation before encoding and before writing, then saving atomically; errors are
