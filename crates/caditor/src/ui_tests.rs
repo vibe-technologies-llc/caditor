@@ -6393,6 +6393,32 @@ fn recent_messages_keep_a_failed_save_after_a_later_notice_replaced_it() {
 }
 
 #[test]
+fn the_view_and_the_tool_prompt_are_named_for_screen_readers() {
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+    harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    harness.frame();
+    harness.frame();
+
+    assert!(
+        harness
+            .accessible
+            .iter()
+            .any(|(_, node)| node.label() == Some("3D view"))
+    );
+    let prompt = harness.accessible.iter().find(|(_, node)| {
+        node.role() == Role::Label
+            && node
+                .value()
+                .is_some_and(|value| value.starts_with("Click the start of the line"))
+    });
+    let (_, prompt) = prompt.expect("the prompt is on the accessibility tree");
+    assert_eq!(prompt.live(), Some(egui::accesskit::Live::Polite));
+    assert!(prompt.value().unwrap().contains("Esc: back to Select"));
+}
+
+#[test]
 fn notices_are_live_regions_so_a_screen_reader_announces_them() {
     let mut harness = Harness::new();
     harness.context.enable_accesskit();

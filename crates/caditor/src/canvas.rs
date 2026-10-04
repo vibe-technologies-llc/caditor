@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use egui::{
     Align, Align2, Color32, CursorIcon, FontId, Galley, Id, Painter, Pos2, Rect, Response, Sense,
-    Stroke, StrokeKind, Ui, Vec2, WidgetInfo, WidgetType, vec2,
+    Stroke, StrokeKind, Ui, Vec2, WidgetInfo, WidgetType, accesskit::Live, vec2,
 };
 
 use crate::{appearance::CONTROL_HEIGHT, fonts};
@@ -98,6 +98,15 @@ pub fn cube_face(facing: f64) -> Color32 {
 
 pub fn paint_backdrop(painter: &Painter, rect: Rect) {
     painter.rect_filled(rect, RADIUS, BACKDROP);
+}
+
+pub fn announce(ui: &Ui, rect: Rect, name: &str, text: &str, live: Option<Live>) {
+    let response = ui.interact(rect, ui.id().with(("canvas text", name)), Sense::hover());
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, text));
+    if let Some(live) = live {
+        ui.ctx()
+            .accesskit_node_builder(response.id, |node| node.set_live(live));
+    }
 }
 
 pub fn chip_size(text: Vec2) -> Vec2 {

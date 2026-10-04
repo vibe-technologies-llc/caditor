@@ -233,7 +233,10 @@ paths:
   (`Overlay::enable_accessibility`), then shown; `AppEvent::Accessibility` carries the adapter's
   requests to the overlay. The status bar's notice text is a live region (`widgets::announced`:
   assertive for an error, polite for info) and so is the failed-features pill, so a screen reader
-  announces a failed save or a failing feature when it appears.
+  announces a failed save or a failing feature when it appears. The viewport is named "3D view",
+  and the text painted over it (tool prompt, hover or keyboard-highlight description, snap and
+  measure labels) is also a `Label` node over its rectangle (`canvas::announce`), the prompt and
+  the keyboard-highlight description polite live regions, so it is read and its changes announced.
 - Wayland app ID and X11 class are `about::APP_ID` (`caditor`), which must match the desktop entry's
   name.
 - The logo is `packaging/caditor.svg`; `packaging/render-icons.sh` renders it with `rsvg-convert`

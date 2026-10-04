@@ -8,7 +8,7 @@ use caditor_render::{
 use caditor_sketch::{ConstraintId, EntityId, MAX_LENGTH};
 use egui::{
     Align, Align2, Key, PointerButton, Rect, Response, Sense, Shape, Stroke, WidgetInfo,
-    WidgetType, pos2, vec2,
+    WidgetType, accesskit::Live, pos2, vec2,
 };
 
 use crate::{
@@ -50,6 +50,7 @@ const HIT_CURSOR_TOLERANCE_POINTS: f64 = 1.5;
 const PROMPT_MARGIN: f32 = 16.0;
 const PROMPT_MAX_WIDTH: f32 = 720.0;
 const READOUT_ROOM: f32 = 200.0;
+const VIEWPORT_NAME: &str = "3D view";
 const READOUT_GAP: f32 = 4.0;
 const NAVIGATION_HINT: &str =
     "Right-drag: orbit   Middle-drag or Shift+right-drag: pan   Scroll: zoom";
@@ -354,6 +355,7 @@ impl ViewportState {
             self.rect = Some(rect);
             self.pixels_per_point = ui.ctx().pixels_per_point();
             let response = ui.interact(rect, ui.id().with("viewport"), Sense::click_and_drag());
+            response.widget_info(|| WidgetInfo::labeled(WidgetType::Other, true, VIEWPORT_NAME));
 
             self.track_cursor(ui, &response, rect);
             self.track_sketch_cursor(model, editing);
@@ -1569,7 +1571,7 @@ impl ViewportState {
             let position =
                 rect.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32) / self.pixels_per_point;
             if rect.contains(position) {
-                canvas::label(
+                let shown = canvas::label(
                     painter,
                     position + vec2(0.0, -MEASURE_LABEL_LIFT),
                     Align2::CENTER_BOTTOM,
@@ -1577,13 +1579,17 @@ impl ViewportState {
                     canvas::body(),
                     canvas::MEASURE,
                 );
+                canvas::announce(ui, shown, "measure", label, None);
             }
         }
         let band = top_band(rect);
-        let prompt = self
-            .prompt(model, editing, key_hints)
-            .map(|(text, keys)| paint_prompt(painter, rect, band, &text, &keys));
-        self.paint_description(painter, model, editing, key_hints, band, prompt);
+        let prompt = self.prompt(model, editing, key_hints).map(|(text, keys)| {
+            let area = paint_prompt(painter, rect, band, &text, &keys);
+            let spoken = format!("{text}. {keys}");
+            canvas::announce(ui, area, "prompt", &spoken, Some(Live::Polite));
+            area
+        });
+        self.paint_description(ui, model, editing, key_hints, band, prompt);
         let snap_label = editing
             .feature()
             .and_then(|feature| editing::edited_sketch(document, feature))
@@ -1591,14 +1597,15 @@ impl ViewportState {
         if let (Some(label), Some(cursor)) = (snap_label, self.cursor) {
             let position = rect.min
                 + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
-            canvas::label(
+            let shown = canvas::label(
                 painter,
                 position + SNAP_LABEL_OFFSET,
                 Align2::LEFT_TOP,
-                label,
+                &label,
                 canvas::small(),
                 canvas::SNAP,
             );
+            canvas::announce(ui, shown, "snap", &label, None);
         }
         let readout_left = rect.left() + view_cube::TRIAD_WIDTH;
         let bottom_left = pos2(readout_left, rect.bottom() - canvas::MARGIN);
@@ -1730,7 +1737,7 @@ impl ViewportState {
 
     fn paint_description(
         &self,
-        painter: &egui::Painter,
+        ui: &egui::Ui,
         model: &Model,
         editing: &SketchEditing,
         key_hints: &KeyHints,
@@ -1751,9 +1758,10 @@ impl ViewportState {
         let Some(description) = description else {
             return;
         };
+        let painter = ui.painter();
         let label = canvas::Label::new(
             painter,
-            description,
+            description.clone(),
             canvas::body(),
             canvas::TEXT,
             band.width(),
@@ -1765,6 +1773,8 @@ impl ViewportState {
             min.y = prompt.bottom() + canvas::MARGIN / 2.0;
         }
         let shown = label.paint(painter, min);
+        let live = self.keyboard_highlight.is_some().then_some(Live::Polite);
+        canvas::announce(ui, shown, "description", &description, live);
         if self.keyboard_highlight.is_some() {
             canvas::Hints::new(painter, &key_hints.highlight, band.width(), Align::Min).paint(
                 painter,
