@@ -430,7 +430,8 @@ within a category run from most to least important.
 - Text outside Latin, Greek and Cyrillic shows as missing glyphs in feature and file names, since
   only Inter and egui's defaults are loaded.
 - Notices are one slot: an info notice replaces a save or export failure, with no history.
-- Version history shows only "saved N ago" with no summary, preview or way to keep a version.
+- Version history shows when a version was saved and after which change, but no preview of what it
+  holds, and no way to keep a version from being thinned out.
 - Undo steps are only reachable one at a time; there is no list of the undo history to see what
   each step changed or to jump back several steps at once.
 - No user guide: Help has only the welcome, the tips and About. Nothing explains features, the
