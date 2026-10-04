@@ -52,8 +52,10 @@ paths:
   matrix is rotation only, so geometry far from the origin stays exact.
 - A `ShadedMesh` stores positions relative to its own centre, with the eye offset computed in f64
   each frame. Batches store positions relative to an anchor (the eye when uploaded), whose offset
-  the view uniform carries; it stays while the eye is within `REANCHOR_DISTANCES` view distances,
-  beyond that the next frame re-anchors and uploads every batch again.
+  the view uniform carries; it stays while the eye is within `reanchor_reach`, the larger of `REANCHOR_DISTANCES` view
+  distances and the distance at which f32 rounding of an offset stays under `ANCHOR_ERROR_PIXELS`
+  of a pixel at the current zoom; beyond that the next frame re-anchors and uploads every batch
+  again.
 
 ## Meshes
 

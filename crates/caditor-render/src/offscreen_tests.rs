@@ -2243,6 +2243,42 @@ fn only_a_changed_batch_is_uploaded_again_and_a_dropped_one_stops_drawing() {
 }
 
 #[test]
+fn zooming_in_a_hundredfold_keeps_the_uploaded_scene_since_its_rounding_stays_far_below_a_pixel() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let scene = scene();
+    let view_at = |distance: f64| {
+        View::new(
+            Viewpoint::looking_from(Vector3::Z, Point3::ZERO, distance).unwrap(),
+            f64::from(SIZE),
+            f64::from(SIZE),
+        )
+    };
+    let wide = view_at(100.0);
+    let close = view_at(1.0);
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 1);
+    let point = DVec2::new(100.0, 100.0);
+
+    render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&wide, &scene, point),
+    );
+    let anchor = renderer.anchor();
+    render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&close, &scene, point),
+    );
+
+    assert_eq!(renderer.anchor(), anchor);
+    assert_eq!(renderer.work().uploads, 1);
+}
+
+#[test]
 fn moving_far_from_where_the_scene_was_uploaded_uploads_it_again_as_exactly_as_ever() {
     let Some((device, queue)) = gpu() else {
         return;

@@ -28,6 +28,8 @@ const FILL_VERTEX_STRIDE: u64 = 40;
 const FILL_TRIANGLE_STRIDE: u64 = FILL_VERTEX_STRIDE * 3;
 const VIEW_UNIFORM_SIZE: u64 = 160;
 const REANCHOR_DISTANCES: f64 = 4.0;
+const ANCHOR_ERROR_PIXELS: f64 = 0.02;
+const F32_ROUNDING: f64 = f32::EPSILON as f64 / 2.0;
 const KEY_LIGHT_UP: f64 = 0.8;
 const KEY_LIGHT_LEFT: f64 = 0.5;
 const FILL_LIGHT_DOWN: f64 = 0.35;
@@ -927,7 +929,7 @@ impl ViewportRenderer {
 
     fn anchor_for(&mut self, view: &View) -> Point3 {
         let eye = view.eye();
-        let reach = REANCHOR_DISTANCES * view.viewpoint().distance;
+        let reach = reanchor_reach(view);
         let anchor = self
             .anchor
             .filter(|anchor| anchor.distance(eye) <= reach)
@@ -1309,6 +1311,13 @@ fn stage_fill(bytes: &mut Bytes, fill: &Fill, anchor: Point3) -> u32 {
         written = written.saturating_add(1);
     }
     written
+}
+
+fn reanchor_reach(view: &View) -> f64 {
+    let distance = view.viewpoint().distance;
+    let pixel = view.units_per_pixel_at(distance);
+    let within_error = ANCHOR_ERROR_PIXELS * pixel / F32_ROUNDING;
+    (REANCHOR_DISTANCES * distance).max(within_error)
 }
 
 pub fn relative_to_eye(point: Point3, eye: Point3) -> Vec3 {

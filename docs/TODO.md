@@ -415,8 +415,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   that to upload for a sketch of 24,000 curves in a release build. A batch per feature, with pick
   ids of its own, would limit both to what changed. Face styles are likewise rewritten whole on
   every highlight change.
-- [low · easy] Zooming in five times reanchors and re-uploads every batch, since the anchor reach is
-  four view distances; derive it from the f32 error budget.
 - [low · medium] A pick or image readback in flight redraws full frames until polled complete;
   vertex records repeat per-layer data and both ends of shared segments; invisible vertex markers go
   through the colour pass; each mesh's placement uniform is written every frame; resizing recreates
