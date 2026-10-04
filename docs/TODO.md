@@ -128,8 +128,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   size-bounded history per feature.
 - [medium · hard] Recompute is single-threaded: independent bodies and the final meshing of each
   body could run in parallel over the dependency data the document already has.
-- [low · easy] `Progress` is only a count: report which feature is running and for how long, so a
-  recompute that takes long, or is replaced after not stopping, can name its feature.
 - [low · medium] `SetFeatureKind` refuses an `Import` (`set_feature_kind` pairs no import with an
   import), so an imported body keeps its source solid for good; allowing it would also give
   re-import.
@@ -314,8 +312,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   spline, extrusion or revolution (it would need a surface fitted within tolerance), `PARABOLA`,
   `HYPERBOLA` and the `*_REPLICA` forms. Fit a spline within the declared precision, or keep the
   other faces and say which were lost. Colours and layers are not read.
-- [low · easy] A file with no closed solids always reads "holds no solid bodies", whether it is IFC,
-  tessellated AP242, a surface model or a wireframe; report the schema and what it holds.
 - [low · medium] The parse tree still holds several times the file size (a boxed slice per record
   and per list); a flat arena of values would bring it near the file size.
 - [low · medium] The writer puts all bodies in one product with no colours, holding the output twice
@@ -393,8 +389,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] Edge lines can be eaten by faces at grazing angles, since depth bias is a
   constant factor with no slope term, and the grid and reference fills share the mesh's bias, so a
   face on the XY plane can speckle with the grid. Neither has a test.
-- [medium · medium] No touchpad navigation: orbit is right-drag, pan needs a middle button or Shift,
-  and two-finger scroll always zooms.
 - [medium · medium] Adapter choice is only the `WGPU_POWER_PREF` environment variable, so users of
   hybrid laptops or broken drivers cannot pick another adapter from Preferences.
 - [medium · hard] Section planes.
@@ -440,11 +434,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Application
 
-- [medium · easy] The desktop entry registers only `application/x-caditor`, and the headless
-  `--export` takes only caditor models: no DXF or STEP file as input, no PNG output, and it exits 0
-  though features failed.
-- [medium · easy] Angles display only in degrees though `ux.md` allows radians; core modelling
-  commands have no default shortcuts.
+- [medium · easy] The headless `--export` writes no PNG image of the model.
+- [medium · easy] Angles display only in degrees though `ux.md` allows radians.
 - [medium · medium] One files worker runs everything and Import cannot be cancelled (cancelling Open
   only drops its result while the worker reads on), so a slow STEP import blocks Open behind a
   modal, and the opening modal is drawn before the unsaved-changes prompt, so closing the window

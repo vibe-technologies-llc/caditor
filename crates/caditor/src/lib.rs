@@ -93,7 +93,7 @@ mod visibility;
 mod widgets;
 mod window_frame;
 
-use std::path::PathBuf;
+use std::{path::PathBuf, process::ExitCode};
 
 use anyhow::{Result, bail};
 use caditor_document::Document;
@@ -109,17 +109,17 @@ use crate::{
     preferences::Preferences,
 };
 
-pub fn run() -> Result<()> {
+pub fn run() -> Result<ExitCode> {
     let open = match Invocation::parse(std::env::args_os().skip(1)) {
         Invocation::Run { open } => open,
         Invocation::Convert(conversion) => return headless::run(&conversion),
         Invocation::Version => {
             println!("{}", about::version_line());
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
         Invocation::Help => {
             print!("{}", cli::usage());
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
         Invocation::Refused(reason) => bail!(reason),
     };
@@ -131,7 +131,7 @@ pub fn run() -> Result<()> {
         logging::show_failure(&logging::failure_text(error, logging.path()));
     }
     logging.end();
-    result
+    result.map(|()| ExitCode::SUCCESS)
 }
 
 fn run_session(open: Option<PathBuf>, state_dir: Option<PathBuf>, logging: &Logging) -> Result<()> {

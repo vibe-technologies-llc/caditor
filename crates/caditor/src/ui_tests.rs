@@ -46,7 +46,9 @@ use crate::{
     onboarding::Hint,
     palette::{Choice, State},
     panels::Focus,
-    preferences::{PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, TitleBar},
+    preferences::{
+        InputMode, PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, TitleBar,
+    },
     scene,
     selection::{Axis, Pickable, PrincipalPlane},
     shape_modes::{CircleMode, RectangleMode, ShapeMode},
@@ -132,6 +134,7 @@ struct Harness {
     text_colors: Vec<(String, Color32)>,
     time: f64,
     forced_hover: Option<(Pos2, Pickable)>,
+    held: Modifiers,
     picks_held: bool,
     accessible: Vec<(NodeId, Node)>,
     window: ViewportInfo,
@@ -195,6 +198,7 @@ impl Harness {
             text_colors: Vec::new(),
             time: 0.0,
             forced_hover: None,
+            held: Modifiers::NONE,
             picks_held: false,
             accessible: Vec::new(),
             window: ViewportInfo::default(),
@@ -388,6 +392,12 @@ impl Harness {
             &mut self.workspace,
         );
         self.show_new_windows();
+    }
+
+    fn hold(&mut self, modifiers: Modifiers) {
+        self.held = modifiers;
+        self.events.push(Event::ModifiersChanged(modifiers));
+        self.frame();
     }
 
     fn show_new_windows(&mut self) {
@@ -5269,7 +5279,7 @@ fn what_the_selection_offers_is_worked_out_when_it_or_the_model_changes_not_ever
     assert_eq!(harness.workspace.selection_offers.computations(), computed);
     assert!(harness.shows("Extrude 1 › Extrude 1 end face"));
     harness.hover("Shell");
-    assert!(harness.shows(&format!(
+    assert!(harness.shows_containing(&format!(
         "{} (1 face open)",
         crate::shell_tools::DESCRIPTION
     )));
@@ -5294,11 +5304,9 @@ fn a_sketch_started_on_a_selected_face_follows_it_when_the_body_changes() {
     let (extrude, top) = extruded_plate(&mut harness);
     harness.select([top]);
     harness.hover("New sketch");
-    assert!(
-        harness.shows(
-            "Start a sketch on the selected face; it follows the face when the model changes"
-        )
-    );
+    assert!(harness.shows_containing(
+        "Start a sketch on the selected face; it follows the face when the model changes"
+    ));
     harness.click("New sketch");
     harness.settle();
 
@@ -5786,7 +5794,7 @@ fn a_linear_pattern_repeats_the_body_and_takes_its_count_and_directions_from_the
 
     harness.select([]);
     harness.hover("Linear pattern");
-    assert!(harness.shows(
+    assert!(harness.shows_containing(
         "Repeat the body of Extrude 1 along the X axis, or along an edge or axis you select first"
     ));
     harness.click("Linear pattern");
@@ -6374,10 +6382,18 @@ fn a_first_run_welcomes_opens_a_sample_and_offers_tips_until_they_are_hidden() {
     );
     assert!(!harness.model.is_dirty());
     assert_eq!(harness.model.undo_label(), None);
-    assert!(harness.shows(&Hint::Navigate.text(&harness.workspace.preferences.keymap)));
+    assert!(
+        harness.shows(
+            &Hint::Navigate.text(&harness.workspace.preferences.keymap, InputMode::default())
+        )
+    );
 
     harness.click("Got it");
-    assert!(harness.shows(&Hint::Palette.text(&harness.workspace.preferences.keymap)));
+    assert!(
+        harness.shows(
+            &Hint::Palette.text(&harness.workspace.preferences.keymap, InputMode::default())
+        )
+    );
     harness.click("Hide tips");
     assert!(!harness.shows("Tip"));
     let config = dir.path().join("config");
@@ -6394,17 +6410,17 @@ fn a_first_run_welcomes_opens_a_sample_and_offers_tips_until_they_are_hidden() {
     )));
     harness.settle();
     let keymap = harness.workspace.preferences.keymap.clone();
-    assert!(harness.shows(&Hint::Start.text(&keymap)));
+    assert!(harness.shows(&Hint::Start.text(&keymap, InputMode::default())));
     harness.draw_on_new_sketch();
-    assert!(harness.shows(&Hint::Draw.text(&keymap)));
+    assert!(harness.shows(&Hint::Draw.text(&keymap, InputMode::default())));
     harness.use_tool(Key::R);
     harness.click_at(Point2::new(10.0, 10.0));
     harness.click_at(Point2::new(40.0, 30.0));
     harness.settle();
-    assert!(harness.shows(&Hint::Constrain.text(&keymap)));
+    assert!(harness.shows(&Hint::Constrain.text(&keymap, InputMode::default())));
     harness.perform(Action::Editing(EditingCommand::Finish));
     harness.settle();
-    assert!(harness.shows(&Hint::Sweep.text(&keymap)));
+    assert!(harness.shows(&Hint::Sweep.text(&keymap, InputMode::default())));
     harness.click("Help");
     harness.click("Welcome and samples…");
     assert!(harness.shows("Welcome to caditor"));
@@ -7231,11 +7247,11 @@ fn tips_are_dismissed_and_hidden_from_the_palette() {
     harness.click("Flanged spool");
     harness.settle();
     let keymap = harness.workspace.preferences.keymap.clone();
-    assert!(harness.shows(&Hint::Navigate.text(&keymap)));
+    assert!(harness.shows(&Hint::Navigate.text(&keymap, InputMode::default())));
 
     run_from_palette(&mut harness, "dismiss the tip");
-    assert!(!harness.shows(&Hint::Navigate.text(&keymap)));
-    assert!(harness.shows(&Hint::Palette.text(&keymap)));
+    assert!(!harness.shows(&Hint::Navigate.text(&keymap, InputMode::default())));
+    assert!(harness.shows(&Hint::Palette.text(&keymap, InputMode::default())));
     run_from_palette(&mut harness, "hide tips");
     assert!(!harness.shows("Tip"));
     assert!(!harness.workspace.preferences.onboarding.hints);
@@ -10192,4 +10208,126 @@ fn a_region_matched_again_after_a_hole_is_drawn_warns_until_its_references_are_u
         Some("Update references of Base")
     );
     assert!(!harness.shows(reason));
+}
+
+fn viewport_centre(harness: &Harness) -> Pos2 {
+    harness.workspace.viewport.rect().unwrap().center()
+}
+
+fn laptop_harness() -> Harness {
+    let mut harness = Harness::new();
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::InputMode(InputMode::Laptop),
+    )));
+    harness.frame();
+    harness
+        .events
+        .push(Event::PointerMoved(viewport_centre(&harness)));
+    harness.frame();
+    harness
+}
+
+fn scroll_in_view(harness: &mut Harness, delta: egui::Vec2) {
+    harness.events.push(Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta,
+        phase: egui::TouchPhase::Move,
+        modifiers: harness.held,
+    });
+    for _ in 0..8 {
+        harness.frame();
+    }
+}
+
+#[test]
+fn the_wheel_zooms_in_caditor_mode_but_two_fingers_orbit_in_laptop_mode() {
+    let mut harness = Harness::new();
+    harness
+        .events
+        .push(Event::PointerMoved(viewport_centre(&harness)));
+    harness.frame();
+    let before = harness.workspace.viewport.viewpoint();
+
+    scroll_in_view(&mut harness, egui::vec2(0.0, 60.0));
+
+    let zoomed = harness.workspace.viewport.viewpoint();
+    assert_ne!(zoomed.distance, before.distance);
+    assert!(zoomed.forward().dot(before.forward()) > 0.99999);
+
+    let mut harness = laptop_harness();
+    let before = harness.workspace.viewport.viewpoint();
+
+    scroll_in_view(&mut harness, egui::vec2(40.0, 0.0));
+
+    let orbited = harness.workspace.viewport.viewpoint();
+    assert!((orbited.distance - before.distance).abs() < 1e-6 * before.distance);
+    assert!(orbited.forward().dot(before.forward()) < 0.9999);
+}
+
+#[test]
+fn alt_and_two_fingers_pan_and_a_pinch_zooms_in_laptop_mode() {
+    let mut harness = laptop_harness();
+    let before = harness.workspace.viewport.viewpoint();
+
+    harness.hold(Modifiers::ALT);
+    scroll_in_view(&mut harness, egui::vec2(30.0, 20.0));
+    harness.hold(Modifiers::NONE);
+
+    let panned = harness.workspace.viewport.viewpoint();
+    assert!(panned.target.distance(before.target) > 1e-6);
+    assert!(panned.forward().dot(before.forward()) > 0.99999);
+
+    harness.events.push(Event::Zoom(1.5));
+    harness.frame();
+
+    let pinched = harness.workspace.viewport.viewpoint();
+    assert!(pinched.distance < panned.distance);
+}
+
+#[test]
+fn alt_drag_orbits_in_laptop_mode_without_selecting_anything() {
+    let mut harness = laptop_harness();
+    let centre = viewport_centre(&harness);
+    let before = harness.workspace.viewport.viewpoint();
+
+    harness.hold(Modifiers::ALT);
+    drag_screen(&mut harness, centre, centre + egui::vec2(60.0, 10.0));
+    harness.hold(Modifiers::NONE);
+
+    let orbited = harness.workspace.viewport.viewpoint();
+    assert!(orbited.forward().dot(before.forward()) < 0.9999);
+    assert!(harness.workspace.viewport.selection().is_empty());
+}
+
+#[test]
+fn the_input_mode_is_chosen_in_preferences_and_remembered() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    harness.key(Key::Comma, Modifiers::COMMAND);
+    harness.frame();
+    harness.show_new_windows();
+    harness.click("Navigation");
+    assert!(harness.shows("Input mode"));
+
+    harness.click(InputMode::Laptop.label());
+
+    assert_eq!(
+        harness.workspace.preferences.navigation.input_mode,
+        InputMode::Laptop
+    );
+    harness.wait_until("the input mode is saved", |_| {
+        caditor_file::Settings::load(&dir.path().join("config")).text("navigation.input_mode")
+            == Some("laptop")
+    });
+    let stored =
+        Preferences::from_settings(caditor_file::Settings::load(&dir.path().join("config")));
+    assert_eq!(stored.navigation.input_mode, InputMode::Laptop);
+    assert_eq!(
+        Hint::Navigate.text(&stored.keymap, InputMode::Laptop),
+        format!(
+            "{} Double-click a face to open the feature that made it, and change any value in \
+             the feature tree or in Parameters.",
+            InputMode::Laptop.navigation_tip()
+        )
+    );
 }

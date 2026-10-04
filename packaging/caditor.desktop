@@ -9,6 +9,6 @@ Icon=caditor
 Terminal=false
 Categories=Graphics;3DGraphics;Engineering;
 Keywords=CAD;parametric;sketch;3D;model;STEP;STL;3MF;DXF;
-MimeType=application/x-caditor;
+MimeType=application/x-caditor;model/step;image/vnd.dxf;
 StartupNotify=true
 StartupWMClass=caditor

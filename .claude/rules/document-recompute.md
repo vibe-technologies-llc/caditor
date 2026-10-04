@@ -77,6 +77,8 @@ paths:
   count at submission, so a `cancel` after a job finished (or while idle) trips nothing later.
   Requested meshes run after the queued recompute, newest first (asking again moves a result to the
   front), so the state on screen is meshed before stale ones.
+- `Progress` carries the feature running and when it began; the status bar shows it, and the log
+  line of a replaced worker names it.
 - A worker that does not stop is replaced: once a `cancel` or newer submission has gone unanswered
   for `STOP_GRACE`, `poll` or the next submission starts a fresh worker (same evaluator, wake and
   mesh quality, empty cache) and leaves the old one to finish on its own. The newest submission is

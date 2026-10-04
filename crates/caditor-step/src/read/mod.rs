@@ -25,6 +25,14 @@ use crate::{
 
 const SOLID_KINDS: [&str; 3] = ["MANIFOLD_SOLID_BREP", "BREP_WITH_VOIDS", "FACETED_BREP"];
 const UNIT_SLACK: f64 = 1e-9;
+const TESSELLATED_KINDS: [&str; 5] = [
+    "TESSELLATED_SOLID",
+    "TESSELLATED_SHELL",
+    "TESSELLATED_SURFACE_SET",
+    "TRIANGULATED_SURFACE_SET",
+    "COMPLEX_TRIANGULATED_SURFACE_SET",
+];
+const WIREFRAME_KINDS: [&str; 2] = ["GEOMETRIC_CURVE_SET", "GEOMETRIC_SET"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StepSolid {
@@ -38,14 +46,74 @@ pub struct StepModel {
     pub notes: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Held {
+    pub schema: Option<String>,
+    pub surface_bodies: usize,
+    pub tessellated_shapes: usize,
+    pub wireframes: usize,
+}
+
+impl std::fmt::Display for Held {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut found = Vec::new();
+        if let Some(schema) = &self.schema {
+            found.push(format!("its schema is {schema}"));
+        }
+        let counted = [
+            (
+                self.surface_bodies,
+                "open surface body",
+                "open surface bodies",
+            ),
+            (
+                self.tessellated_shapes,
+                "tessellated shape",
+                "tessellated shapes",
+            ),
+            (self.wireframes, "wireframe", "wireframes"),
+        ];
+        let contents: Vec<String> = counted
+            .into_iter()
+            .filter(|(count, _, _)| *count > 0)
+            .map(|(count, one, many)| format!("{count} {}", if count == 1 { one } else { many }))
+            .collect();
+        if !contents.is_empty() {
+            found.push(format!("it holds {}", contents.join(", ")));
+        }
+        if found.is_empty() {
+            return Ok(());
+        }
+        write!(formatter, " ({})", found.join(" and "))
+    }
+}
+
+fn file_schema(exchange: &Exchange<'_>) -> Option<String> {
+    let record = exchange
+        .header
+        .iter()
+        .find(|record| record.name.as_str() == "FILE_SCHEMA")?;
+    let schemas = record.parameters.first()?.list()?;
+    let first = schemas.first()?.text()?;
+    let name = first.split_whitespace().next()?;
+    Some(name.to_owned())
+}
+
+fn count_of(graph: &Graph<'_>, kinds: &[&str]) -> usize {
+    graph
+        .entities()
+        .filter(|entity| kinds.contains(&entity.kind()))
+        .count()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ReadError {
     #[error("it is not a STEP file")]
     NotStep,
     #[error("the file is damaged near line {0}")]
     Damaged(usize),
-    #[error("it holds no solid bodies; caditor imports closed solids only")]
-    NoSolids,
+    #[error("it holds no solid bodies{0}; caditor imports closed solids only")]
+    NoSolids(Held),
     #[error("{0}")]
     Unreadable(String),
 }
@@ -258,7 +326,12 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
                     "“{name}” could not be rebuilt, because its entity {problem}"
                 )),
                 (None, Some(note)) => ReadError::Unreadable(note.trim_end_matches('.').to_owned()),
-                (None, None) => ReadError::NoSolids,
+                (None, None) => ReadError::NoSolids(Held {
+                    schema: file_schema(&exchange),
+                    surface_bodies: skipped,
+                    tessellated_shapes: count_of(&graph, &TESSELLATED_KINDS),
+                    wireframes: count_of(&graph, &WIREFRAME_KINDS),
+                }),
             },
         );
     }

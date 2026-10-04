@@ -26,7 +26,7 @@ use crate::{
     measure::MeasuredLine,
     model::{Action, Model, Notice, RecomputeStatus},
     modifying::{Hint, Modifying, Outcome, Value},
-    preferences::{Navigation, PreferenceChange, PreferencesCommand},
+    preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
     reference_picking,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
@@ -703,38 +703,46 @@ impl ViewportState {
             self.drag_anchor = self.cursor.and_then(|cursor| self.hit_under(cursor));
         }
 
-        let shift = ui.input(|input| input.modifiers.shift);
+        let (shift, alt) = ui.input(|input| (input.modifiers.shift, input.modifiers.alt));
+        let alt_drag = self.navigation.input_mode == InputMode::Laptop && alt;
         let drag = self.to_pixels(response.drag_delta());
-        let orbiting = response.dragged_by(PointerButton::Secondary) && !shift;
+        let orbiting = (response.dragged_by(PointerButton::Secondary)
+            || (alt_drag && response.dragged_by(PointerButton::Primary)))
+            && !shift;
         let panning = response.dragged_by(PointerButton::Middle)
-            || (response.dragged_by(PointerButton::Secondary) && shift);
+            || ((response.dragged_by(PointerButton::Secondary)
+                || (alt_drag && response.dragged_by(PointerButton::Primary)))
+                && shift);
         if orbiting && drag != Vector2::ZERO {
-            let pivot = self.drag_anchor.unwrap_or(view.viewpoint().target);
-            self.camera.orbit(
-                pivot,
-                drag * self.navigation.orbit_speed,
-                f64::from(rect.height() * self.pixels_per_point),
-            );
+            self.orbit_by(&view, drag, rect, self.drag_anchor);
         } else if panning && drag != Vector2::ZERO {
-            let depth = self
-                .drag_anchor
-                .map(|anchor| view.view_depth(anchor))
-                .filter(|depth| *depth > view.near_plane())
-                .unwrap_or(view.viewpoint().distance);
-            self.camera.pan(drag, view.units_per_pixel_at(depth));
+            self.pan_by(&view, drag, self.drag_anchor);
         }
 
         if !response.hovered() && !response.dragged() {
             return;
         }
-        let (scroll, pinch) = ui.input(|input| (input.smooth_scroll_delta.y, input.zoom_delta()));
+        let (scroll, pinch) = ui.input(|input| (input.smooth_scroll_delta, input.zoom_delta()));
+        let mut scrolled_to_zoom = scroll.y;
+        if self.navigation.input_mode == InputMode::Laptop {
+            scrolled_to_zoom = 0.0;
+            let sliding = self.to_pixels(scroll);
+            if sliding != Vector2::ZERO {
+                let anchor = self.cursor.and_then(|cursor| self.hit_under(cursor));
+                if alt {
+                    self.pan_by(&view, sliding, anchor);
+                } else {
+                    self.orbit_by(&view, sliding, rect, anchor);
+                }
+            }
+        }
         let direction = if self.navigation.invert_zoom {
             1.0
         } else {
             -1.0
         };
         let rate = ZOOM_PER_SCROLL_POINT * self.navigation.zoom_speed;
-        let factor = (direction * f64::from(scroll) * rate).exp() / f64::from(pinch);
+        let factor = (direction * f64::from(scrolled_to_zoom) * rate).exp() / f64::from(pinch);
         if (factor - 1.0).abs() < 1e-9 {
             return;
         }
@@ -746,6 +754,23 @@ impl ViewportState {
             .or_else(|| view.focal_point_under(cursor))
             .unwrap_or(view.viewpoint().target);
         self.camera.zoom(anchor, factor);
+    }
+
+    fn orbit_by(&mut self, view: &View, drag: Vector2, rect: Rect, anchor: Option<Point3>) {
+        let pivot = anchor.unwrap_or(view.viewpoint().target);
+        self.camera.orbit(
+            pivot,
+            drag * self.navigation.orbit_speed,
+            f64::from(rect.height() * self.pixels_per_point),
+        );
+    }
+
+    fn pan_by(&mut self, view: &View, drag: Vector2, anchor: Option<Point3>) {
+        let depth = anchor
+            .map(|anchor| view.view_depth(anchor))
+            .filter(|depth| *depth > view.near_plane())
+            .unwrap_or(view.viewpoint().distance);
+        self.camera.pan(drag, view.units_per_pixel_at(depth));
     }
 
     fn track_sketch_cursor(&mut self, model: &Model, editing: &SketchEditing) {
@@ -800,7 +825,9 @@ impl ViewportState {
             press.current = true;
         }
         if response.drag_started_by(PointerButton::Primary) {
-            let press = self.press.take();
+            let navigating =
+                self.navigation.input_mode == InputMode::Laptop && ui.input(|i| i.modifiers.alt);
+            let press = self.press.take().filter(|_| !navigating);
             self.draw_press = press
                 .filter(|_| {
                     editing.active().is_some_and(|active| active.tool.draws())

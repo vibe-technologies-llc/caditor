@@ -851,6 +851,8 @@ impl Command {
         let command = |key| KeyboardShortcut::new(Modifiers::COMMAND, key);
         let command_shift = |key| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, key);
         let plain = |key| KeyboardShortcut::new(Modifiers::NONE, key);
+        let alt = |key| KeyboardShortcut::new(Modifiers::ALT, key);
+        let alt_shift = |key| KeyboardShortcut::new(Modifiers::ALT | Modifiers::SHIFT, key);
         match self {
             Self::Palette => vec![command_shift(Key::P)],
             Self::New => vec![command(Key::N)],
@@ -896,19 +898,19 @@ impl Command {
             Self::RollbackUp => vec![KeyboardShortcut::new(Modifiers::ALT, Key::ArrowUp)],
             Self::RollbackDown => vec![KeyboardShortcut::new(Modifiers::ALT, Key::ArrowDown)],
             Self::FullScreen => vec![plain(Key::F11)],
+            Self::NewSketch => vec![alt(Key::N)],
+            Self::Extrude => vec![alt(Key::E)],
+            Self::Revolve => vec![alt(Key::R)],
+            Self::Fillet => vec![alt(Key::F)],
+            Self::Chamfer => vec![alt(Key::C)],
+            Self::Shell => vec![alt(Key::S)],
+            Self::LinearPattern => vec![alt(Key::L)],
+            Self::CircularPattern => vec![alt_shift(Key::L)],
+            Self::DatumPlane => vec![alt(Key::D)],
+            Self::DatumAxis => vec![alt_shift(Key::D)],
             Self::VersionHistory
             | Self::KeyboardShortcuts
-            | Self::NewSketch
             | Self::FinishSketch
-            | Self::Extrude
-            | Self::Revolve
-            | Self::Fillet
-            | Self::Chamfer
-            | Self::Shell
-            | Self::LinearPattern
-            | Self::CircularPattern
-            | Self::DatumPlane
-            | Self::DatumAxis
             | Self::ShapeMode(_)
             | Self::OpenSample(_)
             | Self::OpenRecent(_)
@@ -1583,7 +1585,7 @@ mod tests {
         );
         assert_eq!(
             settings.texts("keys.model.extrude"),
-            Some(vec!["E".to_owned()])
+            Some(vec!["Alt+E".to_owned(), "E".to_owned()])
         );
         keymap.bind(Command::Save, press(Key::F2, Modifiers::COMMAND));
         keymap.write(&loaded, &mut settings);
@@ -1630,7 +1632,11 @@ mod tests {
             ),
             Some(Command::SaveAs)
         );
-        assert_eq!(found(press(Key::S, Modifiers::ALT), &sketch), None);
+        assert_eq!(
+            found(press(Key::S, Modifiers::ALT), &sketch),
+            Some(Command::Shell)
+        );
+        assert_eq!(found(press(Key::Q, Modifiers::ALT), &sketch), None);
         assert_eq!(
             found(
                 press(Key::Comma, Modifiers::COMMAND | Modifiers::SHIFT),

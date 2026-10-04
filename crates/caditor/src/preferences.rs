@@ -24,6 +24,7 @@ const HIGH_CONTRAST_KEY: &str = "appearance.high_contrast";
 const ORBIT_KEY: &str = "navigation.orbit_speed";
 const ZOOM_KEY: &str = "navigation.zoom_speed";
 const INVERT_ZOOM_KEY: &str = "navigation.invert_zoom";
+const INPUT_MODE_KEY: &str = "navigation.input_mode";
 const PROJECTION_KEY: &str = "navigation.projection";
 const TITLE_BAR_KEY: &str = "appearance.title_bar";
 const DIALOG_HEIGHT_SHARE: f32 = 0.75;
@@ -230,12 +231,62 @@ fn projection_from_key(key: &str) -> Option<Projection> {
         .find(|projection| projection_key(*projection) == key)
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum InputMode {
+    #[default]
+    Caditor,
+    Laptop,
+}
+
+impl InputMode {
+    pub const ALL: [Self; 2] = [Self::Caditor, Self::Laptop];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Caditor => "caditor",
+            Self::Laptop => "Laptop",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Caditor => {
+                "For a mouse with three buttons: right-drag orbits, middle-drag or Shift+right-drag \
+                 pans, and the wheel zooms"
+            }
+            Self::Laptop => {
+                "For a touchpad: two fingers orbit, Alt and two fingers pan, and pinching or \
+                 Ctrl and two fingers zoom; Alt-drag orbits and Shift+Alt-drag pans"
+            }
+        }
+    }
+
+    pub fn navigation_tip(self) -> &'static str {
+        match self {
+            Self::Caditor => "Right-drag to orbit, middle-drag to pan and scroll to zoom.",
+            Self::Laptop => "Slide two fingers to orbit, hold Alt to pan and pinch to zoom.",
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Caditor => "caditor",
+            Self::Laptop => "laptop",
+        }
+    }
+
+    fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|mode| mode.key() == key)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Navigation {
     pub orbit_speed: f64,
     pub zoom_speed: f64,
     pub invert_zoom: bool,
     pub projection: Projection,
+    pub input_mode: InputMode,
 }
 
 impl Default for Navigation {
@@ -245,6 +296,7 @@ impl Default for Navigation {
             zoom_speed: 1.0,
             invert_zoom: false,
             projection: Projection::default(),
+            input_mode: InputMode::default(),
         }
     }
 }
@@ -291,6 +343,7 @@ pub enum PreferenceChange {
     ZoomSpeed(f64),
     InvertZoom(bool),
     Projection(Projection),
+    InputMode(InputMode),
     TitleBar(TitleBar),
     Vsync(bool),
     FrameLimit(FrameLimit),
@@ -379,6 +432,10 @@ impl Preferences {
                     .text(PROJECTION_KEY)
                     .and_then(projection_from_key)
                     .unwrap_or_default(),
+                input_mode: raw
+                    .text(INPUT_MODE_KEY)
+                    .and_then(InputMode::from_key)
+                    .unwrap_or_default(),
             },
             title_bar: raw
                 .text(TITLE_BAR_KEY)
@@ -404,6 +461,7 @@ impl Preferences {
         settings.set_number(ZOOM_KEY, self.navigation.zoom_speed);
         settings.set_flag(INVERT_ZOOM_KEY, self.navigation.invert_zoom);
         settings.set_text(PROJECTION_KEY, projection_key(self.navigation.projection));
+        settings.set_text(INPUT_MODE_KEY, self.navigation.input_mode.key());
         settings.set_text(TITLE_BAR_KEY, self.title_bar.key());
         self.graphics.write(&mut settings);
         self.keymap.write(&self.loaded_keymap, &mut settings);
@@ -429,6 +487,7 @@ impl Preferences {
             }
             PreferenceChange::InvertZoom(invert) => self.navigation.invert_zoom = invert,
             PreferenceChange::Projection(projection) => self.navigation.projection = projection,
+            PreferenceChange::InputMode(mode) => self.navigation.input_mode = mode,
             PreferenceChange::TitleBar(bar) => self.title_bar = bar,
             PreferenceChange::Vsync(vsync) => self.graphics.vsync = vsync,
             PreferenceChange::FrameLimit(limit) => self.graphics.frame_limit = limit,
@@ -817,6 +876,14 @@ fn navigation(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
             });
             if let Some(projection) = choice(ui, &options, navigation.projection) {
                 change(command, PreferenceChange::Projection(projection));
+            }
+        });
+    });
+    section(ui, "Input", "navigation-input", None, |ui| {
+        widgets::property(ui, "Input mode", |ui| {
+            let options = InputMode::ALL.map(|mode| (mode, mode.label(), mode.description()));
+            if let Some(mode) = choice(ui, &options, navigation.input_mode) {
+                change(command, PreferenceChange::InputMode(mode));
             }
         });
     });

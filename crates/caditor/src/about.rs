@@ -143,7 +143,8 @@ mod tests {
     #[test]
     fn the_desktop_entry_opens_the_packaged_mime_type() {
         let mime_type = "application/x-caditor";
-        assert!(DESKTOP_ENTRY.contains(&format!("\nMimeType={mime_type};\n")));
+        assert!(DESKTOP_ENTRY.contains(&format!("\nMimeType={mime_type};")));
+        assert!(DESKTOP_ENTRY.contains(";model/step;image/vnd.dxf;\n"));
         assert!(MIME_TYPE.contains(&format!("<mime-type type=\"{mime_type}\">")));
         assert!(METAINFO.contains(&format!("<mediatype>{mime_type}</mediatype>")));
     }

@@ -526,7 +526,13 @@ pub fn show(
         }
         feature_tree::delete_dialog(ui.ctx(), model.document(), panels, actions);
         if let Some((hint, rect)) = hint.filter(|_| !palette_open)
-            && let Some(choice) = onboarding::show_hint(ui.ctx(), rect, hint, &preferences.keymap)
+            && let Some(choice) = onboarding::show_hint(
+                ui.ctx(),
+                rect,
+                hint,
+                &preferences.keymap,
+                preferences.navigation.input_mode,
+            )
         {
             let change = match choice {
                 HintChoice::Dismiss(hint) => PreferenceChange::DismissHint(hint),

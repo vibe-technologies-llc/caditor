@@ -17,6 +17,7 @@ use crate::{
     editing::{SketchEditing, Tool},
     fonts, icons,
     model::{Model, display_name},
+    preferences::InputMode,
     samples::Sample,
     sketch_status::{SketchStatus, SketchSummary},
     widgets::{self, DialogWidth},
@@ -69,7 +70,7 @@ impl Hint {
         Self::ALL.into_iter().find(|hint| hint.id() == id)
     }
 
-    pub fn text(self, keymap: &Keymap) -> String {
+    pub fn text(self, keymap: &Keymap, input_mode: InputMode) -> String {
         let keys = |command: Command, fallback: &str| {
             keymap.first(command).map_or_else(
                 || fallback.to_owned(),
@@ -96,10 +97,11 @@ impl Hint {
             Self::Sweep => "The sketch has a closed outline: Extrude or Revolve it to make a \
                             body. Its size stays editable in the feature's panel."
                 .to_owned(),
-            Self::Navigate => "Right-drag to orbit, middle-drag to pan and scroll to zoom. \
-                               Double-click a face to open the feature that made it, and change \
-                               any value in the feature tree or in Parameters."
-                .to_owned(),
+            Self::Navigate => format!(
+                "{} Double-click a face to open the feature that made it, and change any value \
+                 in the feature tree or in Parameters.",
+                input_mode.navigation_tip()
+            ),
             Self::Palette => format!(
                 "Press {} to find any command by name, including ones without a button.",
                 keys(Command::Palette, "the Search commands button")
@@ -232,6 +234,7 @@ pub fn show_hint(
     viewport: Rect,
     hint: Hint,
     keymap: &Keymap,
+    input_mode: InputMode,
 ) -> Option<HintChoice> {
     let anchor = viewport.center_bottom() - vec2(0.0, HINT_BOTTOM_CLEARANCE);
     Area::new(Id::new("onboarding-hint"))
@@ -253,7 +256,7 @@ pub fn show_hint(
                             |ui| widgets::icon_button(ui, icons::CLOSE, DISMISS_TIP).clicked(),
                         )
                         .1;
-                    ui.add(Label::new(hint.text(keymap)).wrap());
+                    ui.add(Label::new(hint.text(keymap, input_mode)).wrap());
                     let chosen = widgets::footer_split(
                         ui,
                         |ui| {

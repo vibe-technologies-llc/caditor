@@ -93,8 +93,9 @@ pub fn usage() -> String {
     format!(
         "{}\nParametric CAD.\n\nUsage: {} [OPTIONS] [MODEL]\n\nArguments:\n  [MODEL]  \
          A .caditor model to open, or a .dxf or .step file to import\n\nOptions:\n  \
-         --export <FILE>         Write MODEL's bodies to FILE (.stl, .3mf, .step or .stp) and \
-         exit, without opening a window\n  --resolution <NAME>     Mesh quality for STL and 3MF: \
+         --export <FILE>         Write MODEL's bodies, or those of a STEP file, to FILE (.stl, \
+         .3mf, .step or .stp) and exit, without opening a window; the status is 2 when a \
+         feature failed\n  --resolution <NAME>     Mesh quality for STL and 3MF: \
          coarse, standard (the default) or fine\n  -h, --help              Show this help\n  -V, \
          --version           Show the version\n",
         about::version_line(),

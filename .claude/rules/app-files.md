@@ -109,6 +109,8 @@ paths:
   `dialog_parts::BodyRoom`.
 - Choices of two to four options are `widgets::segmented` with hover text on every option
   (`preferences::choice`).
+- The input mode is a `Navigation` preference (key `navigation.input_mode`); the Navigate tip and
+  the Preferences hover texts describe the chosen mode (`InputMode::navigation_tip`).
 - Length units are SI only (`ux.md`). The projection changes only when asked; standard views and
   sketching never switch it. The interface scale is the egui zoom factor, with egui's keyboard
   zoom and quit shortcut off (`app::apply_appearance`).

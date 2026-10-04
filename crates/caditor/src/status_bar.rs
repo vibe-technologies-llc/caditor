@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use caditor_document::FeatureState;
+use caditor_document::{FeatureState, Progress};
 use egui::{
     Align, CornerRadius, CursorIcon, Frame, Id, Label, Layout, Margin, Rect, Response, RichText,
     Sense, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui, UiBuilder, WidgetText, vec2,
@@ -24,6 +24,7 @@ pub const CANCELLED: &str = "Recompute cancelled";
 pub const STOPPED: &str = "Recompute stopped";
 const SHOW_PROGRESS_AFTER: Duration = Duration::from_millis(150);
 const PROGRESS_REFRESH: Duration = Duration::from_millis(100);
+const SHOW_FEATURE_TIME_AFTER: Duration = Duration::from_secs(2);
 const MIN_SELECTION_WIDTH: f32 = 120.0;
 const DIVIDER_WIDTH: f32 = SPACE_S;
 const BAR_MARGIN: Margin = Margin::symmetric(SPACE_M as i8, SPACE_S as i8);
@@ -183,6 +184,22 @@ fn recompute_commands(model: &Model, commands: &mut CommandFrame<'_>, actions: &
     }
 }
 
+fn recomputing_text(progress: &Progress) -> String {
+    let position = format!(
+        "Recomputing {} of {}",
+        (progress.done + 1).min(progress.total),
+        progress.total
+    );
+    let Some(name) = &progress.running else {
+        return format!("{position}…");
+    };
+    let running_for = progress.running_for();
+    if running_for < SHOW_FEATURE_TIME_AFTER {
+        return format!("{position}: {name}…");
+    }
+    format!("{position}: {name}, for {} s…", running_for.as_secs())
+}
+
 fn recompute_status(
     ui: &mut Ui,
     model: &Model,
@@ -193,11 +210,7 @@ fn recompute_status(
         RecomputeStatus::Running { since } if since.elapsed() >= SHOW_PROGRESS_AFTER => {
             ui.spinner();
             let text = match model.progress() {
-                Some(progress) if progress.total > 0 => format!(
-                    "Recomputing {} of {}…",
-                    (progress.done + 1).min(progress.total),
-                    progress.total
-                ),
+                Some(progress) if progress.total > 0 => recomputing_text(&progress),
                 Some(_) | None => "Recomputing…".to_owned(),
             };
             ui.label(text);
@@ -393,4 +406,36 @@ fn interface_size(ui: &mut Ui, appearance: &Appearance, actions: &mut Vec<Action
         )));
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use super::*;
+
+    fn progress(running: Option<&str>, started_ago: Duration) -> Progress {
+        Progress {
+            done: 2,
+            total: 5,
+            running: running.map(str::to_owned),
+            since: Instant::now() - started_ago,
+        }
+    }
+
+    #[test]
+    fn a_recompute_names_its_feature_and_how_long_it_has_run_once_slow() {
+        assert_eq!(
+            recomputing_text(&progress(Some("Pocket"), Duration::ZERO)),
+            "Recomputing 3 of 5: Pocket…"
+        );
+        assert_eq!(
+            recomputing_text(&progress(Some("Pocket"), Duration::from_secs(7))),
+            "Recomputing 3 of 5: Pocket, for 7 s…"
+        );
+        assert_eq!(
+            recomputing_text(&progress(None, Duration::ZERO)),
+            "Recomputing 3 of 5…"
+        );
+    }
 }

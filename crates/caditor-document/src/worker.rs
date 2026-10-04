@@ -20,10 +20,18 @@ use crate::{
 const NO_JOB: u64 = u64::MAX;
 const STOP_GRACE: Duration = Duration::from_secs(5);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Progress {
     pub done: usize,
     pub total: usize,
+    pub running: Option<String>,
+    pub since: Instant,
+}
+
+impl Progress {
+    pub fn running_for(&self) -> Duration {
+        self.since.elapsed()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -230,7 +238,7 @@ impl Recomputer {
     }
 
     pub fn progress(&self) -> Option<Progress> {
-        *self.handle.shared.progress.lock()
+        self.handle.shared.progress.lock().clone()
     }
 
     fn is_wedged(&self) -> bool {
@@ -241,10 +249,18 @@ impl Recomputer {
     }
 
     fn replace_worker(&mut self) -> Result<Option<Update>, WorkerStopped> {
+        let running = self.progress().and_then(|progress| {
+            let name = progress.running?;
+            Some(format!(
+                " (running “{name}” for {:.1?})",
+                progress.since.elapsed()
+            ))
+        });
         log::error!(
-            "the recompute worker did not stop within {:?}, so it is left behind and a new one \
+            "the recompute worker did not stop within {:?}{}, so it is left behind and a new one \
              starts",
-            self.grace
+            self.grace,
+            running.unwrap_or_default()
         );
         let fresh = start_worker(&self.evaluator, &self.wake).map_err(|error| {
             log::error!("could not start a new recompute worker: {error}");
@@ -430,7 +446,19 @@ fn run_contained(
     let (sequence, cancels) = (job.sequence, job.cancels);
     let watched = Arc::clone(shared);
     let cancel = CancelToken::new(move || watched.is_cancelled(sequence, cancels));
-    let report = |done, total| *shared.progress.lock() = Some(Progress { done, total });
+    let report = |done: usize, total: usize| {
+        let running = job
+            .document
+            .feature_handles()
+            .get(done)
+            .map(|feature| feature.name.clone());
+        *shared.progress.lock() = Some(Progress {
+            done,
+            total,
+            running,
+            since: Instant::now(),
+        });
+    };
     let evaluation = contained(recompute, |recompute| {
         recompute.run_reporting(&job.document, evaluator, &cancel, &report, features_done)
     });
@@ -686,7 +714,8 @@ mod tests {
         while started.load(Ordering::SeqCst) == 0 {
             thread::yield_now();
         }
-        assert!(worker.progress().is_some());
+        let progress = worker.progress().unwrap();
+        assert_eq!(progress.running.as_deref(), Some("Base sketch"));
         worker.cancel();
         let update = worker.wait();
 

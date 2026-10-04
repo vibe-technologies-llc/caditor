@@ -145,3 +145,8 @@ paths:
 - Right-drag orbits (turntable around world Z, stopping at the poles; a rolled view turns level),
   middle-drag or Shift+right-drag pans, wheel and pinch zoom toward the point under the cursor.
   View cube and fit changes animate.
+- The input mode (`preferences::InputMode`, chosen in Preferences › Navigation) is caditor, the
+  mouse scheme above, or Laptop, for a touchpad: two-finger scroll orbits, Alt and scroll pans (egui
+  turns Shift and scroll into horizontal-only scrolling, so Alt keeps both axes), pinch and
+  Ctrl+scroll zoom, and Alt-drag orbits and Shift+Alt-drag pans, the Alt press never starting a
+  selection. The right and middle buttons keep working in both modes.

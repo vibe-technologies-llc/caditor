@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use crate::{
     fixtures,
-    read::{ReadError, read_step},
+    read::{Held, ReadError, read_step},
     write::{StepBody, write_step},
 };
 
@@ -73,7 +73,7 @@ fn every_fixture_survives_a_round_trip() {
 fn files_without_solids_are_refused_in_words() {
     assert_eq!(read_step("solid cube"), Err(ReadError::NotStep));
     let empty = "ISO-10303-21;HEADER;ENDSEC;DATA;#1=CARTESIAN_POINT('',(0.,0.,0.));ENDSEC;END-ISO-10303-21;";
-    assert_eq!(read_step(empty), Err(ReadError::NoSolids));
+    assert_eq!(read_step(empty), Err(ReadError::NoSolids(Held::default())));
     assert_eq!(
         read_step("ISO-10303-21;\nDATA;\n#1=X(;"),
         Err(ReadError::Damaged(3))
@@ -448,7 +448,10 @@ fn faceted_solids_and_closed_surface_models_are_imported() {
     ));
     assert_eq!(
         open.map(|model| model.solids.len()),
-        Err(ReadError::NoSolids)
+        Err(ReadError::NoSolids(Held {
+            surface_bodies: 1,
+            ..Held::default()
+        }))
     );
 }
 
@@ -821,4 +824,28 @@ fn a_surface_of_revolution_whose_profile_is_not_in_a_meridian_plane_is_refused()
     let refusal = read_step(&skewed).unwrap_err().to_string();
 
     assert!(refusal.contains("plane through its axis"), "{refusal}");
+}
+
+#[test]
+fn a_file_without_solids_says_its_schema_and_what_it_holds() {
+    let building = "ISO-10303-21;HEADER;FILE_SCHEMA(('IFC4'));ENDSEC;DATA;\
+        #1=TESSELLATED_SHELL('a',(),.F.);#2=TESSELLATED_SHELL('b',(),.F.);\
+        #3=GEOMETRIC_CURVE_SET('c',());ENDSEC;END-ISO-10303-21;";
+
+    let refused = read_step(building).unwrap_err();
+
+    assert_eq!(
+        refused,
+        ReadError::NoSolids(Held {
+            schema: Some("IFC4".to_owned()),
+            surface_bodies: 0,
+            tessellated_shapes: 2,
+            wireframes: 1,
+        })
+    );
+    assert_eq!(
+        refused.to_string(),
+        "it holds no solid bodies (its schema is IFC4 and it holds 2 tessellated shapes, 1 \
+         wireframe); caditor imports closed solids only"
+    );
 }

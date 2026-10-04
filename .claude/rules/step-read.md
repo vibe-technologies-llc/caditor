@@ -19,7 +19,9 @@ paths:
 
 - Returns every `MANIFOLD_SOLID_BREP`, `BREP_WITH_VOIDS`, `FACETED_BREP` and closed
   `SHELL_BASED_SURFACE_MODEL` as named kernel solids plus notes, or a `ReadError` in words;
-  surface bodies are left out with a note. A body that fails does not stop the others.
+  surface bodies are left out with a note. A file with no solids is refused as
+  `ReadError::NoSolids(Held)`, naming its schema and any open surface bodies, tessellated shapes
+  or wireframes it holds. A body that fails does not stop the others.
 - Every solid goes through `SolidBuilder::build`: valid, or a sentence naming the entity. A solid
   whose faces cross (`Solid::find_crossing`) is refused naming the face entities; an inconclusive
   check imports it with a note that features built on it may fail.

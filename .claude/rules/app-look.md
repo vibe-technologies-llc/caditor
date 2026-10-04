@@ -134,7 +134,8 @@ paths:
 - The three arc tools share one Draw button (`sketch_toolbar::ARC_TOOLS`) showing the arc tool last
   used or chosen; each keeps its own key and command, which the button handles whichever is shown.
 - The status bar (`status_bar.rs`) runs recompute | file activity | notice, then right-aligned
-  selection | unit | size. Recompute is progress with Cancel, Up to date, or a failed
+  selection | unit | size. Recompute is progress (the feature running, and for how long once past
+  two seconds, from `Progress`) with Cancel, Up to date, or a failed
   `status_pill` that is a button focusing the first failed feature; a cancelled or stopped recompute
   is a warning or error pill with a Recompute or Restart button. The unit opens Preferences; the
   interface size, when not 100%, goes back to it.

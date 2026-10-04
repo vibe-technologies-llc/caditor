@@ -1,12 +1,20 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    process::ExitCode,
+    sync::Arc,
+};
 
 use anyhow::{Context, Result, anyhow, bail};
 use caditor_document::{
     CancelToken, Document, Evaluation, FeatureResult, FeatureState, ModelEvaluator, Recompute,
 };
-use caditor_file::{ExportBody, ExportFormat, MeshResolution};
+use caditor_file::{
+    DXF_EXTENSION, ExportBody, ExportFormat, MeshResolution, bodies_transaction, read_step_file,
+};
 
-use crate::model::display_name;
+use crate::{import, model::display_name};
+
+pub const PARTIAL_EXIT_STATUS: u8 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Conversion {
@@ -19,6 +27,12 @@ pub struct Conversion {
 pub struct Converted {
     pub summary: String,
     pub warnings: Vec<String>,
+    pub failed_features: usize,
+}
+
+struct Opened {
+    document: Document,
+    issues: Vec<String>,
 }
 
 pub fn convert(conversion: &Conversion) -> Result<Converted> {
@@ -36,17 +50,17 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
                 display_name(Some(output))
             )
         })?;
-    let loaded = caditor_file::load(model)
-        .map_err(|error| anyhow!("could not open “{}”: {error}", display_name(Some(model))))?;
-    let mut warnings: Vec<String> = loaded.issues.clone();
-    let evaluation = Recompute::default().run_without_display(
-        &loaded.document,
-        &ModelEvaluator,
-        &CancelToken::never(),
-    );
-    warnings.extend(failures(&loaded.document, &evaluation));
+    let Opened {
+        document,
+        issues: mut warnings,
+    } = open(model)?;
+    let evaluation =
+        Recompute::default().run_without_display(&document, &ModelEvaluator, &CancelToken::never());
+    let failed = failures(&document, &evaluation);
+    let failed_features = failed.len();
+    warnings.extend(failed);
 
-    let bodies = bodies(&loaded.document, &evaluation);
+    let bodies = bodies(&document, &evaluation);
     if bodies.is_empty() {
         let failed = if warnings.is_empty() {
             String::new()
@@ -84,6 +98,36 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
             display_name(Some(output))
         ),
         warnings,
+        failed_features,
+    })
+}
+
+fn open(model: &Path) -> Result<Opened> {
+    let name = display_name(Some(model));
+    let is_drawing = model
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(DXF_EXTENSION));
+    if is_drawing {
+        bail!("“{name}” is a drawing, which holds sketches and no bodies to export");
+    }
+    if import::is_model(model) {
+        let imported =
+            read_step_file(model).map_err(|error| anyhow!("could not import “{name}”: {error}"))?;
+        let mut document = Document::default();
+        let transaction = bodies_transaction(&document, &imported.bodies, format!("Import {name}"));
+        document
+            .apply(transaction)
+            .map_err(|error| anyhow!("could not import “{name}”: {error}"))?;
+        return Ok(Opened {
+            document,
+            issues: imported.notes,
+        });
+    }
+    let loaded =
+        caditor_file::load(model).map_err(|error| anyhow!("could not open “{name}”: {error}"))?;
+    Ok(Opened {
+        document: loaded.document,
+        issues: loaded.issues,
     })
 }
 
@@ -124,13 +168,17 @@ fn failures(document: &Document, evaluation: &Evaluation) -> Vec<String> {
         .collect()
 }
 
-pub fn run(conversion: &Conversion) -> Result<()> {
+pub fn run(conversion: &Conversion) -> Result<ExitCode> {
     let converted = convert(conversion)?;
     for warning in &converted.warnings {
         eprintln!("warning: {warning}");
     }
     println!("{}", converted.summary);
-    Ok(())
+    Ok(if converted.failed_features == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(PARTIAL_EXIT_STATUS)
+    })
 }
 
 #[cfg(test)]
@@ -182,6 +230,41 @@ mod tests {
         let stl = folder.path().join("plate.stl");
         convert(&conversion(&model, &stl)).unwrap();
         assert!(std::fs::metadata(&stl).unwrap().len() > 84);
+    }
+
+    #[test]
+    fn a_step_file_converts_like_a_model() {
+        let folder = TempDir::new().unwrap();
+        let model = saved_sample(&folder);
+        let step = folder.path().join("plate.step");
+        convert(&conversion(&model, &step)).unwrap();
+
+        let stl = folder.path().join("again.stl");
+        let converted = convert(&conversion(&step, &stl)).unwrap();
+
+        assert_eq!(converted.failed_features, 0);
+        assert!(
+            converted
+                .summary
+                .starts_with("Exported 1 body of “plate.step”")
+        );
+        assert!(std::fs::metadata(&stl).unwrap().len() > 84);
+    }
+
+    #[test]
+    fn a_drawing_is_refused_as_holding_no_bodies() {
+        let folder = TempDir::new().unwrap();
+        let drawing = folder.path().join("outline.dxf");
+        std::fs::write(&drawing, "0\nEOF\n").unwrap();
+
+        let refused = convert(&conversion(&drawing, &folder.path().join("out.step")))
+            .unwrap_err()
+            .to_string();
+
+        assert_eq!(
+            refused,
+            "“outline.dxf” is a drawing, which holds sketches and no bodies to export"
+        );
     }
 
     #[test]
