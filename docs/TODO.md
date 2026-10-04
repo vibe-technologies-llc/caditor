@@ -187,7 +187,6 @@ within a category run from most to least important.
 - Imports cannot be positioned (`Import` has no placement) or refreshed from their source file:
   the path is not kept, so a changed STEP file means deleting the feature and breaking what
   references it.
-- Only `.step`, `.stp` and `.p21` are recognised (no `.stpz`).
 - No IGES import or export, though older CAM software and many suppliers still exchange it.
 
 ## Drawing import and export

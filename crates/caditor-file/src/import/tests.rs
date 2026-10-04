@@ -1302,6 +1302,96 @@ mod step {
         assert!(import.notes[0].contains("Latin-1"));
     }
 
+    fn gzipped(text: &str, flags: u8, after_header: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0x1f, 0x8b, 8, flags, 0, 0, 0, 0, 0, 255];
+        bytes.extend_from_slice(after_header);
+        bytes.extend(miniz_oxide::deflate::compress_to_vec(text.as_bytes(), 6));
+        bytes.extend(crc32fast::hash(text.as_bytes()).to_le_bytes());
+        bytes.extend((text.len() as u32).to_le_bytes());
+        bytes
+    }
+
+    fn written_block() -> String {
+        let solid = block();
+        write_step(
+            &[StepBody {
+                name: "Part",
+                solid: &solid,
+            }],
+            "Part",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_gzip_compressed_step_file_imports_like_a_plain_one() {
+        let text = written_block();
+        let dir = tempfile::TempDir::new().unwrap();
+        let named = [b'p', b'a', b'r', b't', b'.', b's', b't', b'p', 0];
+        let commented = [b'n', b'o', b't', b'e', 0];
+        let mut every_field = vec![3, 0, 7, 7, 7];
+        every_field.extend(named);
+        every_field.extend(commented);
+        every_field.extend([0, 0]);
+        let variants = [
+            ("plain.stpz", gzipped(&text, 0, &[])),
+            ("named.stpz", gzipped(&text, 8, &named)),
+            ("every.stpz", gzipped(&text, 2 | 4 | 8 | 16, &every_field)),
+        ];
+        let plain = dir.path().join("plain.step");
+        std::fs::write(&plain, &text).unwrap();
+        let expected = read_step_file(&plain).unwrap();
+
+        for (name, bytes) in variants {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+
+            let import = read_step_file(&path).unwrap();
+
+            assert_eq!(import.bodies.len(), 1, "{name}");
+            assert_eq!(
+                import.bodies[0].import.step, expected.bodies[0].import.step,
+                "{name}"
+            );
+            assert_eq!(import.notes, expected.notes, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_damaged_or_cut_short_compressed_file_is_refused_in_words() {
+        let text = written_block();
+        let dir = tempfile::TempDir::new().unwrap();
+        let intact = gzipped(&text, 0, &[]);
+        let mut flipped = intact.clone();
+        let middle = flipped.len() / 2;
+        flipped[middle] ^= 0x55;
+        let mut wrong_size = intact.clone();
+        let last = wrong_size.len() - 1;
+        wrong_size[last] ^= 1;
+        let cases = [
+            ("flipped.stpz", flipped),
+            ("cut.stpz", intact[..intact.len() / 2].to_vec()),
+            ("tiny.stpz", vec![0x1f, 0x8b, 8]),
+            ("wrong_size.stpz", wrong_size),
+            (
+                "stored_elsewhere.stpz",
+                vec![0x1f, 0x8b, 9, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8],
+            ),
+        ];
+
+        for (name, bytes) in cases {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+
+            assert_eq!(
+                read_step_file(&path),
+                Err(ImportError::DamagedArchive),
+                "{name}"
+            );
+        }
+    }
+
     #[test]
     fn several_bodies_get_distinct_names_and_other_files_are_refused() {
         let solid = block();

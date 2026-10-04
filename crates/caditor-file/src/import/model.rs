@@ -4,12 +4,26 @@ use caditor_document::{Document, FeatureKind, Import, Transaction};
 use caditor_kernel::Solid;
 use caditor_step::{ReadError, StepBody, read_step, write_step};
 
-use crate::{import::ImportError, read::read_file, reason};
+use crate::{
+    import::ImportError,
+    read::{MAX_FILE_SIZE, read_file},
+    reason,
+};
 
 const LATIN_1_NOTE: &str = "The file is not UTF-8 text, so its names were read as Latin-1; \
                             letters outside it may look wrong.";
 
-pub const STEP_IMPORT_EXTENSIONS: [&str; 3] = ["step", "stp", "p21"];
+pub const STEP_IMPORT_EXTENSIONS: [&str; 4] = ["step", "stp", "p21", "stpz"];
+
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+const GZIP_DEFLATE: u8 = 8;
+const GZIP_FIXED_HEADER: usize = 10;
+const GZIP_TRAILER: usize = 8;
+const GZIP_HEADER_CRC: u8 = 2;
+const GZIP_EXTRA: u8 = 4;
+const GZIP_NAME: u8 = 8;
+const GZIP_COMMENT: u8 = 16;
+const GZIP_RESERVED: u8 = 0xe0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportedBody {
@@ -25,6 +39,11 @@ pub struct ModelImport {
 
 pub fn read_step_file(path: &Path) -> Result<ModelImport, ImportError> {
     let bytes = read_file(path).map_err(|error| ImportError::Reading(reason::reading(&error)))?;
+    let bytes = if bytes.starts_with(&GZIP_MAGIC) {
+        unpacked(&bytes)?
+    } else {
+        bytes
+    };
     let source = path
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
@@ -41,6 +60,63 @@ pub fn read_step_file(path: &Path) -> Result<ModelImport, ImportError> {
             Ok(import)
         }
     }
+}
+
+fn unpacked(bytes: &[u8]) -> Result<Vec<u8>, ImportError> {
+    let damaged = || ImportError::DamagedArchive;
+    let Some([_, _, method, flags, ..]) = bytes.get(..GZIP_FIXED_HEADER) else {
+        return Err(damaged());
+    };
+    let (method, flags) = (*method, *flags);
+    if method != GZIP_DEFLATE || flags & GZIP_RESERVED != 0 {
+        return Err(damaged());
+    }
+    let mut at = GZIP_FIXED_HEADER;
+    if flags & GZIP_EXTRA != 0 {
+        let Some(&[low, high]) = bytes
+            .get(at..at + 2)
+            .and_then(|length| <&[u8; 2]>::try_from(length).ok())
+        else {
+            return Err(damaged());
+        };
+        at += 2 + usize::from(u16::from_le_bytes([low, high]));
+    }
+    for text in [GZIP_NAME, GZIP_COMMENT] {
+        if flags & text != 0 {
+            let rest = bytes.get(at..).ok_or_else(damaged)?;
+            at += rest
+                .iter()
+                .position(|byte| *byte == 0)
+                .ok_or_else(damaged)?
+                + 1;
+        }
+    }
+    if flags & GZIP_HEADER_CRC != 0 {
+        at += 2;
+    }
+    let end = bytes.len().checked_sub(GZIP_TRAILER).ok_or_else(damaged)?;
+    let packed = bytes.get(at..end).ok_or_else(damaged)?;
+    let limit = usize::try_from(MAX_FILE_SIZE).unwrap_or(usize::MAX);
+    let unpacked =
+        miniz_oxide::inflate::decompress_to_vec_with_limit(packed, limit).map_err(|error| {
+            match error.status {
+                miniz_oxide::inflate::TINFLStatus::HasMoreOutput => ImportError::UnpacksTooLarge,
+                _ => damaged(),
+            }
+        })?;
+    let Some(&[c0, c1, c2, c3, s0, s1, s2, s3]) = bytes
+        .get(end..)
+        .and_then(|trailer| <&[u8; GZIP_TRAILER]>::try_from(trailer).ok())
+    else {
+        return Err(damaged());
+    };
+    let checksum = u32::from_le_bytes([c0, c1, c2, c3]);
+    let size = u32::from_le_bytes([s0, s1, s2, s3]);
+    let matches_size = unpacked.len() as u64 & 0xffff_ffff == u64::from(size);
+    if crc32fast::hash(&unpacked) != checksum || !matches_size {
+        return Err(damaged());
+    }
+    Ok(unpacked)
 }
 
 pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> {

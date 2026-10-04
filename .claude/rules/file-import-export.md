@@ -75,7 +75,10 @@ paths:
 
 ## STEP import (`import/model.rs`)
 
-- `read_step_file` reads STEP through `caditor-step` and canonicalises each solid (written by
+- `read_step_file` unpacks a gzip file first (`.stpz`, or any file starting with the gzip magic):
+  header fields skipped, the deflate stream inflated within `MAX_FILE_SIZE` and the CRC and size of
+  the trailer checked, else `ImportError::DamagedArchive` or `UnpacksTooLarge`. It then reads STEP
+  through `caditor-step` and canonicalises each solid (written by
   caditor's own writer and read back, so what is stored is exactly what later loads), giving one
   `ImportedBody` per solid, or per lump (each canonicalised alone) when a multi-lump solid reads
   back as several, plus notes. Text that is not valid UTF-8 is read as Latin-1, with a note.

@@ -116,6 +116,13 @@ pub enum ImportError {
     NotStep,
     #[error("{0}")]
     Model(String),
+    #[error("the compressed file is damaged, so it cannot be unpacked")]
+    DamagedArchive,
+    #[error(
+        "the compressed file unpacks to more than {} GiB, more than caditor reads",
+        crate::read::MAX_FILE_SIZE >> 30
+    )]
+    UnpacksTooLarge,
     #[error("the drawing is damaged near line {0}")]
     DamagedAt(usize),
     #[error("the drawing is damaged")]
