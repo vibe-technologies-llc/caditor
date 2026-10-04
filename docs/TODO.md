@@ -230,9 +230,6 @@ within a category run from most to least important.
 
 ## Interface performance
 
-- While orbiting, panning or zooming, a GPU pick is issued every frame (the view is part of
-  `PickKey`) and each change of the item under the moving cursor rebuilds and uploads the whole
-  scene. Freeze hover during camera moves and pick once when they settle.
 - With a large sketch selected, every constraint tool rebuilds its candidates each frame.
 - Snapping projects every point and curve of the sketch on every hover frame (`snap.rs`), about
   1 ms for 20,000 lines in a release build, most of it walking the entities, and a line or slot

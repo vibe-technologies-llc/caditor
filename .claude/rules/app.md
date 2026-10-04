@@ -64,7 +64,9 @@ paths:
   when it differs from the last one; it carries no pick ids, so it never asks for a pick.
 - Each rebuild of the base bumps a generation; a pick is asked for when the cursor, the view or
   that generation differs from the last pick's (`PickKey`), and the pick table travels with it as
-  an `Arc`. The keyboard highlight's list of distinct pickables is worked out only when first
+  an `Arc`. No pick is asked for in a frame where the camera's viewpoint differs from the last
+  request's (orbit, pan, zoom, an animation), so hover stays as it was while the view moves and one
+  pick follows when it settles. The keyboard highlight's list of distinct pickables is worked out only when first
   needed after a rebuild.
 - `SketchShapes` keeps each drawn sketch's faceted outlines and constraint palettes for the
   current content, so a hover or selection change only restyles and re-registers them.

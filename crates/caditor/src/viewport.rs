@@ -162,6 +162,7 @@ pub struct ViewportState {
     fit_requested: bool,
     picks_in_flight: Option<(Arc<PickTable>, View)>,
     last_pick: Option<PickKey>,
+    requested_viewpoint: Option<Viewpoint>,
     edited: Option<FeatureId>,
     face_edited_sketch: bool,
     sketch_cursor: Option<Point2>,
@@ -207,6 +208,7 @@ impl ViewportState {
             fit_requested: false,
             picks_in_flight: None,
             last_pick: None,
+            requested_viewpoint: None,
             edited: None,
             face_edited_sketch: false,
             sketch_cursor: None,
@@ -502,20 +504,28 @@ impl ViewportState {
         let rect = self.rect?;
         let view = self.view()?;
         let generation = self.scenes.generation();
-        let pick_at = self.cursor.filter(|_| can_pick).and_then(|cursor| {
-            let key = PickKey {
-                cursor,
-                view,
-                generation,
-            };
-            if self.last_pick == Some(key) {
-                return None;
-            }
-            let picks = Arc::clone(&self.scenes.built()?.picks);
-            self.last_pick = Some(key);
-            self.picks_in_flight = Some((picks, view));
-            Some(cursor)
-        });
+        let viewpoint = self.camera.viewpoint();
+        let moving = self
+            .requested_viewpoint
+            .is_some_and(|previous| previous != viewpoint);
+        self.requested_viewpoint = Some(viewpoint);
+        let pick_at = self
+            .cursor
+            .filter(|_| can_pick && !moving)
+            .and_then(|cursor| {
+                let key = PickKey {
+                    cursor,
+                    view,
+                    generation,
+                };
+                if self.last_pick == Some(key) {
+                    return None;
+                }
+                let picks = Arc::clone(&self.scenes.built()?.picks);
+                self.last_pick = Some(key);
+                self.picks_in_flight = Some((picks, view));
+                Some(cursor)
+            });
         let scale = self.pixels_per_point;
         Some(ViewportRequest {
             view,
@@ -2211,7 +2221,7 @@ mod tests {
     }
 
     #[test]
-    fn moving_the_camera_keeps_the_scene_but_picks_again() {
+    fn moving_the_camera_keeps_the_scene_and_picks_once_it_settles() {
         let (document, ..) = sketched(Plane::XY);
         let mut model = model_of(document);
         settle(&mut model);
@@ -2229,10 +2239,14 @@ mod tests {
         let panned = draw(&mut state, &model, &editing);
         state.camera.zoom(target, 1.3);
         let zoomed_out_a_little = draw(&mut state, &model, &editing);
+        let settled = draw(&mut state, &model, &editing);
+        let still = draw(&mut state, &model, &editing);
 
-        assert!(orbited.same_scene(&first) && orbited.picked);
-        assert!(panned.same_scene(&first) && panned.picked);
-        assert!(zoomed_out_a_little.same_scene(&first) && zoomed_out_a_little.picked);
+        assert!(orbited.same_scene(&first) && !orbited.picked);
+        assert!(panned.same_scene(&first) && !panned.picked);
+        assert!(zoomed_out_a_little.same_scene(&first) && !zoomed_out_a_little.picked);
+        assert!(settled.same_scene(&first) && settled.picked);
+        assert!(!still.picked);
     }
 
     #[test]
