@@ -334,9 +334,9 @@ within a category run from most to least important.
 - No feature combines two existing bodies, and a cut affects only one body.
 - Bodies have no colour, material or density, so a multi-body model is one grey until picked and
   mass cannot be shown; this blocks coloured STEP and 3MF export.
-- Mass properties are volume, area and centroid from the display mesh, biased low on curved
-  bodies, with no mass, inertia, bounding size or total. Integrate exactly over the trimmed
-  faces, as `planar_area` already does for planes.
+- Mass properties are volume, area, centroid and bounding size from the display mesh, biased low
+  on curved bodies, with no mass, inertia or total. Integrate exactly over the trimmed faces, as
+  `planar_area` already does for planes.
 - Blends: only line and circle edges along planes, parallel cylinders and coaxial surfaces; no
   ellipse, spline or intersection edges, not even a straight edge beside a spline extrusion face;
   ends at steps and T-junctions refused; no variable radius, two-distance or distance-angle

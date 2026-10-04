@@ -113,6 +113,12 @@ impl LengthUnit {
         format!("{x}, {y}, {z} {}", self.symbol())
     }
 
+    pub fn measured_size(self, extents: [f64; 3]) -> String {
+        let [x, y, z] = extents
+            .map(|millimetres| self.measured_number(millimetres, 1, MEASURED_LENGTH_DECIMALS));
+        format!("{x} × {y} × {z} {}", self.symbol())
+    }
+
     fn measured_power(self, value: f64, power: i32, decimals_in_millimetres: f64) -> String {
         let number = self.measured_number(value, power, decimals_in_millimetres);
         let symbol = self.symbol();

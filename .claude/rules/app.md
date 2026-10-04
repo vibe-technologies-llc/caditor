@@ -168,7 +168,7 @@ paths:
   where its faces meet).
 - Vertices are markers with no colour, so they pick (as points, winning over edges and faces
   nearby) but show only when hovered or selected. The conversion worker also lists each body's
-  vertices and works out its `BodyMass` (the mesh's volume, area and centroid; `Exact` for flat
+  vertices and works out its `BodyMass` (the mesh's volume, area, centroid and the size of its bounding box; `Exact` for flat
   faces and straight edges only, else the mesh's chord and the volume's bound, curved area times
   chord).
 - While a sketch is edited, bodies are dimmed and not pickable.

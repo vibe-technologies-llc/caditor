@@ -167,6 +167,13 @@ fn mass_card(name: String, mass: Option<&BodyMass>, unit: LengthUnit) -> Card {
                 text: approximately(unit.measured_area(properties.area), approximate),
             },
             Row {
+                label: "Size".to_owned(),
+                text: mass.size.map_or_else(
+                    || "Not available".to_owned(),
+                    |size| approximately(unit.measured_size(size), approximate),
+                ),
+            },
+            Row {
                 label: "Centroid".to_owned(),
                 text: approximately(
                     unit.measured_position([centroid.x, centroid.y, centroid.z]),
@@ -389,13 +396,15 @@ mod tests {
                 chord: 0.01,
                 volume_within: 2.5,
             },
+            size: Some([10.0, 12.5, 8.0]),
         };
 
         let card = mass_card("Extrude 1".to_owned(), Some(&mass), LengthUnit::Millimetre);
         let waiting = mass_card("Extrude 2".to_owned(), None, LengthUnit::Millimetre);
 
         assert_eq!(card.rows[0].text, "≈ 1000.0 mm³");
-        assert_eq!(card.rows[2].text, "≈ 5.000, 5.000, 5.000 mm");
+        assert_eq!(card.rows[2].text, "≈ 10.000 × 12.500 × 8.000 mm");
+        assert_eq!(card.rows[3].text, "≈ 5.000, 5.000, 5.000 mm");
         assert!(card.notes[0].1.contains("within 0.010 mm"));
         assert!(card.notes[0].1.contains("within 2.5 mm³"));
         assert!(waiting.rows.is_empty());

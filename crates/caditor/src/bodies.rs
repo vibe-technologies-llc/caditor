@@ -143,6 +143,7 @@ pub enum MassAccuracy {
 pub struct BodyMass {
     pub properties: MassProperties,
     pub accuracy: MassAccuracy,
+    pub size: Option<[f64; 3]>,
 }
 
 impl BodyMass {
@@ -166,9 +167,14 @@ impl BodyMass {
                 volume_within: curved_area * mesh.chord(),
             }
         };
+        let size = Aabb::from_points(mesh.positions().iter().copied()).map(|bounds| {
+            let extent = bounds.max() - bounds.min();
+            [extent.x, extent.y, extent.z]
+        });
         Self {
             properties: mesh.mass_properties(),
             accuracy,
+            size,
         }
     }
 }
