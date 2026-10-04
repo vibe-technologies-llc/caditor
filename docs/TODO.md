@@ -276,8 +276,6 @@ within a category run from most to least important.
   committing.
 - In a conflicting sketch every drag is blocked and finishes by blaming the move; the cue names no
   constraint of the conflict.
-- Press-drag-release with a drawing tool places only the release point; place the press point as
-  the start too, so one gesture draws a line, rectangle or circle.
 - Tools missing: ellipse (a new entity kind across the solver, kernel and file format), sketch
   chamfer, rectangular and circular patterns, rotate, scale and copy of a selection, split at a
   point, text, and fit-point, closed or periodic splines (`BSpline::interpolate` and `through`

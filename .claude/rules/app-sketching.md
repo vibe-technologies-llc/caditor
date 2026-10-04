@@ -91,7 +91,11 @@ paths:
   radius or with round ends that would meet.
 - Keys: P, L, R, C, A, T (tangent arc), U (slot), G (polygon), S (spline), Alt+A (three-point arc).
 - A press that drags or is held too long to be a click still places a point where it is released,
-  since egui reports it as a drag (`Viewport::click`); the press position itself is not placed.
+  since egui reports it as a drag (`Viewport::click`). When nothing of the shape is placed yet and
+  the release is at least `DRAG_DRAWS_FROM_PRESS` (12 points) from the press, the press position
+  is placed first, as if it had been clicked (`place_press_point`, which hovers the press cursor
+  for its snap and restores the current one), so one press-drag-release draws a line, rectangle or
+  circle; a shorter drag, or one made with part of a shape placed, places only the release.
 - The pointer is on the sketch only within `MAX_LENGTH` of the origin, like a typed point, so an
   edge-on view cannot place a point at an enormous distance.
 

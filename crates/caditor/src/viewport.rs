@@ -50,6 +50,7 @@ const HIT_CURSOR_TOLERANCE_POINTS: f64 = 1.5;
 const PROMPT_MARGIN: f32 = 16.0;
 const PROMPT_MAX_WIDTH: f32 = 720.0;
 const READOUT_ROOM: f32 = 200.0;
+const DRAG_DRAWS_FROM_PRESS: f64 = 12.0;
 const VIEWPORT_NAME: &str = "3D view";
 pub const DRAG_BLOCKED: &str = "The constraints do not allow it there";
 const READOUT_GAP: f32 = 4.0;
@@ -178,6 +179,7 @@ pub struct ViewportState {
     typed_point: TypedPoint,
     moving: Option<Moving>,
     press: Option<Press>,
+    draw_press: Option<Vector2>,
     primary: Option<PrimaryDrag>,
     hovered_in_tree: Option<Pickable>,
     session: u64,
@@ -224,6 +226,7 @@ impl ViewportState {
             typed_point: TypedPoint::default(),
             moving: None,
             press: None,
+            draw_press: None,
             primary: None,
             hovered_in_tree: None,
             session: 0,
@@ -792,10 +795,14 @@ impl ViewportState {
             press.current = true;
         }
         if response.drag_started_by(PointerButton::Primary) {
-            self.primary = self
-                .press
-                .take()
-                .and_then(|press| self.begin_primary(press, model, editing));
+            let press = self.press.take();
+            self.draw_press = press
+                .filter(|_| {
+                    editing.active().is_some_and(|active| active.tool.draws())
+                        && !self.drawing.in_progress()
+                })
+                .map(|press| press.cursor);
+            self.primary = press.and_then(|press| self.begin_primary(press, model, editing));
             if let Some(PrimaryDrag::Trim { from, .. }) = &self.primary {
                 self.trimming.begin_path(*from);
             }
@@ -986,6 +993,12 @@ impl ViewportState {
         }
         let placed_by_dragging = editing.active().is_some_and(|active| active.tool.draws())
             && response.drag_stopped_by(PointerButton::Primary);
+        if placed_by_dragging {
+            self.place_press_point(model, editing, drawing, actions);
+        }
+        if !response.dragged() {
+            self.draw_press = None;
+        }
         let click = Click {
             double: response.double_clicked(),
             primary: response.clicked_by(PointerButton::Primary) || placed_by_dragging,
@@ -999,6 +1012,39 @@ impl ViewportState {
         } else {
             self.pending_click = Some(click);
         }
+    }
+
+    fn place_press_point(
+        &mut self,
+        model: &Model,
+        editing: &SketchEditing,
+        drawing: bool,
+        actions: &mut Vec<Action>,
+    ) {
+        let (Some(from), Some(to), Some(feature)) =
+            (self.draw_press.take(), self.cursor, editing.feature())
+        else {
+            return;
+        };
+        let apart = (to - from).length() / f64::from(self.pixels_per_point);
+        if apart < DRAG_DRAWS_FROM_PRESS || self.drawing.in_progress() {
+            return;
+        }
+        let (cursor, sketch_cursor) = (self.cursor, self.sketch_cursor);
+        self.cursor = Some(from);
+        self.sketch_cursor = self.on_sketch(model, feature, from);
+        self.track_drawing(model, editing);
+        if self.sketch_cursor.is_some() {
+            let click = Click {
+                double: false,
+                primary: true,
+                toggle: false,
+            };
+            self.perform_click(click, model, editing, drawing, actions);
+        }
+        self.cursor = cursor;
+        self.sketch_cursor = sketch_cursor;
+        self.track_drawing(model, editing);
     }
 
     fn hover_is_current(&self) -> bool {

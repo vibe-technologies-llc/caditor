@@ -3120,6 +3120,65 @@ fn a_press_dragged_or_held_with_a_drawing_tool_still_places_the_point_where_it_i
 }
 
 #[test]
+fn one_press_drag_release_draws_a_whole_line_rectangle_or_circle() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+
+    let from = harness.on_screen(Point2::new(10.0, 10.0));
+    drag_in_sketch(&mut harness, from, Point2::new(40.0, 25.0));
+    harness.frame();
+
+    let sketch = harness.sketch(feature);
+    let [line] = entities_of_kind(sketch, "Line")[..] else {
+        panic!("one drag should draw one line");
+    };
+    let (start, end) = sketch.line_endpoints(line).unwrap();
+    assert!(near(start, Point2::new(10.0, 10.0)), "{start}");
+    assert!(near(end, Point2::new(40.0, 25.0)), "{end}");
+    assert!(harness.shows("Click to end the line, Escape to stop"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.key(Key::Escape, Modifiers::NONE);
+
+    harness.use_tool(Key::R);
+    let from = harness.on_screen(Point2::new(60.0, 10.0));
+    drag_in_sketch(&mut harness, from, Point2::new(90.0, 30.0));
+    harness.frame();
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 5);
+}
+
+#[test]
+fn a_circle_is_drawn_by_dragging_from_its_centre_to_its_rim() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::C);
+    let from = harness.on_screen(Point2::new(20.0, 35.0));
+    drag_in_sketch(&mut harness, from, Point2::new(35.0, 35.0));
+    harness.frame();
+    let sketch = harness.sketch(feature);
+    let [circle] = entities_of_kind(sketch, "Circle")[..] else {
+        panic!("one drag should draw one circle");
+    };
+    let (centre, radius) = sketch.circle(circle).unwrap();
+    assert!(near(centre, Point2::new(20.0, 35.0)), "{centre}");
+    assert!((radius - 15.0).abs() < DRAWN, "{radius}");
+}
+
+#[test]
+fn a_press_that_slips_a_few_pixels_is_still_one_click_where_it_is_released() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+
+    let from = harness.on_screen(Point2::new(10.0, 10.0));
+    drag_in_sketch(&mut harness, from, Point2::new(10.5, 10.4));
+    harness.frame();
+
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 0);
+    assert!(harness.shows("Click to end the line, Escape to stop"));
+}
+
+#[test]
 fn drawing_a_line_adds_its_points_and_the_line_in_one_undoable_step() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
