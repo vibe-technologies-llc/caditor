@@ -95,10 +95,6 @@ within a category run from most to least important.
 
 ## Kernel performance
 
-- Extruding a spline profile is quadratic in its control points (320 take 3.4 s to extrude, and
-  as long again to validate and to mesh), because `Extrusion::project` searches the whole profile
-  each call and `minimize_near` runs the global search before the hint. Try the hint first, as
-  `Revolution` does.
 - `find_crossing` rebuilds `edge_uses` for every neighbouring face pair and compares boundary
   edges pairwise, quadratic in the edges of one face: reading an 8,000-face prism from STEP takes
   9 s, of which 60% is `edge_uses`. Compute it once per face and use the `BoxTree`.

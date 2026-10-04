@@ -40,7 +40,10 @@ paths:
 - Lines run by arc length, circles and ellipses by angle in a `Plane` frame, splines over their
   knots. Reversal maps t to `reversal_pivot() - t`.
 - Closest points are analytic for lines and circles, else seeded by sampling and refined by
-  bracketed Newton.
+  bracketed Newton. Given a hint, the search first refines within a 32nd of the range around it
+  and answers there when that foot lies within the resolution of the point, building the samples
+  over the whole range only otherwise, so chained projections along a spline cost no more per
+  point as its spans grow.
 - `Curve::Intersection(IntersectionCurve)` lies on two surfaces it carries: nodes refined onto both
   (point, unit tangent, uv on each), cubic Hermite segments subdivided until each midpoint is within
   `INTERSECTION_TOLERANCE` (a quarter of `LINEAR_RESOLUTION`) of the true one.

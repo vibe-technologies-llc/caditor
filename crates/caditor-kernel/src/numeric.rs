@@ -73,14 +73,13 @@ pub(crate) fn minimize(samples: &[f64], objective: impl Fn(f64) -> Taylor) -> Op
 }
 
 pub(crate) fn minimize_near(
-    samples: &[f64],
+    samples: impl FnOnce() -> Vec<f64>,
     objective: impl Fn(f64) -> Taylor,
     range: Interval,
     hint: Option<f64>,
 ) -> Option<f64> {
-    let global = minimize(samples, &objective);
     let Some(hint) = hint.filter(|hint| hint.is_finite()) else {
-        return global;
+        return minimize(&samples(), &objective);
     };
     let reach = range.length() / HINT_BRACKETS;
     let around = [
@@ -89,12 +88,17 @@ pub(crate) fn minimize_near(
         range.clamp(hint + reach),
     ];
     let local = minimize(&around, &objective);
-    match (global, local) {
-        (Some(global), Some(local)) => {
-            let as_good = objective(local).value <= objective(global).value + SQUARED_RESOLUTION;
+    let local_value = local.map(|local| objective(local).value);
+    if local_value.is_some_and(|value| value <= SQUARED_RESOLUTION) {
+        return local;
+    }
+    let global = minimize(&samples(), &objective);
+    match (global, local, local_value) {
+        (Some(global), Some(local), Some(value)) => {
+            let as_good = value <= objective(global).value + SQUARED_RESOLUTION;
             Some(if as_good { local } else { global })
         }
-        (global, local) => local.or(global),
+        (global, local, _) => local.or(global),
     }
 }
 
@@ -155,7 +159,7 @@ fn refine(
 
 #[cfg(test)]
 mod tests {
-    use std::f64::consts::PI;
+    use std::{cell::Cell, f64::consts::PI};
 
     use super::*;
 
@@ -179,6 +183,31 @@ mod tests {
         let found = minimize(&samples, objective).unwrap();
         assert!(found < 0.0);
         assert!(objective(found).slope.abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_hint_on_the_curve_answers_without_building_the_samples() {
+        let objective = |x: f64| Taylor {
+            value: (x - 3.0).powi(2),
+            slope: 2.0 * (x - 3.0),
+            curvature: 2.0,
+        };
+        let range = Interval::new(0.0, 100.0).unwrap();
+        let built = Cell::new(0);
+        let samples = || {
+            built.set(built.get() + 1);
+            (0..=100).map(f64::from).collect()
+        };
+
+        let found = minimize_near(samples, objective, range, Some(3.2)).unwrap();
+
+        assert!((found - 3.0).abs() < 1e-9);
+        assert_eq!(built.get(), 0);
+
+        let far = minimize_near(samples, |x| objective(x + 0.5), range, Some(80.0)).unwrap();
+
+        assert!((far - 2.5).abs() < 1e-9);
+        assert_eq!(built.get(), 1);
     }
 
     #[test]

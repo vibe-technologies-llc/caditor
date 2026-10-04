@@ -126,9 +126,9 @@ pub(crate) fn triangulate(
         u_scale: density.u_scale,
         v_scale: density.v_scale,
     };
-    let mut triangulation = FaceTriangulation::new(face_id, scaled);
-    for points in &loops {
-        triangulation.add_loop(points)?;
+    let mut points = FacePoints::new(face_id, scaled);
+    for boundary in &loops {
+        points.add_loop(boundary)?;
     }
     let grid = grid_points(&loops, bounds, &density, &scaled)?;
     if mesh.positions.len().saturating_add(grid.len()) > budget.limit {
@@ -138,9 +138,9 @@ pub(crate) fn triangulate(
         if index.is_multiple_of(POLL_EVERY) {
             interrupt::check()?;
         }
-        triangulation.add_interior(uv)?;
+        points.add_interior(uv)?;
     }
-    triangulation.emit(surface, face.sense(), mesh)
+    points.triangulate()?.emit(surface, face.sense(), mesh)
 }
 
 pub(crate) struct PoleSampling {
@@ -499,74 +499,59 @@ fn grid_points(
     Ok(points)
 }
 
-struct FaceTriangulation {
+struct FacePoints {
     face: FaceId,
     scaled: Scaled,
-    cdt: Cdt,
     points: Vec<LocalPoint>,
-    slots: Vec<usize>,
+    mapped: Vec<PlanePoint<f64>>,
+    by_place: BTreeMap<[u64; 2], usize>,
+    loops: Vec<Vec<usize>>,
 }
 
-impl FaceTriangulation {
+impl FacePoints {
     fn new(face: FaceId, scaled: Scaled) -> Self {
         Self {
             face,
             scaled,
-            cdt: Cdt::default(),
             points: Vec::new(),
-            slots: Vec::new(),
+            mapped: Vec::new(),
+            by_place: BTreeMap::new(),
+            loops: Vec::new(),
         }
     }
 
-    fn insert(
-        &mut self,
-        point: LocalPoint,
-    ) -> Result<(FixedVertexHandle, bool), TessellationError> {
+    fn insert(&mut self, point: LocalPoint) -> Result<usize, TessellationError> {
         let mapped = self.scaled.map(point.uv);
-        let handle = self
-            .cdt
-            .insert(PlanePoint::new(mapped.x, mapped.y))
-            .map_err(|_| TessellationError::Triangulation(self.face))?;
-        if handle.index() == self.slots.len() {
-            self.slots.push(self.points.len());
-            self.points.push(point);
-            return Ok((handle, true));
+        let place = [mapped.x.to_bits(), mapped.y.to_bits()];
+        if let Some(&index) = self.by_place.get(&place) {
+            let existing = self
+                .points
+                .get(index)
+                .ok_or(TessellationError::Triangulation(self.face))?;
+            if existing.position != point.position {
+                return Err(TessellationError::DuplicateBoundaryPoint(self.face));
+            }
+            return Ok(index);
         }
-        let existing = self
-            .slots
-            .get(handle.index())
-            .and_then(|slot| self.points.get(*slot))
-            .ok_or(TessellationError::Triangulation(self.face))?;
-        if existing.position != point.position {
-            return Err(TessellationError::DuplicateBoundaryPoint(self.face));
-        }
-        Ok((handle, false))
+        let index = self.points.len();
+        self.by_place.insert(place, index);
+        self.points.push(point);
+        self.mapped.push(PlanePoint::new(mapped.x, mapped.y));
+        Ok(index)
     }
 
     fn add_loop(&mut self, points: &[BoundaryPoint]) -> Result<(), TessellationError> {
-        let mut handles = Vec::with_capacity(points.len());
+        let mut indices = Vec::with_capacity(points.len());
         for (index, point) in points.iter().enumerate() {
             if index.is_multiple_of(POLL_EVERY) {
                 interrupt::check()?;
             }
-            let (handle, _) = self.insert(LocalPoint {
+            indices.push(self.insert(LocalPoint {
                 uv: point.uv,
                 position: Some(point.position),
-            })?;
-            handles.push(handle);
+            })?);
         }
-        let count = handles.len();
-        for (index, from) in handles.iter().enumerate() {
-            let Some(to) = handles.get((index + 1) % count) else {
-                continue;
-            };
-            if from == to || self.cdt.exists_constraint(*from, *to) {
-                continue;
-            }
-            if self.cdt.try_add_constraint(*from, *to).is_empty() {
-                return Err(TessellationError::SelfIntersectingBoundary(self.face));
-            }
-        }
+        self.loops.push(indices);
         Ok(())
     }
 
@@ -574,6 +559,49 @@ impl FaceTriangulation {
         self.insert(LocalPoint { uv, position: None }).map(|_| ())
     }
 
+    fn triangulate(self) -> Result<FaceTriangulation, TessellationError> {
+        let count = self.points.len();
+        let mut cdt = Cdt::try_bulk_load_cdt(self.mapped, Vec::new(), |_| {})
+            .map_err(|_| TessellationError::Triangulation(self.face))?;
+        if cdt.num_vertices() != count {
+            return Err(TessellationError::Triangulation(self.face));
+        }
+        for indices in &self.loops {
+            let corners = indices.len();
+            for (index, from) in indices.iter().enumerate() {
+                if index.is_multiple_of(POLL_EVERY) {
+                    interrupt::check()?;
+                }
+                let Some(to) = indices.get((index + 1) % corners) else {
+                    continue;
+                };
+                let (from, to) = (
+                    FixedVertexHandle::from_index(*from),
+                    FixedVertexHandle::from_index(*to),
+                );
+                if from == to || cdt.exists_constraint(from, to) {
+                    continue;
+                }
+                if cdt.try_add_constraint(from, to).is_empty() {
+                    return Err(TessellationError::SelfIntersectingBoundary(self.face));
+                }
+            }
+        }
+        Ok(FaceTriangulation {
+            face: self.face,
+            cdt,
+            points: self.points,
+        })
+    }
+}
+
+struct FaceTriangulation {
+    face: FaceId,
+    cdt: Cdt,
+    points: Vec<LocalPoint>,
+}
+
+impl FaceTriangulation {
     fn inside_faces(&self) -> Vec<bool> {
         let mut parity: Vec<Option<bool>> = vec![None; self.cdt.num_all_faces()];
         let mut pending: VecDeque<FixedFaceHandle<InnerTag>> = VecDeque::new();
@@ -629,12 +657,7 @@ impl FaceTriangulation {
             if !inside.get(face.fix().index()).copied().unwrap_or(false) {
                 continue;
             }
-            let local = face
-                .vertices()
-                .map(|vertex| self.slots.get(vertex.fix().index()).copied());
-            let [Some(a), Some(b), Some(c)] = local else {
-                return Err(TessellationError::Triangulation(self.face));
-            };
+            let [a, b, c] = face.vertices().map(|vertex| vertex.fix().index());
             let triangle = match sense {
                 Sense::Same => [a, b, c],
                 Sense::Reversed => [a, c, b],

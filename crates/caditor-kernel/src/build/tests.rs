@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     f64::consts::{FRAC_PI_2, PI, TAU},
+    time::{Duration, Instant},
 };
 
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
@@ -21,6 +22,7 @@ use crate::{
 
 const FEATURE: u64 = 7;
 const CHORD: f64 = 1e-3;
+const DENSE_SPLINE_TIME_LIMIT: Duration = Duration::from_secs(20);
 
 fn regions(curves: &[ProfileCurve]) -> Vec<Region> {
     Profile::new(curves)
@@ -1199,4 +1201,36 @@ fn profiles_touching_a_slanted_axis_revolve_into_valid_solids() {
             }
         }
     }
+}
+
+#[test]
+fn a_dense_spline_profile_extrudes_validates_and_meshes_in_bounded_time() {
+    let count = 320;
+    let points: Vec<(f64, f64)> = (0..=count)
+        .map(|index| {
+            let angle = TAU * (index % count) as f64 / count as f64;
+            let radius = 20.0 + 2.0 * (7.0 * angle).sin();
+            (radius * angle.cos(), radius * angle.sin())
+        })
+        .collect();
+    let profile = regions(&[spline(1, &points)]);
+    let area = profile[0].area();
+    let clock = Instant::now();
+
+    let solid = extrude(&Plane::XY, &profile, one_side(5.0), FEATURE).unwrap();
+    let mesh = solid.tessellate(&solid.default_tolerance()).unwrap();
+
+    assert_eq!(solid.validate(), Ok(()));
+    assert_watertight("dense spline", &mesh);
+    assert!(
+        clock.elapsed() < DENSE_SPLINE_TIME_LIMIT,
+        "{:?}",
+        clock.elapsed()
+    );
+    let volume = mesh.mass_properties().volume;
+    assert!(
+        (volume - 5.0 * area).abs() < 1e-3 * volume,
+        "{volume} vs {}",
+        5.0 * area
+    );
 }

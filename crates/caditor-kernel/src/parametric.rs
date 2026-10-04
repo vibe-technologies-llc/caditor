@@ -44,7 +44,7 @@ pub(crate) fn closest_parameter_near<C: Parametric>(
     range: Interval,
     hint: Option<f64>,
 ) -> f64 {
-    let samples = refined_seeds(curve, range, CLOSEST_SEED_REFINEMENT);
+    let samples = || refined_seeds(curve, range, CLOSEST_SEED_REFINEMENT);
     let objective = |parameter: f64| {
         let parameter = range.clamp(parameter);
         let [position, first, second] = curve.evaluate(parameter);
@@ -55,7 +55,7 @@ pub(crate) fn closest_parameter_near<C: Parametric>(
             curvature: 2.0 * (first.dot(first) + second.dot(offset)),
         }
     };
-    range.clamp(minimize_near(&samples, objective, range, hint).unwrap_or(range.start()))
+    range.clamp(minimize_near(samples, objective, range, hint).unwrap_or(range.start()))
 }
 
 pub(crate) fn length<C: Parametric>(curve: &C, range: Interval) -> f64 {

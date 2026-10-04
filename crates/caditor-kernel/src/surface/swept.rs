@@ -76,7 +76,7 @@ impl Extrusion {
             }
             profile => {
                 let range = profile_search_range(profile, hint.map(|hint| hint.x));
-                let samples = refined_seeds(profile, range, PROFILE_SEED_REFINEMENT);
+                let samples = || refined_seeds(profile, range, PROFILE_SEED_REFINEMENT);
                 let objective = |parameter: f64| {
                     let curve = profile.evaluate(range.clamp(parameter));
                     let offset = across(curve.point - point);
@@ -89,7 +89,7 @@ impl Extrusion {
                     }
                 };
                 let found = range.clamp(
-                    minimize_near(&samples, objective, range, hint.map(|hint| hint.x))
+                    minimize_near(samples, objective, range, hint.map(|hint| hint.x))
                         .unwrap_or(range.start()),
                 );
                 match profile.period() {

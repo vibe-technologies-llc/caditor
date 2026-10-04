@@ -15,6 +15,10 @@ paths:
     tolerance, which keeps the triangles the triangulation actually picks within the chord;
   - kept clear of the boundary;
   - a direction without curvature gets cells at most four times longer than the curved one's.
+- A face's points (loops, then grid) are deduplicated by their exact scaled coordinates (one
+  position each, or `DuplicateBoundaryPoint`), bulk-loaded into the triangulation in that order and
+  only then joined by the loops' constraint edges, so a long boundary costs n log n where inserting
+  its points one by one along the loop flipped edges quadratically.
 - Triangles are kept by the parity of constraint crossings from outside.
 - Consecutive boundary points at the same vertex whose parameters differ by a spatially negligible
   gap (an edge ending within the resolution of its vertex) are merged, so such joints do not become
@@ -77,4 +81,4 @@ paths:
   counted before they are inserted; a mesh that would need more fails as `TooLarge`, which export
   names as a body too fine for the resolution.
 - Cancellation is polled per edge, per face checked for overlapping ends, per grid row and every
-  1024 points inserted.
+  1024 points gathered or constraint edges added.
