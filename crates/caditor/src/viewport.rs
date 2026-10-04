@@ -51,6 +51,7 @@ const PROMPT_MARGIN: f32 = 16.0;
 const PROMPT_MAX_WIDTH: f32 = 720.0;
 const READOUT_ROOM: f32 = 200.0;
 const DRAG_DRAWS_FROM_PRESS: f64 = 12.0;
+const SIZE_READOUT_OFFSET: egui::Vec2 = vec2(14.0, 26.0);
 const VIEWPORT_NAME: &str = "3D view";
 pub const DRAG_BLOCKED: &str = "The constraints do not allow it there";
 const READOUT_GAP: f32 = 4.0;
@@ -1653,6 +1654,20 @@ impl ViewportState {
                 canvas::SNAP,
             );
             canvas::announce(ui, shown, "snap", &label, None);
+        }
+        if let (Some(size), Some(cursor)) = (self.drawing.readout(model.length_unit()), self.cursor)
+        {
+            let position = rect.min
+                + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
+            let shown = canvas::label(
+                painter,
+                position + SIZE_READOUT_OFFSET,
+                Align2::LEFT_TOP,
+                &size,
+                canvas::small(),
+                canvas::TEXT,
+            );
+            canvas::announce(ui, shown, "drawing size", &size, None);
         }
         if model.drag_blocked()
             && let Some(cursor) = self.cursor

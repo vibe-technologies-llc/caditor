@@ -3165,6 +3165,45 @@ fn a_circle_is_drawn_by_dragging_from_its_centre_to_its_rim() {
 }
 
 #[test]
+fn the_size_of_what_is_being_drawn_shows_beside_the_pointer() {
+    let cases = [
+        (
+            Key::L,
+            Point2::new(10.0, 10.0),
+            Point2::new(40.0, 10.0),
+            "30.00 mm   0.0°",
+        ),
+        (
+            Key::R,
+            Point2::new(10.0, 10.0),
+            Point2::new(40.0, 30.0),
+            "30.00 mm × 20.00 mm",
+        ),
+        (
+            Key::C,
+            Point2::new(20.0, 20.0),
+            Point2::new(35.0, 20.0),
+            "R 15.00 mm",
+        ),
+    ];
+    for (tool, start, to, expected) in cases {
+        let mut harness = Harness::new();
+        harness.draw_on_new_sketch();
+        harness.use_tool(tool);
+        harness.point_at(to);
+        assert!(
+            !harness.shows(expected),
+            "{expected} before anything is placed"
+        );
+
+        harness.click_at(start);
+        harness.point_at(to);
+
+        assert!(harness.shows(expected), "{expected}");
+    }
+}
+
+#[test]
 fn a_press_that_slips_a_few_pixels_is_still_one_click_where_it_is_released() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();

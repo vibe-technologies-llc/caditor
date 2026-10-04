@@ -96,6 +96,9 @@ paths:
   is placed first, as if it had been clicked (`place_press_point`, which hovers the press cursor
   for its snap and restores the current one), so one press-drag-release draws a line, rectangle or
   circle; a shorter drag, or one made with part of a shape placed, places only the release.
+- While one point of a line, a rectangle (corners or centre) or a circle (centre and rim, or
+  diameter) is placed, the size so far shows below the snap label (`Drawing::readout`, in the
+  length unit: a line's length and angle from X, a rectangle's width × height, a circle's R or Ø).
 - The pointer is on the sketch only within `MAX_LENGTH` of the origin, like a typed point, so an
   edge-on view cannot place a point at an enormous distance.
 

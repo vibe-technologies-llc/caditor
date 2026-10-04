@@ -290,8 +290,8 @@ within a category run from most to least important.
   tangency; curvature continuity; symmetric curves. Coincident, perpendicular and tangent take
   exactly two items where parallel and equal chain.
 - Spline intersections sample sign changes, so a near-tangent crossing between samples is missed.
-- No live length, size or radius readout while drawing, no closed-region or open-end feedback
-  while sketching, and no smart-dimension tool that takes the entities after the command.
+- No size readout while drawing arcs, slots, polygons or splines, no closed-region or open-end
+  feedback while sketching, and no smart-dimension tool that takes the entities after the command.
 - Snapping has no midpoints, intersections, spline targets, grid or inference lines to other
   points, cannot be suppressed by a modifier or toggle, and dragged geometry does not snap at
   all.

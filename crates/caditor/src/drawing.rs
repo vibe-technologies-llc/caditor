@@ -11,6 +11,7 @@ use crate::{
     shapes::{self, ArcSlot, Circular, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot},
     sketch_tools,
     snap::{self, Accept, Pointer, Screen, Snapped, Target},
+    units::LengthUnit,
 };
 
 const ALIGN_ANGLE_DEGREES: f64 = 3.0;
@@ -572,6 +573,35 @@ impl Drawing {
         if shape == Shape::TangentArc && self.placed.is_empty() {
             self.tangent = point_target(self.hover.map_or(Snap::Free, |hover| hover.snap))
                 .and_then(|point| continuing(sketch, point));
+        }
+    }
+
+    pub fn readout(&self, unit: LengthUnit) -> Option<String> {
+        let (_, shape) = self.context?;
+        let [first] = self.placed.as_slice() else {
+            return None;
+        };
+        let delta = self.hover?.position - first.position;
+        let length = |millimetres: f64| unit.readout_text(millimetres);
+        match shape {
+            Shape::Line => Some(format!(
+                "{}   {:.1}°",
+                length(delta.length()),
+                delta.y.atan2(delta.x).to_degrees()
+            )),
+            Shape::Rectangle(RectangleMode::Corners) => Some(format!(
+                "{} × {}",
+                length(delta.x.abs()),
+                length(delta.y.abs())
+            )),
+            Shape::Rectangle(RectangleMode::Center) => Some(format!(
+                "{} × {}",
+                length(2.0 * delta.x.abs()),
+                length(2.0 * delta.y.abs())
+            )),
+            Shape::Circle(CircleMode::Center) => Some(format!("R {}", length(delta.length()))),
+            Shape::Circle(CircleMode::TwoPoints) => Some(format!("Ø {}", length(delta.length()))),
+            _ => None,
         }
     }
 
