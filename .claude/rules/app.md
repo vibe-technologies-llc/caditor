@@ -223,6 +223,12 @@ paths:
   licences. `cli.rs`: `caditor [FILE]`;
   `--version`, `--help` print and exit; unknown options, several paths refused. A `.dxf` or STEP
   file (by extension or header) goes to import as if dropped, anything else to Open.
+  `caditor --export OUT [--resolution coarse|standard|fine] MODEL` (`headless.rs`) opens no window:
+  it loads the model (`caditor_file::load`, load issues become warnings on stderr), recomputes it
+  without display work (`Recompute::run_without_display`), exports every body that built to the
+  format `OUT`'s extension names (STL, 3MF, STEP; bodies left out and failed features are warnings)
+  and prints a summary; a model with no body, an unreadable file or an unknown extension is an
+  error and writes nothing.
 - AccessKit (`egui-winit`'s `accesskit` feature): the window is created hidden, the adapter attached
   (`Overlay::enable_accessibility`), then shown; `AppEvent::Accessibility` carries the adapter's
   requests to the overlay.

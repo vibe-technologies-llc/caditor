@@ -505,7 +505,7 @@ impl Recompute {
         self.run_with(document, evaluator, cancel, &reports, Display::Prepared)
     }
 
-    pub(crate) fn run_without_display(
+    pub fn run_without_display(
         &mut self,
         document: &Document,
         evaluator: &dyn Evaluator,

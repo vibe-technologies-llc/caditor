@@ -30,6 +30,7 @@ mod fonts;
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing;
 mod graphics;
+mod headless;
 mod history;
 mod icons;
 mod image_export;
@@ -111,6 +112,7 @@ use crate::{
 pub fn run() -> Result<()> {
     let open = match Invocation::parse(std::env::args_os().skip(1)) {
         Invocation::Run { open } => open,
+        Invocation::Convert(conversion) => return headless::run(&conversion),
         Invocation::Version => {
             println!("{}", about::version_line());
             return Ok(());

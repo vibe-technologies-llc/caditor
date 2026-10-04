@@ -424,8 +424,8 @@ within a category run from most to least important.
   opening modal is drawn before the unsaved-changes prompt,
   so closing the window during a load hides the prompt until the load ends. Give imports their
   own cancellable job. When a worker thread cannot be spawned the job runs on the UI thread.
-- The desktop entry registers only `application/x-caditor`, and there is no headless export or
-  conversion.
+- The desktop entry registers only `application/x-caditor`, and the headless `--export` takes only
+  caditor models: no DXF or STEP file as input, no PNG output, and it exits 0 though features failed.
 - Text outside Latin, Greek and Cyrillic shows as missing glyphs in feature and file names, since
   only Inter and egui's defaults are loaded.
 - Version history shows when a version was saved and after which change, but no preview of what it
