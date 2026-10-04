@@ -318,6 +318,8 @@ pub enum PreferencesCommand {
     CloseWelcome,
     ShowAbout,
     CloseAbout,
+    ShowMessages,
+    CloseMessages,
     Tab(PreferencesTab),
     Change(PreferenceChange),
     Preview(PreferenceChange),

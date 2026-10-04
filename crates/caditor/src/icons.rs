@@ -161,6 +161,7 @@ pub fn command(command: Command) -> &'static str {
         Command::HideTips => phosphor::EYE_SLASH,
         Command::Welcome => phosphor::HAND_WAVING,
         Command::About => phosphor::INFO,
+        Command::Messages => phosphor::CHAT_TEXT,
     }
 }
 

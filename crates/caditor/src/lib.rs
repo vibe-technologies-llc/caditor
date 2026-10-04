@@ -40,6 +40,7 @@ mod logo;
 mod measure;
 mod measure_panel;
 mod menu_bar;
+mod messages;
 mod mirroring;
 mod model;
 mod modifying;

@@ -207,7 +207,10 @@ paths:
   "Nothing selected" muted. The length unit (opening Preferences) is a `small_button` and the
   interface size, when not 100%, a `widgets::button` going back to 100%. An edit clears info and
   refused-edit notices, never a `Notice::failure` from saving, opening, importing, exporting or the
-  journal.
+  journal. The status bar shows only the newest notice, but `Model::set_notice` records each one
+  (not a repeat of the newest; the last 100, with the time) and Help › Recent messages
+  (`Command::Messages`, `messages.rs`) lists them newest first, so a failed save outlives the
+  notice that replaced it.
 - Neither bar clips at large sizes or in narrow windows: the menu bar's search field and model name
   (which truncates, its path on hover) and the status bar's selection, unit and size take their own
   row when last frame's needed width does not fit (`widgets::remembered_width`); the selection has a

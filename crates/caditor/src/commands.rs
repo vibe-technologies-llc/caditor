@@ -147,6 +147,7 @@ pub enum Command {
     HideTips,
     Welcome,
     About,
+    Messages,
 }
 
 impl Command {
@@ -400,6 +401,7 @@ plain_commands! {
     KeyboardShortcuts,
     Welcome,
     About,
+    Messages,
     Quit,
     Undo,
     Redo,
@@ -624,6 +626,7 @@ impl Command {
             Self::HideTips => "help.hide_tips",
             Self::Welcome => "help.welcome",
             Self::About => "help.about",
+            Self::Messages => "help.messages",
         }
     }
 
@@ -725,6 +728,7 @@ impl Command {
             Self::HideTips => "Hide tips",
             Self::Welcome => "Welcome and samples…",
             Self::About => "About caditor",
+            Self::Messages => "Recent messages",
         };
         fixed.to_owned()
     }
@@ -748,7 +752,9 @@ impl Command {
             | Self::RecoverUnsaved
             | Self::CancelExport
             | Self::CancelImageExport => Category::File,
-            Self::Welcome | Self::About | Self::DismissTip | Self::HideTips => Category::Help,
+            Self::Welcome | Self::About | Self::Messages | Self::DismissTip | Self::HideTips => {
+                Category::Help
+            }
             Self::Palette
             | Self::Undo
             | Self::Redo
@@ -932,7 +938,8 @@ impl Command {
             | Self::DismissTip
             | Self::HideTips
             | Self::Welcome
-            | Self::About => Vec::new(),
+            | Self::About
+            | Self::Messages => Vec::new(),
         }
     }
 

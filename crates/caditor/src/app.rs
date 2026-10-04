@@ -38,6 +38,7 @@ use crate::{
     measure::MeasureTool,
     measure_panel::{self, MeasureContext},
     menu_bar::{self, MenuContext},
+    messages,
     model::{Action, Model, Notice, WakerFactory},
     offers::SelectionOffers,
     onboarding::{self, HintChoice, WelcomeChoice},
@@ -113,6 +114,7 @@ pub struct Workspace {
     pub restored: Option<Restored>,
     pub welcome_open: bool,
     pub about_open: bool,
+    pub messages_open: bool,
     pub last_offers: Vec<Offer>,
     pub selection_offers: SelectionOffers,
     pub measure: MeasureTool,
@@ -149,6 +151,7 @@ impl Workspace {
             restored: None,
             welcome_open,
             about_open: false,
+            messages_open: false,
             last_offers: Vec::new(),
             selection_offers: SelectionOffers::default(),
             measure: MeasureTool::default(),
@@ -171,6 +174,7 @@ impl Workspace {
         self.restored = None;
         self.welcome_open = false;
         self.about_open = false;
+        self.messages_open = false;
         self.last_offers.clear();
         self.selection_offers = SelectionOffers::default();
         self.measure = MeasureTool::default();
@@ -224,6 +228,8 @@ impl Workspace {
             }
             PreferencesCommand::ShowAbout => self.about_open = true,
             PreferencesCommand::CloseAbout => self.about_open = false,
+            PreferencesCommand::ShowMessages => self.messages_open = true,
+            PreferencesCommand::CloseMessages => self.messages_open = false,
             PreferencesCommand::Tab(tab) => {
                 self.preferences_tab = tab;
                 self.restored = None;
@@ -297,6 +303,7 @@ pub fn show(
         || workspace.shortcut_editor.is_some()
         || workspace.welcome_open
         || workspace.about_open
+        || workspace.messages_open
         || workspace.panels.deleting.is_some();
     let dialog_open = modal_open || palette_open;
     let blocked = files.is_blocking() || dialog_open;
@@ -314,6 +321,7 @@ pub fn show(
         restored,
         welcome_open,
         about_open,
+        messages_open,
         last_offers,
         selection_offers,
         measure,
@@ -430,6 +438,9 @@ pub fn show(
     if commands.available(Command::About) {
         actions.push(Action::Preferences(PreferencesCommand::ShowAbout));
     }
+    if commands.available(Command::Messages) {
+        actions.push(Action::Preferences(PreferencesCommand::ShowMessages));
+    }
     let hint = {
         let situation = onboarding::Situation {
             model,
@@ -485,6 +496,9 @@ pub fn show(
         }
         if *about_open && about::dialog(ui.ctx()) {
             actions.push(Action::Preferences(PreferencesCommand::CloseAbout));
+        }
+        if *messages_open && messages::dialog(ui.ctx(), model) {
+            actions.push(Action::Preferences(PreferencesCommand::CloseMessages));
         }
         feature_tree::delete_dialog(ui.ctx(), model.document(), panels, actions);
         if let Some((hint, rect)) = hint.filter(|_| !palette_open)

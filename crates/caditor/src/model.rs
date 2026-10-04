@@ -1,7 +1,8 @@
 use std::{
+    collections::VecDeque,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Instant,
+    time::{Instant, SystemTime},
 };
 
 use caditor_document::{
@@ -59,6 +60,14 @@ pub enum NoticeKind {
     Info,
     Error,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedNotice {
+    pub notice: Notice,
+    pub at: SystemTime,
+}
+
+const MAX_RECORDED_NOTICES: usize = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
@@ -142,6 +151,7 @@ pub struct Model {
     services: Services,
     status: RecomputeStatus,
     notice: Option<Notice>,
+    recorded_notices: VecDeque<RecordedNotice>,
     revision_offset: u64,
     storage: Option<Storage>,
     path: Option<PathBuf>,
@@ -174,6 +184,7 @@ impl Model {
             services,
             status: RecomputeStatus::UpToDate,
             notice: None,
+            recorded_notices: VecDeque::new(),
             revision_offset: 0,
             storage: None,
             path: None,
@@ -295,7 +306,22 @@ impl Model {
             NoticeKind::Info => log::info!("{}", notice.text),
             NoticeKind::Error => log::warn!("{}", notice.text),
         }
+        let repeats = self
+            .recorded_notices
+            .front()
+            .is_some_and(|recorded| recorded.notice == notice);
+        if !repeats {
+            self.recorded_notices.push_front(RecordedNotice {
+                notice: notice.clone(),
+                at: SystemTime::now(),
+            });
+            self.recorded_notices.truncate(MAX_RECORDED_NOTICES);
+        }
         self.notice = Some(notice);
+    }
+
+    pub fn recorded_notices(&self) -> impl Iterator<Item = &RecordedNotice> {
+        self.recorded_notices.iter()
     }
 
     pub fn revision(&self) -> u64 {

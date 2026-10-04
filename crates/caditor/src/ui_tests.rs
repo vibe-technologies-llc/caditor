@@ -6356,6 +6356,55 @@ fn about_shows_the_version_from_the_help_menu_and_the_palette() {
     assert!(!harness.workspace.about_open);
 }
 
+#[test]
+fn recent_messages_keep_a_failed_save_after_a_later_notice_replaced_it() {
+    let mut harness = Harness::new();
+    harness.perform(Action::Inform(Notice::failure(
+        "Saving “plate” failed: the disk is full.",
+    )));
+    harness.perform(Action::Inform(Notice::info("Exported 1 body.")));
+    harness.perform(Action::Inform(Notice::info("Exported 1 body.")));
+    harness.frame();
+    assert!(harness.shows("Exported 1 body."));
+    assert!(!harness.shows("Saving “plate” failed: the disk is full."));
+
+    harness.click("Help");
+    harness.click(crate::messages::TITLE);
+
+    assert!(harness.workspace.messages_open);
+    assert!(harness.shows("Saving “plate” failed: the disk is full."));
+    assert_eq!(harness.count_shown("Exported 1 body."), 2);
+    assert!(!harness.shows(crate::messages::EMPTY));
+    harness.click("Close");
+    assert!(!harness.workspace.messages_open);
+
+    assert_eq!(
+        harness
+            .model
+            .recorded_notices()
+            .take(2)
+            .map(|recorded| recorded.notice.text.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Exported 1 body.",
+            "Saving “plate” failed: the disk is full."
+        ]
+    );
+}
+
+#[test]
+fn recent_messages_open_from_the_palette_and_close_with_escape() {
+    let mut harness = Harness::new();
+
+    run_from_palette(&mut harness, "recent messages");
+    assert!(harness.workspace.messages_open);
+    assert!(harness.shows(crate::messages::TITLE));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(!harness.workspace.messages_open);
+}
+
 fn sample_document() -> anyhow::Result<Document> {
     let mut document = Document::default();
     let mut transaction = document.transaction("Sample model");
