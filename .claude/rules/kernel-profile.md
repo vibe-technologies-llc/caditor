@@ -48,6 +48,9 @@ paths:
   component lies in, so the cells of a grid keep their outline's depth.
 - `select` with `Selection::EvenDepth` (the default) or explicit keys returns the union of the
   chosen regions as new regions keyed the same way, so adjacent regions sweep as one lump.
+  - A hole loop goes to the outer loop of its lump, the chosen faces joined across pieces chosen
+    on both sides, so selection is linear in loops; containment of a probe point decides only
+    when a lump has several outer loops or none.
 - A `RegionReference` keeps what a feature chose: the key, the boundary pieces (entity, side,
   piece id digest) and an anchor, the centroid of the largest triangle of the region's
   triangulation (`RegionMesh::anchor`). `resolve` gives `Same` when the key still exists, else

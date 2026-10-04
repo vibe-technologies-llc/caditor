@@ -99,8 +99,6 @@ within a category run from most to least important.
   tool touches two, so a sequence of hole features is quadratic (43 ms for the 144th hole). Carry
   untouched faces through by id, and return disjoint operands without the pipeline: a pattern of
   1,600 separated copies takes 2.9 s.
-- Selecting regions is quadratic in outer loops: every hole is tested against every outer loop,
-  so 1,600 washers take 2.8 s to select. Use the face assignment the arrangement already has.
 - The face grid is uniform in uv and sized by the worst curvature anywhere, so one small bump
   multiplies a whole face's triangles, and straight directions are capped at `FLAT_ASPECT` times
   the curved one, so a 1×1000 cylinder gets 121k triangles where 120 would do.

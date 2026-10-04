@@ -572,14 +572,14 @@ fn events(sources: &[Source], scale: Scale) -> Found<Vec<Event>> {
     Ok(events)
 }
 
-struct UnionFind(Vec<usize>);
+pub(super) struct UnionFind(Vec<usize>);
 
 impl UnionFind {
-    fn new(count: usize) -> Self {
+    pub fn new(count: usize) -> Self {
         Self((0..count).collect())
     }
 
-    fn find(&mut self, mut item: usize) -> usize {
+    pub fn find(&mut self, mut item: usize) -> usize {
         while let Some(parent) = self.0.get(item).copied() {
             if parent == item {
                 break;
@@ -593,7 +593,7 @@ impl UnionFind {
         item
     }
 
-    fn union(&mut self, a: usize, b: usize) {
+    pub fn union(&mut self, a: usize, b: usize) {
         let (a, b) = (self.find(a), self.find(b));
         let (low, high) = if a <= b { (a, b) } else { (b, a) };
         if let Some(slot) = self.0.get_mut(high) {

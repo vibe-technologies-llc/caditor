@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::profile::{
     Piece, ProfileLoop, Region, RegionKey,
-    arrangement::{Arrangement, piece_of},
+    arrangement::{Arrangement, UnionFind, piece_of},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,7 +35,7 @@ pub(super) fn lumps(arrangement: &Arrangement, chosen: &BTreeSet<usize>) -> Vec<
         .iter()
         .flat_map(|face| arrangement.half_edges_of(*face).iter().copied())
         .collect();
-    let Ok(cycles) = arrangement.cycles_from(starts, is_kept) else {
+    let Ok(cycles) = arrangement.cycles_from(starts.iter().copied(), is_kept) else {
         return Vec::new();
     };
     let area = |cycle: &[usize]| -> f64 {
@@ -44,23 +44,38 @@ pub(super) fn lumps(arrangement: &Arrangement, chosen: &BTreeSet<usize>) -> Vec<
             .map(|half_edge| arrangement.half_edge_area(*half_edge))
             .sum()
     };
+    let mut lump_of = joined_faces(arrangement, chosen, &starts);
     let (outers, holes): (Vec<&Vec<usize>>, Vec<&Vec<usize>>) =
         cycles.iter().partition(|cycle| area(cycle) > 0.0);
+    let mut outers_of_lump: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (index, outer) in outers.iter().enumerate() {
+        if let Some(lump) = lump_of(outer) {
+            outers_of_lump.entry(lump).or_default().push(index);
+        }
+    }
+    let every_outer: Vec<usize> = (0..outers.len()).collect();
     let mut assigned: Vec<Vec<&Vec<usize>>> = vec![Vec::new(); outers.len()];
     for hole in holes {
-        let Some(probe) = hole
-            .first()
-            .and_then(|half_edge| arrangement.origin(*half_edge).ok())
-            .and_then(|vertex| arrangement.vertices.get(vertex).copied())
-        else {
-            continue;
+        let lump_outers = lump_of(hole).and_then(|lump| outers_of_lump.get(&lump));
+        let container = match lump_outers.map(Vec::as_slice) {
+            Some([only]) => Some(*only),
+            _ => {
+                let candidates = lump_outers.unwrap_or(&every_outer);
+                let Some(probe) = hole
+                    .first()
+                    .and_then(|half_edge| arrangement.origin(*half_edge).ok())
+                    .and_then(|vertex| arrangement.vertices.get(vertex).copied())
+                else {
+                    continue;
+                };
+                candidates
+                    .iter()
+                    .filter_map(|index| Some((*index, *outers.get(*index)?)))
+                    .filter(|(_, outer)| arrangement.contains(outer, probe))
+                    .min_by(|a, b| area(a.1).total_cmp(&area(b.1)))
+                    .map(|(index, _)| index)
+            }
         };
-        let container = outers
-            .iter()
-            .enumerate()
-            .filter(|(_, outer)| arrangement.contains(outer, probe))
-            .min_by(|a, b| area(a.1).total_cmp(&area(b.1)))
-            .map(|(index, _)| index);
         if let Some(list) = container.and_then(|index| assigned.get_mut(index)) {
             list.push(hole);
         }
@@ -98,6 +113,29 @@ pub(super) fn lumps(arrangement: &Arrangement, chosen: &BTreeSet<usize>) -> Vec<
             }
         })
         .collect()
+}
+
+fn joined_faces<'a>(
+    arrangement: &'a Arrangement,
+    chosen: &BTreeSet<usize>,
+    half_edges: &BTreeSet<usize>,
+) -> impl FnMut(&[usize]) -> Option<usize> + 'a {
+    let members: Vec<usize> = chosen.iter().copied().collect();
+    let member = move |face: usize| members.binary_search(&face).ok();
+    let mut sets = UnionFind::new(chosen.len());
+    for half_edge in half_edges {
+        let across = arrangement
+            .face_of(*half_edge)
+            .and_then(&member)
+            .zip(arrangement.face_of(half_edge ^ 1).and_then(&member));
+        if let Some((face, beyond)) = across {
+            sets.union(face, beyond);
+        }
+    }
+    move |cycle: &[usize]| {
+        let face = arrangement.face_of(*cycle.first()?)?;
+        Some(sets.find(member(face)?))
+    }
 }
 
 fn all_pieces(draft: &Draft) -> impl Iterator<Item = &Piece> {
