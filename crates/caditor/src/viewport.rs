@@ -1735,8 +1735,7 @@ impl ViewportState {
             );
             canvas::announce(ui, shown, "snap", &label, None);
         }
-        if let (Some(size), Some(cursor)) = (self.drawing.readout(model.length_unit()), self.cursor)
-        {
+        if let (Some(size), Some(cursor)) = (self.drawing.readout(model.units()), self.cursor) {
             let position = rect.min
                 + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
             let shown = canvas::label(

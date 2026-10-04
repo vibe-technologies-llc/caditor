@@ -1,11 +1,11 @@
 use caditor_document::{Document, Edit, FeatureId, ParameterValues, Transaction};
-use caditor_expression::{Dimension, Expression, Unit};
+use caditor_expression::{Dimension, Expression};
 use caditor_sketch::{Constraint, ConstraintId, DimensionError};
 use egui::{Align, Id, Key, Margin, Response, Stroke, StrokeKind, TextEdit, Ui, vec2};
 
 use crate::{
     appearance::WIDGET_RADIUS,
-    units::{LengthUnit, attach_unit},
+    units::{Units, attach_unit},
     widgets,
 };
 
@@ -124,8 +124,9 @@ pub fn parse_expression(
     parameters: &ParameterValues,
     text: &str,
     expected: Expected,
-    unit: LengthUnit,
+    unit: impl Into<Units>,
 ) -> Result<Expression, String> {
+    let unit = unit.into();
     let expression = document.parse(text).map_err(|error| error.to_string())?;
     let value = parameters
         .evaluate_expression(&expression)
@@ -138,10 +139,12 @@ pub fn parse_expression(
     if expected.non_negative && value.value < 0.0 {
         return Err("The value cannot be negative".to_owned());
     }
-    if unit.applies_to(expected.dimension, value.dimension) {
-        return Ok(unit.attach(expression));
-    }
-    Ok(expression)
+    Ok(
+        match unit.attach_plain(expected.dimension, value.dimension) {
+            Some(plain) => attach_unit(expression, plain),
+            None => expression,
+        },
+    )
 }
 
 pub fn parameter_expression(
@@ -149,15 +152,16 @@ pub fn parameter_expression(
     parameters: &ParameterValues,
     text: &str,
     current: Option<Dimension>,
-    unit: LengthUnit,
+    unit: impl Into<Units>,
 ) -> Result<Expression, String> {
+    let unit = unit.into();
     let expression = parse_expression(document, parameters, text, Expected::ANYTHING, unit)?;
     let plain = parameters
         .evaluate_expression(&expression)
         .is_ok_and(|value| value.dimension.is_plain());
     Ok(match current {
         Some(Dimension::LENGTH) if plain => unit.attach(expression),
-        Some(Dimension::ANGLE) if plain => attach_unit(expression, Unit::Degree),
+        Some(Dimension::ANGLE) if plain => unit.angle.attach(expression),
         _ => expression,
     })
 }
@@ -173,8 +177,9 @@ pub fn dimension_transaction(
     parameters: &ParameterValues,
     target: DimensionTarget,
     text: &str,
-    unit: LengthUnit,
+    unit: impl Into<Units>,
 ) -> Result<Transaction, String> {
+    let unit = unit.into();
     let owner = document
         .feature(target.feature)
         .ok_or_else(|| "The sketch no longer exists".to_owned())?;
@@ -228,8 +233,9 @@ pub fn checked(document: &Document, transaction: Transaction) -> Result<Transact
 pub fn value_preview(
     parameters: &ParameterValues,
     expression: &Expression,
-    unit: LengthUnit,
+    unit: impl Into<Units>,
 ) -> Option<String> {
+    let unit = unit.into();
     if expression.is_literal() {
         return None;
     }
@@ -252,6 +258,7 @@ mod tests {
     use caditor_expression::Unit;
 
     use super::*;
+    use crate::units::{AngleUnit, LengthUnit};
 
     fn document() -> Document {
         let mut document = Document::default();
@@ -326,6 +333,39 @@ mod tests {
         assert_eq!(text("5 mm", angle).unwrap(), "5 mm");
         assert_eq!(text("4", Some(Dimension::NONE)).unwrap(), "4");
         assert_eq!(text("4", None).unwrap(), "4");
+    }
+
+    #[test]
+    fn plain_numbers_typed_for_an_angle_take_the_chosen_angle_unit() {
+        let document = document();
+        let parameters = ParameterValues::evaluate(&document);
+        let radians = Units {
+            length: LengthUnit::Millimetre,
+            angle: AngleUnit::Radian,
+        };
+        let angle = Expected {
+            dimension: Some(Dimension::ANGLE),
+            non_negative: false,
+        };
+        let text = |input: &str, unit: Units| {
+            parse_expression(&document, &parameters, input, angle, unit)
+                .map(|expression| document.expression_text(&expression))
+        };
+
+        assert_eq!(text("1.5", radians).unwrap(), "1.5 rad");
+        assert_eq!(text("1.5", Units::default()).unwrap(), "1.5");
+        assert_eq!(text("45 deg", radians).unwrap(), "45 deg");
+        assert!(text("2 * 3", radians).is_err());
+        assert_eq!(
+            parameter_expression(&document, &parameters, "2", Some(Dimension::ANGLE), radians)
+                .map(|expression| document.expression_text(&expression))
+                .unwrap(),
+            "2 rad"
+        );
+        assert_eq!(
+            value_preview(&parameters, &Expression::Number(1.0), radians),
+            None
+        );
     }
 
     #[test]

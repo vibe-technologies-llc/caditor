@@ -11,7 +11,7 @@ use crate::{
     shapes::{self, ArcSlot, Circular, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot},
     sketch_tools,
     snap::{self, Accept, Pointer, Screen, Snapped, Target},
-    units::LengthUnit,
+    units::Units,
 };
 
 const ALIGN_ANGLE_DEGREES: f64 = 3.0;
@@ -581,7 +581,7 @@ impl Drawing {
         }
     }
 
-    pub fn readout(&self, unit: LengthUnit) -> Option<String> {
+    pub fn readout(&self, unit: Units) -> Option<String> {
         let (_, shape) = self.context?;
         let [first] = self.placed.as_slice() else {
             return None;
@@ -590,9 +590,9 @@ impl Drawing {
         let length = |millimetres: f64| unit.readout_text(millimetres);
         match shape {
             Shape::Line => Some(format!(
-                "{}   {:.1}°",
+                "{}   {}",
                 length(delta.length()),
-                delta.y.atan2(delta.x).to_degrees()
+                unit.angle.readout_text(delta.y.atan2(delta.x).to_degrees())
             )),
             Shape::Rectangle(RectangleMode::Corners) => Some(format!(
                 "{} × {}",

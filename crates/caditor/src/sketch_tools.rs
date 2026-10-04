@@ -10,7 +10,7 @@ use crate::{
     field::sentence,
     model::Model,
     selection::{Pickable, Selection},
-    units::LengthUnit,
+    units::Units,
     variants::all_variants,
 };
 
@@ -547,9 +547,14 @@ fn opens_backwards(
     side(a, first) * side(b, second) < 0.0
 }
 
-pub fn in_unit(constraints: Vec<Constraint>, unit: LengthUnit) -> Vec<Constraint> {
+pub fn in_unit(constraints: Vec<Constraint>, unit: impl Into<Units>) -> Vec<Constraint> {
+    let unit = unit.into();
     let converted = |value: Expression| match value {
         Expression::Measure(length, Unit::Millimetre) => unit.measured(length),
+        other => other,
+    };
+    let turned = |value: Expression| match value {
+        Expression::Measure(degrees, Unit::Degree) => unit.angle.measured(degrees),
         other => other,
     };
     constraints
@@ -577,6 +582,17 @@ pub fn in_unit(constraints: Vec<Constraint>, unit: LengthUnit) -> Vec<Constraint
             Constraint::Diameter { entity, value } => Constraint::Diameter {
                 entity,
                 value: converted(value),
+            },
+            Constraint::Angle {
+                from,
+                to,
+                reversed,
+                value,
+            } => Constraint::Angle {
+                from,
+                to,
+                reversed,
+                value: turned(value),
             },
             other => other,
         })
@@ -755,6 +771,7 @@ mod tests {
     use caditor_geometry::Plane;
 
     use super::*;
+    use crate::units::LengthUnit;
 
     struct Fixture {
         sketch: Sketch,
@@ -1132,6 +1149,36 @@ mod tests {
                 value: measure(0.85, Unit::Centimetre),
             }]
         );
+    }
+
+    #[test]
+    fn an_angle_dimension_starts_in_the_chosen_angle_unit() {
+        let f = fixture();
+        let found = candidates(&f, ConstraintTool::Angle, &[f.horizontal, f.slanted]).unwrap();
+        let radians = Units {
+            length: LengthUnit::Millimetre,
+            angle: crate::units::AngleUnit::Radian,
+        };
+
+        let turned = in_unit(found.clone(), radians);
+        let [Constraint::Angle { value, .. }] = turned.as_slice() else {
+            panic!("expected one angle");
+        };
+        let [
+            Constraint::Angle {
+                value: original, ..
+            },
+        ] = found.as_slice()
+        else {
+            panic!("expected one angle");
+        };
+
+        assert_eq!(*original, measure(45.0, Unit::Degree));
+        let Expression::Measure(turned, Unit::Radian) = value else {
+            panic!("expected radians");
+        };
+        assert!((turned - std::f64::consts::FRAC_PI_4).abs() < 1e-6);
+        assert_eq!(in_unit(found.clone(), LengthUnit::Centimetre), found);
     }
 
     #[test]

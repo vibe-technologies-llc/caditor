@@ -261,6 +261,7 @@ impl Workspace {
 
 pub fn apply_preferences(model: &mut Model, preferences: &Preferences) {
     model.set_length_unit(preferences.unit);
+    model.set_angle_unit(preferences.angle);
     model.set_mesh_quality(preferences.graphics.curves.mesh_quality());
 }
 
@@ -430,7 +431,7 @@ pub fn show(
         .flatten()
         .and_then(|readout| readout.line)
         .map(|line| {
-            let label = measure_panel::line_label(&line, model.length_unit());
+            let label = measure_panel::line_label(&line, model.units());
             (line, label)
         });
     viewport.set_measured(measured);

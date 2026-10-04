@@ -11,7 +11,7 @@ use crate::{
     measure::{Freshness, MeasureTool, MeasuredLine, Readout, Value},
     model::Model,
     selection::{Pickable, Selection},
-    units::{LengthUnit, angle_text},
+    units::{LengthUnit, Units},
     visibility,
     widgets::{self, Tone},
 };
@@ -64,11 +64,11 @@ pub struct MeasureContext<'a> {
     pub tree_selected: Option<FeatureId>,
 }
 
-fn value_text(value: Value, accuracy: Accuracy, unit: LengthUnit) -> String {
+fn value_text(value: Value, accuracy: Accuracy, unit: Units) -> String {
     let text = match value {
         Value::Length(length) => unit.measured_length(length),
         Value::Area(area) => unit.measured_area(area),
-        Value::Angle(radians) => angle_text(radians),
+        Value::Angle(radians) => unit.angle.text_of_radians(radians),
         Value::Position(point) => unit.measured_position([point.x, point.y, point.z]),
     };
     approximately(text, accuracy == Accuracy::Approximate)
@@ -82,15 +82,16 @@ fn approximately(text: String, approximate: bool) -> String {
     }
 }
 
-pub fn line_label(line: &MeasuredLine, unit: LengthUnit) -> String {
+pub fn line_label(line: &MeasuredLine, unit: impl Into<Units>) -> String {
     value_text(
         Value::Length(line.from.distance(line.to)),
         line.accuracy,
-        unit,
+        unit.into(),
     )
 }
 
-pub fn readout_cards(readout: &Readout, unit: LengthUnit) -> Vec<Card> {
+pub fn readout_cards(readout: &Readout, unit: impl Into<Units>) -> Vec<Card> {
+    let unit = unit.into();
     readout
         .groups
         .iter()
@@ -232,7 +233,7 @@ pub fn mass_cards(context: &MeasureContext<'_>) -> (Vec<Card>, bool) {
 
 pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool) {
     tool.measurements.refresh(context.model, context.selection);
-    let unit = context.model.length_unit();
+    let unit = context.model.units();
     let shown = tool.measurements.shown();
     let measuring = tool.measurements.is_measuring();
     let cards =

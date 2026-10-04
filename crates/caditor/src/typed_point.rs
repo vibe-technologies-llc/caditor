@@ -286,7 +286,7 @@ fn value(model: &Model, text: &str, part: Part) -> Result<f64, String> {
         model.parameters(),
         text,
         expected,
-        model.length_unit(),
+        model.units(),
     )
     .map_err(|error| format!("{label}: {error}"))?;
     let dimension = expected.dimension.unwrap_or(Dimension::NONE);

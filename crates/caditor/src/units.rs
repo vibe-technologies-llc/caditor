@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use caditor_expression::{Dimension, Expression, Quantity, Unit, format_number};
 
 use crate::sketch_tools::rounded_for_display;
@@ -8,6 +10,7 @@ const MEASURED_AREA_DECIMALS: f64 = 2.0;
 const MEASURED_VOLUME_DECIMALS: f64 = 1.0;
 const MAX_MEASURED_DECIMALS: f64 = 9.0;
 const ANGLE_DECIMALS: usize = 2;
+const RADIAN_DECIMALS: usize = 4;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LengthUnit {
@@ -164,14 +167,115 @@ impl LengthUnit {
     pub fn attach(self, expression: Expression) -> Expression {
         attach_unit(expression, self.unit())
     }
+}
 
-    pub fn applies_to(self, expected: Option<Dimension>, found: Dimension) -> bool {
-        self != Self::Millimetre && expected == Some(Dimension::LENGTH) && found.is_plain()
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AngleUnit {
+    #[default]
+    Degree,
+    Radian,
+}
+
+impl AngleUnit {
+    pub const ALL: [Self; 2] = [Self::Degree, Self::Radian];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Degree => "Degrees",
+            Self::Radian => "Radians",
+        }
+    }
+
+    pub fn unit(self) -> Unit {
+        match self {
+            Self::Degree => Unit::Degree,
+            Self::Radian => Unit::Radian,
+        }
+    }
+
+    pub fn symbol(self) -> &'static str {
+        self.unit().symbol()
+    }
+
+    pub fn from_symbol(symbol: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|unit| unit.symbol() == symbol)
+    }
+
+    pub fn text(self, degrees: f64) -> String {
+        match self {
+            Self::Degree => format!("{degrees:.ANGLE_DECIMALS$}°"),
+            Self::Radian => format!("{:.RADIAN_DECIMALS$} rad", degrees.to_radians()),
+        }
+    }
+
+    pub fn text_of_radians(self, radians: f64) -> String {
+        self.text(radians.to_degrees())
+    }
+
+    pub fn readout_text(self, degrees: f64) -> String {
+        match self {
+            Self::Degree => format!("{degrees:.1}°"),
+            Self::Radian => format!("{:.3} rad", degrees.to_radians()),
+        }
+    }
+
+    pub fn measured(self, degrees: f64) -> Expression {
+        let value = match self {
+            Self::Degree => degrees,
+            Self::Radian => degrees.to_radians(),
+        };
+        Expression::measure(rounded_for_display(value), self.unit())
+    }
+
+    pub fn attach(self, expression: Expression) -> Expression {
+        attach_unit(expression, self.unit())
     }
 }
 
-pub fn angle_text(radians: f64) -> String {
-    format!("{:.ANGLE_DECIMALS$}°", radians.to_degrees())
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Units {
+    pub length: LengthUnit,
+    pub angle: AngleUnit,
+}
+
+impl Deref for Units {
+    type Target = LengthUnit;
+
+    fn deref(&self) -> &LengthUnit {
+        &self.length
+    }
+}
+
+impl From<LengthUnit> for Units {
+    fn from(length: LengthUnit) -> Self {
+        Self {
+            length,
+            angle: AngleUnit::default(),
+        }
+    }
+}
+
+impl Units {
+    pub fn show(self, quantity: Quantity) -> String {
+        let angle = quantity.dimension == Dimension::ANGLE;
+        if angle && self.angle == AngleUnit::Radian {
+            return self.angle.text(quantity.value);
+        }
+        self.length.show(quantity)
+    }
+
+    pub fn attach_plain(self, expected: Option<Dimension>, found: Dimension) -> Option<Unit> {
+        if !found.is_plain() {
+            return None;
+        }
+        match expected {
+            Some(Dimension::LENGTH) if self.length != LengthUnit::Millimetre => {
+                Some(self.length.unit())
+            }
+            Some(Dimension::ANGLE) if self.angle == AngleUnit::Radian => Some(self.angle.unit()),
+            _ => None,
+        }
+    }
 }
 
 pub fn attach_unit(expression: Expression, unit: Unit) -> Expression {
@@ -211,6 +315,40 @@ mod tests {
     }
 
     #[test]
+    fn angles_show_and_attach_in_the_chosen_unit() {
+        let radians = Units {
+            length: LengthUnit::Millimetre,
+            angle: AngleUnit::Radian,
+        };
+
+        assert_eq!(AngleUnit::Degree.text(45.0), "45.00°");
+        assert_eq!(AngleUnit::Radian.text(180.0), "3.1416 rad");
+        assert_eq!(
+            AngleUnit::Radian.text_of_radians(std::f64::consts::FRAC_PI_2),
+            "1.5708 rad"
+        );
+        assert_eq!(AngleUnit::Degree.readout_text(30.04), "30.0°");
+        assert_eq!(AngleUnit::Radian.readout_text(90.0), "1.571 rad");
+        assert_eq!(radians.show(Quantity::angle(90.0)), "1.5708 rad");
+        assert_eq!(radians.show(Quantity::length(5.0)), "5 mm");
+        assert_eq!(Units::default().show(Quantity::angle(90.0)), "90°");
+        assert_eq!(
+            radians.attach_plain(Some(Dimension::ANGLE), Dimension::NONE),
+            Some(Unit::Radian)
+        );
+        assert_eq!(
+            AngleUnit::Radian.measured(100.0),
+            Expression::Measure(1.745, Unit::Radian)
+        );
+        assert_eq!(
+            AngleUnit::Degree.measured(37.5),
+            Expression::Measure(37.5, Unit::Degree)
+        );
+        assert_eq!(AngleUnit::from_symbol("rad"), Some(AngleUnit::Radian));
+        assert_eq!(AngleUnit::from_symbol("grad"), None);
+    }
+
+    #[test]
     fn the_grid_spacing_names_its_power_of_ten_in_the_chosen_unit() {
         assert_eq!(LengthUnit::Millimetre.grid_text(10.0), "Grid 10 mm");
         assert_eq!(LengthUnit::Millimetre.grid_text(0.01), "Grid 0.01 mm");
@@ -245,7 +383,10 @@ mod tests {
             LengthUnit::Millimetre.measured_position([1.0, -2.5, -0.0000001]),
             "1.000, -2.500, 0.000 mm"
         );
-        assert_eq!(angle_text(std::f64::consts::FRAC_PI_4), "45.00°");
+        assert_eq!(
+            AngleUnit::Degree.text_of_radians(std::f64::consts::FRAC_PI_4),
+            "45.00°"
+        );
     }
 
     #[test]
@@ -284,9 +425,23 @@ mod tests {
             attached,
             Expression::WithUnit(Box::new(sum), Unit::Metre, 1)
         );
-        assert!(LengthUnit::Metre.applies_to(Some(Dimension::LENGTH), Dimension::NONE));
-        assert!(!LengthUnit::Millimetre.applies_to(Some(Dimension::LENGTH), Dimension::NONE));
-        assert!(!LengthUnit::Metre.applies_to(Some(Dimension::ANGLE), Dimension::NONE));
+        let metres = Units::from(LengthUnit::Metre);
+        assert_eq!(
+            metres.attach_plain(Some(Dimension::LENGTH), Dimension::NONE),
+            Some(Unit::Metre)
+        );
+        assert_eq!(
+            Units::default().attach_plain(Some(Dimension::LENGTH), Dimension::NONE),
+            None
+        );
+        assert_eq!(
+            metres.attach_plain(Some(Dimension::ANGLE), Dimension::NONE),
+            None
+        );
+        assert_eq!(
+            metres.attach_plain(Some(Dimension::LENGTH), Dimension::LENGTH),
+            None
+        );
         assert_eq!(LengthUnit::from_symbol("cm"), Some(LengthUnit::Centimetre));
         assert_eq!(LengthUnit::from_symbol("um"), Some(LengthUnit::Micrometre));
         assert_eq!(LengthUnit::from_symbol("in"), None);

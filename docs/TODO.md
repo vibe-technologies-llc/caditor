@@ -431,7 +431,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Application
 
-- [medium · easy] Angles display only in degrees though `ux.md` allows radians.
 - [medium · medium] One files worker runs everything and Import cannot be cancelled (cancelling Open
   only drops its result while the worker reads on), so a slow STEP import blocks Open behind a
   modal, and the opening modal is drawn before the unsaved-changes prompt, so closing the window

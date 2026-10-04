@@ -24,7 +24,7 @@ use crate::{
     files::FileCommand,
     preferences::PreferencesCommand,
     selection::SelectionFilter,
-    units::LengthUnit,
+    units::{AngleUnit, LengthUnit, Units},
 };
 
 pub type Waker = Box<dyn Fn() + Send>;
@@ -170,6 +170,7 @@ pub struct Model {
     next_ticket: u64,
     file_events: Vec<FileEvent>,
     length_unit: LengthUnit,
+    angle_unit: AngleUnit,
     mesh_quality: MeshQuality,
     mesh_requested: Option<Arc<FeatureResult>>,
     display: Display,
@@ -204,6 +205,7 @@ impl Model {
             next_ticket: 0,
             file_events: Vec::new(),
             length_unit: LengthUnit::default(),
+            angle_unit: AngleUnit::default(),
             mesh_quality: MeshQuality::default(),
             mesh_requested: None,
             display: Display::default(),
@@ -221,6 +223,17 @@ impl Model {
 
     pub fn waker(&self) -> Waker {
         (self.services.make_waker)()
+    }
+
+    pub fn units(&self) -> Units {
+        Units {
+            length: self.length_unit,
+            angle: self.angle_unit,
+        }
+    }
+
+    pub fn set_angle_unit(&mut self, unit: AngleUnit) {
+        self.angle_unit = unit;
     }
 
     pub fn set_length_unit(&mut self, unit: LengthUnit) {

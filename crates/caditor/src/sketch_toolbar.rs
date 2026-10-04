@@ -86,7 +86,7 @@ pub fn show(
         .map(|tool| {
             let candidates = tool
                 .candidates(definition, &shown, &selected)
-                .map(|constraints| sketch_tools::in_unit(constraints, model.length_unit()));
+                .map(|constraints| sketch_tools::in_unit(constraints, model.units()));
             (tool, candidates)
         })
         .collect();

@@ -11,13 +11,14 @@ use crate::{
     layout::{PanelLayout, WindowPlacement},
     model::Notice,
     onboarding::{Hint, Onboarding},
-    units::LengthUnit,
+    units::{AngleUnit, LengthUnit},
     widgets::{self, DialogWidth, Tab},
 };
 
 pub const MIN_SPEED: f64 = 0.25;
 pub const MAX_SPEED: f64 = 4.0;
 const UNIT_KEY: &str = "units.length";
+const ANGLE_UNIT_KEY: &str = "units.angle";
 const THEME_KEY: &str = "appearance.theme";
 const SCALE_KEY: &str = "appearance.scale";
 const HIGH_CONTRAST_KEY: &str = "appearance.high_contrast";
@@ -321,6 +322,7 @@ impl Default for Appearance {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Preferences {
     pub unit: LengthUnit,
+    pub angle: AngleUnit,
     pub appearance: Appearance,
     pub navigation: Navigation,
     pub title_bar: TitleBar,
@@ -336,6 +338,7 @@ pub struct Preferences {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PreferenceChange {
     Unit(LengthUnit),
+    Angle(AngleUnit),
     Theme(Theme),
     Scale(f32),
     HighContrast(bool),
@@ -414,6 +417,10 @@ impl Preferences {
                 .text(UNIT_KEY)
                 .and_then(LengthUnit::from_symbol)
                 .unwrap_or_default(),
+            angle: raw
+                .text(ANGLE_UNIT_KEY)
+                .and_then(AngleUnit::from_symbol)
+                .unwrap_or_default(),
             appearance: Appearance {
                 theme: raw
                     .text(THEME_KEY)
@@ -454,6 +461,7 @@ impl Preferences {
     pub fn settings(&self) -> Settings {
         let mut settings = self.raw.clone();
         settings.set_text(UNIT_KEY, self.unit.symbol());
+        settings.set_text(ANGLE_UNIT_KEY, self.angle.symbol());
         settings.set_text(THEME_KEY, self.appearance.theme.key());
         settings.set_number(SCALE_KEY, f64::from(self.appearance.scale));
         settings.set_flag(HIGH_CONTRAST_KEY, self.appearance.high_contrast);
@@ -474,6 +482,7 @@ impl Preferences {
     pub fn apply(&mut self, change: PreferenceChange) {
         match change {
             PreferenceChange::Unit(unit) => self.unit = unit,
+            PreferenceChange::Angle(angle) => self.angle = angle,
             PreferenceChange::Theme(theme) => self.appearance.theme = theme,
             PreferenceChange::Scale(scale) => {
                 self.appearance.scale = appearance::clamp_scale(scale);
@@ -537,7 +546,10 @@ impl Preferences {
 
     fn copy_tab(&mut self, tab: PreferencesTab, from: &Self) {
         match tab {
-            PreferencesTab::General => self.unit = from.unit,
+            PreferencesTab::General => {
+                self.unit = from.unit;
+                self.angle = from.angle;
+            }
             PreferencesTab::Appearance => {
                 self.appearance = from.appearance;
                 self.title_bar = from.title_bar;
@@ -740,13 +752,22 @@ fn general(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Preferen
 
 fn units(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
     let unit = preferences.unit.label().to_lowercase();
+    let angle = preferences.angle.label().to_lowercase();
     let note = format!(
-        "Lengths are shown in {unit} and plain numbers typed for a length mean {unit}. Values \
-         already in the model keep the units they were entered in."
+        "Lengths are shown in {unit} and plain numbers typed for a length mean {unit}; angles are \
+         shown in {angle} and plain numbers typed for an angle mean {angle}. Values already in the \
+         model keep the units they were entered in."
     );
     let hovers = LengthUnit::ALL.map(|unit| {
         format!(
             "Show lengths in {} ({})",
+            unit.label().to_lowercase(),
+            unit.symbol()
+        )
+    });
+    let angle_hovers = AngleUnit::ALL.map(|unit| {
+        format!(
+            "Show angles in {} ({})",
             unit.label().to_lowercase(),
             unit.symbol()
         )
@@ -760,6 +781,16 @@ fn units(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Preference
                 .collect();
             if let Some(unit) = choice(ui, &options, preferences.unit) {
                 change(command, PreferenceChange::Unit(unit));
+            }
+        });
+        widgets::property(ui, "Angle", |ui| {
+            let options: Vec<(AngleUnit, &str, &str)> = AngleUnit::ALL
+                .iter()
+                .zip(&angle_hovers)
+                .map(|(unit, hover)| (*unit, unit.label(), hover.as_str()))
+                .collect();
+            if let Some(unit) = choice(ui, &options, preferences.angle) {
+                change(command, PreferenceChange::Angle(unit));
             }
         });
     });
@@ -997,6 +1028,7 @@ mod tests {
         preferences.apply(PreferenceChange::Shading(Shading::Enhanced));
         preferences.apply(PreferenceChange::CurveQuality(CurveQuality::Coarse));
         preferences.apply(PreferenceChange::Unit(LengthUnit::Metre));
+        preferences.apply(PreferenceChange::Angle(AngleUnit::Radian));
 
         let settings = preferences.settings();
         let read = Preferences::from_settings(settings.clone());
@@ -1006,10 +1038,15 @@ mod tests {
         assert_eq!(settings.number("graphics.msaa"), Some(8.0));
         assert_eq!(settings.text("graphics.shading"), Some("enhanced"));
         assert_eq!(settings.text("graphics.curve_quality"), Some("coarse"));
+        assert_eq!(settings.text("units.angle"), Some("rad"));
         assert_eq!(read.graphics, preferences.graphics);
+        assert_eq!(read.angle, AngleUnit::Radian);
 
         preferences.apply(PreferenceChange::Defaults(PreferencesTab::Graphics));
         assert_eq!(preferences.graphics, Graphics::default());
         assert_eq!(preferences.unit, LengthUnit::Metre);
+        assert_eq!(preferences.angle, AngleUnit::Radian);
+        preferences.apply(PreferenceChange::Defaults(PreferencesTab::General));
+        assert_eq!(preferences.angle, AngleUnit::Degree);
     }
 }

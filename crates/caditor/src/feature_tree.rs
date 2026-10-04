@@ -1904,7 +1904,7 @@ fn dimension_field(
                     model.parameters(),
                     target,
                     text,
-                    model.length_unit(),
+                    model.units(),
                 )
             },
         );
@@ -1915,7 +1915,7 @@ fn dimension_field(
         }
         if field.error.is_none()
             && let Some(preview) =
-                field::value_preview(model.parameters(), expression, model.length_unit())
+                field::value_preview(model.parameters(), expression, model.units())
         {
             ui.label(widgets::muted(preview, ui));
         }

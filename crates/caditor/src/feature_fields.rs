@@ -78,7 +78,7 @@ pub fn expression_row(
     widgets::caption(ui, caption);
     let document = model.document();
     let parameters = model.parameters();
-    let unit = model.length_unit();
+    let unit = model.units();
     let (committed, error) = ui
         .horizontal(|ui| {
             let field = field::commit_field(

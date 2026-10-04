@@ -138,6 +138,11 @@ paths:
 - `Workspace` owns the `Preferences`; `Model` carries the length unit; `app::apply_preferences`
   hands the model its share at startup and after every change, and the session passes graphics
   settings to the renderer after each frame's actions (`Renderer::set_graphics`).
-- The unit is for display and input only; models stay unit-explicit. A plain number typed for a
-  length gets the unit attached (`LengthUnit::show` shows values in it), and a plain value for an
-  angle parameter gets degrees (`field::parameter_expression`).
+- The units are for display and input only; models stay unit-explicit. `Preferences::unit` is the
+  `LengthUnit` and `Preferences::angle` an `AngleUnit` (degrees or radians, key `units.angle`);
+  `Model::units()` pairs them as `Units`, which derefs to the length unit. A plain number typed for
+  a length or an angle gets the chosen unit attached (`Units::attach_plain`; `Units::show` shows
+  computed values in them), a plain value for an angle parameter gets the angle unit
+  (`field::parameter_expression`), and a new angle dimension, the measure tool and the drawing
+  readout use it too. Defaults that are round numbers of degrees (a revolve's turn, a pattern's
+  angle) and mesh angles stay in degrees.

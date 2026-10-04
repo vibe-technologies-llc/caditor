@@ -139,7 +139,7 @@ fn row(
                 model.parameters(),
                 text,
                 current,
-                model.length_unit(),
+                model.units(),
             )?;
             field::checked(
                 document,
@@ -163,7 +163,7 @@ fn row(
         ui.set_width(widths.value);
         ui.horizontal(|ui| match model.parameters().get(id) {
             Some(Ok(value)) => {
-                let shown = model.length_unit().show(*value);
+                let shown = model.units().show(*value);
                 ui.add(Label::new(widgets::muted(&shown, ui)).truncate())
                     .on_hover_ui(|ui| {
                         ui.label(&shown);
