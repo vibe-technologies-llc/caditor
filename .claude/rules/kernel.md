@@ -108,12 +108,24 @@ paths:
   returns the first `ValidationError` with ids: edge uses and senses; loop chaining in space and uv;
   vertices on curve ends; edges on both surfaces; pcurves on their edges; loop winding and nesting;
   shell connectivity; Euler–Poincaré per shell (each fan of faces at a vertex counts as one vertex,
-  so a pinched shell has the characteristic of the surface it pinches); positive volume for lumps,
-  voids inside a lump.
+  so a pinched shell has the characteristic of the surface it pinches); an edge used twice by one
+  face only as a seam, its two pcurves apart in the domain (a period, a closed spline extrusion's
+  domain ends, a self-crossing profile's two parameters), never at the same place (a dangling
+  slit); positive volume for lumps, each void inside exactly one lump, lumps neither overlapping,
+  nesting nor coinciding.
 - Volume checks use a coarse mesh sized by the box of the edges and vertices (never the
-  classifier-based `bounding_box`), retrying finer before reporting a void outside its lump or a
-  shell of no volume (a thin lens is empty on a coarse mesh), over four chords (20, 1,
-  0.1 and 0.01 times the coarse one).
+  classifier-based `bounding_box`), retrying finer before reporting a void outside its lump, a
+  shell of no volume (a thin lens is empty on a coarse mesh) or lumps that overlap or coincide,
+  over four chords (20, 1, 0.1 and 0.01 times the coarse one).
+- Lumps (`topology/lumps.rs`) are checked only against shells whose boxes overlap theirs, by
+  probes exactly on the shell: mesh corners, 15 points along each edge and triangle centroids
+  projected onto their surfaces, spread evenly to at most 1,024 near another shell. At each probe
+  the material depth of the other shells (outward ones +1, voids −1, by mesh parity) must be 0 on
+  a lump and 1 on a void. A probe within twice the nearest triangle's deviation from its surface
+  (plus `LINEAR_RESOLUTION`) of another shell is touching and decides nothing, so lumps touching
+  at a point, along a line or over a face validate; a shell all of whose probes touch one other
+  shell coincides with it. An overlap shallower than that band, or narrower than the probe
+  spacing, is not seen.
 - Validation never intersects faces with each other, since every build runs it; `find_crossing`
   does, for importers.
 

@@ -3,6 +3,7 @@ mod classify;
 #[cfg(test)]
 mod classify_tests;
 mod crossing;
+mod lumps;
 mod pcurve;
 #[cfg(test)]
 mod tests;

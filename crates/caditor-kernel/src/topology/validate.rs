@@ -1,21 +1,25 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use caditor_geometry::{Aabb, Point2, Point3, Vector2};
+use caditor_geometry::{Point2, Vector2};
 use thiserror::Error;
 
 use crate::{
     sense::Sense,
     surface::Surface,
-    tessellation::{MassProperties, TessellationError, triangles_contain},
-    tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
-    topology::{CoedgeId, EdgeId, Face, FaceId, LoopId, ShellId, Solid, VertexId},
+    tessellation::{MassProperties, TessellationError},
+    tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE, SamplingTolerance},
+    topology::{
+        CoedgeId, EdgeId, Face, FaceId, LoopId, ShellId, Solid, VertexId,
+        lumps::{self, Lump, ShellMesh},
+    },
 };
 
 const EDGE_CHECK_SAMPLES: usize = 16;
 const PARAMETER_MATCH: f64 = 1e-9;
 const POLE_MATCH: f64 = 1e-9;
+const SEAM_PROBES: [f64; 3] = [0.25, 0.5, 0.75];
+const SEAM_SEPARATION: f64 = 4.0 * PCURVE_TOLERANCE;
 const VALIDATION_COARSENESS: [f64; 4] = [20.0, 1.0, 0.1, 0.01];
-const VOID_PROBES: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum ValidationError {
@@ -75,6 +79,12 @@ pub enum ValidationError {
     EmptyVolume(ShellId),
     #[error("shell {0:?} faces inward but lies inside no outward shell")]
     VoidOutside(ShellId),
+    #[error("shell {shell:?} reaches inside shell {other:?}, so the two overlap or nest")]
+    LumpsOverlap { shell: ShellId, other: ShellId },
+    #[error("shell {shell:?} coincides with shell {other:?}")]
+    LumpsCoincide { shell: ShellId, other: ShellId },
+    #[error("edge {edge:?} is used twice by face {face:?} at the same place in its domain")]
+    DanglingEdge { edge: EdgeId, face: FaceId },
 }
 
 type Checked<T> = Result<T, ValidationError>;
@@ -86,6 +96,7 @@ pub(crate) fn validate(solid: &Solid) -> Checked<()> {
     edge_uses(solid)?;
     loop_chains(solid)?;
     coedge_geometry(solid)?;
+    seams(solid)?;
     face_domains(solid)?;
     shells(solid)?;
     volumes(solid)
@@ -286,6 +297,45 @@ fn coedge_geometry(solid: &Solid) -> Checked<()> {
     Ok(())
 }
 
+fn seams(solid: &Solid) -> Checked<()> {
+    for (id, edge) in solid.edges() {
+        let [first, second] = edge.coedges() else {
+            continue;
+        };
+        let (Some(face), Some(other_face)) =
+            (solid.coedge_face(*first), solid.coedge_face(*second))
+        else {
+            return Err(ValidationError::MissingEntity);
+        };
+        if face != other_face {
+            continue;
+        }
+        let (Some(first), Some(second)) = (solid.coedge(*first), solid.coedge(*second)) else {
+            return Err(ValidationError::MissingEntity);
+        };
+        let surface = face_of(solid, face)?.surface();
+        let apart = SEAM_PROBES.iter().any(|fraction| {
+            let parameter = edge.interval().at(*fraction);
+            apart_in_domain(
+                surface,
+                first.pcurve().uv_at(parameter),
+                second.pcurve().uv_at(parameter),
+            )
+        });
+        if !apart {
+            return Err(ValidationError::DanglingEdge { edge: id, face });
+        }
+    }
+    Ok(())
+}
+
+fn apart_in_domain(surface: &Surface, first: Point2, second: Point2) -> bool {
+    let derivatives = surface.evaluate(first.x, first.y);
+    let gap = second - first;
+    let spatial = gap.x.abs() * derivatives.du.length() + gap.y.abs() * derivatives.dv.length();
+    spatial > SEAM_SEPARATION
+}
+
 pub(crate) fn continues(surface: &Surface, end: Point2, start: Point2) -> bool {
     let derivatives = surface.evaluate(end.x, end.y);
     let gap = start - end;
@@ -409,7 +459,7 @@ fn face_domains(solid: &Solid) -> Checked<()> {
     Ok(())
 }
 
-fn face_edges(solid: &Solid, face: &Face) -> Checked<Vec<EdgeId>> {
+pub(super) fn face_edges(solid: &Solid, face: &Face) -> Checked<Vec<EdgeId>> {
     let mut edges = Vec::new();
     for loop_id in face.loops() {
         let face_loop = solid
@@ -528,7 +578,10 @@ fn volumes(solid: &Solid) -> Checked<()> {
         result = volumes_at(solid, &SamplingTolerance::for_extent(extent * coarseness));
         if !matches!(
             result,
-            Err(ValidationError::VoidOutside(_) | ValidationError::EmptyVolume(_))
+            Err(ValidationError::VoidOutside(_)
+                | ValidationError::EmptyVolume(_)
+                | ValidationError::LumpsOverlap { .. }
+                | ValidationError::LumpsCoincide { .. })
         ) {
             break;
         }
@@ -536,90 +589,74 @@ fn volumes(solid: &Solid) -> Checked<()> {
     result
 }
 
-fn shell_triangles(
+fn shell_meshes(
     solid: &Solid,
     tolerance: &SamplingTolerance,
-) -> Result<BTreeMap<ShellId, Vec<[Point3; 3]>>, TessellationError> {
+) -> Result<BTreeMap<ShellId, ShellMesh>, TessellationError> {
     let mesh = solid.tessellate(tolerance)?;
-    let mut by_shell: BTreeMap<ShellId, Vec<[Point3; 3]>> = BTreeMap::new();
+    let mut by_shell: BTreeMap<ShellId, (ShellMesh, BTreeSet<u32>)> = BTreeMap::new();
     for face in mesh.faces() {
         let Some(shell) = solid.face(face.face).map(Face::shell) else {
             continue;
         };
-        let list = by_shell.entry(shell).or_default();
+        let (shell_mesh, corners) = by_shell.entry(shell).or_insert_with(|| {
+            let empty = ShellMesh {
+                triangles: Vec::new(),
+                faces: Vec::new(),
+                corners: Vec::new(),
+            };
+            (empty, BTreeSet::new())
+        });
         let triangles = mesh
             .triangles()
             .get(face.triangles.clone())
             .unwrap_or_default();
-        list.extend(
-            triangles
-                .iter()
-                .filter_map(|triangle| mesh.corner_points(*triangle)),
-        );
+        for triangle in triangles {
+            let (Some(points), Some(positions)) = (
+                mesh.corner_points(*triangle),
+                mesh.triangle_positions(*triangle),
+            ) else {
+                continue;
+            };
+            shell_mesh.triangles.push(points);
+            shell_mesh.faces.push(face.face);
+            for (position, point) in positions.into_iter().zip(points) {
+                if corners.insert(position) {
+                    shell_mesh.corners.push(point);
+                }
+            }
+        }
     }
-    Ok(by_shell)
+    Ok(by_shell
+        .into_iter()
+        .map(|(shell, (shell_mesh, _))| (shell, shell_mesh))
+        .collect())
 }
 
 impl Solid {
     pub(crate) fn void_shells(&self) -> Result<BTreeSet<ShellId>, TessellationError> {
         let extent = self.outline_box().map_or(1.0, |bounds| bounds.diagonal());
         let coarseness = VALIDATION_COARSENESS.first().copied().unwrap_or(1.0);
-        let by_shell = shell_triangles(self, &SamplingTolerance::for_extent(extent * coarseness))?;
+        let by_shell = shell_meshes(self, &SamplingTolerance::for_extent(extent * coarseness))?;
         Ok(by_shell
             .into_iter()
-            .filter(|(_, triangles)| MassProperties::of(triangles).volume < 0.0)
+            .filter(|(_, shell_mesh)| MassProperties::of(&shell_mesh.triangles).volume < 0.0)
             .map(|(shell, _)| shell)
             .collect())
     }
 }
 
 fn volumes_at(solid: &Solid, tolerance: &SamplingTolerance) -> Checked<()> {
-    let by_shell = shell_triangles(solid, tolerance)?;
-    let triangles_of = |shell: ShellId| by_shell.get(&shell).map_or(&[][..], Vec::as_slice);
-    let mut outward = Vec::new();
-    let mut inward = Vec::new();
+    let by_shell = shell_meshes(solid, tolerance)?;
+    let mut lumps = Vec::new();
     for (id, _) in solid.shells() {
-        let volume = MassProperties::of(triangles_of(id)).volume;
+        let shell_mesh = by_shell.get(&id).ok_or(ValidationError::EmptyVolume(id))?;
+        let volume = MassProperties::of(&shell_mesh.triangles).volume;
         if !volume.is_finite() || volume == 0.0 {
             return Err(ValidationError::EmptyVolume(id));
         }
-        if volume > 0.0 {
-            let triangles = triangles_of(id);
-            let bounds = Aabb::from_points(triangles.iter().flatten().copied());
-            outward.push((triangles, bounds));
-        } else {
-            inward.push(id);
-        }
+        let sense = Sense::from_sign(volume);
+        lumps.push(Lump::new(id, sense, shell_mesh).ok_or(ValidationError::EmptyVolume(id))?);
     }
-    for void in inward {
-        let probes = triangles_of(void)
-            .iter()
-            .map(|[a, b, c]| (*a + *b + *c) / 3.0)
-            .take(VOID_PROBES);
-        let enclosed = probes.into_iter().find_map(|probe| {
-            let answers: Vec<Option<bool>> = outward
-                .iter()
-                .map(|(triangles, bounds)| {
-                    let near = bounds.is_some_and(|bounds| {
-                        let bounds = bounds.expanded(LINEAR_RESOLUTION);
-                        probe.cmpge(bounds.min()).all() && probe.cmple(bounds.max()).all()
-                    });
-                    if near {
-                        triangles_contain(triangles, probe)
-                    } else {
-                        Some(false)
-                    }
-                })
-                .collect();
-            if answers.contains(&None) {
-                None
-            } else {
-                Some(answers.contains(&Some(true)))
-            }
-        });
-        if enclosed != Some(true) {
-            return Err(ValidationError::VoidOutside(void));
-        }
-    }
-    Ok(())
+    lumps::check(solid, &lumps)
 }

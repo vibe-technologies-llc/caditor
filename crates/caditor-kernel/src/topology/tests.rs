@@ -1,4 +1,4 @@
-use std::f64::consts::{PI, TAU};
+use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 
@@ -7,7 +7,7 @@ use crate::{
     curve::{Circle, Line},
     fixtures::{self, Fixture, Tweak},
     interval::Interval,
-    surface::{Cylinder, PlaneSurface},
+    surface::{Cylinder, PlaneSurface, Sphere},
 };
 
 #[test]
@@ -206,6 +206,186 @@ fn a_void_outside_its_outer_shell_is_found() {
     assert!(matches!(
         solid.validate(),
         Err(ValidationError::VoidOutside(_))
+    ));
+}
+
+fn cuboids(boxes: &[(f64, f64, bool)]) -> Solid {
+    let mut fixture = Fixture::new();
+    for (index, (low, high, inverted)) in boxes.iter().enumerate() {
+        if index > 0 {
+            fixture.next_shell();
+        }
+        let tweak = Tweak {
+            inverted: *inverted,
+            ..Tweak::default()
+        };
+        fixtures::add_cuboid(
+            &mut fixture,
+            Point3::splat(*low),
+            Point3::splat(*high),
+            tweak,
+        );
+    }
+    fixture.build_unchecked()
+}
+
+fn shifted_cuboids(offsets: &[Vector3]) -> Solid {
+    let mut fixture = Fixture::new();
+    for (index, offset) in offsets.iter().enumerate() {
+        if index > 0 {
+            fixture.next_shell();
+        }
+        let min = Point3::ZERO + *offset;
+        fixtures::add_cuboid(&mut fixture, min, min + Vector3::ONE, Tweak::default());
+    }
+    fixture.build_unchecked()
+}
+
+fn add_sphere(fixture: &mut Fixture, radius: f64, sense: Sense) {
+    let south = fixture.vertex(Point3::new(0.0, 0.0, -radius));
+    let north = fixture.vertex(Point3::new(0.0, 0.0, radius));
+    let meridian = Plane::from_frame(Point3::ZERO, Vector3::NEG_Y, Vector3::X).unwrap();
+    let seam = fixture.edge(
+        Circle::new(meridian, radius).unwrap(),
+        Interval::new(-FRAC_PI_2, FRAC_PI_2).unwrap(),
+        south,
+        north,
+    );
+    let senses = [Sense::Same, Sense::Reversed].map(|turn| (seam, turn.combined(sense)));
+    fixture.face(
+        Sphere::new(Plane::XY, radius).unwrap(),
+        sense,
+        &[senses.to_vec()],
+    );
+}
+
+fn ball_in_spherical_void(void: f64, ball: f64) -> Solid {
+    let mut fixture = Fixture::new();
+    fixtures::add_cuboid(
+        &mut fixture,
+        Point3::splat(-5.0),
+        Point3::splat(5.0),
+        Tweak::default(),
+    );
+    fixture.next_shell();
+    add_sphere(&mut fixture, void, Sense::Reversed);
+    fixture.next_shell();
+    add_sphere(&mut fixture, ball, Sense::Same);
+    fixture.build_unchecked()
+}
+
+#[test]
+fn a_lump_inside_another_is_found() {
+    let solid = cuboids(&[(0.0, 4.0, false), (1.0, 2.0, false)]);
+    assert!(matches!(
+        solid.validate(),
+        Err(ValidationError::LumpsOverlap { .. })
+    ));
+}
+
+#[test]
+fn overlapping_lumps_are_found() {
+    for offset in [
+        Vector3::splat(0.5),
+        Vector3::new(0.5, 0.0, 0.0),
+        Vector3::new(0.999, 0.999, 0.0),
+    ] {
+        let solid = shifted_cuboids(&[Vector3::ZERO, offset]);
+        assert!(
+            matches!(solid.validate(), Err(ValidationError::LumpsOverlap { .. })),
+            "{offset}"
+        );
+    }
+}
+
+#[test]
+fn coincident_lumps_are_found() {
+    let solid = shifted_cuboids(&[Vector3::ZERO, Vector3::ZERO]);
+    assert!(matches!(
+        solid.validate(),
+        Err(ValidationError::LumpsCoincide { .. })
+    ));
+    assert!(matches!(
+        ball_in_spherical_void(3.0, 3.0).validate(),
+        Err(ValidationError::LumpsCoincide { .. })
+    ));
+}
+
+#[test]
+fn lumps_apart_or_touching_validate() {
+    for offset in [
+        Vector3::splat(2.0),
+        Vector3::X,
+        Vector3::new(1.0, 0.5, 0.0),
+        Vector3::new(1.0, 1.0, 0.0),
+        Vector3::ONE,
+    ] {
+        let solid = shifted_cuboids(&[Vector3::ZERO, offset]);
+        assert_eq!(solid.validate(), Ok(()), "{offset}");
+    }
+}
+
+#[test]
+fn a_lump_inside_a_void_validates_and_one_in_the_wall_does_not() {
+    let floating = cuboids(&[(0.0, 6.0, false), (1.0, 5.0, true), (2.0, 4.0, false)]);
+    assert_eq!(floating.validate(), Ok(()));
+    let in_the_wall = cuboids(&[(0.0, 6.0, false), (2.0, 4.0, true), (0.5, 1.5, false)]);
+    assert!(matches!(
+        in_the_wall.validate(),
+        Err(ValidationError::LumpsOverlap { .. })
+    ));
+}
+
+#[test]
+fn a_ball_in_a_spherical_void_validates_unless_it_reaches_the_wall() {
+    for ball in [1.0, 2.9, 2.999] {
+        assert_eq!(
+            ball_in_spherical_void(3.0, ball).validate(),
+            Ok(()),
+            "{ball}"
+        );
+    }
+    assert!(matches!(
+        ball_in_spherical_void(3.0, 3.5).validate(),
+        Err(ValidationError::LumpsOverlap { .. })
+    ));
+}
+
+#[test]
+fn overlapping_or_nested_voids_are_found() {
+    for voids in [
+        [(1.0, 3.0, true), (2.0, 4.0, true)],
+        [(1.0, 5.0, true), (2.0, 4.0, true)],
+    ] {
+        let mut boxes = vec![(0.0, 6.0, false)];
+        boxes.extend(voids);
+        assert!(matches!(
+            cuboids(&boxes).validate(),
+            Err(ValidationError::LumpsOverlap { .. })
+        ));
+    }
+}
+
+#[test]
+fn a_dangling_edge_inside_a_flat_face_is_found() {
+    let mut fixture = Fixture::new();
+    let corners = fixtures::cuboid_vertices(&mut fixture, Point3::ZERO, Point3::splat(2.0));
+    let middle = fixture.vertex(Point3::new(1.0, 1.0, 2.0));
+    for (index, face) in fixtures::CUBOID_FACES.iter().enumerate() {
+        let cycle: Vec<VertexId> = face.iter().map(|corner| corners[*corner]).collect();
+        let plane = fixture.polygon_plane(&cycle);
+        let mut coedges = Vec::new();
+        if index == 1 {
+            coedges.push(fixture.line(cycle[0], middle));
+            coedges.push(fixture.line(middle, cycle[0]));
+        }
+        coedges.extend(fixture.polygon_loop(&cycle));
+        fixture.face(PlaneSurface::new(plane).unwrap(), Sense::Same, &[coedges]);
+    }
+    let solid = fixture.build_unchecked();
+    assert!(matches!(
+        solid.validate(),
+        Err(ValidationError::DanglingEdge { .. })
     ));
 }
 

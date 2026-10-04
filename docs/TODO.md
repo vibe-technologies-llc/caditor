@@ -57,10 +57,6 @@ within a category run from most to least important.
   (`boolean::tests::aligned_contacts_a_micrometre_or_so_apart`, ignored). `SAME_EDGE`,
   `NEAR_BOUNDARY`, `PCURVE_TOLERANCE` and the coaxial offset are unrelated absolute values; derive
   them from one tolerance model and snap or refuse within a documented band.
-- `validate` accepts lumps that overlap, nest or coincide (two boxes in one solid double their
-  volume), since `volumes_at` never tests outward shells against each other, and accepts a
-  dangling edge used twice inside a planar face, since a repeated edge is never checked to be a
-  seam one period apart on a periodic surface.
 - `same_surface` samples a 7×7 grid, so a spline patch with a bump narrower than a seventh of
   it is declared coincident with a plane and booleans treat it so.
 - A torus whose tube is far thinner than its ring (20 and 0.5) still meshes at 2.7 to 4.4 times
