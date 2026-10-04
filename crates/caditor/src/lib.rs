@@ -16,6 +16,7 @@ mod datum_panel;
 mod datum_tools;
 mod dialog_parts;
 mod display;
+mod display_style;
 mod drag_solver;
 mod drawing;
 mod editing;

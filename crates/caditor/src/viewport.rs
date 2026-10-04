@@ -19,6 +19,7 @@ use crate::{
     commands::{CameraMove, Command, CommandFrame, StandardView},
     datum_tools,
     display::Displayed,
+    display_style::DisplayStyle,
     drag_solver::DragCommand,
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
@@ -192,6 +193,7 @@ pub struct ViewportState {
     scenes: SceneCache,
     filter: SelectionFilter,
     filter_applies: bool,
+    style: DisplayStyle,
 }
 
 pub fn initial_viewpoint() -> Viewpoint {
@@ -246,7 +248,16 @@ impl ViewportState {
             scenes: SceneCache::default(),
             filter: SelectionFilter::default(),
             filter_applies: true,
+            style: DisplayStyle::default(),
         }
+    }
+
+    pub fn style(&self) -> DisplayStyle {
+        self.style
+    }
+
+    pub fn set_style(&mut self, style: DisplayStyle) {
+        self.style = style;
     }
 
     pub fn filter(&self) -> SelectionFilter {
@@ -482,6 +493,7 @@ impl ViewportState {
             evaluation,
             bodies: &self.bodies,
             sketches: &display.sketches,
+            style: self.style,
         };
         self.scenes.update(&SceneInputs {
             sources: &sources,
@@ -490,6 +502,7 @@ impl ViewportState {
                 evaluation: model.evaluation_generation(),
                 sketches: display.sketches.generation(),
                 bodies: self.bodies.generation(),
+                style: self.style,
             },
             context,
             highlight: Highlight {
@@ -604,6 +617,7 @@ impl ViewportState {
             evaluation: model.evaluation(),
             bodies: &self.bodies,
             sketches: &model.display().sketches,
+            style: self.style,
         };
         let context = editing.context();
         let view = self
@@ -1233,6 +1247,11 @@ impl ViewportState {
         for step in CameraMove::ALL {
             if commands.available(Command::Camera(step)) {
                 self.nudge(step);
+            }
+        }
+        for style in DisplayStyle::ALL {
+            if commands.available(Command::Style(style)) {
+                self.set_style(style);
             }
         }
         for filter in SelectionFilter::ALL {

@@ -6,6 +6,7 @@ use egui::{
 use crate::{
     appearance::{self, BORDER_WIDTH, CONTROL_HEIGHT, SPACE_M, SPACE_S, WIDGET_RADIUS},
     commands::{CameraMove, Command, CommandFrame, Offer, Scope, StandardView},
+    display_style::DisplayStyle,
     editing::{SketchEditing, Tool},
     files::{self, FileCommand, Files},
     history::HistoryCommand,
@@ -35,6 +36,8 @@ pub struct MenuContext<'a> {
     pub editing: &'a SketchEditing,
     pub offers: &'a [Offer],
     pub chrome: Chrome,
+    pub filter: SelectionFilter,
+    pub style: DisplayStyle,
 }
 
 pub fn show(
@@ -67,6 +70,8 @@ pub fn show(
                 );
                 let mut menus = Menus {
                     offers: context.offers,
+                    filter: context.filter,
+                    style: context.style,
                     commands,
                     chosen: Vec::new(),
                 };
@@ -276,6 +281,8 @@ fn model_details(
 
 struct Menus<'a, 'b> {
     offers: &'a [Offer],
+    filter: SelectionFilter,
+    style: DisplayStyle,
     commands: &'a CommandFrame<'b>,
     chosen: Vec<Command>,
 }
@@ -297,6 +304,26 @@ impl Menus<'_, '_> {
                 icons::command(command),
                 &command.title(),
                 self.commands.keys(command),
+            )
+        });
+        let response = match &availability {
+            Ok(()) => response.inner,
+            Err(reason) => response.inner.on_disabled_hover_text(reason),
+        };
+        if response.clicked() {
+            self.chosen.push(command);
+        }
+    }
+
+    fn choice(&mut self, ui: &mut Ui, command: Command, chosen: bool) {
+        let availability = self.availability(command);
+        let response = ui.add_enabled_ui(availability.is_ok(), |ui| {
+            widgets::menu_choice(
+                ui,
+                icons::command(command),
+                &command.title(),
+                self.commands.keys(command),
+                chosen,
             )
         });
         let response = match &availability {
@@ -348,7 +375,19 @@ impl Menus<'_, '_> {
                 icons::command(Command::Filter(SelectionFilter::Everything)),
                 "Selection filter",
                 |ui| {
-                    self.items(ui, SelectionFilter::ALL.map(Command::Filter));
+                    for filter in SelectionFilter::ALL {
+                        self.choice(ui, Command::Filter(filter), filter == self.filter);
+                    }
+                },
+            );
+            submenu(
+                ui,
+                icons::command(Command::Style(DisplayStyle::ShadedWithEdges)),
+                "Display style",
+                |ui| {
+                    for style in DisplayStyle::ALL {
+                        self.choice(ui, Command::Style(style), style == self.style);
+                    }
                 },
             );
             ui.separator();

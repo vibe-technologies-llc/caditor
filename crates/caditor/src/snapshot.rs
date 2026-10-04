@@ -10,6 +10,7 @@ use caditor_render::{Scene, SurfaceSize, View};
 use crate::{
     bodies::{BodyMeshes, BodyMeshing},
     display::DisplayedSketches,
+    display_style::DisplayStyle,
     editing::Context,
     faceting::FacetLevel,
     model::Waker,
@@ -36,6 +37,7 @@ pub fn take(document: &Document, evaluation: &Evaluation, size: SurfaceSize) -> 
         evaluation,
         bodies: &meshes,
         sketches: &sketches,
+        style: DisplayStyle::default(),
     };
     let (width, height) = (f64::from(size.width), f64::from(size.height));
 

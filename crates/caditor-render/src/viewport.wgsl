@@ -291,6 +291,9 @@ fn fs_color(in: Varyings) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_line(in: Varyings) -> @location(0) vec4<f32> {
+    if in.color.a <= 0.0 {
+        discard;
+    }
     if in.dash_points >= 0.0 && fract(in.dash_points / DASH_PERIOD_POINTS) > DASH_DRAWN_FRACTION {
         discard;
     }

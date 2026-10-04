@@ -23,6 +23,7 @@ use crate::{
     bodies::{BodyBefore, BodyMesh, BodyMeshes, OpenChoice},
     canvas, datum_tools,
     display::DisplayedSketches,
+    display_style::DisplayStyle,
     drawing::Preview,
     editing::Context,
     selection::{self, Axis, Pickable, PrincipalPlane, Selection, SelectionFilter},
@@ -266,6 +267,7 @@ pub struct Sources<'a> {
     pub evaluation: &'a Evaluation,
     pub bodies: &'a BodyMeshes,
     pub sketches: &'a DisplayedSketches,
+    pub style: DisplayStyle,
 }
 
 impl BuiltScene {
@@ -383,6 +385,7 @@ pub fn build(
         evaluation,
         bodies,
         sketches,
+        style,
     } = *sources;
     let editing = context.sketch;
     let model = model_bounds(sources);
@@ -398,6 +401,7 @@ pub fn build(
         meshes: Vec::new(),
         picks: PickTable::default(),
         highlight,
+        style,
     };
 
     match &edited {
@@ -639,6 +643,7 @@ struct Builder<'a> {
     meshes: Vec<MeshInstance>,
     picks: PickTable,
     highlight: &'a Highlight<'a>,
+    style: DisplayStyle,
 }
 
 impl Builder<'_> {
@@ -726,30 +731,41 @@ impl Builder<'_> {
     }
 
     fn body(&mut self, body: FeatureId, mesh: &BodyMesh, color: Option<Color>) {
-        let faces = mesh
-            .faces
-            .iter()
-            .map(|face| match color {
-                Some(base) => {
-                    let pickable = Pickable::Face {
-                        body,
-                        face: face.key,
-                    };
-                    FaceStyle {
-                        color: self.highlight.color(pickable, base),
-                        pick: self.picks.register(pickable, PickPriority::Surface),
+        let style = match color {
+            Some(_) => self.style,
+            None => DisplayStyle::default(),
+        };
+        if style.shows_faces() {
+            let faces = mesh
+                .faces
+                .iter()
+                .map(|face| match color {
+                    Some(base) => {
+                        let pickable = Pickable::Face {
+                            body,
+                            face: face.key,
+                        };
+                        FaceStyle {
+                            color: self.highlight.color(pickable, base),
+                            pick: self.picks.register(pickable, PickPriority::Surface),
+                        }
                     }
-                }
-                None => FaceStyle {
-                    color: BACKGROUND_BODY,
-                    pick: None,
-                },
-            })
-            .collect();
-        self.meshes.push(MeshInstance {
-            mesh: Arc::clone(&mesh.mesh),
-            faces,
-        });
+                    None => FaceStyle {
+                        color: BACKGROUND_BODY,
+                        pick: None,
+                    },
+                })
+                .collect();
+            self.meshes.push(MeshInstance {
+                mesh: Arc::clone(&mesh.mesh),
+                faces,
+            });
+        }
+        let edge_color = if style.shows_edges() {
+            BODY_EDGE
+        } else {
+            BODY_EDGE.with_alpha(0.0)
+        };
         for edge in &mesh.edges {
             let pickable = Pickable::Edge {
                 body,
@@ -757,7 +773,7 @@ impl Builder<'_> {
             };
             let (color, width, pick) = match color {
                 Some(_) => (
-                    self.highlight.color(pickable, BODY_EDGE),
+                    self.highlight.color(pickable, edge_color),
                     BODY_EDGE_WIDTH + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
                     self.picks.register(pickable, PickPriority::Curve),
                 ),
@@ -1316,6 +1332,7 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
         evaluation,
         bodies,
         sketches,
+        ..
     } = *sources;
     match pickable {
         Pickable::Origin => vec![Point3::ZERO],
@@ -1386,6 +1403,7 @@ fn model_bounds(sources: &Sources<'_>) -> Option<Aabb> {
         evaluation,
         bodies,
         sketches,
+        ..
     } = *sources;
     let sketches = document
         .features()
@@ -1470,6 +1488,7 @@ mod tests {
                 evaluation,
                 bodies: &BodyMeshes::default(),
                 sketches: &DisplayedSketches::default(),
+                style: DisplayStyle::default(),
             },
             highlight,
             Context {
@@ -1493,6 +1512,7 @@ mod tests {
                     evaluation,
                     bodies: &BodyMeshes::default(),
                     sketches: &DisplayedSketches::default(),
+                    style: DisplayStyle::default(),
                 },
                 pickables,
             )
@@ -1955,6 +1975,7 @@ mod tests {
             evaluation: &Evaluation::default(),
             bodies: &BodyMeshes::default(),
             sketches: &DisplayedSketches::default(),
+            style: DisplayStyle::default(),
         };
         let built_at = |chord: f64| {
             build(
@@ -1996,6 +2017,7 @@ mod tests {
             evaluation: &evaluation,
             bodies: &bodies,
             sketches: &sketches,
+            style: DisplayStyle::default(),
         };
         let wanted = Faceting::within(1e-9);
 

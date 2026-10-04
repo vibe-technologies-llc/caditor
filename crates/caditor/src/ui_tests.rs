@@ -30,6 +30,7 @@ use crate::{
     app::{self, Workspace},
     appearance, canvas,
     commands::{Command, Offer, RecentSlot},
+    display_style::DisplayStyle,
     drawing::Refusal,
     editing::{EditingCommand, Tool},
     export::ExportCommand,
@@ -5439,6 +5440,59 @@ fn a_sketch_started_on_a_selected_face_follows_it_when_the_body_changes() {
     assert_eq!(plane_height(&harness, sketch), 25.0);
     assert!((harness.body_volume(extrude) - (40000.0 + 2000.0)).abs() < 1.0);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.frame();
+    let edge_alphas = |harness: &mut Harness| -> Vec<f32> {
+        let built = harness.built();
+        let edges: Vec<_> = built
+            .picks
+            .pickables()
+            .filter(|pickable| matches!(pickable, Pickable::Edge { .. }))
+            .filter_map(|pickable| built.picks.id_of(pickable))
+            .collect();
+        built
+            .scene
+            .batches
+            .iter()
+            .flat_map(|batch| batch.lines.iter())
+            .filter(|line| line.pick.is_some_and(|pick| edges.contains(&pick)))
+            .map(|line| line.color.alpha)
+            .collect()
+    };
+    let faces_pickable = |harness: &mut Harness| {
+        harness
+            .built()
+            .picks
+            .pickables()
+            .any(|pickable| matches!(pickable, Pickable::Face { .. }))
+    };
+    assert_eq!(
+        harness.workspace.viewport.style(),
+        DisplayStyle::ShadedWithEdges
+    );
+    assert_eq!(harness.built().scene.meshes.len(), 1);
+    assert!(edge_alphas(&mut harness).iter().all(|alpha| *alpha > 0.0));
+
+    run_from_palette(&mut harness, "shaded without edges");
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.style(), DisplayStyle::Shaded);
+    assert_eq!(harness.built().scene.meshes.len(), 1);
+    let hidden = edge_alphas(&mut harness);
+    assert!(!hidden.is_empty() && hidden.iter().all(|alpha| *alpha == 0.0));
+    assert!(faces_pickable(&mut harness));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    run_from_palette(&mut harness, "wireframe");
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.style(), DisplayStyle::Wireframe);
+    assert!(harness.built().scene.meshes.is_empty());
+    assert!(edge_alphas(&mut harness).iter().all(|alpha| *alpha > 0.0));
+    assert!(!faces_pickable(&mut harness));
 }
 
 #[test]

@@ -99,6 +99,12 @@ paths:
   picking what they need; the status bar names an active filter and its button clears it. It is
   kept for the session, not saved.
 
+- The display style (`DisplayStyle`, commands `view.style_*`, View › Display style) is shaded with
+  edges, shaded without edges (edges drawn with no alpha, so they stay pickable and appear when
+  hovered or selected) or wireframe (no faces in the scene, so none is drawn or picked and edges
+  show through). It applies to bodies outside sketch editing, reaches the scene through
+  `Sources::style` and `Revisions::style`, shapes image exports too and is kept for the session.
+
 ## Typed-point field
 
 - `typed_point.rs`: with a drawing tool active, typing a digit, sign, point, `(` or `@` opens it.

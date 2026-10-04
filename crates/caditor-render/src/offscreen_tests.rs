@@ -1165,6 +1165,33 @@ fn a_marker_with_no_colour_draws_nothing_but_is_still_picked() {
 }
 
 #[test]
+fn a_line_without_alpha_draws_nothing_but_is_still_picked() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
+    let hidden = PickId::from_index(0).unwrap();
+    let scene = Scene::from(Batch {
+        lines: vec![Line {
+            start: Point3::new(-20.0, 0.0, 0.0),
+            end: Point3::new(20.0, 0.0, 0.0),
+            color: Color::from_rgba8(255, 255, 255, 0),
+            width: 4.0,
+            layer: Layer::Model,
+            pick: Some(hidden),
+            stroke: Stroke::Solid,
+        }],
+        ..Batch::default()
+    });
+    let middle = view.project(Point3::ZERO).unwrap();
+
+    let rendered = render(&device, &queue, &view, &scene, middle);
+
+    assert!(is_background(pixel(&rendered, middle)));
+    assert_eq!(rendered.pick.hits[0].id, hidden);
+}
+
+#[test]
 fn the_grid_draws_its_major_lines_and_is_never_picked() {
     let Some((device, queue)) = gpu() else {
         return;

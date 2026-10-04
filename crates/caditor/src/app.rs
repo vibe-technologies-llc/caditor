@@ -369,6 +369,8 @@ pub fn show(
         editing,
         offers: last_offers,
         chrome,
+        filter: viewport.filter(),
+        style: viewport.style(),
     };
     menu_bar::show(ui, model, &menu, &mut commands, actions);
     let toolbar = ToolbarContext {

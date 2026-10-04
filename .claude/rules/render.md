@@ -92,8 +92,8 @@ paths:
 - `Stroke::Dashed` carries the distance along the curve at its start, so dashes
   (`DASH_PERIOD_POINTS`) run on across a polyline's segments at any zoom and interface size. The
   pick pass draws dashed lines whole, so a gap still picks its curve.
-- A marker whose colour has no alpha draws nothing but is still picked, so pickable points can
-  stay invisible until hovered or selected.
+- A marker or line whose colour has no alpha draws nothing but is still picked, so pickable points
+  and edges can stay invisible until hovered or selected.
 
 ## Projection
 

@@ -5,6 +5,7 @@ use caditor_render::{Batch, View};
 use caditor_sketch::Faceting;
 
 use crate::{
+    display_style::DisplayStyle,
     drawing::Preview,
     editing::Context,
     faceting::FacetLevel,
@@ -18,6 +19,7 @@ pub struct Revisions {
     pub evaluation: u64,
     pub sketches: u64,
     pub bodies: u64,
+    pub style: DisplayStyle,
 }
 
 pub struct SceneInputs<'a> {
