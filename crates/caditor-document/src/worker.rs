@@ -2,10 +2,11 @@ use std::{
     panic::{self, AssertUnwindSafe},
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, TryRecvError},
     },
     thread,
+    time::{Duration, Instant},
 };
 
 use caditor_kernel::{MeshQuality, interruptible};
@@ -17,6 +18,7 @@ use crate::{
 };
 
 const NO_JOB: u64 = u64::MAX;
+const STOP_GRACE: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Progress {
@@ -64,6 +66,20 @@ struct Shared {
     latest: AtomicU64,
     cancels: AtomicU64,
     progress: Mutex<Option<Progress>>,
+    busy: AtomicBool,
+    stop_asked: Mutex<Option<Instant>>,
+}
+
+impl Default for Shared {
+    fn default() -> Self {
+        Self {
+            latest: AtomicU64::new(NO_JOB),
+            cancels: AtomicU64::new(0),
+            progress: Mutex::new(None),
+            busy: AtomicBool::new(false),
+            stop_asked: Mutex::new(None),
+        }
+    }
 }
 
 impl Shared {
@@ -71,13 +87,45 @@ impl Shared {
         self.latest.load(Ordering::SeqCst) != sequence
             || self.cancels.load(Ordering::SeqCst) != cancels
     }
+
+    fn ask_to_stop(&self) {
+        if self.busy.load(Ordering::SeqCst) {
+            self.stop_asked.lock().get_or_insert_with(Instant::now);
+        }
+    }
+
+    fn asking_for(&self) -> Option<Duration> {
+        if !self.busy.load(Ordering::SeqCst) {
+            return None;
+        }
+        self.stop_asked.lock().map(|since| since.elapsed())
+    }
 }
 
-pub struct Recomputer {
+type SharedWake = Arc<Mutex<Box<dyn Fn() + Send>>>;
+
+struct Handle {
     jobs: mpsc::Sender<Message>,
     updates: mpsc::Receiver<Update>,
     shared: Arc<Shared>,
+}
+
+struct Submitted {
+    document: Document,
+    revision: u64,
+    retry_failures: bool,
+    cancelled: bool,
+}
+
+pub struct Recomputer {
+    evaluator: Arc<dyn Evaluator>,
+    wake: SharedWake,
+    handle: Handle,
     next_sequence: u64,
+    quality: Option<MeshQuality>,
+    newest: Option<Submitted>,
+    reported: Evaluation,
+    grace: Duration,
 }
 
 impl Recomputer {
@@ -85,23 +133,25 @@ impl Recomputer {
         evaluator: impl Evaluator,
         wake: impl Fn() + Send + 'static,
     ) -> std::io::Result<Self> {
-        let (jobs, queue) = mpsc::channel();
-        let (sender, updates) = mpsc::channel();
-        let shared = Arc::new(Shared {
-            latest: AtomicU64::new(NO_JOB),
-            cancels: AtomicU64::new(0),
-            progress: Mutex::new(None),
-        });
-        let worker = Arc::clone(&shared);
-        thread::Builder::new()
-            .name("recompute".to_owned())
-            .spawn(move || work(&evaluator, &queue, &sender, &worker, &wake))?;
+        let evaluator: Arc<dyn Evaluator> = Arc::new(evaluator);
+        let wake: SharedWake = Arc::new(Mutex::new(Box::new(wake)));
+        let handle = start_worker(&evaluator, &wake)?;
         Ok(Self {
-            jobs,
-            updates,
-            shared,
+            evaluator,
+            wake,
+            handle,
             next_sequence: 0,
+            quality: None,
+            newest: None,
+            reported: Evaluation::default(),
+            grace: STOP_GRACE,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_stop_grace(mut self, grace: Duration) -> Self {
+        self.grace = grace;
+        self
     }
 
     pub fn submit(&mut self, document: Document, revision: u64) -> Result<(), WorkerStopped> {
@@ -122,13 +172,33 @@ impl Recomputer {
         revision: u64,
         retry_failures: bool,
     ) -> Result<(), WorkerStopped> {
+        if self.is_wedged() {
+            self.replace_worker()?;
+        }
+        self.handle.shared.ask_to_stop();
+        self.newest = Some(Submitted {
+            document: document.clone(),
+            revision,
+            retry_failures,
+            cancelled: false,
+        });
+        self.send_job(document, revision, retry_failures)
+    }
+
+    fn send_job(
+        &mut self,
+        document: Document,
+        revision: u64,
+        retry_failures: bool,
+    ) -> Result<(), WorkerStopped> {
         let sequence = self.next_sequence;
         self.next_sequence += 1;
-        self.shared.latest.store(sequence, Ordering::SeqCst);
-        self.jobs
+        self.handle.shared.latest.store(sequence, Ordering::SeqCst);
+        self.handle
+            .jobs
             .send(Message::Recompute(Job {
                 sequence,
-                cancels: self.shared.cancels.load(Ordering::SeqCst),
+                cancels: self.handle.shared.cancels.load(Ordering::SeqCst),
                 revision,
                 retry_failures,
                 document,
@@ -137,40 +207,106 @@ impl Recomputer {
     }
 
     pub fn mesh(&self, result: Arc<FeatureResult>, name: String) -> Result<(), WorkerStopped> {
-        self.jobs
+        self.handle
+            .jobs
             .send(Message::Mesh { result, name })
             .map_err(|_| WorkerStopped)
     }
 
-    pub fn set_mesh_quality(&self, quality: MeshQuality) -> Result<(), WorkerStopped> {
-        self.jobs
+    pub fn set_mesh_quality(&mut self, quality: MeshQuality) -> Result<(), WorkerStopped> {
+        self.quality = Some(quality);
+        self.handle
+            .jobs
             .send(Message::MeshQuality(quality))
             .map_err(|_| WorkerStopped)
     }
 
-    pub fn cancel(&self) {
-        self.shared.cancels.fetch_add(1, Ordering::SeqCst);
+    pub fn cancel(&mut self) {
+        self.handle.shared.cancels.fetch_add(1, Ordering::SeqCst);
+        self.handle.shared.ask_to_stop();
+        if let Some(newest) = &mut self.newest {
+            newest.cancelled = true;
+        }
     }
 
     pub fn progress(&self) -> Option<Progress> {
-        *self.shared.progress.lock()
+        *self.handle.shared.progress.lock()
     }
 
-    pub fn poll(&self) -> Result<Option<Update>, WorkerStopped> {
+    fn is_wedged(&self) -> bool {
+        self.handle
+            .shared
+            .asking_for()
+            .is_some_and(|waited| waited > self.grace)
+    }
+
+    fn replace_worker(&mut self) -> Result<Option<Update>, WorkerStopped> {
+        log::error!(
+            "the recompute worker did not stop within {:?}, so it is left behind and a new one \
+             starts",
+            self.grace
+        );
+        let fresh = start_worker(&self.evaluator, &self.wake).map_err(|error| {
+            log::error!("could not start a new recompute worker: {error}");
+            WorkerStopped
+        })?;
+        let stuck = std::mem::replace(&mut self.handle, fresh);
+        stuck.shared.cancels.fetch_add(1, Ordering::SeqCst);
+        stuck.shared.latest.store(NO_JOB, Ordering::SeqCst);
+        if let Some(quality) = self.quality {
+            self.handle
+                .jobs
+                .send(Message::MeshQuality(quality))
+                .map_err(|_| WorkerStopped)?;
+        }
+        let Some(newest) = self.newest.take() else {
+            return Ok(None);
+        };
+        if newest.cancelled {
+            return Ok(Some(Update {
+                revision: newest.revision,
+                outcome: Outcome::Cancelled,
+                evaluation: self.reported.clone(),
+            }));
+        }
+        self.send_job(newest.document, newest.revision, newest.retry_failures)?;
+        Ok(None)
+    }
+
+    pub fn poll(&mut self) -> Result<Option<Update>, WorkerStopped> {
+        if self.is_wedged()
+            && let Some(update) = self.replace_worker()?
+        {
+            return Ok(Some(update));
+        }
         let mut latest = None;
         loop {
-            match self.updates.try_recv() {
+            match self.handle.updates.try_recv() {
                 Ok(update) => latest = Some(update),
-                Err(TryRecvError::Empty) => return Ok(latest),
-                Err(TryRecvError::Disconnected) => return latest.map(Some).ok_or(WorkerStopped),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    return latest.map(Some).ok_or(WorkerStopped);
+                }
             }
         }
+        if let Some(update) = &latest {
+            self.reported = update.evaluation.clone();
+            if self
+                .newest
+                .as_ref()
+                .is_some_and(|newest| newest.revision == update.revision)
+            {
+                self.newest = None;
+            }
+        }
+        Ok(latest)
     }
 
     #[cfg(test)]
     pub(crate) fn wait(&self) -> Update {
         loop {
             let update = self
+                .handle
                 .updates
                 .recv()
                 .expect("the worker should report before it stops");
@@ -179,6 +315,26 @@ impl Recomputer {
             }
         }
     }
+}
+
+fn start_worker(evaluator: &Arc<dyn Evaluator>, wake: &SharedWake) -> std::io::Result<Handle> {
+    let (jobs, queue) = mpsc::channel();
+    let (sender, updates) = mpsc::channel();
+    let shared = Arc::new(Shared::default());
+    let worker = Arc::clone(&shared);
+    let evaluator = Arc::clone(evaluator);
+    let wake = Arc::clone(wake);
+    thread::Builder::new()
+        .name("recompute".to_owned())
+        .spawn(move || {
+            let wake = move || (wake.lock())();
+            work(evaluator.as_ref(), &queue, &sender, &worker, &wake);
+        })?;
+    Ok(Handle {
+        jobs,
+        updates,
+        shared,
+    })
 }
 
 struct PendingMesh {
@@ -196,7 +352,13 @@ fn work(
     let mut recompute = Recompute::default();
     let mut reported = Evaluation::default();
     let mut meshes: Vec<PendingMesh> = Vec::new();
-    while let Ok(first) = queue.recv() {
+    loop {
+        shared.busy.store(false, Ordering::SeqCst);
+        let Ok(first) = queue.recv() else {
+            break;
+        };
+        shared.busy.store(true, Ordering::SeqCst);
+        *shared.stop_asked.lock() = None;
         let mut latest: Option<Job> = None;
         for message in std::iter::once(first).chain(std::iter::from_fn(|| queue.try_recv().ok())) {
             match message {
@@ -353,11 +515,7 @@ mod tests {
     }
 
     fn idle_shared() -> Arc<Shared> {
-        Arc::new(Shared {
-            latest: AtomicU64::new(NO_JOB),
-            cancels: AtomicU64::new(0),
-            progress: Mutex::new(None),
-        })
+        Arc::new(Shared::default())
     }
 
     struct Blocking {
@@ -381,6 +539,91 @@ mod tests {
             }
             ModelEvaluator.evaluate(feature, inputs, cancel)
         }
+    }
+
+    struct Stuck {
+        started: Arc<AtomicUsize>,
+        release: Arc<AtomicBool>,
+    }
+
+    impl Evaluator for Stuck {
+        fn evaluate(
+            &self,
+            feature: &Feature,
+            inputs: &Inputs<'_>,
+            cancel: &CancelToken,
+        ) -> Result<FeatureResult, Failure> {
+            self.started.fetch_add(1, Ordering::SeqCst);
+            while !self.release.load(Ordering::SeqCst) {
+                thread::yield_now();
+            }
+            ModelEvaluator.evaluate(feature, inputs, cancel)
+        }
+    }
+
+    fn stuck() -> (Stuck, Arc<AtomicUsize>, Arc<AtomicBool>) {
+        let started = Arc::new(AtomicUsize::new(0));
+        let release = Arc::new(AtomicBool::new(false));
+        let evaluator = Stuck {
+            started: Arc::clone(&started),
+            release: Arc::clone(&release),
+        };
+        (evaluator, started, release)
+    }
+
+    fn poll_until_update(worker: &mut Recomputer) -> Update {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(update) = worker.poll().unwrap() {
+                return update;
+            }
+            assert!(Instant::now() < deadline, "no update arrived");
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    #[test]
+    fn a_worker_that_ignores_a_cancel_is_left_behind_and_the_cancel_is_reported() {
+        let (evaluator, started, release) = stuck();
+        let mut worker = Recomputer::spawn(evaluator, || {})
+            .unwrap()
+            .with_stop_grace(Duration::from_millis(50));
+        let (document, _) = sample();
+
+        worker.submit(document.clone(), 3).unwrap();
+        while started.load(Ordering::SeqCst) == 0 {
+            thread::yield_now();
+        }
+        worker.cancel();
+        let update = poll_until_update(&mut worker);
+
+        assert_eq!((update.revision, update.outcome), (3, Outcome::Cancelled));
+        release.store(true, Ordering::SeqCst);
+        worker.submit(document, 4).unwrap();
+        let next = poll_until_update(&mut worker);
+        assert_eq!((next.revision, next.outcome), (4, Outcome::Finished));
+    }
+
+    #[test]
+    fn a_worker_that_ignores_a_newer_submission_is_replaced_and_the_newer_one_runs() {
+        let (evaluator, started, release) = stuck();
+        let mut worker = Recomputer::spawn(evaluator, || {})
+            .unwrap()
+            .with_stop_grace(Duration::from_millis(50));
+        let (document, _) = sample();
+
+        worker.submit(document.clone(), 1).unwrap();
+        while started.load(Ordering::SeqCst) == 0 {
+            thread::yield_now();
+        }
+        worker.submit(document, 2).unwrap();
+        thread::sleep(Duration::from_millis(120));
+        assert_eq!(worker.poll().unwrap().map(|update| update.revision), None);
+        release.store(true, Ordering::SeqCst);
+
+        let update = poll_until_update(&mut worker);
+
+        assert_eq!((update.revision, update.outcome), (2, Outcome::Finished));
     }
 
     struct Panicking;

@@ -112,11 +112,8 @@ within a category run from most to least important.
 
 ## Document and recompute
 
-- A wedged recompute cannot be recovered: `cancel` only flips an atomic, the worker's
-  `JoinHandle` is not kept, `Action::Recompute` submits to the same thread, and dropping a
-  `Recomputer` does not cancel its job. Orphan a stuck worker after a grace period and start a
-  fresh one, and report which feature is running and for how long, since `Progress` is only a
-  count.
+- `Progress` is only a count: report which feature is running and for how long, so a recompute
+  that takes long, or is replaced after not stopping, can name its feature.
 - A recompute reports once more after its feature loop only; a slow late feature still hides the
   bodies before it, and each mesh is not reported as it finishes. Send an update per feature and
   per mesh.

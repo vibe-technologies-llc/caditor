@@ -109,6 +109,12 @@ paths:
   recompute under a token that a newer submission or a `cancel` during the meshing trips, stay
   queued until they finish, and are served newest first (asking again for a queued result moves it
   to the front), so the state on screen is meshed before stale ones.
+- A worker that does not stop is replaced. `cancel` and a newer submission note when they asked a
+  busy worker to stop; once that has gone unanswered for `STOP_GRACE` (5 s), `poll` or the next
+  submission starts a fresh worker (same evaluator and wake, mesh quality sent again) and leaves
+  the old one running to finish on its own, its channels dropped and its cancel counter bumped. The
+  newest submission is then either reported as `Outcome::Cancelled` with the last evaluation (when
+  a cancel followed it) or sent again to the new worker. The new worker starts with an empty cache.
 - `Recomputer::submit_retrying_failures` (the app's Recompute command, F5) makes every failed
   feature run again even though its key is unchanged, which a plain submission reuses, as it does
   the internal error of a caught panic; `Recompute::retry_failures` marks the cached failures, which

@@ -225,7 +225,7 @@ impl Inputs<'_> {
     }
 }
 
-pub trait Evaluator: Send + 'static {
+pub trait Evaluator: Send + Sync + 'static {
     fn evaluate(
         &self,
         feature: &Feature,

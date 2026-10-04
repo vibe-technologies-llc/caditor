@@ -235,7 +235,7 @@ impl Model {
             return;
         }
         self.mesh_quality = quality;
-        if let Some(recomputer) = &self.recomputer
+        if let Some(recomputer) = &mut self.recomputer
             && let Err(error) = recomputer.set_mesh_quality(quality)
         {
             log::error!("{error}");
@@ -455,7 +455,7 @@ impl Model {
                 Ok(None)
             }
             Action::CancelRecompute => {
-                if let Some(recomputer) = &self.recomputer {
+                if let Some(recomputer) = &mut self.recomputer {
                     recomputer.cancel();
                 }
                 Ok(None)
@@ -598,7 +598,7 @@ impl Model {
     pub fn poll(&mut self) -> bool {
         let polled = self.display.dragging.poll();
         let stored = self.poll_storage() | self.display.meshing.poll() | self.dragged(polled);
-        let Some(recomputer) = &self.recomputer else {
+        let Some(recomputer) = &mut self.recomputer else {
             return stored;
         };
         match recomputer.poll() {
@@ -932,7 +932,7 @@ impl Model {
     fn recompute(&mut self, retry: Retry) {
         if self.recomputer.is_none() {
             match Recomputer::spawn(ModelEvaluator, (self.services.make_waker)()) {
-                Ok(recomputer) => {
+                Ok(mut recomputer) => {
                     if let Err(error) = recomputer.set_mesh_quality(self.mesh_quality) {
                         log::error!("{error}");
                     }
