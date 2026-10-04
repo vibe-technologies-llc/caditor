@@ -6393,6 +6393,38 @@ fn recent_messages_keep_a_failed_save_after_a_later_notice_replaced_it() {
 }
 
 #[test]
+fn notices_are_live_regions_so_a_screen_reader_announces_them() {
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+    harness.frame();
+    let live_of = |harness: &Harness, text: &str| {
+        harness
+            .accessible
+            .iter()
+            .find(|(_, node)| node.role() == Role::Label && node.value() == Some(text))
+            .map(|(_, node)| node.live())
+    };
+
+    harness.perform(Action::Inform(Notice::info("Exported 1 body.")));
+    harness.frame();
+    harness.frame();
+    assert_eq!(
+        live_of(&harness, "Exported 1 body."),
+        Some(Some(egui::accesskit::Live::Polite))
+    );
+
+    harness.perform(Action::Inform(Notice::failure(
+        "Saving failed: the disk is full.",
+    )));
+    harness.frame();
+    harness.frame();
+    assert_eq!(
+        live_of(&harness, "Saving failed: the disk is full."),
+        Some(Some(egui::accesskit::Live::Assertive))
+    );
+}
+
+#[test]
 fn recent_messages_open_from_the_palette_and_close_with_escape() {
     let mut harness = Harness::new();
 
@@ -6948,6 +6980,18 @@ fn the_failed_pill_is_a_button_that_shows_the_first_failed_feature() {
     let width = harness.parameter("width");
     harness.type_into(Focus::ParameterValue(width), "30 mm");
     harness.settle();
+
+    harness.context.enable_accesskit();
+    harness.frame();
+    harness.frame();
+    assert!(
+        harness.accessible.iter().any(|(_, node)| {
+            node.role() == Role::Button
+                && node.label() == Some("1 feature failed")
+                && node.live() == Some(egui::accesskit::Live::Assertive)
+        }),
+        "the failed pill is a live region once accessibility is on"
+    );
 
     harness.click_button("1 feature failed");
     harness.frame();

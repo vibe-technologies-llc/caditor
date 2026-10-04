@@ -4,7 +4,9 @@ use egui::{
     Align, Button, Color32, CornerRadius, CursorIcon, FocusDirection, Frame, Galley, Grid, Id, Key,
     Label, Layout, Margin, Modal, Modifiers, Popup, Rect, Response, RichText, Sense, Sides, Stroke,
     StrokeKind, TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText, WidgetType,
-    accesskit::Role, collapsing_header::CollapsingState, pos2, vec2,
+    accesskit::{Live, Role},
+    collapsing_header::CollapsingState,
+    pos2, vec2,
 };
 
 use crate::{
@@ -109,6 +111,16 @@ pub fn described_icon(ui: &mut Ui, glyph: &str, color: Color32, description: &st
 
 pub fn named(response: Response, name: &str) -> Response {
     name_button(response, name, None)
+}
+
+pub fn announced(ui: &Ui, response: &Response, urgent: bool) {
+    let live = if urgent {
+        Live::Assertive
+    } else {
+        Live::Polite
+    };
+    ui.ctx()
+        .accesskit_node_builder(response.id, |node| node.set_live(live));
 }
 
 pub fn decorative(ui: &Ui, response: &Response) {

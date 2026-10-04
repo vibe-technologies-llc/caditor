@@ -231,7 +231,9 @@ paths:
   error and writes nothing.
 - AccessKit (`egui-winit`'s `accesskit` feature): the window is created hidden, the adapter attached
   (`Overlay::enable_accessibility`), then shown; `AppEvent::Accessibility` carries the adapter's
-  requests to the overlay.
+  requests to the overlay. The status bar's notice text is a live region (`widgets::announced`:
+  assertive for an error, polite for info) and so is the failed-features pill, so a screen reader
+  announces a failed save or a failing feature when it appears.
 - Wayland app ID and X11 class are `about::APP_ID` (`caditor`), which must match the desktop entry's
   name.
 - The logo is `packaging/caditor.svg`; `packaging/render-icons.sh` renders it with `rsvg-convert`

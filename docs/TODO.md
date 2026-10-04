@@ -393,8 +393,7 @@ within a category run from most to least important.
 
 - Everything drawn in the viewport is invisible to screen readers: the keyboard highlight
   description, tool prompts, snap labels and measure labels are painter text, and the viewport is
-  an unnamed `interact`. Notices and recompute failures are not live regions, so a failed save is
-  never announced.
+  an unnamed `interact`. The cancelled and stopped recompute pills are not live regions.
 - Constraints and dimensions are not scene pickables, so N never reaches them and a dimension can
   be re-edited only by double-click or from the tree; with a drawing tool active, Space toggles
   the selection instead of placing at the highlight, so keyboard drawing cannot start from

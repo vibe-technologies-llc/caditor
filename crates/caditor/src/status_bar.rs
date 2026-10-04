@@ -262,6 +262,7 @@ fn failed_pill(ui: &mut Ui, text: &str) -> Response {
     let response = widgets::named(pill.interact(Sense::click()), text)
         .on_hover_cursor(CursorIcon::PointingHand)
         .on_hover_text("Show the first failed feature");
+    widgets::announced(ui, &response, true);
     let pressed = response.is_pointer_button_down_on();
     if pressed || response.hovered() {
         let width = if pressed { FOCUS_WIDTH } else { BORDER_WIDTH };
@@ -328,7 +329,8 @@ fn notice(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, wrap: bool) {
     ui.scope(|ui| {
         ui.set_max_width((ui.available_width() - dismiss_width).max(0.0));
         let label = Label::new(text);
-        ui.add(if wrap { label.wrap() } else { label.truncate() });
+        let response = ui.add(if wrap { label.wrap() } else { label.truncate() });
+        widgets::announced(ui, &response, notice.kind == NoticeKind::Error);
     });
     let dismiss = widgets::icon_button(ui, icons::CLOSE, "Dismiss");
     widgets::remember_width(ui, dismiss_id, dismiss.rect.width());
