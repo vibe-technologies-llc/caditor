@@ -171,10 +171,10 @@ fn solve(
         None => (&job.start, None),
     };
     let solved = panic::catch_unwind(AssertUnwindSafe(|| {
-        from.solve_from(&|id| job.parameters.value(id), cancelled, &job.drags, memo)
+        from.solve_geometry_from(&|id| job.parameters.value(id), cancelled, &job.drags, memo)
     }));
     match solved {
-        Ok(Ok(solved)) => Some((Arc::new(solved.geometry), solved.memo)),
+        Ok(Ok((geometry, memo))) => Some((Arc::new(geometry), memo)),
         Ok(Err(error)) => {
             log::debug!("a dragged sketch did not solve: {error}");
             None

@@ -134,6 +134,14 @@ pub struct Solved {
     pub memo: SolveMemo,
 }
 
+struct Finished<'a> {
+    dimensions: DimensionValues,
+    system: &'a System,
+    solver: &'a Solver<'a>,
+    values: Vec<f64>,
+    recall: Recall<'a>,
+}
+
 impl From<Cancelled> for SketchError {
     fn from(_: Cancelled) -> Self {
         Self::Cancelled
@@ -174,6 +182,68 @@ impl Sketch {
     where
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
+        self.solve_with(value_of, cancelled, drags, previous, |finished| {
+            let Finished {
+                dimensions,
+                system,
+                solver,
+                values,
+                mut recall,
+            } = finished;
+            let every_equation: Vec<usize> = (0..system.equations.len()).collect();
+            let parts: Vec<_> = components(system, &every_equation, &values)
+                .iter()
+                .map(|component| {
+                    recall.analysis(component, &values, || {
+                        solver.analyze_component(component, &values)
+                    })
+                })
+                .collect();
+            let analysis = Analysis::combine(parts);
+            Solved {
+                geometry: self.with_values(system, &values),
+                solution: SketchSolution::new(dimensions, system, analysis),
+                memo: recall.finish(),
+            }
+        })
+    }
+
+    pub fn solve_geometry_from<F>(
+        &self,
+        value_of: &F,
+        cancelled: &dyn Fn() -> bool,
+        drags: &[Drag],
+        previous: Option<&SolveMemo>,
+    ) -> Result<(Sketch, SolveMemo), SketchError>
+    where
+        F: Fn(ParameterId) -> Result<Quantity, EvalError>,
+    {
+        self.solve_with(value_of, cancelled, drags, previous, |finished| {
+            let Finished {
+                system,
+                values,
+                mut recall,
+                ..
+            } = finished;
+            let every_equation: Vec<usize> = (0..system.equations.len()).collect();
+            for component in components(system, &every_equation, &values) {
+                recall.remember_geometry(&component, &values);
+            }
+            (self.with_values(system, &values), recall.finish())
+        })
+    }
+
+    fn solve_with<F, T>(
+        &self,
+        value_of: &F,
+        cancelled: &dyn Fn() -> bool,
+        drags: &[Drag],
+        previous: Option<&SolveMemo>,
+        finish: impl FnOnce(Finished<'_>) -> T,
+    ) -> Result<T, SketchError>
+    where
+        F: Fn(ParameterId) -> Result<Quantity, EvalError>,
+    {
         let dimensions = self.evaluate(value_of)?;
         let mut system = System::build(self, &dimensions)?;
         let mut stiff = BTreeSet::new();
@@ -190,7 +260,7 @@ impl Sketch {
             }
         }
         let every_equation: Vec<usize> = (0..system.equations.len()).collect();
-        let mut recall = Recall::new(&system, &dimensions, &every_equation, &stiff, previous);
+        let recall = Recall::new(&system, &dimensions, &every_equation, &stiff, previous);
         let mut start = system.values.clone();
         recall.start_from(&mut start);
         let frozen = Solver {
@@ -212,20 +282,13 @@ impl Sketch {
                 return Err(diagnose_failure(self, &solver, &failed, DIAGNOSIS_WORK)?);
             }
         }
-        let parts: Vec<_> = components(&system, &every_equation, &values)
-            .iter()
-            .map(|component| {
-                recall.analysis(component, &values, || {
-                    solver.analyze_component(component, &values)
-                })
-            })
-            .collect();
-        let analysis = Analysis::combine(parts);
-        Ok(Solved {
-            geometry: self.with_values(&system, &values),
-            solution: SketchSolution::new(dimensions, &system, analysis),
-            memo: recall.finish(),
-        })
+        Ok(finish(Finished {
+            dimensions,
+            system: &system,
+            solver: &solver,
+            values,
+            recall,
+        }))
     }
 
     fn with_values(&self, system: &System, values: &[f64]) -> Self {

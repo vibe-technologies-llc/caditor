@@ -134,9 +134,11 @@ within a category run from most to least important.
   near cubic on closed chains and never checks `cancelled`: solving the sketch left by offsetting
   a closed 3000-line chain takes 218 s, and Cancel does nothing meanwhile. Use a sparse
   factorisation with a fill-reducing order, and poll inside `analyze_component`.
-- `solve_dragging` runs the full rank and DOF analysis every drag frame though the drag worker
-  uses only the geometry and memo, and the dragged component is never memoised, so a drag frame
-  of a 2000-line chain takes 660 ms. Add a geometry-only drag solve.
+- A drag frame solves geometry only (`solve_geometry_from`, no rank or degrees-of-freedom analysis),
+  but the dragged part is still never memoised and the solve itself is the cost: dragging an end of
+  a fully dimensioned chain of 2,000 lines to a point it cannot reach takes about 7 s a frame in a
+  release build (the analysis was about 1 s of it), where a chain joined only by `Coincident`
+  takes 15 ms.
 - `components()` is rebuilt with `BTreeMap`s several times per solve, so solving stays heavier than
   linear in independent parts: 6,400 dimensioned rectangles take 0.42 s (1.4 s before each part
   kept its own spans), and a warm re-solve recalling every part costs about the same

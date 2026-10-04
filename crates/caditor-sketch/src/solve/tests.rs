@@ -1031,6 +1031,34 @@ fn a_dragged_point_goes_where_its_constraints_let_it() {
 }
 
 #[test]
+fn a_geometry_only_solve_gives_the_geometry_of_the_full_one_and_never_stands_in_for_its_analysis() {
+    let (sketch, lines) = chain(6);
+    let (_, end) = ends(&sketch, lines[5]);
+    let drags = [crate::Drag::Point {
+        point: end,
+        to: Point2::new(3.0, 4.0),
+    }];
+
+    let full = sketch
+        .solve_from(&no_parameters, &|| false, &drags, None)
+        .unwrap();
+    let (geometry, memo) = sketch
+        .solve_geometry_from(&no_parameters, &|| false, &drags, None)
+        .unwrap();
+    let again = geometry
+        .solve_from(&no_parameters, &|| false, &[], Some(&memo))
+        .unwrap();
+
+    assert_eq!(geometry, full.geometry);
+    assert_eq!(again.memo.recalled(), 0);
+    assert_eq!(
+        again.solution.is_fully_constrained(),
+        full.solution.is_fully_constrained()
+    );
+    assert!(memo.remembered() > 0 || full.memo.remembered() == 0);
+}
+
+#[test]
 fn a_dragged_radius_grows_the_circle_unless_a_dimension_holds_it() {
     let mut sketch = Sketch::new(Plane::XY);
     let free = sketch.add_circle(Point2::new(2.0, 3.0), 4.0);

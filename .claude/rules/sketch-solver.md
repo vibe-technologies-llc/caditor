@@ -43,7 +43,10 @@ paths:
   cannot work they only weigh a hundred times more than free geometry, ending as near their targets
   as the constraints allow. Geometry that already satisfies its constraints does not move;
   under-constrained geometry moves as little as possible.
-- The app's `drag_solver.rs` runs this on a worker thread of its own.
+- The app's `drag_solver.rs` runs this on a worker thread of its own, through `solve_geometry_from`:
+  the same solve without the rank and degrees-of-freedom analysis, returning the geometry and a memo
+  whose parts are marked not analysed, so they warm-start a later solve but never stand in for its
+  analysis.
 
 ## Equation forms
 

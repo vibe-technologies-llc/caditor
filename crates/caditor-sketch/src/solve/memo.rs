@@ -28,6 +28,7 @@ struct Key {
 
 #[derive(Debug, Clone, PartialEq)]
 struct Outcome {
+    analysed: bool,
     solved: Vec<(Variable, f64)>,
     rank: usize,
     fixed: Vec<Variable>,
@@ -139,7 +140,7 @@ impl<'a> Recall<'a> {
         let recalled = self
             .previous
             .and_then(|previous| previous.outcomes.get(key))
-            .filter(|outcome| self.holds(outcome, values))
+            .filter(|outcome| outcome.analysed && self.holds(outcome, values))
             .cloned();
         let outcome = match recalled {
             Some(outcome) => {
@@ -155,6 +156,29 @@ impl<'a> Recall<'a> {
         }
         self.next.outcomes.insert(key.clone(), outcome);
         analysis
+    }
+
+    pub fn remember_geometry(&mut self, component: &Component, values: &[f64]) {
+        let Some(key) = self.keys.get(&component.equations) else {
+            return;
+        };
+        let named = |index: &usize| self.names.get(index).copied();
+        let outcome = Outcome {
+            analysed: false,
+            solved: component
+                .variables
+                .iter()
+                .filter_map(|index| Some((named(index)?, value(values, *index))))
+                .collect(),
+            rank: 0,
+            fixed: Vec::new(),
+            contributions: Vec::new(),
+        };
+        let settled = key.settled(&outcome);
+        if settled != *key {
+            self.next.outcomes.insert(settled, outcome.clone());
+        }
+        self.next.outcomes.insert(key.clone(), outcome);
     }
 
     pub fn finish(self) -> SolveMemo {
@@ -177,6 +201,7 @@ impl<'a> Recall<'a> {
     ) -> Outcome {
         let named = |index: &usize| self.names.get(index).copied();
         Outcome {
+            analysed: true,
             solved: component
                 .variables
                 .iter()
