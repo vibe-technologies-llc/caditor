@@ -5493,6 +5493,22 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
     assert!(harness.built().scene.meshes.is_empty());
     assert!(edge_alphas(&mut harness).iter().all(|alpha| *alpha > 0.0));
     assert!(!faces_pickable(&mut harness));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    run_from_palette(&mut harness, "x-ray");
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.style(), DisplayStyle::XRay);
+    let built = harness.built();
+    assert!(built.scene.meshes.is_empty());
+    assert_eq!(built.scene.translucent_meshes.len(), 1);
+    assert!(
+        built.scene.translucent_meshes[0]
+            .faces
+            .iter()
+            .all(|face| face.pick.is_none() && face.color.alpha < 1.0)
+    );
+    assert!(edge_alphas(&mut harness).iter().all(|alpha| *alpha > 0.0));
+    assert!(!faces_pickable(&mut harness));
 }
 
 #[test]

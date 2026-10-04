@@ -186,6 +186,7 @@ impl Batch {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Scene {
     pub meshes: Vec<MeshInstance>,
+    pub translucent_meshes: Vec<MeshInstance>,
     pub batches: Vec<Arc<Batch>>,
     pub grid: Option<Grid>,
 }

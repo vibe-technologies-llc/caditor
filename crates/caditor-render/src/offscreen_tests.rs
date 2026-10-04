@@ -58,6 +58,7 @@ fn device(limits: wgpu::Limits) -> Option<(wgpu::Device, wgpu::Queue)> {
 fn scene() -> Scene {
     Scene {
         meshes: Vec::new(),
+        translucent_meshes: Vec::new(),
         grid: None,
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
@@ -680,6 +681,7 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
                 6
             ],
         }],
+        translucent_meshes: Vec::new(),
         grid: None,
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
@@ -1162,6 +1164,64 @@ fn a_marker_with_no_colour_draws_nothing_but_is_still_picked() {
     assert_eq!(pixel(&with, center), pixel(&without, center));
     assert!(pixel(&with, center)[2] > 200);
     assert_eq!(with.pick.hits[0].id, unmarked);
+}
+
+#[test]
+fn a_translucent_mesh_blends_over_what_is_behind_it_and_is_never_picked() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(200.0, f64::from(SIZE), f64::from(SIZE));
+    let solid_pick = PickId::from_index(0).unwrap();
+    let solid = MeshInstance {
+        mesh: Arc::new(box_mesh(20.0)),
+        faces: vec![
+            FaceStyle {
+                color: Color::from_rgb8(255, 0, 0),
+                pick: Some(solid_pick),
+            };
+            6
+        ],
+    };
+    let glass = MeshInstance {
+        mesh: Arc::new(box_mesh(40.0)),
+        faces: vec![
+            FaceStyle {
+                color: Color::from_rgba8(0, 255, 0, 80),
+                pick: None,
+            };
+            6
+        ],
+    };
+    let both = Scene {
+        meshes: vec![solid.clone()],
+        translucent_meshes: vec![glass],
+        ..Scene::default()
+    };
+    let alone = Scene {
+        meshes: vec![solid],
+        ..Scene::default()
+    };
+    let middle = view.project(Point3::ZERO).unwrap();
+    let rim = view.project(Point3::new(30.0, 0.0, 0.0)).unwrap();
+
+    let through = render(&device, &queue, &view, &both, middle);
+    let bare = render(&device, &queue, &view, &alone, middle);
+    let at_rim = render(&device, &queue, &view, &both, rim);
+
+    let [_, green, ..] = pixel(&through, middle);
+    let [_, bare_green, ..] = pixel(&bare, middle);
+    let [rim_red, rim_green, ..] = pixel(&at_rim, rim);
+    assert!(
+        green > bare_green + 20,
+        "the glass added {green} over {bare_green}"
+    );
+    assert!(
+        rim_green > 15 && rim_red < 60,
+        "the glass alone showed as {rim_red} {rim_green}"
+    );
+    assert_eq!(through.pick.hits[0].id, solid_pick);
+    assert_eq!(at_rim.pick.hits.len(), 0);
 }
 
 #[test]

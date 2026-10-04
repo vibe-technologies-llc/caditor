@@ -379,7 +379,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 - [medium · medium] Display styles stop at shaded with edges, without edges and wireframe: no hidden
   line style, and no isolate or hide others or look normal to a face.
-- [medium · medium] Transparent or X-ray bodies.
+- [medium · medium] Transparency is all or nothing: the X-ray style draws every body translucent with
+  unpickable faces, and no body can be translucent, coloured or hidden on its own except by hiding
+  its feature.
 - [medium · medium] No box or lasso selection in the 3D view (only inside a sketch), no select all,
   and no selecting an edge's tangent chain or a face's loop outside the fillet panel, so choosing
   many faces or edges for a pattern, shell or export means clicking each one.

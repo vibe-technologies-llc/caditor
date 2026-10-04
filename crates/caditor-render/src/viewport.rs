@@ -86,6 +86,7 @@ impl Uniform {
 
 struct Pipelines {
     meshes: wgpu::RenderPipeline,
+    translucent_meshes: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
     markers: wgpu::RenderPipeline,
     fills: wgpu::RenderPipeline,
@@ -512,6 +513,7 @@ pub struct ViewportRenderer {
     #[cfg(test)]
     work: Work,
     meshes: MeshCache,
+    translucent: MeshCache,
     staging: Bytes,
     targets: Option<SceneTargets>,
     targets_refused: Option<(u32, u32)>,
@@ -561,6 +563,7 @@ impl ViewportRenderer {
             #[cfg(test)]
             work: Work::default(),
             meshes,
+            translucent: MeshCache::new(device),
             staging: Bytes::default(),
             targets: None,
             targets_refused: None,
@@ -775,6 +778,8 @@ impl ViewportRenderer {
     fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, grid: bool) {
         pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
         self.meshes.draw(pass, &self.pipelines.meshes);
+        self.translucent
+            .draw(pass, &self.pipelines.translucent_meshes);
         for batch in &self.batches {
             batch.draw_lines(pass, &self.pipelines.lines);
         }
@@ -919,7 +924,13 @@ impl ViewportRenderer {
 
         faults.meshes = self
             .meshes
-            .prepare(device, queue, &scene.meshes, view.eye());
+            .prepare(device, queue, &scene.meshes, view.eye())
+            .saturating_add(self.translucent.prepare(
+                device,
+                queue,
+                &scene.translucent_meshes,
+                view.eye(),
+            ));
         let (changed, refused_batches) =
             self.upload_batches(device, queue, &scene.batches, anchored.anchor);
         faults.batches = refused_batches;
@@ -1189,6 +1200,14 @@ impl Pipelines {
                 &meshes,
                 "fs_mesh",
                 true,
+            ),
+            translucent_meshes: color(
+                "translucent meshes",
+                &mesh_pipeline_layout,
+                "vs_mesh",
+                &meshes,
+                "fs_mesh",
+                false,
             ),
             lines: color("lines", &scene_layout, "vs_line", &lines, "fs_line", true),
             markers: color(

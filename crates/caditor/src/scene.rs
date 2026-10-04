@@ -95,6 +95,7 @@ const DATUM_PLANE_SCALE: f64 = 0.75;
 const OPENED_DATUM_EXTRA_WIDTH: f32 = 1.0;
 
 const CURVE_WIDTH: f32 = 2.0;
+const XRAY_FACE_ALPHA: f32 = 0.18;
 const BODY_EDGE_WIDTH: f32 = 1.5;
 const REVOLVE_AXIS_WIDTH: f32 = 2.5;
 const CHOSEN_EDGE_EXTRA_WIDTH: f32 = 1.5;
@@ -399,6 +400,7 @@ pub fn build(
     let mut builder = Builder {
         scene: Batch::default(),
         meshes: Vec::new(),
+        translucent_meshes: Vec::new(),
         picks: PickTable::default(),
         highlight,
         style,
@@ -471,6 +473,7 @@ pub fn build(
     BuiltScene {
         scene: Scene {
             meshes: builder.meshes,
+            translucent_meshes: builder.translucent_meshes,
             batches: vec![Arc::new(builder.scene)],
             grid: Some(Grid {
                 plane: grid_plane,
@@ -641,6 +644,7 @@ fn entities_of(sketch: &Sketch, constraints: &[ConstraintId]) -> BTreeSet<Entity
 struct Builder<'a> {
     scene: Batch,
     meshes: Vec<MeshInstance>,
+    translucent_meshes: Vec<MeshInstance>,
     picks: PickTable,
     highlight: &'a Highlight<'a>,
     style: DisplayStyle,
@@ -735,7 +739,20 @@ impl Builder<'_> {
             Some(_) => self.style,
             None => DisplayStyle::default(),
         };
-        if style.shows_faces() {
+        if style.is_translucent()
+            && let Some(base) = color
+        {
+            self.translucent_meshes.push(MeshInstance {
+                mesh: Arc::clone(&mesh.mesh),
+                faces: vec![
+                    FaceStyle {
+                        color: base.with_alpha(XRAY_FACE_ALPHA),
+                        pick: None,
+                    };
+                    mesh.faces.len()
+                ],
+            });
+        } else if style.shows_faces() {
             let faces = mesh
                 .faces
                 .iter()

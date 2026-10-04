@@ -85,6 +85,10 @@ paths:
   (an exact scaling) and moves front geometry into the near half, where biases stay wide enough
   for the coarser floats (fills under lines under markers).
 
+- `Scene::translucent_meshes` draw after the opaque meshes and before lines with alpha blending and
+  no depth write (`translucent_meshes` pipeline), so edges and what lies behind show through; they
+  are not drawn in the pick pass, so they never occlude or take a pick.
+
 ## Lines, markers and sizes
 
 - Sizes are logical points: `ViewportFrame::pixels_per_point` goes into the view uniform and
