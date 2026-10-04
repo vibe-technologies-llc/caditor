@@ -1041,7 +1041,37 @@ impl ViewportState {
             }
             return;
         }
+        if click.double && self.select_chain(model, editing) {
+            return;
+        }
         self.select(click.toggle);
+    }
+
+    fn select_chain(&mut self, model: &Model, editing: &SketchEditing) -> bool {
+        let Some(Pickable::SketchEntity { feature, entity }) = self.hovered else {
+            return false;
+        };
+        let Some(sketch) = edited_sketch(model, editing) else {
+            return false;
+        };
+        let chain = sketch.offset_chain_through(entity);
+        let [first, rest @ ..] = chain.as_slice() else {
+            return false;
+        };
+        if rest.is_empty() {
+            return false;
+        }
+        self.selection.replace_with(Pickable::SketchEntity {
+            feature,
+            entity: *first,
+        });
+        for entity in rest {
+            self.selection.toggle(Pickable::SketchEntity {
+                feature,
+                entity: *entity,
+            });
+        }
+        true
     }
 
     fn select(&mut self, toggle: bool) {

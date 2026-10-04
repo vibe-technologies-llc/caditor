@@ -302,8 +302,8 @@ within a category run from most to least important.
 - Dimensions all sit at one fixed offset, so collinear chains overlap, and labels cannot be
   dragged. Glyphs stack uncapped (a 64-gon puts 63 `=` glyphs on its first side) and cannot be
   hidden.
-- Double-click does not select a connected chain; a tangent arc cannot continue a line chain without switching
-  tools; the polygon side count changes only by one per key.
+- A tangent arc cannot continue a line chain without switching tools; the polygon side count
+  changes only by one per key.
 
 ## Modelling features
 

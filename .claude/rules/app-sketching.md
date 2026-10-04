@@ -68,6 +68,9 @@ paths:
   everything would. The sketch ribbon's Move and Select all buttons trigger these commands, which
   the viewport carries out; both share their availability through `Moving::offered` and
   `sketch_drag::can_select_all`/`select_all`.
+- Double-clicking a curve in a sketch (no tool active) selects its chain, the lines and arcs joined
+  end to end that Offset would take (`Sketch::offset_chain_through`, stopping where three ends
+  meet); a curve with no neighbour keeps the ordinary single selection.
 
 ## Drawing tools
 

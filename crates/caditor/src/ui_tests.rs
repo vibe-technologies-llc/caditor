@@ -3397,6 +3397,42 @@ fn backspace_and_undo_step_a_line_chain_back_one_line_at_a_time() {
 }
 
 #[test]
+fn double_clicking_a_curve_selects_the_chain_it_belongs_to() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let a = Point2::new(10.0, 10.0);
+    let b = Point2::new(40.0, 10.0);
+    let c = Point2::new(40.0, 30.0);
+    let first = sketch.add_line(a, b);
+    let second = sketch.add_line(b, c);
+    let (_, joint) = line_ends(&sketch, first);
+    let (joined, _) = line_ends(&sketch, second);
+    sketch
+        .add_constraint(Constraint::Coincident(joint, joined))
+        .unwrap();
+    let apart = sketch.add_line(Point2::new(10.0, 50.0), Point2::new(40.0, 50.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let pick = |entity| Pickable::SketchEntity { feature, entity };
+
+    let position = harness.hover_pickable(Plane::XY, Point2::new(25.0, 10.0), pick(first));
+    harness.press(position);
+    harness.press(position);
+    harness.frame();
+
+    let selected: Vec<Pickable> = harness.workspace.viewport.selection().iter().collect();
+    assert_eq!(selected.len(), 2, "{selected:?}");
+    assert!(selected.contains(&pick(first)) && selected.contains(&pick(second)));
+
+    let position = harness.hover_pickable(Plane::XY, Point2::new(25.0, 50.0), pick(apart));
+    harness.press(position);
+    harness.press(position);
+    harness.frame();
+
+    let alone: Vec<Pickable> = harness.workspace.viewport.selection().iter().collect();
+    assert_eq!(alone, [pick(apart)]);
+}
+
+#[test]
 fn a_line_chain_stops_when_it_closes_on_its_start() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
