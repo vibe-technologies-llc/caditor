@@ -91,6 +91,11 @@ paths:
 - Lines chain, each joined to the last end by `Coincident`, until Escape, a click on the last point,
   or a line ending on the chain's first point (or the point it snapped to), closing the outline.
   Splines finish on Enter or a click on the last control point.
+  - Each line or tangent arc that continues a chain records the anchor it started from
+    (`ChainStep`, with its tangent and the label of its change). Backspace undoes the last segment
+    when it is the newest undo step, and when the anchor's point is gone from the sketch (that
+    undo, Ctrl+Z, or a deletion) the chain steps back to the newest anchor still there rather than
+    ending; with no recorded segment Backspace removes the anchor, ending the chain.
 - Arc: runs the way the pointer swept round its centre; a typed end goes the shorter way
   (counter-clockwise at exactly half a turn, `Sweep::aim`); Reverse the arc (X, a sketch command
   offered once centre and start exist, named in the prompt) sends either the other way. Its end is

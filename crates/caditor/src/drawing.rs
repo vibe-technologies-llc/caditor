@@ -453,8 +453,16 @@ pub struct Drawing {
     hover: Option<Placement>,
     sweep: Option<Sweep>,
     tangent: Option<Tangent>,
+    chain: Vec<ChainStep>,
     chain_start: Vec<EntityId>,
     sides: Sides,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ChainStep {
+    start: Placement,
+    tangent: Option<Tangent>,
+    label: String,
 }
 
 impl Drawing {
@@ -512,7 +520,33 @@ impl Drawing {
             lost_point || lost_curve
         });
         if lost_anchor {
-            self.cancel();
+            self.step_back_or_cancel(sketch);
+        }
+    }
+
+    fn step_back_or_cancel(&mut self, sketch: Option<&Sketch>) {
+        let present = |entity: EntityId| sketch.is_some_and(|sketch| sketch.contains(entity));
+        while let Some(step) = self.chain.pop() {
+            let alive = step.start.snap.entity().is_none_or(present)
+                && step.tangent.is_none_or(|tangent| present(tangent.curve));
+            if alive {
+                self.placed = vec![step.start];
+                self.tangent = step.tangent;
+                self.sweep = None;
+                if self.chain.is_empty() {
+                    self.chain_start.clear();
+                }
+                return;
+            }
+        }
+        self.cancel();
+    }
+
+    fn segment_label(&self, shape: Shape) -> String {
+        if self.construction {
+            format!("Draw construction {}", shape.name())
+        } else {
+            format!("Draw {}", shape.name())
         }
     }
 
@@ -631,18 +665,29 @@ impl Drawing {
         self.placed.clear();
         self.sweep = None;
         self.tangent = None;
+        self.chain.clear();
         self.chain_start.clear();
     }
 
-    pub fn remove_last(&mut self) {
+    pub fn remove_last(&mut self, undo_label: Option<&str>) -> bool {
+        let undoes_segment = self.placed.len() == 1
+            && self
+                .chain
+                .last()
+                .is_some_and(|step| undo_label == Some(step.label.as_str()));
+        if undoes_segment {
+            return true;
+        }
         self.placed.pop();
         if self.placed.len() < 2 {
             self.sweep = None;
         }
         if self.placed.is_empty() {
             self.tangent = None;
+            self.chain.clear();
             self.chain_start.clear();
         }
+        false
     }
 
     pub fn click(&mut self, model: &Model) -> Result<Option<Transaction>, Refusal> {
@@ -704,6 +749,11 @@ impl Drawing {
                 if closed {
                     self.cancel();
                 } else {
+                    self.chain.push(ChainStep {
+                        start,
+                        tangent: self.tangent,
+                        label: self.segment_label(shape),
+                    });
                     self.placed = vec![Placement {
                         position: placement.position,
                         snap: Snap::Target(Target::Point(end)),
@@ -828,6 +878,11 @@ impl Drawing {
                     .is_some_and(|target| self.chain_start.contains(&target));
                 match shapes::leaving(circular, placement.position) {
                     Some(direction) if !closed => {
+                        self.chain.push(ChainStep {
+                            start,
+                            tangent: Some(tangent),
+                            label: self.segment_label(shape),
+                        });
                         self.placed = vec![Placement {
                             position: placement.position,
                             snap: Snap::Target(Target::Point(drawn.end)),
@@ -1197,7 +1252,7 @@ impl Drawing {
             (Shape::Line, 0) => prompt("Click the start of the line", BACK_TO_SELECT),
             (Shape::Line, _) => prompt(
                 "Click to end the line, Escape to stop",
-                "Click the start to close, or the last point again to stop",
+                "Click the start to close, or the last point again to stop   Backspace: step back",
             ),
             (Shape::Rectangle(RectangleMode::Corners), 0) => {
                 prompt("Click the rectangle's first corner", BACK_TO_SELECT)

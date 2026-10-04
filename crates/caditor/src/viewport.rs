@@ -1418,8 +1418,8 @@ impl ViewportState {
                 actions.push(Action::Editing(command));
             }
         }
-        if back && self.drawing.in_progress() {
-            self.drawing.remove_last();
+        if back && self.drawing.in_progress() && self.drawing.remove_last(model.undo_label()) {
+            actions.push(Action::Undo);
         }
     }
 

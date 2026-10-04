@@ -3348,6 +3348,55 @@ fn chained_lines_are_joined_and_clicking_the_last_point_again_stops() {
 }
 
 #[test]
+fn backspace_and_undo_step_a_line_chain_back_one_line_at_a_time() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(40.0, 25.0));
+    harness.click_at(Point2::new(20.0, 40.0));
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 2);
+
+    harness.key(Key::Backspace, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 1);
+    assert!(harness.shows("Click to end the line, Escape to stop"));
+
+    harness.click_at(Point2::new(60.0, 30.0));
+    let sketch = harness.sketch(feature);
+    let lines = entities_of_kind(sketch, "Line");
+    assert_eq!(lines.len(), 2);
+    let (_, first_end) = line_ends(sketch, lines[0]);
+    let (second_start, _) = line_ends(sketch, lines[1]);
+    assert_eq!(
+        constraints_of_kind(sketch, "Coincident"),
+        vec![Constraint::Coincident(second_start, first_end)]
+    );
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    harness.frame();
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 1);
+    assert!(harness.shows("Click to end the line, Escape to stop"));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    harness.frame();
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 0);
+    assert!(harness.shows("Click to end the line, Escape to stop"));
+
+    harness.click_at(Point2::new(30.0, 10.0));
+    let sketch = harness.sketch(feature);
+    let [line] = entities_of_kind(sketch, "Line")[..] else {
+        panic!("one line should have been drawn from the first click");
+    };
+    let (start, _) = line_ends(sketch, line);
+    let anchor = sketch.point(start).unwrap();
+    assert!(anchor.distance(Point2::new(10.0, 10.0)) < 1e-3, "{anchor}");
+}
+
+#[test]
 fn a_line_chain_stops_when_it_closes_on_its_start() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
