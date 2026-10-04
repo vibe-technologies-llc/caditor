@@ -3204,6 +3204,42 @@ fn the_size_of_what_is_being_drawn_shows_beside_the_pointer() {
 }
 
 #[test]
+fn holding_ctrl_places_a_point_where_the_pointer_is_instead_of_snapping_to_a_point() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let target = sketch.add_point(Point2::new(40.0, 20.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.use_tool(Key::L);
+
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness
+        .events
+        .push(Event::ModifiersChanged(Modifiers::COMMAND));
+    harness.click_at(Point2::new(40.3, 20.2));
+    harness
+        .events
+        .push(Event::ModifiersChanged(Modifiers::NONE));
+    harness.frame();
+
+    let sketch = harness.sketch(feature);
+    let [line] = entities_of_kind(sketch, "Line")[..] else {
+        panic!("one line should have been drawn");
+    };
+    let (_, end) = line_ends(sketch, line);
+    assert_ne!(end, target);
+    let at = sketch.point(end).unwrap();
+    assert!(at.distance(Point2::new(40.3, 20.2)) < 0.1, "{at}");
+    assert!(constraints_of_kind(sketch, "Coincident").is_empty());
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.click_at(Point2::new(10.0, 40.0));
+    harness.click_at(Point2::new(40.3, 20.2));
+    let snapped = harness.sketch(feature);
+    assert_eq!(constraints_of_kind(snapped, "Coincident").len(), 1);
+}
+
+#[test]
 fn a_press_that_slips_a_few_pixels_is_still_one_click_where_it_is_released() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();

@@ -457,6 +457,7 @@ pub struct Drawing {
     chain: Vec<ChainStep>,
     chain_start: Vec<EntityId>,
     sides: Sides,
+    free: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -549,6 +550,10 @@ impl Drawing {
         } else {
             format!("Draw {}", shape.name())
         }
+    }
+
+    pub fn place_freely(&mut self, free: bool) {
+        self.free = free;
     }
 
     pub fn hover(&mut self, sketch: &Sketch, screen: &impl Screen, pointer: Option<Pointer>) {
@@ -1404,7 +1409,7 @@ impl Drawing {
         screen: &impl Screen,
         pointer: Pointer,
     ) -> Placement {
-        if shape.sizes_by_width(self.placed.len()) {
+        if self.free || shape.sizes_by_width(self.placed.len()) {
             return Placement::free(pointer.sketch);
         }
         let pending = self.pending(shape);

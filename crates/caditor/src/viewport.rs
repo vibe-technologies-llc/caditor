@@ -69,6 +69,7 @@ const KEYBOARD_ORBIT_FRACTION: f64 = 1.0 / 12.0;
 const KEYBOARD_PAN_FRACTION: f64 = 0.1;
 const KEYBOARD_ZOOM_FACTOR: f64 = 1.25;
 const TYPED_POINT_OFFSET: f32 = 64.0;
+const FREE_PLACEMENT_HINT: &str = "Ctrl: place freely";
 const TYPE_POINT_HINT: &str = "Type x, y or length < angle for an exact point";
 const TYPED_POINT_HINT: &str = "@: from the last point   A length alone goes toward the pointer   \
                                 Enter: place   Esc: cancel";
@@ -181,6 +182,7 @@ pub struct ViewportState {
     moving: Option<Moving>,
     press: Option<Press>,
     draw_press: Option<Vector2>,
+    placing_freely: bool,
     primary: Option<PrimaryDrag>,
     hovered_in_tree: Option<Pickable>,
     session: u64,
@@ -228,6 +230,7 @@ impl ViewportState {
             moving: None,
             press: None,
             draw_press: None,
+            placing_freely: false,
             primary: None,
             hovered_in_tree: None,
             session: 0,
@@ -666,6 +669,7 @@ impl ViewportState {
     }
 
     fn track_cursor(&mut self, ui: &egui::Ui, response: &Response, rect: Rect) {
+        self.placing_freely = ui.input(|input| input.modifiers.command);
         let (pointer, moved) = ui.input(|input| {
             (
                 input.pointer.latest_pos(),
@@ -941,6 +945,7 @@ impl ViewportState {
             .and_then(|feature| model.displayed_sketch(feature));
         self.drawing
             .sync(editing.active(), editing.modes(), displayed.as_deref());
+        self.drawing.place_freely(self.placing_freely);
         self.trimming.sync(editing.active(), displayed.as_deref());
         let selected = editing
             .feature()
@@ -1806,7 +1811,10 @@ impl ViewportState {
                         .unwrap_or_default();
                     (
                         prompt.text,
-                        format!("{mode}{reverse}{sides}{}   {TYPE_POINT_HINT}", prompt.keys),
+                        format!(
+                            "{mode}{reverse}{sides}{}   {FREE_PLACEMENT_HINT}   {TYPE_POINT_HINT}",
+                            prompt.keys
+                        ),
                     )
                 })
         }

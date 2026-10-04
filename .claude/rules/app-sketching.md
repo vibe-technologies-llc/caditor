@@ -99,6 +99,10 @@ paths:
 - While one point of a line, a rectangle (corners or centre) or a circle (centre and rim, or
   diameter) is placed, the size so far shows below the snap label (`Drawing::readout`, in the
   length unit: a line's length and angle from X, a rectangle's width × height, a circle's R or Ø).
+- Holding Ctrl while drawing places the point exactly under the pointer, with no snapping to points,
+  curves or crossings and no alignment guides (`Drawing::place_freely`, set each frame from the
+  modifiers); the prompt's keys say so. It also stops a tangent arc from starting, since that needs
+  a snapped point.
 - The pointer is on the sketch only within `MAX_LENGTH` of the origin, like a typed point, so an
   edge-on view cannot place a point at an enormous distance.
 

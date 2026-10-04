@@ -293,8 +293,8 @@ within a category run from most to least important.
 - No size readout while drawing arcs, slots, polygons or splines, no closed-region or open-end
   feedback while sketching, and no smart-dimension tool that takes the entities after the command.
 - Snapping has no midpoints, intersections, spline targets, grid or inference lines to other
-  points, cannot be suppressed by a modifier or toggle, and dragged geometry does not snap at
-  all.
+  points, cannot be turned off for good (Ctrl suppresses it while drawing only), and dragged
+  geometry does not snap at all.
 - Dimensions all sit at one fixed offset, so collinear chains overlap, and labels cannot be
   dragged. Glyphs stack uncapped (a 64-gon puts 63 `=` glyphs on its first side) and cannot be
   hidden.
