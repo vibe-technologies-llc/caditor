@@ -25,12 +25,13 @@ use crate::import::{
         hatch::boundaries,
         mline::mline,
         outline::{face_outline, filled_outline},
-        pairs::{Pair, read_pairs},
+        pairs::{Pair, line_break, read_pairs},
     },
 };
 
 const MAX_BLOCK_DEPTH: usize = 16;
 const DEFAULT_LAYER: &str = "0";
+const NON_PLOTTING_LAYER: &str = "DEFPOINTS";
 const BULGE_EPSILON: f64 = 1e-12;
 const CLOSED: i64 = 1;
 const POLYLINE_3D: i64 = 8;
@@ -75,7 +76,7 @@ fn looks_like_dxf(bytes: &[u8]) -> bool {
     }
     let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
     let first_line = bytes
-        .split(|byte| *byte == b'\n')
+        .split(line_break(bytes))
         .map(|line| String::from_utf8_lossy(line).trim().to_owned())
         .find(|line| !line.is_empty());
     matches!(first_line.as_deref(), Some("0" | "999"))
@@ -273,9 +274,11 @@ impl LineStyles {
 
 impl<'a> DxfFile<'a> {
     fn hides(&self, layer: &str) -> bool {
-        self.layers
-            .get(&layer.to_ascii_uppercase())
-            .is_some_and(|layer| layer.hidden)
+        layer.eq_ignore_ascii_case(NON_PLOTTING_LAYER)
+            || self
+                .layers
+                .get(&layer.to_ascii_uppercase())
+                .is_some_and(|layer| layer.hidden)
     }
 
     fn read(
@@ -797,7 +800,7 @@ impl<'a> Interpreter<'a> {
         }
         if tally.hidden > 0 {
             drawing.notes.push(format!(
-                "{} on hidden or frozen layers {} left out.",
+                "{} on hidden, frozen or non-plotting layers {} left out.",
                 capitalized(&counted(tally.hidden, "object", "objects")),
                 were(tally.hidden)
             ));

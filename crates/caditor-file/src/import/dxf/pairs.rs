@@ -118,6 +118,14 @@ fn tokens(bytes: &[u8]) -> Box<dyn Iterator<Item = Result<Token<'_>, ImportError
     }
 }
 
+pub(super) fn line_break(bytes: &[u8]) -> fn(&u8) -> bool {
+    if bytes.contains(&b'\n') {
+        |byte| *byte == b'\n'
+    } else {
+        |byte| *byte == b'\r'
+    }
+}
+
 type Lines<'a> = Enumerate<Split<'a, u8, fn(&u8) -> bool>>;
 
 struct Text<'a> {
@@ -128,9 +136,8 @@ struct Text<'a> {
 impl<'a> Text<'a> {
     fn new(bytes: &'a [u8]) -> Self {
         let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
-        let newline: fn(&u8) -> bool = |byte| *byte == b'\n';
         Self {
-            lines: bytes.split(newline).enumerate(),
+            lines: bytes.split(line_break(bytes)).enumerate(),
             finished: false,
         }
     }

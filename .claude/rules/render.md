@@ -167,8 +167,9 @@ paths:
   (point at a pixel and view depth, either projection), which gives nothing for a non-finite depth
   or result, so a NaN read back from a pick never becomes a hit. `Camera::orbit`, `pan` and `zoom`
   ignore non-finite pivots, anchors and drags, and the app drops a non-finite pick position.
-  Fitting uses the tangent of the half angle, not its sine; grid spacing follows the distance, not
-  the eye's height.
+  Fitting puts the eight corners of the bounds inside the narrower field of view with a margin,
+  exactly in both projections rather than by a bounding sphere, so a wide flat part fills the
+  view; grid spacing follows the distance, not the eye's height.
 - The view uniform flags orthographic views: shaders light faces from the view direction and turn
   each layer's depth bias into a fixed depth offset (`ORTHOGRAPHIC_DEPTH_BIAS`), since depth is
   linear there and a factor would push edges far through faces.

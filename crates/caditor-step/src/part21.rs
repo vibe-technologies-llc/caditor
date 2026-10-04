@@ -137,6 +137,8 @@ pub(crate) struct Exchange<'a> {
     data: Vec<(u64, Instance<'a>)>,
     pub unreadable: Vec<usize>,
     pub repeated: Vec<u64>,
+    pub header_damaged: bool,
+    pub trailer_missing: bool,
 }
 
 impl<'a> Exchange<'a> {
@@ -261,6 +263,16 @@ impl<'a> Lexer<'a> {
 
     fn damaged(&self) -> SyntaxError {
         SyntaxError::Damaged { line: self.line }
+    }
+
+    fn mark(&self) -> (usize, usize, bool) {
+        (self.position, self.line, self.after_semicolon)
+    }
+
+    fn reset(&mut self, (position, line, after_semicolon): (usize, usize, bool)) {
+        self.position = position;
+        self.line = line;
+        self.after_semicolon = after_semicolon;
     }
 
     fn skip_section(&mut self) -> Result<(), SyntaxError> {
@@ -627,6 +639,18 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn header(&mut self, exchange: &mut Exchange<'a>) -> Result<(), SyntaxError> {
+        loop {
+            let name = self.keyword()?;
+            if name.as_str() == "ENDSEC" {
+                return self.expect(&Token::Semicolon);
+            }
+            let record = self.record(name)?;
+            self.expect(&Token::Semicolon)?;
+            exchange.header.push(record);
+        }
+    }
+
     fn next_line(&mut self) -> usize {
         let _ = self.peek();
         self.lexer.line
@@ -675,18 +699,21 @@ pub(crate) fn parse(text: &str) -> Result<Exchange<'_>, SyntaxError> {
     let mut exchange = Exchange::default();
     let mut entries = Vec::new();
     loop {
+        if parser.peek()?.is_none() {
+            exchange.trailer_missing = true;
+            exchange.index(entries);
+            return Ok(exchange);
+        }
         match parser.keyword()?.as_str() {
             "HEADER" => {
                 parser.expect(&Token::Semicolon)?;
-                loop {
-                    let name = parser.keyword()?;
-                    if name.as_str() == "ENDSEC" {
-                        parser.expect(&Token::Semicolon)?;
-                        break;
-                    }
-                    let record = parser.record(name)?;
-                    parser.expect(&Token::Semicolon)?;
-                    exchange.header.push(record);
+                let section = parser.lexer.mark();
+                if parser.header(&mut exchange).is_err() {
+                    exchange.header_damaged = true;
+                    exchange.header.clear();
+                    parser.lookahead = None;
+                    parser.lexer.reset(section);
+                    parser.lexer.skip_section()?;
                 }
             }
             "DATA" => {
@@ -865,10 +892,9 @@ mod tests {
     #[test]
     fn damage_is_located_and_other_files_are_refused() {
         assert_eq!(parse("solid cube\nfacet"), Err(SyntaxError::NotStep));
-        assert_eq!(
-            parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=LINE('',#2,#3;\nENDSEC;"),
-            Err(SyntaxError::Damaged { line: 6 })
-        );
+        let unterminated =
+            parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=LINE('',#2,#3;\nENDSEC;");
+        assert_eq!(unterminated.unwrap().unreadable, [5]);
         assert_eq!(
             parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=LINE('',#2,'#3);\n"),
             Err(SyntaxError::Damaged { line: 6 })
@@ -881,6 +907,27 @@ mod tests {
         let nested = parse(&deep).unwrap();
         assert!(nested.ids().is_empty());
         assert_eq!(nested.unreadable, [1]);
+    }
+
+    #[test]
+    fn a_damaged_header_is_skipped_and_a_missing_trailer_accepted() {
+        let broken = "ISO-10303-21;\nHEADER;\nFILE_NAME('a;b','2026'\nFILE_SCHEMA(('x'));\nENDSEC;\n\
+                      DATA;\n#1=A(1);\nENDSEC;\nEND-ISO-10303-21;\n";
+        let exchange = parse(broken).unwrap();
+        assert!(exchange.header_damaged && exchange.header.is_empty());
+        assert_eq!(exchange.ids(), [1]);
+        assert!(!exchange.trailer_missing);
+
+        let swallowed =
+            "ISO-10303-21;\nHEADER;\nFILE_NAME('a'\nENDSEC;\nDATA;\n#1=A(1);\nENDSEC;\n";
+        let exchange = parse(swallowed).unwrap();
+        assert!(exchange.header_damaged && exchange.trailer_missing);
+        assert_eq!(exchange.ids(), [1]);
+
+        let intact =
+            "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=A(1);\nENDSEC;\nEND-ISO-10303-21;\n";
+        let exchange = parse(intact).unwrap();
+        assert!(!exchange.header_damaged && !exchange.trailer_missing);
     }
 
     #[test]

@@ -72,9 +72,10 @@ paths:
   (showing the resulting deviation in millimetres, each choice's deviation on its hover), both as
   `segmented` choices, and a checkbox per body, all on by default, in a card that scrolls
   (`list_height`) under Select all and Select none (`ExportCommand::IncludeAll`). It waits for a
-  running recompute and warns when features failed (bodies export as last good); the failure and
-  whatever blocks Export… (running, recomputing, no body chosen) are warning callouts above the
-  footer (`export::warnings`, shared with the image export, as are the section headings and gaps).
+  running recompute and warns when features failed (bodies export as last good) or a stopped
+  recompute left features outdated; the warnings and whatever blocks Export… (running,
+  recomputing, no body chosen) are warning callouts above the footer (`export::warnings`, shared
+  with the image export, as are the section headings and gaps).
   Without bodies it is an empty state closed by its title bar's close button. The dialog
   stays open behind the save dialog, so cancelling the picker keeps it and its choices; it closes
   when the export starts. After the save dialog it runs on its own thread, with Cancel in the status

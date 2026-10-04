@@ -278,6 +278,16 @@ fn damage_notes(exchange: &Exchange) -> Vec<String> {
             ),
         });
     }
+    if exchange.header_damaged {
+        notes.push("The header of the file is damaged and was ignored.".to_owned());
+    }
+    if exchange.trailer_missing {
+        notes.push(
+            "The file ends without its closing line, so it may be cut short; everything before \
+             the end was read."
+                .to_owned(),
+        );
+    }
     if let Some(first) = exchange.repeated.first() {
         notes.push(match exchange.repeated.len() {
             1 => format!(

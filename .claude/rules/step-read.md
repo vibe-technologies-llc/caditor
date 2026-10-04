@@ -16,6 +16,8 @@ paths:
 - The tree borrows from the text: names, enumerations and text are kept as written (uppercased
   copies only for lowercase names; text unquoted and decoded when read), lists and parameters are
   boxed slices, instances a vector sorted by id and found by binary search.
+- A damaged header is skipped to its `ENDSEC;` (the header is never used) and a file ending after
+  its last section without `END-ISO-10303-21;` is accepted, each with a note.
 - An unreadable data entry (a stray byte, nesting too deep) is skipped to its semicolon and counted;
   a repeated entity id keeps its first definition; an integer beyond i64 is a real.
 

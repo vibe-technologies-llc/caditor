@@ -13,7 +13,8 @@ const MIN_DISTANCE: f64 = 1e-4;
 const MAX_DISTANCE: f64 = 1e8;
 const LEVELLING_RATE: f64 = 2.0;
 const VERTICAL_TOLERANCE: f64 = 1e-9;
-const FIT_MARGIN: f64 = 1.15;
+const FIT_MARGIN: f64 = 1.35;
+const MIN_FIT_DEPTH_FRACTION: f64 = 0.1;
 const TRANSITION_DURATION: Duration = Duration::from_millis(350);
 const ORTHOGRAPHIC_REACH_PER_DISTANCE: f64 = 40.0;
 const ORTHOGRAPHIC_SCENE_MARGIN: f64 = 1.1;
@@ -329,14 +330,8 @@ impl View {
 
     pub fn fitted(&self, bounds: Aabb) -> Viewpoint {
         let radius = bounds.bounding_radius();
-        let half_fov_x = (tan_half_fov_y() * self.aspect()).atan();
-        let narrowest_half_fov = half_fov_x.min(FIELD_OF_VIEW_Y * 0.5);
-        let reach = match self.projection {
-            Projection::Perspective => narrowest_half_fov.sin(),
-            Projection::Orthographic => narrowest_half_fov.tan(),
-        };
         let distance = if radius > 0.0 {
-            radius / reach * FIT_MARGIN
+            self.fitting_distance(bounds, radius)
         } else {
             self.viewpoint.distance
         };
@@ -344,6 +339,36 @@ impl View {
             target: bounds.center(),
             orientation: self.viewpoint.orientation,
             distance: distance.clamp(MIN_DISTANCE, MAX_DISTANCE),
+        }
+    }
+
+    fn fitting_distance(&self, bounds: Aabb, radius: f64) -> f64 {
+        let to_view = self.viewpoint.orientation.inverse();
+        let tan_y = tan_half_fov_y();
+        let tan_x = tan_y * self.aspect();
+        let center = bounds.center();
+        let corners = bounds.corners().map(|corner| to_view * (corner - center));
+
+        let lateral = corners.iter().fold(0.0_f64, |distance, corner| {
+            let needed = match self.projection {
+                Projection::Perspective => {
+                    (corner.x.abs() / tan_x).max(corner.y.abs() / tan_y) * FIT_MARGIN + corner.z
+                }
+                Projection::Orthographic => {
+                    (corner.x.abs() / tan_x).max(corner.y.abs() / tan_y) * FIT_MARGIN
+                }
+            };
+            distance.max(needed)
+        });
+        let in_front = corners
+            .iter()
+            .map(|corner| corner.z)
+            .fold(0.0_f64, f64::max)
+            + radius * MIN_FIT_DEPTH_FRACTION;
+
+        match self.projection {
+            Projection::Perspective => lateral.max(in_front),
+            Projection::Orthographic => lateral,
         }
     }
 }
@@ -710,6 +735,36 @@ mod tests {
             assert!((0.0..=WIDTH).contains(&pixel.x) && (0.0..=HEIGHT).contains(&pixel.y));
         }
         assert_close(fitted.viewpoint().target, bounds.center(), 1e-12);
+    }
+
+    #[test]
+    fn a_wide_flat_part_fills_the_view_in_both_projections() {
+        let plate = Aabb::from_points([
+            Point3::new(-100.0, -75.0, 0.0),
+            Point3::new(100.0, 75.0, 2.0),
+        ])
+        .unwrap();
+        let from_above = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 50.0).unwrap();
+
+        for projection in Projection::ALL {
+            let view = View::new(from_above, WIDTH, HEIGHT).with_projection(projection);
+            let fitted = View::new(view.fitted(plate), WIDTH, HEIGHT).with_projection(projection);
+
+            let pixels = plate
+                .corners()
+                .map(|corner| fitted.project(corner).unwrap());
+            let widest = pixels
+                .iter()
+                .map(|pixel| (pixel.x - WIDTH / 2.0).abs())
+                .fold(0.0, f64::max);
+            let tallest = pixels
+                .iter()
+                .map(|pixel| (pixel.y - HEIGHT / 2.0).abs())
+                .fold(0.0, f64::max);
+
+            assert!(widest <= WIDTH / 2.0 && tallest <= HEIGHT / 2.0);
+            assert!(widest.max(tallest * WIDTH / HEIGHT) > WIDTH / 2.0 / (FIT_MARGIN * 1.05));
+        }
     }
 
     #[test]

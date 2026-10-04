@@ -218,8 +218,9 @@ paths:
 ## About, command line, accessibility
 
 - `about.rs`: Help › About caditor shows the logo beside the name and tagline, then version and
-  licences. `cli.rs`: `caditor [MODEL]`;
-  `--version`, `--help` print and exit; unknown options, several paths refused.
+  licences. `cli.rs`: `caditor [FILE]`;
+  `--version`, `--help` print and exit; unknown options, several paths refused. A `.dxf` or STEP
+  file (by extension or header) goes to import as if dropped, anything else to Open.
 - AccessKit (`egui-winit`'s `accesskit` feature): the window is created hidden, the adapter attached
   (`Overlay::enable_accessibility`), then shown; `AppEvent::Accessibility` carries the adapter's
   requests to the overlay.

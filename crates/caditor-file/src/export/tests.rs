@@ -351,6 +351,41 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
 }
 
 #[test]
+fn a_body_that_cannot_be_meshed_is_left_out_and_named_while_the_others_are_kept() {
+    let block = block();
+    let bodies = [
+        ExportBody {
+            name: "Good",
+            solid: &block,
+        },
+        ExportBody {
+            name: "Bad",
+            solid: &block,
+        },
+    ];
+    let mesher = |body: &ExportBody<'_>| match body.name {
+        "Bad" => Err(ExportError::Meshing("Bad".to_owned())),
+        _ => Ok(MeshBody {
+            name: "Good",
+            positions: Vec::new(),
+            triangles: Vec::new(),
+        }),
+    };
+
+    let (meshes, left_out) = tessellate_all(&bodies, &CancelToken::never(), mesher).unwrap();
+    assert_eq!(meshes.len(), 1);
+    assert_eq!(left_out, [ExportError::Meshing("Bad".to_owned())]);
+
+    let only_bad = tessellate_all(&bodies[1..], &CancelToken::never(), mesher);
+    assert_eq!(only_bad, Err(ExportError::Meshing("Bad".to_owned())));
+
+    let cancelled = tessellate_all(&bodies, &CancelToken::never(), |_| {
+        Err(ExportError::Cancelled)
+    });
+    assert_eq!(cancelled, Err(ExportError::Cancelled));
+}
+
+#[test]
 fn a_cancelled_or_empty_export_writes_nothing() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("part.stl");

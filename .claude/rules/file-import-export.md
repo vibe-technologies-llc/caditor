@@ -21,7 +21,8 @@ paths:
 - `$INSUNITS`: every code up to the US survey units; an unknown code reads as millimetres with a
   note naming it; none reads as millimetres with a note, unless `$MEASUREMENT` is 0 (imperial),
   then inches, also with a note.
-- Entities on off or frozen layers are left out.
+- Entities on off or frozen layers, and on the non-plotting `DEFPOINTS` layer (dimension
+  definition points), are left out.
 - Blocks and INSERTs: base point, scale, rotation, column and row arrays, nested with cycle and
   depth limits; at most `MAX_EXPANDED_OBJECTS` objects and cells visited in all; block content on
   layer 0 takes the insert's layer.
@@ -66,7 +67,7 @@ paths:
 - `read_step_file` reads STEP through `caditor-step` and canonicalises each solid (written by
   caditor's own writer and read back, so what is stored is exactly what later loads), giving one
   `ImportedBody` per solid, or per lump (each canonicalised alone) when a multi-lump solid reads
-  back as several, plus notes.
+  back as several, plus notes. Text that is not valid UTF-8 is read as Latin-1, with a note.
 - `bodies_transaction` adds an `Import` feature per body under unique names. The model file stores
   an import as its source name and STEP text (`import` records); an unreadable one loads empty, with
   a report.
@@ -81,7 +82,9 @@ paths:
     triangles use and dropping collapsed triangles, written as binary STL (every body in one
     surface, facet normals from the winding) or 3MF (one named object per body, millimetres).
 - Files are saved atomically like a model. Cancellation is checked between bodies and before
-  writing; failures are sentences naming the body.
+  writing; failures are sentences naming the body. A mesh export leaves out a body that cannot be
+  meshed and returns its error in `Exported::left_out` (the app says so in a notice that outlasts
+  edits); it fails only when no body could be meshed.
 - `export_png` (`export/image.rs`) writes 8-bit RGBA with straight alpha and an sRGB chunk
   through the pure-Rust `png` crate (fast compression), checking the pixel count against the size,
   cancellation before encoding and before writing, then saving atomically; errors are

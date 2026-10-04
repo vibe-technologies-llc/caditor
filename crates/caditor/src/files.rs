@@ -493,8 +493,10 @@ impl Files {
             },
             || Event::ScanFailed,
         );
-        if let Some(path) = open {
-            self.perform(FileCommand::OpenPath(path), model);
+        match open {
+            Some(path) if is_importable_file(&path) => self.dropped(vec![path], None, model),
+            Some(path) => self.perform(FileCommand::OpenPath(path), model),
+            None => {}
         }
     }
 
@@ -1743,6 +1745,16 @@ pub fn activity(
     }
     export::activity(ui, &files.exporter, commands, actions);
     image_export::activity(ui, &files.image, commands, actions);
+}
+
+fn is_importable_file(path: &Path) -> bool {
+    if is_model_file(path) {
+        return false;
+    }
+    let is_drawing = path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(DXF_EXTENSION));
+    is_drawing || import::is_model(path)
 }
 
 fn is_model_file(path: &Path) -> bool {

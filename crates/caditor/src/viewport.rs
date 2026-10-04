@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use caditor_document::{FeatureId, FeatureKind, Transaction};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{Camera, PickResult, Scene, SurfaceSize, View, Viewpoint, ViewportRect};
-use caditor_sketch::{ConstraintId, EntityId};
+use caditor_sketch::{ConstraintId, EntityId, MAX_LENGTH};
 use egui::{Align, Align2, Key, PointerButton, Rect, Response, Sense, Shape, Stroke, pos2, vec2};
 
 use crate::{
@@ -731,7 +731,7 @@ impl ViewportState {
         let plane = scene::sketch_plane(model.document(), model.evaluation(), feature)?;
         let ray = self.view()?.ray_through(cursor)?;
         let distance = ray.intersect_plane(&plane)?;
-        Some(plane.to_local(ray.at(distance)))
+        within_reach(plane.to_local(ray.at(distance)))
     }
 
     fn sketch_screen(&self, plane: Plane) -> Option<SketchScreen> {
@@ -965,9 +965,11 @@ impl ViewportState {
         {
             self.perform_click(click, model, editing, drawing, actions);
         }
+        let placed_by_dragging = editing.active().is_some_and(|active| active.tool.draws())
+            && response.drag_stopped_by(PointerButton::Primary);
         let click = Click {
             double: response.double_clicked(),
-            primary: response.clicked_by(PointerButton::Primary),
+            primary: response.clicked_by(PointerButton::Primary) || placed_by_dragging,
             toggle: ui.input(|input| input.modifiers.shift || input.modifiers.command),
         };
         if !click.double && !click.primary {
@@ -1910,6 +1912,10 @@ impl KeyHints {
     }
 }
 
+fn within_reach(point: Point2) -> Option<Point2> {
+    (point.is_finite() && point.abs().max_element() <= MAX_LENGTH).then_some(point)
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
@@ -1926,6 +1932,16 @@ mod tests {
 
     const ORIGIN_PICK_INDEX: usize = 6;
     const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(60);
+
+    #[test]
+    fn a_clicked_point_beyond_the_reach_of_typed_ones_is_not_on_the_sketch() {
+        let edge = Point2::new(MAX_LENGTH, -MAX_LENGTH);
+
+        assert_eq!(within_reach(edge), Some(edge));
+        assert_eq!(within_reach(Point2::new(MAX_LENGTH * 1.01, 0.0)), None);
+        assert_eq!(within_reach(Point2::new(0.0, f64::INFINITY)), None);
+        assert_eq!(within_reach(Point2::new(f64::NAN, 0.0)), None);
+    }
 
     fn state_with_cursor() -> ViewportState {
         let mut state = ViewportState::new();

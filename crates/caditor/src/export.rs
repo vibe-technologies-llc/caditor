@@ -27,6 +27,8 @@ use crate::{
 };
 
 const BODY_LIST_HEIGHT: f32 = 160.0;
+const OUTDATED: &str = "Recomputing was stopped, so some features still show their earlier results. \
+                        Recompute the model first to include the latest changes.";
 const FAILED_OUTCOME: &str = "each body is exported as it was before them";
 const NOT_EXPORTING: &str = "No export is running";
 const NO_BODIES: &str =
@@ -180,13 +182,23 @@ impl Exporter {
         match result {
             Ok(exported) => {
                 let bodies = count(exported.bodies, "body", "bodies");
-                Notice::info(match exported.triangles {
+                let summary = match exported.triangles {
                     Some(triangles) => format!(
                         "Exported {bodies} to “{name}” ({}).",
                         count(triangles, "triangle", "triangles")
                     ),
                     None => format!("Exported {bodies} to “{name}”."),
-                })
+                };
+                if exported.left_out.is_empty() {
+                    return Notice::info(summary);
+                }
+                let reasons: Vec<String> =
+                    exported.left_out.iter().map(ToString::to_string).collect();
+                Notice::failure(format!(
+                    "{summary} {} left out: {}.",
+                    count(reasons.len(), "body was", "bodies were"),
+                    reasons.join("; ")
+                ))
             }
             Err(ExportError::Cancelled) => Notice::info("The export was cancelled."),
             Err(error) => Notice::failure(format!("Could not export “{name}”: {error}.")),
@@ -332,11 +344,24 @@ pub fn warnings(ui: &mut Ui, model: &Model, outcome: &str, blocker: Option<&str>
             ));
         });
     }
+    if let Some(stale) = outdated(model.status()) {
+        ui.add_space(SPACE_M);
+        widgets::callout(ui, Tone::Warning, |ui| {
+            ui.label(stale);
+        });
+    }
     if let Some(blocker) = blocker {
         ui.add_space(SPACE_M);
         widgets::callout(ui, Tone::Warning, |ui| {
             ui.label(blocker);
         });
+    }
+}
+
+fn outdated(status: RecomputeStatus) -> Option<&'static str> {
+    match status {
+        RecomputeStatus::Cancelled | RecomputeStatus::Stopped => Some(OUTDATED),
+        RecomputeStatus::UpToDate | RecomputeStatus::Running { .. } => None,
     }
 }
 
@@ -444,4 +469,42 @@ fn body_choice(
                 }
             });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_partial_export_names_every_body_left_out_and_stays_until_dismissed() {
+        let mut exporter = Exporter::default();
+        let exported = Exported {
+            bodies: 2,
+            triangles: Some(24),
+            left_out: vec![ExportError::Meshing("Bracket".to_owned())],
+        };
+
+        let notice = exporter.finished(Path::new("parts.stl"), Ok(exported));
+
+        assert!(notice.outlasts_edits);
+        assert_eq!(
+            notice.text,
+            "Exported 2 bodies to “parts.stl” (24 triangles). 1 body was left out: the body of \
+             “Bracket” could not be turned into triangles at this resolution; try another \
+             resolution."
+        );
+    }
+
+    #[test]
+    fn only_a_stopped_recompute_warns_that_results_may_be_outdated() {
+        assert!(outdated(RecomputeStatus::Cancelled).is_some());
+        assert!(outdated(RecomputeStatus::Stopped).is_some());
+        assert!(outdated(RecomputeStatus::UpToDate).is_none());
+        assert!(
+            outdated(RecomputeStatus::Running {
+                since: std::time::Instant::now()
+            })
+            .is_none()
+        );
+    }
 }

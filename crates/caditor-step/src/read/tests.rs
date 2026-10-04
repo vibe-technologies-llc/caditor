@@ -80,6 +80,33 @@ fn files_without_solids_are_refused_in_words() {
     );
 }
 
+#[test]
+fn a_file_with_a_damaged_header_and_no_closing_line_still_reads_its_solids() {
+    let solid = fixtures::plate_with_hole();
+    let written = write_step(
+        &[StepBody {
+            name: "plate",
+            solid: &solid,
+        }],
+        "plate",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+    let (header, data) = written.split_once("DATA;").unwrap();
+    let damaged = format!(
+        "{}\nFILE_NAME('broken'\nENDSEC;\nDATA;{}",
+        header.split_once("HEADER;").unwrap().0.to_owned() + "HEADER;",
+        data.trim_end().trim_end_matches("END-ISO-10303-21;")
+    );
+
+    let model = read_step(&damaged).unwrap();
+
+    assert_eq!(model.solids.len(), 1);
+    assert_eq!(model.notes.len(), 2, "{:?}", model.notes);
+    assert!(model.notes.iter().any(|note| note.contains("header")));
+    assert!(model.notes.iter().any(|note| note.contains("closing line")));
+}
+
 fn sample(text: &str) -> crate::read::StepModel {
     read_step(text).unwrap_or_else(|error| panic!("{error}"))
 }

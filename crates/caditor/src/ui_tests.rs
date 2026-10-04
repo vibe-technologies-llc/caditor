@@ -1778,6 +1778,27 @@ fn a_drawing_read_while_the_model_changes_is_placed_on_the_changed_model() {
 }
 
 #[test]
+fn a_drawing_named_on_the_command_line_is_imported_instead_of_opened() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let square = dir.path().join("square.dxf");
+    write_drawing(
+        &square,
+        Some(4),
+        "0\nLWPOLYLINE\n8\n0\n90\n4\n70\n1\n\
+         10\n0\n20\n0\n10\n30\n20\n0\n10\n30\n20\n30\n10\n0\n20\n30\n",
+    );
+    let features = harness.document().features().len();
+
+    harness.files.start(Some(square), &mut harness.model);
+
+    harness.wait_until("the drawing is imported", |harness| {
+        harness.document().features().len() == features + 1
+    });
+    assert_eq!(harness.model.path(), None);
+}
+
+#[test]
 fn dropped_drawings_are_imported_one_after_another_and_a_dropped_model_opens() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
@@ -3077,6 +3098,25 @@ fn constraints_of_kind(sketch: &Sketch, kind: &str) -> Vec<Constraint> {
 
 fn near(a: Point2, b: Point2) -> bool {
     a.distance(b) < DRAWN
+}
+
+#[test]
+fn a_press_dragged_or_held_with_a_drawing_tool_still_places_the_point_where_it_is_released() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+
+    harness.click_at(Point2::new(10.0, 10.0));
+    let from = harness.on_screen(Point2::new(20.0, 20.0));
+    drag_in_sketch(&mut harness, from, Point2::new(40.0, 25.0));
+    harness.frame();
+
+    let sketch = harness.sketch(feature);
+    let lines = entities_of_kind(sketch, "Line");
+    assert_eq!(lines.len(), 1);
+    let (start, end) = sketch.line_endpoints(lines[0]).unwrap();
+    assert!(near(start, Point2::new(10.0, 10.0)), "{start}");
+    assert!(near(end, Point2::new(40.0, 25.0)), "{end}");
 }
 
 #[test]
@@ -7717,7 +7757,7 @@ fn dragging_a_sketch_point_moves_it_as_its_constraints_allow_in_one_undoable_cha
             entity: end,
         },
     );
-    drag_in_sketch(&mut harness, grabbed, Point2::new(30.0, 20.0));
+    drag_in_sketch(&mut harness, grabbed, Point2::new(30.0, 12.0));
     harness.wait_until("the drag is committed", |harness| {
         harness.sketch(feature).point(end) != before.point(end)
     });
@@ -7725,7 +7765,7 @@ fn dragging_a_sketch_point_moves_it_as_its_constraints_allow_in_one_undoable_cha
 
     let dragged = harness.sketch(feature).point(end).unwrap();
     assert!(
-        dragged.distance(Point2::new(30.0, 20.0)) < 0.5,
+        dragged.distance(Point2::new(30.0, 12.0)) < 0.5,
         "{dragged:?}"
     );
     assert!(harness.sketch(feature).point(start).unwrap().length() < DRAWN);

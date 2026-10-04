@@ -135,10 +135,11 @@ pub struct ExportBody<'a> {
     pub solid: &'a Solid,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Exported {
     pub bodies: usize,
     pub triangles: Option<usize>,
+    pub left_out: Vec<ExportError>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -181,13 +182,9 @@ pub fn export_bodies(
         return export_step(path, bodies, cancel);
     }
     let tolerance = resolution.tolerance(bodies.iter().map(|body| body.solid));
-    let mut meshes = Vec::with_capacity(bodies.len());
-    for body in bodies {
-        if cancel.is_cancelled() {
-            return Err(ExportError::Cancelled);
-        }
-        meshes.push(MeshBody::tessellate(body, &tolerance, cancel)?);
-    }
+    let (meshes, left_out) = tessellate_all(bodies, cancel, |body| {
+        MeshBody::tessellate(body, &tolerance, cancel)
+    })?;
     if cancel.is_cancelled() {
         return Err(ExportError::Cancelled);
     }
@@ -200,7 +197,31 @@ pub fn export_bodies(
     Ok(Exported {
         bodies: meshes.len(),
         triangles: Some(meshes.iter().map(|mesh| mesh.triangles.len()).sum()),
+        left_out,
     })
+}
+
+fn tessellate_all<'a>(
+    bodies: &[ExportBody<'a>],
+    cancel: &CancelToken,
+    tessellate: impl Fn(&ExportBody<'a>) -> Result<MeshBody<'a>, ExportError>,
+) -> Result<(Vec<MeshBody<'a>>, Vec<ExportError>), ExportError> {
+    let mut meshes = Vec::with_capacity(bodies.len());
+    let mut left_out = Vec::new();
+    for body in bodies {
+        if cancel.is_cancelled() {
+            return Err(ExportError::Cancelled);
+        }
+        match tessellate(body) {
+            Ok(mesh) => meshes.push(mesh),
+            Err(ExportError::Cancelled) => return Err(ExportError::Cancelled),
+            Err(error) => left_out.push(error),
+        }
+    }
+    match left_out.first() {
+        Some(error) if meshes.is_empty() => Err(error.clone()),
+        _ => Ok((meshes, left_out)),
+    }
 }
 
 fn export_step(
@@ -241,6 +262,7 @@ fn export_step(
     Ok(Exported {
         bodies: bodies.len(),
         triangles: None,
+        left_out: Vec::new(),
     })
 }
 

@@ -47,7 +47,7 @@ impl Invocation {
 pub fn usage() -> String {
     format!(
         "{}\nParametric CAD.\n\nUsage: {} [OPTIONS] [MODEL]\n\nArguments:\n  [MODEL]  \
-         A .caditor model to open\n\nOptions:\n  -h, --help     Show this help\n  -V, --version  \
+         A .caditor model to open, or a .dxf or .step file to import\n\nOptions:\n  -h, --help     Show this help\n  -V, --version  \
          Show the version\n",
         about::version_line(),
         about::NAME

@@ -83,6 +83,10 @@ paths:
   polygon side of no length; a rectangle on its first side's line; an arc slot as wide as its
   radius or with round ends that would meet.
 - Keys: P, L, R, C, A, T (tangent arc), U (slot), G (polygon), S (spline), Alt+A (three-point arc).
+- A press that drags or is held too long to be a click still places a point where it is released,
+  since egui reports it as a drag (`Viewport::click`); the press position itself is not placed.
+- The pointer is on the sketch only within `MAX_LENGTH` of the origin, like a typed point, so an
+  edge-on view cannot place a point at an enormous distance.
 
 - Lines chain, each joined to the last end by `Coincident`, until Escape, a click on the last point,
   or a line ending on the chain's first point (or the point it snapped to), closing the outline.

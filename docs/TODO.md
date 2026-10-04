@@ -119,8 +119,6 @@ within a category run from most to least important.
   `Recomputer` does not cancel its job. Orphan a stuck worker after a grace period and start a
   fresh one, and report which feature is running and for how long, since `Progress` is only a
   count.
-- Export after a cancelled or stopped recompute writes the outdated features' previous results
-  as current with no warning, since the dialog checks only for `Running` and failures.
 - A recompute reports once, after every feature, region and mesh, so one slow late feature hides
   every finished body. Send an update after the feature loop and per mesh.
 - The cache keeps one result per feature, so changing a depth and undoing recomputes everything
@@ -179,8 +177,6 @@ within a category run from most to least important.
   each model load, journal replay and recovery scan, and stores every placement of a product as
   its own STEP text. Build each representation once, store each product once with placements,
   and cache solids by text digest.
-- A damaged header or a missing `END-ISO-10303-21;` trailer refuses the whole file, though the
-  header is never used and data entries already recover one by one.
 - A file with no closed solids always reads "holds no solid bodies", whether it is IFC,
   tessellated AP242, a surface model or a wireframe; report the schema and what it holds.
 - The parse tree still holds about three times the file size (a boxed slice per record and per
@@ -194,8 +190,7 @@ within a category run from most to least important.
 - Imports cannot be positioned (`Import` has no placement) or refreshed from their source file:
   the path is not kept, so a changed STEP file means deleting the feature and breaking what
   references it.
-- Only `.step` and `.stp` are recognised (no `.p21` or `.stpz`), and names in raw Latin-1 become
-  U+FFFD without a note.
+- Only `.step`, `.stp` and `.p21` are recognised (no `.stpz`).
 - No IGES import or export, though older CAM software and many suppliers still exchange it.
 
 ## Drawing import and export
@@ -207,10 +202,9 @@ within a category run from most to least important.
   sketch always lands on the XY plane although `SketchTarget::New` takes a plane.
 - Curves carry no layer, so the import cannot offer a layer choice, and over 20,000 curves the
   whole file is refused as `TooLarge` with nothing imported.
-- Linetypes and the `DEFPOINTS` layer are ignored, so centrelines, hidden lines and dimension
-  points import as profile geometry and add regions; map them to construction geometry.
-- Damage anywhere refuses the whole DXF, losing everything read before it, and CR-only line
-  endings read as damaged at line 1.
+- Linetypes are ignored, so centrelines and hidden lines import as profile geometry and add
+  regions; map them to construction geometry.
+- Damage anywhere refuses the whole DXF, losing everything read before it.
 
 ## Mesh import and export
 
@@ -233,8 +227,8 @@ within a category run from most to least important.
     another tolerance later without breaking what references its faces.
   - Units: STL has none, so the import guesses from the size (a part 0.05 mm across is likely in
     metres) and offers a scale before committing, rather than leaving it to the scale item.
-- One body that cannot be meshed or written aborts the whole export (`?` per body in
-  `export_bodies`); export the others and name the one left out.
+- One body that cannot be written aborts a whole STEP export; write the others and name the one
+  left out, as the mesh formats do.
 - STL uses absolute f32 coordinates, which lose about 0.06 mm at 10^6 mm, and merges all bodies
   into one surface; `stl::encode` holds every triangle as f64 before writing.
 - 3MF has no colours, materials or thumbnail, builds everything in memory and cannot exceed
@@ -297,8 +291,8 @@ within a category run from most to least important.
   committing.
 - A drag to a position with no solution freezes the geometry without a cue, and in a conflicting
   sketch every drag does nothing and then blames the move.
-- While a drawing tool is active, a click that moves 6 px or is held 0.8 s is dropped silently;
-  place the point anyway, and allow press-drag-release to draw a line, rectangle or circle.
+- Press-drag-release with a drawing tool places only the release point; place the press point as
+  the start too, so one gesture draws a line, rectangle or circle.
 - Tools missing: ellipse (a new entity kind across the solver, kernel and file format), sketch
   chamfer, rectangular and circular patterns, rotate, scale and copy of a selection, split at a
   point, text, and fit-point, closed or periodic splines (`BSpline::interpolate` and `through`
@@ -324,8 +318,6 @@ within a category run from most to least important.
 - Backspace in a line chain removes only the anchor and Ctrl+Z ends the chain; double-click does
   not select a connected chain; a tangent arc cannot continue a line chain without switching
   tools; the polygon side count changes only by one per key.
-- Clicked points are not bounded like typed ones, so an edge-on view can place a point at an
-  enormous distance.
 
 ## Modelling features
 
@@ -412,8 +404,6 @@ within a category run from most to least important.
   square is unknown while sketching. Show the current minor spacing in the view (for example
   "Grid 10 mm", in the length unit, on the canvas backdrop beside the axis triad or the cursor
   readout), updating as the grid steps, and readable by screen readers.
-- Zoom to fit uses the bounding sphere, wasting about 30% on wide flat parts, and the perspective
-  branch uses the sine of the half angle although `render.md` says tangent.
 - No touchpad navigation: orbit is right-drag, pan needs a middle button or Shift, and two-finger
   scroll always zooms.
 - Adapter choice is only the `WGPU_POWER_PREF` environment variable, so users of hybrid laptops
@@ -453,9 +443,8 @@ within a category run from most to least important.
   opening modal is drawn before the unsaved-changes prompt,
   so closing the window during a load hides the prompt until the load ends. Give imports their
   own cancellable job. When a worker thread cannot be spawned the job runs on the UI thread.
-- A STEP or DXF path on the command line goes to Open and fails as "not a caditor model", though
-  dropping it imports; the desktop entry registers only `application/x-caditor`, and there is no
-  headless export or conversion.
+- The desktop entry registers only `application/x-caditor`, and there is no headless export or
+  conversion.
 - Text outside Latin, Greek and Cyrillic shows as missing glyphs in feature and file names, since
   only Inter and egui's defaults are loaded.
 - Notices are one slot: an info notice replaces a save or export failure, with no history.

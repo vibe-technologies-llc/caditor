@@ -473,7 +473,7 @@ fn hidden_layers_paper_space_and_annotations_are_left_out_with_a_note() {
         "{notes}"
     );
     assert!(
-        notes.contains("3 objects on hidden or frozen layers"),
+        notes.contains("3 objects on hidden, frozen or non-plotting layers"),
         "{notes}"
     );
     assert!(
@@ -698,6 +698,42 @@ fn a_binary_drawing_reads_like_a_text_one() {
 }
 
 #[test]
+fn a_drawing_with_carriage_return_line_endings_is_read() {
+    let crlf = text(vec![
+        header(Some(4)),
+        section("ENTITIES", vec![line((1.0, 2.0), (4.0, 6.0))]),
+    ]);
+    let classic = String::from_utf8(crlf).unwrap().replace("\r\n", "\r");
+
+    let drawing = parse_dxf(classic.as_bytes()).unwrap();
+
+    assert_eq!(
+        lines(&drawing),
+        vec![(Point2::new(1.0, 2.0), Point2::new(4.0, 6.0))]
+    );
+}
+
+#[test]
+fn dimension_definition_points_on_the_defpoints_layer_are_left_out() {
+    let drawing = millimetre_drawing(vec![
+        entity(
+            "LINE",
+            "Defpoints",
+            &[(10, 0.0), (20, 0.0), (11, 5.0), (21, 0.0)],
+        ),
+        entity("LINE", "0", &[(10, 0.0), (20, 0.0), (11, 0.0), (21, 7.0)]),
+    ]);
+
+    assert_eq!(lines(&drawing), vec![(Point2::ZERO, Point2::new(0.0, 7.0))]);
+    assert!(
+        drawing
+            .notes
+            .iter()
+            .any(|note| note.starts_with("1 object on hidden, frozen or non-plotting layers"))
+    );
+}
+
+#[test]
 fn files_that_are_not_usable_drawings_are_refused_in_words() {
     assert_eq!(
         parse_dxf(b"\x89PNG\r\n\x1a\n\0\0"),
@@ -812,7 +848,7 @@ mod step {
 
     use crate::{
         decode, encode,
-        import::{ImportError, bodies_transaction, parse_step},
+        import::{ImportError, bodies_transaction, parse_step, read_step_file},
     };
 
     fn block() -> Solid {
@@ -993,6 +1029,35 @@ mod step {
             assert!((volume(&body.import.solid) - 4.0).abs() < 1e-6);
             assert_eq!(body.import.solid.shells().count(), 1);
         }
+    }
+
+    #[test]
+    fn a_latin_1_file_is_read_with_its_names_and_says_so() {
+        let solid = block();
+        let text = write_step(
+            &[StepBody {
+                name: "Part",
+                solid: &solid,
+            }],
+            "parts",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let latin_1: Vec<u8> = text
+            .replace("'Part'", "'Pi\u{e8}ce'")
+            .chars()
+            .map(|letter| u8::try_from(u32::from(letter)).unwrap())
+            .collect();
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("piece.step");
+        std::fs::write(&path, &latin_1).unwrap();
+
+        let import = read_step_file(&path).unwrap();
+
+        assert_eq!(import.bodies.len(), 1);
+        assert_eq!(import.bodies[0].name, "Pièce");
+        assert_eq!(import.notes.len(), 1, "{:?}", import.notes);
+        assert!(import.notes[0].contains("Latin-1"));
     }
 
     #[test]

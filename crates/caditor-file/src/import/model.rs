@@ -6,7 +6,10 @@ use caditor_step::{ReadError, StepBody, read_step, write_step};
 
 use crate::{import::ImportError, read::read_file, reason};
 
-pub const STEP_IMPORT_EXTENSIONS: [&str; 2] = ["step", "stp"];
+const LATIN_1_NOTE: &str = "The file is not UTF-8 text, so its names were read as Latin-1; \
+                            letters outside it may look wrong.";
+
+pub const STEP_IMPORT_EXTENSIONS: [&str; 3] = ["step", "stp", "p21"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportedBody {
@@ -25,7 +28,19 @@ pub fn read_step_file(path: &Path) -> Result<ModelImport, ImportError> {
     let source = path
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
-    parse_step(&String::from_utf8_lossy(&bytes), &source)
+    match String::from_utf8(bytes) {
+        Ok(text) => parse_step(&text, &source),
+        Err(error) => {
+            let text: String = error
+                .as_bytes()
+                .iter()
+                .map(|byte| char::from(*byte))
+                .collect();
+            let mut import = parse_step(&text, &source)?;
+            import.notes.push(LATIN_1_NOTE.to_owned());
+            Ok(import)
+        }
+    }
 }
 
 pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> {

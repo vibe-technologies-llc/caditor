@@ -731,7 +731,7 @@ fn block_content_on_layer_zero_takes_the_layer_of_its_insert() {
         drawing
             .notes
             .iter()
-            .any(|note| note.starts_with("4 objects on hidden or frozen layers")),
+            .any(|note| note.starts_with("4 objects on hidden, frozen or non-plotting layers")),
         "{:?}",
         drawing.notes
     );
