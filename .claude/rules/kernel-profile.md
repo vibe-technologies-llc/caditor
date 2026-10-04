@@ -41,6 +41,9 @@ paths:
 - A `RegionKey` digests the set of (entity, side) pairs of its boundary; regions sharing one are
   told apart by their piece ids. Whether a key is tie-broken is decided once over the whole
   arrangement, so a region keeps its key whatever else is selected with it.
+- A cycle is a face only when its area exceeds tolerance² and its mean width, twice its area over
+  its perimeter, exceeds `SLIVER_TOLERANCES` tolerances; a thinner one (a line a hair beside an
+  edge, two nearly equal arcs) is no region and no outer boundary, so it adds no phantom region.
 - Depth counts nesting: a face lies one deeper than the single face its whole boundary borders (a
   hole touching its outline, a circle tangent inside another), else than the face its connected
   component lies in, so the cells of a grid keep their outline's depth.

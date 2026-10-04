@@ -21,6 +21,7 @@ use crate::{
 
 const RELATIVE_TOLERANCE: f64 = 1e-7;
 const MERGE_TOLERANCES: f64 = 64.0;
+const SLIVER_TOLERANCES: f64 = 64.0;
 const SAME_PATH_TOLERANCES: f64 = 8.0;
 const SAME_PATH_FRACTIONS: [f64; 3] = [0.25, 0.5, 0.75];
 const ANGLE_TIE: f64 = 1e-2;
@@ -289,8 +290,17 @@ impl Arrangement {
             .sum()
     }
 
+    fn cycle_perimeter(&self, cycle: &[usize]) -> f64 {
+        cycle
+            .iter()
+            .filter_map(|half_edge| self.pieces.get(piece_of(*half_edge).0))
+            .map(GraphPiece::length)
+            .sum()
+    }
+
     fn find_faces(&mut self, cycles: &[Vec<usize>]) -> Found<()> {
         let threshold = self.tolerance * self.tolerance;
+        let thinnest = SLIVER_TOLERANCES * self.tolerance;
         let components = components(&self.pieces, self.vertices.len());
         let component_of = |cycle: &[usize]| -> Found<usize> {
             let first = *cycle.first().ok_or_else(ProfileError::unresolved)?;
@@ -302,6 +312,10 @@ impl Arrangement {
         for (index, cycle) in cycles.iter().enumerate() {
             let area = self.cycle_area(cycle);
             let component = component_of(cycle)?;
+            let width = 2.0 * area / self.cycle_perimeter(cycle);
+            if area > threshold && width <= thinnest {
+                continue;
+            }
             if area > threshold {
                 if let Some(slot) = face_of_cycle.get_mut(index) {
                     *slot = Some(faces.len());

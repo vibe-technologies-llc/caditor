@@ -1222,3 +1222,45 @@ fn a_grid_of_washers_is_selected_in_bounded_time() {
     }
     assert!(elapsed < WASHER_SELECTION_TIME_LIMIT, "{elapsed:?}");
 }
+
+fn plate_with_a_line_beside_its_bottom(gap: f64) -> Vec<ProfileCurve> {
+    vec![
+        line(1, (0.0, 0.0), (100.0, 0.0)),
+        line(2, (100.0, 0.0), (100.0, 50.0)),
+        line(3, (100.0, 50.0), (0.0, 50.0)),
+        line(4, (0.0, 50.0), (0.0, 0.0)),
+        line(5, (0.0, gap), (100.0, gap)),
+    ]
+}
+
+#[test]
+fn a_line_a_hair_beside_an_edge_makes_no_phantom_sliver_region() {
+    let profile = profile(&plate_with_a_line_beside_its_bottom(2e-4));
+
+    assert_areas(&profile, &[100.0 * (50.0 - 2e-4)]);
+    assert_closed(&profile.regions()[0]);
+}
+
+#[test]
+fn a_strip_wider_than_the_sliver_limit_is_a_region_of_its_own() {
+    let profile = profile(&plate_with_a_line_beside_its_bottom(0.01));
+
+    assert_areas(&profile, &[100.0 * 0.01, 100.0 * (50.0 - 0.01)]);
+}
+
+#[test]
+fn a_thin_lens_between_two_nearly_equal_arcs_is_no_region() {
+    let profile = profile(&[
+        arc(1, (0.0, 0.0), (10.0, 0.0), (-10.0, 0.0)),
+        arc(2, (0.0, 1e-4), (10.0, 1e-4), (-10.0, 1e-4)),
+        line(3, (-10.0, 0.0), (10.0, 0.0)),
+    ]);
+
+    let regions = profile.regions();
+
+    assert!(
+        regions.iter().all(|region| region.area() > 1.0),
+        "{:?}",
+        areas(&profile)
+    );
+}

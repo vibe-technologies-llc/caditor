@@ -52,9 +52,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] Filleting both rims of a cylinder of radius 5 and height 10 at a fillet radius
   of 4 fails as `Boolean(Ambiguous)` although its feet do not cross (3.5 works); the tests stay at
   3.
-- [medium · medium] Near-duplicate lines in a profile make phantom sliver regions, because a face
-  counts as real when its area exceeds tolerance² though a sliver thinner than the tolerance can be
-  far larger; judge it by its width.
 - [medium · medium] Pattern copies that touch only along a line or at a point fail the union as
   `NonManifold`, so round parts spaced one diameter apart cannot be patterned; keep such copies as
   separate shells of one body, and name the copies in `PatternError::Union`.
