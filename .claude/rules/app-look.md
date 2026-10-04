@@ -220,7 +220,9 @@ paths:
 
 - The parameter table's name and expression fields share the panel's width beside a fixed value
   column (`VALUE_WIDTH`, 88 points), since content wider than a side panel widens it the next
-  frame. A value that cannot be evaluated is an error icon with the reason on hover, a refused edit
+  frame. Hovering a value shows it in full and what uses it (`used_by`, computed only for the
+  hovered row, since `Document::parameter_users` scans every feature). A value that cannot be
+  evaluated is an error icon with the reason on hover, a refused edit
   an `error_row` under the fields. A row's delete button is drawn only while the row is hovered or
   the button holds keyboard focus; it stays in the Tab order. Added parameters are named
   parameter1, parameter2 and so on, the first free number.

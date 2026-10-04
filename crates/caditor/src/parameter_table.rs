@@ -21,6 +21,7 @@ const SLACK: f32 = SPACE_XS;
 const NAME_SHARE: f32 = 0.45;
 const MIN_NAME_WIDTH: f32 = 48.0;
 const MIN_EXPRESSION_WIDTH: f32 = 64.0;
+const MAX_NAMED_USERS: usize = 4;
 const NEW_PARAMETER_NAME: &str = "parameter";
 const NEW_PARAMETER_MILLIMETRES: f64 = 10.0;
 const NO_PARAMETER_CHOSEN: &str =
@@ -164,7 +165,10 @@ fn row(
             Some(Ok(value)) => {
                 let shown = model.length_unit().show(*value);
                 ui.add(Label::new(widgets::muted(&shown, ui)).truncate())
-                    .on_hover_text(shown);
+                    .on_hover_ui(|ui| {
+                        ui.label(&shown);
+                        ui.label(used_by(&document.parameter_users(id)));
+                    });
             }
             Some(Err(error)) => {
                 let color = ui.visuals().error_fg_color;
@@ -188,6 +192,29 @@ fn row(
     let hovered = ui.rect_contains_pointer(band);
     delete_button(ui, document, actions, parameter, hovered);
     name.error.or(expression.error)
+}
+
+pub fn used_by(users: &[String]) -> String {
+    match users {
+        [] => "Nothing uses it yet.".to_owned(),
+        [only] => format!("Used by {only}."),
+        users => {
+            let named: Vec<&str> = users
+                .iter()
+                .take(MAX_NAMED_USERS)
+                .map(String::as_str)
+                .collect();
+            let more = users.len().saturating_sub(MAX_NAMED_USERS);
+            if more == 0 {
+                match named.split_last() {
+                    Some((last, first)) => format!("Used by {} and {last}.", first.join(", ")),
+                    None => String::new(),
+                }
+            } else {
+                format!("Used by {} and {more} more.", named.join(", "))
+            }
+        }
+    }
 }
 
 pub fn commands(
@@ -265,4 +292,31 @@ fn unused_name(document: &Document) -> String {
         .map(|number| format!("{NEW_PARAMETER_NAME}{number}"))
         .find(|name| document.parameter_named(name).is_none())
         .unwrap_or_else(|| NEW_PARAMETER_NAME.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_parameter_says_what_uses_it_or_that_nothing_does() {
+        assert_eq!(used_by(&[]), "Nothing uses it yet.");
+        assert_eq!(used_by(&names(&["Base sketch"])), "Used by Base sketch.");
+        assert_eq!(
+            used_by(&names(&["Base sketch", "Extrude 1"])),
+            "Used by Base sketch and Extrude 1."
+        );
+        assert_eq!(
+            used_by(&names(&["a", "b", "c", "d"])),
+            "Used by a, b, c and d."
+        );
+        assert_eq!(
+            used_by(&names(&["a", "b", "c", "d", "e", "f"])),
+            "Used by a, b, c, d and 2 more."
+        );
+    }
 }

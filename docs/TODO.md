@@ -351,9 +351,9 @@ within a category run from most to least important.
 - Several features chosen in the tree cannot be dragged together; each moves on its own.
 - No live preview of a fillet, chamfer or shell while its panel is open, and no viewport handles
   for extents.
-- Parameters cannot be reordered or given a note, show no "used by" or unused flag, cannot be
-  deleted by inlining their value, and expressions cannot refer to measured values or sketch
-  dimensions.
+- Parameters cannot be reordered or given a note, show what uses them only in the value's tooltip
+  and mark no unused one in the table, cannot be deleted by inlining their value, and expressions
+  cannot refer to measured values or sketch dimensions.
 - No configurations: a model holds one set of parameter values, so sizes of one part (a bracket in
   M4, M6 and M8) are separate copies of the file. Named parameter sets, chosen as a whole and kept
   in the model like versions, with export of each.
