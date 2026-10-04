@@ -5333,6 +5333,41 @@ fn plane_height(harness: &Harness, sketch: FeatureId) -> f64 {
 }
 
 #[test]
+fn the_constraint_tools_work_out_their_candidates_when_the_selection_or_sketch_changes_not_every_frame()
+ {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
+    let second = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(10.0, 6.0));
+    let id = harness.add_sketch(sketch);
+    harness.settle();
+    harness.perform(Action::Editing(EditingCommand::Enter(id)));
+    let pick = |entity| Pickable::SketchEntity {
+        feature: id,
+        entity,
+    };
+    harness.select([pick(first), pick(second)]);
+    harness.frame();
+    let computed = harness.workspace.panels.constraint_offers.computations();
+    assert!(computed > 0);
+
+    for _ in 0..5 {
+        harness.frame();
+    }
+    assert_eq!(
+        harness.workspace.panels.constraint_offers.computations(),
+        computed
+    );
+
+    harness.select([pick(first)]);
+    harness.frame();
+    assert_eq!(
+        harness.workspace.panels.constraint_offers.computations(),
+        computed + 1
+    );
+}
+
+#[test]
 fn what_the_selection_offers_is_worked_out_when_it_or_the_model_changes_not_every_frame() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);

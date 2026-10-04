@@ -13,6 +13,7 @@ use crate::{
     parameter_table,
     reference_rows::RowCache,
     selection::{Pickable, Selection},
+    sketch_toolbar::ConstraintOffers,
     widgets::{self, SectionAction},
 };
 
@@ -98,6 +99,7 @@ pub struct PanelState {
     pub hovered_in_tree: Option<Pickable>,
     pub chosen_in_tree: Option<Pickable>,
     pub reference_rows: RowCache,
+    pub constraint_offers: ConstraintOffers,
     revealing: Option<PendingReveal>,
     layout: PanelLayout,
     layout_restored: bool,

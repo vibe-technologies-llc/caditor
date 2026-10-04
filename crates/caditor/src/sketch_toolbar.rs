@@ -1,4 +1,6 @@
-use caditor_document::Feature;
+use std::sync::Arc;
+
+use caditor_document::{Feature, FeatureId};
 use caditor_sketch::{Constraint, ConstraintId, EntityId, Sketch};
 use egui::{
     Align, Align2, CornerRadius, FontId, Frame, Id, Label, Layout, Margin, Popup, Rect, Response,
@@ -19,6 +21,7 @@ use crate::{
     sketch_drag::{self, Moving},
     sketch_status::{self, SketchSummary},
     sketch_tools::{self, ConstraintTool, ConstructionChange},
+    units::Units,
     widgets::{self, ToolButton},
 };
 
@@ -61,6 +64,68 @@ const DIMENSION_COLUMNS: usize = 3;
 
 type Offer = (ConstraintTool, Result<Vec<Constraint>, String>);
 
+#[derive(Debug, Clone, PartialEq)]
+struct OfferBasis {
+    feature: FeatureId,
+    selected: Vec<EntityId>,
+    revision: u64,
+    evaluation: u64,
+    sketches: u64,
+    units: Units,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ConstraintOffers {
+    current: Option<(OfferBasis, Arc<Vec<Offer>>)>,
+    #[cfg(test)]
+    computations: usize,
+}
+
+impl ConstraintOffers {
+    fn refresh(
+        &mut self,
+        model: &Model,
+        feature: &Feature,
+        definition: &Sketch,
+        shown: &Sketch,
+        selected: &[EntityId],
+    ) -> Arc<Vec<Offer>> {
+        let basis = OfferBasis {
+            feature: feature.id(),
+            selected: selected.to_vec(),
+            revision: model.revision(),
+            evaluation: model.evaluation_generation(),
+            sketches: model.display().sketches.generation(),
+            units: model.units(),
+        };
+        let (_, offers) = match self.current.take() {
+            Some((known, offers)) if known == basis => self.current.insert((known, offers)),
+            Some(_) | None => {
+                #[cfg(test)]
+                {
+                    self.computations += 1;
+                }
+                let offers = ConstraintTool::ALL
+                    .into_iter()
+                    .map(|tool| {
+                        let candidates = tool
+                            .candidates(definition, shown, selected)
+                            .map(|constraints| sketch_tools::in_unit(constraints, basis.units));
+                        (tool, candidates)
+                    })
+                    .collect();
+                self.current.insert((basis, Arc::new(offers)))
+            }
+        };
+        Arc::clone(offers)
+    }
+
+    #[cfg(test)]
+    pub fn computations(&self) -> usize {
+        self.computations
+    }
+}
+
 pub fn show(
     ui: &mut Ui,
     model: &Model,
@@ -81,15 +146,9 @@ pub fn show(
         return;
     };
     let selected = sketch_tools::selected_entities(selection, feature.id());
-    let offers: Vec<Offer> = ConstraintTool::ALL
-        .into_iter()
-        .map(|tool| {
-            let candidates = tool
-                .candidates(definition, &shown, &selected)
-                .map(|constraints| sketch_tools::in_unit(constraints, model.units()));
-            (tool, candidates)
-        })
-        .collect();
+    let offers = panels
+        .constraint_offers
+        .refresh(model, feature, definition, &shown, &selected);
     let deletable = Deletable {
         entities: selected
             .iter()

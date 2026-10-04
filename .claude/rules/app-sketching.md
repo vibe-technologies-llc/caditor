@@ -184,6 +184,9 @@ paths:
   (`Sketch::contradicting`) is refused naming it. These checks are structural: the UI thread never
   solves, so a constraint that only fails once solved is reported afterwards as a conflict naming
   its constraints.
+- The candidates of every tool are kept in `PanelState::constraint_offers` and worked out again
+  only when the selection, the revision, the evaluation, the displayed sketches or the units
+  change (`sketch_toolbar::ConstraintOffers`).
 - Dimensions start at the displayed geometry's measured value. Every sketch transaction first
   settles the sketch to the last result when up to date (`Model::settled_sketch`).
 - Constraint states, degrees of freedom and redundancies come from the last evaluation
