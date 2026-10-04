@@ -80,7 +80,8 @@ paths:
   - a tessellation at a `MeshResolution` (coarse, standard or fine: a chord that is a fraction of
     the largest body's diagonal, and 20°, 10° or 5° between triangles), keeping only positions the
     triangles use and dropping collapsed triangles, written as binary STL (every body in one
-    surface, facet normals from the winding) or 3MF (one named object per body, millimetres).
+    surface, facet normals from the winding, counted in one pass and written in a second) or 3MF (one
+    named object per body, millimetres, coordinates to six decimals with trailing zeros dropped).
 - Files are saved atomically like a model. Cancellation is checked between bodies and before
   writing; failures are sentences naming the body. A mesh export leaves out a body that cannot be
   meshed and returns its error in `Exported::left_out` (the app says so in a notice that outlasts

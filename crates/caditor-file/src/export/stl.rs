@@ -1,4 +1,4 @@
-use caditor_geometry::{Point3, Vector3};
+use caditor_geometry::Vector3;
 
 use super::{APPLICATION, ExportError, MeshBody};
 
@@ -8,17 +8,17 @@ const COUNT_LENGTH: usize = 4;
 const NO_ATTRIBUTES: [u8; 2] = [0; 2];
 
 pub(super) fn encode(bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, ExportError> {
-    let facets: Vec<[Point3; 3]> = bodies.iter().flat_map(MeshBody::corners).collect();
-    let count = u32::try_from(facets.len()).map_err(|_| ExportError::TooLarge)?;
-    let length = facets
-        .len()
+    let facets = || bodies.iter().flat_map(MeshBody::corners);
+    let total = facets().count();
+    let count = u32::try_from(total).map_err(|_| ExportError::TooLarge)?;
+    let length = total
         .checked_mul(FACET_LENGTH)
         .and_then(|facets| facets.checked_add(HEADER_LENGTH + COUNT_LENGTH))
         .ok_or(ExportError::TooLarge)?;
     let mut bytes = Vec::with_capacity(length);
     bytes.extend_from_slice(&header());
     bytes.extend_from_slice(&count.to_le_bytes());
-    for [a, b, c] in facets {
+    for [a, b, c] in facets() {
         let normal = (b - a).cross(c - a).normalize_or_zero();
         for vector in [normal, a, b, c] {
             push_vector(&mut bytes, vector);

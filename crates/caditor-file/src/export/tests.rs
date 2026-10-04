@@ -14,7 +14,7 @@ use tempfile::TempDir;
 
 use super::{
     stl::{FACET_LENGTH, HEADER_LENGTH},
-    three_mf::{CONTENT_TYPES_PATH, MODEL_PATH, RELATIONSHIPS_PATH},
+    three_mf::{CONTENT_TYPES_PATH, Coordinate, MODEL_PATH, RELATIONSHIPS_PATH},
     zip::{CENTRAL_HEADER_SIGNATURE, DEFLATED, END_SIGNATURE, LOCAL_HEADER_SIGNATURE, STORED},
     *,
 };
@@ -262,6 +262,19 @@ fn an_stl_holds_every_body_as_a_closed_outward_surface_in_millimetres() {
 }
 
 #[test]
+fn a_3mf_coordinate_keeps_a_nanometre_and_drops_the_noise_beyond_it() {
+    let printed = |value: f64| Coordinate(value).to_string();
+
+    assert_eq!(printed(10.0), "10");
+    assert_eq!(printed(-2.5), "-2.5");
+    assert_eq!(printed(1.0 / 3.0), "0.333333");
+    assert_eq!(printed(7.071067811865475), "7.071068");
+    assert_eq!(printed(-1e-9), "0");
+    assert_eq!(printed(0.0), "0");
+    assert_eq!(printed(123456.1234567), "123456.123457");
+}
+
+#[test]
 fn a_3mf_is_a_valid_package_with_one_named_object_per_body() {
     let block = block();
     let pin = pin();
@@ -289,7 +302,10 @@ fn a_3mf_is_a_valid_package_with_one_named_object_per_body() {
     assert_eq!(objects[0].name, "Plate &amp; &lt;&quot;Pin&quot;&gt;");
     assert_eq!(objects[1].name, "Pin &apos;rod&apos;   é");
     for (object, mesh) in objects.iter().zip(&meshes) {
-        assert_eq!(object.positions, mesh.positions);
+        assert_eq!(object.positions.len(), mesh.positions.len());
+        for (read, written) in object.positions.iter().zip(&mesh.positions) {
+            assert!(read.distance(*written) < 1e-5, "{read} {written}");
+        }
         assert_eq!(object.triangles, mesh.triangles);
         assert_closed(object.triangles.iter().copied());
         let used: std::collections::BTreeSet<u32> =

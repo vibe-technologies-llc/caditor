@@ -63,7 +63,9 @@ fn write_model(xml: &mut String, bodies: &[MeshBody<'_>]) -> fmt::Result {
             write!(
                 xml,
                 r#"<vertex x="{}" y="{}" z="{}"/>"#,
-                position.x, position.y, position.z
+                Coordinate(position.x),
+                Coordinate(position.y),
+                Coordinate(position.z)
             )?;
         }
         xml.push_str("</vertices><triangles>");
@@ -87,6 +89,21 @@ fn object_ids<'a, 'b>(
         .iter()
         .enumerate()
         .map(|(index, body)| (index + 1, body))
+}
+
+const COORDINATE_DECIMALS: usize = 6;
+
+pub(super) struct Coordinate(pub(super) f64);
+
+impl fmt::Display for Coordinate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let fixed = format!("{:.COORDINATE_DECIMALS$}", self.0);
+        let trimmed = fixed.trim_end_matches('0').trim_end_matches('.');
+        match trimmed {
+            "-0" | "" => formatter.write_str("0"),
+            trimmed => formatter.write_str(trimmed),
+        }
+    }
 }
 
 fn xml_character(character: char) -> bool {

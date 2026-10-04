@@ -225,9 +225,9 @@ within a category run from most to least important.
   - Units: STL has none, so the import guesses from the size (a part 0.05 mm across is likely in
     metres) and offers a scale before committing, rather than leaving it to the scale item.
 - STL uses absolute f32 coordinates, which lose about 0.06 mm at 10^6 mm, and merges all bodies
-  into one surface; `stl::encode` holds every triangle as f64 before writing.
+  into one surface.
 - 3MF has no colours, materials or thumbnail, builds everything in memory and cannot exceed
-  4 GiB without ZIP64; it prints vertices with up to 17 digits, about doubling the XML.
+  4 GiB without ZIP64.
 - No OBJ or glTF export, so models cannot go to renderers, game engines or web viewers without
   another tool.
 
