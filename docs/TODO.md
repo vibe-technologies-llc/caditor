@@ -274,8 +274,8 @@ within a category run from most to least important.
 - A constraint that fails only once solved (one contradicting the sketch through other
   constraints) is still accepted and reported afterwards; trial-solve it off the UI thread before
   committing.
-- A drag to a position with no solution freezes the geometry without a cue, and in a conflicting
-  sketch every drag does nothing and then blames the move.
+- In a conflicting sketch every drag is blocked and finishes by blaming the move; the cue names no
+  constraint of the conflict.
 - Press-drag-release with a drawing tool places only the release point; place the press point as
   the start too, so one gesture draws a line, rectangle or circle.
 - Tools missing: ellipse (a new entity kind across the solver, kernel and file format), sketch

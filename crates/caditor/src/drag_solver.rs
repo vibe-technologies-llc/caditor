@@ -37,6 +37,7 @@ pub struct Polled {
     pub shown: Option<(FeatureId, Arc<Sketch>)>,
     pub finished: Option<Finished>,
     pub abandoned: bool,
+    pub blocked: Option<bool>,
 }
 
 impl Polled {
@@ -271,6 +272,7 @@ impl SketchDragging {
                 continue;
             };
             active.received = active.received.max(solution.sequence);
+            polled.blocked = Some(solution.solved.is_none());
             if let Some(solved) = solution.solved {
                 active.latest = Some(Arc::clone(&solved));
                 polled.shown = Some((active.feature, solved));

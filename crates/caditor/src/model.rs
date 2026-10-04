@@ -151,6 +151,7 @@ pub struct Model {
     services: Services,
     status: RecomputeStatus,
     notice: Option<Notice>,
+    drag_blocked: bool,
     recorded_notices: VecDeque<RecordedNotice>,
     revision_offset: u64,
     storage: Option<Storage>,
@@ -184,6 +185,7 @@ impl Model {
             services,
             status: RecomputeStatus::UpToDate,
             notice: None,
+            drag_blocked: false,
             recorded_notices: VecDeque::new(),
             revision_offset: 0,
             storage: None,
@@ -326,6 +328,10 @@ impl Model {
             self.recorded_notices.truncate(MAX_RECORDED_NOTICES);
         }
         self.notice = Some(notice);
+    }
+
+    pub fn drag_blocked(&self) -> bool {
+        self.drag_blocked
     }
 
     pub fn recorded_notices(&self) -> impl Iterator<Item = &RecordedNotice> {
@@ -527,8 +533,16 @@ impl Model {
             shown,
             finished,
             abandoned,
+            blocked,
         } = polled;
-        let changed = shown.is_some() || finished.is_some() || abandoned;
+        let cue_changed = blocked.is_some_and(|blocked| blocked != self.drag_blocked);
+        let changed = shown.is_some() || finished.is_some() || abandoned || cue_changed;
+        if let Some(blocked) = blocked {
+            self.drag_blocked = blocked;
+        }
+        if abandoned || finished.is_some() {
+            self.drag_blocked = false;
+        }
         if abandoned {
             self.display.sketches.stop_showing_dragged();
         }

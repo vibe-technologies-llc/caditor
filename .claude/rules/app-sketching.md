@@ -62,6 +62,10 @@ paths:
   outline (faceted as drawn, `app.md`) lies inside, right to left a crossing box taking what it
   touches; it replaces the selection (Shift or Ctrl adds to it); a point is left out when a curve
   it belongs to was taken.
+- When the drag worker cannot solve its newest frame (`Polled::blocked`, kept as
+  `Model::drag_blocked` until a frame solves, the drag ends or is abandoned), the viewport says "The
+  constraints do not allow it there" beside the pointer in the warning colour, a polite live
+  region; the geometry stays where the last good frame put it.
 - Move selected sketch geometry (M) opens the typed-point field (`app-input.md`) as "Move to": the
   first selected point goes there (`@` offsets from it), the rest follows, committed like a drag
   (`Move <what>`), solved like a drag. Select all sketch geometry (Ctrl+A) selects what a box around

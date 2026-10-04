@@ -51,6 +51,7 @@ const PROMPT_MARGIN: f32 = 16.0;
 const PROMPT_MAX_WIDTH: f32 = 720.0;
 const READOUT_ROOM: f32 = 200.0;
 const VIEWPORT_NAME: &str = "3D view";
+pub const DRAG_BLOCKED: &str = "The constraints do not allow it there";
 const READOUT_GAP: f32 = 4.0;
 const NAVIGATION_HINT: &str =
     "Right-drag: orbit   Middle-drag or Shift+right-drag: pan   Scroll: zoom";
@@ -1606,6 +1607,21 @@ impl ViewportState {
                 canvas::SNAP,
             );
             canvas::announce(ui, shown, "snap", &label, None);
+        }
+        if model.drag_blocked()
+            && let Some(cursor) = self.cursor
+        {
+            let position = rect.min
+                + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
+            let shown = canvas::label(
+                painter,
+                position + SNAP_LABEL_OFFSET,
+                Align2::LEFT_TOP,
+                DRAG_BLOCKED,
+                canvas::small(),
+                canvas::WARNING,
+            );
+            canvas::announce(ui, shown, "drag blocked", DRAG_BLOCKED, Some(Live::Polite));
         }
         let readout_left = rect.left() + view_cube::TRIAD_WIDTH;
         let bottom_left = pos2(readout_left, rect.bottom() - canvas::MARGIN);

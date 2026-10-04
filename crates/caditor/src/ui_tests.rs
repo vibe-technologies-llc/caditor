@@ -8049,6 +8049,59 @@ fn dragging_a_sketch_point_moves_it_as_its_constraints_allow_in_one_undoable_cha
 }
 
 #[test]
+fn a_drag_the_constraints_cannot_follow_says_so_until_it_ends() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let (start, end) = line_ends(&sketch, line);
+    for constraint in [
+        Constraint::Coincident(start, EntityId::ORIGIN),
+        Constraint::Horizontal(line),
+        Constraint::Vertical(line),
+    ] {
+        sketch.add_constraint(constraint).unwrap();
+    }
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    let grabbed = harness.hover_pickable(
+        Plane::XY,
+        Point2::new(40.0, 0.0),
+        Pickable::SketchEntity {
+            feature,
+            entity: end,
+        },
+    );
+    harness.events.push(Event::PointerButton {
+        pos: grabbed,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    let target = harness.on_screen(Point2::new(30.0, 12.0));
+    for step in 1..=4 {
+        harness.events.push(Event::PointerMoved(
+            grabbed + (target - grabbed) * (step as f32 / 4.0),
+        ));
+        harness.frame();
+    }
+    harness.wait_until("the cue shows", |harness| {
+        harness.shows(crate::viewport::DRAG_BLOCKED)
+    });
+    assert!(harness.model.drag_blocked());
+
+    harness.events.push(Event::PointerButton {
+        pos: target,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.wait_until("the drag ends", |harness| !harness.model.drag_blocked());
+    harness.frame();
+    assert!(!harness.shows(crate::viewport::DRAG_BLOCKED));
+}
+
+#[test]
 fn dragging_across_empty_space_selects_what_the_box_takes_in() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
