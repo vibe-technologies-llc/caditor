@@ -75,6 +75,7 @@ mod sketch_status;
 mod sketch_toolbar;
 mod sketch_tools;
 mod snap;
+mod snapshot;
 mod solid_panel;
 mod solid_tools;
 mod status_bar;

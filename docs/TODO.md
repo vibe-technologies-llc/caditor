@@ -434,7 +434,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Application
 
-- [medium · easy] The headless `--export` writes no PNG image of the model.
 - [medium · easy] Angles display only in degrees though `ux.md` allows radians.
 - [medium · medium] One files worker runs everything and Import cannot be cancelled (cancelling Open
   only drops its result while the worker reads on), so a slow STEP import blocks Open behind a

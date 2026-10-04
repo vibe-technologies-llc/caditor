@@ -2,6 +2,7 @@ mod camera;
 mod gpu;
 mod image;
 mod mesh;
+mod offscreen;
 #[cfg(test)]
 mod offscreen_tests;
 mod picking;
@@ -24,6 +25,7 @@ pub use crate::{
         Background, Image, ImageError, ImagePoll, ImageReadback, ImageRequest, MAX_IMAGE_SIDE,
     },
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
+    offscreen::OffscreenRenderer,
     picking::PickPoll,
     scene::{
         Batch, Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene, Stroke,
@@ -499,31 +501,20 @@ impl Renderer {
         }
         let gpu = &self.gpu;
         let tile_side = TILE_SIDE.min(gpu.largest_side()).max(1);
-        let out_of_memory = gpu.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
-        let invalid = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let readback = match self
-            .viewport
-            .encode_image(&gpu.device, &gpu.queue, request, tile_side)
-        {
-            Some(readback) => Some(readback),
-            None => gpu.image_viewport(self.graphics.shading).encode_image(
-                &gpu.device,
-                &gpu.queue,
-                request,
-                tile_side,
-            ),
-        };
-        let refused = pollster::block_on(invalid.pop());
-        let exhausted = pollster::block_on(out_of_memory.pop());
-        if let Some(error) = exhausted {
-            log::warn!("the exported image did not fit in graphics memory: {error}");
-            return Err(ImageError::OutOfMemory);
-        }
-        if let Some(error) = refused {
-            log::warn!("the graphics device refused to draw the exported image: {error}");
-            return Err(ImageError::Refused);
-        }
-        let readback = readback.ok_or(ImageError::Refused)?;
+        let readback = encode_checked(&gpu.device, || {
+            match self
+                .viewport
+                .encode_image(&gpu.device, &gpu.queue, request, tile_side)
+            {
+                Some(readback) => Some(readback),
+                None => gpu.image_viewport(self.graphics.shading).encode_image(
+                    &gpu.device,
+                    &gpu.queue,
+                    request,
+                    tile_side,
+                ),
+            }
+        })?;
         self.image = Some(PendingImage::map(readback, self.generation));
         Ok(())
     }
@@ -691,6 +682,26 @@ impl Renderer {
         self.resize(self.size());
         Ok(())
     }
+}
+
+fn encode_checked(
+    device: &wgpu::Device,
+    encode: impl FnOnce() -> Option<ImageReadback>,
+) -> Result<ImageReadback, ImageError> {
+    let out_of_memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+    let invalid = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let readback = encode();
+    let refused = pollster::block_on(invalid.pop());
+    let exhausted = pollster::block_on(out_of_memory.pop());
+    if let Some(error) = exhausted {
+        log::warn!("the exported image did not fit in graphics memory: {error}");
+        return Err(ImageError::OutOfMemory);
+    }
+    if let Some(error) = refused {
+        log::warn!("the graphics device refused to draw the exported image: {error}");
+        return Err(ImageError::Refused);
+    }
+    readback.ok_or(ImageError::Refused)
 }
 
 const CONSERVATIVE_FRAME_LATENCY: u32 = 2;

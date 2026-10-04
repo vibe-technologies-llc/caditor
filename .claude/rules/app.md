@@ -8,6 +8,7 @@ paths:
   - "crates/caditor/src/crash.rs"
   - "crates/caditor/src/logging.rs"
   - "crates/caditor/src/headless.rs"
+  - "crates/caditor/src/snapshot.rs"
   - "crates/caditor/src/model.rs"
   - "crates/caditor/src/bodies.rs"
   - "crates/caditor/src/offers.rs"
@@ -163,10 +164,13 @@ paths:
 ## About, command line, accessibility, packaging
 
 - `cli.rs`: `caditor [FILE]`; a `.dxf` or STEP file (by extension or header) goes to import as if
-  dropped, anything else to Open. `caditor --export OUT [--resolution ...] MODEL`
+  dropped, anything else to Open. `caditor --export OUT [--resolution ...] [--size WxH] MODEL`
   (`headless.rs`) opens no window: it loads a caditor model or imports a STEP file, recomputes
   without display work, exports every body that built to the format `OUT`'s extension names and
-  prints a summary; load issues and left-out bodies are warnings, a failed feature a warning that
+  prints a summary. A `.png` instead recomputes with display work and draws the scene the way the
+  image export does (`snapshot.rs`: the initial viewpoint fitted to the model, no grid or
+  highlights, 1920×1080 unless `--size` says otherwise) on an `OffscreenRenderer`, so it needs a
+  graphics adapter and refuses `--size` for any other format; load issues and left-out bodies are warnings, a failed feature a warning that
   also makes the exit status 2 (`PARTIAL_EXIT_STATUS`), and a model with no body, a DXF drawing,
   an unreadable file or an unknown extension an error that writes nothing. The desktop entry also
   offers STEP (`model/step`) and DXF (`image/vnd.dxf`).

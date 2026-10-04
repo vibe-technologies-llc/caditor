@@ -1860,6 +1860,73 @@ fn an_exported_image_is_drawn_in_tiles_at_its_own_size_with_the_chosen_backgroun
 }
 
 #[test]
+fn a_window_less_renderer_draws_an_image_without_a_surface() {
+    let Some(mut renderer) = offscreen_renderer() else {
+        return;
+    };
+    let size = SurfaceSize {
+        width: 300,
+        height: 180,
+    };
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(box_mesh(20.0)),
+            faces: vec![
+                FaceStyle {
+                    color: Color::from_rgb8(40, 200, 40),
+                    pick: None,
+                };
+                6
+            ],
+        }],
+        ..Scene::default()
+    };
+    let view = looking_down(150.0, f64::from(size.width), f64::from(size.height));
+    let on_top = view.project(Point3::new(0.0, 0.0, 20.0)).unwrap();
+    let corner = DVec2::new(2.0, 2.0);
+
+    let image = renderer
+        .render(&ImageRequest {
+            size,
+            view: &view,
+            scene: &scene,
+            pixels_per_point: 1.0,
+            background: Background::Viewport,
+        })
+        .unwrap();
+    let again = renderer
+        .render(&ImageRequest {
+            size,
+            view: &view,
+            scene: &scene,
+            pixels_per_point: 1.0,
+            background: Background::Transparent,
+        })
+        .unwrap();
+
+    assert_eq!((image.width, image.height), (300, 180));
+    let [red, green, blue, alpha] = image_pixel(&image, on_top);
+    assert!(
+        green > 60 && green > red * 2 && green > blue * 2 && alpha == 255,
+        "the top of the box was {red} {green} {blue} {alpha}"
+    );
+    assert!(is_background(image_pixel(&image, corner)));
+    assert_eq!(image_pixel(&again, corner), [0, 0, 0, 0]);
+}
+
+fn offscreen_renderer() -> Option<crate::OffscreenRenderer> {
+    let opened = crate::OffscreenRenderer::new(crate::GraphicsSettings::default());
+    if opened.is_err() {
+        assert!(
+            std::env::var_os(REQUIRE_GPU).is_none(),
+            "no graphics adapter is available, and {REQUIRE_GPU} says the offscreen tests must run"
+        );
+        eprintln!("no graphics adapter available, skipping the offscreen test");
+    }
+    opened.ok()
+}
+
+#[test]
 fn lines_in_an_exported_image_widen_with_its_pixels_per_point() {
     let Some((device, queue)) = gpu() else {
         return;

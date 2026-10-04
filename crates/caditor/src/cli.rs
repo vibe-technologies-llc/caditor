@@ -1,6 +1,7 @@
 use std::{ffi::OsString, path::PathBuf};
 
 use caditor_file::MeshResolution;
+use caditor_render::SurfaceSize;
 
 use crate::{about, headless::Conversion};
 
@@ -19,6 +20,7 @@ impl Invocation {
         let mut options_ended = false;
         let mut output = None;
         let mut resolution = None;
+        let mut size = None;
         let mut arguments = arguments.into_iter();
         while let Some(argument) = arguments.next() {
             if options_ended {
@@ -48,6 +50,22 @@ impl Invocation {
                         }
                     }
                 }
+                Some("--size") => {
+                    let chosen = arguments.next();
+                    match chosen
+                        .as_deref()
+                        .and_then(|name| name.to_str())
+                        .and_then(size_named)
+                    {
+                        Some(named) => size = Some(named),
+                        None => {
+                            return Self::Refused(
+                                "--size takes a width and a height in pixels, such as 1920x1080"
+                                    .to_owned(),
+                            );
+                        }
+                    }
+                }
                 Some(option) if option.starts_with('-') && option.len() > 1 => {
                     return Self::Refused(format!(
                         "unknown option {option}; run {} --help to see what it accepts",
@@ -69,10 +87,14 @@ impl Invocation {
                 model,
                 output,
                 resolution: resolution.unwrap_or_default(),
+                size,
             }),
             (Some(_), None) => Self::Refused("--export needs the model to export".to_owned()),
             (None, _) if resolution.is_some() => {
                 Self::Refused("--resolution only applies to --export".to_owned())
+            }
+            (None, _) if size.is_some() => {
+                Self::Refused("--size only applies to --export".to_owned())
             }
             (None, open) => Self::Run { open },
         }
@@ -89,14 +111,24 @@ fn resolution_named(name: &str) -> Option<MeshResolution> {
         .find(|resolution| resolution.name().eq_ignore_ascii_case(name))
 }
 
+fn size_named(text: &str) -> Option<SurfaceSize> {
+    let (width, height) = text.split_once(['x', 'X', '×'])?;
+    let side = |digits: &str| digits.parse::<u32>().ok().filter(|side| *side > 0);
+    Some(SurfaceSize {
+        width: side(width)?,
+        height: side(height)?,
+    })
+}
+
 pub fn usage() -> String {
     format!(
         "{}\nParametric CAD.\n\nUsage: {} [OPTIONS] [MODEL]\n\nArguments:\n  [MODEL]  \
          A .caditor model to open, or a .dxf or .step file to import\n\nOptions:\n  \
          --export <FILE>         Write MODEL's bodies, or those of a STEP file, to FILE (.stl, \
-         .3mf, .step or .stp) and exit, without opening a window; the status is 2 when a \
+         .3mf, .step, .stp or .png) and exit, without opening a window; the status is 2 when a \
          feature failed\n  --resolution <NAME>     Mesh quality for STL and 3MF: \
-         coarse, standard (the default) or fine\n  -h, --help              Show this help\n  -V, \
+         coarse, standard (the default) or fine\n  --size <WxH>            \
+         Pixels of a .png export, 1920x1080 by default\n  -h, --help              Show this help\n  -V, \
          --version           Show the version\n",
         about::version_line(),
         about::NAME
@@ -182,6 +214,7 @@ mod tests {
                 model: PathBuf::from("part.caditor"),
                 output: PathBuf::from("out.step"),
                 resolution: MeshResolution::Standard,
+                size: None,
             })
         );
         assert_eq!(
@@ -196,8 +229,35 @@ mod tests {
                 model: PathBuf::from("part.caditor"),
                 output: PathBuf::from("out.stl"),
                 resolution: MeshResolution::Fine,
+                size: None,
             })
         );
+    }
+
+    #[test]
+    fn export_takes_the_size_of_an_image() {
+        assert_eq!(
+            parse(&["--export", "view.png", "--size", "800x600", "part.caditor"]),
+            Invocation::Convert(Conversion {
+                model: PathBuf::from("part.caditor"),
+                output: PathBuf::from("view.png"),
+                resolution: MeshResolution::Standard,
+                size: Some(SurfaceSize {
+                    width: 800,
+                    height: 600,
+                }),
+            })
+        );
+        assert_eq!(
+            size_named("640X480"),
+            Some(SurfaceSize {
+                width: 640,
+                height: 480,
+            })
+        );
+        assert_eq!(size_named("0x480"), None);
+        assert_eq!(size_named("wide"), None);
+        assert_eq!(size_named("640x"), None);
     }
 
     #[test]
@@ -222,6 +282,14 @@ mod tests {
         assert_eq!(
             refused(&["--resolution", "fine", "part.caditor"]),
             "--resolution only applies to --export"
+        );
+        assert_eq!(
+            refused(&["--size", "800x600", "part.caditor"]),
+            "--size only applies to --export"
+        );
+        assert_eq!(
+            refused(&["--size", "big", "--export", "o.png", "p.caditor"]),
+            "--size takes a width and a height in pixels, such as 1920x1080"
         );
     }
 

@@ -192,16 +192,20 @@ pub struct ViewportState {
     scenes: SceneCache,
 }
 
+pub fn initial_viewpoint() -> Viewpoint {
+    Viewpoint::looking_from(INITIAL_LOOK_FROM, Point3::ZERO, INITIAL_DISTANCE).unwrap_or(
+        Viewpoint {
+            target: Point3::ZERO,
+            orientation: Rotation3::IDENTITY,
+            distance: INITIAL_DISTANCE,
+        },
+    )
+}
+
 impl ViewportState {
     pub fn new() -> Self {
-        let initial = Viewpoint::looking_from(INITIAL_LOOK_FROM, Point3::ZERO, INITIAL_DISTANCE)
-            .unwrap_or(Viewpoint {
-                target: Point3::ZERO,
-                orientation: Rotation3::IDENTITY,
-                distance: INITIAL_DISTANCE,
-            });
         Self {
-            camera: Camera::new(initial),
+            camera: Camera::new(initial_viewpoint()),
             selection: Selection::default(),
             hovered: None,
             hover_source: None,

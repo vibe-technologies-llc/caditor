@@ -137,6 +137,8 @@ paths:
 - Errors are `ImageError` (`Busy` while another image runs, `OutOfMemory`, `Refused`,
   `DeviceLost`). `poll_image` never waits on the GPU; `ImageReadback::into_image` is `Send`, meant
   for a worker, and turns the premultiplied colour of a transparent clear into straight alpha.
+- `OffscreenRenderer` opens a device without a surface and draws the same `ImageRequest` into an
+  `Rgba8Unorm` target, waiting for the result: the headless `--export` of a PNG (`app.md`) uses it.
 - The renderer draws whatever scene it is given; leaving out highlights and the grid is the app's
   choice (`app-files.md`).
 
