@@ -6,103 +6,64 @@ paths:
 
 # STEP reader
 
-## Part 21 parser
+## Part 21 parser (`part21.rs`)
 
-- Files: `part21.rs` (parser) and `read/` (`read_step`).
-- Reads the header, named and repeated data sections, and edition 3 `ANCHOR`, `REFERENCE` and
-  `SIGNATURE` sections (skipped byte by byte past strings and comments); sorts complex instances by
-  name; reads typed values and comments; decodes `\X\`, `\X2\`, `\X4\` and `\S\` (`\P` code pages
-  skipped); limits nesting.
-- The tree borrows from the text: names, enumerations and text are kept as written (uppercased
-  copies only for lowercase names; text unquoted and decoded when read), lists and parameters are
-  boxed slices, instances a vector sorted by id and found by binary search.
-- A damaged header is skipped to its `ENDSEC;` (the header is never used) and a file ending after
-  its last section without `END-ISO-10303-21;` is accepted, each with a note.
-- An unreadable data entry (a stray byte, nesting too deep) is skipped to its semicolon and counted;
-  a repeated entity id keeps its first definition; an integer beyond i64 is a real.
+- Reads the header, data sections and edition 3 `ANCHOR`, `REFERENCE` and `SIGNATURE` sections
+  (skipped); nesting is limited by `MAX_NESTING`. The tree borrows from the text; instances are
+  found by binary search.
+- Damage is survived and reported as notes, never refused: a damaged header is skipped (never
+  used), a missing `END-ISO-10303-21;` is accepted, an unreadable entry is skipped and counted, a
+  repeated entity id keeps its first definition.
 
-- `read_step` (its optional records, `Entity::find`, build no error message when absent) notes
-  skipped and repeated entries and returns every `MANIFOLD_SOLID_BREP`, `BREP_WITH_VOIDS`,
-  `FACETED_BREP` and `SHELL_BASED_SURFACE_MODEL` with closed shells (each a lump) as named kernel
-  solids plus notes, or a `ReadError` in words.
-- Every solid goes through `SolidBuilder::build`: valid, or a sentence naming the entity. Faces
-  meeting only farther apart than `LINEAR_RESOLUTION` are refused in those words (with the file's
-  precision when that allowed the gap); a solid whose faces cross (`Solid::find_crossing`) is
-  refused naming the two face entities, or the one face whose edges cross.
+## `read_step`
+
+- Returns every `MANIFOLD_SOLID_BREP`, `BREP_WITH_VOIDS`, `FACETED_BREP` and closed
+  `SHELL_BASED_SURFACE_MODEL` as named kernel solids plus notes, or a `ReadError` in words;
+  surface bodies are left out with a note. A body that fails does not stop the others.
+- Every solid goes through `SolidBuilder::build`: valid, or a sentence naming the entity. A solid
+  whose faces cross (`Solid::find_crossing`) is refused naming the face entities; an inconclusive
+  check imports it with a note that features built on it may fail.
+- Hostile-input bounds: `MAX_SPLINE_DEGREE`, checked knot arithmetic before expansion, one
+  `MAX_WORK` budget per file for everything built, `MAX_DEPTH` and `MAX_INSTANCES` for assemblies.
+  Curves, surfaces, placements and solids are memoised per entity and units.
 
 ## Units and precision
 
-- Units come from each representation's context: SI prefixes and conversion-based units such as
-  inches and degrees (factor a simple or complex `MEASURE_WITH_UNIT`); a note names every length
-  unit other than millimetres that was converted.
-- Declared precision is in the units: the length `UNCERTAINTY_MEASURE_WITH_UNIT`s of the
-  `GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT`, by their own unit or, for a bare `LENGTH_MEASURE`, the
-  context's; coarsest wins. Clamped between `LINEAR_RESOLUTION` and `COARSEST_PRECISION` (0.01 mm),
-  so a hostile file sets neither zero nor a huge tolerance; `LINEAR_RESOLUTION` when none.
-- Solids are still validated at `LINEAR_RESOLUTION`, since the kernel cannot hold looser geometry,
-  so precision never loosens validity. It decides what the file means (composite curve segments
-  meeting within it join; a polygon needs a corner farther than it from its first to have a plane; a
-  torus is a horn when the poles of its spindle lie within it of the point where the tube touches
-  the axis), which healing earns a note (a vertex or edge farther than it from its faces; nearer
-  ones heal silently as the file's own noise) and how a refusal reads (faces meeting only within it:
-  a file exported too coarsely for caditor).
+- Units come from each representation's context (SI prefixes, conversion-based units); a note
+  names every length unit converted, and a file naming none is read as millimetres, with a note.
+- Declared precision is the coarsest length uncertainty of the context, clamped between
+  `LINEAR_RESOLUTION` and `COARSEST_PRECISION` so a hostile file sets neither zero nor a huge
+  tolerance.
+- Solids are still validated at `LINEAR_RESOLUTION`, since the kernel cannot hold looser geometry:
+  precision never loosens validity. It decides what the file means (composite segments joining, a
+  polygon having a plane, a torus being a horn), which healing earns a note (farther than it from
+  the faces; nearer heals silently as the file's own noise) and how a refusal reads (a file
+  exported too coarsely for caditor).
 
 ## Assemblies
 
-- Followed from each solid's representation to the roots via
-  `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION`, untransformed relationships and `MAPPED_ITEM`s:
-  one solid per placement. A product's only body takes the product's name and several bodies keep
-  their own; placements of one solid take their occurrences' names when each has a distinct one,
-  else a number. The child is the occurrence's child definition's representation (via
-  `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` and `NEXT_ASSEMBLY_USAGE_OCCURRENCE`), else guessed from
-  which side is some assembly's child; `rep_1` is carried into `rep_2`, so the transform is inverted
-  when the parent is listed first.
-- A placement is an `ITEM_DEFINED_TRANSFORMATION` between two `AXIS2_PLACEMENT_3D`s or a
-  `CARTESIAN_TRANSFORMATION_OPERATOR_3D` (simple or complex), refused unless of unit scale and
-  right-handed. A part with an unreadable placement is left out with a note, as are its copies
-  placed that way, while the others are imported.
-- Placements are memoised per representation (layered assemblies cost one visit per part).
-  Assemblies deeper than `MAX_DEPTH`, or placing a part only inside itself, leave that solid out
-  with a note; a file yields at most `MAX_INSTANCES` solids.
+- Followed from each solid's representation to the roots through transformation relationships and
+  `MAPPED_ITEM`s: one solid per placement. A product's only body takes the product's name; copies
+  take their occurrences' names when each has a distinct one, else a number.
+- The child representation comes from `NEXT_ASSEMBLY_USAGE_OCCURRENCE` and
+  `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION`, else is guessed from which side is some assembly's
+  child; `rep_1` is carried into `rep_2`, so the transform is inverted when the parent is listed
+  first.
+- A placement must be unit-scale and right-handed. A part, or copy, with an unreadable placement,
+  a cycle, or too deep a nesting is left out with a note while the others import.
 
-## Limits
+## Geometry and healing
 
-- Spline degrees above `MAX_SPLINE_DEGREE` are refused as read; knot multiplicities must sum to
-  points plus degree plus one (checked arithmetic) before any knot is expanded.
-- Curves and surfaces are memoised by entity per units context (failures only when met at the top,
-  since deeper ones depend on the nesting limit); a solid is built once per set of shells and units
-  however many breps name them.
-- Everything built (curves, surfaces, composite pieces, faces, solids) is charged to one `MAX_WORK`
-  budget per file; past it the rest is refused as too intricate.
-
-## Geometry
-
-- Every kernel surface and curve, B-splines in all forms (Bézier ones with the standard piecewise
-  knots, degree-fold at every joint; uniform and other unclamped ones clamped by knot insertion);
-  trimmed and surface curves by basis; polylines; `COMPOSITE_CURVE`s (each segment trimmed by point
-  or parameter, followed in its sense); `OFFSET_CURVE_3D`s as dense polylines edge healing rebuilds
-  on the faces.
-- Spindle `DEGENERATE_TOROIDAL_SURFACE`: the revolution of its tube's rational arc on one side of
-  the axis (the apple or, mirrored, the lemon), so its normal stays the torus's. Horn: the whole
-  tube circle turned about the point where it touches the axis, a revolution whose two poles are one
-  vertex (its seam, when the face has only a `VERTEX_LOOP`, a closed edge on it); its inside is
-  refused (no volume).
-- `OFFSET_SURFACE` of a plane, cylinder, sphere, torus or cone is the exact surface of the same kind
-  along the basis's normal, which it keeps (a plane moved, radii grown, a cone's reference circle
-  moved along its axis, or to its apex when the offset radius there would be negative). An offset
-  leaving no surface (inwards by a cylinder's, sphere's or torus tube's radius or more) or making a
-  torus's tube reach its axis is refused in words, as is an offset of a spline, extrusion or
-  revolution.
-
-## Topology and healing
-
-- `POLY_LOOP` faces get line edges shared by corner position, and a plane from the polygon when a
-  plain `FACE` names none.
-- Topology is surveyed first (which faces use each edge and vertex); vertices off their faces move
-  onto all of them by damped least squares; edges not within a quarter of the resolution of both
-  faces are rebuilt with `IntersectionCurve::through` (each sample is projected from the previous
-  one's foot, and afresh only where that foot is not within the quarter resolution).
-- Loops take their orientation from bounds, oriented edges and `same_sense` (voids from
-  `ORIENTED_CLOSED_SHELL`). The outer loop is the `FACE_OUTER_BOUND`, else the one using a seam,
-  else the largest by area. Faces bounded only by `VERTEX_LOOP`s get a pole-to-pole seam (spheres,
-  closed spline surfaces and revolutions with two poles).
+- Every kernel surface and curve, B-splines in all forms (unclamped ones clamped by knot
+  insertion), trimmed and composite curves, `OFFSET_CURVE_3D` as dense polylines that healing
+  rebuilds on the faces.
+- `DEGENERATE_TOROIDAL_SURFACE`: a spindle is the revolution of the tube's rational arc on one side
+  of the axis; a horn turns the whole tube circle about its touch point, so its two poles are one
+  vertex. The inside of a horn is refused (no volume).
+- `OFFSET_SURFACE` of a plane, cylinder, sphere, torus or cone is the exact surface of the same
+  kind; one leaving no surface, or of a spline, extrusion or revolution, is refused in words.
+- Vertices off their faces move onto all of them by damped least squares; edges farther than a
+  quarter of the resolution from either face are rebuilt with `IntersectionCurve::through`.
+- The outer loop is the `FACE_OUTER_BOUND`, else the one using a seam, else the largest by area;
+  faces bounded only by `VERTEX_LOOP`s get a pole-to-pole seam. `POLY_LOOP` faces get line edges
+  shared by corner position and a plane from the polygon when none is named.

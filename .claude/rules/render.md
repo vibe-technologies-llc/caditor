@@ -6,231 +6,142 @@ paths:
 # Rendering (`caditor-render`)
 
 - Owns the wgpu device and surface, the camera and the viewport. Depends on neither winit nor the
-  document: takes any `Arc<dyn WindowTarget>` and draws a `Scene` built by the app: shaded meshes,
-  a grid and `Batch`es of lines, markers and triangle fills, each shared as an `Arc<Batch>`.
+  document: takes any `Arc<dyn WindowTarget>` and draws a `Scene` the app builds (shaded meshes, a
+  grid, `Arc<Batch>`es of lines, markers and triangle fills).
+- The UI shares the frame's encoder, so nothing in the viewport may invalidate it: allocations run
+  inside out-of-memory and validation error scopes (`gpu::scoped`) and a refusal degrades alone.
 
 ## Frames
 
-- `begin_frame` takes the window's current size (reconfiguring the surface when it differs or was
-  outdated), draws the 3D viewport into its rect and returns `FrameStart::Ready` with a `Frame`
-  whose encoder the app draws the UI into; `submit` presents it.
-- An acquire that was occluded is `Hidden`; one that timed out, or an outdated or lost surface,
-  is `Skipped` (a retry, never a reason to stop drawing). For `Hidden` the app then stops drawing
-  (UI and workers keep running) until the window is shown again (`Occluded(false)`, resize, focus,
-  cursor entering) or five seconds pass, so a window hidden on Wayland does not block the UI thread
-  for the acquire timeout every frame.
-- Skipped or failed frames retry after 16 ms, doubling up to a second.
-- A `SurfaceValidation` acquire climbs a ladder, one rung per consecutive failure (a good acquire
-  resets it): reconfigure, recreate the surface, configure conservatively (`Fifo`, automatic
-  alpha, two frames of latency), then open a replacement device as after a loss.
-- GPU allocations of the viewport run inside out-of-memory and validation error scopes
-  (`gpu::scoped`) so a refusal never invalidates the frame's encoder, which the UI shares:
-  - Scene targets that are refused drop the targets, and `begin_frame` steps multisampling down
-    to the next offered level and draws again (down to Off), leaving the preference as chosen;
-    until they fit, the viewport only clears the surface.
-  - A mesh or batch that is refused is dropped alone and not retried until it leaves the scene
-    or (for a batch) its anchor moves; the pick targets that are refused disable picking.
-  - Each refusal is reported once as a `RenderFault`, which the app takes with
-    `Renderer::take_faults` and shows as a notice. An image export whose upload is refused fails
-    as `Refused`.
+- `begin_frame` reconfigures the surface when the size differs or it is outdated, draws the
+  viewport and returns `FrameStart::Ready` with a `Frame` whose encoder the app draws the UI into;
+  `submit` presents it.
+- `Hidden` (occluded) makes the app stop drawing until the window is shown again or a probe timer
+  fires, so a hidden Wayland window does not block the UI thread on the acquire timeout every
+  frame. `Skipped` (timeout, outdated or lost surface) is a retry, never a reason to stop.
+- A `SurfaceValidation` acquire climbs a ladder, one rung per consecutive failure: reconfigure,
+  recreate the surface, configure conservatively, open a replacement device.
+- Refused scene targets step multisampling down a level (to Off, the preference untouched) and
+  draw again; a refused mesh or batch is dropped alone and not retried until it leaves the scene
+  or its anchor moves; refused pick targets disable picking. Each is one `RenderFault`
+  (`Renderer::take_faults`), shown as a notice.
 
-## Devices (`gpu.rs`)
+## Devices and settings
 
-- `open_device` asks for the low-power adapter first (unless `WGPU_POWER_PREF` says otherwise), so
-  a discrete GPU is not woken for a CAD window; then every other adapter that can present to the
-  window: integrated before discrete, virtual and software, Vulkan before GL.
-- Each adapter is asked for a device with its own limits (and adapter-specific format features),
-  then default, then WebGL2-level limits that keep its texture and buffer sizes, before the next.
-- The surface is clamped to the device's largest texture side; the multisample levels offered
-  (`gpu::offered_msaa`: those both the surface format and `Depth32Float` support, with resolve)
-  are read from the adapter's format features only when the device may use them.
-- Nothing needs storage buffers, so downlevel and GL devices draw everything (a test renders on
-  WebGL2 limits).
-
-## Graphics settings (`settings.rs`)
-
-- `GraphicsSettings` (vsync, `Msaa` level, `Shading`) is given to `Renderer::new` and applied live
-  by `Renderer::set_graphics`, which changes only what differs.
-- Vsync picks the present mode from the surface's capabilities (`settings::present_mode`): `Fifo`
-  when on; when off, `Mailbox`, else `Immediate`, else `Fifo`. A change sets `needs_reconfigure`,
-  so the next `begin_frame` reconfigures through `resize`, as for an outdated surface; a recreated
-  surface reads its present modes again.
-- MSAA uses the offered level closest to the one asked for (`Msaa::closest`: fewest doublings
-  away, ties towards more samples, Off always offered). A change rebuilds the viewport's pipelines
-  and drops its scene targets (`ViewportRenderer::set_sample_count`), keeping mesh buffers and
-  picking; the pick pass is always single-sampled.
-- Shading is a flag in the view uniform (`light.w`), so switching costs nothing.
-- `Renderer::graphics_info` is a `GraphicsInfo`: adapter name, backend, driver, the levels
-  offered, and the level and vsync actually in use, which the app shows in Preferences.
-
-## Device loss
-
-- `DeviceLoss::watch` registers the device-lost callback (which also wakes the app through the
-  `Wake` given to `Renderer::new`) and the uncaptured-error handler, which logs.
-- The next `begin_frame` after a loss starts opening a new device on a worker thread (the surface
-  is shared as an `Arc`; the worker wakes the app when done), on the same surface or a new one
-  when that fails. Until it answers, frames are `Skipped` and `resize` only records the size. The
-  answer is installed on the UI thread: it reconfigures and rebuilds the `ViewportRenderer`
-  (pipelines, mesh buffers, pick targets, growable buffers), bumping `Renderer::generation`; a
-  pick in flight polls `Failed`.
-  The current `GraphicsSettings` are applied to the new device: its present mode from them, and
-  the MSAA level closest to the one asked for among those the new device offers.
-- A `Frame` remembers its generation; `submit` drops one from an older generation or drawn while
-  the device is lost. A failed reopening is an error for that frame, retried later.
+- `open_device` tries the low-power adapter first (unless `WGPU_POWER_PREF` says otherwise) so a
+  CAD window does not wake a discrete GPU, then every other adapter that can present, ranked by
+  `adapter_rank`. Each adapter gets its own limits, then defaults, then WebGL2-level ones.
+- Nothing uses storage buffers, so downlevel and GL devices draw everything. The surface is
+  clamped to the largest texture side and is a plain 8-bit format, never a float or snorm one an
+  HDR setup lists first. Offered MSAA levels (`gpu::offered_msaa`) need surface and
+  `Depth32Float` support with resolve.
+- `GraphicsSettings` (vsync, `Msaa`, `Shading`) is applied live by `Renderer::set_graphics`,
+  which changes only what differs; `graphics_info` reports what is actually in use. MSAA uses the
+  offered level closest to the one asked for (`Msaa::closest`); a change rebuilds pipelines and
+  scene targets but keeps mesh buffers and picking. The pick pass is always single-sampled.
+  Shading is a uniform flag, so switching is free.
+- Device loss: `DeviceLoss::watch` wakes the app. The next `begin_frame` opens a new device on a
+  worker thread (same surface, else a new one); until it answers frames are `Skipped`. The answer
+  is installed on the UI thread, rebuilding the `ViewportRenderer` with the current settings and
+  bumping `Renderer::generation`. A `Frame` from an older generation, or drawn while the device
+  is lost, is dropped by `submit`; a pick in flight polls `Failed`.
 
 ## Precision
 
-- Positions are converted relative to a nearby point in f64 before the f32 cast, and the view
+- Model positions are converted relative to a nearby point in f64 before the f32 cast and the view
   matrix is rotation only, so geometry far from the origin stays exact.
-- A `ShadedMesh` stores f32 positions relative to its own centre; the eye-to-centre offset is
-  computed in f64 each frame.
-- Batches store f32 positions relative to an anchor, the eye where they were uploaded; the view
-  uniform carries the anchor's offset from the current eye (`anchor`, computed in f64), which the
-  shaders add to every line, marker and fill position. The anchor stays while the eye is within
-  `REANCHOR_DISTANCES` (4) view distances of it, where the extra rounding stays far below a pixel;
-  beyond that the next frame anchors at the eye and uploads every batch again.
+- A `ShadedMesh` stores positions relative to its own centre, with the eye offset computed in f64
+  each frame. Batches store positions relative to an anchor (the eye when uploaded), whose offset
+  the view uniform carries; it stays while the eye is within `REANCHOR_DISTANCES` view distances,
+  beyond that the next frame re-anchors and uploads every batch again.
 
 ## Meshes
 
-- A `MeshInstance` is an `Arc<ShadedMesh>` (faces of points with normals) plus a `FaceStyle`
-  (colour, pick id) per face. Vertex and index buffers upload once per `Arc` and drop when the mesh
-  leaves the scene (a frame with no viewport to draw keeps them).
-- A mesh whose vertices or indices would pass the device's `max_buffer_size` is split by triangles
-  into parts that each fit (`split_into_parts`).
-- Per-face styles live in an `Rg32Uint` texture (8-bit RGBA colour, then pick id), filled row by
-  row up to the device's largest texture side (`StyleLayout`; later faces take the last style) and
-  read by face index with `textureLoad` in the vertex shader (no storage buffer).
-- Each frame writes only the eye's offset to the mesh centre (with face count and row width) to a
-  small uniform; styles are written only when they differ from the last ones, so hover and
-  selection cost nothing in geometry.
-- Faces are lit two-sided. `Shading::Standard`: a key light above and left of the camera, a
-  headlight and a small specular term. `Shading::Enhanced`: a hemisphere ambient (brighter for
-  normals towards world +Z), the key light, a weaker fill light below and right of the camera (the
-  uniform's `fill_light`), a smaller headlight, a sharp Blinn-Phong highlight with a broad sheen,
-  and a rim term towards grazing angles; highlight and rim scale with the face colour's luminance,
-  so dimmed and tinted bodies stay darker and keep their hue (an offscreen test holds both). Normals
-  are the mesh's own. They write depth, hiding edges and sketches behind them in view and picking alike
-  (everything but the `Front` layer); a face without a pick id writes id 0 with its depth in the
-  pick pass (`fs_mesh_pick`), not discarded.
+- A `MeshInstance` is an `Arc<ShadedMesh>` plus a `FaceStyle` (colour, pick id) per face. Buffers
+  upload once per `Arc` and drop when the mesh leaves the scene; a mesh past `max_buffer_size` is
+  split into parts that each fit.
+- Per-face styles live in an `Rg32Uint` texture (`StyleLayout`) read by face index in the vertex
+  shader, rewritten only when they differ, so hover and selection cost nothing in geometry.
+- Faces are lit two-sided and write depth, hiding edges and sketches behind them in view and
+  picking alike (everything but `Layer::Front`). A face without a pick id writes id 0 with its
+  depth in the pick pass, not discarded. Enhanced shading scales highlight and rim with the face
+  colour's luminance so dimmed and tinted bodies stay dark and keep their hue (offscreen test).
 
 ## Depth, buffers and layers
 
-- Reverse-Z with an infinite far plane and `Depth32Float`, multisampled at the anti-aliasing level
-  in use (4x by default; multisampled colour is resolved into the surface and discarded, never
-  stored); with MSAA off the viewport draws straight into the surface. The UI is drawn on the
-  resolved surface after the 3D pass. The front layer and line depth biases work per sample, and an
-  offscreen test draws and picks front geometry at every offered level.
-- Each batch of the scene has a slot of its own (`GpuBatch`) with line, marker, fill and pick-fill
-  `GrowableBuffer`s: grow to the next power of two, shrink after 8 uploads in a row using under a
-  quarter (uploads come only with changes, so a large scene's memory goes a few changes after
-  it). A slot uploads only when the `Arc` in its place differs from the one it holds or the
-  anchor moved, so an idle frame or a camera move writes no vertices; a frame with no viewport to
-  draw keeps them. Buffers never pass `max_buffer_size`: a larger batch draws only its first whole
-  lines, markers and fill triangles (logged once) rather than invalidating the frame's encoder,
-  which the UI shares.
-- Batches draw in order: every batch's lines, then every batch's markers, then the fills.
-- Translucent fills draw back to front by their centroid's depth, front-layer fills last, across
-  all batches: each is a vertex range of its slot, and the sorted ranges are merged where they
-  follow on in one buffer into one draw each. The order is worked out again only when the eye or
-  view direction moved or a batch was uploaded (`FillOrder`).
-- The surface is `Bgra8Unorm` or `Rgba8Unorm` when offered (never a float or snorm format an HDR
-  setup lists first), else the first non-sRGB one.
+- Reverse-Z, infinite far plane, `Depth32Float`, multisampled at the level in use (resolved into
+  the surface, never stored). The UI is drawn on the resolved surface after the 3D pass.
+- Each batch has a `GpuBatch` slot of `GrowableBuffer`s. A slot uploads only when its `Arc`
+  differs or the anchor moved, so an idle frame or a camera move writes no vertices. A batch past
+  `max_buffer_size` draws only its first whole primitives (logged once).
+- Draw order: every batch's lines, then markers, then fills. Translucent fills sort back to front
+  by centroid depth across all batches, front-layer fills last (`FillOrder`).
 - Model geometry draws over reference geometry (datum planes, axes) through a per-`Layer` depth
-  bias, and model-layer fills (sketch regions) over the faces they lie on.
-- `Layer::Front` draws over everything else whatever its depth, in view and picking alike (the app
-  puts the edited sketch there). Every line, marker and fill vertex carries an `in_front` flag:
-  `layered_depth` in the shader halves every depth into the far half of the range (an exact scaling,
-  so no precision is lost) and moves front geometry into the near half, one draw per primitive kind
-  as before. Front geometry stays depth tested among itself, with depth biases wide enough to
-  survive the coarser floats of the near half (fills under lines under markers); front fills sort
-  after every other fill.
+  bias, model fills (sketch regions) over the faces they lie on.
+- `Layer::Front` draws over everything whatever its depth, in view and picking alike (the app
+  puts the edited sketch there). `layered_depth` halves every depth into the far half of the range
+  (an exact scaling) and moves front geometry into the near half, where biases stay wide enough
+  for the coarser floats (fills under lines under markers).
 
-## Lines
+## Lines, markers and sizes
 
-- A `Line` has a `Stroke`; `Stroke::Dashed` carries the distance along its curve at its start.
-  `vs_line` scales it by the segment's on-screen length per model unit into points, so `fs_line`
-  draws dashes of `DASH_PERIOD_POINTS` (60% drawn) running on across a polyline's segments at any
-  zoom and interface size. The pick pass draws dashed lines whole, so a gap still picks its curve.
+- Sizes are logical points: `ViewportFrame::pixels_per_point` goes into the view uniform and
+  shaders scale line widths, marker diameters and the grid by it.
+- `Stroke::Dashed` carries the distance along the curve at its start, so dashes
+  (`DASH_PERIOD_POINTS`) run on across a polyline's segments at any zoom and interface size. The
+  pick pass draws dashed lines whole, so a gap still picks its curve.
+- A marker whose colour has no alpha draws nothing but is still picked, so pickable points can
+  stay invisible until hovered or selected.
 
 ## Projection
 
-- `camera::Projection` (held by the `Camera`, carried by each `View`) is perspective (30° vertical
-  field of view) or orthographic.
-- Orthographic shows at every depth the scale perspective shows at its target (half height
-  `distance · tan 15°`), so switching keeps the model's on-screen size; zoom still changes
-  `distance`. The eye stays `distance` in front of the target (relative-to-eye precision
-  unchanged), but the depth range is finite, centred on the target.
-  - `View::reaching` widens it to the scene's bounds (the app passes `BuiltScene::everything`); it
-    spans at least forty distances either way, so geometry behind the eye is drawn and the grid
-    fades before the range ends.
-- Rays start at the near plane along the view direction; picks are placed by `View::unproject`
-  (point at a pixel and view depth, either projection), which gives nothing for a non-finite depth
-  or result, so a NaN read back from a pick never becomes a hit. `Camera::orbit`, `pan` and `zoom`
-  ignore non-finite pivots, anchors and drags, and the app drops a non-finite pick position.
-  Fitting puts the eight corners of the bounds inside the narrower field of view with a margin,
-  exactly in both projections rather than by a bounding sphere, so a wide flat part fills the
-  view; grid spacing follows the distance, not the eye's height (`grid_minor_spacing` gives the app the
-  spacing the shader draws).
-- The view uniform flags orthographic views: shaders light faces from the view direction and turn
-  each layer's depth bias into a fixed depth offset (`ORTHOGRAPHIC_DEPTH_BIAS`), since depth is
-  linear there and a factor would push edges far through faces.
-
-## Sizes on screen
-
-- Logical points: `ViewportFrame::pixels_per_point` (egui's: window scale times interface size)
-  goes into the view uniform; shaders scale line widths, marker diameters and the grid's line width
-  and fade by it, like the app's snapping and annotations.
+- `camera::Projection` is perspective or orthographic. Orthographic shows at every depth the scale
+  perspective shows at its target, so switching keeps the on-screen size. The eye stays
+  `distance` in front of the target (relative-to-eye precision unchanged) and the depth range is
+  finite, centred on the target; `View::reaching` widens it to the scene's bounds so geometry
+  behind the eye draws and the grid fades before the range ends.
+- Orthographic depth is linear, so shaders turn a layer's depth bias into a fixed offset
+  (`ORTHOGRAPHIC_DEPTH_BIAS`); a factor would push edges far through faces.
+- Fitting puts the eight corners of the bounds inside the field of view with a margin, exactly in
+  both projections (no bounding sphere), so a wide flat part fills the view; bounds of no size
+  keep the distance and recentre. Grid spacing follows the view distance, not the eye's height
+  (`grid_minor_spacing` gives the app what the shader draws).
+- `View::unproject` gives nothing for a non-finite depth or result, so a NaN read back from a pick
+  never becomes a hit; `Camera::orbit`, `pan` and `zoom` ignore non-finite pivots, anchors and
+  drags.
 
 ## Picking
 
-- Renders a window of `PICK_RADIUS_POINTS` (7.5) around the cursor, sized in physical pixels from
-  the scale (`PickWindow`; targets and readback recreated when it changes).
-- ID and depth targets, both `R32Uint` (depth as the bits of its f32, since GL does not always
+- Renders a window of `PICK_RADIUS_POINTS` around the cursor (`PickWindow`, physical pixels from
+  the scale). ID and depth targets are `R32Uint` (depth as f32 bits, since GL does not always
   render to float targets), read back asynchronously so hover never blocks the UI thread.
-- A marker whose colour has no alpha draws nothing (`fs_marker` discards it, writing no depth) but
-  is still picked, so pickable points can stay invisible until hovered or selected.
-- Hits report their distance from the cursor in points (`offset_points`, compared against the
-  app's pick tolerances) and their world position (navigation's orbit pivot, pan grab point, zoom
-  anchor).
-- `poll_pick` says `Pending`, `Ready` or `Failed`: a failed readback (targets and buffer are then
-  remade) or a pick whose frame was dropped before `submit` (the next `begin_frame` abandons it).
-  The app asks again after a failure.
-- Pick fills are uploaded with their batch, reference-layer ones first. Reference-layer fills
-  (principal and datum planes) are drawn first in a pass of their own, nearest winning, and
-  everything else over them: a translucent plane owns a pixel only where no
-  face, line, marker or model or front fill covers it, and a face seen through a plane is picked.
-  Front-layer lines, markers and fills are picked through any face, as they are drawn.
+- Hits report their distance from the cursor in points (`offset_points`, for the app's pick
+  tolerances) and their world position (orbit pivot, pan grab point, zoom anchor).
+- `poll_pick` says `Pending`, `Ready` or `Failed` (failed readback, or a pick whose frame was
+  dropped before `submit`); the app asks again after a failure.
+- Reference-layer pick fills (principal and datum planes) are drawn first in a pass of their own
+  and everything else over them: a translucent plane owns a pixel only where no face, line,
+  marker or model or front fill covers it, and a face seen through a plane is picked.
+  Front-layer geometry is picked through any face, as it is drawn.
 
 ## Image export (`image.rs`)
 
-- `Renderer::render_image` draws an `ImageRequest` (size, view, scene, pixels per point,
-  `Background::Viewport` or `Transparent`) offscreen, independent of the window: at most
-  `MAX_IMAGE_SIDE` (8192) pixels a side, in square tiles of `TILE_SIDE` (2048, or the device's
-  largest texture side if smaller), so no size the app offers can pass the device's texture limit
-  and memory stays bounded. Each tile writes the view uniform with `image::tile_transform`, the
-  same clip-space scale and offset the pick window uses, so line widths and grid fades stay those
-  of the whole image; one submit per tile, since uniform writes land at the next submit.
-- It reuses the window's `ViewportRenderer` (its pipelines at the anti-aliasing level in use, its
-  shading, its uploaded meshes, its batch slots, which the window's next frame uploads again) when
-  the surface is `Rgba8Unorm` or `Bgra8Unorm`; any other
-  surface format draws through a throwaway `ViewportRenderer` in `Rgba8Unorm` at the offered level
-  closest to the one in use. Tile targets and readback buffers are its own; the window's scene
-  targets are untouched. The shader output is written unconverted, as on screen, so the pixels are
-  sRGB.
-- Encoding and submitting run inside out-of-memory and validation error scopes
-  (`ImageError::OutOfMemory`, `Refused`); a lost device, before or while reading back, is
-  `DeviceLost`. One image at a time (`Busy`).
-- Every tile's buffer (rows padded to `COPY_BYTES_PER_ROW_ALIGNMENT`) is mapped asynchronously;
-  `poll_image` says `Idle`, `Pending`, `Ready(ImageReadback)` or `Failed`, so the UI thread never
-  waits on the GPU. `ImageReadback::into_image` is `Send` and meant for a worker: it assembles the
-  tiles, swaps BGRA to RGBA and turns the premultiplied colour a transparent clear leaves into
-  straight alpha (opaque pixels unchanged).
+- `Renderer::render_image` draws an `ImageRequest` offscreen, independent of the window, at most
+  `MAX_IMAGE_SIDE` a side in tiles of `TILE_SIDE` (or the largest texture side), so no size the
+  app offers can pass the texture limit. Each tile writes the view uniform with
+  `image::tile_transform`, the same clip-space transform the pick window uses, so line widths and
+  grid fades stay those of the whole image; one submit per tile, since uniform writes land at the
+  next submit. Memory is not yet bounded: every tile's readback buffer is held (`docs/TODO.md`).
+- It reuses the window's `ViewportRenderer` when the surface is `Rgba8Unorm` or `Bgra8Unorm`, else
+  a throwaway one in `Rgba8Unorm`. Output is written unconverted, as on screen, so pixels are sRGB.
+- Errors are `ImageError` (`Busy` while another image runs, `OutOfMemory`, `Refused`,
+  `DeviceLost`). `poll_image` never waits on the GPU; `ImageReadback::into_image` is `Send`, meant
+  for a worker, and turns the premultiplied colour of a transparent clear into straight alpha.
 - The renderer draws whatever scene it is given; leaving out highlights and the grid is the app's
   choice (`app-files.md`).
 
 ## Navigation
 
-- One model: right-drag orbits (turntable around world Z, tilting about the horizontal, stopping at
-  the poles; a rolled view such as one facing a tilted sketch turns level at twice the orbit rate).
-  Middle-drag or Shift+right-drag pans; wheel and pinch zoom toward the point under the cursor.
-- View cube and fit changes animate. Fitting bounds of no size keeps the distance and recentres.
+- Right-drag orbits (turntable around world Z, stopping at the poles; a rolled view turns level),
+  middle-drag or Shift+right-drag pans, wheel and pinch zoom toward the point under the cursor.
+  View cube and fit changes animate.

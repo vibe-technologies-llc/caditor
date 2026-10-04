@@ -5,12 +5,16 @@ paths:
   - "crates/caditor/src/main.rs"
   - "crates/caditor/src/lib.rs"
   - "crates/caditor/src/fuzzing.rs"
+  - "crates/caditor/src/crash.rs"
+  - "crates/caditor/src/logging.rs"
+  - "crates/caditor/src/headless.rs"
   - "crates/caditor/src/model.rs"
   - "crates/caditor/src/bodies.rs"
   - "crates/caditor/src/offers.rs"
   - "crates/caditor/src/samples.rs"
   - "crates/caditor/src/about.rs"
   - "crates/caditor/src/logo.rs"
+  - "crates/caditor/tests/**"
   - "packaging/**"
   - "crates/caditor/src/cli.rs"
   - "crates/caditor/src/scene.rs"
@@ -25,225 +29,154 @@ paths:
 
 ## Structure
 
-- `app.rs` is the winit `ApplicationHandler`; `overlay.rs` the egui integration drawn over the
-  viewport, keeping a CPU copy of every egui texture so that, when the renderer's generation changes
-  after a lost device, it builds a new egui renderer on the new device and uploads them whole again.
-  `scene.rs` converts documents and results to a `Scene`.
-- The UI is `menu_bar.rs`, the tool ribbon `toolbar.rs`, `status_bar.rs`, the side panel `panels.rs`
-  with the feature tree (`feature_tree.rs`) and parameter table (`parameter_table.rs`), the viewport
-  widget (`viewport.rs`: navigation, hover, selection) and the view cube (`view_cube.rs`).
+- `app.rs` is the winit `ApplicationHandler`; `overlay.rs` the egui integration over the viewport,
+  keeping a CPU copy of every egui texture so a new renderer generation (lost device) rebuilds
+  egui and re-uploads them whole. `scene.rs` converts documents and results to a `Scene`.
 - Selectables are `Pickable`s built from stable IDs. The hover remembers the cursor position and
-  view its pick result was made for; a click that depends on it (anything but a drawing tool's)
-  waits until a result for the current cursor and view has arrived, so it never acts on a stale
-  hover.
-
-## Model
-
-- `Model` (`model.rs`) owns the `Editor` and `Recomputer` and carries the length unit; the UI gets
-  `&Model` and returns `Action`s the app performs after its pass, so the UI never mutates the
-  document directly.
-- Changes submit a snapshot to the worker; features draw from the last good result, tinted if failed
-  or outdated. Suppressed features and those below the rollback bar are not drawn or picked
-  (`scene.rs` walks `Document::active_features`), so the view shows the model as of the bar.
-- `Model` owns the file session: the path, the last saved document (the model is unsaved exactly
-  when its document differs from it, and always when it is unknown, after restoring a journal that
-  had been rebased), the journal's base and the entries since it (kept to restart a stopped
-  `Storage`, and dropped up to a `Report::Rebased`) and the `Storage` worker, to which every change
-  is recorded. While the journal cannot be written the status bar shows Not protected.
+  view its pick was made for; a click that depends on it (anything but a drawing tool's) waits
+  for a result for the current cursor and view, so it never acts on a stale hover.
+- `Model` (`model.rs`) owns the `Editor`, the `Recomputer` and the length unit; the UI gets
+  `&Model` and returns `Action`s the app performs after its pass. Features draw from the last good
+  result, tinted if failed or outdated; suppressed and rolled-back ones are neither drawn nor
+  picked (`Document::active_features`).
+- `Model` also owns the file session: path, last saved document (unsaved exactly when the
+  document differs from it, and always when unknown, e.g. after restoring a rebased journal), the
+  journal's base and entries since it, and the `Storage` worker every change is recorded to.
+  While the journal cannot be written the status bar shows Not protected.
 
 ## Scene
 
 - `ViewportState::build_scene` hands the renderer a cached scene (`scene_cache.rs`), never one
-  built afresh each frame. The base scene (bodies, sketches, references, with their hover and
-  selection colours and a `PickTable`) is rebuilt only when its content or its highlight changes:
-  content is the document revision, the evaluation generation, `DisplayedSketches::generation`
-  (a drag shown or dropped, `forget`), `BodyMeshes::generation` (a mesh arrived, changed or went,
-  or the open blend or shell changed), the editing `Context` and the faceting level; highlight is
-  the selection and the hovered items. An idle frame or a camera move reuses it whole.
-- Previews, the trim preview and the measured line form a second batch, the overlay, rebuilt only
-  when it differs from the last one; it carries no pick ids, so it never asks for a pick.
-- Each rebuild of the base bumps a generation; a pick is asked for when the cursor, the view or
-  that generation differs from the last pick's (`PickKey`), and the pick table travels with it as
-  an `Arc`. No pick is asked for in a frame where the camera's viewpoint differs from the last
-  request's (orbit, pan, zoom, an animation), so hover stays as it was while the view moves and one
-  pick follows when it settles. The keyboard highlight's list of distinct pickables is worked out only when first
-  needed after a rebuild.
-- `SketchShapes` keeps each drawn sketch's faceted outlines and constraint palettes for the
-  current content, so a hover or selection change only restyles and re-registers them.
-- Image export builds its own scene without highlights at a level fitting the image's size,
-  following the window's level where that is fine enough.
+  built afresh each frame. The base scene (bodies, sketches, references, hover and selection
+  colours, a `PickTable`) is rebuilt only when its content or highlight changes; an idle frame or a
+  camera move reuses it whole. Content is everything that can change what is drawn (document
+  revision, evaluation, displayed sketches, body meshes, editing `Context`, faceting level);
+  anything new that affects the drawing must feed that key.
+- Previews, the trim preview and the measured line form a second batch, rebuilt only when it
+  differs; it has no pick ids, so it never asks for a pick.
+- A pick is asked for when the cursor, the view or the base's generation differs from the last
+  (`PickKey`). None is asked while the camera's viewpoint moves, so hover stays put and one pick
+  follows when it settles.
+- `SketchShapes` caches faceted outlines and constraint palettes, so a hover or selection change
+  only restyles them. Image export builds its own scene, without highlights.
 
 ## Sketch faceting
 
-- Sketch curves, previews and trim pieces are faceted to a chord tolerance (`caditor_sketch::
-  Faceting`, `sketch.md`) set from the view (`faceting.rs`): a quarter of a pixel at the view's
-  target distance, rounded down to a power of two of millimetres (`FacetLevel`). A level is kept
-  while the wanted chord stays between it and four times it (never coarser than wanted), so
-  curves are faceted anew once per halving while zooming in, once per two doublings while zooming
-  out, and never on a small zoom back and forth. Without a view a fixed level (1/32 mm) is used.
-- `scene::drawn_faceting` doubles the chord while the drawn sketches' curves would need more than
-  `SKETCH_SEGMENT_BUDGET` (2^19) segments, so zooming far into a sketch of thousands of circles
-  never exhausts memory.
-- Picks come from the drawn polylines, hover highlights draw the same polylines wider, box
-  selection tests the same faceting (`sketch_drag::within`), and snapping stays exact on the
-  curves. Bounds and fitting sample curves at a fixed 3°.
+- Sketch curves, previews and trim pieces are faceted to a chord tolerance (`faceting.rs`) set
+  from the view: a fraction of a pixel at the view's target distance, rounded down to a power of
+  two of millimetres (`FacetLevel`). A level is kept while the wanted chord stays within a
+  band above it (never coarser than wanted), so zooming back and forth never refacets.
+- `scene::drawn_faceting` coarsens the chord while the drawn curves would need more than
+  `SKETCH_SEGMENT_BUDGET` segments, so zooming into thousands of circles never exhausts memory.
+- Picks, hover highlights and box selection (`sketch_drag::within`) use the drawn polylines;
+  snapping stays exact on the curves. Bounds and fitting use the sketch crate's default segment
+  angle, not the view's faceting.
 
-## Sessions and startup
+## Startup, sessions and crashes
 
-- The app is a library with a thin binary: `main.rs` only calls `caditor::run` in `lib.rs`, which
-  holds the modules and the startup, so the fuzz workspace can reach app code through the
-  `fuzzing` feature (`fuzzing.rs`: preferences read from settings, stored shortcuts).
-- `run` starts with an empty model.
-- Release builds unwind (`panic = "unwind"`), since containment relies on it, or `recompute.rs`
-  fails to compile.
-- The viewport fits (`BuiltScene::fit_all`) once the first recompute of a newly opened model
-  (another `Model::session`) is up to date: to sketches and bodies if any, else the reference
-  planes.
-- IDs restart per document, so a new session clears the viewport's selection, hover, highlight,
-  drawing state (`Workspace::sync`, at the start of each frame), the tree's selection and rename,
-  the export dialog's left-out bodies.
-- `run` calls `crash::protect`, which installs the panic hook and a SIGTERM/SIGHUP/SIGINT handler
-  (`signal-hook`) flushing the journal before exit; the handler then stops the process by that
-  signal. `tests/crash_flush.rs` re-runs its own binary as a child that records changes to a real
-  `Storage` and panics, raises SIGTERM or is killed, and checks that a recovery scan restores
-  every change.
-- A panic while handling a window or user event (a frame in `Session::redraw`: polling, egui,
-  `Model::perform`, scene building, drawing; or closing, a dropped file, an accessibility event) is
-  caught in `App::contained` after the hook has flushed the journal. The window gets a fresh egui
-  context (`Overlay::new`, accessibility again), `after_failed_frame` drops the workspace's
-  transient state (selection, tools, sketch editing, palette, dialogs) and `Files::close_dialogs`
-  the file dialogs (export, image, version history, reports, recovery; prompts guarding unsaved
-  work stay), and a notice says so; the model and its undo history stay. A second failed frame in a row suppresses
-  every feature as one undoable change (`Model::suppress_every_feature`), saying how to find the
-  one at fault; after `GIVE_UP_AFTER_FAILED_FRAMES` in a row the app exits with the journal kept,
-  so the next start offers it.
-- `logging.rs`: each run logs to stderr and to its own file,
-  `$XDG_STATE_HOME/caditor/logs/caditor-<seconds>-<pid>.log` (`caditor_file::SessionLog`,
-  owner-only, cut at `MAX_LOG_SIZE`), ending with an end line on a normal exit, a reported
-  failure or a termination signal. The panic hook logs the panic with a backtrace (release
-  builds keep symbol names, `strip = "debuginfo"`). At start, a log whose process is gone and
-  which has no end line is reported in a notice naming it, then marked reported; only the ten
-  newest logs are kept (`LOGS_KEPT`).
-- A failure `run` returns (no window, no renderer, a window failing frame after frame) is
-  logged and, when stderr is not a terminal (a desktop launch), shown through `zenity`, `kdialog`
-  or `notify-send`, whichever works first; `failure_text` names the cause, the `WGPU_BACKEND=gl`
-  workaround when a `RenderError` is behind it, and the log.
-- The recovery card offers Restore suppressed beside Restore: the same restore followed by
-  suppressing every feature, for a model that made caditor stop.
+- The app is a library with a thin binary (`main.rs` calls `caditor::run`), so the fuzz workspace
+  reaches app code through the `fuzzing` feature. `run` starts with an empty model.
+- Release builds unwind (`panic = "unwind"`), since containment relies on it; `recompute.rs`
+  fails to compile otherwise.
+- The viewport fits once the first recompute of a newly opened model (new `Model::session`) is up
+  to date and its bodies are meshed (`Model::bodies_pending`).
+- IDs restart per document, so a new session clears everything holding them: viewport selection,
+  hover, highlight and drawing state (`Workspace::sync`), the tree's selection and rename, the
+  export dialog's left-out bodies. Anything new that holds IDs must be cleared there.
+- `crash::protect` installs the panic hook and a SIGTERM/SIGHUP/SIGINT handler that flush the
+  journal before exit. `tests/crash_flush.rs` re-runs its binary as a child that panics, raises
+  SIGTERM or is killed, and checks a recovery scan restores every change.
+- A panic while handling a window or user event (a frame, closing, a dropped file, an
+  accessibility event) is caught in `App::contained` after the hook flushed the journal. The window
+  gets a fresh egui context, `after_failed_frame` drops transient state (selection, tools, sketch
+  editing, palette, dialogs, except prompts guarding unsaved work) and a notice says so; the
+  model and undo history stay. A second failed frame in a row suppresses every feature as one
+  undoable change, saying how to find the culprit; `GIVE_UP_AFTER_FAILED_FRAMES` in a row exits with
+  the journal kept, so the next start offers it. The recovery card's Restore suppressed is the
+  same restore followed by suppressing every feature.
+- `logging.rs`: each run logs to stderr and its own owner-only file under the state directory
+  (`caditor_file::SessionLog`, bounded by `MAX_LOG_SIZE`, `LOGS_KEPT` newest kept), with an end
+  line on a normal exit, reported failure or termination signal. At start a log whose process is
+  gone and which has no end line is named in a notice, then marked reported.
+- A failure `run` returns (no window, no renderer, a window failing frame after frame) is logged
+  and, when stderr is not a terminal, shown through `zenity`, `kdialog` or `notify-send`;
+  `failure_text` names the cause, the log, and the `WGPU_BACKEND=gl` workaround for a
+  `RenderError`.
 
 ## Redraws and frame pacing
 
-- caditor draws only when something asks: an input or window event, a worker's wake, egui's
-  requested repaint, or a frame that must follow (an action, a camera animation, a pick or an
-  exported image in flight). Every such request goes through `Session::request_redraw`, never straight to the window.
-- `FramePacer` (`graphics.rs`) holds them to the frame limit: `Graphics::frame_interval` is the
-  chosen rate's interval, or for Match the display the monitor's refresh rate
-  (`MonitorHandle::refresh_rate_millihertz`, read at startup and on move, resize and scale change)
-  only while vsync is off, since `Fifo` already paces to it; None when unlimited or the rate is
-  unknown. A request earlier than the next slot is scheduled for it (`next_repaint`, which
-  `about_to_wait` turns into `ControlFlow::WaitUntil` and requests once due), otherwise drawn at
-  once. Slots keep a steady cadence when frames arrive on time and restart from the frame after an
-  idle spell, so the first frame after idling is never delayed and idle stays idle.
+- caditor draws only when something asks (input, a worker's wake, egui's repaint request, or a
+  frame that must follow: an action, a camera animation, a pick or image in flight). Every request
+  goes through `Session::request_redraw`, never straight to the window.
+- `FramePacer` (`graphics.rs`) holds requests to the frame limit: the chosen rate's interval, or
+  for Match the display the monitor's refresh rate only while vsync is off (`Fifo` already paces
+  to it); none when unlimited or unknown. An early request is scheduled for the next slot
+  (`next_repaint`, which `about_to_wait` turns into `ControlFlow::WaitUntil`). The first frame
+  after an idle spell is never delayed and idle stays idle.
 
 ## Bodies
 
-- Body meshes come from the recompute worker at its `MeshQuality` (`document-recompute.md`), smooth
-  by default. The Curve smoothness preference (`graphics.curve_quality`, coarse or smooth) reaches
-  it through `Model::set_mesh_quality`, at startup and on each change (`app::apply_preferences`):
-  a different quality is sent with `Recomputer::set_mesh_quality`, also to a worker spawned again
-  later, followed by a new submission, so every body is meshed again at it.
-- `BodyMeshing` (`bodies.rs`, in `Model`) converts each body's final mesh (and the state before the
-  open blend or shell, once `Model::mesh_before` finds it meshed) into a `ShadedMesh` with edge
-  polylines (no seams) on its own worker, once per result keyed by its `Arc`; requested on each
-  evaluation, pruned to results still shown. A panic leaves that body meshless; without a worker the
-  conversion runs on the UI thread.
-- `BodyMeshes` (viewport) takes each conversion on arrival, keeping the previous mesh until then, so
-  the UI thread only uploads buffers; the first fit of a newly opened model waits for them
-  (`Model::bodies_pending`).
-- A face is `Pickable::Face` with a `FaceKey` (`FaceName` plus occurrence among same-named faces, in
-  solid order), an edge `Pickable::Edge` with its `EdgeName`, a vertex `Pickable::Vertex` with a
-  `VertexKey` (`VertexName` plus occurrence, like faces); found through the result's `NameIndex`
-  (`find_face`, `find_edge`, `find_vertex` on the `SolidResult` from `bodies::shown`/`input`) and
-  described in words from the `FaceOrigin` (for example "Extrude 1 side from Line 3"; a vertex as
-  where its faces meet).
-- Vertices are markers with no colour, so they pick (as points, winning over edges and faces
-  nearby) but show only when hovered or selected. The conversion worker also lists each body's
-  vertices and works out its `BodyMass` (the mesh's volume, area, centroid and the size of its bounding box; `Exact` for flat
-  faces and straight edges only, else the mesh's chord and the volume's bound, curved area times
-  chord).
+- Body meshes come from the recompute worker at its `MeshQuality` (`document-recompute.md`). The
+  Curve smoothness preference reaches it through `Model::set_mesh_quality` at startup and on each
+  change (`app::apply_preferences`), followed by a new submission so every body is meshed again.
+- `BodyMeshing` (`bodies.rs`) converts each body's final mesh (and the state before the open blend
+  or shell, `Model::mesh_before`) into a `ShadedMesh` with edge polylines on its own worker, once
+  per result keyed by its `Arc`. A panic leaves that body meshless; without a worker it runs on
+  the UI thread. `BodyMeshes` takes each conversion on arrival, keeping the previous mesh until
+  then, so the UI thread only uploads buffers.
+- A face is `Pickable::Face` with a `FaceKey` (`FaceName` plus occurrence among same-named
+  faces), an edge `Pickable::Edge` with its `EdgeName`, a vertex `Pickable::Vertex` with a
+  `VertexKey`, found through the result's `NameIndex` and described in words from the
+  `FaceOrigin`, never by index.
+- Vertices are colourless markers: they pick (winning over edges and faces nearby) but show only
+  when hovered or selected. The conversion worker also computes each body's `BodyMass` (volume,
+  area, centroid, bounding-box size), exact only for flat faces and straight edges, else the
+  mesh's chord approximation, which the UI marks as approximate.
 - While a sketch is edited, bodies are dimmed and not pickable.
 
 ## Offers
 
-- `offers.rs` works out what the selection offers the toolbar and status bar (the flat face for New
-  sketch, the model axis for Revolve and patterns, the datum plane and axis, the faces to shell,
-  the body to pattern, the selection's descriptions) only when the selection, the model's
-  revision, its evaluation (`Model::evaluation_generation`) or the length unit changes, not every
-  frame.
+- `offers.rs` works out what the selection offers the toolbar and status bar only when the
+  selection, the model revision, its evaluation or the length unit changes, not every frame.
 
 ## Measure
 
-- The Measure command (I, the ribbon, View menu, palette) toggles `MeasureTool` in the `Workspace`;
-  while open, `measure_panel.rs` draws a right-hand panel before the viewport. Measuring never
-  changes the document.
-- `Measurements` resolves the selection on the UI thread into points (vertices, sketch points, the
-  origin) and edges or faces with their result's `Arc`, then measures on its own worker (newest job
-  wins, a panic becomes a failed reading, without a worker it runs inline) only when the
-  selection, revision or evaluation changes; an empty selection is read at once. Until the result
-  for the current selection arrives the previous readout stays in the panel, dimmed
-  (`Measurements::shown`, `Freshness::Stale`), and the header says Measuring…, so nothing jumps; the
-  measured line in the view comes only from the current readout (`Measurements::readout`).
-- A `Readout` is a card per item (position; length, radius, diameter, centre; area, exact for flat
-  faces from the kernel, else from the display mesh; round faces' radii) and, for two items, a
-  "Between them" card: distance and its X, Y and Z parts, centre to centre for two circles, axis to
-  axis, the gap between parallel planes and the angle. More than two asks for fewer. Values are
-  formatted in the length unit (`LengthUnit::measured_*`, a micrometre's resolution), approximate
-  ones prefixed ≈ with a note. Values are selectable text and the header's Copy all copies the
-  whole panel as text.
-- The panel opens with `panel_header` (Measure, Copy all, Close); with nothing selected it shows the
-  hint alone. Notes (approximations, a body waiting for its mesh) are callouts under their card,
-  never inside it. Mass properties is a collapsible section counting its bodies. egui keeps the
-  panel's width for the session; it is not stored in the preferences.
-- Mass properties are read each frame from the bodies' `BodyMass`: the bodies of the selected
-  faces, edges and vertices and the feature selected in the tree, else every shown body.
-- The closest points are drawn in the view on the front layer (`scene::add_measurement`) with a
-  label of the distance at their middle in `canvas::MEASURE`.
+- The Measure command toggles `MeasureTool` in the `Workspace`; while open, `measure_panel.rs`
+  draws a right-hand panel. Measuring never changes the document.
+- `Measurements` resolves the selection on the UI thread into points, edges and faces (with their
+  result's `Arc`), then measures on its own worker (newest job wins, a panic becomes a failed
+  reading) only when the selection, revision or evaluation changes. Until the current result
+  arrives the previous readout stays, dimmed (`Freshness::Stale`) under a Measuring header, so
+  nothing jumps; the measured line in the view comes only from the current readout.
+- A `Readout` is a card per item and, for two items, a "Between them" card; more than two asks for
+  fewer. Approximate values are marked with a note, a callout under its card. Mass properties are
+  read each frame from `BodyMass` for the selected items' bodies, else every shown body.
+- The closest points are drawn on the front layer (`scene::add_measurement`) with a distance
+  label in `canvas::MEASURE`.
 
 ## Samples
 
-- `samples.rs` builds three parametric models through the document API (always the current format):
-  a two-hole plate (extrude), a flanged spool (full revolve about the sketch's vertical axis), an
-  angle bracket (symmetric extrude, hole removed by a second one); fully constrained, dimensions
-  naming parameters; a test recomputes each and checks its volume. Open sample (menu, palette,
-  welcome dialog) opens one untitled and unmodified after the unsaved-changes prompt.
+- `samples.rs` builds parametric models through the document API (so always the current format),
+  fully constrained with dimensions naming parameters; a test recomputes each and checks its
+  volume. Open sample opens one untitled and unmodified.
 
-## About, command line, accessibility
+## About, command line, accessibility, packaging
 
-- `about.rs`: Help › About caditor shows the logo beside the name and tagline, then version and
-  licences. `cli.rs`: `caditor [FILE]`;
-  `--version`, `--help` print and exit; unknown options, several paths refused. A `.dxf` or STEP
-  file (by extension or header) goes to import as if dropped, anything else to Open.
-  `caditor --export OUT [--resolution coarse|standard|fine] MODEL` (`headless.rs`) opens no window:
-  it loads the model (`caditor_file::load`, load issues become warnings on stderr), recomputes it
-  without display work (`Recompute::run_without_display`), exports every body that built to the
-  format `OUT`'s extension names (STL, 3MF, STEP; bodies left out and failed features are warnings)
-  and prints a summary; a model with no body, an unreadable file or an unknown extension is an
-  error and writes nothing.
-- AccessKit (`egui-winit`'s `accesskit` feature): the window is created hidden, the adapter attached
-  (`Overlay::enable_accessibility`), then shown; `AppEvent::Accessibility` carries the adapter's
-  requests to the overlay. The status bar's notice text is a live region (`widgets::announced`:
-  assertive for an error, polite for info) and so is the failed-features pill, so a screen reader
-  announces a failed save or a failing feature when it appears. The viewport is named "3D view",
-  and the text painted over it (tool prompt, hover or keyboard-highlight description, snap and
-  measure labels) is also a `Label` node over its rectangle (`canvas::announce`), the prompt and
-  the keyboard-highlight description polite live regions, so it is read and its changes announced.
-- Wayland app ID and X11 class are `about::APP_ID` (`caditor`), which must match the desktop entry's
-  name.
-- The logo is `packaging/caditor.svg`; `packaging/render-icons.sh` renders it with `rsvg-convert`
-  into `packaging/icons/caditor-<size>.png`, committed beside it, so neither the build nor the
-  release needs an SVG renderer. `logo.rs` embeds the 32 to 256 px renders: the 128 px one is the
-  window icon (shown by X11 window managers; Wayland compositors take the icon from the desktop
-  entry through the app ID), and `logo::show` draws the smallest render covering the requested
-  size in physical pixels, one texture per size cached in egui's memory, hidden from AccessKit.
-  A render that fails to decode logs a warning and leaves the window without an icon or the space
-  blank; tests decode every render.
+- `cli.rs`: `caditor [FILE]`; a `.dxf` or STEP file (by extension or header) goes to import as if
+  dropped, anything else to Open. `caditor --export OUT [--resolution ...] MODEL`
+  (`headless.rs`) opens no window: it loads, recomputes without display work, exports every body
+  that built to the format `OUT`'s extension names and prints a summary; load issues and left-out
+  or failed bodies are warnings, a model with no body, an unreadable file or an unknown extension
+  an error that writes nothing.
+- AccessKit (`egui-winit`'s `accesskit` feature): the window is created hidden, the adapter
+  attached, then shown. The status bar notice and the failed-features pill are live regions
+  (`widgets::announced`: assertive for an error, polite otherwise). The viewport is named "3D
+  view", and text painted over it (prompt, hover description, snap and measure labels) is also a
+  `Label` node (`canvas::announce`), the prompt and keyboard-highlight description polite live
+  regions.
+- Wayland app ID and X11 class are `about::APP_ID`, which must match the desktop entry's name.
+- The logo is `packaging/caditor.svg`; `packaging/render-icons.sh` renders it into
+  `packaging/icons/`, committed, so neither build nor release needs an SVG renderer. `logo.rs`
+  embeds some renders and `logo::show` draws the smallest covering the requested physical size,
+  hidden from AccessKit. The window icon is a fixed render (X11 only; Wayland takes the icon from
+  the desktop entry). A render that fails to decode logs a warning; tests decode every render.

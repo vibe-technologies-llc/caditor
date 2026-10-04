@@ -7,79 +7,52 @@ paths:
 
 - Each edge is sampled once; both faces share its positions.
 - Each face is a constrained Delaunay triangulation (`spade`) of its loops in (u, v), scaled by the
-  mean surface speeds, plus a uniform grid of interior points:
-  - spaced by curvature (normal curvature and twist), sampled on a lattice that also covers every
-    knot span;
-  - spline, revolution, extrusion, cone, sphere and torus faces are then refined, by the square root
-    of the excess, until the grid's cells (diagonal and edge midpoints) stay within 70% of the chord
-    tolerance, which keeps the triangles the triangulation actually picks within the chord;
-  - kept clear of the boundary;
-  - a direction without curvature gets cells at most four times longer than the curved one's.
-- A face's points (loops, then grid) are deduplicated by their exact scaled coordinates (one
-  position each, or `DuplicateBoundaryPoint`), bulk-loaded into the triangulation in that order and
-  only then joined by the loops' constraint edges, so a long boundary costs n log n where inserting
-  its points one by one along the loop flipped edges quadratically.
-- Triangles are kept by the parity of constraint crossings from outside.
-- Consecutive boundary points at the same vertex whose parameters differ by a spatially negligible
-  gap (an edge ending within the resolution of its vertex) are merged, so such joints do not become
-  spikes.
-- A vertex a face's loops pass more than once (a pinch) takes the uv of its first pass wherever the
-  others lie within that gap, so the triangulation sees one point.
-- Where two of a face's boundary polylines leave one point along the same chord (curves tangent
-  there sampled at the same angular step: a crescent's tip, internally tangent circles, a cusp),
-  the longer end segment is bisected before triangulating, for at most eight rounds, and every
-  face of that edge is triangulated with it. The flatter curve's chord then lies outside the other,
-  so the loops part by the curves' own separation, never by rounding.
-- Pole-line points share the pole's position and the triangles that collapse there are dropped, so
-  the mesh stays watertight.
-- A straight edge ending at a pole (a ruling to a cone's apex) is sampled at the grid's row spacing
-  of the faces it bounds; with only its ends, the triangles beside it would fan from the apex along
-  one ruling and have no area.
-- A face with a pole computes its density once per tolerance, for its pole edges and its grid alike.
+  mean surface speeds, plus a uniform interior grid (`density.rs`) spaced by curvature, covering
+  every knot span, kept clear of the boundary and refined on curved kinds until its cells stay
+  within `GRID_SHARE` of the chord tolerance (which keeps the triangles the triangulation actually
+  picks within the chord). A direction without curvature gets cells at most `FLAT_ASPECT` times
+  longer than the curved one's.
+- Points are deduplicated by exact scaled coordinates (`DuplicateBoundaryPoint`), bulk-loaded, and
+  only then joined by the loops' constraint edges (inserting boundary points one by one flipped
+  edges quadratically). Triangles are kept by the parity of constraint crossings from outside.
+- Boundary points at one vertex whose parameters differ by a spatially negligible gap are merged,
+  and a pinched vertex takes the uv of its first pass, so joints do not become spikes.
+- Where two boundary polylines leave one point along the same chord (tangent curves sampled at the
+  same angular step: a crescent tip, internally tangent circles, a cusp), the longer end segment is
+  bisected first (at most `MAX_END_PARTINGS` rounds) for every face of that edge, so the loops part
+  by the curves' own separation, never by rounding.
+- Pole-line points share the pole's position and the triangles collapsing there are dropped, so
+  the mesh stays watertight. A straight edge ending at a pole (a ruling to a cone's apex) is
+  sampled at the grid's row spacing, else the triangles beside it fan from the apex with no area.
 
 ## Quality
 
-- `MeshQuality` (`tolerance.rs`) is a chord as a fraction of the solid's extent (its bounding box's
-  diagonal) plus an angle per segment; `tolerance(extent)` turns it into a `SamplingTolerance`.
-  `COARSE` (1e-3, 0.35 rad) is `Solid::default_tolerance` and `SamplingTolerance::for_extent`, for
-  validation, profiles and tests; `SMOOTH` (2.5e-4, 6°) is the default display quality.
-- The angle bounds every circle to at least 60 segments per turn whatever its radius, and every
-  curved grid direction alike; the relative chord takes over on radii large against the solid.
-- `Solid::display_mesh(quality)` meshes within `DISPLAY_POINTS` (2^20). Any failure but
-  cancellation (over the budget, a boundary still crossing after the retries) meshes again at the
-  quality made at least as coarse as `COARSE` in both terms (`MeshQuality::at_least`) with the full
-  `MAX_POINTS`, so a body is shown coarser rather than not at all.
+- `MeshQuality` (`tolerance.rs`) is a chord as a fraction of the solid's extent (bounding-box
+  diagonal) plus an angle per segment. `COARSE` is `Solid::default_tolerance` and
+  `SamplingTolerance::for_extent` (validation, profiles, tests); `SMOOTH` is the default display
+  quality. The angle bounds segments per turn whatever the radius; the relative chord takes over on
+  radii large against the solid.
+- `Solid::display_mesh(quality)` meshes within `DISPLAY_POINTS`. Any failure but cancellation (over
+  the budget, a boundary still crossing after the retries) meshes again at the quality made at
+  least as coarse as `COARSE` (`MeshQuality::at_least`) within `MAX_POINTS`: a body is shown
+  coarser rather than not at all.
 - Export does not use it: it has its own `MeshResolution` (`file-import-export.md`).
 
 ## `Mesh`
 
-- Holds shared positions, per-face vertices with exact surface normals, triangles, each face's
-  triangle range and each edge's polyline.
-- Normals are the surface's analytic normal at each vertex (flipped by the face sense, nudged into
-  the triangle at a pole), so curved faces shade smoothly; vertices are per face, so a position
-  shared by a cylinder and its cap carries each face's own normal and the edge between them stays
-  crisp.
-- Edge polylines are the edge samplings the faces were triangulated with, so drawn outlines follow
-  the faces' silhouettes exactly.
-- Computes volume, area and centroid by the divergence theorem.
-- Records the chord it was asked for (`Mesh::chord`; faces retried finer only get closer), which the
-  app quotes as the accuracy of mass properties.
+- Vertices are per face and carry the surface's analytic normal (flipped by the face sense, nudged
+  into the triangle at a pole), so curved faces shade smoothly while the edge between a cylinder
+  and its cap stays crisp. Edge polylines are the samplings the faces were triangulated with, so
+  outlines follow the silhouettes exactly.
+- `mass_properties` (volume, area, centroid) by the divergence theorem; `Mesh::chord` records the
+  chord asked for (retried faces only get closer), which the app quotes as the accuracy of mass
+  properties.
 
-## Retries
+## Retries and limits
 
-- When a face boundary crosses itself at the requested tolerance (loops closer than the sampling
-  error), tessellation retries a few times before failing.
-- Each retry halves chord and angle for every face that crossed and for the edges they bound; an
-  edge takes the finest tolerance of its faces.
-- A retry samples again only the edges whose tolerance or least count changed, and triangulates only
-  the faces that crossed or bound such an edge, keeping every other face's triangles. Points left
-  unused are dropped at the end.
-
-## Limits and cancellation
-
-- A solid's mesh holds at most `MAX_POINTS` (2^22) points. Edges and each face's interior grid are
-  counted before they are inserted; a mesh that would need more fails as `TooLarge`, which export
-  names as a body too fine for the resolution.
-- Cancellation is polled per edge, per face checked for overlapping ends, per grid row, per coedge
-  and every 1024 of its points projected into a face's boundary loops, and every 1024 points
-  gathered or constraint edges added.
+- A face boundary crossing itself at the requested tolerance (loops closer than the sampling error)
+  retries up to `MAX_REFINEMENTS` times, halving chord and angle for the faces that crossed and the
+  edges they bound (an edge takes the finest tolerance of its faces); only what changed is
+  sampled or triangulated again.
+- A mesh holds at most `MAX_POINTS`, counted before insertion; more fails as `TooLarge`, which
+  export names as a body too fine for the resolution.

@@ -12,210 +12,127 @@ paths:
 
 - `extrude(plane, regions, LinearExtent, feature)` and `revolve(plane, regions, Axis2,
   AngularExtent, feature)` plan vertices, edges and faces, merge coincident vertices within a shell
-  (pinched regions), name every face and edge, group faces into shells by shared edges and emit
-  through `SolidBuilder`: valid or a `SweepError`.
-- Extrusion sides are planes, cylinders or extrusion surfaces; revolution sides are planes,
-  cylinders, cones, spheres, tori or revolution surfaces (splines, and arcs whose circle reaches the
-  axis, converted to rational splines). A circle reaches the axis when its gap to it is within the
-  revolve's tolerance, so a circle tangent to a slanted axis makes a horn torus with a pole, never a
-  `Torus` whose radii differ by rounding. Faces on extrusion and revolution surfaces get exact
-  straight pcurves; the rest are fitted.
-- The start cap is the one at the extent's start (the sketch plane for `one_side`) whichever way the
-  sweep runs, so flipping the direction keeps every name.
-- A `LinearExtent` runs between two `LinearBound`s: an offset along the sketch normal, or a
-  `Plane` where the profile, moved along the normal, meets it (`LinearExtent::between`). A plane
-  within half the resolution of level over the profile is an offset; otherwise its cap is tilted:
-  a line's edge is the line between its moved ends, a circle's the ellipse it maps to (the
-  parameter shifted onto the ellipse's major axis), a spline's the spline of its moved control
-  points, and a spline side keeps exact pcurves (its parameter, the height at it). Caps keep the
-  names they have at a distance, so switching an end between a distance and a plane renames
-  nothing.
-- Heights of an end over the profile are bounded exactly: line ends, a circle's extremes along
-  the plane's slope, a spline's control points. A plane along the direction is
-  `EndAlongDirection`, ends that meet or cross within the profile `EndsCross`, a height past
-  `MAX_SIZE` `TooLong`.
+  (pinched regions), name every face and edge, group faces into shells and emit through
+  `SolidBuilder`: valid or a `SweepError`. `build::plan::Plan` also builds boolean results, blend
+  corners and the shell's inner solid, with explicit pcurves.
+- A circle reaches the revolution axis when its gap is within the revolve's tolerance, so a circle
+  tangent to a slanted axis makes a horn torus with a pole, never a `Torus` whose radii differ by
+  rounding. Faces on extrusion and revolution surfaces get exact straight pcurves; the rest are
+  fitted.
+- The start cap is the one at the extent's start (the sketch plane for `one_side`) whichever way
+  the sweep runs, so flipping the direction keeps every name.
+- A `LinearBound` is an offset along the sketch normal or a `Plane` where the profile, moved along
+  the normal, meets it (`LinearExtent::between`). A plane level over the profile is an offset;
+  otherwise its cap is tilted (a line's edge the line between its moved ends, a circle's the
+  ellipse it maps to, a spline's the spline of its moved control points). Caps keep the names they
+  have at a distance, so switching an end between a distance and a plane renames nothing.
+- A plane along the direction is `EndAlongDirection`, ends that meet or cross within the profile
+  `EndsCross`, a height past `MAX_SIZE` `TooLong`.
 - A profile on the right of the revolution axis is revolved about the reversed axis. Lines on the
   axis become shared cap edges or nothing, endpoints on it poles; a full turn has no caps (holes
   become void shells).
-- A side's sense is probed at the point of its piece farthest from the axis among eight along it,
-  since a surface's normal is undefined where the piece touches the axis (a half disc tangent to
-  it at its middle).
-- The document converts a solved sketch to `ProfileCurve`s, keeps the chosen `RegionReference`s in
-  the feature (`kernel-profile.md`) and calls these with the feature id.
-- `build::plan::Plan` is also how booleans emit their result, with explicit pcurves.
-
-## Reaching faces (`build/reach.rs`)
-
 - `heights(plane, regions, target)` gives the least and most signed height of a target plane over
   the profile, which the document uses to tell a plane ahead from one behind or across.
-- `next_face(solid, plane, regions, reversed)` finds where the profile first meets the solid along
-  the direction: rays from the centroids of each region's triangles, subdivided in proportion to
-  area (about 256 in all, at most 1024), each to its first crossing past four resolutions
-  (`SolidClassifier::first_crossing`). Rays that stay undecided are skipped; none decided is
-  `Undecided`, every one missing `Nothing`, some `Partly`. The faces met are grouped by plane
-  (coplanar fragments are one face): several groups are `SeveralFaces`, one curved face
-  `Curved`, else the face's plane with its outward normal and whether the rays enter the solid
-  there.
+- `next_face(solid, plane, regions, reversed)` casts rays from the regions' triangle centroids
+  (about `RAY_SAMPLES`, spread by area) to the first crossing and groups the faces met by plane
+  (coplanar fragments are one face): several groups are `SeveralFaces`, one curved face `Curved`,
+  else the plane with its outward normal and whether the rays enter. Undecided rays are skipped;
+  none decided is `Undecided`, every ray missing `Nothing`, some `Partly`.
 
 # Booleans (`boolean/`)
 
-- `boolean(first, second, BooleanOperation)` for union, difference and intersection: valid or a
-  `BooleanError`, never a bad solid.
-
-## Imprinting
-
-- Vertices within `LINEAR_RESOLUTION` are pooled, indexed by a grid of 256 cells across both solids
-  and looked up along a curve piece by piece: both solids' vertices, edge–face hits inside or on the
-  face, the ends of an edge lying in a face's surface and its crossings with that face's edges, and
-  face pairs' tangent points.
-- Each edge is split at the other solid's pooled vertices on it (the ends of a piece shorter than
-  the resolution become one vertex), each face–face branch at every pooled vertex on it. A branch piece
-  is kept where its midpoint is strictly inside both faces; an edge piece lying in a face of the
-  other solid and inside it is a cut in that face.
-- Pieces with the same end vertices and geometry are one edge, so an intersection along an existing
-  edge and coincident faces need no special case.
-- Edge–face and face–face candidates come from a tree of face boxes (`box_tree.rs`, also used by
-  `Solid::find_crossing`).
-
-## Face tracing
-
-- A face with no cuts whose edges are all unsplit passes through with its own loops and pcurves
-  (refitted only on an edge merged with one of the other solid).
-- Otherwise it is traced into loops from its boundary pieces (hinted by the original pcurves) and
-  its cuts (both ways, dangling ones pruned). At each vertex the next edge is the first clockwise
-  from the arriving one about the outward normal (at a pole, the mean normal of a ring around it, so
-  rulings through a cone apex are ordered by azimuth); ties and cusps (tangents within 1e-5 rad, the
-  noise of intersection tangents) are decided by chords at a common distance.
-- Loops are fitted in the face's chart: a run of cuts leaving a pole is shifted by whole periods to
-  meet the next boundary edge, pcurve ends are snapped to their vertices, and a hole goes to the
-  smallest outer loop containing a point of it not on that loop, among the outer loops whose uv
-  boxes (in a `box_tree.rs` tree) meet the hole's at some periodic shift, each tested through a
-  `PolygonIndex` built on first use.
-
-## Classification and selection
-
-- Each fragment is classified against the other solid at up to three interior points (inside or
-  outside wins over coincident or touching; inside and outside together, or coincident samples of
-  opposite senses, are `Ambiguous`) and kept by the operation.
-- Faces that passed through share one class across unsplit edges that no cut or other piece shares;
-  one whose box misses the other solid's is outside.
-- Of coincident faces only the first solid's fragment can stay: with the same orientation for union
-  and intersection, the opposite for difference. A difference reverses the second solid's kept
-  fragments.
-- Every result edge then has one use each way, else `Open`, or `NonManifold` when solids would meet
-  only along an edge.
-
-## Healing and names
-
-- Adjacent faces on the same surface with the same orientation are merged by retracing them without
-  the edges between them (left apart when that fails, as for a ring around a periodic surface).
-- Two edges meeting at a vertex between the same faces, not at a pole of either, are joined when
-  they are pieces of one curve, collinear lines or arcs of one circle.
-- Faces keep their names and origins (fragments of a split face share its name), pieces keep their
-  edge's name and new edges are named `between` their two faces, before the plan disambiguates
-  duplicates.
+- `boolean(first, second, BooleanOperation)`: valid or a `BooleanError`, never a bad solid
+  (`Empty` when nothing is left). Phases: `imprint.rs`, `faces.rs`, `select.rs`, `heal.rs`,
+  `assemble.rs`. Candidates come from a tree of face boxes (`box_tree.rs`, also used by
+  `find_crossing`).
+- Imprint: vertices within `LINEAR_RESOLUTION` are pooled; every edge and face–face branch is split
+  at the pooled vertices on it. Pieces with the same end vertices and geometry are one edge, so an
+  intersection along an existing edge and coincident faces need no special case.
+- Face tracing: a face with no cuts and no split edges passes through with its own loops and
+  pcurves. Otherwise it is traced into loops from its boundary pieces and cuts; at each vertex the
+  next edge is the first clockwise from the arriving one about the outward normal (at a pole, the
+  mean normal of a ring around it); ties and cusps (`ANGLE_TIE`, the noise of intersection
+  tangents) are decided by chords at a common distance.
+- Selection: each fragment is classified against the other solid at up to `INTERIOR_POINTS`
+  interior points (inside or outside wins over coincident or touching; inside and outside
+  together, or coincident samples of opposite senses, are `Ambiguous`). Faces that passed through
+  share one class across unsplit edges that no cut shares; one whose box misses the other solid's
+  is outside. Of coincident faces only the first solid's fragment can stay: with the same
+  orientation for union and intersection, the opposite for difference. A difference reverses the
+  second solid's kept fragments. Every result edge must then have one use each way, else `Open`,
+  or `NonManifold` when solids would meet only along an edge.
+- Healing: adjacent faces on the same surface with the same orientation are merged by retracing
+  without the edges between them (left apart when that fails, as for a ring around a periodic
+  surface); two edges meeting between the same faces, not at a pole, are joined when they are
+  pieces of one curve. Names: `kernel-naming.md`.
 
 # Blends (`blend/`)
 
 - `blend(solid, edges, BlendShape, feature)` rounds (`Fillet`) or bevels (`Chamfer`) edges by
-  sweeping a tool per edge: valid or a `BlendError` naming the edge. A failing tool's profile,
-  sweep or boolean (`Profile`, `Sweep`, `Boolean`) carries the edge it was built for, except when
-  the failing step is the pairwise union of tools or a corner's, which name none.
-- Chosen edges first grow along tangent-continuous chains (`blend_chain`); smooth edges are dropped.
-  Tools are united pairwise in rounds (a pair that cannot be united, such as tools meeting only
-  along an edge, stays apart) and each group is applied in one boolean, or tool by tool when that
-  fails.
+  sweeping a tool per edge: valid or a `BlendError` naming the edge. A failing tool's `Profile`,
+  `Sweep` or `Boolean` carries the edge it was built for, except when the failing step is the
+  pairwise union of tools or a corner's, which name none.
+- Chosen edges grow along tangent-continuous chains (`blend_chain`); smooth edges are dropped, and
+  only when every chosen edge is smooth is it `Smooth`. Tools are united pairwise in rounds (a
+  pair that cannot be united stays apart) and each group is applied in one boolean, or tool by tool
+  when that fails.
 - Supported: straight edges whose faces run along them (planes, parallel cylinders), swept by
-  extrusion; circles whose faces share their axis (planes, cylinders, cones, spheres, tori), swept
-  by revolution.
-- The blend must fit on both faces at a quarter, half and three quarters of the edge, and its foot
-  on each face (the line or circle it runs along) must cross no edge of that face other than seams
-  and the edges at the blended edge's ends, so a hole or notch between the samples refuses it as
-  `TooLarge`. Feet of two blends on one face must not cross (`feet.rs`): the strip between each
-  blended edge and its foot may contain no sampled point of another's foot, except for edges
-  sharing a vertex, whose strips meet at the corner; otherwise `TooLarge` (rims 5.5 on a cylinder
-  10 tall). An edge between faces with opposite normals (a knife edge) is `TooLarge`, and only
-  faces with equal normals make an edge `Smooth`. The cross-section is solved in 2D (`section.rs`:
-  the fillet circle from the offset curves, chamfer points at equal distance).
+  extrusion; circles whose faces share their axis, swept by revolution; else `Unsupported`.
+- `TooLarge` covers a blend that does not fit on both faces at sampled points along the edge, whose
+  foot on a face crosses an edge of that face (other than seams and edges at the blended edge's
+  ends), whose foot crosses another blend's on that face (`feet.rs`; edges sharing a vertex
+  excepted), and a knife edge (faces with opposite normals).
 - Convex tools are lifted clear of the faces they cut and subtracted; concave ones are flush and
   added. All concave edges go first, then the convex ones are re-found by reference in the filled
-  solid (one not found fails as `Lost`; errors about unchosen edges of the filled solid come back as
-  `AfterFill` without an id).
-- Ends continuing into another chosen edge stop flush; ends on a face perpendicular to the edge stop
-  there; ends on a slanted face extend past it when the extension lies where the operation changes
-  nothing, else are clipped by the face's plane. A circular edge whose extended sweep would pass a
-  full turn is refused as `WrapsAround`.
+  solid (one not found fails as `Lost`; errors about unchosen edges of the filled solid come back
+  as `AfterFill` without an id).
+- Ends continuing into another chosen edge stop flush, ends on a perpendicular face stop there,
+  ends on a slanted face extend past it when the extension lies where the operation changes
+  nothing, else are clipped by its plane. A circular edge whose extended sweep would pass a full
+  turn is `WrapsAround`.
 - Three convex straight edges filleted at a vertex of three planes get a spherical corner
-  (`corner.rs`: a hexahedron minus the rolling ball, built through `Plan`); other corners mitre.
-- Faces are `FaceName::blend(feature, edge)` and `corner(feature, vertex)`, with
-  `FaceOrigin::Fillet` or `Chamfer`.
+  (`corner.rs`: a hexahedron minus the rolling ball); other corners mitre.
 
 # Patterns (`pattern/`)
 
-- `pattern(solid, copies, feature)` places a copy of the solid for each `PatternCopy` (an index
-  `[column, row]` and a `RigidTransform`) and unions the original with every copy: valid or a
-  `PatternError` (`Placement`, `Union` carrying the boolean's error, `Cancelled`).
+- `pattern(solid, copies, feature)` places a copy for each `PatternCopy` (an index `[column, row]`
+  and a `RigidTransform`) and unions the original with every copy: valid or a `PatternError`.
 - Copies are unioned in pairs, round by round, so n copies take about log n rounds of booleans on
   neighbours rather than n booleans against an ever larger body; copies that do not touch stay
   separate lumps of one body, and coincident faces of touching copies merge by healing.
-- A copy's faces are renamed `FaceName::pattern(feature, index, original)` and given the origin
-  `FaceOrigin::Copy` of the original's (`Solid::with_face_origins`, `kernel-naming.md`); its edges
-  are named again from those faces (`Solid::with_face_names`, like imports). The original keeps
-  every name and origin.
+- Copies are renamed and given `FaceOrigin::Copy` (`kernel-naming.md`); the original keeps every
+  name and origin.
 
 # Shell (`shell/`)
 
 - `shell(solid, open, thickness, feature)` offsets every face by the thickness and subtracts the
-  result. Offsets are exact planes, cylinders, spheres, tori and cones; a cone whose offset passes
-  the apex at its reference circle is framed again beyond the apex, on the same nappe.
-- `inner.rs` solves each vertex by minimal-norm Newton on the offset surfaces of its faces. A
-  vertex its faces leave free (fewer than three independent normals) is also held to the axial
-  plane through any round seam at it, so both ends of a seam stay on one ruling; a vertex at a
-  surface's pole, or where a disk closes into a cone's tip, goes to the offset surface's pole.
-- `edge.rs` rebuilds a line or circle edge through its offset ends when that lies on both offset
-  surfaces; any other edge (an ellipse where a slanted face cuts a round one, an intersection
-  curve where a hole crosses a cone, a line or circle whose offset is neither) is the branch of
-  the two offset surfaces' intersection through both ends, over windows around the original edge
-  grown by three thicknesses, taken the way the original runs. An open edge whose ends pass each
-  other (along a line, round a circle, or along the curve's parameter) shrinks to nothing.
+  result. Only flat faces open. Offsets are exact planes, cylinders, spheres, tori and cones (a
+  cone offset past its apex is framed again on the same nappe).
+- `inner.rs` solves each vertex on the offset surfaces of its faces; a vertex its faces leave free
+  is also held to the axial plane through any round seam at it, so both ends of a seam stay on one
+  ruling. `edge.rs` rebuilds a line or circle edge through its offset ends when that lies on both
+  offset surfaces, else takes the branch of the offset surfaces' intersection through both ends;
+  an open edge whose ends pass each other shrinks to nothing.
 - The topology is kept except where the offset changes it (`collapse.rs`):
-  - a cylinder, sphere or torus curving more tightly than the thickness is dropped: every edge on
-    it but the lines along its axis and the circles around its spine vanishes;
-  - a flat face bounded only by circles of one cone is dropped when the cone's offset tip passes
-    the face's offset; its vertex becomes that tip;
-  - a face with one loop shrinks away when all its offset edges shrink to nothing (a corner facet
-    closing into a point) or all but two apart from each other (a chamfer, a narrow top or a cone
-    band closing into a ridge). Found from the solved vertices, then everything is solved again
-    without it, round after round until no face shrinks.
-  - Vanishing edges merge their vertices, placed on every surviving face around them; the two
-    edges beside a dropped face become one between the faces beyond them. A merged vertex must
-    lie strictly inside the offset of each face that shrank away there, and beyond an opened face
-    offset outward, so the cavity still opens through it; otherwise the edge shrinking to nothing
-    is reported.
-  - A vertex of four to eight faces whose offsets do not meet is split along a triangulation of
-    its cycle of faces (`split.rs`), each diagonal a line between its two faces, when its edges
-    are all convex (every corner inside every other offset), all concave (outside), or convex but
-    for one concave edge, as where a ridge meets an inside corner: that edge's faces are one
-    union intersected with the rest, so a corner holding one of them lies outside the other, a
-    corner holding neither lies inside at least one, and every corner lies inside the rest.
-- Only flat faces open. An opened face with no smooth edge to a closed face is offset outward, so
-  the inner solid passes through it and the body needs room only across its walls; this attempt
-  counts only when every closed face's inner face, dropped ones aside, survives the subtraction.
-- A face of a void (a shell of negative meshed volume, `Solid::void_shells`) is never offset
-  outward: its opening is a prism of its own outline reaching the thickness into the material, so
-  the walls beside it run down to the cavity.
+  - a cylinder, sphere or torus curving more tightly than the thickness, a flat face bounded only
+    by circles of one cone whose offset tip passes the face's offset, and a one-loop face whose
+    offset edges all shrink to nothing or all but two apart from each other (a chamfer, a narrow
+    top, a cone band closing into a ridge) are dropped; shrinking faces are found from the solved
+    vertices, then everything is solved again without them, round after round;
+  - vanishing edges merge their vertices; a merged vertex must lie strictly inside the offset of
+    each face that shrank away there, and beyond an opened face offset outward, so the cavity still
+    opens through it, else the edge shrinking to nothing is reported;
+  - a vertex of four to `MAX_SPLIT_FACES` faces whose offsets do not meet is split along a
+    triangulation of its cycle of faces (`split.rs`) when its edges are all convex, all concave, or
+    convex but for one concave edge; other corners are `Corner`.
+- An opened face with no smooth edge to a closed face is offset outward, so the inner solid passes
+  through it and the body needs room only across its walls; the attempt counts only when every
+  closed face's inner face, dropped ones aside, survives the subtraction. A face of a void
+  (`Solid::void_shells`) is never offset outward: its opening is a prism of its own outline
+  reaching the thickness into the material.
 - Otherwise (or when that fails) every face is offset inward and a prism swept outward from the
   offset copy of each opened face is unioned before subtracting, which needs the thickness below
   half the body in every direction.
-- Inner faces are `FaceName::shell(feature, original)` with `FaceOrigin::Shell`.
-- Failures are told apart: a face curving more tightly than the thickness that cannot be dropped
-  (`TooCurved`), a corner whose walls cannot meet (`Corner`: its offsets do not meet and it cannot
-  be split, as where convex and concave edges alternate or one convex edge meets concave ones, the
-  offset there joining faces or giving an edge another pair of faces), an edge whose wall shrinks
-  to nothing or a face that shrinks away but cannot be closed over (`EdgeCollapses`), an edge
-  whose offset surfaces do not meet through its ends (`UnsupportedEdge`), an opening that cannot
-  be cut, walls that cross (`Walls`, naming the face or edge it found them at when it knows), a body that cannot be meshed to find its voids (`Voids`) and
-  a thickness too large for the body. When the outward attempt only fails to keep every wall and
-  the inward one fails with an error that names its cause (not `EdgeCollapses` or a `Walls` with
-  no face or edge), that
-  error is reported instead of `TooThick`.
+- When the outward attempt only fails to keep every wall and the inward one fails with an error
+  that names its cause (`ShellError::names_the_cause`), that error is reported instead of
+  `TooThick`.

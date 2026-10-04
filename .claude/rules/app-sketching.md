@@ -26,303 +26,193 @@ paths:
 
 ## Editing context
 
-- A context, not a mode: `editing.rs` holds the edited sketch and active `Tool`, changed by
-  `Action::Editing` commands that `app::perform` routes after the UI pass; it ends by itself when
-  the sketch disappears or another document is opened. The viewport watches it.
-- Entering faces the camera to the plane and fits it, moves the grid there, makes the origin and
-  axes pickable, dims other features (unpickable) and keeps only that sketch selected.
-- The edited sketch, its origin and axes and the drawing preview go on `Layer::Front` (`render.md`),
-  so a body never hides or z-fights with them: a sketch on a face, inside or behind a body draws
-  and picks over it with its hover and selection highlights, while the dimmed body stays in view
-  for context. Other sketches, bodies and datum geometry stay on their usual layers.
+- A context, not a mode: `editing.rs` holds the edited sketch and the active `Tool`, changed by
+  `Action::Editing` commands that `app::perform` routes after the UI pass. It ends by itself when
+  the sketch disappears or another document opens.
+- Entering faces the camera to the plane, fits it, dims other features (unpickable) and keeps only
+  that sketch selected.
+- The edited sketch, its origin and axes and the drawing preview go on `Layer::Front`
+  (`render.md`), so a body never hides or z-fights with them wherever the sketch lies.
 - Clicks and primary drags select with the Select tool; a drawing tool (`Tool::draws`) draws, and
-  the modify tools (`Tool::modifies`: Trim and Extend, `Tool::trims`; Offset, Mirror and Sketch
-  fillet, `Tool::reshapes`) act on what is under the pointer. Escape backs out one step at a time:
-  a drag, trim path or pull in progress, plane choice, shape in progress, keyboard highlight, a
-  modify tool's highlighted target or chosen corner, tool, selection, then editing.
+  the modify tools (`Tool::modifies`) act on what is under the pointer. Escape backs out one step
+  at a time in the order of `ViewportState::escape`.
+- Default keys come from `Command::default_shortcuts`, not from here.
 
 ## Dragging and box selection
 
-- `sketch_drag.rs` and `drag_solver.rs`.
-
-- With Select, a primary drag starting on a non-reference entity of the edited sketch (the press's
-  hover, once its pick arrived) is a `Grab`: a point, line, arc or spline moves its points by the
-  pointer's offset; a circle alone changes radius; a selected grabbed entity moves all selected
-  entities' points.
-- Each frame the pointer moves sends `Action::Drag(DragCommand::Move)` with the `Drag`s;
-  `SketchDragging` (in `Display`, owned by `Model`) gives the newest to its own worker thread, which
-  drops older unstarted ones and solves each from the previous solution of the same drag (the first
-  from the displayed sketch) with `solve_from` and its memo, and hands it back to be shown
-  (`DisplayedSketches::show_dragged`, which every consumer of a displayed sketch sees).
-- `Finish` (release) waits for the last solution and commits one `settle_sketch` transaction `Drag
-  <what>` (nothing if unchanged; a notice if unsolved); the dragged shape stays until an evaluation
-  of that revision reaches the sketch, so it never jumps back. Escape (`Cancel`), another edit or
-  document, or a drag begun on an older revision drops it and shows the sketch as it was.
-- A primary drag elsewhere draws a box: left to right a window taking the points and curves whose
-  outline (faceted as drawn, `app.md`) lies inside, right to left a crossing box taking what it
-  touches; it replaces the selection (Shift or Ctrl adds to it); a point is left out when a curve
-  it belongs to was taken.
-- When the drag worker cannot solve its newest frame (`Polled::blocked`, kept as
-  `Model::drag_blocked` until a frame solves, the drag ends or is abandoned), the viewport says "The
-  constraints do not allow it there" beside the pointer in the warning colour, a polite live
-  region; the geometry stays where the last good frame put it.
-- Move selected sketch geometry (M) opens the typed-point field (`app-input.md`) as "Move to": the
-  first selected point goes there (`@` offsets from it), the rest follows, committed like a drag
-  (`Move <what>`), solved like a drag. Select all sketch geometry (Ctrl+A) selects what a box around
-  everything would. The sketch ribbon's Move and Select all buttons trigger these commands, which
-  the viewport carries out; both share their availability through `Moving::offered` and
-  `sketch_drag::can_select_all`/`select_all`.
-- Double-clicking a curve in a sketch (no tool active) selects its chain, the lines and arcs joined
-  end to end that Offset would take (`Sketch::offset_chain_through`, stopping where three ends
-  meet); a curve with no neighbour keeps the ordinary single selection.
+- With Select, a primary drag starting on a non-reference entity of the edited sketch is a `Grab`:
+  a point, line, arc or spline moves its points by the pointer's offset, a circle alone changes
+  radius, and a selected grabbed entity moves every selected entity.
+- Each pointer move sends `DragCommand::Move`; `SketchDragging` (in `Display`) gives the newest to
+  its own worker thread, which drops older unstarted ones and solves each from the previous
+  solution of the same drag with `solve_from`. Results are shown through
+  `DisplayedSketches::show_dragged`, which every consumer of a displayed sketch sees.
+- Release commits one `settle_sketch` transaction and the dragged shape stays until an evaluation
+  of that revision reaches the sketch, so it never jumps back. Escape, another edit or document,
+  or a drag begun on an older revision drops it.
+- When the worker cannot solve its newest frame (`Polled::blocked`, `Model::drag_blocked`), the
+  viewport says `DRAG_BLOCKED` beside the pointer as a polite live region and the geometry stays
+  where the last good frame put it.
+- A primary drag elsewhere draws a box: left to right a window taking what lies inside (curves
+  faceted as drawn, `app.md`), right to left a crossing box taking what it touches. It replaces
+  the selection (Shift or Ctrl adds); a point is left out when a curve it belongs to was taken.
+- Move selected geometry opens the typed-point field (`app-input.md`) as "Move to", committed and
+  solved like a drag; button and command share availability (`Moving::offered`).
+- Double-clicking a curve (no tool active) selects its chain, the lines and arcs joined end to end
+  that Offset would take (`Sketch::offset_chain_through`).
 
 ## Drawing tools
 
-- `drawing.rs` (point, line, rectangle, circle, arc, three-point arc, tangent arc, slot, polygon,
-  spline), geometry in `shapes.rs`; clicked points, hover and arc sweep are viewport UI state; each
-  finished shape is one transaction (`Draw line`, …, `Draw arc slot`, `Draw hexagon` for a
-  polygon), settled first like any sketch transaction; inferred constraints are checked with
-  `Sketch::check_constraint` on a shadow sketch and skipped if refused. The drawing is keyed by a
-  `Shape`, the tool with its way of drawing, so changing either drops a shape in progress.
-- A shape with no size gets a `Refusal` (notice for a click, field error for a typed point): flat
-  rectangle; line, circle or arc ending where it starts; slot without width; three collinear points;
-  tangent arc without a curve to continue, or ending on its line; a first side, diameter or
-  polygon side of no length; a rectangle on its first side's line; an arc slot as wide as its
-  radius or with round ends that would meet.
-- Keys: P, L, R, C, A, T (tangent arc), U (slot), G (polygon), S (spline), Alt+A (three-point arc).
+- `drawing.rs` holds the tools' state and `shapes.rs` their geometry. The drawing is keyed by a
+  `Shape` (tool plus way of drawing), so changing either drops a shape in progress. Each finished
+  shape is one transaction, settled first like any sketch transaction; inferred constraints are
+  checked with `Sketch::check_constraint` on a shadow sketch and skipped if refused.
+- A shape with no size gets a `Refusal` (a notice for a click, the field error for a typed point).
 - A press that drags or is held too long to be a click still places a point where it is released,
-  since egui reports it as a drag (`Viewport::click`). When nothing of the shape is placed yet and
-  the release is at least `DRAG_DRAWS_FROM_PRESS` (12 points) from the press, the press position
-  is placed first, as if it had been clicked (`place_press_point`, which hovers the press cursor
-  for its snap and restores the current one), so one press-drag-release draws a line, rectangle or
-  circle; a shorter drag, or one made with part of a shape placed, places only the release.
-- While one point of a line, a rectangle (corners or centre) or a circle (centre and rim, or
-  diameter) is placed, the size so far shows below the snap label (`Drawing::readout`, in the
-  length unit: a line's length and angle from X, a rectangle's width × height, a circle's R or Ø).
-- Holding Ctrl while drawing places the point exactly under the pointer, with no snapping to points,
-  curves or crossings and no alignment guides (`Drawing::place_freely`, set each frame from the
-  modifiers); the prompt's keys say so. It also stops a tangent arc from starting, since that needs
-  a snapped point.
-- The pointer is on the sketch only within `MAX_LENGTH` of the origin, like a typed point, so an
-  edge-on view cannot place a point at an enormous distance.
-
-- Lines chain, each joined to the last end by `Coincident`, until Escape, a click on the last point,
-  or a line ending on the chain's first point (or the point it snapped to), closing the outline.
-  Splines finish on Enter or a click on the last control point.
-  - Each line or tangent arc that continues a chain records the anchor it started from
-    (`ChainStep`, with its tangent and the label of its change). Backspace undoes the last segment
-    when it is the newest undo step, and when the anchor's point is gone from the sketch (that
-    undo, Ctrl+Z, or a deletion) the chain steps back to the newest anchor still there rather than
-    ending; with no recorded segment Backspace removes the anchor, ending the chain.
-- Arc: runs the way the pointer swept round its centre; a typed end goes the shorter way
-  (counter-clockwise at exactly half a turn, `Sweep::aim`); Reverse the arc (X, a sketch command
-  offered once centre and start exist, named in the prompt) sends either the other way. Its end is
-  projected onto the circle through its start, keeping its snap only if the target lies on that
-  circle (a typed end on a point off it lands free).
-- Three-point arc: start, through, end; the third takes only points, kept on it.
-- Tangent arc: starts on a point ending a line, arc or spline (the newest if several, named in the
-  snap label as "Continue …"), leaves along that curve's direction with a `Tangent`, chains like
-  lines, each arc tangent to the one before.
-- Slot (its first way): two centres (the second aligns like a line end) and a never-snapping
-  width point; two semicircular arcs and two lines joined by `Coincident`, lines `Tangent` to both
-  arcs, arcs `Equal`; five degrees of freedom.
-- Polygon (its first way): centre and first corner; sides joined corner to corner, corners on a
-  construction circle about the centre, sides `Equal` to the first; four degrees of freedom. 3 to
-  64 sides, six at first, kept until another document opens; `]` (another side) and `[` (one
-  fewer) change it, offered only with the Polygon tool (in any of its ways) and named in its
-  prompt.
+  since egui reports it as a drag (`ViewportState::click`). When nothing of the shape is placed
+  yet and the release is at least `DRAG_DRAWS_FROM_PRESS` from the press, the press position is
+  placed first (`place_press_point`), so one press-drag-release draws a line, rectangle or circle.
+- A line, rectangle or circle shows its size so far below the snap label (`Drawing::readout`).
+- Holding Ctrl places the point exactly under the pointer: no snapping and no alignment guides
+  (`Drawing::place_freely`). It also stops a tangent arc from starting, which needs a snapped
+  point.
+- The pointer is on the sketch only within `MAX_LENGTH` of the origin, so an edge-on view cannot
+  place a point at an enormous distance.
+- Lines chain, each joined to the last end by `Coincident`, until Escape, a click on the last
+  point, or a line closing the outline on the chain's first point. Splines finish on Enter or a
+  click on the last control point. Each continuing segment records its anchor (`ChainStep`);
+  Backspace undoes the last segment when it is the newest undo step, and when the anchor's point
+  is gone (undo, a deletion) the chain steps back to the newest anchor still there rather than
+  ending.
+- An arc runs the way the pointer swept round its centre; a typed end goes the shorter way
+  (`Sweep::aim`), and Reverse the arc sends either the other way. The end is projected onto the
+  circle through the start and keeps its snap only if the target lies on that circle.
+- A tangent arc starts on a point ending a line, arc or spline (the newest if several) and leaves
+  along that curve's direction with a `Tangent`.
+- What a placed point may snap to is `Drawing::accept` (points only where a curve would add no
+  constraint); width points of slots and three-point rectangles never snap. Per-shape constraints
+  and degrees of freedom are in `shapes.rs` and its tests, not here.
+- The polygon side count (`MIN_SIDES` to `MAX_SIDES`) is kept until another document opens
+  (`ViewportState::forget_document`); More sides and Fewer sides are offered only with the Polygon
+  tool.
 
 ## Ways of drawing a shape
 
-- `shape_modes.rs`. Rectangle, circle, polygon and slot each keep one tool with three ways of
-  drawing (`ShapeMode`), a switch within the tool like the polygon's side count, rather than a tool
-  and key per way: the ribbon and keymap stay small and a shape is always found under its one key.
-  Arcs stay three tools (Arc, 3-point arc, Tangent arc), each with its own key and command, grouped
-  on the ribbon under one Arc button whose corner menu chooses among them (`app-look.md`).
-- Pressing the tool's key (running its command) while that tool is active steps to its next way,
-  round to the first; clicking its ribbon button only chooses the tool. Every way is also its own
-  sketch command (`Command::ShapeMode`, `sketch.<shape>.<way>`, no default key, bindable in the
-  shortcut editor), offered in the palette, the corner menu on the shape's ribbon button
-  (`sketch_toolbar::modes_label`, `app-look.md`) and Sketch › Ways to draw shapes.
-  `EditingCommand::SetMode` records the way and chooses the tool.
+- Rectangle, circle, polygon and slot each keep one tool with several ways of drawing
+  (`ShapeMode`), a switch within the tool rather than a tool and key per way, so the ribbon and
+  keymap stay small and a shape is always found under its one key. Arcs stay separate tools,
+  grouped on the ribbon under one Arc button (`app-look.md`).
+- Running the tool's command while it is active steps to its next way, round to the first;
+  clicking its ribbon button only chooses the tool. Every way is also its own command
+  (`Command::ShapeMode`, id `sketch.<shape>.<way>`, no default key), offered in the palette, the
+  button's corner menu and Sketch › Ways to draw shapes.
 - `SketchEditing` remembers the last way per shape (`ShapeModes`) while caditor runs, across
   sketches and documents; it is not a preference, as no tool state is. The prompt's key line leads
-  with the way in use and what the key does next ("Rectangle from its centre   R: from three
-  points"), and the button's tooltip is that way's description with the same key hint.
-- Rectangle from its centre: the centre, then a corner; the two-corner rectangle's lines and
-  constraints plus the centre point with opposite corners `Symmetric` about it; four degrees of
-  freedom.
-- Rectangle from three points: the two ends of its first side (the second aligns like a line
-  end) and a never-snapping width point; four joined lines, the second `Perpendicular` to the
-  first, each `Parallel` to the one opposite; five degrees of freedom, four when the side aligned.
-- Circle through two points: the ends of a diameter, taking points only; an ordinary circle with a
-  snapped end on it, or with both ends on points, the first on it and the centre between them by
-  `Symmetric`.
-- Circle through three points, taking points only: an ordinary circle with each snapped point on
-  it.
-- Polygon from its centre and a side's middle, which takes points only and stays there by
-  `Midpoint`: the corner polygon's construction, plus a construction circle inside it on the same
-  centre point, `Tangent` to the first side, so a diameter on it sets the size across flats; four
-  degrees of freedom.
-- Polygon from one side: its two ends (the second aligns like a line end); the polygon lies to the
-  left of first to second, with the corner polygon's construction and centre.
-- Slot from its centre: the centre, one end's centre (aligning like a line end), the width; the
-  two-end slot plus the centre point with the end centres `Symmetric` about it; five degrees of
-  freedom.
-- Arc slot: the arc's centre, then the centres of its two ends, the second swept round the centre
-  like an arc's end (projected onto its circle, reversible with X), then a never-snapping width
-  point; two arcs on one centre point joined by two round ends, each end `Tangent` to both (which
-  holds the ends equal, so no `Equal` is added); six degrees of freedom.
+  with the way in use and what the key does next.
 
 ## Construction geometry
 
-- Construction (Q, `Command::Construction`) makes the selected curves construction in one
-  transaction (`sketch_tools::ConstructionChange`), ordinary when all already are; with no curve
-  selected it switches drawing (`ActiveSketch::construction`): new curves are construction, points
-  stay points (the button shows pressed). Construction curves and the preview while drawing them are
-  dashed (`scene::curve_segments`), coloured by constraint state like any curve. Its button leads the
-  ribbon's Modify group, after the drawing tools.
+- Construction makes the selected curves construction in one transaction
+  (`sketch_tools::ConstructionChange`), ordinary when all already are; with no curve selected it
+  switches drawing (`ActiveSketch::construction`): new curves are construction, points stay
+  points. Construction curves are dashed (`scene::curve_segments`) and coloured by constraint
+  state like any curve.
 
-## Trim and extend
+## Trim, extend, offset, mirror and sketch fillet
 
-- `trimming.rs` holds the tool's UI state; the geometry and constraint rules are the sketch's
-  (`sketch.md`). Each frame the curve under the pointer (nearest within the curve snap distance on
-  screen, splines included so they can be refused in words) is aimed at through the displayed
-  sketch: Trim's piece, drawn over the curve in a red preview with its cut points and its cutters
-  highlighted; Extend's reach from the nearer end, previewed with a marker on its target, which is
-  highlighted. The aim's words ("Trim Line 3 back to Line 5 and Circle 2", "Extend Line 3 to
-  Arc 4", or why not) stand where hover descriptions go; the prompt names the keys.
-- A click acts at once, without waiting for a GPU pick: one transaction `Trim <curve>` or
-  `Extend <curve>` built by `reshape_sketch` from a working copy (the definition with the displayed
-  positions) to the trimmed copy, settled first like any sketch transaction; a refusal is a notice
-  (`Trim: …`, `Extend: …`). The tool stays active.
-- With Trim, a primary drag is a trim path: every piece of a line, circle or arc the pointer's path
-  crosses is collected (shown red) and on release trimmed in turn, in crossing order, as one
-  transaction (`Trim 3 pieces`); each is found again by its middle, on whichever curve now carries
-  it after earlier splits. Escape drops the path. Extend ignores drags.
-- Keyboard: Trim (K) and Extend (J) are sketch tools with palette commands and compact buttons after
-  Construction in the ribbon's Modify group. While either is active, N and Shift+N step through its
-  targets instead of the scene's pickables (every piece of every line, circle and arc; every line
-  or arc end that can reach something), and Enter or Space acts on the highlighted target, or on
-  the one under the pointer.
-
-## Offset, mirror and sketch fillet
-
-- `modifying.rs` is one facade over the three tools' UI state (`offsetting.rs`, `mirroring.rs`,
-  `filleting.rs`), which the viewport calls where it calls `Trimming`; the geometry and constraint
-  rules are the sketch's (`sketch.md`). Each frame it syncs with the active tool, the displayed
-  sketch and the selection, aims through the displayed sketch, draws its result as a preview curve
-  and puts its words ("Offset 4 curves by 5 mm", "Mirror 3 items about Line 5", "Round the corner
-  of Line 2 and Line 5 with a radius of 4 mm", or why not) where hover descriptions go. A commit
-  is one transaction (`Offset curves`, `Mirror geometry`, `Fillet corner`) built by
-  `reshape_sketch` from the working copy like Trim's; a refusal is a notice (`Offset: …`) or, for
-  a typed value, the field's error. The tool stays active.
-- Offset (W) works on the selected chain; with none (or one that cannot be offset), a click on a
-  curve selects its chain (`offset_chain_through`, stopping where three ends meet). The pointer's
-  side of the chain chooses the side and its distance from the chain the distance, previewed
-  live; a click, a primary drag's release or Enter commits it, dimensioned in the length unit.
-- Mirror (Y) copies the selection about the line or axis under the pointer (sketch lines win a
-  tie with an axis); with nothing selected its prompt asks for a selection first. N and Shift+N
-  step through the axes and every line, Space or Enter mirrors about the highlighted one.
-- Sketch fillet (B, "Sketch fillet", so it is not confused with the model's Fillet) first takes
-  its corner: a selected corner point or two selected curves meeting when the tool starts, else
-  the curve end under the pointer (`Sketch::corner_at`, refused in words when it is no corner),
-  clicked, or pressed and dragged from; N and Shift+N step through `fillet_corners` and Space or
-  Enter takes the highlighted one. Then the pointer sets the radius whose arc passes under it
-  (`radius_through`), and a click, a drag's release or Enter commits it; the chosen corner is
+- `trimming.rs` and `modifying.rs` (a facade over `offsetting.rs`, `mirroring.rs`, `filleting.rs`)
+  hold the tools' UI state; geometry and constraint rules are the sketch's (`sketch.md`). Each
+  frame the tool aims through the displayed sketch, previews the result and puts its words, or
+  why not, where hover descriptions go. Trim and Extend aim at splines too, so they can be refused
+  in words.
+- A click acts at once, without waiting for a GPU pick: one transaction built by `reshape_sketch`
+  from a working copy (the definition with the displayed positions), settled first like any sketch
+  transaction. A refusal is a notice, or for a typed value the field's error, and the tool stays
+  active.
+- Trim's primary drag is a trim path: every piece the path crosses is collected and trimmed on
+  release in crossing order as one transaction, each found again by its middle on whichever curve
+  now carries it after earlier splits. Extend ignores drags.
+- Offset works on the selected chain; with none, a click on a curve selects its chain. The
+  pointer's side and distance choose side and distance, previewed live. Mirror copies the
+  selection about the line or axis under the pointer (sketch lines win a tie with an axis) and
+  asks for a selection first.
+- Sketch fillet is named so, to keep it apart from the model's Fillet. It first takes a corner (a
+  selected one, else the curve end under the pointer, `Sketch::corner_at`, refused in words when
+  it is no corner); then the pointer sets the radius (`radius_through`). The chosen corner is
   cleared after each fillet.
 - Offset and Sketch fillet take a typed value in the typed-point field ("Offset by", "Fillet
-  radius"): typing a digit, sign, point or `(` opens it, the preview follows the text while it
-  parses, Enter commits the expression as typed (parameters included) and an error keeps the field
-  open with the reason. A negative offset goes to the other side of the pointer, or of the
-  default side (outside a closed chain, left of an open one) when there is no pointer, so the
-  keyboard alone does select, W, the distance, Enter.
-- Their compact buttons sit in the ribbon's Modify group: Sketch fillet after Extend, Offset and
-  Mirror leading the second row.
+  radius"): the preview follows the text while it parses, Enter commits the expression as typed
+  (parameters included) and an error keeps the field open. A negative offset goes to the other
+  side, so the keyboard alone does it: select, Offset, the distance, Enter.
+- With any of them active the highlight commands step through that tool's targets instead of the
+  scene's pickables (`app-input.md`), and Activate or Enter acts on the highlighted one.
 
 ## Snapping
 
-- `snap.rs` (UI thread, displayed sketch, screen space). Priority: the shape's pending point; points
-  and the origin within 8 logical pixels; lines, circles, arcs and axes within 6, projecting onto
-  the curve. A snapped point gets a `Coincident` with its target.
-- `Accept` keeps every snap shown a constraint that already holds: a circle's rim takes points only
-  (a rim on a curve would add no constraint); an arc's end, points on its circle and where it
-  crosses lines, circles, arcs and the axes.
+- `snap.rs` runs on the UI thread against the displayed sketch in screen space. Priority: the
+  shape's pending point; points and the origin within `POINT_TOLERANCE`; lines, circles, arcs and
+  axes within `CURVE_TOLERANCE`, projecting onto the curve. A snapped point gets a `Coincident`
+  with its target.
+- `Accept` keeps every shown snap a constraint that already holds: a circle's rim takes points
+  only (a rim on a curve would add no constraint); an arc's end takes points on its circle and
+  where it crosses other curves and the axes.
 - A line end (and the second point of either straight slot, of a three-point rectangle's first
-  side and of a polygon's side) within 3° or 6 pixels of a direction from its start
-  takes it exactly, with that constraint (`Snap::Aligned`). Horizontal and vertical win whenever
-  either applies, so a line within 3° of level is never inferred parallel to; otherwise parallel
-  or perpendicular to one of the six lines of the edited sketch (construction lines included)
-  nearest on screen to the pointer or the start (`drawing::guides`), the smallest offset winning,
-  a tie going to the nearer line. A line is never inferred parallel to a line through its start
-  point (that only continues it straight), though perpendicular to it, as to the chain's last
-  line, is offered. The label names the reference ("Parallel to Line 3").
+  side and of a polygon's side) within `ALIGN_ANGLE_DEGREES` or `ALIGN_TOLERANCE` of a direction
+  from its start takes it exactly (`Snap::Aligned`). Horizontal and vertical win whenever either
+  applies, so a line near level is never inferred parallel to; otherwise parallel or perpendicular
+  to one of the `NEARBY_LINES` lines of the edited sketch (construction lines included) nearest on
+  screen (`drawing::guides`), the smallest offset winning. A line is never inferred parallel to a
+  line through its start point (that only continues it), though perpendicular to it is offered.
 - Snapping to geometry wins over a direction, which joins it only where compatible
-  (`Snap::AlignedOn`, labelled "On Line 2, vertical"): a point snap keeps a direction that already
-  holds exactly (relative 1e-9), never moving the point; a curve snap moves to where the ray of an
-  applying direction crosses that curve, if within 12 pixels of the pointer. Typed points never
-  align.
-- The preview, snap marker and snap label are drawn from this state; the preview's curves are
-  faceted like the sketch's (`Drawing::preview` and `Trimming::preview` take the scene's
-  `Faceting`); the snap target and a direction's reference line (`Drawing::snap_entities`) replace
-  the GPU hover while a drawing tool is active, so the reference is highlighted.
+  (`Snap::AlignedOn`): a point snap keeps a direction that already holds (`HELD_TOLERANCE`) and
+  never moves the point; a curve snap moves to where the direction's ray crosses the curve, within
+  `ALIGNED_CROSSING_TOLERANCE` of the pointer. Typed points never align.
+- Preview curves are faceted like the sketch's (`Drawing::preview` and `Trimming::preview` take
+  the scene's `Faceting`); the snap target and a direction's reference line
+  (`Drawing::snap_entities`) replace the GPU hover while a drawing tool is active.
 
 ## Constraint tools
 
 - `sketch_tools.rs` turns the selection into candidates checked by `Sketch::check_constraint`;
-  `sketch_toolbar.rs` offers them as compact buttons, geometric then dimensional
-  (`app-look.md`), and commands (Shift+letter by default), disabled with what to select.
-- Parallel, equal, collinear, concentric and horizontal or vertical points chain every selected item
-  to the first in one transaction. Fix locks selected points where shown. Symmetric takes two points
-  or lines and the mirror: the one axis selected, else whichever of the three mirrors the other two
-  best, pairing line ends by the reflection.
-- A candidate the sketch already has (`Sketch::restating`: the same relation on the same items in
-  either order, a level line and `HorizontalPoints` on its ends, a radius and a diameter of one
-  circle, a second dimension of one kind between the same items) is left out of a batch and, when
-  nothing is left, refused as "... is already in the sketch."; one that contradicts a constraint
-  (`Sketch::contradicting`: horizontal against vertical on a line, parallel against perpendicular)
-  is refused naming it. These checks are structural: the UI thread never solves, so a constraint
-  that only fails once solved is still reported afterwards, as a conflict naming its constraints.
+  `sketch_toolbar.rs` offers them as buttons and commands, disabled with what to select
+  (`app-look.md`).
+- Chaining constraints (parallel, equal, collinear, concentric, horizontal or vertical points)
+  relate every selected item to the first in one transaction. Symmetric takes the one axis
+  selected, else whichever of the three items mirrors the other two best.
+- A candidate the sketch already has (`Sketch::restating`) is left out of a batch and, when
+  nothing is left, refused as already in the sketch; one that contradicts a constraint
+  (`Sketch::contradicting`) is refused naming it. These checks are structural: the UI thread never
+  solves, so a constraint that only fails once solved is reported afterwards as a conflict naming
+  its constraints.
 - Dimensions start at the displayed geometry's measured value. Every sketch transaction first
-  settles the sketch to the last result, when up to date (`Model::settled_sketch`).
-- The UI thread never solves (drags solve on their own worker): constraint states, degrees of
-  freedom and redundancies come from the last evaluation (`sketch_status.rs`, `scene.rs`).
+  settles the sketch to the last result when up to date (`Model::settled_sketch`).
+- Constraint states, degrees of freedom and redundancies come from the last evaluation
+  (`sketch_status.rs`, `scene.rs`), never from solving on the UI thread (drags solve on their own
+  worker).
 
 ## Displayed sketches
 
-- `Model::displayed_sketch` (`display.rs`) is the definition with solved positions wherever the last
-  result has the same entity: the solved sketch itself when every entity matches, else a merged
-  copy. `DisplayedSketches`, owned by `Model` with the body meshes in `Display` and handed to the
-  scene through `Sources`, works it out once per sketch and keeps it, with the bounds of its points
-  that fitting and the reference size use, until the document or evaluation changes (`forget`), so a
+- `Model::displayed_sketch` (`display.rs`) is the definition with solved positions wherever the
+  last result has the same entity. `DisplayedSketches`, owned by `Model` and handed to the scene
+  through `Sources`, works it out once per sketch and keeps it, with the bounds of its points that
+  fitting and the reference size use, until the document or evaluation changes (`forget`), so a
   frame compares, copies and polylines no sketch for these. Its `generation` moves on `forget` and
   when a dragged sketch is shown or dropped, which the cached scene watches (`app.md`).
 
 ## Annotations
 
 - Drawn with the egui painter (`annotations.rs`, placement in `annotation_layout.rs`) from the
-  displayed geometry through the current view; offsets and sizes in screen points, no stored
-  positions.
-- Distances between points are parallel dimension lines with extension lines; point–line distances
-  are perpendicular (a line–line spacing from the second line's middle); point–circle distances run
-  along the radius; horizontal and vertical distances are level or upright dimension lines beyond
-  the farther point; angles are arcs at the lines' intersection (between their closest ends when
-  nearly parallel); radii are leaders with an `R` prefix; diameters span the circle with an `Ø`
-  prefix. Dimensions sit away from the sketch's centre.
-- Other constraints are glyphs stacked beside each constrained entity on the opposite side
-  (horizontal or vertical points, concentric, collinear and symmetric on each item, midpoint and fix
-  on the point), painted as shapes or as letters the default fonts carry.
+  displayed geometry through the current view, with offsets and sizes in screen points and no
+  stored positions. Dimensions sit away from the sketch's centre; other constraints are glyphs
+  stacked beside each constrained entity on the opposite side.
 - Glyphs keep clear of dimension labels and of each other (`annotation_layout::place_glyphs` over
-  an `Obstacles` grid of the labels and the glyphs placed before): a stack slides along its line
-  (or round its curve) in half-spacing steps, then tries the other side, then slides past the
-  line's ends; a point's glyphs try the other corners. When nothing is free the least covered place
-  wins. Labels are `canvas::body` on the canvas backdrop with its padding and radius; glyph letters
-  `canvas::emphasis`.
+  `Obstacles`); when nothing is free the least covered place wins. Labels use `canvas::body` on
+  the canvas backdrop, glyph letters `canvas::emphasis`.
 - Labels show the expression in the document's naming, followed by its value when not a literal;
-  conflicting and redundant constraints take the error and warning colours. Labels and glyphs are
-  `Pickable::SketchConstraint`: hover highlights the entities, click selects (Shift/Ctrl toggles),
-  Delete removes selected constraints and entities in one transaction; painted but not interactive
-  while a drawing tool is active.
+  conflicting and redundant constraints take the error and warning colours.
+- Labels and glyphs are `Pickable::SketchConstraint`: hover highlights the entities, click selects
+  (Shift or Ctrl toggles), Delete removes selected constraints and entities in one transaction.
+  They are painted but not interactive while a drawing tool is active.
 - Double-clicking a label opens an inline `commit_field` with the value selected, as does a new
-  dimension or any `Focus::Dimension` of the edited sketch, which the app takes from the panels and
-  hands to the viewport, waiting until the dimension can be drawn.
+  dimension or any `Focus::Dimension` of the edited sketch, which the app takes from the panels
+  and hands to the viewport, waiting until the dimension can be drawn.

@@ -8,27 +8,18 @@ description: Render screenshots of caditor's interface headlessly, or capture th
 ## Headless, from the test harness
 
 `crates/caditor/src/ui_tests/screenshots.rs` holds an ignored test that drives the real
-`app::show` through the UI harness and paints each frame with `egui_wgpu` over the 3D view drawn by
-`caditor_render::ViewportRenderer`, then writes PNGs. It needs a graphics adapter (any Vulkan or GL
-device, lavapipe included) but no display.
+`app::show` through the UI harness, paints each frame over the 3D view and writes PNGs. It needs a
+graphics adapter (lavapipe included) but no display.
 
 ```sh
 CADITOR_SCREENSHOTS=<dir> cargo test -p caditor screenshots -- --ignored
 CADITOR_SCREENSHOT_LOOKS=dark,light CADITOR_SCREENSHOTS=<dir> cargo test -p caditor screenshots -- --ignored
 ```
 
-- Files are `<scene>-<look>.png`, 1400×1000 physical pixels. Scenes: `welcome`, `empty`, `model`
-  (the Angle bracket sample), `feature` (its extrusion open), `measure`, `sketch` (its profile
-  edited), `palette`, `preferences`, `export`; then `canvas_scenes`: `cube-hover` (the view cube
-  under the pointer), `drawing` (the rectangle tool's prompt and key hints) and `typed-point`;
-  `tree_scenes`: `tree-selection` (two rows chosen), `delete` (the delete dialog), `failed` (its
-  profile suppressed), `rename` and `measure-two` (two vertices measured);
-  `feature_panel_scenes`: each feature kind's panel open; and `dialog_scenes`:
-  `preferences-<tab>` for each tab, `shortcuts`, `about`, `image-export`, `history`, `unsaved`
-  (the unsaved-changes prompt), `report` (a damaged file's report), `tip`, `welcome-recent` (with
-  recent files) and `recovery`.
-- Looks: `dark`, `light`, `dark-contrast`, `light-contrast`, `dark-200`, `light-150`;
-  `CADITOR_SCREENSHOT_LOOKS` takes a comma-separated subset.
+- Files are `<scene>-<look>.png`. Scenes are shot by `screenshots()` and the scene functions
+  beside it (canvas, tree, feature panels, dialogs); read them for the current names. Looks are the
+  `LOOKS` table (dark, light, high contrast, 150% and 200% scale); `CADITOR_SCREENSHOT_LOOKS` takes
+  a comma-separated subset of their names.
 - Write them to the session scratchpad, never into the repository. Take a set before a change and
   one after, and compare the two with the Read tool.
 - A new scene is a few lines in `screenshots()` or the scene function for its area: put the

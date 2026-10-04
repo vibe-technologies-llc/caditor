@@ -6,33 +6,26 @@ paths:
 
 # STEP writer
 
-- `caditor-step` speaks STEP (ISO 10303-21, AP214 `AUTOMOTIVE_DESIGN`); it depends only on the
-  kernel and geometry crates, and only `caditor-file` uses it.
-
-## Structure
-
-- `write_step` writes named kernel solids as one product, named after the model, or after the body
-  when there is only one. Its `ADVANCED_BREP_SHAPE_REPRESENTATION` holds one `MANIFOLD_SOLID_BREP`
-  per lump, or a `BREP_WITH_VOIDS` whose voids are `ORIENTED_CLOSED_SHELL`s of inverted faces.
+- `caditor-step` speaks STEP (ISO 10303-21, AP214, `SCHEMA`); it depends only on the kernel and
+  geometry crates, and only `caditor-file` uses it.
+- `write_step` writes named kernel solids as one product (named after the model, or the body when
+  there is only one): one `MANIFOLD_SOLID_BREP` per lump, or a `BREP_WITH_VOIDS` whose voids are
+  `ORIENTED_CLOSED_SHELL`s of inverted faces. Millimetres and radians, uncertainty
+  `LINEAR_RESOLUTION`, no author or organisation, the application named by name and version only.
+- `write_step_keeping_what_can_be` writes every body it can, rolls a failed one back out and lists
+  it in `left_out`; `write_step` fails on the first such error. Only when no body is writable is
+  it an error.
 - Shells are told apart by the sign of their meshed volume (only bodies with several shells are
-  meshed); a body whose shells cannot be sorted is refused as `WriteError::Shells`.
-- Millimetres and radians, uncertainty `LINEAR_RESOLUTION`, no author or organisation.
-
-## Geometry
-
-- Every kernel surface and curve has an exact STEP form: planes, cylinders, spheres and tori as they
-  are; cones with a negative half angle on a flipped axis; extrusions and revolutions as
-  `SURFACE_OF_LINEAR_EXTRUSION` and `SURFACE_OF_REVOLUTION`; B-splines with knot runs (rational ones
-  as the complex entity); intersection curves as the cubic B-spline of their Hermite segments over
-  the edge.
-- `Data` writes each `CARTESIAN_POINT`, `DIRECTION` and `AXIS2_PLACEMENT_3D` once, keyed by the
-  exact bits of its coordinates (`-0.0` as `0.0`) in `BTreeMap`s, since the coordinates come from
-  imported files; vertices, line origins, spline controls and frames reuse them. Directions stay
-  per distinct value, so planes with different normals still write their own.
-- Face `same_sense` is the face sense, since the kernel's normals are STEP's.
-
-## Text and verification
-
-- Reals print as the shortest round-tripping decimal with a point. Text escapes quotes, backslashes
-  and non-ASCII: `\X2\` within the Basic Multilingual Plane, `\X4\` beyond it.
-- The output was checked against OpenCascade (valid, closed, same volume) for every kind of face.
+  meshed); unsortable shells are `WriteError::Shells`, a non-finite value or unsupported geometry
+  `WriteError::Geometry`.
+- Every kernel surface and curve has an exact STEP form; the non-obvious ones: cones with a
+  negative half angle on a flipped axis, rational B-splines as the complex entity, intersection
+  curves as the cubic B-spline of their Hermite segments over the edge. A face's `same_sense` is
+  the kernel face sense (inverted for void shells), since kernel normals are STEP's.
+- `Data` writes each point, direction and placement once, keyed by the exact bits of its
+  coordinates (`-0.0` as `0.0`) in `BTreeMap`s, since the coordinates come from imported files and
+  the output must be deterministic.
+- Reals print as the shortest round-tripping decimal with a point; text escapes quotes,
+  backslashes and non-ASCII (`\X2\` in the BMP, `\X4\` beyond).
+- Every face kind must stay valid, closed and of the same volume in an outside checker
+  (`STEP_SAMPLES=<dir>` writes the fixtures for one).
