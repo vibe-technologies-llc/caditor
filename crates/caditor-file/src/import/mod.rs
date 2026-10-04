@@ -6,7 +6,7 @@ mod sketch;
 #[cfg(test)]
 mod tests;
 
-use std::path::Path;
+use std::{collections::BTreeSet, path::Path};
 
 use caditor_geometry::Point2;
 
@@ -82,6 +82,7 @@ impl DrawingCurve {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Drawing {
     pub curves: Vec<DrawingCurve>,
+    pub construction: BTreeSet<usize>,
     pub notes: Vec<String>,
 }
 

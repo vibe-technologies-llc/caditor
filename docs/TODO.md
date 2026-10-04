@@ -200,8 +200,6 @@ within a category run from most to least important.
   sketch always lands on the XY plane although `SketchTarget::New` takes a plane.
 - Curves carry no layer, so the import cannot offer a layer choice, and over 20,000 curves the
   whole file is refused as `TooLarge` with nothing imported.
-- Linetypes are ignored, so centrelines and hidden lines import as profile geometry and add
-  regions; map them to construction geometry.
 
 ## Mesh import and export
 

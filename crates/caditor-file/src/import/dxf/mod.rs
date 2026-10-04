@@ -57,6 +57,7 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
         &entities,
         &Affine::IDENTITY,
         file.hides(DEFAULT_LAYER),
+        false,
         &mut Vec::new(),
     )?;
     let mut notes = Vec::new();
@@ -66,7 +67,7 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
         .iter()
         .map(|shape| shape.transformed(&Affine::scale(Vector3::splat(scale))))
         .collect();
-    let drawing = flatten(&shapes, notes);
+    let drawing = flatten(&shapes, &interpreter.construction, notes);
     match (interpreter.report(drawing), file.damage) {
         (Ok(mut drawing), Some(damage)) => {
             drawing.notes.push(damage_note(&damage));
@@ -239,6 +240,7 @@ impl<'a, I: Iterator<Item = Result<Pair<'a>, ImportError>>> Iterator for Records
 
 struct Layer {
     hidden: bool,
+    linetype: String,
 }
 
 struct Block<'a> {
@@ -259,6 +261,7 @@ struct DxfFile<'a> {
     blocks: BTreeMap<String, Block<'a>>,
     entities: Vec<Record<'a>>,
     line_styles: LineStyles,
+    dashed_linetypes: BTreeSet<String>,
     damage: Option<ImportError>,
 }
 
@@ -291,7 +294,50 @@ impl LineStyles {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Linetype {
+    Continuous,
+    Dashed,
+    OfInsert,
+}
+
+impl Linetype {
+    fn is_dashed(self, inserted_dashed: bool) -> bool {
+        match self {
+            Self::Continuous => false,
+            Self::Dashed => true,
+            Self::OfInsert => inserted_dashed,
+        }
+    }
+}
+
 impl<'a> DxfFile<'a> {
+    fn named_linetype(&self, name: &str) -> Linetype {
+        if name == "BYBLOCK" {
+            Linetype::OfInsert
+        } else if self.dashed_linetypes.contains(name) {
+            Linetype::Dashed
+        } else {
+            Linetype::Continuous
+        }
+    }
+
+    fn linetype(&self, record: &Record) -> Linetype {
+        let own = record
+            .text(6)
+            .map(str::to_ascii_uppercase)
+            .filter(|name| !name.is_empty() && name != "BYLAYER");
+        match own {
+            Some(name) => self.named_linetype(&name),
+            None => self
+                .layers
+                .get(&record.layer().to_ascii_uppercase())
+                .map_or(Linetype::Continuous, |layer| {
+                    self.named_linetype(&layer.linetype)
+                }),
+        }
+    }
+
     fn hides(&self, layer: &str) -> bool {
         layer.eq_ignore_ascii_case(NON_PLOTTING_LAYER)
             || self
@@ -310,6 +356,7 @@ impl<'a> DxfFile<'a> {
             blocks: BTreeMap::new(),
             entities: Vec::new(),
             line_styles: LineStyles::default(),
+            dashed_linetypes: BTreeSet::new(),
             damage: None,
         };
         let mut section = None;
@@ -351,8 +398,15 @@ impl<'a> DxfFile<'a> {
                         name,
                         Layer {
                             hidden: off || frozen,
+                            linetype: record.text(6).unwrap_or_default().to_ascii_uppercase(),
                         },
                     );
+                }
+                Some("TABLES") if record.kind == "LTYPE" => {
+                    if record.flags(73) > 0 {
+                        let name = record.text(2).unwrap_or_default().to_ascii_uppercase();
+                        file.dashed_linetypes.insert(name);
+                    }
                 }
                 Some("BLOCKS") => match record.kind.as_str() {
                     "BLOCK" => {
@@ -445,6 +499,7 @@ fn items<'a>(records: &'a [Record<'a>]) -> Vec<Item<'a>> {
 
 struct Prepared {
     placement: Placement,
+    linetype: Linetype,
     decoded: Decoded,
 }
 
@@ -489,6 +544,7 @@ fn prepare(file: &DxfFile, items: &[Item<'_>]) -> Vec<Prepared> {
         .iter()
         .map(|item| Prepared {
             placement: Placement::of(file, item.record),
+            linetype: file.linetype(item.record),
             decoded: match item.record.kind.as_str() {
                 "INSERT" => Decoded::Insert(Insertion::read(item.record)),
                 "HATCH" => hatch(item.record, &handles),
@@ -594,6 +650,7 @@ impl Tally {
 struct Interpreter<'a> {
     file: &'a DxfFile<'a>,
     shapes: Vec<Shape>,
+    construction: BTreeSet<usize>,
     points: usize,
     tally: Tally,
     visited: usize,
@@ -608,6 +665,7 @@ impl<'a> Interpreter<'a> {
         Self {
             file,
             shapes: Vec::new(),
+            construction: BTreeSet::new(),
             points: 0,
             tally: Tally::default(),
             visited: 0,
@@ -665,6 +723,7 @@ impl<'a> Interpreter<'a> {
         items: &[Prepared],
         transform: &Affine,
         inherited_hidden: bool,
+        inserted_dashed: bool,
         blocks: &mut Vec<String>,
     ) -> Result<(), ImportError> {
         for item in items {
@@ -677,15 +736,16 @@ impl<'a> Interpreter<'a> {
                 }
                 Visibility::Shown => {}
             }
+            let dashed = item.linetype.is_dashed(inserted_dashed);
             match &item.decoded {
-                Decoded::Insert(insertion) => self.insert(insertion, transform, blocks)?,
-                Decoded::Shapes(shapes) => self.push(shapes, transform)?,
+                Decoded::Insert(insertion) => self.insert(insertion, transform, dashed, blocks)?,
+                Decoded::Shapes(shapes) => self.push(shapes, transform, dashed)?,
                 Decoded::Hatch(boundaries) => {
                     let mut drawn = false;
                     for boundary in boundaries {
                         if !Self::traced(items, &boundary.traced_by, inherited_hidden) {
                             drawn |= !boundary.shapes.is_empty();
-                            self.push(&boundary.shapes, transform)?;
+                            self.push(&boundary.shapes, transform, dashed)?;
                         }
                     }
                     if drawn {
@@ -715,11 +775,19 @@ impl<'a> Interpreter<'a> {
             })
     }
 
-    fn push(&mut self, shapes: &[Shape], transform: &Affine) -> Result<(), ImportError> {
+    fn push(
+        &mut self,
+        shapes: &[Shape],
+        transform: &Affine,
+        dashed: bool,
+    ) -> Result<(), ImportError> {
         for shape in shapes {
             self.points = self.points.saturating_add(shape.size());
             if self.points > MAX_DRAWING_POINTS {
                 return Err(ImportError::TooDetailed);
+            }
+            if dashed {
+                self.construction.insert(self.shapes.len());
             }
             self.shapes.push(shape.transformed(transform));
         }
@@ -741,6 +809,7 @@ impl<'a> Interpreter<'a> {
         &mut self,
         insertion: &Insertion,
         transform: &Affine,
+        dashed: bool,
         blocks: &mut Vec<String>,
     ) -> Result<(), ImportError> {
         let file = self.file;
@@ -771,7 +840,7 @@ impl<'a> Interpreter<'a> {
         if !draws {
             let before = self.tally.clone();
             self.visit()?;
-            self.add(&contents, &local.then(&placement), SHOWN, blocks)?;
+            self.add(&contents, &local.then(&placement), SHOWN, dashed, blocks)?;
             let cells = usize::try_from(insertion.columns.saturating_mul(insertion.rows))
                 .unwrap_or(usize::MAX);
             self.tally.add_repeated(&before, cells.saturating_sub(1));
@@ -787,7 +856,7 @@ impl<'a> Interpreter<'a> {
                     self.tally.unreadable += 1;
                     continue;
                 }
-                self.add(&contents, &cell, SHOWN, blocks)?;
+                self.add(&contents, &cell, SHOWN, dashed, blocks)?;
             }
         }
         blocks.pop();
@@ -1189,7 +1258,7 @@ pub(super) fn list(items: &[String]) -> String {
     }
 }
 
-fn capitalized(text: &str) -> String {
+pub(super) fn capitalized(text: &str) -> String {
     let mut characters = text.chars();
     match characters.next() {
         Some(first) => first.to_uppercase().chain(characters).collect(),

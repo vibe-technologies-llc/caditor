@@ -1,4 +1,4 @@
-use std::f64::consts::TAU;
+use std::{collections::BTreeSet, f64::consts::TAU};
 
 use caditor_geometry::{Point2, Point3, Vector2};
 use caditor_sketch::BSpline;
@@ -6,7 +6,7 @@ use caditor_sketch::BSpline;
 use crate::import::{
     Drawing, DrawingCurve,
     dxf::{
-        counted,
+        capitalized, counted,
         geometry::{Nurbs, Shape, flat, is_full_turn, planar_circle},
         list, were,
     },
@@ -31,7 +31,11 @@ struct Tally {
     deviation: f64,
 }
 
-pub(super) fn flatten(shapes: &[Shape], mut notes: Vec<String>) -> Drawing {
+pub(super) fn flatten(
+    shapes: &[Shape],
+    dashed: &BTreeSet<usize>,
+    mut notes: Vec<String>,
+) -> Drawing {
     let points: Vec<Point3> = shapes.iter().flat_map(Shape::defining_points).collect();
     let extent = extent(&points);
     if let (Some(low), Some(high)) = (
@@ -43,12 +47,30 @@ pub(super) fn flatten(shapes: &[Shape], mut notes: Vec<String>) -> Drawing {
     }
     let tolerance = (extent * RELATIVE_FIT_TOLERANCE).max(MIN_FIT_TOLERANCE);
     let mut tally = Tally::default();
-    let curves = shapes
-        .iter()
-        .filter_map(|shape| flatten_shape(shape, tolerance, &mut tally))
-        .collect();
+    let mut curves = Vec::new();
+    let mut construction = BTreeSet::new();
+    for (index, shape) in shapes.iter().enumerate() {
+        if let Some(curve) = flatten_shape(shape, tolerance, &mut tally) {
+            if dashed.contains(&index) && !matches!(curve, DrawingCurve::Point(_)) {
+                construction.insert(curves.len());
+            }
+            curves.push(curve);
+        }
+    }
     tally.report(tolerance, &mut notes);
-    Drawing { curves, notes }
+    if !construction.is_empty() {
+        notes.push(format!(
+            "{} with a dashed or centre linetype {} imported as construction geometry, which \
+             forms no regions.",
+            capitalized(&counted(construction.len(), "curve", "curves")),
+            were(construction.len()),
+        ));
+    }
+    Drawing {
+        curves,
+        construction,
+        notes,
+    }
 }
 
 fn extent(points: &[Point3]) -> f64 {

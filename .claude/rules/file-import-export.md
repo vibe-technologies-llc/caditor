@@ -28,6 +28,11 @@ paths:
   with the damage as the error.
 - Entities on off or frozen layers, and on the non-plotting `DEFPOINTS` layer (dimension
   definition points), are left out.
+- Linetypes: an LTYPE with dash elements (code 73 above zero) is dashed; an entity's own linetype
+  (code 6) wins, `BYLAYER` or none takes its layer's, and `BYBLOCK` takes the dashing of the INSERT
+  that places it. A dashed curve (never a point) is listed in `Drawing::construction`, by index
+  into `curves`, and `drawing_transaction` adds it as construction geometry, its end points
+  ordinary; a note counts them.
 - Blocks and INSERTs: base point, scale, rotation, column and row arrays, nested with cycle and
   depth limits; at most `MAX_EXPANDED_OBJECTS` objects and cells visited in all; block content on
   layer 0 takes the insert's layer.

@@ -879,6 +879,7 @@ fn short_curves_and_closed_arcs_are_tidied_before_they_reach_the_sketch() {
                 end: Point2::new(60.0, 50.0 - 1e-9),
             },
         ],
+        construction: Default::default(),
         notes: Vec::new(),
     };
     let document = Document::default();
@@ -900,6 +901,167 @@ fn short_curves_and_closed_arcs_are_tidied_before_they_reach_the_sketch() {
         .filter(|(_, entity)| matches!(entity, Entity::Circle { .. }))
         .count();
     assert_eq!(circles, 1);
+}
+
+fn linetype(name: &str, elements: i64) -> Pairs {
+    vec![
+        pair(0, "LTYPE"),
+        pair(2, name),
+        pair(70, 0),
+        pair(73, elements),
+    ]
+}
+
+fn styled_tables(linetypes: Vec<Pairs>, layers: Vec<(&str, &str)>) -> Pairs {
+    let mut content = vec![vec![pair(0, "TABLE"), pair(2, "LTYPE")]];
+    content.extend(linetypes);
+    content.push(vec![pair(0, "ENDTAB")]);
+    content.push(vec![pair(0, "TABLE"), pair(2, "LAYER")]);
+    for (name, linetype) in layers {
+        let mut record = layer(name, 7, 0);
+        record.push(pair(6, linetype));
+        content.push(record);
+    }
+    content.push(vec![pair(0, "ENDTAB")]);
+    section("TABLES", content)
+}
+
+fn with_linetype(mut entity: Pairs, linetype: &str) -> Pairs {
+    entity.push(pair(6, linetype));
+    entity
+}
+
+fn on_layer(mut entity: Pairs, layer: &str) -> Pairs {
+    for (code, value) in &mut entity {
+        if *code == 8 {
+            *value = layer.to_owned();
+        }
+    }
+    entity
+}
+
+fn styled_drawing(entities: Vec<Pairs>, blocks: Vec<Pairs>) -> Drawing {
+    parse_dxf(&text(vec![
+        header(Some(4)),
+        styled_tables(
+            vec![
+                linetype("Continuous", 0),
+                linetype("Hidden", 2),
+                linetype("Center", 4),
+            ],
+            vec![
+                ("0", "Continuous"),
+                ("Axes", "Center"),
+                ("Walls", "Continuous"),
+            ],
+        ),
+        section("BLOCKS", blocks),
+        section("ENTITIES", entities),
+    ]))
+    .unwrap()
+}
+
+#[test]
+fn curves_drawn_in_a_dashed_linetype_are_imported_as_construction_geometry() {
+    let bar = |y: f64| line((0.0, y), (9.0, y));
+    let drawing = styled_drawing(
+        vec![
+            bar(0.0),
+            with_linetype(bar(1.0), "HIDDEN"),
+            with_linetype(bar(2.0), "continuous"),
+            on_layer(bar(3.0), "Axes"),
+            with_linetype(on_layer(bar(4.0), "Axes"), "ByLayer"),
+            with_linetype(on_layer(bar(5.0), "Axes"), "Continuous"),
+            on_layer(bar(6.0), "Walls"),
+            with_linetype(bar(7.0), "Missing"),
+        ],
+        Vec::new(),
+    );
+
+    let ys: Vec<f64> = lines(&drawing).iter().map(|(start, _)| start.y).collect();
+    let dashed: Vec<f64> = drawing
+        .construction
+        .iter()
+        .map(|index| lines(&drawing)[*index].0.y)
+        .collect();
+
+    assert_eq!(ys, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
+    assert_eq!(dashed, [1.0, 3.0, 4.0]);
+    assert!(
+        drawing.notes.contains(
+            &"3 curves with a dashed or centre linetype were imported as construction geometry, \
+              which forms no regions."
+                .to_owned()
+        ),
+        "{:?}",
+        drawing.notes
+    );
+}
+
+#[test]
+fn a_block_drawn_by_block_takes_the_dashing_of_the_insert_that_places_it() {
+    let tick = |name: &str, linetype: &str| {
+        block(
+            name,
+            (0.0, 0.0),
+            vec![with_linetype(line((0.0, 0.0), (1.0, 0.0)), linetype)],
+        )
+    };
+    let at = |name: &str, y: f64, linetype: &str| {
+        with_linetype(
+            insert(name, "0", &[(10, 0.0), (20, y), (30, 0.0)]),
+            linetype,
+        )
+    };
+    let drawing = styled_drawing(
+        vec![
+            at("Inherits", 0.0, "Hidden"),
+            at("Inherits", 1.0, "Continuous"),
+            at("Own", 2.0, "Hidden"),
+        ],
+        vec![tick("Inherits", "ByBlock"), tick("Own", "Continuous")],
+    );
+
+    let dashed: Vec<f64> = drawing
+        .construction
+        .iter()
+        .map(|index| lines(&drawing)[*index].0.y)
+        .collect();
+
+    assert_eq!(dashed, [0.0]);
+}
+
+#[test]
+fn construction_curves_stay_construction_in_the_sketch_and_their_points_do_not() {
+    let drawing = styled_drawing(
+        vec![
+            line((0.0, 0.0), (9.0, 0.0)),
+            with_linetype(line((0.0, 5.0), (9.0, 5.0)), "Center"),
+        ],
+        Vec::new(),
+    );
+    let document = Document::default();
+
+    let import = drawing_transaction(
+        &document,
+        &drawing,
+        SketchTarget::New {
+            name: "plan".to_owned(),
+            plane: Plane::XY,
+        },
+        "Import",
+    );
+    let mut document = document;
+    document.apply(import.transaction).unwrap();
+    let imported = sketch(&document, import.sketch);
+
+    let construction: Vec<&Entity> = imported
+        .entities()
+        .filter(|(id, _)| imported.is_construction(*id))
+        .map(|(_, entity)| entity)
+        .collect();
+    assert!(matches!(construction.as_slice(), [Entity::Line { .. }]));
+    assert_eq!(imported.entities().count(), 6);
 }
 
 mod step {

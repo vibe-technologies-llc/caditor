@@ -39,15 +39,15 @@ pub fn drawing_transaction(
     let tolerance = (drawing.extent() * RELATIVE_JOINT_TOLERANCE).max(MIN_JOINT_TOLERANCE);
     let mut ends = Vec::new();
     let mut curves = 0;
-    for curve in drawing
-        .curves
-        .iter()
-        .filter_map(|curve| usable(curve, tolerance))
-    {
+    for (index, curve) in drawing.curves.iter().enumerate() {
+        let Some(curve) = usable(curve, tolerance) else {
+            continue;
+        };
         if !matches!(curve, DrawingCurve::Point(_)) {
             curves += 1;
         }
-        add_curve(&mut builder, sketch, &curve, &mut ends);
+        let construction = drawing.construction.contains(&index);
+        add_curve(&mut builder, sketch, &curve, construction, &mut ends);
     }
     let mut joints = 0;
     for cluster in clusters(&ends, tolerance) {
@@ -87,6 +87,7 @@ fn add_curve(
     builder: &mut TransactionBuilder<'_>,
     sketch: FeatureId,
     curve: &DrawingCurve,
+    construction: bool,
     ends: &mut Vec<(EntityId, Point2)>,
 ) {
     let point = |builder: &mut TransactionBuilder<'_>, position: Point2| {
@@ -98,35 +99,38 @@ fn add_curve(
         }
         DrawingCurve::Line { start, end } => {
             let (first, last) = (point(builder, *start), point(builder, *end));
-            builder.add_sketch_entity(
+            builder.add_sketch_entity_as(
                 sketch,
                 Entity::Line {
                     start: first,
                     end: last,
                 },
+                construction,
             );
             ends.extend([(first, *start), (last, *end)]);
         }
         DrawingCurve::Circle { center, radius } => {
             let center = point(builder, *center);
-            builder.add_sketch_entity(
+            builder.add_sketch_entity_as(
                 sketch,
                 Entity::Circle {
                     center,
                     radius: *radius,
                 },
+                construction,
             );
         }
         DrawingCurve::Arc { center, start, end } => {
             let center = point(builder, *center);
             let (first, last) = (point(builder, *start), point(builder, *end));
-            builder.add_sketch_entity(
+            builder.add_sketch_entity_as(
                 sketch,
                 Entity::Arc {
                     center,
                     start: first,
                     end: last,
                 },
+                construction,
             );
             ends.extend([(first, *start), (last, *end)]);
         }
@@ -143,11 +147,12 @@ fn add_curve(
             ) {
                 ends.extend([(*first, *start), (*last, *end)]);
             }
-            builder.add_sketch_entity(
+            builder.add_sketch_entity_as(
                 sketch,
                 Entity::Spline {
                     control_points: ids,
                 },
+                construction,
             );
         }
     }
