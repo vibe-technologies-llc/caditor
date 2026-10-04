@@ -89,6 +89,12 @@ impl LengthUnit {
         )
     }
 
+    pub fn grid_text(self, spacing_millimetres: f64) -> String {
+        let spacing = spacing_millimetres / self.millimetres();
+        let decimals = (-spacing.log10().floor()).max(0.0) as usize;
+        format!("Grid {spacing:.decimals$} {}", self.symbol())
+    }
+
     pub fn measured_length(self, millimetres: f64) -> String {
         self.measured_power(millimetres, 1, MEASURED_LENGTH_DECIMALS)
     }
@@ -196,6 +202,19 @@ mod tests {
             LengthUnit::Micrometre.show(Quantity::length(0.25)),
             "250 um"
         );
+    }
+
+    #[test]
+    fn the_grid_spacing_names_its_power_of_ten_in_the_chosen_unit() {
+        assert_eq!(LengthUnit::Millimetre.grid_text(10.0), "Grid 10 mm");
+        assert_eq!(LengthUnit::Millimetre.grid_text(0.01), "Grid 0.01 mm");
+        assert_eq!(
+            LengthUnit::Millimetre.grid_text(100_000.0),
+            "Grid 100000 mm"
+        );
+        assert_eq!(LengthUnit::Centimetre.grid_text(1.0), "Grid 0.1 cm");
+        assert_eq!(LengthUnit::Metre.grid_text(1000.0), "Grid 1 m");
+        assert_eq!(LengthUnit::Micrometre.grid_text(0.01), "Grid 10 um");
     }
 
     #[test]

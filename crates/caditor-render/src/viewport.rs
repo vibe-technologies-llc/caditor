@@ -1,6 +1,6 @@
 use std::{ops::Range, sync::Arc};
 
-use caditor_geometry::{Point2, Point3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use glam::{DVec2, Vec3};
 
 use crate::{
@@ -1368,17 +1368,25 @@ pub fn grid_spacing(scale: f64) -> f64 {
     10f64.powf((scale / GRID_CELLS_ACROSS_SCALE).log10().floor())
 }
 
+fn grid_scale(plane: &Plane, view: &View) -> f64 {
+    let distance = view.viewpoint().distance;
+    let height = match view.projection() {
+        Projection::Perspective => plane.signed_distance(view.eye()).abs(),
+        Projection::Orthographic => distance,
+    };
+    height
+        .max(distance * GRID_MIN_SCALE_PER_DISTANCE)
+        .max(f64::MIN_POSITIVE)
+}
+
+pub fn grid_minor_spacing(grid: &Grid, view: &View) -> f64 {
+    grid_spacing(grid_scale(&grid.plane, view))
+}
+
 fn grid_uniform(bytes: &mut Bytes, grid: &Grid, view: &View) {
     let plane = grid.plane;
     let eye = view.eye();
-    let distance = view.viewpoint().distance;
-    let height = match view.projection() {
-        Projection::Perspective => plane.signed_distance(eye).abs(),
-        Projection::Orthographic => distance,
-    };
-    let scale = height
-        .max(distance * GRID_MIN_SCALE_PER_DISTANCE)
-        .max(f64::MIN_POSITIVE);
+    let scale = grid_scale(&plane, view);
     let spacing = grid_spacing(scale);
     let snap = spacing * 100.0;
     let foot = plane.to_local(eye);

@@ -55,9 +55,11 @@ paths:
 - Overlay text keeps clear of the view cube: the prompt (`title`, prompt colour) and its key hints
   centre on the view within the band left of `view_cube::area`, wrapping there (at most 720
   points); the hover description starts at the band's top left, moving under the prompt when they
-  would meet; the cursor readout sits right of the axis triad; the navigation hints sit bottom
-  right, right-aligned, beside room kept for the readout while sketching, and are left out when
-  they would meet the cube or the prompt.
+  would meet; the grid spacing ("Grid 10 mm", the grid's minor line distance in the length unit,
+  from `grid_minor_spacing` of the scene's grid and the view) sits bottom left right of the axis
+  triad and is a `Label` node for screen readers, with the cursor readout above it; the navigation
+  hints sit bottom right, right-aligned, beside room kept for the grid label and, while sketching,
+  the readout, and are left out when they would meet the cube or the prompt.
 - The view cube (`view_cube.rs`) draws its 26 targets as cells with thin dividers, the hovered one
   in hover amber (darker while pressed) with a dark label; it is one focusable button named
   "View cube: View from top, front and right" after the hovered target, else the view it is

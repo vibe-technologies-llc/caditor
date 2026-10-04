@@ -169,7 +169,8 @@ paths:
   ignore non-finite pivots, anchors and drags, and the app drops a non-finite pick position.
   Fitting puts the eight corners of the bounds inside the narrower field of view with a margin,
   exactly in both projections rather than by a bounding sphere, so a wide flat part fills the
-  view; grid spacing follows the distance, not the eye's height.
+  view; grid spacing follows the distance, not the eye's height (`grid_minor_spacing` gives the app the
+  spacing the shader draws).
 - The view uniform flags orthographic views: shaders light faces from the view direction and turn
   each layer's depth bias into a fixed depth offset (`ORTHOGRAPHIC_DEPTH_BIAS`), since depth is
   linear there and a factor would push edges far through faces.

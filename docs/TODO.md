@@ -395,11 +395,6 @@ within a category run from most to least important.
 - Edge lines can be eaten by faces at grazing angles, since depth bias is a constant factor with
   no slope term, and the grid and reference fills share the mesh's bias, so a face on the XY
   plane can speckle with the grid. Neither has a test.
-- Nothing on screen says how far apart the grid's lines are: the spacing steps by tens with the
-  view distance (minor, major ×10 and coarse ×100 lines in `viewport.wgsl`), so the size of a
-  square is unknown while sketching. Show the current minor spacing in the view (for example
-  "Grid 10 mm", in the length unit, on the canvas backdrop beside the axis triad or the cursor
-  readout), updating as the grid steps, and readable by screen readers.
 - No touchpad navigation: orbit is right-drag, pan needs a middle button or Shift, and two-finger
   scroll always zooms.
 - Adapter choice is only the `WGPU_POWER_PREF` environment variable, so users of hybrid laptops

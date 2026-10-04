@@ -2,9 +2,14 @@ use std::{sync::Arc, time::Duration};
 
 use caditor_document::{FeatureId, FeatureKind, Transaction};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
-use caditor_render::{Camera, PickResult, Scene, SurfaceSize, View, Viewpoint, ViewportRect};
+use caditor_render::{
+    Camera, PickResult, Scene, SurfaceSize, View, Viewpoint, ViewportRect, grid_minor_spacing,
+};
 use caditor_sketch::{ConstraintId, EntityId, MAX_LENGTH};
-use egui::{Align, Align2, Key, PointerButton, Rect, Response, Sense, Shape, Stroke, pos2, vec2};
+use egui::{
+    Align, Align2, Key, PointerButton, Rect, Response, Sense, Shape, Stroke, WidgetInfo,
+    WidgetType, pos2, vec2,
+};
 
 use crate::{
     annotations::{Annotations, Surface},
@@ -45,6 +50,7 @@ const HIT_CURSOR_TOLERANCE_POINTS: f64 = 1.5;
 const PROMPT_MARGIN: f32 = 16.0;
 const PROMPT_MAX_WIDTH: f32 = 720.0;
 const READOUT_ROOM: f32 = 200.0;
+const READOUT_GAP: f32 = 4.0;
 const NAVIGATION_HINT: &str =
     "Right-drag: orbit   Middle-drag or Shift+right-drag: pan   Scroll: zoom";
 pub const CHOOSE_PLANE_PROMPT: &str = "Click a plane or a flat face to sketch on";
@@ -1555,10 +1561,35 @@ impl ViewportState {
             );
         }
         let readout_left = rect.left() + view_cube::TRIAD_WIDTH;
+        let bottom_left = pos2(readout_left, rect.bottom() - canvas::MARGIN);
+        let grid_text = self
+            .scenes
+            .built()
+            .and_then(|built| built.scene.grid.as_ref())
+            .zip(self.view())
+            .map(|(grid, view)| {
+                model
+                    .length_unit()
+                    .grid_text(grid_minor_spacing(grid, &view))
+            });
+        let grid_area = grid_text.map(|text| {
+            let area = canvas::label(
+                painter,
+                bottom_left,
+                Align2::LEFT_BOTTOM,
+                &text,
+                canvas::readout(),
+                canvas::TEXT,
+            );
+            let response = ui.interact(area, ui.id().with("grid spacing"), Sense::hover());
+            response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &text));
+            area
+        });
+        let readout_bottom = grid_area.map_or(bottom_left.y, |area| area.top() - READOUT_GAP);
         if let Some(position) = self.sketch_cursor {
             canvas::label(
                 painter,
-                pos2(readout_left, rect.bottom() - canvas::MARGIN),
+                pos2(readout_left, readout_bottom),
                 Align2::LEFT_BOTTOM,
                 format!(
                     "x {}   y {}",
@@ -1569,10 +1600,11 @@ impl ViewportState {
                 canvas::TEXT,
             );
         }
+        let grid_right = grid_area.map_or(readout_left, |area| area.right() + canvas::MARGIN);
         let hints_left = if editing.feature().is_some() {
-            readout_left + READOUT_ROOM
+            grid_right.max(readout_left + READOUT_ROOM)
         } else {
-            readout_left
+            grid_right
         };
         let hints = canvas::Hints::new(
             painter,

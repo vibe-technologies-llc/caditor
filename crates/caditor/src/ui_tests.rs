@@ -4613,6 +4613,32 @@ fn sketch_bar_buttons() -> Vec<String> {
 }
 
 #[test]
+fn the_canvas_says_how_far_apart_the_grid_lines_are_and_names_it_for_screen_readers() {
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+    harness.frame();
+    harness.frame();
+
+    let shown: Vec<&str> = harness
+        .texts
+        .iter()
+        .map(|(text, _)| text.as_str())
+        .filter(|text| text.starts_with("Grid "))
+        .collect();
+    let [label] = shown.as_slice() else {
+        panic!("the grid spacing should show once: {shown:?}");
+    };
+
+    assert!(label.ends_with(" mm"), "{label}");
+    assert!(
+        harness
+            .accessible
+            .iter()
+            .any(|(_, node)| { node.role() == Role::Label && node.value() == Some(label) })
+    );
+}
+
+#[test]
 fn the_sketch_bar_fits_one_row_wraps_at_200_percent_and_names_every_button() {
     let mut harness = Harness::new();
     harness.context.enable_accesskit();

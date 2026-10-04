@@ -30,7 +30,7 @@ pub use crate::{
         ViewportRect,
     },
     settings::{GraphicsInfo, GraphicsSettings, Msaa, Shading},
-    viewport::{SurfaceTarget, ViewportFrame, ViewportRenderer},
+    viewport::{SurfaceTarget, ViewportFrame, ViewportRenderer, grid_minor_spacing},
 };
 use crate::{
     gpu::DeviceLoss,
