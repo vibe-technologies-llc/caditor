@@ -10,6 +10,7 @@ use std::{
 use caditor_document::CancelToken;
 use caditor_geometry::{Plane, Point2, Point3};
 use caditor_kernel::{LinearExtent, Profile, ProfileCurve, Selection, Solid, extrude};
+use caditor_sketch::Sketch;
 use tempfile::TempDir;
 
 use super::{
@@ -691,4 +692,108 @@ fn cancelling_stops_the_meshing_of_a_body_already_started() {
         );
         assert!(!path.exists());
     }
+}
+
+fn drawn_sketch() -> Sketch {
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_line(Point2::new(0.0, 0.0), Point2::new(40.0, 0.0));
+    sketch.add_circle(Point2::new(20.0, 10.0), 4.0);
+    sketch.add_arc(
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 0.0),
+        Point2::new(0.0, 10.0),
+    );
+    sketch.add_spline(&[
+        Point2::new(0.0, 20.0),
+        Point2::new(10.0, 30.0),
+        Point2::new(20.0, 20.0),
+        Point2::new(30.0, 30.0),
+    ]);
+    sketch.add_point(Point2::new(-5.0, -5.0));
+    let guide = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(40.0, -10.0));
+    sketch.set_construction(guide, true).unwrap();
+    sketch
+}
+
+#[test]
+fn a_sketch_exports_to_a_dxf_that_reads_back_as_the_same_curves() {
+    let sketch = drawn_sketch();
+
+    let (text, exported) = dxf::encode(&sketch).unwrap();
+    let drawing = crate::parse_dxf(text.as_bytes()).unwrap();
+
+    assert_eq!(
+        exported,
+        SketchExported {
+            curves: 4,
+            points: 1,
+            construction_left_out: 1,
+        }
+    );
+    assert!(drawing.notes.is_empty(), "{:?}", drawing.notes);
+    assert_eq!(drawing.curves.len(), 5);
+    let near = |a: Point2, b: Point2| a.distance(b) < 1e-9;
+    assert!(drawing.curves.iter().any(|curve| matches!(
+        curve,
+        crate::DrawingCurve::Line { start, end }
+            if near(*start, Point2::new(0.0, 0.0)) && near(*end, Point2::new(40.0, 0.0))
+    )));
+    assert!(drawing.curves.iter().any(|curve| matches!(
+        curve,
+        crate::DrawingCurve::Circle { center, radius }
+            if near(*center, Point2::new(20.0, 10.0)) && (radius - 4.0).abs() < 1e-9
+    )));
+    assert!(drawing.curves.iter().any(|curve| matches!(
+        curve,
+        crate::DrawingCurve::Arc { center, start, end }
+            if near(*center, Point2::ZERO)
+                && near(*start, Point2::new(10.0, 0.0))
+                && near(*end, Point2::new(0.0, 10.0))
+    )));
+    assert!(drawing.curves.iter().any(|curve| matches!(
+        curve,
+        crate::DrawingCurve::Spline { control_points }
+            if control_points.len() == 4 && near(control_points[1], Point2::new(10.0, 30.0))
+    )));
+    assert!(drawing
+        .curves
+        .iter()
+        .any(|curve| matches!(curve, crate::DrawingCurve::Point(point) if near(*point, Point2::new(-5.0, -5.0)))));
+}
+
+#[test]
+fn a_dxf_names_its_unit_so_importing_it_needs_no_conversion() {
+    let (text, _) = dxf::encode(&drawn_sketch()).unwrap();
+
+    assert!(text.contains("$INSUNITS\n 70\n4\n"));
+    assert!(text.ends_with("  0\nEOF\n"));
+}
+
+#[test]
+fn a_sketch_of_only_construction_has_nothing_to_export() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let guide = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+    sketch.set_construction(guide, true).unwrap();
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("guide.dxf");
+
+    let result = export_sketch(&path, &sketch, &CancelToken::never());
+
+    assert_eq!(result, Err(ExportError::NoCurves));
+    assert!(!path.exists());
+}
+
+#[test]
+fn exporting_a_sketch_writes_the_file_and_a_cancelled_one_writes_nothing() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("sketch.dxf");
+    let cancelled = dir.path().join("cancelled.dxf");
+
+    let exported = export_sketch(&path, &drawn_sketch(), &CancelToken::never()).unwrap();
+    let refused = export_sketch(&cancelled, &drawn_sketch(), &CancelToken::new(|| true));
+
+    assert_eq!(exported.curves, 4);
+    assert!(std::fs::read_to_string(&path).unwrap().contains("SPLINE"));
+    assert_eq!(refused, Err(ExportError::Cancelled));
+    assert!(!cancelled.exists());
 }

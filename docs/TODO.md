@@ -324,8 +324,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Drawing import and export
 
-- [medium · medium] Sketches cannot be exported: there is no DXF or SVG output of a sketch or flat
-  face, though laser and CNC work need it and `DrawingCurve` already models what it would write.
+- [medium · medium] A sketch exports to DXF but not to SVG, and a flat face of a body cannot be
+  exported at all, though laser and CNC work need both; construction geometry is left out, with no
+  option to keep it on a layer, and the DXF holds no layers, text or dimensions.
 - [medium · medium] DXF import has no options: units come only from `$INSUNITS` and `$MEASUREMENT`
   with no override or scale (templates commonly default to inches), coordinates are not recentred,
   and a new sketch always lands on the XY plane although `SketchTarget::New` takes a plane.
@@ -518,10 +519,10 @@ decision recorded in `docs/` before work starts.
 - [medium · hard · blocked by: a scope decision recorded in `docs/`] Surface modelling: no surface
   bodies, so no thicken, offset surface, trim, extend, patch or knit to a solid, which shaped
   consumer parts and repairing open STEP imports need.
-- [low · hard · blocked by: a scope decision recorded in `docs/`, and DXF output of sketches
-  ("Sketches cannot be exported")] Sheet metal: no flanges, bends with a bend allowance, or flat
+- [low · hard · blocked by: a scope decision recorded in `docs/`, and DXF output of a flat face
+  ("A sketch exports to DXF")] Sheet metal: no flanges, bends with a bend allowance, or flat
   patterns, though laser-cut and bent parts are a common use; flat patterns would go out through the
-  DXF export of a flat face or sketch, which does not exist yet either (Drawing import and export).
+  DXF export of a flat face, which does not exist yet either (Drawing import and export).
 
 ## Platforms
 

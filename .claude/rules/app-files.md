@@ -60,6 +60,15 @@ paths:
   file; when the appended name exists, `files.rs` asks "Replace …?" as Save As does, and Cancel
   returns to the export dialog.
 
+## Sketch export
+
+- Export sketch as DXF (File menu, palette; `Command::ExportSketch`, `sketch_export.rs`) is offered
+  by `feature_tree::commands` for the sketch the tree has current or that is edited, and only once
+  it has solved geometry. `FileCommand::ExportSketch` picks a `.dxf` path (`Purpose::Sketch`,
+  extension appended and replacing asked as for the other outputs), then writes a clone of the
+  displayed sketch on the files worker; the notice counts what was written and the construction
+  curves left out.
+
 ## Image export
 
 - Choices (size, scale, background) are kept for the session, not saved. A side beyond

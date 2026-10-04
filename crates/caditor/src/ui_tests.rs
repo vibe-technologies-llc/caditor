@@ -113,6 +113,10 @@ impl Dialogs for ScriptedDialogs {
         respond(self.reply());
     }
 
+    fn pick_sketch_path(&self, _directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+        respond(self.reply());
+    }
+
     fn pick_image_path(&self, _directory: Option<PathBuf>, _file_name: String, respond: Respond) {
         respond(self.reply());
     }
@@ -1525,6 +1529,58 @@ fn exporting_an_image_keeps_its_dialog_when_the_picker_is_cancelled_and_asks_bef
     harness.settle();
     assert_ne!(std::fs::read(&existing).unwrap(), b"precious");
     assert!(!harness.shows("Export image"));
+}
+
+#[test]
+fn a_chosen_sketch_exports_to_a_dxf_of_its_curves_and_replacing_asks_first() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 20.0));
+    let id = harness.add_sketch(sketch);
+    harness.settle();
+    let name = harness.document().feature(id).unwrap().name.clone();
+    let availability = |harness: &Harness| {
+        harness
+            .workspace
+            .last_offers
+            .iter()
+            .find(|offer| offer.command == Command::ExportSketch)
+            .map(|offer| offer.availability.clone())
+    };
+    harness.workspace.panels.selected = None;
+    harness.frame();
+    assert_eq!(
+        availability(&harness),
+        Some(Err(
+            "Choose a sketch in the feature tree, or edit one, to export it".to_owned()
+        ))
+    );
+
+    harness.workspace.panels.choose_only(id);
+    harness.frame();
+    assert_eq!(availability(&harness), Some(Ok(())));
+    harness.answer_dialog(Some(dir.path().join("outline")));
+    run_from_palette(&mut harness, "export sketch as dxf");
+    let written = dir.path().join("outline.dxf");
+    harness.wait_until("the drawing is written", |_| written.exists());
+    harness.wait_until("the export is announced", |harness| {
+        harness.shows(&format!("Exported 4 objects of “{name}” to “outline.dxf”."))
+    });
+
+    let drawing = caditor_file::read_dxf(&written).unwrap();
+    assert_eq!(drawing.curve_count(), 4);
+    assert!(drawing.notes.is_empty(), "{:?}", drawing.notes);
+
+    std::fs::write(&written, b"precious").unwrap();
+    harness.key(Key::Escape, Modifiers::NONE);
+    run_from_palette(&mut harness, "export sketch as dxf");
+    harness.wait_until("the replacement is confirmed", |harness| {
+        harness.shows("Replace “outline.dxf”?")
+    });
+    harness.click("Cancel");
+    harness.settle();
+    assert_eq!(std::fs::read(&written).unwrap(), b"precious");
 }
 
 fn png_size(path: &Path) -> (u32, u32, u8) {

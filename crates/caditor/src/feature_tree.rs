@@ -18,6 +18,7 @@ use crate::{
     datum_panel,
     editing::{EditingCommand, SketchEditing},
     field::{self, DimensionTarget},
+    files::FileCommand,
     fonts, icons,
     model::{Action, Model, Notice},
     panels::{Focus, PanelState, Renaming},
@@ -26,7 +27,7 @@ use crate::{
     preferences::PreferencesCommand,
     principal_tree,
     selection::{Pickable, Selection},
-    shell_panel,
+    shell_panel, sketch_export,
     sketch_placement::{self, PlacementTarget},
     sketch_status::{self, SketchSummary},
     sketch_tools, solid_panel,
@@ -1546,6 +1547,21 @@ pub fn commands(
         && let Ok(transaction) = suppression
     {
         actions.push(Action::Apply(transaction));
+    }
+    let exportable = current
+        .filter(|feature| feature.kind.sketch().is_some())
+        .ok_or(sketch_export::NOT_A_SKETCH)
+        .and_then(|feature| match model.displayed_sketch(feature) {
+            Some(_) => Ok(feature),
+            None => Err(sketch_export::NOT_SOLVED),
+        });
+    if commands.invoke_detailed(
+        Command::ExportSketch,
+        exportable.ok().map(|feature| feature.name.clone()),
+        &exportable,
+    ) && let Ok(feature) = exportable
+    {
+        actions.push(Action::File(FileCommand::ExportSketch(feature.id())));
     }
     if let Some(transaction) = invoke_on(commands, Command::RollToHere, current, |feature| {
         roll_to_here(document, feature)

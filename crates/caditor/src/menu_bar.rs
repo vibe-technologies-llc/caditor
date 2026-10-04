@@ -56,7 +56,15 @@ pub fn show(
                 if context.chrome.built_in() {
                     logo::show(ui, ui.spacing().interact_size.y);
                 }
-                files::menu(ui, model, context.files, context.editing, commands, actions);
+                files::menu(
+                    ui,
+                    model,
+                    context.files,
+                    context.editing,
+                    context.offers,
+                    commands,
+                    actions,
+                );
                 let mut menus = Menus {
                     offers: context.offers,
                     commands,

@@ -70,6 +70,7 @@ mod shell_panel;
 mod shell_tools;
 mod shortcut_editor;
 mod sketch_drag;
+mod sketch_export;
 mod sketch_placement;
 mod sketch_status;
 mod sketch_toolbar;

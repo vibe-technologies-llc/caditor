@@ -63,6 +63,11 @@ paths:
   included) is left out and returned in `Exported::left_out` (the app says so in a notice that
   outlasts edits); the export fails only when no body could be written. STEP does this through
   `write_step_keeping_what_can_be`.
+- `export_sketch` (`export/dxf.rs`) writes the solved curves of one sketch as an ASCII DXF of version
+  AC1015: millimetres in the sketch's own 2D coordinates on layer 0, `LINE`, `CIRCLE`, `ARC` (a
+  full sweep is a circle), clamped `SPLINE` (planar, with its knots and control points) and `POINT`
+  for a point no curve uses. Construction curves are counted and left out; a sketch with nothing
+  else is `ExportError::NoCurves`. The result reads back through `parse_dxf` as the same curves.
 - `export_png` writes 8-bit RGBA, straight alpha, sRGB chunk, through the pure-Rust `png` crate,
   atomically, checking the pixel count and cancellation; errors are `ImageExportError` variants.
 - 3MF is a ZIP from a small writer (`zip.rs`; deflate through `miniz_oxide` unless storing is

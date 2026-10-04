@@ -83,6 +83,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Import => phosphor::DOWNLOAD_SIMPLE,
         Command::Export => phosphor::EXPORT,
         Command::ExportImage => phosphor::IMAGE,
+        Command::ExportSketch => phosphor::EXPORT,
         Command::Preferences => phosphor::GEAR,
         Command::KeyboardShortcuts => phosphor::KEYBOARD,
         Command::Quit => phosphor::SIGN_OUT,

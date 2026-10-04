@@ -67,6 +67,7 @@ pub enum Command {
     Import,
     Export,
     ExportImage,
+    ExportSketch,
     Preferences,
     KeyboardShortcuts,
     Quit,
@@ -400,6 +401,7 @@ plain_commands! {
     Import,
     Export,
     ExportImage,
+    ExportSketch,
     Preferences,
     KeyboardShortcuts,
     Welcome,
@@ -503,6 +505,7 @@ impl Command {
             Self::Import => "file.import",
             Self::Export => "file.export",
             Self::ExportImage => "file.export_image",
+            Self::ExportSketch => "file.export_sketch",
             Self::Preferences => "file.preferences",
             Self::KeyboardShortcuts => "file.shortcuts",
             Self::Quit => "file.quit",
@@ -648,6 +651,7 @@ impl Command {
             Self::Import => "Import…",
             Self::Export => "Export…",
             Self::ExportImage => "Export image…",
+            Self::ExportSketch => "Export sketch as DXF…",
             Self::Preferences => "Preferences…",
             Self::KeyboardShortcuts => "Keyboard shortcuts…",
             Self::Quit => "Quit",
@@ -752,6 +756,7 @@ impl Command {
             | Self::Import
             | Self::Export
             | Self::ExportImage
+            | Self::ExportSketch
             | Self::Preferences
             | Self::KeyboardShortcuts
             | Self::Quit
@@ -916,6 +921,7 @@ impl Command {
             Self::DatumAxis => vec![alt_shift(Key::D)],
             Self::VersionHistory
             | Self::KeyboardShortcuts
+            | Self::ExportSketch
             | Self::FinishSketch
             | Self::ShapeMode(_)
             | Self::Filter(_)

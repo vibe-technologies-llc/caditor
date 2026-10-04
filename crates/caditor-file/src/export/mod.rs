@@ -1,3 +1,4 @@
+mod dxf;
 mod gltf;
 mod image;
 mod obj;
@@ -18,7 +19,10 @@ use caditor_geometry::{Aabb, Point3};
 use caditor_kernel::{Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_step::{StepBody, StepWritten, WriteError, write_step_keeping_what_can_be};
 
-pub use self::image::{ImageExportError, PNG_EXTENSION, RgbaImage, export_png};
+pub use self::{
+    dxf::{SketchExported, export_sketch},
+    image::{ImageExportError, PNG_EXTENSION, RgbaImage, export_png},
+};
 use crate::{reason::WriteFailure, save::write_atomically};
 
 const APPLICATION: &str = concat!("caditor ", env!("CARGO_PKG_VERSION"));
@@ -156,6 +160,8 @@ pub enum ExportError {
     Empty,
     #[error("the export was cancelled")]
     Cancelled,
+    #[error("the sketch has no curves or points to export")]
+    NoCurves,
     #[error(
         "the body of “{0}” could not be turned into triangles at this resolution; try another \
          resolution"
