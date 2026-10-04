@@ -89,12 +89,21 @@ pub enum BlendError {
     Lost(EdgeId),
     #[error("after the concave edges were filled: {0}")]
     AfterFill(Box<BlendError>),
-    #[error("the blend shape could not be built: {0}")]
-    Profile(ProfileError),
-    #[error("the blend shape could not be swept: {0}")]
-    Sweep(SweepError),
-    #[error(transparent)]
-    Boolean(BooleanError),
+    #[error("the blend shape could not be built: {error}")]
+    Profile {
+        error: ProfileError,
+        edge: Option<EdgeId>,
+    },
+    #[error("the blend shape could not be swept: {error}")]
+    Sweep {
+        error: SweepError,
+        edge: Option<EdgeId>,
+    },
+    #[error("{error}")]
+    Boolean {
+        error: BooleanError,
+        edge: Option<EdgeId>,
+    },
     #[error(transparent)]
     Cancelled(#[from] Interrupted),
 }
@@ -103,7 +112,7 @@ impl From<ProfileError> for BlendError {
     fn from(error: ProfileError) -> Self {
         match error {
             ProfileError::Cancelled(interrupted) => Self::Cancelled(interrupted),
-            other => Self::Profile(other),
+            error => Self::Profile { error, edge: None },
         }
     }
 }
@@ -112,7 +121,7 @@ impl From<SweepError> for BlendError {
     fn from(error: SweepError) -> Self {
         match error {
             SweepError::Cancelled(interrupted) => Self::Cancelled(interrupted),
-            other => Self::Sweep(other),
+            error => Self::Sweep { error, edge: None },
         }
     }
 }
@@ -121,7 +130,7 @@ impl From<BooleanError> for BlendError {
     fn from(error: BooleanError) -> Self {
         match error {
             BooleanError::Cancelled(interrupted) => Self::Cancelled(interrupted),
-            other => Self::Boolean(other),
+            error => Self::Boolean { error, edge: None },
         }
     }
 }
@@ -141,6 +150,27 @@ impl BlendError {
             Self::TooLarge(_) => Self::TooLarge(edge),
             Self::WrapsAround(_) => Self::WrapsAround(edge),
             Self::UnsupportedEnd { .. } => Self::UnsupportedEnd { edge, vertex: None },
+            Self::Profile { error, .. } => Self::Profile {
+                error,
+                edge: Some(edge),
+            },
+            Self::Sweep { error, .. } => Self::Sweep {
+                error,
+                edge: Some(edge),
+            },
+            Self::Boolean { error, .. } => Self::Boolean {
+                error,
+                edge: Some(edge),
+            },
+            other => other,
+        }
+    }
+
+    fn at(self, edge: Option<EdgeId>) -> Self {
+        match self {
+            Self::Profile { error, edge: None } => Self::Profile { error, edge },
+            Self::Sweep { error, edge: None } => Self::Sweep { error, edge },
+            Self::Boolean { error, edge: None } => Self::Boolean { error, edge },
             other => other,
         }
     }
@@ -154,13 +184,10 @@ impl BlendError {
             | Self::WrapsAround(edge)
             | Self::Lost(edge)
             | Self::UnsupportedEnd { edge, .. } => Some(*edge),
-            Self::InvalidSize
-            | Self::AfterFill(_)
-            | Self::NoEdges
-            | Self::Profile(_)
-            | Self::Sweep(_)
-            | Self::Boolean(_)
-            | Self::Cancelled(_) => None,
+            Self::Profile { edge, .. } | Self::Sweep { edge, .. } | Self::Boolean { edge, .. } => {
+                *edge
+            }
+            Self::InvalidSize | Self::AfterFill(_) | Self::NoEdges | Self::Cancelled(_) => None,
         }
     }
 }
@@ -798,6 +825,7 @@ fn innermost(curves: &[ProfileCurve]) -> f64 {
 struct Tool {
     solid: Solid,
     convex: bool,
+    edge: Option<EdgeId>,
 }
 
 fn tool(
@@ -884,6 +912,7 @@ fn tool(
     Ok(Tool {
         solid: shaped,
         convex: geometry.section.convex,
+        edge: Some(geometry.edge),
     })
 }
 
@@ -1057,13 +1086,17 @@ fn apply_analysed(
             .ok_or(BlendError::MissingEdge(geometry.edge))?
             .name();
         blend_names.insert(geometry.edge, FaceName::blend(feature, edge_name));
-        tools.push(tool(solid, geometry, blend, &ends, shape, feature)?);
+        tools.push(
+            tool(solid, geometry, blend, &ends, shape, feature)
+                .map_err(|error| error.at(Some(geometry.edge)))?,
+        );
     }
     for corner in corners.values() {
         interrupt::check()?;
         tools.push(Tool {
             solid: corner.tool(solid, feature, &blend_names)?,
             convex: true,
+            edge: None,
         });
     }
     let (convex, concave): (Vec<Tool>, Vec<Tool>) = tools.into_iter().partition(|tool| tool.convex);
@@ -1072,8 +1105,9 @@ fn apply_analysed(
         (convex, BooleanOperation::Difference),
         (concave, BooleanOperation::Union),
     ] {
+        let edges: Vec<Option<EdgeId>> = group.iter().map(|tool| tool.edge).collect();
         let solids: Vec<Solid> = group.into_iter().map(|tool| tool.solid).collect();
-        result = applied(&result, &solids, operation)?;
+        result = applied(&result, &solids, &edges, operation)?;
     }
     Ok(result)
 }
@@ -1137,8 +1171,9 @@ fn grouped(tools: &[Solid]) -> Result<Vec<ToolGroup>, BooleanError> {
 fn applied(
     solid: &Solid,
     tools: &[Solid],
+    edges: &[Option<EdgeId>],
     operation: BooleanOperation,
-) -> Result<Solid, BooleanError> {
+) -> Result<Solid, BlendError> {
     let mut result = solid.clone();
     for group in grouped(tools)? {
         if group.members.len() > 1 {
@@ -1150,8 +1185,13 @@ fn applied(
                 Err(error) => cancelled(error)?,
             }
         }
-        for tool in group.members.iter().filter_map(|member| tools.get(*member)) {
-            result = boolean(&result, tool, operation)?;
+        for member in &group.members {
+            let Some(tool) = tools.get(*member) else {
+                continue;
+            };
+            let edge = edges.get(*member).copied().flatten();
+            result = boolean(&result, tool, operation)
+                .map_err(|error| BlendError::from(error).at(edge))?;
         }
     }
     Ok(result)

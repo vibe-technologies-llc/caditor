@@ -1084,7 +1084,27 @@ fn only_a_specific_inward_error_replaces_too_thick() {
     assert!(ShellError::TooCurved(face).names_the_cause());
     assert!(ShellError::UnsupportedFace(face).names_the_cause());
     assert!(!ShellError::EdgeCollapses(edge).names_the_cause());
-    assert!(!ShellError::Walls.names_the_cause());
+    assert!(
+        !ShellError::Walls {
+            face: None,
+            edge: None
+        }
+        .names_the_cause()
+    );
+    assert!(
+        ShellError::Walls {
+            face: Some(face),
+            edge: None
+        }
+        .names_the_cause()
+    );
+    assert!(
+        ShellError::Walls {
+            face: None,
+            edge: Some(edge)
+        }
+        .names_the_cause()
+    );
     assert!(!ShellError::TooThick.names_the_cause());
 }
 

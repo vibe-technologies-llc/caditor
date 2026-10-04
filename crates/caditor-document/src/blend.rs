@@ -220,15 +220,21 @@ impl Context<'_> {
                     "Blend the inner and the outer edges in separate features.".to_owned(),
                 )
             }
-            BlendError::Profile(_) | BlendError::Sweep(_) | BlendError::Boolean(_) => {
+            BlendError::Profile { .. } | BlendError::Sweep { .. } | BlendError::Boolean { .. } => {
                 log::warn!("{} could not be built: {error}", self.feature.name);
-                self.error(
-                    format!(
-                        "The {noun} could not be built on the body of {}.",
-                        self.body_name
+                match error.edge() {
+                    Some(_) => self.error(
+                        format!("The {noun} of {edge} could not be built."),
+                        format!("Change the {what} slightly, or leave this edge out."),
                     ),
-                    format!("Change the {what} slightly, or choose fewer edges."),
-                )
+                    None => self.error(
+                        format!(
+                            "The {noun} could not be built on the body of {}.",
+                            self.body_name
+                        ),
+                        format!("Change the {what} slightly, or choose fewer edges."),
+                    ),
+                }
             }
         }
     }

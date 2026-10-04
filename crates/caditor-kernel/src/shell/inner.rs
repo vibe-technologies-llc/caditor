@@ -571,14 +571,18 @@ fn place_edges(
             },
         ] = group.as_slice()
         else {
-            let dead = group.first().map(|half| half.edge).and_then(|id| {
+            let lone = group.first().map(|half| half.edge);
+            let dead = lone.and_then(|id| {
                 coedge_faces(solid, id)
                     .into_iter()
                     .find(|face| collapses.contains(*face))
             });
             return Err(dead
                 .and_then(|face| collapses.refusal(solid, face))
-                .unwrap_or(ShellError::Walls));
+                .unwrap_or(ShellError::Walls {
+                    face: None,
+                    edge: lone,
+                }));
         };
         let name = |face: FaceId| solid.face(face).map_or(FaceName::NONE, |face| face.name());
         let index = new_edge(
@@ -663,11 +667,21 @@ fn loops(
             }
         }
         if coedges.is_empty() {
-            return Err(ShellError::Walls);
+            return Err(ShellError::Walls {
+                face: Some(face),
+                edge: None,
+            });
         }
         loops.push(coedges);
     }
     Ok(loops)
+}
+
+fn unnamed_walls() -> ShellError {
+    ShellError::Walls {
+        face: None,
+        edge: None,
+    }
 }
 
 pub(super) struct Inner {
@@ -686,7 +700,7 @@ fn settled_layout(offsets: &Offsets<'_>, collapses: &mut Collapses) -> Result<La
         }
         collapses.add_shrinking(shrinking);
     }
-    Err(ShellError::Walls)
+    Err(unnamed_walls())
 }
 
 pub(super) fn inner_solid(offsets: &Offsets<'_>, feature: u64) -> Result<Inner, ShellError> {
@@ -719,9 +733,9 @@ pub(super) fn inner_solid(offsets: &Offsets<'_>, feature: u64) -> Result<Inner, 
     let built = plan.build().map_err(|error| match error {
         PlanError::Build(error) => match error.interrupted() {
             Some(interrupted) => ShellError::Cancelled(interrupted),
-            None => ShellError::Walls,
+            None => unnamed_walls(),
         },
-        PlanError::Unassembled => ShellError::Walls,
+        PlanError::Unassembled => unnamed_walls(),
     })?;
     Ok(Inner {
         solid: built.renamed(|name, origin| (name, origin)),

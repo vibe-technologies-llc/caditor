@@ -686,6 +686,20 @@ fn feet_that_cross_on_a_cylinder_wall_are_refused() {
 }
 
 #[test]
+fn a_blend_whose_tool_cannot_be_applied_names_that_tools_edge() {
+    let solid = cylinder(5.0, 10.0);
+    let rims = [
+        edge_through(&solid, (5.0, 0.0, 0.0)),
+        edge_through(&solid, (5.0, 0.0, 10.0)),
+    ];
+
+    let error = blend(&solid, &rims, fillet(4.0), 50).unwrap_err();
+
+    assert!(matches!(error, BlendError::Boolean { .. }), "{error:?}");
+    assert!(rims.contains(&error.edge().unwrap()), "{error:?}");
+}
+
+#[test]
 fn feet_that_cross_on_the_side_of_a_box_are_refused() {
     let solid = cuboid(Vector3::new(40.0, 40.0, 10.0));
     let horizontal: Vec<EdgeId> = solid

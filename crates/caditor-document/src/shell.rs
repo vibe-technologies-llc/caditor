@@ -200,13 +200,24 @@ impl Context<'_> {
                 ),
                 "Enter a smaller thickness, or leave this face closed.".to_owned(),
             ),
-            ShellError::Walls => self.error(
-                format!(
-                    "The walls of the body of {} would cross each other at this thickness.",
-                    self.body_name
-                ),
-                "Enter a smaller thickness.".to_owned(),
-            ),
+            ShellError::Walls { face, edge } => {
+                let near = match (face, edge) {
+                    (Some(face), _) => format!(" near {}", self.describe_face(solid, *face)),
+                    (None, Some(edge)) => format!(
+                        " near {}",
+                        describe_edge(self.inputs.document, solid, *edge)
+                    ),
+                    (None, None) => String::new(),
+                };
+                self.error(
+                    format!(
+                        "The walls of the body of {} would cross each other{near} at this \
+                         thickness.",
+                        self.body_name
+                    ),
+                    "Enter a smaller thickness.".to_owned(),
+                )
+            }
             ShellError::TooThick => self.error(
                 format!(
                     "The thickness is too large for the body of {}.",

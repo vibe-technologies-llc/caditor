@@ -118,7 +118,9 @@ paths:
 # Blends (`blend/`)
 
 - `blend(solid, edges, BlendShape, feature)` rounds (`Fillet`) or bevels (`Chamfer`) edges by
-  sweeping a tool per edge: valid or a `BlendError` naming the edge.
+  sweeping a tool per edge: valid or a `BlendError` naming the edge. A failing tool's profile,
+  sweep or boolean (`Profile`, `Sweep`, `Boolean`) carries the edge it was built for, except when
+  the failing step is the pairwise union of tools or a corner's, which name none.
 - Chosen edges first grow along tangent-continuous chains (`blend_chain`); smooth edges are dropped.
   Tools are united pairwise in rounds (a pair that cannot be united, such as tools meeting only
   along an edge, stays apart) and each group is applied in one boolean, or tool by tool when that
@@ -212,7 +214,8 @@ paths:
   offset there joining faces or giving an edge another pair of faces), an edge whose wall shrinks
   to nothing or a face that shrinks away but cannot be closed over (`EdgeCollapses`), an edge
   whose offset surfaces do not meet through its ends (`UnsupportedEdge`), an opening that cannot
-  be cut, walls that cross (`Walls`), a body that cannot be meshed to find its voids (`Voids`) and
+  be cut, walls that cross (`Walls`, naming the face or edge it found them at when it knows), a body that cannot be meshed to find its voids (`Voids`) and
   a thickness too large for the body. When the outward attempt only fails to keep every wall and
-  the inward one fails with an error that names its cause (not `EdgeCollapses` or `Walls`), that
+  the inward one fails with an error that names its cause (not `EdgeCollapses` or a `Walls` with
+  no face or edge), that
   error is reported instead of `TooThick`.

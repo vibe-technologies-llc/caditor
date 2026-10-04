@@ -48,7 +48,10 @@ pub enum ShellError {
     #[error("the opening in face {0:?} could not be cut")]
     Opening(FaceId),
     #[error("the offset walls do not form a valid solid")]
-    Walls,
+    Walls {
+        face: Option<FaceId>,
+        edge: Option<EdgeId>,
+    },
     #[error("the body could not be meshed to tell its voids apart: {0}")]
     Voids(TessellationError),
     #[error(transparent)]
@@ -59,10 +62,11 @@ pub enum ShellError {
 
 impl ShellError {
     fn names_the_cause(&self) -> bool {
-        !matches!(
-            self,
-            Self::TooThick | Self::EdgeCollapses(_) | Self::Walls | Self::InvalidThickness
-        )
+        match self {
+            Self::TooThick | Self::EdgeCollapses(_) | Self::InvalidThickness => false,
+            Self::Walls { face, edge } => face.is_some() || edge.is_some(),
+            _ => true,
+        }
     }
 }
 
