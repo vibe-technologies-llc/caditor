@@ -137,9 +137,10 @@ within a category run from most to least important.
 - `solve_dragging` runs the full rank and DOF analysis every drag frame though the drag worker
   uses only the geometry and memo, and the dragged component is never memoised, so a drag frame
   of a 2000-line chain takes 660 ms. Add a geometry-only drag solve.
-- `spans_within` scans every span of the sketch for each part, and `components()` is rebuilt
-  with `BTreeMap`s several times per solve, so solving is quadratic in independent parts: 6,400
-  dimensioned rectangles take 0.9 s, and a warm re-solve recalling every part costs the same.
+- `components()` is rebuilt with `BTreeMap`s several times per solve, so solving stays heavier than
+  linear in independent parts: 6,400 dimensioned rectangles take 0.42 s (1.4 s before each part
+  kept its own spans), and a warm re-solve recalling every part costs about the same
+  (`thousands_of_independent_rectangles_solve_in_a_fraction_of_a_second`, ignored, in release).
 - Conflict diagnosis confirms each constraint of a conflict with a Gauss–Newton step over the
   whole part, so a conflict running through a part of more than about five hundred entities still
   runs out of budget and is reported as not solving; one factorisation of the Jacobian, updated

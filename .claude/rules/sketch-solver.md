@@ -23,6 +23,9 @@ paths:
   within sixteen times the collapse length), or unfinished (out of steps while still descending, or
   no finite step). Retries perturb each part by a fraction of its own extent. Every equation has an
   analytic gradient.
+- A `Component` lists the spans (a line's ends, an arc's centre and start) with an end among its
+  variables, found from `System::spans_at_variable` when the components are built, so the collapse
+  checks of each part look at its own spans and not the whole sketch's.
 - A solve that would collapse a line or an arc's radius to nothing is not converged, reported as a
   conflict; if the line or arc already had no length, `SketchError::NoLength` naming it.
 

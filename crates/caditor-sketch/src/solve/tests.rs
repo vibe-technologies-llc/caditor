@@ -878,6 +878,72 @@ fn a_long_chain_solves_and_analyses_within_its_work_budget() {
     );
 }
 
+fn many_rectangles(count: usize) -> Sketch {
+    let mut sketch = Sketch::new(Plane::XY);
+    for index in 0..count {
+        let origin = Point2::new((index % 80) as f64 * 100.0, (index / 80) as f64 * 100.0);
+        let corners = [
+            origin,
+            origin + Point2::new(40.0, 0.0),
+            origin + Point2::new(40.0, 20.0),
+            origin + Point2::new(0.0, 20.0),
+        ];
+        let [a, b, c, d] = corners;
+        let lines = [
+            sketch.add_line(a, b),
+            sketch.add_line(b, c),
+            sketch.add_line(c, d),
+            sketch.add_line(d, a),
+        ];
+        let ends: Vec<(EntityId, EntityId)> =
+            lines.iter().map(|line| ends(&sketch, *line)).collect();
+        for next in 0..4 {
+            add(
+                &mut sketch,
+                Constraint::Coincident(ends[next].1, ends[(next + 1) % 4].0),
+            );
+        }
+        let [bottom, right, top, left] = lines;
+        add(&mut sketch, Constraint::Horizontal(bottom));
+        add(&mut sketch, Constraint::Vertical(right));
+        add(&mut sketch, Constraint::Horizontal(top));
+        add(&mut sketch, Constraint::Vertical(left));
+        for (line, length) in [(0, 40.0), (1, 20.0)] {
+            add(
+                &mut sketch,
+                Constraint::Distance {
+                    from: ends[line].0,
+                    to: ends[line].1,
+                    value: mm(length),
+                },
+            );
+        }
+        add(
+            &mut sketch,
+            Constraint::Fix {
+                point: ends[0].0,
+                at: origin,
+            },
+        );
+    }
+    sketch
+}
+
+#[test]
+#[ignore = "measures a sketch of thousands of independent parts, best run in release"]
+fn thousands_of_independent_rectangles_solve_in_a_fraction_of_a_second() {
+    for count in [1_600, 6_400] {
+        let sketch = many_rectangles(count);
+        let started = std::time::Instant::now();
+
+        let solved = solve(&sketch).unwrap();
+
+        let elapsed = started.elapsed();
+        println!("{count} rectangles: {elapsed:?}");
+        assert!(solved.solution.is_fully_constrained());
+    }
+}
+
 #[test]
 fn large_parts_report_freedoms_and_redundancies_like_small_ones() {
     let (mut sketch, lines) = chain(15);

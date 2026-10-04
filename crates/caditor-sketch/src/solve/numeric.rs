@@ -5,7 +5,7 @@ use nalgebra::{DMatrix, DVector, SVD};
 use crate::{
     id::{ConstraintId, EntityId},
     solve::{
-        equation::{Context, Equation, Gradient, PointHandle, value},
+        equation::{Context, Equation, Gradient, value},
         sparse,
         system::System,
         tally,
@@ -39,6 +39,7 @@ pub(crate) struct Cancelled;
 pub(crate) struct Component {
     pub variables: Vec<usize>,
     pub equations: Vec<usize>,
+    pub spans: Vec<usize>,
 }
 
 pub(crate) fn components(system: &System, active: &[usize], values: &[f64]) -> Vec<Component> {
@@ -67,6 +68,7 @@ pub(crate) fn components(system: &System, active: &[usize], values: &[f64]) -> V
             .or_insert_with(|| Component {
                 variables: Vec::new(),
                 equations: Vec::new(),
+                spans: Vec::new(),
             })
             .equations
             .push(index);
@@ -78,11 +80,22 @@ pub(crate) fn components(system: &System, active: &[usize], values: &[f64]) -> V
             group.variables.push(variable);
         }
     }
+    for group in groups.values_mut() {
+        let spans: BTreeSet<usize> = group
+            .variables
+            .iter()
+            .filter_map(|variable| system.spans_at_variable.get(variable))
+            .flatten()
+            .copied()
+            .collect();
+        group.spans = spans.into_iter().collect();
+    }
     groups
         .into_values()
         .chain(constant.into_iter().map(|index| Component {
             variables: Vec::new(),
             equations: vec![index],
+            spans: Vec::new(),
         }))
         .collect()
 }
@@ -432,16 +445,11 @@ impl Solver<'_> {
         values: &'b [f64],
         limit: f64,
     ) -> impl Iterator<Item = EntityId> + 'b {
-        let moves = |handle: &PointHandle| match handle {
-            PointHandle::Variable(x) => part.component.variables.binary_search(x).is_ok(),
-            PointHandle::Fixed(_) => false,
-        };
-        self.system
+        part.component
             .spans
             .iter()
-            .filter(move |(_, from, to)| {
-                (moves(from) || moves(to)) && from.at(values).distance(to.at(values)) <= limit
-            })
+            .filter_map(|index| self.system.spans.get(*index))
+            .filter(move |(_, from, to)| from.at(values).distance(to.at(values)) <= limit)
             .map(|(entity, _, _)| *entity)
     }
 

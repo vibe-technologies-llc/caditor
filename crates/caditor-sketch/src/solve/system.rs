@@ -30,6 +30,7 @@ pub(crate) struct System {
     pub parameter_variables: BTreeSet<usize>,
     pub entity_variables: BTreeMap<EntityId, Vec<usize>>,
     pub spans: Vec<(EntityId, PointHandle, PointHandle)>,
+    pub spans_at_variable: BTreeMap<usize, Vec<usize>>,
 }
 
 impl System {
@@ -60,6 +61,7 @@ impl System {
             parameter_variables: BTreeSet::new(),
             entity_variables: BTreeMap::new(),
             spans: Vec::new(),
+            spans_at_variable: BTreeMap::new(),
         };
         system.entity_variables = sketch
             .entities()
@@ -73,9 +75,18 @@ impl System {
                 Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. } => None,
             };
             if let Some((from, to)) = span {
-                system
-                    .spans
-                    .push((id, system.point(from)?, system.point(to)?));
+                let (from, to) = (system.point(from)?, system.point(to)?);
+                let index = system.spans.len();
+                for end in [from, to] {
+                    if let PointHandle::Variable(variable) = end {
+                        system
+                            .spans_at_variable
+                            .entry(variable)
+                            .or_default()
+                            .push(index);
+                    }
+                }
+                system.spans.push((id, from, to));
             }
         }
         for (id, entity) in sketch.entities() {
