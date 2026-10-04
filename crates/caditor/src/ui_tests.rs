@@ -6405,6 +6405,43 @@ fn recent_messages_open_from_the_palette_and_close_with_escape() {
     assert!(!harness.workspace.messages_open);
 }
 
+#[test]
+fn the_undo_history_goes_back_and_forward_several_steps_at_once() {
+    let mut harness = Harness::new();
+    let before = harness.document().parameters().len();
+    for name in ["first", "second", "third"] {
+        let length = harness.model.length_unit().default_length(10.0);
+        let mut transaction = harness.document().transaction(format!("Add {name}"));
+        transaction.add_parameter(name.to_owned(), length);
+        harness.perform(Action::Apply(transaction.finish()));
+        harness.settle();
+    }
+    assert_eq!(harness.document().parameters().len(), before + 3);
+
+    run_from_palette(&mut harness, "undo history");
+    assert!(harness.workspace.undo_history_open);
+    for label in ["Add first", "Add second", "Add third"] {
+        assert!(harness.shows(label), "{label}");
+    }
+
+    harness.click("Add first");
+    harness.settle();
+    assert_eq!(harness.document().parameters().len(), before + 1);
+    assert_eq!(
+        harness.model.redo_labels().collect::<Vec<_>>(),
+        ["Add second", "Add third"]
+    );
+    assert!(harness.workspace.undo_history_open);
+
+    harness.click("Add third");
+    harness.settle();
+    assert_eq!(harness.document().parameters().len(), before + 3);
+    assert_eq!(harness.model.redo_labels().count(), 0);
+
+    harness.click("Close");
+    assert!(!harness.workspace.undo_history_open);
+}
+
 fn sample_document() -> anyhow::Result<Document> {
     let mut document = Document::default();
     let mut transaction = document.transaction("Sample model");

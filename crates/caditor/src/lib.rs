@@ -83,6 +83,7 @@ mod trimming;
 mod typed_point;
 #[cfg(test)]
 mod ui_tests;
+mod undo_history;
 mod units;
 mod variants;
 mod view_cube;

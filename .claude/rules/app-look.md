@@ -210,7 +210,10 @@ paths:
   journal. The status bar shows only the newest notice, but `Model::set_notice` records each one
   (not a repeat of the newest; the last 100, with the time) and Help › Recent messages
   (`Command::Messages`, `messages.rs`) lists them newest first, so a failed save outlives the
-  notice that replaced it.
+  notice that replaced it. Edit › Undo history (`Command::UndoHistory`, `undo_history.rs`) lists
+  the changes Undo and Redo hold (`Editor::undo_labels`, `redo_labels`, newest first, the ones Redo
+  would bring back above a "Now" line) and a click goes to just after that change by sending that
+  many `Action::Undo` or `Action::Redo`, each an ordinary undoable step of the journal.
 - Neither bar clips at large sizes or in narrow windows: the menu bar's search field and model name
   (which truncates, its path on hover) and the status bar's selection, unit and size take their own
   row when last frame's needed width does not fit (`widgets::remembered_width`); the selection has a

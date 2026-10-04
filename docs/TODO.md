@@ -430,8 +430,8 @@ within a category run from most to least important.
   only Inter and egui's defaults are loaded.
 - Version history shows when a version was saved and after which change, but no preview of what it
   holds, and no way to keep a version from being thinned out.
-- Undo steps are only reachable one at a time; there is no list of the undo history to see what
-  each step changed or to jump back several steps at once.
+- The undo history lists only each step's label, with no summary of what it changed (the
+  entities, features or parameters touched).
 - No user guide: Help has only the welcome, the tips and About. Nothing explains features, the
   parameter and expression syntax, or the file workflow, and no panel links to help on itself.
   A guide shipped with the app (and readable offline) with a page per tool, opened by F1 for the

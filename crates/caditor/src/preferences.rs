@@ -320,6 +320,8 @@ pub enum PreferencesCommand {
     CloseAbout,
     ShowMessages,
     CloseMessages,
+    ShowUndoHistory,
+    CloseUndoHistory,
     Tab(PreferencesTab),
     Change(PreferenceChange),
     Preview(PreferenceChange),

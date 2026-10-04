@@ -54,6 +54,7 @@ use crate::{
     sketch_toolbar,
     status_bar::{self, StatusContext},
     toolbar::{self, ToolbarContext},
+    undo_history,
     viewport::ViewportState,
     window_frame::{self, Chrome},
 };
@@ -115,6 +116,7 @@ pub struct Workspace {
     pub welcome_open: bool,
     pub about_open: bool,
     pub messages_open: bool,
+    pub undo_history_open: bool,
     pub last_offers: Vec<Offer>,
     pub selection_offers: SelectionOffers,
     pub measure: MeasureTool,
@@ -152,6 +154,7 @@ impl Workspace {
             welcome_open,
             about_open: false,
             messages_open: false,
+            undo_history_open: false,
             last_offers: Vec::new(),
             selection_offers: SelectionOffers::default(),
             measure: MeasureTool::default(),
@@ -175,6 +178,7 @@ impl Workspace {
         self.welcome_open = false;
         self.about_open = false;
         self.messages_open = false;
+        self.undo_history_open = false;
         self.last_offers.clear();
         self.selection_offers = SelectionOffers::default();
         self.measure = MeasureTool::default();
@@ -230,6 +234,8 @@ impl Workspace {
             PreferencesCommand::CloseAbout => self.about_open = false,
             PreferencesCommand::ShowMessages => self.messages_open = true,
             PreferencesCommand::CloseMessages => self.messages_open = false,
+            PreferencesCommand::ShowUndoHistory => self.undo_history_open = true,
+            PreferencesCommand::CloseUndoHistory => self.undo_history_open = false,
             PreferencesCommand::Tab(tab) => {
                 self.preferences_tab = tab;
                 self.restored = None;
@@ -304,6 +310,7 @@ pub fn show(
         || workspace.welcome_open
         || workspace.about_open
         || workspace.messages_open
+        || workspace.undo_history_open
         || workspace.panels.deleting.is_some();
     let dialog_open = modal_open || palette_open;
     let blocked = files.is_blocking() || dialog_open;
@@ -322,6 +329,7 @@ pub fn show(
         welcome_open,
         about_open,
         messages_open,
+        undo_history_open,
         last_offers,
         selection_offers,
         measure,
@@ -438,6 +446,9 @@ pub fn show(
     if commands.available(Command::About) {
         actions.push(Action::Preferences(PreferencesCommand::ShowAbout));
     }
+    if commands.available(Command::UndoHistory) {
+        actions.push(Action::Preferences(PreferencesCommand::ShowUndoHistory));
+    }
     if commands.available(Command::Messages) {
         actions.push(Action::Preferences(PreferencesCommand::ShowMessages));
     }
@@ -496,6 +507,19 @@ pub fn show(
         }
         if *about_open && about::dialog(ui.ctx()) {
             actions.push(Action::Preferences(PreferencesCommand::CloseAbout));
+        }
+        if *undo_history_open && let Some(jump) = undo_history::dialog(ui.ctx(), model) {
+            match jump {
+                undo_history::Jump::Close => {
+                    actions.push(Action::Preferences(PreferencesCommand::CloseUndoHistory));
+                }
+                undo_history::Jump::Undo(steps) => {
+                    actions.extend(std::iter::repeat_n(Action::Undo, steps));
+                }
+                undo_history::Jump::Redo(steps) => {
+                    actions.extend(std::iter::repeat_n(Action::Redo, steps));
+                }
+            }
         }
         if *messages_open && messages::dialog(ui.ctx(), model) {
             actions.push(Action::Preferences(PreferencesCommand::CloseMessages));

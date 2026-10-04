@@ -87,6 +87,7 @@ pub fn command(command: Command) -> &'static str {
         Command::KeyboardShortcuts => phosphor::KEYBOARD,
         Command::Quit => phosphor::SIGN_OUT,
         Command::Undo => phosphor::ARROW_U_UP_LEFT,
+        Command::UndoHistory => phosphor::CLOCK_COUNTER_CLOCKWISE,
         Command::Redo => phosphor::ARROW_U_UP_RIGHT,
         Command::NewSketch => phosphor::PENCIL_LINE,
         Command::FinishSketch => phosphor::CHECK,

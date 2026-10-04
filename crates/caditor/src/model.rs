@@ -278,6 +278,14 @@ impl Model {
         self.editor.redo_label()
     }
 
+    pub fn undo_labels(&self) -> impl Iterator<Item = &str> {
+        self.editor.undo_labels()
+    }
+
+    pub fn redo_labels(&self) -> impl Iterator<Item = &str> {
+        self.editor.redo_labels()
+    }
+
     pub fn status(&self) -> RecomputeStatus {
         self.status
     }

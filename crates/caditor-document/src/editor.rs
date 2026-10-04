@@ -21,6 +21,10 @@ struct Steps {
 }
 
 impl Steps {
+    fn labels(&self) -> impl Iterator<Item = &str> {
+        self.steps.iter().rev().map(|step| step.transaction.label())
+    }
+
     fn last(&self) -> Option<&Transaction> {
         self.steps.back().map(|step| &step.transaction)
     }
@@ -131,6 +135,14 @@ impl Editor {
 
     pub fn redo_label(&self) -> Option<&str> {
         self.redo.last().map(Transaction::label)
+    }
+
+    pub fn undo_labels(&self) -> impl Iterator<Item = &str> {
+        self.undo.labels()
+    }
+
+    pub fn redo_labels(&self) -> impl Iterator<Item = &str> {
+        self.redo.labels()
     }
 
     pub fn next_undo(&self) -> Option<&Transaction> {
@@ -292,6 +304,24 @@ mod tests {
 
         assert!(many >= none + 10_000 * size_of::<EntityId>());
         assert!(long >= short + 1_000 * size_of::<Expression>());
+    }
+
+    #[test]
+    fn the_editor_lists_its_undo_and_redo_steps_newest_first() {
+        let mut editor = Editor::default();
+        for name in ["one", "two", "three"] {
+            let mut transaction = editor.document().transaction(format!("Add {name}"));
+            transaction.add_parameter(name.to_owned(), Expression::number(1.0));
+            editor.apply(transaction.finish()).unwrap();
+        }
+        editor.undo().unwrap();
+        editor.undo().unwrap();
+
+        assert_eq!(editor.undo_labels().collect::<Vec<_>>(), ["Add one"]);
+        assert_eq!(
+            editor.redo_labels().collect::<Vec<_>>(),
+            ["Add two", "Add three"]
+        );
     }
 
     fn labels(steps: &Steps) -> Vec<String> {

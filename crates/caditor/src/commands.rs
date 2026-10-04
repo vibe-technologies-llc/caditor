@@ -71,6 +71,7 @@ pub enum Command {
     KeyboardShortcuts,
     Quit,
     Undo,
+    UndoHistory,
     Redo,
     NewSketch,
     FinishSketch,
@@ -404,6 +405,7 @@ plain_commands! {
     Messages,
     Quit,
     Undo,
+    UndoHistory,
     Redo,
     FitView,
     ToggleProjection,
@@ -502,6 +504,7 @@ impl Command {
             Self::KeyboardShortcuts => "file.shortcuts",
             Self::Quit => "file.quit",
             Self::Undo => "edit.undo",
+            Self::UndoHistory => "edit.undo_history",
             Self::Redo => "edit.redo",
             Self::NewSketch => "model.new_sketch",
             Self::FinishSketch => "sketch.finish",
@@ -645,6 +648,7 @@ impl Command {
             Self::KeyboardShortcuts => "Keyboard shortcuts…",
             Self::Quit => "Quit",
             Self::Undo => "Undo",
+            Self::UndoHistory => "Undo history…",
             Self::Redo => "Redo",
             Self::NewSketch => "New sketch",
             Self::FinishSketch => "Finish sketch",
@@ -757,6 +761,7 @@ impl Command {
             }
             Self::Palette
             | Self::Undo
+            | Self::UndoHistory
             | Self::Redo
             | Self::DeleteSelection
             | Self::DismissNotice => Category::Edit,
@@ -939,7 +944,8 @@ impl Command {
             | Self::HideTips
             | Self::Welcome
             | Self::About
-            | Self::Messages => Vec::new(),
+            | Self::Messages
+            | Self::UndoHistory => Vec::new(),
         }
     }
 

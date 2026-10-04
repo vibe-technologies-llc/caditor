@@ -307,7 +307,7 @@ impl Menus<'_, '_> {
 
     fn edit(&mut self, ui: &mut Ui) {
         ui.menu_button("Edit", |ui| {
-            self.items(ui, [Command::Undo, Command::Redo]);
+            self.items(ui, [Command::Undo, Command::Redo, Command::UndoHistory]);
             ui.separator();
             self.item(ui, Command::DeleteSelection);
             ui.separator();
