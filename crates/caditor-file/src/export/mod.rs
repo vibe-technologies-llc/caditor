@@ -1,4 +1,6 @@
+mod gltf;
 mod image;
+mod obj;
 mod stl;
 #[cfg(test)]
 mod tests;
@@ -27,16 +29,20 @@ pub enum ExportFormat {
     #[default]
     Stl,
     ThreeMf,
+    Obj,
+    Gltf,
     Step,
 }
 
 impl ExportFormat {
-    pub const ALL: [Self; 3] = [Self::Stl, Self::ThreeMf, Self::Step];
+    pub const ALL: [Self; 5] = [Self::Stl, Self::ThreeMf, Self::Obj, Self::Gltf, Self::Step];
 
     pub fn extension(self) -> &'static str {
         match self {
             Self::Stl => "stl",
             Self::ThreeMf => "3mf",
+            Self::Obj => "obj",
+            Self::Gltf => "glb",
             Self::Step => STEP_EXTENSION,
         }
     }
@@ -45,13 +51,15 @@ impl ExportFormat {
         match self {
             Self::Stl => "STL",
             Self::ThreeMf => "3MF",
+            Self::Obj => "OBJ",
+            Self::Gltf => "glTF",
             Self::Step => "STEP",
         }
     }
 
     pub fn is_mesh(self) -> bool {
         match self {
-            Self::Stl | Self::ThreeMf => true,
+            Self::Stl | Self::ThreeMf | Self::Obj | Self::Gltf => true,
             Self::Step => false,
         }
     }
@@ -59,7 +67,7 @@ impl ExportFormat {
     pub fn matches(self, path: &Path) -> bool {
         let accepted: &[&str] = match self {
             Self::Step => &STEP_EXTENSIONS,
-            Self::Stl | Self::ThreeMf => &[self.extension()],
+            Self::Stl | Self::ThreeMf | Self::Obj | Self::Gltf => &[self.extension()],
         };
         path.extension().is_some_and(|extension| {
             accepted
@@ -275,6 +283,8 @@ fn encode(format: ExportFormat, bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, Expo
     match format {
         ExportFormat::Stl => stl::encode(bodies),
         ExportFormat::ThreeMf => three_mf::encode(bodies),
+        ExportFormat::Obj => obj::encode(bodies),
+        ExportFormat::Gltf => gltf::encode(bodies),
         ExportFormat::Step => Err(ExportError::Encoding),
     }
 }

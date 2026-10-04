@@ -71,7 +71,7 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
     } = conversion;
     let target = Target::of(output).ok_or_else(|| {
         anyhow!(
-            "“{}” must end in .stl, .3mf, .step, .stp or .png, the formats caditor writes",
+            "“{}” must end in .stl, .3mf, .obj, .glb, .step, .stp or .png, the formats caditor writes",
             display_name(Some(output))
         )
     })?;
@@ -415,8 +415,8 @@ mod tests {
         };
 
         assert_eq!(
-            refused(&model, "plate.obj"),
-            "“plate.obj” must end in .stl, .3mf, .step, .stp or .png, the formats caditor writes"
+            refused(&model, "plate.fbx"),
+            "“plate.fbx” must end in .stl, .3mf, .obj, .glb, .step, .stp or .png, the formats caditor writes"
         );
         assert!(
             refused(&folder.path().join("missing.caditor"), "out.step")

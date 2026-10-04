@@ -125,7 +125,7 @@ pub fn usage() -> String {
         "{}\nParametric CAD.\n\nUsage: {} [OPTIONS] [MODEL]\n\nArguments:\n  [MODEL]  \
          A .caditor model to open, or a .dxf or .step file to import\n\nOptions:\n  \
          --export <FILE>         Write MODEL's bodies, or those of a STEP file, to FILE (.stl, \
-         .3mf, .step, .stp or .png) and exit, without opening a window; the status is 2 when a \
+         .3mf, .obj, .glb, .step, .stp or .png) and exit, without opening a window; the status is 2 when a \
          feature failed\n  --resolution <NAME>     Mesh quality for STL and 3MF: \
          coarse, standard (the default) or fine\n  --size <WxH>            \
          Pixels of a .png export, 1920x1080 by default\n  -h, --help              Show this help\n  -V, \

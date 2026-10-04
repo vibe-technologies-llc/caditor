@@ -54,7 +54,10 @@ paths:
 
 - `export_bodies` writes STEP, or tessellates at a `MeshResolution` (a chord fraction of the
   largest body's diagonal plus an angle between triangles) into binary STL (all bodies in one
-  surface) or 3MF (one named object per body, millimetres).
+  surface), 3MF (one named object per body, millimetres), OBJ (one named object per body, global
+  1-based indices, millimetres, Z up, no normals) or binary glTF (`.glb`: one node and mesh per
+  body, f32 positions in metres with Y up, `x, z, -y` of the model's, so winding is kept, and the
+  position bounds glTF requires; no normals, which the format defines as flat).
 - Saved atomically like a model. Cancellation is checked between bodies and before writing;
   failures are sentences naming the body. A body that cannot be meshed or written (a panic
   included) is left out and returned in `Exported::left_out` (the app says so in a notice that

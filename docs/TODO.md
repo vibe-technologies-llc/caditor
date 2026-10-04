@@ -334,8 +334,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Mesh import and export
 
-- [medium · medium] No OBJ or glTF export, so models cannot go to renderers, game engines or web
-  viewers without another tool.
 - [medium · hard] No mesh import (STL, 3MF, OBJ), though the STEP reader already builds
   `FACETED_BREP`s from
   polygons. An imported solid is stored as STEP text like any import (see the STEP storage item

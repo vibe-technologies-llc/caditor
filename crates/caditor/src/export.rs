@@ -376,6 +376,14 @@ fn format_hint(format: ExportFormat) -> &'static str {
             "Keeps each body as a separate named object with its units, preferred by modern \
              slicers."
         }
+        ExportFormat::Obj => {
+            "Triangles with each body as a named object, read by renderers and most 3D tools; \
+             no units, so millimetres."
+        }
+        ExportFormat::Gltf => {
+            "A single binary file in metres with Y up, the format game engines and web viewers \
+             load."
+        }
         ExportFormat::Step => {
             "Exact faces and edges that other CAD programs can open and keep editing."
         }

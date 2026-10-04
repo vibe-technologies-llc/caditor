@@ -205,7 +205,9 @@ impl Dialogs for NativeDialogs {
     ) {
         let extensions: &[&str] = match format {
             ExportFormat::Step => &STEP_EXTENSIONS,
-            ExportFormat::Stl | ExportFormat::ThreeMf => &[format.extension()],
+            ExportFormat::Stl | ExportFormat::ThreeMf | ExportFormat::Obj | ExportFormat::Gltf => {
+                &[format.extension()]
+            }
         };
         let filters = vec![Filter::new(format.name(), extensions)];
         let title = format!("Export {}", format.name());

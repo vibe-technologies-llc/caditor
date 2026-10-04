@@ -17,7 +17,7 @@
       <li>References to faces and edges that survive upstream edits</li>
       <li>Parameters and unit-aware expressions in every field</li>
       <li>Undo for every change, a crash-recovery journal and version history inside each file</li>
-      <li>DXF and STEP import; STEP, STL and 3MF export, and PNG images of the view</li>
+      <li>DXF and STEP import; STEP, STL, 3MF, OBJ and glTF export, and PNG images of the view</li>
       <li>A command palette, customisable shortcuts and full keyboard operation</li>
     </ul>
   </description>

@@ -317,6 +317,224 @@ fn a_3mf_is_a_valid_package_with_one_named_object_per_body() {
     assert!((volume - pin_volume()).abs() < 0.05 * pin_volume());
 }
 
+fn obj_objects(text: &str) -> Vec<(String, Vec<Point3>, Vec<[u32; 3]>)> {
+    let mut objects: Vec<(String, Vec<Point3>, Vec<[u32; 3]>)> = Vec::new();
+    let mut before = 0_u32;
+    for line in text.lines().filter(|line| !line.starts_with('#')) {
+        let (keyword, rest) = line.split_once(' ').unwrap();
+        match keyword {
+            "o" => {
+                before = objects.iter().map(|object| object.1.len() as u32).sum();
+                objects.push((rest.to_owned(), Vec::new(), Vec::new()));
+            }
+            "v" => {
+                let [x, y, z] = rest
+                    .split(' ')
+                    .map(|number| number.parse().unwrap())
+                    .collect::<Vec<f64>>()[..]
+                else {
+                    panic!("a vertex needs three numbers");
+                };
+                objects.last_mut().unwrap().1.push(Point3::new(x, y, z));
+            }
+            "f" => {
+                let [a, b, c] = rest
+                    .split(' ')
+                    .map(|index| index.parse::<u32>().unwrap() - 1 - before)
+                    .collect::<Vec<u32>>()[..]
+                else {
+                    panic!("a face needs three corners");
+                };
+                objects.last_mut().unwrap().2.push([a, b, c]);
+            }
+            other => panic!("unexpected keyword {other}"),
+        }
+    }
+    objects
+}
+
+#[test]
+fn an_obj_holds_each_body_as_a_named_closed_object_in_millimetres() {
+    let block = block();
+    let pin = pin();
+    let meshes = [
+        mesh_of(&block, MeshResolution::Standard),
+        mesh_of(&pin, MeshResolution::Standard),
+    ];
+
+    let bytes = obj::encode(&meshes).unwrap();
+    let text = String::from_utf8(bytes).unwrap();
+    let objects = obj_objects(&text);
+
+    assert!(text.starts_with("# caditor "));
+    assert!(text.lines().next().unwrap().contains("millimetres, Z up"));
+    assert_eq!(objects.len(), 2);
+    assert_eq!(objects[0].0, "body");
+    let mut volume = 0.0;
+    for ((_, positions, triangles), mesh) in objects.iter().zip(&meshes) {
+        assert_eq!(positions.len(), mesh.positions.len());
+        assert_eq!(triangles, &mesh.triangles);
+        assert_closed(triangles.iter().copied());
+        volume += signed_volume(
+            &triangles
+                .iter()
+                .map(|triangle| triangle.map(|index| positions[index as usize]))
+                .collect::<Vec<_>>(),
+        );
+    }
+    let expected = 40.0 * 20.0 * 10.0 + pin_volume();
+    assert!(
+        (volume - expected).abs() < 0.01 * expected,
+        "volume {volume}"
+    );
+}
+
+#[test]
+fn an_obj_names_a_body_without_line_breaks_or_emptiness() {
+    let block = block();
+    let mut first = mesh_of(&block, MeshResolution::Coarse);
+    first.name = "Top\nplate\t";
+    let mut second = mesh_of(&block, MeshResolution::Coarse);
+    second.name = "  ";
+
+    let text = String::from_utf8(obj::encode(&[first, second]).unwrap()).unwrap();
+    let names: Vec<&str> = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("o "))
+        .collect();
+
+    assert_eq!(names, ["Top plate", "body"]);
+}
+
+struct Glb {
+    json: serde_json::Value,
+    binary: Vec<u8>,
+}
+
+fn glb(bytes: &[u8]) -> Glb {
+    assert_eq!(read_u32(bytes, 0), 0x4654_6c67);
+    assert_eq!(read_u32(bytes, 4), 2);
+    assert_eq!(read_u32(bytes, 8) as usize, bytes.len());
+    let json_length = read_u32(bytes, 12) as usize;
+    assert_eq!(read_u32(bytes, 16), 0x4e4f_534a);
+    assert_eq!(json_length % 4, 0);
+    let json = serde_json::from_slice(&bytes[20..20 + json_length]).unwrap();
+    let binary_start = 20 + json_length;
+    let binary_length = read_u32(bytes, binary_start) as usize;
+    assert_eq!(read_u32(bytes, binary_start + 4), 0x004e_4942);
+    assert_eq!(binary_length % 4, 0);
+    assert_eq!(binary_start + 8 + binary_length, bytes.len());
+    Glb {
+        json,
+        binary: bytes[binary_start + 8..].to_vec(),
+    }
+}
+
+fn glb_positions(glb: &Glb, accessor: usize) -> Vec<Point3> {
+    let accessor = &glb.json["accessors"][accessor];
+    assert_eq!(accessor["componentType"], 5126);
+    assert_eq!(accessor["type"], "VEC3");
+    let view = &glb.json["bufferViews"][accessor["bufferView"].as_u64().unwrap() as usize];
+    let start = view["byteOffset"].as_u64().unwrap() as usize;
+    let count = accessor["count"].as_u64().unwrap() as usize;
+    assert_eq!(view["byteLength"].as_u64().unwrap() as usize, count * 12);
+    (0..count)
+        .map(|index| {
+            let [x, y, z] = read_f32s(&glb.binary, start + 12 * index);
+            Point3::new(x * 1000.0, -z * 1000.0, y * 1000.0)
+        })
+        .collect()
+}
+
+fn glb_triangles(glb: &Glb, accessor: usize) -> Vec<[u32; 3]> {
+    let accessor = &glb.json["accessors"][accessor];
+    assert_eq!(accessor["componentType"], 5125);
+    assert_eq!(accessor["type"], "SCALAR");
+    let view = &glb.json["bufferViews"][accessor["bufferView"].as_u64().unwrap() as usize];
+    let start = view["byteOffset"].as_u64().unwrap() as usize;
+    let count = accessor["count"].as_u64().unwrap() as usize;
+    (0..count / 3)
+        .map(|triangle| {
+            [0, 1, 2].map(|corner| read_u32(&glb.binary, start + 4 * (3 * triangle + corner)))
+        })
+        .collect()
+}
+
+#[test]
+fn a_glb_is_a_valid_binary_gltf_with_one_named_node_per_body_in_metres_with_y_up() {
+    let block = block();
+    let pin = pin();
+    let meshes = [
+        mesh_of(&block, MeshResolution::Standard),
+        mesh_of(&pin, MeshResolution::Standard),
+    ];
+
+    let glb = glb(&gltf::encode(&meshes).unwrap());
+
+    assert_eq!(glb.json["asset"]["version"], "2.0");
+    assert_eq!(glb.json["scenes"][0]["nodes"], serde_json::json!([0, 1]));
+    assert_eq!(
+        glb.json["buffers"][0]["byteLength"].as_u64().unwrap() as usize,
+        glb.binary.len()
+    );
+    assert_eq!(glb.json["nodes"][0]["name"], "body");
+    let mut volume = 0.0;
+    for (index, mesh) in meshes.iter().enumerate() {
+        let primitive = &glb.json["meshes"][index]["primitives"][0];
+        assert_eq!(primitive["mode"], 4);
+        let positions = glb_positions(
+            &glb,
+            primitive["attributes"]["POSITION"].as_u64().unwrap() as usize,
+        );
+        let triangles = glb_triangles(&glb, primitive["indices"].as_u64().unwrap() as usize);
+        assert_eq!(triangles, mesh.triangles);
+        for (found, expected) in positions.iter().zip(&mesh.positions) {
+            assert!(
+                (*found - *expected).length() < 1e-3,
+                "{found} vs {expected}"
+            );
+        }
+        assert_closed(triangles.iter().copied());
+        volume += signed_volume(
+            &triangles
+                .iter()
+                .map(|triangle| triangle.map(|corner| positions[corner as usize]))
+                .collect::<Vec<_>>(),
+        );
+    }
+    let expected = 40.0 * 20.0 * 10.0 + pin_volume();
+    assert!(
+        (volume - expected).abs() < 0.01 * expected,
+        "volume {volume}"
+    );
+}
+
+#[test]
+fn a_glb_gives_each_position_accessor_the_bounds_gltf_requires() {
+    let block = block();
+    let meshes = [mesh_of(&block, MeshResolution::Coarse)];
+
+    let glb = glb(&gltf::encode(&meshes).unwrap());
+    let accessor = &glb.json["accessors"][0];
+
+    let bound = |name: &str| -> Vec<f64> {
+        accessor[name]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_f64().unwrap())
+            .collect()
+    };
+    let near = |found: &[f64], expected: [f64; 3]| {
+        found
+            .iter()
+            .zip(expected)
+            .all(|(found, expected)| (found - expected).abs() < 1e-6)
+    };
+    assert!(near(&bound("min"), [0.0, 0.0, -0.02]));
+    assert!(near(&bound("max"), [0.04, 0.01, 0.0]));
+}
+
 #[test]
 fn a_finer_resolution_follows_curved_faces_more_closely() {
     let pin = pin();
@@ -360,7 +578,10 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect();
     names.sort();
-    assert_eq!(names, ["part.3mf", "part.step", "part.stl"]);
+    assert_eq!(
+        names,
+        ["part.3mf", "part.glb", "part.obj", "part.step", "part.stl"]
+    );
     let step = std::fs::read_to_string(dir.path().join("part.step")).unwrap();
     assert!(step.contains("=MANIFOLD_SOLID_BREP('Extrude 1',"));
     assert!(step.contains("FILE_NAME('part',"));
