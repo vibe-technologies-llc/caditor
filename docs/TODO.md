@@ -234,9 +234,7 @@ within a category run from most to least important.
 - While orbiting, panning or zooming, a GPU pick is issued every frame (the view is part of
   `PickKey`) and each change of the item under the moving cursor rebuilds and uploads the whole
   scene. Freeze hover during camera moves and pick once when they settle.
-- Select all on a large sketch does quadratic work every frame: `sketch_tools::fixed` checks
-  `points.contains` on a `Vec` per selected point, every constraint tool rebuilds its candidates
-  each frame, and `select_all` builds a set of every entity just to show availability.
+- With a large sketch selected, every constraint tool rebuilds its candidates each frame.
 - Snapping projects every point and curve of the sketch on every hover frame (`snap.rs`), about
   1 ms for 20,000 lines in a release build, most of it walking the entities, and a line or slot
   end walks every line again to find the nearest for parallel and perpendicular inference

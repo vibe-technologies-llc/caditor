@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use caditor_document::{Edit, FeatureId, Transaction, TransactionBuilder};
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
@@ -343,13 +345,14 @@ fn each_measured(
 
 fn fixed(definition: &Sketch, shown: &Sketch, items: &[Item]) -> Option<Vec<Constraint>> {
     let mut points: Vec<EntityId> = Vec::new();
+    let mut seen: BTreeSet<EntityId> = BTreeSet::new();
     for (entity, shape) in items {
         let owned = match shape {
             Shape::Point => vec![*entity],
             Shape::Line | Shape::Circular | Shape::Spline => definition.entity(*entity)?.points(),
         };
         for point in owned {
-            if !points.contains(&point) {
+            if seen.insert(point) {
                 points.push(point);
             }
         }
