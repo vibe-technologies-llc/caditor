@@ -21,6 +21,10 @@ pub struct FaceReference {
 }
 
 impl FaceReference {
+    pub fn heap_size(&self) -> usize {
+        self.neighbours.len() * size_of::<FaceName>()
+    }
+
     pub fn new(
         name: FaceName,
         origin: Option<FaceOrigin>,

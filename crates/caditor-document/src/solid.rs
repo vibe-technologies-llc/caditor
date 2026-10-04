@@ -325,6 +325,37 @@ impl SolidFeature {
         }
     }
 
+    pub fn heap_size(&self) -> usize {
+        let chosen = match self.regions() {
+            RegionChoice::All => 0,
+            RegionChoice::Chosen(regions) => {
+                size_of_val(regions.as_slice())
+                    + regions
+                        .iter()
+                        .map(RegionReference::heap_size)
+                        .sum::<usize>()
+            }
+        };
+        let expressions: usize = self
+            .expressions()
+            .into_iter()
+            .map(Expression::heap_size)
+            .sum();
+        let references = match self {
+            Self::Extrude(extrude) => extrude
+                .extent
+                .targets()
+                .into_iter()
+                .map(PlaneReference::heap_size)
+                .sum(),
+            Self::Revolve(revolve) => match &revolve.axis {
+                RevolveAxis::Model(axis) => axis.heap_size(),
+                RevolveAxis::Sketch(_) => 0,
+            },
+        };
+        chosen + expressions + references
+    }
+
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
         self.expressions()
             .into_iter()

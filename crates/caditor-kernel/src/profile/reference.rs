@@ -32,6 +32,12 @@ pub struct RegionReference {
     anchor: Option<Point2>,
 }
 
+impl RegionReference {
+    pub fn heap_size(&self) -> usize {
+        self.boundary.len() * size_of::<BoundaryPiece>()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionMatch {
     Same(RegionKey),

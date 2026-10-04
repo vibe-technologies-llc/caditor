@@ -49,6 +49,17 @@ pub struct Pattern {
 }
 
 impl PatternKind {
+    pub fn heap_size(&self) -> usize {
+        match self {
+            Self::Linear { first, second } => {
+                first.heap_size() + second.as_ref().map_or(0, LinearDirection::heap_size)
+            }
+            Self::Circular(circular) => {
+                circular.axis.heap_size() + circular.count.heap_size() + circular.angle.heap_size()
+            }
+        }
+    }
+
     pub fn title(&self) -> &'static str {
         match self {
             Self::Linear { .. } => "Linear pattern",
@@ -61,7 +72,17 @@ impl PatternKind {
     }
 }
 
+impl LinearDirection {
+    pub fn heap_size(&self) -> usize {
+        self.axis.heap_size() + self.count.heap_size() + self.spacing.heap_size()
+    }
+}
+
 impl Pattern {
+    pub fn heap_size(&self) -> usize {
+        self.kind.heap_size()
+    }
+
     pub fn title(&self) -> &'static str {
         self.kind.title()
     }

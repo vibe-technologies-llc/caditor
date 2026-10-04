@@ -218,11 +218,16 @@ impl Editor {
 
 #[cfg(test)]
 mod tests {
-    use caditor_expression::Expression;
+    use caditor_expression::{BinaryOperator, Expression, ParameterId};
     use caditor_kernel::Solid;
+    use caditor_sketch::{Entity, EntityId};
 
     use super::*;
-    use crate::{document::FeatureKind, edit::Edit, import::Import};
+    use crate::{
+        document::{FeatureId, FeatureKind},
+        edit::Edit,
+        import::Import,
+    };
 
     fn import_of(bytes: usize) -> Transaction {
         let mut document = Document::default();
@@ -248,6 +253,45 @@ mod tests {
         assert!(small < 4096, "{small}");
         assert!(large >= small + (1 << 20));
         assert!(large < small + (1 << 20) + 4096);
+    }
+
+    fn spline_of(controls: u64) -> Transaction {
+        Transaction::single(
+            "Spline",
+            Edit::AddSketchEntity {
+                feature: FeatureId::from_raw(1),
+                id: EntityId::from_raw(1),
+                entity: Entity::Spline {
+                    control_points: (2..2 + controls).map(EntityId::from_raw).collect(),
+                },
+                construction: false,
+            },
+        )
+    }
+
+    fn sum_of(terms: usize) -> Transaction {
+        let mut total = Expression::number(1.0);
+        for _ in 0..terms {
+            total = Expression::binary(BinaryOperator::Add, total, Expression::number(1.0));
+        }
+        Transaction::single(
+            "Dimension",
+            Edit::SetParameterExpression {
+                id: ParameterId::from_raw(1),
+                expression: total,
+            },
+        )
+    }
+
+    #[test]
+    fn a_transaction_counts_spline_controls_and_expression_trees() {
+        let none = spline_of(0).approximate_size();
+        let many = spline_of(10_000).approximate_size();
+        let short = sum_of(0).approximate_size();
+        let long = sum_of(1_000).approximate_size();
+
+        assert!(many >= none + 10_000 * size_of::<EntityId>());
+        assert!(long >= short + 1_000 * size_of::<Expression>());
     }
 
     fn labels(steps: &Steps) -> Vec<String> {

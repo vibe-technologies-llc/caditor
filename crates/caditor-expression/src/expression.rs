@@ -396,6 +396,18 @@ impl Expression {
         }
     }
 
+    pub fn heap_size(&self) -> usize {
+        let node = size_of::<Self>();
+        match self {
+            Self::Number(_) | Self::Measure(..) | Self::Constant(_) | Self::Parameter(_) => 0,
+            Self::Negate(inner) | Self::WithUnit(inner, ..) => node + inner.heap_size(),
+            Self::Binary(_, left, right) => 2 * node + left.heap_size() + right.heap_size(),
+            Self::Call(_, arguments) => {
+                arguments.len() * node + arguments.iter().map(Self::heap_size).sum::<usize>()
+            }
+        }
+    }
+
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
         let mut found = BTreeSet::new();
         self.collect_parameters(&mut found);

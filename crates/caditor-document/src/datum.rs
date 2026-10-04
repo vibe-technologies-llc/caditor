@@ -108,6 +108,13 @@ pub enum PlaneReference {
 }
 
 impl PlaneReference {
+    pub fn heap_size(&self) -> usize {
+        match self {
+            Self::Face(attachment) => attachment.face.heap_size(),
+            Self::Principal(_) | Self::Datum(_) => 0,
+        }
+    }
+
     pub fn datum(&self) -> Option<FeatureId> {
         match self {
             Self::Datum(feature) => Some(*feature),
@@ -145,6 +152,14 @@ pub enum AxisReference {
 }
 
 impl AxisReference {
+    pub fn heap_size(&self) -> usize {
+        match self {
+            Self::Edge { .. } => size_of::<EdgeReference>(),
+            Self::Face { face, .. } => face.heap_size(),
+            Self::Principal(_) | Self::Datum(_) => 0,
+        }
+    }
+
     pub fn datum(&self) -> Option<FeatureId> {
         match self {
             Self::Datum(feature) => Some(*feature),
@@ -232,6 +247,22 @@ impl DatumResult {
 }
 
 impl Datum {
+    pub fn heap_size(&self) -> usize {
+        match self {
+            Self::Plane(plane) => {
+                plane.base.heap_size()
+                    + plane.offset.heap_size()
+                    + plane.rotation.as_ref().map_or(0, |rotation| {
+                        rotation.axis.heap_size() + rotation.angle.heap_size()
+                    })
+            }
+            Self::Axis(DatumAxis::Along(axis)) => axis.heap_size(),
+            Self::Axis(DatumAxis::Intersection(first, second)) => {
+                first.heap_size() + second.heap_size()
+            }
+        }
+    }
+
     pub fn title(&self) -> &'static str {
         match self {
             Self::Plane(_) => "Plane",

@@ -24,6 +24,13 @@ pub enum Entity {
 }
 
 impl Entity {
+    pub fn heap_size(&self) -> usize {
+        match self {
+            Self::Spline { control_points } => size_of_val(control_points.as_slice()),
+            Self::Point(_) | Self::Line { .. } | Self::Circle { .. } | Self::Arc { .. } => 0,
+        }
+    }
+
     pub fn kind_name(&self) -> &'static str {
         match self {
             Self::Point(_) => "Point",

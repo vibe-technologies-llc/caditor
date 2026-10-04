@@ -148,10 +148,19 @@ impl Transaction {
                     feature.name.len() + feature.kind.approximate_size()
                 }
                 Edit::SetFeatureKind { kind, .. } => kind.approximate_size(),
-                Edit::InsertParameter { parameter, .. } => parameter.name.len(),
+                Edit::InsertParameter { parameter, .. } => {
+                    parameter.name.len() + parameter.expression.heap_size()
+                }
                 Edit::RenameParameter { name, .. } | Edit::RenameFeature { name, .. } => name.len(),
+                Edit::SetParameterExpression { expression, .. }
+                | Edit::SetDimension {
+                    value: expression, ..
+                } => expression.heap_size(),
+                Edit::AddSketchEntity { entity, .. } | Edit::SetSketchEntity { entity, .. } => {
+                    entity.heap_size()
+                }
+                Edit::AddSketchConstraint { constraint, .. } => constraint.heap_size(),
                 Edit::RemoveParameter { .. }
-                | Edit::SetParameterExpression { .. }
                 | Edit::RemoveFeature { .. }
                 | Edit::MoveFeature { .. }
                 | Edit::SetFeatureHidden { .. }
@@ -159,12 +168,8 @@ impl Transaction {
                 | Edit::SetRollbackBar { .. }
                 | Edit::SetPrincipalHidden { .. }
                 | Edit::SetSketchPlacement { .. }
-                | Edit::SetDimension { .. }
-                | Edit::AddSketchEntity { .. }
                 | Edit::RemoveSketchEntity { .. }
-                | Edit::SetSketchEntity { .. }
                 | Edit::SetSketchConstruction { .. }
-                | Edit::AddSketchConstraint { .. }
                 | Edit::RemoveSketchConstraint { .. } => 0,
             })
             .sum();

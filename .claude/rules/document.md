@@ -15,8 +15,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   returns the inverse transaction.
 - `Editor` keeps undo and redo as stacks of inverses, each at most `MAX_UNDO_STEPS` (500) and
   `MAX_UNDO_BYTES` (256 MiB, by `Transaction::approximate_size`, which counts what an inverse keeps
-  alive: removed features, an import's STEP text, `Solid::approximate_size`); oldest dropped first,
-  newest always kept.
+  alive: removed features, an import's STEP text, `Solid::approximate_size`, and what each owns on
+  the heap through `heap_size` methods: expression trees (`Expression::heap_size`), a spline's
+  control list, chosen regions, face and axis references and their neighbour sets, a sketch's
+  entities and dimensions; set and map overhead is counted per element at the element's size, not
+  exactly); oldest dropped first, newest always kept.
 - `Editor::apply` returns whether the model changed: a transaction that leaves the content as it was
   (`same_content`: a parameter set to its own expression, a flag to its value, edits that cancel
   out) is dropped, so it is no undo step, keeps the redo history, does not bump the revision and

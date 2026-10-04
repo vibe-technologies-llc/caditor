@@ -63,6 +63,10 @@ pub enum Constraint {
 }
 
 impl Constraint {
+    pub fn heap_size(&self) -> usize {
+        self.dimension().map_or(0, Expression::heap_size)
+    }
+
     pub fn kind_name(&self) -> &'static str {
         match self {
             Self::Coincident(..) => "Coincident",

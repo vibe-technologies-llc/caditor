@@ -5,6 +5,7 @@ use std::{
 };
 
 use caditor_expression::{Expression, ParameterId, ParseError};
+use caditor_kernel::FaceReference;
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 
 use crate::{
@@ -90,16 +91,37 @@ impl FeatureKind {
             Self::Sketch(sketch) => {
                 let entities = sketch.sketch.entities().len();
                 let constraints = sketch.sketch.constraints().len();
+                let owned_by_entities: usize = sketch
+                    .sketch
+                    .entities()
+                    .map(|(_, entity)| entity.heap_size())
+                    .sum();
+                let owned_by_constraints: usize = sketch
+                    .sketch
+                    .constraints()
+                    .map(|(_, constraint)| constraint.heap_size())
+                    .sum();
                 entities * (size_of::<EntityId>() + size_of::<Entity>())
                     + constraints * (size_of::<ConstraintId>() + size_of::<Constraint>())
+                    + owned_by_entities
+                    + owned_by_constraints
             }
-            Self::Blend(blend) => size_of_val(blend.edges.as_slice()),
-            Self::Shell(shell) => size_of_val(shell.open.as_slice()),
+            Self::Solid(solid) => solid.heap_size(),
+            Self::Blend(blend) => size_of_val(blend.edges.as_slice()) + blend.size.heap_size(),
+            Self::Shell(shell) => {
+                size_of_val(shell.open.as_slice())
+                    + shell
+                        .open
+                        .iter()
+                        .map(FaceReference::heap_size)
+                        .sum::<usize>()
+                    + shell.thickness.heap_size()
+            }
             Self::Import(import) => {
                 import.source.len() + import.step.len() + import.solid.approximate_size()
             }
-            Self::Pattern(_) => size_of::<Pattern>(),
-            Self::Solid(_) | Self::Datum(_) => 0,
+            Self::Pattern(pattern) => size_of::<Pattern>() + pattern.heap_size(),
+            Self::Datum(datum) => datum.heap_size(),
         };
         size_of::<Self>() + owned
     }

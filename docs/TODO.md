@@ -125,8 +125,6 @@ within a category run from most to least important.
   size-bounded history per feature.
 - Recompute is single-threaded: independent bodies and the final meshing of each body could run
   in parallel over the dependency data the document already has.
-- The undo size estimate counts only inline sizes, not spline control lists, expression trees or
-  reference neighbour sets, so heavy histories exceed the 256 MiB budget.
 - `SetFeatureKind` refuses an import although `document.md` says an import stays an import;
   allowing it would also give re-import.
 
