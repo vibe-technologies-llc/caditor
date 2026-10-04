@@ -533,3 +533,38 @@ fn a_revolution_profile_outside_a_plane_through_its_axis_is_refused() {
         .into();
     assert!(Revolution::new(meridian, Point3::ZERO, Vector3::Z).is_ok());
 }
+
+fn flat_net(size: usize, bump: Option<(usize, usize)>) -> Surface {
+    let knots: Vec<f64> = std::iter::once(0.0)
+        .chain((0..size).map(|index| index as f64 / (size - 1) as f64))
+        .chain(std::iter::once(1.0))
+        .collect();
+    let control_points = (0..size)
+        .flat_map(|row| {
+            let bump = bump;
+            (0..size).map(move |column| {
+                let height = if bump == Some((column, row)) {
+                    0.01
+                } else {
+                    0.0
+                };
+                Point3::new(column as f64, row as f64, height)
+            })
+        })
+        .collect();
+    BSplineSurface::new(1, 1, knots.clone(), knots, size, control_points, None)
+        .unwrap()
+        .into()
+}
+
+#[test]
+fn a_spline_patch_with_a_bump_narrower_than_the_sampling_grid_is_not_a_plane() {
+    let plane = Surface::from(PlaneSurface::new(Plane::XY).unwrap());
+    let flat = flat_net(50, None);
+    let bumped = flat_net(50, Some((15, 15)));
+
+    assert_eq!(flat.same_surface(&plane), Some(Sense::Same));
+    assert_eq!(plane.same_surface(&flat), Some(Sense::Same));
+    assert_eq!(bumped.same_surface(&plane), None);
+    assert_eq!(plane.same_surface(&bumped), None);
+}

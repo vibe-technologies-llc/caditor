@@ -8,6 +8,7 @@ use crate::{
 
 const PATCH_SAMPLES: usize = 7;
 const PATCH_REACH: f64 = 1.0;
+const MAX_NET_SAMPLES: usize = 64;
 
 pub(crate) fn same_surface(a: &Surface, b: &Surface) -> Option<Sense> {
     match (a, b) {
@@ -74,16 +75,43 @@ fn bounded(surface: &Surface) -> bool {
     u && v
 }
 
+fn greville(knots: &[f64], degree: usize) -> Vec<f64> {
+    let count = knots.len().saturating_sub(degree + 1);
+    let all: Vec<f64> = (0..count)
+        .filter_map(|index| {
+            let window = knots.get(index + 1..index + 1 + degree)?;
+            Some(window.iter().sum::<f64>() / degree.max(1) as f64)
+        })
+        .collect();
+    let stride = all.len().div_ceil(MAX_NET_SAMPLES).max(1);
+    all.into_iter().step_by(stride).collect()
+}
+
+fn net(surface: &Surface) -> (Vec<f64>, Vec<f64>) {
+    match surface {
+        Surface::BSpline(spline) => (
+            greville(spline.u_knots(), spline.u_degree()),
+            greville(spline.v_knots(), spline.v_degree()),
+        ),
+        _ => (Vec::new(), Vec::new()),
+    }
+}
+
 fn patch(surface: &Surface) -> Vec<Point2> {
     let u_range = surface.u_domain().clipped(PATCH_REACH);
     let v_range = surface.v_domain().clipped(PATCH_REACH);
     let fraction = |index: usize| (index as f64 + 0.5) / PATCH_SAMPLES as f64;
-    (0..PATCH_SAMPLES)
-        .flat_map(|row| {
-            (0..PATCH_SAMPLES).map(move |column| {
-                Point2::new(u_range.at(fraction(column)), v_range.at(fraction(row)))
-            })
-        })
+    let (net_u, net_v) = net(surface);
+    let spread = |range: crate::interval::Interval, net: Vec<f64>| -> Vec<f64> {
+        (0..PATCH_SAMPLES)
+            .map(|index| range.at(fraction(index)))
+            .chain(net)
+            .collect()
+    };
+    let columns = spread(u_range, net_u);
+    let rows = spread(v_range, net_v);
+    rows.iter()
+        .flat_map(|v| columns.iter().map(move |u| Point2::new(*u, *v)))
         .collect()
 }
 

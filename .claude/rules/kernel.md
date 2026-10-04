@@ -50,7 +50,9 @@ paths:
   `GeometryError::ProfileOutsideMeridian` (`project_seed` relies on it; STEP import refuses a skew
   `SURFACE_OF_REVOLUTION` with it).
 - `same_surface` gives the `Sense` between coincident surfaces' normals: analytic for elementary
-  pairs, sampled for an extrusion or revolution.
+  pairs, sampled for an extrusion, revolution or spline: a 7×7 grid, plus for a spline surface one
+  sample per control point at its Greville abscissae (at most 64 a direction), so a bump of one
+  control point cannot hide between samples.
 
 ## Topology
 

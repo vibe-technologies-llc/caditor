@@ -44,8 +44,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   (`boolean::tests::aligned_contacts_a_micrometre_or_so_apart`, ignored). `SAME_EDGE`,
   `NEAR_BOUNDARY`, `PCURVE_TOLERANCE` and the coaxial offset are unrelated absolute values; derive
   them from one tolerance model and snap or refuse within a documented band.
-- [medium · medium] `same_surface` samples a 7×7 grid, so a spline patch with a bump narrower than a
-  seventh of it is declared coincident with a plane and booleans treat it so.
 - [medium · medium] Up to next casts about 256 rays over the profile (spread by area, at most
   1,024), so a feature covering a small fraction of it (below roughly 1%) can fall between the rays
   and the extrusion passes through it to the far plane without a word.
