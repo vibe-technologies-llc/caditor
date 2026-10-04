@@ -27,6 +27,7 @@ use crate::{
 
 const RELATIVE_TOLERANCE: f64 = 1e-7;
 const FLAT: f64 = 0.5 * LINEAR_RESOLUTION;
+const SENSE_PROBES: u32 = 8;
 
 fn degenerate() -> SweepError {
     SweepError::Geometry(GeometryError::ZeroDirection)
@@ -276,7 +277,9 @@ fn prepare(frame: &Frame, piece: &Piece) -> Result<Prepared, SweepError> {
         }
         Curve2::Circle(circle) => {
             let center_distance = axis.signed_distance(circle.center());
-            if center_distance.abs() <= frame.tolerance || circle.radius() < center_distance {
+            if center_distance.abs() <= frame.tolerance
+                || circle.radius() + frame.tolerance < center_distance
+            {
                 Ok(Prepared {
                     piece: piece.clone(),
                     kind: Kind::Curved { mapped: false },
@@ -375,6 +378,30 @@ fn surface_of(frame: &Frame, prepared: &Prepared) -> Result<Surface, SweepError>
     })
 }
 
+fn farthest_from_axis(frame: &Frame, piece: &Piece) -> f64 {
+    let range = piece.range();
+    let reach = |parameter: f64| {
+        frame
+            .axis
+            .signed_distance(piece.curve().point(parameter))
+            .abs()
+    };
+    (1..SENSE_PROBES)
+        .map(|probe| range.start() + range.length() * f64::from(probe) / f64::from(SENSE_PROBES))
+        .fold(
+            (range.middle(), reach(range.middle())),
+            |best, parameter| {
+                let distance = reach(parameter);
+                if distance > best.1 {
+                    (parameter, distance)
+                } else {
+                    best
+                }
+            },
+        )
+        .0
+}
+
 fn revolve_loop(
     plan: &mut Plan,
     frame: &Frame,
@@ -471,15 +498,15 @@ fn revolve_loop(
         }
         let name = side(index);
         let surface = surface_of(frame, entry)?;
-        let middle = piece.range().middle();
-        let tangent = traversal_tangent(piece, middle);
+        let probe = farthest_from_axis(frame, piece);
+        let tangent = traversal_tangent(piece, probe);
         let outward = frame
             .low
             .apply_vector(lift(&frame.plane, Vector2::new(tangent.y, -tangent.x)));
-        let near = (entry.kind == Kind::Curved { mapped: true }).then(|| Point2::new(0.0, middle));
+        let near = (entry.kind == Kind::Curved { mapped: true }).then(|| Point2::new(0.0, probe));
         let sense = outward_sense(
             &surface,
-            frame.at_low(piece.curve().point(middle)),
+            frame.at_low(piece.curve().point(probe)),
             outward,
             near,
         );

@@ -16,7 +16,9 @@ paths:
   through `SolidBuilder`: valid or a `SweepError`.
 - Extrusion sides are planes, cylinders or extrusion surfaces; revolution sides are planes,
   cylinders, cones, spheres, tori or revolution surfaces (splines, and arcs whose circle reaches the
-  axis, converted to rational splines). Faces on extrusion and revolution surfaces get exact
+  axis, converted to rational splines). A circle reaches the axis when its gap to it is within the
+  revolve's tolerance, so a circle tangent to a slanted axis makes a horn torus with a pole, never a
+  `Torus` whose radii differ by rounding. Faces on extrusion and revolution surfaces get exact
   straight pcurves; the rest are fitted.
 - The start cap is the one at the extent's start (the sketch plane for `one_side`) whichever way the
   sweep runs, so flipping the direction keeps every name.
@@ -35,6 +37,9 @@ paths:
 - A profile on the right of the revolution axis is revolved about the reversed axis. Lines on the
   axis become shared cap edges or nothing, endpoints on it poles; a full turn has no caps (holes
   become void shells).
+- A side's sense is probed at the point of its piece farthest from the axis among eight along it,
+  since a surface's normal is undefined where the piece touches the axis (a half disc tangent to
+  it at its middle).
 - The document converts a solved sketch to `ProfileCurve`s, keeps the chosen `RegionReference`s in
   the feature (`kernel-profile.md`) and calls these with the feature id.
 - `build::plan::Plan` is also how booleans emit their result, with explicit pcurves.

@@ -22,6 +22,7 @@ use crate::{
 
 const MIN_CLOSED_EDGE_SEGMENTS: usize = 3;
 const MAX_REFINEMENTS: usize = 4;
+const MAX_END_PARTINGS: usize = 8;
 const REFINEMENT: f64 = 0.5;
 pub(crate) const MAX_POINTS: usize = 1 << 22;
 pub(crate) const DISPLAY_POINTS: usize = 1 << 20;
@@ -491,9 +492,89 @@ impl<'a> Tessellator<'a> {
         })
     }
 
+    fn part_overlapping_ends(
+        &mut self,
+        faces: &[FaceId],
+    ) -> Result<Vec<FaceId>, TessellationError> {
+        let mut checked: BTreeSet<FaceId> = faces.iter().copied().collect();
+        for _ in 0..MAX_END_PARTINGS {
+            let mut ends = BTreeSet::new();
+            for face in &checked {
+                interrupt::check()?;
+                ends.extend(face::overlapping_ends(self.solid, *face, &self.samplings)?);
+            }
+            let mut parted = false;
+            for (id, end) in ends {
+                if !self.bisect_end(id, end)? {
+                    continue;
+                }
+                parted = true;
+                let edge = self
+                    .solid
+                    .edge(id)
+                    .ok_or(TessellationError::MissingEntity)?;
+                checked.extend(
+                    edge.coedges()
+                        .iter()
+                        .filter_map(|coedge| self.solid.coedge_face(*coedge)),
+                );
+            }
+            if !parted {
+                break;
+            }
+        }
+        Ok(self
+            .solid
+            .faces()
+            .map(|(id, _)| id)
+            .filter(|id| checked.contains(id))
+            .collect())
+    }
+
+    fn bisect_end(&mut self, id: EdgeId, end: face::EdgeEnd) -> Result<bool, TessellationError> {
+        let edge = self
+            .solid
+            .edge(id)
+            .ok_or(TessellationError::MissingEntity)?;
+        let sampling = self
+            .samplings
+            .get_mut(id.index())
+            .ok_or(TessellationError::MissingEntity)?;
+        let count = sampling.parameters.len();
+        let after = match end {
+            face::EdgeEnd::Start => 1,
+            face::EdgeEnd::End => count.saturating_sub(1),
+        };
+        let (Some(low), Some(high)) = (
+            sampling.parameters.get(after.wrapping_sub(1)).copied(),
+            sampling.parameters.get(after).copied(),
+        ) else {
+            return Err(TessellationError::MissingEntity);
+        };
+        let parameter = 0.5 * (low + high);
+        if parameter == low || parameter == high {
+            return Ok(false);
+        }
+        let point = edge.curve().point(parameter);
+        let position = self.mesh.push_position(point)?;
+        if self.mesh.positions.len() > self.limit {
+            return Err(TessellationError::TooLarge);
+        }
+        sampling.parameters.insert(after, parameter);
+        sampling.points.insert(after, point);
+        sampling.positions.insert(after, position);
+        Ok(true)
+    }
+
     fn triangulate(&mut self, faces: &[FaceId]) -> Result<Crossed, TessellationError> {
+        let faces = self.part_overlapping_ends(faces)?;
+        for face in &faces {
+            if self.triangles.remove(face).is_some() {
+                self.orphans = true;
+            }
+        }
         let mut crossed = Crossed::default();
-        for id in faces {
+        for id in &faces {
             interrupt::check()?;
             let budget = face::Budget {
                 limit: self.limit,

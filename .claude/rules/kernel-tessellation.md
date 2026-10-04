@@ -21,6 +21,11 @@ paths:
   spikes.
 - A vertex a face's loops pass more than once (a pinch) takes the uv of its first pass wherever the
   others lie within that gap, so the triangulation sees one point.
+- Where two of a face's boundary polylines leave one point along the same chord (curves tangent
+  there sampled at the same angular step: a crescent's tip, internally tangent circles, a cusp),
+  the longer end segment is bisected before triangulating, for at most eight rounds, and every
+  face of that edge is triangulated with it. The flatter curve's chord then lies outside the other,
+  so the loops part by the curves' own separation, never by rounding.
 - Pole-line points share the pole's position and the triangles that collapse there are dropped, so
   the mesh stays watertight.
 - A straight edge ending at a pole (a ruling to a cone's apex) is sampled at the grid's row spacing
@@ -71,4 +76,5 @@ paths:
 - A solid's mesh holds at most `MAX_POINTS` (2^22) points. Edges and each face's interior grid are
   counted before they are inserted; a mesh that would need more fails as `TooLarge`, which export
   names as a body too fine for the resolution.
-- Cancellation is polled per edge, per grid row and every 1024 points inserted.
+- Cancellation is polled per edge, per face checked for overlapping ends, per grid row and every
+  1024 points inserted.

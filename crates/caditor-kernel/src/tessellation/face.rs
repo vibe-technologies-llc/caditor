@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use caditor_geometry::{Aabb2, Point2, Vector3};
 use spade::{
@@ -27,6 +27,7 @@ const TINY_COORDINATE: f64 = 1e-30;
 const MAX_GAP_PIECES: f64 = 4096.0;
 const NORMAL_NUDGE: f64 = 1e-3;
 const MAX_POLE_EDGE_PIECES: usize = 1024;
+const PARALLEL_ENDS: f64 = 1e-6;
 
 type Cdt = ConstrainedDelaunayTriangulation<PlanePoint<f64>>;
 
@@ -34,6 +35,29 @@ type Cdt = ConstrainedDelaunayTriangulation<PlanePoint<f64>>;
 struct BoundaryPoint {
     uv: Point2,
     position: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum EdgeEnd {
+    Start,
+    End,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct EndSegment {
+    edge: EdgeId,
+    end: EdgeEnd,
+    at: BoundaryPoint,
+    toward: Point2,
+    length: f64,
+}
+
+impl EndSegment {
+    fn runs_along(&self, other: &Self) -> bool {
+        let (along, beside) = (self.toward - self.at.uv, other.toward - other.at.uv);
+        along.dot(beside) > 0.0
+            && along.perp_dot(beside).abs() <= PARALLEL_ENDS * along.length() * beside.length()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -255,6 +279,80 @@ fn boundary_loops(
     }
     share_revisited_vertices(surface, &mut loops);
     Ok(loops)
+}
+
+pub(crate) fn overlapping_ends(
+    solid: &Solid,
+    face_id: FaceId,
+    samplings: &[EdgeSampling],
+) -> Result<BTreeSet<(EdgeId, EdgeEnd)>, TessellationError> {
+    let face = solid
+        .face(face_id)
+        .ok_or(TessellationError::MissingEntity)?;
+    let surface = face.surface();
+    let mut at_vertex: BTreeMap<u32, Vec<EndSegment>> = BTreeMap::new();
+    for loop_id in face.loops() {
+        let face_loop = solid
+            .face_loop(*loop_id)
+            .ok_or(TessellationError::MissingEntity)?;
+        for coedge_id in face_loop.coedges() {
+            let coedge = solid
+                .coedge(*coedge_id)
+                .ok_or(TessellationError::MissingEntity)?;
+            let sampling = samplings
+                .get(coedge.edge().index())
+                .ok_or(TessellationError::MissingEntity)?;
+            let pcurve = coedge.pcurve();
+            let last = sampling.parameters.len().saturating_sub(1);
+            for (end, index, neighbour) in [
+                (EdgeEnd::Start, 0, 1),
+                (EdgeEnd::End, last, last.saturating_sub(1)),
+            ] {
+                let (Some(point), Some(position), Some(next), Some(parameter)) = (
+                    sampling.points.get(index),
+                    sampling.positions.get(index),
+                    sampling.points.get(neighbour),
+                    sampling.parameters.get(neighbour),
+                ) else {
+                    return Err(TessellationError::MissingEntity);
+                };
+                let uv = if (end == EdgeEnd::Start) == coedge.sense().is_same() {
+                    pcurve.start()
+                } else {
+                    pcurve.end()
+                };
+                at_vertex.entry(*position).or_default().push(EndSegment {
+                    edge: coedge.edge(),
+                    end,
+                    at: BoundaryPoint {
+                        uv,
+                        position: *position,
+                    },
+                    toward: surface.project(*next, Some(pcurve.uv_at(*parameter))),
+                    length: point.distance(*next),
+                });
+            }
+        }
+    }
+    let mut longer = BTreeSet::new();
+    for ends in at_vertex.values() {
+        for (index, first) in ends.iter().enumerate() {
+            for second in ends.iter().skip(index + 1) {
+                let distinct = (first.edge, first.end) != (second.edge, second.end);
+                let together =
+                    coincide(&first.at, &second.at) || joined(surface, &first.at, &second.at);
+                if distinct && together && first.runs_along(second) {
+                    let split = if second.length > first.length {
+                        second
+                    } else {
+                        first
+                    };
+                    longer.insert((split.edge, split.end));
+                }
+            }
+        }
+    }
+    Ok(longer)
 }
 
 fn share_revisited_vertices(surface: &Surface, loops: &mut [Vec<BoundaryPoint>]) {

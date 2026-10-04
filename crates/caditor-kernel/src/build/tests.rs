@@ -1067,3 +1067,136 @@ fn a_lens_of_a_tenth_of_a_square_millimetre_is_valid_and_has_volume() {
         "{volume}"
     );
 }
+
+fn crescent(center: Point2, tip: f64) -> Vec<Region> {
+    let inner = center + Vector2::from_angle(tip);
+    regions(&[
+        circle(1, (center.x, center.y), 3.0),
+        circle(2, (inner.x, inner.y), 2.0),
+    ])
+}
+
+#[test]
+fn a_crescent_extrudes_wherever_its_tip_lies() {
+    for degrees in [0.0, 30.0, 45.0, 137.0, 200.0, 311.0] {
+        let tip = f64::to_radians(degrees);
+
+        let solid = extrude(
+            &Plane::XY,
+            &crescent(Point2::ZERO, tip),
+            one_side(1.0),
+            FEATURE,
+        )
+        .unwrap();
+
+        check_pinched(
+            &format!("crescent tipped at {degrees}°"),
+            &solid,
+            5.0 * PI,
+            20.0 * PI,
+            2.0,
+        );
+    }
+}
+
+#[test]
+fn a_crescent_revolves_part_way_wherever_its_tip_lies() {
+    let quarter = AngularExtent::one_side(FRAC_PI_2).unwrap();
+    for degrees in [0.0, 30.0, 45.0, 200.0, 311.0] {
+        let tip = f64::to_radians(degrees);
+        let centroid = 6.0 - 0.8 * tip.cos();
+
+        let solid = revolve(
+            &Plane::XY,
+            &crescent(Point2::new(6.0, 0.0), tip),
+            y_axis(),
+            quarter,
+            FEATURE,
+        )
+        .unwrap();
+        let volume = fine_mesh(&solid).mass_properties().volume;
+
+        assert_eq!(solid.validate(), Ok(()), "{degrees}°");
+        assert_balanced(
+            &format!("{degrees}°"),
+            &solid.tessellate(&solid.default_tolerance()).unwrap(),
+        );
+        assert!(
+            (volume - FRAC_PI_2 * centroid * 5.0 * PI).abs() <= 2e-3 * volume,
+            "{degrees}°: volume {volume}"
+        );
+    }
+}
+
+#[test]
+fn a_crescent_tipped_on_a_slanted_axis_revolves_into_nested_horn_tori() {
+    let along = Vector2::new(1.0, 1.0).normalize();
+    let outward = -along.perp();
+    let outer = outward * 3.0;
+    let inner = outward * 2.0;
+    let chosen = regions(&[
+        circle(1, (outer.x, outer.y), 3.0),
+        circle(2, (inner.x, inner.y), 2.0),
+    ]);
+
+    let solid = revolve(
+        &Plane::XY,
+        &chosen,
+        Axis2::new(Point2::ZERO, along).unwrap(),
+        full(),
+        FEATURE,
+    )
+    .unwrap();
+
+    check_pinched(
+        "slanted horn crescent",
+        &solid,
+        38.0 * PI * PI,
+        52.0 * PI * PI,
+        2.0,
+    );
+}
+
+fn touching_the_axis(axis: Axis2) -> Vec<(&'static str, Vec<ProfileCurve>)> {
+    let along = axis.direction();
+    let base = axis.origin() + along * 1.3;
+    let at = |distance: f64, sideways: f64| {
+        let point = base - along.perp() * distance + along * sideways;
+        (point.x, point.y)
+    };
+    vec![
+        ("circle", vec![circle(1, at(2.0, 0.0), 2.0)]),
+        (
+            "crescent",
+            vec![circle(1, at(3.0, 0.0), 3.0), circle(2, at(2.0, 0.0), 2.0)],
+        ),
+        (
+            "half disc on a block",
+            vec![
+                arc(1, at(2.0, 0.0), at(2.0, 2.0), at(2.0, -2.0)),
+                line(2, at(2.0, -2.0), at(6.0, -2.0)),
+                line(3, at(6.0, -2.0), at(6.0, 2.0)),
+                line(4, at(6.0, 2.0), at(2.0, 2.0)),
+            ],
+        ),
+    ]
+}
+
+#[test]
+fn profiles_touching_a_slanted_axis_revolve_into_valid_solids() {
+    for degrees in [3.0, 73.0, 123.0, 163.0, 193.0, 343.0] {
+        let slant = f64::to_radians(degrees);
+        let axis = Axis2::new(Point2::new(0.3, -0.7), Vector2::from_angle(slant)).unwrap();
+        for (name, curves) in touching_the_axis(axis) {
+            let chosen = regions(&curves);
+            for extent in [AngularExtent::one_side(FRAC_PI_2).unwrap(), full()] {
+                let solid = revolve(&Plane::XY, &chosen, axis, extent, FEATURE);
+
+                assert!(
+                    solid.is_ok(),
+                    "{name} about an axis at {degrees}°: {solid:?}"
+                );
+            }
+        }
+    }
+}
