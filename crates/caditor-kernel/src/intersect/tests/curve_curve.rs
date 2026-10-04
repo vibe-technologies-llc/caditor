@@ -1,3 +1,5 @@
+use std::f64::consts::TAU;
+
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 
 use crate::{
@@ -259,4 +261,17 @@ fn curves_meet_in_space() {
     assert!((overlap.first.end() - 3.0).abs() < 1e-9);
     assert!((overlap.second_start - 2.0).abs() < 1e-9);
     assert!(overlap.second_end.abs() < 1e-9);
+}
+
+#[test]
+fn a_circle_overlapping_an_arc_leaves_out_a_gap_far_shorter_than_the_samples() {
+    let wheel: Curve = Circle::new(Plane::XY, 2.0).unwrap().into();
+    let gap = (3.0, 3.004);
+    let arc = Interval::new(gap.1, gap.0 + TAU).unwrap();
+
+    let found = intersect_curves(&wheel, Interval::FULL_TURN, &wheel, arc).unwrap();
+
+    assert_eq!(found.overlaps.len(), 2, "{found:?}");
+    assert!((found.overlaps[0].first.end() - gap.0).abs() < 1e-9);
+    assert!((found.overlaps[1].first.start() - gap.1).abs() < 1e-9);
 }

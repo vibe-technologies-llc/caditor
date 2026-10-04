@@ -9,16 +9,15 @@ use caditor_geometry::{Aabb, Point2, Point3};
 pub(crate) use self::analytic::line_window;
 use crate::{
     curve::Curve,
-    intersect::{IntersectionError, SurfacePatch, boxes_overlap, inside_intervals},
+    intersect::{IntersectionError, SurfacePatch, boxes_overlap, guided_intervals},
     interval::Interval,
     sense::Sense,
     tolerance::LINEAR_RESOLUTION,
 };
 
 const TOLERANCE: f64 = LINEAR_RESOLUTION;
-const MIN_CLIP_SAMPLES: usize = 32;
-const MAX_CLIP_SAMPLES: usize = 4096;
-const CLIP_SPACING: f64 = 0.02;
+const CLIP_SAMPLES: usize = 32;
+const WINDOW_REACH: f64 = 0.02;
 const MAX_SPAN_DEPTH: usize = 48;
 const MAX_SPAN_PIECES: usize = 4096;
 const PERIOD_SLACK: f64 = 1e-9;
@@ -133,20 +132,23 @@ fn clip(
     window: &Aabb,
     raw: &RawCurve,
 ) -> Vec<Interval> {
-    let spacing = CLIP_SPACING * window.diagonal().max(TOLERANCE);
-    let reach = window.expanded(spacing);
-    let inside = |parameter: f64| locate_both(first, second, raw.curve.point(parameter)).is_some();
+    let reach = window.expanded(WINDOW_REACH * window.diagonal().max(TOLERANCE));
+    let probe = |parameter: f64| {
+        let point = raw.curve.point(parameter);
+        let uv = [first.place(point), second.place(point)];
+        let [first_uv, second_uv] = uv;
+        (first.contains(first_uv) && second.contains(second_uv), uv)
+    };
+    let misses = |[start, middle, end]: [[Point2; 2]; 3]| {
+        let [first_start, second_start] = start;
+        let [first_middle, second_middle] = middle;
+        let [first_end, second_end] = end;
+        first.path_misses([first_start, first_middle, first_end])
+            || second.path_misses([second_start, second_middle, second_end])
+    };
     let mut pieces: Vec<Interval> = spans_within(&raw.curve, raw.range, &reach)
         .into_iter()
-        .flat_map(|span| {
-            let samples = (raw.curve.length(span) / spacing).ceil();
-            let samples = if samples.is_finite() {
-                (samples as usize).clamp(MIN_CLIP_SAMPLES, MAX_CLIP_SAMPLES)
-            } else {
-                MIN_CLIP_SAMPLES
-            };
-            inside_intervals(span, samples, inside)
-        })
+        .flat_map(|span| guided_intervals(span, CLIP_SAMPLES, probe, misses))
         .collect();
     let whole_period = raw
         .curve

@@ -11,7 +11,7 @@ mod tests;
 use thiserror::Error;
 
 pub(crate) use self::{
-    clip::inside_intervals,
+    clip::{guided_intervals, inside_intervals},
     patch::{boxes_overlap, patch_bounds, wrap_into},
     surface_surface::line_window,
 };

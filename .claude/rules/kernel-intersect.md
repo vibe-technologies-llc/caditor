@@ -16,6 +16,13 @@ paths:
   `Coincident` when sharing only part of their extent: every grid sample of either whose foot lands
   inside the other must lie on it (a foot pushed against the other's edge, with a residual off the
   normal, is skipped), and at least four must land there.
+- Clipping to a patch or range (`clip.rs`) does not depend on the sample spacing. Overlaps of a curve
+  with a surface and branches of two surfaces are sampled (32 per span) and, between two samples
+  outside, refined by halving unless the parabola through the uv of both ends and the middle,
+  widened by a quarter of its spread, misses the patch's u or v range (periodic ranges repeat), so
+  a piece far shorter than the sample spacing is still found; ends are then bisected exactly. A
+  curve overlapping another also samples where the other's range ends fall on it and between them,
+  so a gap in the other between two samples is not bridged.
 - Points within `LINEAR_RESOLUTION` are one point; one at a range end takes the exact end
   parameter; a closed curve's wrap point is reported once. `tangent` flags touches (no sign change,
   or parallel tangent within 1e-7); clusters of roots closer than the resolution collapse to one
@@ -67,8 +74,8 @@ paths:
     and a branch longer than the step cap, fails as `IntersectionError::Unfollowable`.
   - Contact solves keep each periodic coordinate at the turn nearest their start; near poles the
     contact is solved with one surface as carrier and the other's signed distance.
-  - Every branch is clipped to both patches by sampling only its spans whose boxes reach the window
-    the patches share, so a long curve through a small face is found there.
+  - Every branch is clipped to both patches, as above, over only its spans whose boxes reach the
+    window the patches share, so a long curve through a small face is found there.
   - A marched branch that is a line, circle or ellipse within half the resolution is returned as
     that curve.
 

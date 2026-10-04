@@ -456,3 +456,31 @@ fn points_at_range_ends_are_reported_once_and_patches_filter() {
     assert!((found.overlaps[0].range.start() - 3.0).abs() < 1e-9);
     assert!((found.overlaps[0].range.end() - 7.0).abs() < 1e-9);
 }
+
+#[test]
+fn a_long_edge_overlaps_a_small_face_between_its_samples() {
+    let floor = plane(Point3::ZERO, Vector3::Z);
+    let edge: Curve = Line::new(Point3::ZERO, Vector3::X).unwrap().into();
+    let span = Interval::new(0.0, 200.0).unwrap();
+    let face = uv_box((33.0, 34.0), (-1.0, 1.0));
+
+    let found = intersect_curve_surface(&edge, span, &floor, Some(face)).unwrap();
+
+    assert!(found.points.is_empty(), "{found:?}");
+    assert_eq!(found.overlaps.len(), 1, "{found:?}");
+    assert!((found.overlaps[0].range.start() - 33.0).abs() < 1e-7);
+    assert!((found.overlaps[0].range.end() - 34.0).abs() < 1e-7);
+}
+
+#[test]
+fn a_rim_overlaps_a_narrow_strip_of_its_cylinder() {
+    let tube: Surface = Cylinder::new(Plane::XY, 2.0).unwrap().into();
+    let rim: Curve = Circle::new(Plane::XY, 2.0).unwrap().into();
+    let strip = uv_box((1.0, 1.02), (-1.0, 1.0));
+
+    let found = intersect_curve_surface(&rim, Interval::FULL_TURN, &tube, Some(strip)).unwrap();
+
+    assert_eq!(found.overlaps.len(), 1, "{found:?}");
+    assert!((found.overlaps[0].range.start() - 1.0).abs() < 1e-7);
+    assert!((found.overlaps[0].range.end() - 1.02).abs() < 1e-7);
+}

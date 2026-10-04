@@ -728,9 +728,12 @@ fn finish<C: Traceable>(
                     })
                     .unwrap_or(parameter)
             };
-            for piece in inside_intervals(extent, CLIP_SAMPLES, |parameter| {
-                pair.gap(parameter) <= TOLERANCE
-            }) {
+            for piece in inside_intervals(
+                extent,
+                CLIP_SAMPLES,
+                &range_end_seeds(pair, extent),
+                |parameter| pair.gap(parameter) <= TOLERANCE,
+            ) {
                 let Some(piece) = Interval::new(snap(piece.start()), snap(piece.end())) else {
                     continue;
                 };
@@ -813,6 +816,29 @@ fn finish<C: Traceable>(
         result.points.pop();
     }
     result
+}
+
+fn range_end_seeds<C: Traceable>(pair: &Pair<C>, extent: Interval) -> Vec<f64> {
+    if full_period(pair.second, pair.second_range) {
+        return Vec::new();
+    }
+    let mut feet: Vec<f64> = [pair.second_range.start(), pair.second_range.end()]
+        .into_iter()
+        .map(|end| {
+            let [point, _, _] = pair.second.evaluate(end);
+            pair.first.nearest(point, extent)
+        })
+        .collect();
+    feet.sort_by(f64::total_cmp);
+    let betweens: Vec<f64> = feet
+        .windows(2)
+        .filter_map(|neighbours| match neighbours {
+            [low, high] => Some(0.5 * (low + high)),
+            _ => None,
+        })
+        .collect();
+    feet.extend(betweens);
+    feet
 }
 
 fn full_period<C: Traceable>(curve: &C, range: Interval) -> bool {

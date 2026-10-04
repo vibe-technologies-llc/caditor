@@ -10,7 +10,7 @@ use crate::{
     curve::Curve,
     interrupt,
     intersect::{
-        IntersectionError, SurfacePatch, boxes_overlap, inside_intervals,
+        IntersectionError, SurfacePatch, boxes_overlap, guided_intervals,
         solve::{bracket_root, minimize_bracket, polynomial_roots, uv_direction},
     },
     interval::Interval,
@@ -820,9 +820,15 @@ fn finish(
             }
             Outcome::Overlap(extent) => {
                 let pieces = match patch {
-                    Some(patch) => inside_intervals(extent, CLIP_SAMPLES, |parameter| {
-                        patch.locate(probe.curve.point(parameter)).is_some()
-                    }),
+                    Some(patch) => guided_intervals(
+                        extent,
+                        CLIP_SAMPLES,
+                        |parameter| {
+                            let uv = patch.place(probe.curve.point(parameter));
+                            (patch.contains(uv), uv)
+                        },
+                        |path| patch.path_misses(path),
+                    ),
                     None => vec![extent],
                 };
                 for piece in pieces {

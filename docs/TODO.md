@@ -22,10 +22,6 @@ within a category run from most to least important.
 
 ## Checks and CI
 
-- The boolean tests use general-position placements, integer grids of aspect at most 4 and exact
-  coincidence only, so the near-coincident bands and long-edge clipping losses in Kernel
-  correctness were invisible. Add randomised aligned contacts with high aspect ratios and offsets
-  of 1e-6 to 1e-4 mm.
 - `tests/crash_flush.rs` runs the crash protection with a real storage worker in a child process,
   not the app itself. `check-install.sh` only runs `--version`; start the packaged binary to a
   first frame under Xvfb and lavapipe, kill it there and recover its journal, check its linked
@@ -45,27 +41,22 @@ within a category run from most to least important.
 - A face the shell's thickness closes up is dropped only when it has one loop and keeps two
   single edges apart from each other, or none; a band whose side is a chain of edges (a rim split
   by another face's seam) is refused as `EdgeCollapses`.
-- About 2% of booleans between the fixture solids in random placements still fail
+- About 0.7% of booleans between the fixture solids in random placements still fail
   (`boolean::tests::random_placements_of_every_fixture`, ignored, best run in release): mostly
-  `Open` and `Ambiguous`, then nearly coincident tori and cones that are too intricate to
-  intersect. Most of the `Open` and `Ambiguous` cases are short intersection pieces lost by
-  sampled clipping: surface–surface branches are clipped to both patches with 32 to 4096 samples
-  (`surface_surface/mod.rs`), and raising the counts removes 55–80% of the failures at a large
-  cost, so clip exactly against the patch bounds instead. Intersection curves crossing at a
-  tangent point (tori touching along their equators, a face touching a torus's inner equator)
-  cannot be split, and a result whose pcurves stray past the resolution (a cylinder against a
-  tilted torus) or with a lump too thin for the validation mesh is refused as invalid; each of
-  the three has a test pinning its error.
-- An edge overlapping a face is clipped to the face's box by `CLIP_SAMPLES = 32` samples
-  (`curve_surface.rs`), so an overlap shorter than a thirty-second of the edge is lost: a block
-  flush with the side of a 200 mm plate unions at x = 100 but fails as `Open` at x = 33 or 77.7,
-  and about 1 in 200 aligned cylinder bosses fail likewise. `curve_curve.rs` clips the same way.
+  `Open` between extruded splines, frustums and tori, then nearly coincident tori and cones that
+  are too intricate to intersect, and one `Ambiguous` between the holed block and an extruded
+  spline. Intersection curves crossing at a tangent point (tori touching along their equators, a
+  face touching a torus's inner equator) cannot be split, and a result whose pcurves stray past
+  the resolution (a cylinder against a tilted torus) or with a lump too thin for the validation
+  mesh is refused as invalid; each of the three has a test pinning its error.
 - Faces or axes apart by more than `LINEAR_RESOLUTION` but by less than a few micrometres are
   neither coincident nor separate: coaxial cylinders of radii 5 and 5 + 2e-6, a plug offset 1e-5
   in its bore, or blocks of heights differing by 5e-6 fail as `Open`, `Ambiguous` or
-  `Invalid(LoopOrientation)`, which sloppy STEP imports will hit. `SAME_EDGE`, `NEAR_BOUNDARY`,
-  `PCURVE_TOLERANCE` and the coaxial offset are unrelated absolute values; derive them from one
-  tolerance model and snap or refuse within a documented band.
+  `Invalid(LoopOrientation)`, which sloppy STEP imports will hit; 246 of 900 booleans of blocks
+  and cylinders 1e-6 to 1e-4 mm off an aligned contact with a long plate fail
+  (`boolean::tests::aligned_contacts_a_micrometre_or_so_apart`, ignored). `SAME_EDGE`,
+  `NEAR_BOUNDARY`, `PCURVE_TOLERANCE` and the coaxial offset are unrelated absolute values; derive
+  them from one tolerance model and snap or refuse within a documented band.
 - A crescent (a circle with an internally tangent circle) fails to extrude as `Invalid` ("the
   boundary of face … crosses itself") unless the tangent point is at a multiple of 90°, and a
   partial revolve of it fails too; a full revolve of a profile tangent to the axis fails with a

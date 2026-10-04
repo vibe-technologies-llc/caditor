@@ -18,7 +18,7 @@ use crate::{
     profile::{Profile, Selection},
     sense::Sense,
     surface::{PlaneSurface, Surface},
-    test_support::{assert_cancelled_anywhere, assert_watertight, circle, rectangle},
+    test_support::{Random, assert_cancelled_anywhere, assert_watertight, circle, rectangle},
     tolerance::SamplingTolerance,
     topology::{BuildError, FaceId, Pcurve, PcurveSample, ValidationError},
 };
@@ -953,7 +953,7 @@ fn outcome(result: &Result<Solid, BooleanError>) -> &'static str {
     }
 }
 
-const RANDOM_PLACEMENT_FAILURES_ALLOWED: usize = 95;
+const RANDOM_PLACEMENT_FAILURES_ALLOWED: usize = 40;
 
 #[test]
 #[ignore = "a survey of the failures left, best run in release"]
@@ -1025,5 +1025,161 @@ fn a_face_flush_with_faces_of_both_senses_of_the_other_solid_is_split_by_them() 
         "intersection",
         &run(&table, &step, BooleanOperation::Intersection),
         1.25,
+    );
+}
+
+struct AlignedContact {
+    name: String,
+    plate: Solid,
+    tool: Solid,
+    plate_volume: f64,
+    tool_volume: f64,
+    common_volume: f64,
+}
+
+type Corner = (f64, f64, f64);
+
+fn box_volume(min: Corner, max: Corner) -> f64 {
+    (max.0 - min.0).max(0.0) * (max.1 - min.1).max(0.0) * (max.2 - min.2).max(0.0)
+}
+
+fn aligned_contact(random: &mut Random, offset: impl Fn(&mut Random) -> f64) -> AlignedContact {
+    let length = random.between(20.0, 400.0);
+    let width = length / random.between(1.0, 40.0);
+    let height = random.between(1.0, 20.0);
+    let x = random.between(-0.1 * length, length);
+    let size = random.between(0.2, 0.2 * length);
+    let plate_max = (length, width, height);
+
+    let plate = block((0.0, 0.0, 0.0), plate_max);
+    let plate_volume = box_volume((0.0, 0.0, 0.0), plate_max);
+    let name = |shape: &str| format!("{shape} at x {x} size {size} on a plate {plate_max:?}");
+    let boxed = |shape: &str, min: Corner, max: Corner| {
+        let common_min = (min.0.max(0.0), min.1.max(0.0), min.2.max(0.0));
+        let common_max = (max.0.min(length), max.1.min(width), max.2.min(height));
+        AlignedContact {
+            name: name(shape),
+            plate: plate.clone(),
+            tool: block(min, max),
+            plate_volume,
+            tool_volume: box_volume(min, max),
+            common_volume: box_volume(common_min, common_max),
+        }
+    };
+    match (random.unit() * 4.0) as usize {
+        0 => {
+            let (bottom, top) = (
+                random.between(-height, 0.4 * height),
+                random.between(0.5 * height, 2.0 * height),
+            );
+            let flush = offset(random);
+            boxed("a block beside", (x, -size, bottom), (x + size, flush, top))
+        }
+        1 => {
+            let front = random.between(-width, width);
+            let (back, bottom) = (width + offset(random), height + offset(random));
+            boxed(
+                "a block on top",
+                (x, front, bottom),
+                (x + size, back, height + size),
+            )
+        }
+        2 => {
+            let radius = random.between(0.05, 0.5) * width;
+            let y = if random.unit() < 0.5 {
+                radius + offset(random)
+            } else {
+                random.between(radius, width - radius)
+            };
+            let bottom = height + offset(random);
+            AlignedContact {
+                name: name(&format!("a cylinder of radius {radius} at y {y}")),
+                plate: plate.clone(),
+                tool: moved(cylinder(radius, size), (x, y, bottom)),
+                plate_volume,
+                tool_volume: PI * radius * radius * size,
+                common_volume: 0.0,
+            }
+        }
+        _ => {
+            let (front, bottom) = (
+                random.between(0.0, 0.9 * width),
+                random.between(0.0, 0.9 * height),
+            );
+            let (back, top) = (width + offset(random), height + offset(random));
+            boxed(
+                "a block in a corner",
+                (x, front, bottom),
+                (x + size, back, top),
+            )
+        }
+    }
+}
+
+#[test]
+fn aligned_contacts_with_long_plates_combine() {
+    let mut random = Random::new(7);
+    for _ in 0..60 {
+        let contact = aligned_contact(&mut random, |_| 0.0);
+        let (a, b, common) = (
+            contact.plate_volume,
+            contact.tool_volume,
+            contact.common_volume,
+        );
+        for (operation, expected) in [
+            (BooleanOperation::Union, a + b - common),
+            (BooleanOperation::Intersection, common),
+            (BooleanOperation::Difference, a - common),
+        ] {
+            let name = format!("{} {operation:?}", contact.name);
+            match boolean(&contact.plate, &contact.tool, operation) {
+                Ok(solid) => check(&name, &solid, expected),
+                Err(BooleanError::Empty) => assert!(expected.abs() < 1e-9, "{name} empty"),
+                Err(error) => panic!("{name}: {error}"),
+            }
+        }
+    }
+}
+
+const NEAR_CONTACT_FAILURES_ALLOWED: usize = 250;
+
+#[test]
+#[ignore = "a survey of the near-coincidence failures left, best run in release"]
+fn aligned_contacts_a_micrometre_or_so_apart() {
+    let mut random = Random::new(7);
+    let mut outcomes: BTreeMap<&str, usize> = BTreeMap::new();
+
+    for _ in 0..300 {
+        let contact = aligned_contact(&mut random, |random| {
+            let size = 10f64.powf(random.between(-6.0, -4.0));
+            if random.unit() < 0.5 { size } else { -size }
+        });
+        for operation in [
+            BooleanOperation::Union,
+            BooleanOperation::Difference,
+            BooleanOperation::Intersection,
+        ] {
+            let result = boolean(&contact.plate, &contact.tool, operation);
+            let label = match &result {
+                Ok(solid) if solid.validate().is_err() => "accepted invalid",
+                _ => outcome(&result),
+            };
+            *outcomes.entry(label).or_default() += 1;
+            if !matches!(label, "ok" | "empty") {
+                eprintln!("{label}: {} {operation:?}", contact.name);
+            }
+        }
+    }
+
+    eprintln!("{outcomes:?}");
+    assert_eq!(outcomes.get("accepted invalid"), None);
+    let failures: usize = outcomes
+        .iter()
+        .filter(|(label, _)| !matches!(**label, "ok" | "empty"))
+        .map(|(_, count)| count)
+        .sum();
+    assert!(
+        failures <= NEAR_CONTACT_FAILURES_ALLOWED,
+        "{failures} booleans failed, more than the {NEAR_CONTACT_FAILURES_ALLOWED} allowed"
     );
 }

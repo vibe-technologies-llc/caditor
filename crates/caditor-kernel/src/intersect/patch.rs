@@ -12,6 +12,7 @@ const ROTATIONAL_STEP: f64 = 0.2;
 const MAX_ROTATIONAL_SAMPLES: usize = 64;
 const SAGITTA_SAFETY: f64 = 1.5;
 const TINY_RADIUS: f64 = 1e-300;
+const PATH_MARGIN: f64 = 0.25;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SurfacePatch<'a> {
@@ -90,8 +91,25 @@ impl<'a> SurfacePatch<'a> {
     }
 
     pub fn locate(&self, point: Point3) -> Option<Point2> {
-        let uv = self.wrap(self.surface.project(point, Some(self.bounds.center())));
+        let uv = self.place(point);
         self.contains(uv).then_some(uv)
+    }
+
+    pub(crate) fn place(&self, point: Point3) -> Point2 {
+        self.wrap(self.surface.project(point, Some(self.bounds.center())))
+    }
+
+    pub(crate) fn path_misses(&self, path: [Point2; 3]) -> bool {
+        let [start, middle, end] = path;
+        path_misses_range(
+            [start.x, middle.x, end.x],
+            self.u_range(),
+            self.surface.u_period(),
+        ) || path_misses_range(
+            [start.y, middle.y, end.y],
+            self.v_range(),
+            self.surface.v_period(),
+        )
     }
 
     pub fn bounding_box(&self) -> Aabb {
@@ -143,6 +161,41 @@ impl<'a> SurfacePatch<'a> {
             .map(|u| self.surface.evaluate(u, center.y).dv.length())
             .fold(0.0, f64::max)
     }
+}
+
+fn path_misses_range(coordinates: [f64; 3], range: Interval, period: Option<f64>) -> bool {
+    let period = period.filter(|period| *period > 0.0);
+    let follow = |from: f64, to: f64| match period {
+        Some(period) => from + (to - from) - period * ((to - from) / period).round(),
+        None => to,
+    };
+    let [start, middle, end] = coordinates;
+    let middle = follow(start, middle);
+    let end = follow(middle, end);
+    let (low, high) = parabola_extent(start, middle, end);
+    let slack = PARAMETER_SLACK * (1.0 + range.start().abs().max(range.end().abs()));
+    let margin = PATH_MARGIN * (high - low) + slack;
+    let (low, high) = (low - margin, high + margin);
+    match period {
+        Some(period) => {
+            let shift = ((high - range.start()) / period).floor() * period;
+            high - low < period && range.end() + shift < low
+        }
+        None => high < range.start() || low > range.end(),
+    }
+}
+
+fn parabola_extent(start: f64, middle: f64, end: f64) -> (f64, f64) {
+    let linear = 4.0 * middle - 3.0 * start - end;
+    let quadratic = 2.0 * (start + end) - 4.0 * middle;
+    let (mut low, mut high) = (start.min(middle).min(end), start.max(middle).max(end));
+    let turn = -linear / (2.0 * quadratic);
+    if turn > 0.0 && turn < 1.0 {
+        let value = start + turn * (linear + turn * quadratic);
+        low = low.min(value);
+        high = high.max(value);
+    }
+    (low, high)
 }
 
 pub(crate) fn wrap_into(value: f64, range: Interval, period: Option<f64>) -> f64 {
