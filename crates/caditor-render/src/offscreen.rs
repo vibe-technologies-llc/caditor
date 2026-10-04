@@ -20,7 +20,7 @@ pub struct OffscreenRenderer {
 impl OffscreenRenderer {
     pub fn new(graphics: GraphicsSettings) -> Result<Self, RenderError> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let opened = pollster::block_on(gpu::open_device(&instance, None))?;
+        let opened = pollster::block_on(gpu::open_device(&instance, None, graphics.adapter))?;
         let loss = DeviceLoss::watch(&opened.device, Arc::new(|| {}));
         let offered =
             gpu::offered_msaa(&opened.adapter, &opened.device, IMAGE_FORMAT, DEPTH_FORMAT);

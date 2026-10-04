@@ -1,5 +1,5 @@
 use caditor_file::{Settings, SettingsError};
-use caditor_render::{Msaa, Projection, Shading};
+use caditor_render::{AdapterPreference, Msaa, Projection, Shading};
 use egui::{Id, KeyboardShortcut, Label, ThemePreference, Ui};
 
 use crate::{
@@ -353,6 +353,7 @@ pub enum PreferenceChange {
     Msaa(Msaa),
     Shading(Shading),
     CurveQuality(CurveQuality),
+    Adapter(AdapterPreference),
     Bind(Command, KeyboardShortcut),
     Unbind(Command, KeyboardShortcut),
     ResetShortcut(Command),
@@ -502,6 +503,7 @@ impl Preferences {
             PreferenceChange::FrameLimit(limit) => self.graphics.frame_limit = limit,
             PreferenceChange::Msaa(msaa) => self.graphics.msaa = msaa,
             PreferenceChange::Shading(shading) => self.graphics.shading = shading,
+            PreferenceChange::Adapter(adapter) => self.graphics.adapter = adapter,
             PreferenceChange::CurveQuality(curves) => self.graphics.curves = curves,
             PreferenceChange::Bind(command, shortcut) => self.keymap.bind(command, shortcut),
             PreferenceChange::Unbind(command, shortcut) => self.keymap.unbind(command, shortcut),
@@ -1027,6 +1029,7 @@ mod tests {
         preferences.apply(PreferenceChange::Msaa(Msaa::X8));
         preferences.apply(PreferenceChange::Shading(Shading::Enhanced));
         preferences.apply(PreferenceChange::CurveQuality(CurveQuality::Coarse));
+        preferences.apply(PreferenceChange::Adapter(AdapterPreference::Performance));
         preferences.apply(PreferenceChange::Unit(LengthUnit::Metre));
         preferences.apply(PreferenceChange::Angle(AngleUnit::Radian));
 
@@ -1038,6 +1041,7 @@ mod tests {
         assert_eq!(settings.number("graphics.msaa"), Some(8.0));
         assert_eq!(settings.text("graphics.shading"), Some("enhanced"));
         assert_eq!(settings.text("graphics.curve_quality"), Some("coarse"));
+        assert_eq!(settings.text("graphics.adapter"), Some("performance"));
         assert_eq!(settings.text("units.angle"), Some("rad"));
         assert_eq!(read.graphics, preferences.graphics);
         assert_eq!(read.angle, AngleUnit::Radian);

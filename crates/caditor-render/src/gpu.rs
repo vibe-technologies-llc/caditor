@@ -5,7 +5,10 @@ use std::sync::{
 
 use glam::{Mat4, Vec3};
 
-use crate::{RenderError, settings::Msaa};
+use crate::{
+    RenderError,
+    settings::{AdapterPreference, Msaa},
+};
 
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
@@ -50,11 +53,12 @@ pub struct OpenedDevice {
 pub async fn open_device(
     instance: &wgpu::Instance,
     surface: Option<&wgpu::Surface<'_>>,
+    preference: AdapterPreference,
 ) -> Result<OpenedDevice, RenderError> {
     let mut failure = RenderError::NoAdapter;
     let preferred = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: power_preference(),
+            power_preference: power_preference(preference),
             compatible_surface: surface,
             ..Default::default()
         })
@@ -128,8 +132,8 @@ async fn request_device(adapter: wgpu::Adapter) -> Result<OpenedDevice, RenderEr
     Err(failure)
 }
 
-fn power_preference() -> wgpu::PowerPreference {
-    wgpu::PowerPreference::from_env().unwrap_or(wgpu::PowerPreference::LowPower)
+fn power_preference(preference: AdapterPreference) -> wgpu::PowerPreference {
+    wgpu::PowerPreference::from_env().unwrap_or_else(|| preference.power())
 }
 
 fn adapter_rank(info: &wgpu::AdapterInfo) -> (u8, u8) {

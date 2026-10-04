@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use caditor_file::Settings;
 use caditor_kernel::MeshQuality;
-use caditor_render::{GraphicsInfo, GraphicsSettings, Msaa, Shading};
+use caditor_render::{AdapterPreference, GraphicsInfo, GraphicsSettings, Msaa, Shading};
 use egui::{Label, Ui};
 
 use crate::{
@@ -16,6 +16,7 @@ const FRAME_LIMIT_KEY: &str = "graphics.frame_limit";
 const MSAA_KEY: &str = "graphics.msaa";
 const SHADING_KEY: &str = "graphics.shading";
 const CURVE_QUALITY_KEY: &str = "graphics.curve_quality";
+const ADAPTER_KEY: &str = "graphics.adapter";
 const LOWEST_DISPLAY_RATE: f64 = 1.0;
 pub const COPY_DETAILS: &str = "Copy details";
 
@@ -167,6 +168,39 @@ impl CurveQuality {
     }
 }
 
+pub fn adapter_label(adapter: AdapterPreference) -> &'static str {
+    match adapter {
+        AdapterPreference::PowerSaving => "Power saving",
+        AdapterPreference::Performance => "Performance",
+    }
+}
+
+fn adapter_hover(adapter: AdapterPreference) -> &'static str {
+    match adapter {
+        AdapterPreference::PowerSaving => {
+            "Prefer the integrated graphics when the computer has a choice: cooler, quieter and \
+             kinder to a battery"
+        }
+        AdapterPreference::Performance => {
+            "Prefer the most powerful graphics card: smoother with very large models, and \
+             warmer"
+        }
+    }
+}
+
+fn adapter_key(adapter: AdapterPreference) -> &'static str {
+    match adapter {
+        AdapterPreference::PowerSaving => "power_saving",
+        AdapterPreference::Performance => "performance",
+    }
+}
+
+fn adapter_from_key(key: &str) -> Option<AdapterPreference> {
+    AdapterPreference::ALL
+        .into_iter()
+        .find(|adapter| adapter_key(*adapter) == key)
+}
+
 pub fn msaa_label(msaa: Msaa) -> &'static str {
     match msaa {
         Msaa::Off => "Off",
@@ -231,6 +265,7 @@ pub struct Graphics {
     pub msaa: Msaa,
     pub shading: Shading,
     pub curves: CurveQuality,
+    pub adapter: AdapterPreference,
 }
 
 impl Default for Graphics {
@@ -242,6 +277,7 @@ impl Default for Graphics {
             msaa: render.msaa,
             shading: render.shading,
             curves: CurveQuality::default(),
+            adapter: render.adapter,
         }
     }
 }
@@ -269,6 +305,10 @@ impl Graphics {
                 .text(CURVE_QUALITY_KEY)
                 .and_then(CurveQuality::from_key)
                 .unwrap_or(defaults.curves),
+            adapter: raw
+                .text(ADAPTER_KEY)
+                .and_then(adapter_from_key)
+                .unwrap_or(defaults.adapter),
         }
     }
 
@@ -278,6 +318,7 @@ impl Graphics {
         settings.set_number(MSAA_KEY, f64::from(self.msaa.samples()));
         settings.set_text(SHADING_KEY, shading_key(self.shading));
         settings.set_text(CURVE_QUALITY_KEY, self.curves.key());
+        settings.set_text(ADAPTER_KEY, adapter_key(self.adapter));
     }
 
     pub fn render(&self) -> GraphicsSettings {
@@ -285,6 +326,7 @@ impl Graphics {
             vsync: self.vsync,
             msaa: self.msaa,
             shading: self.shading,
+            adapter: self.adapter,
         }
     }
 
@@ -328,6 +370,10 @@ impl Hardware {
         if let Some(rate) = usable_rate(self.refresh_rate) {
             lines.push(format!("Display: {rate:.0} Hz"));
         }
+        lines.push(format!(
+            "Adapter choice: {}",
+            adapter_label(graphics.adapter)
+        ));
         lines.push(format!("Frame limit: {}", graphics.frame_limit.label()));
         lines.push(format!("Shading: {}", shading_label(graphics.shading)));
         lines.push(format!("Curve smoothness: {}", graphics.curves.label()));
@@ -364,7 +410,7 @@ pub fn tab(
 ) {
     display(ui, graphics, hardware, command);
     quality(ui, graphics, hardware, command);
-    adapter(ui, graphics, hardware);
+    adapter(ui, graphics, hardware, command);
 }
 
 fn display(
@@ -495,14 +541,27 @@ fn quality(
     });
 }
 
-fn adapter(ui: &mut Ui, graphics: &Graphics, hardware: &Hardware) {
-    let note = "Include these details when reporting a drawing problem.";
+fn adapter(
+    ui: &mut Ui,
+    graphics: &Graphics,
+    hardware: &Hardware,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let note = "Include these details when reporting a drawing problem. Choosing another adapter \
+                switches the drawing to it at once; WGPU_POWER_PREF, when set, still decides.";
     preferences::section(
         ui,
         "Graphics adapter",
         "graphics-adapter",
         Some(note.to_owned()),
         |ui| {
+            widgets::property(ui, "Prefer", |ui| {
+                let options = AdapterPreference::ALL
+                    .map(|adapter| (adapter, adapter_label(adapter), adapter_hover(adapter)));
+                if let Some(adapter) = preferences::choice(ui, &options, graphics.adapter) {
+                    preferences::change(command, PreferenceChange::Adapter(adapter));
+                }
+            });
             match &hardware.adapter {
                 Some(adapter) => {
                     widgets::property(ui, "Adapter", |ui| {
@@ -550,6 +609,7 @@ mod tests {
         raw.set_number(MSAA_KEY, 16.0);
         raw.set_text(SHADING_KEY, "enhanced");
         raw.set_text(CURVE_QUALITY_KEY, "coarse");
+        raw.set_text(ADAPTER_KEY, "performance");
 
         let read = Graphics::from_settings(&raw);
 
@@ -558,12 +618,15 @@ mod tests {
         assert_eq!(read.msaa, Msaa::X8);
         assert_eq!(read.shading, Shading::Enhanced);
         assert_eq!(read.curves, CurveQuality::Coarse);
+        assert_eq!(read.adapter, AdapterPreference::Performance);
+        assert_eq!(read.render().adapter, AdapterPreference::Performance);
         assert_eq!(read.curves.mesh_quality(), MeshQuality::COARSE);
 
         let mut written = Settings::default();
         read.write(&mut written);
         assert_eq!(written.text(FRAME_LIMIT_KEY), Some("60"));
         assert_eq!(written.number(MSAA_KEY), Some(8.0));
+        assert_eq!(written.text(ADAPTER_KEY), Some("performance"));
         assert_eq!(Graphics::from_settings(&written), read);
 
         let mut odd = Settings::default();
@@ -571,11 +634,13 @@ mod tests {
         odd.set_number(MSAA_KEY, 3.0);
         odd.set_text(SHADING_KEY, "raytraced");
         odd.set_text(CURVE_QUALITY_KEY, "exact");
+        odd.set_text(ADAPTER_KEY, "fastest");
         let odd = Graphics::from_settings(&odd);
         assert_eq!(odd.frame_limit, FrameLimit::Display);
         assert_eq!(odd.msaa, Msaa::X2);
         assert_eq!(odd.shading, Shading::Standard);
         assert_eq!(odd.curves, CurveQuality::Smooth);
+        assert_eq!(odd.adapter, AdapterPreference::PowerSaving);
 
         let mut numeric = Settings::default();
         numeric.set_number(FRAME_LIMIT_KEY, 1000.0);

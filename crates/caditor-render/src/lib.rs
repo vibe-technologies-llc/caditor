@@ -31,7 +31,7 @@ pub use crate::{
         Batch, Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene, Stroke,
         ViewportRect,
     },
-    settings::{GraphicsInfo, GraphicsSettings, Msaa, Shading},
+    settings::{AdapterPreference, GraphicsInfo, GraphicsSettings, Msaa, Shading},
     viewport::{SurfaceTarget, ViewportFrame, ViewportRenderer, grid_minor_spacing},
 };
 use crate::{
@@ -118,6 +118,7 @@ struct Reopening {
     wake: Wake,
     size: SurfaceSize,
     vsync: bool,
+    adapter: AdapterPreference,
 }
 
 impl Reopening {
@@ -128,6 +129,7 @@ impl Reopening {
             self.size,
             &self.wake,
             self.vsync,
+            self.adapter,
         )
         .await;
         match reused {
@@ -137,8 +139,15 @@ impl Reopening {
                     "the window's surface could not be reused ({error}), creating a new one"
                 );
                 let surface = Arc::new(self.instance.create_surface(Arc::clone(&self.window))?);
-                let gpu =
-                    Gpu::open(&self.instance, &surface, self.size, &self.wake, self.vsync).await?;
+                let gpu = Gpu::open(
+                    &self.instance,
+                    &surface,
+                    self.size,
+                    &self.wake,
+                    self.vsync,
+                    self.adapter,
+                )
+                .await?;
                 Ok(Recovered {
                     gpu,
                     surface: Some(surface),
@@ -165,8 +174,9 @@ impl Gpu {
         size: SurfaceSize,
         wake: &Wake,
         vsync: bool,
+        adapter: AdapterPreference,
     ) -> Result<Self, RenderError> {
-        let opened = gpu::open_device(instance, Some(surface)).await?;
+        let opened = gpu::open_device(instance, Some(surface), adapter).await?;
         let loss = DeviceLoss::watch(&opened.device, Arc::clone(wake));
         let present_modes = surface.get_capabilities(&opened.adapter).present_modes;
         let config = configure(
@@ -300,7 +310,15 @@ impl Renderer {
                 Box::new(Arc::clone(&window)),
             ));
         let surface = Arc::new(instance.create_surface(Arc::clone(&window))?);
-        let mut gpu = Gpu::open(&instance, &surface, size, &wake, graphics.vsync).await?;
+        let mut gpu = Gpu::open(
+            &instance,
+            &surface,
+            size,
+            &wake,
+            graphics.vsync,
+            graphics.adapter,
+        )
+        .await?;
         let viewport = gpu.viewport(graphics);
 
         Ok(Self {
@@ -356,6 +374,7 @@ impl Renderer {
         if graphics == self.graphics {
             return;
         }
+        let adapter_changed = graphics.adapter != self.graphics.adapter;
         if graphics.vsync != self.graphics.vsync {
             self.gpu.present_with(graphics.vsync);
             self.needs_reconfigure = true;
@@ -367,6 +386,9 @@ impl Renderer {
         }
         self.viewport.set_shading(graphics.shading);
         self.graphics = graphics;
+        if adapter_changed && let Err(error) = self.start_recovery() {
+            log::warn!("could not open the graphics adapter that was asked for: {error}");
+        }
     }
 
     pub fn resize(&mut self, size: SurfaceSize) {
@@ -631,6 +653,7 @@ impl Renderer {
             wake: Arc::clone(&self.wake),
             size: self.size(),
             vsync: self.graphics.vsync,
+            adapter: self.graphics.adapter,
         };
         let (sender, receiver) = mpsc::channel();
         thread::Builder::new()

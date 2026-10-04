@@ -496,7 +496,12 @@ fn a_lost_device_is_reported_and_a_new_one_draws() {
 }
 
 fn opened_device(instance: &wgpu::Instance) -> Option<gpu::OpenedDevice> {
-    let opened = pollster::block_on(gpu::open_device(instance, None)).ok();
+    let opened = pollster::block_on(gpu::open_device(
+        instance,
+        None,
+        crate::AdapterPreference::default(),
+    ))
+    .ok();
     if opened.is_none() {
         assert!(
             std::env::var_os(REQUIRE_GPU).is_none(),
@@ -1944,6 +1949,21 @@ fn an_exported_image_is_drawn_in_tiles_at_its_own_size_with_the_chosen_backgroun
         "a BGRA target gave {red} {green} {blue}"
     );
     assert!(is_background(image_pixel(&swapped, corner)));
+}
+
+#[test]
+fn every_adapter_preference_opens_a_device_when_any_adapter_exists() {
+    let Some(_) = offscreen_renderer() else {
+        return;
+    };
+
+    for adapter in crate::AdapterPreference::ALL {
+        let opened = crate::OffscreenRenderer::new(crate::GraphicsSettings {
+            adapter,
+            ..crate::GraphicsSettings::default()
+        });
+        assert!(opened.is_ok(), "{adapter:?} opened no device");
+    }
 }
 
 #[test]

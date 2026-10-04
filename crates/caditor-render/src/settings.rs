@@ -68,11 +68,30 @@ impl Shading {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AdapterPreference {
+    #[default]
+    PowerSaving,
+    Performance,
+}
+
+impl AdapterPreference {
+    pub const ALL: [Self; 2] = [Self::PowerSaving, Self::Performance];
+
+    pub(crate) fn power(self) -> wgpu::PowerPreference {
+        match self {
+            Self::PowerSaving => wgpu::PowerPreference::LowPower,
+            Self::Performance => wgpu::PowerPreference::HighPerformance,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GraphicsSettings {
     pub vsync: bool,
     pub msaa: Msaa,
     pub shading: Shading,
+    pub adapter: AdapterPreference,
 }
 
 impl Default for GraphicsSettings {
@@ -81,6 +100,7 @@ impl Default for GraphicsSettings {
             vsync: true,
             msaa: Msaa::default(),
             shading: Shading::default(),
+            adapter: AdapterPreference::default(),
         }
     }
 }

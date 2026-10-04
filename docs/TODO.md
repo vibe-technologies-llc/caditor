@@ -388,8 +388,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] Edge lines can be eaten by faces at grazing angles, since depth bias is a
   constant factor with no slope term, and the grid and reference fills share the mesh's bias, so a
   face on the XY plane can speckle with the grid. Neither has a test.
-- [medium · medium] Adapter choice is only the `WGPU_POWER_PREF` environment variable, so users of
-  hybrid laptops or broken drivers cannot pick another adapter from Preferences.
 - [medium · hard] Section planes.
 - [low · medium] Silhouette edges on curved bodies.
 - [low · medium] Line caps, joins and anti-aliasing without MSAA.

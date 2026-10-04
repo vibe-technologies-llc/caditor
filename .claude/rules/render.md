@@ -28,15 +28,18 @@ paths:
 
 ## Devices and settings
 
-- `open_device` tries the low-power adapter first (unless `WGPU_POWER_PREF` says otherwise) so a
+- `open_device` tries the adapter `AdapterPreference` asks for, power saving (the low-power one) by
+  default and unless `WGPU_POWER_PREF` says otherwise, so a
   CAD window does not wake a discrete GPU, then every other adapter that can present, ranked by
   `adapter_rank`. Each adapter gets its own limits, then defaults, then WebGL2-level ones.
 - Nothing uses storage buffers, so downlevel and GL devices draw everything. The surface is
   clamped to the largest texture side and is a plain 8-bit format, never a float or snorm one an
   HDR setup lists first. Offered MSAA levels (`gpu::offered_msaa`) need surface and
   `Depth32Float` support with resolve.
-- `GraphicsSettings` (vsync, `Msaa`, `Shading`) is applied live by `Renderer::set_graphics`,
-  which changes only what differs; `graphics_info` reports what is actually in use. MSAA uses the
+- `GraphicsSettings` (vsync, `Msaa`, `Shading`, `AdapterPreference`) is applied live by
+  `Renderer::set_graphics`, which changes only what differs; a changed adapter preference opens a
+  new device the way device loss does (frames are skipped until it answers, and a failure keeps
+  the old device); `graphics_info` reports what is actually in use. MSAA uses the
   offered level closest to the one asked for (`Msaa::closest`); a change rebuilds pipelines and
   scene targets but keeps mesh buffers and picking. The pick pass is always single-sampled.
   Shading is a uniform flag, so switching is free.
