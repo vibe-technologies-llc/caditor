@@ -23,8 +23,8 @@ pub use crate::{
     binary::{FileDigest, History, SavedState, Version},
     export::{
         ExportBody, ExportError, ExportFormat, Exported, ImageExportError, MeshResolution,
-        PNG_EXTENSION, RgbaImage, STEP_EXTENSION, STEP_EXTENSIONS, SketchExported, export_bodies,
-        export_png, export_sketch,
+        PNG_EXTENSION, RgbaImage, STEP_EXTENSION, STEP_EXTENSIONS, SketchExported, SketchFormat,
+        export_bodies, export_png, export_sketch,
     },
     format::FORMAT_VERSION,
     import::{

@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     f64::consts::PI,
+    path::Path,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -777,7 +778,7 @@ fn a_sketch_of_only_construction_has_nothing_to_export() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("guide.dxf");
 
-    let result = export_sketch(&path, &sketch, &CancelToken::never());
+    let result = export_sketch(&path, &sketch, SketchFormat::Dxf, &CancelToken::never());
 
     assert_eq!(result, Err(ExportError::NoCurves));
     assert!(!path.exists());
@@ -789,11 +790,72 @@ fn exporting_a_sketch_writes_the_file_and_a_cancelled_one_writes_nothing() {
     let path = dir.path().join("sketch.dxf");
     let cancelled = dir.path().join("cancelled.dxf");
 
-    let exported = export_sketch(&path, &drawn_sketch(), &CancelToken::never()).unwrap();
-    let refused = export_sketch(&cancelled, &drawn_sketch(), &CancelToken::new(|| true));
+    let exported = export_sketch(
+        &path,
+        &drawn_sketch(),
+        SketchFormat::Dxf,
+        &CancelToken::never(),
+    )
+    .unwrap();
+    let refused = export_sketch(
+        &cancelled,
+        &drawn_sketch(),
+        SketchFormat::Dxf,
+        &CancelToken::new(|| true),
+    );
 
     assert_eq!(exported.curves, 4);
     assert!(std::fs::read_to_string(&path).unwrap().contains("SPLINE"));
     assert_eq!(refused, Err(ExportError::Cancelled));
     assert!(!cancelled.exists());
+}
+
+#[test]
+fn a_sketch_exports_to_an_svg_in_millimetres_with_y_pointing_down() {
+    let sketch = drawn_sketch();
+
+    let (text, exported) = svg::encode(&sketch).unwrap();
+
+    assert_eq!(
+        exported,
+        SketchExported {
+            curves: 4,
+            points: 1,
+            construction_left_out: 1,
+        }
+    );
+    assert!(text.starts_with(r#"<svg xmlns="http://www.w3.org/2000/svg" width="#));
+    assert!(text.contains(r#"<line x1="0" y1="0" x2="40" y2="0"/>"#));
+    assert!(text.contains(r#"<circle cx="20" cy="-10" r="4"/>"#));
+    assert!(text.contains(r#"<path d="M 10 0 A 10 10 0 0 0 0 -10"/>"#));
+    assert!(text.contains("<polyline points=\"0,-20 "));
+    assert!(text.trim_end().ends_with("</svg>"));
+    assert!(!text.contains("-10 L"));
+}
+
+#[test]
+fn an_svg_frames_the_drawing_with_a_margin_in_its_viewbox() {
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_line(Point2::new(0.0, 0.0), Point2::new(40.0, 20.0));
+
+    let (text, _) = svg::encode(&sketch).unwrap();
+
+    assert!(
+        text.contains(r#"width="42mm" height="22mm" viewBox="-1 -21 42 22""#),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_sketch_format_is_found_from_the_extension_in_any_case() {
+    assert_eq!(
+        SketchFormat::of(Path::new("a.dxf")),
+        Some(SketchFormat::Dxf)
+    );
+    assert_eq!(
+        SketchFormat::of(Path::new("a.SVG")),
+        Some(SketchFormat::Svg)
+    );
+    assert_eq!(SketchFormat::of(Path::new("a.png")), None);
+    assert_eq!(SketchFormat::of(Path::new("dxf")), None);
 }

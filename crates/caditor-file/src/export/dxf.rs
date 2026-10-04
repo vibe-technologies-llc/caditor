@@ -1,37 +1,14 @@
-use std::{collections::BTreeSet, f64::consts::TAU, fmt::Write, path::Path};
+use std::{collections::BTreeSet, f64::consts::TAU, fmt::Write};
 
-use caditor_document::CancelToken;
 use caditor_geometry::Point2;
 use caditor_sketch::{Entity, Sketch};
 
-use super::ExportError;
-use crate::{reason::WriteFailure, save::write_atomically};
+use super::{ExportError, SketchExported};
 
 const VERSION: &str = "AC1015";
 const MILLIMETRES: u32 = 4;
 const METRIC: u32 = 1;
 const PLANAR_SPLINE: u32 = 8;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SketchExported {
-    pub curves: usize,
-    pub points: usize,
-    pub construction_left_out: usize,
-}
-
-pub fn export_sketch(
-    path: &Path,
-    sketch: &Sketch,
-    cancel: &CancelToken,
-) -> Result<SketchExported, ExportError> {
-    let (text, exported) = encode(sketch)?;
-    if cancel.is_cancelled() {
-        return Err(ExportError::Cancelled);
-    }
-    write_atomically(path, text.as_bytes())
-        .map_err(|error| ExportError::Writing(WriteFailure::of(&error)))?;
-    Ok(exported)
-}
 
 pub(super) fn encode(sketch: &Sketch) -> Result<(String, SketchExported), ExportError> {
     let mut writer = Writer::default();

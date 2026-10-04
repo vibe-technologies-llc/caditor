@@ -17,8 +17,8 @@ use caditor_file::{
     Closing, DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported, FILE_EXTENSION,
     FileJournal, History, ImportError, LoadError, Loaded, ModelImport, PNG_EXTENSION, RecentChange,
     RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings,
-    SketchExported, describe_set_aside, journal_for, load, load_version, read_dxf, read_step_file,
-    scan,
+    SketchExported, SketchFormat, describe_set_aside, journal_for, load, load_version, read_dxf,
+    read_step_file, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -234,7 +234,9 @@ impl Dialogs for NativeDialogs {
     }
 
     fn pick_sketch_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
-        let filters = vec![Filter::new(DRAWING_KIND, &[DXF_EXTENSION])];
+        let filters = SketchFormat::ALL
+            .map(|format| Filter::new(format.name(), &[format.extension()]))
+            .to_vec();
         let request = Self::request(
             Mode::Save,
             "Export sketch",
@@ -327,7 +329,7 @@ impl Output {
                 path: image_export::with_png_extension(path),
             },
             Self::Sketch { path } => Self::Sketch {
-                path: sketch_export::with_dxf_extension(path),
+                path: sketch_export::with_format_extension(path),
             },
         }
     }
@@ -1166,7 +1168,9 @@ impl Files {
         let failed = (path.clone(), name.clone());
         self.spawn(
             move || {
-                let result = caditor_file::export_sketch(&path, &sketch, &CancelToken::never());
+                let format = SketchFormat::of(&path).unwrap_or_default();
+                let result =
+                    caditor_file::export_sketch(&path, &sketch, format, &CancelToken::never());
                 Event::SketchExported {
                     path,
                     sketch: name,

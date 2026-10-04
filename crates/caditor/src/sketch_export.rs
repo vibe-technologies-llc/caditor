@@ -3,31 +3,28 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use caditor_file::{DXF_EXTENSION, ExportError, SketchExported};
+use caditor_file::{ExportError, SketchExported, SketchFormat};
 
 use crate::{
     feature_tree::count,
     model::{Notice, display_name},
 };
 
-pub const SKETCH_HINT: &str = "Save the curves of a sketch as a DXF drawing in millimetres";
+pub const SKETCH_HINT: &str = "Save the curves of a sketch as a DXF or SVG drawing in millimetres";
 pub const NOT_A_SKETCH: &str = "Choose a sketch in the feature tree, or edit one, to export it";
 pub const NOT_SOLVED: &str = "The sketch has not been solved, so there is nothing to export yet";
 
 pub fn file_name(sketch: &str) -> String {
-    format!("{sketch}.{DXF_EXTENSION}")
+    format!("{sketch}.{}", SketchFormat::default().extension())
 }
 
-pub fn with_dxf_extension(path: PathBuf) -> PathBuf {
-    let is_dxf = path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case(DXF_EXTENSION));
-    if is_dxf {
+pub fn with_format_extension(path: PathBuf) -> PathBuf {
+    if SketchFormat::of(&path).is_some() {
         return path;
     }
     let mut named = OsString::from(path.as_os_str());
     named.push(".");
-    named.push(DXF_EXTENSION);
+    named.push(SketchFormat::default().extension());
     PathBuf::from(named)
 }
 
@@ -65,17 +62,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_path_without_the_dxf_extension_gets_it_appended() {
+    fn a_path_without_a_sketch_extension_gets_dxf_appended() {
         assert_eq!(
-            with_dxf_extension(PathBuf::from("/tmp/outline")),
+            with_format_extension(PathBuf::from("/tmp/outline")),
             PathBuf::from("/tmp/outline.dxf")
         );
         assert_eq!(
-            with_dxf_extension(PathBuf::from("/tmp/outline.DXF")),
+            with_format_extension(PathBuf::from("/tmp/outline.DXF")),
             PathBuf::from("/tmp/outline.DXF")
         );
         assert_eq!(
-            with_dxf_extension(PathBuf::from("/tmp/part.caditor")),
+            with_format_extension(PathBuf::from("/tmp/outline.svg")),
+            PathBuf::from("/tmp/outline.svg")
+        );
+        assert_eq!(
+            with_format_extension(PathBuf::from("/tmp/part.caditor")),
             PathBuf::from("/tmp/part.caditor.dxf")
         );
     }

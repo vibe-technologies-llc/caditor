@@ -62,10 +62,10 @@ paths:
 
 ## Sketch export
 
-- Export sketch as DXF (File menu, palette; `Command::ExportSketch`, `sketch_export.rs`) is offered
+- Export sketch (File menu, palette; `Command::ExportSketch`, `sketch_export.rs`) is offered
   by `feature_tree::commands` for the sketch the tree has current or that is edited, and only once
-  it has solved geometry. `FileCommand::ExportSketch` picks a `.dxf` path (`Purpose::Sketch`,
-  extension appended and replacing asked as for the other outputs), then writes a clone of the
+  it has solved geometry. `FileCommand::ExportSketch` picks a `.dxf` or `.svg` path (`Purpose::Sketch`,
+  `.dxf` appended to any other and replacing asked as for the other outputs), then writes a clone of the
   displayed sketch on the files worker; the notice counts what was written and the construction
   curves left out.
 

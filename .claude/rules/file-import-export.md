@@ -68,6 +68,10 @@ paths:
   full sweep is a circle), clamped `SPLINE` (planar, with its knots and control points) and `POINT`
   for a point no curve uses. Construction curves are counted and left out; a sketch with nothing
   else is `ExportError::NoCurves`. The result reads back through `parse_dxf` as the same curves.
+  `SketchFormat::of` picks DXF or SVG from the path; `export/svg.rs` writes SVG in millimetres with
+  y flipped (`-y`), a 1 mm margin in the viewBox, a 0.1 mm black hairline, `line`, `circle`,
+  elliptical-arc `path` (sweep flag 0, since the flip keeps the drawn direction), splines as
+  `polyline`s and points as small filled circles.
 - `export_png` writes 8-bit RGBA, straight alpha, sRGB chunk, through the pure-Rust `png` crate,
   atomically, checking the pixel count and cancellation; errors are `ImageExportError` variants.
 - 3MF is a ZIP from a small writer (`zip.rs`; deflate through `miniz_oxide` unless storing is

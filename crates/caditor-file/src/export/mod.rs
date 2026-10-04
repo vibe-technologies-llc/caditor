@@ -3,6 +3,7 @@ mod gltf;
 mod image;
 mod obj;
 mod stl;
+mod svg;
 #[cfg(test)]
 mod tests;
 mod three_mf;
@@ -17,12 +18,10 @@ use std::{
 use caditor_document::CancelToken;
 use caditor_geometry::{Aabb, Point3};
 use caditor_kernel::{Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
+use caditor_sketch::Sketch;
 use caditor_step::{StepBody, StepWritten, WriteError, write_step_keeping_what_can_be};
 
-pub use self::{
-    dxf::{SketchExported, export_sketch},
-    image::{ImageExportError, PNG_EXTENSION, RgbaImage, export_png},
-};
+pub use self::image::{ImageExportError, PNG_EXTENSION, RgbaImage, export_png};
 use crate::{reason::WriteFailure, save::write_atomically};
 
 const APPLICATION: &str = concat!("caditor ", env!("CARGO_PKG_VERSION"));
@@ -79,6 +78,63 @@ impl ExportFormat {
                 .any(|accepted| extension.eq_ignore_ascii_case(accepted))
         })
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum SketchFormat {
+    #[default]
+    Dxf,
+    Svg,
+}
+
+impl SketchFormat {
+    pub const ALL: [Self; 2] = [Self::Dxf, Self::Svg];
+
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Dxf => "dxf",
+            Self::Svg => "svg",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Dxf => "DXF",
+            Self::Svg => "SVG",
+        }
+    }
+
+    pub fn of(path: &Path) -> Option<Self> {
+        let extension = path.extension()?;
+        Self::ALL
+            .into_iter()
+            .find(|format| extension.eq_ignore_ascii_case(format.extension()))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SketchExported {
+    pub curves: usize,
+    pub points: usize,
+    pub construction_left_out: usize,
+}
+
+pub fn export_sketch(
+    path: &Path,
+    sketch: &Sketch,
+    format: SketchFormat,
+    cancel: &CancelToken,
+) -> Result<SketchExported, ExportError> {
+    let (text, exported) = match format {
+        SketchFormat::Dxf => dxf::encode(sketch)?,
+        SketchFormat::Svg => svg::encode(sketch)?,
+    };
+    if cancel.is_cancelled() {
+        return Err(ExportError::Cancelled);
+    }
+    write_atomically(path, text.as_bytes())
+        .map_err(|error| ExportError::Writing(WriteFailure::of(&error)))?;
+    Ok(exported)
 }
 
 pub const STEP_EXTENSION: &str = "step";

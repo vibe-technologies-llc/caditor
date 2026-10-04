@@ -651,7 +651,7 @@ impl Command {
             Self::Import => "Import…",
             Self::Export => "Export…",
             Self::ExportImage => "Export image…",
-            Self::ExportSketch => "Export sketch as DXF…",
+            Self::ExportSketch => "Export sketch…",
             Self::Preferences => "Preferences…",
             Self::KeyboardShortcuts => "Keyboard shortcuts…",
             Self::Quit => "Quit",

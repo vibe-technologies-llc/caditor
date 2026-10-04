@@ -1561,7 +1561,7 @@ fn a_chosen_sketch_exports_to_a_dxf_of_its_curves_and_replacing_asks_first() {
     harness.frame();
     assert_eq!(availability(&harness), Some(Ok(())));
     harness.answer_dialog(Some(dir.path().join("outline")));
-    run_from_palette(&mut harness, "export sketch as dxf");
+    run_from_palette(&mut harness, "export sketch");
     let written = dir.path().join("outline.dxf");
     harness.wait_until("the drawing is written", |_| written.exists());
     harness.wait_until("the export is announced", |harness| {
@@ -1572,9 +1572,19 @@ fn a_chosen_sketch_exports_to_a_dxf_of_its_curves_and_replacing_asks_first() {
     assert_eq!(drawing.curve_count(), 4);
     assert!(drawing.notes.is_empty(), "{:?}", drawing.notes);
 
+    let cut = dir.path().join("cut.svg");
+    harness.answer_dialog(Some(cut.clone()));
+    harness.key(Key::Escape, Modifiers::NONE);
+    run_from_palette(&mut harness, "export sketch");
+    harness.wait_until("the SVG is written", |_| cut.exists());
+    let svg = std::fs::read_to_string(&cut).unwrap();
+    assert!(svg.starts_with("<svg "));
+    assert_eq!(svg.matches("<line ").count(), 4);
+
+    harness.answer_dialog(Some(dir.path().join("outline")));
     std::fs::write(&written, b"precious").unwrap();
     harness.key(Key::Escape, Modifiers::NONE);
-    run_from_palette(&mut harness, "export sketch as dxf");
+    run_from_palette(&mut harness, "export sketch");
     harness.wait_until("the replacement is confirmed", |harness| {
         harness.shows("Replace “outline.dxf”?")
     });
