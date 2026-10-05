@@ -468,6 +468,14 @@ pub struct Drawing {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+struct Carried {
+    placed: Vec<Placement>,
+    tangent: Option<Tangent>,
+    chain: Vec<ChainStep>,
+    chain_start: Vec<EntityId>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct ChainStep {
     start: Placement,
     tangent: Option<Tangent>,
@@ -509,11 +517,18 @@ impl Drawing {
         let context =
             active.and_then(|active| Some((active.feature, Shape::of(active.tool, modes)?)));
         if context != self.context {
+            let carried = self.continued_in(context, sketch);
             *self = Self {
                 context,
                 sides: self.sides,
                 ..Self::default()
             };
+            if let Some(carried) = carried {
+                self.placed = carried.placed;
+                self.tangent = carried.tangent;
+                self.chain = carried.chain;
+                self.chain_start = carried.chain_start;
+            }
         }
         self.construction = active.is_some_and(|active| active.construction);
         let lost_anchor = sketch.is_some_and(|sketch| {
@@ -534,14 +549,49 @@ impl Drawing {
         }
     }
 
+    fn continued_in(
+        &self,
+        context: Option<(FeatureId, Shape)>,
+        sketch: Option<&Sketch>,
+    ) -> Option<Carried> {
+        let (feature, from) = self.context?;
+        let (next_feature, to) = context?;
+        let [start] = self.placed.as_slice() else {
+            return None;
+        };
+        let tangent = match (from, to) {
+            (Shape::Line, Shape::TangentArc) => {
+                Some(continuing(sketch?, point_target(start.snap)?)?)
+            }
+            (Shape::TangentArc, Shape::Line) => None,
+            _ => return None,
+        };
+        (feature == next_feature).then(|| Carried {
+            placed: vec![*start],
+            tangent,
+            chain: self.chain.clone(),
+            chain_start: self.chain_start.clone(),
+        })
+    }
+
     fn step_back_or_cancel(&mut self, sketch: Option<&Sketch>) {
         let present = |entity: EntityId| sketch.is_some_and(|sketch| sketch.contains(entity));
+        let arcing = self
+            .context
+            .is_some_and(|(_, shape)| shape == Shape::TangentArc);
         while let Some(step) = self.chain.pop() {
+            let tangent = match step.tangent {
+                None if arcing => sketch
+                    .zip(point_target(step.start.snap))
+                    .and_then(|(sketch, point)| continuing(sketch, point)),
+                tangent => tangent,
+            };
             let alive = step.start.snap.entity().is_none_or(present)
-                && step.tangent.is_none_or(|tangent| present(tangent.curve));
+                && tangent.is_none_or(|tangent| present(tangent.curve))
+                && (tangent.is_some() || !arcing);
             if alive {
                 self.placed = vec![step.start];
-                self.tangent = step.tangent;
+                self.tangent = tangent;
                 self.sweep = None;
                 if self.chain.is_empty() {
                     self.chain_start.clear();

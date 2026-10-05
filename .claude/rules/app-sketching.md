@@ -93,6 +93,9 @@ paths:
   circle through the start and keeps its snap only if the target lies on that circle.
 - A tangent arc starts on a point ending a line, arc or spline (the newest if several) and leaves
   along that curve's direction with a `Tangent`.
+  Switching between the Line and Tangent arc tools with a segment started (`Drawing::sync`) keeps
+  the chain and its anchors: the arc leaves along the line just drawn, and the lines go on from the
+  arc's end. Stepping back onto a line step while arcing finds its tangent again from the sketch.
 - What a placed point may snap to is `Drawing::accept` (points only where a curve would add no
   constraint); width points of slots and three-point rectangles never snap. Per-shape constraints
   and degrees of freedom are in `shapes.rs` and its tests, not here.

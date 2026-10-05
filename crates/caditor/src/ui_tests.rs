@@ -3849,6 +3849,47 @@ fn chained_lines_are_joined_and_clicking_the_last_point_again_stops() {
 }
 
 #[test]
+fn a_line_chain_goes_on_as_a_tangent_arc_and_back_to_lines_without_starting_over() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(40.0, 10.0));
+
+    harness.use_tool(Key::T);
+    assert_eq!(harness.tool(), Some(Tool::TangentArc));
+    harness.click_at(Point2::new(60.0, 30.0));
+    let sketch = harness.sketch(feature);
+    let [line] = entities_of_kind(sketch, "Line")[..] else {
+        panic!("the first line stays");
+    };
+    let [arc] = entities_of_kind(sketch, "Arc")[..] else {
+        panic!("the arc continues the line");
+    };
+    assert_eq!(
+        constraints_of_kind(sketch, "Tangent"),
+        vec![Constraint::Tangent(line, arc)]
+    );
+
+    harness.use_tool(Key::L);
+    assert_eq!(harness.tool(), Some(Tool::Line));
+    harness.click_at(Point2::new(60.0, 60.0));
+    let sketch = harness.sketch(feature);
+    let lines = entities_of_kind(sketch, "Line");
+    assert_eq!(lines.len(), 2);
+    assert_eq!(constraints_of_kind(sketch, "Coincident").len(), 2);
+
+    harness.use_tool(Key::T);
+    harness.key(Key::Backspace, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 1);
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Arc").len(), 1);
+    harness.click_at(Point2::new(70.0, 50.0));
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Arc").len(), 2);
+}
+
+#[test]
 fn backspace_and_undo_step_a_line_chain_back_one_line_at_a_time() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
