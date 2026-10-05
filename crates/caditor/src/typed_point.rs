@@ -33,6 +33,7 @@ const ANGLE: Expected = Expected {
     dimension: Some(Dimension::ANGLE),
     non_negative: false,
 };
+const SIDES_WORDS: [&str; 2] = ["sides", "side"];
 const FORMS: &str = "Type x, y such as 10, 20, or a length and an angle such as 25 < 30";
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -50,6 +51,16 @@ pub struct TypedPoint {
 
 pub struct Typed {
     pub text: String,
+}
+
+pub fn sides(text: &str) -> Option<usize> {
+    let text = text.trim().to_lowercase();
+    let count = SIDES_WORDS
+        .iter()
+        .find_map(|word| text.strip_suffix(word))?
+        .trim_end();
+    let digits = !count.is_empty() && count.chars().all(|digit| digit.is_ascii_digit());
+    digits.then(|| count.parse().unwrap_or(usize::MAX))
 }
 
 fn starts_a_point(text: &str) -> bool {
@@ -357,6 +368,17 @@ mod tests {
         }
         for text in ["l", " ", "", "x"] {
             assert!(!starts_a_point(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_count_followed_by_sides_is_a_side_count_and_nothing_else_is() {
+        assert_eq!(sides("6 sides"), Some(6));
+        assert_eq!(sides(" 12Sides "), Some(12));
+        assert_eq!(sides("1 side"), Some(1));
+        assert_eq!(sides("99999999999999999999999 sides"), Some(usize::MAX));
+        for text in ["6", "sides", "-6 sides", "6.5 sides", "2 + 4 sides", "6, 5"] {
+            assert_eq!(sides(text), None, "{text}");
         }
     }
 

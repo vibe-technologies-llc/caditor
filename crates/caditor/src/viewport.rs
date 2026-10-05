@@ -80,6 +80,8 @@ const FREE_PLACEMENT_HINT: &str = "Ctrl: place freely";
 const TYPE_POINT_HINT: &str = "Type x, y or length < angle for an exact point";
 const TYPED_POINT_HINT: &str = "@: from the last point   A length alone goes toward the pointer   \
                                 Enter: place   Esc: cancel";
+const TYPED_SIDES_HINT: &str = "6 sides: set the sides";
+const SCRUB_HINT: &str = "Shift: move sideways to set the sides";
 const MOVE_HINT: &str = "@: by an offset   Enter: move   Esc: cancel";
 const BOX_FILL_OPACITY: f32 = 0.12;
 const BOX_STROKE_WIDTH: f32 = 1.0;
@@ -193,6 +195,7 @@ pub struct ViewportState {
     press: Option<Press>,
     draw_press: Option<Vector2>,
     placing_freely: bool,
+    scrubbing: bool,
     primary: Option<PrimaryDrag>,
     hovered_in_tree: Option<Pickable>,
     session: u64,
@@ -272,6 +275,7 @@ impl ViewportState {
             press: None,
             draw_press: None,
             placing_freely: false,
+            scrubbing: false,
             primary: None,
             hovered_in_tree: None,
             session: 0,
@@ -771,6 +775,10 @@ impl ViewportState {
 
     fn track_cursor(&mut self, ui: &egui::Ui, response: &Response, rect: Rect) {
         self.placing_freely = ui.input(|input| input.modifiers.command);
+        self.scrubbing = ui.input(|input| input.modifiers.shift);
+        if self.scrubbing && self.drawing.is_scrubbing() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        }
         let (pointer, moved) = ui.input(|input| {
             (
                 input.pointer.latest_pos(),
@@ -1075,6 +1083,11 @@ impl ViewportState {
             .sync(editing.active(), editing.modes(), displayed.as_deref());
         self.drawing
             .place_freely(self.placing_freely || !self.snapping);
+        let scrub_from = self
+            .cursor
+            .filter(|_| self.scrubbing)
+            .map(|cursor| cursor.x / f64::from(self.pixels_per_point));
+        self.drawing.scrub_sides(scrub_from);
         self.trimming.sync(editing.active(), displayed.as_deref());
         let selected = editing
             .feature()
@@ -1500,8 +1513,13 @@ impl ViewportState {
         if keys_free {
             self.typed_point.open_from_typing(ui.ctx());
         }
+        let sides = if self.drawing.can_type_sides() {
+            format!("   {TYPED_SIDES_HINT}")
+        } else {
+            String::new()
+        };
         let hint = format!(
-            "Lengths in {}   {TYPED_POINT_HINT}",
+            "Lengths in {}   {TYPED_POINT_HINT}{sides}",
             model.length_unit().symbol()
         );
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
@@ -1515,6 +1533,12 @@ impl ViewportState {
         ) else {
             return;
         };
+        if let Some(count) = typed_point::sides(&typed.text) {
+            if let Err(reason) = self.drawing.set_sides(count) {
+                self.typed_point.open_with(typed.text, reason.to_owned());
+            }
+            return;
+        }
         let from = typed_point::From {
             last: self.drawing.last_placed(),
             toward: self.drawing.pointer_position(),
@@ -1982,10 +2006,15 @@ impl ViewportState {
                         })
                         .map(|sides| format!("{sides}   "))
                         .unwrap_or_default();
+                    let typed_sides = if self.drawing.can_type_sides() {
+                        format!("   {TYPED_SIDES_HINT}")
+                    } else {
+                        String::new()
+                    };
                     (
                         prompt.text,
                         format!(
-                            "{mode}{reverse}{sides}{}   {FREE_PLACEMENT_HINT}   {TYPE_POINT_HINT}",
+                            "{mode}{reverse}{sides}{}   {FREE_PLACEMENT_HINT}   {TYPE_POINT_HINT}{typed_sides}",
                             prompt.keys
                         ),
                     )
@@ -2234,7 +2263,9 @@ impl KeyHints {
             sides: commands
                 .keys(Command::MoreSides)
                 .zip(commands.keys(Command::FewerSides))
-                .map(|(more, fewer)| format!("{more} or {fewer}: more or fewer sides")),
+                .map(|(more, fewer)| {
+                    format!("{more} or {fewer}: more or fewer sides   {SCRUB_HINT}")
+                }),
             tools: Tool::ALL
                 .into_iter()
                 .filter_map(|tool| Some((tool, commands.keys(Command::SketchTool(tool))?)))

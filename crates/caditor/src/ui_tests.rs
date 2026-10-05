@@ -4491,6 +4491,47 @@ fn a_polygon_is_regular_with_as_many_sides_as_chosen() {
     assert!((harness.body_volume(extrude) - 2000.0).abs() < 1.0);
 }
 
+#[test]
+fn a_polygons_sides_are_typed_as_a_count_or_scrubbed_with_shift_and_the_pointer() {
+    let mut harness = Harness::new();
+    harness.draw_on_new_sketch();
+    harness.use_tool(Key::G);
+    harness.click_at(Point2::new(20.0, 20.0));
+    harness.point_at(Point2::new(35.0, 20.0));
+    assert!(harness.shows("R 15.00 mm   6 sides"));
+
+    type_point(&mut harness, "9 sides");
+    harness.point_at(Point2::new(35.0, 20.0));
+    assert!(harness.shows("R 15.00 mm   9 sides"));
+
+    type_point(&mut harness, "2 sides");
+    assert!(harness.shows("A polygon needs at least three sides"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+    type_point(&mut harness, "65 sides");
+    assert!(harness.shows("A polygon has at most 64 sides"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+
+    harness.point_at(Point2::new(35.0, 20.0));
+    let start = harness.on_screen(Point2::new(35.0, 20.0));
+    harness.hold(Modifiers::SHIFT);
+    harness.point_at(Point2::new(35.0, 20.0));
+    for (offset, sides) in [(48.0, 11), (-72.0, 6), (-96.0, 5), (150.0, 15)] {
+        harness
+            .events
+            .push(Event::PointerMoved(start + egui::vec2(offset, 0.0)));
+        harness.frame();
+        assert!(
+            harness.shows(&format!("R 15.00 mm   {sides} sides")),
+            "{offset}"
+        );
+    }
+    harness.hold(Modifiers::NONE);
+    harness.point_at(Point2::new(30.0, 20.0));
+    assert!(harness.shows("R 10.00 mm   15 sides"));
+}
+
 fn refused(harness: &mut Harness, text: &str, refusal: Refusal) {
     type_point(harness, text);
     assert!(harness.shows(refusal.reason()), "{text}");
@@ -4569,9 +4610,10 @@ fn pressing_a_shape_key_again_cycles_its_ways_of_drawing_and_each_is_remembered(
     assert!(harness.shows("Click the hexagon's centre"));
     assert!(harness.shows_hint(&with_type_hint(
         "Polygon from its centre and a corner   G: from its centre and a side's middle   ] or \
-         [: more or fewer sides",
+         [: more or fewer sides   Shift: move sideways to set the sides",
         "Esc: back to Select"
     )));
+    assert!(harness.shows("6 sides: set the sides"));
 }
 
 #[test]

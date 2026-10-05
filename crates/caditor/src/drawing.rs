@@ -218,6 +218,14 @@ struct Tangent {
     direction: Vector2,
 }
 
+const SCRUB_POINTS_PER_SIDE: f64 = 24.0;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Scrub {
+    from: f64,
+    sides: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sides(usize);
 
@@ -464,6 +472,7 @@ pub struct Drawing {
     chain: Vec<ChainStep>,
     chain_start: Vec<EntityId>,
     sides: Sides,
+    scrub: Option<Scrub>,
     free: bool,
 }
 
@@ -619,6 +628,9 @@ impl Drawing {
             self.hover = None;
             return;
         };
+        if self.scrub.is_some() {
+            return;
+        }
         self.hover = pointer.map(|pointer| self.place(shape, sketch, screen, pointer));
         if self.choosing_arc_end()
             && let (Some(sweep), Some(hover)) = (&mut self.sweep, self.hover)
@@ -791,6 +803,48 @@ impl Drawing {
         Ok(())
     }
 
+    pub fn set_sides(&mut self, count: usize) -> Result<(), &'static str> {
+        self.polygon_sides()?;
+        if count < MIN_SIDES {
+            return Err(TOO_FEW_SIDES);
+        }
+        if count > MAX_SIDES {
+            return Err(TOO_MANY_SIDES);
+        }
+        self.sides = Sides(count);
+        Ok(())
+    }
+
+    pub fn can_type_sides(&self) -> bool {
+        self.polygon_sides().is_ok()
+    }
+
+    pub fn scrub_sides(&mut self, pointer_x: Option<f64>) {
+        let scrubbing = self.in_progress() && self.polygon_sides().is_ok();
+        let Some(x) = pointer_x.filter(|_| scrubbing) else {
+            self.scrub = None;
+            return;
+        };
+        let scrub = *self.scrub.get_or_insert(Scrub {
+            from: x,
+            sides: self.sides.0,
+        });
+        let reach = MAX_SIDES as f64;
+        let steps = ((x - scrub.from) / SCRUB_POINTS_PER_SIDE)
+            .round()
+            .clamp(-reach, reach);
+        self.sides = Sides(
+            scrub
+                .sides
+                .saturating_add_signed(steps as isize)
+                .clamp(MIN_SIDES, MAX_SIDES),
+        );
+    }
+
+    pub fn is_scrubbing(&self) -> bool {
+        self.scrub.is_some()
+    }
+
     pub fn add_sides(&mut self, change: isize) {
         self.sides = Sides(
             self.sides
@@ -815,6 +869,7 @@ impl Drawing {
         self.placed.clear();
         self.sweep = None;
         self.tangent = None;
+        self.scrub = None;
         self.chain.clear();
         self.chain_start.clear();
     }

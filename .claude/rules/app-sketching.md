@@ -101,7 +101,10 @@ paths:
   and degrees of freedom are in `shapes.rs` and its tests, not here.
 - The polygon side count (`MIN_SIDES` to `MAX_SIDES`) is kept until another document opens
   (`ViewportState::forget_document`); More sides and Fewer sides are offered only with the Polygon
-  tool.
+  tool. Typing `N sides` in the point field (`typed_point::sides`) sets the count, refused outside
+  `MIN_SIDES..=MAX_SIDES` in words. Holding Shift with a polygon started freezes the preview where
+  it was and scrubs the count by one per `SCRUB_POINTS_PER_SIDE` of sideways pointer travel from
+  where Shift went down (`Drawing::scrub_sides`); releasing Shift resumes following the pointer.
 
 ## Ways of drawing a shape
 
