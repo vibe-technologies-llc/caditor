@@ -39,6 +39,7 @@ pub const USE_SELECTED: &str = phosphor::ARROW_SQUARE_IN;
 pub const HIDE: &str = phosphor::EYE_SLASH;
 pub const SHOW: &str = phosphor::EYE;
 pub const FILE: &str = phosphor::FILE;
+pub const DROP_FILES: &str = phosphor::DOWNLOAD_SIMPLE;
 pub const ATTACHED: &str = phosphor::PUSH_PIN;
 pub const RENAME: &str = phosphor::TEXTBOX;
 pub const MOVE_UP: &str = phosphor::ARROW_UP;

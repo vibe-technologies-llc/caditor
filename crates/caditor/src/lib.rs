@@ -23,6 +23,7 @@ mod display;
 mod display_style;
 mod drag_solver;
 mod drawing;
+mod drop_target;
 mod editing;
 mod export;
 mod faceting;

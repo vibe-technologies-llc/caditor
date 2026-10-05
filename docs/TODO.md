@@ -399,7 +399,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   itself. A guide shipped with the app (and readable offline) with a page per tool, opened by F1 for
   the current tool or panel.
 - [medium · hard] No clipboard for sketch geometry or features, no parameter import or export.
-- [low · easy] Nothing shows where a drop will go while files are dragged over the window (X11).
 - [low · medium] Several features chosen in the tree cannot be dragged together; each moves on its
   own.
 - [low · medium] The modelling tools borrow Phosphor glyphs that mean something else (`icons.rs`):

@@ -38,6 +38,10 @@ paths:
   version. A save started from the unsaved-changes prompt continues after Replace or Save a copy
   and is dropped on Cancel.
 - A load or import report is one card listing each issue.
+- Files dragged over the window (`drop_target.rs`, from egui's `hovered_files`, so only where the
+  platform reports them: X11 and Windows) outline the view and say in a card what dropping them
+  does, mirroring `Files::dropped`: open one model, import drawings and STEP files (into the sketch
+  being edited for a DXF), or a warning naming why the drop would be refused.
 
 ## Onboarding
 

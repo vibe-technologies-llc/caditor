@@ -24,6 +24,7 @@ use crate::{
     about,
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     commands::{self, Command, CommandFrame, Offer, Situation},
+    drop_target,
     editing::SketchEditing,
     feature_tree,
     files::{self, FileCommand, Files},
@@ -553,6 +554,17 @@ pub fn show(
             actions.push(Action::Preferences(PreferencesCommand::Change(change)));
         }
     }
+    let hovered = ui.ctx().input(|input| input.raw.hovered_files.clone());
+    drop_target::show(
+        ui.ctx(),
+        viewport.rect().unwrap_or_else(|| ui.ctx().content_rect()),
+        &hovered,
+        drop_target::Situation {
+            blocked: files.is_blocking(),
+            importing: files.is_importing(),
+            into_sketch: editing.active().is_some(),
+        },
+    );
     window_frame::frame(ui.ctx(), chrome);
     *last_offers = offers;
     *keyboard_was_taken = ui.ctx().egui_wants_keyboard_input();

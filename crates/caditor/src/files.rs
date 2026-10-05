@@ -543,6 +543,10 @@ impl Files {
         self.quit
     }
 
+    pub fn is_importing(&self) -> bool {
+        self.importing.is_some() || !self.queued_imports.is_empty()
+    }
+
     pub fn is_blocking(&self) -> bool {
         self.guard.is_some()
             || self.closing.is_some()
@@ -722,7 +726,7 @@ impl Files {
         }
         let models = paths.iter().filter(|path| is_model_file(path)).count();
         match (models, paths.as_slice()) {
-            (0, _) if self.importing.is_some() || !self.queued_imports.is_empty() => {
+            (0, _) if self.is_importing() => {
                 model.set_notice(Notice::info(
                     "An import is already running. Drop the files again once it has finished.",
                 ));
@@ -1868,17 +1872,16 @@ pub fn activity(
     image_export::activity(ui, &files.image, commands, actions);
 }
 
-fn is_importable_file(path: &Path) -> bool {
-    if is_model_file(path) {
-        return false;
-    }
-    let is_drawing = path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case(DXF_EXTENSION));
-    is_drawing || import::is_model(path)
+pub fn is_importable_file(path: &Path) -> bool {
+    !is_model_file(path) && (is_drawing_file(path) || import::is_model(path))
 }
 
-fn is_model_file(path: &Path) -> bool {
+pub fn is_drawing_file(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(DXF_EXTENSION))
+}
+
+pub fn is_model_file(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case(FILE_EXTENSION))
 }

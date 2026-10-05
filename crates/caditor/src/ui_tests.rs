@@ -153,6 +153,7 @@ struct Harness {
     image_failure: Option<ImageError>,
     textures: crate::overlay::TextureMirror,
     painted: Option<Painted>,
+    hovered_files: Vec<egui::HoveredFile>,
 }
 
 struct Painted {
@@ -217,6 +218,7 @@ impl Harness {
             image_failure: None,
             textures: crate::overlay::TextureMirror::default(),
             painted: None,
+            hovered_files: Vec::new(),
         };
         harness.settle();
         harness
@@ -254,6 +256,7 @@ impl Harness {
             )),
             time: Some(self.time),
             events: std::mem::take(&mut self.events),
+            hovered_files: self.hovered_files.clone(),
             viewports,
             ..RawInput::default()
         };
@@ -1897,6 +1900,59 @@ fn a_drawing_named_on_the_command_line_is_imported_instead_of_opened() {
         harness.document().features().len() == features + 1
     });
     assert_eq!(harness.model.path(), None);
+}
+
+fn hovering(paths: &[&Path]) -> Vec<egui::HoveredFile> {
+    paths
+        .iter()
+        .map(|path| egui::HoveredFile {
+            path: Some(path.to_path_buf()),
+            ..egui::HoveredFile::default()
+        })
+        .collect()
+}
+
+#[test]
+fn files_dragged_over_the_window_say_what_dropping_them_does() {
+    let mut harness = Harness::new();
+
+    harness.frame();
+    assert!(!harness.shows_containing("Drop to"));
+
+    harness.hovered_files = hovering(&[Path::new("/tmp/plate.CADITOR")]);
+    harness.frame();
+    harness.frame();
+    assert!(harness.shows("Drop to open plate.CADITOR"));
+
+    harness.hovered_files = hovering(&[Path::new("/tmp/outline.dxf")]);
+    harness.frame();
+    harness.frame();
+    assert!(harness.shows("Drop to import outline.dxf"));
+    assert!(harness.shows("It becomes a new sketch."));
+
+    harness.hovered_files = hovering(&[Path::new("/tmp/a.step"), Path::new("/tmp/b.dxf")]);
+    harness.frame();
+    harness.frame();
+    assert!(harness.shows("Drop to import 2 files"));
+
+    harness.hovered_files = hovering(&[Path::new("/tmp/plate.caditor"), Path::new("/tmp/b.dxf")]);
+    harness.frame();
+    harness.frame();
+    assert!(harness.shows("Not one model"));
+
+    harness.hovered_files = hovering(&[Path::new("/tmp/notes.txt")]);
+    harness.frame();
+    harness.frame();
+    assert!(harness.shows("notes.txt is not a drawing or a STEP file"));
+
+    harness.hovered_files = vec![egui::HoveredFile::default()];
+    harness.frame();
+    harness.frame();
+    assert!(harness.shows("Drop to open or import"));
+
+    harness.hovered_files = Vec::new();
+    harness.frame();
+    assert!(!harness.shows_containing("Drop to"));
 }
 
 #[test]
