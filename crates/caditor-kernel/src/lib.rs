@@ -13,6 +13,7 @@ mod fixtures;
 mod interrupt;
 mod intersect;
 mod interval;
+mod mapping;
 mod measure;
 mod naming;
 mod numeric;
@@ -82,7 +83,7 @@ pub use crate::{
     topology::{
         BoundaryClass, BuildError, Coedge, CoedgeId, Crossing, CrossingCheck, Edge, EdgeId, Face,
         FaceContainment, FaceId, Loop, LoopId, Pcurve, PcurveError, PcurveSample, PointClass,
-        RayCrossing, Shell, ShellId, Solid, SolidBuilder, SolidClassifier, ValidationError, Vertex,
-        VertexId,
+        RayCrossing, Shell, ShellId, Solid, SolidBuilder, SolidClassifier, TransformError,
+        ValidationError, Vertex, VertexId,
     },
 };

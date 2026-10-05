@@ -108,13 +108,13 @@ impl SampleGrid {
         }
     }
 
-    fn transformed(&self, transform: &RigidTransform) -> Self {
+    fn mapped(&self, map: &impl Fn(Point3) -> Point3) -> Self {
         let mut moved = Self {
             width: self.width,
             samples: self
                 .samples
                 .iter()
-                .map(|(uv, point)| (*uv, transform.apply_point(*point)))
+                .map(|(uv, point)| (*uv, map(*point)))
                 .collect(),
             blocks: self.blocks.clone(),
         };
@@ -378,10 +378,14 @@ impl BSplineSurface {
     }
 
     pub fn transformed(&self, transform: &RigidTransform) -> Result<Self, GeometryError> {
+        self.mapped(|point| transform.apply_point(point))
+    }
+
+    pub(crate) fn mapped(&self, map: impl Fn(Point3) -> Point3) -> Result<Self, GeometryError> {
         let points: Vec<Point3> = self
             .control_points
             .iter()
-            .map(|point| transform.apply_point(*point))
+            .map(|point| map(*point))
             .collect();
         if !points.iter().all(|point| point.is_finite()) {
             return Err(GeometryError::NonFinite);
@@ -390,7 +394,7 @@ impl BSplineSurface {
             control_points: points.into(),
             ..self.clone()
         };
-        moved.grid = Arc::new(self.grid.transformed(transform));
+        moved.grid = Arc::new(self.grid.mapped(&map));
         moved.poles = moved.find_poles();
         Ok(moved)
     }

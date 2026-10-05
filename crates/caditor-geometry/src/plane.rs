@@ -1,4 +1,4 @@
-use crate::{Point2, Point3, RigidTransform, Vector3};
+use crate::{Point2, Point3, RigidTransform, Similarity, Vector3};
 
 const FRAME_TOLERANCE: f64 = 1e-9;
 
@@ -108,6 +108,15 @@ impl Plane {
             x_axis: transform.apply_vector(self.x_axis),
         }
     }
+
+    #[must_use]
+    pub fn mapped(&self, similarity: &Similarity) -> Self {
+        Self {
+            origin: similarity.apply_point(self.origin),
+            normal: similarity.apply_direction(self.normal),
+            x_axis: similarity.apply_direction(self.x_axis),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -193,5 +202,17 @@ mod tests {
         assert!(moved.origin().distance(Point3::new(0.0, 0.0, 5.0)) < 1e-12);
         assert!(moved.normal().distance(Vector3::NEG_Y) < 1e-12);
         assert!(moved.x_axis().distance(Vector3::X) < 1e-12);
+    }
+
+    #[test]
+    fn mapping_by_a_reflection_keeps_the_normal_and_mirrors_the_y_axis() {
+        let mirror = Similarity::reflection(&Plane::YZ).unwrap();
+        let frame = Plane::with_x_axis(Point3::new(2.0, 1.0, 0.0), Vector3::X, Vector3::Y).unwrap();
+        let mapped = frame.mapped(&mirror);
+
+        assert!(mapped.origin().distance(Point3::new(-2.0, 1.0, 0.0)) < 1e-12);
+        assert!(mapped.normal().distance(Vector3::NEG_X) < 1e-12);
+        assert!(mapped.x_axis().distance(Vector3::Y) < 1e-12);
+        assert!(mapped.y_axis().distance(-frame.y_axis()) < 1e-12);
     }
 }

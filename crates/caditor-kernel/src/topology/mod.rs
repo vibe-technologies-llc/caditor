@@ -4,6 +4,9 @@ mod classify;
 mod classify_tests;
 mod crossing;
 mod lumps;
+mod mapping;
+#[cfg(test)]
+mod mapping_tests;
 mod pcurve;
 mod polygons;
 #[cfg(test)]
@@ -18,6 +21,7 @@ pub use self::{
     builder::{BuildError, SolidBuilder},
     classify::{BoundaryClass, FaceContainment, PointClass, RayCrossing, SolidClassifier},
     crossing::{Crossing, CrossingCheck},
+    mapping::TransformError,
     pcurve::{Pcurve, PcurveError, PcurveSample},
     validate::ValidationError,
 };

@@ -228,16 +228,13 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] Split a body by a plane or a face, and copy one body (`RigidTransform` and
   booleans exist); a body can be moved but only by typed distances and turns about the origin's axes,
   not dragged, turned about its own axis or centre, or placed by mating faces.
-- [medium · medium] The kernel has only rigid transforms (`RigidTransform`; `Solid::transformed`
-  takes nothing else): add a reflecting and a uniform-scaling transform that keep face and edge
-  names stable.
+- [medium · medium] Mirror a body, and scale one body (`Solid::mapped` takes a `Similarity`).
 - [medium · hard] The whole model cannot be scaled: no command or feature resizes every body, sketch
   and datum by a factor (uniform, about the origin or a chosen point) as one undoable change.
   Scaling must keep references and names stable, and say what happens to dimensions and parameters
   (scale the stored values, or the parameters they use, or leave expressions alone and scale only
   plain values), so a part drawn at the wrong size or an import in the wrong unit can be fixed
-  without redrawing it. Imported bodies also need the kernel's uniform-scaling transform (see the
-  transform item above).
+  without redrawing it.
 - [medium · hard] Extrusions end only on flat faces and planes: up to face and up to next refuse a
   curved face, and up to next needs one flat face that the whole profile meets first.
 - [medium · hard] Mass properties are volume, area, centroid and bounding size, exact only for
@@ -266,8 +263,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   and expressions cannot refer to measured values or sketch dimensions.
 - [low · medium] The measure tool cannot take planes, axes, datums or sketch curves, so a hole axis
   to a datum or a circle's radius cannot be measured.
-- [medium · medium · blocked by: kernel reflecting and scaling transforms] Mirror a body, and scale
-  one body.
 - [medium · hard · blocked by: the sweep feature, and the hole feature for thread sizes and cosmetic
   threads] No helix or spiral curve and no threads: springs, coils and threaded holes and shafts
   cannot be modelled, and the hole feature (listed under the missing feature kinds) has no ISO
@@ -305,11 +300,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
   and per list); a flat arena of values would bring it near the file size.
 - [low · medium] The writer puts all bodies in one product with no colours, holding the output twice
   in memory.
+- [low · medium] Placements that scale or mirror are left out with a note, though `Solid::mapped`
+  can now apply a uniform scale and a mirror.
 - [low · hard] No IGES import or export, though older CAM software and many suppliers still exchange
   it.
-- [low · medium · blocked by: kernel reflecting and scaling transforms ("The kernel has only rigid
-  transforms" under Modelling features)] Placements that scale or mirror are left out with a note; a
-  uniform scale could be applied, and a mirror once the kernel can reflect.
 
 ## Drawing import and export
 

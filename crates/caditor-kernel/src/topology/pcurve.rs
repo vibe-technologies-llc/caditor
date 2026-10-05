@@ -142,6 +142,10 @@ impl Pcurve {
         }
     }
 
+    pub(crate) fn refined(&self, surface: &Surface, curve: &Curve) -> Result<Self, PcurveError> {
+        Self::new(refine(surface, curve, &self.samples)?, self.tolerance)
+    }
+
     #[must_use]
     pub fn shifted(&self, offset: Vector2) -> Self {
         Self {
@@ -226,7 +230,7 @@ fn turns_too_far(surface: &Surface, from: Point2, to: Point2) -> bool {
     beyond(to.x - from.x, surface.u_period()) || beyond(to.y - from.y, surface.v_period())
 }
 
-fn settle_pole_ends(surface: &Surface, samples: &mut [PcurveSample]) {
+pub(crate) fn settle_pole_ends(surface: &Surface, samples: &mut [PcurveSample]) {
     let count = samples.len();
     for (end, neighbour) in [(0, 1), (count.saturating_sub(1), count.saturating_sub(2))] {
         let Some(next_u) = samples.get(neighbour).map(|sample| sample.uv.x) else {

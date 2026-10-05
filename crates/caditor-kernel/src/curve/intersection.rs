@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use caditor_geometry::{Aabb, Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Aabb, Point2, Point3, Similarity, Vector3};
 
 use crate::{
     coordinates::angle_between,
@@ -476,22 +476,25 @@ impl IntersectionCurve {
         }
     }
 
-    pub fn transformed(&self, transform: &RigidTransform) -> Result<Self, GeometryError> {
+    pub(crate) fn mapped(&self, similarity: &Similarity) -> Result<Self, GeometryError> {
         let [first, second] = &*self.surfaces;
-        let surfaces = [
-            first.transformed(transform)?,
-            second.transformed(transform)?,
-        ];
+        let (first, first_map) = first.mapped(similarity)?;
+        let (second, second_map) = second.mapped(similarity)?;
+        let scale = similarity.scale();
         let nodes = self
             .nodes
             .iter()
-            .map(|node| IntersectionNode {
-                point: transform.apply_point(node.point),
-                derivative: transform.apply_vector(node.derivative),
-                ..*node
+            .map(|node| {
+                let [first_uv, second_uv] = node.uv;
+                IntersectionNode {
+                    parameter: node.parameter * scale,
+                    point: similarity.apply_point(node.point),
+                    derivative: similarity.apply_direction(node.derivative),
+                    uv: [first_map.apply(first_uv), second_map.apply(second_uv)],
+                }
             })
             .collect();
-        Self::new(surfaces, nodes, self.closed)
+        Self::new([first, second], nodes, self.closed)
     }
 }
 

@@ -6,7 +6,7 @@ mod tests;
 
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Aabb, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Aabb, Plane, Point3, RigidTransform, Similarity, Vector3};
 
 pub(crate) use self::conic::conic_seeds;
 pub use self::{
@@ -18,6 +18,7 @@ use crate::{
     bspline::BSpline,
     error::GeometryError,
     interval::{Domain, Interval},
+    mapping::Affine,
     parametric::{self, Parametric},
     tolerance::SamplingTolerance,
 };
@@ -180,25 +181,51 @@ impl Curve {
     }
 
     pub fn transformed(&self, transform: &RigidTransform) -> Result<Self, GeometryError> {
+        self.mapped(&Similarity::from(*transform))
+            .map(|(curve, _)| curve)
+    }
+
+    pub(crate) fn mapped(&self, similarity: &Similarity) -> Result<(Self, Affine), GeometryError> {
+        let scale = similarity.scale();
+        let stretch = Affine::scaling(scale);
         Ok(match self {
-            Self::Line(line) => Self::Line(Line::new(
-                transform.apply_point(line.origin()),
-                transform.apply_vector(line.direction()),
-            )?),
-            Self::Circle(circle) => Self::Circle(Circle::new(
-                circle.frame().transformed(transform),
-                circle.radius(),
-            )?),
-            Self::Ellipse(ellipse) => Self::Ellipse(Ellipse::new(
-                ellipse.frame().transformed(transform),
-                ellipse.major_radius(),
-                ellipse.minor_radius(),
-            )?),
-            Self::BSpline(spline) => {
-                Self::BSpline(spline.map_points(|point| transform.apply_point(point))?)
-            }
-            Self::Intersection(curve) => Self::Intersection(curve.transformed(transform)?),
+            Self::Line(line) => (
+                Self::Line(Line::new(
+                    similarity.apply_point(line.origin()),
+                    similarity.apply_direction(line.direction()),
+                )?),
+                stretch,
+            ),
+            Self::Circle(circle) => (
+                Self::Circle(Circle::new(
+                    conic_frame(circle.frame(), similarity),
+                    circle.radius() * scale,
+                )?),
+                Affine::IDENTITY,
+            ),
+            Self::Ellipse(ellipse) => (
+                Self::Ellipse(Ellipse::new(
+                    conic_frame(ellipse.frame(), similarity),
+                    ellipse.major_radius() * scale,
+                    ellipse.minor_radius() * scale,
+                )?),
+                Affine::IDENTITY,
+            ),
+            Self::BSpline(spline) => (
+                Self::BSpline(spline.map_points(|point| similarity.apply_point(point))?),
+                Affine::IDENTITY,
+            ),
+            Self::Intersection(curve) => (Self::Intersection(curve.mapped(similarity)?), stretch),
         })
+    }
+}
+
+fn conic_frame(frame: &Plane, similarity: &Similarity) -> Plane {
+    let mapped = frame.mapped(similarity);
+    if similarity.is_mirrored() {
+        mapped.flipped()
+    } else {
+        mapped
     }
 }
 

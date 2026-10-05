@@ -1,6 +1,7 @@
 mod aabb;
 mod plane;
 mod ray;
+mod similarity;
 mod transform;
 
 pub use glam::{
@@ -11,5 +12,6 @@ pub use crate::{
     aabb::{Aabb, Aabb2},
     plane::Plane,
     ray::Ray,
+    similarity::Similarity,
     transform::{RigidTransform, RigidTransform2},
 };

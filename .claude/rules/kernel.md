@@ -65,6 +65,23 @@ paths:
 - Poles have no degenerate edges: the pole is a vertex, the uv loop closes along the pole line
   between the two coedges meeting there, and a pcurve end at a pole takes its v exactly.
 
+## Transforms (`mapping.rs`, `topology/mapping.rs`)
+
+- `RigidTransform` moves geometry and leaves every parameter alone (`transformed`); a
+  `Similarity` (rotation, optional mirror, uniform scale, translation) goes through
+  `Solid::mapped`, which keeps every face, edge and vertex name and returns a validated solid or a
+  `TransformError`.
+- Each curve and surface maps with an affine change of its parameters: lines and intersection
+  curves run by length, so their parameters scale; a mirrored circle or ellipse flips its frame
+  normal to keep its parameter; a mirrored plane negates v and a mirrored rotational surface turns u
+  back (`2π − u`), so du × dv stays outward on elementary surfaces. A face whose uv map keeps its
+  orientation under a mirror (extrusions and spline surfaces) reverses its sense instead.
+- A mirror reverses every loop: coedge order, coedge senses and pcurve samples.
+- Enlarging re-traces every intersection edge and any other edge that drifts beyond
+  `INTERSECTION_TOLERANCE` from its faces (`IntersectionCurve::through`, ends pinned to the
+  vertices) and refits its pcurves; other pcurves are refined back to `PCURVE_TOLERANCE`. A vertex
+  beyond `MAX_SIZE` or a shrunk edge shorter than the resolution is refused.
+
 ## Validation
 
 - `Solid::validate` checks a closed, oriented 2-manifold whose geometry agrees with its topology

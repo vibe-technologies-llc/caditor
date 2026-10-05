@@ -8,7 +8,7 @@ mod tests;
 
 use std::f64::consts::{FRAC_PI_2, TAU};
 
-use caditor_geometry::{Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Point2, Point3, RigidTransform, Similarity, Vector3};
 
 pub(crate) use self::projection::{periodic_near, refine as refine_projection};
 pub use self::{
@@ -19,6 +19,7 @@ pub use self::{
 use crate::{
     error::GeometryError,
     interval::{Domain, Interval},
+    mapping::{Affine, UvMap},
     sense::Sense,
     tolerance::LINEAR_RESOLUTION,
 };
@@ -342,38 +343,89 @@ impl Surface {
     }
 
     pub fn transformed(&self, transform: &RigidTransform) -> Result<Self, GeometryError> {
+        self.mapped(&Similarity::from(*transform))
+            .map(|(surface, _)| surface)
+    }
+
+    pub(crate) fn mapped(&self, similarity: &Similarity) -> Result<(Self, UvMap), GeometryError> {
+        let scale = similarity.scale();
+        let stretch = Affine::scaling(scale);
+        let around = if similarity.is_mirrored() {
+            Affine::TURNED_BACK
+        } else {
+            Affine::IDENTITY
+        };
+        let turned = |v: Affine| UvMap { u: around, v };
         Ok(match self {
-            Self::Plane(plane) => {
-                Self::Plane(PlaneSurface::new(plane.frame().transformed(transform))?)
+            Self::Plane(plane) => (
+                Self::Plane(PlaneSurface::new(plane.frame().mapped(similarity))?),
+                UvMap {
+                    u: stretch,
+                    v: if similarity.is_mirrored() {
+                        Affine::scaling(-scale)
+                    } else {
+                        stretch
+                    },
+                },
+            ),
+            Self::Cylinder(cylinder) => (
+                Self::Cylinder(Cylinder::new(
+                    cylinder.frame().mapped(similarity),
+                    cylinder.radius() * scale,
+                )?),
+                turned(stretch),
+            ),
+            Self::Cone(cone) => (
+                Self::Cone(Cone::new(
+                    cone.frame().mapped(similarity),
+                    cone.radius() * scale,
+                    cone.half_angle(),
+                )?),
+                turned(stretch),
+            ),
+            Self::Sphere(sphere) => (
+                Self::Sphere(Sphere::new(
+                    sphere.frame().mapped(similarity),
+                    sphere.radius() * scale,
+                )?),
+                turned(Affine::IDENTITY),
+            ),
+            Self::Torus(torus) => (
+                Self::Torus(Torus::new(
+                    torus.frame().mapped(similarity),
+                    torus.major_radius() * scale,
+                    torus.minor_radius() * scale,
+                )?),
+                turned(Affine::IDENTITY),
+            ),
+            Self::Extrusion(extrusion) => {
+                let (profile, along) = extrusion.profile().mapped(similarity)?;
+                (
+                    Self::Extrusion(Extrusion::new(
+                        profile,
+                        similarity.apply_direction(extrusion.direction()),
+                    )?),
+                    UvMap {
+                        u: along,
+                        v: stretch,
+                    },
+                )
             }
-            Self::Cylinder(cylinder) => Self::Cylinder(Cylinder::new(
-                cylinder.frame().transformed(transform),
-                cylinder.radius(),
-            )?),
-            Self::Cone(cone) => Self::Cone(Cone::new(
-                cone.frame().transformed(transform),
-                cone.radius(),
-                cone.half_angle(),
-            )?),
-            Self::Sphere(sphere) => Self::Sphere(Sphere::new(
-                sphere.frame().transformed(transform),
-                sphere.radius(),
-            )?),
-            Self::Torus(torus) => Self::Torus(Torus::new(
-                torus.frame().transformed(transform),
-                torus.major_radius(),
-                torus.minor_radius(),
-            )?),
-            Self::Extrusion(extrusion) => Self::Extrusion(Extrusion::new(
-                extrusion.profile().transformed(transform)?,
-                transform.apply_vector(extrusion.direction()),
-            )?),
-            Self::Revolution(revolution) => Self::Revolution(Revolution::new(
-                revolution.profile().transformed(transform)?,
-                transform.apply_point(revolution.axis_origin()),
-                transform.apply_vector(revolution.axis_direction()),
-            )?),
-            Self::BSpline(spline) => Self::BSpline(spline.transformed(transform)?),
+            Self::Revolution(revolution) => {
+                let (profile, along) = revolution.profile().mapped(similarity)?;
+                (
+                    Self::Revolution(Revolution::new(
+                        profile,
+                        similarity.apply_point(revolution.axis_origin()),
+                        similarity.apply_direction(revolution.axis_direction()),
+                    )?),
+                    turned(along),
+                )
+            }
+            Self::BSpline(spline) => (
+                Self::BSpline(spline.mapped(|point| similarity.apply_point(point))?),
+                UvMap::IDENTITY,
+            ),
         })
     }
 }
