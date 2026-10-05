@@ -13,7 +13,7 @@ use egui::{
 
 use crate::{
     appearance::{self, ICON_SIZE, SPACE_L, SPACE_M, SPACE_S},
-    blend_panel, combine_panel,
+    blend_panel, bodies_tree, combine_panel,
     commands::{Command, CommandFrame},
     datum_panel,
     editing::{EditingCommand, SketchEditing},
@@ -102,6 +102,7 @@ fn rows(
 ) {
     let document = model.document();
     principal_tree::show(ui, model, selection, state, actions);
+    bodies_tree::show(ui, model, state, actions);
     let count = document.features().len();
     if count == 0 {
         tree_row::content(ui, |ui| empty_tree(ui, actions));

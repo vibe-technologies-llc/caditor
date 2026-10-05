@@ -21,6 +21,7 @@ paths:
   - "crates/caditor/src/feature_tree.rs"
   - "crates/caditor/src/parameter_table.rs"
   - "crates/caditor/src/principal_tree.rs"
+  - "crates/caditor/src/bodies_tree.rs"
   - "crates/caditor/src/tree_row.rs"
   - "crates/caditor/src/conventions_tests.rs"
 ---
@@ -184,6 +185,10 @@ paths:
   deletes them outside sketch editing.
 - Principal group rows: hover highlights in the view, a click or tab selects in the view (clearing
   the tree's feature selection), and a row reads as selected while its pickable is.
+- The Bodies group (`bodies_tree.rs`, above the features, closed at first, absent without a body)
+  lists the bodies standing at the end of the model, by the name of the feature that made each. A
+  click or tab chooses that feature in the tree and the eye hides or shows it like the feature's
+  own. A body a Combine consumed is not listed.
 - The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar" for
   screen readers), at the end of the tree when nothing is rolled back. It and every row name drag
   (`PanelState::dragging`): the gap under the pointer shows an accent line, or an error one with a

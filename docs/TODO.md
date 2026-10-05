@@ -421,9 +421,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
   modal, and the opening modal is drawn before the unsaved-changes prompt, so closing the window
   during a load hides the prompt until the load ends. Give imports their own cancellable job. When a
   worker thread cannot be spawned the job runs on the UI thread.
-- [medium · medium] Bodies have no list of their own: a body appears only as the features that build
-  it, so showing, hiding, naming or (once they exist) colouring a body means finding the feature
-  that made it.
+- [medium · medium] Bodies are listed (Bodies group) but cannot be renamed on their own, since a
+  body is named by the feature that made it, nor coloured (see the colour item under Modelling
+  features), deleted or selected as a whole in the view.
 - [medium · hard] Version history shows when a version was saved and after which change, but no
   preview of what it holds, and no way to keep a version from being thinned out.
 - [medium · hard] No user guide: Help has only the welcome, the command search, the keyboard

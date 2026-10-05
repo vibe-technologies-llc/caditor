@@ -52,6 +52,7 @@ pub const ROLLBACK_DOWN: &str = phosphor::CARET_DOUBLE_DOWN;
 pub const ROLLBACK_BAR: &str = phosphor::DOTS_SIX;
 pub const ROLLED_BACK: &str = phosphor::CLOCK_COUNTER_CLOCKWISE;
 pub const PRINCIPAL_GROUP: &str = PLANE;
+pub const BODIES: &str = phosphor::CUBE;
 pub const CONSTRUCTION: &str = phosphor::CIRCLE_DASHED;
 pub const MINIMIZE: &str = phosphor::MINUS;
 pub const MAXIMIZE: &str = phosphor::SQUARE;

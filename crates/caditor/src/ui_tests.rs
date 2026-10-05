@@ -8645,6 +8645,56 @@ fn swept_sketches_hide_and_bodies_and_sketches_hide_and_show_again() {
     assert!(hidden(&harness, plate));
 }
 
+fn rows_named(harness: &Harness, label: &str) -> Vec<Rect> {
+    let mut rows: Vec<Rect> = harness
+        .texts
+        .iter()
+        .filter(|(shown, _)| shown == label)
+        .map(|(_, rect)| *rect)
+        .collect();
+    rows.sort_by(|a, b| a.min.y.total_cmp(&b.min.y));
+    rows
+}
+
+#[test]
+fn the_bodies_group_lists_every_body_and_hides_or_selects_one() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+    harness.settle();
+
+    assert!(harness.shows("Bodies (2)"));
+    assert_eq!(rows_named(&harness, "Peg").len(), 1);
+    harness.click("Bodies (2)");
+    harness.settle();
+    let rows = rows_named(&harness, "Peg");
+    assert_eq!(rows.len(), 2);
+
+    let listed = rows[1];
+    harness.click_screen(listed.center());
+    harness.settle();
+    assert_eq!(harness.workspace.panels.selected, Some(peg));
+
+    let eye = harness
+        .texts
+        .iter()
+        .filter(|(shown, rect)| {
+            shown == crate::icons::SHOW && (rect.center().y - listed.center().y).abs() < 4.0
+        })
+        .map(|(_, rect)| rect.center())
+        .next()
+        .expect("the listed body has an eye");
+    harness.click_screen(eye);
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Hide Peg"));
+    assert!(hidden(&harness, peg));
+    assert!(!hidden(&harness, plate));
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(!hidden(&harness, peg));
+}
+
 fn principal_pickables(harness: &mut Harness) -> Vec<Pickable> {
     harness
         .built()
