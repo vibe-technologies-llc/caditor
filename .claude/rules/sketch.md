@@ -14,6 +14,12 @@ paths:
   the entities, part of `same_geometry`. It solves, snaps and takes constraints like any curve, but
   `solid::profile_curves` leaves it out, so a centreline neither splits regions nor changes their
   keys. It can be a revolve axis.
+- Any constraint can be inactive (`Sketch::set_active`): a set of `ConstraintId`s beside the
+  constraints, part of `same_content`. The solver, the joint classes and `restating` and
+  `contradicting` read `active_constraints()` only, so an inactive constraint no longer holds, never
+  conflicts or counts as redundant, and a new one is not refused for restating it. A dimension
+  left inactive is a reference: its displayed value is `Sketch::measured` of the solved geometry.
+  Removing a constraint forgets the flag; trim keeps it on the constraints it rebuilds.
 - `insert_entity` and `insert_constraint` take explicit IDs and check references, for loading.
 - Uses of each entity are counted incrementally, so refusing to remove a used one never scans the
   sketch and undoing a large import stays fast. The sketch never cascades a removal; the document's

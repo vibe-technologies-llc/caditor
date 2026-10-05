@@ -20,7 +20,7 @@ use crate::{
     shape_modes::{ShapeMode, ShapeModes},
     sketch_drag::{self, Moving},
     sketch_status::{self, SketchSummary},
-    sketch_tools::{self, ConstraintTool, ConstructionChange},
+    sketch_tools::{self, ActivityChange, ConstraintTool, ConstructionChange},
     units::Units,
     widgets::{self, ToolButton},
 };
@@ -33,8 +33,13 @@ pub const DELETE_LABEL: &str = "Delete";
 pub const MOVE_LABEL: &str = "Move";
 pub const SELECT_ALL_LABEL: &str = "Select all";
 pub const CONSTRUCTION_LABEL: &str = "Construction";
+pub const DISABLE_LABEL: &str = "Disable";
+pub const ENABLE_LABEL: &str = "Enable";
 const SELECT_KEY: &str = "Esc";
 const FINISH_KEYS: &str = "Esc with nothing selected";
+const NOTHING_TO_DISABLE: &str = "Select a constraint or a dimension to disable or enable it";
+const DISABLE_HELP: &str = "A disabled constraint stays in the sketch but no longer holds; a disabled dimension shows the measured value instead";
+const ENABLE_HELP: &str = "Make the selected constraints hold again";
 const NOTHING_TO_DELETE: &str = "Select sketch geometry or constraints to delete them";
 const DELETE_HELP: &str =
     "Delete the selected geometry and constraints, and the constraints on that geometry";
@@ -158,6 +163,10 @@ pub fn show(
         constraints: sketch_tools::selected_constraints(selection, feature.id()),
     };
     let construction = ConstructionChange::of(definition, &selected);
+    let activity = ActivityChange::of(
+        definition,
+        &sketch_tools::selected_constraints(selection, feature.id()),
+    );
     let moving = Moving::offered(&shown, feature.id(), &selected, active.tool.draws()).map(|_| ());
     let select_all = sketch_drag::can_select_all(&shown).map_err(str::to_owned);
 
@@ -169,6 +178,7 @@ pub fn show(
         modes: editing.modes(),
         offers: &offers,
         construction: construction.as_ref(),
+        activity: activity.as_ref(),
         deletable: if deletable.is_empty() {
             Err(NOTHING_TO_DELETE.to_owned())
         } else {
@@ -220,6 +230,15 @@ pub fn show(
             None => Action::Editing(EditingCommand::DrawConstruction(!active.construction)),
         });
     }
+    if request.activity
+        && let Some(change) = &activity
+    {
+        actions.push(Action::Apply(change.transaction(
+            model,
+            feature.id(),
+            definition,
+        )));
+    }
     if request.delete && !deletable.is_empty() {
         let label = deletable.label(definition);
         actions.push(Action::Apply(sketch_tools::remove_items(
@@ -264,6 +283,7 @@ struct Request {
     mode: Option<ShapeMode>,
     constraints: Option<(ConstraintTool, Vec<Constraint>)>,
     construction: bool,
+    activity: bool,
     delete: bool,
     finish: bool,
 }
@@ -313,6 +333,7 @@ struct Bar<'a, 'b> {
     modes: ShapeModes,
     offers: &'a [Offer],
     construction: Option<&'a ConstructionChange>,
+    activity: Option<&'a ActivityChange>,
     deletable: Result<(), String>,
     moving: Result<(), String>,
     select_all: Result<(), String>,
@@ -579,6 +600,7 @@ impl Bar<'_, '_> {
     fn edit_buttons(&mut self, ui: &mut Ui) -> f32 {
         let first = ui.horizontal_top(|ui| {
             self.construction_button(ui);
+            self.activity_button(ui);
             self.compact_tool_button(ui, Tool::Trim);
             self.compact_tool_button(ui, Tool::Extend);
             self.compact_tool_button(ui, Tool::Fillet);
@@ -607,6 +629,37 @@ impl Bar<'_, '_> {
             .rect
             .width()
             .max(second.response.rect.width())
+    }
+
+    fn activity_button(&mut self, ui: &mut Ui) {
+        let availability = self
+            .activity
+            .map(|_| ())
+            .ok_or_else(|| NOTHING_TO_DISABLE.to_owned());
+        let invoked = self
+            .commands
+            .invoke(Command::ToggleConstraintActive, &availability);
+        let enabling = self.activity.is_some_and(|change| change.active);
+        let (label, help) = if enabling {
+            (ENABLE_LABEL, ENABLE_HELP)
+        } else {
+            (DISABLE_LABEL, DISABLE_HELP)
+        };
+        let button =
+            ToolButton::new(icons::command(Command::ToggleConstraintActive), label).compact();
+        let response = ui.add_enabled(availability.is_ok(), button);
+        let described = match &availability {
+            Ok(()) => Ok(self
+                .commands
+                .with_keys(Command::ToggleConstraintActive, help)),
+            Err(reason) => Err(self.commands.with_keys(
+                Command::ToggleConstraintActive,
+                &format!("{help}. {reason}"),
+            )),
+        };
+        if explained(response, label, &described).clicked() || invoked {
+            self.request.activity = true;
+        }
     }
 
     fn construction_button(&mut self, ui: &mut Ui) {

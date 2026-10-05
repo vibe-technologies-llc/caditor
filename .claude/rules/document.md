@@ -72,7 +72,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - Sketch content changes only through sketch edits. Removing an entity something still uses is
   refused, not cascaded; `remove_sketch_items` expands a deletion into constraints, then curves,
-  then points. `AddSketchEntity` carries the construction flag so undoing a removal restores it.
+  then points. `AddSketchEntity` carries the construction flag, and `AddSketchConstraint` the inactive flag, so
+  undoing a removal restores them; `SetSketchConstraintActive` changes one constraint's flag and
+  `reshape_sketch` emits it for kept constraints whose flag differs.
   Setting an entity changes only its value, never its kind or points.
 - `reshape_sketch(feature, before, after)` turns a sketch edited as a whole (trim, extend) into
   edits; an entity whose kind or points changed is removed and added again under its ID with

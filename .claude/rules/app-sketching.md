@@ -195,6 +195,11 @@ paths:
 - The candidates of every tool are kept in `PanelState::constraint_offers` and worked out again
   only when the selection, the revision, the evaluation, the displayed sketches or the units
   change (`sketch_toolbar::ConstraintOffers`).
+- Disable (`Command::ToggleConstraintActive`, `sketch_tools::ActivityChange`, the Edit group of the
+  sketch bar and the palette) switches the selected constraints off, or on again when none of them
+  is on. A disabled dimension is a reference: its label shows the measured value in parentheses in
+  the muted `Standing::Inactive` colour, and a disabled constraint's description ends in
+  "(disabled)".
 - Dimensions start at the displayed geometry's measured value. Every sketch transaction first
   settles the sketch to the last result when up to date (`Model::settled_sketch`).
 - Constraint states, degrees of freedom and redundancies come from the last evaluation

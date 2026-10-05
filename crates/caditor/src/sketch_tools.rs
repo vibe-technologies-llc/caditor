@@ -701,6 +701,51 @@ pub fn remove_items(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActivityChange {
+    pub constraints: Vec<ConstraintId>,
+    pub active: bool,
+}
+
+impl ActivityChange {
+    pub fn of(sketch: &Sketch, selected: &[ConstraintId]) -> Option<Self> {
+        let existing: Vec<ConstraintId> = selected
+            .iter()
+            .copied()
+            .filter(|id| sketch.constraint(*id).is_some())
+            .collect();
+        let active = existing.iter().all(|id| !sketch.is_active(*id));
+        let changed: Vec<ConstraintId> = existing
+            .into_iter()
+            .filter(|id| sketch.is_active(*id) != active)
+            .collect();
+        (!changed.is_empty()).then_some(Self {
+            constraints: changed,
+            active,
+        })
+    }
+
+    pub fn verb(&self) -> &'static str {
+        if self.active { "Enable" } else { "Disable" }
+    }
+
+    pub fn label(&self, sketch: &Sketch) -> String {
+        let subject = match self.constraints.as_slice() {
+            [only] => sketch.describe_constraint(*only),
+            constraints => count(constraints.len(), "constraint", "constraints"),
+        };
+        format!("{} {subject}", self.verb())
+    }
+
+    pub fn transaction(&self, model: &Model, feature: FeatureId, sketch: &Sketch) -> Transaction {
+        let mut transaction = settled_transaction(model, feature, self.label(sketch));
+        for id in &self.constraints {
+            transaction.set_sketch_constraint_active(feature, *id, self.active);
+        }
+        transaction.finish()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConstructionChange {
     pub curves: Vec<EntityId>,
     pub construction: bool,

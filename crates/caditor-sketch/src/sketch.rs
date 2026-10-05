@@ -105,6 +105,7 @@ pub struct Sketch {
     plane: Plane,
     entities: BTreeMap<EntityId, Entity>,
     constraints: BTreeMap<ConstraintId, Constraint>,
+    inactive: BTreeSet<ConstraintId>,
     construction: BTreeSet<EntityId>,
     uses: BTreeMap<EntityId, usize>,
     next_id: u64,
@@ -116,6 +117,7 @@ impl Sketch {
             plane,
             entities: BTreeMap::new(),
             constraints: BTreeMap::new(),
+            inactive: BTreeSet::new(),
             construction: BTreeSet::new(),
             uses: BTreeMap::new(),
             next_id: 0,
@@ -266,7 +268,8 @@ impl Sketch {
 
     pub fn describe_constraint(&self, id: ConstraintId) -> String {
         match self.constraints.get(&id) {
-            Some(constraint) => self.describe(constraint),
+            Some(constraint) if self.is_active(id) => self.describe(constraint),
+            Some(constraint) => format!("{} (disabled)", self.describe(constraint)),
             None => format!("Missing constraint {id}"),
         }
     }
@@ -406,7 +409,37 @@ impl Sketch {
     }
 
     pub fn same_content(&self, other: &Self) -> bool {
-        self.same_geometry(other) && self.constraints == other.constraints
+        self.same_geometry(other)
+            && self.constraints == other.constraints
+            && self.inactive == other.inactive
+    }
+
+    pub fn is_active(&self, id: ConstraintId) -> bool {
+        !self.inactive.contains(&id)
+    }
+
+    pub fn inactive(&self) -> impl ExactSizeIterator<Item = ConstraintId> + '_ {
+        self.inactive.iter().copied()
+    }
+
+    pub fn active_constraints(&self) -> impl Iterator<Item = (ConstraintId, &Constraint)> {
+        self.constraints
+            .iter()
+            .filter(|(id, _)| !self.inactive.contains(id))
+            .map(|(id, constraint)| (*id, constraint))
+    }
+
+    pub fn set_active(&mut self, id: ConstraintId, active: bool) -> Result<bool, SketchError> {
+        if !self.constraints.contains_key(&id) {
+            return Err(SketchError::MissingConstraint(id));
+        }
+        let was = !self.inactive.contains(&id);
+        if active {
+            self.inactive.remove(&id);
+        } else {
+            self.inactive.insert(id);
+        }
+        Ok(was)
     }
 
     pub fn is_construction(&self, id: EntityId) -> bool {
@@ -700,6 +733,7 @@ impl Sketch {
             .constraints
             .remove(&id)
             .ok_or(SketchError::MissingConstraint(id))?;
+        self.inactive.remove(&id);
         self.count_uses(&removed.entities(), false);
         Ok(removed)
     }

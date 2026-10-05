@@ -102,7 +102,7 @@ impl System {
             }
         }
         let joints = OnceCell::new();
-        for (id, constraint) in sketch.constraints() {
+        for (id, constraint) in sketch.active_constraints() {
             if let Some(start) = system.parameter_start(sketch, &joints, constraint)? {
                 let index = system.values.len();
                 system.values.push(start);
@@ -110,7 +110,7 @@ impl System {
                 system.parameter_variables.insert(index);
             }
         }
-        for (id, constraint) in sketch.constraints() {
+        for (id, constraint) in sketch.active_constraints() {
             let forms = system.forms(sketch, &joints, id, constraint, dimensions)?;
             system
                 .equations
@@ -642,7 +642,7 @@ impl Joints {
             parents: BTreeMap::new(),
             on_curve: BTreeMap::new(),
         };
-        for (_, constraint) in sketch.constraints() {
+        for (_, constraint) in sketch.active_constraints() {
             let Constraint::Coincident(a, b) = *constraint else {
                 continue;
             };

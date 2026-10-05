@@ -80,6 +80,7 @@ pub enum Command {
     MoreSides,
     FewerSides,
     Construction,
+    ToggleConstraintActive,
     MoveGeometry,
     SelectAll,
     SketchTool(Tool),
@@ -446,6 +447,7 @@ plain_commands! {
     MoreSides,
     FewerSides,
     Construction,
+    ToggleConstraintActive,
     MoveGeometry,
     SelectAll,
     DeleteSelection,
@@ -523,6 +525,7 @@ impl Command {
             Self::MoreSides => "sketch.more_sides",
             Self::FewerSides => "sketch.fewer_sides",
             Self::Construction => "sketch.construction",
+            Self::ToggleConstraintActive => "sketch.toggle_constraint_active",
             Self::MoveGeometry => "sketch.move",
             Self::SelectAll => "sketch.select_all",
             Self::SketchTool(tool) => match tool {
@@ -671,6 +674,7 @@ impl Command {
             Self::MoreSides => "Give the polygon another side",
             Self::FewerSides => "Give the polygon one side fewer",
             Self::Construction => "Switch to or from construction geometry",
+            Self::ToggleConstraintActive => "Disable or enable the selected constraints",
             Self::MoveGeometry => "Move selected sketch geometry",
             Self::SelectAll => "Select all sketch geometry",
             Self::SketchTool(Tool::Select) => "Select tool",
@@ -845,6 +849,7 @@ impl Command {
             | Self::MoreSides
             | Self::FewerSides
             | Self::Construction
+            | Self::ToggleConstraintActive
             | Self::MoveGeometry
             | Self::SelectAll
             | Self::SketchTool(_)
@@ -860,6 +865,7 @@ impl Command {
             | Self::MoreSides
             | Self::FewerSides
             | Self::Construction
+            | Self::ToggleConstraintActive
             | Self::MoveGeometry
             | Self::SelectAll
             | Self::SketchTool(_)
@@ -935,6 +941,7 @@ impl Command {
             | Self::ExportSketch
             | Self::FinishSketch
             | Self::ShapeMode(_)
+            | Self::ToggleConstraintActive
             | Self::Filter(_)
             | Self::Style(_)
             | Self::OpenSample(_)

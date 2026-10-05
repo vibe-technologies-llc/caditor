@@ -3553,6 +3553,56 @@ fn a_line_started_on_the_origin_is_joined_to_it() {
 }
 
 #[test]
+fn a_selected_dimension_is_disabled_into_a_reference_that_shows_the_measured_value() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(37.0, 0.0));
+    let (start, end) = match sketch.entity(line) {
+        Some(Entity::Line { start, end }) => (*start, *end),
+        other => panic!("expected a line, found {other:?}"),
+    };
+    sketch
+        .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
+        .unwrap();
+    sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+    let length = sketch
+        .add_constraint(Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::Measure(37.0, Unit::Millimetre),
+        })
+        .unwrap();
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.settle();
+    let label = Pickable::SketchConstraint {
+        feature,
+        constraint: length,
+    };
+    harness.select([label]);
+    harness.frame();
+    assert!(harness.shows("37 mm"));
+
+    harness.click_button("Disable");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    assert!(!sketch.is_active(length));
+    assert!(harness.shows("(37 mm)"));
+    assert_eq!(
+        sketch.describe_constraint(length),
+        format!(
+            "{} (disabled)",
+            sketch.describe(sketch.constraint(length).unwrap())
+        )
+    );
+
+    harness.click_button("Enable");
+    harness.settle();
+    assert!(harness.sketch(feature).is_active(length));
+    assert!(!harness.shows("(37 mm)"));
+}
+
+#[test]
 fn a_point_placed_where_two_lines_cross_is_held_on_both() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();

@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use caditor_document::{FeatureId, FeatureState};
-use caditor_expression::Expression;
+use caditor_expression::{Dimension, Expression, Quantity};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchSolution};
 use egui::{
@@ -61,6 +61,7 @@ enum Standing {
     Normal,
     Conflicting,
     Redundant,
+    Inactive,
 }
 
 struct DimensionMark {
@@ -104,7 +105,7 @@ impl Marks {
         let owner = model.document().feature(feature)?;
         let definition = owner.kind.sketch()?;
         let shown = model.displayed_sketch(owner)?;
-        let standings = Standings::load(model, feature);
+        let standings = Standings::load(model, feature, definition);
         let centre = centre_of(&shown);
         let screen_centre = centre.and_then(|centre| screen.to_screen(centre));
         let mut dimensions = Vec::new();
@@ -122,7 +123,7 @@ impl Marks {
                 dimensions.push(DimensionMark {
                     constraint: id,
                     layout,
-                    text: label_text(model, constraint, expression),
+                    text: label_text(model, &shown, id, constraint, expression),
                     standing: standings.of(id),
                     description: definition.describe(constraint),
                 });
@@ -197,11 +198,12 @@ impl Marks {
 
 struct Standings<'a> {
     conflicting: Vec<ConstraintId>,
+    inactive: Vec<ConstraintId>,
     solution: Option<&'a SketchSolution>,
 }
 
 impl<'a> Standings<'a> {
-    fn load(model: &'a Model, feature: FeatureId) -> Self {
+    fn load(model: &'a Model, feature: FeatureId, definition: &Sketch) -> Self {
         let conflicting = match model
             .evaluation()
             .feature(feature)
@@ -218,12 +220,15 @@ impl<'a> Standings<'a> {
         };
         Self {
             conflicting,
+            inactive: definition.inactive().collect(),
             solution: sketch_status::up_to_date_solution(model.evaluation(), feature),
         }
     }
 
     fn of(&self, constraint: ConstraintId) -> Standing {
-        if self.conflicting.contains(&constraint) {
+        if self.inactive.contains(&constraint) {
+            Standing::Inactive
+        } else if self.conflicting.contains(&constraint) {
             Standing::Conflicting
         } else if self
             .solution
@@ -255,11 +260,32 @@ fn centre_of(sketch: &Sketch) -> Option<Point2> {
     Some((low + high) / 2.0)
 }
 
-fn label_text(model: &Model, constraint: &Constraint, expression: &Expression) -> String {
-    let text = model.document().expression_text(expression);
-    let text = match field::value_preview(model.parameters(), expression, model.units()) {
-        Some(value) => format!("{text} {value}"),
-        None => text,
+fn label_text(
+    model: &Model,
+    shown: &Sketch,
+    id: ConstraintId,
+    constraint: &Constraint,
+    expression: &Expression,
+) -> String {
+    let measured = shown
+        .measured(constraint)
+        .filter(|_| !shown.is_active(id))
+        .and_then(|value| {
+            let quantity = match constraint.dimension_kind()? {
+                Dimension::ANGLE => Quantity::angle(value),
+                _ => Quantity::length(value),
+            };
+            Some(model.units().show(quantity))
+        });
+    let text = match measured {
+        Some(value) => format!("({value})"),
+        None => {
+            let text = model.document().expression_text(expression);
+            match field::value_preview(model.parameters(), expression, model.units()) {
+                Some(value) => format!("{text} {value}"),
+                None => text,
+            }
+        }
     };
     match constraint {
         Constraint::Radius { .. } => format!("{RADIUS_PREFIX}{text}"),
@@ -407,6 +433,7 @@ impl Annotations {
                     Standing::Normal => canvas::DIMENSION,
                     Standing::Conflicting => canvas::ERROR,
                     Standing::Redundant => canvas::WARNING,
+                    Standing::Inactive => canvas::MUTED,
                 }
             }
         };

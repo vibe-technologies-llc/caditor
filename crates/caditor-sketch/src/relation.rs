@@ -25,13 +25,13 @@ enum Subject {
 impl Sketch {
     pub fn restating(&self, constraint: &Constraint) -> Option<ConstraintId> {
         let subject = self.subject(constraint);
-        self.constraints()
+        self.active_constraints()
             .find(|(_, existing)| self.subject(existing) == subject)
             .map(|(id, _)| id)
     }
 
     pub fn contradicting(&self, constraint: &Constraint) -> Option<ConstraintId> {
-        self.constraints()
+        self.active_constraints()
             .find(|(_, existing)| contradict(constraint, existing))
             .map(|(id, _)| id)
     }

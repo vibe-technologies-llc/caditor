@@ -95,6 +95,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ReverseArc => phosphor::ARROWS_COUNTER_CLOCKWISE,
         Command::MoreSides => ADD,
         Command::FewerSides => SUBTRACT,
+        Command::ToggleConstraintActive => phosphor::PROHIBIT,
         Command::Construction => CONSTRUCTION,
         Command::MoveGeometry => phosphor::ARROWS_OUT_CARDINAL,
         Command::SelectAll => phosphor::SELECTION_ALL,

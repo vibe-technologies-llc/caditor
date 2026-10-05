@@ -39,8 +39,23 @@ impl TransactionBuilder<'_> {
             feature,
             id,
             constraint,
+            inactive: false,
         });
         id
+    }
+
+    pub fn set_sketch_constraint_active(
+        &mut self,
+        feature: FeatureId,
+        id: ConstraintId,
+        active: bool,
+    ) -> &mut Self {
+        self.edits.push(Edit::SetSketchConstraintActive {
+            feature,
+            id,
+            active,
+        });
+        self
     }
 
     pub fn remove_sketch_items(
@@ -194,7 +209,8 @@ struct Reshape {
     added_entities: Vec<(EntityId, Entity, bool)>,
     changed_entities: Vec<(EntityId, Entity)>,
     construction: Vec<(EntityId, bool)>,
-    added_constraints: Vec<(ConstraintId, Constraint)>,
+    added_constraints: Vec<(ConstraintId, Constraint, bool)>,
+    activity: Vec<(ConstraintId, bool)>,
 }
 
 impl Reshape {
@@ -276,7 +292,16 @@ impl Reshape {
             .filter(|(id, constraint)| {
                 before.constraint(*id) != Some(*constraint) || renewed(constraint)
             })
-            .map(|(id, constraint)| (id, constraint.clone()))
+            .map(|(id, constraint)| (id, constraint.clone(), !after.is_active(id)))
+            .collect();
+        let activity = after
+            .constraints()
+            .filter(|(id, constraint)| {
+                before.constraint(*id) == Some(*constraint)
+                    && !renewed(constraint)
+                    && before.is_active(*id) != after.is_active(*id)
+            })
+            .map(|(id, _)| (id, after.is_active(id)))
             .collect();
         Self {
             removed_constraints,
@@ -285,6 +310,7 @@ impl Reshape {
             changed_entities,
             construction,
             added_constraints,
+            activity,
         }
     }
 
@@ -325,10 +351,19 @@ impl Reshape {
         let added_constraints =
             self.added_constraints
                 .into_iter()
-                .map(|(id, constraint)| Edit::AddSketchConstraint {
+                .map(|(id, constraint, inactive)| Edit::AddSketchConstraint {
                     feature,
                     id,
                     constraint,
+                    inactive,
+                });
+        let activity =
+            self.activity
+                .into_iter()
+                .map(|(id, active)| Edit::SetSketchConstraintActive {
+                    feature,
+                    id,
+                    active,
                 });
         removed_constraints
             .chain(removed_entities)
@@ -336,6 +371,7 @@ impl Reshape {
             .chain(changed_entities)
             .chain(construction)
             .chain(added_constraints)
+            .chain(activity)
             .collect()
     }
 }
@@ -455,6 +491,7 @@ impl Document {
         feature: FeatureId,
         id: ConstraintId,
         constraint: Constraint,
+        inactive: bool,
     ) -> Result<Edit, EditError> {
         if let Some(value) = constraint.dimension() {
             self.check_references(value)?;
@@ -462,8 +499,31 @@ impl Document {
         let (name, sketch) = self.sketch_mut(feature)?;
         sketch
             .insert_constraint(id, constraint)
+            .and_then(|()| {
+                inactive
+                    .then(|| sketch.set_active(id, false).map(|_| ()))
+                    .transpose()
+                    .map(|_| ())
+            })
             .map_err(|error| EditError::Sketch { name, error })?;
         Ok(Edit::RemoveSketchConstraint { feature, id })
+    }
+
+    pub(super) fn set_sketch_constraint_active(
+        &mut self,
+        feature: FeatureId,
+        id: ConstraintId,
+        active: bool,
+    ) -> Result<Edit, EditError> {
+        let (name, sketch) = self.sketch_mut(feature)?;
+        let previous = sketch
+            .set_active(id, active)
+            .map_err(|error| EditError::Sketch { name, error })?;
+        Ok(Edit::SetSketchConstraintActive {
+            feature,
+            id,
+            active: previous,
+        })
     }
 
     pub(super) fn remove_sketch_constraint(
@@ -472,6 +532,7 @@ impl Document {
         id: ConstraintId,
     ) -> Result<Edit, EditError> {
         let (name, sketch) = self.sketch_mut(feature)?;
+        let inactive = !sketch.is_active(id);
         let constraint = sketch
             .remove_constraint(id)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -479,6 +540,7 @@ impl Document {
             feature,
             id,
             constraint,
+            inactive,
         })
     }
 

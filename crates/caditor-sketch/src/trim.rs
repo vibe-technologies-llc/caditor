@@ -560,7 +560,7 @@ impl Sketch {
                 let near_end = self.add_point(first.position);
                 let far_start = self.add_point(second.position);
                 let moved = self.far_constraints(curve, start, end);
-                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _)| *id).collect();
+                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _, _)| *id).collect();
                 let directions: Vec<Constraint> = self
                     .constraints_using(curve)
                     .into_iter()
@@ -636,7 +636,7 @@ impl Sketch {
                 let far_start = self.add_point(second.position);
                 let center_at = self.point(center).ok_or(SketchError::NotAPoint(center))?;
                 let moved = self.far_constraints(curve, start, end);
-                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _)| *id).collect();
+                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _, _)| *id).collect();
                 let arc = Entity::Arc {
                     center,
                     start,
@@ -684,9 +684,10 @@ impl Sketch {
         let construction = self.is_construction(curve);
         let mut kept = Vec::new();
         for id in self.constraints_using(curve) {
+            let inactive = !self.is_active(id);
             let constraint = self.remove_constraint(id)?;
             if !moved.contains(&id) && keeps(&constraint) {
-                kept.push((id, constraint));
+                kept.push((id, constraint, inactive));
             }
         }
         self.remove_unused_entity(curve)?;
@@ -694,8 +695,11 @@ impl Sketch {
         if construction {
             self.set_construction(curve, true)?;
         }
-        for (id, constraint) in kept {
+        for (id, constraint, inactive) in kept {
             self.insert_constraint(id, constraint)?;
+            if inactive {
+                self.set_active(id, false)?;
+            }
         }
         Ok(())
     }
@@ -754,12 +758,15 @@ impl Sketch {
 
     fn move_constraints(
         &mut self,
-        moved: Vec<(ConstraintId, Constraint)>,
+        moved: Vec<(ConstraintId, Constraint, bool)>,
         from: EntityId,
         to: EntityId,
     ) -> Result<(), SketchError> {
-        for (_, constraint) in moved {
-            self.add_constraint(constraint.with_entity_replaced(from, to))?;
+        for (_, constraint, inactive) in moved {
+            let id = self.add_constraint(constraint.with_entity_replaced(from, to))?;
+            if inactive {
+                self.set_active(id, false)?;
+            }
         }
         Ok(())
     }
@@ -769,11 +776,11 @@ impl Sketch {
         curve: EntityId,
         near: EntityId,
         far: EntityId,
-    ) -> Vec<(ConstraintId, Constraint)> {
+    ) -> Vec<(ConstraintId, Constraint, bool)> {
         self.constraints_using(curve)
             .into_iter()
-            .filter_map(|id| Some((id, self.constraint(id)?.clone())))
-            .filter(|(_, constraint)| {
+            .filter_map(|id| Some((id, self.constraint(id)?.clone(), !self.is_active(id))))
+            .filter(|(_, constraint, _)| {
                 let other = match constraint {
                     Constraint::Tangent(a, b)
                     | Constraint::Parallel(a, b)

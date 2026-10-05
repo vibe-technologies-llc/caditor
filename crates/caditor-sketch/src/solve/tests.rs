@@ -1650,3 +1650,104 @@ fn a_diagnosis_out_of_work_names_the_part_and_its_newest_constraint() {
     assert_eq!(constraints.len(), 6 + 5 + 1);
     assert_eq!(constraints.last(), Some(&closing));
 }
+
+fn measured_line() -> (Sketch, EntityId, EntityId, EntityId, ConstraintId) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let (start, end) = ends(&sketch, line);
+    add(&mut sketch, Constraint::Horizontal(line));
+    add(&mut sketch, Constraint::Coincident(start, EntityId::ORIGIN));
+    let distance = add(
+        &mut sketch,
+        Constraint::Distance {
+            from: start,
+            to: end,
+            value: mm(40.0),
+        },
+    );
+    (sketch, line, start, end, distance)
+}
+
+#[test]
+fn an_inactive_dimension_no_longer_moves_the_geometry_and_active_again_it_does() {
+    let (mut sketch, _, _, end, distance) = measured_line();
+    sketch.set_dimension(distance, mm(80.0)).unwrap();
+
+    assert_eq!(sketch.set_active(distance, false), Ok(true));
+    let loose = solve(&sketch).unwrap();
+    assert_near(at(&loose, end), Point2::new(40.0, 0.0));
+    assert_eq!(loose.solution.dimension(distance), Some(80.0));
+    assert_eq!(
+        loose
+            .geometry
+            .measured(sketch.constraint(distance).unwrap()),
+        Some(40.0)
+    );
+
+    assert_eq!(sketch.set_active(distance, true), Ok(false));
+    let held = solve(&sketch).unwrap();
+    assert_near(at(&held, end), Point2::new(80.0, 0.0));
+}
+
+#[test]
+fn a_dimension_that_would_over_constrain_can_be_left_inactive_without_a_conflict() {
+    let (mut sketch, _, start, end, _) = measured_line();
+    let again = add(
+        &mut sketch,
+        Constraint::Distance {
+            from: start,
+            to: end,
+            value: mm(55.0),
+        },
+    );
+
+    assert!(solve(&sketch).is_err());
+    sketch.set_active(again, false).unwrap();
+    let solved = solve(&sketch).unwrap();
+
+    assert_near(at(&solved, end), Point2::new(40.0, 0.0));
+    assert_eq!(solved.solution.redundancy(again), None);
+}
+
+#[test]
+fn constraints_know_whether_they_are_active_and_forget_it_when_removed() {
+    let (mut sketch, _, _, _, distance) = measured_line();
+    assert!(sketch.is_active(distance));
+    assert_eq!(sketch.inactive().count(), 0);
+
+    sketch.set_active(distance, false).unwrap();
+    let other = sketch.clone();
+    assert!(!sketch.is_active(distance));
+    assert_eq!(sketch.inactive().collect::<Vec<_>>(), vec![distance]);
+    assert!(!sketch.same_content(&{
+        let mut active = other.clone();
+        active.set_active(distance, true).unwrap();
+        active
+    }));
+    assert_eq!(
+        sketch.active_constraints().count(),
+        sketch.constraints().len() - 1
+    );
+
+    sketch.remove_constraint(distance).unwrap();
+    assert_eq!(sketch.inactive().count(), 0);
+    assert_eq!(
+        sketch.set_active(distance, false),
+        Err(SketchError::MissingConstraint(distance))
+    );
+}
+
+#[test]
+fn an_inactive_constraint_neither_restates_nor_contradicts_a_new_one() {
+    let (mut sketch, line, _, _, _) = measured_line();
+    let level = sketch
+        .constraints()
+        .find(|(_, constraint)| **constraint == Constraint::Horizontal(line))
+        .map(|(id, _)| id)
+        .unwrap();
+    assert_eq!(sketch.restating(&Constraint::Horizontal(line)), Some(level));
+
+    sketch.set_active(level, false).unwrap();
+
+    assert_eq!(sketch.restating(&Constraint::Horizontal(line)), None);
+}

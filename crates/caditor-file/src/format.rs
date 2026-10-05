@@ -431,6 +431,8 @@ const ENTITY_KINDS: [&str; 5] = ["point", "line", "circle", "arc", "spline"];
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ConstraintRecord {
     pub id: u64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub inactive: bool,
     #[serde(flatten)]
     pub kind: ConstraintKindRecord,
 }
@@ -618,6 +620,11 @@ pub(crate) enum EditRecord {
     RemoveSketchConstraint {
         feature: u64,
         id: u64,
+    },
+    SetSketchConstraintActive {
+        feature: u64,
+        id: u64,
+        active: bool,
     },
 }
 
@@ -1164,7 +1171,9 @@ fn sketch_record(feature: &SketchFeature) -> SketchRecord {
             .collect(),
         constraints: sketch
             .constraints()
-            .map(|(id, constraint)| Lenient::Read(constraint_record(id, constraint)))
+            .map(|(id, constraint)| {
+                Lenient::Read(constraint_record(id, constraint, !sketch.is_active(id)))
+            })
             .collect(),
         next_id: sketch.next_id(),
     }
@@ -1178,9 +1187,14 @@ fn entity_record(id: EntityId, entity: &Entity, construction: bool) -> EntityRec
     }
 }
 
-fn constraint_record(id: ConstraintId, constraint: &Constraint) -> ConstraintRecord {
+fn constraint_record(
+    id: ConstraintId,
+    constraint: &Constraint,
+    inactive: bool,
+) -> ConstraintRecord {
     ConstraintRecord {
         id: id.raw(),
+        inactive,
         kind: constraint_kind_record(constraint),
     }
 }
@@ -1407,9 +1421,19 @@ fn edit_record(edit: &Edit) -> EditRecord {
             feature,
             id,
             constraint,
+            inactive,
         } => EditRecord::AddSketchConstraint {
             feature: feature.raw(),
-            constraint: constraint_record(*id, constraint),
+            constraint: constraint_record(*id, constraint, *inactive),
+        },
+        Edit::SetSketchConstraintActive {
+            feature,
+            id,
+            active,
+        } => EditRecord::SetSketchConstraintActive {
+            feature: feature.raw(),
+            id: id.raw(),
+            active: *active,
         },
         Edit::RemoveSketchConstraint { feature, id } => EditRecord::RemoveSketchConstraint {
             feature: feature.raw(),
@@ -1556,6 +1580,16 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             feature: FeatureId::from_raw(feature),
             id: ConstraintId::from_raw(constraint.id),
             constraint: constraint_from_record(&constraint.kind, |text, _| parse(text))?,
+            inactive: constraint.inactive,
+        },
+        EditRecord::SetSketchConstraintActive {
+            feature,
+            id,
+            active,
+        } => Edit::SetSketchConstraintActive {
+            feature: FeatureId::from_raw(feature),
+            id: ConstraintId::from_raw(id),
+            active,
         },
         EditRecord::RemoveSketchConstraint { feature, id } => Edit::RemoveSketchConstraint {
             feature: FeatureId::from_raw(feature),
@@ -2270,9 +2304,16 @@ fn restore_constraint(
     let Some(constraint) = constraint else {
         return;
     };
-    if let Err(error) = sketch.insert_constraint(ConstraintId::from_raw(record.id), constraint) {
+    let id = ConstraintId::from_raw(record.id);
+    if let Err(error) = sketch.insert_constraint(id, constraint) {
         issues.push(format!(
             "In “{feature}”, a constraint was left out because {error}."
+        ));
+    } else if record.inactive
+        && let Err(error) = sketch.set_active(id, false)
+    {
+        issues.push(format!(
+            "In “{feature}”, a constraint was kept active because {error}."
         ));
     }
 }

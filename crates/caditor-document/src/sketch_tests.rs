@@ -510,6 +510,7 @@ fn constraints_are_checked_by_the_sketch_and_the_document() {
                 feature,
                 id: ConstraintId::from_raw(u64::MAX),
                 constraint: Constraint::Horizontal(shape.sides[0]),
+                inactive: false,
             },
         )),
         Err(EditError::Sketch {
@@ -730,4 +731,73 @@ fn a_reshaped_sketch_is_one_undoable_change_that_keeps_every_identifier() {
     let restored = sketch_of(editor.document(), feature);
     assert!(restored.same_content(sketch_of(&shape.document, feature)));
     assert!(restored.next_id() > fresh.raw());
+}
+
+#[test]
+fn making_a_constraint_inactive_is_one_undoable_change_that_stops_it_driving() {
+    let shape = rectangle();
+    let feature = shape.feature;
+    let width = *shape.constraints.last().unwrap();
+    let mut editor = Editor::new(shape.document.clone());
+    let held = solve(editor.document(), feature);
+
+    let mut transaction = editor.document().transaction("Disable constraint");
+    transaction.set_sketch_constraint_active(feature, width, false);
+    editor.apply(transaction.finish()).unwrap();
+
+    assert!(!sketch_of(editor.document(), feature).is_active(width));
+    let loose = solve(editor.document(), feature);
+    assert!(!same_content(&loose, &held));
+
+    editor.undo().unwrap();
+    assert!(sketch_of(editor.document(), feature).is_active(width));
+    editor.redo().unwrap();
+    assert!(!sketch_of(editor.document(), feature).is_active(width));
+}
+
+#[test]
+fn removing_an_inactive_constraint_and_undoing_brings_it_back_inactive() {
+    let shape = rectangle();
+    let feature = shape.feature;
+    let width = shape.constraints[5];
+    let mut editor = Editor::new(shape.document.clone());
+    let mut transaction = editor.document().transaction("Disable constraint");
+    transaction.set_sketch_constraint_active(feature, width, false);
+    editor.apply(transaction.finish()).unwrap();
+
+    let mut transaction = editor.document().transaction("Delete constraint");
+    transaction.remove_sketch_items(feature, [], [width]);
+    editor.apply(transaction.finish()).unwrap();
+    assert!(
+        sketch_of(editor.document(), feature)
+            .constraint(width)
+            .is_none()
+    );
+    assert_eq!(sketch_of(editor.document(), feature).inactive().count(), 0);
+
+    editor.undo().unwrap();
+    let sketch = sketch_of(editor.document(), feature);
+    assert!(sketch.constraint(width).is_some());
+    assert!(!sketch.is_active(width));
+}
+
+#[test]
+fn a_reshape_keeps_which_constraints_are_inactive_and_changes_them_when_asked() {
+    let shape = rectangle();
+    let feature = shape.feature;
+    let (first, width) = (shape.constraints[0], shape.constraints[5]);
+    let mut editor = Editor::new(shape.document.clone());
+    let before = sketch_of(editor.document(), feature).clone();
+    let mut after = before.clone();
+    after.set_active(width, false).unwrap();
+    after.set_active(first, false).unwrap();
+
+    let mut transaction = editor.document().transaction("Disable");
+    transaction.reshape_sketch(feature, &before, &after);
+    editor.apply(transaction.finish()).unwrap();
+
+    let sketch = sketch_of(editor.document(), feature);
+    assert_eq!(sketch.inactive().collect::<Vec<_>>(), vec![first, width]);
+    editor.undo().unwrap();
+    assert_eq!(sketch_of(editor.document(), feature).inactive().count(), 0);
 }

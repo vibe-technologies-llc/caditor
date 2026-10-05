@@ -3807,3 +3807,61 @@ fn opening_a_model_saved_before_edges_kept_origins_completes_them() {
 
     assert_eq!(fillet_origins(&saved_again.document, fillet), [true]);
 }
+
+#[test]
+fn inactive_constraints_stay_inactive_through_saving_and_the_journal() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let (start, end) = match sketch.entity(line) {
+        Some(Entity::Line { start, end }) => (*start, *end),
+        other => panic!("expected a line, found {other:?}"),
+    };
+    let level = sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+    let measured = sketch
+        .add_constraint(Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::Measure(40.0, Unit::Millimetre),
+        })
+        .unwrap();
+    sketch.set_active(measured, false).unwrap();
+    let mut document = Document::default();
+    let mut transaction = document.transaction("New sketch");
+    let feature = transaction.add_feature("Profile", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let restored = loaded
+        .document
+        .feature(feature)
+        .unwrap()
+        .kind
+        .sketch()
+        .unwrap();
+
+    assert!(text.contains(&format!("\"id\":{},\"inactive\":true", measured.raw())));
+    assert_eq!(text.matches("inactive").count(), 1);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert!(restored.is_active(level));
+    assert!(!restored.is_active(measured));
+    assert_eq!(loaded.document, document);
+
+    let mut transaction = document.transaction("Edit constraints");
+    transaction.set_sketch_constraint_active(feature, measured, true);
+    transaction.edit(Edit::AddSketchConstraint {
+        feature,
+        id: ConstraintId::from_raw(90),
+        constraint: Constraint::Vertical(line),
+        inactive: true,
+    });
+    let transaction = transaction.finish();
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    assert!(text.contains(&format!(
+        "{{\"set_sketch_constraint_active\":{{\"feature\":{},\"id\":{},\"active\":true}}}}",
+        feature.raw(),
+        measured.raw()
+    )));
+    let record: format::TransactionRecord = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}

@@ -158,9 +158,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Sketching
 
-- [high · medium] Every dimension drives: there are no reference (driven) dimensions and no way to
-  disable a constraint, so dimensioning determined geometry adds a redundant constraint instead of a
-  measurement.
+- [medium · medium] A new dimension always drives: dimensioning geometry that is already
+  determined still adds a redundant constraint, to be disabled by hand into a reference, instead of
+  being offered as a measurement.
 - [high · hard] No projection of model edges or other sketches into a sketch, and bodies and other
   sketches are unpickable while editing.
 - [medium · medium] Typed lengths and angles (`@40, 20`, `25 < 30`, `width / 2, 10`) are evaluated

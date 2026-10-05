@@ -102,10 +102,16 @@ pub enum Edit {
         feature: FeatureId,
         id: ConstraintId,
         constraint: Constraint,
+        inactive: bool,
     },
     RemoveSketchConstraint {
         feature: FeatureId,
         id: ConstraintId,
+    },
+    SetSketchConstraintActive {
+        feature: FeatureId,
+        id: ConstraintId,
+        active: bool,
     },
 }
 
@@ -170,6 +176,7 @@ impl Transaction {
                 | Edit::SetSketchPlacement { .. }
                 | Edit::RemoveSketchEntity { .. }
                 | Edit::SetSketchConstruction { .. }
+                | Edit::SetSketchConstraintActive { .. }
                 | Edit::RemoveSketchConstraint { .. } => 0,
             })
             .sum();
@@ -410,10 +417,16 @@ impl Document {
                 feature,
                 id,
                 constraint,
-            } => self.add_sketch_constraint(feature, id, constraint),
+                inactive,
+            } => self.add_sketch_constraint(feature, id, constraint, inactive),
             Edit::RemoveSketchConstraint { feature, id } => {
                 self.remove_sketch_constraint(feature, id)
             }
+            Edit::SetSketchConstraintActive {
+                feature,
+                id,
+                active,
+            } => self.set_sketch_constraint_active(feature, id, active),
         }
     }
 
