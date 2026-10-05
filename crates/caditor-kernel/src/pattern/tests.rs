@@ -162,3 +162,44 @@ fn a_pattern_can_be_cancelled_anywhere() {
         |error| matches!(error, PatternError::Cancelled(_)),
     );
 }
+
+fn along_diagonal(spacing: f64) -> Vec<PatternCopy> {
+    vec![PatternCopy {
+        index: [1, 0],
+        placement: RigidTransform::translation(Vector3::new(spacing, spacing, 0.0)).unwrap(),
+    }]
+}
+
+#[test]
+fn copies_meeting_only_along_an_edge_stay_separate_shells_of_one_body() {
+    let original = block((0.0, 0.0), (10.0, 10.0), 5.0);
+
+    let patterned = pattern(&original, &along_diagonal(10.0), FEATURE).unwrap();
+
+    check("along an edge", &patterned, 2.0 * 500.0);
+    assert_eq!(patterned.shells().count(), 2);
+    assert_eq!(patterned.faces().count(), 12);
+}
+
+#[test]
+fn round_parts_spaced_one_diameter_apart_become_separate_shells() {
+    let pin = extrude(
+        &Plane::XY,
+        &Profile::new(&[circle(1, (0.0, 0.0), 5.0)])
+            .unwrap()
+            .select(&Selection::EvenDepth)
+            .unwrap(),
+        LinearExtent::one_side(8.0).unwrap(),
+        FEATURE,
+    )
+    .unwrap();
+
+    let patterned = pattern(&pin, &along_x(10.0, 4), FEATURE).unwrap();
+
+    check(
+        "tangent cylinders",
+        &patterned,
+        4.0 * std::f64::consts::PI * 25.0 * 8.0,
+    );
+    assert_eq!(patterned.shells().count(), 4);
+}

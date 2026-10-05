@@ -12,6 +12,8 @@ use crate::{
     topology::Solid,
 };
 
+const ORIGINAL: [u32; 2] = [0, 0];
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PatternCopy {
     pub index: [u32; 2],
@@ -25,32 +27,37 @@ pub enum PatternError {
         copy: [u32; 2],
         error: GeometryError,
     },
-    #[error("the copies could not be joined: {0}")]
-    Union(BooleanError),
+    #[error("the copies {copies:?} could not be joined: {error}")]
+    Union {
+        copies: Vec<[u32; 2]>,
+        error: BooleanError,
+    },
     #[error(transparent)]
     Cancelled(#[from] Interrupted),
 }
 
-impl From<BooleanError> for PatternError {
-    fn from(error: BooleanError) -> Self {
-        match error {
-            BooleanError::Cancelled(interrupted) => Self::Cancelled(interrupted),
-            other => Self::Union(other),
-        }
-    }
+struct Part {
+    solid: Solid,
+    copies: Vec<[u32; 2]>,
 }
 
 pub fn pattern(solid: &Solid, copies: &[PatternCopy], feature: u64) -> Result<Solid, PatternError> {
     let mut parts = Vec::with_capacity(copies.len() + 1);
-    parts.push(solid.clone());
+    parts.push(Part {
+        solid: solid.clone(),
+        copies: vec![ORIGINAL],
+    });
     for copy in copies {
         interrupt::check()?;
-        parts.push(placed(solid, copy, feature)?);
+        parts.push(Part {
+            solid: placed(solid, copy, feature)?,
+            copies: vec![copy.index],
+        });
     }
     while parts.len() > 1 {
         parts = joined_in_pairs(parts)?;
     }
-    Ok(parts.pop().unwrap_or_else(|| solid.clone()))
+    Ok(parts.pop().map_or_else(|| solid.clone(), |part| part.solid))
 }
 
 fn placed(solid: &Solid, copy: &PatternCopy, feature: u64) -> Result<Solid, PatternError> {
@@ -69,15 +76,37 @@ fn placed(solid: &Solid, copy: &PatternCopy, feature: u64) -> Result<Solid, Patt
         .with_face_names(|original| FaceName::pattern(feature, copy.index, original)))
 }
 
-fn joined_in_pairs(parts: Vec<Solid>) -> Result<Vec<Solid>, PatternError> {
+fn joined_in_pairs(parts: Vec<Part>) -> Result<Vec<Part>, PatternError> {
     let mut joined = Vec::with_capacity(parts.len().div_ceil(2));
     let mut remaining = parts.into_iter();
     while let Some(first) = remaining.next() {
         interrupt::check()?;
         match remaining.next() {
-            Some(second) => joined.push(boolean(&first, &second, BooleanOperation::Union)?),
+            Some(second) => joined.push(union(first, second)?),
             None => joined.push(first),
         }
     }
     Ok(joined)
+}
+
+fn union(first: Part, second: Part) -> Result<Part, PatternError> {
+    let copies: Vec<[u32; 2]> = first.copies.into_iter().chain(second.copies).collect();
+    let solid = match boolean(&first.solid, &second.solid, BooleanOperation::Union) {
+        Ok(solid) => solid,
+        Err(BooleanError::Cancelled(interrupted)) => return Err(interrupted.into()),
+        Err(BooleanError::NonManifold) => {
+            separate_shells(&first.solid, &second.solid).ok_or(PatternError::Union {
+                copies: copies.clone(),
+                error: BooleanError::NonManifold,
+            })?
+        }
+        Err(error) => return Err(PatternError::Union { copies, error }),
+    };
+    Ok(Part { solid, copies })
+}
+
+fn separate_shells(first: &Solid, second: &Solid) -> Option<Solid> {
+    let beside = first.beside(second)?;
+    beside.validate().ok()?;
+    Some(beside)
 }

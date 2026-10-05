@@ -47,9 +47,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] Filleting both rims of a cylinder of radius 5 and height 10 at a fillet radius
   of 4 fails as `Boolean(Ambiguous)` although its feet do not cross (3.5 works); the tests stay at
   3.
-- [medium · medium] Pattern copies that touch only along a line or at a point fail the union as
-  `NonManifold`, so round parts spaced one diameter apart cannot be patterned; keep such copies as
-  separate shells of one body, and name the copies in `PatternError::Union`.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps

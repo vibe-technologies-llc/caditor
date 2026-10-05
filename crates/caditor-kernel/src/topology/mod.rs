@@ -448,6 +448,60 @@ impl Solid {
         })
     }
 
+    pub(crate) fn beside(&self, other: &Self) -> Option<Self> {
+        let shift = |count: usize| u32::try_from(count).ok();
+        let (vertices, edges, coedges) = (
+            shift(self.vertices.len())?,
+            shift(self.edges.len())?,
+            shift(self.coedges.len())?,
+        );
+        let (loops, faces, shells) = (
+            shift(self.loops.len())?,
+            shift(self.faces.len())?,
+            shift(self.shells.len())?,
+        );
+        let mut joined = self.clone();
+        joined.vertices.extend(other.vertices.iter().cloned());
+        joined.edges.extend(other.edges.iter().map(|edge| {
+            Edge {
+                start: VertexId(edge.start.0 + vertices),
+                end: VertexId(edge.end.0 + vertices),
+                coedges: edge
+                    .coedges
+                    .iter()
+                    .map(|coedge| CoedgeId(coedge.0 + coedges))
+                    .collect(),
+                ..edge.clone()
+            }
+        }));
+        joined
+            .coedges
+            .extend(other.coedges.iter().map(|coedge| Coedge {
+                edge: EdgeId(coedge.edge.0 + edges),
+                owner: LoopId(coedge.owner.0 + loops),
+                ..coedge.clone()
+            }));
+        joined.loops.extend(other.loops.iter().map(|owned| {
+            Loop {
+                face: FaceId(owned.face.0 + faces),
+                coedges: owned
+                    .coedges
+                    .iter()
+                    .map(|coedge| CoedgeId(coedge.0 + coedges))
+                    .collect(),
+            }
+        }));
+        joined.faces.extend(other.faces.iter().map(|face| Face {
+            loops: face.loops.iter().map(|id| LoopId(id.0 + loops)).collect(),
+            shell: ShellId(face.shell.0 + shells),
+            ..face.clone()
+        }));
+        joined.shells.extend(other.shells.iter().map(|shell| Shell {
+            faces: shell.faces.iter().map(|id| FaceId(id.0 + faces)).collect(),
+        }));
+        Some(joined)
+    }
+
     pub(crate) fn renamed(
         mut self,
         rename: impl Fn(FaceName, Option<FaceOrigin>) -> (FaceName, Option<FaceOrigin>),

@@ -101,7 +101,11 @@ paths:
   and a `RigidTransform`) and unions the original with every copy: valid or a `PatternError`.
 - Copies are unioned in pairs, round by round, so n copies take about log n rounds of booleans on
   neighbours rather than n booleans against an ever larger body; copies that do not touch stay
-  separate lumps of one body, and coincident faces of touching copies merge by healing.
+  separate lumps of one body, and coincident faces of touching copies merge by healing. Copies
+  meeting only along an edge or at a point (a union that is `NonManifold`) are kept as separate
+  shells instead (`Solid::beside`, which appends the arenas with shifted ids, accepted when it
+  validates). A union that fails otherwise is `PatternError::Union` naming the copies of both
+  sides, the original as `[0, 0]`.
 - Copies are renamed and given `FaceOrigin::Copy` (`kernel-naming.md`); the original keeps every
   name and origin.
 

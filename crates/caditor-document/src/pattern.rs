@@ -16,6 +16,7 @@ pub const MAX_PATTERN_INSTANCES: u32 = 100;
 const WHOLE_TOLERANCE: f64 = 1e-9;
 const FULL_TURN: f64 = 360.0;
 const ANGLE_TOLERANCE: f64 = 1e-9;
+const MAX_NAMED_COPIES: usize = 3;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinearDirection {
@@ -330,28 +331,61 @@ impl Context<'_> {
                 format!("A copy of the body of {body} could not be placed that far away."),
                 "Lower the count or the spacing.",
             ),
-            PatternError::Union(BooleanError::NonManifold) => self.error(
+            PatternError::Union {
+                copies,
+                error: BooleanError::NonManifold,
+            } => self.error(
                 format!(
-                    "Copies of the body of {body} would meet only along an edge or at a corner."
+                    "{} of the body of {body} meet only along an edge or at a corner, and could \
+                     not be kept as separate shells.",
+                    describe_copies(copies)
                 ),
                 "Change the spacing or the angle so the copies overlap or stand apart.",
             ),
-            PatternError::Union(BooleanError::Ambiguous) => self.error(
+            PatternError::Union {
+                copies,
+                error: BooleanError::Ambiguous,
+            } => self.error(
                 format!(
-                    "Copies of the body of {body} touch where it cannot be told which side is \
-                     inside."
+                    "{} of the body of {body} touch where it cannot be told which side is inside.",
+                    describe_copies(copies)
                 ),
                 "Change the spacing or the angle slightly.",
             ),
-            PatternError::Union(_) => {
+            PatternError::Union { copies, .. } => {
                 log::warn!("{} could not be built: {error}", self.resolver.feature.name);
                 self.error(
-                    format!("The copies of the body of {body} could not be joined together."),
+                    format!(
+                        "{} of the body of {body} could not be joined together.",
+                        describe_copies(copies)
+                    ),
                     "Change the spacing or the angle slightly, or lower the count.",
                 )
             }
         }
     }
+}
+
+fn describe_copies(copies: &[[u32; 2]]) -> String {
+    let named: Vec<String> = copies
+        .iter()
+        .take(MAX_NAMED_COPIES)
+        .map(|copy| match copy {
+            [0, 0] => "the original".to_owned(),
+            [index, 0] => format!("copy {index}"),
+            [first, second] => format!("copy ({first}, {second})"),
+        })
+        .collect();
+    let more = copies.len().saturating_sub(MAX_NAMED_COPIES);
+    let text = match more {
+        0 => named.join(", "),
+        more => format!("{} and {more} more", named.join(", ")),
+    };
+    let mut characters = text.chars();
+    characters
+        .next()
+        .map(|first| first.to_uppercase().chain(characters).collect())
+        .unwrap_or_default()
 }
 
 pub(crate) fn evaluate(
