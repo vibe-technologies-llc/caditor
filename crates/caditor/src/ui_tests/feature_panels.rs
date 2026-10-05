@@ -140,6 +140,7 @@ fn every_panel_refuses_a_value_with_the_shared_wording() {
     let spacing = harness.shows(ABOVE_ZERO_OR_REVERSE);
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+    harness.hold_still();
     harness.click_lowest("Circular");
     harness.settle();
     harness.type_into_field(Id::new(("pattern-field", "angle", pattern)), "400 deg");
