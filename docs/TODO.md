@@ -220,9 +220,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   mid-plane, plane through an axis and a point, plane normal to an edge at a point, or axis through
   two points. Model vertices are named and pickable but only the measure tool uses them, and datums
   and pattern axes cannot take sketch geometry.
-- [medium · medium] Bodies have no colour, material or density, so a multi-body model is one grey
-  until picked and mass cannot be shown; this blocks coloured STEP and 3MF export. It also gates
-  coloured STEP (writer) and 3MF export and the mass of the mass properties.
 - [medium · medium] No interference check: nothing finds where two bodies overlap or touch, or
   reports the overlapping volume, though booleans already compute it.
 - [medium · medium] Split a body by a plane or a face, and copy one body (`RigidTransform` and
@@ -236,10 +233,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
   without redrawing it.
 - [medium · hard] Extrusions end only on flat faces and planes: up to face and up to next refuse a
   curved face, and up to next needs one flat face that the whole profile meets first.
-- [medium · hard] Mass properties are volume, area, centroid and bounding size, exact only for
-  bodies of flat faces and straight edges and otherwise taken from the display mesh, with no mass,
-  inertia or total. Integrate exactly over the trimmed faces, as `planar_area` already does for
-  planes. Mass and inertia wait on density from the colour, material and density item.
+- [medium · hard] Mass properties are volume, area, centroid, bounding size and mass from the
+  body's density, exact only for bodies of flat faces and straight edges and otherwise taken from
+  the display mesh, with no inertia or total over several bodies. Integrate exactly over the
+  trimmed faces, as `planar_area` already does for planes.
 - [medium · hard] Blends: only line and circle edges along planes, parallel cylinders and coaxial
   surfaces; no ellipse, spline or intersection edges, not even a straight edge beside a spline
   extrusion face; ends at steps and T-junctions refused; no variable radius, two-distance or
@@ -297,8 +294,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
   other faces and say which were lost. Colours and layers are not read.
 - [low · medium] The parse tree still holds several times the file size (a boxed slice per record
   and per list); a flat arena of values would bring it near the file size.
-- [low · medium] The writer puts all bodies in one product with no colours, holding the output twice
-  in memory.
+- [low · medium] The writer puts all bodies in one product without their colours (bodies have one,
+  `BodyAppearance`), holding the output twice in memory.
 - [low · hard] No IGES import or export, though older CAM software and many suppliers still exchange
   it.
 
@@ -340,8 +337,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
     metres) and offers a scale before committing, rather than leaving it to the scale item.
 - [low · medium] STL uses absolute f32 coordinates, which resolve only about 0.06 mm at 10^6 mm, and
   merges all bodies into one surface.
-- [low · medium] 3MF has no colours, materials or thumbnail, builds everything in memory and cannot
-  exceed 4 GiB without ZIP64.
+- [low · medium] 3MF leaves out the bodies' colours and materials (`BodyAppearance`) and has no
+  thumbnail, builds everything in memory and cannot exceed 4 GiB without ZIP64.
 
 ## Accessibility
 
@@ -360,8 +357,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] Display styles stop at shaded with edges, without edges and wireframe: no hidden
   line style, and no isolate or hide others or look normal to a face.
 - [medium · medium] Transparency is all or nothing: the X-ray style draws every body translucent with
-  unpickable faces, and no body can be translucent, coloured or hidden on its own except by hiding
-  its feature.
+  unpickable faces, and no body can be translucent or hidden on its own except by hiding its
+  feature. A body's colour is one for all its faces: no face can be coloured apart.
 - [medium · medium] No box or lasso selection in the 3D view (only inside a sketch), no select all,
   and no selecting an edge's tangent chain or a face's loop outside the fillet panel, so choosing
   many faces or edges for a pattern, shell or export means clicking each one.
@@ -413,8 +410,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
   during a load hides the prompt until the load ends. Give imports their own cancellable job. When a
   worker thread cannot be spawned the job runs on the UI thread.
 - [medium · medium] Bodies are listed (Bodies group) but cannot be renamed on their own, since a
-  body is named by the feature that made it, nor coloured (see the colour item under Modelling
-  features), deleted or selected as a whole in the view.
+  body is named by the feature that made it, nor deleted or selected as a whole in the view.
 - [medium · hard] Version history shows when a version was saved and after which change, but no
   preview of what it holds, and no way to keep a version from being thinned out.
 - [medium · hard] No user guide: Help has only the welcome, the command search, the keyboard

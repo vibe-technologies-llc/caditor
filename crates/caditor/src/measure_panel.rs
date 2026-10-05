@@ -1,13 +1,13 @@
 use std::collections::BTreeSet;
 
-use caditor_document::FeatureId;
+use caditor_document::{DensityError, FeatureId};
 use caditor_kernel::Accuracy;
 use egui::{Label, ScrollArea, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     bodies::{BodyMass, BodyMeshes, MassAccuracy},
-    icons,
+    field, icons,
     measure::{Freshness, MeasureTool, MeasuredLine, Readout, Value},
     model::Model,
     selection::{Pickable, Selection},
@@ -29,6 +29,9 @@ const MASS_SECTION: &str = "measure-mass";
 const STALE_OPACITY: f32 = 0.5;
 const APPROXIMATELY: &str = "≈ ";
 const MESHING: &str = "Waiting for the body's mesh.";
+const NO_DENSITY: &str = "No density set";
+const GRAMS_PER_KILOGRAM: f64 = 1000.0;
+const GRAMS_PER_CUBIC_MILLIMETRE: f64 = 1e-3;
 const ALL_BODIES: &str = "Every body shown; select a face, edge or vertex for one body alone.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,7 +131,65 @@ pub fn readout_cards(readout: &Readout, unit: impl Into<Units>) -> Vec<Card> {
         .collect()
 }
 
-fn mass_card(name: String, mass: Option<&BodyMass>, unit: LengthUnit) -> Card {
+pub struct Substance<'a> {
+    pub material: Option<&'a str>,
+    pub density: Option<Result<f64, DensityError>>,
+}
+
+impl Substance<'_> {
+    const UNKNOWN: Self = Self {
+        material: None,
+        density: None,
+    };
+}
+
+pub fn mass_text(grams: f64) -> String {
+    if grams.abs() < GRAMS_PER_KILOGRAM {
+        format!("{grams:.2} g")
+    } else {
+        format!("{:.3} kg", grams / GRAMS_PER_KILOGRAM)
+    }
+}
+
+fn mass_rows(
+    substance: &Substance<'_>,
+    volume: f64,
+    approximate: bool,
+) -> (Vec<Row>, Option<String>) {
+    let material = substance.material.map(|material| Row {
+        label: "Material".to_owned(),
+        text: material.to_owned(),
+    });
+    let (text, problem) = match &substance.density {
+        None => (NO_DENSITY.to_owned(), None),
+        Some(Ok(density)) => (
+            approximately(
+                mass_text(volume * density * GRAMS_PER_CUBIC_MILLIMETRE),
+                approximate,
+            ),
+            None,
+        ),
+        Some(Err(error)) => (
+            "Not available".to_owned(),
+            Some(format!(
+                "{} Correct it in the body's colour and material.",
+                field::sentence(&format!("{error}."))
+            )),
+        ),
+    };
+    let mass = Row {
+        label: "Mass".to_owned(),
+        text,
+    };
+    (material.into_iter().chain([mass]).collect(), problem)
+}
+
+fn mass_card(
+    name: String,
+    mass: Option<&BodyMass>,
+    unit: LengthUnit,
+    substance: &Substance<'_>,
+) -> Card {
     let Some(mass) = mass else {
         return Card {
             title: name,
@@ -156,32 +217,41 @@ fn mass_card(name: String, mass: Option<&BodyMass>, unit: LengthUnit) -> Card {
     };
     let properties = mass.properties;
     let centroid = properties.centroid;
+    let (substance_rows, problem) = mass_rows(substance, properties.volume, approximate);
+    let notes = problem
+        .map(|problem| (Tone::Warning, problem))
+        .into_iter()
+        .chain(notes)
+        .collect();
+    let volume = Row {
+        label: "Volume".to_owned(),
+        text: approximately(unit.measured_volume(properties.volume), approximate),
+    };
     Card {
         title: name,
-        rows: vec![
-            Row {
-                label: "Volume".to_owned(),
-                text: approximately(unit.measured_volume(properties.volume), approximate),
-            },
-            Row {
-                label: "Surface area".to_owned(),
-                text: approximately(unit.measured_area(properties.area), approximate),
-            },
-            Row {
-                label: "Size".to_owned(),
-                text: mass.size.map_or_else(
-                    || "Not available".to_owned(),
-                    |size| approximately(unit.measured_size(size), approximate),
-                ),
-            },
-            Row {
-                label: "Centroid".to_owned(),
-                text: approximately(
-                    unit.measured_position([centroid.x, centroid.y, centroid.z]),
-                    approximate,
-                ),
-            },
-        ],
+        rows: std::iter::once(volume)
+            .chain(substance_rows)
+            .chain([
+                Row {
+                    label: "Surface area".to_owned(),
+                    text: approximately(unit.measured_area(properties.area), approximate),
+                },
+                Row {
+                    label: "Size".to_owned(),
+                    text: mass.size.map_or_else(
+                        || "Not available".to_owned(),
+                        |size| approximately(unit.measured_size(size), approximate),
+                    ),
+                },
+                Row {
+                    label: "Centroid".to_owned(),
+                    text: approximately(
+                        unit.measured_position([centroid.x, centroid.y, centroid.z]),
+                        approximate,
+                    ),
+                },
+            ])
+            .collect(),
         notes,
     }
 }
@@ -218,14 +288,25 @@ fn measured_bodies(context: &MeasureContext<'_>) -> (Vec<FeatureId>, bool) {
 pub fn mass_cards(context: &MeasureContext<'_>) -> (Vec<Card>, bool) {
     let unit = context.model.length_unit();
     let (bodies, everything) = measured_bodies(context);
+    let parameters = context.model.parameters();
     let cards = bodies
         .into_iter()
         .map(|body| {
-            let name = context.model.document().feature(body).map_or_else(
+            let feature = context.model.document().feature(body);
+            let name = feature.map_or_else(
                 || "A deleted body".to_owned(),
                 |feature| feature.name.clone(),
             );
-            mass_card(name, context.bodies.get(body).map(|mesh| &mesh.mass), unit)
+            let substance = feature.map_or(Substance::UNKNOWN, |feature| Substance {
+                material: feature.appearance.material.as_deref(),
+                density: feature.appearance.density_value(parameters),
+            });
+            mass_card(
+                name,
+                context.bodies.get(body).map(|mesh| &mesh.mass),
+                unit,
+                &substance,
+            )
         })
         .collect();
     (cards, everything)
@@ -400,14 +481,78 @@ mod tests {
             size: Some([10.0, 12.5, 8.0]),
         };
 
-        let card = mass_card("Extrude 1".to_owned(), Some(&mass), LengthUnit::Millimetre);
-        let waiting = mass_card("Extrude 2".to_owned(), None, LengthUnit::Millimetre);
+        let card = mass_card(
+            "Extrude 1".to_owned(),
+            Some(&mass),
+            LengthUnit::Millimetre,
+            &Substance::UNKNOWN,
+        );
+        let waiting = mass_card(
+            "Extrude 2".to_owned(),
+            None,
+            LengthUnit::Millimetre,
+            &Substance::UNKNOWN,
+        );
 
         assert_eq!(card.rows[0].text, "≈ 1000.0 mm³");
-        assert_eq!(card.rows[2].text, "≈ 10.000 × 12.500 × 8.000 mm");
-        assert_eq!(card.rows[3].text, "≈ 5.000, 5.000, 5.000 mm");
+        assert_eq!(card.rows[1].text, NO_DENSITY);
+        assert_eq!(card.rows[3].text, "≈ 10.000 × 12.500 × 8.000 mm");
+        assert_eq!(card.rows[4].text, "≈ 5.000, 5.000, 5.000 mm");
         assert!(card.notes[0].1.contains("within 0.010 mm"));
         assert!(card.notes[0].1.contains("within 2.5 mm³"));
         assert!(waiting.rows.is_empty());
+    }
+
+    #[test]
+    fn a_body_with_a_density_shows_its_material_and_mass() {
+        let mass = BodyMass {
+            properties: MassProperties {
+                volume: 8000.0,
+                area: 2400.0,
+                centroid: Point3::ZERO,
+            },
+            accuracy: MassAccuracy::Exact,
+            size: Some([20.0; 3]),
+        };
+        let steel = Substance {
+            material: Some("Steel"),
+            density: Some(Ok(7.85)),
+        };
+        let wrong = Substance {
+            material: None,
+            density: Some(Err(DensityError::NotAboveZero(-1.0))),
+        };
+
+        let card = mass_card(
+            "Block".to_owned(),
+            Some(&mass),
+            LengthUnit::Millimetre,
+            &steel,
+        );
+        let refused = mass_card(
+            "Block".to_owned(),
+            Some(&mass),
+            LengthUnit::Millimetre,
+            &wrong,
+        );
+
+        assert_eq!(
+            card.text(),
+            "Block\n  Volume: 8000.0 mm³\n  Material: Steel\n  Mass: 62.80 g\n  Surface area: \
+             2400.00 mm²\n  Size: 20.000 × 20.000 × 20.000 mm\n  Centroid: 0.000, 0.000, 0.000 mm"
+        );
+        assert!(card.notes.is_empty());
+        assert_eq!(refused.rows[1].text, "Not available");
+        assert_eq!(
+            refused.notes,
+            [(
+                Tone::Warning,
+                "The density must be above zero, and -1 is not. Correct it in the body's colour \
+                 and material."
+                    .to_owned()
+            )]
+        );
+        assert_eq!(mass_text(1234.5), "1.234 kg");
+        assert_eq!(mass_text(0.5), "0.50 g");
     }
 }

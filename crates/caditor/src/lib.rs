@@ -7,6 +7,7 @@ mod blend_panel;
 mod blend_tools;
 mod bodies;
 mod bodies_tree;
+mod body_appearance;
 mod canvas;
 mod cli;
 mod combine_panel;

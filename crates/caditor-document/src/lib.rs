@@ -1,5 +1,6 @@
 mod attachment;
 mod blend;
+mod body_appearance;
 mod combine;
 mod datum;
 mod dependencies;
@@ -28,6 +29,10 @@ mod worker;
 pub use crate::{
     attachment::{AttachmentError, FaceAttachment, SketchAttachment, SketchFeature, face_plane},
     blend::{Blend, BlendKind},
+    body_appearance::{
+        BodyAppearance, DensityError, MAX_DENSITY, MAX_MATERIAL_NAME_CHARS, Rgb, density_of,
+        material_name,
+    },
     combine::{Combine, CombineOperation},
     datum::{
         AxisReference, Datum, DatumAxis, DatumPlane, DatumResult, PlaneReference, PlaneRotation,
@@ -69,6 +74,8 @@ pub use crate::{
 mod attachment_tests;
 #[cfg(test)]
 mod blend_tests;
+#[cfg(test)]
+mod body_appearance_tests;
 #[cfg(test)]
 mod combine_tests;
 #[cfg(test)]

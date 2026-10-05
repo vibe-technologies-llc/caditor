@@ -11,6 +11,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use crate::{
     attachment::{FaceAttachment, SketchAttachment, SketchFeature},
     blend::Blend,
+    body_appearance::BodyAppearance,
     combine::Combine,
     datum::{Datum, PrincipalGeometry},
     edit::{Edit, Transaction},
@@ -579,6 +580,7 @@ pub struct Feature {
     pub kind: FeatureKind,
     pub hidden: bool,
     pub suppressed: bool,
+    pub appearance: BodyAppearance,
 }
 
 impl Feature {
@@ -589,6 +591,7 @@ impl Feature {
             kind,
             hidden: false,
             suppressed: false,
+            appearance: BodyAppearance::default(),
         }
     }
 
@@ -601,7 +604,22 @@ impl Feature {
             && self.name == other.name
             && self.hidden == other.hidden
             && self.suppressed == other.suppressed
+            && self.appearance == other.appearance
             && self.kind.same_content(&other.kind)
+    }
+
+    pub fn parameters(&self) -> BTreeSet<ParameterId> {
+        let mut used = self.kind.parameters();
+        used.extend(self.appearance.parameters());
+        used
+    }
+
+    pub fn uses_parameter(&self, parameter: ParameterId) -> bool {
+        self.kind.uses_parameter(parameter) || self.appearance.uses_parameter(parameter)
+    }
+
+    pub fn heap_size(&self) -> usize {
+        self.name.len() + self.kind.approximate_size() + self.appearance.heap_size()
     }
 
     pub fn body(&self) -> Option<FeatureId> {
@@ -891,7 +909,7 @@ impl Document {
         let features = self
             .features
             .iter()
-            .filter(|feature| feature.kind.uses_parameter(parameter))
+            .filter(|feature| feature.uses_parameter(parameter))
             .map(|feature| feature.name.clone());
         parameters.chain(features).collect()
     }

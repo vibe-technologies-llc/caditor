@@ -15,8 +15,9 @@ use caditor_sketch::EntityId;
 use crate::{
     binary::{self, FileDigest, History, UnpackError},
     format::{
-        FEATURE_KINDS, FeatureRecord, NextIdsRecord, ParameterRecord, PrincipalGeometryRecord,
-        RECORD_KINDS, Record, Unreadable, restore_feature, restore_principal,
+        FEATURE_FIELDS, FEATURE_KINDS, FeatureRecord, NextIdsRecord, ParameterRecord,
+        PrincipalGeometryRecord, RECORD_KINDS, Record, Unreadable, restore_feature,
+        restore_principal,
     },
     read::read_file,
     reason::ReadFailure,
@@ -87,8 +88,13 @@ pub(crate) fn newer_version(version: u32) -> String {
 
 pub(crate) fn describe_unreadable_record(place: &str, item: &Unreadable<'_>) -> String {
     let name = item.name();
+    let feature_keys: Vec<&str> = FEATURE_KINDS
+        .iter()
+        .chain(&FEATURE_FIELDS)
+        .copied()
+        .collect();
     match (item.kind(), name) {
-        (Some("feature"), Some(name)) => match item.unknown_kind(&FEATURE_KINDS) {
+        (Some("feature"), Some(name)) => match item.unknown_kind(&feature_keys) {
             Some(kind) => format!(
                 "The feature “{name}” is a kind this version of caditor does not know ({kind}), \
                  so it was left out. It may come from a newer version."
@@ -314,11 +320,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
     let referenced: BTreeSet<ParameterId> = expressions
         .iter()
         .flat_map(|(_, _, expression)| expression.parameters())
-        .chain(
-            features
-                .iter()
-                .flat_map(|feature| feature.kind.parameters()),
-        )
+        .chain(features.iter().flat_map(Feature::parameters))
         .filter(|id| !inserted.contains(id))
         .collect();
     let stand_ins: Vec<Parameter> = referenced

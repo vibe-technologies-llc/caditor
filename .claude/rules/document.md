@@ -50,6 +50,19 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (`Edit::SetPrincipalHidden`), compared by `same_content` and carried by `transaction_to`, so
   hiding a mixed selection and undoing it are one change and a model reopens as it was left.
 
+## Body appearance (`body_appearance.rs`)
+
+- A feature's `appearance` (`BodyAppearance`: an sRGB `Rgb` colour, a material name, a density
+  expression) is content like `hidden`: compared by `same_content`, carried by `InsertFeature`, so
+  deleting and restoring a body keeps it, and counted by `heap_size`. Recompute ignores it.
+- `Edit::SetBodyAppearance` sets it whole on a feature that `makes_body` (else `NotABody`); a
+  material name is trimmed, blank means none, longer than `MAX_MATERIAL_NAME_CHARS` is refused.
+  A feature that later stops making a body keeps it, unused.
+- The density is a plain number in g/cm³ that may use parameters, so `Feature::parameters` and
+  `Feature::uses_parameter` (which parameter deletion, `parameter_users` and loading's stand-ins
+  use) include it. It is evaluated where shown (`density_value`, `mass_grams`): above zero and at
+  most `MAX_DENSITY`, else a `DensityError` saying why.
+
 ## Suppression, the rollback bar and tree order (`tree.rs`)
 
 - `suppressed` (`Edit::SetFeatureSuppressed`) is content like `hidden`, carried by `InsertFeature`

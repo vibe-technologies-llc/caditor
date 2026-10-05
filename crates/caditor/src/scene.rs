@@ -21,7 +21,7 @@ use caditor_sketch::{
 
 use crate::{
     bodies::{BodyBefore, BodyMesh, BodyMeshes, OpenChoice},
-    canvas, datum_tools,
+    body_appearance, canvas, datum_tools,
     display::DisplayedSketches,
     display_style::DisplayStyle,
     drawing::Preview,
@@ -74,7 +74,11 @@ const TRIMMED_CURVE: Color = Color::from_rgb8(255, 96, 84);
 const SNAP_MARKER: Color = opaque(canvas::SNAP);
 const MEASURED: Color = opaque(canvas::MEASURE);
 const UNMARKED_VERTEX: Color = Color::from_rgba8(0, 0, 0, 0);
-const BODY: Color = Color::from_rgb8(150, 162, 180);
+const BODY: Color = Color::from_rgb8(
+    body_appearance::DEFAULT_COLOUR.red,
+    body_appearance::DEFAULT_COLOUR.green,
+    body_appearance::DEFAULT_COLOUR.blue,
+);
 const FAILED_BODY: Color = Color::from_rgb8(200, 134, 124);
 const OUTDATED_BODY: Color = Color::from_rgb8(182, 170, 130);
 const BACKGROUND_BODY: Color = Color::from_rgb8(92, 96, 104);
@@ -1275,8 +1279,17 @@ pub fn region_references(
         .collect()
 }
 
+fn painted(document: &Document, body: FeatureId) -> Color {
+    document
+        .feature(body)
+        .and_then(|feature| feature.appearance.colour)
+        .map_or(BODY, |colour| {
+            Color::from_rgb8(colour.red, colour.green, colour.blue)
+        })
+}
+
 fn body_color(document: &Document, evaluation: &Evaluation, body: FeatureId) -> Color {
-    let mut color = BODY;
+    let mut color = painted(document, body);
     for feature in document
         .features()
         .filter(|feature| feature.body() == Some(body))

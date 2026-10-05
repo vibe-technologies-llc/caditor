@@ -24,7 +24,7 @@ use crate::{
     image_export::ImageCommand,
     mirror_tools,
     model::Action,
-    panels::Renaming,
+    panels::{Painting, Renaming},
     pattern_tools::{self, Shape},
     preferences::{Preferences, PreferencesCommand, PreferencesTab, Theme},
     reference_picking::{Picking, Slot},
@@ -444,6 +444,15 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     let Some(body) = body else {
         return;
     };
+    model.workspace.panels.painting = Some(Painting {
+        body,
+        focus_pending: true,
+    });
+    model.frame();
+    model.frame();
+    shoot(model, gpu, out, "body-appearance", look);
+    model.workspace.panels.painting = None;
+    model.frame();
     let keys: Vec<_> = model
         .workspace
         .viewport

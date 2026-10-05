@@ -53,6 +53,7 @@ pub const ROLLBACK_BAR: &str = phosphor::DOTS_SIX;
 pub const ROLLED_BACK: &str = phosphor::CLOCK_COUNTER_CLOCKWISE;
 pub const PRINCIPAL_GROUP: &str = PLANE;
 pub const BODIES: &str = phosphor::CUBE;
+pub const BODY_APPEARANCE: &str = phosphor::PAINT_BUCKET;
 pub const CONSTRUCTION: &str = phosphor::CIRCLE_DASHED;
 pub const MINIMIZE: &str = phosphor::MINUS;
 pub const MAXIMIZE: &str = phosphor::SQUARE;
@@ -113,6 +114,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Move => MOVE,
         Command::Mirror => MIRROR,
         Command::Scale => SCALE,
+        Command::BodyAppearance => BODY_APPEARANCE,
         Command::Hole => HOLE,
         Command::LinearPattern => LINEAR_PATTERN,
         Command::CircularPattern => CIRCULAR_PATTERN,

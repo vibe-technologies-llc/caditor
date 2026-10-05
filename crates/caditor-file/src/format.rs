@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use caditor_document::{
-    AxisReference, Blend, BlendKind, BodyOperation, CircularPattern, Combine, CombineOperation,
-    Datum, DatumAxis, DatumPlane, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent,
-    FaceAttachment, Feature, FeatureId, FeatureKind, Hole, HoleDepth, HoleStyle, Import,
-    LinearDirection, Mirror, Move, Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, RegionChoice, Revolve, RevolveAxis,
-    RevolveExtent, RollbackBar, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature,
-    SolidStart, Transaction,
+    AxisReference, Blend, BlendKind, BodyAppearance, BodyOperation, CircularPattern, Combine,
+    CombineOperation, Datum, DatumAxis, DatumPlane, Document, Edit, Extrude, ExtrudeEnd,
+    ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Hole, HoleDepth, HoleStyle,
+    Import, LinearDirection, MAX_MATERIAL_NAME_CHARS, Mirror, Move, Parameter, Pattern,
+    PatternKind, PlaneReference, PlaneRotation, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    RegionChoice, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell,
+    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Transaction, material_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -64,8 +64,20 @@ pub(crate) struct FeatureRecord {
     pub name: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appearance: Option<Lenient<AppearanceRecord>>,
     #[serde(flatten)]
     pub kind: FeatureKindRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct AppearanceRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colour: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub density: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,6 +104,8 @@ pub(crate) enum FeatureKindRecord {
     Axis(Box<DatumAxisRecord>),
     Import(ImportRecord),
 }
+
+pub(crate) const FEATURE_FIELDS: [&str; 2] = ["hidden", "appearance"];
 
 pub(crate) const FEATURE_KINDS: [&str; 20] = [
     "sketch",
@@ -710,6 +724,10 @@ pub(crate) enum EditRecord {
         id: u64,
         suppressed: bool,
     },
+    SetBodyAppearance {
+        id: u64,
+        appearance: AppearanceRecord,
+    },
     SetRollbackBar {
         before: Option<u64>,
     },
@@ -845,7 +863,65 @@ pub(crate) fn feature_record(feature: &Feature) -> FeatureRecord {
         id: feature.id().raw(),
         name: feature.name.clone(),
         hidden: feature.hidden,
+        appearance: (!feature.appearance.is_default())
+            .then(|| Lenient::Read(appearance_record(&feature.appearance))),
         kind: feature_kind_record(&feature.kind),
+    }
+}
+
+fn appearance_record(appearance: &BodyAppearance) -> AppearanceRecord {
+    AppearanceRecord {
+        colour: appearance.colour.map(Rgb::hex),
+        material: appearance.material.clone(),
+        density: appearance.density.as_ref().map(Expression::to_stored_text),
+    }
+}
+
+fn restore_appearance(
+    record: &Lenient<AppearanceRecord>,
+    name: &str,
+    issues: &mut Vec<String>,
+) -> BodyAppearance {
+    let Lenient::Read(record) = record else {
+        issues.push(format!(
+            "The colour and material of “{name}” could not be read, so it shows in the default \
+             colour with no material."
+        ));
+        return BodyAppearance::default();
+    };
+    let colour = record.colour.as_deref().and_then(|text| {
+        let colour = Rgb::from_hex(text);
+        if colour.is_none() {
+            issues.push(format!(
+                "The colour of “{name}” could not be read, so it shows in the default colour."
+            ));
+        }
+        colour
+    });
+    let material = record.material.as_deref().and_then(|text| {
+        let material = material_name(text)
+            .filter(|material| material.chars().count() <= MAX_MATERIAL_NAME_CHARS);
+        if material.is_none() {
+            issues.push(format!(
+                "The material name of “{name}” could not be used, so it was left out."
+            ));
+        }
+        material
+    });
+    let density = record.density.as_deref().and_then(|text| {
+        let density = Expression::parse_stored(text).ok();
+        if density.is_none() {
+            issues.push(format!(
+                "The density of “{name}” could not be read, so it was left out. Enter it again \
+                 to see the body's mass."
+            ));
+        }
+        density
+    });
+    BodyAppearance {
+        colour,
+        material,
+        density,
     }
 }
 
@@ -1599,6 +1675,10 @@ fn edit_record(edit: &Edit) -> EditRecord {
             id: id.raw(),
             suppressed: *suppressed,
         },
+        Edit::SetBodyAppearance { id, appearance } => EditRecord::SetBodyAppearance {
+            id: id.raw(),
+            appearance: appearance_record(appearance),
+        },
         Edit::SetRollbackBar { bar } => EditRecord::SetRollbackBar {
             before: match bar {
                 RollbackBar::AtEnd => None,
@@ -1614,6 +1694,7 @@ fn edit_record(edit: &Edit) -> EditRecord {
                 id: id.raw(),
                 name: String::new(),
                 hidden: false,
+                appearance: None,
                 kind: feature_kind_record(kind),
             },
         },
@@ -1763,6 +1844,17 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             id: FeatureId::from_raw(id),
             suppressed,
         },
+        EditRecord::SetBodyAppearance { id, appearance } => {
+            let mut issues = Vec::new();
+            let appearance = restore_appearance(&Lenient::Read(appearance), "", &mut issues);
+            if !issues.is_empty() {
+                return None;
+            }
+            Edit::SetBodyAppearance {
+                id: FeatureId::from_raw(id),
+                appearance,
+            }
+        }
         EditRecord::SetRollbackBar { before } => Edit::SetRollbackBar {
             bar: restore_rollback(before),
         },
@@ -1866,6 +1958,9 @@ pub(crate) fn restore_feature(record: &FeatureRecord, issues: &mut Vec<String>) 
     let kind = restore_kind(&record.kind, &name, issues);
     let mut feature = Feature::new(FeatureId::from_raw(record.id), name, kind);
     feature.hidden = record.hidden;
+    if let Some(appearance) = &record.appearance {
+        feature.appearance = restore_appearance(appearance, &feature.name, issues);
+    }
     feature
 }
 

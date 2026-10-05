@@ -9954,6 +9954,93 @@ fn two_picked_vertices_are_measured_in_the_panel_and_the_view() {
     assert!(!harness.shows(&expected));
 }
 
+fn painted_faces(harness: &mut Harness, colour: caditor_render::Color) -> usize {
+    harness
+        .built_with_meshes(1)
+        .scene
+        .meshes
+        .iter()
+        .flat_map(|mesh| &mesh.faces)
+        .filter(|face| face.color == colour)
+        .count()
+}
+
+#[test]
+fn a_body_takes_a_colour_and_a_material_whose_density_gives_its_mass() {
+    use crate::body_appearance::{DENSITY_CAPTION, NO_MATERIAL};
+
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let steel_blue = caditor_render::Color::from_rgb8(70, 130, 180);
+
+    harness.select([top]);
+    run_from_palette(&mut harness, "body colour and material");
+    harness.settle();
+    let opened = harness
+        .workspace
+        .panels
+        .painting
+        .map(|painting| painting.body);
+    let listed = harness.shows(DENSITY_CAPTION) && harness.shows(NO_MATERIAL);
+    harness.select([]);
+    harness.click_button("Steel blue");
+    harness.settle();
+    let colour_label = harness.model.undo_label().map(str::to_owned);
+    let painted = painted_faces(&mut harness, steel_blue);
+
+    assert_eq!(opened, Some(plate));
+    assert!(listed);
+    assert_eq!(
+        colour_label.as_deref(),
+        Some("Change the colour of Extrude 1")
+    );
+    assert_eq!(painted, 6);
+
+    harness.type_into_field(Id::new(("body-density", plate)), "-1");
+    harness.settle();
+    let refused_label = harness.model.undo_label().map(str::to_owned);
+    let refusal_shown = harness.shows("The density must be above zero, and -1 is not");
+    harness.type_into_field(Id::new(("body-density", plate)), "7.85");
+    harness.type_into_field(Id::new(("body-material-name", plate)), "Steel");
+    harness.settle();
+    harness.click(crate::toolbar::MEASURE_LABEL);
+    harness.wait_until("the mass is shown", |harness| harness.shows("125.60 g"));
+
+    assert_eq!(refused_label, colour_label);
+    assert!(refusal_shown);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Change the material of Extrude 1")
+    );
+    assert!(harness.shows("Steel"));
+    let appearance = &harness.document().feature(plate).unwrap().appearance;
+    assert_eq!(appearance.material.as_deref(), Some("Steel"));
+
+    harness.type_into_field(Id::new(("body-colour", plate)), "#f80");
+    harness.settle();
+    let typed = harness.document().feature(plate).unwrap().appearance.colour;
+    assert_eq!(typed, Some(caditor_document::Rgb::new(255, 136, 0)));
+
+    harness.click_button("Close the colour and material of Extrude 1");
+    let closed = harness.workspace.panels.painting.is_none();
+    for _ in 0..4 {
+        harness.perform(Action::Undo);
+    }
+    harness.settle();
+    let unpainted = painted_faces(&mut harness, steel_blue);
+
+    assert!(closed);
+    assert!(
+        harness
+            .document()
+            .feature(plate)
+            .unwrap()
+            .appearance
+            .is_default()
+    );
+    assert_eq!(unpainted, 0);
+}
+
 #[test]
 fn the_measure_panel_shows_the_mass_properties_of_a_body_and_the_area_of_a_face() {
     let mut harness = Harness::new();

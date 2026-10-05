@@ -35,6 +35,8 @@ const TOOL_LABEL_GAP: f32 = 2.0;
 const SELECTED_WIDTH: f32 = 1.0;
 pub const COMPACT_TOOL_GAP: f32 = 2.0;
 const FOCUS_GAP: f32 = 2.0;
+const SWATCH_INSET: f32 = 3.0;
+const SWATCH_CHOSEN_WIDTH: f32 = 2.0;
 const SEGMENT_INSET: i8 = 2;
 const KEY_CAP_MARGIN: Margin = Margin::symmetric(5, 1);
 const KEY_CAP_RADIUS: u8 = 4;
@@ -177,6 +179,41 @@ pub fn icon_button(ui: &mut Ui, glyph: &str, hover: &str) -> Response {
     })
     .inner
     .on_hover_text(hover)
+}
+
+pub fn swatch(ui: &mut Ui, fill: Color32, name: &str, chosen: bool) -> Response {
+    let tokens = appearance::tokens(ui);
+    let side = ui.spacing().interact_size.y;
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(side), Sense::click());
+    if ui.is_rect_visible(rect) {
+        let colour = rect.shrink(SWATCH_INSET);
+        let radius = CornerRadius::same(WIDGET_RADIUS);
+        let outline = if response.hovered() {
+            tokens.text_muted
+        } else {
+            tokens.field_border
+        };
+        let painter = ui.painter();
+        painter.rect_filled(colour, radius, fill);
+        painter.rect_stroke(
+            colour,
+            radius,
+            Stroke::new(BORDER_WIDTH, outline),
+            StrokeKind::Inside,
+        );
+        if chosen {
+            painter.rect_stroke(
+                colour,
+                radius,
+                Stroke::new(SWATCH_CHOSEN_WIDTH, tokens.text),
+                StrokeKind::Outside,
+            );
+        }
+        if response.has_focus() {
+            paint_focus_ring(ui, rect);
+        }
+    }
+    name_button(response, name, Some(chosen)).on_hover_text(name)
 }
 
 pub fn removable_row(ui: &mut Ui, text: RichText, hover: &str) -> bool {

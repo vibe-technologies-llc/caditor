@@ -453,6 +453,7 @@ impl Menus<'_, '_> {
                     Command::Move,
                     Command::Mirror,
                     Command::Scale,
+                    Command::BodyAppearance,
                 ],
             );
             ui.separator();

@@ -2038,6 +2038,110 @@ fn a_hidden_feature_stays_hidden_through_saving_and_the_journal() {
     );
 }
 
+fn steel_appearance(document: &Document) -> caditor_document::BodyAppearance {
+    caditor_document::BodyAppearance {
+        colour: Some(caditor_document::Rgb::new(70, 130, 180)),
+        material: Some("Steel".to_owned()),
+        density: Some(document.parse("depth / 1 mm * 2.5").unwrap()),
+    }
+}
+
+#[test]
+fn a_body_appearance_survives_saving_and_the_journal() {
+    let (mut document, base, _) = solid_model();
+    let plain = encode(&document).unwrap();
+    let paint = Transaction::single(
+        "Paint Base",
+        Edit::SetBodyAppearance {
+            id: base,
+            appearance: steel_appearance(&document),
+        },
+    );
+    let unpainted = document.apply(paint.clone()).unwrap();
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&paint)).unwrap());
+    let undone: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&unpainted)).unwrap());
+
+    assert!(!plain.contains("appearance"));
+    assert!(text.contains("\"colour\":\"#4682b4\""), "{text}");
+    assert!(text.contains("\"material\":\"Steel\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(
+        loaded.document.feature(base).unwrap().appearance,
+        steel_appearance(&document)
+    );
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(paint));
+    assert_eq!(format::restore_transaction(undone), Some(unpainted));
+}
+
+#[test]
+fn an_unreadable_colour_or_density_loads_without_it_and_says_so() {
+    let (mut document, base, _) = solid_model();
+    document
+        .apply(Transaction::single(
+            "Paint Base",
+            Edit::SetBodyAppearance {
+                id: base,
+                appearance: steel_appearance(&document),
+            },
+        ))
+        .unwrap();
+    let text = encode(&document)
+        .unwrap()
+        .replace("#4682b4", "steel blue")
+        .replace(
+            &document
+                .feature(base)
+                .unwrap()
+                .appearance
+                .density
+                .as_ref()
+                .unwrap()
+                .to_stored_text(),
+            "2 +",
+        );
+
+    let loaded = decode_text(&text);
+    let appearance = &loaded.document.feature(base).unwrap().appearance;
+
+    assert_eq!(
+        loaded.issues,
+        [
+            "The colour of “Base” could not be read, so it shows in the default colour.",
+            "The density of “Base” could not be read, so it was left out. Enter it again to see \
+             the body's mass.",
+        ]
+    );
+    assert_eq!(appearance.colour, None);
+    assert_eq!(appearance.density, None);
+    assert_eq!(appearance.material.as_deref(), Some("Steel"));
+}
+
+#[test]
+fn a_damaged_hidden_feature_is_called_damaged_rather_than_of_an_unknown_kind() {
+    let (document, _, _) = solid_model();
+    let mut lines = lines_of(&document);
+    let base = lines
+        .iter()
+        .position(|line| line.contains("\"name\":\"Base\""))
+        .unwrap();
+    lines[base] =
+        "{\"feature\":{\"appearance\":{},\"hidden\":true,\"id\":1,\"name\":\"Base\",\"extrude\":7}}"
+            .to_owned();
+
+    let loaded = decode(&current_model_from_json(&lines)).unwrap();
+
+    assert!(
+        issues_mention(&loaded, "The feature “Base” is damaged and was left out."),
+        "{:?}",
+        loaded.issues
+    );
+}
+
 #[test]
 fn hidden_principal_geometry_stays_hidden_through_saving_the_journal_and_its_snapshot() {
     use caditor_document::{PrincipalAxis, PrincipalGeometry, PrincipalPlane};

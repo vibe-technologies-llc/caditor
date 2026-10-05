@@ -97,6 +97,7 @@ pub enum Command {
     Move,
     Mirror,
     Scale,
+    BodyAppearance,
     LinearPattern,
     CircularPattern,
     DatumPlane,
@@ -450,6 +451,7 @@ plain_commands! {
     Move,
     Mirror,
     Scale,
+    BodyAppearance,
     LinearPattern,
     CircularPattern,
     DatumPlane,
@@ -594,6 +596,7 @@ impl Command {
             Self::Move => "model.move",
             Self::Mirror => "model.mirror",
             Self::Scale => "model.scale",
+            Self::BodyAppearance => "model.body_appearance",
             Self::LinearPattern => "model.linear_pattern",
             Self::CircularPattern => "model.circular_pattern",
             Self::DatumPlane => "model.plane",
@@ -718,6 +721,7 @@ impl Command {
             Self::Move => "Move body",
             Self::Mirror => "Mirror body",
             Self::Scale => "Scale body",
+            Self::BodyAppearance => "Body colour and material",
             Self::LinearPattern => "Linear pattern",
             Self::CircularPattern => "Circular pattern",
             Self::DatumPlane => "Datum plane",
@@ -848,6 +852,7 @@ impl Command {
             | Self::Move
             | Self::Mirror
             | Self::Scale
+            | Self::BodyAppearance
             | Self::LinearPattern
             | Self::CircularPattern
             | Self::DatumPlane
@@ -979,6 +984,7 @@ impl Command {
             Self::VersionHistory
             | Self::KeyboardShortcuts
             | Self::ExportSketch
+            | Self::BodyAppearance
             | Self::FinishSketch
             | Self::ShapeMode(_)
             | Self::ToggleConstraintActive

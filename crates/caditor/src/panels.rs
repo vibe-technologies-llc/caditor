@@ -5,6 +5,7 @@ use egui::Id;
 
 use crate::{
     appearance::{SPACE_L, SPACE_S},
+    bodies_tree,
     commands::CommandFrame,
     editing::SketchEditing,
     feature_tree, icons,
@@ -95,6 +96,7 @@ pub struct PanelState {
     also_selected: Vec<FeatureId>,
     pub dragging: Option<TreeRow>,
     pub deleting: Option<Vec<FeatureId>>,
+    pub painting: Option<Painting>,
     pub parameter: Option<ParameterId>,
     pub hovered_in_tree: Option<Pickable>,
     pub chosen_in_tree: Option<Pickable>,
@@ -109,6 +111,12 @@ pub struct PanelState {
 struct PendingReveal {
     feature: FeatureId,
     frames_left: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Painting {
+    pub body: FeatureId,
+    pub focus_pending: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,6 +253,7 @@ impl PanelState {
     fn wants_features(&self) -> bool {
         self.renaming.is_some()
             || self.revealing.is_some()
+            || self.painting.is_some_and(|painting| painting.focus_pending)
             || matches!(
                 self.focus.map(|pending| pending.target),
                 Some(Focus::Feature(_) | Focus::Dimension { .. } | Focus::Constraint { .. })
@@ -361,5 +370,6 @@ pub fn commands(
     actions: &mut Vec<Action>,
 ) {
     feature_tree::commands(context, state, commands, actions);
+    bodies_tree::commands(context, state, commands);
     parameter_table::commands(context.model, state, commands, actions);
 }

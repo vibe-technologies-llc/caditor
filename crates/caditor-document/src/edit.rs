@@ -8,6 +8,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
 
 use crate::{
     attachment::SketchAttachment,
+    body_appearance::{BodyAppearance, MAX_MATERIAL_NAME_CHARS, material_name},
     datum::{Datum, PrincipalGeometry},
     dependencies::DependencyGraph,
     document::{
@@ -56,6 +57,10 @@ pub enum Edit {
     SetFeatureSuppressed {
         id: FeatureId,
         suppressed: bool,
+    },
+    SetBodyAppearance {
+        id: FeatureId,
+        appearance: BodyAppearance,
     },
     SetRollbackBar {
         bar: RollbackBar,
@@ -150,9 +155,8 @@ impl Transaction {
             .edits
             .iter()
             .map(|edit| match edit {
-                Edit::InsertFeature { feature, .. } => {
-                    feature.name.len() + feature.kind.approximate_size()
-                }
+                Edit::InsertFeature { feature, .. } => feature.heap_size(),
+                Edit::SetBodyAppearance { appearance, .. } => appearance.heap_size(),
                 Edit::SetFeatureKind { kind, .. } => kind.approximate_size(),
                 Edit::InsertParameter { parameter, .. } => {
                     parameter.name.len() + parameter.expression.heap_size()
@@ -220,6 +224,10 @@ pub enum EditError {
     NotASketch(String),
     #[error("{0} does not make a body")]
     NotABody(String),
+    #[error(
+        "A material name may be at most {MAX_MATERIAL_NAME_CHARS} characters long, and this one has {0}"
+    )]
+    MaterialNameTooLong(usize),
     #[error("{0} is not a plane")]
     NotAPlane(String),
     #[error("{0} is not an axis")]
@@ -236,6 +244,17 @@ pub enum EditError {
         name: String,
         users: String,
     },
+}
+
+fn check_appearance(appearance: &BodyAppearance) -> Result<(), EditError> {
+    let Some(material) = &appearance.material else {
+        return Ok(());
+    };
+    let length = material.chars().count();
+    if length > MAX_MATERIAL_NAME_CHARS {
+        return Err(EditError::MaterialNameTooLong(length));
+    }
+    Ok(())
 }
 
 fn check_storable(raw: u64) -> Result<(), EditError> {
@@ -381,6 +400,7 @@ impl Document {
             Edit::SetFeatureSuppressed { id, suppressed } => {
                 self.set_feature_suppressed(id, suppressed)
             }
+            Edit::SetBodyAppearance { id, appearance } => self.set_body_appearance(id, appearance),
             Edit::SetRollbackBar { bar } => self.set_rollback_bar(bar),
             Edit::SetPrincipalHidden { geometry, hidden } => {
                 Ok(self.set_principal_hidden(geometry, hidden))
@@ -636,7 +656,7 @@ impl Document {
             || self
                 .features
                 .iter()
-                .any(|feature| feature.kind.uses_parameter(id));
+                .any(|feature| feature.uses_parameter(id));
         if used {
             self.can_remove_parameter(id)?;
         }
@@ -721,6 +741,8 @@ impl Document {
         }
         self.check_feature_name(&feature.name, feature.id())?;
         self.check_feature_references(&feature.kind, index)?;
+        check_appearance(&feature.appearance)?;
+        self.check_parameters_exist(feature.appearance.parameters())?;
         let id = feature.id();
         self.next_feature_id = self.next_feature_id.max(id.raw().saturating_add(1));
         self.reserve_past_references(&feature.kind);
@@ -777,6 +799,26 @@ impl Document {
         Ok(Edit::SetFeatureSuppressed {
             id,
             suppressed: previous,
+        })
+    }
+
+    fn set_body_appearance(
+        &mut self,
+        id: FeatureId,
+        mut appearance: BodyAppearance,
+    ) -> Result<Edit, EditError> {
+        appearance.material = appearance.material.as_deref().and_then(material_name);
+        let existing = self.feature(id).ok_or(EditError::MissingFeature)?;
+        if !existing.makes_body() {
+            return Err(EditError::NotABody(existing.name.clone()));
+        }
+        check_appearance(&appearance)?;
+        self.check_parameters_exist(appearance.parameters())?;
+        let feature = self.feature_mut(id)?;
+        let previous = std::mem::replace(&mut feature.appearance, appearance);
+        Ok(Edit::SetBodyAppearance {
+            id,
+            appearance: previous,
         })
     }
 

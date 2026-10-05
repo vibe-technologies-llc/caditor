@@ -133,7 +133,9 @@ paths:
   when hovered or selected. The conversion worker also computes each body's `BodyMass` (volume,
   area, centroid, bounding-box size), exact only for flat faces and straight edges, else the
   mesh's chord approximation, which the UI marks as approximate.
-- While a sketch is edited, bodies are dimmed and not pickable.
+- A body is drawn in its appearance colour, else the default (`body_appearance::DEFAULT_COLOUR`);
+  a failed or outdated feature on it tints it as before. While a sketch is edited, bodies are
+  dimmed and not pickable.
 
 ## Offers
 
@@ -151,7 +153,9 @@ paths:
   nothing jumps; the measured line in the view comes only from the current readout.
 - A `Readout` is a card per item and, for two items, a "Between them" card; more than two asks for
   fewer. Approximate values are marked with a note, a callout under its card. Mass properties are
-  read each frame from `BodyMass` for the selected items' bodies, else every shown body.
+  read each frame from `BodyMass` for the selected items' bodies, else every shown body, with the
+  body's material and its mass from the density (No density set without one, a warning note when
+  the density cannot be evaluated).
 - The closest points are drawn on the front layer (`scene::add_measurement`) with a distance
   label in `canvas::MEASURE`.
 
