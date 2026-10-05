@@ -18,13 +18,32 @@ pub enum Target {
     Point(EntityId),
     Curve(EntityId),
     Midpoint(EntityId),
+    Intersection(EntityId, EntityId),
 }
 
 impl Target {
+    #[cfg(test)]
+    pub fn min_ordered(self) -> Self {
+        match self {
+            Self::Intersection(a, b) => Self::Intersection(a.min(b), a.max(b)),
+            other => other,
+        }
+    }
+
+    pub fn second_entity(self) -> Option<EntityId> {
+        match self {
+            Self::Intersection(_, second) => Some(second),
+            Self::Pending(_) | Self::Point(_) | Self::Curve(_) | Self::Midpoint(_) => None,
+        }
+    }
+
     pub fn entity(self) -> Option<EntityId> {
         match self {
             Self::Pending(_) => None,
-            Self::Point(entity) | Self::Curve(entity) | Self::Midpoint(entity) => Some(entity),
+            Self::Point(entity)
+            | Self::Curve(entity)
+            | Self::Midpoint(entity)
+            | Self::Intersection(entity, _) => Some(entity),
         }
     }
 }
@@ -84,7 +103,8 @@ pub fn resolve(
     nearest(pending, POINT_TOLERANCE)
         .or_else(|| nearest(points, POINT_TOLERANCE))
         .or_else(|| match accept {
-            Accept::Anything => nearest(midpoints(sketch), POINT_TOLERANCE),
+            Accept::Anything => nearest(midpoints(sketch), POINT_TOLERANCE)
+                .or_else(|| nearest(intersections(sketch, screen, pointer), POINT_TOLERANCE)),
             Accept::Points | Accept::OnCircle { .. } => None,
         })
         .or_else(|| match accept {
@@ -116,6 +136,129 @@ pub fn points(sketch: &Sketch) -> Vec<Snapped> {
         | Entity::Spline { .. } => None,
     });
     std::iter::once(origin).chain(drawn).collect()
+}
+
+const NEAR_CURVE_PIXELS: f64 = 4.0 * POINT_TOLERANCE;
+const MAX_CROSSING_CURVES: usize = 12;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Geometry {
+    Infinite(Point2, Vector2),
+    Segment(Point2, Point2),
+    Circle(Point2, f64),
+    Arc(ArcGeometry),
+}
+
+fn geometry(sketch: &Sketch, id: EntityId) -> Option<Geometry> {
+    if id == EntityId::HORIZONTAL_AXIS {
+        return Some(Geometry::Infinite(Point2::ZERO, Vector2::X));
+    }
+    if id == EntityId::VERTICAL_AXIS {
+        return Some(Geometry::Infinite(Point2::ZERO, Vector2::Y));
+    }
+    match sketch.entity(id)? {
+        Entity::Line { .. } => sketch
+            .line_endpoints(id)
+            .map(|(start, end)| Geometry::Segment(start, end)),
+        Entity::Circle { .. } => sketch
+            .circle(id)
+            .map(|(center, radius)| Geometry::Circle(center, radius)),
+        Entity::Arc { .. } => sketch.arc(id).map(Geometry::Arc),
+        Entity::Point(_) | Entity::Spline { .. } => None,
+    }
+}
+
+fn straight(geometry: Geometry) -> Option<(Point2, Vector2, bool)> {
+    match geometry {
+        Geometry::Infinite(through, along) => Some((through, along, false)),
+        Geometry::Segment(start, end) => Some((start, end - start, true)),
+        Geometry::Circle(..) | Geometry::Arc(_) => None,
+    }
+}
+
+fn round(geometry: Geometry) -> Option<(Point2, f64, Option<ArcGeometry>)> {
+    match geometry {
+        Geometry::Circle(center, radius) => Some((center, radius, None)),
+        Geometry::Arc(arc) => Some((arc.center, arc.radius, Some(arc))),
+        Geometry::Infinite(..) | Geometry::Segment(..) => None,
+    }
+}
+
+fn hits(first: Geometry, second: Geometry) -> Vec<Point2> {
+    let on_arc = |arc: Option<ArcGeometry>, position: &Point2| {
+        arc.is_none_or(|arc| within_sweep(&arc, *position))
+    };
+    match (
+        straight(first),
+        straight(second),
+        round(first),
+        round(second),
+    ) {
+        (Some((through, along, bounded)), Some((origin, direction, other_bounded)), _, _) => {
+            let Some((fraction, position)) = straight_crossing(through, along, origin, direction)
+            else {
+                return Vec::new();
+            };
+            let own = (position - through).dot(along) / along.length_squared();
+            let inside = |bounded: bool, fraction: f64| !bounded || (0.0..=1.0).contains(&fraction);
+            (inside(bounded, own) && inside(other_bounded, fraction))
+                .then_some(position)
+                .into_iter()
+                .collect()
+        }
+        (Some((through, along, bounded)), None, None, Some((center, radius, arc)))
+        | (None, Some((through, along, bounded)), Some((center, radius, arc)), None) => {
+            line_crossings(through, along, center, radius)
+                .into_iter()
+                .filter(|(fraction, _)| !bounded || (0.0..=1.0).contains(fraction))
+                .map(|(_, position)| position)
+                .filter(|position| on_arc(arc, position))
+                .collect()
+        }
+        (None, None, Some((center, radius, arc)), Some((other, other_radius, other_arc))) => {
+            circle_crossings(center, radius, other, other_radius)
+                .into_iter()
+                .filter(|position| on_arc(arc, position) && on_arc(other_arc, position))
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn intersections(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Vec<Snapped> {
+    let mut near: Vec<(f64, EntityId, Geometry)> = curves(sketch, pointer.sketch)
+        .into_iter()
+        .filter_map(|candidate| {
+            let Target::Curve(id) = candidate.target else {
+                return None;
+            };
+            let distance = screen
+                .to_screen(candidate.position)?
+                .distance(pointer.screen);
+            (distance <= NEAR_CURVE_PIXELS).then_some((distance, id, geometry(sketch, id)?))
+        })
+        .collect();
+    near.sort_by(|a, b| a.0.total_cmp(&b.0));
+    near.truncate(MAX_CROSSING_CURVES);
+    let mut found = Vec::new();
+    for (index, (_, first, first_geometry)) in near.iter().enumerate() {
+        for (_, second, second_geometry) in near.iter().skip(index + 1) {
+            let (low, high) = if first <= second {
+                (*first, *second)
+            } else {
+                (*second, *first)
+            };
+            found.extend(
+                hits(*first_geometry, *second_geometry)
+                    .into_iter()
+                    .map(|position| Snapped {
+                        position,
+                        target: Target::Intersection(low, high),
+                    }),
+            );
+        }
+    }
+    found
 }
 
 fn midpoints(sketch: &Sketch) -> Vec<Snapped> {
@@ -436,6 +579,54 @@ pub mod tests {
             },
         );
         assert_eq!(on_circle, None);
+    }
+
+    #[test]
+    fn where_two_curves_cross_is_a_snap_target_ahead_of_either_curve() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let across = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(40.0, 40.0));
+        let level = sketch.add_line(Point2::new(5.0, 20.0), Point2::new(55.0, 20.0));
+        let circle = sketch.add_circle(Point2::new(60.0, 20.0), 10.0);
+
+        let crossing = resolve_at(&sketch, Point2::new(20.4, 20.6)).unwrap();
+        assert_eq!(crossing.target, Target::Intersection(across, level));
+        assert!(crossing.position.distance(Point2::new(20.0, 20.0)) < 1e-9);
+        assert_eq!(crossing.target.second_entity(), Some(level));
+
+        let on_rim = resolve_at(&sketch, Point2::new(50.3, 20.4)).unwrap();
+        assert_eq!(
+            on_rim.target,
+            Target::Intersection(level, circle).min_ordered()
+        );
+        assert!(on_rim.position.distance(Point2::new(50.0, 20.0)) < 1e-9);
+    }
+
+    #[test]
+    fn curves_that_do_not_reach_each_other_have_no_crossing_to_snap_to() {
+        let mut sketch = Sketch::new(Plane::XY);
+        sketch.add_line(Point2::new(10.0, 10.0), Point2::new(18.0, 18.0));
+        let level = sketch.add_line(Point2::new(5.0, 20.0), Point2::new(45.0, 20.0));
+
+        let near_the_gap = resolve_at(&sketch, Point2::new(20.0, 20.3)).unwrap();
+
+        assert_eq!(near_the_gap.target, Target::Curve(level));
+    }
+
+    #[test]
+    fn the_axes_cross_other_curves_where_they_are_snapped() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::new(10.0, -6.0), Point2::new(10.0, 14.0));
+
+        let crossing = resolve_at(&sketch, Point2::new(10.3, 0.4)).unwrap();
+
+        assert_eq!(
+            crossing.target,
+            Target::Intersection(
+                EntityId::HORIZONTAL_AXIS.min(line),
+                EntityId::HORIZONTAL_AXIS.max(line)
+            )
+        );
+        assert!(crossing.position.distance(Point2::new(10.0, 0.0)) < 1e-9);
     }
 
     #[test]

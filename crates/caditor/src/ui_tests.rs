@@ -3553,6 +3553,45 @@ fn a_line_started_on_the_origin_is_joined_to_it() {
 }
 
 #[test]
+fn a_point_placed_where_two_lines_cross_is_held_on_both() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(70.0, 50.0));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.click_at(Point2::new(10.0, 40.0));
+    harness.click_at(Point2::new(50.0, 20.0));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let lines = entities_of_kind(harness.sketch(feature), "Line");
+    let [first, second] = lines[..] else {
+        panic!("two lines are drawn");
+    };
+
+    let along = 30.0 / (2.0 / 3.0 + 0.5);
+    let crossing = Point2::new(10.0 + along, 40.0 - 0.5 * along);
+    harness.use_tool(Key::P);
+    harness.point_at(Point2::new(crossing.x + 0.3, crossing.y + 0.4));
+    assert!(harness.shows(&format!("Crossing of Line {first} and Line {second}")));
+    harness.click_at(Point2::new(crossing.x + 0.3, crossing.y + 0.4));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let point = *entities_of_kind(sketch, "Point").last().unwrap();
+    assert!(near(sketch.point(point).unwrap(), crossing));
+    let held: Vec<EntityId> = constraints_of_kind(sketch, "Coincident")
+        .into_iter()
+        .filter_map(|constraint| match constraint {
+            Constraint::Coincident(a, b) if a == point => Some(b),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(held, vec![first, second]);
+}
+
+#[test]
 fn a_line_started_at_the_middle_of_another_is_held_at_its_midpoint() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();

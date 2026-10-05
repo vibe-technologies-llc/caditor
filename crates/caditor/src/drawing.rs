@@ -420,7 +420,9 @@ fn shortest_turn(from: f64, to: f64) -> f64 {
 fn point_target(snap: Snap) -> Option<EntityId> {
     match snap.target()? {
         Target::Point(point) => Some(point),
-        Target::Pending(_) | Target::Curve(_) | Target::Midpoint(_) => None,
+        Target::Pending(_) | Target::Curve(_) | Target::Midpoint(_) | Target::Intersection(..) => {
+            None
+        }
     }
 }
 
@@ -493,6 +495,7 @@ impl Drawing {
             .snap
             .entity()
             .into_iter()
+            .chain(hover.snap.target().and_then(Target::second_entity))
             .chain(hover.snap.direction().and_then(Direction::reference))
             .collect()
     }
@@ -1329,6 +1332,11 @@ impl Drawing {
             }
             Target::Point(EntityId::ORIGIN) => "Origin".to_owned(),
             Target::Midpoint(line) => format!("Midpoint of {}", sketch.entity_label(line)),
+            Target::Intersection(first, second) => format!(
+                "Crossing of {} and {}",
+                sketch.entity_label(first),
+                sketch.entity_label(second)
+            ),
             Target::Point(entity) | Target::Curve(entity) => {
                 format!("On {}", sketch.entity_label(entity))
             }
@@ -1652,7 +1660,7 @@ fn aligned_on(
     };
     match snapped.target {
         Target::Pending(_) => None,
-        Target::Point(_) | Target::Midpoint(_) => {
+        Target::Point(_) | Target::Midpoint(_) | Target::Intersection(..) => {
             held(start, snapped.position, guides).map(|direction| on(snapped.position, direction))
         }
         Target::Curve(curve) => alignments(start, screen, pointer, guides)
@@ -1830,6 +1838,10 @@ impl<'a> Draft<'a> {
         let point = self.entity(Entity::Point(placement.position));
         match placement.snap.target() {
             Some(Target::Midpoint(line)) => self.constrain(Constraint::Midpoint { point, line }),
+            Some(Target::Intersection(first, second)) => {
+                self.constrain(Constraint::Coincident(point, first));
+                self.constrain(Constraint::Coincident(point, second));
+            }
             _ => {
                 if let Some(target) = placement.snap.entity() {
                     self.constrain(Constraint::Coincident(point, target));
