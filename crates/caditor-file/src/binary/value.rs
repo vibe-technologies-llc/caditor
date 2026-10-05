@@ -74,23 +74,19 @@ pub(crate) enum ValueError {
     WrongLength { found: usize, expected: String },
     #[error("a value is {found} where {expected} was expected")]
     WrongType { found: String, expected: String },
-    #[error("a type refused its stored value: {reason}")]
-    Refused { reason: String },
+    #[error("a type refused its stored value")]
+    Refused,
 }
 
 impl ser::Error for ValueError {
-    fn custom<T: Display>(message: T) -> Self {
-        Self::Refused {
-            reason: message.to_string(),
-        }
+    fn custom<T: Display>(_message: T) -> Self {
+        Self::Refused
     }
 }
 
 impl de::Error for ValueError {
-    fn custom<T: Display>(message: T) -> Self {
-        Self::Refused {
-            reason: message.to_string(),
-        }
+    fn custom<T: Display>(_message: T) -> Self {
+        Self::Refused
     }
 
     fn invalid_type(found: de::Unexpected<'_>, expected: &dyn de::Expected) -> Self {

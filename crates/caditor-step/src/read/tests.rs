@@ -849,3 +849,64 @@ fn a_file_without_solids_says_its_schema_and_what_it_holds() {
          wireframe); caditor imports closed solids only"
     );
 }
+
+#[test]
+fn a_file_whose_only_solid_cannot_be_rebuilt_names_it_the_entity_and_the_reason() {
+    let bent = faceted_cube("FACETED_BREP('cube',#40)", false)
+        .replace("(10.0,10.0,10.0)", "(10.0,10.0,10.0005)");
+
+    let error = read_step(&bent).unwrap_err();
+
+    let ReadError::NotRebuilt {
+        name,
+        entity,
+        reason,
+    } = &error
+    else {
+        panic!("{error:?}");
+    };
+    assert_eq!(name, "cube");
+    assert!(*entity > 0);
+    assert!(reason.contains("meet only within"), "{reason}");
+    assert_eq!(
+        error.to_string(),
+        format!("“cube” could not be rebuilt, because its entity #{entity} {reason}")
+    );
+}
+
+#[test]
+fn every_misplacement_says_what_was_left_out() {
+    use crate::read::Misplacement;
+
+    let notes: Vec<String> = [
+        Misplacement::InsideItself,
+        Misplacement::Unreadable,
+        Misplacement::TooDeep,
+        Misplacement::SomeCopiesUnreadable,
+        Misplacement::CopyNotRigid,
+    ]
+    .into_iter()
+    .map(|misplacement| misplacement.note("Arm"))
+    .collect();
+
+    assert!(
+        notes
+            .iter()
+            .all(|note| note.contains("“Arm”") && note.ends_with('.'))
+    );
+    assert_eq!(
+        notes
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        5
+    );
+    let error = ReadError::NotPlaced {
+        name: "Arm".to_owned(),
+        misplacement: Misplacement::InsideItself,
+    };
+    assert_eq!(
+        error.to_string(),
+        "“Arm” was left out, because the assembly places it inside itself"
+    );
+}

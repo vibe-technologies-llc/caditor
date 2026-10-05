@@ -65,6 +65,8 @@ paths:
 - An import is an `import` record (source name, STEP text); one that cannot be read loads empty,
   reported. Parsing goes through `step_cache.rs`, a process-wide LRU cache of solids by the blake3
   digest of the text, so a load, a journal replay and a recovery scan parse each import once.
+- `ValueError::Refused` is what serde's `custom` becomes and carries no message: no type of ours
+  raises it, only serde's own derives.
 - Unreadable values become reported fallbacks (the `restore_*` functions in `format.rs`), never
   refuse the file: each says what was set to what and keeps the feature.
 

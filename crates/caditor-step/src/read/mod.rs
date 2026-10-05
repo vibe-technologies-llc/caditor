@@ -114,8 +114,62 @@ pub enum ReadError {
     Damaged(usize),
     #[error("it holds no solid bodies{0}; caditor imports closed solids only")]
     NoSolids(Held),
-    #[error("{0}")]
-    Unreadable(String),
+    #[error("“{name}” could not be rebuilt, because its entity #{entity} {reason}")]
+    NotRebuilt {
+        name: String,
+        entity: u64,
+        reason: String,
+    },
+    #[error("{}", .misplacement.note(.name).trim_end_matches('.'))]
+    NotPlaced {
+        name: String,
+        misplacement: Misplacement,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Misplacement {
+    InsideItself,
+    Unreadable,
+    TooDeep,
+    SomeCopiesUnreadable,
+    CopyNotRigid,
+}
+
+impl Misplacement {
+    pub fn note(self, name: &str) -> String {
+        match self {
+            Self::InsideItself => {
+                format!("“{name}” was left out, because the assembly places it inside itself.")
+            }
+            Self::Unreadable => format!(
+                "“{name}” was left out, because its placement in the assembly could not be read \
+                 or is not a rigid move."
+            ),
+            Self::TooDeep => format!(
+                "“{name}” was left out, because the assembly nests it more than {MAX_DEPTH} \
+                 levels deep."
+            ),
+            Self::SomeCopiesUnreadable => format!(
+                "Some copies of “{name}” were left out, because their placement in the assembly \
+                 could not be read or is not a rigid move."
+            ),
+            Self::CopyNotRigid => format!(
+                "A copy of “{name}” was left out, because its placement in the assembly is not a \
+                 rigid move."
+            ),
+        }
+    }
+}
+
+impl From<Unplaced> for Misplacement {
+    fn from(reason: Unplaced) -> Self {
+        match reason {
+            Unplaced::InsideItself => Self::InsideItself,
+            Unplaced::Unreadable => Self::Unreadable,
+            Unplaced::TooDeep => Self::TooDeep,
+        }
+    }
 }
 
 pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
@@ -183,14 +237,11 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
             None => Placements::at_origin(),
         };
         if let Some(reason) = placements.unplaced {
-            unplaced.push(unplaced_note(&name, reason));
+            unplaced.push((name, reason.into()));
             continue;
         }
         if placements.left_out {
-            unplaced.push(format!(
-                "Some copies of “{name}” were left out, because their placement in the assembly \
-                 could not be read or is not a rigid move."
-            ));
+            unplaced.push((name.clone(), Misplacement::SomeCopiesUnreadable));
         }
         if placements.transforms.len() > budget {
             structure.truncated = true;
@@ -249,10 +300,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
                     });
                 }
                 if misplaced {
-                    unplaced.push(format!(
-                        "A copy of “{name}” was left out, because its placement in the assembly \
-                         is not a rigid move."
-                    ));
+                    unplaced.push((name.clone(), Misplacement::CopyNotRigid));
                 }
             }
             Err(problem) => {
@@ -266,7 +314,11 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
             "“{name}” could not be imported, because its entity {problem}."
         ));
     }
-    model.notes.extend(unplaced.iter().cloned());
+    model.notes.extend(
+        unplaced
+            .iter()
+            .map(|(name, misplacement)| misplacement.note(name)),
+    );
     model.notes.extend(unchecked_notes);
     model.notes.extend(damage_notes(&exchange));
     if structure.truncated {
@@ -322,10 +374,12 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
     if model.solids.is_empty() {
         return Err(
             match (failures.into_iter().next(), unplaced.into_iter().next()) {
-                (Some((name, problem)), _) => ReadError::Unreadable(format!(
-                    "“{name}” could not be rebuilt, because its entity {problem}"
-                )),
-                (None, Some(note)) => ReadError::Unreadable(note.trim_end_matches('.').to_owned()),
+                (Some((name, problem)), _) => ReadError::NotRebuilt {
+                    name,
+                    entity: problem.entity,
+                    reason: problem.reason,
+                },
+                (None, Some((name, misplacement))) => ReadError::NotPlaced { name, misplacement },
                 (None, None) => ReadError::NoSolids(Held {
                     schema: file_schema(&exchange),
                     surface_bodies: skipped,
@@ -394,22 +448,6 @@ fn unit_name(millimetres: f64) -> String {
             || format!("units of {millimetres} mm"),
             |(_, name)| (*name).to_owned(),
         )
-}
-
-fn unplaced_note(name: &str, reason: Unplaced) -> String {
-    match reason {
-        Unplaced::InsideItself => {
-            format!("“{name}” was left out, because the assembly places it inside itself.")
-        }
-        Unplaced::Unreadable => format!(
-            "“{name}” was left out, because its placement in the assembly could not be read or \
-             is not a rigid move."
-        ),
-        Unplaced::TooDeep => format!(
-            "“{name}” was left out, because the assembly nests it more than {MAX_DEPTH} levels \
-             deep."
-        ),
-    }
 }
 
 fn unchecked_note(name: &str, [first, second]: [u64; 2]) -> String {

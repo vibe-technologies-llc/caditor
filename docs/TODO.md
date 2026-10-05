@@ -471,13 +471,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   and their dimensions refer to edges by name, so they survive edits as features do. Hidden-line
   removal (also wanted for the Viewer's display styles) comes first.
 
-## Code health
-
-- [medium · medium] Error enums keep catch-all variants that wrap a formatted message, against the
-  specific-variant rule: `ReadError::Unreadable` (the STEP reader's first failed body or unplaced
-  note) and `ValueError::Refused` (serde's `custom`, which only a type's own `Deserialize` raises).
-  Give each failure its own variant carrying typed data.
-
 ## Checks and CI
 
 - [medium · medium] `tests/crash_flush.rs` runs the crash protection with a real storage worker in a
