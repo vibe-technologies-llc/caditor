@@ -3553,6 +3553,34 @@ fn a_line_started_on_the_origin_is_joined_to_it() {
 }
 
 #[test]
+fn a_line_started_at_the_middle_of_another_is_held_at_its_midpoint() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(50.0, 10.0));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    harness.use_tool(Key::L);
+    harness.point_at(Point2::new(30.4, 10.5));
+    let base = entities_of_kind(harness.sketch(feature), "Line")[0];
+    assert!(harness.shows(&format!("Midpoint of Line {base}")));
+    harness.click_at(Point2::new(30.4, 10.5));
+    harness.click_at(Point2::new(30.0, 40.0));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let midpoints = constraints_of_kind(sketch, "Midpoint");
+    let [Constraint::Midpoint { point, line }] = midpoints[..] else {
+        panic!("one midpoint constraint is expected");
+    };
+    assert_eq!(line, base);
+    assert!(near(sketch.point(point).unwrap(), Point2::new(30.0, 10.0)));
+}
+
+#[test]
 fn a_point_dropped_on_a_line_stays_on_it() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
@@ -3564,10 +3592,10 @@ fn a_point_dropped_on_a_line_stays_on_it() {
     harness.settle();
     harness.use_tool(Key::P);
     assert!(harness.shows("Click to place a point"));
-    harness.point_at(Point2::new(25.5, 25.0));
+    harness.point_at(Point2::new(30.5, 30.0));
     let line = entities_of_kind(harness.sketch(feature), "Line")[0];
     assert!(harness.shows(&format!("On Line {line}")));
-    harness.click_at(Point2::new(25.5, 25.0));
+    harness.click_at(Point2::new(30.5, 30.0));
 
     let sketch = harness.sketch(feature);
     let point = *entities_of_kind(sketch, "Point").last().unwrap();

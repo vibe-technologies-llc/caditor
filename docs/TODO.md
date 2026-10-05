@@ -176,8 +176,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] No size readout while drawing splines or arc slots; no closed-region or open-end
   feedback while sketching (only a failed extrusion names a sketch's open ends); and no
   smart-dimension tool that takes the entities after the command.
-- [medium · medium] Snapping has no midpoints, intersections (only an arc's end snaps to crossings),
-  spline targets, grid or inference lines to other points, cannot be turned off for good (Ctrl
+- [medium · medium] Snapping has no midpoints of arcs, intersections (only an arc's end snaps to
+  crossings), spline targets, grid or inference lines to other points, cannot be turned off for good (Ctrl
   suppresses it while drawing only), and dragged geometry does not snap at all.
 - [medium · hard] Tools missing: ellipse (a new entity kind across the solver, the kernel's 2D
   profile curves, which have no ellipse although its 3D curves do, and the file format), sketch

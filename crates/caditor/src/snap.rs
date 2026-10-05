@@ -17,13 +17,14 @@ pub enum Target {
     Pending(usize),
     Point(EntityId),
     Curve(EntityId),
+    Midpoint(EntityId),
 }
 
 impl Target {
     pub fn entity(self) -> Option<EntityId> {
         match self {
             Self::Pending(_) => None,
-            Self::Point(entity) | Self::Curve(entity) => Some(entity),
+            Self::Point(entity) | Self::Curve(entity) | Self::Midpoint(entity) => Some(entity),
         }
     }
 }
@@ -83,6 +84,10 @@ pub fn resolve(
     nearest(pending, POINT_TOLERANCE)
         .or_else(|| nearest(points, POINT_TOLERANCE))
         .or_else(|| match accept {
+            Accept::Anything => nearest(midpoints(sketch), POINT_TOLERANCE),
+            Accept::Points | Accept::OnCircle { .. } => None,
+        })
+        .or_else(|| match accept {
             Accept::Anything => nearest(curves(sketch, pointer.sketch), CURVE_TOLERANCE),
             Accept::Points => None,
             Accept::OnCircle { center, radius } => {
@@ -111,6 +116,22 @@ pub fn points(sketch: &Sketch) -> Vec<Snapped> {
         | Entity::Spline { .. } => None,
     });
     std::iter::once(origin).chain(drawn).collect()
+}
+
+fn midpoints(sketch: &Sketch) -> Vec<Snapped> {
+    sketch
+        .entities()
+        .filter_map(|(id, entity)| {
+            let Entity::Line { .. } = entity else {
+                return None;
+            };
+            let (start, end) = sketch.line_endpoints(id)?;
+            Some(Snapped {
+                position: start.midpoint(end),
+                target: Target::Midpoint(id),
+            })
+        })
+        .collect()
 }
 
 fn curves(sketch: &Sketch, at: Point2) -> Vec<Snapped> {
@@ -378,12 +399,43 @@ pub mod tests {
         assert_eq!(near_start.target, Target::Point(start));
         assert_eq!(near_start.position, Point2::new(10.0, 10.0));
 
-        let on_line = resolve_at(&sketch, Point2::new(20.0, 10.5)).unwrap();
+        let on_line = resolve_at(&sketch, Point2::new(16.0, 10.5)).unwrap();
         assert_eq!(on_line.target, Target::Curve(line));
-        assert_eq!(on_line.position, Point2::new(20.0, 10.0));
+        assert_eq!(on_line.position, Point2::new(16.0, 10.0));
 
-        assert_eq!(resolve_at(&sketch, Point2::new(20.0, 10.7)), None);
+        assert_eq!(resolve_at(&sketch, Point2::new(16.0, 10.7)), None);
         assert_eq!(resolve_at(&sketch, Point2::new(10.0, 10.9)), None);
+    }
+
+    #[test]
+    fn the_middle_of_a_line_is_a_snap_target_ahead_of_the_line_but_not_of_points_or_circles() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(30.0, 10.0));
+
+        let middle = resolve_at(&sketch, Point2::new(20.4, 10.6)).unwrap();
+        assert_eq!(middle.target, Target::Midpoint(line));
+        assert_eq!(middle.position, Point2::new(20.0, 10.0));
+        assert_eq!(middle.target.entity(), Some(line));
+
+        let only_points = resolve(
+            &sketch,
+            &Scaled(10.0),
+            pointer_at(Point2::new(20.4, 10.6)),
+            &[],
+            Accept::Points,
+        );
+        assert_eq!(only_points, None);
+        let on_circle = resolve(
+            &sketch,
+            &Scaled(10.0),
+            pointer_at(Point2::new(20.4, 10.6)),
+            &[],
+            Accept::OnCircle {
+                center: Point2::new(20.0, 10.0),
+                radius: 50.0,
+            },
+        );
+        assert_eq!(on_circle, None);
     }
 
     #[test]

@@ -420,7 +420,7 @@ fn shortest_turn(from: f64, to: f64) -> f64 {
 fn point_target(snap: Snap) -> Option<EntityId> {
     match snap.target()? {
         Target::Point(point) => Some(point),
-        Target::Pending(_) | Target::Curve(_) => None,
+        Target::Pending(_) | Target::Curve(_) | Target::Midpoint(_) => None,
     }
 }
 
@@ -1328,6 +1328,7 @@ impl Drawing {
                 format!("Continue {}", sketch.entity_label(tangent.curve))
             }
             Target::Point(EntityId::ORIGIN) => "Origin".to_owned(),
+            Target::Midpoint(line) => format!("Midpoint of {}", sketch.entity_label(line)),
             Target::Point(entity) | Target::Curve(entity) => {
                 format!("On {}", sketch.entity_label(entity))
             }
@@ -1651,7 +1652,7 @@ fn aligned_on(
     };
     match snapped.target {
         Target::Pending(_) => None,
-        Target::Point(_) => {
+        Target::Point(_) | Target::Midpoint(_) => {
             held(start, snapped.position, guides).map(|direction| on(snapped.position, direction))
         }
         Target::Curve(curve) => alignments(start, screen, pointer, guides)
@@ -1827,8 +1828,13 @@ impl<'a> Draft<'a> {
 
     fn point(&mut self, placement: Placement) -> EntityId {
         let point = self.entity(Entity::Point(placement.position));
-        if let Some(target) = placement.snap.entity() {
-            self.constrain(Constraint::Coincident(point, target));
+        match placement.snap.target() {
+            Some(Target::Midpoint(line)) => self.constrain(Constraint::Midpoint { point, line }),
+            _ => {
+                if let Some(target) = placement.snap.entity() {
+                    self.constrain(Constraint::Coincident(point, target));
+                }
+            }
         }
         point
     }
@@ -2428,15 +2434,16 @@ mod tests {
     #[test]
     fn a_line_ending_on_a_curve_keeps_its_direction_where_it_crosses() {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
-        let slanted = sketch.add_line(Point2::new(0.0, 40.0), Point2::new(60.0, 70.0));
+        let slanted = sketch.add_line(Point2::new(0.0, 40.0), Point2::new(70.0, 70.0));
         let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::new(30.0, 10.0)));
+        let crossing = 40.0 + 30.0 * 30.0 / 70.0;
 
-        let upright = hovered_at(&mut drawing, &sketch, Point2::new(30.3, 55.2)).unwrap();
+        let upright = hovered_at(&mut drawing, &sketch, Point2::new(30.3, crossing + 0.2)).unwrap();
         assert_eq!(
             upright.snap,
             Snap::AlignedOn(Target::Curve(slanted), Direction::Vertical)
         );
-        assert!(upright.position.distance(Point2::new(30.0, 55.0)) < 1e-12);
+        assert!(upright.position.distance(Point2::new(30.0, crossing)) < 1e-12);
         assert_eq!(
             drawing.snap_label(&sketch),
             Some(format!("On Line {slanted}, vertical"))
