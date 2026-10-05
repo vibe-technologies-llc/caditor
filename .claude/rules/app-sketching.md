@@ -208,6 +208,11 @@ paths:
   "(disabled)".
 - Dimensions start at the displayed geometry's measured value. Every sketch transaction first
   settles the sketch to the last result when up to date (`Model::settled_sketch`).
+- A new dimension whose every entity is `EntityState::FullyConstrained` in the settled solution
+  (`Model::settled_solution`, none while a recompute is pending) is already determined, so it is
+  added inactive in the same transaction, labelled "Add reference ...", with a notice saying it
+  shows the measured value and can be enabled to drive. It takes no focus for typing a value. The
+  test is conservative: a circle counts only when its centre and radius are both determined.
 - Constraint states, degrees of freedom and redundancies come from the last evaluation
   (`sketch_status.rs`, `scene.rs`), never from solving on the UI thread (drags solve on their own
   worker).

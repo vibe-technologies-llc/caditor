@@ -7,14 +7,15 @@ use std::{
 
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
-    ModelEvaluator, Outcome, ParameterValues, Prepared, Progress, Recomputer, Stale, Transaction,
+    ModelEvaluator, Outcome, ParameterValues, Prepared, Progress, Recomputer, SketchResult, Stale,
+    Transaction,
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, JournalEntry, JournalFailure, Recovered, Report, SaveRequest,
     Start, Storage, StorageConfig,
 };
 use caditor_kernel::MeshQuality;
-use caditor_sketch::Sketch;
+use caditor_sketch::{Sketch, SketchSolution};
 use parking_lot::Mutex;
 
 use crate::{
@@ -362,6 +363,14 @@ impl Model {
     }
 
     pub fn settled_sketch(&self, feature: FeatureId) -> Option<&Sketch> {
+        self.settled_result(feature).map(|result| &result.geometry)
+    }
+
+    pub fn settled_solution(&self, feature: FeatureId) -> Option<&SketchSolution> {
+        self.settled_result(feature).map(|result| &result.solution)
+    }
+
+    fn settled_result(&self, feature: FeatureId) -> Option<&SketchResult> {
         if self.status != RecomputeStatus::UpToDate {
             return None;
         }
@@ -369,11 +378,7 @@ impl Model {
         if status.state != FeatureState::UpToDate {
             return None;
         }
-        status
-            .result
-            .as_deref()?
-            .sketch()
-            .map(|result| &result.geometry)
+        status.result.as_deref()?.sketch()
     }
 
     pub fn path(&self) -> Option<&Path> {

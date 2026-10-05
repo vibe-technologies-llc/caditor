@@ -3,7 +3,9 @@ use std::collections::BTreeSet;
 use caditor_document::{Edit, FeatureId, Transaction, TransactionBuilder};
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Reference, Sketch};
+use caditor_sketch::{
+    Constraint, ConstraintId, Entity, EntityId, EntityState, Reference, Sketch, SketchSolution,
+};
 
 use crate::{
     feature_tree::count,
@@ -669,6 +671,7 @@ pub fn selected_constraints(selection: &Selection, feature: FeatureId) -> Vec<Co
 pub struct Added {
     pub transaction: Transaction,
     pub constraints: Vec<ConstraintId>,
+    pub references: Vec<ConstraintId>,
 }
 
 pub fn add_constraints(
@@ -677,15 +680,45 @@ pub fn add_constraints(
     tool: ConstraintTool,
     constraints: Vec<Constraint>,
 ) -> Added {
-    let mut transaction = settled_transaction(model, feature, format!("Add {}", tool.label()));
-    let constraints = constraints
+    let solution = model
+        .settled_solution(feature)
+        .filter(|_| tool.is_dimension());
+    let determined: Vec<bool> = constraints
+        .iter()
+        .map(|constraint| solution.is_some_and(|solution| determines(solution, constraint)))
+        .collect();
+    let label = if determined.iter().all(|determined| *determined) && !determined.is_empty() {
+        format!("Add reference {}", tool.label())
+    } else {
+        format!("Add {}", tool.label())
+    };
+    let mut transaction = settled_transaction(model, feature, label);
+    let constraints: Vec<ConstraintId> = constraints
         .into_iter()
         .map(|constraint| transaction.add_sketch_constraint(feature, constraint))
         .collect();
+    let references: Vec<ConstraintId> = constraints
+        .iter()
+        .zip(&determined)
+        .filter(|(_, determined)| **determined)
+        .map(|(id, _)| *id)
+        .collect();
+    for id in &references {
+        transaction.set_sketch_constraint_active(feature, *id, false);
+    }
     Added {
         transaction: transaction.finish(),
         constraints,
+        references,
     }
+}
+
+fn determines(solution: &SketchSolution, constraint: &Constraint) -> bool {
+    constraint.dimension().is_some()
+        && constraint
+            .entities()
+            .into_iter()
+            .all(|entity| solution.entity_state(entity) == Some(EntityState::FullyConstrained))
 }
 
 pub fn remove_items(

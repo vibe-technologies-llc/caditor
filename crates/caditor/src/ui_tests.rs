@@ -3685,6 +3685,72 @@ fn a_selected_dimension_is_disabled_into_a_reference_that_shows_the_measured_val
 }
 
 #[test]
+fn a_dimension_of_geometry_already_determined_is_added_as_a_reference() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(37.0, 0.0));
+    let (start, end) = match sketch.entity(line) {
+        Some(Entity::Line { start, end }) => (*start, *end),
+        other => panic!("expected a line, found {other:?}"),
+    };
+    sketch
+        .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
+        .unwrap();
+    sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+    sketch
+        .add_constraint(Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::Measure(37.0, Unit::Millimetre),
+        })
+        .unwrap();
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.settle();
+    harness.select(entity_pickables(feature, &[start, end]));
+
+    harness.key(Key::X, Modifiers::SHIFT);
+    harness.frame();
+    harness.frame();
+    assert!(
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.contains("already fully determined"))
+    );
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let (added, constraint) = sketch
+        .constraints()
+        .find(|(_, constraint)| matches!(constraint, Constraint::HorizontalDistance { .. }))
+        .map(|(id, constraint)| (id, constraint.clone()))
+        .unwrap();
+    assert_eq!(
+        constraint,
+        Constraint::HorizontalDistance {
+            from: start,
+            to: end,
+            value: Expression::Measure(37.0, Unit::Millimetre),
+        }
+    );
+    assert!(!sketch.is_active(added));
+    assert!(
+        harness
+            .model
+            .settled_solution(feature)
+            .is_some_and(|solution| solution.redundancies().is_empty())
+    );
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Add reference Horizontal distance")
+    );
+    assert_ne!(
+        harness.focused(),
+        Some(annotations::field_id(feature, added))
+    );
+}
+
+#[test]
 fn a_point_placed_where_two_lines_cross_is_held_on_both() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();

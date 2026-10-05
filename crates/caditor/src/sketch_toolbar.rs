@@ -13,7 +13,7 @@ use crate::{
     editing::{ActiveSketch, EditingCommand, SketchEditing, Tool},
     feature_tree::count,
     fonts, icons,
-    model::{Action, Model},
+    model::{Action, Model, Notice},
     panels::{Focus, PanelState},
     ribbon::{self, explained},
     selection::Selection,
@@ -40,6 +40,7 @@ const FINISH_KEYS: &str = "Esc with nothing selected";
 const NOTHING_TO_DISABLE: &str = "Select a constraint or a dimension to disable or enable it";
 const DISABLE_HELP: &str = "A disabled constraint stays in the sketch but no longer holds; a disabled dimension shows the measured value instead";
 const ENABLE_HELP: &str = "Make the selected constraints hold again";
+const REFERENCE_ADDED: &str = "That geometry is already fully determined, so the dimension shows the measured value as a reference; enable it to make it drive instead";
 const NOTHING_TO_DELETE: &str = "Select sketch geometry or constraints to delete them";
 const DELETE_HELP: &str =
     "Delete the selected geometry and constraints, and the constraints on that geometry";
@@ -216,6 +217,7 @@ pub fn show(
         let added = sketch_tools::add_constraints(model, feature.id(), tool, constraints);
         if tool.is_dimension()
             && let Some(constraint) = added.constraints.first()
+            && !added.references.contains(constraint)
         {
             panels.request_focus(Focus::Dimension {
                 feature: feature.id(),
@@ -223,6 +225,9 @@ pub fn show(
             });
         }
         actions.push(Action::Apply(added.transaction));
+        if !added.references.is_empty() {
+            actions.push(Action::Inform(Notice::info(REFERENCE_ADDED)));
+        }
     }
     if request.construction {
         actions.push(match &construction {
