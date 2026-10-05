@@ -6,7 +6,7 @@ usage() {
 Usage: .github/bump-pins.sh
 
 Raises every pin CI and the release build use to its latest published version:
-the toolchains, rustup, cargo-deny, cargo-fuzz, cargo-about and WiX 5 with
+the toolchains, rustup, cargo-deny, cargo-fuzz and WiX 5 with
 their SHA-256 sums and rust-formatter's revision in .github/versions.env, and each
 action in .github/workflows and .github/actions to the commit of its latest
 release. Review the diff and let CI run before committing it.
@@ -108,11 +108,6 @@ bump_binary() {
 
 bump_binary CARGO_DENY EmbarkStudios/cargo-deny cargo-deny
 bump_binary CARGO_FUZZ rust-fuzz/cargo-fuzz cargo-fuzz
-bump_binary CARGO_ABOUT EmbarkStudios/cargo-about cargo-about
-about_version=$(sed -n 's/^CARGO_ABOUT_VERSION=//p' "$versions")
-about_windows="cargo-about-$about_version-x86_64-pc-windows-msvc.tar.gz"
-set_pin CARGO_ABOUT_WINDOWS_SHA256 \
-    "$(sha256_of "https://github.com/EmbarkStudios/cargo-about/releases/download/$about_version/$about_windows")"
 
 wix=$(fetch https://api.nuget.org/v3-flatcontainer/wix/index.json |
     tr ',' '\n' | sed -n 's/^.*"\(5\.[0-9]*\.[0-9]*\)".*$/\1/p' | tail -n 1)

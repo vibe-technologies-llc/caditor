@@ -78,7 +78,7 @@ so call sites stay platform-free.
 
 - `caditor.wxs` is WiX 5 (MS-RL; later WiX versions carry the OSMF EULA). A per-user MSI with no
   wizard: `%LOCALAPPDATA%\Programs\caditor` with `caditor.exe`, `README.md` and `licenses\` (the
-  licence, Inter's and `THIRD-PARTY-LICENSES.html`, where `about.rs` looks), a Start menu shortcut
+  licence and Inter's), a Start menu shortcut
   and the `.caditor` association (`caditor.model`), all under HKCU. Each component's key path is an
   HKCU value, as per-user components need; WiX cannot derive a GUID for a component holding
   several files that way, so `Program` and `Licences` have fixed ones. Those GUIDs and the

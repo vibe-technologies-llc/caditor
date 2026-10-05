@@ -57,7 +57,7 @@ not versioned by release: every file format that has shipped stays readable (see
 
 ## Pins
 
-Every toolchain, tool and action CI and the release use is pinned (rustup and cargo-about once
+Every toolchain, tool and action CI and the release use is pinned (rustup once
 per platform, and WiX), in `.github/versions.env` and
 by commit in the workflows. `.github/bump-pins.sh` raises them all to their latest releases with
 fresh checksums; commit its diff once CI passes on it.
@@ -69,13 +69,13 @@ fresh checksums; commit its diff once CI passes on it.
    `cargo test --workspace`.
 2. Set the version in `[workspace.package]` in the root `Cargo.toml` if it is not already the
    one being released, then `cargo build` so `Cargo.lock` follows.
-3. Preview the archive with `packaging/build-release.sh --snapshot` (it needs `cargo-about`,
+3. Preview the archive with `packaging/build-release.sh --snapshot` (it needs
    `desktop-file-utils`, `appstream` and `zstd`) and check it with
    `packaging/check-install.sh target/dist/caditor-<version>-snapshot-linux-x86_64.tar.zst`,
    which installs it into a temporary prefix whose name holds a space, `&` and `%`, checks every
    file, the menu entry and the program, uninstalls it, and checks that a failed install leaves
    nothing behind. CI runs both on every push.
-   On Windows, `packaging/windows/build-release.ps1 -Snapshot` (it needs `cargo-about` and the
+   On Windows, `packaging/windows/build-release.ps1 -Snapshot` (it needs the
    WiX 5 .NET tool, `dotnet tool install --global wix --version 5.0.2`) builds
    `target/dist/caditor-<version>-snapshot-windows-x86_64.msi`, and
    `packaging/windows/check-install.ps1` installs it, checks the files, the program, the shortcut

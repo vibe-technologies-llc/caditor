@@ -59,7 +59,6 @@ case "${1:-}" in
 esac
 
 need cargo "the Rust toolchain"
-need cargo-about "cargo install --locked cargo-about --features cli"
 need desktop-file-validate "desktop-file-utils"
 need appstreamcli "appstream"
 need zstd "zstd"
@@ -126,9 +125,6 @@ RELEASES="$releases" awk '
     { print }
 ' packaging/caditor.metainfo.xml >"$stage/share/metainfo/caditor.metainfo.xml"
 chmod 644 "$stage/share/metainfo/caditor.metainfo.xml"
-
-cargo about generate --locked -c packaging/about.toml \
-    -o "$stage/share/licenses/caditor/THIRD-PARTY-LICENSES.html" packaging/about.hbs
 
 desktop-file-validate "$stage/share/applications/caditor.desktop"
 check_metainfo "$stage/share/metainfo/caditor.metainfo.xml"

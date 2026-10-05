@@ -64,5 +64,4 @@ naming the repository the release was downloaded from.
 
 caditor is licensed under the GNU Affero General Public License, version 3 only
 (`share/licenses/caditor/LICENSE`). The source code of each release is published with it.
-The licences of the libraries and the font built into caditor are in
-`share/licenses/caditor/THIRD-PARTY-LICENSES.html` and `Inter-LICENSE.txt`.
+The licence of the font built into caditor is in `share/licenses/caditor/Inter-LICENSE.txt`.

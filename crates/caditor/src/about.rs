@@ -1,5 +1,3 @@
-use std::path::{Path, PathBuf};
-
 use egui::{Align, Layout, RichText, TextStyle};
 
 use crate::{
@@ -13,34 +11,11 @@ pub const APP_ID: &str = "caditor";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const PARAGRAPH_GAP: f32 = SPACE_M;
 const LOGO_SIDE: f32 = 64.0;
-const LICENCES_FILE: &str = "THIRD-PARTY-LICENSES.html";
-#[cfg(unix)]
-const LICENCES_FOLDER: [&str; 4] = ["..", "share", "licenses", "caditor"];
-#[cfg(windows)]
-const LICENCES_FOLDER: [&str; 1] = ["licenses"];
 const COPY_VERSION: &str = "Copy version";
-const COPY_LICENCES_PATH: &str = "Copy path";
 const TAGLINE: &str = "Parametric CAD";
 
 pub fn version_line() -> String {
     format!("{NAME} {VERSION}")
-}
-
-fn installed_licences() -> Option<PathBuf> {
-    let program = std::env::current_exe().ok()?;
-    licences_beside(&program)
-}
-
-fn licences_beside(program: &Path) -> Option<PathBuf> {
-    let mut path = program.parent()?.to_path_buf();
-    for part in LICENCES_FOLDER {
-        path = match part {
-            ".." => path.parent()?.to_path_buf(),
-            _ => path.join(part),
-        };
-    }
-    let path = path.join(LICENCES_FILE);
-    path.is_file().then_some(path)
 }
 
 pub fn dialog(ctx: &egui::Context) -> bool {
@@ -68,24 +43,9 @@ pub fn dialog(ctx: &egui::Context) -> bool {
         ));
         ui.add_space(PARAGRAPH_GAP);
         ui.label(widgets::muted(
-            "The interface is set in Inter (SIL Open Font License 1.1) with Phosphor icons (MIT). \
-             The licences of every library built into caditor are listed in \
-             THIRD-PARTY-LICENSES.html, which ships with it.",
+            "The interface is set in Inter (SIL Open Font License 1.1) with Phosphor icons (MIT).",
             ui,
         ));
-        if let Some(licences) = installed_licences() {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(widgets::muted(licences.display().to_string(), ui));
-                let copy = widgets::small_button(ui, icons::COPY_PATH, COPY_LICENCES_PATH);
-                if ui
-                    .add(copy)
-                    .on_hover_text("Copy where the licence list is, to open it in a browser")
-                    .clicked()
-                {
-                    ui.ctx().copy_text(licences.display().to_string());
-                }
-            });
-        }
         widgets::footer_split(
             ui,
             |ui| {
@@ -112,8 +72,6 @@ pub fn dialog(ctx: &egui::Context) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use tempfile::TempDir;
-
     use super::*;
 
     const DESKTOP_ENTRY: &str = include_str!("../../../packaging/caditor.desktop");
@@ -121,35 +79,6 @@ mod tests {
     const MIME_TYPE: &str = include_str!("../../../packaging/caditor-mime.xml");
     const ARCH_PACKAGE: &str = include_str!("../../../packaging/arch/PKGBUILD");
     const WINDOWS_INSTALLER: &str = include_str!("../../../packaging/windows/caditor.wxs");
-
-    #[cfg(unix)]
-    #[test]
-    fn the_licence_list_is_found_where_the_release_installs_it() {
-        let prefix = TempDir::new().unwrap();
-        let program = prefix.path().join("bin").join(NAME);
-        let folder = prefix.path().join("share/licenses/caditor");
-
-        assert_eq!(licences_beside(&program), None);
-        std::fs::create_dir_all(&folder).unwrap();
-        std::fs::write(folder.join(LICENCES_FILE), "<html></html>").unwrap();
-        assert_eq!(licences_beside(&program), Some(folder.join(LICENCES_FILE)));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn the_licence_list_is_found_where_the_installer_puts_it() {
-        let folder = TempDir::new().unwrap();
-        let program = folder.path().join("caditor.exe");
-        let licences = folder.path().join("licenses");
-
-        assert_eq!(licences_beside(&program), None);
-        std::fs::create_dir_all(&licences).unwrap();
-        std::fs::write(licences.join(LICENCES_FILE), "<html></html>").unwrap();
-        assert_eq!(
-            licences_beside(&program),
-            Some(licences.join(LICENCES_FILE))
-        );
-    }
 
     #[test]
     fn the_desktop_entry_launches_and_matches_this_window() {
@@ -181,11 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn the_windows_installer_puts_the_licence_list_where_the_program_looks_and_opens_models() {
-        assert!(WINDOWS_INSTALLER.contains(r#"<Directory Id="LicensesFolder" Name="licenses" />"#));
-        assert!(
-            WINDOWS_INSTALLER.contains(&format!(r#"Source="$(Stage)\licenses\{LICENCES_FILE}""#))
-        );
+    fn the_windows_installer_installs_the_program_and_opens_models() {
         assert!(WINDOWS_INSTALLER.contains(&format!(
             r#"<File Id="{NAME}.exe" Source="$(Stage)\{NAME}.exe""#
         )));

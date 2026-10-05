@@ -32,8 +32,7 @@ $installed = @(
     'caditor.exe',
     'README.md',
     'licenses\LICENSE.txt',
-    'licenses\Inter-LICENSE.txt',
-    'licenses\THIRD-PARTY-LICENSES.html'
+    'licenses\Inter-LICENSE.txt'
 )
 
 function Assert-Installed([string]$When) {

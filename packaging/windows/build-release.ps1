@@ -18,7 +18,7 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 Set-Location $root
 
-foreach ($tool in 'cargo', 'cargo-about', 'git', 'wix') {
+foreach ($tool in 'cargo', 'git', 'wix') {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
         Fail "$tool is needed"
     }
@@ -53,10 +53,6 @@ Copy-Item (Join-Path $targetDir 'release/caditor.exe') $stage
 Copy-Item README.md $stage
 Copy-Item LICENSE (Join-Path $stage 'licenses/LICENSE.txt')
 Copy-Item crates/caditor/assets/fonts/Inter-LICENSE.txt (Join-Path $stage 'licenses')
-Invoke-Checked cargo @(
-    'about', 'generate', '--locked', '-c', 'packaging/about.toml',
-    '-o', (Join-Path $stage 'licenses/THIRD-PARTY-LICENSES.html'), 'packaging/about.hbs'
-)
 
 $reported = (& (Join-Path $stage 'caditor.exe') --version | Out-String).Trim()
 if ($reported -ne "caditor $version") {

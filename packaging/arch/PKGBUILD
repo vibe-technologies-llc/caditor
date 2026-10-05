@@ -12,7 +12,7 @@ depends=(
   'vulkan-icd-loader'
   'xdg-desktop-portal'
 )
-makedepends=('cargo' 'cargo-about' 'gcc')
+makedepends=('cargo' 'gcc')
 optdepends=(
   'wayland: Wayland sessions'
   'libx11: X11 sessions'
@@ -35,8 +35,6 @@ build() {
   cd "$(_checkout)"
   export CARGO_TARGET_DIR="$srcdir/target"
   cargo build --frozen --release -p caditor
-  cargo about generate --locked -c packaging/about.toml \
-    -o "$srcdir/THIRD-PARTY-LICENSES.html" packaging/about.hbs
 }
 
 check() {
@@ -67,7 +65,5 @@ package() {
   install -Dm644 "$checkout/LICENSE" "$pkgdir/usr/share/licenses/caditor/LICENSE"
   install -Dm644 "$checkout/crates/caditor/assets/fonts/Inter-LICENSE.txt" \
     "$pkgdir/usr/share/licenses/caditor/Inter-LICENSE.txt"
-  install -Dm644 "$srcdir/THIRD-PARTY-LICENSES.html" \
-    "$pkgdir/usr/share/licenses/caditor/THIRD-PARTY-LICENSES.html"
   install -Dm644 "$checkout/README.md" "$pkgdir/usr/share/doc/caditor/README.md"
 }
