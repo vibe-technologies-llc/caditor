@@ -1007,6 +1007,25 @@ fn a_profile_that_misses_the_next_face_in_part_or_meets_several_is_refused() {
 }
 
 #[test]
+fn a_small_boss_between_the_sampled_rays_still_makes_the_next_face_several() {
+    let plate = slab(10.0, 20.0, (0.0, 0.0), (100.0, 100.0));
+    let boss = slab(5.0, 10.0, (50.3, 50.3), (50.8, 50.8));
+    let body =
+        crate::boolean::boolean(&plate, &boss, crate::boolean::BooleanOperation::Union).unwrap();
+    let everything = regions(&rectangle(1, (0.0, 0.0), (100.0, 100.0)));
+
+    let found = next_face(&body, &Plane::XY, &everything, false);
+
+    let Err(ReachError::SeveralFaces(faces)) = found else {
+        panic!("expected several faces, found {found:?}");
+    };
+    let mut met: Vec<f64> = faces.iter().map(|face| face_height(&body, *face)).collect();
+    met.sort_by(f64::total_cmp);
+    assert_eq!(met.len(), 2);
+    assert!((met[0] - 5.0).abs() < 1e-9 && (met[1] - 10.0).abs() < 1e-9);
+}
+
+#[test]
 fn a_curved_next_face_is_refused() {
     let yz = Plane::from_frame(Point3::new(-10.0, 0.0, 10.0), Vector3::X, Vector3::Y).unwrap();
     let rod = extrude(

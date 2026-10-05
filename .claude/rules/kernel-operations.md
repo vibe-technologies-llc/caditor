@@ -34,7 +34,9 @@ paths:
 - `heights(plane, regions, target)` gives the least and most signed height of a target plane over
   the profile, which the document uses to tell a plane ahead from one behind or across.
 - `next_face(solid, plane, regions, reversed)` casts rays from the regions' triangle centroids
-  (about `RAY_SAMPLES`, spread by area) to the first crossing and groups the faces met by plane
+  (about `RAY_SAMPLES`, spread by area) and from the corners around each of the solid's vertices
+  that project into a region (`VERTEX_NUDGE` of the profile's size away, at most
+  `MAX_VERTEX_RAYS`, so a small boss between the centroids is met) to the first crossing and groups the faces met by plane
   (coplanar fragments are one face): several groups are `SeveralFaces`, one curved face `Curved`,
   else the plane with its outward normal and whether the rays enter. Undecided rays are skipped;
   none decided is `Undecided`, every ray missing `Nothing`, some `Partly`.

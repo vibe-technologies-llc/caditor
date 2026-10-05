@@ -44,9 +44,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   (`boolean::tests::aligned_contacts_a_micrometre_or_so_apart`, ignored). `SAME_EDGE`,
   `NEAR_BOUNDARY`, `PCURVE_TOLERANCE` and the coaxial offset are unrelated absolute values; derive
   them from one tolerance model and snap or refuse within a documented band.
-- [medium · medium] Up to next casts about 256 rays over the profile (spread by area, at most
-  1,024), so a feature covering a small fraction of it (below roughly 1%) can fall between the rays
-  and the extrusion passes through it to the far plane without a word.
 - [medium · medium] Filleting both rims of a cylinder of radius 5 and height 10 at a fillet radius
   of 4 fails as `Boolean(Ambiguous)` although its feet do not cross (3.5 works); the tests stay at
   3.

@@ -16,6 +16,9 @@ use crate::{
 const RAY_SAMPLES: usize = 256;
 const MAX_RAYS: usize = 1024;
 const MAX_SUBDIVISIONS: usize = 16;
+const MAX_VERTEX_RAYS: usize = 1024;
+const VERTEX_NUDGE: f64 = 2e-4;
+const NUDGES: [(f64, f64); 4] = [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)];
 const RAY_START: f64 = 4.0 * LINEAR_RESOLUTION;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -90,11 +93,7 @@ fn centroids([a, b, c]: [Point2; 3], divisions: usize) -> Vec<Point2> {
 }
 
 fn ray_origins(regions: &[Region]) -> Vec<Point2> {
-    let size = regions
-        .iter()
-        .filter_map(Region::bounds)
-        .reduce(Aabb2::union)
-        .map_or(1.0, |bounds| bounds.size().length());
+    let size = profile_size(regions);
     let tolerance = SamplingTolerance::for_extent(size);
     let triangles: Vec<[Point2; 3]> = regions
         .iter()
@@ -126,6 +125,30 @@ fn ray_origins(regions: &[Region]) -> Vec<Point2> {
     origins.into_iter().step_by(stride).collect()
 }
 
+fn profile_size(regions: &[Region]) -> f64 {
+    regions
+        .iter()
+        .filter_map(Region::bounds)
+        .reduce(Aabb2::union)
+        .map_or(1.0, |bounds| bounds.size().length())
+}
+
+fn vertex_origins(solid: &Solid, plane: &Plane, regions: &[Region]) -> Vec<Point2> {
+    let nudge = VERTEX_NUDGE * profile_size(regions);
+    let origins: Vec<Point2> = solid
+        .vertices()
+        .map(|(_, vertex)| plane.to_local(vertex.point()))
+        .flat_map(|projected| {
+            NUDGES
+                .iter()
+                .map(move |(across, along)| projected + Point2::new(*across, *along) * nudge)
+        })
+        .filter(|origin| regions.iter().any(|region| region.contains(*origin)))
+        .collect();
+    let stride = origins.len().div_ceil(MAX_VERTEX_RAYS).max(1);
+    origins.into_iter().step_by(stride).collect()
+}
+
 pub fn next_face(
     solid: &Solid,
     plane: &Plane,
@@ -137,10 +160,11 @@ pub fn next_face(
     } else {
         plane.normal()
     };
-    let origins = ray_origins(regions);
+    let mut origins = ray_origins(regions);
     if origins.is_empty() {
         return Err(ReachError::NoRegions);
     }
+    origins.extend(vertex_origins(solid, plane, regions));
     let classifier = solid.classifier();
     let mut met: Vec<(FaceId, bool)> = Vec::new();
     let (mut decided, mut missed) = (0_usize, 0_usize);
