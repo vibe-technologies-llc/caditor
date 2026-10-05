@@ -1,6 +1,7 @@
 use caditor_document::{
     AxisReference, BodyOperation, Document, Edit, Extrude, ExtrudeExtent, FeatureId, FeatureKind,
-    RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature, Transaction, describe_axis,
+    RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature, SolidStart, Transaction,
+    describe_axis,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_kernel::RegionKey;
@@ -176,6 +177,7 @@ pub fn create(
                 .unwrap_or(RevolveAxis::Sketch(EntityId::VERTICAL_AXIS)),
             extent: RevolveExtent::Full,
             operation,
+            start: None,
         }),
     };
     let mut transaction = document.transaction(format!("Create {name}"));
@@ -218,6 +220,15 @@ pub fn with_regions(solid: &SolidFeature, regions: RegionChoice) -> SolidFeature
     match &mut changed {
         SolidFeature::Extrude(extrude) => extrude.regions = regions,
         SolidFeature::Revolve(revolve) => revolve.regions = regions,
+    }
+    changed
+}
+
+pub fn with_start(solid: &SolidFeature, start: Option<SolidStart>) -> SolidFeature {
+    let mut changed = solid.clone();
+    match &mut changed {
+        SolidFeature::Extrude(extrude) => extrude.start = start,
+        SolidFeature::Revolve(revolve) => revolve.start = start,
     }
     changed
 }

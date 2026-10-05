@@ -208,8 +208,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   no standard sizes, no tapped or threaded holes, no hole on a face by clicking it, none at circle
   centres, no slot and no hole of several diameters (stepped); each hole of a feature shares the
   feature's sizes.
-- [high · medium] An extrusion can start off its sketch plane by a distance but not at a chosen face
-  or plane, and a revolve cannot start off its sketch plane at all.
 - [high · hard] Bodies cannot be edited directly: no moving, offsetting, deleting or replacing a
   face (push and pull) and no deleting a fillet or chamfer by its faces. An imported STEP body has
   no feature history, so today it can only be cut, joined, filleted or shelled; a wall too thick, a

@@ -159,6 +159,7 @@ pub fn command(command: Command) -> &'static str {
         Command::PlaceSketch
         | Command::UseSelectedAxis
         | Command::ExtrudeUpToSelected
+        | Command::StartAtSelected
         | Command::DatumUseSelected
         | Command::DatumTurnAboutSelected
         | Command::PatternUseSelected

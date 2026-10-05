@@ -181,12 +181,34 @@ impl RevolveExtent {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum SolidStart {
+    Distance(Expression),
+    Plane(PlaneReference),
+}
+
+impl SolidStart {
+    pub fn distance(&self) -> Option<&Expression> {
+        match self {
+            Self::Distance(distance) => Some(distance),
+            Self::Plane(_) => None,
+        }
+    }
+
+    pub fn target(&self) -> Option<&PlaneReference> {
+        match self {
+            Self::Plane(target) => Some(target),
+            Self::Distance(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Extrude {
     pub sketch: FeatureId,
     pub regions: RegionChoice,
     pub extent: ExtrudeExtent,
     pub operation: BodyOperation,
-    pub start: Option<Expression>,
+    pub start: Option<SolidStart>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -218,6 +240,7 @@ pub struct Revolve {
     pub axis: RevolveAxis,
     pub extent: RevolveExtent,
     pub operation: BodyOperation,
+    pub start: Option<SolidStart>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -271,11 +294,21 @@ impl SolidFeature {
             .and_then(AxisReference::datum)
     }
 
-    fn targets(&self) -> Vec<&PlaneReference> {
+    pub fn start(&self) -> Option<&SolidStart> {
         match self {
+            Self::Extrude(extrude) => extrude.start.as_ref(),
+            Self::Revolve(revolve) => revolve.start.as_ref(),
+        }
+    }
+
+    fn targets(&self) -> Vec<&PlaneReference> {
+        let ends = match self {
             Self::Extrude(extrude) => extrude.extent.targets(),
             Self::Revolve(_) => Vec::new(),
-        }
+        };
+        ends.into_iter()
+            .chain(self.start().and_then(SolidStart::target))
+            .collect()
     }
 
     pub fn end_bodies(&self) -> BTreeSet<FeatureId> {
@@ -323,10 +356,14 @@ impl SolidFeature {
         match self {
             Self::Extrude(extrude) => {
                 let mut expressions = extrude.extent.expressions();
-                expressions.extend(extrude.start.as_ref());
+                expressions.extend(self.start().and_then(SolidStart::distance));
                 expressions
             }
-            Self::Revolve(revolve) => revolve.extent.expressions(),
+            Self::Revolve(revolve) => {
+                let mut expressions = revolve.extent.expressions();
+                expressions.extend(self.start().and_then(SolidStart::distance));
+                expressions
+            }
         }
     }
 
@@ -346,18 +383,19 @@ impl SolidFeature {
             .into_iter()
             .map(Expression::heap_size)
             .sum();
-        let references = match self {
-            Self::Extrude(extrude) => extrude
-                .extent
-                .targets()
-                .into_iter()
-                .map(PlaneReference::heap_size)
-                .sum(),
+        let planes: usize = self
+            .targets()
+            .into_iter()
+            .map(PlaneReference::heap_size)
+            .sum();
+        let axis = match self {
+            Self::Extrude(_) => 0,
             Self::Revolve(revolve) => match &revolve.axis {
                 RevolveAxis::Model(axis) => axis.heap_size(),
                 RevolveAxis::Sketch(_) => 0,
             },
         };
+        let references = planes + axis;
         chosen + expressions + references
     }
 
@@ -634,12 +672,13 @@ pub(crate) fn evaluate(
     }
     let plane = sketch.geometry.plane();
     let raw = feature.id().raw();
+    let started = match solid.start() {
+        Some(start) => start_plane(&context, inputs, solid.shape(), plane, start)?,
+        None => plane,
+    };
     let tool = match solid {
         SolidFeature::Extrude(definition) => {
-            let plane = match &definition.start {
-                Some(offset) => offset_plane(&context, plane, offset, inputs.parameters)?,
-                None => plane,
-            };
+            let plane = started;
             let ends = Ends {
                 context: &context,
                 inputs,
@@ -658,7 +697,7 @@ pub(crate) fn evaluate(
                 }
             };
             let extent = angular_extent(&context, &definition.extent, inputs.parameters)?;
-            revolve(&plane, &regions, axis, extent, raw)
+            revolve(&started, &regions, axis, extent, raw)
         }
     }
     .map_err(|error| sweep_failure(&context, solid.shape(), &error))?;
@@ -684,6 +723,89 @@ pub(crate) fn evaluate(
         }
     };
     Ok(FeatureResult::Solid(SolidResult::new(body, solid)))
+}
+
+fn resolve_target(
+    context: &Context<'_>,
+    inputs: &Inputs<'_>,
+    target: &PlaneReference,
+    subject: &str,
+    remedy: &str,
+) -> Result<Plane, Failure> {
+    let PlaneReference::Face(attachment) = target else {
+        return Resolver {
+            feature: context.feature,
+            inputs,
+        }
+        .plane(target);
+    };
+    let body = feature_name(inputs, attachment.body);
+    let solid = inputs
+        .body(attachment.body)
+        .ok_or_else(|| missing_body(inputs, attachment.body))?;
+    attachment.resolve(solid).map_err(|error| {
+        let reason = match error {
+            AttachmentError::Missing => {
+                format!("The face {subject} is no longer part of the body of {body}.")
+            }
+            AttachmentError::Ambiguous => format!(
+                "The face of {body} {subject} was split into parts that no longer lie in one \
+                 plane."
+            ),
+            AttachmentError::NotFlat => {
+                format!("The face of {body} {subject} is no longer flat.")
+            }
+        };
+        context.error(reason, remedy.to_owned(), context.own())
+    })
+}
+
+fn start_plane(
+    context: &Context<'_>,
+    inputs: &Inputs<'_>,
+    shape: &str,
+    plane: Plane,
+    start: &SolidStart,
+) -> Result<Plane, Failure> {
+    match start {
+        SolidStart::Distance(offset) => offset_plane(context, plane, offset, inputs.parameters),
+        SolidStart::Plane(target) => {
+            let subject = format!("this {shape} starts from");
+            let remedy = "Select a flat face or plane and use it as the start, or enter a \
+                          distance.";
+            let found = resolve_target(context, inputs, target, &subject, remedy)?;
+            if !tolerance::parallel(found.normal(), plane.normal()) {
+                return Err(context.error(
+                    format!(
+                        "{} is not parallel to the plane of {}, so the {shape} cannot start \
+                         from it.",
+                        capitalized(&describe_plane(inputs.document, target)),
+                        context.sketch_name
+                    ),
+                    "Choose a face or plane parallel to the sketch, or enter a distance."
+                        .to_owned(),
+                    context.own(),
+                ));
+            }
+            let distance = plane.signed_distance(found.origin());
+            within_reach(context, distance.abs(), "start offset")?;
+            Plane::from_frame(
+                plane.origin() + plane.normal() * distance,
+                plane.normal(),
+                plane.x_axis(),
+            )
+            .ok_or_else(|| {
+                context.error(
+                    format!(
+                        "The {shape} cannot start from the plane of {}.",
+                        context.sketch_name
+                    ),
+                    "Choose another face or plane.".to_owned(),
+                    context.own(),
+                )
+            })
+        }
+    }
 }
 
 fn offset_plane(
@@ -1336,36 +1458,13 @@ impl Ends<'_> {
     }
 
     fn resolve(&self, target: &PlaneReference) -> Result<Plane, Failure> {
-        let PlaneReference::Face(attachment) = target else {
-            return Resolver {
-                feature: self.context.feature,
-                inputs: self.inputs,
-            }
-            .plane(target);
-        };
-        let body = feature_name(self.inputs, attachment.body);
-        attachment
-            .resolve(self.body(attachment.body)?)
-            .map_err(|error| {
-                let reason = match error {
-                    AttachmentError::Missing => format!(
-                        "The face this extrusion runs up to is no longer part of the body of \
-                         {body}."
-                    ),
-                    AttachmentError::Ambiguous => format!(
-                        "The face of {body} this extrusion runs up to was split into parts that \
-                         no longer lie in one plane."
-                    ),
-                    AttachmentError::NotFlat => {
-                        format!("The face of {body} this extrusion runs up to is no longer flat.")
-                    }
-                };
-                self.error(
-                    reason,
-                    "Select a flat face or plane and use it for this end, or choose another end."
-                        .to_owned(),
-                )
-            })
+        resolve_target(
+            self.context,
+            self.inputs,
+            target,
+            "this extrusion runs up to",
+            "Select a flat face or plane and use it for this end, or choose another end.",
+        )
     }
 
     fn check_ahead(&self, target: Plane, side: Side, name: &str) -> Result<(), Failure> {

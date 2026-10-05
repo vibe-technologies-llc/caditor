@@ -132,7 +132,10 @@ paths:
   devices, pipes and huge sparse files are refused in words. Saving over a non-regular file is
   refused.
 - An extrusion record (`extrude` and `extrude_to`) carries `start`, the stored text of its start
-  offset, only when it has one.
+  offset, only when it has one. A start at a face or plane, and any start of a revolution, change
+  what the model computes, so they are record kinds of their own (`extrude_from`, `revolve_from`):
+  their `start` is `distance` with its text or `plane` with a plane reference, and an unreadable
+  one loads as starting at the sketch plane (or 0 mm), reported.
 - A `hole` feature record holds `sketch`, `body`, `diameter`, `depth` (`through_all` or
   `blind` with its text), `style` (`plain`, or `counterbore` or `countersink` with their texts) and
   `reversed` when set; an unreadable size loads as a default (5 mm, 10 mm, 3 mm, 90 deg), reported.

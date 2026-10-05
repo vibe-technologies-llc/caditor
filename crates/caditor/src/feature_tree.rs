@@ -1415,6 +1415,17 @@ fn up_to_change(
     }
 }
 
+fn start_at_change(
+    model: &Model,
+    selection: &Selection,
+    feature: &Feature,
+) -> Result<Transaction, String> {
+    match feature.kind.solid() {
+        Some(solid) => solid_panel::start_change(model, selection, feature.id(), solid),
+        None => Err(format!("{} is not an extrusion or a revolve", feature.name)),
+    }
+}
+
 fn datum_change(
     feature: &Feature,
     change: impl FnOnce(&Datum) -> Result<Transaction, String>,
@@ -1498,7 +1509,7 @@ fn feature_commands(
     if commands.invoke(Command::TogglePrincipal, &Ok::<_, String>(())) {
         actions.push(Action::Apply(visibility::toggle_principal_group(document)));
     }
-    let changes: [(Command, FeatureChange<'_>); 8] = [
+    let changes: [(Command, FeatureChange<'_>); 9] = [
         (Command::DetachSketch, &|feature| {
             detach_change(model, feature)
         }),
@@ -1510,6 +1521,9 @@ fn feature_commands(
         }),
         (Command::ExtrudeUpToSelected, &|feature| {
             up_to_change(model, selection, feature)
+        }),
+        (Command::StartAtSelected, &|feature| {
+            start_at_change(model, selection, feature)
         }),
         (Command::DatumUseSelected, &|feature| {
             datum_change(feature, |datum| {

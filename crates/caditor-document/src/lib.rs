@@ -54,7 +54,8 @@ pub use crate::{
     shell::Shell,
     solid::{
         BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex, RegionChoice, Revolve,
-        RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult, sketch_regions,
+        RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult, SolidStart,
+        sketch_regions,
     },
     values::{ParameterError, ParameterValues},
     worker::{Outcome, Progress, Recomputer, Update, WorkerStopped},
@@ -82,6 +83,8 @@ mod shell_tests;
 mod sketch_tests;
 #[cfg(test)]
 mod solid_tests;
+#[cfg(test)]
+mod start_tests;
 #[cfg(test)]
 mod tree_tests;
 #[cfg(test)]

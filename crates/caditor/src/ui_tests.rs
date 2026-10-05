@@ -5802,7 +5802,9 @@ fn an_extrusion_takes_a_start_offset_from_its_panel_and_zero_clears_it() {
     harness.type_into_field(Id::new(("solid-field", "start", extrude)), "6 mm");
     harness.settle();
     assert_eq!(
-        start(start_of(&harness)).map(|expression| harness.document().expression_text(&expression)),
+        start(start_of(&harness)).and_then(|start| start
+            .distance()
+            .map(|e| harness.document().expression_text(e))),
         Some("6 mm".to_owned())
     );
     assert!((lowest(&harness) - 6.0).abs() < 1e-9);
@@ -8579,6 +8581,64 @@ fn an_extrusion_runs_up_to_a_face_chosen_in_the_view_and_chosen_again() {
     );
     assert_eq!(from_palette, reached);
     assert_eq!(harness.model.undo_label(), Some("Edit Extrude 2"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+fn start_of_solid(harness: &Harness, feature: FeatureId) -> Option<caditor_document::SolidStart> {
+    harness.solid(feature).start().cloned()
+}
+
+#[test]
+fn an_extrusion_starts_at_a_face_chosen_in_the_view_and_goes_back_to_its_sketch_plane() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let tower = extrusion_above_plate(&mut harness, 30.0);
+    let highest = |harness: &Harness| {
+        harness
+            .model
+            .evaluation()
+            .body_result(plate)
+            .and_then(|result| result.solid())
+            .and_then(|solid| solid.bounding_box())
+            .map(|bounds| bounds.max().z)
+            .unwrap()
+    };
+
+    open_combo(&mut harness, "Start");
+    harness.click_lowest("Face or plane");
+    harness.settle();
+    let asks_for_a_face =
+        harness.shows("Click a flat face or plane parallel to the sketch to start from.");
+    let still_at_the_sketch = start_of_solid(&harness, tower);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    harness.settle();
+    let picking_ended = harness.workspace.editing.picking().is_none();
+    let started = start_of_solid(&harness, tower);
+    let from_the_face = highest(&harness);
+    let named = harness.shows("Starts at");
+
+    harness.click_button("Start at the sketch plane again");
+    harness.settle();
+    let cleared = start_of_solid(&harness, tower);
+    let back_at_the_sketch = highest(&harness);
+
+    assert!(asks_for_a_face);
+    assert_eq!(still_at_the_sketch, None);
+    assert!(picking_ended);
+    assert!(named);
+    assert!(matches!(
+        started,
+        Some(caditor_document::SolidStart::Plane(
+            caditor_document::PlaneReference::Face(ref attachment)
+        )) if attachment.body == plate
+            && attachment.face.origin()
+                == Some(caditor_kernel::FaceOrigin::EndCap { feature: plate.raw() })
+    ));
+    assert!((from_the_face - 20.0).abs() < 1e-9);
+    assert_eq!(cleared, None);
+    assert!((back_at_the_sketch - 40.0).abs() < 1e-9);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
 

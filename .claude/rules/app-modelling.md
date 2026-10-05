@@ -73,7 +73,10 @@ paths:
   on hover. Up to face takes the selected face or plane captured where the extrusion sits in the
   tree (`solid_panel::selected_target`, through `datum_tools::plane_reference`), each refusal
   saying why (curved, made later, an axis); with none usable it starts choosing one in the view.
-- An extrusion's panel ends with a Start offset field (`solid_panel`, key `start`); zero clears it.
+- An extrusion's and a revolve's panel ends with a Start row (`solid_panel::start_rows`): the sketch
+  plane with a Start offset field (key `start`, zero clears it), or Face or plane, taken like an
+  end (`solid_panel::start_change`, slot `Slot::StartPlane`) and shown as Starts at with a button
+  that goes back to the sketch plane.
 - A revolve can also take two angles, refusing a pair that turns more than a full turn.
 
 ## Fillets, chamfers and shells

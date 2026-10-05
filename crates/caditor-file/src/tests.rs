@@ -1863,6 +1863,7 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
                 reversed: true,
             },
             operation: BodyOperation::Remove(base),
+            start: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -2576,6 +2577,7 @@ fn datum_model() -> (Document, FeatureId, FeatureId) {
             axis: RevolveAxis::Model(AxisReference::Datum(axis)),
             extent: RevolveExtent::Full,
             operation: BodyOperation::NewBody,
+            start: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -3037,6 +3039,7 @@ fn a_revolve_whose_axis_line_is_gone_loads_turning_about_the_vertical_axis() {
                 axis: caditor_document::RevolveAxis::Sketch(pivot),
                 extent: caditor_document::RevolveExtent::Full,
                 operation: caditor_document::BodyOperation::NewBody,
+                start: None,
             },
         )),
     );
@@ -3553,6 +3556,7 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
                 backward: transaction.parse("45 deg").unwrap(),
             },
             operation: BodyOperation::Remove(base),
+            start: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -3582,6 +3586,128 @@ fn extents_to_faces_planes_and_the_next_face_and_two_angles_are_saved_and_loaded
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
         assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+}
+
+fn starts_model() -> (Document, [FeatureId; 3]) {
+    use caditor_document::{
+        BodyOperation, Datum, DatumPlane, Extrude, ExtrudeExtent, PlaneReference, PrincipalPlane,
+        RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature, SolidStart,
+    };
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XY)));
+    let level = transaction.add_feature(
+        "Level",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xy),
+            rotation: None,
+            offset: transaction.parse("5 mm").unwrap(),
+        })),
+    );
+    let raised = transaction.add_feature(
+        "Raised",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::Symmetric {
+                distance: transaction.parse("4 mm").unwrap(),
+            },
+            operation: BodyOperation::NewBody,
+            start: Some(SolidStart::Plane(PlaneReference::Datum(level))),
+        })),
+    );
+    let lifted = transaction.add_feature(
+        "Lifted",
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
+            extent: RevolveExtent::Full,
+            operation: BodyOperation::NewBody,
+            start: Some(SolidStart::Distance(transaction.parse("3 mm").unwrap())),
+        })),
+    );
+    let placed = transaction.add_feature(
+        "Placed",
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Sketch(EntityId::HORIZONTAL_AXIS),
+            extent: RevolveExtent::TwoSides {
+                forward: transaction.parse("30 deg").unwrap(),
+                backward: transaction.parse("45 deg").unwrap(),
+            },
+            operation: BodyOperation::NewBody,
+            start: Some(SolidStart::Plane(PlaneReference::Datum(level))),
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, [raised, lifted, placed])
+}
+
+#[test]
+fn starts_at_a_plane_or_off_a_revolution_are_saved_in_kinds_older_readers_report() {
+    let (document, features) = starts_model();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"extrude_from\":{"));
+    assert!(text.contains("\"revolve_from\":{"));
+    assert!(text.contains("\"start\":{\"plane\":{\"datum\":"));
+    assert!(text.contains("\"start\":{\"distance\":\"3 mm\"}"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    for feature in features {
+        let kind = document.feature(feature).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+}
+
+#[test]
+fn an_unreadable_start_falls_back_to_the_sketch_plane_and_is_reported() {
+    let (document, [raised, lifted, _]) = starts_model();
+    let text = encode(&document)
+        .unwrap()
+        .replacen("\"start\":{\"plane\":", "\"start\":{\"plain\":", 1)
+        .replacen(
+            "\"start\":{\"distance\":\"3 mm\"}",
+            "\"start\":{\"distance\":\"3 ((\"}",
+            1,
+        );
+
+    let loaded = decode_text(&text);
+
+    assert_eq!(
+        loaded.issues,
+        [
+            "Where “Raised” starts could not be read, so it starts at its sketch plane.",
+            "The start offset of “Lifted” could not be read, so it was set to 0 mm.",
+        ]
+    );
+    for (feature, expected) in [
+        (raised, None),
+        (
+            lifted,
+            Some(caditor_document::SolidStart::Distance(Expression::Measure(
+                0.0,
+                Unit::Millimetre,
+            ))),
+        ),
+    ] {
+        match &loaded.document.feature(feature).unwrap().kind {
+            FeatureKind::Solid(caditor_document::SolidFeature::Revolve(revolve)) => {
+                assert_eq!(revolve.start, expected);
+            }
+            FeatureKind::Solid(caditor_document::SolidFeature::Extrude(extrude)) => {
+                assert_eq!(extrude.start, expected);
+            }
+            other => panic!("expected a solid, found {other:?}"),
+        }
     }
 }
 
@@ -3886,7 +4012,9 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                     false,
                 ),
                 operation: caditor_document::BodyOperation::NewBody,
-                start: Some(Expression::Parameter(lift)),
+                start: Some(caditor_document::SolidStart::Distance(
+                    Expression::Parameter(lift),
+                )),
             },
         )),
     );
@@ -3901,7 +4029,9 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                     reversed: false,
                 },
                 operation: caditor_document::BodyOperation::Remove(distance),
-                start: Some(transaction.parse("-1.5 mm").unwrap()),
+                start: Some(caditor_document::SolidStart::Distance(
+                    transaction.parse("-1.5 mm").unwrap(),
+                )),
             },
         )),
     );
@@ -3934,7 +4064,12 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
         }
         other => panic!("expected an extrusion, found {other:?}"),
     };
-    assert_eq!(start_of(distance), Some(Expression::Parameter(lift)));
+    assert_eq!(
+        start_of(distance),
+        Some(caditor_document::SolidStart::Distance(
+            Expression::Parameter(lift)
+        ))
+    );
     assert!(start_of(through).is_some());
     assert_eq!(start_of(plain), None);
 }

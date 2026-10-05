@@ -1,7 +1,7 @@
 use caditor_document::{
     BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature, FeatureId,
-    PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature, Transaction,
-    capitalized, describe_plane,
+    PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature, SolidStart,
+    Transaction, capitalized, describe_plane,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_sketch::{Entity, EntityId, Reference};
@@ -27,12 +27,14 @@ use crate::{
 
 const FULL_TURN_DEGREES: f64 = 360.0;
 const START_OFFSET: &str = "Start offset";
+const START_BY_OFFSET: &str = "Sketch plane, offset";
+const START_ON_FACE: &str = "Face or plane";
 const THROUGH_ALL_NEEDS_A_CUT: &str = "Through all cuts into a body or intersects with it; choose Remove from body or Intersect \
      with body first";
 const UP_TO_NEXT_NEEDS_A_BODY: &str = "Up to next stops at the body this feature changes; choose Add, Remove or Intersect with a \
      body first";
 const NO_TARGET_SELECTED: &str =
-    "Select a flat face or a plane made before this feature, then choose Up to face";
+    "Select a flat face or a plane made before this feature, then use it";
 const CURVED_TARGET: &str =
     "The selected face is curved; an extrusion can only end on a flat face or plane";
 const SIDES_CHANGED: &str = "The extrusion no longer has that end; choose the face again";
@@ -435,23 +437,7 @@ impl Panel<'_> {
                 });
             }
         }
-        let start = extrude
-            .start
-            .clone()
-            .unwrap_or_else(|| self.model.length_unit().default_length(0.0));
-        self.expression(
-            ui,
-            START_OFFSET,
-            "start",
-            &start,
-            (Dimension::LENGTH, Rule::Any),
-            |value| {
-                SolidFeature::Extrude(Extrude {
-                    start: (!is_zero(&value)).then_some(value),
-                    ..extrude.clone()
-                })
-            },
-        );
+        self.start_rows(ui, extrude.start.as_ref());
     }
 
     fn degrees_of(&self, angle: &Expression) -> Option<f64> {
@@ -515,6 +501,94 @@ impl Panel<'_> {
             .collect()
         });
         ui.end_row();
+    }
+
+    fn start_rows(&mut self, ui: &mut Ui, start: Option<&SolidStart>) {
+        let solid = self.solid;
+        let on_face = start.and_then(SolidStart::target);
+        widgets::caption(ui, "Start");
+        self.combo(
+            ui,
+            "start-kind",
+            if on_face.is_some() {
+                START_ON_FACE
+            } else {
+                START_BY_OFFSET
+            },
+            |panel| {
+                let kept = start.filter(|start| start.distance().is_some()).cloned();
+                let offset = Choice {
+                    label: START_BY_OFFSET.to_owned(),
+                    selected: on_face.is_none(),
+                    change: panel
+                        .change(solid_tools::with_start(solid, kept))
+                        .map(Action::Apply),
+                };
+                let face = Choice {
+                    label: START_ON_FACE.to_owned(),
+                    selected: on_face.is_some(),
+                    change: match start_change(panel.model, panel.selection, panel.id(), solid) {
+                        Ok(transaction) => Ok(Action::Apply(transaction)),
+                        Err(_) => Ok(Action::Editing(EditingCommand::Pick(Picking::new(
+                            panel.id(),
+                            Slot::StartPlane,
+                        )))),
+                    },
+                };
+                vec![offset, face]
+            },
+        );
+        ui.end_row();
+        let picker = Picker {
+            feature: self.id(),
+            slot: Slot::StartPlane,
+            selected: start_change(self.model, self.selection, self.id(), solid),
+            hover: "Start from the selected flat face or plane instead",
+        };
+        if let Some(target) = on_face {
+            let shown = Shown::Named(capitalized(&describe_plane(self.document(), target)));
+            let removed = feature_fields::reference_row(
+                ui,
+                self.model,
+                "Starts at",
+                shown,
+                picker,
+                Some("Start at the sketch plane again"),
+                self.actions,
+            );
+            if removed {
+                self.apply(solid_tools::with_start(solid, None));
+            }
+            return;
+        }
+        if self.picking(ui, Slot::StartPlane) {
+            feature_fields::reference_row(
+                ui,
+                self.model,
+                "Starts at",
+                Shown::NoneChosen,
+                picker,
+                None,
+                self.actions,
+            );
+        }
+        let distance = start
+            .and_then(SolidStart::distance)
+            .cloned()
+            .unwrap_or_else(|| self.model.length_unit().default_length(0.0));
+        self.expression(
+            ui,
+            START_OFFSET,
+            "start",
+            &distance,
+            (Dimension::LENGTH, Rule::Any),
+            |value| {
+                solid_tools::with_start(
+                    solid,
+                    (!is_zero(&value)).then_some(SolidStart::Distance(value)),
+                )
+            },
+        );
     }
 
     fn axis_row(&mut self, ui: &mut Ui, revolve: &Revolve) {
@@ -649,6 +723,7 @@ impl Panel<'_> {
                 );
             }
         }
+        self.start_rows(ui, revolve.start.as_ref());
     }
 
     fn operation_rows(&mut self, ui: &mut Ui) {
@@ -829,7 +904,7 @@ pub fn selected_target(
     match targets.as_slice() {
         [target] => Ok(target.clone()),
         [] => Err(refused.unwrap_or(NO_TARGET_SELECTED).to_owned()),
-        _ => Err("Select only one face or plane to extrude up to".to_owned()),
+        _ => Err("Select only one face or plane".to_owned()),
     }
 }
 
@@ -895,6 +970,23 @@ pub fn up_to_selected_change(
         return Err("The extrusion already runs up to the selected face or plane".to_owned());
     }
     change(model, feature, with_extent_of(extrude, extent))
+}
+
+pub fn start_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    solid: &SolidFeature,
+) -> Result<Transaction, String> {
+    let target = selected_target(model, selection, feature)?;
+    if solid.start().and_then(SolidStart::target) == Some(&target) {
+        return Err("This feature already starts from the selected face or plane".to_owned());
+    }
+    change(
+        model,
+        feature,
+        solid_tools::with_start(solid, Some(SolidStart::Plane(target))),
+    )
 }
 
 pub fn selected_axis_change(

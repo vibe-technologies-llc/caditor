@@ -254,6 +254,7 @@ fn a_revolve_uses_a_sketch_axis_and_keeps_it() {
             axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
             extent: RevolveExtent::Full,
             operation: BodyOperation::NewBody,
+            start: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -281,6 +282,7 @@ fn a_revolve_axis_must_be_a_line_of_its_own_sketch() {
             axis: RevolveAxis::Sketch(axis),
             extent: RevolveExtent::Full,
             operation: BodyOperation::NewBody,
+            start: None,
         }))
     };
     let mut transaction = document.transaction("Revolve");
@@ -585,6 +587,7 @@ fn revolved(extent: RevolveExtent) -> FeatureKind {
         axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
         extent,
         operation: BodyOperation::NewBody,
+        start: None,
     }))
 }
 
@@ -916,6 +919,7 @@ fn a_revolve_turns_about_a_construction_centreline_and_undoing_its_deletion_keep
             axis: RevolveAxis::Sketch(centreline),
             extent: RevolveExtent::Full,
             operation: BodyOperation::NewBody,
+            start: None,
         })),
         section,
     );
@@ -1015,7 +1019,7 @@ fn extrusion_with_start(start: Option<&str>) -> (Document, FeatureId) {
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
-            start: start.map(|text| Expression::parse_stored(text).unwrap()),
+            start: start.map(|text| SolidStart::Distance(Expression::parse_stored(text).unwrap())),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -1085,7 +1089,7 @@ fn a_start_offset_follows_the_parameter_it_uses() {
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
-            start: Some(Expression::Parameter(lift)),
+            start: Some(SolidStart::Distance(Expression::Parameter(lift))),
         })),
     );
     document.apply(transaction.finish()).unwrap();

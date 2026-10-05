@@ -143,6 +143,7 @@ pub enum Command {
     PlaceSketch,
     UseSelectedAxis,
     ExtrudeUpToSelected,
+    StartAtSelected,
     DatumUseSelected,
     DatumTurnAboutSelected,
     PatternUseSelected,
@@ -478,6 +479,7 @@ plain_commands! {
     PlaceSketch,
     UseSelectedAxis,
     ExtrudeUpToSelected,
+    StartAtSelected,
     DatumUseSelected,
     DatumTurnAboutSelected,
     PatternUseSelected,
@@ -642,6 +644,7 @@ impl Command {
             Self::PlaceSketch => "model.place_sketch",
             Self::UseSelectedAxis => "model.use_selected_axis",
             Self::ExtrudeUpToSelected => "model.extrude_up_to_selected",
+            Self::StartAtSelected => "model.start_at_selected",
             Self::DatumUseSelected => "model.datum_use_selected",
             Self::DatumTurnAboutSelected => "model.datum_turn_about_selected",
             Self::PatternUseSelected => "model.pattern_use_selected",
@@ -753,6 +756,7 @@ impl Command {
             Self::PlaceSketch => "Place sketch on selected plane or face",
             Self::UseSelectedAxis => "Revolve about selected axis",
             Self::ExtrudeUpToSelected => "Extrude up to selected face or plane",
+            Self::StartAtSelected => "Start extrusion or revolution at selected face or plane",
             Self::DatumUseSelected => "Base datum on selection",
             Self::DatumTurnAboutSelected => "Turn datum plane about selected axis",
             Self::PatternUseSelected => "Pattern along or about selected axis",
@@ -851,6 +855,7 @@ impl Command {
             | Self::PlaceSketch
             | Self::UseSelectedAxis
             | Self::ExtrudeUpToSelected
+            | Self::StartAtSelected
             | Self::DatumUseSelected
             | Self::DatumTurnAboutSelected
             | Self::PatternUseSelected
@@ -985,6 +990,7 @@ impl Command {
             | Self::PlaceSketch
             | Self::UseSelectedAxis
             | Self::ExtrudeUpToSelected
+            | Self::StartAtSelected
             | Self::DatumUseSelected
             | Self::DatumTurnAboutSelected
             | Self::PatternUseSelected

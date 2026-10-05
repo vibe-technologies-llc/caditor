@@ -258,6 +258,7 @@ fn spool(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
             axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
             extent: RevolveExtent::Full,
             operation: BodyOperation::NewBody,
+            start: None,
         })),
     );
     Ok(())

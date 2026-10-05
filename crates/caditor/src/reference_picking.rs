@@ -25,6 +25,7 @@ pub enum Side {
 pub enum Slot {
     RevolveAxis,
     ExtrudeTarget(Side),
+    StartPlane,
     PatternDirection,
     PatternSecond,
     DatumBase,
@@ -91,6 +92,9 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
     match picking.slot {
         Slot::RevolveAxis | Slot::DatumRotation => format!("Click {AXIS} to turn about"),
         Slot::ExtrudeTarget(_) => "Click a flat face or plane to extrude up to".to_owned(),
+        Slot::StartPlane => {
+            "Click a flat face or plane parallel to the sketch to start from".to_owned()
+        }
         Slot::PatternDirection if circular => format!("Click {AXIS} to turn about"),
         Slot::PatternDirection => format!("Click {AXIS} to repeat along"),
         Slot::PatternSecond => format!("Click {AXIS} to also repeat along"),
@@ -120,6 +124,9 @@ pub fn change(
         }
         (Slot::ExtrudeTarget(side), FeatureKind::Solid(SolidFeature::Extrude(extrude))) => {
             solid_panel::target_change(model, selection, feature, extrude, side)
+        }
+        (Slot::StartPlane, FeatureKind::Solid(solid)) => {
+            solid_panel::start_change(model, selection, feature, solid)
         }
         (Slot::PatternDirection, FeatureKind::Pattern(pattern)) => {
             pattern_tools::selected_change(model, selection, feature, pattern, Reference::First)

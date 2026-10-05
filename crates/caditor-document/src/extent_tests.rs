@@ -883,6 +883,7 @@ fn a_revolve_turns_by_two_angles_that_together_stay_within_a_turn() {
                 backward: degrees(backward),
             },
             operation: BodyOperation::NewBody,
+            start: None,
         }))
     };
     let turned = add(&mut document, "Turned", revolve(90.0, 30.0));
