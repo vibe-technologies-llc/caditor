@@ -523,6 +523,7 @@ impl Document {
             (FeatureKind::Datum(old), FeatureKind::Datum(new)) => old.same_kind(new),
             (FeatureKind::Blend(_), FeatureKind::Blend(_))
             | (FeatureKind::Shell(_), FeatureKind::Shell(_))
+            | (FeatureKind::Combine(_), FeatureKind::Combine(_))
             | (FeatureKind::Pattern(_), FeatureKind::Pattern(_)) => true,
             _ => false,
         };

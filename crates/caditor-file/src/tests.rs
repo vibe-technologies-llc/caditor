@@ -3938,3 +3938,50 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
     assert!(start_of(through).is_some());
     assert_eq!(start_of(plain), None);
 }
+
+#[test]
+fn combines_are_saved_and_loaded() {
+    use caditor_document::{
+        BodyOperation, Combine, CombineOperation, Extrude, ExtrudeExtent, RegionChoice,
+        SolidFeature,
+    };
+    let (mut document, base, _) = solid_model();
+    let sketch = match &document.feature(base).unwrap().kind {
+        FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude.sketch,
+        other => panic!("{other:?}"),
+    };
+    let mut transaction = document.transaction("Combine");
+    let second = transaction.add_feature(
+        "Second",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(transaction.parse("2 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+        })),
+    );
+    let combine = transaction.add_feature(
+        "Combine 1",
+        FeatureKind::Combine(Combine {
+            body: base,
+            tool: second,
+            operation: CombineOperation::Cut,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"combine\":{\"body\":"));
+    assert!(text.contains("\"operation\":\"cut\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(combine).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: combine, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}

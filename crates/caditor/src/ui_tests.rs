@@ -4997,7 +4997,7 @@ const RIBBON_GROUPS: [(&str, &[&str]); 7] = [
     ("History", &["Undo", "Redo"]),
     ("Sketch", &[toolbar::NEW_SKETCH_LABEL]),
     ("Solid", &["Extrude", "Revolve"]),
-    ("Modify", &["Fillet", "Chamfer", "Shell"]),
+    ("Modify", &["Fillet", "Chamfer", "Shell", "Combine"]),
     ("Pattern", &["Linear pattern", "Circular pattern"]),
     ("Reference", &[toolbar::PLANE_LABEL, toolbar::AXIS_LABEL]),
     ("Inspect", &[toolbar::MEASURE_LABEL]),
@@ -6108,6 +6108,103 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
     harness.settle();
     assert!(harness.shows(&whole));
     assert!(!harness.shows(&split));
+}
+
+fn add_peg(harness: &mut Harness) -> FeatureId {
+    let mut outline = Sketch::new(Plane::XY);
+    rectangle(
+        &mut outline,
+        Point2::new(30.0, 10.0),
+        Point2::new(60.0, 30.0),
+    );
+    let mut transaction = harness.document().transaction("Add a peg");
+    let sketch = transaction.add_feature("Peg sketch", FeatureKind::from(outline));
+    let peg = transaction.add_feature(
+        "Peg",
+        FeatureKind::Solid(SolidFeature::Extrude(caditor_document::Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("5 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+        })),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    peg
+}
+
+#[test]
+fn two_bodies_are_combined_from_the_selection_and_the_panel_changes_how() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+    let peg_top = pickable_described(&mut harness, "Peg › Peg end face");
+    let plate_volume = 16000.0;
+    let peg_volume = 30.0 * 20.0 * 5.0;
+    let overlap = 10.0 * 20.0 * 5.0;
+
+    harness.select([top]);
+    harness.hover("Combine");
+    assert!(harness.shows_containing("Select faces or edges of two bodies"));
+
+    harness.select([top, peg_top]);
+    harness.click("Combine");
+    harness.settle();
+    let combine = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the combine is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Combine 1"));
+    let definition = harness
+        .document()
+        .feature(combine)
+        .unwrap()
+        .kind
+        .combine()
+        .unwrap()
+        .clone();
+    assert_eq!((definition.body, definition.tool), (plate, peg));
+    assert!(harness.shows("Operation"));
+    assert!(harness.shows("Target body"));
+    assert!(harness.shows("Tool body"));
+    assert!((harness.body_volume(plate) - (plate_volume + peg_volume - overlap)).abs() < 100.0);
+    assert!(harness.model.evaluation().body_result(peg).is_none());
+
+    harness.click_button("Cut");
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Edit Combine 1"));
+    assert!((harness.body_volume(plate) - (plate_volume - overlap)).abs() < 100.0);
+
+    harness.click_button("Intersect");
+    harness.settle();
+    assert!((harness.body_volume(plate) - overlap).abs() < 100.0);
+
+    harness.perform(Action::Undo);
+    harness.perform(Action::Undo);
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(harness.model.evaluation().body_result(peg).is_some());
+    assert!((harness.body_volume(plate) - plate_volume).abs() < 100.0);
+}
+
+#[test]
+fn a_combine_of_a_third_body_or_none_is_refused_with_what_to_select() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+
+    harness.click("Combine");
+    harness.settle();
+
+    assert_eq!(harness.workspace.editing.solid(), None);
+    assert!(
+        harness
+            .document()
+            .features()
+            .all(|feature| feature.kind.combine().is_none())
+    );
 }
 
 fn shell_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Shell {

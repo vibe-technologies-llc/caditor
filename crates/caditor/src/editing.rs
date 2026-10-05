@@ -366,6 +366,7 @@ fn opened_solid(document: &Document, feature: FeatureId) -> bool {
         feature.kind.solid().is_some()
             || feature.kind.blend().is_some()
             || feature.kind.shell().is_some()
+            || feature.kind.combine().is_some()
             || feature.kind.pattern().is_some()
             || feature.kind.datum().is_some()
     })

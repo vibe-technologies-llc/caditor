@@ -64,6 +64,7 @@ const CHOOSE_REGIONS_PROMPT: &str = "Click regions of the sketch to include or l
 const CHOOSE_REGIONS_HINT: &str = "Esc: done";
 const CHOOSE_EDGES_PROMPT: &str = "Click edges to add them or leave them out";
 const CHOOSE_FACES_PROMPT: &str = "Click flat faces to open them or close them again";
+const CHOOSE_BODIES_PROMPT: &str = "Choose the operation and the two bodies in the feature's panel";
 const CHOOSE_REFERENCES_PROMPT: &str = "Select planes, faces, axes or edges for the feature's panel, or choose them in the view from it";
 const SNAP_LABEL_OFFSET: egui::Vec2 = vec2(14.0, 10.0);
 const KEYBOARD_ORBIT_FRACTION: f64 = 1.0 / 12.0;
@@ -1874,6 +1875,7 @@ impl ViewportState {
             let prompt = match kind {
                 Some(FeatureKind::Blend(_)) => CHOOSE_EDGES_PROMPT,
                 Some(FeatureKind::Shell(_)) => CHOOSE_FACES_PROMPT,
+                Some(FeatureKind::Combine(_)) => CHOOSE_BODIES_PROMPT,
                 Some(FeatureKind::Datum(_) | FeatureKind::Pattern(_)) => CHOOSE_REFERENCES_PROMPT,
                 _ => CHOOSE_REGIONS_PROMPT,
             };

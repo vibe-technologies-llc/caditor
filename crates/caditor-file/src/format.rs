@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use caditor_document::{
-    AxisReference, Blend, BlendKind, BodyOperation, CircularPattern, Datum, DatumAxis, DatumPlane,
-    Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, Feature, FeatureId,
-    FeatureKind, Import, LinearDirection, Parameter, Pattern, PatternKind, PlaneReference,
-    PlaneRotation, PrincipalAxis, PrincipalGeometry, PrincipalPlane, RegionChoice, Revolve,
-    RevolveAxis, RevolveExtent, RollbackBar, Shell, SketchAttachment, SketchFeature, SolidFeature,
-    Transaction,
+    AxisReference, Blend, BlendKind, BodyOperation, CircularPattern, Combine, CombineOperation,
+    Datum, DatumAxis, DatumPlane, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent,
+    FaceAttachment, Feature, FeatureId, FeatureKind, Import, LinearDirection, Parameter, Pattern,
+    PatternKind, PlaneReference, PlaneRotation, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    RegionChoice, Revolve, RevolveAxis, RevolveExtent, RollbackBar, Shell, SketchAttachment,
+    SketchFeature, SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -78,6 +78,7 @@ pub(crate) enum FeatureKindRecord {
     Fillet(BlendRecord),
     Chamfer(BlendRecord),
     Shell(ShellRecord),
+    Combine(CombineRecord),
     LinearPattern(Box<LinearPatternRecord>),
     CircularPattern(Box<CircularPatternRecord>),
     Plane(Box<DatumPlaneRecord>),
@@ -85,7 +86,7 @@ pub(crate) enum FeatureKindRecord {
     Import(ImportRecord),
 }
 
-pub(crate) const FEATURE_KINDS: [&str; 13] = [
+pub(crate) const FEATURE_KINDS: [&str; 14] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -94,6 +95,7 @@ pub(crate) const FEATURE_KINDS: [&str; 13] = [
     "fillet",
     "chamfer",
     "shell",
+    "combine",
     "linear_pattern",
     "circular_pattern",
     "plane",
@@ -186,6 +188,21 @@ pub(crate) struct ShellRecord {
     pub body: u64,
     pub thickness: String,
     pub open: Vec<Lenient<FaceRecord>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CombineOperationRecord {
+    Join,
+    Cut,
+    Intersect,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CombineRecord {
+    pub body: u64,
+    pub tool: u64,
+    pub operation: CombineOperationRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -762,6 +779,15 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 .iter()
                 .map(|face| Lenient::Read(face_record(face)))
                 .collect(),
+        }),
+        FeatureKind::Combine(combine) => FeatureKindRecord::Combine(CombineRecord {
+            body: combine.body.raw(),
+            tool: combine.tool.raw(),
+            operation: match combine.operation {
+                CombineOperation::Join => CombineOperationRecord::Join,
+                CombineOperation::Cut => CombineOperationRecord::Cut,
+                CombineOperation::Intersect => CombineOperationRecord::Intersect,
+            },
         }),
         FeatureKind::Pattern(pattern) => pattern_record(pattern),
         FeatureKind::Import(import) => FeatureKindRecord::Import(ImportRecord {
@@ -1764,6 +1790,15 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             FeatureKind::Blend(restore_blend(record, BlendKind::Chamfer, name, issues))
         }
         FeatureKindRecord::Shell(record) => FeatureKind::Shell(restore_shell(record, name, issues)),
+        FeatureKindRecord::Combine(record) => FeatureKind::Combine(Combine {
+            body: FeatureId::from_raw(record.body),
+            tool: FeatureId::from_raw(record.tool),
+            operation: match record.operation {
+                CombineOperationRecord::Join => CombineOperation::Join,
+                CombineOperationRecord::Cut => CombineOperation::Cut,
+                CombineOperationRecord::Intersect => CombineOperation::Intersect,
+            },
+        }),
         FeatureKindRecord::LinearPattern(record) => {
             FeatureKind::from(restore_linear_pattern(record, name, issues))
         }

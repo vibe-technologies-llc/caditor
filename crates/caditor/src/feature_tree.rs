@@ -13,7 +13,7 @@ use egui::{
 
 use crate::{
     appearance::{self, ICON_SIZE, SPACE_L, SPACE_M, SPACE_S},
-    blend_panel,
+    blend_panel, combine_panel,
     commands::{Command, CommandFrame},
     datum_panel,
     editing::{EditingCommand, SketchEditing},
@@ -616,6 +616,10 @@ fn body(
             );
             body_display(ui, model, feature);
         }
+        FeatureKind::Combine(combine) => {
+            combine_panel::show(ui, model, actions, feature, combine);
+            body_display(ui, model, feature);
+        }
         FeatureKind::Pattern(pattern) => {
             pattern_panel::show(ui, model, row.selection, actions, feature, pattern);
             body_display(ui, model, feature);
@@ -647,6 +651,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         FeatureKind::Solid(_)
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
+        | FeatureKind::Combine(_)
         | FeatureKind::Pattern(_)
         | FeatureKind::Import(_) => tokens.text,
     }
@@ -751,6 +756,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             FeatureKind::Solid(_)
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
+            | FeatureKind::Combine(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_),
             true,
@@ -759,6 +765,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             FeatureKind::Solid(_)
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
+            | FeatureKind::Combine(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_),
             false,

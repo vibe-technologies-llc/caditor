@@ -2,7 +2,7 @@ use caditor_document::{BlendKind, Datum, describe_axis};
 use egui::{Frame, Response, Ui, Vec2};
 
 use crate::{
-    blend_panel, blend_tools,
+    blend_panel, blend_tools, combine_tools,
     commands::{Command, CommandFrame},
     datum_tools,
     editing::{EditingCommand, SketchEditing},
@@ -120,6 +120,7 @@ fn group_buttons(
         Group::Modify => {
             blend_buttons(ui, model, context, commands, actions);
             shell_button(ui, model, context, commands, actions);
+            combine_button(ui, model, context, commands, actions);
         }
         Group::Pattern => pattern_buttons(ui, model, context, commands, actions),
         Group::Reference => datum_buttons(ui, model, context, commands, actions),
@@ -378,6 +379,30 @@ fn shell_button(
             source,
             model.length_unit(),
         ));
+    }
+}
+
+fn combine_button(
+    ui: &mut Ui,
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let pair = &context.offers.combine;
+    let invoked = commands.invoke(Command::Combine, pair);
+    let help = match pair {
+        Ok(_) => Ok(commands.with_keys(Command::Combine, combine_tools::DESCRIPTION)),
+        Err(reason) => Err(format!(
+            "{}. {reason}, then click here.",
+            combine_tools::DESCRIPTION
+        )),
+    };
+    let response = tool(ui, Command::Combine, combine_tools::TITLE, &help);
+    if (response.clicked() || invoked)
+        && let Ok(pair) = pair
+    {
+        actions.extend(combine_tools::create_actions(model, *pair));
     }
 }
 

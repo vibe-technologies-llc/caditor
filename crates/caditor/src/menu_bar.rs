@@ -435,7 +435,15 @@ impl Menus<'_, '_> {
         ui.menu_button("Model", |ui| {
             self.items(ui, [Command::NewSketch, Command::Extrude, Command::Revolve]);
             ui.separator();
-            self.items(ui, [Command::Fillet, Command::Chamfer, Command::Shell]);
+            self.items(
+                ui,
+                [
+                    Command::Fillet,
+                    Command::Chamfer,
+                    Command::Shell,
+                    Command::Combine,
+                ],
+            );
             ui.separator();
             self.items(ui, [Command::LinearPattern, Command::CircularPattern]);
             ui.separator();

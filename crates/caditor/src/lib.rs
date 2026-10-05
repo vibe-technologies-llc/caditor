@@ -8,6 +8,8 @@ mod blend_tools;
 mod bodies;
 mod canvas;
 mod cli;
+mod combine_panel;
+mod combine_tools;
 mod commands;
 #[cfg(test)]
 mod conventions_tests;

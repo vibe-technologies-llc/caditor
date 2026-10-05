@@ -1,5 +1,6 @@
 mod attachment;
 mod blend;
+mod combine;
 mod datum;
 mod dependencies;
 mod describe;
@@ -23,6 +24,7 @@ mod worker;
 pub use crate::{
     attachment::{AttachmentError, FaceAttachment, SketchAttachment, SketchFeature, face_plane},
     blend::{Blend, BlendKind},
+    combine::{Combine, CombineOperation},
     datum::{
         AxisReference, Datum, DatumAxis, DatumPlane, DatumResult, PlaneReference, PlaneRotation,
         PrincipalAxis, PrincipalGeometry, PrincipalPlane, capitalized, describe_axis,
@@ -58,6 +60,8 @@ pub use crate::{
 mod attachment_tests;
 #[cfg(test)]
 mod blend_tests;
+#[cfg(test)]
+mod combine_tests;
 #[cfg(test)]
 mod datum_tests;
 #[cfg(test)]

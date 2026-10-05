@@ -13,7 +13,7 @@ use caditor_sketch::{
 };
 
 use crate::{
-    attachment, blend,
+    attachment, blend, combine,
     datum::{self, DatumResult},
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     healing::{self, Healing},
@@ -536,6 +536,7 @@ impl Recompute {
         let mut statuses = BTreeMap::new();
         let mut current: BTreeMap<FeatureId, Arc<FeatureResult>> = BTreeMap::new();
         let mut bodies: BodyStates = BTreeMap::new();
+        let mut consumed: BTreeSet<FeatureId> = BTreeSet::new();
         let mut recomputed = Vec::new();
         let mut inputs_before = BTreeMap::new();
         let mut seen_bodies: BTreeMap<FeatureId, BTreeMap<FeatureId, FeatureId>> = BTreeMap::new();
@@ -677,6 +678,10 @@ impl Recompute {
                 if let Some(solid) = result.solid() {
                     bodies.insert(solid.body, (id, Arc::clone(result)));
                 }
+                for body in feature.kind.consumed_bodies() {
+                    bodies.remove(&body);
+                    consumed.insert(body);
+                }
             }
             statuses.insert(
                 id,
@@ -692,7 +697,7 @@ impl Recompute {
             .iter()
             .map(|(body, (state, _))| (*body, *state))
             .collect();
-        let stale_bodies = last_good_bodies(document, &statuses, &shown);
+        let stale_bodies = last_good_bodies(document, &statuses, &shown, &consumed);
         for (body, state) in &stale_bodies {
             shown.insert(*body, *state);
         }
@@ -780,6 +785,7 @@ fn last_good_bodies(
     document: &Document,
     statuses: &BTreeMap<FeatureId, FeatureStatus>,
     current: &BTreeMap<FeatureId, FeatureId>,
+    consumed: &BTreeSet<FeatureId>,
 ) -> BTreeMap<FeatureId, FeatureId> {
     let made: BTreeSet<FeatureId> = document
         .active_features()
@@ -795,6 +801,7 @@ fn last_good_bodies(
         if let Some(solid) = last_good
             && made.contains(&solid.body)
             && !current.contains_key(&solid.body)
+            && !consumed.contains(&solid.body)
         {
             stale.insert(solid.body, feature.id());
         }
@@ -944,6 +951,9 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::Solid(solid) => solid::evaluate(feature, solid, inputs, cancel),
             FeatureKind::Blend(definition) => blend::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Shell(definition) => shell::evaluate(feature, definition, inputs, cancel),
+            FeatureKind::Combine(definition) => {
+                combine::evaluate(feature, definition, inputs, cancel)
+            }
             FeatureKind::Pattern(definition) => {
                 pattern::evaluate(feature, definition, inputs, cancel)
             }

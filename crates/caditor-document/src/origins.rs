@@ -87,7 +87,7 @@ fn may_hold_references(kind: &FeatureKind) -> bool {
         FeatureKind::Sketch(sketch) => {
             matches!(sketch.attachment, Some(SketchAttachment::Face(_)))
         }
-        FeatureKind::Import(_) => false,
+        FeatureKind::Import(_) | FeatureKind::Combine(_) => false,
         FeatureKind::Solid(_)
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)

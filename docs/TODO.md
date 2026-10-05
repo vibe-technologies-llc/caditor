@@ -202,7 +202,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Modelling features
 
-- [high · medium] No feature combines two existing bodies, and a cut affects only one body.
+- [medium · medium] A cut affects only one body: no extrusion or revolve cut removes material from
+  several bodies at once, only a Combine of two.
 - [high · medium] Hole feature: no hole feature exists. Plain, counterbored and countersunk holes
   placed on a face or a sketch point, parametric and named like the other features.
 - [high · medium] An extrusion can start off its sketch plane by a distance but not at a chosen face

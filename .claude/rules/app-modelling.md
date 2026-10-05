@@ -6,6 +6,8 @@ paths:
   - "crates/caditor/src/blend_panel.rs"
   - "crates/caditor/src/shell_tools.rs"
   - "crates/caditor/src/shell_panel.rs"
+  - "crates/caditor/src/combine_tools.rs"
+  - "crates/caditor/src/combine_panel.rs"
   - "crates/caditor/src/datum_tools.rs"
   - "crates/caditor/src/datum_panel.rs"
   - "crates/caditor/src/pattern_tools.rs"
@@ -79,6 +81,14 @@ paths:
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's
   list stays in `PanelState::reference_rows` (`reference_rows.rs`) until the state before it or
   the revision changes.
+
+## Combine
+
+- Combine (Alt+J) is offered when the selection touches faces, edges or vertices of exactly two
+  bodies shown now; the earlier body in the tree is the target and the later the tool. It creates a
+  Join and opens the panel, whose Operation switch (Join, Cut, Intersect) and Target and Tool
+  lists (`Document::bodies_before`, each leaving out the other) change it. Nothing is chosen in the
+  view while it is open.
 
 ## Patterns
 

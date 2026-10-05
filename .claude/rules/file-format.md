@@ -131,6 +131,7 @@ paths:
   refused.
 - An extrusion record (`extrude` and `extrude_to`) carries `start`, the stored text of its start
   offset, only when it has one.
+- A `combine` feature record holds `body`, `tool` and `operation` (`join`, `cut`, `intersect`).
 - A sketch's constraint record carries `inactive: true` only for a disabled constraint (absent
   means active, so older files read unchanged); the journal's `add_sketch_constraint` carries the
   same flag and `set_sketch_constraint_active` is its own record.

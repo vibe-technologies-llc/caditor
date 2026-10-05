@@ -92,6 +92,7 @@ pub enum Command {
     Fillet,
     Chamfer,
     Shell,
+    Combine,
     LinearPattern,
     CircularPattern,
     DatumPlane,
@@ -438,6 +439,7 @@ plain_commands! {
     Fillet,
     Chamfer,
     Shell,
+    Combine,
     LinearPattern,
     CircularPattern,
     DatumPlane,
@@ -575,6 +577,7 @@ impl Command {
             Self::Fillet => "model.fillet",
             Self::Chamfer => "model.chamfer",
             Self::Shell => "model.shell",
+            Self::Combine => "model.combine",
             Self::LinearPattern => "model.linear_pattern",
             Self::CircularPattern => "model.circular_pattern",
             Self::DatumPlane => "model.plane",
@@ -692,6 +695,7 @@ impl Command {
             Self::Fillet => "Fillet",
             Self::Chamfer => "Chamfer",
             Self::Shell => "Shell",
+            Self::Combine => "Combine",
             Self::LinearPattern => "Linear pattern",
             Self::CircularPattern => "Circular pattern",
             Self::DatumPlane => "Datum plane",
@@ -815,6 +819,7 @@ impl Command {
             | Self::Fillet
             | Self::Chamfer
             | Self::Shell
+            | Self::Combine
             | Self::LinearPattern
             | Self::CircularPattern
             | Self::DatumPlane
@@ -932,6 +937,7 @@ impl Command {
             Self::Fillet => vec![alt(Key::F)],
             Self::Chamfer => vec![alt(Key::C)],
             Self::Shell => vec![alt(Key::S)],
+            Self::Combine => vec![alt(Key::J)],
             Self::LinearPattern => vec![alt(Key::L)],
             Self::CircularPattern => vec![alt_shift(Key::L)],
             Self::DatumPlane => vec![alt(Key::D)],

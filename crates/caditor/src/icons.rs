@@ -1,5 +1,5 @@
 use caditor_document::{
-    BlendKind, Datum, FeatureKind, PatternKind, PrincipalGeometry, SolidFeature,
+    BlendKind, CombineOperation, Datum, FeatureKind, PatternKind, PrincipalGeometry, SolidFeature,
 };
 use egui_phosphor::regular as phosphor;
 
@@ -108,6 +108,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Fillet => blend(BlendKind::Fillet),
         Command::Chamfer => blend(BlendKind::Chamfer),
         Command::Shell => SHELL,
+        Command::Combine => COMBINE,
         Command::LinearPattern => LINEAR_PATTERN,
         Command::CircularPattern => CIRCULAR_PATTERN,
         Command::DatumPlane => PLANE,
@@ -174,6 +175,7 @@ pub fn command(command: Command) -> &'static str {
 const EXTRUDE: &str = phosphor::ARROW_FAT_LINE_UP;
 const REVOLVE: &str = phosphor::ARROWS_CLOCKWISE;
 const SHELL: &str = phosphor::CUBE_TRANSPARENT;
+const COMBINE: &str = phosphor::UNITE;
 const LINEAR_PATTERN: &str = phosphor::SQUARES_FOUR;
 const CIRCULAR_PATTERN: &str = phosphor::SPINNER;
 const PLANE: &str = phosphor::PARALLELOGRAM;
@@ -271,6 +273,14 @@ pub fn principal(geometry: PrincipalGeometry) -> &'static str {
     }
 }
 
+pub fn combine(operation: CombineOperation) -> &'static str {
+    match operation {
+        CombineOperation::Join => phosphor::UNITE,
+        CombineOperation::Cut => phosphor::SUBTRACT,
+        CombineOperation::Intersect => phosphor::INTERSECT,
+    }
+}
+
 pub fn feature(kind: &FeatureKind) -> &'static str {
     match kind {
         FeatureKind::Sketch(_) => SKETCH,
@@ -278,6 +288,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Solid(SolidFeature::Revolve(_)) => REVOLVE,
         FeatureKind::Blend(blend) => self::blend(blend.kind),
         FeatureKind::Shell(_) => SHELL,
+        FeatureKind::Combine(combine) => self::combine(combine.operation),
         FeatureKind::Pattern(pattern) => match pattern.kind {
             PatternKind::Linear { .. } => LINEAR_PATTERN,
             PatternKind::Circular(_) => CIRCULAR_PATTERN,
