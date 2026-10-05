@@ -3,6 +3,7 @@ use std::{ops::Range, sync::Arc};
 use caditor_geometry::{Aabb, Point2, Point3, RigidTransform, Vector3};
 
 use crate::{
+    box_tree::BoxTree,
     bspline::{MAX_SPLINE_DEGREE, clamped_domain},
     error::GeometryError,
     interval::Interval,
@@ -14,6 +15,8 @@ const SAMPLES_PER_SPAN: usize = 3;
 const MAX_GRID_SAMPLES: usize = 48;
 const PROJECTION_SEEDS: usize = 3;
 const BLOCK_SIZE: usize = 8;
+const MAX_SPAN_SEARCHES: usize = 32;
+const SPAN_SAMPLES: usize = 4;
 
 #[cfg(test)]
 pub(crate) mod counting {
@@ -40,7 +43,21 @@ pub struct BSplineSurface {
     u_closed: bool,
     v_closed: bool,
     grid: Arc<SampleGrid>,
+    spans: Arc<SpanIndex>,
     poles: [Option<Pole>; 2],
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct SpanIndex {
+    tree: BoxTree,
+    spans: Vec<Span>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Span {
+    hull: Aabb,
+    u: Interval,
+    v: Interval,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -189,6 +206,8 @@ impl BSplineSurface {
             + size_of::<SampleGrid>()
             + size_of_val(self.grid.samples.as_slice())
             + size_of_val(self.grid.blocks.as_slice())
+            + size_of_val(self.spans.spans.as_slice())
+            + self.spans.tree.heap_size()
     }
 
     pub fn new(
@@ -261,11 +280,13 @@ impl BSplineSurface {
             u_closed: false,
             v_closed: false,
             grid: Arc::default(),
+            spans: Arc::default(),
             poles: [None; 2],
         };
         surface.u_closed = surface.boundaries_meet(true);
         surface.v_closed = surface.boundaries_meet(false);
         surface.grid = Arc::new(surface.sample_grid());
+        surface.spans = Arc::new(surface.span_index());
         surface.poles = surface.find_poles();
         if surface
             .grid
@@ -370,9 +391,11 @@ impl BSplineSurface {
             u_closed: self.v_closed,
             v_closed: self.u_closed,
             grid: Arc::default(),
+            spans: Arc::default(),
             poles: [None; 2],
         };
         transposed.grid = Arc::new(transposed.sample_grid());
+        transposed.spans = Arc::new(transposed.span_index());
         transposed.poles = transposed.find_poles();
         transposed
     }
@@ -395,6 +418,7 @@ impl BSplineSurface {
             ..self.clone()
         };
         moved.grid = Arc::new(self.grid.mapped(&map));
+        moved.spans = Arc::new(moved.span_index());
         moved.poles = moved.find_poles();
         Ok(moved)
     }
@@ -596,6 +620,40 @@ impl BSplineSurface {
         self.grid.nearest(point, PROJECTION_SEEDS)
     }
 
+    pub(crate) fn span_seeds(&self, point: Point3) -> Vec<Point2> {
+        let mut holding: Vec<&Span> = self
+            .spans
+            .tree
+            .overlapping(&Aabb::from_point(point), LINEAR_RESOLUTION)
+            .into_iter()
+            .filter_map(|index| self.spans.spans.get(index))
+            .collect();
+        holding.sort_by(|a, b| {
+            a.hull
+                .center()
+                .distance_squared(point)
+                .total_cmp(&b.hull.center().distance_squared(point))
+        });
+        holding
+            .into_iter()
+            .take(MAX_SPAN_SEARCHES)
+            .filter_map(|span| self.nearest_in_span(span, point))
+            .collect()
+    }
+
+    fn nearest_in_span(&self, span: &Span, point: Point3) -> Option<Point2> {
+        let fraction = |index: usize| (index as f64 + 0.5) / SPAN_SAMPLES as f64;
+        (0..SPAN_SAMPLES)
+            .flat_map(|row| {
+                (0..SPAN_SAMPLES).map(move |column| {
+                    Point2::new(span.u.at(fraction(column)), span.v.at(fraction(row)))
+                })
+            })
+            .map(|uv| (self.evaluate(uv.x, uv.y).point.distance_squared(point), uv))
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, uv)| uv)
+    }
+
     pub(crate) fn place(&self, uv: Point2, hint: Option<Point2>) -> Point2 {
         let u = match self.u_period() {
             Some(period) if period > 0.0 => {
@@ -723,6 +781,43 @@ impl BSplineSurface {
             net.extend(restrict(v_knots, self.v_degree, points, v_low, v_high)?);
         }
         Some(net)
+    }
+
+    fn span_index(&self) -> SpanIndex {
+        let spans_of = |knots: &[f64], degree: usize, count: usize, domain: Interval| {
+            (degree..count)
+                .filter_map(|index| {
+                    let interval = Interval::new(*knots.get(index)?, *knots.get(index + 1)?)?;
+                    let inside = interval.length() > 0.0
+                        && interval.start() >= domain.start()
+                        && interval.end() <= domain.end();
+                    inside.then_some((index - degree..=index, interval))
+                })
+                .collect::<Vec<_>>()
+        };
+        let columns = spans_of(&self.u_knots, self.u_degree, self.columns, self.u_domain);
+        let rows = spans_of(&self.v_knots, self.v_degree, self.rows, self.v_domain);
+        let sampled_by_grid = |spans: usize| spans * SAMPLES_PER_SPAN <= MAX_GRID_SAMPLES;
+        if sampled_by_grid(columns.len()) && sampled_by_grid(rows.len()) {
+            return SpanIndex::default();
+        }
+        let spans: Vec<Span> = rows
+            .iter()
+            .flat_map(|(row_range, v)| {
+                columns.iter().filter_map(move |(column_range, u)| {
+                    let hull = Aabb::from_points(row_range.clone().flat_map(|row| {
+                        column_range
+                            .clone()
+                            .filter_map(move |column| self.control_point(column, row))
+                    }))?;
+                    Some(Span { hull, u: *u, v: *v })
+                })
+            })
+            .collect();
+        SpanIndex {
+            tree: BoxTree::new(spans.iter().map(|span| span.hull)),
+            spans,
+        }
     }
 
     fn sample_grid(&self) -> SampleGrid {
@@ -1226,6 +1321,43 @@ mod tests {
             let hinted = surface.project(point, Some(Point2::new(u + 0.01, v - 0.01)));
             assert!((hinted - Point2::new(u, v)).length() < 1e-6);
         }
+    }
+
+    #[test]
+    fn projection_finds_points_on_a_dense_rough_net() {
+        let size = 60;
+        let mut random = crate::test_support::Random::new(11);
+        let points = (0..size * size)
+            .map(|index| {
+                Point3::new(
+                    (index % size) as f64,
+                    (index / size) as f64,
+                    random.between(-20.0, 20.0),
+                )
+            })
+            .collect();
+        let knots = |count: usize| {
+            let inner = count - 3;
+            let mut knots = vec![0.0; 4];
+            knots.extend((1..inner).map(|knot| knot as f64 / inner as f64));
+            knots.extend([1.0; 4]);
+            knots
+        };
+        let rough =
+            BSplineSurface::new(3, 3, knots(size), knots(size), size, points, None).unwrap();
+        let surface = Surface::BSpline(rough);
+
+        let mut missed = 0;
+        for _ in 0..2000 {
+            let (u, v) = (random.unit(), random.unit());
+            let point = surface.point_at(Point2::new(u, v));
+            let found = surface.point_at(surface.project(point, None));
+            if found.distance(point) > LINEAR_RESOLUTION {
+                missed += 1;
+            }
+        }
+
+        assert_eq!(missed, 0);
     }
 
     #[test]

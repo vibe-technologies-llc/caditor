@@ -23,6 +23,7 @@ const ON_SURFACE: f64 = 0.1 * LINEAR_RESOLUTION;
 const CONSTANT_VARIATION: f64 = 0.01 * LINEAR_RESOLUTION;
 const TANGENT_SINE: f64 = 1e-7;
 const OVERLAP_SINE: f64 = 1e-6;
+const FOOT_SINE: f64 = 1e-6;
 const OVERLAP_CURVATURE: f64 = 1e-6;
 const MIN_OVERLAP: f64 = 10.0 * LINEAR_RESOLUTION;
 const LEAF_TURN: f64 = 0.25;
@@ -107,8 +108,11 @@ impl Probe<'_> {
         let uv = match self.hint.get().filter(|_| swept) {
             Some(hint) => {
                 let local = refine_projection(self.surface, point, hint);
-                let global = || self.surface.project(point, None);
-                if local.is_finite() { local } else { global() }
+                if local.is_finite() && self.is_foot(point, local) {
+                    local
+                } else {
+                    self.surface.project(point, None)
+                }
             }
             None => self.surface.project(point, None),
         };
@@ -116,6 +120,17 @@ impl Probe<'_> {
             self.hint.set(Some(uv));
         }
         uv
+    }
+
+    fn is_foot(&self, point: Point3, uv: Point2) -> bool {
+        let offset = point - self.surface.point_at(uv);
+        if offset.length() <= TOLERANCE {
+            return true;
+        }
+        match (self.surface.normal(uv.x, uv.y), offset.try_normalize()) {
+            (Some(normal), Some(direction)) => direction.cross(normal).length() <= FOOT_SINE,
+            _ => false,
+        }
     }
 
     fn forget(&self) {

@@ -4,7 +4,7 @@ use crate::intersect::boxes_overlap;
 
 const LEAF_SIZE: usize = 4;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct Node {
     bounds: Aabb,
     first: usize,
@@ -12,7 +12,7 @@ struct Node {
     children: Option<[usize; 2]>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct BoxTree {
     nodes: Vec<Node>,
     items: Vec<(usize, Aabb)>,
@@ -73,6 +73,10 @@ impl BoxTree {
         let mut nodes = Vec::with_capacity(2 * items.len() / LEAF_SIZE + 1);
         build(&mut nodes, &mut items, 0);
         Self { nodes, items }
+    }
+
+    pub fn heap_size(&self) -> usize {
+        size_of_val(self.nodes.as_slice()) + size_of_val(self.items.as_slice())
     }
 
     pub fn overlapping(&self, query: &Aabb, margin: f64) -> Vec<usize> {

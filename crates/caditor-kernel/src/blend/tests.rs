@@ -680,23 +680,38 @@ fn feet_that_cross_on_a_cylinder_wall_are_refused() {
         50
     )));
 
-    let result = run(&solid, &rims, fillet(3.0));
-    assert_eq!(result.validate(), Ok(()));
-    assert!(!blend_faces(&result).is_empty());
+    for radius in [3.0, 4.0, 4.9] {
+        let result = run(&solid, &rims, fillet(radius));
+        let ring = 2.0 * PI * (5.0 - radius * SPANDREL_CENTROID) * spandrel(radius);
+        check("both rims", &result, 250.0 * PI - 2.0 * ring);
+        assert_eq!(blend_faces(&result).len(), 2);
+    }
 }
 
 #[test]
 fn a_blend_whose_tool_cannot_be_applied_names_that_tools_edge() {
-    let solid = cylinder(5.0, 10.0);
-    let rims = [
-        edge_through(&solid, (5.0, 0.0, 0.0)),
-        edge_through(&solid, (5.0, 0.0, 10.0)),
-    ];
+    let solid = cuboid(Vector3::splat(10.0));
+    let edge = edge_through(&solid, (5.0, 0.0, 10.0));
+    let along_the_edge = moved(cuboid(Vector3::splat(10.0)), (0.0, -10.0, 10.0));
 
-    let error = blend(&solid, &rims, fillet(4.0), 50).unwrap_err();
+    let error = applied(
+        &solid,
+        &[along_the_edge],
+        &[Some(edge)],
+        BooleanOperation::Union,
+    )
+    .unwrap_err();
 
-    assert!(matches!(error, BlendError::Boolean { .. }), "{error:?}");
-    assert!(rims.contains(&error.edge().unwrap()), "{error:?}");
+    assert!(
+        matches!(
+            error,
+            BlendError::Boolean {
+                error: BooleanError::NonManifold(_),
+                edge: Some(named),
+            } if named == edge
+        ),
+        "{error:?}"
+    );
 }
 
 #[test]

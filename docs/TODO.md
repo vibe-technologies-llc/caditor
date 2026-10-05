@@ -44,9 +44,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   (`boolean::tests::aligned_contacts_a_micrometre_or_so_apart`, ignored). `SAME_EDGE`,
   `NEAR_BOUNDARY`, `PCURVE_TOLERANCE` and the coaxial offset are unrelated absolute values; derive
   them from one tolerance model and snap or refuse within a documented band.
-- [medium · medium] Filleting both rims of a cylinder of radius 5 and height 10 at a fillet radius
-  of 4 fails as `Boolean(Ambiguous)` although its feet do not cross (3.5 works); the tests stay at
-  3.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps
@@ -58,10 +55,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   partly coincident fragment (only coincident samples of opposite senses make it `Ambiguous`);
   treating every partly coincident fragment as `Ambiguous` fails `stress_cylinders_on_a_grid` on
   noise near tolerance boundaries, so split fragments exactly at coincident boundaries instead.
-- [low · easy] The spline-surface projection seed grid is capped at 48 samples per direction, so on
-  very dense or rough imported nets the foot of an on-surface point is occasionally missed (a few in
-  a thousand on 60×60 control points with heights far above their spacing; smooth nets are
-  unaffected).
 - [low · medium] A face the shell's thickness closes up is dropped only when it has one loop and
   keeps two single edges apart from each other, or none; a band whose side is a chain of edges (a
   rim split by another face's seam) is refused as `EdgeCollapses`.

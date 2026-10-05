@@ -30,7 +30,10 @@ paths:
   lines, circles and ellipses against elementary surfaces, else subdivides the curve on piece boxes
   (widened by a second-derivative sagitta within a spline span, since span hulls do not shrink),
   prunes by the surface's Lipschitz distance, brackets sign changes of the signed distance and
-  minimises it for touches.
+  minimises it for touches. Within a leaf, an extrusion or revolution is projected from the previous
+  foot, and a foot whose offset is not along the normal (stalled on a boundary of the domain, where
+  the signed distance reads zero far from the surface) is replaced by the global projection, so a
+  stale hint never brackets a false root.
 - `intersect_curves` and `intersect_curves2` are analytic for lines and 2D circles, else paired
   subdivision and Newton on the squared distance.
 

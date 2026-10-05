@@ -305,6 +305,18 @@ impl Surface {
                 best = Some((distance, refined));
             }
         }
+        if best.is_none_or(|(closest, _)| closest > LINEAR_RESOLUTION) {
+            for seed in spline.span_seeds(point) {
+                let (distance, refined) = foot(seed, &known);
+                known.push(refined);
+                if best.is_none_or(|(closest, _)| distance < closest) {
+                    best = Some((distance, refined));
+                }
+                if distance <= LINEAR_RESOLUTION {
+                    break;
+                }
+            }
+        }
         let chosen = match (from_hint, best) {
             (Some((near, uv)), Some((closest, _))) if near <= closest + HINT_PREFERENCE => uv,
             (_, Some((_, uv))) => uv,

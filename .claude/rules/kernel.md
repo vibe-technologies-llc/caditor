@@ -34,7 +34,11 @@ paths:
   range only when that foot is not within the resolution, so chained projections stay cheap, and
   the hint's foot is kept unless another is closer by more than the resolution, so self-crossing
   profiles project consistently. Surface `project` returns the periodic representative nearest the
-  hint, else the principal one in [0, period).
+  hint, else the principal one in [0, period). A spline surface seeds from a grid of three samples
+  per knot span, capped at 48 a direction; a net with more spans than that also keeps a box tree of
+  each span's control hull, and a point no seed reaches within the resolution is sought from the
+  nearest of a few samples in each span whose hull holds it (at most `MAX_SPAN_SEARCHES`), so a
+  point on a dense, rough net always finds its foot.
 - `Curve::Intersection(IntersectionCurve)` lies on two surfaces it carries, within
   `INTERSECTION_TOLERANCE`. `IntersectionCurve::through` rebuilds one from rough points (an
   imported edge off its faces) and is the only path that follows surfaces that merely touch (a
