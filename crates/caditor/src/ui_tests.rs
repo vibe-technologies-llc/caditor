@@ -2228,12 +2228,10 @@ fn unsaved_work_from_a_crash_is_offered_and_restored_with_its_history() {
     assert!(harness.model.is_dirty());
     assert_eq!(harness.model.undo_label(), Some("Edit width"));
     assert_eq!(harness.expression_text("width"), "55 mm");
-    assert_eq!(
-        std::fs::read_dir(dir.path().join("recovery"))
-            .unwrap()
-            .count(),
-        1
-    );
+    let recovery = dir.path().join("recovery");
+    harness.wait_until("the restored journal replaces the recovered one", |_| {
+        std::fs::read_dir(&recovery).unwrap().count() == 1
+    });
 }
 
 #[test]

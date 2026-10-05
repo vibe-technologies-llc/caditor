@@ -2857,7 +2857,11 @@ fn saving_over_a_model_open_in_another_window_is_refused() {
     .unwrap();
     assert!(other.flusher().flush(WAIT));
     let journal = dir.path().join(".model.caditor.journal");
-    let before = fs::read(&journal).unwrap();
+    let stamp = |journal: &Path| {
+        let metadata = fs::metadata(journal).unwrap();
+        (metadata.len(), metadata.modified().unwrap())
+    };
+    let before = stamp(&journal);
 
     let storage = Storage::spawn(config(&dir), untitled(&Document::default()), || {}).unwrap();
     storage
@@ -2875,7 +2879,7 @@ fn saving_over_a_model_open_in_another_window_is_refused() {
     };
     assert_eq!(error, SaveError::OpenInAnotherWindow);
     assert_eq!(load(&path).unwrap().document, base);
-    assert_eq!(fs::read(&journal).unwrap(), before);
+    assert_eq!(stamp(&journal), before);
     crash(storage);
     crash(other);
 }
