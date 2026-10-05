@@ -114,6 +114,7 @@ pub fn command(command: Command) -> &'static str {
         Command::FitView => phosphor::FRAME_CORNERS,
         Command::Measure => MEASURE,
         Command::ToggleProjection => phosphor::PERSPECTIVE,
+        Command::ToggleSnapping => phosphor::MAGNET,
         Command::MinimizeWindow => MINIMIZE,
         Command::MaximizeWindow => MAXIMIZE,
         Command::FullScreen => FULL_SCREEN,

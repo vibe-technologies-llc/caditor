@@ -78,7 +78,8 @@ paths:
   a slot (length and end diameter). Splines show none.
 - Holding Ctrl places the point exactly under the pointer: no snapping and no alignment guides
   (`Drawing::place_freely`). It also stops a tangent arc from starting, which needs a snapped
-  point.
+  point. Snapping on or off for good (`Command::ToggleSnapping`, View menu and palette, kept for the
+  session in `ViewportState::snapping`) has the same effect as holding Ctrl all the time.
 - The pointer is on the sketch only within `MAX_LENGTH` of the origin, so an edge-on view cannot
   place a point at an enormous distance.
 - Lines chain, each joined to the last end by `Coincident`, until Escape, a click on the last

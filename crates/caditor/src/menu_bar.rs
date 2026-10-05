@@ -38,6 +38,7 @@ pub struct MenuContext<'a> {
     pub chrome: Chrome,
     pub filter: SelectionFilter,
     pub style: DisplayStyle,
+    pub snapping: bool,
 }
 
 pub fn show(
@@ -72,6 +73,7 @@ pub fn show(
                     offers: context.offers,
                     filter: context.filter,
                     style: context.style,
+                    snapping: context.snapping,
                     commands,
                     chosen: Vec::new(),
                 };
@@ -283,6 +285,7 @@ struct Menus<'a, 'b> {
     offers: &'a [Offer],
     filter: SelectionFilter,
     style: DisplayStyle,
+    snapping: bool,
     commands: &'a CommandFrame<'b>,
     chosen: Vec<Command>,
 }
@@ -392,6 +395,7 @@ impl Menus<'_, '_> {
             );
             ui.separator();
             self.item(ui, Command::ToggleProjection);
+            self.choice(ui, Command::ToggleSnapping, self.snapping);
             ui.separator();
             self.item(ui, Command::FullScreen);
             ui.separator();

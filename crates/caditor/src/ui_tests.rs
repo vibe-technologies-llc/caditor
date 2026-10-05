@@ -3592,6 +3592,39 @@ fn a_point_placed_where_two_lines_cross_is_held_on_both() {
 }
 
 #[test]
+fn snapping_can_be_turned_off_for_good_and_back_on() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(50.0, 10.0));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    assert!(harness.workspace.viewport.snapping());
+
+    run_from_palette(&mut harness, "snapping");
+    harness.frame();
+    assert!(!harness.workspace.viewport.snapping());
+    harness.use_tool(Key::L);
+    harness.point_at(Point2::new(50.3, 10.4));
+    assert!(!harness.shows("On Point"));
+    harness.click_at(Point2::new(50.3, 10.4));
+    harness.click_at(Point2::new(50.3, 40.0));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let lines = entities_of_kind(sketch, "Line");
+    let (start, _) = line_ends(sketch, lines[1]);
+    assert!(near(sketch.point(start).unwrap(), Point2::new(50.3, 10.4)));
+    assert!(constraints_of_kind(sketch, "Coincident").is_empty());
+
+    run_from_palette(&mut harness, "snapping");
+    harness.frame();
+    assert!(harness.workspace.viewport.snapping());
+}
+
+#[test]
 fn a_line_started_at_the_middle_of_another_is_held_at_its_midpoint() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();

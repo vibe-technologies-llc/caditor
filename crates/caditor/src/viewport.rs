@@ -194,6 +194,7 @@ pub struct ViewportState {
     filter: SelectionFilter,
     filter_applies: bool,
     style: DisplayStyle,
+    snapping: bool,
 }
 
 pub fn initial_viewpoint() -> Viewpoint {
@@ -249,7 +250,12 @@ impl ViewportState {
             filter: SelectionFilter::default(),
             filter_applies: true,
             style: DisplayStyle::default(),
+            snapping: true,
         }
+    }
+
+    pub fn snapping(&self) -> bool {
+        self.snapping
     }
 
     pub fn style(&self) -> DisplayStyle {
@@ -1022,7 +1028,8 @@ impl ViewportState {
             .and_then(|feature| model.displayed_sketch(feature));
         self.drawing
             .sync(editing.active(), editing.modes(), displayed.as_deref());
-        self.drawing.place_freely(self.placing_freely);
+        self.drawing
+            .place_freely(self.placing_freely || !self.snapping);
         self.trimming.sync(editing.active(), displayed.as_deref());
         let selected = editing
             .feature()
@@ -1248,6 +1255,9 @@ impl ViewportState {
             if commands.available(Command::Camera(step)) {
                 self.nudge(step);
             }
+        }
+        if commands.available(Command::ToggleSnapping) {
+            self.snapping = !self.snapping;
         }
         for style in DisplayStyle::ALL {
             if commands.available(Command::Style(style)) {

@@ -371,6 +371,7 @@ pub fn show(
         chrome,
         filter: viewport.filter(),
         style: viewport.style(),
+        snapping: viewport.snapping(),
     };
     menu_bar::show(ui, model, &menu, &mut commands, actions);
     let toolbar = ToolbarContext {

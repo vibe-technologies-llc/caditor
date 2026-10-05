@@ -112,6 +112,7 @@ pub enum Command {
     ShowAll,
     TogglePrincipal,
     ToggleProjection,
+    ToggleSnapping,
     MinimizeWindow,
     MaximizeWindow,
     FullScreen,
@@ -415,6 +416,7 @@ plain_commands! {
     Redo,
     FitView,
     ToggleProjection,
+    ToggleSnapping,
     Measure,
     LargerInterface,
     SmallerInterface,
@@ -597,6 +599,7 @@ impl Command {
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
             Self::ToggleProjection => "view.toggle_projection",
+            Self::ToggleSnapping => "view.toggle_snapping",
             Self::MinimizeWindow => "view.minimize_window",
             Self::MaximizeWindow => "view.maximize_window",
             Self::FullScreen => "view.full_screen",
@@ -707,6 +710,7 @@ impl Command {
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
             Self::ToggleProjection => "Switch between perspective and orthographic",
+            Self::ToggleSnapping => "Turn snapping on or off",
             Self::MinimizeWindow => "Minimize the window",
             Self::MaximizeWindow => "Maximize or restore the window",
             Self::FullScreen => "Enter or leave full screen",
@@ -797,6 +801,7 @@ impl Command {
             | Self::ShowAll
             | Self::TogglePrincipal
             | Self::ToggleProjection
+            | Self::ToggleSnapping
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::FullScreen => Category::View,
@@ -947,6 +952,7 @@ impl Command {
             | Self::RollToEnd
             | Self::ToggleVisibility
             | Self::TogglePrincipal
+            | Self::ToggleSnapping
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::CloseFeature
