@@ -541,7 +541,6 @@ fn flat_net(size: usize, bump: Option<(usize, usize)>) -> Surface {
         .collect();
     let control_points = (0..size)
         .flat_map(|row| {
-            let bump = bump;
             (0..size).map(move |column| {
                 let height = if bump == Some((column, row)) {
                     0.01
