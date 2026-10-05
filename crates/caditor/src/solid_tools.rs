@@ -166,6 +166,7 @@ pub fn create(
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(unit.default_length(DEFAULT_DISTANCE), false),
             operation,
+            start: None,
         }),
         Sweep::Revolve => SolidFeature::Revolve(Revolve {
             sketch: source.sketch,

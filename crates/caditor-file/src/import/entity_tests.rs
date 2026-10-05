@@ -490,6 +490,7 @@ fn a_drawing_whose_only_outline_is_a_hatch_extrudes_into_a_solid() {
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
+            start: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

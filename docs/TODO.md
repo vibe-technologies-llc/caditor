@@ -205,8 +205,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [high · medium] No feature combines two existing bodies, and a cut affects only one body.
 - [high · medium] Hole feature: no hole feature exists. Plain, counterbored and countersunk holes
   placed on a face or a sketch point, parametric and named like the other features.
-- [high · medium] Extrusions always start on the sketch plane, with no start offset or start face,
-  though `LinearExtent::between` accepts any bounds; revolve has the same gap.
+- [high · medium] An extrusion can start off its sketch plane by a distance but not at a chosen face
+  or plane, and a revolve cannot start off its sketch plane at all.
 - [high · hard] Bodies cannot be edited directly: no moving, offsetting, deleting or replacing a
   face (push and pull) and no deleting a fillet or chamfer by its faces. An imported STEP body has
   no feature history, so today it can only be cut, joined, filleted or shelled; a wall too thick, a

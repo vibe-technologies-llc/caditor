@@ -147,6 +147,7 @@ fn extrude(sketch: FeatureId, extent: ExtrudeExtent) -> FeatureKind {
         regions: RegionChoice::All,
         extent,
         operation: BodyOperation::NewBody,
+        start: None,
     }))
 }
 
@@ -316,6 +317,7 @@ fn bracket(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
             regions: RegionChoice::All,
             extent: ExtrudeExtent::Symmetric { distance: depth },
             operation: BodyOperation::Remove(body),
+            start: None,
         })),
     );
     Ok(())

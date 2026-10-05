@@ -5756,6 +5756,45 @@ fn a_selection_filter_makes_clicks_skip_everything_but_one_kind() {
 }
 
 #[test]
+fn an_extrusion_takes_a_start_offset_from_its_panel_and_zero_clears_it() {
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
+    harness.settle();
+    let start_of = |harness: &Harness| harness.solid(extrude).clone();
+    let start = |solid: SolidFeature| match solid {
+        SolidFeature::Extrude(extrude) => extrude.start,
+        SolidFeature::Revolve(_) => panic!("expected an extrusion"),
+    };
+    let lowest = |harness: &Harness| {
+        harness
+            .model
+            .evaluation()
+            .body_result(extrude)
+            .and_then(|result| result.solid())
+            .and_then(|solid| solid.bounding_box())
+            .map(|bounds| bounds.min().z)
+            .unwrap()
+    };
+    assert!(harness.shows("Start offset"));
+    assert_eq!(start(start_of(&harness)), None);
+    assert!(lowest(&harness).abs() < 1e-9);
+
+    harness.type_into_field(Id::new(("solid-field", "start", extrude)), "6 mm");
+    harness.settle();
+    assert_eq!(
+        start(start_of(&harness)).map(|expression| harness.document().expression_text(&expression)),
+        Some("6 mm".to_owned())
+    );
+    assert!((lowest(&harness) - 6.0).abs() < 1e-9);
+
+    harness.type_into_field(Id::new(("solid-field", "start", extrude)), "0 mm");
+    harness.settle();
+    assert_eq!(start(start_of(&harness)), None);
+    assert!(lowest(&harness).abs() < 1e-9);
+}
+
+#[test]
 fn a_click_waits_for_the_pick_under_the_cursor_rather_than_using_an_old_one() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);
@@ -6040,6 +6079,7 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), true),
             operation: BodyOperation::Remove(plate),
+            start: None,
         })),
     );
     transaction.edit(Edit::MoveFeature {
@@ -10570,6 +10610,7 @@ fn chosen_plate() -> (Document, FeatureId, FeatureId) {
             regions: RegionChoice::Chosen(regions),
             extent: ExtrudeExtent::one_side(Expression::Measure(5.0, Unit::Millimetre), false),
             operation: BodyOperation::NewBody,
+            start: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

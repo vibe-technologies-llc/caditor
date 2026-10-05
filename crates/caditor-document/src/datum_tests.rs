@@ -114,6 +114,7 @@ fn block() -> Block {
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(Expression::Parameter(height), false),
             operation: BodyOperation::NewBody,
+            start: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -469,6 +470,7 @@ fn a_revolve_axis_is_shown_where_the_revolve_found_it() {
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(millimetres(1.0), false),
             operation: BodyOperation::Remove(base),
+            start: None,
         })),
     );
     let evaluation = evaluate(&document, &mut Recompute::default());

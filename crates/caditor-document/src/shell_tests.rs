@@ -79,6 +79,7 @@ fn model() -> Model {
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(Expression::Parameter(height), false),
             operation: BodyOperation::NewBody,
+            start: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -271,6 +272,7 @@ fn a_corner_whose_walls_cannot_meet_is_named_by_its_faces() {
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(length, false),
             operation,
+            start: None,
         }))
     };
     let length = transaction.parse("20 mm").unwrap();

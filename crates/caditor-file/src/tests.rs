@@ -1849,6 +1849,7 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
                 transaction.parse("1 mm").unwrap(),
             ),
             operation: BodyOperation::NewBody,
+            start: None,
         })),
     );
     let turned = transaction.add_feature(
@@ -3508,6 +3509,7 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
             regions: RegionChoice::All,
             extent,
             operation: BodyOperation::Remove(base),
+            start: None,
         }))
     };
     let through = transaction.add_feature(
@@ -3732,6 +3734,7 @@ fn fillet_saved_before_origins() -> (Document, FeatureId) {
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(transaction.parse("4 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
+            start: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -3864,4 +3867,74 @@ fn inactive_constraints_stay_inactive_through_saving_and_the_journal() {
     )));
     let record: format::TransactionRecord = through_binary(&text);
     assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_have_none() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let lift = transaction.add_parameter("lift", transaction.parse("2 mm").unwrap());
+    let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XY)));
+    let distance = transaction.add_feature(
+        "Distance",
+        FeatureKind::Solid(caditor_document::SolidFeature::Extrude(
+            caditor_document::Extrude {
+                sketch,
+                regions: caditor_document::RegionChoice::All,
+                extent: caditor_document::ExtrudeExtent::one_side(
+                    transaction.parse("4 mm").unwrap(),
+                    false,
+                ),
+                operation: caditor_document::BodyOperation::NewBody,
+                start: Some(Expression::Parameter(lift)),
+            },
+        )),
+    );
+    let through = transaction.add_feature(
+        "Through",
+        FeatureKind::Solid(caditor_document::SolidFeature::Extrude(
+            caditor_document::Extrude {
+                sketch,
+                regions: caditor_document::RegionChoice::All,
+                extent: caditor_document::ExtrudeExtent::OneSide {
+                    end: caditor_document::ExtrudeEnd::ThroughAll,
+                    reversed: false,
+                },
+                operation: caditor_document::BodyOperation::Remove(distance),
+                start: Some(transaction.parse("-1.5 mm").unwrap()),
+            },
+        )),
+    );
+    let plain = transaction.add_feature(
+        "Plain",
+        FeatureKind::Solid(caditor_document::SolidFeature::Extrude(
+            caditor_document::Extrude {
+                sketch,
+                regions: caditor_document::RegionChoice::All,
+                extent: caditor_document::ExtrudeExtent::one_side(
+                    transaction.parse("1 mm").unwrap(),
+                    true,
+                ),
+                operation: caditor_document::BodyOperation::NewBody,
+                start: None,
+            },
+        )),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert_eq!(text.matches("\"start\"").count(), 2);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    let start_of = |id| match &loaded.document.feature(id).unwrap().kind {
+        FeatureKind::Solid(caditor_document::SolidFeature::Extrude(extrude)) => {
+            extrude.start.clone()
+        }
+        other => panic!("expected an extrusion, found {other:?}"),
+    };
+    assert_eq!(start_of(distance), Some(Expression::Parameter(lift)));
+    assert!(start_of(through).is_some());
+    assert_eq!(start_of(plain), None);
 }

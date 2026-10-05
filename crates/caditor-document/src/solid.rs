@@ -186,6 +186,7 @@ pub struct Extrude {
     pub regions: RegionChoice,
     pub extent: ExtrudeExtent,
     pub operation: BodyOperation,
+    pub start: Option<Expression>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -320,7 +321,11 @@ impl SolidFeature {
 
     fn expressions(&self) -> Vec<&Expression> {
         match self {
-            Self::Extrude(extrude) => extrude.extent.expressions(),
+            Self::Extrude(extrude) => {
+                let mut expressions = extrude.extent.expressions();
+                expressions.extend(extrude.start.as_ref());
+                expressions
+            }
             Self::Revolve(revolve) => revolve.extent.expressions(),
         }
     }
@@ -631,6 +636,10 @@ pub(crate) fn evaluate(
     let raw = feature.id().raw();
     let tool = match solid {
         SolidFeature::Extrude(definition) => {
+            let plane = match &definition.start {
+                Some(offset) => offset_plane(&context, plane, offset, inputs.parameters)?,
+                None => plane,
+            };
             let ends = Ends {
                 context: &context,
                 inputs,
@@ -675,6 +684,32 @@ pub(crate) fn evaluate(
         }
     };
     Ok(FeatureResult::Solid(SolidResult::new(body, solid)))
+}
+
+fn offset_plane(
+    context: &Context<'_>,
+    plane: Plane,
+    offset: &Expression,
+    parameters: &ParameterValues,
+) -> Result<Plane, Failure> {
+    const WHAT: &str = "start offset";
+    let distance = evaluate_value(context, offset, Dimension::LENGTH, WHAT, parameters)?;
+    within_reach(context, distance.abs(), WHAT)?;
+    Plane::from_frame(
+        plane.origin() + plane.normal() * distance,
+        plane.normal(),
+        plane.x_axis(),
+    )
+    .ok_or_else(|| {
+        context.error(
+            format!(
+                "The {WHAT} cannot be applied to the plane of {}.",
+                context.sketch_name
+            ),
+            "Enter another start offset.".to_owned(),
+            context.own(),
+        )
+    })
 }
 
 fn missing_body(inputs: &Inputs<'_>, body: FeatureId) -> Failure {

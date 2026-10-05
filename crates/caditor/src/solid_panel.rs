@@ -26,6 +26,7 @@ use crate::{
 };
 
 const FULL_TURN_DEGREES: f64 = 360.0;
+const START_OFFSET: &str = "Start offset";
 const THROUGH_ALL_NEEDS_A_CUT: &str = "Through all cuts into a body or intersects with it; choose Remove from body or Intersect \
      with body first";
 const UP_TO_NEXT_NEEDS_A_BODY: &str = "Up to next stops at the body this feature changes; choose Add, Remove or Intersect with a \
@@ -434,6 +435,23 @@ impl Panel<'_> {
                 });
             }
         }
+        let start = extrude
+            .start
+            .clone()
+            .unwrap_or_else(|| self.model.length_unit().default_length(0.0));
+        self.expression(
+            ui,
+            START_OFFSET,
+            "start",
+            &start,
+            (Dimension::LENGTH, Rule::Any),
+            |value| {
+                SolidFeature::Extrude(Extrude {
+                    start: (!is_zero(&value)).then_some(value),
+                    ..extrude.clone()
+                })
+            },
+        );
     }
 
     fn degrees_of(&self, angle: &Expression) -> Option<f64> {
@@ -694,6 +712,13 @@ impl Panel<'_> {
         self.actions
             .push(feature_fields::applied(&self.feature.name, change));
     }
+}
+
+fn is_zero(expression: &Expression) -> bool {
+    matches!(
+        expression,
+        Expression::Number(value) | Expression::Measure(value, _) if *value == 0.0
+    )
 }
 
 fn with_extent_of(extrude: &Extrude, extent: ExtrudeExtent) -> SolidFeature {

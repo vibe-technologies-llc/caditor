@@ -25,6 +25,7 @@ fn extrude(sketch: FeatureId, distance: Expression, operation: BodyOperation) ->
         regions: RegionChoice::All,
         extent: ExtrudeExtent::one_side(distance, false),
         operation,
+        start: None,
     }))
 }
 

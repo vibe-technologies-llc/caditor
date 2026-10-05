@@ -110,7 +110,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `Intersect` on the body of the feature that made it, which is named by that feature's ID. The app
   shows a feature's chosen regions as resolved, so a healed region reads as chosen and toggling
   stores it afresh.
-- Extents are expressions above zero; a revolve's total angle is at most a full turn.
+- Extents are expressions above zero; a revolve's total angle is at most a full turn. An
+  `Extrude::start` is an optional signed length: the profile starts that far along the sketch
+  normal from the sketch plane (`offset_plane`), and every end, symmetric extent and up-to search
+  works from there. `None` and zero are the same and stored as absent.
 - An `ExtrudeEnd` may be `UpToFace(PlaneReference)`, resolved in its body's state at the
   extrusion's place in the tree. Face bodies and datum planes of the ends count as used
   (`end_bodies`, `end_datums`), so recompute reuses the result only while they are unchanged and a

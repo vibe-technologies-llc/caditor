@@ -242,6 +242,7 @@ fn an_imported_outline_is_joined_and_extrudes_into_a_solid() {
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
+            start: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

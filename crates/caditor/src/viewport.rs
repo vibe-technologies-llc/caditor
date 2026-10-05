@@ -2652,6 +2652,7 @@ mod timing {
                 regions: RegionChoice::All,
                 extent: ExtrudeExtent::one_side(distance, false),
                 operation: BodyOperation::NewBody,
+                start: None,
             })),
         );
         document.apply(transaction.finish()).unwrap();

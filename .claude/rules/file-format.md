@@ -129,6 +129,8 @@ paths:
 - Every file caditor reads goes through `read.rs`: regular files only, at most `MAX_FILE_SIZE`;
   devices, pipes and huge sparse files are refused in words. Saving over a non-regular file is
   refused.
+- An extrusion record (`extrude` and `extrude_to`) carries `start`, the stored text of its start
+  offset, only when it has one.
 - A sketch's constraint record carries `inactive: true` only for a disabled constraint (absent
   means active, so older files read unchanged); the journal's `add_sketch_constraint` carries the
   same flag and `set_sketch_constraint_active` is its own record.

@@ -77,6 +77,7 @@ fn extrusion(sketch: FeatureId, extent: ExtrudeExtent, operation: BodyOperation)
         regions: RegionChoice::All,
         extent,
         operation,
+        start: None,
     }))
 }
 
@@ -486,6 +487,7 @@ fn up_to_a_face_that_an_upstream_edit_removes_fails_alone_and_keeps_its_last_sha
             regions: RegionChoice::Chosen(vec![region]),
             extent: ExtrudeExtent::one_side(millimetres(5.0), false),
             operation: BodyOperation::Add(model.plate),
+            start: None,
         }))
     };
     let lug = add(&mut model.document, "Lug", lug_kind(first));
@@ -909,6 +911,7 @@ fn a_hole_drawn_inside_a_chosen_region_cuts_through_the_extrusion() {
             regions: RegionChoice::Chosen(vec![chosen]),
             extent: ExtrudeExtent::one_side(millimetres(2.0), false),
             operation: BodyOperation::NewBody,
+            start: None,
         })),
     );
     let mut engine = Recompute::default();
@@ -963,6 +966,7 @@ fn a_chosen_region_whose_curve_is_deleted_is_left_out_and_said_so() {
             regions: RegionChoice::Chosen(regions),
             extent: ExtrudeExtent::one_side(millimetres(2.0), false),
             operation: BodyOperation::NewBody,
+            start: None,
         })),
     );
     let mut engine = Recompute::default();

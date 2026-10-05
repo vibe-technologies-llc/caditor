@@ -25,6 +25,7 @@ fn extrude(sketch: FeatureId, distance: &str, operation: BodyOperation) -> Featu
         regions: RegionChoice::All,
         extent: ExtrudeExtent::one_side(Expression::parse_stored(distance).unwrap(), false),
         operation,
+        start: None,
     }))
 }
 
@@ -93,6 +94,7 @@ fn model() -> Model {
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), true),
             operation: BodyOperation::Remove(base),
+            start: None,
         })),
     );
     let lug = transaction.add_feature(

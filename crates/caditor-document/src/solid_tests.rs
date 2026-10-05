@@ -32,6 +32,7 @@ fn extrude(
         regions: RegionChoice::All,
         extent: ExtrudeExtent::one_side(Expression::parse_stored(distance).unwrap(), reversed),
         operation,
+        start: None,
     }))
 }
 
@@ -80,6 +81,7 @@ fn model() -> Model {
             regions: RegionChoice::All,
             extent: ExtrudeExtent::one_side(Expression::Parameter(depth), true),
             operation: BodyOperation::Remove(base),
+            start: None,
         })),
     );
     let lug = transaction.add_feature(
@@ -532,6 +534,7 @@ fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
                 Expression::parse_stored("-2 mm").unwrap(),
             ),
             operation: BodyOperation::NewBody,
+            start: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -571,6 +574,7 @@ fn extruded(extent: ExtrudeExtent) -> FeatureKind {
         regions: RegionChoice::All,
         extent,
         operation: BodyOperation::NewBody,
+        start: None,
     }))
 }
 
@@ -995,4 +999,109 @@ fn vertices_keep_their_names_when_a_parameter_moves_them() {
             .iter()
             .all(|(was, now)| (was - 2.0).abs() < 1e-9 && (now - 1.0).abs() < 1e-9)
     );
+}
+
+fn extrusion_with_start(start: Option<&str>) -> (Document, FeatureId) {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
+    );
+    let base = transaction.add_feature(
+        "Base",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: start.map(|text| Expression::parse_stored(text).unwrap()),
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, base)
+}
+
+fn heights(evaluation: &Evaluation, body: FeatureId) -> (f64, f64) {
+    let bounds = evaluation.body(body).unwrap().bounding_box().unwrap();
+    (bounds.min().z, bounds.max().z)
+}
+
+#[test]
+fn an_extrusion_can_start_off_its_sketch_plane_either_way() {
+    let mut engine = Recompute::default();
+    for (start, expected) in [
+        (None, (0.0, 4.0)),
+        (Some("5 mm"), (5.0, 9.0)),
+        (Some("-3 mm"), (-3.0, 1.0)),
+        (Some("0 mm"), (0.0, 4.0)),
+    ] {
+        let (document, base) = extrusion_with_start(start);
+
+        let evaluation = evaluate(&document, &mut engine);
+
+        assert_eq!(evaluation.failed_count(), 0, "{start:?}");
+        let (low, high) = heights(&evaluation, base);
+        assert!(
+            (low - expected.0).abs() < 1e-9 && (high - expected.1).abs() < 1e-9,
+            "{start:?} gave {low} to {high}"
+        );
+        assert!((volume(&evaluation, base) - 320.0).abs() < 0.05);
+    }
+}
+
+#[test]
+fn a_start_offset_that_cannot_be_evaluated_or_reaches_too_far_fails_the_extrusion_alone() {
+    let mut engine = Recompute::default();
+    for (start, reason) in [
+        ("5 deg", "The start offset cannot be evaluated"),
+        ("1e12 mm", "The start offset cannot be more than"),
+    ] {
+        let (document, base) = extrusion_with_start(Some(start));
+
+        let evaluation = evaluate(&document, &mut engine);
+
+        let FeatureState::Failed(error) = &evaluation.feature(base).unwrap().state else {
+            panic!("the extrusion should fail for {start}");
+        };
+        assert!(error.reason.starts_with(reason), "{}", error.reason);
+        assert_eq!(evaluation.failed_count(), 1);
+    }
+}
+
+#[test]
+fn a_start_offset_follows_the_parameter_it_uses() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let lift = transaction.add_parameter("lift", transaction.parse("2 mm").unwrap());
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
+    );
+    let base = transaction.add_feature(
+        "Base",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: Some(Expression::Parameter(lift)),
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    assert_eq!(heights(&evaluate(&document, &mut engine), base), (2.0, 6.0));
+
+    let mut transaction = document.transaction("Lift");
+    transaction.edit(Edit::SetParameterExpression {
+        id: lift,
+        expression: transaction.parse("7 mm").unwrap(),
+    });
+    document.apply(transaction.finish()).unwrap();
+
+    assert_eq!(
+        heights(&evaluate(&document, &mut engine), base),
+        (7.0, 11.0)
+    );
+    assert_eq!(document.parameter_users(lift), vec!["Base".to_owned()]);
 }

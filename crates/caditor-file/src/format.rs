@@ -309,6 +309,8 @@ pub(crate) struct ExtrudeRecord {
     pub region_references: RegionReferencesRecord,
     pub extent: ExtrudeExtentRecord,
     pub operation: OperationRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -341,6 +343,8 @@ pub(crate) struct ExtrudeToRecord {
     pub region_references: RegionReferencesRecord,
     pub extent: ExtrudeEndsRecord,
     pub operation: OperationRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -784,6 +788,7 @@ fn extrude_record(extrude: &Extrude) -> FeatureKindRecord {
             region_references: region_references_record(&extrude.regions),
             extent,
             operation: operation_record(extrude.operation),
+            start: extrude.start.as_ref().map(Expression::to_stored_text),
         })
     };
     let ends = |extent: ExtrudeEndsRecord| {
@@ -793,6 +798,7 @@ fn extrude_record(extrude: &Extrude) -> FeatureKindRecord {
             region_references: region_references_record(&extrude.regions),
             extent,
             operation: operation_record(extrude.operation),
+            start: extrude.start.as_ref().map(Expression::to_stored_text),
         })
     };
     match &extrude.extent {
@@ -1663,6 +1669,10 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
                 ),
                 extent,
                 operation: restore_operation(extrude.operation),
+                start: extrude
+                    .start
+                    .as_deref()
+                    .map(|text| restore_value(text, "start offset", "0 mm", name, issues)),
             }))
         }
         FeatureKindRecord::ExtrudeTo(extrude) => {
@@ -1696,6 +1706,10 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
                 ),
                 extent,
                 operation: restore_operation(extrude.operation),
+                start: extrude
+                    .start
+                    .as_deref()
+                    .map(|text| restore_value(text, "start offset", "0 mm", name, issues)),
             }))
         }
         FeatureKindRecord::Revolve(revolve) => {
