@@ -750,6 +750,22 @@ impl Harness {
             .1
     }
 
+    fn built_with_meshes(&mut self, count: usize) -> scene::BuiltScene {
+        let deadline = Instant::now() + FILE_TIMEOUT;
+        loop {
+            let built = self.built();
+            if built.scene.meshes.len() == count {
+                return built;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the scene never held {count} meshes"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+            self.frame();
+        }
+    }
+
     fn built(&mut self) -> scene::BuiltScene {
         self.workspace
             .viewport
@@ -4996,7 +5012,7 @@ fn ribbon(harness: &Harness) -> Rect {
 const RIBBON_GROUPS: [(&str, &[&str]); 7] = [
     ("History", &["Undo", "Redo"]),
     ("Sketch", &[toolbar::NEW_SKETCH_LABEL]),
-    ("Solid", &["Extrude", "Revolve"]),
+    ("Solid", &["Extrude", "Revolve", "Hole"]),
     (
         "Modify",
         &["Fillet", "Chamfer", "Shell", "Combine", "Move body"],
@@ -5277,7 +5293,7 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
     assert!((harness.body_volume(extrude) - 6000.0).abs() < 1.0);
     assert!(harness.shows("Click regions of the sketch to include or leave them out"));
 
-    let built = harness.built();
+    let built = harness.built_with_meshes(1);
     assert_eq!(built.scene.meshes.len(), 1);
     assert_eq!(built.scene.meshes[0].mesh.face_count(), 6);
     let pickables: Vec<Pickable> = built.picks.pickables().collect();
@@ -5968,7 +5984,7 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
     assert!(harness.shows("Click edges to add them or leave them out"));
     assert!(harness.shows("Radius"));
 
-    let built = harness.built();
+    let built = harness.built_with_meshes(1);
     assert_eq!(built.scene.meshes.len(), 1);
     assert_eq!(built.scene.meshes[0].mesh.face_count(), 6);
     let blend_edges = built
@@ -6268,6 +6284,84 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
     assert!(bounds.min().x.abs() < 1e-6);
 }
 
+#[test]
+fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_and_sizes() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let top = Plane::from_frame(
+        caditor_geometry::Point3::new(0.0, 0.0, 10.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .unwrap();
+    let mut sketch = Sketch::new(top);
+    sketch.add_point(Point2::new(20.0, 20.0));
+    let sketch = harness.add_sketch(sketch);
+    harness.select([]);
+
+    harness.hover("Hole");
+    assert!(harness.shows_containing(crate::hole_tools::DESCRIPTION));
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Hole 1"));
+    let definition = harness
+        .document()
+        .feature(hole)
+        .unwrap()
+        .kind
+        .hole()
+        .unwrap()
+        .clone();
+    assert_eq!((definition.sketch, definition.body), (sketch, plate));
+    assert!(harness.document().feature(sketch).unwrap().hidden);
+    assert!(removed_about(
+        &harness,
+        plate,
+        std::f64::consts::PI * 9.0 * 10.0
+    ));
+    assert!(harness.shows("Diameter"));
+    assert!(harness.shows("Depth"));
+
+    harness.type_into_field(Id::new(("hole-field", "diameter", hole)), "10 mm");
+    harness.settle();
+    assert!(removed_about(
+        &harness,
+        plate,
+        std::f64::consts::PI * 25.0 * 10.0
+    ));
+
+    harness.type_into_field(Id::new(("hole-field", "depth", hole)), "0 mm");
+    assert!(harness.shows(crate::feature_fields::ABOVE_ZERO));
+    assert_eq!(harness.workspace.editing.solid(), Some(hole));
+
+    harness.click("Plain");
+    harness.settle();
+    harness.click("Countersink");
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Edit Hole 1"));
+    assert!(harness.shows("Countersink angle"));
+    assert_eq!(harness.model.evaluation().failed_count(), 1);
+    harness.type_into_field(
+        Id::new(("hole-field", "countersink-diameter", hole)),
+        "14 mm",
+    );
+    harness.click("Through all");
+    harness.settle();
+    assert_eq!(rows_named(&harness, "Depth").len(), 1);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    harness.perform(Action::Undo);
+    harness.perform(Action::Undo);
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(removed_about(
+        &harness,
+        plate,
+        std::f64::consts::PI * 25.0 * 10.0
+    ));
+}
+
 fn shell_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Shell {
     harness
         .document()
@@ -6307,7 +6401,7 @@ fn a_shell_opens_the_selected_face_and_takes_more_faces_clicked_in_the_view() {
     assert!(harness.shows("Click flat faces to open them or close them again"));
     assert!(harness.shows("Thickness"));
 
-    let built = harness.built();
+    let built = harness.built_with_meshes(1);
     assert_eq!(built.scene.meshes.len(), 1);
     let shell_faces = built
         .picks

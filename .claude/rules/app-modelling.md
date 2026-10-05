@@ -9,6 +9,8 @@ paths:
   - "crates/caditor/src/combine_tools.rs"
   - "crates/caditor/src/combine_panel.rs"
   - "crates/caditor/src/move_tools.rs"
+  - "crates/caditor/src/hole_tools.rs"
+  - "crates/caditor/src/hole_panel.rs"
   - "crates/caditor/src/move_panel.rs"
   - "crates/caditor/src/datum_tools.rs"
   - "crates/caditor/src/datum_panel.rs"
@@ -83,6 +85,15 @@ paths:
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's
   list stays in `PanelState::reference_rows` (`reference_rows.rs`) until the state before it or
   the revision changes.
+
+## Hole
+
+- Hole (Alt+O, in the Solid group) takes the sketch the way Extrude does (edited, selected, opened
+  or last) and needs at least one free point in it (`hole_centres`); its body is the one the sketch
+  is attached to, else the last body standing. It creates a plain blind hole of 6 mm by 10 mm,
+  hides the sketch and opens the panel: Style (Plain, Counterbore, Countersink; switching takes the
+  defaults of the new style), Diameter, the style's sizes, Depth (Blind with its field, or Through
+  all), Reverse direction, and the Sketch and Body rows (the body a list of `bodies_before`).
 
 ## Combine
 

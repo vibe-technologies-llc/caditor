@@ -66,6 +66,7 @@ const CHOOSE_EDGES_PROMPT: &str = "Click edges to add them or leave them out";
 const CHOOSE_FACES_PROMPT: &str = "Click flat faces to open them or close them again";
 const CHOOSE_BODIES_PROMPT: &str = "Choose the operation and the two bodies in the feature's panel";
 const CHOOSE_MOVE_PROMPT: &str = "Enter the turns and distances in the feature's panel";
+const CHOOSE_HOLE_PROMPT: &str = "Choose the hole's style and sizes in the feature's panel";
 const CHOOSE_REFERENCES_PROMPT: &str = "Select planes, faces, axes or edges for the feature's panel, or choose them in the view from it";
 const SNAP_LABEL_OFFSET: egui::Vec2 = vec2(14.0, 10.0);
 const KEYBOARD_ORBIT_FRACTION: f64 = 1.0 / 12.0;
@@ -1878,6 +1879,7 @@ impl ViewportState {
                 Some(FeatureKind::Shell(_)) => CHOOSE_FACES_PROMPT,
                 Some(FeatureKind::Combine(_)) => CHOOSE_BODIES_PROMPT,
                 Some(FeatureKind::Move(_)) => CHOOSE_MOVE_PROMPT,
+                Some(FeatureKind::Hole(_)) => CHOOSE_HOLE_PROMPT,
                 Some(FeatureKind::Datum(_) | FeatureKind::Pattern(_)) => CHOOSE_REFERENCES_PROMPT,
                 _ => CHOOSE_REGIONS_PROMPT,
             };

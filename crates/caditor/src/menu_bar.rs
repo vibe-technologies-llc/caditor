@@ -433,7 +433,15 @@ impl Menus<'_, '_> {
 
     fn model(&mut self, ui: &mut Ui) {
         ui.menu_button("Model", |ui| {
-            self.items(ui, [Command::NewSketch, Command::Extrude, Command::Revolve]);
+            self.items(
+                ui,
+                [
+                    Command::NewSketch,
+                    Command::Extrude,
+                    Command::Revolve,
+                    Command::Hole,
+                ],
+            );
             ui.separator();
             self.items(
                 ui,

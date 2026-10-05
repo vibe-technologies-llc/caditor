@@ -17,7 +17,7 @@ use crate::{
     datum::{self, DatumResult},
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     healing::{self, Healing},
-    import, movement, pattern, shell,
+    hole, import, movement, pattern, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult},
     values::ParameterValues,
 };
@@ -951,6 +951,7 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::Solid(solid) => solid::evaluate(feature, solid, inputs, cancel),
             FeatureKind::Blend(definition) => blend::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Shell(definition) => shell::evaluate(feature, definition, inputs, cancel),
+            FeatureKind::Hole(definition) => hole::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Move(definition) => {
                 movement::evaluate(feature, definition, inputs, cancel)
             }

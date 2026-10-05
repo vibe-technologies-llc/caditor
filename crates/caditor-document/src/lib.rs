@@ -8,6 +8,7 @@ mod document;
 mod edit;
 mod editor;
 mod healing;
+mod hole;
 mod import;
 mod movement;
 mod origins;
@@ -40,6 +41,7 @@ pub use crate::{
     edit::{Edit, EditError, Transaction, TransactionBuilder},
     editor::{Base, Editor, Prepared, Stale},
     healing::Healing,
+    hole::{Hole, HoleDepth, HoleStyle, MAX_HOLES, centres as hole_centres},
     import::Import,
     movement::{Move, MoveAxis},
     origins::complete_origins,
@@ -68,6 +70,8 @@ mod combine_tests;
 mod datum_tests;
 #[cfg(test)]
 mod extent_tests;
+#[cfg(test)]
+mod hole_tests;
 #[cfg(test)]
 mod movement_tests;
 #[cfg(test)]

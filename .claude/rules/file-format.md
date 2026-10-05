@@ -133,6 +133,9 @@ paths:
   refused.
 - An extrusion record (`extrude` and `extrude_to`) carries `start`, the stored text of its start
   offset, only when it has one.
+- A `hole` feature record holds `sketch`, `body`, `diameter`, `depth` (`through_all` or
+  `blind` with its text), `style` (`plain`, or `counterbore` or `countersink` with their texts) and
+  `reversed` when set; an unreadable size loads as a default (5 mm, 10 mm, 3 mm, 90 deg), reported.
 - A `move` feature record holds `body` and the stored text of its three distances (`offset`) and
   three turns (`turn`); an unreadable one loads as 0 mm or 0 deg, reported.
 - A `combine` feature record holds `body`, `tool` and `operation` (`join`, `cut`, `intersect`).

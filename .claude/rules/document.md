@@ -139,6 +139,23 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   or tied reference fails the feature. That state is kept (`Evaluation::body_before`) and meshed,
   for showing while choosing.
 
+### Hole (`hole.rs`)
+
+- `Hole { sketch, body, diameter, depth, style, reversed }` drills at every free point of its sketch
+  (`Sketch::free_points`: no curve uses it, not construction; a point only a constraint uses still
+  counts) down into the sketch plane's normal, or up when reversed. `HoleDepth` is blind or
+  through all (the farthest corner of the body past the point plus a margin, as the extrusion's
+  through all); `HoleStyle` is plain, counterbore (diameter, depth) or countersink (diameter,
+  angle).
+- Each hole is a half-section polygon revolved a full turn about the hole axis (kernel `revolve`),
+  starting `MARGIN` above the plane so the cut is clean, then subtracted from the body. Curve
+  entities are `point id * 16 + part`, so every hole's faces are named by their sketch point and
+  survive adding, moving or removing the other points; `describe_origin` words them as the hole's
+  wall, bottom, counterbore wall and floor, or countersink (`Hole::part_name`).
+- It fails alone, naming the point, when a size is not positive, the counterbore or countersink is
+  not wider than the hole or as deep as it, the angle is outside 0° to 179°, the sketch has no
+  points, more than `MAX_HOLES`, or a hole does not cut into the body (it adds no face).
+
 ### Move (`movement.rs`)
 
 - `Move { body, offset, turn }` places an existing body: turns about the X, Y then Z axes through

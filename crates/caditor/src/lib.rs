@@ -36,6 +36,8 @@ pub mod fuzzing;
 mod graphics;
 mod headless;
 mod history;
+mod hole_panel;
+mod hole_tools;
 mod icons;
 mod image_export;
 mod import;

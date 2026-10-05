@@ -677,6 +677,20 @@ impl Sketch {
         Ok(std::mem::replace(dimension, value))
     }
 
+    pub fn free_points(&self) -> Vec<EntityId> {
+        let referenced: BTreeSet<EntityId> =
+            self.entities.values().flat_map(Entity::points).collect();
+        self.entities
+            .iter()
+            .filter(|(id, entity)| {
+                matches!(entity, Entity::Point(_))
+                    && !referenced.contains(id)
+                    && !self.construction.contains(id)
+            })
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
     pub fn entities_using(&self, id: EntityId) -> Vec<EntityId> {
         self.entities
             .iter()

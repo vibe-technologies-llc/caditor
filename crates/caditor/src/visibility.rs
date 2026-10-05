@@ -21,6 +21,7 @@ pub fn can_hide(feature: &Feature) -> bool {
         | FeatureKind::Shell(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
+        | FeatureKind::Hole(_)
         | FeatureKind::Pattern(_) => feature.makes_body(),
     }
 }

@@ -89,6 +89,7 @@ pub enum Command {
     DeleteSelection,
     Extrude,
     Revolve,
+    Hole,
     Fillet,
     Chamfer,
     Shell,
@@ -437,6 +438,7 @@ plain_commands! {
     NewSketch,
     Extrude,
     Revolve,
+    Hole,
     Fillet,
     Chamfer,
     Shell,
@@ -576,6 +578,7 @@ impl Command {
             Self::DeleteSelection => "edit.delete",
             Self::Extrude => "model.extrude",
             Self::Revolve => "model.revolve",
+            Self::Hole => "model.hole",
             Self::Fillet => "model.fillet",
             Self::Chamfer => "model.chamfer",
             Self::Shell => "model.shell",
@@ -695,6 +698,7 @@ impl Command {
             Self::DeleteSelection => "Delete selection",
             Self::Extrude => "Extrude",
             Self::Revolve => "Revolve",
+            Self::Hole => "Hole",
             Self::Fillet => "Fillet",
             Self::Chamfer => "Chamfer",
             Self::Shell => "Shell",
@@ -820,6 +824,7 @@ impl Command {
             Self::NewSketch
             | Self::Extrude
             | Self::Revolve
+            | Self::Hole
             | Self::Fillet
             | Self::Chamfer
             | Self::Shell
@@ -939,6 +944,7 @@ impl Command {
             Self::NewSketch => vec![alt(Key::N)],
             Self::Extrude => vec![alt(Key::E)],
             Self::Revolve => vec![alt(Key::R)],
+            Self::Hole => vec![alt(Key::O)],
             Self::Fillet => vec![alt(Key::F)],
             Self::Chamfer => vec![alt(Key::C)],
             Self::Shell => vec![alt(Key::S)],

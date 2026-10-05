@@ -20,6 +20,8 @@ paths:
   conflicts or counts as redundant, and a new one is not refused for restating it. A dimension
   left inactive is a reference: its displayed value is `Sketch::measured` of the solved geometry.
   Removing a constraint forgets the flag; trim keeps it on the constraints it rebuilds.
+- `Sketch::free_points` lists the points no curve uses (a constraint using one does not count), in one
+  pass; the hole feature drills at them.
 - `insert_entity` and `insert_constraint` take explicit IDs and check references, for loading.
 - Uses of each entity are counted incrementally, so refusing to remove a used one never scans the
   sketch and undoing a large import stays fast. The sketch never cascades a removal; the document's

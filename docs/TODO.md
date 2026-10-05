@@ -204,8 +204,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 - [medium · medium] A cut affects only one body: no extrusion or revolve cut removes material from
   several bodies at once, only a Combine of two.
-- [high · medium] Hole feature: no hole feature exists. Plain, counterbored and countersunk holes
-  placed on a face or a sketch point, parametric and named like the other features.
+- [medium · medium] Holes are drilled only at the free points of a sketch the user draws first, with
+  no standard sizes, no tapped or threaded holes, no hole on a face by clicking it, none at circle
+  centres, no slot and no hole of several diameters (stepped); each hole of a feature shares the
+  feature's sizes.
 - [high · medium] An extrusion can start off its sketch plane by a distance but not at a chosen face
   or plane, and a revolve cannot start off its sketch plane at all.
 - [high · hard] Bodies cannot be edited directly: no moving, offsetting, deleting or replacing a

@@ -3,10 +3,10 @@ use std::sync::Arc;
 use caditor_document::{
     AxisReference, Blend, BlendKind, BodyOperation, CircularPattern, Combine, CombineOperation,
     Datum, DatumAxis, DatumPlane, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent,
-    FaceAttachment, Feature, FeatureId, FeatureKind, Import, LinearDirection, Move, Parameter,
-    Pattern, PatternKind, PlaneReference, PlaneRotation, PrincipalAxis, PrincipalGeometry,
-    PrincipalPlane, RegionChoice, Revolve, RevolveAxis, RevolveExtent, RollbackBar, Shell,
-    SketchAttachment, SketchFeature, SolidFeature, Transaction,
+    FaceAttachment, Feature, FeatureId, FeatureKind, Hole, HoleDepth, HoleStyle, Import,
+    LinearDirection, Move, Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation,
+    PrincipalAxis, PrincipalGeometry, PrincipalPlane, RegionChoice, Revolve, RevolveAxis,
+    RevolveExtent, RollbackBar, Shell, SketchAttachment, SketchFeature, SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -80,6 +80,7 @@ pub(crate) enum FeatureKindRecord {
     Shell(ShellRecord),
     Combine(CombineRecord),
     Move(MoveRecord),
+    Hole(HoleRecord),
     LinearPattern(Box<LinearPatternRecord>),
     CircularPattern(Box<CircularPatternRecord>),
     Plane(Box<DatumPlaneRecord>),
@@ -87,7 +88,7 @@ pub(crate) enum FeatureKindRecord {
     Import(ImportRecord),
 }
 
-pub(crate) const FEATURE_KINDS: [&str; 15] = [
+pub(crate) const FEATURE_KINDS: [&str; 16] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -98,6 +99,7 @@ pub(crate) const FEATURE_KINDS: [&str; 15] = [
     "shell",
     "combine",
     "move",
+    "hole",
     "linear_pattern",
     "circular_pattern",
     "plane",
@@ -198,6 +200,32 @@ pub(crate) enum CombineOperationRecord {
     Join,
     Cut,
     Intersect,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum HoleDepthRecord {
+    ThroughAll,
+    Blind(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum HoleStyleRecord {
+    Plain,
+    Counterbore { diameter: String, depth: String },
+    Countersink { diameter: String, angle: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct HoleRecord {
+    pub sketch: u64,
+    pub body: u64,
+    pub diameter: String,
+    pub depth: HoleDepthRecord,
+    pub style: HoleStyleRecord,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reversed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -802,6 +830,27 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             body: movement.body.raw(),
             offset: movement.offset.each_ref().map(Expression::to_stored_text),
             turn: movement.turn.each_ref().map(Expression::to_stored_text),
+        }),
+        FeatureKind::Hole(hole) => FeatureKindRecord::Hole(HoleRecord {
+            sketch: hole.sketch.raw(),
+            body: hole.body.raw(),
+            diameter: hole.diameter.to_stored_text(),
+            depth: match &hole.depth {
+                HoleDepth::ThroughAll => HoleDepthRecord::ThroughAll,
+                HoleDepth::Blind(depth) => HoleDepthRecord::Blind(depth.to_stored_text()),
+            },
+            style: match &hole.style {
+                HoleStyle::Plain => HoleStyleRecord::Plain,
+                HoleStyle::Counterbore { diameter, depth } => HoleStyleRecord::Counterbore {
+                    diameter: diameter.to_stored_text(),
+                    depth: depth.to_stored_text(),
+                },
+                HoleStyle::Countersink { diameter, angle } => HoleStyleRecord::Countersink {
+                    diameter: diameter.to_stored_text(),
+                    angle: angle.to_stored_text(),
+                },
+            },
+            reversed: hole.reversed,
         }),
         FeatureKind::Pattern(pattern) => pattern_record(pattern),
         FeatureKind::Import(import) => FeatureKindRecord::Import(ImportRecord {
@@ -1814,6 +1863,7 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             },
         }),
         FeatureKindRecord::Move(record) => FeatureKind::Move(restore_move(record, name, issues)),
+        FeatureKindRecord::Hole(record) => FeatureKind::Hole(restore_hole(record, name, issues)),
         FeatureKindRecord::LinearPattern(record) => {
             FeatureKind::from(restore_linear_pattern(record, name, issues))
         }
@@ -2059,6 +2109,36 @@ fn restore_circular_pattern(
             angle: restore_value(&record.angle, "angle", "360 deg", feature, issues),
             reversed: record.reversed,
         }),
+    }
+}
+
+fn restore_hole(record: &HoleRecord, feature: &str, issues: &mut Vec<String>) -> Hole {
+    let mut value = |text: &str, what: &str, fallback: &str| {
+        restore_value(text, what, fallback, feature, issues)
+    };
+    let diameter = value(&record.diameter, "diameter", "5 mm");
+    let depth = match &record.depth {
+        HoleDepthRecord::ThroughAll => HoleDepth::ThroughAll,
+        HoleDepthRecord::Blind(depth) => HoleDepth::Blind(value(depth, "depth", "10 mm")),
+    };
+    let style = match &record.style {
+        HoleStyleRecord::Plain => HoleStyle::Plain,
+        HoleStyleRecord::Counterbore { diameter, depth } => HoleStyle::Counterbore {
+            diameter: value(diameter, "counterbore diameter", "10 mm"),
+            depth: value(depth, "counterbore depth", "3 mm"),
+        },
+        HoleStyleRecord::Countersink { diameter, angle } => HoleStyle::Countersink {
+            diameter: value(diameter, "countersink diameter", "10 mm"),
+            angle: value(angle, "countersink angle", "90 deg"),
+        },
+    };
+    Hole {
+        sketch: FeatureId::from_raw(record.sketch),
+        body: FeatureId::from_raw(record.body),
+        diameter,
+        depth,
+        style,
+        reversed: record.reversed,
     }
 }
 

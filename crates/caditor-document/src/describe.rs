@@ -39,6 +39,13 @@ fn describe_made(document: &Document, origin: FaceOrigin) -> String {
     };
     let name = &feature.name;
     match origin {
+        FaceOrigin::Side { entity, .. } if feature.kind.hole().is_some() => {
+            let part = feature
+                .kind
+                .hole()
+                .map_or("face", |hole| hole.part_name(entity));
+            format!("{name} {part}")
+        }
         FaceOrigin::Side { entity, .. } => {
             let curve = feature
                 .kind

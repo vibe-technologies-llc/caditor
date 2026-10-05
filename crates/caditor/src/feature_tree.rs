@@ -19,7 +19,7 @@ use crate::{
     editing::{EditingCommand, SketchEditing},
     field::{self, DimensionTarget},
     files::FileCommand,
-    fonts, icons,
+    fonts, hole_panel, icons,
     model::{Action, Model, Notice},
     move_panel,
     panels::{Focus, PanelState, Renaming},
@@ -622,6 +622,10 @@ fn body(
             combine_panel::show(ui, model, actions, feature, combine);
             body_display(ui, model, feature);
         }
+        FeatureKind::Hole(hole) => {
+            hole_panel::show(ui, model, actions, feature, hole);
+            body_display(ui, model, feature);
+        }
         FeatureKind::Move(movement) => {
             move_panel::show(ui, model, actions, feature, movement);
             body_display(ui, model, feature);
@@ -659,6 +663,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::Shell(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
+        | FeatureKind::Hole(_)
         | FeatureKind::Pattern(_)
         | FeatureKind::Import(_) => tokens.text,
     }
@@ -765,6 +770,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Shell(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
+            | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_),
             true,
@@ -775,6 +781,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Shell(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
+            | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_),
             false,

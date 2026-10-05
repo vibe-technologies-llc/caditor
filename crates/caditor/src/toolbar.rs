@@ -7,7 +7,7 @@ use crate::{
     datum_tools,
     editing::{EditingCommand, SketchEditing},
     feature_tree::count,
-    icons,
+    hole_tools, icons,
     model::{Action, Model},
     move_tools,
     offers::Offers,
@@ -117,7 +117,10 @@ fn group_buttons(
     match group {
         Group::History => history_buttons(ui, model, commands, actions),
         Group::Sketch => sketch_buttons(ui, model, context, commands, actions),
-        Group::Solid => solid_buttons(ui, model, context, commands, actions),
+        Group::Solid => {
+            solid_buttons(ui, model, context, commands, actions);
+            hole_button(ui, model, context, commands, actions);
+        }
         Group::Modify => {
             blend_buttons(ui, model, context, commands, actions);
             shell_button(ui, model, context, commands, actions);
@@ -259,6 +262,30 @@ fn solid_buttons(
                 model.length_unit(),
             ));
         }
+    }
+}
+
+fn hole_button(
+    ui: &mut Ui,
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = hole_tools::source(model, context.selection, context.editing);
+    let invoked = commands.invoke(Command::Hole, &source);
+    let help = match &source {
+        Ok(_) => Ok(commands.with_keys(Command::Hole, hole_tools::DESCRIPTION)),
+        Err(reason) => Err(format!(
+            "{}. {reason}, then click here.",
+            hole_tools::DESCRIPTION
+        )),
+    };
+    let response = tool(ui, Command::Hole, hole_tools::TITLE, &help);
+    if (response.clicked() || invoked)
+        && let Ok(source) = source
+    {
+        actions.extend(hole_tools::create_actions(model, source));
     }
 }
 

@@ -157,10 +157,20 @@ fn failure(context: &Context<'_>, definition: &Combine, error: &BooleanError) ->
 
 impl Document {
     pub fn bodies_before(&self, feature: FeatureId) -> Vec<FeatureId> {
+        let end = self.feature_index(feature).unwrap_or(0);
+        self.bodies_at(end)
+    }
+
+    pub fn bodies_standing(&self) -> Vec<FeatureId> {
+        self.bodies_at(self.bar_index())
+    }
+
+    fn bodies_at(&self, end: usize) -> Vec<FeatureId> {
         let mut bodies: Vec<FeatureId> = Vec::new();
         for earlier in self
-            .active_features()
-            .take_while(|earlier| earlier.id() != feature)
+            .features()
+            .take(end)
+            .filter(|earlier| !earlier.suppressed)
         {
             if earlier.makes_body() {
                 bodies.push(earlier.id());

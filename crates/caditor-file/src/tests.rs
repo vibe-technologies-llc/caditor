@@ -4055,3 +4055,83 @@ fn a_move_with_a_damaged_distance_loads_with_zero_and_says_so() {
         ["The distance of “Move 1” could not be read, so it was set to 0 mm."]
     );
 }
+
+fn holed_model(style: caditor_document::HoleStyle, through: bool) -> (Document, FeatureId) {
+    use caditor_document::{Hole, HoleDepth, SolidFeature};
+    let (mut document, base, _) = solid_model();
+    let sketch = match &document.feature(base).unwrap().kind {
+        FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude.sketch,
+        other => panic!("{other:?}"),
+    };
+    let mut transaction = document.transaction("Hole");
+    let depth = if through {
+        HoleDepth::ThroughAll
+    } else {
+        HoleDepth::Blind(transaction.parse("depth * 2").unwrap())
+    };
+    let hole = transaction.add_feature(
+        "Hole 1",
+        FeatureKind::Hole(Hole {
+            sketch,
+            body: base,
+            diameter: transaction.parse("4 mm").unwrap(),
+            depth,
+            style,
+            reversed: through,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, hole)
+}
+
+#[test]
+fn holes_of_every_style_are_saved_and_loaded() {
+    use caditor_document::HoleStyle;
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    for (style, through) in [
+        (HoleStyle::Plain, false),
+        (
+            HoleStyle::Counterbore {
+                diameter: parse("8 mm"),
+                depth: parse("1.5 mm"),
+            },
+            true,
+        ),
+        (
+            HoleStyle::Countersink {
+                diameter: parse("8 mm"),
+                angle: parse("82 deg"),
+            },
+            false,
+        ),
+    ] {
+        let (document, hole) = holed_model(style, through);
+
+        let text = encode(&document).unwrap();
+        let loaded = decode_text(&text);
+
+        assert!(text.contains("\"hole\":{\"body\":"));
+        assert_eq!(loaded.issues, Vec::<String>::new());
+        assert_eq!(loaded.document, document);
+
+        let kind = document.feature(hole).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: hole, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+}
+
+#[test]
+fn a_hole_with_a_damaged_depth_loads_with_a_default_and_says_so() {
+    let (document, _) = holed_model(caditor_document::HoleStyle::Plain, false);
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"blind\":\"$0 * 2\""));
+
+    let loaded = decode_text(&text.replace("\"blind\":\"$0 * 2\"", "\"blind\":\"$0 +* 2\""));
+
+    assert_eq!(
+        loaded.issues,
+        ["The depth of “Hole 1” could not be read, so it was set to 10 mm."]
+    );
+}
