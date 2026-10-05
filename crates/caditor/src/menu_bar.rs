@@ -90,7 +90,9 @@ pub fn show(
                     if context.chrome.built_in() {
                         window_frame::remember_controls_row(ui.ctx(), ui.max_rect());
                         window_frame::controls(ui, context.chrome.state, commands, actions);
+                        ui.add_space(SPACE_S);
                         ui.separator();
+                        ui.add_space(SPACE_S);
                     }
                     if ui.available_width() >= widgets::remembered_width(ui, trailing_id) {
                         trailing(ui, model, context, commands, actions, trailing_id);

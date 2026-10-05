@@ -15,11 +15,15 @@ use crate::{
     reference_rows::RowCache,
     selection::{Pickable, Selection},
     sketch_toolbar::ConstraintOffers,
-    widgets::{self, SectionAction},
+    widgets::{self, SectionAction, SectionHeader},
 };
 
 pub const FEATURES_TITLE: &str = "Features";
 pub const PARAMETERS_TITLE: &str = "Parameters";
+pub const FEATURES_EXPLANATION: &str =
+    "The steps that build the model, computed from top to bottom. Drag one to reorder it.";
+pub const PARAMETERS_EXPLANATION: &str =
+    "Named values that any size or dimension can use by name, such as width * 2.";
 const FEATURES_SECTION: &str = "features";
 const PARAMETERS_SECTION: &str = "parameters";
 const FOCUS_ATTEMPT_FRAMES: u8 = 30;
@@ -331,30 +335,29 @@ pub fn show(
                 .show(ui, |ui| {
                     ui.add_space(SPACE_S);
                     let features = model.document().features().len();
-                    widgets::section(
-                        ui,
-                        FEATURES_SECTION,
-                        FEATURES_TITLE,
-                        Some(features),
-                        None,
-                        |ui| {
-                            feature_tree::show(ui, model, selection, editing, state, actions);
-                        },
-                    );
+                    let header = SectionHeader {
+                        title: FEATURES_TITLE,
+                        count: Some(features),
+                        action: None,
+                        explanation: Some(FEATURES_EXPLANATION),
+                    };
+                    widgets::panel_section(ui, FEATURES_SECTION, header, |ui| {
+                        feature_tree::show(ui, model, selection, editing, state, actions);
+                    });
                     ui.add_space(SPACE_L);
                     let parameters = model.document().parameters().len();
-                    let add = SectionAction {
-                        glyph: icons::ADD,
-                        hover: parameter_table::ADD_LABEL,
+                    let header = SectionHeader {
+                        title: PARAMETERS_TITLE,
+                        count: Some(parameters),
+                        action: Some(SectionAction {
+                            glyph: icons::ADD,
+                            hover: parameter_table::ADD_LABEL,
+                        }),
+                        explanation: Some(PARAMETERS_EXPLANATION),
                     };
-                    let adding = widgets::section(
-                        ui,
-                        PARAMETERS_SECTION,
-                        PARAMETERS_TITLE,
-                        Some(parameters),
-                        Some(add),
-                        |ui| parameter_table::show(ui, model, state, actions),
-                    );
+                    let adding = widgets::panel_section(ui, PARAMETERS_SECTION, header, |ui| {
+                        parameter_table::show(ui, model, state, actions);
+                    });
                     if adding {
                         parameter_table::add(model, state, actions);
                     }

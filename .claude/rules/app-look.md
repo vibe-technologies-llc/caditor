@@ -155,9 +155,13 @@ paths:
 
 ## Side panel
 
-- Features and Parameters are collapsible `widgets::section`s that open by themselves when a
-  rename or focus request needs something inside. Empty, each is an `empty_state` offering the
-  first step (New sketch, Open a sample, Add parameter).
+- Features and Parameters are collapsible `widgets::panel_section`s that open by themselves when
+  a rename or focus request needs something inside: a header band (card fill and border, the count
+  as a pill) and, when open, a muted sentence saying what the section holds
+  (`FEATURES_EXPLANATION`, `PARAMETERS_EXPLANATION`), also the header's hover. Nested sections
+  (sketch cards, Measure, Preferences) stay plain `widgets::section`s. Empty, each is an
+  `empty_state` offering the first step (New sketch, Open a sample, Add parameter).
+- The rollback bar always carries a caption: End of model, or how many features it rolls back.
 - The parameter table's name and expression fields share the panel's width beside a fixed value
   column (`VALUE_WIDTH`), since content wider than the panel widens it the next frame. Hovering a
   value shows it in full and what uses it (`used_by`, only for the hovered row, since
@@ -237,6 +241,10 @@ paths:
   close through Quit so unsaved work is asked about; in full screen Leave full screen replaces the
   first two. While a dialog is open, `window_frame::over_dialogs` redraws the drag area and
   buttons above the modal so the window can still be moved, maximized or closed.
+- Close takes clicks from its button up to the top and right edges of the window
+  (`reaching_the_corner`), so a maximized window closes from the corner of the screen; a framed
+  window's resize strips still win along its edge. A gap of `SPACE_S` on each side of the separator
+  keeps the window buttons apart from the search field.
 - When neither maximized nor full screen, a square outline marks the edge (the window is opaque,
   so rounding would leave corners showing) and thin foreground strips along it, with larger
   corners resizing diagonally, set the resize cursor and start `BeginResize`.

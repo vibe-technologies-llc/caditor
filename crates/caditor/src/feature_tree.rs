@@ -58,6 +58,7 @@ pub const EMPTY_TREE: &str = "The model has no features yet. Start with New sket
 pub const DIMENSIONS_TITLE: &str = "Dimensions";
 pub const CONSTRAINTS_TITLE: &str = "Constraints";
 pub const ROLLBACK_BAR_NAME: &str = "Rollback bar";
+pub const END_OF_MODEL: &str = "End of model";
 const ROLLBACK_BAR_HINT: &str = "Drag to roll the model back to any point: features below the \
                                  bar are not computed, and new features go in above it";
 const SUPPRESSED_HINT: &str = "Suppressed: left out when the model is computed";
@@ -206,17 +207,19 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
         FontId::new(ICON_SIZE, fonts::icons()),
         color,
     );
-    let mut start = grip.right() + SPACE_M;
-    if below > 0 {
-        let caption = painter.text(
-            pos2(start, middle),
-            Align2::LEFT_CENTER,
-            format!("{} rolled back", count(below, "feature", "features")),
-            TextStyle::Small.resolve(ui.style()),
-            tokens.text_muted,
-        );
-        start = caption.right() + SPACE_M;
-    }
+    let caption = if below > 0 {
+        format!("{} rolled back", count(below, "feature", "features"))
+    } else {
+        END_OF_MODEL.to_owned()
+    };
+    let caption = painter.text(
+        pos2(grip.right() + SPACE_M, middle),
+        Align2::LEFT_CENTER,
+        caption,
+        TextStyle::Small.resolve(ui.style()),
+        tokens.text_muted,
+    );
+    let start = caption.right() + SPACE_M;
     if start < rect.right() {
         painter.hline(
             start..=rect.right(),

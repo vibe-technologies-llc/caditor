@@ -230,9 +230,30 @@ pub fn controls(
     }
 }
 
+fn reaching_the_corner(ui: &mut Ui, button: &Response) -> Response {
+    let screen = ui.ctx().content_rect();
+    let rect = button.rect;
+    let reach = Rect::from_min_max(
+        pos2(rect.min.x, screen.min.y),
+        pos2(screen.max.x, rect.max.y),
+    );
+    let corner = ui
+        .scope(|ui| {
+            ui.set_clip_rect(reach);
+            ui.interact(reach, button.id.with("corner"), Sense::click())
+        })
+        .inner;
+    button.union(corner).with_new_rect(rect)
+}
+
 fn control(ui: &mut Ui, glyph: &str, name: &str, hover: &str, closes: bool) -> Response {
     let tokens = appearance::tokens(ui);
     let (rect, response) = ui.allocate_exact_size(CONTROL_SIZE, Sense::click());
+    let response = if closes {
+        reaching_the_corner(ui, &response)
+    } else {
+        response
+    };
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), name));
     if ui.is_rect_visible(rect) {
         let pressed = response.is_pointer_button_down_on();

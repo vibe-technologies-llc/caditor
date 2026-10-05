@@ -15,10 +15,10 @@ pub const EMPTY_PARAMETERS: &str =
     "Parameters are named values that any dimension can use, such as width / 2.";
 const COLUMNS: usize = 4;
 const SPACING: Vec2 = vec2(SPACE_M, SPACE_S);
-const VALUE_WIDTH: f32 = 88.0;
+const VALUE_WIDTH: f32 = 64.0;
 const FIELD_MARGIN: f32 = SPACE_M;
 const SLACK: f32 = SPACE_XS;
-const NAME_SHARE: f32 = 0.45;
+const NAME_SHARE: f32 = 0.5;
 const MIN_NAME_WIDTH: f32 = 48.0;
 const MIN_EXPRESSION_WIDTH: f32 = 64.0;
 const MAX_NAMED_USERS: usize = 4;

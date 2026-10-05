@@ -9390,6 +9390,28 @@ fn the_window_buttons_are_wide_targets_a_control_tall_and_close_turns_red() {
 }
 
 #[test]
+fn the_top_right_corner_of_a_maximized_window_closes_it() {
+    let mut harness = Harness::new();
+    harness.window.maximized = Some(true);
+    harness.frame();
+    let close = harness.button_rect(window_frame::CLOSE);
+    let corner = Pos2::new(SCREEN.max.x - 0.5, SCREEN.min.y + 0.5);
+
+    harness.events.push(Event::PointerMoved(corner));
+    harness.frame();
+    let tokens = appearance::tokens_for(&harness.context.global_style().visuals);
+    let highlighted = harness.color_of(icons::CLOSE) == tokens.text_on_accent;
+    harness.click_screen(corner);
+
+    assert!(
+        close.max.x < corner.x && close.min.y > corner.y,
+        "{close:?}"
+    );
+    assert!(highlighted);
+    harness.wait_until("caditor quits", |harness| harness.files.should_quit());
+}
+
+#[test]
 fn dragging_the_title_bar_moves_the_window_and_double_clicking_it_maximizes() {
     let mut harness = Harness::new();
     let spot = empty_bar_spot(&harness);

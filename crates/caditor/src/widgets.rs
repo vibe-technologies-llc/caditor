@@ -36,6 +36,7 @@ const SELECTED_WIDTH: f32 = 1.0;
 pub const COMPACT_TOOL_GAP: f32 = 2.0;
 const FOCUS_GAP: f32 = 2.0;
 const SWATCH_INSET: f32 = 3.0;
+const SECTION_BAND_MARGIN: Margin = Margin::symmetric(2, 2);
 const SWATCH_CHOSEN_WIDTH: f32 = 2.0;
 const SEGMENT_INSET: i8 = 2;
 const KEY_CAP_MARGIN: Margin = Margin::symmetric(5, 1);
@@ -799,47 +800,123 @@ pub fn section(
     action: Option<SectionAction<'_>>,
     body: impl FnOnce(&mut Ui),
 ) -> bool {
+    let header = SectionHeader {
+        title,
+        count,
+        action,
+        explanation: None,
+    };
+    section_with(ui, id, header, body)
+}
+
+pub fn panel_section(
+    ui: &mut Ui,
+    id: &str,
+    header: SectionHeader<'_>,
+    body: impl FnOnce(&mut Ui),
+) -> bool {
+    section_with(ui, id, header, body)
+}
+
+pub struct SectionHeader<'a> {
+    pub title: &'a str,
+    pub count: Option<usize>,
+    pub action: Option<SectionAction<'a>>,
+    pub explanation: Option<&'a str>,
+}
+
+fn section_with(
+    ui: &mut Ui,
+    id: &str,
+    header: SectionHeader<'_>,
+    body: impl FnOnce(&mut Ui),
+) -> bool {
     let tokens = appearance::tokens(ui);
     let mut state =
         CollapsingState::load_with_default_open(ui.ctx(), Id::new(("section", id)), true);
-    let (toggled, acted) = ui
-        .horizontal(|ui| {
+    let row = |ui: &mut Ui| {
+        ui.horizontal(|ui| {
             let chevron = if state.is_open() {
                 icons::EXPANDED
             } else {
                 icons::COLLAPSED
             };
-            let header = ui.add(Named::new(
-                Button::new((icon(chevron).color(tokens.text_muted), section_title(title)))
-                    .frame_when_inactive(false),
-                title,
+            let button = ui.add(Named::new(
+                Button::new((
+                    icon(chevron).color(tokens.text_muted),
+                    section_title(header.title),
+                ))
+                .frame_when_inactive(false),
+                header.title,
             ));
-            if let Some(count) = count {
-                ui.add(
-                    Label::new(
-                        RichText::new(count.to_string())
-                            .text_style(TextStyle::Small)
-                            .color(tokens.text_muted),
-                    )
-                    .selectable(false),
-                );
+            let button = match header.explanation {
+                Some(explanation) => button.on_hover_text(explanation),
+                None => button,
+            };
+            if let Some(count) = header.count {
+                match header.explanation {
+                    Some(_) => {
+                        pill(ui, Tone::Neutral, count.to_string());
+                    }
+                    None => {
+                        ui.add(
+                            Label::new(
+                                RichText::new(count.to_string())
+                                    .text_style(TextStyle::Small)
+                                    .color(tokens.text_muted),
+                            )
+                            .selectable(false),
+                        );
+                    }
+                }
             }
             let acted = ui
                 .with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    action
+                    header
+                        .action
                         .is_some_and(|action| icon_button(ui, action.glyph, action.hover).clicked())
                 })
                 .inner;
-            (header.clicked(), acted)
+            (button.clicked(), acted)
         })
-        .inner;
+        .inner
+    };
+    let (toggled, acted) = match header.explanation {
+        Some(_) => {
+            Frame::new()
+                .fill(tokens.raised)
+                .stroke(Stroke::new(BORDER_WIDTH, tokens.border))
+                .corner_radius(CornerRadius::same(WIDGET_RADIUS))
+                .inner_margin(SECTION_BAND_MARGIN)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    row(ui)
+                })
+                .inner
+        }
+        None => row(ui),
+    };
     if toggled {
         state.toggle(ui);
     }
     if acted {
         state.set_open(true);
     }
-    state.show_body_unindented(ui, body);
+    state.show_body_unindented(ui, |ui| {
+        if let Some(explanation) = header.explanation {
+            ui.add_space(SPACE_XS);
+            ui.add(
+                Label::new(
+                    RichText::new(explanation)
+                        .text_style(TextStyle::Small)
+                        .color(tokens.text_muted),
+                )
+                .wrap(),
+            );
+            ui.add_space(SPACE_XS);
+        }
+        body(ui);
+    });
     state.store(ui.ctx());
     acted
 }
