@@ -72,7 +72,10 @@ paths:
   since egui reports it as a drag (`ViewportState::click`). When nothing of the shape is placed
   yet and the release is at least `DRAG_DRAWS_FROM_PRESS` from the press, the press position is
   placed first (`place_press_point`), so one press-drag-release draws a line, rectangle or circle.
-- A line, rectangle or circle shows its size so far below the snap label (`Drawing::readout`).
+- What is being drawn shows its size so far below the snap label (`Drawing::readout`): a line, a
+  rectangle, a circle, a polygon (radius, or side, and its sides), an arc (radius, and the sweep once
+  its end is chosen), a three-point arc or circle (radius), a three-point rectangle (both sides) and
+  a slot (length and end diameter). Splines show none.
 - Holding Ctrl places the point exactly under the pointer: no snapping and no alignment guides
   (`Drawing::place_freely`). It also stops a tangent arc from starting, which needs a snapped
   point.

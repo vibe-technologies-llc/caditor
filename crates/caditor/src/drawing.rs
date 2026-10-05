@@ -405,6 +405,11 @@ impl Sweep {
     pub fn counter_clockwise(&self) -> bool {
         (self.turned >= 0.0) != self.reversed
     }
+
+    pub fn degrees(&self) -> f64 {
+        let turned = self.turned.abs();
+        (if self.reversed { TAU - turned } else { turned }).to_degrees()
+    }
 }
 
 fn shortest_turn(from: f64, to: f64) -> f64 {
@@ -583,12 +588,69 @@ impl Drawing {
 
     pub fn readout(&self, unit: Units) -> Option<String> {
         let (_, shape) = self.context?;
-        let [first] = self.placed.as_slice() else {
-            return None;
-        };
-        let delta = self.hover?.position - first.position;
+        let hover = self.hover?.position;
         let length = |millimetres: f64| unit.readout_text(millimetres);
+        let sides = self.sides.0;
+        let [first] = self.placed.as_slice() else {
+            return match (shape, self.placed.as_slice()) {
+                (Shape::Arc, [center, start]) => {
+                    let sweep = self.sweep?;
+                    Some(format!(
+                        "R {}   {}",
+                        length(center.position.distance(start.position)),
+                        unit.angle.readout_text(sweep.degrees())
+                    ))
+                }
+                (Shape::ThreePointArc | Shape::Circle(CircleMode::ThreePoints), [a, b]) => {
+                    let circle = shapes::circle_through_three(a.position, b.position, hover)?;
+                    Some(format!("R {}", length(circle.radius)))
+                }
+                (Shape::Rectangle(RectangleMode::ThreePoints), [a, b]) => {
+                    let side = b.position - a.position;
+                    let across = side.try_normalize()?.perp();
+                    Some(format!(
+                        "{} × {}",
+                        length(side.length()),
+                        length(across.dot(hover - b.position).abs())
+                    ))
+                }
+                (Shape::Slot(SlotMode::Ends), [a, b]) => {
+                    let along = (b.position - a.position).try_normalize()?;
+                    Some(format!(
+                        "{} × Ø {}",
+                        length(a.position.distance(b.position)),
+                        length(2.0 * along.perp_dot(hover - a.position).abs())
+                    ))
+                }
+                (Shape::Slot(SlotMode::Center), [center, end]) => {
+                    let along = (end.position - center.position).try_normalize()?;
+                    Some(format!(
+                        "{} × Ø {}",
+                        length(2.0 * center.position.distance(end.position)),
+                        length(2.0 * along.perp_dot(hover - center.position).abs())
+                    ))
+                }
+                _ => None,
+            };
+        };
+        let delta = hover - first.position;
         match shape {
+            Shape::Arc => Some(format!("R {}", length(delta.length()))),
+            Shape::Circle(CircleMode::ThreePoints) | Shape::ThreePointArc => {
+                Some(length(delta.length()))
+            }
+            Shape::Slot(SlotMode::Ends) => Some(length(delta.length())),
+            Shape::Slot(SlotMode::Center) => Some(length(2.0 * delta.length())),
+            Shape::Polygon(PolygonMode::Corner) => {
+                Some(format!("R {}   {sides} sides", length(delta.length())))
+            }
+            Shape::Polygon(PolygonMode::SideMiddle) => {
+                Some(format!("r {}   {sides} sides", length(delta.length())))
+            }
+            Shape::Polygon(PolygonMode::Side) => {
+                Some(format!("{}   {sides} sides", length(delta.length())))
+            }
+            Shape::Rectangle(RectangleMode::ThreePoints) => Some(length(delta.length())),
             Shape::Line => Some(format!(
                 "{}   {}",
                 length(delta.length()),

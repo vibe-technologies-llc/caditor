@@ -173,10 +173,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
   spline; arc length and sweep; angle or perpendicular to an arc; arc midpoint; equal splines;
   spline–spline tangency; curvature continuity; symmetric curves. Coincident, perpendicular and
   tangent take exactly two items where parallel and equal chain.
-- [medium · medium] No size readout while drawing arcs, slots, polygons or splines, nor in the
-  three-point ways of drawing a rectangle or circle; no closed-region or open-end feedback while
-  sketching (only a failed extrusion names a sketch's open ends); and no smart-dimension tool that
-  takes the entities after the command.
+- [medium · medium] No size readout while drawing splines or arc slots; no closed-region or open-end
+  feedback while sketching (only a failed extrusion names a sketch's open ends); and no
+  smart-dimension tool that takes the entities after the command.
 - [medium · medium] Snapping has no midpoints, intersections (only an arc's end snaps to crossings),
   spline targets, grid or inference lines to other points, cannot be turned off for good (Ctrl
   suppresses it while drawing only), and dragged geometry does not snap at all.
