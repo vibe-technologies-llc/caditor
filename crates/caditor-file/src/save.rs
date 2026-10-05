@@ -19,7 +19,7 @@ use crate::{
     binary::{self, EncodeError, Encoded, FileDigest, Shared, value::ValueError},
     paths::{MAX_NAME_BYTES, fitting},
     read::{ensure_regular, open_file, read_open},
-    reason,
+    reason::{ReadFailure, WriteFailure},
 };
 
 const BACKUP_MARKER: &str = "damaged";
@@ -39,42 +39,50 @@ static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SaveError {
-    #[error("{reason}")]
-    Failed { reason: String },
+    #[error("{0}")]
+    Writing(WriteFailure),
+    #[error(
+        "a number in the model is infinite or undefined, so it cannot be stored; undo the last \
+         change and save again"
+    )]
+    NonFinite,
+    #[error("the model could not be converted for saving")]
+    Unconvertible,
+    #[error(
+        "there was not enough memory to rewrite the model's earlier versions; close other \
+         programs and save again"
+    )]
+    HistoryTooLarge,
+    #[error(
+        "the model is larger than the {} GiB a model file can hold, so caditor could not open it \
+         again; remove imported bodies or split the model and save again",
+        largest >> 30
+    )]
+    ModelTooLarge { largest: usize },
+    #[error(
+        "the earlier versions kept in “{name}” could not be read ({failure}), and saving now \
+         would lose them"
+    )]
+    EarlierVersionsUnreadable { name: String, failure: ReadFailure },
+    #[error("it is open in another caditor window")]
+    OpenInAnotherWindow,
     #[error("it was changed by another program since it was opened")]
     ChangedOnDisk,
 }
 
 impl SaveError {
     fn writing(error: &io::Error) -> Self {
-        Self::Failed {
-            reason: reason::writing(error),
-        }
+        Self::Writing(WriteFailure::of(error))
     }
 
     fn encoding(error: &EncodeError) -> Self {
         log::error!("could not encode the model: {error}");
-        let reason = match error {
-            EncodeError::Value(ValueError::NonFinite(_)) => {
-                "a number in the model is infinite or undefined, so it cannot be stored; undo \
-                 the last change and save again"
-                    .to_owned()
-            }
-            EncodeError::Value(_) | EncodeError::Pack(_) => {
-                "the model could not be converted for saving".to_owned()
-            }
-            EncodeError::HistoryTooLarge => {
-                "there was not enough memory to rewrite the model's earlier versions; close other \
-                 programs and save again"
-                    .to_owned()
-            }
-            EncodeError::ModelTooLarge { largest, .. } => format!(
-                "the model is larger than the {} GiB a model file can hold, so caditor could not \
-                 open it again; remove imported bodies or split the model and save again",
-                largest >> 30
-            ),
-        };
-        Self::Failed { reason }
+        match error {
+            EncodeError::Value(ValueError::NonFinite(_)) => Self::NonFinite,
+            EncodeError::Value(_) | EncodeError::Pack(_) => Self::Unconvertible,
+            EncodeError::HistoryTooLarge => Self::HistoryTooLarge,
+            EncodeError::ModelTooLarge { largest, .. } => Self::ModelTooLarge { largest: *largest },
+        }
     }
 }
 
@@ -229,12 +237,9 @@ fn read_previous(path: &Path) -> Result<Option<Previous>, SaveError> {
                 path.display()
             );
             let name = path.file_name().unwrap_or(path.as_os_str()).display();
-            Err(SaveError::Failed {
-                reason: format!(
-                    "the earlier versions kept in “{name}” could not be read ({}), and saving now \
-                     would lose them",
-                    reason::reading(&error)
-                ),
+            Err(SaveError::EarlierVersionsUnreadable {
+                name: name.to_string(),
+                failure: ReadFailure::of(&error),
             })
         }
     }

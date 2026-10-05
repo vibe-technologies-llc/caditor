@@ -44,7 +44,8 @@ pub use crate::{
     save::{SaveError, SaveOptions, Saved, encode, save, save_with, write_atomically},
     settings::{Settings, SettingsError, config_dir},
     storage::{
-        Closing, Flusher, Report, SaveRequest, Start, Storage, StorageConfig, StorageStopped,
+        Closing, Flusher, JournalFailure, Report, SaveRequest, Start, Storage, StorageConfig,
+        StorageStopped,
     },
 };
 

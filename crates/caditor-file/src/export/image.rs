@@ -1,9 +1,9 @@
-use std::{io, path::Path};
+use std::path::Path;
 
 use caditor_document::CancelToken;
 use png::{BitDepth, ColorType, Compression, Encoder, EncodingError, SrgbRenderingIntent};
 
-use crate::{reason, save::write_atomically};
+use crate::{reason::WriteFailure, save::write_atomically};
 
 pub const PNG_EXTENSION: &str = "png";
 const TEXEL_BYTES: u64 = 4;
@@ -28,8 +28,8 @@ pub enum ImageExportError {
     },
     #[error("the image could not be encoded as PNG")]
     Encoding(#[source] EncodingError),
-    #[error("{}", reason::writing(.0))]
-    Writing(#[source] io::Error),
+    #[error("{0}")]
+    Writing(WriteFailure),
 }
 
 fn encode_png(image: &RgbaImage<'_>) -> Result<Vec<u8>, ImageExportError> {
@@ -68,7 +68,8 @@ pub fn export_png(
     if cancel.is_cancelled() {
         return Err(ImageExportError::Cancelled);
     }
-    write_atomically(path, &encoded).map_err(ImageExportError::Writing)
+    write_atomically(path, &encoded)
+        .map_err(|error| ImageExportError::Writing(WriteFailure::of(&error)))
 }
 
 #[cfg(test)]
@@ -95,7 +96,7 @@ mod tests {
         };
 
         let encoded = encode_png(&image).unwrap();
-        let mut reader = png::Decoder::new(io::Cursor::new(encoded))
+        let mut reader = png::Decoder::new(std::io::Cursor::new(encoded))
             .read_info()
             .unwrap();
         let mut decoded = vec![0; reader.output_buffer_size().unwrap()];

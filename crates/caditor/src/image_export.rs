@@ -686,7 +686,7 @@ mod tests {
         let unwritable = outcome(
             "plate.png",
             Err(ImageFailure::Write(ImageExportError::Writing(
-                std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+                caditor_file::WriteFailure::PermissionDenied,
             ))),
         );
 

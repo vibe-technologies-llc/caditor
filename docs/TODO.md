@@ -474,9 +474,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 - [medium · medium] Error enums keep catch-all variants that wrap a formatted message, against the
   specific-variant rule: `ReadError::Unreadable` (the STEP reader's first failed body or unplaced
-  note), `SaveError::Failed` and `StorageEvent`'s reasons (strings built from `WriteFailure`) and
-  `ValueError::Refused` (serde's `custom`, which only a type's own `Deserialize` raises). Give each
-  failure its own variant carrying typed data.
+  note) and `ValueError::Refused` (serde's `custom`, which only a type's own `Deserialize` raises).
+  Give each failure its own variant carrying typed data.
 
 ## Checks and CI
 

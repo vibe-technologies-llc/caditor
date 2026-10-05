@@ -2968,10 +2968,10 @@ fn saving_over_a_model_open_in_another_window_is_refused() {
             replace_outside_changes: false,
         })
         .unwrap();
-    let Report::SaveFailed { reason, .. } = wait_for_report(&storage) else {
+    let Report::SaveFailed { error, .. } = wait_for_report(&storage) else {
         panic!("the save should be refused");
     };
-    assert_eq!(reason, "it is open in another caditor window");
+    assert_eq!(error, SaveError::OpenInAnotherWindow);
     assert_eq!(load(&path).unwrap().document, base);
     assert_eq!(fs::read(&journal).unwrap(), before);
     crash(storage);

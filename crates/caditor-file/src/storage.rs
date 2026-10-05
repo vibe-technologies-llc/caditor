@@ -14,7 +14,8 @@ use crate::{
     binary::FileDigest,
     journal::{JournalEntry, JournalHead, Logged, Mirror, encode_entry, encode_journal},
     lock::{holds, install, locked_elsewhere, remove_held, remove_unheld},
-    paths, reason,
+    paths,
+    reason::WriteFailure,
     recovery::{mark_journal, unmark_journal},
     save::{
         self, SaveError, SaveOptions, remove_orphaned_temporaries, sync_parent, temporary_sibling,
@@ -62,6 +63,22 @@ pub struct SaveRequest {
     pub replace_outside_changes: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum JournalFailure {
+    #[error("{0}")]
+    Writing(WriteFailure),
+    #[error("the recovery file was moved or replaced")]
+    Moved,
+    #[error("there is no folder to keep it in")]
+    NoFolder,
+    #[error("the model could not be converted for the recovery journal")]
+    Unconvertible,
+    #[error("the recovery file is in use by another caditor window")]
+    InUseElsewhere,
+    #[error("the background writer could not start")]
+    WriterUnavailable,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Report {
     Saved {
@@ -78,10 +95,10 @@ pub enum Report {
     SaveFailed {
         ticket: u64,
         path: PathBuf,
-        reason: String,
+        error: SaveError,
     },
     JournalFailed {
-        reason: String,
+        failure: JournalFailure,
     },
     JournalRestored,
     Rebased {
@@ -383,22 +400,22 @@ impl Worker {
                 "{} was moved or replaced while this window wrote to it",
                 journal.path.display()
             );
-            self.fail("the recovery file was moved or replaced".to_owned());
+            self.fail(JournalFailure::Moved);
         }
     }
 
     fn lose_protection(&mut self, error: &io::Error) {
         log::warn!("the recovery journal could not be written: {error}");
-        self.fail(reason::writing(error));
+        self.fail(JournalFailure::Writing(WriteFailure::of(error)));
     }
 
-    fn fail(&mut self, reason: String) {
+    fn fail(&mut self, failure: JournalFailure) {
         self.protected = false;
         self.unsynced = false;
         self.next_retry = Instant::now() + RETRY_INTERVAL;
         if !self.failure_reported {
             self.failure_reported = true;
-            self.report(Report::JournalFailed { reason });
+            self.report(Report::JournalFailed { failure });
         }
     }
 
@@ -418,7 +435,7 @@ impl Worker {
             self.report(Report::SaveFailed {
                 ticket: request.ticket,
                 path: request.path,
-                reason: "it is open in another caditor window".to_owned(),
+                error: SaveError::OpenInAnotherWindow,
             });
             return;
         }
@@ -453,10 +470,10 @@ impl Worker {
                 ticket: request.ticket,
                 path: request.path,
             },
-            Err(SaveError::Failed { reason }) => Report::SaveFailed {
+            Err(error) => Report::SaveFailed {
                 ticket: request.ticket,
                 path: request.path,
-                reason,
+                error,
             },
         };
         self.report(report);
@@ -482,7 +499,7 @@ impl Worker {
     fn rewrite(&mut self) {
         let candidates = self.journal_candidates();
         if candidates.is_empty() {
-            self.fail("there is no folder to keep it in".to_owned());
+            self.fail(JournalFailure::NoFolder);
             return;
         }
         let head = JournalHead {
@@ -495,7 +512,7 @@ impl Worker {
             Ok(contents) => contents,
             Err(error) => {
                 log::error!("could not encode the recovery journal: {error}");
-                self.fail("the model could not be converted for the recovery journal".to_owned());
+                self.fail(JournalFailure::Unconvertible);
                 return;
             }
         };
@@ -557,10 +574,9 @@ impl Worker {
         {
             self.remove_own(&stale);
         }
-        self.fail(failure.map_or_else(
-            || "the recovery file is in use by another caditor window".to_owned(),
-            |error| reason::writing(&error),
-        ));
+        self.fail(failure.map_or(JournalFailure::InUseElsewhere, |error| {
+            JournalFailure::Writing(WriteFailure::of(&error))
+        }));
     }
 
     fn remove_own(&self, journal: &OpenJournal) {

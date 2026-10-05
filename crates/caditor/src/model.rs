@@ -10,8 +10,8 @@ use caditor_document::{
     ModelEvaluator, Outcome, ParameterValues, Prepared, Progress, Recomputer, Stale, Transaction,
 };
 use caditor_file::{
-    Closing, FileDigest, Flusher, JournalEntry, Recovered, Report, SaveRequest, Start, Storage,
-    StorageConfig,
+    Closing, FileDigest, Flusher, JournalEntry, JournalFailure, Recovered, Report, SaveRequest,
+    Start, Storage, StorageConfig,
 };
 use caditor_kernel::MeshQuality;
 use caditor_sketch::Sketch;
@@ -164,7 +164,7 @@ pub struct Model {
     folded: usize,
     entries: Vec<JournalEntry>,
     keep_original: bool,
-    unprotected: Option<String>,
+    unprotected: Option<JournalFailure>,
     dirty: bool,
     pending_save: Option<PendingSave>,
     next_ticket: u64,
@@ -392,8 +392,8 @@ impl Model {
         self.path.is_none() && self.document().same_content(&Document::default())
     }
 
-    pub fn unprotected(&self) -> Option<&str> {
-        self.unprotected.as_deref()
+    pub fn unprotected(&self) -> Option<&JournalFailure> {
+        self.unprotected.as_ref()
     }
 
     pub fn is_saving(&self) -> bool {
@@ -820,7 +820,7 @@ impl Model {
             Err(error) => {
                 log::error!("could not start the storage worker: {error}");
                 *self.services.panic_flush.lock() = None;
-                self.unprotected = Some("the background writer could not start".to_owned());
+                self.unprotected = Some(JournalFailure::WriterUnavailable);
                 self.set_notice(Notice::failure(
                     "Unsaved changes are not protected against a crash, because the background \
                      writer could not start. Save your work often.",
@@ -908,22 +908,22 @@ impl Model {
             Report::SaveFailed {
                 ticket,
                 path,
-                reason,
+                error,
             } => {
                 self.pending_save
                     .take_if(|pending| pending.ticket == ticket);
                 self.set_notice(Notice::failure(format!(
-                    "Could not save “{}”: {reason}. Use Save As to choose another location.",
+                    "Could not save “{}”: {error}. Use Save As to choose another location.",
                     display_name(Some(&path))
                 )));
                 self.file_events.push(FileEvent::SaveFailed);
             }
-            Report::JournalFailed { reason } => {
+            Report::JournalFailed { failure } => {
                 self.set_notice(Notice::failure(format!(
-                    "Unsaved changes are not protected against a crash: {reason}. caditor keeps \
+                    "Unsaved changes are not protected against a crash: {failure}. caditor keeps \
                      trying; save your work to keep it safe."
                 )));
-                self.unprotected = Some(reason);
+                self.unprotected = Some(failure);
             }
             Report::JournalRestored => {
                 self.unprotected = None;

@@ -82,4 +82,7 @@ paths:
 - Reading and writing a file fail as `ReadFailure` and `WriteFailure` (`reason.rs`), one variant per
   cause an `io::Error` can name, written as a clause the UI completes ("… because it no longer
   exists"); `LoadError::Unreadable`, `ImportError::Reading` and `ExportError::Writing` carry them.
-  A job that panicked is `LoadError::Crashed` or `ImportError::Crashed`, not a message.
+  A job that panicked is `LoadError::Crashed` or `ImportError::Crashed`, not a message. A save fails
+  as a `SaveError` of its own variants (`Writing(WriteFailure)`, `ModelTooLarge`, `ChangedOnDisk`,
+  …) and the recovery journal as a `JournalFailure`; `ImageExportError::Writing` carries a
+  `WriteFailure` too.

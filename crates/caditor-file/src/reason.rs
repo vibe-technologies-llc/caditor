@@ -102,11 +102,3 @@ impl WriteFailure {
         }
     }
 }
-
-pub(crate) fn reading(error: &Error) -> String {
-    ReadFailure::of(error).to_string()
-}
-
-pub(crate) fn writing(error: &Error) -> String {
-    WriteFailure::of(error).to_string()
-}
