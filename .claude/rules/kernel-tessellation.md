@@ -6,12 +6,15 @@ paths:
 # Tessellation
 
 - Each edge is sampled once; both faces share its positions.
-- Each face is a constrained Delaunay triangulation (`spade`) of its loops in (u, v), scaled by the
-  mean surface speeds, plus a uniform interior grid (`density.rs`) spaced by curvature, covering
+- Each face is a constrained Delaunay triangulation (`spade`) of its loops in (u, v), plus a uniform interior grid (`density.rs`) spaced by curvature, covering
   every knot span, kept clear of the boundary and refined on curved kinds until its cells stay
   within `GRID_SHARE` of the chord tolerance (which keeps the triangles the triangulation actually
   picks within the chord). A direction without curvature gets cells at most `FLAT_ASPECT` times
   longer than the curved one's.
+- A face with a grid is triangulated in cell space (u and v scaled so one grid cell is a unit
+  square), so a boundary point off the lattice joins its neighbours and never fans across a dense
+  row of grid points, which on a torus much thinner than its ring spanned the tube; a face without
+  a grid is scaled by the mean surface speeds.
 - Points are deduplicated by exact scaled coordinates (`DuplicateBoundaryPoint`), bulk-loaded, and
   only then joined by the loops' constraint edges (inserting boundary points one by one flipped
   edges quadratically). Triangles are kept by the parity of constraint crossings from outside.

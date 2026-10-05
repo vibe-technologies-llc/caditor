@@ -26,6 +26,7 @@ pub use self::{
     patch::SurfacePatch,
     surface_surface::{
         IntersectionBranch, IntersectionPoint, SurfaceIntersection, intersect_surfaces,
+        intersect_surfaces_through,
     },
 };
 use crate::{error::GeometryError, interrupt::Interrupted};

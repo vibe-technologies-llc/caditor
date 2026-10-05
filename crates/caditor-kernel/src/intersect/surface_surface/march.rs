@@ -34,6 +34,8 @@ const STEP_FRACTION: f64 = 0.125;
 const TARGET_TURN: f64 = 0.1;
 const MAX_TURN: f64 = 0.3;
 const MAX_CORRECTION: f64 = 0.35;
+const MAX_SAGITTA: f64 = 0.03;
+const HINT_REACH: f64 = 1e3 * LINEAR_RESOLUTION;
 const MIN_STEP: f64 = 1e-2 * LINEAR_RESOLUTION;
 const MAX_STEPS: usize = 1 << 15;
 const GRID: usize = 3;
@@ -198,6 +200,16 @@ impl<'a> Tracer<'a> {
         }
         let sine = contact_direction(self.surfaces(), &contact).map_or(0.0, |(_, sine)| sine);
         Some(Seed { contact, sine })
+    }
+
+    fn hint_seed(&self, point: Point3) -> Option<Seed> {
+        let [first, second] = self.patches;
+        let guess = [first.place(point), second.place(point)];
+        let contact = refine_contact(self.surfaces(), guess, Constraint::Free)?;
+        if contact.point.distance(point) > HINT_REACH {
+            return None;
+        }
+        self.seed_at(contact)
     }
 
     fn leaf_seeds(&self, a: &SurfacePatch, b: &SurfacePatch) -> Option<Seed> {
@@ -395,12 +407,15 @@ impl<'a> Tracer<'a> {
                 let turn = angle_between(direction, next);
                 let correction = contact.point.distance(predicted);
                 let moved = contact.point.distance(current.point);
-                (correction <= MAX_CORRECTION * h && moved >= 0.5 * h && turn <= MAX_TURN)
-                    .then_some(Step {
-                        contact,
-                        tangent: next,
-                        turn,
-                    })
+                let follows = correction <= MAX_CORRECTION * h
+                    && moved >= 0.5 * h
+                    && turn <= MAX_TURN
+                    && self.hugs_chord(current, &contact, direction, h);
+                follows.then_some(Step {
+                    contact,
+                    tangent: next,
+                    turn,
+                })
             };
             let accepted = refine_contact(
                 surfaces,
@@ -420,6 +435,25 @@ impl<'a> Tracer<'a> {
             *step *= 0.5;
         }
         Err(Stalled::Collapsed)
+    }
+
+    fn hugs_chord(&self, from: &Contact, to: &Contact, direction: Vector3, step: f64) -> bool {
+        let middle = from.point.lerp(to.point, 0.5);
+        let [from_first, from_second] = from.uv;
+        let [to_first, to_second] = to.uv;
+        let guess = [
+            from_first.lerp(to_first, 0.5),
+            from_second.lerp(to_second, 0.5),
+        ];
+        refine_contact(
+            self.surfaces(),
+            guess,
+            Constraint::Plane {
+                point: middle,
+                normal: direction,
+            },
+        )
+        .is_some_and(|found| found.point.distance(middle) <= MAX_SAGITTA * step)
     }
 
     fn exit(&self, inside: &Contact, outside: &Contact) -> Option<Contact> {
@@ -743,6 +777,7 @@ fn closes(seed: &Contact, seed_tangent: Vector3, current: &Contact, next: &Step)
 pub(crate) fn intersect(
     first: &SurfacePatch,
     second: &SurfacePatch,
+    hints: &[Point3],
 ) -> Result<Raw, IntersectionError> {
     let smallest = first
         .bounding_box()
@@ -755,6 +790,17 @@ pub(crate) fn intersect(
         points: Vec::new(),
     };
     let seeds = tracer.seeds()?;
+    for hint in hints {
+        let Some(seed) = tracer.hint_seed(*hint) else {
+            continue;
+        };
+        if seed.sine > TOUCH_SINE
+            && tracer.distance_to_branches(seed.contact.point) > ON_BRANCH
+            && let Err(IntersectionError::Cancelled(interrupted)) = tracer.trace(&seed)
+        {
+            return Err(IntersectionError::Cancelled(interrupted));
+        }
+    }
     let touch_merge = 0.5 * leaf_size(first).min(leaf_size(second));
     let mut touches: Vec<Seed> = Vec::new();
     for seed in &seeds {

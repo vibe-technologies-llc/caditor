@@ -582,6 +582,8 @@ fn surface_deviation(solid: &Solid, tolerance: &SamplingTolerance) -> f64 {
 fn every_surface_kind_meshes_within_the_requested_chord() {
     let mut solids = fixtures::every_solid();
     solids.push(("fat torus", fixtures::torus(3.0, 2.5)));
+    solids.push(("thin torus", fixtures::torus(20.0, 0.5)));
+    solids.push(("very thin torus", fixtures::torus(60.0, 0.4)));
     for chord in [0.1, 0.02, 0.004] {
         let tolerance = SamplingTolerance::new(chord, 1.0).unwrap();
         for (name, solid) in &solids {

@@ -92,6 +92,14 @@ pub fn intersect_surfaces(
     first: &SurfacePatch,
     second: &SurfacePatch,
 ) -> Result<SurfaceIntersection, IntersectionError> {
+    intersect_surfaces_through(first, second, &[])
+}
+
+pub fn intersect_surfaces_through(
+    first: &SurfacePatch,
+    second: &SurfacePatch,
+    hints: &[Point3],
+) -> Result<SurfaceIntersection, IntersectionError> {
     if let Some(sense) = first.surface().same_surface(second.surface()) {
         return Ok(SurfaceIntersection::Coincident(sense));
     }
@@ -109,7 +117,7 @@ pub fn intersect_surfaces(
     let window = shared_window(&first_box, &second_box);
     let raw = match analytic::intersect(first, second, &window) {
         Some(raw) => raw,
-        None => march::intersect(first, second)?,
+        None => march::intersect(first, second, hints)?,
     };
     Ok(finish(first, second, &window, raw))
 }

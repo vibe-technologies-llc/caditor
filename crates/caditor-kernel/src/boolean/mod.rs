@@ -7,7 +7,7 @@ mod select;
 mod tests;
 mod trace;
 
-use caditor_geometry::{Aabb, Aabb2, Point3};
+use caditor_geometry::{Aabb, Aabb2, Point2, Point3};
 use thiserror::Error;
 
 use crate::{
@@ -15,11 +15,13 @@ use crate::{
     build::plan::PlanError,
     interrupt::{self, Interrupted},
     intersect::{IntersectionError, patch_bounds},
-    tolerance::LINEAR_RESOLUTION,
+    surface::Surface,
+    tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE},
     topology::{BuildError, Face, FaceId, PcurveError, Solid, SolidClassifier},
 };
 
 const TOLERANCE: f64 = LINEAR_RESOLUTION;
+const MAX_WIDENING: f64 = 0.05;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BooleanOperation {
@@ -217,6 +219,59 @@ fn bounds_positions(faces: &[FaceBounds]) -> Vec<Option<usize>> {
     positions
 }
 
+fn widened(surface: &Surface, uv: Aabb2) -> Aabb2 {
+    let corners = [
+        uv.min(),
+        uv.max(),
+        Point2::new(uv.min().x, uv.max().y),
+        Point2::new(uv.max().x, uv.min().y),
+        uv.center(),
+    ];
+    let speeds: Vec<(f64, f64)> = corners
+        .iter()
+        .map(|corner| surface.evaluate(corner.x, corner.y))
+        .map(|derivatives| (derivatives.du.length(), derivatives.dv.length()))
+        .collect();
+    let margin = |speed: fn(&(f64, f64)) -> f64, span: f64| {
+        let slowest = speeds
+            .iter()
+            .map(speed)
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .fold(f64::INFINITY, f64::min);
+        if slowest.is_finite() {
+            (PCURVE_TOLERANCE / slowest).min(MAX_WIDENING * span)
+        } else {
+            0.0
+        }
+    };
+    let size = uv.size();
+    let (along_u, along_v) = (
+        margin(|speed| speed.0, size.x),
+        margin(|speed| speed.1, size.y),
+    );
+    let low = Point2::new(
+        surface.u_period().map_or_else(
+            || surface.u_domain().clamp(uv.min().x - along_u),
+            |_| uv.min().x - along_u,
+        ),
+        surface.v_period().map_or_else(
+            || surface.v_domain().clamp(uv.min().y - along_v),
+            |_| uv.min().y - along_v,
+        ),
+    );
+    let high = Point2::new(
+        surface.u_period().map_or_else(
+            || surface.u_domain().clamp(uv.max().x + along_u),
+            |_| uv.max().x + along_u,
+        ),
+        surface.v_period().map_or_else(
+            || surface.v_domain().clamp(uv.max().y + along_v),
+            |_| uv.max().y + along_v,
+        ),
+    );
+    Aabb2::from_points([low, high]).unwrap_or(uv)
+}
+
 fn face_bounds(solid: &Solid) -> Vec<FaceBounds> {
     solid
         .faces()
@@ -229,6 +284,7 @@ fn face_bounds(solid: &Solid) -> Vec<FaceBounds> {
                     .filter_map(|coedge| solid.coedge(*coedge))
                     .flat_map(|coedge| coedge.pcurve().samples().iter().map(|sample| sample.uv)),
             )?;
+            let uv = widened(face.surface(), uv);
             Some(FaceBounds {
                 id,
                 uv,

@@ -52,6 +52,9 @@ paths:
   (`Empty` when nothing is left). Phases: `imprint.rs`, `faces.rs`, `select.rs`, `heal.rs`,
   `assemble.rs`. Candidates come from a tree of face boxes (`box_tree.rs`, also used by
   `find_crossing`).
+- Face boxes (uv and the 3D box from it) are widened by `PCURVE_TOLERANCE` converted through the
+  slowest surface speed, since the box of a face's pcurve samples can fall that far short of the
+  edges, and a branch clipped to it would stop before the edge vertex.
 - Imprint: vertices within `LINEAR_RESOLUTION` are pooled; every edge and face–face branch is split
   at the pooled vertices on it. A branch piece is kept when no sample along it lies outside either
   face and some sample lies strictly inside each, so a piece a micrometre or two long, whose middle
@@ -63,7 +66,7 @@ paths:
   mean normal of a ring around it); ties and cusps (`ANGLE_TIE`, the noise of intersection
   tangents) are decided by chords at a common distance.
 - Selection: each fragment is classified against the other solid at up to `INTERIOR_POINTS`
-  interior points (inside or outside wins over coincident or touching; inside and outside
+  interior points (`classify_fragment_point`; inside or outside wins over coincident or touching; inside and outside
   together, or coincident samples of opposite senses, are `Ambiguous`). A fragment whose samples
   only touch the other solid (a strip narrower than twice the resolution) is decided at its deepest
   points (`trace::deepest_points`) by `SolidClassifier::side_of_touched_faces`: the sign of the

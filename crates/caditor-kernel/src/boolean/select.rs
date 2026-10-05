@@ -74,7 +74,7 @@ pub(super) fn classify(
         let point = surface.point_at(uv);
         first_sample.get_or_insert(point);
         let ambiguous = || BooleanError::Ambiguous(Box::default()).or_point(|| Some(point));
-        let found = classifier.classify_boundary_point(point, normal * sense.sign());
+        let found = classifier.classify_fragment_point(point, normal * sense.sign(), surface);
         match found {
             BoundaryClass::Inside | BoundaryClass::Outside => {
                 let class = if matches!(found, BoundaryClass::Inside) {

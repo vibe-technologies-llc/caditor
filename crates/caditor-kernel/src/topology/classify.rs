@@ -28,7 +28,7 @@ const NEGLIGIBLE_HEIGHT: f64 = 1e-3 * TOLERANCE;
 const RELATIVE_POLE_NUDGE: f64 = 1e-6;
 const RAY_REACH_MARGIN: f64 = 1.0;
 const WINDOW_MARGIN: f64 = 16.0 * TOLERANCE;
-const PERIOD_SHIFTS: [f64; 5] = [0.0, -1.0, 1.0, -2.0, 2.0];
+const MAX_PERIOD_SHIFTS: usize = 9;
 const POLE_PROBES: usize = 5;
 const RAY_DIRECTIONS: [[f64; 3]; 12] = [
     [0.573_462, 0.612_378, 0.544_223],
@@ -186,11 +186,24 @@ fn face_data(solid: &Solid, id: FaceId) -> Option<FaceData> {
     })
 }
 
-fn shifts(period: Option<f64>) -> Vec<f64> {
-    match period {
-        Some(period) => PERIOD_SHIFTS.iter().map(|shift| shift * period).collect(),
-        None => vec![0.0],
+fn shifts(period: Option<f64>, value: f64, low: f64, high: f64) -> Vec<f64> {
+    let Some(period) = period else {
+        return vec![0.0];
+    };
+    let first = ((low - value) / period).ceil();
+    let last = ((high - value) / period).floor();
+    if !first.is_finite() || !last.is_finite() || last < first {
+        return Vec::new();
     }
+    let mut turns: Vec<f64> = (0..=(last - first) as usize)
+        .map(|index| first + index as f64)
+        .collect();
+    turns.sort_by(|a, b| a.abs().total_cmp(&b.abs()));
+    turns
+        .into_iter()
+        .take(MAX_PERIOD_SHIFTS)
+        .map(|turn| turn * period)
+        .collect()
 }
 
 fn contains_point(bounds: &Aabb, point: Point3, margin: f64) -> bool {
@@ -327,12 +340,16 @@ impl<'a> SolidClassifier<'a> {
             .uv_box
             .expanded(1e-9 * (1.0 + data.uv_box.size().max_element()));
         probes.into_iter().any(|probe| {
-            shifts(surface.u_period()).into_iter().any(|du| {
-                shifts(surface.v_period()).into_iter().any(|dv| {
-                    let shifted = probe + Vector2::new(du, dv);
-                    slack.contains(shifted) && data.polygon_index().contains(shifted)
+            shifts(surface.u_period(), probe.x, slack.min().x, slack.max().x)
+                .into_iter()
+                .any(|du| {
+                    shifts(surface.v_period(), probe.y, slack.min().y, slack.max().y)
+                        .into_iter()
+                        .any(|dv| {
+                            let shifted = probe + Vector2::new(du, dv);
+                            slack.contains(shifted) && data.polygon_index().contains(shifted)
+                        })
                 })
-            })
         })
     }
 
@@ -641,6 +658,24 @@ impl<'a> SolidClassifier<'a> {
     }
 
     pub fn classify_boundary_point(&self, point: Point3, normal: Vector3) -> BoundaryClass {
+        self.classify_boundary(point, normal, None)
+    }
+
+    pub fn classify_fragment_point(
+        &self,
+        point: Point3,
+        normal: Vector3,
+        surface: &Surface,
+    ) -> BoundaryClass {
+        self.classify_boundary(point, normal, Some(surface))
+    }
+
+    fn classify_boundary(
+        &self,
+        point: Point3,
+        normal: Vector3,
+        fragment: Option<&Surface>,
+    ) -> BoundaryClass {
         let mut touching = None;
         for data in self.faces_near(point) {
             let Some(uv) = self.on_face(data, point) else {
@@ -654,7 +689,12 @@ impl<'a> SolidClassifier<'a> {
                 touching.get_or_insert(data.id);
                 continue;
             };
-            if outward.cross(given).length() <= COINCIDENT_SINE {
+            let shares_surface = fragment.is_none_or(|surface| {
+                self.solid
+                    .face(data.id)
+                    .is_some_and(|face| lies_on_same_surface(surface, face.surface()))
+            });
+            if shares_surface && outward.cross(given).length() <= COINCIDENT_SINE {
                 return BoundaryClass::Coincident {
                     face: data.id,
                     sense: Sense::from_sign(outward.dot(given)),
@@ -672,6 +712,20 @@ impl<'a> SolidClassifier<'a> {
             PointClass::Undecided => BoundaryClass::Undecided,
         }
     }
+}
+
+fn lies_on_same_surface(first: &Surface, second: &Surface) -> bool {
+    let elementary = |surface: &Surface| {
+        matches!(
+            surface,
+            Surface::Plane(_)
+                | Surface::Cylinder(_)
+                | Surface::Cone(_)
+                | Surface::Sphere(_)
+                | Surface::Torus(_)
+        )
+    };
+    !(elementary(first) && elementary(second)) || first.same_surface(second).is_some()
 }
 
 impl Solid {

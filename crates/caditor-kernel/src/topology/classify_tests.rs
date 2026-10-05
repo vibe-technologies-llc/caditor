@@ -622,3 +622,46 @@ fn a_cancelled_ray_stops_at_its_first_poll_instead_of_trying_every_direction() {
     }
     assert!(polled > 4, "only {polled} casts polled");
 }
+
+#[test]
+fn a_point_in_a_face_is_found_however_many_periods_its_uv_is_away() {
+    let ball = sphere(4.0);
+    let (face, definition) = ball.faces().next().unwrap();
+    let point = Point3::new(1.8352887868890053, 3.231926532772807, -1.478636516853581);
+    let uv = definition.surface().project(point, None);
+
+    for turns in -4..=4 {
+        let shifted = Point2::new(uv.x + f64::from(turns) * 2.0 * PI, uv.y);
+        assert_eq!(
+            ball.point_in_face(face, shifted),
+            Some(FaceContainment::Inside),
+            "{turns} turns"
+        );
+    }
+}
+
+#[test]
+fn a_plane_tangent_to_a_cylinder_touches_it_without_coinciding() {
+    let post = cylinder(2.0, 5.0);
+    let classifier = post.classifier();
+    let on_the_tangent_line = Point3::new(2.0, 0.0, 2.5);
+    let wall = definition_of_plane_surface();
+
+    assert!(matches!(
+        classifier.classify_boundary_point(on_the_tangent_line, Vector3::X),
+        BoundaryClass::Coincident { .. }
+    ));
+    assert!(matches!(
+        classifier.classify_fragment_point(on_the_tangent_line, Vector3::X, &wall),
+        BoundaryClass::Touching(_)
+    ));
+}
+
+fn definition_of_plane_surface() -> Surface {
+    Surface::Plane(
+        crate::surface::PlaneSurface::new(
+            Plane::new(Point3::new(2.0, 0.0, 0.0), Vector3::X).unwrap(),
+        )
+        .unwrap(),
+    )
+}

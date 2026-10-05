@@ -8,7 +8,7 @@ use crate::{
     interrupt,
     intersect::{
         IntersectionBranch, IntersectionError, SurfaceIntersection, SurfacePatch,
-        intersect_curve_surface, intersect_curves, intersect_surfaces,
+        intersect_curve_surface, intersect_curves, intersect_surfaces_through,
     },
     interval::Interval,
     naming::EdgeName,
@@ -432,6 +432,25 @@ fn meeting_point(first: &FaceBounds, second: &FaceBounds, surface: &Surface) -> 
     surface.point_at(surface.project(middle, Some(first.uv.center())))
 }
 
+fn shared_points(pool: &Pool, faces: [&FaceBounds; 2], surfaces: [&Surface; 2]) -> Vec<Point3> {
+    let [first, second] = faces;
+    let low = first.bounds.min().max(second.bounds.min());
+    let high = first.bounds.max().min(second.bounds.max());
+    if low.cmpgt(high).any() {
+        return Vec::new();
+    }
+    let shared = Aabb::from_point(low).including(high);
+    pool.in_box(&shared)
+        .into_iter()
+        .filter_map(|index| pool.points.get(index).copied())
+        .filter(|point| {
+            surfaces
+                .iter()
+                .all(|surface| surface.distance(*point) <= SAME_EDGE)
+        })
+        .collect()
+}
+
 fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanError> {
     let mut branches = Vec::new();
     for first in input.faces(Operand::First) {
@@ -452,10 +471,15 @@ fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanE
                     face: second.id,
                 },
             ];
+            let hints = shared_points(
+                pool,
+                [first, second],
+                [first_face.surface(), second_face.surface()],
+            );
             let found = SurfacePatch::new(first_face.surface(), first.uv)
                 .and_then(|first_patch| {
                     let second_patch = SurfacePatch::new(second_face.surface(), second.uv)?;
-                    intersect_surfaces(&first_patch, &second_patch)
+                    intersect_surfaces_through(&first_patch, &second_patch, &hints)
                 })
                 .map_err(|error| {
                     BooleanError::from(error)

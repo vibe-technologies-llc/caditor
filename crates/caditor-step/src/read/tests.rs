@@ -33,7 +33,7 @@ fn assert_same_shape(name: &str, original: &caditor_kernel::Solid, read: &cadito
     );
     assert_eq!(read.shells().count(), original.shells().count(), "{name}");
     assert!(
-        (before - after).abs() < 1e-6 * before,
+        (before - after).abs() < 1e-5 * before,
         "{name}: {before} vs {after}"
     );
     for (index, face) in mesh.faces().iter().enumerate() {

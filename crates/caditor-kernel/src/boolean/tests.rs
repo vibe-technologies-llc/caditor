@@ -21,7 +21,7 @@ use crate::{
     surface::{PlaneSurface, Surface},
     test_support::{Random, assert_cancelled_anywhere, assert_watertight, circle, rectangle},
     tolerance::SamplingTolerance,
-    topology::{BuildError, FaceId, Pcurve, PcurveSample, PointClass, ValidationError},
+    topology::{BuildError, FaceId, Pcurve, PcurveSample, PointClass},
 };
 
 fn moved(solid: Solid, offset: (f64, f64, f64)) -> Solid {
@@ -214,6 +214,10 @@ fn rotated(solid: Solid, axis: Vector3, angle: f64) -> Solid {
 }
 
 fn consistent(name: &str, first: &Solid, second: &Solid) {
+    combine_consistently(name, first, second, true);
+}
+
+fn combine_consistently(name: &str, first: &Solid, second: &Solid, watertight: bool) {
     let (a, b) = (volume(first), volume(second));
     let union = run(first, second, BooleanOperation::Union);
     let common = run(first, second, BooleanOperation::Intersection);
@@ -224,7 +228,7 @@ fn consistent(name: &str, first: &Solid, second: &Solid) {
         ("difference", &difference),
     ] {
         assert_eq!(solid.validate(), Ok(()), "{name} {label}");
-        if solid.shells().count() == 1 {
+        if watertight && solid.shells().count() == 1 {
             assert_watertight(name, &solid.tessellate(&solid.default_tolerance()).unwrap());
         }
     }
@@ -777,7 +781,7 @@ fn tori_touching_along_their_equators_cannot_be_split() {
 }
 
 #[test]
-fn a_result_straying_past_the_resolution_is_refused_as_invalid() {
+fn a_post_through_a_tilted_torus_combines_with_its_curves_following_their_own_edges() {
     let post = cylinder(3.0, 5.0);
     let tilted = crate::fixtures::torus(6.0, 2.0)
         .transformed(
@@ -802,12 +806,7 @@ fn a_result_straying_past_the_resolution_is_refused_as_invalid() {
         )
         .unwrap();
 
-    assert!(matches!(
-        boolean(&post, &tilted, BooleanOperation::Union),
-        Err(BooleanError::Invalid(BuildError::Invalid(
-            ValidationError::PcurveOffEdge { .. }
-        )))
-    ));
+    consistent("a post through a tilted torus", &post, &tilted);
 }
 
 fn square_fragment(size: f64) -> Fragment {
@@ -1264,4 +1263,135 @@ fn plates_with_many_holes_join_with_every_hole_kept() {
     let union = run(&first, &second, BooleanOperation::Union);
 
     check("holed plates", &union, 2.0 * plate - overlap);
+}
+
+struct Placement {
+    first: &'static str,
+    second: &'static str,
+    axis: [f64; 3],
+    angle: f64,
+    offset: [f64; 3],
+}
+
+fn fixture(name: &str) -> Solid {
+    crate::fixtures::every_solid()
+        .into_iter()
+        .find(|(known, _)| *known == name)
+        .map(|(_, solid)| solid)
+        .unwrap()
+}
+
+#[test]
+fn placements_the_survey_once_failed_on_combine_in_every_operation() {
+    let placements = [
+        Placement {
+            first: "torus",
+            second: "torus",
+            axis: [
+                0.28183652912790036,
+                -0.38302267045447747,
+                0.14861334158896833,
+            ],
+            angle: 4.094916710072873,
+            offset: [
+                -0.08140243986459836,
+                0.023560975519637206,
+                0.04681174547054248,
+            ],
+        },
+        Placement {
+            first: "frustum",
+            second: "torus",
+            axis: [
+                0.15918432317123532,
+                -0.38558639057320043,
+                0.21933746156793044,
+            ],
+            angle: 4.458477935180946,
+            offset: [0.7978532746535936, -1.5985765169984556, 2.481438299963669],
+        },
+        Placement {
+            first: "torus",
+            second: "extruded spline",
+            axis: [0.6158988540739427, 0.1052653358758382, -0.46552630318247235],
+            angle: 0.32155709960765205,
+            offset: [1.7393631953064803, 1.269438679546151, 0.9004250493589594],
+        },
+        Placement {
+            first: "extruded spline",
+            second: "frustum",
+            axis: [-0.4566681769213574, 0.0884849853223395, -0.9870459544092678],
+            angle: 2.3166417881833654,
+            offset: [
+                -1.0429914019868052,
+                -0.00386163269224693,
+                0.5705960428468118,
+            ],
+        },
+        Placement {
+            first: "sphere",
+            second: "torus",
+            axis: [0.7689078164517837, -0.3119861531058954, 0.5515485135120883],
+            angle: 2.6159441066009164,
+            offset: [
+                -0.46577967924596453,
+                0.10070782938339506,
+                -0.2956017012245836,
+            ],
+        },
+        Placement {
+            first: "cone",
+            second: "cone",
+            axis: [-0.3423479893487724, 0.40768721646966366, -0.450478286597501],
+            angle: 1.618144038332397,
+            offset: [
+                0.21137766687518345,
+                0.23009673689397847,
+                0.08737189203974871,
+            ],
+        },
+        Placement {
+            first: "extruded spline",
+            second: "frustum",
+            axis: [
+                -0.9531647960341936,
+                -0.09411875481867016,
+                0.20300410199093655,
+            ],
+            angle: 0.9854617259835932,
+            offset: [-1.534814593549542, 0.5203219952448088, 1.620422597456999],
+        },
+        Placement {
+            first: "extruded spline",
+            second: "extruded spline",
+            axis: [0.9822167454789423, -0.6626819377954025, -0.9461445153510024],
+            angle: 3.847574038109544,
+            offset: [-0.0806845501336978, 0.5745480514931482, 0.22124869989548157],
+        },
+        Placement {
+            first: "torus",
+            second: "torus",
+            axis: [
+                -0.882381936139014,
+                -0.8047896652507125,
+                -0.05965845290360461,
+            ],
+            angle: 4.6073768483698485,
+            offset: [1.0004898132962912, -0.7992528907110321, -0.4802310468800446],
+        },
+    ];
+    for placement in placements {
+        let [x, y, z] = placement.axis;
+        let [dx, dy, dz] = placement.offset;
+        let second = moved(
+            rotated(
+                fixture(placement.second),
+                Vector3::new(x, y, z),
+                placement.angle,
+            ),
+            (dx, dy, dz),
+        );
+        let name = format!("{} and {}", placement.first, placement.second);
+        combine_consistently(&name, &fixture(placement.first), &second, false);
+    }
 }

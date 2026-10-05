@@ -25,16 +25,14 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Kernel correctness
 
-- [high · hard] About 0.6% of booleans between the fixture solids in random placements still fail
-  (`boolean::tests::random_placements_of_every_fixture`, ignored, best run in release): `Open`
-  between extruded splines, frustums and tori and once between a holed block and a cuboid whose
-  edge passes 1.6 µm from the block's corner, and `Intersection` failures between nearly
-  coincident tori and cones that are too intricate to intersect. Intersection curves crossing at a
-  tangent point (tori touching along their equators, a face touching a torus's inner equator)
-  cannot be split, and a result whose pcurves stray past the resolution (a cylinder against a
-  tilted torus) or with a lump too thin for the validation mesh is refused as invalid; the first two
-  have a test pinning their error (`tori_touching_along_their_equators_cannot_be_split`,
-  `a_result_straying_past_the_resolution_is_refused_as_invalid`), the thin lump has none.
+- [high · hard] About 0.13% of booleans between the fixture solids in random placements still fail
+  (`boolean::tests::random_placements_of_every_fixture`, ignored, 6 of 4,500): one pair of tori
+  whose intersection is too intricate (`TooComplex`) and a frustum whose bottom circle a plane
+  barely cuts (a sliver 2e-4 deep and 0.08 long), where the cone's intersection with the plane is
+  a tiny arc the marcher does not seed. Intersection curves crossing at a tangent point (tori
+  touching along their equators, a face touching a torus's inner equator) cannot be split
+  (`tori_touching_along_their_equators_cannot_be_split`), and a lump too thin for the validation
+  mesh is refused as invalid, with no test pinning it.
 - [high · hard] Faces or axes apart by more than `LINEAR_RESOLUTION` but by less than a few
   micrometres are neither coincident nor separate. Blocks a micrometre or so off an aligned contact
   now combine (thin strips are classified by the side of the faces they touch, and branches as
@@ -52,17 +50,23 @@ the unblocked ones; the entry that does the unblocking comes before it.
   (`shell::tests::a_corner_where_ridges_and_valleys_alternate_is_named`,
   `a_cavity_whose_ridge_runs_over_its_inside_corner_is_named`).
 - [medium · hard] `select::classify` lets inside or outside samples win over coincident ones in a
-  partly coincident fragment (only coincident samples of opposite senses make it `Ambiguous`);
-  treating every partly coincident fragment as `Ambiguous` fails `stress_cylinders_on_a_grid` on
-  noise near tolerance boundaries, so split fragments exactly at coincident boundaries instead.
+  partly coincident fragment (only coincident samples of opposite senses make it `Ambiguous`). A
+  sample now counts as coincident only on a face of the same elementary surface, which removed the
+  tangent-line noise that made every partly coincident fragment `Ambiguous` fail
+  `stress_cylinders_on_a_grid`, and none occurs in the boolean tests or the aligned-contact survey;
+  making a mixed fragment `Ambiguous` is unchecked against the random-placement survey, and
+  splitting fragments exactly at coincident boundaries would replace it.
 - [low · medium] A face the shell's thickness closes up is dropped only when it has one loop and
   keeps two single edges apart from each other, or none; a band whose side is a chain of edges (a
-  rim split by another face's seam) is refused as `EdgeCollapses`.
-- [low · medium] A torus whose tube is far thinner than its ring (20 and 0.5) still meshes at 2.7 to
-  4.4 times the requested chord, since the Delaunay triangulation of the stretched parameter grid
-  picks long triangles; mesh it finer or triangulate by cell.
+  rim split by another face's seam) is refused as `EdgeCollapses`. Counting chains as sides closes
+  faces that survive (a chamfered box), so it needs the offset outline's orientation as well, and
+  the joint vertex of a chain then has too few live faces to be placed: a split vertex of two
+  offset surfaces only, which `offset_vertex` and `split_vertex` do not handle.
 - [low · hard] Meshes fold where two faces meet at a very small dihedral (lens tips, a plane nearly
-  tangent to a torus), giving self-overlapping triangles that `validate` does not see.
+  tangent to a torus), giving self-overlapping triangles that `validate` does not see: an extruded
+  spline intersected with a frustum leaves two tangent edges at one vertex, the end parting bisects
+  them down to 1e-7, and the mesh then uses one edge twice in the same direction
+  (`assert_watertight` fails on it).
 
 ## Kernel performance
 

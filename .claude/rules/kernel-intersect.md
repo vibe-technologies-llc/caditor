@@ -49,11 +49,18 @@ paths:
 - Everything else is marched (`march.rs`):
   - Seeds come from paired subdivision of both patches, each solved by Gauss–Newton, then a sign
     scan of the distance for tiny loops.
+  - Points of the arrangement lying on both surfaces (where an edge of one solid pierces a face of
+    the other) are also seeds (`intersect_surfaces_through`), so a short branch between two such
+    points near a corner of a patch is found even when no subdivision leaf seeds it; a failing
+    hint is ignored.
   - Branches march both ways from each seed not already on a branch, stop exactly on the box
     boundary, close loops through the seed and end where the normals become parallel (reported as
     tangent points). A step that collapses where the branch runs off a bounded surface ends on the
     boundary ahead, at a pole (a cone apex on the other surface) ends there; otherwise it, and a
-    branch longer than the step cap, fails as `Unfollowable`.
+    branch longer than the step cap, fails as `Unfollowable`. A step is accepted only when the
+    point found halfway along its chord (on the plane normal to the heading) lies within
+    `MAX_SAGITTA` of the chord's middle, so a step cannot jump across the neck between two
+    nearby branches onto the other one.
   - Every branch is clipped to both patches over only the spans reaching the window the patches
     share, so a long curve through a small face is found there. A marched branch that is a line,
     circle or ellipse within half the resolution is returned as that curve (`recognize.rs`).
@@ -67,13 +74,16 @@ paths:
   - Otherwise rays from a fixed list of directions are intersected with each face's surface; the
     nearest crossing's outward normal decides. A ray that grazes, is tangent, lies in a face, or
     meets an edge or vertex no farther than its nearest clean crossing is discarded for the next.
-- `point_in_face(face, uv)` uses the pcurve polygons by parity over periodic shifts; near the
-  boundary it uses the exact edge (the side of the nearest non-seam coedge, or of both coedges at
+- `point_in_face(face, uv)` uses the pcurve polygons by parity over every periodic shift that
+  brings the point into the face's uv box (a curve winding several times around a pole carries
+  uvs many periods away); near the boundary it uses the exact edge (the side of the nearest non-seam coedge, or of both coedges at
   a vertex: convex corners need both). The classifier keeps a tree of face boxes (`box_tree.rs`)
   and each face indexes its boundary on first use (`PolygonIndex`, `topology/polygons.rs`), so
   building stays linear and a query logarithmic in the face's boundary.
 - `classify_boundary_point(point, normal)` adds `Coincident { face, sense }` for a point on a face
-  with a parallel normal, and `Touching(face)` otherwise.
+  with a parallel normal, and `Touching(face)` otherwise. `classify_fragment_point` also asks that
+  two elementary surfaces be the same surface, so a plane tangent to a cylinder along a line is
+  touching, not coincident.
 - `first_crossing(origin, direction, beyond)` casts one ray the same way: the nearest clean
   crossing past `beyond` (face, distance, whether the ray enters), `Nothing`, or `Undecided` when a
   graze, tangent, overlap or edge comes no later. Hits up to `beyond` are ignored, so a ray may

@@ -74,6 +74,24 @@ struct Scaled {
 }
 
 impl Scaled {
+    fn of_cells(bounds: Aabb2, density: &Density) -> Self {
+        let size = bounds.size();
+        let gridded = density.u_segments >= 2 && density.v_segments >= 2;
+        let (u_scale, v_scale) = if gridded && size.x > 0.0 && size.y > 0.0 {
+            (
+                density.u_segments as f64 / size.x,
+                density.v_segments as f64 / size.y,
+            )
+        } else {
+            (density.u_scale, density.v_scale)
+        };
+        Self {
+            origin: bounds.min(),
+            u_scale,
+            v_scale,
+        }
+    }
+
     fn map(&self, uv: Point2) -> Point2 {
         let offset = uv - self.origin;
         Point2::new(snap(offset.x * self.u_scale), snap(offset.y * self.v_scale))
@@ -121,11 +139,7 @@ pub(crate) fn triangulate(
         .into_iter()
         .map(|points| close_gaps(points, steps))
         .collect();
-    let scaled = Scaled {
-        origin: bounds.min(),
-        u_scale: density.u_scale,
-        v_scale: density.v_scale,
-    };
+    let scaled = Scaled::of_cells(bounds, &density);
     let mut points = FacePoints::new(face_id, scaled);
     for boundary in &loops {
         points.add_loop(boundary)?;
