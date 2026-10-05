@@ -1086,21 +1086,21 @@ fn only_a_specific_inward_error_replaces_too_thick() {
     assert!(!ShellError::EdgeCollapses(edge).names_the_cause());
     assert!(
         !ShellError::Walls {
-            face: None,
+            faces: Vec::new(),
             edge: None
         }
         .names_the_cause()
     );
     assert!(
         ShellError::Walls {
-            face: Some(face),
+            faces: vec![face],
             edge: None
         }
         .names_the_cause()
     );
     assert!(
         ShellError::Walls {
-            face: None,
+            faces: Vec::new(),
             edge: Some(edge)
         }
         .names_the_cause()
@@ -1117,4 +1117,22 @@ fn a_thickness_of_a_nanometre_is_refused_in_words() {
 
     assert_eq!(refusal, ShellError::InvalidThickness);
     assert!(refusal.to_string().contains("0.000001 mm"));
+}
+
+#[test]
+fn walls_name_a_few_faces_and_not_a_whole_body() {
+    let faces: Vec<FaceId> = (0..NAMED_WALL_FACES + 1)
+        .map(|index| FaceId::from_index(index).unwrap())
+        .collect();
+
+    assert_eq!(
+        ShellError::walls_at(faces[..2].iter().copied()),
+        ShellError::Walls {
+            faces: faces[..2].to_vec(),
+            edge: None
+        }
+    );
+    assert!(ShellError::walls_at(faces[..NAMED_WALL_FACES].iter().copied()).names_the_cause());
+    assert!(!ShellError::walls_at(faces).names_the_cause());
+    assert!(!ShellError::walls_at([]).names_the_cause());
 }

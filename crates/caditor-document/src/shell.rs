@@ -202,14 +202,21 @@ impl Context<'_> {
                 ),
                 "Enter a smaller thickness, or leave this face closed.".to_owned(),
             ),
-            ShellError::Walls { face, edge } => {
-                let near = match (face, edge) {
-                    (Some(face), _) => format!(" near {}", self.describe_face(solid, *face)),
-                    (None, Some(edge)) => format!(
+            ShellError::Walls { faces, edge } => {
+                let mut names: Vec<String> = Vec::with_capacity(faces.len());
+                for face in faces {
+                    let name = self.describe_face(solid, *face);
+                    if !names.contains(&name) {
+                        names.push(name);
+                    }
+                }
+                let near = match (names.is_empty(), edge) {
+                    (false, _) => format!(" near {}", crate::document::list_names(&names)),
+                    (true, Some(edge)) => format!(
                         " near {}",
                         describe_edge(self.inputs.document, solid, *edge)
                     ),
-                    (None, None) => String::new(),
+                    (true, None) => String::new(),
                 };
                 self.error(
                     format!(

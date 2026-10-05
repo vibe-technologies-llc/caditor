@@ -86,8 +86,11 @@ pub enum SweepError {
     Unassembled,
     #[error("the swept geometry cannot be built: {0}")]
     Geometry(#[from] GeometryError),
-    #[error("the swept solid is not valid: {0}")]
-    Invalid(BuildError),
+    #[error("the swept solid is not valid: {error}")]
+    Invalid {
+        error: BuildError,
+        entities: Vec<u64>,
+    },
     #[error(transparent)]
     Cancelled(#[from] Interrupted),
 }
@@ -96,7 +99,10 @@ impl From<BuildError> for SweepError {
     fn from(error: BuildError) -> Self {
         match error.interrupted() {
             Some(interrupted) => Self::Cancelled(interrupted),
-            None => Self::Invalid(error),
+            None => Self::Invalid {
+                error,
+                entities: Vec::new(),
+            },
         }
     }
 }
@@ -104,7 +110,7 @@ impl From<BuildError> for SweepError {
 impl SweepError {
     pub fn entities(&self) -> Vec<u64> {
         match self {
-            Self::CrossesAxis { entities } => entities.clone(),
+            Self::CrossesAxis { entities } | Self::Invalid { entities, .. } => entities.clone(),
             Self::BothSidesOfAxis { left, right } => left.iter().chain(right).copied().collect(),
             Self::NoRegions
             | Self::NonFinite
@@ -118,7 +124,6 @@ impl SweepError {
             | Self::OnAxis
             | Self::Unassembled
             | Self::Geometry(_)
-            | Self::Invalid(_)
             | Self::Cancelled(_) => Vec::new(),
         }
     }

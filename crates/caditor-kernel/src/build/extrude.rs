@@ -279,6 +279,7 @@ pub fn extrude(
     let mut plan = Plan::default();
     for region in regions {
         interrupt::check()?;
+        plan.label(region.entities());
         let start = (
             FaceName::start_cap(feature, region.key()),
             FaceOrigin::StartCap { feature },

@@ -580,7 +580,7 @@ fn place_edges(
             return Err(dead
                 .and_then(|face| collapses.refusal(solid, face))
                 .unwrap_or(ShellError::Walls {
-                    face: None,
+                    faces: Vec::new(),
                     edge: lone,
                 }));
         };
@@ -667,21 +667,11 @@ fn loops(
             }
         }
         if coedges.is_empty() {
-            return Err(ShellError::Walls {
-                face: Some(face),
-                edge: None,
-            });
+            return Err(ShellError::walls_at([face]));
         }
         loops.push(coedges);
     }
     Ok(loops)
-}
-
-fn unnamed_walls() -> ShellError {
-    ShellError::Walls {
-        face: None,
-        edge: None,
-    }
 }
 
 pub(super) struct Inner {
@@ -691,6 +681,7 @@ pub(super) struct Inner {
 
 fn settled_layout(offsets: &Offsets<'_>, collapses: &mut Collapses) -> Result<Layout, ShellError> {
     let solid = offsets.solid;
+    let mut unsettled = Vec::new();
     for _ in 0..=solid.faces().count() {
         interrupt::check()?;
         let layout = Layout::new(offsets, collapses)?;
@@ -698,9 +689,10 @@ fn settled_layout(offsets: &Offsets<'_>, collapses: &mut Collapses) -> Result<La
         if shrinking.is_empty() {
             return Ok(layout);
         }
+        unsettled = shrinking.keys().copied().collect();
         collapses.add_shrinking(shrinking);
     }
-    Err(unnamed_walls())
+    Err(ShellError::walls_at(unsettled))
 }
 
 pub(super) fn inner_solid(offsets: &Offsets<'_>, feature: u64) -> Result<Inner, ShellError> {
@@ -718,24 +710,36 @@ pub(super) fn inner_solid(offsets: &Offsets<'_>, feature: u64) -> Result<Inner, 
         if collapses.contains(id) {
             continue;
         }
-        faces.push(PlanFace {
-            surface: offsets.surface(id)?,
-            sense: face.sense(),
-            name: FaceName::shell(feature, face.name()),
-            origin: Some(FaceOrigin::Shell { feature }),
-            loops: loops(solid, id, &placed, &layout)?,
-        });
+        faces.push((
+            id,
+            PlanFace {
+                surface: offsets.surface(id)?,
+                sense: face.sense(),
+                name: FaceName::shell(feature, face.name()),
+                origin: Some(FaceOrigin::Shell { feature }),
+                loops: loops(solid, id, &placed, &layout)?,
+            },
+        ));
     }
     let mut plan = layout.plan;
-    for face in faces {
+    for (id, face) in faces {
+        plan.label(vec![id.index() as u64]);
         plan.face(face);
     }
     let built = plan.build().map_err(|error| match error {
         PlanError::Build(error) => match error.interrupted() {
             Some(interrupted) => ShellError::Cancelled(interrupted),
-            None => unnamed_walls(),
+            None => ShellError::walls_at([]),
         },
-        PlanError::Unassembled => unnamed_walls(),
+        PlanError::Labelled { error, labels } => match error.interrupted() {
+            Some(interrupted) => ShellError::Cancelled(interrupted),
+            None => ShellError::walls_at(
+                labels
+                    .into_iter()
+                    .filter_map(|label| FaceId::from_index(label as usize)),
+            ),
+        },
+        PlanError::Unassembled => ShellError::walls_at([]),
     })?;
     Ok(Inner {
         solid: built.renamed(|name, origin| (name, origin)),

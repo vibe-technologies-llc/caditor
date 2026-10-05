@@ -354,6 +354,11 @@ impl Region {
             .flat_map(|profile_loop| profile_loop.pieces.iter())
     }
 
+    pub fn entities(&self) -> Vec<u64> {
+        let entities: BTreeSet<u64> = self.pieces().map(Piece::entity).collect();
+        entities.into_iter().collect()
+    }
+
     pub fn area(&self) -> f64 {
         self.loops().map(ProfileLoop::signed_area).sum()
     }

@@ -125,6 +125,7 @@ pub fn revolve(
     let mut plan = Plan::default();
     for region in regions {
         interrupt::check()?;
+        plan.label(region.entities());
         let start_cap = (
             FaceName::start_cap(feature, region.key()),
             FaceOrigin::StartCap { feature },

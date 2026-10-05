@@ -8,16 +8,19 @@ use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 
 use super::*;
 use crate::{
+    build::plan::{Plan, PlanCoedge, PlanError, PlanFace},
+    curve::{Circle, Curve},
     interval::Interval,
     naming::{EdgeName, FaceName},
     numeric::integrate,
     profile::{Profile, ProfileCurve, Region, Selection},
+    surface::PlaneSurface,
     tessellation::Mesh,
     test_support::{
         Random, arc, assert_cancelled_anywhere, assert_watertight, circle, line, rectangle, spline,
     },
     tolerance::{MAX_SIZE, SamplingTolerance},
-    topology::Solid,
+    topology::{BuildError, Solid},
 };
 
 const FEATURE: u64 = 7;
@@ -1252,4 +1255,73 @@ fn a_dense_spline_profile_extrudes_validates_and_meshes_in_bounded_time() {
         "{volume} vs {}",
         5.0 * area
     );
+}
+
+fn disc_edge(plan: &mut Plan, height: f64) -> (usize, Plane) {
+    let frame = Plane::with_x_axis(Point3::new(0.0, 0.0, height), Vector3::Z, Vector3::X).unwrap();
+    let circle = Curve::from(Circle::new(frame, 2.0).unwrap());
+    let vertex = plan.vertex(circle.point(0.0));
+    let edge = plan.edge(
+        circle,
+        Interval::new(0.0, TAU).unwrap(),
+        (vertex, vertex),
+        EdgeName::NONE,
+    );
+    (edge, frame)
+}
+
+fn disc_face((edge, frame): (usize, Plane)) -> PlanFace {
+    PlanFace {
+        surface: PlaneSurface::new(frame).unwrap().into(),
+        sense: Sense::Same,
+        name: FaceName::NONE,
+        origin: None,
+        loops: vec![vec![PlanCoedge::new(edge, Sense::Same)]],
+    }
+}
+
+#[test]
+fn a_plan_names_the_labels_of_the_faces_validation_blames() {
+    let mut plan = Plan::default();
+    let blamed = disc_edge(&mut plan, 5.0);
+    let other = disc_edge(&mut plan, 0.0);
+    plan.label(vec![11]);
+    plan.face(disc_face(other));
+    plan.label(vec![22]);
+    plan.face(disc_face(blamed));
+
+    let error = plan.build().unwrap_err();
+
+    assert!(
+        matches!(
+            &error,
+            PlanError::Labelled { error: BuildError::Invalid(_), labels } if labels == &[22]
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_swept_solid_that_fails_validation_names_the_curves_of_its_region() {
+    let mut plan = Plan::default();
+    let edge = disc_edge(&mut plan, 0.0);
+    plan.label(vec![3, 8]);
+    plan.face(disc_face(edge));
+
+    let error = SweepError::from(plan.build().unwrap_err());
+
+    assert!(matches!(&error, SweepError::Invalid { .. }), "{error:?}");
+    assert_eq!(error.entities(), vec![3, 8]);
+}
+
+#[test]
+fn a_plan_without_labels_names_no_curves() {
+    let mut plan = Plan::default();
+    let edge = disc_edge(&mut plan, 0.0);
+    plan.face(disc_face(edge));
+
+    let error = SweepError::from(plan.build().unwrap_err());
+
+    assert!(matches!(&error, SweepError::Invalid { .. }), "{error:?}");
+    assert_eq!(error.entities(), Vec::<u64>::new());
 }

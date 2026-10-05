@@ -26,6 +26,7 @@ use crate::{
 const OFFSET_TOLERANCE: f64 = 10.0 * LINEAR_RESOLUTION;
 const OPENING_REACH: f64 = 2.0;
 const SMOOTH_TOLERANCE: f64 = 1e-6;
+const NAMED_WALL_FACES: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum ShellError {
@@ -49,7 +50,7 @@ pub enum ShellError {
     Opening(FaceId),
     #[error("the offset walls do not form a valid solid")]
     Walls {
-        face: Option<FaceId>,
+        faces: Vec<FaceId>,
         edge: Option<EdgeId>,
     },
     #[error("the body could not be meshed to tell its voids apart: {0}")]
@@ -61,10 +62,22 @@ pub enum ShellError {
 }
 
 impl ShellError {
+    fn walls_at(faces: impl IntoIterator<Item = FaceId>) -> Self {
+        let faces: Vec<FaceId> = faces.into_iter().collect();
+        Self::Walls {
+            faces: if faces.len() <= NAMED_WALL_FACES {
+                faces
+            } else {
+                Vec::new()
+            },
+            edge: None,
+        }
+    }
+
     fn names_the_cause(&self) -> bool {
         match self {
             Self::TooThick | Self::EdgeCollapses(_) | Self::InvalidThickness => false,
-            Self::Walls { face, edge } => face.is_some() || edge.is_some(),
+            Self::Walls { faces, edge } => !faces.is_empty() || edge.is_some(),
             _ => true,
         }
     }

@@ -158,7 +158,7 @@ impl From<PlanError> for BooleanError {
     fn from(error: PlanError) -> Self {
         match error {
             PlanError::Unassembled => Self::Open(Box::default()),
-            PlanError::Build(error) => error.into(),
+            PlanError::Build(error) | PlanError::Labelled { error, .. } => error.into(),
         }
     }
 }

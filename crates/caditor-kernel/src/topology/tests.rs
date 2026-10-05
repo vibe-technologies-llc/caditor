@@ -885,3 +885,30 @@ fn a_prism_of_many_sides_is_checked_for_crossings_in_bounded_time() {
     assert_eq!(check, CrossingCheck::Clear);
     assert!(elapsed < PRISM_CROSSING_TIME_LIMIT, "{elapsed:?}");
 }
+
+#[test]
+fn a_validation_error_names_the_faces_it_involves() {
+    let block = fixtures::cuboid(Vector3::new(2.0, 3.0, 4.0));
+    let (edge, _) = block.edges().next().unwrap();
+    let (shell, _) = block.shells().next().unwrap();
+    let (face, _) = block.faces().next().unwrap();
+    let (face_loop, _) = block.loops().next().unwrap();
+    let (coedge, _) = block.coedges().next().unwrap();
+    let all: Vec<FaceId> = block.faces().map(|(id, _)| id).collect();
+
+    assert_eq!(ValidationError::NoShells.faces(&block), Vec::new());
+    assert_eq!(ValidationError::EmptyVolume(shell).faces(&block), all);
+    assert_eq!(
+        ValidationError::FaceWithoutLoops(face).faces(&block),
+        vec![face]
+    );
+    assert_eq!(ValidationError::EdgeSenses(edge).faces(&block).len(), 2);
+    assert_eq!(
+        ValidationError::EmptyLoop(face_loop).faces(&block),
+        vec![block.face_loop(face_loop).unwrap().face()]
+    );
+    assert_eq!(
+        ValidationError::PcurveGap(coedge).faces(&block),
+        vec![block.coedge_face(coedge).unwrap()]
+    );
+}

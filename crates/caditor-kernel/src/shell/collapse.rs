@@ -213,10 +213,7 @@ impl Collapses {
             if !covered {
                 return Err(self
                     .refusal(offsets.solid, *face)
-                    .unwrap_or(ShellError::Walls {
-                        face: Some(*face),
-                        edge: None,
-                    }));
+                    .unwrap_or_else(|| ShellError::walls_at([*face])));
             }
         }
         Ok(())

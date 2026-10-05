@@ -64,14 +64,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [low · hard] Meshes fold where two faces meet at a very small dihedral (lens tips, a plane nearly
   tangent to a torus), giving self-overlapping triangles that `validate` does not see.
 
-## Kernel feedback
-
-- [low · medium] `SweepError::Invalid` cannot say which region failed, since all regions build in
-  one `Plan`.
-- [low · medium] `ShellError::Walls` still names nothing when the offset solid fails to build
-  (`inner_solid` and `settled_layout` raise it with neither face nor edge), so the error cannot say
-  where the walls collide.
-
 ## Kernel performance
 
 - [medium · medium] The face grid is uniform in uv and sized by the worst curvature anywhere, so one

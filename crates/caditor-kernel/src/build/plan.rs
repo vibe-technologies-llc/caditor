@@ -47,6 +47,41 @@ pub(crate) enum PlanError {
     Unassembled,
     #[error(transparent)]
     Build(#[from] BuildError),
+    #[error("{error}")]
+    Labelled { error: BuildError, labels: Vec<u64> },
+}
+
+#[derive(Debug)]
+struct Culprit {
+    error: PlanError,
+    faces: Vec<usize>,
+}
+
+impl Culprit {
+    fn at(error: impl Into<PlanError>, faces: Vec<usize>) -> Self {
+        Self {
+            error: error.into(),
+            faces,
+        }
+    }
+}
+
+impl From<PlanError> for Culprit {
+    fn from(error: PlanError) -> Self {
+        Self::at(error, Vec::new())
+    }
+}
+
+impl From<BuildError> for Culprit {
+    fn from(error: BuildError) -> Self {
+        Self::at(error, Vec::new())
+    }
+}
+
+impl From<GeometryError> for Culprit {
+    fn from(error: GeometryError) -> Self {
+        Self::at(error, Vec::new())
+    }
 }
 
 impl From<GeometryError> for PlanError {
@@ -60,6 +95,13 @@ impl From<PlanError> for SweepError {
         match error {
             PlanError::Unassembled => Self::Unassembled,
             PlanError::Build(error) => error.into(),
+            PlanError::Labelled { error, labels } => match error.interrupted() {
+                Some(interrupted) => Self::Cancelled(interrupted),
+                None => Self::Invalid {
+                    error,
+                    entities: labels,
+                },
+            },
         }
     }
 }
@@ -127,9 +169,14 @@ pub(crate) struct Plan {
     vertices: Vec<Point3>,
     edges: Vec<PlanEdge>,
     faces: Vec<PlanFace>,
+    labels: Vec<(usize, Vec<u64>)>,
 }
 
 impl Plan {
+    pub fn label(&mut self, labels: Vec<u64>) {
+        self.labels.push((self.faces.len(), labels));
+    }
+
     pub fn vertex(&mut self, point: Point3) -> usize {
         self.vertices.push(point);
         self.vertices.len() - 1
@@ -332,9 +379,32 @@ impl Plan {
         }
     }
 
+    fn labels_of(&self, faces: &[usize]) -> Vec<u64> {
+        let mut labels = BTreeSet::new();
+        for face in faces {
+            let reached = self.labels.partition_point(|(first, _)| first <= face);
+            if let Some((_, own)) = reached.checked_sub(1).and_then(|at| self.labels.get(at)) {
+                labels.extend(own.iter().copied());
+            }
+        }
+        labels.into_iter().collect()
+    }
+
+    fn blame(&self, culprit: Culprit) -> PlanError {
+        let labels = self.labels_of(&culprit.faces);
+        match culprit.error {
+            PlanError::Build(error) if !labels.is_empty() => PlanError::Labelled { error, labels },
+            other => other,
+        }
+    }
+
     pub fn build(mut self) -> Result<Solid, PlanError> {
         self.merge_coincident_vertices();
         self.disambiguate();
+        self.assemble().map_err(|culprit| self.blame(culprit))
+    }
+
+    fn assemble(&self) -> Result<Solid, Culprit> {
         let mut builder = SolidBuilder::new();
         let used: BTreeSet<usize> = self
             .edges
@@ -351,17 +421,31 @@ impl Plan {
             vertices.insert(index, builder.vertex(point)?);
         }
         let vertex = |index: usize| vertices.get(&index).copied().ok_or(PlanError::Unassembled);
+        let users = self.users();
         let mut edges: Vec<EdgeId> = Vec::with_capacity(self.edges.len());
-        for edge in &self.edges {
-            let id = builder.edge(
-                edge.curve.clone(),
-                edge.interval,
-                vertex(edge.start)?,
-                vertex(edge.end)?,
-            )?;
-            builder.set_edge_name(id, edge.name)?;
+        for (index, edge) in self.edges.iter().enumerate() {
+            let users_of_edge = || {
+                users
+                    .get(index)
+                    .into_iter()
+                    .flatten()
+                    .map(|(face, _)| *face)
+                    .collect::<Vec<_>>()
+            };
+            let id = builder
+                .edge(
+                    edge.curve.clone(),
+                    edge.interval,
+                    vertex(edge.start)?,
+                    vertex(edge.end)?,
+                )
+                .map_err(|error| Culprit::at(error, users_of_edge()))?;
+            builder
+                .set_edge_name(id, edge.name)
+                .map_err(|error| Culprit::at(error, users_of_edge()))?;
             edges.push(id);
         }
+        let mut placed: BTreeMap<FaceId, usize> = BTreeMap::new();
         for shell_faces in self.shells() {
             let shell = builder.shell()?;
             for index in shell_faces {
@@ -369,17 +453,29 @@ impl Plan {
                 let Some(face) = self.faces.get(index) else {
                     continue;
                 };
-                let id = builder.face(shell, face.surface.clone(), face.sense)?;
-                builder.set_face_name(id, face.name)?;
+                let blame = |error: BuildError| Culprit::at(error, vec![index]);
+                let id = builder
+                    .face(shell, face.surface.clone(), face.sense)
+                    .map_err(blame)?;
+                placed.insert(id, index);
+                builder.set_face_name(id, face.name).map_err(blame)?;
                 if let Some(origin) = face.origin {
-                    builder.set_face_origin(id, origin)?;
+                    builder.set_face_origin(id, origin).map_err(blame)?;
                 }
                 for coedges in &face.loops {
-                    self.add_loop(&mut builder, id, face, coedges, &edges)?;
+                    self.add_loop(&mut builder, id, face, coedges, &edges)
+                        .map_err(|error| Culprit::at(error, vec![index]))?;
                 }
             }
         }
-        Ok(builder.build()?)
+        builder.build_blamed().map_err(|blamed| {
+            let faces = blamed
+                .faces
+                .iter()
+                .filter_map(|face| placed.get(face).copied())
+                .collect();
+            Culprit::at(blamed.error, faces)
+        })
     }
 
     fn add_loop(

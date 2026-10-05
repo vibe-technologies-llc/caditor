@@ -15,6 +15,11 @@ paths:
   (pinched regions), name every face and edge, group faces into shells and emit through
   `SolidBuilder`: valid or a `SweepError`. `build::plan::Plan` also builds boolean results, blend
   corners and the shell's inner solid, with explicit pcurves.
+- A `Plan` takes labels (`Plan::label`) that apply to the faces added after them. When building
+  fails, `ValidationError::faces` maps the error to the faces it involves and the failure comes
+  back as `PlanError::Labelled` with the labels of those faces: the sketch entities of the region
+  for `extrude` and `revolve` (`SweepError::Invalid { entities }`, which the document names as the
+  region bounded by those curves), the source face index for the shell's inner solid.
 - A circle reaches the revolution axis when its gap is within the revolve's tolerance, so a circle
   tangent to a slanted axis makes a horn torus with a pole, never a `Torus` whose radii differ by
   rounding. Faces on extrusion and revolution surfaces get exact straight pcurves; the rest are
@@ -151,6 +156,8 @@ paths:
 - Otherwise (or when that fails) every face is offset inward and a prism swept outward from the
   offset copy of each opened face is unioned before subtracting, which needs the thickness below
   half the body in every direction.
+- `ShellError::Walls` names the faces whose offsets failed to build or to settle, up to
+  `NAMED_WALL_FACES`; a failure spread over more of the body names none.
 - When the outward attempt only fails to keep every wall and the inward one fails with an error
   that names its cause (`ShellError::names_the_cause`), that error is reported instead of
   `TooThick`.

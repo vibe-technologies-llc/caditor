@@ -1065,7 +1065,23 @@ fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Fail
             "Choose another axis.".to_owned(),
             context.own(),
         ),
-        SweepError::Unassembled | SweepError::Geometry(_) | SweepError::Invalid(_) => {
+        SweepError::Invalid { entities, .. } if !entities.is_empty() => {
+            log::warn!("{} could not be built: {error}", context.feature.name);
+            let curves = context.curves(entities);
+            let which = if entities.len() > 1 {
+                "one of them"
+            } else {
+                "it"
+            };
+            context.error(
+                format!(
+                    "The {shape} of the region of {sketch} bounded by {curves} could not be built."
+                ),
+                format!("Change {which} in {sketch}, or leave that region out."),
+                context.in_sketch(),
+            )
+        }
+        SweepError::Unassembled | SweepError::Geometry(_) | SweepError::Invalid { .. } => {
             log::warn!("{} could not be built: {error}", context.feature.name);
             context.error(
                 format!("The {shape} of {sketch} could not be built."),

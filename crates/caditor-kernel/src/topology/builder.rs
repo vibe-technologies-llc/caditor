@@ -76,6 +76,11 @@ impl BuildError {
     }
 }
 
+pub(crate) struct Blamed {
+    pub error: BuildError,
+    pub faces: Vec<FaceId>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SolidBuilder {
     solid: Solid,
@@ -283,8 +288,17 @@ impl SolidBuilder {
     }
 
     pub fn build(self) -> Result<Solid, BuildError> {
-        self.solid.validate()?;
-        Ok(self.solid)
+        self.build_blamed().map_err(|blamed| blamed.error)
+    }
+
+    pub(crate) fn build_blamed(self) -> Result<Solid, Blamed> {
+        match self.solid.validate() {
+            Ok(()) => Ok(self.solid),
+            Err(error) => Err(Blamed {
+                faces: error.faces(&self.solid),
+                error: error.into(),
+            }),
+        }
     }
 
     #[cfg(test)]

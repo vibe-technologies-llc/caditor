@@ -91,6 +91,63 @@ pub enum ValidationError {
     Cancelled(#[from] Interrupted),
 }
 
+impl ValidationError {
+    pub(crate) fn faces(&self, solid: &Solid) -> Vec<FaceId> {
+        let of_shell = |shell: ShellId| {
+            solid
+                .shell(shell)
+                .map(|shell| shell.faces().to_vec())
+                .unwrap_or_default()
+        };
+        let of_loop =
+            |face_loop: LoopId| solid.face_loop(face_loop).map(|face_loop| face_loop.face());
+        let of_coedge = |coedge: CoedgeId| solid.coedge_face(coedge);
+        let of_edge = |edge: EdgeId| {
+            solid
+                .edge(edge)
+                .into_iter()
+                .flat_map(|edge| edge.coedges())
+                .filter_map(|coedge| solid.coedge_face(*coedge))
+                .collect::<Vec<_>>()
+        };
+        let mut faces = match self {
+            Self::EmptyShell(shell)
+            | Self::EmptyVolume(shell)
+            | Self::VoidOutside(shell)
+            | Self::EulerPoincare { shell, .. } => of_shell(*shell),
+            Self::LumpsOverlap { shell, other } | Self::LumpsCoincide { shell, other } => {
+                let mut faces = of_shell(*shell);
+                faces.extend(of_shell(*other));
+                faces
+            }
+            Self::FaceWithoutLoops(face)
+            | Self::ShellDisconnected { face, .. }
+            | Self::EdgeOffSurface { face, .. }
+            | Self::DanglingEdge { face, .. } => vec![*face],
+            Self::EmptyLoop(face_loop)
+            | Self::InnerLoopOutside(face_loop)
+            | Self::LoopOrientation { face_loop, .. }
+            | Self::LoopBreak { face_loop, .. } => of_loop(*face_loop).into_iter().collect(),
+            Self::PcurveEnds(coedge)
+            | Self::PcurveGap(coedge)
+            | Self::PcurveOffEdge { coedge, .. } => of_coedge(*coedge).into_iter().collect(),
+            Self::ZeroLengthEdge(edge)
+            | Self::EdgeSenses(edge)
+            | Self::EdgeAcrossShells(edge)
+            | Self::VertexOffEdge { edge, .. }
+            | Self::EdgeUseCount { edge, .. } => of_edge(*edge),
+            Self::NoShells
+            | Self::MissingEntity
+            | Self::UnusedVertex(_)
+            | Self::Tessellation(_)
+            | Self::Cancelled(_) => Vec::new(),
+        };
+        faces.sort();
+        faces.dedup();
+        faces
+    }
+}
+
 type Checked<T> = Result<T, ValidationError>;
 
 pub(crate) fn validate(solid: &Solid) -> Checked<()> {
