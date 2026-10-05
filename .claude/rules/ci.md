@@ -13,8 +13,9 @@ paths:
 - `ci.yml` runs on every push to `master` and every pull request, and the release workflow calls it
   before building. Linux jobs run in Ubuntu 22.04 containers, Windows jobs on `windows-2025`, all
   with a timeout; a newer push to a pull request cancels its older run.
-- `windows` tests (with `CADITOR_REQUIRE_GPU=1`, on the runner's software adapter), checks the tree
-  stays clean and lints on Windows, the only place `cfg(windows)` code is compiled in CI.
+- `windows` tests every crate even after one fails (`--no-fail-fast`, with `CADITOR_REQUIRE_GPU=1`
+  on the runner's software adapter), checks the tree stays clean and lints on Windows, the only
+  place `cfg(windows)` code is compiled in CI.
   `package-windows` builds a snapshot MSI (`packaging/windows/build-release.ps1 -Snapshot`) and
   runs `check-install.ps1` on it. Windows jobs check out with `core.autocrlf` off, since tests
   compare committed text byte for byte. `.github/install-windows-packaging.sh` installs cargo-about

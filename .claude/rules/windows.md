@@ -80,8 +80,10 @@ so call sites stay platform-free.
   wizard: `%LOCALAPPDATA%\Programs\caditor` with `caditor.exe`, `README.md` and `licenses\` (the
   licence, Inter's and `THIRD-PARTY-LICENSES.html`, where `about.rs` looks), a Start menu shortcut
   and the `.caditor` association (`caditor.model`), all under HKCU. Each component's key path is an
-  HKCU value, as per-user components need. The `UpgradeCode` never changes; same-version upgrades
-  are allowed so a snapshot installs over itself.
+  HKCU value, as per-user components need; WiX cannot derive a GUID for a component holding
+  several files that way, so `Program` and `Licences` have fixed ones. Those GUIDs and the
+  `UpgradeCode` never change; same-version upgrades are allowed so a snapshot installs over
+  itself.
 - `build-release.ps1 [-Snapshot]` mirrors `build-release.sh` and writes
   `target/dist/caditor-<label>-windows-x86_64.msi` with its `.sha256`; `check-install.ps1` installs
   it quietly, checks the files, `--version`, shortcut and association, installs over it, then

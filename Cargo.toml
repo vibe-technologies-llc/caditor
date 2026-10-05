@@ -37,6 +37,7 @@ ahash = "0.8.12"
 anyhow = "1.0.104"
 blake3 = { version = "1.8.7", features = ["pure"] }
 crc32fast = "1.5.2"
+dunce = "1.0.5"
 egui = "0.36.2"
 egui-phosphor = "0.14.0"
 egui-wgpu = { version = "0.36.2", default-features = false }

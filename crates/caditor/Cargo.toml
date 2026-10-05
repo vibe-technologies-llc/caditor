@@ -21,6 +21,7 @@ caditor-render.workspace = true
 caditor-sketch.workspace = true
 
 anyhow.workspace = true
+dunce.workspace = true
 egui.workspace = true
 egui-phosphor.workspace = true
 egui-wgpu.workspace = true

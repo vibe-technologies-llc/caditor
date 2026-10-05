@@ -286,7 +286,7 @@ jobs:
       - name: Test
         env:
           CADITOR_REQUIRE_GPU: "1"
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --no-fail-fast
 
       - name: Check that the tests left the checkout clean
         run: |

@@ -28,7 +28,7 @@
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
 
-    <Component Id="Program" Directory="INSTALLFOLDER">
+    <Component Id="Program" Directory="INSTALLFOLDER" Guid="513F5C27-9893-4FB1-9821-AEAF497A5CD7">
       <RegistryValue
         Root="HKCU"
         Key="Software\caditor"
@@ -42,7 +42,7 @@
       <RemoveFolder Id="RemoveProgramsDirectory" Directory="ProgramsDirectory" On="uninstall" />
     </Component>
 
-    <Component Id="Licences" Directory="LicensesFolder">
+    <Component Id="Licences" Directory="LicensesFolder" Guid="70172988-633C-40E0-ABA2-ABE19A9F4842">
       <RegistryValue
         Root="HKCU"
         Key="Software\caditor"

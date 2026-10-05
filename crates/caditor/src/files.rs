@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     ffi::OsString,
-    fs, io,
+    io,
     panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
@@ -1376,7 +1376,7 @@ impl Files {
         let failed = path.clone();
         self.spawn(
             move || {
-                let path = fs::canonicalize(&path).unwrap_or(path);
+                let path = dunce::canonicalize(&path).unwrap_or(path);
                 let outcome = open_file(&path, current.as_deref(), recovery_dir.as_deref());
                 Event::Opened {
                     path,
@@ -1666,7 +1666,7 @@ fn canonical_location(path: &Path) -> PathBuf {
     } else {
         parent
     };
-    fs::canonicalize(parent).map_or_else(|_| path.to_path_buf(), |parent| parent.join(name))
+    dunce::canonicalize(parent).map_or_else(|_| path.to_path_buf(), |parent| parent.join(name))
 }
 
 pub fn menu(

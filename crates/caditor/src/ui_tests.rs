@@ -74,6 +74,10 @@ const TOOLTIP_FRAMES: usize = 20;
 const CAMERA_SETTLE: Duration = Duration::from_secs(5);
 const DRAWN: f64 = 1e-3;
 
+fn canonical(dir: &TempDir) -> PathBuf {
+    dunce::canonicalize(dir.path()).unwrap()
+}
+
 #[derive(Clone, Default)]
 struct ScriptedDialogs {
     answer: Arc<Mutex<Option<PathBuf>>>,
@@ -1187,7 +1191,7 @@ fn save_as_adds_the_model_extension_and_asks_before_replacing_what_the_dialog_di
     });
     assert_eq!(
         harness.model.path(),
-        Some(std::fs::canonicalize(&existing).unwrap().as_path())
+        Some(dunce::canonicalize(&existing).unwrap().as_path())
     );
     assert_eq!(
         caditor_file::load(&existing).unwrap().document,
@@ -1308,30 +1312,31 @@ fn an_unwritable_recovery_folder_shows_that_changes_are_not_protected() {
 #[test]
 fn saving_from_the_close_prompt_writes_the_file_then_quits() {
     let dir = TempDir::new().unwrap();
-    let mut harness = Harness::with_directories(Some(dir.path()));
+    let root = canonical(&dir);
+    let mut harness = Harness::with_directories(Some(root.as_path()));
     harness.edit_width("45 mm");
-    let untitled_journals = std::fs::read_dir(dir.path().join("recovery"))
+    let untitled_journals = std::fs::read_dir(root.as_path().join("recovery"))
         .unwrap()
         .count();
     assert_eq!(untitled_journals, 1);
 
-    harness.answer_dialog(Some(dir.path().join("bracket")));
+    harness.answer_dialog(Some(root.as_path().join("bracket")));
     harness.command(FileCommand::Quit);
     harness.click("Save as…");
     harness.wait_until("the model is saved", |harness| harness.files.should_quit());
 
-    let path = dir.path().join("bracket.caditor");
+    let path = root.as_path().join("bracket.caditor");
     let saved = caditor_file::load(&path).unwrap();
     assert!(saved.issues.is_empty());
     assert_eq!(saved.document, *harness.model.document());
     assert_eq!(
-        std::fs::read_dir(dir.path().join("recovery"))
+        std::fs::read_dir(root.as_path().join("recovery"))
             .unwrap()
             .count(),
         0
     );
-    assert!(!dir.path().join(".bracket.caditor.journal").exists());
-    let recent = caditor_file::RecentFiles::load(&dir.path().join("state"));
+    assert!(!root.as_path().join(".bracket.caditor.journal").exists());
+    let recent = caditor_file::RecentFiles::load(&root.as_path().join("state"));
     assert_eq!(recent.paths(), [path]);
 }
 
@@ -1897,15 +1902,16 @@ fn a_drawing_named_on_the_command_line_is_imported_instead_of_opened() {
 #[test]
 fn dropped_drawings_are_imported_one_after_another_and_a_dropped_model_opens() {
     let dir = TempDir::new().unwrap();
-    let mut harness = Harness::with_directories(Some(dir.path()));
-    let square = dir.path().join("square.dxf");
+    let root = canonical(&dir);
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+    let square = root.as_path().join("square.dxf");
     write_drawing(
         &square,
         Some(4),
         "0\nLWPOLYLINE\n8\n0\n90\n4\n70\n1\n\
          10\n0\n20\n0\n10\n30\n20\n0\n10\n30\n20\n30\n10\n0\n20\n30\n",
     );
-    let hole = dir.path().join("hole.dxf");
+    let hole = root.as_path().join("hole.dxf");
     write_drawing(&hole, Some(4), "0\nCIRCLE\n8\n0\n10\n15\n20\n15\n40\n5\n");
     let features = harness.document().features().len();
 
@@ -1932,7 +1938,7 @@ fn dropped_drawings_are_imported_one_after_another_and_a_dropped_model_opens() {
         .collect();
     assert_eq!(names, ["square", "hole"]);
 
-    let path = dir.path().join("plate.CADITOR");
+    let path = root.as_path().join("plate.CADITOR");
     caditor_file::save(&sample_document().unwrap(), &path, false).unwrap();
     harness.command(FileCommand::Drop {
         paths: vec![path.clone(), square],
@@ -2147,22 +2153,23 @@ fn opening_a_damaged_file_reports_what_was_lost_and_keeps_the_original_on_save()
 #[test]
 fn an_unreadable_journal_is_kept_aside_and_reported_when_its_model_opens() {
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("plate.caditor");
+    let root = canonical(&dir);
+    let path = root.as_path().join("plate.caditor");
     caditor_file::save(&sample_document().unwrap(), &path, false).unwrap();
-    let journal = dir.path().join(".plate.caditor.journal");
+    let journal = root.as_path().join(".plate.caditor.journal");
     std::fs::write(&journal, b"\x89CJL\r\n\x1a\n\xff\xff\xff\xff").unwrap();
 
-    let mut harness = Harness::with_directories(Some(dir.path()));
+    let mut harness = Harness::with_directories(Some(root.as_path()));
     harness.command(FileCommand::OpenPath(path.clone()));
     harness.wait_until("the file is open", |harness| harness.model.path().is_some());
     assert!(harness.shows("Unsaved changes to “plate.caditor” could not be recovered"));
-    let kept: Vec<String> = std::fs::read_dir(dir.path())
+    let kept: Vec<String> = std::fs::read_dir(root.as_path())
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .filter(|name| name.ends_with(".unreadable"))
         .collect();
     assert_eq!(kept.len(), 1);
-    let note = caditor_file::describe_set_aside(&dir.path().join(&kept[0]));
+    let note = caditor_file::describe_set_aside(&root.as_path().join(&kept[0]));
     assert!(harness.shows(&note), "{note}");
     harness.click("Close");
     assert!(!harness.model.is_dirty());
@@ -2345,9 +2352,10 @@ fn a_file_dialog_that_cannot_open_says_what_to_install_rather_than_doing_nothing
 #[test]
 fn a_missing_file_is_reported_and_dropped_from_recent_files_and_reopening_is_harmless() {
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("kept.caditor");
+    let root = canonical(&dir);
+    let path = root.as_path().join("kept.caditor");
     caditor_file::save(&sample_document().unwrap(), &path, false).unwrap();
-    let mut harness = Harness::with_directories(Some(dir.path()));
+    let mut harness = Harness::with_directories(Some(root.as_path()));
     harness.command(FileCommand::OpenPath(path.clone()));
     harness.wait_until("the file is open", |harness| harness.model.path().is_some());
     assert_eq!(harness.files.recent(), std::slice::from_ref(&path));
@@ -2357,7 +2365,7 @@ fn a_missing_file_is_reported_and_dropped_from_recent_files_and_reopening_is_har
         harness.shows("“kept.caditor” is already open.")
     });
 
-    std::fs::rename(&path, dir.path().join("moved.caditor")).unwrap();
+    std::fs::rename(&path, root.as_path().join("moved.caditor")).unwrap();
     harness.command(FileCommand::New);
     harness.command(FileCommand::OpenPath(path));
     harness.wait_until("the failure is reported", |harness| {
@@ -7643,9 +7651,10 @@ fn a_feature_chosen_in_the_tree_is_moved_renamed_and_deleted_from_the_keyboard()
 #[test]
 fn recent_models_notices_and_recompute_are_commands() {
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("kept.caditor");
+    let root = canonical(&dir);
+    let path = root.as_path().join("kept.caditor");
     caditor_file::save(&sample_document().unwrap(), &path, false).unwrap();
-    let mut harness = Harness::with_directories(Some(dir.path()));
+    let mut harness = Harness::with_directories(Some(root.as_path()));
     harness.command(FileCommand::OpenPath(path.clone()));
     harness.wait_until("the file is open", |harness| harness.model.path().is_some());
     harness.command(FileCommand::New);
