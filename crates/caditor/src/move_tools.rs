@@ -17,6 +17,14 @@ const SEVERAL_BODIES: &str = "Select faces or edges of one body only";
 const NO_SHAPE: &str = "The body has no shape yet; recompute the model, then try again";
 
 pub fn selected_body(model: &Model, selection: &Selection) -> Result<FeatureId, &'static str> {
+    chosen_body(model, selection, NO_BODY)
+}
+
+pub fn chosen_body(
+    model: &Model,
+    selection: &Selection,
+    none: &'static str,
+) -> Result<FeatureId, &'static str> {
     let mut chosen: Vec<FeatureId> = selection
         .iter()
         .filter_map(|pickable| match pickable {
@@ -28,7 +36,7 @@ pub fn selected_body(model: &Model, selection: &Selection) -> Result<FeatureId, 
         .collect();
     chosen.dedup();
     match chosen.as_slice() {
-        [] => Err(NO_BODY),
+        [] => Err(none),
         [body] => bodies::shown(model.evaluation(), *body)
             .map(|_| *body)
             .ok_or(NO_SHAPE),

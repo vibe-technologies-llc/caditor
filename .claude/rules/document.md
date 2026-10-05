@@ -168,6 +168,20 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   held through it survive, and fails alone when a value is not a length or angle or the result is
   not finite.
 
+### Mirror and scale (`mirror.rs`, `scaling.rs`)
+
+- `Mirror { body, plane, keep_original }` reflects its body across a `PlaneReference` resolved like
+  a datum's at its place (its datum and face body count as used, its face is healed). Alone it
+  replaces the body by the image (`Solid::mapped`), keeping every name; keeping the original runs
+  the kernel `pattern` with the one image as copy `MIRROR_IMAGE`, so the image's faces are
+  `FaceOrigin::Copy` of the mirror and `describe_origin` words them "<mirror> image of …".
+- `Scale { body, factor, center }` resizes its body about a point (`Solid::mapped`), keeping every
+  name. The factor is a plain number from `MIN_SCALE_FACTOR` to `MAX_SCALE_FACTOR`; the centre is
+  three lengths. A result past `MAX_SIZE` or with an edge below the resolution fails it alone,
+  saying which.
+- Both change their body but, like a pattern, are not `modifies_body`: nothing is chosen on the
+  state before them, so the app shows the result while one is open.
+
 ### Combine (`combine.rs`)
 
 - `Combine { body, tool, operation }` joins, cuts or intersects two existing bodies (kernel `boolean`)

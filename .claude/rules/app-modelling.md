@@ -12,6 +12,10 @@ paths:
   - "crates/caditor/src/hole_tools.rs"
   - "crates/caditor/src/hole_panel.rs"
   - "crates/caditor/src/move_panel.rs"
+  - "crates/caditor/src/mirror_tools.rs"
+  - "crates/caditor/src/mirror_panel.rs"
+  - "crates/caditor/src/scale_tools.rs"
+  - "crates/caditor/src/scale_panel.rs"
   - "crates/caditor/src/datum_tools.rs"
   - "crates/caditor/src/datum_panel.rs"
   - "crates/caditor/src/pattern_tools.rs"
@@ -112,6 +116,17 @@ paths:
   of zero turns and distances, then opens it. The panel has a field for the turn about each axis
   and the distance along each, all expressions (key `move-field`, `offset` or `turn`, axis index).
   Nothing is chosen in the view while it is open.
+
+## Mirror and scale
+
+- Mirror body (Alt+Shift+M) takes the body of the selection like Move and creates a `Mirror` that
+  keeps the original, across a principal or datum plane selected with it, else the YZ plane. The
+  panel chooses a principal plane from a combo, or any plane or flat face made before it with Use
+  selected, Choose in the view (slot `MirrorPlane`) or the palette's Mirror across selected, and
+  has a Keep the original checkbox.
+- Scale body (Alt+Shift+S) takes the body the same way and creates a `Scale` by 2 about the
+  origin. The panel has the factor (a plain number above zero) and the centre's three coordinates,
+  all expressions (key `scale-field`, `("factor", 0)` or `("center", axis index)`).
 
 ## Patterns
 

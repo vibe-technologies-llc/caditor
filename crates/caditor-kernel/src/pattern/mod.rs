@@ -1,15 +1,14 @@
 #[cfg(test)]
 mod tests;
 
-use caditor_geometry::RigidTransform;
+use caditor_geometry::Similarity;
 use thiserror::Error;
 
 use crate::{
     boolean::{BooleanError, BooleanOperation, boolean},
-    error::GeometryError,
     interrupt::{self, Interrupted},
     naming::{FaceCopy, FaceName},
-    topology::Solid,
+    topology::{Solid, TransformError},
 };
 
 const ORIGINAL: [u32; 2] = [0, 0];
@@ -17,7 +16,7 @@ const ORIGINAL: [u32; 2] = [0, 0];
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PatternCopy {
     pub index: [u32; 2],
-    pub placement: RigidTransform,
+    pub placement: Similarity,
 }
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -25,7 +24,7 @@ pub enum PatternError {
     #[error("copy {copy:?} could not be placed: {error}")]
     Placement {
         copy: [u32; 2],
-        error: GeometryError,
+        error: TransformError,
     },
     #[error("the copies {copies:?} could not be joined: {error}")]
     Union {
@@ -61,12 +60,13 @@ pub fn pattern(solid: &Solid, copies: &[PatternCopy], feature: u64) -> Result<So
 }
 
 fn placed(solid: &Solid, copy: &PatternCopy, feature: u64) -> Result<Solid, PatternError> {
-    let moved = solid
-        .transformed(&copy.placement)
-        .map_err(|error| PatternError::Placement {
+    let moved = solid.mapped(&copy.placement).map_err(|error| match error {
+        TransformError::Cancelled(interrupted) => PatternError::Cancelled(interrupted),
+        error => PatternError::Placement {
             copy: copy.index,
             error,
-        })?;
+        },
+    })?;
     let made = FaceCopy {
         pattern: feature,
         index: copy.index,

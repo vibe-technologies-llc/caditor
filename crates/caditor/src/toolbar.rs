@@ -7,12 +7,12 @@ use crate::{
     datum_tools,
     editing::{EditingCommand, SketchEditing},
     feature_tree::count,
-    hole_tools, icons,
+    hole_tools, icons, mirror_tools,
     model::{Action, Model},
     move_tools,
     offers::Offers,
     pattern_tools::{self, Shape},
-    ribbon,
+    ribbon, scale_tools,
     selection::{Pickable, Selection},
     shell_tools,
     solid_tools::{self, Sweep},
@@ -126,6 +126,8 @@ fn group_buttons(
             shell_button(ui, model, context, commands, actions);
             combine_button(ui, model, context, commands, actions);
             move_button(ui, model, context, commands, actions);
+            mirror_button(ui, model, context, commands, actions);
+            scale_button(ui, model, context, commands, actions);
         }
         Group::Pattern => pattern_buttons(ui, model, context, commands, actions),
         Group::Reference => datum_buttons(ui, model, context, commands, actions),
@@ -432,6 +434,54 @@ fn move_button(
         && let Ok(body) = body
     {
         actions.extend(move_tools::create_actions(model, *body));
+    }
+}
+
+fn mirror_button(
+    ui: &mut Ui,
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = &context.offers.mirror;
+    let invoked = commands.invoke(Command::Mirror, source);
+    let help = match source {
+        Ok(_) => Ok(commands.with_keys(Command::Mirror, mirror_tools::DESCRIPTION)),
+        Err(reason) => Err(format!(
+            "{}. {reason}, then click here.",
+            mirror_tools::DESCRIPTION
+        )),
+    };
+    let response = tool(ui, Command::Mirror, mirror_tools::TITLE, &help);
+    if (response.clicked() || invoked)
+        && let Ok(source) = source
+    {
+        actions.extend(mirror_tools::create_actions(model, source));
+    }
+}
+
+fn scale_button(
+    ui: &mut Ui,
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let body = &context.offers.scale;
+    let invoked = commands.invoke(Command::Scale, body);
+    let help = match body {
+        Ok(_) => Ok(commands.with_keys(Command::Scale, scale_tools::DESCRIPTION)),
+        Err(reason) => Err(format!(
+            "{}. {reason}, then click here.",
+            scale_tools::DESCRIPTION
+        )),
+    };
+    let response = tool(ui, Command::Scale, scale_tools::TITLE, &help);
+    if (response.clicked() || invoked)
+        && let Ok(body) = body
+    {
+        actions.extend(scale_tools::create_actions(model, *body));
     }
 }
 

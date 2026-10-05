@@ -320,7 +320,10 @@ impl Context<'_> {
                 "Change the spacing, the angle or the axis.",
             )
         })?;
-        Ok(PatternCopy { index, placement })
+        Ok(PatternCopy {
+            index,
+            placement: placement.into(),
+        })
     }
 
     fn failure(&self, error: &PatternError) -> Failure {

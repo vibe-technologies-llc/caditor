@@ -368,6 +368,8 @@ fn opened_solid(document: &Document, feature: FeatureId) -> bool {
             || feature.kind.shell().is_some()
             || feature.kind.combine().is_some()
             || feature.kind.movement().is_some()
+            || feature.kind.mirror().is_some()
+            || feature.kind.scale().is_some()
             || feature.kind.hole().is_some()
             || feature.kind.pattern().is_some()
             || feature.kind.datum().is_some()

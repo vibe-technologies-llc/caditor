@@ -141,6 +141,9 @@ paths:
   `reversed` when set; an unreadable size loads as a default (5 mm, 10 mm, 3 mm, 90 deg), reported.
 - A `move` feature record holds `body` and the stored text of its three distances (`offset`) and
   three turns (`turn`); an unreadable one loads as 0 mm or 0 deg, reported.
+- A `mirror` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as
+  the YZ plane, reported) and `keep_original`. A `scale` record holds `body`, the stored text of
+  `factor` (unreadable: 1) and of the three `center` lengths (unreadable: 0 mm).
 - A `combine` feature record holds `body`, `tool` and `operation` (`join`, `cut`, `intersect`).
 - A sketch's constraint record carries `inactive: true` only for a disabled constraint (absent
   means active, so older files read unchanged); the journal's `add_sketch_constraint` carries the

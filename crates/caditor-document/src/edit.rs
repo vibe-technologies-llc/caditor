@@ -525,6 +525,8 @@ impl Document {
             | (FeatureKind::Shell(_), FeatureKind::Shell(_))
             | (FeatureKind::Combine(_), FeatureKind::Combine(_))
             | (FeatureKind::Move(_), FeatureKind::Move(_))
+            | (FeatureKind::Mirror(_), FeatureKind::Mirror(_))
+            | (FeatureKind::Scale(_), FeatureKind::Scale(_))
             | (FeatureKind::Hole(_), FeatureKind::Hole(_))
             | (FeatureKind::Pattern(_), FeatureKind::Pattern(_)) => true,
             _ => false,

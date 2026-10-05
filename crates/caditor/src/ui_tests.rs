@@ -41,7 +41,7 @@ use crate::{
     icons,
     image_export::{ImageCommand, ReadPixels},
     import::{self, Placement},
-    logo, menu_bar, mirroring,
+    logo, menu_bar, mirror_panel, mirroring,
     model::{Action, Model, Notice, RecomputeStatus, Services, WakerFactory},
     offsetting,
     onboarding::Hint,
@@ -5015,7 +5015,15 @@ const RIBBON_GROUPS: [(&str, &[&str]); 7] = [
     ("Solid", &["Extrude", "Revolve", "Hole"]),
     (
         "Modify",
-        &["Fillet", "Chamfer", "Shell", "Combine", "Move body"],
+        &[
+            "Fillet",
+            "Chamfer",
+            "Shell",
+            "Combine",
+            "Move body",
+            "Mirror body",
+            "Scale body",
+        ],
     ),
     ("Pattern", &["Linear pattern", "Circular pattern"]),
     ("Reference", &[toolbar::PLANE_LABEL, toolbar::AXIS_LABEL]),
@@ -6362,6 +6370,112 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
         plate,
         std::f64::consts::PI * 25.0 * 10.0
     ));
+}
+
+fn plate_bounds(
+    harness: &Harness,
+    plate: FeatureId,
+) -> (caditor_geometry::Point3, caditor_geometry::Point3) {
+    let bounds = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .unwrap()
+        .bounding_box()
+        .unwrap();
+    (bounds.min(), bounds.max())
+}
+
+#[test]
+fn a_body_is_mirrored_across_a_plane_and_keeps_or_leaves_out_its_original_from_the_panel() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+
+    harness.select([top]);
+    harness.click("Mirror body");
+    harness.settle();
+    let mirror = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the mirror is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Mirror body 1"));
+    assert!(harness.shows("Mirror across"));
+    assert!(volume_about(&harness, plate, 2.0 * 16000.0));
+    let (low, high) = plate_bounds(&harness, plate);
+    assert!((low.x + 40.0).abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
+
+    harness.click(mirror_panel::KEEP_ORIGINAL);
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Edit Mirror body 1"));
+    assert!(volume_about(&harness, plate, 16000.0));
+    let (low, high) = plate_bounds(&harness, plate);
+    assert!((low.x + 40.0).abs() < 1e-6 && high.x.abs() < 1e-6);
+
+    choose(&mut harness, "The YZ plane", "The XY plane");
+    let (low, high) = plate_bounds(&harness, plate);
+    assert!(
+        (low.z + 10.0).abs() < 1e-6 && high.z.abs() < 1e-6,
+        "{low:?} {high:?}"
+    );
+
+    harness.select([top]);
+    run_from_palette(&mut harness, "mirror across selected");
+    harness.settle();
+    let (low, high) = plate_bounds(&harness, plate);
+    assert!(
+        (low.z - 10.0).abs() < 1e-6 && (high.z - 20.0).abs() < 1e-6,
+        "{low:?} {high:?}"
+    );
+    assert_eq!(harness.workspace.editing.solid(), Some(mirror));
+
+    for _ in 0..3 {
+        harness.perform(Action::Undo);
+    }
+    harness.settle();
+    assert!(volume_about(&harness, plate, 2.0 * 16000.0));
+}
+
+#[test]
+fn a_body_is_scaled_by_a_factor_about_a_centre_typed_in_the_panel() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+
+    harness.select([top]);
+    harness.use_tool_with(Key::S, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    let scale = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the scale is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Scale body 1"));
+    assert!(harness.shows("Factor"));
+    assert!(harness.shows("Centre X"));
+    assert!(volume_about(&harness, plate, 8.0 * 16000.0));
+
+    harness.type_into_field(Id::new(("scale-field", ("factor", 0usize), scale)), "0.5");
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Edit Scale body 1"));
+    assert!(volume_about(&harness, plate, 16000.0 / 8.0));
+
+    harness.type_into_field(Id::new(("scale-field", ("center", 0usize), scale)), "40 mm");
+    harness.settle();
+    let (low, high) = plate_bounds(&harness, plate);
+    assert!(
+        (low.x - 20.0).abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6,
+        "{low:?} {high:?}"
+    );
+
+    harness.type_into_field(Id::new(("scale-field", ("factor", 0usize), scale)), "-1");
+    assert!(harness.shows_containing("above zero"));
+    assert_eq!(harness.workspace.editing.solid(), Some(scale));
+
+    for _ in 0..3 {
+        harness.perform(Action::Undo);
+    }
+    harness.settle();
+    assert!(volume_about(&harness, plate, 16000.0));
 }
 
 fn shell_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Shell {

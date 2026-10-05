@@ -111,6 +111,8 @@ pub fn command(command: Command) -> &'static str {
         Command::Shell => SHELL,
         Command::Combine => COMBINE,
         Command::Move => MOVE,
+        Command::Mirror => MIRROR,
+        Command::Scale => SCALE,
         Command::Hole => HOLE,
         Command::LinearPattern => LINEAR_PATTERN,
         Command::CircularPattern => CIRCULAR_PATTERN,
@@ -160,6 +162,7 @@ pub fn command(command: Command) -> &'static str {
         | Command::UseSelectedAxis
         | Command::ExtrudeUpToSelected
         | Command::StartAtSelected
+        | Command::MirrorAcrossSelected
         | Command::DatumUseSelected
         | Command::DatumTurnAboutSelected
         | Command::PatternUseSelected
@@ -181,6 +184,8 @@ const REVOLVE: &str = phosphor::ARROWS_CLOCKWISE;
 const SHELL: &str = phosphor::CUBE_TRANSPARENT;
 const COMBINE: &str = phosphor::UNITE;
 const MOVE: &str = phosphor::HAND_GRABBING;
+const MIRROR: &str = phosphor::FLIP_HORIZONTAL;
+const SCALE: &str = phosphor::RESIZE;
 const HOLE: &str = phosphor::CIRCLE_DASHED;
 const LINEAR_PATTERN: &str = phosphor::SQUARES_FOUR;
 const CIRCULAR_PATTERN: &str = phosphor::SPINNER;
@@ -296,6 +301,8 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Shell(_) => SHELL,
         FeatureKind::Combine(combine) => self::combine(combine.operation),
         FeatureKind::Move(_) => MOVE,
+        FeatureKind::Mirror(_) => MIRROR,
+        FeatureKind::Scale(_) => SCALE,
         FeatureKind::Hole(_) => HOLE,
         FeatureKind::Pattern(pattern) => match pattern.kind {
             PatternKind::Linear { .. } => LINEAR_PATTERN,

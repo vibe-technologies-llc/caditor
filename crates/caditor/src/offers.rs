@@ -3,9 +3,11 @@ use caditor_document::{AxisReference, DatumAxis, DatumPlane, FeatureId};
 use crate::{
     combine_tools::{self, BodyPair},
     datum_tools,
+    mirror_tools::{self, MirrorSource},
     model::Model,
     move_tools,
     pattern_tools::{self, PatternSource},
+    scale_tools,
     selection::Selection,
     shell_tools::{self, FaceSource},
     sketch_placement::{self, FaceChoice},
@@ -29,6 +31,8 @@ pub struct Offers {
     pub shell: Result<FaceSource, &'static str>,
     pub combine: Result<BodyPair, &'static str>,
     pub movement: Result<FeatureId, &'static str>,
+    pub mirror: Result<MirrorSource, &'static str>,
+    pub scale: Result<FeatureId, &'static str>,
     pub pattern: Result<PatternSource, &'static str>,
     pub described: Vec<String>,
 }
@@ -51,6 +55,8 @@ impl Offers {
             shell: shell_tools::selected_faces(model, selection),
             combine: combine_tools::selected_bodies(model, selection),
             movement: move_tools::selected_body(model, selection),
+            mirror: mirror_tools::source(model, selection),
+            scale: scale_tools::selected_body(model, selection),
             described: selection
                 .iter()
                 .map(|pickable| pickable.describe(document, evaluation))

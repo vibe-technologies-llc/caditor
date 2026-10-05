@@ -451,6 +451,8 @@ impl Menus<'_, '_> {
                     Command::Shell,
                     Command::Combine,
                     Command::Move,
+                    Command::Mirror,
+                    Command::Scale,
                 ],
             );
             ui.separator();

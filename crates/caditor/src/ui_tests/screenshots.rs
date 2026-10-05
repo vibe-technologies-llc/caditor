@@ -22,12 +22,14 @@ use crate::{
     files::FileCommand,
     history::HistoryCommand,
     image_export::ImageCommand,
+    mirror_tools,
     model::Action,
     panels::Renaming,
     pattern_tools::{self, Shape},
     preferences::{Preferences, PreferencesCommand, PreferencesTab, Theme},
     reference_picking::{Picking, Slot},
     samples::Sample,
+    scale_tools,
     selection::{Pickable, Selection},
     shell_tools, view_cube,
 };
@@ -539,6 +541,18 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         );
         perform_all(model, actions);
         shoot_open(model, gpu, out, "panel-shell", look);
+    }
+
+    let mirrored = pickables
+        .iter()
+        .find_map(|pickable| mirror_tools::source(&model.model, &only(*pickable)).ok());
+    if let Some(source) = mirrored {
+        let actions = mirror_tools::create_actions(&model.model, &source);
+        perform_all(model, actions);
+        shoot_open(model, gpu, out, "panel-mirror", look);
+        let actions = scale_tools::create_actions(&model.model, source.body);
+        perform_all(model, actions);
+        shoot_open(model, gpu, out, "panel-scale", look);
     }
 
     for (shape, scene) in [

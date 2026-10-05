@@ -95,6 +95,8 @@ pub enum Command {
     Shell,
     Combine,
     Move,
+    Mirror,
+    Scale,
     LinearPattern,
     CircularPattern,
     DatumPlane,
@@ -144,6 +146,7 @@ pub enum Command {
     UseSelectedAxis,
     ExtrudeUpToSelected,
     StartAtSelected,
+    MirrorAcrossSelected,
     DatumUseSelected,
     DatumTurnAboutSelected,
     PatternUseSelected,
@@ -445,6 +448,8 @@ plain_commands! {
     Shell,
     Combine,
     Move,
+    Mirror,
+    Scale,
     LinearPattern,
     CircularPattern,
     DatumPlane,
@@ -480,6 +485,7 @@ plain_commands! {
     UseSelectedAxis,
     ExtrudeUpToSelected,
     StartAtSelected,
+    MirrorAcrossSelected,
     DatumUseSelected,
     DatumTurnAboutSelected,
     PatternUseSelected,
@@ -586,6 +592,8 @@ impl Command {
             Self::Shell => "model.shell",
             Self::Combine => "model.combine",
             Self::Move => "model.move",
+            Self::Mirror => "model.mirror",
+            Self::Scale => "model.scale",
             Self::LinearPattern => "model.linear_pattern",
             Self::CircularPattern => "model.circular_pattern",
             Self::DatumPlane => "model.plane",
@@ -645,6 +653,7 @@ impl Command {
             Self::UseSelectedAxis => "model.use_selected_axis",
             Self::ExtrudeUpToSelected => "model.extrude_up_to_selected",
             Self::StartAtSelected => "model.start_at_selected",
+            Self::MirrorAcrossSelected => "model.mirror_across_selected",
             Self::DatumUseSelected => "model.datum_use_selected",
             Self::DatumTurnAboutSelected => "model.datum_turn_about_selected",
             Self::PatternUseSelected => "model.pattern_use_selected",
@@ -707,6 +716,8 @@ impl Command {
             Self::Shell => "Shell",
             Self::Combine => "Combine",
             Self::Move => "Move body",
+            Self::Mirror => "Mirror body",
+            Self::Scale => "Scale body",
             Self::LinearPattern => "Linear pattern",
             Self::CircularPattern => "Circular pattern",
             Self::DatumPlane => "Datum plane",
@@ -757,6 +768,7 @@ impl Command {
             Self::UseSelectedAxis => "Revolve about selected axis",
             Self::ExtrudeUpToSelected => "Extrude up to selected face or plane",
             Self::StartAtSelected => "Start extrusion or revolution at selected face or plane",
+            Self::MirrorAcrossSelected => "Mirror across selected face or plane",
             Self::DatumUseSelected => "Base datum on selection",
             Self::DatumTurnAboutSelected => "Turn datum plane about selected axis",
             Self::PatternUseSelected => "Pattern along or about selected axis",
@@ -834,6 +846,8 @@ impl Command {
             | Self::Shell
             | Self::Combine
             | Self::Move
+            | Self::Mirror
+            | Self::Scale
             | Self::LinearPattern
             | Self::CircularPattern
             | Self::DatumPlane
@@ -856,6 +870,7 @@ impl Command {
             | Self::UseSelectedAxis
             | Self::ExtrudeUpToSelected
             | Self::StartAtSelected
+            | Self::MirrorAcrossSelected
             | Self::DatumUseSelected
             | Self::DatumTurnAboutSelected
             | Self::PatternUseSelected
@@ -955,6 +970,8 @@ impl Command {
             Self::Shell => vec![alt(Key::S)],
             Self::Combine => vec![alt(Key::J)],
             Self::Move => vec![alt(Key::M)],
+            Self::Mirror => vec![alt_shift(Key::M)],
+            Self::Scale => vec![alt_shift(Key::S)],
             Self::LinearPattern => vec![alt(Key::L)],
             Self::CircularPattern => vec![alt_shift(Key::L)],
             Self::DatumPlane => vec![alt(Key::D)],
@@ -991,6 +1008,7 @@ impl Command {
             | Self::UseSelectedAxis
             | Self::ExtrudeUpToSelected
             | Self::StartAtSelected
+            | Self::MirrorAcrossSelected
             | Self::DatumUseSelected
             | Self::DatumTurnAboutSelected
             | Self::PatternUseSelected

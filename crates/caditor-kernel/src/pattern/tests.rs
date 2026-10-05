@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, f64::consts::FRAC_PI_2};
 
-use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Plane, Point3, RigidTransform, Similarity, Vector3};
 
 use super::*;
 use crate::{
@@ -49,7 +49,9 @@ fn along_x(spacing: f64, count: u32) -> Vec<PatternCopy> {
     (1..count)
         .map(|step| PatternCopy {
             index: [step, 0],
-            placement: RigidTransform::translation(Vector3::X * spacing * f64::from(step)).unwrap(),
+            placement: RigidTransform::translation(Vector3::X * spacing * f64::from(step))
+                .unwrap()
+                .into(),
         })
         .collect()
 }
@@ -124,7 +126,8 @@ fn copies_turned_about_an_axis_keep_their_names_when_the_count_changes() {
                     Vector3::Z,
                     FRAC_PI_2 * f64::from(step),
                 )
-                .unwrap(),
+                .unwrap()
+                .into(),
             })
             .collect()
     };
@@ -166,7 +169,9 @@ fn a_pattern_can_be_cancelled_anywhere() {
 fn along_diagonal(spacing: f64) -> Vec<PatternCopy> {
     vec![PatternCopy {
         index: [1, 0],
-        placement: RigidTransform::translation(Vector3::new(spacing, spacing, 0.0)).unwrap(),
+        placement: RigidTransform::translation(Vector3::new(spacing, spacing, 0.0))
+            .unwrap()
+            .into(),
     }]
 }
 
@@ -202,4 +207,26 @@ fn round_parts_spaced_one_diameter_apart_become_separate_shells() {
         4.0 * std::f64::consts::PI * 25.0 * 8.0,
     );
     assert_eq!(patterned.shells().count(), 4);
+}
+
+#[test]
+fn a_mirrored_copy_joins_the_original_across_a_face_and_names_its_far_end_its_own() {
+    let original = block((0.0, 0.0), (10.0, 6.0), 4.0);
+    let across = Plane::with_x_axis(Point3::new(10.0, 0.0, 0.0), Vector3::X, Vector3::Y).unwrap();
+    let copies = [PatternCopy {
+        index: [1, 0],
+        placement: Similarity::reflection(&across).unwrap(),
+    }];
+
+    let joined = pattern(&original, &copies, FEATURE).unwrap();
+    let found = names(&joined);
+    let copied: BTreeSet<FaceName> = names(&original)
+        .into_iter()
+        .map(|name| FaceName::pattern(FEATURE, [1, 0], name))
+        .collect();
+
+    check("mirrored", &joined, 2.0 * 10.0 * 6.0 * 4.0);
+    assert_eq!(joined.faces().count(), 6);
+    assert_eq!(found.intersection(&names(&original)).count(), 5);
+    assert_eq!(found.intersection(&copied).count(), 1);
 }

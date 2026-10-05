@@ -126,7 +126,13 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 }
             });
         }
-        FeatureKind::Combine(_) | FeatureKind::Move(_) | FeatureKind::Hole(_) => {}
+        FeatureKind::Combine(_)
+        | FeatureKind::Move(_)
+        | FeatureKind::Scale(_)
+        | FeatureKind::Hole(_) => {}
+        FeatureKind::Mirror(mirror) => {
+            visit_plane(&mut mirror.plane, "the face it mirrors across", visitor);
+        }
         FeatureKind::Shell(shell) => {
             let count = shell.open.len();
             for (index, face) in shell.open.iter_mut().enumerate() {

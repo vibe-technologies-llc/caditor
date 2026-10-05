@@ -10,12 +10,14 @@ mod editor;
 mod healing;
 mod hole;
 mod import;
+mod mirror;
 mod movement;
 mod origins;
 mod parameter_list;
 mod pattern;
 mod pieces;
 mod recompute;
+mod scaling;
 mod shell;
 mod solid;
 mod tolerance;
@@ -43,6 +45,7 @@ pub use crate::{
     healing::Healing,
     hole::{Hole, HoleDepth, HoleStyle, MAX_HOLES, centres as hole_centres},
     import::Import,
+    mirror::{MIRROR_IMAGE, Mirror},
     movement::{Move, MoveAxis},
     origins::complete_origins,
     pattern::{CircularPattern, LinearDirection, MAX_PATTERN_INSTANCES, Pattern, PatternKind},
@@ -51,6 +54,7 @@ pub use crate::{
         CancelToken, Evaluation, Evaluator, Failure, FeatureError, FeatureResult, FeatureState,
         FeatureStatus, FixTarget, Inputs, ModelEvaluator, Recompute, SketchResult,
     },
+    scaling::{MAX_SCALE_FACTOR, MIN_SCALE_FACTOR, Scale},
     shell::Shell,
     solid::{
         BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex, RegionChoice, Revolve,
@@ -74,9 +78,13 @@ mod extent_tests;
 #[cfg(test)]
 mod hole_tests;
 #[cfg(test)]
+mod mirror_tests;
+#[cfg(test)]
 mod movement_tests;
 #[cfg(test)]
 mod pattern_tests;
+#[cfg(test)]
+mod scaling_tests;
 #[cfg(test)]
 mod shell_tests;
 #[cfg(test)]

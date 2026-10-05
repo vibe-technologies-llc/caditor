@@ -4,6 +4,7 @@ use egui::{Context, Id};
 use crate::{
     datum_panel, datum_tools,
     editing::EditingCommand,
+    mirror_tools,
     model::{Action, Model, Notice},
     pattern_tools::{self, Reference},
     selection::{Pickable, Selection},
@@ -26,6 +27,7 @@ pub enum Slot {
     RevolveAxis,
     ExtrudeTarget(Side),
     StartPlane,
+    MirrorPlane,
     PatternDirection,
     PatternSecond,
     DatumBase,
@@ -95,6 +97,7 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         Slot::StartPlane => {
             "Click a flat face or plane parallel to the sketch to start from".to_owned()
         }
+        Slot::MirrorPlane => "Click a plane or flat face to mirror across".to_owned(),
         Slot::PatternDirection if circular => format!("Click {AXIS} to turn about"),
         Slot::PatternDirection => format!("Click {AXIS} to repeat along"),
         Slot::PatternSecond => format!("Click {AXIS} to also repeat along"),
@@ -127,6 +130,9 @@ pub fn change(
         }
         (Slot::StartPlane, FeatureKind::Solid(solid)) => {
             solid_panel::start_change(model, selection, feature, solid)
+        }
+        (Slot::MirrorPlane, FeatureKind::Mirror(mirror)) => {
+            mirror_tools::plane_change(model, selection, feature, mirror)
         }
         (Slot::PatternDirection, FeatureKind::Pattern(pattern)) => {
             pattern_tools::selected_change(model, selection, feature, pattern, Reference::First)

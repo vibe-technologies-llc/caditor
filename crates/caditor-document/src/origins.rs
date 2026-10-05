@@ -4,6 +4,7 @@ use caditor_kernel::{EdgeNaming, EdgeReference, FaceReference};
 
 use crate::{
     attachment::SketchAttachment,
+    datum::PlaneReference,
     document::{Document, FeatureId, FeatureKind, RollbackBar},
     edit::{Edit, Transaction},
     healing::{ReferenceVisitor, visit},
@@ -87,9 +88,11 @@ fn may_hold_references(kind: &FeatureKind) -> bool {
         FeatureKind::Sketch(sketch) => {
             matches!(sketch.attachment, Some(SketchAttachment::Face(_)))
         }
+        FeatureKind::Mirror(mirror) => matches!(mirror.plane, PlaneReference::Face(_)),
         FeatureKind::Import(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
+        | FeatureKind::Scale(_)
         | FeatureKind::Hole(_) => false,
         FeatureKind::Solid(_)
         | FeatureKind::Blend(_)

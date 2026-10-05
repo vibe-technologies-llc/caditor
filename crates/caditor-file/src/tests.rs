@@ -7,7 +7,8 @@ use std::{
 };
 
 use caditor_document::{
-    Document, Edit, Editor, FeatureId, FeatureKind, RollbackBar, SketchAttachment, Transaction,
+    Document, Edit, Editor, FaceAttachment, FeatureId, FeatureKind, PlaneReference, PrincipalPlane,
+    RollbackBar, SketchAttachment, Transaction,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -4268,5 +4269,139 @@ fn a_hole_with_a_damaged_depth_loads_with_a_default_and_says_so() {
     assert_eq!(
         loaded.issues,
         ["The depth of “Hole 1” could not be read, so it was set to 10 mm."]
+    );
+}
+
+fn mirrored_model(plane: PlaneReference, keep_original: bool) -> (Document, FeatureId) {
+    use caditor_document::Mirror;
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Mirror");
+    let mirror = transaction.add_feature(
+        "Mirror 1",
+        FeatureKind::Mirror(Mirror {
+            body: base,
+            plane,
+            keep_original,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, mirror)
+}
+
+#[test]
+fn mirrors_across_principal_planes_and_faces_are_saved_and_loaded() {
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (_, base, _) = solid_model();
+    let face = PlaneReference::Face(FaceAttachment {
+        body: base,
+        face: FaceReference::new(
+            FaceName::from_digest(0xface),
+            Some(FaceOrigin::EndCap {
+                feature: base.raw(),
+            }),
+            [FaceName::from_digest(7)],
+        ),
+    });
+    for (plane, keep_original) in [
+        (PlaneReference::Principal(PrincipalPlane::Xz), false),
+        (face, true),
+    ] {
+        let (document, mirror) = mirrored_model(plane, keep_original);
+
+        let text = encode(&document).unwrap();
+        let loaded = decode_text(&text);
+
+        assert!(text.contains("\"mirror\":{\"body\":"));
+        assert_eq!(loaded.issues, Vec::<String>::new());
+        assert_eq!(loaded.document, document);
+
+        let kind = document.feature(mirror).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: mirror, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+}
+
+#[test]
+fn a_mirror_with_a_damaged_plane_loads_across_the_yz_plane_and_says_so() {
+    let (document, mirror) = mirrored_model(PlaneReference::Principal(PrincipalPlane::Xy), true);
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"plane\":{\"principal\":\"xy\"}"));
+
+    let loaded = decode_text(&text.replace(
+        "\"plane\":{\"principal\":\"xy\"}",
+        "\"plane\":{\"principal\":\"uv\"}",
+    ));
+
+    assert_eq!(
+        loaded.issues,
+        [
+            "The plane “Mirror 1” mirrors across could not be read, so it mirrors across the YZ plane."
+        ]
+    );
+    let restored = loaded
+        .document
+        .feature(mirror)
+        .unwrap()
+        .kind
+        .mirror()
+        .unwrap();
+    assert_eq!(
+        restored.plane,
+        PlaneReference::Principal(PrincipalPlane::Yz)
+    );
+    assert!(restored.keep_original);
+}
+
+fn scaled_model(factor: &str) -> (Document, FeatureId) {
+    use caditor_document::Scale;
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Scale");
+    let scale = transaction.add_feature(
+        "Scale 1",
+        FeatureKind::Scale(Scale {
+            body: base,
+            factor: transaction.parse(factor).unwrap(),
+            center: [
+                transaction.parse("depth").unwrap(),
+                transaction.parse("-4 mm").unwrap(),
+                transaction.parse("0 mm").unwrap(),
+            ],
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, scale)
+}
+
+#[test]
+fn scales_are_saved_and_loaded() {
+    let (document, scale) = scaled_model("25.4");
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"scale\":{\"body\":"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(scale).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: scale, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn a_scale_with_a_damaged_factor_loads_as_one_and_says_so() {
+    let (document, _) = scaled_model("2.5");
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"factor\":\"2.5\""));
+
+    let loaded = decode_text(&text.replace("\"factor\":\"2.5\"", "\"factor\":\"2.5 +*\""));
+
+    assert_eq!(
+        loaded.issues,
+        ["The scale factor of “Scale 1” could not be read, so it was set to 1."]
     );
 }

@@ -16,9 +16,11 @@ use crate::{
     edit::{Edit, Transaction},
     hole::Hole,
     import::Import,
+    mirror::Mirror,
     movement::Move,
     parameter_list::ParameterList,
     pattern::Pattern,
+    scaling::Scale,
     shell::Shell,
     solid::{BodyOperation, SolidFeature},
 };
@@ -73,6 +75,8 @@ pub enum FeatureKind {
     Shell(Shell),
     Combine(Combine),
     Move(Move),
+    Mirror(Mirror),
+    Scale(Scale),
     Hole(Hole),
     Pattern(Box<Pattern>),
     Datum(Datum),
@@ -125,6 +129,8 @@ impl FeatureKind {
             }
             Self::Combine(_) => 0,
             Self::Move(movement) => movement.heap_size(),
+            Self::Mirror(mirror) => mirror.heap_size(),
+            Self::Scale(scale) => scale.heap_size(),
             Self::Hole(hole) => hole.heap_size(),
             Self::Import(import) => {
                 import.source.len() + import.step.len() + import.solid.approximate_size()
@@ -143,6 +149,8 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
@@ -158,6 +166,8 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
@@ -173,6 +183,8 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
@@ -188,6 +200,8 @@ impl FeatureKind {
             Self::Shell(shell) => Some(shell.body),
             Self::Combine(combine) => Some(combine.body),
             Self::Move(movement) => Some(movement.body),
+            Self::Mirror(mirror) => Some(mirror.body),
+            Self::Scale(scale) => Some(scale.body),
             Self::Hole(hole) => Some(hole.body),
             Self::Pattern(pattern) => Some(pattern.body),
             Self::Datum(_) | Self::Import(_) => None,
@@ -206,10 +220,12 @@ impl FeatureKind {
             Self::Combine(combine) => {
                 used.insert(combine.tool);
             }
+            Self::Mirror(mirror) => used.extend(mirror.plane.body()),
             Self::Sketch(_)
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::Move(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Import(_) => {}
         }
@@ -226,10 +242,12 @@ impl FeatureKind {
                 .collect(),
             Self::Solid(solid) => solid.end_datums(),
             Self::Datum(datum) => datum.plane_datums(),
+            Self::Mirror(mirror) => mirror.plane.datum().into_iter().collect(),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Import(_) => BTreeSet::new(),
@@ -246,6 +264,8 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Import(_) => BTreeSet::new(),
         }
@@ -259,6 +279,8 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
@@ -281,6 +303,8 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
@@ -296,6 +320,8 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
@@ -311,6 +337,8 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
@@ -327,6 +355,8 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
             | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_) => None,
@@ -341,6 +371,42 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::Combine(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
+            | Self::Hole(_)
+            | Self::Pattern(_)
+            | Self::Datum(_)
+            | Self::Import(_) => None,
+        }
+    }
+
+    pub fn mirror(&self) -> Option<&Mirror> {
+        match self {
+            Self::Mirror(mirror) => Some(mirror),
+            Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::Combine(_)
+            | Self::Move(_)
+            | Self::Scale(_)
+            | Self::Hole(_)
+            | Self::Pattern(_)
+            | Self::Datum(_)
+            | Self::Import(_) => None,
+        }
+    }
+
+    pub fn scale(&self) -> Option<&Scale> {
+        match self {
+            Self::Scale(scale) => Some(scale),
+            Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::Combine(_)
+            | Self::Move(_)
+            | Self::Mirror(_)
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
@@ -356,6 +422,8 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
@@ -372,6 +440,8 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Datum(_)
             | Self::Import(_) => None,
@@ -387,6 +457,8 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Import(_) => None,
@@ -402,6 +474,8 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_) => None,
@@ -416,6 +490,8 @@ impl FeatureKind {
             Self::Shell(shell) => shell.parameters(),
             Self::Combine(_) => BTreeSet::new(),
             Self::Move(movement) => movement.parameters(),
+            Self::Mirror(_) => BTreeSet::new(),
+            Self::Scale(scale) => scale.parameters(),
             Self::Hole(hole) => hole.parameters(),
             Self::Pattern(pattern) => pattern.parameters(),
             Self::Datum(datum) => datum.parameters(),
@@ -431,6 +507,8 @@ impl FeatureKind {
             Self::Shell(shell) => shell.uses_parameter(parameter),
             Self::Combine(_) => false,
             Self::Move(movement) => movement.uses_parameter(parameter),
+            Self::Mirror(_) => false,
+            Self::Scale(scale) => scale.uses_parameter(parameter),
             Self::Hole(hole) => hole.uses_parameter(parameter),
             Self::Pattern(pattern) => pattern.uses_parameter(parameter),
             Self::Datum(datum) => datum.uses_parameter(parameter),
@@ -455,6 +533,8 @@ impl FeatureKind {
             Self::Shell(shell) => shell.features(),
             Self::Combine(combine) => combine.features(),
             Self::Move(movement) => movement.features(),
+            Self::Mirror(mirror) => mirror.features(),
+            Self::Scale(scale) => scale.features(),
             Self::Hole(hole) => hole.features(),
             Self::Pattern(pattern) => pattern.features(),
             Self::Datum(datum) => datum.features(),
@@ -477,7 +557,8 @@ impl FeatureKind {
             Self::Solid(solid) => solid.origin_features(),
             Self::Blend(blend) => blend.origin_features(),
             Self::Shell(shell) => shell.origin_features(),
-            Self::Combine(_) | Self::Move(_) | Self::Hole(_) => BTreeSet::new(),
+            Self::Combine(_) | Self::Move(_) | Self::Scale(_) | Self::Hole(_) => BTreeSet::new(),
+            Self::Mirror(mirror) => mirror.plane.origin_features(),
             Self::Pattern(pattern) => pattern.origin_features(),
             Self::Datum(datum) => datum.origin_features(),
             Self::Import(_) => BTreeSet::new(),
@@ -530,6 +611,8 @@ impl Feature {
             FeatureKind::Shell(shell) => Some(shell.body),
             FeatureKind::Combine(combine) => Some(combine.body),
             FeatureKind::Move(movement) => Some(movement.body),
+            FeatureKind::Mirror(mirror) => Some(mirror.body),
+            FeatureKind::Scale(scale) => Some(scale.body),
             FeatureKind::Hole(hole) => Some(hole.body),
             FeatureKind::Pattern(pattern) => Some(pattern.body),
             FeatureKind::Import(_) => Some(self.id),
@@ -546,6 +629,8 @@ impl Feature {
             | FeatureKind::Shell(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
+            | FeatureKind::Mirror(_)
+            | FeatureKind::Scale(_)
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_) => false,

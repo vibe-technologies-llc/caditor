@@ -15,9 +15,11 @@ pub fn describe_origin(document: &Document, origin: Option<FaceOrigin>) -> Strin
     let Some(copy) = origin.copy() else {
         return original;
     };
-    let pattern = document
-        .feature(FeatureId::from_raw(copy.pattern))
-        .map_or("a deleted pattern", |feature| feature.name.as_str());
+    let copier = document.feature(FeatureId::from_raw(copy.pattern));
+    let pattern = copier.map_or("a deleted pattern", |feature| feature.name.as_str());
+    if copier.is_some_and(|feature| feature.kind.mirror().is_some()) {
+        return format!("{pattern} image of {}", lowercase_first(&original));
+    }
     let steps = match copy.index {
         [step, 0] => step.to_string(),
         [first, second] => format!("({first}, {second})"),

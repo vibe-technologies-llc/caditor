@@ -19,14 +19,14 @@ use crate::{
     editing::{EditingCommand, SketchEditing},
     field::{self, DimensionTarget},
     files::FileCommand,
-    fonts, hole_panel, icons,
+    fonts, hole_panel, icons, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
     move_panel,
     panels::{Focus, PanelState, Renaming},
     pattern_panel,
     pattern_tools::{self, Reference},
     preferences::PreferencesCommand,
-    principal_tree,
+    principal_tree, scale_panel,
     selection::{Pickable, Selection},
     shell_panel, sketch_export,
     sketch_placement::{self, PlacementTarget},
@@ -630,6 +630,14 @@ fn body(
             move_panel::show(ui, model, actions, feature, movement);
             body_display(ui, model, feature);
         }
+        FeatureKind::Mirror(mirror) => {
+            mirror_panel::show(ui, model, row.selection, actions, feature, mirror);
+            body_display(ui, model, feature);
+        }
+        FeatureKind::Scale(scale) => {
+            scale_panel::show(ui, model, actions, feature, scale);
+            body_display(ui, model, feature);
+        }
         FeatureKind::Pattern(pattern) => {
             pattern_panel::show(ui, model, row.selection, actions, feature, pattern);
             body_display(ui, model, feature);
@@ -663,6 +671,8 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::Shell(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
+        | FeatureKind::Mirror(_)
+        | FeatureKind::Scale(_)
         | FeatureKind::Hole(_)
         | FeatureKind::Pattern(_)
         | FeatureKind::Import(_) => tokens.text,
@@ -770,6 +780,8 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Shell(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
+            | FeatureKind::Mirror(_)
+            | FeatureKind::Scale(_)
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_),
@@ -781,6 +793,8 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Shell(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
+            | FeatureKind::Mirror(_)
+            | FeatureKind::Scale(_)
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_),
@@ -1426,6 +1440,17 @@ fn start_at_change(
     }
 }
 
+fn mirror_change(
+    model: &Model,
+    selection: &Selection,
+    feature: &Feature,
+) -> Result<Transaction, String> {
+    match feature.kind.mirror() {
+        Some(mirror) => mirror_tools::plane_change(model, selection, feature.id(), mirror),
+        None => Err(format!("{} is not a mirror", feature.name)),
+    }
+}
+
 fn datum_change(
     feature: &Feature,
     change: impl FnOnce(&Datum) -> Result<Transaction, String>,
@@ -1509,7 +1534,7 @@ fn feature_commands(
     if commands.invoke(Command::TogglePrincipal, &Ok::<_, String>(())) {
         actions.push(Action::Apply(visibility::toggle_principal_group(document)));
     }
-    let changes: [(Command, FeatureChange<'_>); 9] = [
+    let changes: [(Command, FeatureChange<'_>); 10] = [
         (Command::DetachSketch, &|feature| {
             detach_change(model, feature)
         }),
@@ -1524,6 +1549,9 @@ fn feature_commands(
         }),
         (Command::StartAtSelected, &|feature| {
             start_at_change(model, selection, feature)
+        }),
+        (Command::MirrorAcrossSelected, &|feature| {
+            mirror_change(model, selection, feature)
         }),
         (Command::DatumUseSelected, &|feature| {
             datum_change(feature, |datum| {

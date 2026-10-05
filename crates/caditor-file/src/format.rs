@@ -4,10 +4,10 @@ use caditor_document::{
     AxisReference, Blend, BlendKind, BodyOperation, CircularPattern, Combine, CombineOperation,
     Datum, DatumAxis, DatumPlane, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent,
     FaceAttachment, Feature, FeatureId, FeatureKind, Hole, HoleDepth, HoleStyle, Import,
-    LinearDirection, Move, Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation,
+    LinearDirection, Mirror, Move, Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation,
     PrincipalAxis, PrincipalGeometry, PrincipalPlane, RegionChoice, Revolve, RevolveAxis,
-    RevolveExtent, RollbackBar, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart,
-    Transaction,
+    RevolveExtent, RollbackBar, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature,
+    SolidStart, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -83,6 +83,8 @@ pub(crate) enum FeatureKindRecord {
     Shell(ShellRecord),
     Combine(CombineRecord),
     Move(MoveRecord),
+    Mirror(MirrorRecord),
+    Scale(ScaleRecord),
     Hole(HoleRecord),
     LinearPattern(Box<LinearPatternRecord>),
     CircularPattern(Box<CircularPatternRecord>),
@@ -91,7 +93,7 @@ pub(crate) enum FeatureKindRecord {
     Import(ImportRecord),
 }
 
-pub(crate) const FEATURE_KINDS: [&str; 18] = [
+pub(crate) const FEATURE_KINDS: [&str; 20] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -104,6 +106,8 @@ pub(crate) const FEATURE_KINDS: [&str; 18] = [
     "shell",
     "combine",
     "move",
+    "mirror",
+    "scale",
     "hole",
     "linear_pattern",
     "circular_pattern",
@@ -238,6 +242,20 @@ pub(crate) struct MoveRecord {
     pub body: u64,
     pub offset: [String; 3],
     pub turn: [String; 3],
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct MirrorRecord {
+    pub body: u64,
+    pub plane: Lenient<PlaneReferenceRecord>,
+    pub keep_original: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ScaleRecord {
+    pub body: u64,
+    pub factor: String,
+    pub center: [String; 3],
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -890,6 +908,16 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             body: movement.body.raw(),
             offset: movement.offset.each_ref().map(Expression::to_stored_text),
             turn: movement.turn.each_ref().map(Expression::to_stored_text),
+        }),
+        FeatureKind::Mirror(mirror) => FeatureKindRecord::Mirror(MirrorRecord {
+            body: mirror.body.raw(),
+            plane: Lenient::Read(plane_reference_record(&mirror.plane)),
+            keep_original: mirror.keep_original,
+        }),
+        FeatureKind::Scale(scale) => FeatureKindRecord::Scale(ScaleRecord {
+            body: scale.body.raw(),
+            factor: scale.factor.to_stored_text(),
+            center: scale.center.each_ref().map(Expression::to_stored_text),
         }),
         FeatureKind::Hole(hole) => FeatureKindRecord::Hole(HoleRecord {
             sketch: hole.sketch.raw(),
@@ -2067,6 +2095,10 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             },
         }),
         FeatureKindRecord::Move(record) => FeatureKind::Move(restore_move(record, name, issues)),
+        FeatureKindRecord::Mirror(record) => {
+            FeatureKind::Mirror(restore_mirror(record, name, issues))
+        }
+        FeatureKindRecord::Scale(record) => FeatureKind::Scale(restore_scale(record, name, issues)),
         FeatureKindRecord::Hole(record) => FeatureKind::Hole(restore_hole(record, name, issues)),
         FeatureKindRecord::LinearPattern(record) => {
             FeatureKind::from(restore_linear_pattern(record, name, issues))
@@ -2384,6 +2416,36 @@ fn restore_move(record: &MoveRecord, feature: &str, issues: &mut Vec<String>) ->
         body: FeatureId::from_raw(record.body),
         offset: read(&record.offset, "distance", "0 mm"),
         turn: read(&record.turn, "turn", "0 deg"),
+    }
+}
+
+fn restore_mirror(record: &MirrorRecord, feature: &str, issues: &mut Vec<String>) -> Mirror {
+    let plane = match &record.plane {
+        Lenient::Read(plane) => restore_plane_reference(plane),
+        Lenient::Unreadable(_) => None,
+    };
+    let plane = plane.unwrap_or_else(|| {
+        issues.push(format!(
+            "The plane “{feature}” mirrors across could not be read, so it mirrors across the YZ \
+             plane."
+        ));
+        PlaneReference::Principal(PrincipalPlane::Yz)
+    });
+    Mirror {
+        body: FeatureId::from_raw(record.body),
+        plane,
+        keep_original: record.keep_original,
+    }
+}
+
+fn restore_scale(record: &ScaleRecord, feature: &str, issues: &mut Vec<String>) -> Scale {
+    Scale {
+        body: FeatureId::from_raw(record.body),
+        factor: restore_value(&record.factor, "scale factor", "1", feature, issues),
+        center: record
+            .center
+            .each_ref()
+            .map(|text| restore_value(text, "centre", "0 mm", feature, issues)),
     }
 }
 
