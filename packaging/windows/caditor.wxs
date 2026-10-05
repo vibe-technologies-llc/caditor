@@ -1,0 +1,105 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="caditor"
+    Manufacturer="caditor"
+    Version="$(Version)"
+    UpgradeCode="529C2A29-CDAC-4EBB-A9F6-BFFC32AC8EE7"
+    Scope="perUser"
+    Language="1033"
+    Compressed="yes">
+    <MajorUpgrade
+      AllowSameVersionUpgrades="yes"
+      DowngradeErrorMessage="A newer version of caditor is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="caditor.ico" SourceFile="$(Stage)\caditor.exe" />
+    <Property Id="ARPPRODUCTICON" Value="caditor.ico" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property
+      Id="ARPCOMMENTS"
+      Value="Parametric CAD. Free software under the GNU Affero General Public License, version 3 only." />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsDirectory" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="caditor">
+          <Directory Id="LicensesFolder" Name="licenses" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Component Id="Program" Directory="INSTALLFOLDER">
+      <RegistryValue
+        Root="HKCU"
+        Key="Software\caditor"
+        Name="Program"
+        Type="integer"
+        Value="1"
+        KeyPath="yes" />
+      <File Id="caditor.exe" Source="$(Stage)\caditor.exe" KeyPath="no" />
+      <File Id="README.md" Source="$(Stage)\README.md" KeyPath="no" />
+      <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+      <RemoveFolder Id="RemoveProgramsDirectory" Directory="ProgramsDirectory" On="uninstall" />
+    </Component>
+
+    <Component Id="Licences" Directory="LicensesFolder">
+      <RegistryValue
+        Root="HKCU"
+        Key="Software\caditor"
+        Name="Licences"
+        Type="integer"
+        Value="1"
+        KeyPath="yes" />
+      <File Id="LICENSE.txt" Source="$(Stage)\licenses\LICENSE.txt" KeyPath="no" />
+      <File Id="Inter_LICENSE.txt" Source="$(Stage)\licenses\Inter-LICENSE.txt" KeyPath="no" />
+      <File
+        Id="THIRD_PARTY_LICENSES.html"
+        Source="$(Stage)\licenses\THIRD-PARTY-LICENSES.html"
+        KeyPath="no" />
+      <RemoveFolder Id="RemoveLicensesFolder" Directory="LicensesFolder" On="uninstall" />
+    </Component>
+
+    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
+      <RegistryValue
+        Root="HKCU"
+        Key="Software\caditor"
+        Name="Shortcut"
+        Type="integer"
+        Value="1"
+        KeyPath="yes" />
+      <Shortcut
+        Id="StartMenu"
+        Name="caditor"
+        Description="Parametric CAD"
+        Target="[#caditor.exe]"
+        WorkingDirectory="INSTALLFOLDER" />
+    </Component>
+
+    <Component Id="ModelFiles" Directory="INSTALLFOLDER">
+      <RegistryValue
+        Root="HKCU"
+        Key="Software\caditor"
+        Name="ModelFiles"
+        Type="integer"
+        Value="1"
+        KeyPath="yes" />
+      <ProgId
+        Id="caditor.model"
+        Description="caditor model"
+        Icon="caditor.exe"
+        IconIndex="0"
+        Advertise="no">
+        <Extension Id="caditor" ContentType="application/x-caditor">
+          <Verb Id="open" Command="Open" TargetFile="caditor.exe" Argument="&quot;%1&quot;" />
+        </Extension>
+      </ProgId>
+    </Component>
+
+    <Feature Id="Everything">
+      <ComponentRef Id="Program" />
+      <ComponentRef Id="Licences" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="ModelFiles" />
+    </Feature>
+  </Package>
+</Wix>

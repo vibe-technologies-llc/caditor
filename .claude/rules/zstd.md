@@ -13,8 +13,8 @@ paths:
 - The `_after` functions take a raw prefix (the newer version) that makes the frame a delta: the
   compression window reaches across prefix and data, with long-distance matching. Decoding accepts
   any window up to zstd's maximum, since the output is allocated at the checked size anyway.
-- The only crate with `unsafe` (`unsafe_code = "deny"`, allowed per call site); contexts are owned
-  by guards that free them on drop.
+- One of the two crates with `unsafe` (with `caditor-windows`; `unsafe_code = "deny"`, allowed
+  per call site); contexts are owned by guards that free them on drop.
 - The decoder reads untrusted data: frames must record their content size, and decompression
   refuses one larger than the caller's limit or decoding to a different size than recorded.
 - The port exports no error codes, so `ZstdError` classifies the failure from the negated return

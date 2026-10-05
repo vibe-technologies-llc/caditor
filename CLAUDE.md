@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-caditor is a parametric CAD application, written in Rust (edition 2024) with wgpu for
-rendering, on its own B-rep kernel and constraint solver. Licensed AGPL-3.0-only. User experience
-and never losing the user's work outrank everything else; see `.claude/rules/ux.md` and
-`.claude/rules/reliability.md`.
+caditor is a parametric CAD application for Linux and Windows, written in Rust (edition 2024)
+with wgpu for rendering, on its own B-rep kernel and constraint solver. Licensed AGPL-3.0-only.
+User experience and never losing the user's work outrank everything else; see
+`.claude/rules/ux.md` and `.claude/rules/reliability.md`.
 
 ## Commands
 
@@ -16,12 +16,15 @@ cargo run -p caditor
 cargo test --workspace
 cargo test -p <crate> <test_name>
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo xwin clippy --target x86_64-pc-windows-msvc --workspace --all-targets --all-features -- -D warnings
 rust-formatter
 cargo deny check
 packaging/build-release.sh --snapshot
 ```
 
 `rust-formatter` formats `.rs` and `.toml` and replaces `cargo fmt` and `rustfmt` entirely.
+`cargo xwin` (cargo-xwin) lints the Windows build from Linux; its tests run under wine, except that
+wine cannot rename over an open file, which journals rely on, so Windows CI is the real check.
 Offscreen render tests skip without a GPU adapter unless `CADITOR_REQUIRE_GPU=1`. Screenshots of
 the interface: the `ui-screenshots` skill. CI, cargo-deny and fuzzing: `.claude/rules/ci.md`.
 
@@ -37,11 +40,15 @@ inside the workspace.
 | `caditor-sketch` | 2D sketches on a `Plane`: entities, constraints and its own solver. | expression, geometry |
 | `caditor-kernel` | Own B-rep kernel (no truck, no OpenCascade): curves, surfaces, topology, tessellation, naming, profiles, booleans, blends, shells, patterns. | geometry |
 | `caditor-step` | STEP (ISO 10303-21, AP214) writing and reading of kernel solids. | kernel, geometry |
-| `caditor-zstd` | Safe wrapper over the pure-Rust zstd port; the only crate with `unsafe`. | none |
+| `caditor-zstd` | Safe wrapper over the pure-Rust zstd port; one of the two crates with `unsafe`. | none |
+| `caditor-windows` | Safe wrappers over the Win32 calls nothing else offers safely; the other crate with `unsafe`, empty off Windows. | none |
 | `caditor-document` | The parametric model: parameters, feature tree, transactions, undo, recompute worker. | expression, geometry, kernel, sketch |
-| `caditor-file` | Persistence: binary container, version history, recovery journal, preferences, DXF/STEP import, STL/3MF/STEP/PNG export. | document and everything it uses, step, zstd |
+| `caditor-file` | Persistence: binary container, version history, recovery journal, preferences, DXF/STEP import, STL/3MF/STEP/PNG export. | document and everything it uses, step, zstd, windows |
 | `caditor-render` | wgpu viewport, camera, GPU picking, image export; no winit or document dependency. | geometry |
 | `caditor` | The winit/egui application: UI, commands, sketch editing, file workflow. | all but step and zstd |
+
+Platform code is a pair of `cfg(unix)` and `cfg(windows)` items behind one interface; Windows
+specifics (the Win32 boundary, paths, saving, locks, dialogs, the MSI) are in `windows.md`.
 
 Invariants across crates:
 
@@ -57,9 +64,10 @@ Invariants across crates:
 
 ## Releases
 
-A `v<version>` tag builds a `.tar.zst` with an installer on Ubuntu 22.04 (`release.yml`) and
-publishes a GitHub release. `packaging/` holds the desktop entry, logo, metainfo, installer and
-release scripts; `docs/RELEASING.md` explains the choices and the steps.
+A `v<version>` tag builds a `.tar.zst` with an installer on Ubuntu 22.04 and a per-user MSI on
+Windows (`release.yml`) and publishes a GitHub release. `packaging/` holds the desktop entry,
+logo, metainfo, installer and release scripts, `packaging/windows/` the WiX source and its
+scripts; `docs/RELEASING.md` explains the choices and the steps.
 
 ## Roadmap
 
@@ -76,7 +84,7 @@ that makes a rule false updates it in the same commit.
 | --- | --- |
 | `ux.md`, `reliability.md` | UX requirements and the FreeCAD failure modes to avoid; crash and data-loss policy (always loaded). |
 | `rust-style.md`, `dependencies.md`, `ci.md` | Formatting, imports, collections, `unsafe`; dependency declaration; CI, cargo-deny, fuzzing. |
-| `expression.md`, `zstd.md` | Quantities, units and the expression language; the zstd wrapper's `unsafe` boundary. |
+| `expression.md`, `zstd.md`, `windows.md` | Quantities, units and the expression language; the zstd wrapper's `unsafe` boundary; Windows: the Win32 boundary, files, app and MSI. |
 | `sketch.md`, `sketch-solver.md` | Sketch entities, constraints and operations; the solver, DOF and conflict diagnosis. |
 | `kernel.md`, `kernel-tessellation.md`, `kernel-naming.md`, `kernel-profile.md`, `kernel-intersect.md`, `kernel-operations.md` | Kernel base (tolerances, curves, surfaces, topology); tessellation; topology names and references; profile regions; intersections; extrude, revolve, booleans, blends, shells, patterns. |
 | `step-write.md`, `step-read.md` | STEP writing; the Part 21 parser and `read_step`. |

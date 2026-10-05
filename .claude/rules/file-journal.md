@@ -8,6 +8,7 @@ paths:
   - "crates/caditor-file/src/recovery.rs"
   - "crates/caditor-file/src/paths.rs"
   - "crates/caditor-file/src/logs.rs"
+  - "crates/caditor-file/src/os/**"
 ---
 
 # Journal, storage, preferences and recovery
@@ -29,7 +30,8 @@ paths:
   state, so the scan must not delete it as unchanged, and an older caditor, not knowing the kind,
   reads the journal as damaged and sets it aside instead of deleting it. A recovered session with
   folded changes has no known saved state (`Model::saved` is `None`), so it stays modified.
-- The header carries the path as raw bytes (non-UTF-8 names survive), whether the file loaded with
+- The header carries the path as raw bytes (`os::path_bytes`: Unix bytes, WTF-8 on Windows, so
+  names that are not Unicode survive), whether the file loaded with
   problems (a recovered session still keeps the damaged original on its first save), and `on_disk`,
   the head digest of the file last loaded or saved, so a recovered session still notices an outside
   change. The worker passes it as `SaveOptions::unless_changed_from` unless the request says
@@ -37,13 +39,16 @@ paths:
 - New edit kinds do not bump `JOURNAL_VERSION`: an older reader stops at the first entry it cannot
   read, keeping all before.
 - Lives at `.<name>.journal` next to the file, else under `recovery_dir` (untitled documents, or a
-  name too long). Takes the model's permissions, owner-only when untitled.
+  name too long). Takes the model's permissions, owner-only when untitled. On Windows it is hidden
+  and never read-only (`windows.md`).
 
 ## Locks and placement (`lock.rs`)
 
 - The owner holds an exclusive lock, which is how the scan and other instances tell live from
   orphaned; read-only journals get a shared one. Taken on read-write handles, since NFS emulates
   `flock` with byte-range locks needing a writable descriptor.
+- Windows locks are mandatory: only the holder can read a locked journal, through its own handle.
+  Identity is `os::FileKey` (dev and inode on Unix, `FileId` on Windows).
 - A spawned child shares locked descriptors until it execs, so unit tests never spawn processes;
   the only test that does is the app's `tests/crash_flush.rs`, in a binary of its own.
 - A journal is put in place only by linking where none exists, or renaming over the inode the
@@ -59,7 +64,8 @@ paths:
 - After a write error (`Report::JournalFailed`) it keeps the lock, stops appending and rewrites the
   whole journal every `RETRY_INTERVAL` until it succeeds (`Report::JournalRestored`).
 - A replaced journal is removed only once the new one is written.
-- A `Flusher` lets the panic hook and signal handler wait for pending entries.
+- A `Flusher` lets the panic hook and the termination handlers (signals, a closing console, the
+  end of a Windows session) wait for pending entries.
 
 ## Preferences and recent files (`settings.rs`, `recent.rs`)
 
@@ -93,5 +99,6 @@ paths:
 
 - `SessionLog` writes an owner-only, append-only log per session in the state directory, stopping
   at `MAX_LOG_SIZE`; `ended_unexpectedly` lists other logs whose process is gone and whose last
-  line is neither the end nor the reported line; `prune_logs` keeps the `LOGS_KEPT` newest and
+  line is neither the end nor the reported line (`os::process_running`: `/proc` on Unix,
+  `OpenProcess` on Windows); `prune_logs` keeps the `LOGS_KEPT` newest and
   never removes a running process's.

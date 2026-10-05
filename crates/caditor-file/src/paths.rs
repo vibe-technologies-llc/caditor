@@ -1,12 +1,13 @@
 use std::{
     ffi::{OsStr, OsString},
-    os::unix::ffi::OsStringExt,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 pub(crate) const JOURNAL_EXTENSION: &str = "journal";
 pub(crate) const MARKER_EXTENSION: &str = "location";
+use crate::os;
+
 const UNREADABLE_EXTENSION: &str = "unreadable";
 const UNREADABLE_ATTEMPTS: u32 = 100;
 pub(crate) const SET_ASIDE_KEPT_SECONDS: u64 = 30 * 24 * 60 * 60;
@@ -16,18 +17,7 @@ const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0100_0000_01b3;
 
 pub fn state_dir() -> Option<PathBuf> {
-    let from_xdg = std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute());
-    let from_home = || {
-        std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .map(|home| home.join(".local").join("state"))
-    };
-    from_xdg
-        .or_else(from_home)
-        .map(|base| base.join(APPLICATION))
+    os::state_base().map(|base| base.join(APPLICATION))
 }
 
 pub fn recovery_dir(state_dir: &Path) -> PathBuf {
@@ -55,11 +45,7 @@ pub(crate) fn fitting(name: &OsStr, limit: usize) -> OsString {
     }
     let hash = format!("~{:016x}", path_hash(Path::new(name)));
     let room = limit.saturating_sub(hash.len());
-    let cut = match name.to_str() {
-        Some(text) => text.floor_char_boundary(room),
-        None => room,
-    };
-    let mut shortened = OsString::from_vec(bytes.get(..cut).unwrap_or_default().to_vec());
+    let mut shortened = os::name_prefix(name, room);
     shortened.push(hash);
     shortened
 }

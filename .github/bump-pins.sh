@@ -6,8 +6,8 @@ usage() {
 Usage: .github/bump-pins.sh
 
 Raises every pin CI and the release build use to its latest published version:
-the toolchains, rustup, cargo-deny, cargo-fuzz and cargo-about with their
-SHA-256 sums and rust-formatter's revision in .github/versions.env, and each
+the toolchains, rustup, cargo-deny, cargo-fuzz, cargo-about and WiX 5 with
+their SHA-256 sums and rust-formatter's revision in .github/versions.env, and each
 action in .github/workflows and .github/actions to the commit of its latest
 release. Review the diff and let CI run before committing it.
 USAGE
@@ -87,6 +87,8 @@ rustup=$(fetch https://static.rust-lang.org/rustup/release-stable.toml |
 rustup_sum=$(sha256_of "https://static.rust-lang.org/rustup/archive/$rustup/x86_64-unknown-linux-gnu/rustup-init")
 set_pin RUSTUP_VERSION "$rustup"
 set_pin RUSTUP_SHA256 "$rustup_sum"
+rustup_windows_sum=$(sha256_of "https://static.rust-lang.org/rustup/archive/$rustup/x86_64-pc-windows-msvc/rustup-init.exe")
+set_pin RUSTUP_WINDOWS_SHA256 "$rustup_windows_sum"
 
 formatter=$(git ls-remote https://github.com/vibe-technologies-llc/rust-formatter HEAD | awk '{ print $1 }')
 [ -n "$formatter" ] || fail "could not read rust-formatter's latest revision"
@@ -107,6 +109,16 @@ bump_binary() {
 bump_binary CARGO_DENY EmbarkStudios/cargo-deny cargo-deny
 bump_binary CARGO_FUZZ rust-fuzz/cargo-fuzz cargo-fuzz
 bump_binary CARGO_ABOUT EmbarkStudios/cargo-about cargo-about
+about_version=$(sed -n 's/^CARGO_ABOUT_VERSION=//p' "$versions")
+about_windows="cargo-about-$about_version-x86_64-pc-windows-msvc.tar.gz"
+set_pin CARGO_ABOUT_WINDOWS_SHA256 \
+    "$(sha256_of "https://github.com/EmbarkStudios/cargo-about/releases/download/$about_version/$about_windows")"
+
+wix=$(fetch https://api.nuget.org/v3-flatcontainer/wix/index.json |
+    tr ',' '\n' | sed -n 's/^.*"\(5\.[0-9]*\.[0-9]*\)".*$/\1/p' | tail -n 1)
+[ -n "$wix" ] || fail "could not read the latest WiX 5"
+set_pin WIX_VERSION "$wix"
+set_pin WIX_SHA256 "$(sha256_of "https://api.nuget.org/v3-flatcontainer/wix/$wix/wix.$wix.nupkg")"
 
 files=$(find "$root/.github/workflows" "$root/.github/actions" -name '*.yml')
 actions=$(cat $files | sed -n 's/^ *uses: \([A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]*\)@[0-9a-f]\{40\}$/\1/p' | sort -u)

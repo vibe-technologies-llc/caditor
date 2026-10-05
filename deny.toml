@@ -1,5 +1,5 @@
 [graph]
-targets = ["x86_64-unknown-linux-gnu"]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 exclude-dev = true
 
 [advisories]
@@ -52,13 +52,18 @@ deny = [
 ]
 skip = [
     {
-        crate = "calloop@0.13.0",
-        reason = "winit 0.30 stays on smithay-client-toolkit 0.19 while egui's clipboard moved to 0.20"
+        crate = "accesskit_consumer@0.35.0",
+        reason = "accesskit_winit pins its Windows adapter to an older consumer than its Unix one"
     },
     {
         crate = "calloop-wayland-source@0.3.0",
         reason = "winit 0.30 stays on smithay-client-toolkit 0.19"
     },
+    {
+        crate = "calloop@0.13.0",
+        reason = "winit 0.30 stays on smithay-client-toolkit 0.19 while egui's clipboard moved to 0.20"
+    },
+    { crate = "getrandom@0.3.4", reason = "ahash 0.8 has not moved to getrandom 0.4" },
     {
         crate = "hashbrown@0.16.1",
         reason = "accesskit and gpu-allocator have not moved to hashbrown 0.17"
@@ -72,8 +77,26 @@ skip = [
         reason = "winit 0.30 stays on 0.19 while egui's clipboard moved to 0.20"
     },
     { crate = "syn@2.0.119", reason = "most proc macros are still on syn 2" },
+    { crate = "thiserror-impl@1.0.69", reason = "winit's calloop 0.13 still uses thiserror 1" },
     { crate = "thiserror@1.0.69", reason = "winit's calloop 0.13 still uses thiserror 1" },
-    { crate = "thiserror-impl@1.0.69", reason = "winit's calloop 0.13 still uses thiserror 1" }
+    { crate = "windows-sys@0.52.0", reason = "winit 0.30 on Windows" },
+    {
+        crate = "windows-sys@0.59.0",
+        reason = "rustix 0.38 under winit's calloop 0.13, reached through its Windows target table"
+    },
+    { crate = "windows-sys@0.60.2", reason = "arboard, egui's clipboard, on Windows" },
+    {
+        crate = "windows-targets@0.52.6",
+        reason = "windows-sys 0.52 and 0.59 under winit and rustix 0.38"
+    },
+    {
+        crate = "windows_x86_64_gnu@0.52.6",
+        reason = "windows-targets 0.52 under winit and rustix 0.38"
+    },
+    {
+        crate = "windows_x86_64_msvc@0.52.6",
+        reason = "windows-targets 0.52 under winit and rustix 0.38"
+    }
 ]
 
 [sources]

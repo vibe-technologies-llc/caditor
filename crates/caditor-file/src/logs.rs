@@ -1,18 +1,16 @@
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
 };
 
 use parking_lot::Mutex;
 
-use crate::{paths, read::open_file};
+use crate::{os, paths, read::open_file};
 
 const LOGS: &str = "logs";
 const PREFIX: &str = "caditor-";
 const LOG_EXTENSION: &str = "log";
-const PRIVATE_MODE: u32 = 0o600;
 const TAIL: u64 = 512;
 const ENDED: &str = "caditor ended this session.";
 const REPORTED: &str = "This session ended unexpectedly; caditor said so when it next started.";
@@ -41,11 +39,7 @@ impl SessionLog {
             std::process::id()
         );
         let path = dir.join(name);
-        let file = OpenOptions::new()
-            .append(true)
-            .create_new(true)
-            .mode(PRIVATE_MODE)
-            .open(&path)?;
+        let file = os::private(OpenOptions::new().append(true).create_new(true)).open(&path)?;
         Ok(Self {
             path,
             file: Mutex::new(LogFile {
@@ -113,7 +107,7 @@ fn logs_in(state_dir: &Path) -> Vec<LogName> {
 }
 
 fn running(process: u32) -> bool {
-    Path::new("/proc").join(process.to_string()).exists()
+    os::process_running(process)
 }
 
 fn last_line(path: &Path) -> io::Result<String> {

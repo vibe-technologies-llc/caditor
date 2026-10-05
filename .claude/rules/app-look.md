@@ -249,5 +249,7 @@ paths:
   so rounding would leave corners showing) and thin foreground strips along it, with larger
   corners resizing diagonally, set the resize cursor and start `BeginResize`.
 - The compositor takes the pointer during a move or resize and the release never reaches the
-  window, so `Overlay` queues a synthetic primary release after `StartDrag` or `BeginResize`.
+  window, so `Overlay` queues a synthetic primary release after `StartDrag` or `BeginResize`. On
+  Windows both run the system's modal move and size loops, so dragging to an edge snaps; the
+  undecorated window keeps a drop shadow (`with_undecorated_shadow`).
 - The window's minimum size is `layout::MIN_WINDOW_WIDTH` by `MIN_WINDOW_HEIGHT`.

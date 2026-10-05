@@ -1,17 +1,18 @@
-use std::{backtrace::Backtrace, sync::Arc, thread, time::Duration};
+use std::{backtrace::Backtrace, sync::Arc, time::Duration};
 
 use caditor_file::SessionLog;
-use signal_hook::{
-    consts::{SIGHUP, SIGINT, SIGTERM},
-    iterator::Signals,
-    low_level::emulate_default_handler,
-};
 
 pub use crate::model::PanicFlush;
 
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
-const TERMINATION_SIGNALS: [i32; 3] = [SIGTERM, SIGHUP, SIGINT];
+#[cfg(unix)]
 const SIGNAL_EXIT_BASE: i32 = 128;
+#[cfg(windows)]
+const CONSOLE_STOP_EXIT: i32 = -1_073_741_510;
+
+#[cfg(windows)]
+static STOPPING: std::sync::OnceLock<(PanicFlush, Option<Arc<SessionLog>>)> =
+    std::sync::OnceLock::new();
 
 pub fn protect(panic_flush: &PanicFlush, log: Option<Arc<SessionLog>>) {
     install_panic_hook(PanicFlush::clone(panic_flush));
@@ -27,8 +28,17 @@ fn install_panic_hook(panic_flush: PanicFlush) {
     }));
 }
 
+#[cfg(unix)]
 fn flush_on_termination(panic_flush: PanicFlush, log: Option<Arc<SessionLog>>) {
-    let mut signals = match Signals::new(TERMINATION_SIGNALS) {
+    use std::thread;
+
+    use signal_hook::{
+        consts::{SIGHUP, SIGINT, SIGTERM},
+        iterator::Signals,
+        low_level::emulate_default_handler,
+    };
+
+    let mut signals = match Signals::new([SIGTERM, SIGHUP, SIGINT]) {
         Ok(signals) => signals,
         Err(error) => {
             log::warn!("unsaved work cannot be flushed when caditor is told to stop: {error}");
@@ -52,6 +62,39 @@ fn flush_on_termination(panic_flush: PanicFlush, log: Option<Arc<SessionLog>>) {
         });
     if let Err(error) = spawned {
         log::warn!("unsaved work cannot be flushed when caditor is told to stop: {error}");
+    }
+}
+
+#[cfg(windows)]
+fn flush_on_termination(panic_flush: PanicFlush, log: Option<Arc<SessionLog>>) {
+    if STOPPING.set((panic_flush, log)).is_err() {
+        return;
+    }
+    let stopping = || {
+        flush_before_stopping("the console it runs in is closing");
+        std::process::exit(CONSOLE_STOP_EXIT);
+    };
+    if let Err(error) = caditor_windows::on_console_close(stopping) {
+        log::warn!("unsaved work cannot be flushed when the console closes: {error}");
+    }
+}
+
+#[cfg(windows)]
+pub fn flush_when_the_session_ends(window: std::num::NonZeroIsize) {
+    let ending = || flush_before_stopping("Windows is ending the session");
+    if let Err(error) = caditor_windows::on_session_end(window, ending) {
+        log::warn!("unsaved work cannot be flushed when Windows signs out: {error}");
+    }
+}
+
+#[cfg(windows)]
+fn flush_before_stopping(reason: &str) {
+    log::info!("stopping because {reason}");
+    if let Some((panic_flush, log)) = STOPPING.get() {
+        flush_journal(panic_flush);
+        if let Some(log) = log {
+            log.end();
+        }
     }
 }
 

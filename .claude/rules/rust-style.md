@@ -23,7 +23,11 @@ paths:
   the ban is lifted.
 - `unsafe_code = "forbid"` workspace-wide and every member sets `[lints] workspace = true`; prefer
   a safe API even at a small cost. Unavoidable `unsafe` lives in the smallest crate possible,
-  relaxed to `deny` there and allowed only at the exact item (`caditor-zstd`, which lists the
-  workspace clippy lints itself). `conventions_tests.rs` checks both.
+  relaxed to `deny` there and allowed only at the exact item (`caditor-zstd` and
+  `caditor-windows`, which list the workspace clippy lints themselves). `conventions_tests.rs`
+  checks both.
+- Platform code lives in whole `cfg(unix)` and `cfg(windows)` items behind one interface
+  (`caditor-file`'s `os` module, `portal`, `crash`), with a `cfg` at a call site only for a step one
+  platform alone takes; Windows details are in `windows.md`.
 - Edition 2024, no MSRV: never set `rust-version`; any feature stable on the current toolchain is
   fair game.

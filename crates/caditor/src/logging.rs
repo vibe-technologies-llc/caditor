@@ -1,7 +1,6 @@
 use std::{
     io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
     sync::Arc,
 };
 
@@ -12,7 +11,19 @@ use env_logger::{Builder, Env, Target};
 use crate::about;
 
 const DEFAULT_FILTER: &str = "info";
+#[cfg(unix)]
 const NOTIFIER: &str = "notify-send";
+#[cfg(unix)]
+const GRAPHICS_ADVICE: &str = "\n\nThe graphics driver may be at fault. Starting caditor with \
+                               WGPU_BACKEND=gl set uses OpenGL instead of Vulkan and often \
+                               helps: run “WGPU_BACKEND=gl caditor” in a terminal, or add it to \
+                               the start of the menu entry's command.";
+#[cfg(windows)]
+const GRAPHICS_ADVICE: &str = "\n\nThe graphics driver may be at fault: install the latest one \
+                               from the maker of the graphics card. Setting the user environment \
+                               variable WGPU_BACKEND=vulkan (or WGPU_BACKEND=gl) makes caditor \
+                               draw through Vulkan or OpenGL instead of Direct3D 12 and often \
+                               helps.";
 
 pub struct Logging {
     log: Option<Arc<SessionLog>>,
@@ -99,11 +110,7 @@ pub fn unexpected_end_notice(log: &Path) -> String {
 pub fn failure_text(error: &anyhow::Error, log: Option<&Path>) -> String {
     let mut text = format!("caditor had to stop: {error:#}.");
     if error.chain().any(|cause| cause.is::<RenderError>()) {
-        text.push_str(
-            "\n\nThe graphics driver may be at fault. Starting caditor with WGPU_BACKEND=gl set \
-             uses OpenGL instead of Vulkan and often helps: run “WGPU_BACKEND=gl caditor” in a \
-             terminal, or add it to the start of the menu entry's command.",
-        );
+        text.push_str(GRAPHICS_ADVICE);
     }
     if let Some(log) = log {
         text.push_str(&format!("\n\nWhat caditor logged is in {}.", log.display()));
@@ -111,7 +118,23 @@ pub fn failure_text(error: &anyhow::Error, log: Option<&Path>) -> String {
     text
 }
 
+#[cfg(windows)]
 pub fn show_failure(text: &str) {
+    if io::stderr().is_terminal() {
+        return;
+    }
+    if !caditor_windows::show_error(about::NAME, text) {
+        log::warn!(
+            "the failure could not be shown: {}",
+            io::Error::last_os_error()
+        );
+    }
+}
+
+#[cfg(unix)]
+pub fn show_failure(text: &str) {
+    use std::process::{Command, Stdio};
+
     if io::stderr().is_terminal() {
         return;
     }
@@ -168,6 +191,7 @@ mod tests {
 
         assert!(text.starts_with("caditor had to stop: could not start the renderer: "));
         assert!(text.contains("WGPU_BACKEND=gl"));
+        assert!(text.contains(GRAPHICS_ADVICE));
         assert!(text.ends_with("What caditor logged is in /state/logs/caditor-1-2.log."));
     }
 

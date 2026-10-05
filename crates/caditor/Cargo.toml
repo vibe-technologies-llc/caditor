@@ -31,11 +31,20 @@ log.workspace = true
 parking_lot.workspace = true
 png.workspace = true
 pollster.workspace = true
-signal-hook.workspace = true
 thiserror.workspace = true
 wgpu.workspace = true
 winit.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+signal-hook.workspace = true
 zbus.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+caditor-windows.workspace = true
+rfd.workspace = true
+
+[build-dependencies]
+winresource.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

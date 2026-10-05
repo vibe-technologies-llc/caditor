@@ -14,7 +14,10 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const PARAGRAPH_GAP: f32 = SPACE_M;
 const LOGO_SIDE: f32 = 64.0;
 const LICENCES_FILE: &str = "THIRD-PARTY-LICENSES.html";
-const LICENCES_FOLDER: [&str; 3] = ["share", "licenses", "caditor"];
+#[cfg(unix)]
+const LICENCES_FOLDER: [&str; 4] = ["..", "share", "licenses", "caditor"];
+#[cfg(windows)]
+const LICENCES_FOLDER: [&str; 1] = ["licenses"];
 const COPY_VERSION: &str = "Copy version";
 const COPY_LICENCES_PATH: &str = "Copy path";
 const TAGLINE: &str = "Parametric CAD";
@@ -29,11 +32,14 @@ fn installed_licences() -> Option<PathBuf> {
 }
 
 fn licences_beside(program: &Path) -> Option<PathBuf> {
-    let prefix = program.parent()?.parent()?;
-    let path = LICENCES_FOLDER
-        .iter()
-        .fold(prefix.to_path_buf(), |path, part| path.join(part))
-        .join(LICENCES_FILE);
+    let mut path = program.parent()?.to_path_buf();
+    for part in LICENCES_FOLDER {
+        path = match part {
+            ".." => path.parent()?.to_path_buf(),
+            _ => path.join(part),
+        };
+    }
+    let path = path.join(LICENCES_FILE);
     path.is_file().then_some(path)
 }
 
@@ -114,7 +120,9 @@ mod tests {
     const METAINFO: &str = include_str!("../../../packaging/caditor.metainfo.xml");
     const MIME_TYPE: &str = include_str!("../../../packaging/caditor-mime.xml");
     const ARCH_PACKAGE: &str = include_str!("../../../packaging/arch/PKGBUILD");
+    const WINDOWS_INSTALLER: &str = include_str!("../../../packaging/windows/caditor.wxs");
 
+    #[cfg(unix)]
     #[test]
     fn the_licence_list_is_found_where_the_release_installs_it() {
         let prefix = TempDir::new().unwrap();
@@ -125,6 +133,22 @@ mod tests {
         std::fs::create_dir_all(&folder).unwrap();
         std::fs::write(folder.join(LICENCES_FILE), "<html></html>").unwrap();
         assert_eq!(licences_beside(&program), Some(folder.join(LICENCES_FILE)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_licence_list_is_found_where_the_installer_puts_it() {
+        let folder = TempDir::new().unwrap();
+        let program = folder.path().join("caditor.exe");
+        let licences = folder.path().join("licenses");
+
+        assert_eq!(licences_beside(&program), None);
+        std::fs::create_dir_all(&licences).unwrap();
+        std::fs::write(licences.join(LICENCES_FILE), "<html></html>").unwrap();
+        assert_eq!(
+            licences_beside(&program),
+            Some(licences.join(LICENCES_FILE))
+        );
     }
 
     #[test]
@@ -154,5 +178,21 @@ mod tests {
         assert!(ARCH_PACKAGE.starts_with(&format!("pkgname={NAME}\npkgver={VERSION}\n")));
         assert!(ARCH_PACKAGE.contains(&format!("/usr/share/applications/{APP_ID}.desktop")));
         assert!(ARCH_PACKAGE.contains(&format!("/usr/bin/{NAME}\"")));
+    }
+
+    #[test]
+    fn the_windows_installer_puts_the_licence_list_where_the_program_looks_and_opens_models() {
+        assert!(WINDOWS_INSTALLER.contains(r#"<Directory Id="LicensesFolder" Name="licenses" />"#));
+        assert!(
+            WINDOWS_INSTALLER.contains(&format!(r#"Source="$(Stage)\licenses\{LICENCES_FILE}""#))
+        );
+        assert!(WINDOWS_INSTALLER.contains(&format!(
+            r#"<File Id="{NAME}.exe" Source="$(Stage)\{NAME}.exe""#
+        )));
+        assert!(
+            WINDOWS_INSTALLER
+                .contains(r#"<Extension Id="caditor" ContentType="application/x-caditor">"#)
+        );
+        assert!(MIME_TYPE.contains(r#"<glob pattern="*.caditor"/>"#));
     }
 }

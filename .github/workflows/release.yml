@@ -82,8 +82,61 @@ jobs:
             target/dist/*.tar.zst
             target/dist/*.tar.zst.sha256
 
+  build-windows:
+    needs: checks
+    runs-on: windows-2025
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+
+      - name: Check out (actions/checkout v7.0.1)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Load the pinned versions
+        run: cat .github/versions.env >> "$GITHUB_ENV"
+
+      - name: Install Rust
+        uses: ./.github/actions/install-rust
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Install cargo-about and WiX
+        run: .github/install-windows-packaging.sh
+
+      - name: Build the release installer
+        shell: pwsh
+        run: packaging/windows/build-release.ps1
+
+      - name: Install, upgrade and uninstall the installer
+        shell: pwsh
+        run: packaging/windows/check-install.ps1 (Get-Item target/dist/caditor-*-windows-x86_64.msi)
+
+      - name: Attest the installer's provenance (actions/attest-build-provenance v4.2.2)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: target/dist/*.msi
+
+      - name: Keep the installer (actions/upload-artifact v7.0.1)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-windows
+          if-no-files-found: error
+          path: |
+            target/dist/*.msi
+            target/dist/*.msi.sha256
+
   publish:
-    needs: build
+    needs: [build, build-windows]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -95,6 +148,12 @@ jobs:
           name: release
           path: dist
 
+      - name: Fetch the installer (actions/download-artifact v8.0.1)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-windows
+          path: dist
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -103,4 +162,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "caditor ${GITHUB_REF_NAME#v}" \
             --generate-notes \
-            dist/*.tar.zst dist/*.tar.zst.sha256
+            dist/*.tar.zst dist/*.tar.zst.sha256 dist/*.msi dist/*.msi.sha256

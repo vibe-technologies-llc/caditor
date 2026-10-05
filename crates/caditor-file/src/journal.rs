@@ -1,8 +1,4 @@
-use std::{
-    ffi::OsString,
-    os::unix::ffi::{OsStrExt, OsStringExt},
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use caditor_document::{Document, Editor, Transaction};
 use serde::{Deserialize, Serialize};
@@ -19,6 +15,7 @@ use crate::{
         suppressed_record, transaction_record,
     },
     load::{Parts, assemble},
+    os,
 };
 
 const JOURNAL_VERSION: u32 = 1;
@@ -81,7 +78,7 @@ pub(crate) fn encode_journal(
 ) -> Result<Vec<u8>, EncodeError> {
     let header = JournalHeader {
         file: head.file.and_then(Path::to_str).map(str::to_owned),
-        file_bytes: head.file.map(|file| file.as_os_str().as_bytes().to_vec()),
+        file_bytes: head.file.map(|file| os::path_bytes(file.as_os_str())),
         on_disk: head.on_disk.cloned(),
         loaded_with_problems: head.loaded_with_problems,
     };
@@ -245,7 +242,7 @@ pub(crate) fn decode_journal(bytes: &[u8]) -> Result<JournalContents, DamagedJou
         }
     }
     let file = match header.file_bytes {
-        Some(bytes) => Some(PathBuf::from(OsString::from_vec(bytes))),
+        Some(bytes) => Some(PathBuf::from(os::path_from_bytes(bytes))),
         None => header.file.map(PathBuf::from),
     };
     Ok(JournalContents {

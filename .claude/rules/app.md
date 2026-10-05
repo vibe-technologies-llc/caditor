@@ -85,8 +85,10 @@ paths:
   hover, highlight and drawing state (`Workspace::sync`), the tree's selection and rename, the
   export dialog's left-out bodies. Anything new that holds IDs must be cleared there.
 - `crash::protect` installs the panic hook and a SIGTERM/SIGHUP/SIGINT handler that flush the
-  journal before exit. `tests/crash_flush.rs` re-runs its binary as a child that panics, raises
-  SIGTERM or is killed, and checks a recovery scan restores every change.
+  journal before exit; on Windows a console close handler, plus `crash::flush_when_the_session_ends`
+  once the window exists (`windows.md`). `tests/crash_flush.rs` re-runs its binary as a child that
+  panics, raises SIGTERM (Unix only) or is killed, and checks a recovery scan restores every
+  change.
 - A panic while handling a window or user event (a frame, closing, a dropped file, an
   accessibility event) is caught in `App::contained` after the hook flushed the journal. The window
   gets a fresh egui context, `after_failed_frame` drops transient state (selection, tools, sketch
@@ -100,9 +102,9 @@ paths:
   line on a normal exit, reported failure or termination signal. At start a log whose process is
   gone and which has no end line is named in a notice, then marked reported.
 - A failure `run` returns (no window, no renderer, a window failing frame after frame) is logged
-  and, when stderr is not a terminal, shown through `zenity`, `kdialog` or `notify-send`;
-  `failure_text` names the cause, the log, and the `WGPU_BACKEND=gl` workaround for a
-  `RenderError`.
+  and, when stderr is not a terminal, shown through `zenity`, `kdialog` or `notify-send` (a message
+  box on Windows); `failure_text` names the cause, the log, and for a `RenderError` the
+  `WGPU_BACKEND` workaround of the platform (`gl` on Linux, `vulkan` or `gl` on Windows).
 
 ## Redraws and frame pacing
 
@@ -184,9 +186,12 @@ paths:
   view", and text painted over it (prompt, hover description, snap and measure labels) is also a
   `Label` node (`canvas::announce`), the prompt and keyboard-highlight description polite live
   regions.
-- Wayland app ID and X11 class are `about::APP_ID`, which must match the desktop entry's name.
+- Wayland app ID, X11 class and Windows window class are `about::APP_ID`, which must match the
+  desktop entry's name.
 - The logo is `packaging/caditor.svg`; `packaging/render-icons.sh` renders it into
   `packaging/icons/`, committed, so neither build nor release needs an SVG renderer. `logo.rs`
   embeds some renders and `logo::show` draws the smallest covering the requested physical size,
-  hidden from AccessKit. The window icon is a fixed render (X11 only; Wayland takes the icon from
-  the desktop entry). A render that fails to decode logs a warning; tests decode every render.
+  hidden from AccessKit. The window icon is a fixed render (X11 and Windows, which also gets the
+  largest as its taskbar icon; Wayland takes the icon from the desktop entry). The Windows
+  executable's icon is built from the same renders (`windows.md`). A render that fails to decode
+  logs a warning; tests decode every render.

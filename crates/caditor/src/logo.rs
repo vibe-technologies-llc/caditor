@@ -102,6 +102,12 @@ pub fn window_icon() -> Result<Icon, LogoError> {
     Ok(Icon::from_rgba(logo.rgba, logo.size, logo.size)?)
 }
 
+#[cfg(windows)]
+pub fn taskbar_icon() -> Result<Icon, LogoError> {
+    let logo = decode(LARGEST)?;
+    Ok(Icon::from_rgba(logo.rgba, logo.size, logo.size)?)
+}
+
 pub fn texture_name(size: u32) -> String {
     format!("caditor-logo-{size}")
 }

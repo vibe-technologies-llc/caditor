@@ -77,11 +77,13 @@ const DRAWN: f64 = 1e-3;
 #[derive(Clone, Default)]
 struct ScriptedDialogs {
     answer: Arc<Mutex<Option<PathBuf>>>,
+    #[cfg(unix)]
     no_portal: Arc<Mutex<bool>>,
 }
 
 impl ScriptedDialogs {
     fn reply(&self) -> Result<Option<PathBuf>, crate::portal::DialogError> {
+        #[cfg(unix)]
         if *self.no_portal.lock() {
             return Err(crate::portal::DialogError::NoSessionBus(
                 zbus::Error::Unsupported,
@@ -1284,6 +1286,7 @@ fn save_as_refuses_a_model_open_in_another_window() {
     assert!(other.close(true).wait(FILE_TIMEOUT));
 }
 
+#[cfg(unix)]
 #[test]
 fn an_unwritable_recovery_folder_shows_that_changes_are_not_protected() {
     use std::os::unix::fs::PermissionsExt;
@@ -2315,6 +2318,7 @@ fn a_failed_frame_resets_the_interface_and_a_second_in_a_row_suppresses_every_fe
     assert_eq!(fail_a_frame(&mut harness), app::AfterFailedFrame::GiveUp);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_file_dialog_that_cannot_open_says_what_to_install_rather_than_doing_nothing() {
     let mut harness = Harness::new();

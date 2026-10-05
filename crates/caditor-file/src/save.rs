@@ -1,8 +1,7 @@
 use std::{
     ffi::{OsStr, OsString},
-    fs::{self, File, Metadata, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{self, Write},
-    os::unix::fs::{FileExt, MetadataExt, OpenOptionsExt, fchown},
     path::{Path, PathBuf},
     sync::{
         OnceLock,
@@ -12,11 +11,10 @@ use std::{
 };
 
 use caditor_document::Document;
-use rustix::io::Errno;
-use xattr::FileExt as _;
 
 use crate::{
     binary::{self, EncodeError, Encoded, FileDigest, Shared, value::ValueError},
+    os::{self, ChangeStamp},
     paths::{MAX_NAME_BYTES, fitting},
     read::{ensure_regular, open_file, read_open},
     reason::{ReadFailure, WriteFailure},
@@ -26,14 +24,10 @@ const BACKUP_MARKER: &str = "damaged";
 const MAX_BACKUP_ATTEMPTS: u32 = 1000;
 const MAX_LINK_DEPTH: usize = 40;
 const TEMPORARY_SUFFIX: &str = ".tmp";
-const PROCESSES: &str = "/proc";
-const BOOT_ID: &str = "/proc/sys/kernel/random/boot_id";
-const MACHINE_IDS: [&str; 2] = ["/etc/machine-id", "/var/lib/dbus/machine-id"];
 const TAG_LENGTH: usize = 16;
 const UNKNOWN_TAG: &str = "unknown";
 const TEMPORARY_STEM_LIMIT: usize = 170;
 const BACKUP_ROOM: usize = 16;
-const PRIVATE_MODE: u32 = 0o600;
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -180,7 +174,7 @@ pub(crate) struct NotReadBack;
 fn check_reads_back(file: &File, digest: &FileDigest) -> io::Result<()> {
     let length = usize::try_from(file.metadata()?.len()).map_err(io::Error::other)?;
     let mut written = vec![0; length];
-    file.read_exact_at(&mut written, 0)?;
+    os::read_exact_at(file, &mut written, 0)?;
     if binary::reads_back(&written, digest) {
         Ok(())
     } else {
@@ -192,13 +186,13 @@ fn check_reads_back(file: &File, digest: &FileDigest) -> io::Result<()> {
 struct Previous {
     file: File,
     bytes: Vec<u8>,
-    stamp: Stamp,
+    stamp: ChangeStamp,
 }
 
 impl Previous {
     fn open(path: &Path) -> io::Result<Self> {
         let file = open_file(path)?;
-        let stamp = Stamp::of(&file.metadata()?);
+        let stamp = ChangeStamp::of(&file.metadata()?);
         let bytes = read_open(&file)?;
         Ok(Self { file, bytes, stamp })
     }
@@ -206,24 +200,7 @@ impl Previous {
     fn changed_since_read(&self) -> bool {
         self.file
             .metadata()
-            .map_or(true, |metadata| Stamp::of(&metadata) != self.stamp)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Stamp {
-    length: u64,
-    modified: (i64, i64),
-    changed: (i64, i64),
-}
-
-impl Stamp {
-    fn of(metadata: &Metadata) -> Self {
-        Self {
-            length: metadata.size(),
-            modified: (metadata.mtime(), metadata.mtime_nsec()),
-            changed: (metadata.ctime(), metadata.ctime_nsec()),
-        }
+            .map_or(true, |metadata| ChangeStamp::of(&metadata) != self.stamp)
     }
 }
 
@@ -276,27 +253,13 @@ fn write_sharing(file: &mut File, encoded: &Encoded, source: &Previous) -> io::R
 }
 
 fn copy_range(source: &File, target: &File, range: &Shared) -> usize {
-    let mut from = range.from as u64;
-    let mut at = range.at as u64;
-    let mut copied = 0;
-    while copied < range.length {
-        match rustix::fs::copy_file_range(
-            source,
-            Some(&mut from),
-            target,
-            Some(&mut at),
-            range.length - copied,
-        ) {
-            Ok(0) => break,
-            Ok(count) => copied += count,
-            Err(Errno::INTR) => {}
-            Err(error) => {
-                log::debug!("could not share earlier versions with the previous file: {error}");
-                break;
-            }
-        }
-    }
-    copied.min(range.length)
+    os::clone_range(
+        source,
+        target,
+        range.from as u64,
+        range.at as u64,
+        range.length,
+    )
 }
 
 fn write_range(file: &File, bytes: &[u8], start: usize, end: usize) -> io::Result<()> {
@@ -306,7 +269,7 @@ fn write_range(file: &File, bytes: &[u8], start: usize, end: usize) -> io::Resul
             "a shared range lies outside the saved content",
         )
     })?;
-    file.write_all_at(range, start as u64)
+    os::write_all_at(file, range, start as u64)
 }
 
 pub fn write_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
@@ -329,7 +292,7 @@ fn replace_checked(
     ensure_replaceable(&target)?;
     let temporary = temporary_sibling(&target)?;
     let written = write_and_sync(&temporary, &target, fill, check)
-        .and_then(|()| fs::rename(&temporary, &target));
+        .and_then(|()| os::replace(&temporary, &target));
     if written.is_err() {
         let _ = fs::remove_file(&temporary);
     }
@@ -352,9 +315,7 @@ fn ensure_replaceable(target: &Path) -> io::Result<()> {
     match fs::metadata(target) {
         Ok(metadata) => {
             ensure_regular(&metadata)?;
-            let writable = !metadata.permissions().readonly()
-                && rustix::fs::access(target, rustix::fs::Access::WRITE_OK).is_ok();
-            if writable {
+            if os::writable(target, &metadata) {
                 Ok(())
             } else {
                 Err(io::Error::new(io::ErrorKind::PermissionDenied, ReadOnly))
@@ -368,23 +329,17 @@ fn ensure_replaceable(target: &Path) -> io::Result<()> {
 pub(crate) fn resolve_links(path: &Path) -> io::Result<PathBuf> {
     let mut resolved = path.to_path_buf();
     for _ in 0..MAX_LINK_DEPTH {
-        match fs::read_link(&resolved) {
-            Ok(target) => {
-                resolved = match resolved.parent() {
-                    Some(parent) => parent.join(target),
-                    None => target,
-                };
-            }
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::InvalidInput | io::ErrorKind::NotFound
-                ) =>
-            {
-                return Ok(resolved);
-            }
+        match fs::symlink_metadata(&resolved) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {}
+            Ok(_) => return Ok(resolved),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(resolved),
             Err(error) => return Err(error),
         }
+        let target = fs::read_link(&resolved)?;
+        resolved = match resolved.parent() {
+            Some(parent) => parent.join(target),
+            None => target,
+        };
     }
     Err(io::Error::other(
         "the path goes through too many symbolic links",
@@ -404,9 +359,8 @@ pub(crate) fn sweep_orphaned_temporaries(dir: &Path) {
 }
 
 fn remove_orphans_in(dir: &Path, prefix: Option<&[u8]>) {
-    let processes = Path::new(PROCESSES);
     let host = Host::current();
-    if host.boot == UNKNOWN_TAG || !processes.join("self").exists() {
+    if host.boot == UNKNOWN_TAG || !os::processes_known() {
         return;
     }
     let dir = if dir.as_os_str().is_empty() {
@@ -418,13 +372,12 @@ fn remove_orphans_in(dir: &Path, prefix: Option<&[u8]>) {
         return;
     };
     let ours = std::process::id();
-    let running = |process: u32| processes.join(process.to_string()).exists();
     for entry in entries.filter_map(Result::ok) {
         let file_name = entry.file_name();
         let name = file_name.as_encoded_bytes();
         let named_as_wanted = prefix.is_none_or(|prefix| name.starts_with(prefix));
         let orphaned = named_as_wanted
-            && temporary_tag(name).is_some_and(|tag| host.orphaned(tag, ours, running));
+            && temporary_tag(name).is_some_and(|tag| host.orphaned(tag, ours, os::process_running));
         if orphaned {
             let orphan = entry.path();
             match fs::remove_file(&orphan) {
@@ -491,13 +444,9 @@ fn write_and_sync(
 ) -> io::Result<()> {
     let mut file = match fs::metadata(target) {
         Ok(existing) => {
-            let file = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .mode(PRIVATE_MODE)
+            let file = os::private(OpenOptions::new().read(true).write(true).create_new(true))
                 .open(temporary)?;
-            take_ownership_and_attributes(&file, target, &existing);
+            os::take_ownership_and_attributes(&file, target, &existing);
             file.set_permissions(existing.permissions())?;
             file
         }
@@ -510,39 +459,6 @@ fn write_and_sync(
     fill(&mut file)?;
     file.sync_all()?;
     check(&file)
-}
-
-fn take_ownership_and_attributes(file: &File, target: &Path, existing: &Metadata) {
-    let group_differs = file
-        .metadata()
-        .is_ok_and(|created| created.gid() != existing.gid());
-    if group_differs && let Err(error) = fchown(file, None, Some(existing.gid())) {
-        log::debug!(
-            "could not give the saved file the group of {}: {error}",
-            target.display()
-        );
-    }
-    let names = match xattr::list(target) {
-        Ok(names) => names,
-        Err(error) => {
-            log::debug!(
-                "could not list the attributes of {}: {error}",
-                target.display()
-            );
-            return;
-        }
-    };
-    for name in names {
-        let copied = xattr::get(target, &name)
-            .and_then(|value| value.map_or(Ok(()), |value| file.set_xattr(&name, &value)));
-        if let Err(error) = copied {
-            log::debug!(
-                "could not copy the attribute {} of {}: {error}",
-                name.display(),
-                target.display()
-            );
-        }
-    }
 }
 
 pub(crate) fn temporary_sibling(path: &Path) -> io::Result<PathBuf> {
@@ -569,18 +485,16 @@ fn temporary_prefix(name: &OsStr) -> OsString {
 
 pub(crate) fn boot_tag() -> &'static str {
     static TAG: OnceLock<String> = OnceLock::new();
-    TAG.get_or_init(|| tag_from(&[BOOT_ID]))
+    TAG.get_or_init(|| tag_from(os::boot_ids()))
 }
 
 pub(crate) fn machine_tag() -> &'static str {
     static TAG: OnceLock<String> = OnceLock::new();
-    TAG.get_or_init(|| tag_from(&MACHINE_IDS))
+    TAG.get_or_init(|| tag_from(os::machine_ids()))
 }
 
-fn tag_from(sources: &[&str]) -> String {
-    sources
-        .iter()
-        .filter_map(|source| fs::read_to_string(source).ok())
+fn tag_from(ids: Vec<String>) -> String {
+    ids.iter()
         .map(|id| {
             id.chars()
                 .filter(char::is_ascii_hexdigit)
@@ -596,7 +510,7 @@ pub(crate) fn sync_parent(path: &Path) -> io::Result<()> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    File::open(parent)?.sync_all()
+    os::sync_dir(parent)
 }
 
 fn keep_backup(path: &Path) -> io::Result<PathBuf> {
@@ -678,10 +592,11 @@ fn copy_then_place(
     candidates: &[PathBuf],
 ) -> io::Result<Option<PathBuf>> {
     fs::copy(source, temporary)?;
-    File::open(temporary)?.sync_all()?;
+    OpenOptions::new().write(true).open(temporary)?.sync_all()?;
     for candidate in candidates {
         match File::create_new(candidate) {
-            Ok(_) => {
+            Ok(placeholder) => {
+                drop(placeholder);
                 if let Err(error) = fs::rename(temporary, candidate) {
                     let _ = fs::remove_file(candidate);
                     return Err(error);

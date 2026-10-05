@@ -1,7 +1,6 @@
 use std::{
     fs::{self, File, OpenOptions, Permissions},
     io::{self, Write},
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError},
     thread,
@@ -14,7 +13,7 @@ use crate::{
     binary::FileDigest,
     journal::{JournalEntry, JournalHead, Logged, Mirror, encode_entry, encode_journal},
     lock::{holds, install, locked_elsewhere, remove_held, remove_unheld},
-    paths,
+    os, paths,
     reason::WriteFailure,
     recovery::{mark_journal, unmark_journal},
     save::{
@@ -24,7 +23,6 @@ use crate::{
 
 const PREDECESSOR_TIMEOUT: Duration = Duration::from_secs(5);
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
-const PRIVATE_MODE: u32 = 0o600;
 const REBASE_JOURNAL_AFTER: u64 = 32 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -520,7 +518,7 @@ impl Worker {
             .file
             .as_deref()
             .and_then(|file| fs::metadata(file).ok())
-            .map(|metadata| metadata.permissions());
+            .and_then(|metadata| os::inherited_permissions(&metadata));
         let mut failure = None;
         for candidate in candidates.iter().cloned() {
             let own = self
@@ -655,11 +653,8 @@ fn write_locked_then_rename(
     permissions: Option<&Permissions>,
     own: Option<&File>,
 ) -> io::Result<File> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(PRIVATE_MODE)
-        .open(temporary)?;
+    let mut file =
+        os::hidden(os::private(OpenOptions::new().write(true).create_new(true))).open(temporary)?;
     if let Some(permissions) = permissions {
         file.set_permissions(permissions.clone())?;
     }

@@ -136,6 +136,15 @@ fn power_preference(preference: AdapterPreference) -> wgpu::PowerPreference {
     wgpu::PowerPreference::from_env().unwrap_or_else(|| preference.power())
 }
 
+#[cfg(windows)]
+const BACKEND_ORDER: [wgpu::Backend; 3] = [
+    wgpu::Backend::Dx12,
+    wgpu::Backend::Vulkan,
+    wgpu::Backend::Gl,
+];
+#[cfg(not(windows))]
+const BACKEND_ORDER: [wgpu::Backend; 2] = [wgpu::Backend::Vulkan, wgpu::Backend::Gl];
+
 fn adapter_rank(info: &wgpu::AdapterInfo) -> (u8, u8) {
     let kind = match info.device_type {
         wgpu::DeviceType::IntegratedGpu => 0,
@@ -144,11 +153,10 @@ fn adapter_rank(info: &wgpu::AdapterInfo) -> (u8, u8) {
         wgpu::DeviceType::Other => 3,
         wgpu::DeviceType::Cpu => 4,
     };
-    let backend = match info.backend {
-        wgpu::Backend::Vulkan => 0,
-        wgpu::Backend::Gl => 1,
-        _ => 2,
-    };
+    let backend = BACKEND_ORDER
+        .iter()
+        .position(|backend| *backend == info.backend)
+        .map_or(u8::MAX, |place| u8::try_from(place).unwrap_or(u8::MAX));
     (kind, backend)
 }
 
@@ -421,6 +429,28 @@ mod tests {
                 (wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Gl),
                 (wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan),
                 (wgpu::DeviceType::Cpu, wgpu::Backend::Vulkan),
+            ]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn direct3d_comes_before_vulkan_and_opengl_on_windows() {
+        let info = wgpu::AdapterInfo::new;
+        let mut adapters = [
+            info(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Gl),
+            info(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Vulkan),
+            info(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Dx12),
+        ];
+
+        adapters.sort_by_key(adapter_rank);
+
+        assert_eq!(
+            adapters.map(|adapter| adapter.backend),
+            [
+                wgpu::Backend::Dx12,
+                wgpu::Backend::Vulkan,
+                wgpu::Backend::Gl
             ]
         );
     }

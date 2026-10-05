@@ -11,8 +11,15 @@ paths:
 ## Workflow
 
 - `ci.yml` runs on every push to `master` and every pull request, and the release workflow calls it
-  before building. Jobs run in Ubuntu 22.04 containers with a timeout; a newer push to a pull
-  request cancels its older run.
+  before building. Linux jobs run in Ubuntu 22.04 containers, Windows jobs on `windows-2025`, all
+  with a timeout; a newer push to a pull request cancels its older run.
+- `windows` tests (with `CADITOR_REQUIRE_GPU=1`, on the runner's software adapter), checks the tree
+  stays clean and lints on Windows, the only place `cfg(windows)` code is compiled in CI.
+  `package-windows` builds a snapshot MSI (`packaging/windows/build-release.ps1 -Snapshot`) and
+  runs `check-install.ps1` on it. Windows jobs check out with `core.autocrlf` off, since tests
+  compare committed text byte for byte. `.github/install-windows-packaging.sh` installs cargo-about
+  and WiX, each checked against its pinned SHA-256 (WiX from its NuGet package, installed from a
+  local source only).
 - Tests run `--locked` with `CADITOR_REQUIRE_GPU=1` on lavapipe (without it the offscreen render
   tests skip when no adapter exists). Clippy runs `--all-features` so the `fuzzing` modules are
   linted. Also: `rust-formatter --check`, `cargo deny` on the root and fuzz workspaces, a snapshot
@@ -23,18 +30,20 @@ paths:
 - The check job runs cargo as the unprivileged `builder` user (`as-builder`), since root ignores the
   file modes the unreadable-file tests rely on. It fails if the tests leave any change or untracked
   file in the checkout, so a test writing beside the sources instead of a `TempDir` is caught.
+- `deny.toml` and `packaging/about.toml` resolve both release targets, Linux and Windows.
 - Ubuntu 22.04's `desktop-file-validate` rejects keys newer than its spec; `caditor.desktop` uses
   only keys it knows.
 - `build-release.sh` fails on any `appstreamcli` finding except `accepted_metainfo_findings`, which
   follow from publishing no identity (`docs/RELEASING.md`). The release build attests the archive's
-  provenance (Sigstore).
+  provenance (Sigstore). The release builds the MSI on Windows the same way and publishes it beside
+  the archive.
 
 ## Pinning and cargo-deny
 
 - Every version pin lives once, in `.github/versions.env`, loaded into `GITHUB_ENV` after each
   checkout by both workflows. Never copy a pin into a workflow's `env`.
-- Rust comes from `.github/actions/install-rust`, which verifies `rustup-init` against its pinned
-  checksum; never `curl | sh`. Tool binaries (`cargo-deny`, `cargo-fuzz`, `cargo-about`) are checked
+- Rust comes from `.github/actions/install-rust`, which verifies `rustup-init` (`rustup-init.exe`
+  on Windows, `RUSTUP_WINDOWS_SHA256`) against its pinned checksum; never `curl | sh`. Tool binaries (`cargo-deny`, `cargo-fuzz`, `cargo-about`, WiX) are checked
   against pinned SHA-256 sums; `rust-formatter` is built from `RUST_FORMATTER_REV`.
 - Actions are pinned by commit with their version in the step name.
 - `.github/bump-pins.sh` raises every pin to its latest release; review the diff and let CI pass

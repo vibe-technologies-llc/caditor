@@ -8,6 +8,7 @@ mod journal;
 mod load;
 mod lock;
 mod logs;
+mod os;
 mod paths;
 mod read;
 mod reason;

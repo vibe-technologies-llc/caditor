@@ -95,13 +95,14 @@ paths:
   and the save says how many (`Encoded::dropped_for_size`). A model too large on its own is refused
   (`EncodeError::ModelTooLarge`), since it could not be opened again.
 - Versions copied unchanged are block-aligned (a zero-filled `Padding` chunk, skipped by readers)
-  so `copy_file_range` (`save.rs`) can clone them; what could not be cloned, or the file having
-  changed since it was read, is written from memory.
+  so `copy_file_range` (`os/unix.rs`) can clone them; what could not be cloned (everything on
+  Windows), or the file having changed since it was read, is written from memory.
 
 ## Saving
 
 - Write a temporary sibling, fsync, rename over the target, fsync the directory (a failed directory
-  fsync is logged, not a failed save). Permissions, group and extended attributes (ACLs too) are
+  fsync is logged, not a failed save). On Windows the rename is `ReplaceFileW` and there is no
+  directory fsync (`windows.md`). Permissions, group and extended attributes (ACLs too) are
   kept; the temporary is owner-only until applied. A symbolic link is followed.
 - Temporaries are `.<name>.<machine>-<boot>-<pid>-<n>.tmp`. After each write, those next to the
   file are removed when from an earlier boot of this machine, or from this boot with their process

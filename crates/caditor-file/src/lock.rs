@@ -1,17 +1,19 @@
 use std::{
-    fs::{self, File, OpenOptions, TryLockError},
+    fs,
+    fs::{File, OpenOptions, TryLockError},
     io,
-    os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::Path,
     thread,
     time::{Duration, Instant},
 };
 
-use crate::read::ensure_regular;
+use crate::{
+    os::{self, FileKey},
+    read::ensure_regular,
+};
 
 const UPDATE_LOCK_WAIT: Duration = Duration::from_secs(3);
 const UPDATE_LOCK_POLL: Duration = Duration::from_millis(5);
-const PRIVATE_MODE: u32 = 0o600;
 
 pub(crate) enum Location {
     Gone,
@@ -20,13 +22,13 @@ pub(crate) enum Location {
 }
 
 pub(crate) fn location(file: &File, path: &Path) -> io::Result<Location> {
-    let locked = file.metadata()?;
-    let current = match fs::symlink_metadata(path) {
+    let locked = FileKey::of(file)?;
+    let current = match FileKey::of_link(path) {
         Ok(current) => current,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Location::Gone),
         Err(error) => return Err(error),
     };
-    if (locked.dev(), locked.ino()) == (current.dev(), current.ino()) {
+    if locked == current {
         Ok(Location::Here)
     } else {
         Ok(Location::Replaced)
@@ -137,13 +139,14 @@ pub(crate) fn locked_update<T>(
 }
 
 fn hold_update_lock(path: &Path) -> Option<File> {
-    let file = match OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(PRIVATE_MODE)
-        .open(path)
+    let file = match os::private(
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false),
+    )
+    .open(path)
     {
         Ok(file) => file,
         Err(error) => {

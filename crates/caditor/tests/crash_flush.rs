@@ -1,7 +1,6 @@
 use std::{
     env,
     io::{BufRead, BufReader, Write},
-    os::unix::process::ExitStatusExt,
     path::Path,
     process::{Command, ExitStatus, Stdio},
     sync::Arc,
@@ -14,7 +13,6 @@ use caditor_document::Document;
 use caditor_expression::Expression;
 use caditor_file::{JournalEntry, SessionLog, Start, Storage, StorageConfig};
 use parking_lot::Mutex;
-use signal_hook::consts::{SIGKILL, SIGTERM};
 
 const MODE: &str = "CADITOR_CRASH_CHILD";
 const DIR: &str = "CADITOR_CRASH_DIR";
@@ -92,7 +90,8 @@ fn crash_child() {
     match ending {
         Ending::Panic => panic!("crashing with unflushed changes"),
         Ending::Terminate => {
-            signal_hook::low_level::raise(SIGTERM).unwrap();
+            #[cfg(unix)]
+            signal_hook::low_level::raise(signal_hook::consts::SIGTERM).unwrap();
         }
         Ending::Kill => {
             assert!(storage.flusher().flush(FLUSH_TIMEOUT));
@@ -158,13 +157,32 @@ fn a_panic_flushes_the_changes_just_recorded() {
     assert!(child::ended_unexpectedly(dir.path()));
 }
 
+#[cfg(unix)]
+fn killed(status: ExitStatus) -> bool {
+    use std::os::unix::process::ExitStatusExt;
+
+    status.signal() == Some(signal_hook::consts::SIGKILL)
+}
+
+#[cfg(windows)]
+fn killed(status: ExitStatus) -> bool {
+    !status.success() && status.code() != Some(PANIC_EXIT_CODE)
+}
+
+#[cfg(unix)]
 #[test]
 fn a_termination_signal_flushes_the_changes_just_recorded_and_stops_by_that_signal() {
+    use std::os::unix::process::ExitStatusExt;
+
     let dir = tempfile::tempdir().unwrap();
 
     let status = child::run(Ending::Terminate, dir.path());
 
-    assert_eq!(status.signal(), Some(SIGTERM), "{status:?}");
+    assert_eq!(
+        status.signal(),
+        Some(signal_hook::consts::SIGTERM),
+        "{status:?}"
+    );
     child::assert_every_change_recovers(dir.path());
     assert!(!child::ended_unexpectedly(dir.path()));
 }
@@ -175,7 +193,7 @@ fn a_killed_process_leaves_a_journal_the_next_start_recovers() {
 
     let status = child::run(Ending::Kill, dir.path());
 
-    assert_eq!(status.signal(), Some(SIGKILL), "{status:?}");
+    assert!(killed(status), "{status:?}");
     child::assert_every_change_recovers(dir.path());
     assert!(child::ended_unexpectedly(dir.path()));
 }

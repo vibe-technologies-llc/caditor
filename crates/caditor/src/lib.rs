@@ -125,6 +125,8 @@ use crate::{
 };
 
 pub fn run() -> Result<ExitCode> {
+    #[cfg(windows)]
+    caditor_windows::attach_parent_console();
     let open = match Invocation::parse(std::env::args_os().skip(1)) {
         Invocation::Run { open } => open,
         Invocation::Convert(conversion) => return headless::run(&conversion),

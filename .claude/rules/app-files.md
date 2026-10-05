@@ -2,6 +2,7 @@
 paths:
   - "crates/caditor/src/files.rs"
   - "crates/caditor/src/portal.rs"
+  - "crates/caditor/src/portal/**"
   - "crates/caditor/src/onboarding.rs"
   - "crates/caditor/src/export.rs"
   - "crates/caditor/src/image_export.rs"
@@ -20,9 +21,10 @@ paths:
 - `files.rs` owns the File menu and shortcuts, the recovery offer and the load report. Native
   dialogs run on their own thread; loading and recovery scans run on the files worker, each job
   under `catch_unwind` so a panic becomes its failure.
-- `portal.rs` shows file dialogs through the XDG desktop portal over `zbus` (pure Rust, no
-  `libdbus`) and falls back to `zenity`. A dialog that cannot be shown is a `DialogError` whose
-  `notice` says what to install, never a silent Cancel.
+- `portal.rs` holds the request and error types; `portal/xdg.rs` shows file dialogs on Unix
+  through the XDG desktop portal over `zbus` (pure Rust, no `libdbus`) and falls back to `zenity`,
+  `portal/windows.rs` through rfd, owned by the main window. A dialog that cannot be shown is a
+  `DialogError` whose `notice` says what to install, never a silent Cancel.
 - The unsaved-changes prompt precedes every action that replaces or ends the document: Save
   primary and rightmost, Cancel beside it, the discarding choice a `danger_button` at the far left
   (`widgets::footer_split`). Quit waits for the storage worker in a "Closing…" modal without

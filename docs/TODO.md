@@ -489,24 +489,31 @@ decision recorded in `docs/` before work starts.
 
 ## Platforms
 
-Linux is the primary platform and Windows the only other one planned; macOS is not a goal.
+Linux is the primary platform and Windows the only other one; macOS is not a goal.
 
-- [medium · hard] Linux only: there is no Windows build. Supporting Windows needs a Windows target
-  in `ci.yml`, `release.yml` and `deny.toml`, and a release archive or installer. `caditor-file` is
-  written against Unix: `os::unix` paths and file APIs in `journal.rs`, `recent.rs`, `recovery.rs`,
-  `paths.rs`, `lock.rs`, `logs.rs`, `storage.rs` and `save.rs` (`fchown`,
-  `rustix::fs::copy_file_range` and `access`), XDG config and state directories, and the atomic save
-  that fsyncs the directory after the rename, which Windows cannot do (use `ReplaceFileW` semantics
-  instead). The app shows its file dialogs through the XDG desktop portal over `zbus` with a
-  `zenity` fallback (`portal.rs`, also on `os::unix` paths), reports a failed start through
-  `zenity`, `kdialog` or `notify-send` (`logging.rs`), and flushes the journal on termination with
-  `signal-hook` (`crash.rs`); each needs a Windows counterpart (native dialogs, a console control
-  handler). The own title bar needs Windows snap, resize borders and DPI handling checked, the
-  desktop entry, icons and MIME type need a Windows equivalent (file association, `.ico`), and the
-  packaging scripts, `INSTALL.md` and `RELEASING.md` need a Windows section.
+- [medium · medium] Windows has been built and tested only in CI (`windows`, `package-windows`)
+  and run under wine: no one has used it on a real Windows desktop yet. Check by hand the built-in
+  title bar (dragging, Aero Snap, resize strips, double-click, the corner close, mixed-DPI
+  monitors), the rfd dialogs owned by the window, sign-out flushing the journal, the MSI from
+  SmartScreen to uninstall, and a model and its journal on a USB stick (FAT32/exFAT, no POSIX
+  rename) and on a network share.
+- [low · medium] On Windows, hovering caditor's own maximize button does not offer Snap Layouts:
+  that needs the button to answer `WM_NCHITTEST` with `HTMAXBUTTON`, which winit does not expose,
+  so it would be another `caditor-windows` subclass hook.
+- [low · medium] Windows paths compare case-sensitively: the recent files list can hold one model
+  twice under different casing, and journal markers and fallback journals hash the path as spelled
+  (`paths::path_hash`), so the same file reached as `C:\A\m.caditor` and `c:\a\M.caditor` gets
+  two fallback journals. Normalising needs the final path (`GetFinalPathNameByHandleW`) without
+  showing users `\\?\` names.
+- [low · medium] On Windows, saving writes every kept version from memory: ReFS block cloning
+  (`FSCTL_DUPLICATE_EXTENTS_TO_FILE`) would give `os::clone_range` what `copy_file_range` gives on
+  Linux.
+- [low · medium · blocked by: the project's decision to publish no maintainer identity] The MSI
+  and `caditor.exe` are not code-signed, so SmartScreen warns on first run; signing needs a
+  certificate tied to an identity.
 - [low · medium] Linux has only the `.tar.zst` with its installer: no AppImage, `.deb` or `.rpm`, so
   caditor is not in software centres and installs never update themselves.
-- [low · easy · blocked by: the Windows build, and the user guide for the repeat link] On Windows,
+- [low · easy · blocked by: the user guide for the repeat link] On Windows,
   Microsoft Defender's real-time scanning slows the atomic saves, the recovery journal's frequent
   syncs and version history writes in the folders models live in. Remind the user, once and
   dismissibly (a callout on first save to a folder, repeatable from Preferences and the user guide),

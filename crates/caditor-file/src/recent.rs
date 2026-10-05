@@ -1,7 +1,5 @@
 use std::{
-    ffi::OsString,
     io,
-    os::unix::ffi::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
 };
 
@@ -9,6 +7,7 @@ use serde_json::Value;
 
 use crate::{
     lock::locked_update,
+    os,
     read::read_file,
     save::{keep_unreadable, write_atomically},
 };
@@ -17,8 +16,7 @@ fn storable(path: &Path) -> Value {
     match path.to_str() {
         Some(text) => Value::String(text.to_owned()),
         None => Value::Array(
-            path.as_os_str()
-                .as_bytes()
+            os::path_bytes(path.as_os_str())
                 .iter()
                 .map(|byte| Value::from(*byte))
                 .collect(),
@@ -33,7 +31,7 @@ fn stored_path(value: &Value) -> Option<PathBuf> {
             .iter()
             .map(|byte| byte.as_u64().and_then(|byte| u8::try_from(byte).ok()))
             .collect::<Option<Vec<u8>>>()
-            .map(|bytes| PathBuf::from(OsString::from_vec(bytes))),
+            .map(|bytes| PathBuf::from(os::path_from_bytes(bytes))),
         _ => None,
     }
 }
@@ -151,14 +149,33 @@ impl RecentFiles {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+
     use tempfile::TempDir;
 
     use super::*;
 
+    #[cfg(unix)]
+    fn not_utf8() -> OsString {
+        use std::os::unix::ffi::OsStringExt;
+
+        OsString::from_vec(b"/models/caf\xe9.caditor".to_vec())
+    }
+
+    #[cfg(windows)]
+    fn not_utf8() -> OsString {
+        use std::os::windows::ffi::OsStringExt;
+
+        let mut units: Vec<u16> = "/models/caf".encode_utf16().collect();
+        units.push(0xd800);
+        units.extend(".caditor".encode_utf16());
+        OsString::from_wide(&units)
+    }
+
     #[test]
     fn paths_that_are_not_utf8_are_remembered() {
         let dir = TempDir::new().unwrap();
-        let odd = PathBuf::from(OsString::from_vec(b"/models/caf\xe9.caditor".to_vec()));
+        let odd = PathBuf::from(not_utf8());
         let plain = PathBuf::from("/models/plate.caditor");
         let mut recent = RecentFiles::default();
         recent.add(odd.clone());

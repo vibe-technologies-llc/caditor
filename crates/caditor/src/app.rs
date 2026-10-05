@@ -17,7 +17,6 @@ use winit::{
     dpi::{self, PhysicalPosition, PhysicalSize},
     event::{StartCause, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy},
-    platform::{wayland::WindowAttributesExtWayland, x11::WindowAttributesExtX11},
     window::{Window, WindowAttributes, WindowId},
 };
 
@@ -935,9 +934,47 @@ fn window_attributes(
         Ok(icon) => attributes = attributes.with_window_icon(Some(icon)),
         Err(error) => log::warn!("opening the window without its icon: {error}"),
     }
+    named_for_the_platform(attributes)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn named_for_the_platform(attributes: WindowAttributes) -> WindowAttributes {
+    use winit::platform::{wayland::WindowAttributesExtWayland, x11::WindowAttributesExtX11};
+
     let attributes =
         WindowAttributesExtWayland::with_name(attributes, about::APP_ID, about::APP_ID);
     WindowAttributesExtX11::with_name(attributes, about::APP_ID, about::APP_ID)
+}
+
+#[cfg(windows)]
+fn named_for_the_platform(attributes: WindowAttributes) -> WindowAttributes {
+    use winit::platform::windows::WindowAttributesExtWindows;
+
+    let attributes = attributes
+        .with_class_name(about::APP_ID)
+        .with_undecorated_shadow(true);
+    match logo::taskbar_icon() {
+        Ok(icon) => attributes.with_taskbar_icon(Some(icon)),
+        Err(error) => {
+            log::warn!("opening the window without its taskbar icon: {error}");
+            attributes
+        }
+    }
+}
+
+#[cfg(windows)]
+fn own_the_window(window: &Window) {
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    match window.window_handle().map(|handle| handle.as_raw()) {
+        Ok(RawWindowHandle::Win32(handle)) => {
+            crate::portal::own_dialogs(handle.hwnd);
+            crate::crash::flush_when_the_session_ends(handle.hwnd);
+        }
+        _ => log::warn!(
+            "the window has no Win32 handle, so file dialogs and signing out are not tied to it"
+        ),
+    }
 }
 
 fn monitor_areas(event_loop: &ActiveEventLoop) -> Vec<MonitorArea> {
@@ -1011,6 +1048,8 @@ impl Session {
         let layout = (preferences.window, preferences.panels);
         let mut overlay = Overlay::new(&window, &renderer);
         overlay.enable_accessibility(event_loop, &window, proxy);
+        #[cfg(windows)]
+        own_the_window(&window);
         window.set_visible(true);
         let mut workspace = Workspace::with_preferences(preferences);
         workspace.hardware = Hardware {

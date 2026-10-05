@@ -4,7 +4,7 @@ use std::{
 };
 
 const SKIPPED_DIRECTORIES: [&str; 4] = ["target", "corpus", "artifacts", "coverage"];
-const UNSAFE_CRATE: &str = "caditor-zstd";
+const UNSAFE_CRATES: [&str; 2] = ["caditor-windows", "caditor-zstd"];
 
 fn repository() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -272,7 +272,7 @@ fn every_member_inherits_the_workspace_lints() {
     for member in members {
         let manifest = fs::read_to_string(member.join("Cargo.toml")).unwrap();
         let name = member.file_name().unwrap().to_string_lossy().into_owned();
-        if name == UNSAFE_CRATE {
+        if UNSAFE_CRATES.contains(&name.as_str()) {
             assert_eq!(
                 table_entries(&manifest, "lints.clippy"),
                 workspace_clippy,

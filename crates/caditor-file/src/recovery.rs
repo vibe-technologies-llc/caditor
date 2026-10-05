@@ -1,10 +1,8 @@
 use std::{
     cmp::Reverse,
     collections::BTreeSet,
-    ffi::OsString,
     fs::{self, File},
     io,
-    os::unix::ffi::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -16,6 +14,7 @@ use crate::{
     journal::{JournalEntry, decode_journal, replay},
     load::load,
     lock::{Location, in_use, location, lock_existing},
+    os,
     paths::{self, JOURNAL_EXTENSION, MARKER_EXTENSION},
     read::{read_file, read_open},
     save::{sweep_orphaned_temporaries, sync_parent, write_atomically},
@@ -236,7 +235,7 @@ pub(crate) fn mark_journal(journal: &Path, recovery_dir: &Path) -> io::Result<()
         return Ok(());
     }
     fs::create_dir_all(recovery_dir)?;
-    write_atomically(&marker, journal.as_os_str().as_bytes())
+    write_atomically(&marker, &os::path_bytes(journal.as_os_str()))
 }
 
 pub(crate) fn unmark_journal(journal: &Path, recovery_dir: &Path) {
@@ -263,7 +262,7 @@ fn marked_journals(recovery_dir: &Path) -> Vec<PathBuf> {
                 .is_some_and(|extension| extension == MARKER_EXTENSION)
         })
         .filter_map(|marker| {
-            let journal = PathBuf::from(OsString::from_vec(read_file(&marker).ok()?));
+            let journal = PathBuf::from(os::path_from_bytes(read_file(&marker).ok()?));
             let usable = journal.is_absolute()
                 && journal
                     .extension()

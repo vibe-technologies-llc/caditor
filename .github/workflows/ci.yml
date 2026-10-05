@@ -250,6 +250,101 @@ jobs:
       - name: Install and uninstall the snapshot
         run: packaging/check-install.sh target/dist/caditor-*-snapshot-linux-x86_64.tar.zst
 
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+
+      - name: Check out (actions/checkout v7.0.1)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Load the pinned versions
+        run: cat .github/versions.env >> "$GITHUB_ENV"
+
+      - name: Restore the cargo cache (actions/cache v6.1.0)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: windows-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: windows-${{ env.RUST_TOOLCHAIN }}-
+
+      - name: Install Rust
+        uses: ./.github/actions/install-rust
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
+
+      - name: Test
+        env:
+          CADITOR_REQUIRE_GPU: "1"
+        run: cargo test --workspace --locked
+
+      - name: Check that the tests left the checkout clean
+        run: |
+          status=$(git status --porcelain --untracked-files=all)
+          if [ -n "$status" ]; then
+            echo "The tests changed or left files in the checkout:"
+            echo "$status"
+            exit 1
+          fi
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+  package-windows:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+
+      - name: Check out (actions/checkout v7.0.1)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Load the pinned versions
+        run: cat .github/versions.env >> "$GITHUB_ENV"
+
+      - name: Install Rust
+        uses: ./.github/actions/install-rust
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Restore the cargo cache (actions/cache v6.1.0)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: package-windows-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: package-windows-${{ env.RUST_TOOLCHAIN }}-
+
+      - name: Install cargo-about and WiX
+        run: .github/install-windows-packaging.sh
+
+      - name: Build a snapshot installer
+        shell: pwsh
+        run: packaging/windows/build-release.ps1 -Snapshot
+
+      - name: Install, upgrade and uninstall the snapshot
+        shell: pwsh
+        run: packaging/windows/check-install.ps1 (Get-Item target/dist/caditor-*-snapshot-windows-x86_64.msi)
+
   fuzz:
     runs-on: ubuntu-latest
     container: ubuntu:22.04

@@ -9,6 +9,7 @@ use thiserror::Error;
 
 use crate::{
     lock::locked_update,
+    os,
     read::read_file,
     save::{keep_unreadable, write_atomically},
 };
@@ -19,18 +20,7 @@ const UNREADABLE_STEM: &str = "preferences.unreadable";
 const LOCK_FILE: &str = "preferences.lock";
 
 pub fn config_dir() -> Option<PathBuf> {
-    let from_xdg = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute());
-    let from_home = || {
-        std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .map(|home| home.join(".config"))
-    };
-    from_xdg
-        .or_else(from_home)
-        .map(|base| base.join(APPLICATION))
+    os::config_base().map(|base| base.join(APPLICATION))
 }
 
 #[derive(Debug, Error)]

@@ -30,6 +30,7 @@ caditor-kernel.path = "crates/caditor-kernel"
 caditor-render.path = "crates/caditor-render"
 caditor-sketch.path = "crates/caditor-sketch"
 caditor-step.path = "crates/caditor-step"
+caditor-windows.path = "crates/caditor-windows"
 caditor-zstd.path = "crates/caditor-zstd"
 
 ahash = "0.8.12"
@@ -53,7 +54,7 @@ glam = "0.33.12"
 jiff = {
     version = "0.2.37",
     default-features = false,
-    features = ["std", "tz-system", "tzdb-zoneinfo"]
+    features = ["std", "tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo"]
 }
 libzstd-rs-sys = "0.0.1-prerelease.2"
 log = "0.4.34"
@@ -63,6 +64,8 @@ nalgebra = "0.35.0"
 parking_lot = "0.12.5"
 png = "0.18.1"
 pollster = "1.0.1"
+raw-window-handle = "0.6.2"
+rfd = { version = "0.17.2", default-features = false }
 rustix = { version = "1.1.5", default-features = false }
 serde = "1.0.229"
 serde_json = "1.0.151"
@@ -73,9 +76,11 @@ thiserror = "2.0.21"
 wgpu = {
     version = "30.0.1",
     default-features = false,
-    features = ["std", "parking_lot", "vulkan", "gles", "wgsl"]
+    features = ["std", "parking_lot", "vulkan", "gles", "dx12", "wgsl"]
 }
+windows-sys = { version = "0.61.2", default-features = false }
 winit = "0.30.13"
+winresource = { version = "0.1.31", default-features = false }
 xattr = "1.6.1"
 zbus = { version = "5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
 xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
