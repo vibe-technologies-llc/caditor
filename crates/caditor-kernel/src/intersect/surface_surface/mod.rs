@@ -21,7 +21,7 @@ const WINDOW_REACH: f64 = 0.02;
 const MAX_SPAN_DEPTH: usize = 48;
 const MAX_SPAN_PIECES: usize = 4096;
 const PERIOD_SLACK: f64 = 1e-9;
-const MIN_BRANCH_LENGTH: f64 = 10.0 * LINEAR_RESOLUTION;
+const MIN_BRANCH_LENGTH: f64 = LINEAR_RESOLUTION;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IntersectionBranch {

@@ -25,25 +25,25 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Kernel correctness
 
-- [high · hard] About 0.7% of booleans between the fixture solids in random placements still fail
-  (`boolean::tests::random_placements_of_every_fixture`, ignored, best run in release): mostly
-  `Open` between extruded splines, frustums and tori (once between a holed block and a cuboid), then
-  `Intersection` failures between nearly coincident tori and cones that are too intricate to
-  intersect, and one placement of the holed block and an extruded spline that is `Ambiguous`.
-  Intersection curves crossing at a tangent point (tori touching along their equators, a face
-  touching a torus's inner equator) cannot be split, and a result whose pcurves stray past the
-  resolution (a cylinder against a tilted torus) or with a lump too thin for the validation mesh is
-  refused as invalid; the first two have a test pinning their error
-  (`tori_touching_along_their_equators_cannot_be_split`,
+- [high · hard] About 0.6% of booleans between the fixture solids in random placements still fail
+  (`boolean::tests::random_placements_of_every_fixture`, ignored, best run in release): `Open`
+  between extruded splines, frustums and tori and once between a holed block and a cuboid whose
+  edge passes 1.6 µm from the block's corner, and `Intersection` failures between nearly
+  coincident tori and cones that are too intricate to intersect. Intersection curves crossing at a
+  tangent point (tori touching along their equators, a face touching a torus's inner equator)
+  cannot be split, and a result whose pcurves stray past the resolution (a cylinder against a
+  tilted torus) or with a lump too thin for the validation mesh is refused as invalid; the first two
+  have a test pinning their error (`tori_touching_along_their_equators_cannot_be_split`,
   `a_result_straying_past_the_resolution_is_refused_as_invalid`), the thin lump has none.
 - [high · hard] Faces or axes apart by more than `LINEAR_RESOLUTION` but by less than a few
-  micrometres are neither coincident nor separate: coaxial cylinders of radii 5 and 5 + 2e-6, a plug
-  offset 1e-5 in its bore, or blocks of heights differing by 5e-6 fail as `Open`, `Ambiguous`,
-  `NonManifold` or `Invalid(LoopOrientation)`, which sloppy STEP imports will hit; 246 of 900
-  booleans of blocks and cylinders 1e-6 to 1e-4 mm off an aligned contact with a long plate fail
-  (`boolean::tests::aligned_contacts_a_micrometre_or_so_apart`, ignored). `SAME_EDGE`,
-  `NEAR_BOUNDARY`, `PCURVE_TOLERANCE` and the coaxial offset are unrelated absolute values; derive
-  them from one tolerance model and snap or refuse within a documented band.
+  micrometres are neither coincident nor separate. Blocks a micrometre or so off an aligned contact
+  now combine (thin strips are classified by the side of the faces they touch, and branches as
+  short as the resolution cut), but 27 of 900 booleans in
+  `boolean::tests::aligned_contacts_a_micrometre_or_so_apart` (ignored) still fail, almost all
+  cylinders standing a few micrometres off a plate's edge: `Invalid(EdgeOffSurface)`, `Split` and
+  `Open`. `SAME_EDGE`, `NEAR_BOUNDARY`, `PCURVE_TOLERANCE` and the coaxial offset are still
+  unrelated absolute values; derive them from one tolerance model and snap or refuse within a
+  documented band.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps

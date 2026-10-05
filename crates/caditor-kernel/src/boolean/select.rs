@@ -7,14 +7,14 @@ use crate::{
         BooleanError, BooleanOperation, FaceKey, Input, Operand, TOLERANCE,
         faces::SplitFace,
         imprint::Arrangement,
-        trace::{Fragment, interior_points},
+        trace::{Fragment, deepest_points, interior_points},
     },
     interrupt,
     intersect::boxes_overlap,
     naming::{FaceName, FaceOrigin},
     sense::Sense,
     surface::Surface,
-    topology::BoundaryClass,
+    topology::{BoundaryClass, PointClass, SolidClassifier},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +107,24 @@ pub(super) fn classify(
     }
     solid_side
         .or(coincident)
+        .or_else(|| classify_thin(classifier, surface, fragment))
         .ok_or_else(|| ambiguous(first_sample))
+}
+
+fn classify_thin(
+    classifier: &SolidClassifier,
+    surface: &Surface,
+    fragment: &Fragment,
+) -> Option<Class> {
+    deepest_points(fragment, surface)
+        .into_iter()
+        .find_map(
+            |uv| match classifier.side_of_touched_faces(surface.point_at(uv)) {
+                PointClass::Inside => Some(Class::Inside),
+                PointClass::Outside => Some(Class::Outside),
+                PointClass::OnBoundary(_) | PointClass::Undecided => None,
+            },
+        )
 }
 
 struct Components {

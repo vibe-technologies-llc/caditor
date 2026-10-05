@@ -24,6 +24,7 @@ const NEAR_BOUNDARY: f64 = 8.0 * PCURVE_TOLERANCE;
 const GRAZING_COSINE: f64 = 1e-4;
 const COINCIDENT_SINE: f64 = 1e-6;
 const POLE_NUDGE: f64 = 1e-7;
+const NEGLIGIBLE_HEIGHT: f64 = 1e-3 * TOLERANCE;
 const RELATIVE_POLE_NUDGE: f64 = 1e-6;
 const RAY_REACH_MARGIN: f64 = 1.0;
 const WINDOW_MARGIN: f64 = 16.0 * TOLERANCE;
@@ -443,6 +444,41 @@ impl<'a> SolidClassifier<'a> {
         {
             return PointClass::OnBoundary(data.id);
         }
+        self.cast_rays(point, bounds, directions)
+    }
+
+    pub(crate) fn side_of_touched_faces(&self, point: Point3) -> PointClass {
+        let mut side = None;
+        for data in self.faces_near(point) {
+            let Some(uv) = self.on_face(data, point) else {
+                continue;
+            };
+            let Some(normal) = self.outward_normal(data.id, uv) else {
+                return PointClass::Undecided;
+            };
+            let height = (point
+                - self
+                    .solid
+                    .face(data.id)
+                    .map_or(point, |face| face.surface().point_at(uv)))
+            .dot(normal);
+            if height.abs() <= NEGLIGIBLE_HEIGHT {
+                return PointClass::Undecided;
+            }
+            let inside = height < 0.0;
+            if side.is_some_and(|known| known != inside) {
+                return PointClass::Undecided;
+            }
+            side = Some(inside);
+        }
+        match side {
+            Some(true) => PointClass::Inside,
+            Some(false) => PointClass::Outside,
+            None => self.classify(point),
+        }
+    }
+
+    fn cast_rays(&self, point: Point3, bounds: Aabb, directions: &[Vector3]) -> PointClass {
         let reach = bounds
             .corners()
             .iter()

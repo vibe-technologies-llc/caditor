@@ -48,7 +48,9 @@ paths:
   `assemble.rs`. Candidates come from a tree of face boxes (`box_tree.rs`, also used by
   `find_crossing`).
 - Imprint: vertices within `LINEAR_RESOLUTION` are pooled; every edge and face–face branch is split
-  at the pooled vertices on it. Pieces with the same end vertices and geometry are one edge, so an
+  at the pooled vertices on it. A branch piece is kept when no sample along it lies outside either
+  face and some sample lies strictly inside each, so a piece a micrometre or two long, whose middle
+  is within the resolution of a face boundary, still cuts. Pieces with the same end vertices and geometry are one edge, so an
   intersection along an existing edge and coincident faces need no special case.
 - Face tracing: a face with no cuts and no split edges passes through with its own loops and
   pcurves. Otherwise it is traced into loops from its boundary pieces and cuts; at each vertex the
@@ -57,7 +59,10 @@ paths:
   tangents) are decided by chords at a common distance.
 - Selection: each fragment is classified against the other solid at up to `INTERIOR_POINTS`
   interior points (inside or outside wins over coincident or touching; inside and outside
-  together, or coincident samples of opposite senses, are `Ambiguous`). Faces that passed through
+  together, or coincident samples of opposite senses, are `Ambiguous`). A fragment whose samples
+  only touch the other solid (a strip narrower than twice the resolution) is decided at its deepest
+  points (`trace::deepest_points`) by `SolidClassifier::side_of_touched_faces`: the sign of the
+  offset along the outward normal of every face it touches, which must agree. Faces that passed through
   share one class across unsplit edges that no cut shares; one whose box misses the other solid's
   is outside. Of coincident faces only the first solid's fragment can stay: with the same
   orientation for union and intersection, the opposite for difference. A difference reverses the

@@ -22,6 +22,7 @@ const PERIOD_SHIFTS: [f64; 3] = [0.0, -1.0, 1.0];
 const JOINT_MATCH: f64 = 1e-6;
 const INTERIOR_POINTS: usize = 3;
 const SPAN_OFFSETS: [f64; 3] = [0.5, 0.37, 0.61];
+const DEEPEST_POINTS: usize = 6;
 const POLE_RING: usize = 8;
 const POLE_OFFSET: f64 = 1e-3;
 const GROUP_SLACK: f64 = 1e-9;
@@ -718,6 +719,61 @@ pub(super) fn interior_points(fragment: &Fragment, surface: &Surface) -> Vec<Poi
     spans
         .into_iter()
         .take(INTERIOR_POINTS)
+        .map(|(_, uv)| uv)
+        .collect()
+}
+
+pub(super) fn deepest_points(fragment: &Fragment, surface: &Surface) -> Vec<Point2> {
+    let polygons: Vec<Vec<Point2>> = fragment.loops.iter().map(TracedLoop::polygon).collect();
+    let Some(bounds) = polygons
+        .first()
+        .and_then(|outer| Aabb2::from_points(outer.iter().copied()))
+    else {
+        return Vec::new();
+    };
+    let reach = |uv: Point2, across: bool| {
+        let (level, along) = if across { (uv.x, uv.y) } else { (uv.y, uv.x) };
+        let crossings = scan(&polygons, level, across);
+        let derivatives = surface.evaluate(uv.x, uv.y);
+        let speed = if across {
+            derivatives.dv.length()
+        } else {
+            derivatives.du.length()
+        };
+        crossings
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .find(|[a, b]| (*a..=*b).contains(&along))
+            .map_or(0.0, |[a, b]| (along - a).min(b - along) * speed)
+    };
+    let mut candidates: Vec<(f64, Point2)> = Vec::new();
+    for across in [false, true] {
+        let (low, high) = if across {
+            (bounds.min().x, bounds.max().x)
+        } else {
+            (bounds.min().y, bounds.max().y)
+        };
+        for step in 0..SCAN_LEVELS {
+            let level = low + (high - low) * (step as f64 + 0.5) / SCAN_LEVELS as f64;
+            for [a, b] in scan(&polygons, level, across).as_chunks::<2>().0 {
+                let middle = 0.5 * (a + b);
+                let uv = if across {
+                    Point2::new(level, middle)
+                } else {
+                    Point2::new(middle, level)
+                };
+                let depth = reach(uv, across).min(reach(uv, !across));
+                if depth.is_finite() && depth > 0.0 {
+                    candidates.push((depth, uv));
+                }
+            }
+        }
+    }
+    candidates.sort_by(|a, b| b.0.total_cmp(&a.0));
+    candidates
+        .into_iter()
+        .take(DEEPEST_POINTS)
         .map(|(_, uv)| uv)
         .collect()
 }

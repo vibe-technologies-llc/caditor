@@ -995,7 +995,7 @@ fn outcome(result: &Result<Solid, BooleanError>) -> &'static str {
     }
 }
 
-const RANDOM_PLACEMENT_FAILURES_ALLOWED: usize = 40;
+const RANDOM_PLACEMENT_FAILURES_ALLOWED: usize = 30;
 
 #[test]
 #[ignore = "a survey of the failures left, best run in release"]
@@ -1183,7 +1183,7 @@ fn aligned_contacts_with_long_plates_combine() {
     }
 }
 
-const NEAR_CONTACT_FAILURES_ALLOWED: usize = 250;
+const NEAR_CONTACT_FAILURES_ALLOWED: usize = 30;
 
 #[test]
 #[ignore = "a survey of the near-coincidence failures left, best run in release"]

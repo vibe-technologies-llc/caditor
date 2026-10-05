@@ -289,8 +289,8 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
     let place = error.place.unwrap();
     assert_eq!(
         error.reason,
-        "The bodies of Plate and Peg could not be combined. Where the bodies touch at Peg side \
-         from Line 2, it cannot be told which side is inside."
+        "The bodies of Plate and Peg could not be combined. The faces of the result would not \
+         close up at Plate start face."
     );
     assert!(
         error
