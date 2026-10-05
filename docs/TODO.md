@@ -225,8 +225,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
   coloured STEP (writer) and 3MF export and the mass of the mass properties.
 - [medium · medium] No interference check: nothing finds where two bodies overlap or touch, or
   reports the overlapping volume, though booleans already compute it.
-- [medium · medium] Split a body by a plane or a face, and move or copy one body (`RigidTransform`
-  and booleans exist).
+- [medium · medium] Split a body by a plane or a face, and copy one body (`RigidTransform` and
+  booleans exist); a body can be moved but only by typed distances and turns about the origin's axes,
+  not dragged, turned about its own axis or centre, or placed by mating faces.
 - [medium · medium] The kernel has only rigid transforms (`RigidTransform`; `Solid::transformed`
   takes nothing else): add a reflecting and a uniform-scaling transform that keep face and edge
   names stable.

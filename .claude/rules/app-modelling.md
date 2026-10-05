@@ -8,6 +8,8 @@ paths:
   - "crates/caditor/src/shell_panel.rs"
   - "crates/caditor/src/combine_tools.rs"
   - "crates/caditor/src/combine_panel.rs"
+  - "crates/caditor/src/move_tools.rs"
+  - "crates/caditor/src/move_panel.rs"
   - "crates/caditor/src/datum_tools.rs"
   - "crates/caditor/src/datum_panel.rs"
   - "crates/caditor/src/pattern_tools.rs"
@@ -89,6 +91,13 @@ paths:
   Join and opens the panel, whose Operation switch (Join, Cut, Intersect) and Target and Tool
   lists (`Document::bodies_before`, each leaving out the other) change it. Nothing is chosen in the
   view while it is open.
+
+## Move
+
+- Move body (Alt+M) takes the one body whose faces, edges or vertices are selected and creates a `Move`
+  of zero turns and distances, then opens it. The panel has a field for the turn about each axis
+  and the distance along each, all expressions (key `move-field`, `offset` or `turn`, axis index).
+  Nothing is chosen in the view while it is open.
 
 ## Patterns
 

@@ -3985,3 +3985,73 @@ fn combines_are_saved_and_loaded() {
     let record = through_binary(&text);
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
+
+#[test]
+fn moves_are_saved_and_loaded() {
+    use caditor_document::Move;
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Move");
+    let movement = transaction.add_feature(
+        "Move 1",
+        FeatureKind::Move(Move {
+            body: base,
+            offset: [
+                transaction.parse("depth * 2").unwrap(),
+                transaction.parse("-4 mm").unwrap(),
+                transaction.parse("0 mm").unwrap(),
+            ],
+            turn: [
+                transaction.parse("0 deg").unwrap(),
+                transaction.parse("15 deg").unwrap(),
+                transaction.parse("90 deg").unwrap(),
+            ],
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"move\":{\"body\":"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(movement).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: movement, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn a_move_with_a_damaged_distance_loads_with_zero_and_says_so() {
+    use caditor_document::Move;
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Move");
+    transaction.add_feature(
+        "Move 1",
+        FeatureKind::Move(Move {
+            body: base,
+            offset: [
+                transaction.parse("5 mm").unwrap(),
+                transaction.parse("0 mm").unwrap(),
+                transaction.parse("0 mm").unwrap(),
+            ],
+            turn: [
+                transaction.parse("0 deg").unwrap(),
+                transaction.parse("0 deg").unwrap(),
+                transaction.parse("0 deg").unwrap(),
+            ],
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"offset\":[\"5 mm\""));
+
+    let loaded = decode_text(&text.replace("\"offset\":[\"5 mm\"", "\"offset\":[\"5 +* mm\""));
+
+    assert_eq!(
+        loaded.issues,
+        ["The distance of “Move 1” could not be read, so it was set to 0 mm."]
+    );
+}

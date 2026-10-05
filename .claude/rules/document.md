@@ -139,6 +139,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   or tied reference fails the feature. That state is kept (`Evaluation::body_before`) and meshed,
   for showing while choosing.
 
+### Move (`movement.rs`)
+
+- `Move { body, offset, turn }` places an existing body: turns about the X, Y then Z axes through
+  the origin, then shifts by the three distances, all expressions (any sign). It modifies its
+  body like a blend does, keeps every face and edge name (`Solid::transformed`) so references
+  held through it survive, and fails alone when a value is not a length or angle or the result is
+  not finite.
+
 ### Combine (`combine.rs`)
 
 - `Combine { body, tool, operation }` joins, cuts or intersects two existing bodies (kernel `boolean`)

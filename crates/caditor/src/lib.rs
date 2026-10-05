@@ -48,6 +48,8 @@ mod messages;
 mod mirroring;
 mod model;
 mod modifying;
+mod move_panel;
+mod move_tools;
 mod offers;
 mod offsetting;
 mod onboarding;

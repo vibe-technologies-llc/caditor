@@ -5,7 +5,7 @@ use caditor_sketch::Sketch;
 
 use crate::*;
 
-fn rectangle(min: (f64, f64), max: (f64, f64)) -> Sketch {
+pub(crate) fn rectangle(min: (f64, f64), max: (f64, f64)) -> Sketch {
     let mut sketch = Sketch::new(Plane::XY);
     let corners = [
         Point2::new(min.0, min.1),
@@ -19,7 +19,7 @@ fn rectangle(min: (f64, f64), max: (f64, f64)) -> Sketch {
     sketch
 }
 
-fn block(
+pub(crate) fn block(
     transaction: &mut TransactionBuilder<'_>,
     name: &str,
     min: (f64, f64),
@@ -42,13 +42,13 @@ fn block(
     )
 }
 
-struct Pair {
-    document: Document,
-    plate: FeatureId,
-    peg: FeatureId,
+pub(crate) struct Pair {
+    pub(crate) document: Document,
+    pub(crate) plate: FeatureId,
+    pub(crate) peg: FeatureId,
 }
 
-fn pair() -> Pair {
+pub(crate) fn pair() -> Pair {
     let mut document = Document::default();
     let mut transaction = document.transaction("Build");
     let plate = block(&mut transaction, "Plate", (0.0, 0.0), (20.0, 10.0), "4 mm");
@@ -76,11 +76,11 @@ fn combine(pair: &mut Pair, operation: CombineOperation) -> FeatureId {
     combined
 }
 
-fn evaluate(document: &Document, engine: &mut Recompute) -> Evaluation {
+pub(crate) fn evaluate(document: &Document, engine: &mut Recompute) -> Evaluation {
     engine.run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
 }
 
-fn volume(evaluation: &Evaluation, body: FeatureId) -> f64 {
+pub(crate) fn volume(evaluation: &Evaluation, body: FeatureId) -> f64 {
     evaluation
         .body(body)
         .unwrap()

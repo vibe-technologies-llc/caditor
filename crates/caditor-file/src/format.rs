@@ -3,10 +3,10 @@ use std::sync::Arc;
 use caditor_document::{
     AxisReference, Blend, BlendKind, BodyOperation, CircularPattern, Combine, CombineOperation,
     Datum, DatumAxis, DatumPlane, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent,
-    FaceAttachment, Feature, FeatureId, FeatureKind, Import, LinearDirection, Parameter, Pattern,
-    PatternKind, PlaneReference, PlaneRotation, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    RegionChoice, Revolve, RevolveAxis, RevolveExtent, RollbackBar, Shell, SketchAttachment,
-    SketchFeature, SolidFeature, Transaction,
+    FaceAttachment, Feature, FeatureId, FeatureKind, Import, LinearDirection, Move, Parameter,
+    Pattern, PatternKind, PlaneReference, PlaneRotation, PrincipalAxis, PrincipalGeometry,
+    PrincipalPlane, RegionChoice, Revolve, RevolveAxis, RevolveExtent, RollbackBar, Shell,
+    SketchAttachment, SketchFeature, SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -79,6 +79,7 @@ pub(crate) enum FeatureKindRecord {
     Chamfer(BlendRecord),
     Shell(ShellRecord),
     Combine(CombineRecord),
+    Move(MoveRecord),
     LinearPattern(Box<LinearPatternRecord>),
     CircularPattern(Box<CircularPatternRecord>),
     Plane(Box<DatumPlaneRecord>),
@@ -86,7 +87,7 @@ pub(crate) enum FeatureKindRecord {
     Import(ImportRecord),
 }
 
-pub(crate) const FEATURE_KINDS: [&str; 14] = [
+pub(crate) const FEATURE_KINDS: [&str; 15] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -96,6 +97,7 @@ pub(crate) const FEATURE_KINDS: [&str; 14] = [
     "chamfer",
     "shell",
     "combine",
+    "move",
     "linear_pattern",
     "circular_pattern",
     "plane",
@@ -196,6 +198,13 @@ pub(crate) enum CombineOperationRecord {
     Join,
     Cut,
     Intersect,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct MoveRecord {
+    pub body: u64,
+    pub offset: [String; 3],
+    pub turn: [String; 3],
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -788,6 +797,11 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 CombineOperation::Cut => CombineOperationRecord::Cut,
                 CombineOperation::Intersect => CombineOperationRecord::Intersect,
             },
+        }),
+        FeatureKind::Move(movement) => FeatureKindRecord::Move(MoveRecord {
+            body: movement.body.raw(),
+            offset: movement.offset.each_ref().map(Expression::to_stored_text),
+            turn: movement.turn.each_ref().map(Expression::to_stored_text),
         }),
         FeatureKind::Pattern(pattern) => pattern_record(pattern),
         FeatureKind::Import(import) => FeatureKindRecord::Import(ImportRecord {
@@ -1799,6 +1813,7 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
                 CombineOperationRecord::Intersect => CombineOperation::Intersect,
             },
         }),
+        FeatureKindRecord::Move(record) => FeatureKind::Move(restore_move(record, name, issues)),
         FeatureKindRecord::LinearPattern(record) => {
             FeatureKind::from(restore_linear_pattern(record, name, issues))
         }
@@ -2044,6 +2059,19 @@ fn restore_circular_pattern(
             angle: restore_value(&record.angle, "angle", "360 deg", feature, issues),
             reversed: record.reversed,
         }),
+    }
+}
+
+fn restore_move(record: &MoveRecord, feature: &str, issues: &mut Vec<String>) -> Move {
+    let mut read = |texts: &[String; 3], what: &str, fallback: &str| {
+        texts
+            .each_ref()
+            .map(|text| restore_value(text, what, fallback, feature, issues))
+    };
+    Move {
+        body: FeatureId::from_raw(record.body),
+        offset: read(&record.offset, "distance", "0 mm"),
+        turn: read(&record.turn, "turn", "0 deg"),
     }
 }
 

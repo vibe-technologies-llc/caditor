@@ -9,6 +9,7 @@ mod edit;
 mod editor;
 mod healing;
 mod import;
+mod movement;
 mod origins;
 mod parameter_list;
 mod pattern;
@@ -40,6 +41,7 @@ pub use crate::{
     editor::{Base, Editor, Prepared, Stale},
     healing::Healing,
     import::Import,
+    movement::{Move, MoveAxis},
     origins::complete_origins,
     pattern::{CircularPattern, LinearDirection, MAX_PATTERN_INSTANCES, Pattern, PatternKind},
     pieces::{Resolution, Unresolved},
@@ -66,6 +68,8 @@ mod combine_tests;
 mod datum_tests;
 #[cfg(test)]
 mod extent_tests;
+#[cfg(test)]
+mod movement_tests;
 #[cfg(test)]
 mod pattern_tests;
 #[cfg(test)]

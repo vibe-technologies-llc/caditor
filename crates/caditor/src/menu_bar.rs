@@ -442,6 +442,7 @@ impl Menus<'_, '_> {
                     Command::Chamfer,
                     Command::Shell,
                     Command::Combine,
+                    Command::Move,
                 ],
             );
             ui.separator();

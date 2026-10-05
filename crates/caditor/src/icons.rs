@@ -109,6 +109,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Chamfer => blend(BlendKind::Chamfer),
         Command::Shell => SHELL,
         Command::Combine => COMBINE,
+        Command::Move => MOVE,
         Command::LinearPattern => LINEAR_PATTERN,
         Command::CircularPattern => CIRCULAR_PATTERN,
         Command::DatumPlane => PLANE,
@@ -176,6 +177,7 @@ const EXTRUDE: &str = phosphor::ARROW_FAT_LINE_UP;
 const REVOLVE: &str = phosphor::ARROWS_CLOCKWISE;
 const SHELL: &str = phosphor::CUBE_TRANSPARENT;
 const COMBINE: &str = phosphor::UNITE;
+const MOVE: &str = phosphor::HAND_GRABBING;
 const LINEAR_PATTERN: &str = phosphor::SQUARES_FOUR;
 const CIRCULAR_PATTERN: &str = phosphor::SPINNER;
 const PLANE: &str = phosphor::PARALLELOGRAM;
@@ -289,6 +291,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Blend(blend) => self::blend(blend.kind),
         FeatureKind::Shell(_) => SHELL,
         FeatureKind::Combine(combine) => self::combine(combine.operation),
+        FeatureKind::Move(_) => MOVE,
         FeatureKind::Pattern(pattern) => match pattern.kind {
             PatternKind::Linear { .. } => LINEAR_PATTERN,
             PatternKind::Circular(_) => CIRCULAR_PATTERN,

@@ -4997,7 +4997,10 @@ const RIBBON_GROUPS: [(&str, &[&str]); 7] = [
     ("History", &["Undo", "Redo"]),
     ("Sketch", &[toolbar::NEW_SKETCH_LABEL]),
     ("Solid", &["Extrude", "Revolve"]),
-    ("Modify", &["Fillet", "Chamfer", "Shell", "Combine"]),
+    (
+        "Modify",
+        &["Fillet", "Chamfer", "Shell", "Combine", "Move body"],
+    ),
     ("Pattern", &["Linear pattern", "Circular pattern"]),
     ("Reference", &[toolbar::PLANE_LABEL, toolbar::AXIS_LABEL]),
     ("Inspect", &[toolbar::MEASURE_LABEL]),
@@ -6205,6 +6208,64 @@ fn a_combine_of_a_third_body_or_none_is_refused_with_what_to_select() {
             .features()
             .all(|feature| feature.kind.combine().is_none())
     );
+}
+
+#[test]
+fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+
+    harness.select([top]);
+    harness.click("Move body");
+    harness.settle();
+    let movement = harness.workspace.editing.solid().expect("the move is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Move body 1"));
+    assert!(harness.shows("Move along X"));
+    assert!(harness.shows("Turn about Z"));
+
+    harness.type_into_field(Id::new(("move-field", "offset", 0usize, movement)), "5 mm");
+    harness.settle();
+    let bounds = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .unwrap()
+        .bounding_box()
+        .unwrap();
+    assert!((bounds.min().x - 5.0).abs() < 1e-6, "{:?}", bounds.min());
+    assert_eq!(harness.model.undo_label(), Some("Edit Move body 1"));
+
+    harness.type_into_field(Id::new(("move-field", "turn", 2usize, movement)), "90 deg");
+    harness.settle();
+    let bounds = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .unwrap()
+        .bounding_box()
+        .unwrap();
+    assert!(
+        (bounds.min().x - (-40.0 + 5.0)).abs() < 1e-6,
+        "{:?}",
+        bounds.min()
+    );
+
+    harness.type_into_field(Id::new(("move-field", "offset", 1usize, movement)), "5 deg");
+    assert!(harness.shows_containing("length"));
+    assert_eq!(harness.workspace.editing.solid(), Some(movement));
+
+    harness.perform(Action::Undo);
+    harness.perform(Action::Undo);
+    harness.perform(Action::Undo);
+    harness.settle();
+    let bounds = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .unwrap()
+        .bounding_box()
+        .unwrap();
+    assert!(bounds.min().x.abs() < 1e-6);
 }
 
 fn shell_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Shell {

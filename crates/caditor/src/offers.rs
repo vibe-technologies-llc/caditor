@@ -1,9 +1,10 @@
-use caditor_document::{AxisReference, DatumAxis, DatumPlane};
+use caditor_document::{AxisReference, DatumAxis, DatumPlane, FeatureId};
 
 use crate::{
     combine_tools::{self, BodyPair},
     datum_tools,
     model::Model,
+    move_tools,
     pattern_tools::{self, PatternSource},
     selection::Selection,
     shell_tools::{self, FaceSource},
@@ -27,6 +28,7 @@ pub struct Offers {
     pub datum_axis: Result<DatumAxis, &'static str>,
     pub shell: Result<FaceSource, &'static str>,
     pub combine: Result<BodyPair, &'static str>,
+    pub movement: Result<FeatureId, &'static str>,
     pub pattern: Result<PatternSource, &'static str>,
     pub described: Vec<String>,
 }
@@ -48,6 +50,7 @@ impl Offers {
             datum_axis: datum_tools::axis_from_selection(model, selection, end),
             shell: shell_tools::selected_faces(model, selection),
             combine: combine_tools::selected_bodies(model, selection),
+            movement: move_tools::selected_body(model, selection),
             described: selection
                 .iter()
                 .map(|pickable| pickable.describe(document, evaluation))

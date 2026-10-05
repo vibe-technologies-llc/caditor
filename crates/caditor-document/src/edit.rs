@@ -524,6 +524,7 @@ impl Document {
             (FeatureKind::Blend(_), FeatureKind::Blend(_))
             | (FeatureKind::Shell(_), FeatureKind::Shell(_))
             | (FeatureKind::Combine(_), FeatureKind::Combine(_))
+            | (FeatureKind::Move(_), FeatureKind::Move(_))
             | (FeatureKind::Pattern(_), FeatureKind::Pattern(_)) => true,
             _ => false,
         };

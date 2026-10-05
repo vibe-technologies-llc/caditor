@@ -9,6 +9,7 @@ use crate::{
     feature_tree::count,
     icons,
     model::{Action, Model},
+    move_tools,
     offers::Offers,
     pattern_tools::{self, Shape},
     ribbon,
@@ -121,6 +122,7 @@ fn group_buttons(
             blend_buttons(ui, model, context, commands, actions);
             shell_button(ui, model, context, commands, actions);
             combine_button(ui, model, context, commands, actions);
+            move_button(ui, model, context, commands, actions);
         }
         Group::Pattern => pattern_buttons(ui, model, context, commands, actions),
         Group::Reference => datum_buttons(ui, model, context, commands, actions),
@@ -379,6 +381,30 @@ fn shell_button(
             source,
             model.length_unit(),
         ));
+    }
+}
+
+fn move_button(
+    ui: &mut Ui,
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let body = &context.offers.movement;
+    let invoked = commands.invoke(Command::Move, body);
+    let help = match body {
+        Ok(_) => Ok(commands.with_keys(Command::Move, move_tools::DESCRIPTION)),
+        Err(reason) => Err(format!(
+            "{}. {reason}, then click here.",
+            move_tools::DESCRIPTION
+        )),
+    };
+    let response = tool(ui, Command::Move, move_tools::TITLE, &help);
+    if (response.clicked() || invoked)
+        && let Ok(body) = body
+    {
+        actions.extend(move_tools::create_actions(model, *body));
     }
 }
 
