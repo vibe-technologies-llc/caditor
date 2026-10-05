@@ -149,12 +149,13 @@ pub(crate) fn attached_plane(
                 .unwrap_or_default();
             match inputs.features.get(datum).map(AsRef::as_ref) {
                 Some(FeatureResult::Datum(DatumResult::Plane(plane))) => Ok(*plane),
-                _ => Err(Failure::Error(FeatureError {
+                _ => Err(Failure::Error(Box::new(FeatureError {
                     reason: format!("The plane this sketch lies on, {name}, is not available."),
                     remedy: format!("Fix {name} first, or place the sketch on another plane."),
                     fix: Some(FixTarget::Feature(*datum)),
                     constraints: Vec::new(),
-                })),
+                    place: None,
+                }))),
             }
         }
     }
@@ -171,12 +172,13 @@ fn face_attached_plane(
         .map(|body| body.name.clone())
         .unwrap_or_default();
     let Some(solid) = inputs.body(attachment.body) else {
-        return Err(Failure::Error(FeatureError {
+        return Err(Failure::Error(Box::new(FeatureError {
             reason: format!("The body of {body_name}, which this sketch lies on, has no shape."),
             remedy: format!("Fix {body_name} first."),
             fix: Some(FixTarget::Feature(attachment.body)),
             constraints: Vec::new(),
-        }));
+            place: None,
+        })));
     };
     attachment.resolve(solid).map_err(|error| {
         let reason = match error {
@@ -191,13 +193,14 @@ fn face_attached_plane(
                 format!("The face of {body_name} that this sketch lies on is no longer flat.")
             }
         };
-        Failure::Error(FeatureError {
+        Failure::Error(Box::new(FeatureError {
             reason,
             remedy: "Select a flat face and place the sketch on it from its row in the tree, or \
                      detach the sketch."
                 .to_owned(),
             fix: Some(FixTarget::Feature(feature.id())),
             constraints: Vec::new(),
-        })
+            place: None,
+        }))
     })
 }

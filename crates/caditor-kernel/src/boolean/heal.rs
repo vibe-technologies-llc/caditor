@@ -39,16 +39,28 @@ fn uses(faces: &[KeptFace]) -> Uses {
     uses
 }
 
-pub(super) fn check_closed(faces: &[KeptFace]) -> Result<(), BooleanError> {
-    for list in uses(faces).values() {
+pub(super) fn check_closed(
+    arrangement: &Arrangement,
+    faces: &[KeptFace],
+) -> Result<(), BooleanError> {
+    for (piece, list) in uses(faces) {
         let forward = list.iter().filter(|(_, sense)| sense.is_same()).count();
         let backward = list.len() - forward;
-        if forward != backward {
-            return Err(BooleanError::Open);
-        }
-        if forward > 1 {
-            return Err(BooleanError::NonManifold);
-        }
+        let failure = if forward != backward {
+            BooleanError::Open(Box::default())
+        } else if forward > 1 {
+            BooleanError::NonManifold(Box::default())
+        } else {
+            continue;
+        };
+        let keys = list
+            .iter()
+            .filter_map(|(index, _)| faces.get(*index))
+            .map(|face| face.key);
+        return Err(failure.or_faces(keys).or_point(|| {
+            let (curve, data) = arrangement.curve(piece)?;
+            Some(curve.point(data.interval.middle()))
+        }));
     }
     Ok(())
 }
@@ -57,7 +69,7 @@ pub(super) fn heal(
     arrangement: &mut Arrangement,
     kept: Vec<KeptFace>,
 ) -> Result<Vec<KeptFace>, BooleanError> {
-    check_closed(&kept)?;
+    check_closed(arrangement, &kept)?;
     let mut faces = merge_faces(arrangement, kept)?;
     heal_edges(arrangement, &mut faces)?;
     Ok(faces)
@@ -314,9 +326,14 @@ fn heal_edges(arrangement: &mut Arrangement, faces: &mut [KeptFace]) -> Result<(
             let Some(face) = faces.get_mut(*index) else {
                 continue;
             };
+            let key = face.key;
             for traced in &mut face.fragment.loops {
                 let mut replaced = false;
-                while replace_pair(arrangement, &face.surface, traced, &joint)? {
+                while replace_pair(arrangement, &face.surface, traced, &joint).map_err(|error| {
+                    error
+                        .or_faces([key])
+                        .or_point(|| arrangement.point(joint.vertex))
+                })? {
                     replaced = true;
                 }
                 if replaced {
@@ -357,7 +374,7 @@ fn replace_pair(
         pieces,
         merged,
     } = *joint;
-    let (curve, piece) = arrangement.curve(merged).ok_or(BooleanError::Split)?;
+    let (curve, piece) = arrangement.curve(merged).ok_or_else(BooleanError::split)?;
     let count = traced.coedges.len();
     let position = (0..count).find(|index| {
         let (Some(current), Some(next)) = (
@@ -382,7 +399,7 @@ fn replace_pair(
     };
     let (old_curve, old_piece) = arrangement
         .curve(current.half_edge.piece)
-        .ok_or(BooleanError::Split)?;
+        .ok_or_else(BooleanError::split)?;
     let probe = old_piece.interval.middle();
     let travel = old_curve.evaluate(probe).first * current.half_edge.sense.sign();
     let on_merged = curve.closest_parameter(old_curve.point(probe), piece.interval);

@@ -8,6 +8,7 @@ use crate::{
     document::{Feature, FeatureId},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
+    trouble,
 };
 
 pub const MIRROR_IMAGE: [u32; 2] = [1, 0];
@@ -39,12 +40,13 @@ struct Context<'a> {
 
 impl Context<'_> {
     fn error(&self, reason: String, remedy: &str) -> Failure {
-        Failure::Error(FeatureError {
+        Failure::Error(Box::new(FeatureError {
             reason,
             remedy: remedy.to_owned(),
             fix: Some(FixTarget::Feature(self.resolver.feature.id())),
             constraints: Vec::new(),
-        })
+            place: None,
+        }))
     }
 
     fn unbuildable(&self, error: &dyn std::fmt::Display) -> Failure {
@@ -79,7 +81,7 @@ impl Context<'_> {
             PatternError::Cancelled(_) => Failure::Cancelled,
             PatternError::Placement { error, .. } => self.transform_failure(error),
             PatternError::Union {
-                error: BooleanError::NonManifold,
+                error: BooleanError::NonManifold(_),
                 ..
             } => self.error(
                 format!(
@@ -89,7 +91,7 @@ impl Context<'_> {
                 "Move the plane so the two overlap, share a face or stand apart.",
             ),
             PatternError::Union {
-                error: BooleanError::Ambiguous,
+                error: BooleanError::Ambiguous(_),
                 ..
             } => self.error(
                 format!(
@@ -128,12 +130,13 @@ pub(crate) fn evaluate(
     let reflection = Similarity::reflection(&plane)
         .ok_or_else(|| context.unbuildable(&"the plane has no direction"))?;
     let Some(solid) = inputs.body(definition.body) else {
-        return Err(Failure::Error(FeatureError {
+        return Err(Failure::Error(Box::new(FeatureError {
             reason: format!("The body made by {} has no shape.", context.body_name),
             remedy: format!("Fix {} first.", context.body_name),
             fix: Some(FixTarget::Feature(definition.body)),
             constraints: Vec::new(),
-        }));
+            place: None,
+        })));
     };
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
@@ -143,8 +146,11 @@ pub(crate) fn evaluate(
             index: MIRROR_IMAGE,
             placement: reflection,
         };
-        pattern(solid, &[image], feature.id().raw())
-            .map_err(|error| context.pattern_failure(&error))?
+        pattern(solid, &[image], feature.id().raw()).map_err(|error| {
+            context
+                .pattern_failure(&error)
+                .placed(trouble::union_place(&error))
+        })?
     } else {
         solid
             .mapped(&reflection)

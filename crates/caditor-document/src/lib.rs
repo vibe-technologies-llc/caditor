@@ -23,6 +23,7 @@ mod shell;
 mod solid;
 mod tolerance;
 mod tree;
+mod trouble;
 mod values;
 mod worker;
 

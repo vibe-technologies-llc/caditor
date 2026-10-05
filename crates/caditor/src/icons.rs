@@ -71,6 +71,7 @@ pub const COPY: &str = phosphor::COPY_SIMPLE;
 pub const FEATURES: &str = phosphor::TREE_STRUCTURE;
 pub const PARAMETERS: &str = phosphor::FUNCTION;
 pub const GO_TO: &str = phosphor::ARROW_RIGHT;
+pub const SHOW_PLACE: &str = phosphor::MAP_PIN;
 pub const DETACH: &str = phosphor::LINK_BREAK;
 const ORIGIN: &str = phosphor::CROSSHAIR;
 

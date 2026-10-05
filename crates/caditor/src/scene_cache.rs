@@ -35,6 +35,7 @@ pub struct Overlay {
     pub plane: Option<Plane>,
     pub previews: Vec<Preview>,
     pub measured: Option<[Point3; 2]>,
+    pub problems: Vec<Point3>,
 }
 
 impl Overlay {
@@ -47,6 +48,9 @@ impl Overlay {
         }
         if let Some([from, to]) = self.measured {
             scene::add_measurement(&mut batch, from, to);
+        }
+        for problem in &self.problems {
+            scene::add_problem(&mut batch, *problem);
         }
         (!batch.is_empty()).then(|| Arc::new(batch))
     }

@@ -7,8 +7,8 @@ use crate::{
     curve::Curve,
     interrupt,
     intersect::{
-        IntersectionBranch, SurfaceIntersection, SurfacePatch, intersect_curve_surface,
-        intersect_curves, intersect_surfaces,
+        IntersectionBranch, IntersectionError, SurfaceIntersection, SurfacePatch,
+        intersect_curve_surface, intersect_curves, intersect_surfaces,
     },
     interval::Interval,
     naming::EdgeName,
@@ -350,7 +350,25 @@ fn edge_hits(
             let Some(surface) = target.face(face.id).map(|face| face.surface()) else {
                 continue;
             };
-            let found = intersect_curve_surface(curve, edge.interval(), surface, Some(face.uv))?;
+            let located = |error: IntersectionError| {
+                let key = FaceKey {
+                    operand: other,
+                    face: face.id,
+                };
+                BooleanError::from(error)
+                    .or_faces(
+                        edge_face_keys(solid, operand, edge_id)
+                            .into_iter()
+                            .chain([key]),
+                    )
+                    .or_point(|| {
+                        let nearest =
+                            curve.closest_parameter(face.bounds.center(), edge.interval());
+                        Some(curve.point(nearest))
+                    })
+            };
+            let found = intersect_curve_surface(curve, edge.interval(), surface, Some(face.uv))
+                .map_err(located)?;
             for hit in &found.points {
                 if touches(classifier.point_in_face(face.id, hit.uv)) {
                     pool.insert(hit.point, None);
@@ -374,7 +392,8 @@ fn edge_hits(
                         overlap.range,
                         boundary.curve(),
                         boundary.interval(),
-                    )?;
+                    )
+                    .map_err(located)?;
                     for crossing in crossings.points {
                         pool.insert(crossing.point, None);
                     }
@@ -393,8 +412,23 @@ fn edge_hits(
     Ok(())
 }
 
-fn patch<'a>(surface: &'a Surface, bounds: &FaceBounds) -> Result<SurfacePatch<'a>, BooleanError> {
-    Ok(SurfacePatch::new(surface, bounds.uv)?)
+fn edge_face_keys(solid: &Solid, operand: Operand, edge: EdgeId) -> Vec<FaceKey> {
+    solid
+        .edge(edge)
+        .into_iter()
+        .flat_map(|edge| edge.coedges().iter())
+        .filter_map(|coedge| solid.coedge_face(*coedge))
+        .map(|face| FaceKey { operand, face })
+        .collect()
+}
+
+fn meeting_point(first: &FaceBounds, second: &FaceBounds, surface: &Surface) -> Point3 {
+    let (low, high) = (
+        first.bounds.min().max(second.bounds.min()),
+        first.bounds.max().min(second.bounds.max()),
+    );
+    let middle = (low + high) * 0.5;
+    surface.point_at(surface.project(middle, Some(first.uv.center())))
 }
 
 fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanError> {
@@ -407,10 +441,26 @@ fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanE
             else {
                 continue;
             };
-            let found = intersect_surfaces(
-                &patch(first_face.surface(), first)?,
-                &patch(second_face.surface(), second)?,
-            )?;
+            let faces = [
+                FaceKey {
+                    operand: Operand::First,
+                    face: first.id,
+                },
+                FaceKey {
+                    operand: Operand::Second,
+                    face: second.id,
+                },
+            ];
+            let found = SurfacePatch::new(first_face.surface(), first.uv)
+                .and_then(|first_patch| {
+                    let second_patch = SurfacePatch::new(second_face.surface(), second.uv)?;
+                    intersect_surfaces(&first_patch, &second_patch)
+                })
+                .map_err(|error| {
+                    BooleanError::from(error)
+                        .or_faces(faces)
+                        .or_point(|| Some(meeting_point(first, second, first_face.surface())))
+                })?;
             let SurfaceIntersection::Branches {
                 branches: found,
                 points,
@@ -433,16 +483,6 @@ fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanE
                     pool.insert(point.point, None);
                 }
             }
-            let faces = [
-                FaceKey {
-                    operand: Operand::First,
-                    face: first.id,
-                },
-                FaceKey {
-                    operand: Operand::Second,
-                    face: second.id,
-                },
-            ];
             branches.extend(found.into_iter().map(|branch| Branch { faces, branch }));
         }
     }
@@ -493,7 +533,9 @@ fn split_edges(
             vertex_ids.get(edge.start().index()).copied(),
             vertex_ids.get(edge.end().index()).copied(),
         ) else {
-            return Err(BooleanError::Split);
+            return Err(BooleanError::split()
+                .or_faces(edge_face_keys(solid, operand, edge_id))
+                .or_point(|| Some(curve.point(interval.middle()))));
         };
         let mut stops = vec![(interval.start(), start), (interval.end(), end)];
         for (vertex, point) in pool.near(curve, interval) {

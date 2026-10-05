@@ -73,6 +73,7 @@ const PREVIEW_POINT: Color = Color::from_rgb8(214, 190, 255);
 const TRIMMED_CURVE: Color = Color::from_rgb8(255, 96, 84);
 const SNAP_MARKER: Color = opaque(canvas::SNAP);
 const MEASURED: Color = opaque(canvas::MEASURE);
+const PROBLEM: Color = opaque(canvas::ERROR);
 const UNMARKED_VERTEX: Color = Color::from_rgba8(0, 0, 0, 0);
 const BODY: Color = Color::from_rgb8(
     body_appearance::DEFAULT_COLOUR.red,
@@ -113,6 +114,7 @@ const HIGHLIGHT_EXTRA_DIAMETER: f32 = 3.0;
 const SNAP_MARKER_DIAMETER: f32 = 13.0;
 const MEASURED_WIDTH: f32 = 2.0;
 const MEASURED_END_DIAMETER: f32 = 8.0;
+const PROBLEM_DIAMETER: f32 = 11.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Palette {
@@ -1250,6 +1252,16 @@ pub fn add_measurement(scene: &mut Batch, from: Point3, to: Point3) {
             pick: None,
         });
     }
+}
+
+pub fn add_problem(scene: &mut Batch, position: Point3) {
+    scene.markers.push(Marker {
+        position,
+        color: PROBLEM,
+        diameter: PROBLEM_DIAMETER,
+        layer: Layer::Front,
+        pick: None,
+    });
 }
 
 pub fn chosen_regions(choice: &RegionChoice, regions: &[SketchRegion]) -> BTreeSet<RegionKey> {

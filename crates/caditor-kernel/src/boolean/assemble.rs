@@ -22,7 +22,9 @@ pub(super) fn assemble(
                 let edge = match edges.get(&piece) {
                     Some(edge) => *edge,
                     None => {
-                        let (curve, data) = arrangement.curve(piece).ok_or(BooleanError::Open)?;
+                        let (curve, data) = arrangement
+                            .curve(piece)
+                            .ok_or_else(|| BooleanError::Open(Box::default()))?;
                         let name = arrangement
                             .source(data.source)
                             .map(|source| source.name)
@@ -31,7 +33,9 @@ pub(super) fn assemble(
                             if let Some(vertex) = vertices.get(&index) {
                                 return Ok(*vertex);
                             }
-                            let point = arrangement.point(index).ok_or(BooleanError::Open)?;
+                            let point = arrangement
+                                .point(index)
+                                .ok_or_else(|| BooleanError::Open(Box::default()))?;
                             let vertex = plan.vertex(point);
                             vertices.insert(index, vertex);
                             Ok(vertex)

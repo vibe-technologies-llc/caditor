@@ -28,37 +28,52 @@ pub(super) fn split(
         for (id, face) in solid.faces() {
             interrupt::check()?;
             let key = FaceKey { operand, face: id };
-            let center = input
-                .bounds(key)
-                .map(|bounds| bounds.uv.center())
-                .ok_or(BooleanError::Split)?;
-            let chart = Chart {
-                surface: face.surface(),
-                sense: face.sense(),
-                center,
-            };
-            let half_edges = half_edges(solid, arrangement, key, face)?;
-            let cut = half_edges.iter().any(|half_edge| half_edge.hint.is_none());
-            if !cut && let Some(fragment) = passed_through(solid, arrangement, key, face) {
-                split.push(SplitFace {
-                    key,
-                    fragments: vec![fragment],
-                    untouched: true,
-                });
-                continue;
-            }
-            let loops = trace(arrangement, &chart, &half_edges)?
-                .into_iter()
-                .map(|members| fit_loop(arrangement, &chart, members))
-                .collect::<Result<Vec<_>, _>>()?;
-            split.push(SplitFace {
-                key,
-                fragments: group(&chart, loops)?,
-                untouched: false,
-            });
+            let divided = split_face(input, arrangement, key, face).map_err(|error| {
+                error.or_faces([key]).or_point(|| {
+                    let center = input.bounds(key)?.uv.center();
+                    Some(face.surface().point_at(center))
+                })
+            })?;
+            split.push(divided);
         }
     }
     Ok(split)
+}
+
+fn split_face(
+    input: &Input,
+    arrangement: &Arrangement,
+    key: FaceKey,
+    face: &Face,
+) -> Result<SplitFace, BooleanError> {
+    let solid = input.solid(key.operand);
+    let center = input
+        .bounds(key)
+        .map(|bounds| bounds.uv.center())
+        .ok_or_else(BooleanError::split)?;
+    let chart = Chart {
+        surface: face.surface(),
+        sense: face.sense(),
+        center,
+    };
+    let half_edges = half_edges(solid, arrangement, key, face)?;
+    let cut = half_edges.iter().any(|half_edge| half_edge.hint.is_none());
+    if !cut && let Some(fragment) = passed_through(solid, arrangement, key, face) {
+        return Ok(SplitFace {
+            key,
+            fragments: vec![fragment],
+            untouched: true,
+        });
+    }
+    let loops = trace(arrangement, &chart, &half_edges)?
+        .into_iter()
+        .map(|members| fit_loop(arrangement, &chart, members))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(SplitFace {
+        key,
+        fragments: group(&chart, loops)?,
+        untouched: false,
+    })
 }
 
 fn passed_through(
@@ -116,15 +131,15 @@ fn half_edges(
 ) -> Result<Vec<HalfEdge>, BooleanError> {
     let mut boundary = Vec::new();
     for loop_id in face.loops() {
-        let face_loop = solid.face_loop(*loop_id).ok_or(BooleanError::Split)?;
+        let face_loop = solid.face_loop(*loop_id).ok_or_else(BooleanError::split)?;
         for coedge_id in face_loop.coedges() {
-            let coedge = solid.coedge(*coedge_id).ok_or(BooleanError::Split)?;
+            let coedge = solid.coedge(*coedge_id).ok_or_else(BooleanError::split)?;
             let mut pieces = arrangement.edge_pieces(key.operand, coedge.edge()).to_vec();
             if !coedge.sense().is_same() {
                 pieces.reverse();
             }
             for piece in pieces {
-                let data = arrangement.piece(piece).ok_or(BooleanError::Split)?;
+                let data = arrangement.piece(piece).ok_or_else(BooleanError::split)?;
                 let start = if coedge.sense().is_same() {
                     data.interval.start()
                 } else {

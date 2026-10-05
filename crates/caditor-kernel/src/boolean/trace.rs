@@ -84,6 +84,11 @@ impl TracedLoop {
             .collect()
     }
 
+    fn point_on(&self, surface: &Surface) -> Option<Point3> {
+        let first = self.coedges.first()?;
+        Some(surface.point_at(first.pcurve.start()))
+    }
+
     #[must_use]
     pub fn reversed(&self) -> Self {
         Self {
@@ -284,7 +289,7 @@ pub(super) fn trace(
         .iter()
         .map(|half_edge| travel(arrangement, half_edge))
         .collect::<Option<Vec<Travel>>>()
-        .ok_or(BooleanError::Split)?;
+        .ok_or_else(BooleanError::split)?;
     let mut leaving: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for (index, travel) in travels.iter().enumerate() {
         leaving.entry(travel.start).or_default().push(index);
@@ -351,13 +356,18 @@ pub(super) fn trace(
         }
         let mut members = Vec::new();
         let mut current = start;
+        let stuck_at = |index: usize, at_end: bool| {
+            let travel = travels.get(index)?;
+            arrangement.point(if at_end { travel.end } else { travel.start })
+        };
         loop {
             match used.get_mut(current) {
                 Some(flag) if !*flag => *flag = true,
-                _ => return Err(BooleanError::Split),
+                _ => return Err(BooleanError::split().or_point(|| stuck_at(current, false))),
             }
-            members.push(*half_edges.get(current).ok_or(BooleanError::Split)?);
-            current = next(current).ok_or(BooleanError::Split)?;
+            members.push(*half_edges.get(current).ok_or_else(BooleanError::split)?);
+            current = next(current)
+                .ok_or_else(|| BooleanError::split().or_point(|| stuck_at(current, true)))?;
             if current == start {
                 break;
             }
@@ -385,7 +395,7 @@ pub(super) fn fit_loop(
     for half_edge in members {
         let (curve, piece) = arrangement
             .curve(half_edge.piece)
-            .ok_or(BooleanError::Split)?;
+            .ok_or_else(BooleanError::split)?;
         let previous = coedges.last().map(|coedge| coedge.pcurve.end());
         let hint = half_edge.hint.or(previous).unwrap_or(chart.center);
         let pcurve = fit_pcurve(
@@ -395,7 +405,9 @@ pub(super) fn fit_loop(
             half_edge.sense,
             Some(hint),
         )
-        .map_err(BooleanError::unfitted)?;
+        .map_err(|error| {
+            BooleanError::unfitted(error).or_point(|| Some(curve.point(piece.interval.middle())))
+        })?;
         coedges.push(Coedge {
             half_edge: HalfEdge {
                 hint: Some(pcurve.start()),
@@ -410,15 +422,16 @@ pub(super) fn fit_loop(
     for (index, coedge) in coedges.iter().enumerate() {
         let next = coedges
             .get((index + 1) % count)
-            .ok_or(BooleanError::Split)?;
+            .ok_or_else(BooleanError::split)?;
         if !continues(chart.surface, coedge.pcurve.end(), next.pcurve.start()) {
-            return Err(BooleanError::Split);
+            return Err(BooleanError::split()
+                .or_point(|| Some(chart.surface.point_at(coedge.pcurve.end()))));
         }
     }
     let mut traced = TracedLoop { coedges, area: 0.0 };
     traced.area = signed_area(&traced.polygon());
     if !traced.area.is_finite() || traced.area == 0.0 {
-        return Err(BooleanError::Split);
+        return Err(BooleanError::split().or_point(|| traced.point_on(chart.surface)));
     }
     Ok(traced)
 }
@@ -621,7 +634,8 @@ pub(super) fn group(chart: &Chart, loops: Vec<TracedLoop>) -> Result<Vec<Fragmen
                 best = Some((index, outer.area, offset));
             }
         }
-        let (index, _, offset) = best.ok_or(BooleanError::Split)?;
+        let (index, _, offset) =
+            best.ok_or_else(|| BooleanError::split().or_point(|| hole.point_on(chart.surface)))?;
         placed.push((index, hole.shifted(offset)));
     }
     let mut fragments: Vec<Fragment> = outers

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::Aabb;
+use caditor_geometry::{Aabb, Point3};
 
 use crate::{
     boolean::{
@@ -65,12 +65,16 @@ pub(super) fn classify(
     let classifier = input.classifier(key.operand.other());
     let mut solid_side = None;
     let mut coincident: Option<Class> = None;
-    let mut mixed = false;
+    let mut mixed_at = None;
+    let mut first_sample = None;
     for uv in interior_points(fragment, surface) {
         let Some(normal) = surface.normal(uv.x, uv.y) else {
             continue;
         };
-        let found = classifier.classify_boundary_point(surface.point_at(uv), normal * sense.sign());
+        let point = surface.point_at(uv);
+        first_sample.get_or_insert(point);
+        let ambiguous = || BooleanError::Ambiguous(Box::default()).or_point(|| Some(point));
+        let found = classifier.classify_boundary_point(point, normal * sense.sign());
         match found {
             BoundaryClass::Inside | BoundaryClass::Outside => {
                 let class = if matches!(found, BoundaryClass::Inside) {
@@ -79,22 +83,31 @@ pub(super) fn classify(
                     Class::Outside
                 };
                 if solid_side.is_some_and(|known| known != class) {
-                    return Err(BooleanError::Ambiguous);
+                    return Err(ambiguous().or_faces([key]));
                 }
                 solid_side = Some(class);
             }
             BoundaryClass::Coincident { sense, .. } => {
                 let class = Class::Coincident(sense);
-                mixed |= coincident.is_some_and(|known| known != class);
+                if coincident.is_some_and(|known| known != class) {
+                    mixed_at.get_or_insert(point);
+                }
                 coincident = Some(class);
             }
             BoundaryClass::Touching(_) | BoundaryClass::Undecided => {}
         }
     }
-    if mixed {
-        return Err(BooleanError::Ambiguous);
+    let ambiguous = |point: Option<Point3>| {
+        BooleanError::Ambiguous(Box::default())
+            .or_faces([key])
+            .or_point(|| point)
+    };
+    if let Some(point) = mixed_at {
+        return Err(ambiguous(Some(point)));
     }
-    solid_side.or(coincident).ok_or(BooleanError::Ambiguous)
+    solid_side
+        .or(coincident)
+        .ok_or_else(|| ambiguous(first_sample))
 }
 
 struct Components {
@@ -188,7 +201,9 @@ pub(super) fn select(
     let mut kept = Vec::new();
     for face in split {
         interrupt::check()?;
-        let original = input.face(face.key).ok_or(BooleanError::Split)?;
+        let original = input
+            .face(face.key)
+            .ok_or_else(|| BooleanError::split().or_faces([face.key]))?;
         let root = components.root(face.key);
         let [first_extent, second_extent] = &extents;
         let other_extent = match face.key.operand {

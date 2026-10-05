@@ -34,7 +34,7 @@ impl PartialEq for Import {
 
 pub(crate) fn evaluate(feature: &Feature, definition: &Import) -> Result<FeatureResult, Failure> {
     if definition.solid.shells().next().is_none() {
-        return Err(Failure::Error(FeatureError {
+        return Err(Failure::Error(Box::new(FeatureError {
             reason: format!(
                 "The shape imported from “{}” could not be read back from the model file.",
                 definition.source
@@ -45,7 +45,8 @@ pub(crate) fn evaluate(feature: &Feature, definition: &Import) -> Result<Feature
             ),
             fix: Some(FixTarget::Feature(feature.id())),
             constraints: Vec::new(),
-        }));
+            place: None,
+        })));
     }
     let solid = (*definition.solid).clone().imported(feature.id().raw());
     Ok(FeatureResult::Solid(SolidResult::new(feature.id(), solid)))

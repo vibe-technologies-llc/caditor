@@ -99,12 +99,13 @@ struct Context<'a> {
 
 impl Context<'_> {
     fn error(&self, reason: String, remedy: String) -> Failure {
-        Failure::Error(FeatureError {
+        Failure::Error(Box::new(FeatureError {
             reason,
             remedy,
             fix: Some(FixTarget::Feature(self.feature.id())),
             constraints: Vec::new(),
-        })
+            place: None,
+        }))
     }
 
     fn size(&self) -> Result<f64, Failure> {
@@ -128,12 +129,13 @@ impl Context<'_> {
                         FixTarget::Feature(self.feature.id()),
                     ),
                 };
-                Failure::Error(FeatureError {
+                Failure::Error(Box::new(FeatureError {
                     reason: format!("The {what} cannot be evaluated: {error}."),
                     remedy,
                     fix: Some(fix),
                     constraints: Vec::new(),
-                })
+                    place: None,
+                }))
             })?;
         if value > 0.0 {
             Ok(value)
@@ -259,12 +261,13 @@ pub(crate) fn evaluate(
     };
     let size = context.size()?;
     let Some(solid) = inputs.body(definition.body) else {
-        return Err(Failure::Error(FeatureError {
+        return Err(Failure::Error(Box::new(FeatureError {
             reason: format!("The body made by {} has no shape.", context.body_name),
             remedy: format!("Fix {} first.", context.body_name),
             fix: Some(FixTarget::Feature(definition.body)),
             constraints: Vec::new(),
-        }));
+            place: None,
+        })));
     };
     let edges = definition.resolve(solid).map_err(|unresolved| {
         let body = &context.body_name;

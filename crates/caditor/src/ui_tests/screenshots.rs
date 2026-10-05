@@ -13,7 +13,7 @@ use caditor_render::{SurfaceTarget, ViewportFrame, ViewportRenderer};
 use egui::{Event, Key, Modifiers};
 use tempfile::TempDir;
 
-use super::{CAMERA_SETTLE, Harness, Painted};
+use super::{CAMERA_SETTLE, Harness, Painted, combine_nearly_touching_blocks};
 use crate::{
     app::Workspace,
     blend_tools, datum_tools,
@@ -307,6 +307,12 @@ fn screenshots() {
 
         let mut empty = Harness::styled(look, dir.path(), false);
         shoot(&mut empty, &gpu, &out, "empty", look);
+        combine_nearly_touching_blocks(&mut empty);
+        empty.click("Show where");
+        empty.frame();
+        empty.workspace.viewport.advance(CAMERA_SETTLE);
+        empty.frame();
+        shoot(&mut empty, &gpu, &out, "boolean-failure", look);
         drop(empty);
 
         let dir = TempDir::new().expect("a temporary directory");

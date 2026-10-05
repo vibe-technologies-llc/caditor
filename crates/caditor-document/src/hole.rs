@@ -12,6 +12,7 @@ use crate::{
     document::{Feature, FeatureId},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
+    trouble::boolean_trouble,
 };
 
 pub const MAX_HOLES: usize = 100;
@@ -143,21 +144,23 @@ impl Context<'_> {
     }
 
     fn error(&self, reason: String, remedy: String) -> Failure {
-        Failure::Error(FeatureError {
+        Failure::Error(Box::new(FeatureError {
             reason,
             remedy,
             fix: Some(FixTarget::Feature(self.feature.id())),
             constraints: Vec::new(),
-        })
+            place: None,
+        }))
     }
 
     fn fix(&self, reason: String, remedy: String, target: FeatureId) -> Failure {
-        Failure::Error(FeatureError {
+        Failure::Error(Box::new(FeatureError {
             reason,
             remedy,
             fix: Some(FixTarget::Feature(target)),
             constraints: Vec::new(),
-        })
+            place: None,
+        }))
     }
 
     fn value(
@@ -187,12 +190,13 @@ impl Context<'_> {
                         FixTarget::Feature(self.feature.id()),
                     ),
                 };
-                Failure::Error(FeatureError {
+                Failure::Error(Box::new(FeatureError {
                     reason: format!("The {what} cannot be evaluated: {error}."),
                     remedy,
                     fix: Some(fix),
                     constraints: Vec::new(),
-                })
+                    place: None,
+                }))
             })
     }
 
@@ -452,18 +456,29 @@ pub(crate) fn evaluate(
             match error {
                 BooleanError::Cancelled(_) => Failure::Cancelled,
                 BooleanError::Empty => context.error(
-                    format!("The hole at {} would remove all of {body_name}.", sketch.geometry.entity_label(point)),
+                    format!(
+                        "The hole at {} would remove all of {body_name}.",
+                        sketch.geometry.entity_label(point)
+                    ),
                     "Make the hole smaller or move the point.".to_owned(),
                 ),
                 other => {
                     log::warn!("{} could not drill: {other}", feature.name);
-                    context.error(
-                        format!(
-                            "The hole at {} could not be cut into {body_name}.",
-                            sketch.geometry.entity_label(point)
-                        ),
-                        "Move the point or change the sizes slightly; faces or edges that exactly touch can cause this.".to_owned(),
-                    )
+                    let trouble = boolean_trouble(
+                        inputs.document,
+                        [&body, &drill],
+                        &other,
+                        "Move the point or change the sizes",
+                    );
+                    context
+                        .error(
+                            trouble.reason(format!(
+                                "The hole at {} could not be cut into {body_name}.",
+                                sketch.geometry.entity_label(point)
+                            )),
+                            trouble.remedy,
+                        )
+                        .placed(trouble.place)
                 }
             }
         })?;

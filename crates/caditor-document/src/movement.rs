@@ -101,12 +101,13 @@ struct Context<'a> {
 
 impl Context<'_> {
     fn error(&self, reason: String, remedy: String) -> Failure {
-        Failure::Error(FeatureError {
+        Failure::Error(Box::new(FeatureError {
             reason,
             remedy,
             fix: Some(FixTarget::Feature(self.feature.id())),
             constraints: Vec::new(),
-        })
+            place: None,
+        }))
     }
 
     fn value(
@@ -136,12 +137,13 @@ impl Context<'_> {
                         FixTarget::Feature(self.feature.id()),
                     ),
                 };
-                Failure::Error(FeatureError {
+                Failure::Error(Box::new(FeatureError {
                     reason: format!("The {what} cannot be evaluated: {error}."),
                     remedy,
                     fix: Some(fix),
                     constraints: Vec::new(),
-                })
+                    place: None,
+                }))
             })
     }
 }
@@ -187,12 +189,13 @@ pub(crate) fn evaluate(
         .map(|body| body.name.clone())
         .unwrap_or_default();
     let Some(solid) = inputs.body(definition.body) else {
-        return Err(Failure::Error(FeatureError {
+        return Err(Failure::Error(Box::new(FeatureError {
             reason: format!("The body made by {body_name} has no shape."),
             remedy: format!("Fix {body_name} first."),
             fix: Some(FixTarget::Feature(definition.body)),
             constraints: Vec::new(),
-        }));
+            place: None,
+        })));
     };
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);

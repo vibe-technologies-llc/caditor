@@ -6228,6 +6228,70 @@ fn two_bodies_are_combined_from_the_selection_and_the_panel_changes_how() {
     assert!((harness.body_volume(plate) - plate_volume).abs() < 100.0);
 }
 
+fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
+    let mut transaction = harness.document().transaction("Nearly touching blocks");
+    let mut bodies = Vec::new();
+    for (name, min, max) in [
+        ("Plate", Point2::new(0.0, 0.0), Point2::new(20.0, 10.0)),
+        ("Peg", Point2::new(10.0, 2.0), Point2::new(20.000005, 8.0)),
+    ] {
+        let mut outline = Sketch::new(Plane::XY);
+        rectangle(&mut outline, min, max);
+        let sketch = transaction.add_feature(format!("{name} sketch"), FeatureKind::from(outline));
+        bodies.push(transaction.add_feature(
+            name,
+            FeatureKind::Solid(SolidFeature::Extrude(caditor_document::Extrude {
+                sketch,
+                regions: RegionChoice::All,
+                extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
+                operation: BodyOperation::NewBody,
+                start: None,
+            })),
+        ));
+    }
+    let combine = transaction.add_feature(
+        "Combine 1",
+        FeatureKind::Combine(caditor_document::Combine {
+            body: bodies[0],
+            tool: bodies[1],
+            operation: caditor_document::CombineOperation::Join,
+        }),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    combine
+}
+
+#[test]
+fn a_combine_failing_where_faces_nearly_touch_is_marked_and_shown_in_the_view() {
+    let mut harness = Harness::new();
+
+    let combine = combine_nearly_touching_blocks(&mut harness);
+
+    let Some(caditor_document::FeatureState::Failed(error)) = harness
+        .model
+        .evaluation()
+        .feature(combine)
+        .map(|status| status.state.clone())
+    else {
+        panic!("the nearly touching blocks should not combine");
+    };
+    let place = error.place.expect("the failure has a place");
+    let before = harness.workspace.viewport.viewpoint().target;
+    assert!(harness.shows(&error.reason), "{}", error.reason);
+    assert!(harness.shows("Combine 1 failed here"));
+    assert!(before.distance(place) > 1.0);
+
+    harness.click("Show where");
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    let after = harness.workspace.viewport.viewpoint();
+    assert!(after.target.distance(place) < 1e-6, "{after:?} {place:?}");
+    assert!(harness.shows("Combine 1 failed here"));
+}
+
 #[test]
 fn a_combine_of_a_third_body_or_none_is_refused_with_what_to_select() {
     let mut harness = Harness::new();

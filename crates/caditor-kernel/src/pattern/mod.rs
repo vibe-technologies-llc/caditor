@@ -94,12 +94,11 @@ fn union(first: Part, second: Part) -> Result<Part, PatternError> {
     let solid = match boolean(&first.solid, &second.solid, BooleanOperation::Union) {
         Ok(solid) => solid,
         Err(BooleanError::Cancelled(interrupted)) => return Err(interrupted.into()),
-        Err(BooleanError::NonManifold) => {
-            separate_shells(&first.solid, &second.solid).ok_or(PatternError::Union {
-                copies: copies.clone(),
-                error: BooleanError::NonManifold,
-            })?
-        }
+        Err(error @ BooleanError::NonManifold(_)) => separate_shells(&first.solid, &second.solid)
+            .ok_or(PatternError::Union {
+            copies: copies.clone(),
+            error,
+        })?,
         Err(error) => return Err(PatternError::Union { copies, error }),
     };
     Ok(Part { solid, copies })

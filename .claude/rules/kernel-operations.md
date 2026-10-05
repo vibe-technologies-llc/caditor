@@ -63,6 +63,12 @@ paths:
   orientation for union and intersection, the opposite for difference. A difference reverses the
   second solid's kept fragments. Every result edge must then have one use each way, else `Open`,
   or `NonManifold` when solids would meet only along an edge.
+- `Intersection`, `Split`, `Ambiguous`, `Open` and `NonManifold` carry a boxed `BooleanSite`: the
+  input faces of each operand involved and a model point. The innermost step that knows a point
+  sets it (the vertex where tracing stuck, the sample classified both ways, the middle of an edge
+  used unevenly, the faces' common box projected onto the first) and outer steps only fill what is
+  still empty (`or_faces`, `or_point`): a face's split names that face and falls back to its uv
+  centre.
 - Healing: adjacent faces on the same surface with the same orientation are merged by retracing
   without the edges between them (left apart when that fails, as for a ring around a periodic
   surface); two edges meeting between the same faces, not at a pole, are joined when they are

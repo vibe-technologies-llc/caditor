@@ -418,6 +418,9 @@ pub fn show(
         viewport.select_only(chosen);
     }
     viewport.hover_from_tree(panels.hovered_in_tree.take());
+    if let Some(place) = panels.shown_place.take() {
+        viewport.show_place(place);
+    }
     if measure.open {
         let context = MeasureContext {
             model,

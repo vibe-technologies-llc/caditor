@@ -175,8 +175,9 @@ paths:
   inactive or hidden rows muted). A failure shows once, as the status icon and its callout, never
   by recolouring the icon or name; an outdated row the same with a Recompute button. A suppressed
   row is struck through and muted, a rolled-back row muted; neither offers the edit button. A
-  failure caused by a suppressed feature offers Unsuppress (`FixTarget::Unsuppress`). Callout
-  actions are `small_button`s with icons.
+  failure caused by a suppressed feature offers Unsuppress (`FixTarget::Unsuppress`). A failure
+  with a `place` offers Show where, which frames the view around it (`PanelState::shown_place`,
+  `ViewportState::show_place`). Callout actions are `small_button`s with icons.
 - A feature computed with a healed reference (`FeatureStatus::healing`) shows the warning icon and
   a callout with the reason, the remedy and an Update references button, offered only while the
   evaluation was checked against the feature as it now stands (`Healing::update`).

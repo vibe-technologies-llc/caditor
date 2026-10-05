@@ -24,6 +24,7 @@ use crate::{
         CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, SketchResult,
     },
     tolerance,
+    trouble::{self, boolean_trouble},
     values::ParameterValues,
 };
 
@@ -614,12 +615,13 @@ struct Context<'a> {
 
 impl Context<'_> {
     fn error(&self, reason: String, remedy: String, fix: FixTarget) -> Failure {
-        Failure::Error(FeatureError {
+        Failure::Error(Box::new(FeatureError {
             reason,
             remedy,
             fix: Some(fix),
             constraints: Vec::new(),
-        })
+            place: None,
+        }))
     }
 
     fn own(&self) -> FixTarget {
@@ -653,12 +655,13 @@ pub(crate) fn evaluate(
         .unwrap_or_default();
     let Some(FeatureResult::Sketch(sketch)) = inputs.features.get(&sketch_id).map(AsRef::as_ref)
     else {
-        return Err(Failure::Error(FeatureError {
+        return Err(Failure::Error(Box::new(FeatureError {
             reason: format!("It needs the shape of {sketch_name}, which is not available."),
             remedy: format!("Fix {sketch_name} first."),
             fix: Some(FixTarget::Feature(sketch_id)),
             constraints: Vec::new(),
-        }));
+            place: None,
+        })));
     };
     let context = Context {
         feature,
@@ -717,8 +720,9 @@ pub(crate) fn evaluate(
                 BodyOperation::Intersect(_) => BooleanOperation::Intersection,
                 BodyOperation::NewBody | BodyOperation::Add(_) => BooleanOperation::Union,
             };
-            let combined = boolean(current, &tool, kernel_operation)
-                .map_err(|error| boolean_failure(&context, inputs, body, operation, &error))?;
+            let combined = boolean(current, &tool, kernel_operation).map_err(|error| {
+                boolean_failure(&context, inputs, [current, &tool], body, operation, &error)
+            })?;
             (body, combined)
         }
     };
@@ -840,12 +844,13 @@ fn missing_body(inputs: &Inputs<'_>, body: FeatureId) -> Failure {
         .feature(body)
         .map(|feature| feature.name.clone())
         .unwrap_or_default();
-    Failure::Error(FeatureError {
+    Failure::Error(Box::new(FeatureError {
         reason: format!("The body made by {name} has no shape."),
         remedy: format!("Fix {name} first."),
         fix: Some(FixTarget::Feature(body)),
         constraints: Vec::new(),
-    })
+        place: None,
+    }))
 }
 
 fn chosen_regions(
@@ -1074,6 +1079,7 @@ fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Fail
 fn boolean_failure(
     context: &Context<'_>,
     inputs: &Inputs<'_>,
+    operands: [&Solid; 2],
     body: FeatureId,
     operation: BodyOperation,
     error: &BooleanError,
@@ -1083,7 +1089,7 @@ fn boolean_failure(
         .feature(body)
         .map(|feature| feature.name.clone())
         .unwrap_or_default();
-    match error {
+    let failure = match error {
         BooleanError::Cancelled(_) => Failure::Cancelled,
         BooleanError::Empty => {
             let reason = match operation {
@@ -1100,27 +1106,31 @@ fn boolean_failure(
                 context.own(),
             )
         }
-        BooleanError::NonManifold => context.error(
+        BooleanError::NonManifold(_) => context.error(
             format!(
                 "The body of {body_name} would be left with parts that meet only along an edge."
             ),
             "Move or resize the shape so it overlaps more or stays clear.".to_owned(),
             context.own(),
         ),
-        BooleanError::Intersection(_)
-        | BooleanError::Split
-        | BooleanError::Ambiguous
-        | BooleanError::Open
+        BooleanError::Intersection { .. }
+        | BooleanError::Split(_)
+        | BooleanError::Ambiguous(_)
+        | BooleanError::Open(_)
         | BooleanError::Invalid(_) => {
             log::warn!("{} could not be combined: {error}", context.feature.name);
+            let trouble =
+                boolean_trouble(inputs.document, operands, error, "Move or resize the shape");
             context.error(
-                format!("The shape could not be combined with the body of {body_name}."),
-                "Move or resize the shape slightly; faces or edges that exactly touch can cause this."
-                    .to_owned(),
+                trouble.reason(format!(
+                    "The shape could not be combined with the body of {body_name}."
+                )),
+                trouble.remedy,
                 context.own(),
             )
         }
-    }
+    };
+    failure.placed(trouble::place(error))
 }
 
 fn evaluate_value(

@@ -6,6 +6,7 @@ use std::{
 use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 
 use super::{
+    imprint::Arrangement,
     select::KeptFace,
     trace::{Fragment, HalfEdge, TracedLoop},
     *,
@@ -20,7 +21,7 @@ use crate::{
     surface::{PlaneSurface, Surface},
     test_support::{Random, assert_cancelled_anywhere, assert_watertight, circle, rectangle},
     tolerance::SamplingTolerance,
-    topology::{BuildError, FaceId, Pcurve, PcurveSample, ValidationError},
+    topology::{BuildError, FaceId, Pcurve, PcurveSample, PointClass, ValidationError},
 };
 
 fn moved(solid: Solid, offset: (f64, f64, f64)) -> Solid {
@@ -334,7 +335,7 @@ fn random_grid_blocks() {
                 Err(BooleanError::Empty) => {
                     assert!(expected.abs() < 1e-9, "{name} {operation:?} empty")
                 }
-                Err(BooleanError::NonManifold) => assert!(
+                Err(BooleanError::NonManifold(_)) => assert!(
                     touching == 2 && !apart && operation == BooleanOperation::Union,
                     "{name} {operation:?} non-manifold"
                 ),
@@ -536,7 +537,7 @@ fn stress_cylinders_on_a_grid() {
                     results.push(Some(volume(&solid)));
                 }
                 Err(BooleanError::Empty) => results.push(Some(0.0)),
-                Err(BooleanError::NonManifold) => {
+                Err(BooleanError::NonManifold(_)) => {
                     contacts += 1;
                     results.push(None);
                 }
@@ -740,10 +741,21 @@ fn nearly_coincident_tori_are_too_intricate_to_intersect() {
     let ring = crate::fixtures::torus(6.0, 2.0);
     let shifted = moved(ring.clone(), (1e-4, 1e-4, 1e-4));
 
-    assert!(matches!(
-        boolean(&ring, &shifted, BooleanOperation::Union),
-        Err(BooleanError::Intersection(IntersectionError::TooComplex(_)))
-    ));
+    let error = boolean(&ring, &shifted, BooleanOperation::Union).unwrap_err();
+    let BooleanError::Intersection {
+        error: IntersectionError::TooComplex(_),
+        site,
+    } = &error
+    else {
+        panic!("{error:?}");
+    };
+    let point = site.point.unwrap();
+
+    assert_eq!((site.first.len(), site.second.len()), (1, 1));
+    assert!(
+        matches!(ring.classify_point(point), PointClass::OnBoundary(_)),
+        "{point:?}"
+    );
 }
 
 #[test]
@@ -751,9 +763,16 @@ fn tori_touching_along_their_equators_cannot_be_split() {
     let ring = crate::fixtures::torus(6.0, 2.0);
     let beside = moved(ring.clone(), (4.0, 0.0, 0.0));
 
-    assert_eq!(
-        boolean(&ring, &beside, BooleanOperation::Union).err(),
-        Some(BooleanError::Split)
+    let error = boolean(&ring, &beside, BooleanOperation::Union).unwrap_err();
+    let BooleanError::Split(site) = &error else {
+        panic!("{error:?}");
+    };
+    let point = site.point.unwrap();
+
+    assert_eq!(site.first.len() + site.second.len(), 1);
+    assert!(
+        point.distance(Point3::new(8.0, 0.0, 0.0)) < 1e-3,
+        "{point:?}"
     );
 }
 
@@ -846,24 +865,39 @@ fn kept_face(face: usize, fragment: Fragment) -> KeptFace {
 fn kept_faces_must_use_every_edge_once_each_way() {
     let square = square_fragment(1.0);
 
+    let arrangement = Arrangement::default();
+    let face = |index: usize| FaceId::from_index(index).unwrap();
+
     assert_eq!(
-        heal::check_closed(&[kept_face(0, square.clone())]),
-        Err(BooleanError::Open)
+        heal::check_closed(&arrangement, &[kept_face(0, square.clone())]),
+        Err(BooleanError::Open(Box::new(BooleanSite {
+            first: vec![face(0)],
+            ..BooleanSite::default()
+        })))
     );
     assert_eq!(
-        heal::check_closed(&[
-            kept_face(0, square.clone()),
-            kept_face(1, square.reversed()),
-            kept_face(2, square.clone()),
-            kept_face(3, square.reversed()),
-        ]),
-        Err(BooleanError::NonManifold)
+        heal::check_closed(
+            &arrangement,
+            &[
+                kept_face(0, square.clone()),
+                kept_face(1, square.reversed()),
+                kept_face(2, square.clone()),
+                kept_face(3, square.reversed()),
+            ]
+        ),
+        Err(BooleanError::NonManifold(Box::new(BooleanSite {
+            first: (0..4).map(face).collect(),
+            ..BooleanSite::default()
+        })))
     );
     assert_eq!(
-        heal::check_closed(&[
-            kept_face(0, square.clone()),
-            kept_face(1, square.reversed())
-        ]),
+        heal::check_closed(
+            &arrangement,
+            &[
+                kept_face(0, square.clone()),
+                kept_face(1, square.reversed())
+            ]
+        ),
         Ok(())
     );
 }
@@ -887,9 +921,17 @@ fn a_fragment_both_inside_and_outside_the_other_solid_is_ambiguous() {
 
     assert_eq!(points.len(), 3);
     assert!(points[1..].iter().all(|point| point.distance(probe) > 0.1));
-    assert_eq!(
-        select::classify(&input, key, &surface, Sense::Same, &fragment),
-        Err(BooleanError::Ambiguous)
+    let error = select::classify(&input, key, &surface, Sense::Same, &fragment).unwrap_err();
+    let BooleanError::Ambiguous(site) = error else {
+        panic!("{error:?}");
+    };
+
+    assert_eq!(site.first, vec![key.face]);
+    assert!(site.second.is_empty());
+    assert!(
+        points
+            .iter()
+            .any(|uv| Some(surface.point_at(*uv)) == site.point)
     );
 }
 
@@ -897,7 +939,7 @@ fn a_fragment_both_inside_and_outside_the_other_solid_is_ambiguous() {
 fn failures_of_the_steps_become_boolean_errors_in_words() {
     assert_eq!(
         BooleanError::from(PlanError::Unassembled),
-        BooleanError::Open
+        BooleanError::Open(Box::default())
     );
     assert_eq!(
         BooleanError::from(BuildError::EmptyLoop),
@@ -909,15 +951,15 @@ fn failures_of_the_steps_become_boolean_errors_in_words() {
     );
     for (error, words) in [
         (
-            BooleanError::Split,
+            BooleanError::Split(Box::default()),
             "a face could not be divided where the solids meet",
         ),
         (
-            BooleanError::Ambiguous,
+            BooleanError::Ambiguous(Box::default()),
             "the solids touch where it cannot be told which side is inside",
         ),
         (
-            BooleanError::Open,
+            BooleanError::Open(Box::default()),
             "the faces of the result do not join up into closed shells",
         ),
         (
@@ -943,11 +985,11 @@ fn outcome(result: &Result<Solid, BooleanError>) -> &'static str {
     match result {
         Ok(_) => "ok",
         Err(BooleanError::Empty) => "empty",
-        Err(BooleanError::Intersection(_)) => "intersection",
-        Err(BooleanError::Split) => "split",
-        Err(BooleanError::Ambiguous) => "ambiguous",
-        Err(BooleanError::Open) => "open",
-        Err(BooleanError::NonManifold) => "non-manifold",
+        Err(BooleanError::Intersection { .. }) => "intersection",
+        Err(BooleanError::Split(_)) => "split",
+        Err(BooleanError::Ambiguous(_)) => "ambiguous",
+        Err(BooleanError::Open(_)) => "open",
+        Err(BooleanError::NonManifold(_)) => "non-manifold",
         Err(BooleanError::Invalid(_)) => "invalid",
         Err(BooleanError::Cancelled(_)) => "cancelled",
     }

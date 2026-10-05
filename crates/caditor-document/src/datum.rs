@@ -454,12 +454,13 @@ pub(crate) struct Resolver<'a> {
 
 impl Resolver<'_> {
     fn error(&self, reason: String, remedy: String, fix: FeatureId) -> Failure {
-        Failure::Error(FeatureError {
+        Failure::Error(Box::new(FeatureError {
             reason,
             remedy,
             fix: Some(FixTarget::Feature(fix)),
             constraints: Vec::new(),
-        })
+            place: None,
+        }))
     }
 
     fn own_error(&self, reason: String, remedy: &str) -> Failure {
@@ -619,12 +620,13 @@ impl Resolver<'_> {
                         FixTarget::Feature(self.feature.id()),
                     ),
                 };
-                Failure::Error(FeatureError {
+                Failure::Error(Box::new(FeatureError {
                     reason: format!("The {what} cannot be evaluated: {error}."),
                     remedy,
                     fix: Some(fix),
                     constraints: Vec::new(),
-                })
+                    place: None,
+                }))
             })
     }
 }

@@ -9,7 +9,7 @@ use crate::{
     document::{Feature, FeatureId},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
-    tolerance,
+    tolerance, trouble,
 };
 
 pub const MAX_PATTERN_INSTANCES: u32 = 100;
@@ -162,12 +162,13 @@ struct Steps {
 
 impl Context<'_> {
     fn error(&self, reason: String, remedy: &str) -> Failure {
-        Failure::Error(FeatureError {
+        Failure::Error(Box::new(FeatureError {
             reason,
             remedy: remedy.to_owned(),
             fix: Some(FixTarget::Feature(self.resolver.feature.id())),
             constraints: Vec::new(),
-        })
+            place: None,
+        }))
     }
 
     fn count(&self, expression: &Expression, what: &str) -> Result<u32, Failure> {
@@ -336,7 +337,7 @@ impl Context<'_> {
             ),
             PatternError::Union {
                 copies,
-                error: BooleanError::NonManifold,
+                error: BooleanError::NonManifold(_),
             } => self.error(
                 format!(
                     "{} of the body of {body} meet only along an edge or at a corner, and could \
@@ -347,7 +348,7 @@ impl Context<'_> {
             ),
             PatternError::Union {
                 copies,
-                error: BooleanError::Ambiguous,
+                error: BooleanError::Ambiguous(_),
             } => self.error(
                 format!(
                     "{} of the body of {body} touch where it cannot be told which side is inside.",
@@ -411,18 +412,19 @@ pub(crate) fn evaluate(
         PatternKind::Circular(circular) => context.circular(circular)?,
     };
     let Some(solid) = inputs.body(definition.body) else {
-        return Err(Failure::Error(FeatureError {
+        return Err(Failure::Error(Box::new(FeatureError {
             reason: format!("The body made by {} has no shape.", context.body_name),
             remedy: format!("Fix {} first.", context.body_name),
             fix: Some(FixTarget::Feature(definition.body)),
             constraints: Vec::new(),
-        }));
+            place: None,
+        })));
     };
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
-    let result =
-        pattern(solid, &copies, feature.id().raw()).map_err(|error| context.failure(&error))?;
+    let result = pattern(solid, &copies, feature.id().raw())
+        .map_err(|error| context.failure(&error).placed(trouble::union_place(&error)))?;
     Ok(FeatureResult::Solid(SolidResult::new(
         definition.body,
         result,

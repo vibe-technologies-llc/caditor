@@ -48,6 +48,7 @@ const PLACE_ON_PLANE_LABEL: &str = "Place on selected plane";
 const PLACE_ON_FACE_LABEL: &str = "Place on selected face";
 const DETACH_LABEL: &str = "Detach";
 const RECOMPUTE_LABEL: &str = "Recompute";
+const SHOW_PLACE_LABEL: &str = "Show where";
 const UPDATE_REFERENCES_LABEL: &str = "Update references";
 const HEALED_HINT: &str =
     "Some of what it uses changed and was matched to the most similar geometry";
@@ -1689,6 +1690,12 @@ fn failure(
     widgets::callout(ui, Tone::Error, |ui| {
         ui.label(&error.reason);
         ui.label(widgets::muted(&error.remedy, ui));
+        if let Some(place) = error.place {
+            let button = widgets::small_button(ui, icons::SHOW_PLACE, SHOW_PLACE_LABEL);
+            if ui.add(button).clicked() {
+                state.shown_place = Some(place);
+            }
+        }
         let Some(target) = error.fix else {
             return;
         };

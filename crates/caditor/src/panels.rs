@@ -1,5 +1,6 @@
 use caditor_document::{FeatureId, FixTarget, TreeRow};
 use caditor_expression::ParameterId;
+use caditor_geometry::Point3;
 use caditor_sketch::ConstraintId;
 use egui::Id;
 
@@ -104,6 +105,7 @@ pub struct PanelState {
     pub parameter: Option<ParameterId>,
     pub hovered_in_tree: Option<Pickable>,
     pub chosen_in_tree: Option<Pickable>,
+    pub shown_place: Option<Point3>,
     pub reference_rows: RowCache,
     pub constraint_offers: ConstraintOffers,
     revealing: Option<PendingReveal>,

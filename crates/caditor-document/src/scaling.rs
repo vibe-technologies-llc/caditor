@@ -54,12 +54,13 @@ struct Context<'a> {
 
 impl Context<'_> {
     fn error(&self, reason: String, remedy: &str) -> Failure {
-        Failure::Error(FeatureError {
+        Failure::Error(Box::new(FeatureError {
             reason,
             remedy: remedy.to_owned(),
             fix: Some(FixTarget::Feature(self.resolver.feature.id())),
             constraints: Vec::new(),
-        })
+            place: None,
+        }))
     }
 
     fn factor(&self, definition: &Scale) -> Result<f64, Failure> {
@@ -159,12 +160,13 @@ pub(crate) fn evaluate(
         )
     })?;
     let Some(solid) = inputs.body(definition.body) else {
-        return Err(Failure::Error(FeatureError {
+        return Err(Failure::Error(Box::new(FeatureError {
             reason: format!("The body made by {} has no shape.", context.body_name),
             remedy: format!("Fix {} first.", context.body_name),
             fix: Some(FixTarget::Feature(definition.body)),
             constraints: Vec::new(),
-        }));
+            place: None,
+        })));
     };
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);

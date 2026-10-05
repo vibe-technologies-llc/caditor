@@ -19,8 +19,9 @@ paths:
 - A failed result is also recomputed when a name its message could hold changed (its own, those of
   the parameters and features it uses, those of every feature before it, which name the faces it
   works on); which used features are suppressed is part of its key too.
-- A failing feature is `Failed` with a `FeatureError` (reason, remedy, `FixTarget`) and keeps its
-  last good result. Dependents fail with a pointer back to it; everything else is unaffected. A
+- A failing feature is `Failed` with a `FeatureError` (reason, remedy, `FixTarget`, and a model
+  point `place` where the failure arose when the kernel gives one) and keeps its last good result.
+  `Failure::Error` boxes it, keeping every `Result` small. Dependents fail with a pointer back to it; everything else is unaffected. A
   panic inside an `Evaluator` is caught and becomes that feature's error.
 - Features below the rollback bar are `RolledBack` and suppressed ones `Suppressed`, never
   evaluated, with cache entries kept so rolling forward or unsuppressing reuses them. A feature

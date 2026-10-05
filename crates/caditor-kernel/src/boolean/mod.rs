@@ -7,7 +7,7 @@ mod select;
 mod tests;
 mod trace;
 
-use caditor_geometry::{Aabb, Aabb2};
+use caditor_geometry::{Aabb, Aabb2, Point3};
 use thiserror::Error;
 
 use crate::{
@@ -28,20 +28,50 @@ pub enum BooleanOperation {
     Intersection,
 }
 
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BooleanSite {
+    pub first: Vec<FaceId>,
+    pub second: Vec<FaceId>,
+    pub point: Option<Point3>,
+}
+
+impl BooleanSite {
+    pub fn is_empty(&self) -> bool {
+        self.first.is_empty() && self.second.is_empty() && self.point.is_none()
+    }
+
+    fn has_faces(&self) -> bool {
+        !self.first.is_empty() || !self.second.is_empty()
+    }
+
+    fn add_face(&mut self, key: FaceKey) {
+        let faces = match key.operand {
+            Operand::First => &mut self.first,
+            Operand::Second => &mut self.second,
+        };
+        if !faces.contains(&key.face) {
+            faces.push(key.face);
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum BooleanError {
     #[error("nothing is left of the solids")]
     Empty,
-    #[error("the solids could not be intersected: {0}")]
-    Intersection(IntersectionError),
+    #[error("the solids could not be intersected: {error}")]
+    Intersection {
+        error: IntersectionError,
+        site: Box<BooleanSite>,
+    },
     #[error("a face could not be divided where the solids meet")]
-    Split,
+    Split(Box<BooleanSite>),
     #[error("the solids touch where it cannot be told which side is inside")]
-    Ambiguous,
+    Ambiguous(Box<BooleanSite>),
     #[error("the faces of the result do not join up into closed shells")]
-    Open,
+    Open(Box<BooleanSite>),
     #[error("the result would have solids that meet only along an edge")]
-    NonManifold,
+    NonManifold(Box<BooleanSite>),
     #[error("the result is not a valid solid: {0}")]
     Invalid(BuildError),
     #[error(transparent)]
@@ -52,7 +82,10 @@ impl From<IntersectionError> for BooleanError {
     fn from(error: IntersectionError) -> Self {
         match error {
             IntersectionError::Cancelled(interrupted) => Self::Cancelled(interrupted),
-            other => Self::Intersection(other),
+            error => Self::Intersection {
+                error,
+                site: Box::default(),
+            },
         }
     }
 }
@@ -67,18 +100,64 @@ impl From<BuildError> for BooleanError {
 }
 
 impl BooleanError {
+    pub fn site(&self) -> Option<&BooleanSite> {
+        match self {
+            Self::Intersection { site, .. }
+            | Self::Split(site)
+            | Self::Ambiguous(site)
+            | Self::Open(site)
+            | Self::NonManifold(site) => Some(&**site),
+            Self::Empty | Self::Invalid(_) | Self::Cancelled(_) => None,
+        }
+    }
+
+    fn site_mut(&mut self) -> Option<&mut BooleanSite> {
+        match self {
+            Self::Intersection { site, .. }
+            | Self::Split(site)
+            | Self::Ambiguous(site)
+            | Self::Open(site)
+            | Self::NonManifold(site) => Some(&mut **site),
+            Self::Empty | Self::Invalid(_) | Self::Cancelled(_) => None,
+        }
+    }
+
+    fn split() -> Self {
+        Self::Split(Box::default())
+    }
+
     fn unfitted(error: PcurveError) -> Self {
         match error {
             PcurveError::Cancelled(interrupted) => Self::Cancelled(interrupted),
-            _ => Self::Split,
+            _ => Self::split(),
         }
+    }
+
+    fn or_faces(mut self, keys: impl IntoIterator<Item = FaceKey>) -> Self {
+        if let Some(site) = self.site_mut()
+            && !site.has_faces()
+        {
+            for key in keys {
+                site.add_face(key);
+            }
+        }
+        self
+    }
+
+    fn or_point(mut self, point: impl FnOnce() -> Option<Point3>) -> Self {
+        if let Some(site) = self.site_mut()
+            && site.point.is_none()
+        {
+            site.point = point();
+        }
+        self
     }
 }
 
 impl From<PlanError> for BooleanError {
     fn from(error: PlanError) -> Self {
         match error {
-            PlanError::Unassembled => Self::Open,
+            PlanError::Unassembled => Self::Open(Box::default()),
             PlanError::Build(error) => error.into(),
         }
     }

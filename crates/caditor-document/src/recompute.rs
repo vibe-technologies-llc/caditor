@@ -7,6 +7,7 @@ use std::{
 };
 
 use caditor_expression::{Dimension, EvalError, ParameterId, Quantity};
+use caditor_geometry::Point3;
 use caditor_kernel::{Interrupt, MeshQuality, Profile, ProfileError, Solid, interruptible};
 use caditor_sketch::{
     ConstraintId, DimensionError, EntityId, Sketch, SketchError, SketchSolution, SolveMemo, Solved,
@@ -58,22 +59,32 @@ pub enum FixTarget {
     Unsuppress(FeatureId),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FeatureError {
     pub reason: String,
     pub remedy: String,
     pub fix: Option<FixTarget>,
     pub constraints: Vec<ConstraintId>,
+    pub place: Option<Point3>,
 }
 
 pub enum Failure {
-    Error(FeatureError),
+    Error(Box<FeatureError>),
     Cancelled,
+}
+
+impl Failure {
+    pub(crate) fn placed(self, place: Option<Point3>) -> Self {
+        match self {
+            Self::Error(error) => Self::Error(Box::new(FeatureError { place, ..*error })),
+            Self::Cancelled => Self::Cancelled,
+        }
+    }
 }
 
 impl From<FeatureError> for Failure {
     fn from(error: FeatureError) -> Self {
-        Self::Error(error)
+        Self::Error(Box::new(error))
     }
 }
 
@@ -301,6 +312,15 @@ impl Evaluation {
 
     pub fn recomputed(&self) -> &[FeatureId] {
         &self.recomputed
+    }
+
+    pub fn failures(&self) -> impl Iterator<Item = (FeatureId, &FeatureError)> {
+        self.features
+            .iter()
+            .filter_map(|(id, status)| match &status.state {
+                FeatureState::Failed(error) => Some((*id, error)),
+                _ => None,
+            })
     }
 
     pub fn failed_count(&self) -> usize {
@@ -634,7 +654,7 @@ impl Recompute {
                     previous: last_good.as_deref(),
                 };
                 let outcome = match missing_upstream(document, feature, &upstream) {
-                    Some(error) => Err(Failure::Error(error)),
+                    Some(error) => Err(error.into()),
                     None => evaluate_contained(evaluator, feature, &inputs, cancel),
                 };
                 let (state, result, healing) = match outcome {
@@ -643,7 +663,7 @@ impl Recompute {
                         Some(Arc::new(result)),
                         check_healing(feature, &inputs),
                     ),
-                    Err(Failure::Error(error)) => (FeatureState::Failed(error), last_good, None),
+                    Err(Failure::Error(error)) => (FeatureState::Failed(*error), last_good, None),
                     Err(Failure::Cancelled) => {
                         cancelled = true;
                         statuses.insert(
@@ -826,6 +846,7 @@ fn missing_upstream(
             remedy: remedy.to_owned(),
             fix: None,
             constraints: Vec::new(),
+            place: None,
         });
     };
     let name = used.name.clone();
@@ -835,6 +856,7 @@ fn missing_upstream(
             remedy: format!("Unsuppress {name}, or suppress this feature too."),
             fix: Some(FixTarget::Unsuppress(*missing)),
             constraints: Vec::new(),
+            place: None,
         });
     }
     Some(FeatureError {
@@ -842,6 +864,7 @@ fn missing_upstream(
         remedy: format!("Fix {name} first."),
         fix: Some(FixTarget::Feature(*missing)),
         constraints: Vec::new(),
+        place: None,
     })
 }
 
@@ -884,14 +907,15 @@ fn panicked(feature: &Feature, payload: &(dyn Any + Send)) -> Failure {
             feature.name,
             panic_message(payload)
         );
-        Failure::Error(FeatureError {
+        Failure::Error(Box::new(FeatureError {
             reason: "caditor ran into an internal error while recomputing this feature.".to_owned(),
             remedy:
                 "Your model is unchanged. Undo the last change, and please report this problem."
                     .to_owned(),
             fix: None,
             constraints: Vec::new(),
-        })
+            place: None,
+        }))
     }
 }
 
@@ -945,7 +969,7 @@ impl Evaluator for ModelEvaluator {
                         Ok(FeatureResult::Sketch(result))
                     }
                     Err(SketchError::Cancelled) => Err(Failure::Cancelled),
-                    Err(error) => Err(Failure::Error(sketch_error(feature.id(), sketch, &error))),
+                    Err(error) => Err(sketch_error(feature.id(), sketch, &error).into()),
                 }
             }
             FeatureKind::Solid(solid) => solid::evaluate(feature, solid, inputs, cancel),
@@ -988,6 +1012,7 @@ fn sketch_error(feature: FeatureId, sketch: &Sketch, error: &SketchError) -> Fea
             ),
             fix: Some(FixTarget::Feature(feature)),
             constraints: Vec::new(),
+            place: None,
         },
         SketchError::Unsolvable { entities, newest } => {
             unsolvable_error(feature, sketch, entities, *newest)
@@ -997,6 +1022,7 @@ fn sketch_error(feature: FeatureId, sketch: &Sketch, error: &SketchError) -> Fea
             remedy: "Undo the last change.".to_owned(),
             fix: None,
             constraints: Vec::new(),
+            place: None,
         },
     }
 }
@@ -1029,6 +1055,7 @@ fn several_errors(feature: FeatureId, sketch: &Sketch, parts: &[SketchError]) ->
         remedy: format!("Fix each of them. {}", numbered(|error| &error.remedy)),
         fix: errors.iter().find_map(|error| error.fix),
         constraints,
+        place: None,
     }
 }
 
@@ -1067,18 +1094,21 @@ pub(crate) fn unsolvable_error(
                 constraint,
             }),
             constraints: Vec::new(),
+            place: None,
         },
         None if entities.is_empty() => FeatureError {
             reason,
             remedy: "Undo the last change.".to_owned(),
             fix: Some(FixTarget::Feature(feature)),
             constraints: Vec::new(),
+            place: None,
         },
         None => FeatureError {
             reason,
             remedy: format!("Delete and redraw {them}, or undo the last change."),
             fix: Some(FixTarget::Feature(feature)),
             constraints: Vec::new(),
+            place: None,
         },
     }
 }
@@ -1114,6 +1144,7 @@ fn conflict_error(
             constraint: *newest,
         }),
         constraints: constraints.to_vec(),
+        place: None,
     }
 }
 
@@ -1168,5 +1199,6 @@ fn dimension_error(
         remedy,
         fix: Some(fix),
         constraints: Vec::new(),
+        place: None,
     }
 }

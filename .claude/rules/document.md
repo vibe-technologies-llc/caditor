@@ -114,6 +114,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   each origin from what the reference resolves to by name. Suppressed features, features not
   reached before the cancel token trips, and references no longer found keep what they had.
 - Kernel and profile errors become sentences naming the sketch curves, edges or faces involved.
+  Boolean failures of extrusions, revolves, holes and combines go through `trouble.rs`: the faces
+  of the `BooleanSite` named by origin ("where A meets B" for an intersection), the site's point as
+  the error's `place`, and a remedy to make the faces there line up exactly or stay clearly apart,
+  since near-coincident faces cause most of them; an invalid result asks only for a slight change.
+  Patterns and mirrors, whose operands are intermediate, pass on the point alone.
 
 ### Solid (`solid.rs`)
 

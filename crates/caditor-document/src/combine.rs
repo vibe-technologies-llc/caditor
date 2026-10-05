@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 
-use caditor_kernel::{BooleanError, BooleanOperation, boolean};
+use caditor_kernel::{BooleanError, BooleanOperation, Solid, boolean};
 
 use crate::{
     document::{Document, Feature, FeatureId},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
+    trouble::{self, boolean_trouble},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -63,22 +64,24 @@ impl Context<'_> {
     }
 
     fn error(&self, reason: String, remedy: String) -> Failure {
-        Failure::Error(FeatureError {
+        Failure::Error(Box::new(FeatureError {
             reason,
             remedy,
             fix: Some(FixTarget::Feature(self.feature.id())),
             constraints: Vec::new(),
-        })
+            place: None,
+        }))
     }
 
     fn missing(&self, body: FeatureId) -> Failure {
         let name = self.name(body);
-        Failure::Error(FeatureError {
+        Failure::Error(Box::new(FeatureError {
             reason: format!("The body made by {name} has no shape."),
             remedy: format!("Fix {name} first."),
             fix: Some(FixTarget::Feature(body)),
             constraints: Vec::new(),
-        })
+            place: None,
+        }))
     }
 }
 
@@ -105,17 +108,22 @@ pub(crate) fn evaluate(
         return Err(Failure::Cancelled);
     }
     let combined = boolean(target, tool, definition.operation.kernel())
-        .map_err(|error| failure(&context, definition, &error))?;
+        .map_err(|error| failure(&context, definition, [target, tool], &error))?;
     Ok(FeatureResult::Solid(SolidResult::new(
         definition.body,
         combined,
     )))
 }
 
-fn failure(context: &Context<'_>, definition: &Combine, error: &BooleanError) -> Failure {
+fn failure(
+    context: &Context<'_>,
+    definition: &Combine,
+    operands: [&Solid; 2],
+    error: &BooleanError,
+) -> Failure {
     let target = context.name(definition.body);
     let tool = context.name(definition.tool);
-    match error {
+    let failure = match error {
         BooleanError::Cancelled(_) => Failure::Cancelled,
         BooleanError::Empty => {
             let reason = match definition.operation {
@@ -131,28 +139,36 @@ fn failure(context: &Context<'_>, definition: &Combine, error: &BooleanError) ->
                 "Move a body so part of the target stays, or choose another operation.".to_owned(),
             )
         }
-        BooleanError::NonManifold => context.error(
+        BooleanError::NonManifold(_) => context.error(
             format!(
                 "The result would have parts of {target} and {tool} that meet only along an edge."
             ),
             "Move a body so they overlap more or stay clear.".to_owned(),
         ),
-        BooleanError::Intersection(_)
-        | BooleanError::Split
-        | BooleanError::Ambiguous
-        | BooleanError::Open
+        BooleanError::Intersection { .. }
+        | BooleanError::Split(_)
+        | BooleanError::Ambiguous(_)
+        | BooleanError::Open(_)
         | BooleanError::Invalid(_) => {
             log::warn!(
                 "{} could not combine its bodies: {error}",
                 context.feature.name
             );
+            let trouble = boolean_trouble(
+                context.inputs.document,
+                operands,
+                error,
+                "Move or resize a body",
+            );
             context.error(
-                format!("The bodies of {target} and {tool} could not be combined."),
-                "Move or resize a body slightly; faces or edges that exactly touch can cause this."
-                    .to_owned(),
+                trouble.reason(format!(
+                    "The bodies of {target} and {tool} could not be combined."
+                )),
+                trouble.remedy,
             )
         }
-    }
+    };
+    failure.placed(trouble::place(error))
 }
 
 impl Document {

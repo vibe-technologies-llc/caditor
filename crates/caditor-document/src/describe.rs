@@ -27,7 +27,7 @@ pub fn describe_origin(document: &Document, origin: Option<FaceOrigin>) -> Strin
     format!("{pattern} copy {steps} of {}", lowercase_first(&original))
 }
 
-fn lowercase_first(text: &str) -> String {
+pub(crate) fn lowercase_first(text: &str) -> String {
     let mut characters = text.chars();
     match characters.next() {
         Some(first) if text.starts_with("Face") => first.to_lowercase().chain(characters).collect(),

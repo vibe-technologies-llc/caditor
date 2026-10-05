@@ -257,3 +257,52 @@ fn the_bodies_before_a_combine_leave_out_those_an_earlier_combine_consumed() {
     );
     assert_eq!(pair.document.bodies_before(second), vec![pair.plate, third]);
 }
+
+#[test]
+fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let plate = block(&mut transaction, "Plate", (0.0, 0.0), (20.0, 10.0), "4 mm");
+    let peg = block(
+        &mut transaction,
+        "Peg",
+        (10.0, 2.0),
+        (20.000005, 8.0),
+        "4 mm",
+    );
+    let combined = transaction.add_feature(
+        "Combine 1",
+        FeatureKind::Combine(Combine {
+            body: plate,
+            tool: peg,
+            operation: CombineOperation::Join,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&document, &mut engine);
+
+    let FeatureState::Failed(error) = &evaluation.feature(combined).unwrap().state else {
+        panic!("the near contact should not combine");
+    };
+    let place = error.place.unwrap();
+    assert_eq!(
+        error.reason,
+        "The bodies of Plate and Peg could not be combined. Where the bodies touch at Peg side \
+         from Line 2, it cannot be told which side is inside."
+    );
+    assert!(
+        error
+            .remedy
+            .contains("line up exactly or stay clearly apart"),
+        "{}",
+        error.remedy
+    );
+    assert!(!error.remedy.contains("exactly touch"), "{}", error.remedy);
+    assert!((place.x - 20.0).abs() < 1e-4, "{place:?}");
+    assert!(
+        (2.0..=8.0).contains(&place.y) && (0.0..=4.0).contains(&place.z),
+        "{place:?}"
+    );
+}

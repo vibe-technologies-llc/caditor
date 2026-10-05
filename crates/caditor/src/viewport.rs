@@ -87,6 +87,9 @@ const BOX_DASH: f32 = 6.0;
 const BOX_GAP: f32 = 4.0;
 const NOTHING_TO_HIGHLIGHT: &str = "Nothing in the view can be picked";
 const MEASURE_LABEL_LIFT: f32 = 6.0;
+const PROBLEM_LABEL_LIFT: f32 = 9.0;
+const PLACE_SHARE: f64 = 0.2;
+const MIN_PLACE_REACH: f64 = 1.0;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
 const NO_TARGET_HIGHLIGHTED: &str =
     "Highlight a piece or an end first, with Highlight the next item in the view";
@@ -196,11 +199,34 @@ pub struct ViewportState {
     fit_when_computed: bool,
     scene_bounds: Option<Aabb>,
     measured: Option<(MeasuredLine, String)>,
+    problems: Vec<Problem>,
+    framed_place: Option<Point3>,
     scenes: SceneCache,
     filter: SelectionFilter,
     filter_applies: bool,
     style: DisplayStyle,
     snapping: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Problem {
+    place: Point3,
+    label: String,
+}
+
+fn problems(model: &Model) -> Vec<Problem> {
+    let document = model.document();
+    model
+        .evaluation()
+        .failures()
+        .filter_map(|(feature, error)| {
+            let name = &document.feature(feature)?.name;
+            Some(Problem {
+                place: error.place?,
+                label: format!("{name} failed here"),
+            })
+        })
+        .collect()
 }
 
 pub fn initial_viewpoint() -> Viewpoint {
@@ -252,6 +278,8 @@ impl ViewportState {
             fit_when_computed: false,
             scene_bounds: None,
             measured: None,
+            problems: Vec::new(),
+            framed_place: None,
             scenes: SceneCache::default(),
             filter: SelectionFilter::default(),
             filter_applies: true,
@@ -304,6 +332,10 @@ impl ViewportState {
 
     pub fn set_measured(&mut self, measured: Option<(MeasuredLine, String)>) {
         self.measured = measured;
+    }
+
+    pub fn show_place(&mut self, place: Point3) {
+        self.framed_place = Some(place);
     }
 
     pub fn select_only(&mut self, pickable: Pickable) {
@@ -525,6 +557,7 @@ impl ViewportState {
         });
         let faceting = self.scenes.faceting();
         let plane = self.scenes.edited_plane();
+        self.problems = problems(model);
         self.scenes.show(Overlay {
             plane,
             previews: vec![
@@ -533,6 +566,7 @@ impl ViewportState {
                 self.modifying.preview(faceting),
             ],
             measured: self.measured.as_ref().map(|(line, _)| [line.from, line.to]),
+            problems: self.problems.iter().map(|problem| problem.place).collect(),
         });
         if let Some(highlight) = self.keyboard_highlight
             && !self.scenes.highlightable().contains(&highlight)
@@ -552,6 +586,10 @@ impl ViewportState {
                 self.camera.animate_to(facing(&view, &sketch));
             }
             self.face_edited_sketch = false;
+        } else if let Some(place) = self.framed_place {
+            let reach = (built.fit_all().bounding_radius() * PLACE_SHARE).max(MIN_PLACE_REACH);
+            let around = Aabb::from_point(place).expanded(reach);
+            self.camera.animate_to(view.fitted(around));
         } else if self.fit_requested {
             let everything = built.fit_all();
             let bounds = if self.selection.is_empty() {
@@ -564,6 +602,7 @@ impl ViewportState {
             self.camera.animate_to(view.fitted(bounds));
         }
         self.fit_requested = false;
+        self.framed_place = None;
         Some(built)
     }
 
@@ -1743,6 +1782,26 @@ impl ViewportState {
                     canvas::MEASURE,
                 );
                 canvas::announce(ui, shown, "measure", label, None);
+            }
+        }
+        if let Some(view) = self.view() {
+            for problem in &self.problems {
+                let Some(pixel) = view.project(problem.place) else {
+                    continue;
+                };
+                let position = rect.min
+                    + egui::Vec2::new(pixel.x as f32, pixel.y as f32) / self.pixels_per_point;
+                if rect.contains(position) {
+                    let shown = canvas::label(
+                        painter,
+                        position + vec2(0.0, -PROBLEM_LABEL_LIFT),
+                        Align2::CENTER_BOTTOM,
+                        &problem.label,
+                        canvas::small(),
+                        canvas::ERROR,
+                    );
+                    canvas::announce(ui, shown, "problem", &problem.label, None);
+                }
             }
         }
         let band = top_band(rect);

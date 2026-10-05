@@ -73,11 +73,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Kernel feedback
 
-- [medium · medium] `BooleanError::Split`, `Open`, `Ambiguous`, `NonManifold` and `Intersection`
-  carry no data about where they arose, and the document reduces `Intersection`, `Split`,
-  `Ambiguous`, `Open` and `Invalid` to one message blaming "faces or edges that exactly touch",
-  wrong for the near-coincident cases. Carry the face or edge names, or a model point, so the error
-  can name and highlight them.
 - [low · medium] `SweepError::Invalid` cannot say which region failed, since all regions build in
   one `Plan`.
 - [low · medium] `ShellError::Walls` still names nothing when the offset solid fails to build
