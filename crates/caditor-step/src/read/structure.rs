@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::{Plane, RigidTransform, Vector3};
+use caditor_geometry::{Plane, RigidTransform, Similarity, Vector3};
 
 use crate::read::{
     geometry::{Geometry, MAX_WORK, Work},
@@ -11,12 +11,11 @@ use crate::read::{
 pub(crate) const MAX_INSTANCES: usize = 1000;
 pub(crate) const MAX_DEPTH: usize = 32;
 const OPERATOR_FIELDS: usize = 8;
-const RIGID_SLACK: f64 = 1e-9;
 
 #[derive(Debug, Clone, PartialEq)]
 struct Parent {
     representation: u64,
-    transform: Option<RigidTransform>,
+    transform: Option<Similarity>,
     occurrence: Option<String>,
 }
 
@@ -196,7 +195,7 @@ impl Structure {
         transformation: u64,
         (first, second): (u64, u64),
         child_is_first: bool,
-    ) -> Option<RigidTransform> {
+    ) -> Option<Similarity> {
         let entity = graph.entity(transformation).ok()?;
         if entity.is("CARTESIAN_TRANSFORMATION_OPERATOR_3D") {
             let geometry = Geometry::new(*graph, self.units_of(graph, second), Work::new(MAX_WORK));
@@ -308,7 +307,7 @@ pub(crate) enum Unplaced {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Placements {
-    pub transforms: Vec<RigidTransform>,
+    pub transforms: Vec<Similarity>,
     pub occurrences: Vec<Option<String>>,
     pub unplaced: Option<Unplaced>,
     pub left_out: bool,
@@ -317,7 +316,7 @@ pub(crate) struct Placements {
 impl Placements {
     pub fn at_origin() -> Self {
         Self {
-            transforms: vec![RigidTransform::IDENTITY],
+            transforms: vec![Similarity::IDENTITY],
             occurrences: vec![None],
             unplaced: None,
             left_out: false,
@@ -378,9 +377,9 @@ enum Walk {
     Done(Placements),
 }
 
-fn frame(geometry: &Geometry<'_>, id: u64) -> Option<RigidTransform> {
+fn frame(geometry: &Geometry<'_>, id: u64) -> Option<Similarity> {
     let plane: Plane = geometry.placement(id).ok()?;
-    RigidTransform::from_frame(&plane)
+    RigidTransform::from_frame(&plane).map(Similarity::from)
 }
 
 struct Operator {
@@ -422,15 +421,10 @@ fn operator_fields(graph: &Graph<'_>, entity: Entity<'_>) -> Option<Operator> {
     })
 }
 
-fn operator(geometry: &Geometry<'_>, id: u64) -> Option<RigidTransform> {
+fn operator(geometry: &Geometry<'_>, id: u64) -> Option<Similarity> {
     let entity = geometry.graph.entity(id).ok()?;
     let fields = operator_fields(&geometry.graph, entity)?;
-    if fields
-        .scale
-        .is_some_and(|scale| (scale - 1.0).abs() > RIGID_SLACK)
-    {
-        return None;
-    }
+    let scale = fields.scale.unwrap_or(1.0);
     let direction = |id: Option<u64>| match id {
         Some(id) => geometry.direction(id).ok().map(Some),
         None => Some(None),
@@ -441,14 +435,20 @@ fn operator(geometry: &Geometry<'_>, id: u64) -> Option<RigidTransform> {
         .reject_from_normalized(z)
         .try_normalize()
         .or_else(|| Vector3::Y.reject_from_normalized(z).try_normalize())?;
-    if let Some(y) = direction(fields.axis2)? {
-        let y = y.reject_from_normalized(x).reject_from_normalized(z);
-        if y.dot(z.cross(x)) <= 0.0 {
-            return None;
+    let right_handed = z.cross(x);
+    let y = match direction(fields.axis2)? {
+        Some(y) => {
+            let across = y.reject_from_normalized(x).reject_from_normalized(z);
+            if across.dot(right_handed) < 0.0 {
+                -right_handed
+            } else {
+                right_handed
+            }
         }
-    }
+        None => right_handed,
+    };
     let origin = geometry.point(fields.origin).ok()?;
-    RigidTransform::from_frame(&Plane::with_x_axis(origin, z, x)?)
+    Similarity::from_axes(origin, [x, y, z], scale)
 }
 
 fn definition_representations(graph: &Graph<'_>) -> BTreeMap<u64, Vec<u64>> {
@@ -606,7 +606,7 @@ mod tests {
         let graph = Graph::new(&exchange);
         let mut structure = Structure::read(&graph);
         let placements = structure.placements(100);
-        assert_eq!(placements.transforms, [RigidTransform::IDENTITY]);
+        assert_eq!(placements.transforms, [Similarity::IDENTITY]);
         assert_eq!(placements.unplaced, None);
     }
 
@@ -643,7 +643,9 @@ mod tests {
         let graph = Graph::new(&exchange);
         let mut structure = Structure::read(&graph);
         let moved = |x: f64, y: f64| {
-            RigidTransform::translation(caditor_geometry::Vector3::new(x, y, 0.0)).unwrap()
+            Similarity::from(
+                RigidTransform::translation(caditor_geometry::Vector3::new(x, y, 0.0)).unwrap(),
+            )
         };
         let frame = structure.placements(101);
         assert_eq!(frame.transforms, [moved(10.0, 0.0)]);
@@ -656,10 +658,7 @@ mod tests {
             "{origin}"
         );
         assert_eq!(bolt.occurrences, [Some("Bolt:1".to_owned())]);
-        assert_eq!(
-            structure.placements(100).transforms,
-            [RigidTransform::IDENTITY]
-        );
+        assert_eq!(structure.placements(100).transforms, [Similarity::IDENTITY]);
     }
 
     fn operated(operator: &str) -> Placements {
@@ -705,13 +704,35 @@ mod tests {
     }
 
     #[test]
-    fn a_part_placed_by_a_scaling_or_mirroring_operator_is_left_out_with_the_reason() {
+    fn a_part_placed_by_a_scaling_or_mirroring_operator_is_scaled_or_mirrored() {
+        use caditor_geometry::Point3;
+
         let scaled = operated("CARTESIAN_TRANSFORMATION_OPERATOR_3D('','',$,#21,$,#20,2.,#3)");
         let mirrored = operated("CARTESIAN_TRANSFORMATION_OPERATOR_3D('','',$,#21,#4,#20,1.,#3)");
+        let flat = operated("CARTESIAN_TRANSFORMATION_OPERATOR_3D('','',$,#21,$,#20,0.,#3)");
 
-        for placements in [scaled, mirrored] {
-            assert!(placements.transforms.is_empty());
-            assert_eq!(placements.unplaced, Some(Unplaced::Unreadable));
-        }
+        let [scaled] = scaled.transforms.as_slice() else {
+            panic!("expected one scaled placement, found {scaled:?}");
+        };
+        assert!(!scaled.is_mirrored());
+        assert!((scaled.scale() - 2.0).abs() < 1e-12);
+        let moved = scaled.apply_point(Point3::X);
+        assert!(
+            moved.distance(Point3::new(5.0, 2.0, 0.0)) < 1e-12,
+            "{moved}"
+        );
+
+        let [mirrored] = mirrored.transforms.as_slice() else {
+            panic!("expected one mirrored placement, found {mirrored:?}");
+        };
+        assert!(mirrored.is_mirrored());
+        let moved = mirrored.apply_point(Point3::new(1.0, 2.0, 0.0));
+        assert!(
+            moved.distance(Point3::new(7.0, 1.0, 0.0)) < 1e-12,
+            "{moved}"
+        );
+
+        assert!(flat.transforms.is_empty());
+        assert_eq!(flat.unplaced, Some(Unplaced::Unreadable));
     }
 }

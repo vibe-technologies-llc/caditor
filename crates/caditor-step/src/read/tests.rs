@@ -166,6 +166,63 @@ fn assembly_parts_are_placed_and_named_after_their_products() {
 }
 
 #[test]
+fn assembly_parts_placed_by_scaling_or_mirroring_operators_are_scaled_or_mirrored() {
+    let original = sample(include_str!("samples/assembly.step"));
+    let placed_by = |operator: &str| {
+        let text = include_str!("samples/assembly.step")
+            .replace(
+                "#48 = ITEM_DEFINED_TRANSFORMATION('','',#11,#15);",
+                operator,
+            )
+            .replace(
+                "ENDSEC;\nEND-ISO-10303-21;",
+                "#9100=DIRECTION('',(1.,0.,0.));\nENDSEC;\nEND-ISO-10303-21;",
+            );
+        assert!(text.contains("#9100="));
+        sample(&text)
+    };
+    let near = |a: caditor_geometry::Point3, b: [f64; 3]| {
+        a.distance(caditor_geometry::Point3::from_array(b)) < 1e-9
+    };
+    let block_volume = fixtures::volume(&original.solids[0].solid);
+
+    let doubled = placed_by("#48 = CARTESIAN_TRANSFORMATION_OPERATOR_3D('','',#18,$,#16,2.,#17);");
+    let mirrored =
+        placed_by("#48 = CARTESIAN_TRANSFORMATION_OPERATOR_3D('','',#18,#9100,#16,1.,#17);");
+
+    for model in [&doubled, &mirrored] {
+        assert!(model.notes.is_empty(), "{:?}", model.notes);
+        assert_eq!(model.solids.len(), 2);
+        for solid in &model.solids {
+            assert_eq!(solid.solid.validate(), Ok(()), "{}", solid.name);
+        }
+    }
+    let block = |model: &crate::read::StepModel| model.solids[0].solid.bounding_box().unwrap();
+    assert!(
+        near(block(&doubled).min(), [60.0, 0.0, 0.0]),
+        "{:?}",
+        block(&doubled)
+    );
+    assert!(
+        near(block(&doubled).max(), [100.0, 20.0, 10.0]),
+        "{:?}",
+        block(&doubled)
+    );
+    assert_volume(&doubled.solids[0].solid, 8.0 * block_volume);
+    assert!(
+        near(block(&mirrored).min(), [100.0, 0.0, 0.0]),
+        "{:?}",
+        block(&mirrored)
+    );
+    assert!(
+        near(block(&mirrored).max(), [120.0, 10.0, 5.0]),
+        "{:?}",
+        block(&mirrored)
+    );
+    assert_volume(&mirrored.solids[0].solid, block_volume);
+}
+
+#[test]
 fn lengths_follow_the_unit_of_the_file() {
     let solid = fixtures::plate_with_hole();
     let text = write_step(
@@ -883,7 +940,7 @@ fn every_misplacement_says_what_was_left_out() {
         Misplacement::Unreadable,
         Misplacement::TooDeep,
         Misplacement::SomeCopiesUnreadable,
-        Misplacement::CopyNotRigid,
+        Misplacement::CopyUnplaceable,
     ]
     .into_iter()
     .map(|misplacement| misplacement.note("Arm"))

@@ -9,7 +9,7 @@ mod units;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::RigidTransform;
+use caditor_geometry::Similarity;
 use caditor_kernel::Solid;
 
 use crate::{
@@ -133,7 +133,7 @@ pub enum Misplacement {
     Unreadable,
     TooDeep,
     SomeCopiesUnreadable,
-    CopyNotRigid,
+    CopyUnplaceable,
 }
 
 impl Misplacement {
@@ -143,8 +143,7 @@ impl Misplacement {
                 format!("“{name}” was left out, because the assembly places it inside itself.")
             }
             Self::Unreadable => format!(
-                "“{name}” was left out, because its placement in the assembly could not be read \
-                 or is not a rigid move."
+                "“{name}” was left out, because its placement in the assembly could not be read."
             ),
             Self::TooDeep => format!(
                 "“{name}” was left out, because the assembly nests it more than {MAX_DEPTH} \
@@ -152,11 +151,11 @@ impl Misplacement {
             ),
             Self::SomeCopiesUnreadable => format!(
                 "Some copies of “{name}” were left out, because their placement in the assembly \
-                 could not be read or is not a rigid move."
+                 could not be read."
             ),
-            Self::CopyNotRigid => format!(
-                "A copy of “{name}” was left out, because its placement in the assembly is not a \
-                 rigid move."
+            Self::CopyUnplaceable => format!(
+                "A copy of “{name}” was left out, because its placement in the assembly scales it \
+                 beyond what caditor can model."
             ),
         }
     }
@@ -246,7 +245,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
         if placements.transforms.len() > budget {
             structure.truncated = true;
         }
-        let transforms: Vec<(RigidTransform, Option<String>)> = placements
+        let transforms: Vec<(Similarity, Option<String>)> = placements
             .transforms
             .into_iter()
             .zip(
@@ -279,10 +278,10 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
                 let count = transforms.len();
                 let mut misplaced = false;
                 for (instance, (placement, occurrence)) in transforms.into_iter().enumerate() {
-                    let placed = if placement == RigidTransform::IDENTITY {
+                    let placed = if placement == Similarity::IDENTITY {
                         Ok(solid.clone())
                     } else {
-                        solid.transformed(&placement)
+                        solid.mapped(&placement)
                     };
                     let Ok(placed) = placed else {
                         misplaced = true;
@@ -300,7 +299,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
                     });
                 }
                 if misplaced {
-                    unplaced.push((name.clone(), Misplacement::CopyNotRigid));
+                    unplaced.push((name.clone(), Misplacement::CopyUnplaceable));
                 }
             }
             Err(problem) => {

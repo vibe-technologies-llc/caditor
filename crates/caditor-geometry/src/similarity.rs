@@ -3,6 +3,7 @@ use glam::DMat3;
 use crate::{Plane, Point3, RigidTransform, Rotation3, Vector3};
 
 const SCALE_LIMIT: f64 = 1e6;
+const AXIS_TOLERANCE: f64 = 1e-9;
 const MIRROR: DMat3 = DMat3::from_diagonal(Vector3::new(1.0, 1.0, -1.0));
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -43,6 +44,17 @@ impl Similarity {
             translation: center - center * factor,
             ..Self::IDENTITY
         })
+    }
+
+    pub fn from_axes(origin: Point3, axes: [Vector3; 3], scale: f64) -> Option<Self> {
+        let linear = DMat3::from_cols(axes[0], axes[1], axes[2]);
+        let orthonormal =
+            (linear.transpose() * linear).abs_diff_eq(DMat3::IDENTITY, AXIS_TOLERANCE);
+        let usable = origin.is_finite()
+            && linear.is_finite()
+            && scale.is_finite()
+            && (1.0 / SCALE_LIMIT..=SCALE_LIMIT).contains(&scale);
+        (usable && orthonormal).then(|| Self::from_linear(linear, scale, origin))
     }
 
     fn from_linear(linear: DMat3, scale: f64, translation: Vector3) -> Self {
@@ -229,6 +241,32 @@ mod tests {
         );
         assert!(!mirror.then(&mirror).is_mirrored());
         assert!(mirror.then(&mirror).apply_point(point).distance(point) < EPSILON);
+    }
+
+    #[test]
+    fn axes_place_a_frame_and_a_left_handed_one_mirrors() {
+        let origin = Point3::new(5.0, 0.0, 0.0);
+        let turned =
+            Similarity::from_axes(origin, [Vector3::Y, Vector3::NEG_X, Vector3::Z], 2.0).unwrap();
+        let mirrored =
+            Similarity::from_axes(origin, [Vector3::Y, Vector3::X, Vector3::Z], 1.0).unwrap();
+
+        assert!(!turned.is_mirrored());
+        assert!(
+            turned
+                .apply_point(Point3::X)
+                .distance(Point3::new(5.0, 2.0, 0.0))
+                < EPSILON
+        );
+        assert!(mirrored.is_mirrored());
+        assert!(
+            mirrored
+                .apply_point(Point3::new(1.0, 2.0, 3.0))
+                .distance(Point3::new(7.0, 1.0, 3.0))
+                < EPSILON
+        );
+        assert!(Similarity::from_axes(origin, [Vector3::X, Vector3::X, Vector3::Z], 1.0).is_none());
+        assert!(Similarity::from_axes(origin, [Vector3::X, Vector3::Y, Vector3::Z], 0.0).is_none());
     }
 
     #[test]

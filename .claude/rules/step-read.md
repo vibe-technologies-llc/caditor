@@ -53,8 +53,12 @@ paths:
   `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION`, else is guessed from which side is some assembly's
   child; `rep_1` is carried into `rep_2`, so the transform is inverted when the parent is listed
   first.
-- A placement must be unit-scale and right-handed. A part, or copy, with an unreadable placement,
-  a cycle, or too deep a nesting is left out with a note while the others import.
+- A placement is a `Similarity`: a `CARTESIAN_TRANSFORMATION_OPERATOR_3D` may scale (a positive
+  factor within the kernel's range) and mirror (a given second axis against the right-handed one),
+  applied with `Solid::mapped` so the copy keeps its names and validates. A part, or copy, with an
+  unreadable placement, a cycle, or too deep a nesting is left out with a note while the others
+  import; a copy scaled past what the kernel models is left out with its own note
+  (`Misplacement::CopyUnplaceable`).
 
 ## Geometry and healing
 

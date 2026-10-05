@@ -299,8 +299,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   and per list); a flat arena of values would bring it near the file size.
 - [low · medium] The writer puts all bodies in one product with no colours, holding the output twice
   in memory.
-- [low · medium] Placements that scale or mirror are left out with a note, though `Solid::mapped`
-  can now apply a uniform scale and a mirror.
 - [low · hard] No IGES import or export, though older CAM software and many suppliers still exchange
   it.
 
