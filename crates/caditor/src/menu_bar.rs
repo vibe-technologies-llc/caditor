@@ -402,6 +402,7 @@ impl Menus<'_, '_> {
             self.item(ui, Command::FullScreen);
             ui.separator();
             self.item(ui, Command::Measure);
+            self.item(ui, Command::Interference);
             ui.separator();
             self.items(
                 ui,

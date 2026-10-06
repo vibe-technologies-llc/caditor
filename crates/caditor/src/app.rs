@@ -30,6 +30,8 @@ use crate::{
     files::{self, FileCommand, Files},
     fonts,
     graphics::{FramePacer, Hardware},
+    interference::InterferenceTool,
+    interference_panel::{self, InterferenceContext},
     layout::{
         LogicalSize, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, MonitorArea, PanelLayout, Position,
         WindowPlacement,
@@ -121,6 +123,7 @@ pub struct Workspace {
     pub last_offers: Vec<Offer>,
     pub selection_offers: SelectionOffers,
     pub measure: MeasureTool,
+    pub interference: InterferenceTool,
     pub(crate) frame_failures: FrameFailures,
     applied_appearance: Option<Appearance>,
     applied_title_bar: Option<TitleBar>,
@@ -159,6 +162,7 @@ impl Workspace {
             last_offers: Vec::new(),
             selection_offers: SelectionOffers::default(),
             measure: MeasureTool::default(),
+            interference: InterferenceTool::default(),
             frame_failures: FrameFailures::default(),
             applied_appearance: None,
             applied_title_bar: None,
@@ -183,6 +187,7 @@ impl Workspace {
         self.last_offers.clear();
         self.selection_offers = SelectionOffers::default();
         self.measure = MeasureTool::default();
+        self.interference = InterferenceTool::default();
         self.applied_appearance = None;
         self.applied_title_bar = None;
         self.keyboard_was_taken = false;
@@ -194,6 +199,7 @@ impl Workspace {
             self.session = model.session();
             self.viewport.forget_document();
             self.panels.forget_document();
+            self.interference.interference.forget();
         }
     }
 
@@ -335,6 +341,7 @@ pub fn show(
         last_offers,
         selection_offers,
         measure,
+        interference,
         keyboard_was_taken,
         deferred_commands,
         ..
@@ -379,10 +386,14 @@ pub fn show(
         editing,
         offers,
         measuring: measure.open,
+        checking_interference: interference.open,
     };
     toolbar::show(ui, model, &toolbar, &mut commands, actions);
     if commands.available(Command::Measure) {
         measure.toggle();
+    }
+    if commands.available(Command::Interference) {
+        interference.toggle();
     }
     sketch_toolbar::show(
         ui,
@@ -442,6 +453,25 @@ pub fn show(
             (line, label)
         });
     viewport.set_measured(measured);
+    let marks = if interference.open {
+        let context = InterferenceContext {
+            model,
+            selection: viewport.selection(),
+            tree_selected: panels.selected,
+        };
+        interference_panel::refresh(&context, interference);
+        if let Some(place) = interference_panel::show(ui, model, interference) {
+            viewport.show_place(place);
+        }
+        interference
+            .report
+            .as_ref()
+            .map(|report| interference_panel::marks(model.document(), report))
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    viewport.set_interference(marks);
     let selected_before = viewport.selection().clone();
     viewport.show(ui, model, editing, keys_free, &mut commands, actions);
     if viewport.selection() != &selected_before && !viewport.selection().is_empty() {

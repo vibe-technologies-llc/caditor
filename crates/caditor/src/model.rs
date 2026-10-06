@@ -241,7 +241,6 @@ impl Model {
         self.length_unit = unit;
     }
 
-    #[cfg(test)]
     pub fn mesh_quality(&self) -> MeshQuality {
         self.mesh_quality
     }

@@ -24,6 +24,8 @@ paths:
   - "crates/caditor/src/selection.rs"
   - "crates/caditor/src/measure.rs"
   - "crates/caditor/src/measure_panel.rs"
+  - "crates/caditor/src/interference.rs"
+  - "crates/caditor/src/interference_panel.rs"
 ---
 
 # App shell, model and bodies
@@ -162,6 +164,24 @@ paths:
   the density cannot be evaluated).
 - The closest points are drawn on the front layer (`scene::add_measurement`) with a distance
   label in `canvas::MEASURE`.
+
+## Interference
+
+- Check interference (Inspect group, View menu, palette) toggles `InterferenceTool`; while open,
+  `interference_panel.rs` draws a right-hand panel beside any other. It never changes the document.
+- `Bodies::of` picks the pairs: every pair of shown bodies with nothing chosen, one chosen body
+  (from selected faces, edges or vertices, or the tree) against every other shown body, or every
+  pair among several chosen.
+- `Interference` checks pairs on its own worker with `caditor_kernel::interference`, one message
+  per pair so findings appear as they come. A new basis (pairs, revision, evaluation, mesh quality)
+  bumps a shared ticket that interrupts the pair in flight. Findings are cached per pair with both
+  bodies' result `Arc`s and reused while those are unchanged, so editing one body rechecks only its
+  pairs; entries for results that are gone are dropped. Closing the panel or a new session forgets
+  everything. A panic becomes an unchecked finding.
+- An overlap is meshed at the model's mesh quality for its volume, size and centroid
+  (`BodyMass::of`, approximate on curved faces) and its mesh edges drawn on the front layer; every
+  finding with a place gets a marker and a label in the view (error for overlaps, the measure
+  colour for touches, warning for unchecked pairs) and a Show where button on its card.
 
 ## Samples
 

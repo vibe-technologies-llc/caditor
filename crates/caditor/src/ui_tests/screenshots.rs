@@ -13,7 +13,10 @@ use caditor_render::{SurfaceTarget, ViewportFrame, ViewportRenderer};
 use egui::{Event, Key, Modifiers};
 use tempfile::TempDir;
 
-use super::{CAMERA_SETTLE, Harness, Painted, combine_nearly_touching_blocks};
+use super::{
+    CAMERA_SETTLE, Harness, Painted, add_block, add_peg, combine_nearly_touching_blocks,
+    extruded_plate,
+};
 use crate::{
     app::Workspace,
     blend_tools, datum_tools,
@@ -316,6 +319,11 @@ fn screenshots() {
         drop(empty);
 
         let dir = TempDir::new().expect("a temporary directory");
+        let mut bodies = Harness::styled(look, dir.path(), false);
+        interference(&mut bodies, &gpu, &out, look);
+        drop(bodies);
+
+        let dir = TempDir::new().expect("a temporary directory");
         let mut model = Harness::styled(look, dir.path(), false);
         model.open_sample(Sample::Bracket);
         shoot(&mut model, &gpu, &out, "model", look);
@@ -480,6 +488,31 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         model.key(Key::I, Modifiers::NONE);
         model.frame();
     }
+}
+
+fn interference(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    extruded_plate(harness);
+    add_peg(harness);
+    add_block(
+        harness,
+        "Block",
+        [
+            caditor_geometry::Point2::new(-20.0, 0.0),
+            caditor_geometry::Point2::new(0.0, 10.0),
+        ],
+        "5 mm",
+    );
+    harness.select([]);
+    harness.workspace.interference.toggle();
+    harness.wait_until("every pair is checked", |harness| {
+        harness.shows("1 pair overlaps and 1 pair touches.")
+    });
+    shoot(harness, gpu, out, "interference", look);
+    harness.click(crate::interference_panel::SHOW_PLACE);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    shoot(harness, gpu, out, "interference-overlap", look);
 }
 
 fn shoot_open(harness: &mut Harness, gpu: &Gpu, out: &Path, scene: &str, look: Look) {

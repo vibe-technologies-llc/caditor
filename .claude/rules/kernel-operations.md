@@ -102,6 +102,17 @@ paths:
   surface); two edges meeting between the same faces, not at a pole, are joined when they are
   pieces of one curve. Names: `kernel-naming.md`.
 
+## Interference (`boolean/interference.rs`)
+
+- `interference(first, second)` is `Apart`, `Touching(point)` or `Overlapping(solid)`, the
+  boolean intersection, or the boolean's error. Boxes farther apart than ten times the resolution
+  are apart without a boolean; an empty intersection is then touching when some pair of faces with
+  near boxes comes within that distance.
+- The touch point is taken from the touching face pair whose shared box is largest, ties going to
+  the one whose point (the shared box's centre projected onto the first face, confirmed on the
+  second) lies nearest that centre, so faces flush with each other report the middle of the
+  contact rather than a corner or an edge beside it.
+
 # Blends (`blend/`)
 
 - `blend(solid, edges, BlendShape, feature)` rounds (`Fillet`) or bevels (`Chamfer`) edges by

@@ -31,7 +31,7 @@ mod topology;
 
 pub use crate::{
     blend::{BlendError, BlendShape, blend, blend_chain},
-    boolean::{BooleanError, BooleanOperation, BooleanSite, boolean},
+    boolean::{BooleanError, BooleanOperation, BooleanSite, Interference, boolean, interference},
     bspline::{BSpline, MAX_SPLINE_DEGREE},
     build::{
         AngularExtent, Axis2, Heights, LinearBound, LinearExtent, NextFace, ReachError, SweepError,

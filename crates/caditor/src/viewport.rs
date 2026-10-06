@@ -24,6 +24,7 @@ use crate::{
     drawing::Drawing,
     editing::{self, EditingCommand, SketchEditing, Tool},
     faceting::FacetLevel,
+    interference_panel::{Mark, MarkKind},
     measure::MeasuredLine,
     model::{Action, Model, Notice, RecomputeStatus},
     modifying::{Hint, Modifying, Outcome, Value},
@@ -203,6 +204,7 @@ pub struct ViewportState {
     scene_bounds: Option<Aabb>,
     measured: Option<(MeasuredLine, String)>,
     problems: Vec<Problem>,
+    interference: Vec<Mark>,
     framed_place: Option<Point3>,
     scenes: SceneCache,
     filter: SelectionFilter,
@@ -283,6 +285,7 @@ impl ViewportState {
             scene_bounds: None,
             measured: None,
             problems: Vec::new(),
+            interference: Vec::new(),
             framed_place: None,
             scenes: SceneCache::default(),
             filter: SelectionFilter::default(),
@@ -336,6 +339,10 @@ impl ViewportState {
 
     pub fn set_measured(&mut self, measured: Option<(MeasuredLine, String)>) {
         self.measured = measured;
+    }
+
+    pub fn set_interference(&mut self, marks: Vec<Mark>) {
+        self.interference = marks;
     }
 
     pub fn show_place(&mut self, place: Point3) {
@@ -571,6 +578,7 @@ impl ViewportState {
             ],
             measured: self.measured.as_ref().map(|(line, _)| [line.from, line.to]),
             problems: self.problems.iter().map(|problem| problem.place).collect(),
+            interference: self.interference.clone(),
         });
         if let Some(highlight) = self.keyboard_highlight
             && !self.scenes.highlightable().contains(&highlight)
@@ -1809,8 +1817,20 @@ impl ViewportState {
             }
         }
         if let Some(view) = self.view() {
-            for problem in &self.problems {
-                let Some(pixel) = view.project(problem.place) else {
+            let interference = self.interference.iter().map(|mark| {
+                let color = match mark.kind {
+                    MarkKind::Overlap => canvas::ERROR,
+                    MarkKind::Touch => canvas::MEASURE,
+                    MarkKind::Unchecked => canvas::WARNING,
+                };
+                (mark.place, &mark.label, color)
+            });
+            let failures = self
+                .problems
+                .iter()
+                .map(|problem| (problem.place, &problem.label, canvas::ERROR));
+            for (index, (place, label, color)) in failures.chain(interference).enumerate() {
+                let Some(pixel) = view.project(place) else {
                     continue;
                 };
                 let position = rect.min
@@ -1820,11 +1840,11 @@ impl ViewportState {
                         painter,
                         position + vec2(0.0, -PROBLEM_LABEL_LIFT),
                         Align2::CENTER_BOTTOM,
-                        &problem.label,
+                        label,
                         canvas::small(),
-                        canvas::ERROR,
+                        color,
                     );
-                    canvas::announce(ui, shown, "problem", &problem.label, None);
+                    canvas::announce(ui, shown, &format!("problem {index}"), label, None);
                 }
             }
         }

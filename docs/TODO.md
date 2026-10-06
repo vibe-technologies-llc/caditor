@@ -200,8 +200,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   mid-plane, plane through an axis and a point, plane normal to an edge at a point, or axis through
   two points. Model vertices are named and pickable but only the measure tool uses them, and datums
   and pattern axes cannot take sketch geometry.
-- [medium · medium] No interference check: nothing finds where two bodies overlap or touch, or
-  reports the overlapping volume, though booleans already compute it.
 - [medium · medium] Split a body by a plane or a face, and copy one body (`RigidTransform` and
   booleans exist); a body can be moved but only by typed distances and turns about the origin's axes,
   not dragged, turned about its own axis or centre, or placed by mating faces.

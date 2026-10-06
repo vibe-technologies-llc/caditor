@@ -5482,7 +5482,10 @@ const RIBBON_GROUPS: [(&str, &[&str]); 7] = [
     ),
     ("Pattern", &["Linear pattern", "Circular pattern"]),
     ("Reference", &[toolbar::PLANE_LABEL, toolbar::AXIS_LABEL]),
-    ("Inspect", &[toolbar::MEASURE_LABEL]),
+    (
+        "Inspect",
+        &[toolbar::MEASURE_LABEL, toolbar::INTERFERENCE_LABEL],
+    ),
 ];
 
 fn ribbon_layout(harness: &Harness) -> Vec<Pos2> {
@@ -10581,6 +10584,86 @@ fn a_body_takes_a_colour_and_a_material_whose_density_gives_its_mass() {
             .is_default()
     );
     assert_eq!(unpainted, 0);
+}
+
+fn add_block(harness: &mut Harness, name: &str, corners: [Point2; 2], height: &str) -> FeatureId {
+    let mut outline = Sketch::new(Plane::XY);
+    rectangle(&mut outline, corners[0], corners[1]);
+    let mut transaction = harness.document().transaction(format!("Add {name}"));
+    let sketch = transaction.add_feature(format!("{name} sketch"), FeatureKind::from(outline));
+    let block = transaction.add_feature(
+        name,
+        FeatureKind::Solid(SolidFeature::Extrude(caditor_document::Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored(height).unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+        })),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    block
+}
+
+#[test]
+fn the_interference_panel_finds_bodies_that_overlap_or_touch_and_shows_where() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    add_peg(&mut harness);
+    add_block(
+        &mut harness,
+        "Block",
+        [Point2::new(-20.0, 0.0), Point2::new(0.0, 10.0)],
+        "5 mm",
+    );
+    let block_side = pickable_described(&mut harness, "Block › Block end face");
+    let revision = harness.model.revision();
+
+    harness.select([]);
+    harness.click(crate::toolbar::INTERFERENCE_LABEL);
+    harness.wait_until("every pair is checked", |harness| {
+        harness.shows("1 pair overlaps and 1 pair touches.")
+    });
+
+    assert!(harness.workspace.interference.open);
+    assert!(harness.shows(crate::interference_panel::EVERYTHING));
+    assert!(harness.shows("Extrude 1 and Peg"));
+    assert!(harness.shows("1000.0 mm³"));
+    assert!(harness.shows("35.000, 20.000, 2.500 mm"));
+    assert!(harness.shows("Extrude 1 and Block"));
+    assert!(harness.shows("0.000, 5.000, 2.500 mm"));
+    assert!(harness.shows("Extrude 1 and Block touch"));
+    assert!(!harness.shows("Peg and Block"));
+    assert_eq!(harness.model.revision(), revision);
+
+    harness.click(crate::interference_panel::SHOW_PLACE);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let target = harness.workspace.viewport.viewpoint().target;
+    assert!(
+        target.distance(caditor_geometry::Point3::new(35.0, 20.0, 2.5)) < 1e-6,
+        "{target:?}"
+    );
+    assert!(harness.shows("Extrude 1 and Peg overlap"));
+
+    harness.select([block_side]);
+    harness.wait_until("the block is checked against the rest", |harness| {
+        harness.shows("1 pair touches.")
+    });
+    assert!(harness.shows_containing("Block against every other body shown"));
+    assert!(!harness.shows("Extrude 1 and Peg"));
+
+    harness.select([top, block_side]);
+    harness.wait_until("the two chosen bodies are checked", |harness| {
+        harness.shows(crate::interference_panel::CHOSEN)
+    });
+    assert!(harness.shows("1 pair touches."));
+
+    harness.click_button(crate::interference_panel::CLOSE);
+    assert!(!harness.workspace.interference.open);
+    assert!(!harness.shows("Extrude 1 and Peg overlap"));
 }
 
 #[test]

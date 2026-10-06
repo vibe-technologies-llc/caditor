@@ -2,6 +2,9 @@ mod assemble;
 mod faces;
 mod heal;
 mod imprint;
+mod interference;
+#[cfg(test)]
+mod interference_tests;
 mod select;
 #[cfg(test)]
 mod tests;
@@ -11,6 +14,7 @@ mod untangle;
 use caditor_geometry::{Aabb, Aabb2, Point2, Point3};
 use thiserror::Error;
 
+pub use self::interference::{Interference, interference};
 use crate::{
     box_tree::BoxTree,
     build::plan::PlanError,

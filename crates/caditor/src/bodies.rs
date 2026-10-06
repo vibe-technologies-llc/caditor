@@ -147,7 +147,7 @@ pub struct BodyMass {
 }
 
 impl BodyMass {
-    fn of(solid: &Solid, mesh: &Mesh) -> Self {
+    pub fn of(solid: &Solid, mesh: &Mesh) -> Self {
         let curved: BTreeSet<FaceId> = solid
             .faces()
             .filter(|(_, face)| !matches!(face.surface(), Surface::Plane(_)))

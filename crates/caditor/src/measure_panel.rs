@@ -48,7 +48,7 @@ pub struct Card {
 }
 
 impl Card {
-    fn text(&self) -> String {
+    pub fn text(&self) -> String {
         std::iter::once(self.title.clone())
             .chain(
                 self.rows
@@ -402,7 +402,7 @@ fn mass_section(ui: &mut Ui, masses: &[Card], everything: bool) {
     );
 }
 
-fn show_card(ui: &mut Ui, id: (&str, usize), card: &Card) {
+pub fn show_card(ui: &mut Ui, id: (&str, usize), card: &Card) {
     widgets::card(ui, |ui| {
         ui.add(
             Label::new(widgets::strong(&card.title))

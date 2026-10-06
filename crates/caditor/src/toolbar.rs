@@ -24,9 +24,11 @@ pub const NEW_SKETCH_LABEL: &str = "New sketch";
 pub const PLANE_LABEL: &str = "Plane";
 pub const AXIS_LABEL: &str = "Axis";
 pub const MEASURE_LABEL: &str = "Measure";
+pub const INTERFERENCE_LABEL: &str = "Interference";
 const NO_SKETCH_TO_SWEEP: &str = "Draw a sketch with a closed outline first";
 const MEASURE_HOVER: &str =
     "Measure the selection: distances, angles, lengths, areas and the mass properties of bodies";
+const INTERFERENCE_HOVER: &str = "Find where bodies overlap or touch, with the volume they share";
 const RIBBON: &str = "main-ribbon";
 
 pub struct ToolbarContext<'a> {
@@ -34,6 +36,7 @@ pub struct ToolbarContext<'a> {
     pub editing: &'a SketchEditing,
     pub offers: &'a Offers,
     pub measuring: bool,
+    pub checking_interference: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -131,7 +134,10 @@ fn group_buttons(
         }
         Group::Pattern => pattern_buttons(ui, model, context, commands, actions),
         Group::Reference => datum_buttons(ui, model, context, commands, actions),
-        Group::Inspect => measure_button(ui, context.measuring, commands),
+        Group::Inspect => {
+            measure_button(ui, context.measuring, commands);
+            interference_button(ui, context.checking_interference, commands);
+        }
     }
 }
 
@@ -141,6 +147,15 @@ fn measure_button(ui: &mut Ui, measuring: bool, commands: &mut CommandFrame<'_>)
     let help = Ok(commands.with_keys(Command::Measure, MEASURE_HOVER));
     if ribbon::explained(ui.add(button), MEASURE_LABEL, &help).clicked() {
         commands.trigger(Command::Measure);
+    }
+}
+
+fn interference_button(ui: &mut Ui, checking: bool, commands: &mut CommandFrame<'_>) {
+    let button = ToolButton::new(icons::command(Command::Interference), INTERFERENCE_LABEL)
+        .selected(checking);
+    let help = Ok(commands.with_keys(Command::Interference, INTERFERENCE_HOVER));
+    if ribbon::explained(ui.add(button), INTERFERENCE_LABEL, &help).clicked() {
+        commands.trigger(Command::Interference);
     }
 }
 

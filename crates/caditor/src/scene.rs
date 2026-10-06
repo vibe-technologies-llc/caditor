@@ -26,6 +26,7 @@ use crate::{
     display_style::DisplayStyle,
     drawing::Preview,
     editing::Context,
+    interference_panel::{Mark, MarkKind},
     selection::{self, Axis, Pickable, PrincipalPlane, Selection, SelectionFilter},
     visibility,
 };
@@ -74,6 +75,8 @@ const TRIMMED_CURVE: Color = Color::from_rgb8(255, 96, 84);
 const SNAP_MARKER: Color = opaque(canvas::SNAP);
 const MEASURED: Color = opaque(canvas::MEASURE);
 const PROBLEM: Color = opaque(canvas::ERROR);
+const TOUCH: Color = opaque(canvas::MEASURE);
+const UNCHECKED: Color = opaque(canvas::WARNING);
 const UNMARKED_VERTEX: Color = Color::from_rgba8(0, 0, 0, 0);
 const BODY: Color = Color::from_rgb8(
     body_appearance::DEFAULT_COLOUR.red,
@@ -1262,6 +1265,41 @@ pub fn add_problem(scene: &mut Batch, position: Point3) {
         layer: Layer::Front,
         pick: None,
     });
+}
+
+pub fn add_interference(scene: &mut Batch, mark: &Mark) {
+    let color = match mark.kind {
+        MarkKind::Overlap => PROBLEM,
+        MarkKind::Touch => TOUCH,
+        MarkKind::Unchecked => UNCHECKED,
+    };
+    scene.markers.push(Marker {
+        position: mark.place,
+        color,
+        diameter: PROBLEM_DIAMETER,
+        layer: Layer::Front,
+        pick: None,
+    });
+    let segments = mark
+        .outline
+        .iter()
+        .flat_map(|outline| outline.iter())
+        .flat_map(|polyline| polyline.windows(2))
+        .filter_map(|pair| match pair {
+            [start, end] => Some((*start, *end)),
+            _ => None,
+        });
+    for (start, end) in segments {
+        scene.lines.push(Line {
+            start,
+            end,
+            color,
+            width: MEASURED_WIDTH,
+            layer: Layer::Front,
+            pick: None,
+            stroke: Stroke::Solid,
+        });
+    }
 }
 
 pub fn chosen_regions(choice: &RegionChoice, regions: &[SketchRegion]) -> BTreeSet<RegionKey> {
