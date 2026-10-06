@@ -18,7 +18,9 @@ use crate::{
     datum::{self, DatumResult},
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     healing::{self, Healing},
-    hole, import, mirror, movement, pattern, scaling, shell,
+    hole, import, mirror, movement, pattern,
+    presenting::{Glimpse, Presentation, SettledBody},
+    scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult},
     values::ParameterValues,
 };
@@ -261,6 +263,24 @@ pub struct FeatureStatus {
     pub healing: Option<Arc<Healing>>,
 }
 
+impl FeatureStatus {
+    fn without_result(state: FeatureState) -> Self {
+        Self {
+            state,
+            result: None,
+            healing: None,
+        }
+    }
+
+    fn outdated(last_good: Option<Arc<FeatureResult>>) -> Self {
+        Self {
+            state: FeatureState::Outdated,
+            result: last_good,
+            healing: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Evaluation {
     pub parameters: ParameterValues,
@@ -270,6 +290,7 @@ pub struct Evaluation {
     stale_bodies: BTreeSet<FeatureId>,
     inputs_before: BTreeMap<FeatureId, FeatureId>,
     seen_bodies: BTreeMap<FeatureId, BTreeMap<FeatureId, FeatureId>>,
+    pending: BTreeSet<FeatureId>,
     meshed: bool,
 }
 
@@ -310,6 +331,22 @@ impl Evaluation {
         self.features.get(&id)
     }
 
+    pub fn is_pending(&self, id: FeatureId) -> bool {
+        self.pending.contains(&id)
+    }
+
+    pub(crate) fn outdating_pending(mut self) -> Self {
+        for id in std::mem::take(&mut self.pending) {
+            if let Some(status) = self.features.get_mut(&id) {
+                status.state = FeatureState::Outdated;
+                status.healing = None;
+            } else {
+                self.features.insert(id, FeatureStatus::outdated(None));
+            }
+        }
+        self
+    }
+
     pub fn recomputed(&self) -> &[FeatureId] {
         &self.recomputed
     }
@@ -332,6 +369,7 @@ impl Evaluation {
 
     pub fn is_complete(&self) -> bool {
         self.meshed
+            && self.pending.is_empty()
             && self
                 .features
                 .values()
@@ -401,6 +439,14 @@ struct CacheEntry {
 }
 
 impl CacheEntry {
+    fn status(&self) -> FeatureStatus {
+        FeatureStatus {
+            state: self.state.clone(),
+            result: self.result.clone(),
+            healing: self.healing.clone(),
+        }
+    }
+
     fn matches(
         &self,
         definition: &Arc<Feature>,
@@ -460,7 +506,7 @@ impl Default for Recompute {
 
 struct Reports<'a> {
     progress: &'a dyn Fn(usize, usize),
-    features_done: &'a dyn Fn(Evaluation),
+    features_done: &'a (dyn Fn(Evaluation) + Sync),
 }
 
 impl Recompute {
@@ -516,7 +562,7 @@ impl Recompute {
         evaluator: &dyn Evaluator,
         cancel: &CancelToken,
         progress: &dyn Fn(usize, usize),
-        features_done: &dyn Fn(Evaluation),
+        features_done: &(dyn Fn(Evaluation) + Sync),
     ) -> Evaluation {
         let reports = Reports {
             progress,
@@ -547,46 +593,71 @@ impl Recompute {
         display: Display,
     ) -> Evaluation {
         let started = Instant::now();
+        let shown_from = started
+            .checked_add(self.features_done_after)
+            .unwrap_or(started);
         let parameters = ParameterValues::evaluate(document);
+        let run = Run {
+            document,
+            parameters: &parameters,
+            evaluator,
+            cancel,
+            progress: reports.progress,
+        };
+        let walk = match display {
+            Display::Prepared => Presentation {
+                quality: self.mesh_quality,
+                cancel,
+                report: reports.features_done,
+                from: shown_from,
+            }
+            .during(|glimpse| self.walk(&run, Some(glimpse))),
+            Display::Skipped => self.walk(&run, None),
+        };
+        let mut evaluation = walk.into_evaluation(document, parameters, BTreeSet::new());
+        if display == Display::Prepared {
+            self.prepare_display(document, &mut evaluation, cancel, &|evaluation| {
+                if !cancel.is_cancelled() && Instant::now() >= shown_from {
+                    (reports.features_done)(evaluation.clone());
+                }
+            });
+        }
+
+        let alive: BTreeSet<FeatureId> = document.features().map(Feature::id).collect();
+        self.cache.retain(|id, _| alive.contains(id));
+        evaluation
+    }
+
+    fn walk(&mut self, run: &Run<'_>, glimpse: Option<&dyn Fn(Glimpse)>) -> Walk {
+        let Run {
+            document,
+            parameters,
+            evaluator,
+            cancel,
+            progress,
+        } = *run;
         let features = document.feature_handles();
         let tree: Arc<[String]> = features
             .iter()
             .map(|feature| feature.name.clone())
             .collect();
-        let mut statuses = BTreeMap::new();
-        let mut current: BTreeMap<FeatureId, Arc<FeatureResult>> = BTreeMap::new();
-        let mut bodies: BodyStates = BTreeMap::new();
-        let mut consumed: BTreeSet<FeatureId> = BTreeSet::new();
-        let mut recomputed = Vec::new();
-        let mut inputs_before = BTreeMap::new();
-        let mut seen_bodies: BTreeMap<FeatureId, BTreeMap<FeatureId, FeatureId>> = BTreeMap::new();
-        let mut cancelled = false;
         let bar = document.bar_index();
         let suppressed: BTreeSet<FeatureId> = document
             .features()
             .filter(|feature| feature.suppressed)
             .map(Feature::id)
             .collect();
+        let settling = settling(features, bar);
+        let mut walk = Walk::default();
+        let mut cancelled = false;
+        let mut glimpsed = Glimpsed::default();
 
         for (index, feature) in features.iter().enumerate() {
-            (reports.progress)(index, features.len());
+            progress(index, features.len());
             let id = feature.id();
-            let skipped = if index >= bar {
-                Some(FeatureState::RolledBack)
-            } else if feature.suppressed {
-                Some(FeatureState::Suppressed)
-            } else {
-                None
-            };
-            if let Some(state) = skipped {
-                statuses.insert(
-                    id,
-                    FeatureStatus {
-                        state,
-                        result: None,
-                        healing: None,
-                    },
-                );
+            if let Some(state) = skipped(feature, index, bar) {
+                walk.statuses
+                    .insert(id, FeatureStatus::without_result(state));
                 continue;
             }
             let used_parameters = feature.kind.parameters();
@@ -595,21 +666,21 @@ impl Recompute {
                 document,
                 (feature, index),
                 &tree,
-                &parameters,
+                parameters,
                 &used_parameters,
             );
             let mut upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)> = feature
                 .kind
                 .features()
                 .into_iter()
-                .map(|used| (used, current.get(&used).cloned()))
+                .map(|used| (used, walk.current.get(&used).cloned()))
                 .collect();
             for body in feature.kind.bodies_used() {
-                if let Some((state, result)) = bodies.get(&body) {
+                if let Some((state, result)) = walk.bodies.get(&body) {
                     upstream.push((*state, Some(Arc::clone(result))));
-                    seen_bodies.entry(id).or_default().insert(body, *state);
+                    walk.seen_bodies.entry(id).or_default().insert(body, *state);
                     if feature.kind.modifies_body() && feature.kind.body_input() == Some(body) {
-                        inputs_before.insert(id, *state);
+                        walk.inputs_before.insert(id, *state);
                     }
                 }
             }
@@ -635,22 +706,19 @@ impl Recompute {
                 entry
             } else if cancelled || cancel.is_cancelled() {
                 cancelled = true;
-                statuses.insert(
-                    id,
-                    FeatureStatus {
-                        state: FeatureState::Outdated,
-                        result: previous.and_then(|entry| entry.result.clone()),
-                        healing: None,
-                    },
-                );
+                let last_good = previous.and_then(|entry| entry.result.clone());
+                walk.statuses.insert(id, FeatureStatus::outdated(last_good));
                 continue;
             } else {
+                if let Some(show) = glimpse {
+                    self.offer_glimpse(run, &walk, (&settling, index), &mut glimpsed, show);
+                }
                 let last_good = previous.and_then(|entry| entry.result.clone());
                 let inputs = Inputs {
                     document,
-                    parameters: &parameters,
-                    features: &current,
-                    bodies: &bodies,
+                    parameters,
+                    features: &walk.current,
+                    bodies: &walk.bodies,
                     previous: last_good.as_deref(),
                 };
                 let outcome = match missing_upstream(document, feature, &upstream) {
@@ -666,18 +734,11 @@ impl Recompute {
                     Err(Failure::Error(error)) => (FeatureState::Failed(*error), last_good, None),
                     Err(Failure::Cancelled) => {
                         cancelled = true;
-                        statuses.insert(
-                            id,
-                            FeatureStatus {
-                                state: FeatureState::Outdated,
-                                result: last_good,
-                                healing: None,
-                            },
-                        );
+                        walk.statuses.insert(id, FeatureStatus::outdated(last_good));
                         continue;
                     }
                 };
-                recomputed.push(id);
+                walk.recomputed.push(id);
                 let entry = CacheEntry {
                     definition: Arc::clone(feature),
                     parameters: parameter_fingerprint,
@@ -694,105 +755,231 @@ impl Recompute {
             };
 
             if let (FeatureState::UpToDate, Some(result)) = (&entry.state, &entry.result) {
-                current.insert(id, Arc::clone(result));
-                if let Some(solid) = result.solid() {
-                    bodies.insert(solid.body, (id, Arc::clone(result)));
-                }
-                for body in feature.kind.consumed_bodies() {
-                    bodies.remove(&body);
-                    consumed.insert(body);
-                }
+                walk.stand(feature, result);
             }
-            statuses.insert(
-                id,
-                FeatureStatus {
-                    state: entry.state,
-                    result: entry.result,
-                    healing: entry.healing,
-                },
-            );
+            walk.statuses.insert(id, entry.status());
         }
-        (reports.progress)(features.len(), features.len());
-        let mut shown: BTreeMap<FeatureId, FeatureId> = bodies
-            .iter()
-            .map(|(body, (state, _))| (*body, *state))
+        progress(features.len(), features.len());
+        walk
+    }
+
+    fn offer_glimpse(
+        &self,
+        run: &Run<'_>,
+        walk: &Walk,
+        (settling, reached): (&Settling, usize),
+        glimpsed: &mut Glimpsed,
+        show: &dyn Fn(Glimpse),
+    ) {
+        let settled: Vec<SettledBody> = settling
+            .range(glimpsed.settled_before..reached)
+            .flat_map(|(_, bodies)| bodies)
+            .filter_map(|body| {
+                let (_, result) = walk.bodies.get(body)?;
+                let unmeshed = result.solid().is_some_and(|solid| !solid.is_meshed());
+                unmeshed.then(|| SettledBody {
+                    name: body_name(run.document, *body).to_owned(),
+                    result: Arc::clone(result),
+                })
+            })
             .collect();
-        let stale_bodies = last_good_bodies(document, &statuses, &shown, &consumed);
-        for (body, state) in &stale_bodies {
-            shown.insert(*body, *state);
+        glimpsed.settled_before = reached;
+        if walk.recomputed.len() == glimpsed.recomputed && settled.is_empty() {
+            return;
         }
-        if display == Display::Prepared
-            && !cancel.is_cancelled()
-            && started.elapsed() >= self.features_done_after
-        {
-            (reports.features_done)(Evaluation {
-                parameters: parameters.clone(),
-                features: statuses.clone(),
-                recomputed: recomputed.clone(),
-                bodies: shown.clone(),
-                stale_bodies: stale_bodies.keys().copied().collect(),
-                inputs_before: inputs_before.clone(),
-                seen_bodies: seen_bodies.clone(),
-                meshed: false,
-            });
+        glimpsed.recomputed = walk.recomputed.len();
+        show(Glimpse {
+            evaluation: self.glimpse(run, walk, reached),
+            settled,
+        });
+    }
+
+    fn glimpse(&self, run: &Run<'_>, walk: &Walk, reached: usize) -> Evaluation {
+        let document = run.document;
+        let bar = document.bar_index();
+        let mut seen = walk.clone();
+        let mut pending = BTreeSet::new();
+        for (index, feature) in document.feature_handles().iter().enumerate().skip(reached) {
+            let id = feature.id();
+            if let Some(state) = skipped(feature, index, bar) {
+                seen.statuses
+                    .insert(id, FeatureStatus::without_result(state));
+                continue;
+            }
+            pending.insert(id);
+            let Some(entry) = self.cache.get(&id) else {
+                continue;
+            };
+            if let (FeatureState::UpToDate, Some(result)) = (&entry.state, &entry.result) {
+                seen.stand(feature, result);
+            }
+            seen.statuses.insert(id, entry.status());
         }
-        let swept: BTreeSet<FeatureId> = match display {
-            Display::Prepared => document
-                .active_features()
-                .filter_map(|feature| feature.kind.solid().map(SolidFeature::sketch))
-                .collect(),
-            Display::Skipped => BTreeSet::new(),
-        };
+        seen.into_evaluation(document, run.parameters.clone(), pending)
+    }
+
+    fn prepare_display(
+        &self,
+        document: &Document,
+        evaluation: &mut Evaluation,
+        cancel: &CancelToken,
+        report: &dyn Fn(&Evaluation),
+    ) {
+        report(evaluation);
+        let swept: BTreeSet<FeatureId> = document
+            .active_features()
+            .filter_map(|feature| feature.kind.solid().map(SolidFeature::sketch))
+            .collect();
         for sketch in &swept {
             if cancel.is_cancelled() {
                 break;
             }
-            if let Some(result) = statuses
+            if let Some(result) = evaluation
+                .features
                 .get(sketch)
-                .and_then(|status: &FeatureStatus| status.result.as_deref())
+                .and_then(|status| status.result.as_deref())
                 .and_then(FeatureResult::sketch)
             {
                 interruptible(cancel.interrupt(), || result.find_regions());
             }
         }
-        for (body, state) in &shown {
-            if display == Display::Skipped || cancel.is_cancelled() {
+        for (body, state) in &evaluation.bodies {
+            if cancel.is_cancelled() {
                 break;
             }
-            let meshable = statuses
+            let Some(solid) = evaluation
+                .features
                 .get(state)
-                .and_then(|status: &FeatureStatus| status.result.as_deref())
-                .and_then(FeatureResult::solid);
-            if let Some(solid) = meshable {
-                let name = document
-                    .feature(*body)
-                    .map_or("a feature", |feature| feature.name.as_str());
-                interruptible(cancel.interrupt(), || {
-                    solid.tessellate(name, &self.mesh_quality);
-                });
+                .and_then(|status| status.result.as_deref())
+                .and_then(FeatureResult::solid)
+            else {
+                continue;
+            };
+            if solid.is_meshed() {
+                continue;
+            }
+            interruptible(cancel.interrupt(), || {
+                solid.tessellate(body_name(document, *body), &self.mesh_quality);
+            });
+            if solid.is_meshed() {
+                report(evaluation);
             }
         }
-        let meshed = shown.values().all(|state| {
-            statuses
+        evaluation.meshed = evaluation.bodies.values().all(|state| {
+            evaluation
+                .features
                 .get(state)
                 .and_then(|status| status.result.as_deref())
                 .and_then(FeatureResult::solid)
                 .is_none_or(SolidResult::is_meshed)
         });
+    }
+}
 
-        let alive: BTreeSet<FeatureId> = features.iter().map(|feature| feature.id()).collect();
-        self.cache.retain(|id, _| alive.contains(id));
-        Evaluation {
-            parameters,
-            features: statuses,
-            recomputed,
-            bodies: shown,
-            stale_bodies: stale_bodies.into_keys().collect(),
-            inputs_before,
-            seen_bodies,
-            meshed,
+struct Run<'a> {
+    document: &'a Document,
+    parameters: &'a ParameterValues,
+    evaluator: &'a dyn Evaluator,
+    cancel: &'a CancelToken,
+    progress: &'a dyn Fn(usize, usize),
+}
+
+#[derive(Clone, Default)]
+struct Walk {
+    statuses: BTreeMap<FeatureId, FeatureStatus>,
+    current: BTreeMap<FeatureId, Arc<FeatureResult>>,
+    bodies: BodyStates,
+    consumed: BTreeSet<FeatureId>,
+    recomputed: Vec<FeatureId>,
+    inputs_before: BTreeMap<FeatureId, FeatureId>,
+    seen_bodies: BTreeMap<FeatureId, BTreeMap<FeatureId, FeatureId>>,
+}
+
+impl Walk {
+    fn stand(&mut self, feature: &Feature, result: &Arc<FeatureResult>) {
+        let id = feature.id();
+        self.current.insert(id, Arc::clone(result));
+        if let Some(solid) = result.solid() {
+            self.bodies.insert(solid.body, (id, Arc::clone(result)));
+        }
+        for body in feature.kind.consumed_bodies() {
+            self.bodies.remove(&body);
+            self.consumed.insert(body);
         }
     }
+
+    fn into_evaluation(
+        self,
+        document: &Document,
+        parameters: ParameterValues,
+        pending: BTreeSet<FeatureId>,
+    ) -> Evaluation {
+        let mut shown: BTreeMap<FeatureId, FeatureId> = self
+            .bodies
+            .iter()
+            .map(|(body, (state, _))| (*body, *state))
+            .collect();
+        let stale_bodies = last_good_bodies(document, &self.statuses, &shown, &self.consumed);
+        for (body, state) in &stale_bodies {
+            shown.insert(*body, *state);
+        }
+        Evaluation {
+            parameters,
+            features: self.statuses,
+            recomputed: self.recomputed,
+            bodies: shown,
+            stale_bodies: stale_bodies.into_keys().collect(),
+            inputs_before: self.inputs_before,
+            seen_bodies: self.seen_bodies,
+            pending,
+            meshed: false,
+        }
+    }
+}
+
+#[derive(Default)]
+struct Glimpsed {
+    recomputed: usize,
+    settled_before: usize,
+}
+
+type Settling = BTreeMap<usize, Vec<FeatureId>>;
+
+fn settling(features: &[Arc<Feature>], bar: usize) -> Settling {
+    let mut last_change: BTreeMap<FeatureId, usize> = BTreeMap::new();
+    for (index, feature) in features.iter().enumerate().take(bar) {
+        if feature.suppressed {
+            continue;
+        }
+        for body in feature
+            .body()
+            .into_iter()
+            .chain(feature.kind.consumed_bodies())
+        {
+            last_change.insert(body, index);
+        }
+    }
+    let mut settling = Settling::new();
+    for (body, index) in last_change {
+        settling.entry(index).or_default().push(body);
+    }
+    settling
+}
+
+fn skipped(feature: &Feature, index: usize, bar: usize) -> Option<FeatureState> {
+    if index >= bar {
+        Some(FeatureState::RolledBack)
+    } else if feature.suppressed {
+        Some(FeatureState::Suppressed)
+    } else {
+        None
+    }
+}
+
+fn body_name(document: &Document, body: FeatureId) -> &str {
+    document
+        .feature(body)
+        .map_or("a feature", |feature| feature.name.as_str())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

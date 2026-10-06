@@ -7,7 +7,7 @@ use caditor_sketch::{EntityId, Sketch, SketchSolution};
 
 use crate::*;
 
-fn rectangle(plane: Plane, min: (f64, f64), max: (f64, f64)) -> Sketch {
+pub(crate) fn rectangle(plane: Plane, min: (f64, f64), max: (f64, f64)) -> Sketch {
     let mut sketch = Sketch::new(plane);
     let corners = [
         Point2::new(min.0, min.1),
@@ -21,7 +21,7 @@ fn rectangle(plane: Plane, min: (f64, f64), max: (f64, f64)) -> Sketch {
     sketch
 }
 
-fn extrude(
+pub(crate) fn extrude(
     sketch: FeatureId,
     distance: &str,
     reversed: bool,

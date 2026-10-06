@@ -1,6 +1,7 @@
 ---
 paths:
   - "crates/caditor-document/src/recompute.rs"
+  - "crates/caditor-document/src/presenting.rs"
   - "crates/caditor-document/src/worker.rs"
   - "crates/caditor-document/src/values.rs"
   - "crates/caditor/src/model.rs"
@@ -47,10 +48,14 @@ paths:
 
 ## Display data
 
-- Computed on the worker at the end of each run and cached inside the shared results (`OnceLock`),
-  so the UI only reads it: each body's final state is meshed at the recompute's `MeshQuality`
-  (intermediate states are not), and every sketch a solid feature sweeps gets its regions with a
-  triangulation each.
+- Computed on the worker and cached inside the shared results (`OnceLock`), so the UI only reads
+  it: each body's final state is meshed at the recompute's `MeshQuality` (intermediate states are
+  not), and every sketch a solid feature sweeps gets its regions with a triangulation each.
+- A body settles once the walk passes the last active feature that changes or consumes it
+  (`settling`, from `Feature::body` and `consumed_bodies`). Settled bodies are meshed during the
+  feature loop by a display thread scoped to the run (`presenting.rs`), beside the features still
+  computing; the rest are meshed after the loop. A run without display data
+  (`run_without_display`) starts no thread.
 - A sketch's profile arrangement is built once per result, shared by every feature sweeping it and
   the display, under the run's cancel token (a build cancelled midway is not kept). A sketch that
   solves again to the same geometry (`Sketch::same_geometry`) shares the last result's arrangement
@@ -69,9 +74,20 @@ paths:
 - `Recomputer` runs recompute on a worker thread and calls a wake callback after each report. A
   newer submission or `cancel` stops the running job between features (evaluators also get a
   `CancelToken`); features not reached are `Outdated`.
-- A run taking `FEATURES_DONE_AFTER` by the end of its feature loop reports once more
-  (`Outcome::FeaturesDone`, an evaluation that is not `is_complete`) before the regions and meshes,
-  so one slow late mesh does not hide the features already computed.
+- A run reports as it goes once it has taken `FEATURES_DONE_AFTER` (`Outcome::FeaturesDone`, an
+  evaluation that is never `is_complete`), so a slow feature or mesh does not hide what came before
+  it. Before each feature it evaluates, the walk hands the display thread a glimpse of the
+  evaluation so far, when a feature was computed or a body settled since the last one; the thread
+  reports the latest glimpse once the time is up, even while that feature is still running, and
+  again after each body it meshes. After the loop the run reports once more before the regions
+  and meshes, and after each mesh. A run that recomputes nothing before a slow feature reports
+  nothing early, since nothing shown would change.
+- In a glimpse the features not reached yet are pending (`Evaluation::is_pending`) and keep the
+  status and result of their last computation (none if never computed), so the bodies they make or
+  change show as they last were rather than stale or missing; the tree shows them waiting, and a
+  dragged sketch stays shown until the evaluation is no longer pending at it.
+- An early report does not end the submission in `Recomputer`, so a worker replaced after one still
+  reports the cancel, with the pending features `Outdated` (`outdating_pending`).
 - Each run is contained: a panic outside any evaluator runs it again without the cache, and a second
   reports `Outcome::Failed` with the last good evaluation, so the worker lives on.
 - `cancel` cancels only the work running or queued when it is called: each job records the cancel

@@ -97,14 +97,13 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Document and recompute
 
-- [medium · medium] A recompute reports once more after its feature loop only; a slow late feature
-  still hides the bodies before it, and each mesh is not reported as it finishes. Send an update per
-  feature and per mesh.
 - [medium · hard] The cache keeps one result per feature, so changing a depth and undoing recomputes
   everything after it; it also has no byte budget, holding every intermediate `Solid`. Keep a small,
   size-bounded history per feature.
-- [medium · hard] Recompute is single-threaded: independent bodies and the final meshing of each
-  body could run in parallel over the dependency data the document already has.
+- [medium · hard] Recompute evaluates features on one thread: independent bodies could run in
+  parallel over the dependency data the document already has. A body is meshed beside the feature
+  loop once no later feature changes it, but one at a time, and those settling only at the last
+  features are meshed one after another once the loop ends.
 - [low · medium] `SetFeatureKind` refuses an `Import` (`set_feature_kind` pairs no import with an
   import), so an imported body keeps its source solid for good; allowing it would also give
   re-import.

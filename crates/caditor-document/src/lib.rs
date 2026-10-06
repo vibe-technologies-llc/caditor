@@ -17,6 +17,7 @@ mod origins;
 mod parameter_list;
 mod pattern;
 mod pieces;
+mod presenting;
 mod recompute;
 mod scaling;
 mod shell;
@@ -91,6 +92,8 @@ mod mirror_tests;
 mod movement_tests;
 #[cfg(test)]
 mod pattern_tests;
+#[cfg(test)]
+mod presenting_tests;
 #[cfg(test)]
 mod scaling_tests;
 #[cfg(test)]

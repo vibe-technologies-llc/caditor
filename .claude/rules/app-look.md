@@ -173,7 +173,9 @@ paths:
   row (`tree_row::indented`) keep the normal spacing.
 - Kind icons are tinted by category (sketches accent, bodies and modifiers text, datums muted;
   inactive or hidden rows muted). A failure shows once, as the status icon and its callout, never
-  by recolouring the icon or name; an outdated row the same with a Recompute button. A suppressed
+  by recolouring the icon or name; an outdated row the same with a Recompute button. A row a
+  running recompute has not reached yet (`Evaluation::is_pending`) shows the waiting icon over its
+  last status. A suppressed
   row is struck through and muted, a rolled-back row muted; neither offers the edit button. A
   failure caused by a suppressed feature offers Unsuppress (`FixTarget::Unsuppress`). A failure
   with a `place` offers Show where, which frames the view around it (`PanelState::shown_place`,

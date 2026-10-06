@@ -282,7 +282,7 @@ impl Recomputer {
             return Ok(Some(Update {
                 revision: newest.revision,
                 outcome: Outcome::Cancelled,
-                evaluation: self.reported.clone(),
+                evaluation: self.reported.clone().outdating_pending(),
             }));
         }
         self.send_job(newest.document, newest.revision, newest.retry_failures)?;
@@ -307,10 +307,11 @@ impl Recomputer {
         }
         if let Some(update) = &latest {
             self.reported = update.evaluation.clone();
-            if self
-                .newest
-                .as_ref()
-                .is_some_and(|newest| newest.revision == update.revision)
+            if update.outcome != Outcome::FeaturesDone
+                && self
+                    .newest
+                    .as_ref()
+                    .is_some_and(|newest| newest.revision == update.revision)
             {
                 self.newest = None;
             }
@@ -363,7 +364,7 @@ fn work(
     queue: &mpsc::Receiver<Message>,
     updates: &mpsc::Sender<Update>,
     shared: &Arc<Shared>,
-    wake: &dyn Fn(),
+    wake: &(dyn Fn() + Sync),
 ) {
     let mut recompute = Recompute::default();
     let mut reported = Evaluation::default();
@@ -441,7 +442,7 @@ fn run_contained(
     job: &Job,
     evaluator: &dyn Evaluator,
     shared: &Arc<Shared>,
-    features_done: &dyn Fn(Evaluation),
+    features_done: &(dyn Fn(Evaluation) + Sync),
 ) -> Option<Result<Evaluation, Panicked>> {
     let (sequence, cancels) = (job.sequence, job.cancels);
     let watched = Arc::clone(shared);
@@ -654,6 +655,55 @@ mod tests {
         assert_eq!((update.revision, update.outcome), (2, Outcome::Finished));
     }
 
+    struct StuckOn {
+        name: &'static str,
+        release: Arc<AtomicBool>,
+    }
+
+    impl Evaluator for StuckOn {
+        fn evaluate(
+            &self,
+            feature: &Feature,
+            inputs: &Inputs<'_>,
+            cancel: &CancelToken,
+        ) -> Result<FeatureResult, Failure> {
+            while feature.name == self.name && !self.release.load(Ordering::SeqCst) {
+                thread::yield_now();
+            }
+            ModelEvaluator.evaluate(feature, inputs, cancel)
+        }
+    }
+
+    #[test]
+    fn a_worker_stuck_after_showing_features_reports_the_cancel_with_the_rest_outdated() {
+        let release = Arc::new(AtomicBool::new(false));
+        let evaluator = StuckOn {
+            name: "Side sketch",
+            release: Arc::clone(&release),
+        };
+        let mut worker = Recomputer::spawn(evaluator, || {})
+            .unwrap()
+            .with_stop_grace(Duration::from_millis(50));
+        let (document, ids) = sample();
+
+        worker.submit(document, 5).unwrap();
+        let early = poll_until_update(&mut worker);
+        worker.cancel();
+        let cancelled = poll_until_update(&mut worker);
+        release.store(true, Ordering::SeqCst);
+
+        assert_eq!(early.outcome, Outcome::FeaturesDone);
+        assert!(early.evaluation.is_pending(ids.side));
+        assert_eq!(
+            (cancelled.revision, cancelled.outcome),
+            (5, Outcome::Cancelled)
+        );
+        let state = |id| cancelled.evaluation.feature(id).unwrap().state.clone();
+        assert_eq!(state(ids.base), FeatureState::UpToDate);
+        assert_eq!(state(ids.side), FeatureState::Outdated);
+        assert!(!cancelled.evaluation.is_pending(ids.side));
+    }
+
     struct Panicking;
 
     impl Evaluator for Panicking {
@@ -762,7 +812,7 @@ mod tests {
     }
 
     #[test]
-    fn a_slow_recompute_reports_its_features_before_it_has_meshed_anything() {
+    fn a_slow_recompute_reports_each_feature_as_it_goes_and_all_of_them_before_meshing() {
         let (document, ids) = sample();
         let reported = Mutex::new(Vec::new());
         let mut recompute = Recompute::default();
@@ -777,12 +827,16 @@ mod tests {
         );
 
         let reported = reported.into_inner();
-        let [early] = reported.as_slice() else {
-            panic!("the features should be reported once");
+        let [first, last] = reported.as_slice() else {
+            panic!("the features should be reported as they go and once all are done");
         };
-        assert!(!early.is_complete());
+        assert_eq!(first.feature(ids.base), evaluation.feature(ids.base));
+        assert!(first.is_pending(ids.side));
+        assert_eq!(first.feature(ids.side), None);
+        assert!(!last.is_pending(ids.side));
+        assert!(!last.is_complete());
         assert!(evaluation.is_complete());
-        assert_eq!(early.feature(ids.base), evaluation.feature(ids.base));
+        assert_eq!(last.feature(ids.side), evaluation.feature(ids.side));
     }
 
     #[test]

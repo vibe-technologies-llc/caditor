@@ -413,7 +413,10 @@ fn feature_row(
                     edit_button(ui, row, actions);
                 }
             });
-            tree_row::slot(ui, |ui| status_icon(ui, row, status));
+            tree_row::slot(ui, |ui| {
+                let computed = status.filter(|_| !model.evaluation().is_pending(id));
+                status_icon(ui, row, computed);
+            });
         },
     );
     let row_rect = shown.rect;

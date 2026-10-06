@@ -95,6 +95,7 @@ impl DisplayedSketches {
     pub fn evaluated(&mut self, revision: u64, evaluation: &Evaluation) {
         let reached = self.dragged.as_ref().is_some_and(|dragged| {
             dragged.held_until.is_some_and(|held| revision >= held)
+                && !evaluation.is_pending(dragged.feature)
                 && evaluation
                     .feature(dragged.feature)
                     .is_some_and(|status| status.state != FeatureState::Outdated)
