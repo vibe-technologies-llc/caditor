@@ -1,9 +1,10 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Point3, Vector3};
+use caditor_geometry::{Point3, RigidTransform, Vector3};
 
 use super::*;
 use crate::{
+    boolean::{BooleanOperation, boolean},
     fixtures,
     interval::Interval,
     numeric::integrate,
@@ -593,5 +594,41 @@ fn every_surface_kind_meshes_within_the_requested_chord() {
                 "{name} deviates {worst} from its surface at a chord of {chord}"
             );
         }
+    }
+}
+
+#[test]
+fn a_long_cylinder_and_a_small_bump_mesh_with_few_triangles_within_the_chord() {
+    let drill = fixtures::cylinder(0.2, 4.0)
+        .transformed(
+            &RigidTransform::rotation_about(Point3::ZERO, Vector3::X, PI / 2.0)
+                .unwrap()
+                .then(&RigidTransform::translation(Vector3::new(0.0, 2.0, 500.0)).unwrap()),
+        )
+        .unwrap();
+    let long = fixtures::cylinder(0.5, 1000.0);
+    let drilled = boolean(&long, &drill, BooleanOperation::Difference).unwrap();
+    let bumped = fixtures::bumped_block(100.0, 10.0, 41, 2.0);
+
+    for (name, solid, most) in [
+        ("long cylinder", long, 1000),
+        ("drilled long cylinder", drilled, 2000),
+        ("bumped block", bumped, 5000),
+    ] {
+        let tolerance = solid.tolerance_for(&MeshQuality::SMOOTH);
+        let mesh = solid.display_mesh(&MeshQuality::SMOOTH).unwrap();
+        let deviation = surface_deviation(&solid, &tolerance);
+
+        assert_watertight(name, &mesh);
+        assert!(
+            mesh.triangles().len() <= most,
+            "{name} has {} triangles",
+            mesh.triangles().len()
+        );
+        assert!(
+            deviation <= tolerance.chord() * 1.05,
+            "{name} deviates {deviation} at a chord of {}",
+            tolerance.chord()
+        );
     }
 }

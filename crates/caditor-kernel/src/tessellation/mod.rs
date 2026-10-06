@@ -579,7 +579,7 @@ impl<'a> Tessellator<'a> {
             let budget = face::Budget {
                 limit: self.limit,
                 tolerance: self.tolerances.face(*id),
-                density: self.poles.get(id).map(|poles| poles.density),
+                density: self.poles.get(id).map(|poles| poles.density.clone()),
             };
             let start = self.mesh.triangles.len();
             match face::triangulate(self.solid, *id, &self.samplings, &budget, &mut self.mesh) {

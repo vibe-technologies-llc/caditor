@@ -195,30 +195,59 @@ pub(crate) fn tweaked_cuboid(tweak: Tweak) -> Solid {
 }
 
 pub(crate) fn spline_topped_block(side: f64, height: f64, bulge: f64) -> Solid {
+    let mut control_points = Vec::with_capacity(16);
+    for row in 0..4 {
+        for column in 0..4 {
+            let raised = (1..=2).contains(&row) && (1..=2).contains(&column);
+            control_points.push(Point3::new(
+                side * column as f64 / 3.0,
+                side * row as f64 / 3.0,
+                if raised { height + bulge } else { height },
+            ));
+        }
+    }
+    let knots = vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
+    let surface = BSplineSurface::new(3, 3, knots.clone(), knots, 4, control_points, None).unwrap();
+    block_topped_by(side, height, surface)
+}
+
+pub(crate) fn bumped_sheet(side: f64, height: f64, nodes: usize, bump: f64) -> BSplineSurface {
+    let middle = nodes / 2;
+    let control_points = (0..nodes)
+        .flat_map(|row| {
+            (0..nodes).map(move |column| {
+                let raised = row == middle && column == middle;
+                Point3::new(
+                    side * column as f64 / (nodes - 1) as f64,
+                    side * row as f64 / (nodes - 1) as f64,
+                    if raised { height + bump } else { height },
+                )
+            })
+        })
+        .collect();
+    let knots: Vec<f64> = [0.0; 3]
+        .into_iter()
+        .chain((0..=nodes - 3).map(|knot| knot as f64 / (nodes - 3) as f64))
+        .chain([1.0; 3])
+        .collect();
+    BSplineSurface::new(3, 3, knots.clone(), knots, nodes, control_points, None).unwrap()
+}
+
+pub(crate) fn bumped_block(side: f64, height: f64, nodes: usize, bump: f64) -> Solid {
+    block_topped_by(side, height, bumped_sheet(side, height, nodes, bump))
+}
+
+fn block_topped_by(side: f64, height: f64, top: BSplineSurface) -> Solid {
     let mut fixture = Fixture::new();
     let vertices = cuboid_vertices(&mut fixture, Point3::ZERO, Point3::new(side, side, height));
     for (index, face) in CUBOID_FACES.iter().enumerate() {
         let corners: Vec<VertexId> = face.iter().map(|corner| vertices[*corner]).collect();
-        if index != 1 {
+        if index == 1 {
+            let coedges = fixture.polygon_loop(&corners);
+            fixture.face(top.clone(), Sense::Same, &[coedges]);
+        } else {
             fixture.polygon(&corners, &[]);
-            continue;
         }
-        let mut control_points = Vec::with_capacity(16);
-        for row in 0..4 {
-            for column in 0..4 {
-                let raised = (1..=2).contains(&row) && (1..=2).contains(&column);
-                control_points.push(Point3::new(
-                    side * column as f64 / 3.0,
-                    side * row as f64 / 3.0,
-                    if raised { height + bulge } else { height },
-                ));
-            }
-        }
-        let knots = vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
-        let surface =
-            BSplineSurface::new(3, 3, knots.clone(), knots, 4, control_points, None).unwrap();
-        let coedges = fixture.polygon_loop(&corners);
-        fixture.face(surface, Sense::Same, &[coedges]);
     }
     fixture.build()
 }

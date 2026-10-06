@@ -74,10 +74,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Kernel performance
 
-- [medium · medium] The face grid is uniform in uv and sized by the worst curvature anywhere, so one
-  small bump multiplies a whole face's triangles, and straight directions are capped at
-  `FLAT_ASPECT` times the curved one, so a 1×1000 cylinder gets 121k triangles in the smooth display
-  mesh where a few hundred would do.
 - [medium · medium] A boolean with an extruded spline of thousands of control points runs for
   seconds (600 control points) to many minutes (6,000) without polling `interrupt::check`: clipping
   the branch along its cap (`surface_surface::clip`) projects each probe onto the extrusion from the
@@ -94,6 +90,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
   disjoint.
 - [low · medium] Marched curves' `closest_parameter` and `length` reseed over all nodes on every
   call, from loops over nearby vertices in `imprint.rs`.
+- [low · hard] The face grid is graded per direction but still a tensor product, so a bump divides
+  the whole rows and columns through it, and curvature is sampled only on the lattice, so a feature
+  narrower than a lattice span is refined only if a checked cell lands on it. Cells split where
+  they bow past the chord (a quadtree) would keep the division local and find narrow features.
 
 ## Document and recompute
 

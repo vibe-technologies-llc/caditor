@@ -67,34 +67,41 @@ struct LocalPoint {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct Scaled {
-    origin: Point2,
-    u_scale: f64,
-    v_scale: f64,
+enum Scaled<'a> {
+    Cells(&'a Density),
+    Speeds {
+        origin: Point2,
+        u_scale: f64,
+        v_scale: f64,
+    },
 }
 
-impl Scaled {
-    fn of_cells(bounds: Aabb2, density: &Density) -> Self {
-        let size = bounds.size();
-        let gridded = density.u_segments >= 2 && density.v_segments >= 2;
-        let (u_scale, v_scale) = if gridded && size.x > 0.0 && size.y > 0.0 {
-            (
-                density.u_segments as f64 / size.x,
-                density.v_segments as f64 / size.y,
-            )
+impl<'a> Scaled<'a> {
+    fn of(bounds: Aabb2, density: &'a Density) -> Self {
+        if density.gridded() {
+            Self::Cells(density)
         } else {
-            (density.u_scale, density.v_scale)
-        };
-        Self {
-            origin: bounds.min(),
-            u_scale,
-            v_scale,
+            Self::Speeds {
+                origin: bounds.min(),
+                u_scale: density.u.speed(),
+                v_scale: density.v.speed(),
+            }
         }
     }
 
     fn map(&self, uv: Point2) -> Point2 {
-        let offset = uv - self.origin;
-        Point2::new(snap(offset.x * self.u_scale), snap(offset.y * self.v_scale))
+        let mapped = match self {
+            Self::Cells(density) => density.index(uv),
+            Self::Speeds {
+                origin,
+                u_scale,
+                v_scale,
+            } => {
+                let offset = uv - *origin;
+                Point2::new(offset.x * u_scale, offset.y * v_scale)
+            }
+        };
+        Point2::new(snap(mapped.x), snap(mapped.y))
     }
 }
 
@@ -130,21 +137,18 @@ pub(crate) fn triangulate(
     };
     let density = budget
         .density
+        .clone()
         .unwrap_or_else(|| density(surface, bounds, tolerance));
-    let steps = Point2::new(
-        bounds.size().x / density.u_segments as f64,
-        bounds.size().y / density.v_segments as f64,
-    );
     let loops: Vec<Vec<BoundaryPoint>> = loops
         .into_iter()
-        .map(|points| close_gaps(points, steps))
+        .map(|points| close_gaps(points, &density))
         .collect();
-    let scaled = Scaled::of_cells(bounds, &density);
+    let scaled = Scaled::of(bounds, &density);
     let mut points = FacePoints::new(face_id, scaled);
     for boundary in &loops {
         points.add_loop(boundary)?;
     }
-    let grid = grid_points(&loops, bounds, &density, &scaled)?;
+    let grid = grid_points(&loops, &scaled)?;
     if mesh.positions.len().saturating_add(grid.len()) > budget.limit {
         return Err(TessellationError::TooLarge);
     }
@@ -195,14 +199,7 @@ pub(crate) fn pole_sampling(
         return Ok(None);
     };
     let density = density(surface, bounds, tolerance);
-    let row_height = bounds.size().y / density.v_segments as f64;
     let mut segments = Vec::new();
-    if row_height.is_nan() || row_height <= 0.0 {
-        return Ok(Some(PoleSampling {
-            density,
-            edges: segments,
-        }));
-    }
     for coedge in coedges {
         let edge = solid
             .edge(coedge.edge())
@@ -221,8 +218,8 @@ pub(crate) fn pole_sampling(
             continue;
         }
         let pcurve = coedge.pcurve();
-        let rise = (pcurve.end().y - pcurve.start().y).abs();
-        let pieces = (rise / row_height).round();
+        let rows = density.v.index(pcurve.end().y) - density.v.index(pcurve.start().y);
+        let pieces = rows.abs().round();
         if pieces.is_finite() && pieces >= 2.0 {
             segments.push((coedge.edge(), (pieces as usize).min(MAX_POLE_EDGE_PIECES)));
         }
@@ -418,7 +415,7 @@ fn push_distinct(surface: &Surface, points: &mut Vec<BoundaryPoint>, point: Boun
     }
 }
 
-fn close_gaps(points: Vec<BoundaryPoint>, steps: Point2) -> Vec<BoundaryPoint> {
+fn close_gaps(points: Vec<BoundaryPoint>, density: &Density) -> Vec<BoundaryPoint> {
     let count = points.len();
     let mut closed = Vec::with_capacity(count);
     for (index, point) in points.iter().enumerate() {
@@ -429,16 +426,16 @@ fn close_gaps(points: Vec<BoundaryPoint>, steps: Point2) -> Vec<BoundaryPoint> {
         if next.position != point.position || coincide(point, next) {
             continue;
         }
-        let gap = (next.uv - point.uv).abs();
-        let pieces = [(gap.x, steps.x), (gap.y, steps.y)]
+        let (from, to) = (density.index(point.uv), density.index(next.uv));
+        let pieces = [to.x - from.x, to.y - from.y]
             .into_iter()
-            .filter(|(_, step)| *step > 0.0)
-            .map(|(length, step)| (length / step).ceil())
+            .filter(|cells| cells.is_finite())
+            .map(|cells| cells.abs().ceil())
             .fold(1.0, f64::max)
             .min(MAX_GAP_PIECES) as usize;
         for piece in 1..pieces {
             closed.push(BoundaryPoint {
-                uv: point.uv.lerp(next.uv, piece as f64 / pieces as f64),
+                uv: density.at(from.lerp(to, piece as f64 / pieces as f64)),
                 position: point.position,
             });
         }
@@ -446,25 +443,11 @@ fn close_gaps(points: Vec<BoundaryPoint>, steps: Point2) -> Vec<BoundaryPoint> {
     closed
 }
 
-fn grid_points(
-    loops: &[Vec<BoundaryPoint>],
-    bounds: Aabb2,
-    density: &Density,
-    scaled: &Scaled,
-) -> Result<Vec<Point2>, Interrupted> {
-    let (columns, rows) = (density.u_segments, density.v_segments);
-    if columns < 2 || rows < 2 {
+fn grid_points(loops: &[Vec<BoundaryPoint>], scaled: &Scaled) -> Result<Vec<Point2>, Interrupted> {
+    let Scaled::Cells(density) = scaled else {
         return Ok(Vec::new());
-    }
-    let size = bounds.size();
-    let cell = Point2::new(
-        size.x * scaled.u_scale / columns as f64,
-        size.y * scaled.v_scale / rows as f64,
-    );
-    if cell.x <= 0.0 || cell.y <= 0.0 {
-        return Ok(Vec::new());
-    }
-    let clearance = GRID_CLEARANCE * cell.x.min(cell.y);
+    };
+    let (columns, rows) = (density.u.segments(), density.v.segments());
     let segments: Vec<(Point2, Point2)> = loops
         .iter()
         .flat_map(|points| {
@@ -486,8 +469,8 @@ fn grid_points(
     };
     for (index, (start, end)) in segments.iter().enumerate() {
         let (low, high) = (start.min(*end), start.max(*end));
-        for column in clamp_cell(low.x / cell.x, columns)..=clamp_cell(high.x / cell.x, columns) {
-            for row in clamp_cell(low.y / cell.y, rows)..=clamp_cell(high.y / cell.y, rows) {
+        for column in clamp_cell(low.x, columns)..=clamp_cell(high.x, columns) {
+            for row in clamp_cell(low.y, rows)..=clamp_cell(high.y, rows) {
                 if let Some(bucket) = buckets.get_mut(row * columns + column) {
                     bucket.push(index);
                 }
@@ -497,36 +480,36 @@ fn grid_points(
     let mut points = Vec::new();
     for row in 1..rows {
         interrupt::check()?;
+        let Some(v) = density.v.line(row) else {
+            continue;
+        };
         for column in 1..columns {
-            let local = Point2::new(column as f64 * cell.x, row as f64 * cell.y);
+            let local = Point2::new(column as f64, row as f64);
             let near = (column - 1..=column)
                 .flat_map(|column| (row - 1..=row).map(move |row| row * columns + column))
                 .filter_map(|bucket| buckets.get(bucket))
                 .flatten()
                 .filter_map(|segment| segments.get(*segment))
-                .any(|(start, end)| distance_to_segment(local, *start, *end) < clearance);
-            if !near {
-                points.push(Point2::new(
-                    bounds.min().x + size.x * column as f64 / columns as f64,
-                    bounds.min().y + size.y * row as f64 / rows as f64,
-                ));
+                .any(|(start, end)| distance_to_segment(local, *start, *end) < GRID_CLEARANCE);
+            if !near && let Some(u) = density.u.line(column) {
+                points.push(Point2::new(u, v));
             }
         }
     }
     Ok(points)
 }
 
-struct FacePoints {
+struct FacePoints<'a> {
     face: FaceId,
-    scaled: Scaled,
+    scaled: Scaled<'a>,
     points: Vec<LocalPoint>,
     mapped: Vec<PlanePoint<f64>>,
     by_place: BTreeMap<[u64; 2], usize>,
     loops: Vec<Vec<usize>>,
 }
 
-impl FacePoints {
-    fn new(face: FaceId, scaled: Scaled) -> Self {
+impl<'a> FacePoints<'a> {
+    fn new(face: FaceId, scaled: Scaled<'a>) -> Self {
         Self {
             face,
             scaled,

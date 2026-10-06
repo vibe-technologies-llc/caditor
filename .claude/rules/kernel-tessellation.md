@@ -6,15 +6,26 @@ paths:
 # Tessellation
 
 - Each edge is sampled once; both faces share its positions.
-- Each face is a constrained Delaunay triangulation (`spade`) of its loops in (u, v), plus a uniform interior grid (`density.rs`) spaced by curvature, covering
-  every knot span, kept clear of the boundary and refined on curved kinds until its cells stay
-  within `GRID_SHARE` of the chord tolerance (which keeps the triangles the triangulation actually
-  picks within the chord). A direction without curvature gets cells at most `FLAT_ASPECT` times
-  longer than the curved one's.
-- A face with a grid is triangulated in cell space (u and v scaled so one grid cell is a unit
-  square), so a boundary point off the lattice joins its neighbours and never fans across a dense
-  row of grid points, which on a torus much thinner than its ring spanned the tube; a face without
-  a grid is scaled by the mean surface speeds.
+- Each face is a constrained Delaunay triangulation (`spade`) of its loops in (u, v), plus an
+  interior tensor grid (`density.rs`) kept clear of the boundary. Each direction's grid lines are
+  graded by curvature: the cells needed per unit parameter are sampled on a lattice of uniform
+  points and points in every knot span (at most `MAX_LATTICE` a direction), each lattice span takes
+  the larger need of its two ends, and lines sit at equal steps of the accumulated need, so a bump
+  divides only the rows and columns through it and a flat stretch is one wide cell. No span may
+  need more than `MAX_SEGMENTS` across the whole face, so a pole's degenerate curvature cannot
+  draw every line to itself. A direction without curvature gets `FLAT_SEGMENTS` cells whatever its
+  length: rulings are straight, so a long cylinder needs no rows along them.
+- Curved kinds are then refined a whole direction at a time until the sampled cells (strided by
+  index, plus some placed by parameter so wide cells are seen) bow from their chords, measured
+  along the surface normal, by at most `GRID_SHARE` of the chord tolerance (which keeps the
+  triangles the triangulation actually picks within the chord). Measuring along the normal ignores
+  parameter stretch within the surface (a clamped spline's ends, a cone's rulings); a cell whose
+  diagonal bows more than its sides refines both directions.
+- A face with a grid is triangulated in cell space (each parameter mapped piecewise linearly to its
+  grid line index, so every cell is a unit square), so a boundary point off the lattice joins its
+  neighbours and never fans across a dense row of grid points, which on a torus much thinner than
+  its ring spanned the tube; a face without a grid is scaled by the mean surface speeds. Gaps along
+  a pole line or seam joint are filled in cell space, one point per cell they cross.
 - Points are deduplicated by exact scaled coordinates (`DuplicateBoundaryPoint`), bulk-loaded, and
   only then joined by the loops' constraint edges (inserting boundary points one by one flipped
   edges quadratically). Triangles are kept by the parity of constraint crossings from outside.
@@ -26,7 +37,8 @@ paths:
   by the curves' own separation, never by rounding.
 - Pole-line points share the pole's position and the triangles collapsing there are dropped, so
   the mesh stays watertight. A straight edge ending at a pole (a ruling to a cone's apex) is
-  sampled at the grid's row spacing, else the triangles beside it fan from the apex with no area.
+  sampled with one piece per grid row it crosses, else the triangles beside it fan from the apex
+  with no area.
 
 ## Quality
 
