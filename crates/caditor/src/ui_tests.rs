@@ -10,7 +10,7 @@ use caditor_document::{
     RegionChoice, RollbackBar, SolidFeature, SolidResult, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Unit};
-use caditor_file::{ExportFormat, JournalEntry, Start, Storage, StorageConfig};
+use caditor_file::{DrawingUnit, ExportFormat, JournalEntry, Start, Storage, StorageConfig};
 use caditor_geometry::{Plane, Point2, Vector2, Vector3};
 use caditor_kernel::MeshQuality;
 use caditor_render::{Background, GraphicsInfo, Image, ImageError, Msaa, Shading};
@@ -41,6 +41,7 @@ use crate::{
     icons,
     image_export::{ImageCommand, ReadPixels},
     import::{self, Placement},
+    import_options::{Arrangement, ImportOptionsCommand, PlaneChoice},
     logo, menu_bar, mirror_panel, mirroring,
     model::{Action, Model, Notice, RecomputeStatus, Services, WakerFactory},
     offsetting,
@@ -392,6 +393,18 @@ impl Harness {
             self.frame();
         }
         self.frame();
+    }
+
+    fn wait_for_import_options(&mut self, file: &str) {
+        let title = format!("Import “{file}”");
+        self.wait_until("the import options are shown", |harness| {
+            harness.shows(&title)
+        });
+    }
+
+    fn confirm_import(&mut self, file: &str) {
+        self.wait_for_import_options(file);
+        self.click("Import");
     }
 
     fn command(&mut self, command: FileCommand) {
@@ -1748,6 +1761,7 @@ fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
     harness.answer_dialog(Some(square));
     harness.key(Key::I, Modifiers::COMMAND);
     harness.frame();
+    harness.confirm_import("bracket.dxf");
     harness.wait_until("the drawing is imported", |harness| {
         harness.document().features().len() == features + 1
     });
@@ -1773,6 +1787,7 @@ fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
     harness.command(FileCommand::Import {
         into: harness.editing(),
     });
+    harness.confirm_import("hole.dxf");
     harness.wait_until("the report is shown", |harness| {
         harness.shows("Imported “hole.dxf” into bracket")
     });
@@ -1821,6 +1836,107 @@ fn importing_a_drawing_fills_a_new_sketch_or_the_one_being_edited() {
     );
 }
 
+fn square_drawing(path: &Path) {
+    write_drawing(
+        path,
+        Some(4),
+        "0\nLWPOLYLINE\n8\n0\n90\n4\n70\n1\n\
+         10\n0\n20\n0\n10\n30\n20\n0\n10\n30\n20\n30\n10\n0\n20\n30\n",
+    );
+}
+
+fn sketch_positions(sketch: &Sketch) -> Vec<Point2> {
+    sketch
+        .entities()
+        .filter_map(|(_, entity)| match entity {
+            Entity::Point(position) => Some(*position),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn the_import_options_scale_centre_and_place_a_drawing_before_it_is_added() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let square = dir.path().join("bracket.dxf");
+    square_drawing(&square);
+    let features = harness.document().features().len();
+
+    harness.answer_dialog(Some(square));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_until("the options are shown", |harness| {
+        harness.shows("Import “bracket.dxf”")
+    });
+    assert!(harness.shows("4 curves drawn, 30.000 mm wide and 30.000 mm high."));
+    assert!(harness.shows("Sketch plane"));
+    assert_eq!(harness.document().features().len(), features);
+
+    for command in [
+        ImportOptionsCommand::Unit(DrawingUnit::Centimetres),
+        ImportOptionsCommand::Scale(2.0),
+        ImportOptionsCommand::Recentre(true),
+        ImportOptionsCommand::Plane(PlaneChoice::Xz),
+    ] {
+        harness.command(FileCommand::ImportOptions(command));
+    }
+    harness.frame();
+    assert!(harness.shows("4 curves drawn, 600.000 mm wide and 600.000 mm high."));
+    harness.click("Import");
+
+    harness.wait_until("the drawing is imported", |harness| {
+        harness.document().features().len() == features + 1
+    });
+    let sketch = harness.document().features().last().unwrap().id();
+    let imported = harness.sketch(sketch);
+    assert_eq!(imported.plane(), Plane::XZ);
+    let positions = sketch_positions(imported);
+    assert_eq!(positions.len(), 8);
+    for position in positions {
+        assert!((position.x.abs() - 300.0).abs() < 1e-9, "{position}");
+        assert!((position.y.abs() - 300.0).abs() < 1e-9, "{position}");
+    }
+    assert!(harness.shows("Imported “bracket.dxf” into bracket"));
+    assert!(harness.shows_containing("You chose to read the drawing's numbers as centimetres"));
+    assert!(harness.shows("You scaled the drawing by 2."));
+    harness.click("Close");
+    assert!(!harness.files.is_blocking());
+}
+
+#[test]
+fn cancelling_the_import_options_adds_nothing_and_a_sketch_being_edited_has_no_plane_choice() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let square = dir.path().join("bracket.dxf");
+    square_drawing(&square);
+    let features = harness.document().features().len();
+
+    harness.answer_dialog(Some(square.clone()));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_for_import_options("bracket.dxf");
+    assert!(harness.files.is_blocking());
+    harness.click("Cancel");
+    assert!(!harness.files.is_blocking());
+    assert!(!harness.files.is_importing());
+    assert_eq!(harness.document().features().len(), features);
+
+    harness.answer_dialog(Some(square.clone()));
+    harness.command(FileCommand::Import { into: None });
+    harness.confirm_import("bracket.dxf");
+    harness.wait_until("the drawing is imported", |harness| {
+        harness.document().features().len() == features + 1
+    });
+    let sketch = harness.document().features().last().unwrap().id();
+    assert_eq!(harness.editing(), Some(sketch));
+
+    harness.answer_dialog(Some(square));
+    harness.command(FileCommand::Import {
+        into: harness.editing(),
+    });
+    harness.wait_for_import_options("bracket.dxf");
+    assert!(!harness.shows("Sketch plane"));
+}
+
 #[test]
 fn a_drawing_read_while_the_model_changes_is_placed_on_the_changed_model() {
     let dir = TempDir::new().unwrap();
@@ -1835,7 +1951,13 @@ fn a_drawing_read_while_the_model_changes_is_placed_on_the_changed_model() {
     let features = harness.document().features().len();
     let width = harness.parameter("width");
     let drawing = caditor_file::read_dxf(&square).unwrap();
-    let plan = import::plan_drawing(harness.model.base(), &square, None, drawing);
+    let plan = import::plan_drawing(
+        harness.model.base(),
+        &square,
+        None,
+        drawing,
+        Arrangement::default(),
+    );
 
     harness.model.perform(Action::Apply(Transaction::single(
         "Edit width",
@@ -1850,12 +1972,18 @@ fn a_drawing_read_while_the_model_changes_is_placed_on_the_changed_model() {
         &square,
         Ok(plan),
     );
-    let Placement::Stale(drawing) = placement else {
+    let Placement::Stale(drawing, _) = placement else {
         panic!("a drawing planned before the edit was placed on the changed model");
     };
     assert_eq!(harness.document().features().len(), features);
 
-    let plan = import::plan_drawing(harness.model.base(), &square, None, drawing);
+    let plan = import::plan_drawing(
+        harness.model.base(),
+        &square,
+        None,
+        drawing,
+        Arrangement::default(),
+    );
     let placement = import::place_drawing(
         &mut harness.model,
         &mut harness.workspace.editing,
@@ -1896,6 +2024,7 @@ fn a_drawing_named_on_the_command_line_is_imported_instead_of_opened() {
 
     harness.files.start(Some(square), &mut harness.model);
 
+    harness.confirm_import("square.dxf");
     harness.wait_until("the drawing is imported", |harness| {
         harness.document().features().len() == features + 1
     });
@@ -1983,6 +2112,8 @@ fn dropped_drawings_are_imported_one_after_another_and_a_dropped_model_opens() {
         harness.model.notice().unwrap().text,
         "An import is already running. Drop the files again once it has finished."
     );
+    harness.confirm_import("square.dxf");
+    harness.confirm_import("hole.dxf");
     harness.wait_until("both drawings are imported", |harness| {
         harness.document().features().len() == features + 2
     });

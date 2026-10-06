@@ -70,6 +70,7 @@ pub(super) fn flatten(
         curves,
         construction,
         notes,
+        unit_scale: 1.0,
     }
 }
 

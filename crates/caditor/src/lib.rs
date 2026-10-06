@@ -43,6 +43,7 @@ mod hole_tools;
 mod icons;
 mod image_export;
 mod import;
+mod import_options;
 mod layout;
 mod logging;
 mod logo;

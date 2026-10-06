@@ -5,16 +5,16 @@ use caditor_file::{
     Drawing, ImportError, ModelImport, STEP_IMPORT_EXTENSIONS, SketchTarget, bodies_transaction,
     drawing_transaction,
 };
-use caditor_geometry::Plane;
 
 use crate::{
     editing::{self, EditingCommand, SketchEditing},
     feature_tree::count,
+    import_options::Arrangement,
     model::{Action, Model, Notice, SessionBase, display_name},
 };
 
-pub const IMPORT_HINT: &str = "Add a DXF drawing to the sketch you are editing or to a new sketch \
-                               on the XY plane, or the bodies of a STEP model to the model";
+pub const IMPORT_HINT: &str = "Add a DXF drawing to the sketch you are editing or to a new sketch, \
+                               or the bodies of a STEP model to the model";
 const STEP_SIGNATURE: &[u8] = b"ISO-10303-21";
 const SNIFFED_BYTES: usize = 256;
 const MAX_NAME_CHARACTERS: usize = 60;
@@ -30,6 +30,8 @@ pub struct ImportReport {
 #[derive(Debug)]
 pub struct DrawingPlan {
     drawing: Drawing,
+    arrangement: Arrangement,
+    notes: Vec<String>,
     sketch: FeatureId,
     curves: usize,
     session: u64,
@@ -39,7 +41,7 @@ pub struct DrawingPlan {
 #[derive(Debug)]
 pub enum Placement {
     Done(Option<ImportReport>),
-    Stale(Drawing),
+    Stale(Drawing, Arrangement),
 }
 
 pub fn plan_drawing(
@@ -47,6 +49,7 @@ pub fn plan_drawing(
     path: &Path,
     into: Option<FeatureId>,
     drawing: Drawing,
+    arrangement: Arrangement,
 ) -> DrawingPlan {
     let SessionBase { base, session } = base;
     let document = base.document();
@@ -54,13 +57,16 @@ pub fn plan_drawing(
         Some(feature) => SketchTarget::Existing(feature),
         None => SketchTarget::New {
             name: new_sketch_name(document, path),
-            plane: Plane::XY,
+            plane: arrangement.plane.plane(),
         },
     };
     let label = format!("Import {}", display_name(Some(path)));
-    let import = drawing_transaction(document, &drawing, target, label);
+    let arranged = drawing.arranged(&arrangement.options);
+    let import = drawing_transaction(document, &arranged, target, label);
     DrawingPlan {
         drawing,
+        arrangement,
+        notes: arranged.notes,
         sketch: import.sketch,
         curves: import.curves,
         session,
@@ -93,13 +99,15 @@ pub fn place_drawing(
     };
     let DrawingPlan {
         drawing,
+        arrangement,
+        notes,
         sketch,
         curves,
         session,
         prepared,
     } = plan;
     if curves == 0 {
-        return Placement::Done(nothing_imported(model, &file, TOO_SHORT, drawing.notes));
+        return Placement::Done(nothing_imported(model, &file, TOO_SHORT, notes));
     }
     let prepared = match prepared {
         Ok(prepared) => prepared,
@@ -111,7 +119,7 @@ pub fn place_drawing(
         }
     };
     if model.commit(session, prepared).is_err() {
-        return Placement::Stale(drawing);
+        return Placement::Stale(drawing, arrangement);
     }
     editing.perform(EditingCommand::Enter(sketch), model);
     let sketch = model
@@ -122,9 +130,9 @@ pub fn place_drawing(
         "Imported {} from “{file}” into {sketch}.",
         count(curves, "curve", "curves")
     )));
-    Placement::Done((!drawing.notes.is_empty()).then(|| ImportReport {
+    Placement::Done((!notes.is_empty()).then(|| ImportReport {
         heading: format!("Imported “{file}” into {sketch}"),
-        notes: drawing.notes,
+        notes,
     }))
 }
 

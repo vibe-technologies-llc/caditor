@@ -640,6 +640,16 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
     shoot(&mut model, gpu, out, "image-export", look);
     close_dialog(&mut model);
 
+    let outline = dir.path().join("outline.dxf");
+    super::square_drawing(&outline);
+    model.answer_dialog(Some(outline));
+    model.command(FileCommand::Import { into: None });
+    model.wait_until("the import options are shown", |harness| {
+        harness.shows("Import “outline.dxf”")
+    });
+    shoot(&mut model, gpu, out, "import-options", look);
+    close_dialog(&mut model);
+
     let path = dir.path().join("plate.caditor");
     model.answer_dialog(Some(path.clone()));
     model.command(FileCommand::SaveAs);

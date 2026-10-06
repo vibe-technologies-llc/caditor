@@ -29,7 +29,7 @@ use crate::{
     appearance::{self, SPACE_S},
     commands::{Command, CommandFrame, Offer, RecentSlot},
     dialog_parts,
-    editing::SketchEditing,
+    editing::{self, SketchEditing},
     export::{self, ExportCommand, Exporter},
     history::{self, HistoryCommand, VersionHistory},
     icons,
@@ -37,6 +37,7 @@ use crate::{
         self, IMAGE_HINT, ImageCommand, ImageExporter, ImageFailure, ReadPixels, RenderJob,
     },
     import::{self, DrawingPlan, IMPORT_HINT, Placement},
+    import_options::{self, Arrangement, Arranging, ImportOptionsCommand},
     model::{Action, FileEvent, Model, Notice, WakerFactory, display_name},
     onboarding,
     portal::{self, DialogError, FileRequest, Filter, Mode},
@@ -76,7 +77,7 @@ const FILE_COMMANDS: [Command; 10] = [
     Command::Quit,
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum FileCommand {
     New,
     Open,
@@ -94,6 +95,7 @@ pub enum FileCommand {
     KeepRecovered,
     Discard(PathBuf),
     DismissReport,
+    ImportOptions(ImportOptionsCommand),
     Replace(bool),
     QuitAnyway,
     Export(ExportCommand),
@@ -414,6 +416,12 @@ enum Event {
         into: Option<FeatureId>,
         result: Result<DrawingPlan, ImportError>,
     },
+    DrawingRead {
+        path: PathBuf,
+        session: u64,
+        into: Option<FeatureId>,
+        drawing: Drawing,
+    },
     ImportedModel {
         path: PathBuf,
         session: u64,
@@ -471,6 +479,7 @@ pub struct Files {
     opening: Option<PathBuf>,
     open_attempt: u64,
     importing: Option<Importing>,
+    arranging: Option<Arranging>,
     queued_imports: VecDeque<Queued>,
     exporter: Exporter,
     image: ImageExporter,
@@ -504,6 +513,7 @@ impl Files {
             opening: None,
             open_attempt: 0,
             importing: None,
+            arranging: None,
             queued_imports: VecDeque::new(),
             exporter: Exporter::default(),
             image: ImageExporter::default(),
@@ -544,7 +554,7 @@ impl Files {
     }
 
     pub fn is_importing(&self) -> bool {
-        self.importing.is_some() || !self.queued_imports.is_empty()
+        self.importing.is_some() || self.arranging.is_some() || !self.queued_imports.is_empty()
     }
 
     pub fn is_blocking(&self) -> bool {
@@ -554,6 +564,7 @@ impl Files {
             || self.changed_on_disk.is_some()
             || self.opening.is_some()
             || self.report.is_some()
+            || self.arranging.is_some()
             || self.showing_recovery()
             || self.exporter.is_open()
             || self.image.is_open()
@@ -578,6 +589,7 @@ impl Files {
         self.image.perform(ImageCommand::Hide);
         self.history.close();
         self.report = None;
+        self.arranging = None;
         self.recovery_open = false;
         self.confirm_discard = None;
     }
@@ -653,6 +665,7 @@ impl Files {
                 );
             }
             FileCommand::DismissReport => self.report = None,
+            FileCommand::ImportOptions(command) => self.import_options(command, model),
             FileCommand::Replace(confirmed) => {
                 let Some(replacement) = self.confirm_replace.take() else {
                     return;
@@ -748,8 +761,34 @@ impl Files {
         }
     }
 
+    fn import_options(&mut self, command: ImportOptionsCommand, model: &Model) {
+        match command {
+            ImportOptionsCommand::Cancel => self.arranging = None,
+            ImportOptionsCommand::Confirm => {
+                if let Some(Arranging {
+                    path,
+                    into,
+                    drawing,
+                    arrangement,
+                }) = self.arranging.take()
+                {
+                    self.plan_again(path, into, drawing, arrangement, model);
+                }
+            }
+            command => {
+                if let Some(arranging) = &mut self.arranging {
+                    arranging.perform(command);
+                }
+            }
+        }
+    }
+
     fn import_next(&mut self, model: &Model) {
-        if self.importing.is_some() || self.report.is_some() || self.picking {
+        if self.importing.is_some()
+            || self.arranging.is_some()
+            || self.report.is_some()
+            || self.picking
+        {
             return;
         }
         let session = model.session();
@@ -1037,7 +1076,20 @@ impl Files {
                         });
                     }
                     Placement::Done(None) => {}
-                    Placement::Stale(drawing) => self.plan_again(path, into, drawing, model),
+                    Placement::Stale(drawing, arrangement) => {
+                        self.plan_again(path, into, drawing, arrangement, model);
+                    }
+                }
+            }
+            Event::DrawingRead {
+                path,
+                session,
+                into,
+                drawing,
+            } => {
+                self.importing = None;
+                if session == model.session() {
+                    self.arranging = Some(Arranging::new(path, into, drawing));
                 }
             }
             Event::ImportedModel {
@@ -1066,7 +1118,6 @@ impl Files {
             into,
         });
         let session = model.session();
-        let base = model.base();
         let failed = path.clone();
         self.spawn(
             move || {
@@ -1077,12 +1128,19 @@ impl Files {
                         session,
                     }
                 } else {
-                    Event::Imported {
-                        result: read_dxf(&path)
-                            .map(|drawing| import::plan_drawing(base, &path, into, drawing)),
-                        path,
-                        session,
-                        into,
+                    match read_dxf(&path) {
+                        Ok(drawing) => Event::DrawingRead {
+                            path,
+                            session,
+                            into,
+                            drawing,
+                        },
+                        Err(error) => Event::Imported {
+                            path,
+                            session,
+                            into,
+                            result: Err(error),
+                        },
                     }
                 }
             },
@@ -1100,6 +1158,7 @@ impl Files {
         path: PathBuf,
         into: Option<FeatureId>,
         drawing: Drawing,
+        arrangement: Arrangement,
         model: &Model,
     ) {
         self.importing = Some(Importing {
@@ -1111,7 +1170,13 @@ impl Files {
         let failed = path.clone();
         self.spawn(
             move || Event::Imported {
-                result: Ok(import::plan_drawing(base, &path, into, drawing)),
+                result: Ok(import::plan_drawing(
+                    base,
+                    &path,
+                    into,
+                    drawing,
+                    arrangement,
+                )),
                 path,
                 session,
                 into,
@@ -1930,6 +1995,12 @@ pub fn show(
         command = changed_on_disk(&ctx, path).map(FileCommand::OutsideChange);
     } else if let Some(report) = &files.report {
         command = show_report(&ctx, report);
+    } else if let Some(arranging) = &files.arranging {
+        let into_edited_sketch = arranging
+            .into
+            .is_some_and(|feature| editing::edited_sketch(model.document(), feature).is_some());
+        command = import_options::dialog(&ctx, model, arranging, into_edited_sketch)
+            .map(FileCommand::ImportOptions);
     } else if files.showing_recovery() {
         command = recovery(&ctx, files);
     } else if files.exporter.is_open() {

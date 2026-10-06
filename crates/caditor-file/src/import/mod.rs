@@ -1,3 +1,4 @@
+mod arrange;
 mod dxf;
 #[cfg(test)]
 mod entity_tests;
@@ -12,6 +13,7 @@ use caditor_geometry::Point2;
 use caditor_step::ReadError;
 
 pub use crate::import::{
+    arrange::{DrawingOptions, DrawingUnit, MAX_SCALE, MIN_SCALE},
     dxf::parse_dxf,
     model::{
         ImportedBody, ModelImport, STEP_IMPORT_EXTENSIONS, bodies_transaction, parse_step,
@@ -80,11 +82,23 @@ impl DrawingCurve {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Drawing {
     pub curves: Vec<DrawingCurve>,
     pub construction: BTreeSet<usize>,
     pub notes: Vec<String>,
+    pub unit_scale: f64,
+}
+
+impl Default for Drawing {
+    fn default() -> Self {
+        Self {
+            curves: Vec::new(),
+            construction: BTreeSet::new(),
+            notes: Vec::new(),
+            unit_scale: 1.0,
+        }
+    }
 }
 
 impl Drawing {

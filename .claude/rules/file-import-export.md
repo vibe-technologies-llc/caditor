@@ -23,6 +23,11 @@ paths:
   refused with the damage as the error.
 - Left out silently: paper space, invisible entities, off, frozen and `DEFPOINTS` layers.
   Annotations (text, dimensions) are counted in a note.
+- `Drawing::arranged` applies `DrawingOptions` to a parsed drawing: a unit that replaces the one
+  the file names (`Drawing::unit_scale` is what the header applied, so the choice converts from
+  the file's own numbers), a scale within `MIN_SCALE..=MAX_SCALE`, and centring the outline's
+  bounding box (arcs by their sweep) on the origin. It adds a note per change it makes and leaves
+  the original untouched.
 - Dashed linetypes make a curve construction geometry (`Drawing::construction`, added by
   `drawing_transaction` with ordinary end points), with a note.
 - Blocks and INSERTs nest with cycle and depth limits; a block's content is decoded once and shared

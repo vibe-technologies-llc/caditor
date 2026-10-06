@@ -67,7 +67,8 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
         .iter()
         .map(|shape| shape.transformed(&Affine::scale(Vector3::splat(scale))))
         .collect();
-    let drawing = flatten(&shapes, &interpreter.construction, notes);
+    let mut drawing = flatten(&shapes, &interpreter.construction, notes);
+    drawing.unit_scale = scale;
     match (interpreter.report(drawing), file.damage) {
         (Ok(mut drawing), Some(damage)) => {
             drawing.notes.push(damage_note(&damage));

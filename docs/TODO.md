@@ -287,9 +287,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] A sketch exports to DXF and SVG, but a flat face of a body cannot be exported
   at all, though laser and CNC work need it; construction geometry is left out, with no option to
   keep it on a layer, and the files hold no layers, text or dimensions.
-- [medium · medium] DXF import has no options: units come only from `$INSUNITS` and `$MEASUREMENT`
-  with no override or scale (templates commonly default to inches), coordinates are not recentred,
-  and a new sketch always lands on the XY plane although `SketchTarget::New` takes a plane.
 - [low · medium] Curves carry no layer, so the import cannot offer a layer choice, and curves past
   the first 20,000 are left out in drawing order rather than by any choice of the user.
 

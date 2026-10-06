@@ -10,8 +10,8 @@ use caditor_kernel::SamplingTolerance;
 use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, Sketch};
 
 use crate::import::{
-    Drawing, DrawingCurve, ImportError, MAX_DRAWING_CURVES, SketchTarget, drawing_transaction,
-    parse_dxf,
+    Drawing, DrawingCurve, DrawingOptions, DrawingUnit, ImportError, MAX_DRAWING_CURVES, MAX_SCALE,
+    MIN_SCALE, SketchTarget, drawing_transaction, parse_dxf,
 };
 
 pub(super) type Pairs = Vec<(i32, String)>;
@@ -890,8 +890,7 @@ fn short_curves_and_closed_arcs_are_tidied_before_they_reach_the_sketch() {
                 end: Point2::new(60.0, 50.0 - 1e-9),
             },
         ],
-        construction: Default::default(),
-        notes: Vec::new(),
+        ..Drawing::default()
     };
     let document = Document::default();
     let import = drawing_transaction(
@@ -1594,4 +1593,135 @@ fn splines_of_a_degree_above_the_kernel_limit_are_left_out() {
         "{:?}",
         drawing.notes
     );
+}
+
+fn end_of_first_line(drawing: &Drawing) -> Point2 {
+    lines(drawing).first().unwrap().1
+}
+
+#[test]
+fn arranging_with_the_defaults_changes_nothing() {
+    let drawing = drawing(Some(1), vec![line((0.0, 0.0), (1.0, 0.0))]);
+
+    let arranged = drawing.arranged(&DrawingOptions::default());
+
+    assert_eq!(arranged, drawing);
+}
+
+#[test]
+fn a_chosen_unit_replaces_the_one_the_file_names() {
+    let inches = drawing(Some(1), vec![line((0.0, 0.0), (1.0, 0.0))]);
+    let unnamed = drawing(None, vec![line((0.0, 0.0), (1.0, 0.0))]);
+    let metres = DrawingOptions {
+        unit: DrawingUnit::Metres,
+        ..DrawingOptions::default()
+    };
+    let micrometres = DrawingOptions {
+        unit: DrawingUnit::Micrometres,
+        ..DrawingOptions::default()
+    };
+
+    let from_inches = inches.arranged(&metres);
+    let from_unnamed = unnamed.arranged(&metres);
+    let tiny = unnamed.arranged(&micrometres);
+
+    assert!(near(end_of_first_line(&inches), Point2::new(25.4, 0.0)));
+    assert!(near(
+        end_of_first_line(&from_inches),
+        Point2::new(1_000.0, 0.0)
+    ));
+    assert!(near(
+        end_of_first_line(&from_unnamed),
+        Point2::new(1_000.0, 0.0)
+    ));
+    assert!(near(end_of_first_line(&tiny), Point2::new(1e-3, 0.0)));
+    assert!(
+        from_inches
+            .notes
+            .iter()
+            .any(|note| note.contains("read the drawing's numbers as metres"))
+    );
+}
+
+#[test]
+fn a_scale_multiplies_every_length_and_composes_with_the_unit() {
+    let drawing = drawing(
+        None,
+        vec![
+            line((1.0, 2.0), (3.0, 4.0)),
+            entity("CIRCLE", "0", &[(10, 5.0), (20, 6.0), (40, 2.0)]),
+        ],
+    );
+    let options = DrawingOptions {
+        unit: DrawingUnit::Centimetres,
+        scale: 2.0,
+        recentre: false,
+    };
+
+    let arranged = drawing.arranged(&options);
+
+    assert!(near(end_of_first_line(&arranged), Point2::new(60.0, 80.0)));
+    assert_eq!(
+        arranged.curves.last(),
+        Some(&DrawingCurve::Circle {
+            center: Point2::new(100.0, 120.0),
+            radius: 40.0,
+        })
+    );
+    assert!((arranged.unit_scale - 20.0).abs() < 1e-12);
+    assert!(
+        arranged
+            .notes
+            .iter()
+            .any(|note| note == "You scaled the drawing by 2.")
+    );
+}
+
+#[test]
+fn recentring_moves_the_middle_of_the_outline_to_the_origin() {
+    let drawing = Drawing {
+        curves: vec![
+            DrawingCurve::Arc {
+                center: Point2::new(100.0, 200.0),
+                start: Point2::new(110.0, 200.0),
+                end: Point2::new(100.0, 210.0),
+            },
+            DrawingCurve::Line {
+                start: Point2::new(100.0, 200.0),
+                end: Point2::new(110.0, 200.0),
+            },
+        ],
+        ..Drawing::default()
+    };
+    let options = DrawingOptions {
+        recentre: true,
+        ..DrawingOptions::default()
+    };
+
+    let arranged = drawing.arranged(&options);
+
+    let (low, high) = arranged.bounds().unwrap();
+    assert!(near(low, Point2::new(-5.0, -5.0)));
+    assert!(near(high, Point2::new(5.0, 5.0)));
+    assert!(
+        arranged
+            .notes
+            .iter()
+            .any(|note| note.contains("sits on the origin"))
+    );
+}
+
+#[test]
+fn only_a_finite_scale_within_the_limits_is_valid() {
+    let valid = |scale| DrawingOptions {
+        scale,
+        ..DrawingOptions::default()
+    };
+
+    assert!(valid(25.4).is_valid());
+    assert!(valid(MIN_SCALE).is_valid());
+    assert!(!valid(0.0).is_valid());
+    assert!(!valid(-1.0).is_valid());
+    assert!(!valid(f64::NAN).is_valid());
+    assert!(!valid(MAX_SCALE * 2.0).is_valid());
 }
