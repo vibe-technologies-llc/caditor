@@ -21,7 +21,10 @@ paths:
 - Points within `LINEAR_RESOLUTION` are one point; one at a range end takes the exact end
   parameter; a closed curve's wrap point is reported once. `tangent` flags touches (no sign change,
   or parallel tangent); clusters of roots closer than the resolution collapse to one tangent
-  point. Branches shorter than `MIN_BRANCH_LENGTH` are dropped.
+  point, except that a cluster with exactly one distinct root (a sign change) is a crossing at that
+  root, so a curve crossing at a grazing angle, within the resolution of the surface over a long
+  stretch, is met where it crosses and not at a sample that merely reads near zero. Branches
+  shorter than `MIN_BRANCH_LENGTH` are dropped.
 - Every search is budgeted; exhausting one is `IntersectionError::TooComplex`.
 
 ## Curves
@@ -35,7 +38,9 @@ paths:
   the signed distance reads zero far from the surface) is replaced by the global projection, so a
   stale hint never brackets a false root.
 - `intersect_curves` and `intersect_curves2` are analytic for lines and 2D circles, else paired
-  subdivision and Newton on the squared distance.
+  subdivision and Newton on the squared distance. A cluster of candidates is reported at the one
+  where the curves come closest, since Newton clamped at a leaf boundary near a grazing crossing
+  stops within the resolution of the other curve but a long way from where it crosses.
 
 ## `intersect_surfaces`
 
@@ -48,7 +53,8 @@ paths:
   tangent circles, points on the axis isolated points.
 - Everything else is marched (`march.rs`):
   - Seeds come from paired subdivision of both patches, each solved by Gauss–Newton, then a sign
-    scan of the distance for tiny loops.
+    scan of the distance for tiny loops. Near-coincident patches (tori a tenth of a millimetre
+    apart) prune little, so the pairs are budgeted at `MAX_SEED_PAIRS` (2^17).
   - Points of the arrangement lying on both surfaces (where an edge of one solid pierces a face of
     the other) are also seeds (`intersect_surfaces_through`), so a short branch between two such
     points near a corner of a patch is found even when no subdivision leaf seeds it; a failing
@@ -58,9 +64,12 @@ paths:
     tangent points). A step that collapses where the branch runs off a bounded surface ends on the
     boundary ahead, at a pole (a cone apex on the other surface) ends there; otherwise it, and a
     branch longer than the step cap, fails as `Unfollowable`. A step is accepted only when the
-    point found halfway along its chord (on the plane normal to the heading) lies within
-    `MAX_SAGITTA` of the chord's middle, so a step cannot jump across the neck between two
-    nearby branches onto the other one.
+    points found at a quarter, half and three quarters of its chord (on planes normal to the
+    heading) lie within `MAX_SAGITTA` of the chord, so a step cannot jump across the neck between
+    two nearby branches onto the other one (the middle alone missed a jump between the tips of two
+    U-shaped branches). A step landing outside the patches whose exit lies behind the current
+    point is retried at half its length, so a branch that dips into a patch for less than a step
+    (a plane barely cutting a cone's rim) is followed rather than ended where it came in.
   - Every branch is clipped to both patches over only the spans reaching the window the patches
     share, so a long curve through a small face is found there. A marched branch that is a line,
     circle or ellipse within half the resolution is returned as that curve (`recognize.rs`).
@@ -77,7 +86,8 @@ paths:
 - `point_in_face(face, uv)` uses the pcurve polygons by parity over every periodic shift that
   brings the point into the face's uv box (a curve winding several times around a pole carries
   uvs many periods away); near the boundary it uses the exact edge (the side of the nearest non-seam coedge, or of both coedges at
-  a vertex: convex corners need both). The classifier keeps a tree of face boxes (`box_tree.rs`)
+  a vertex: convex corners need both); within `LINEAR_RESOLUTION` of an edge it answers
+  `OnBoundary`, while `exactly_inside_face` gives that side even there. The classifier keeps a tree of face boxes (`box_tree.rs`)
   and each face indexes its boundary on first use (`PolygonIndex`, `topology/polygons.rs`), so
   building stays linear and a query logarithmic in the face's boundary.
 - `classify_boundary_point(point, normal)` adds `Coincident { face, sense }` for a point on a face

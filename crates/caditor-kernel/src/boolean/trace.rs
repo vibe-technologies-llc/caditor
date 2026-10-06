@@ -672,7 +672,7 @@ fn scan(polygons: &[Vec<Point2>], level: f64, across: bool) -> Vec<f64> {
     crossings
 }
 
-pub(super) fn interior_points(fragment: &Fragment, surface: &Surface) -> Vec<Point2> {
+fn spans(fragment: &Fragment, surface: &Surface) -> Vec<(f64, Point2)> {
     let polygons: Vec<Vec<Point2>> = fragment.loops.iter().map(TracedLoop::polygon).collect();
     let Some(bounds) = polygons
         .first()
@@ -717,13 +717,17 @@ pub(super) fn interior_points(fragment: &Fragment, surface: &Surface) -> Vec<Poi
     }
     spans.sort_by(|a, b| b.0.total_cmp(&a.0));
     spans
+}
+
+pub(super) fn interior_points(fragment: &Fragment, surface: &Surface) -> Vec<Point2> {
+    spans(fragment, surface)
         .into_iter()
         .take(INTERIOR_POINTS)
         .map(|(_, uv)| uv)
         .collect()
 }
 
-pub(super) fn deepest_points(fragment: &Fragment, surface: &Surface) -> Vec<Point2> {
+fn depths(fragment: &Fragment, surface: &Surface) -> Vec<(f64, Point2)> {
     let polygons: Vec<Vec<Point2>> = fragment.loops.iter().map(TracedLoop::polygon).collect();
     let Some(bounds) = polygons
         .first()
@@ -772,8 +776,18 @@ pub(super) fn deepest_points(fragment: &Fragment, surface: &Surface) -> Vec<Poin
     }
     candidates.sort_by(|a, b| b.0.total_cmp(&a.0));
     candidates
+}
+
+pub(super) fn deepest_points(fragment: &Fragment, surface: &Surface) -> Vec<Point2> {
+    depths(fragment, surface)
         .into_iter()
         .take(DEEPEST_POINTS)
         .map(|(_, uv)| uv)
         .collect()
+}
+
+pub(super) fn depth(fragment: &Fragment, surface: &Surface) -> f64 {
+    depths(fragment, surface)
+        .first()
+        .map_or(0.0, |(depth, _)| *depth)
 }

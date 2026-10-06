@@ -19,7 +19,7 @@ use crate::{
 };
 
 const TOLERANCE: f64 = LINEAR_RESOLUTION;
-const MAX_SEED_PAIRS: usize = 1 << 15;
+const MAX_SEED_PAIRS: usize = 1 << 17;
 const MAX_SEED_DEPTH: usize = 40;
 const LEAF_CURVATURE: f64 = 0.5;
 const MIN_LEAF_FRACTION: f64 = 1.0 / 512.0;
@@ -35,6 +35,7 @@ const TARGET_TURN: f64 = 0.1;
 const MAX_TURN: f64 = 0.3;
 const MAX_CORRECTION: f64 = 0.35;
 const MAX_SAGITTA: f64 = 0.03;
+const CHORD_CHECKS: [f64; 3] = [0.5, 0.25, 0.75];
 const HINT_REACH: f64 = 1e3 * LINEAR_RESOLUTION;
 const MIN_STEP: f64 = 1e-2 * LINEAR_RESOLUTION;
 const MAX_STEPS: usize = 1 << 15;
@@ -438,22 +439,24 @@ impl<'a> Tracer<'a> {
     }
 
     fn hugs_chord(&self, from: &Contact, to: &Contact, direction: Vector3, step: f64) -> bool {
-        let middle = from.point.lerp(to.point, 0.5);
         let [from_first, from_second] = from.uv;
         let [to_first, to_second] = to.uv;
-        let guess = [
-            from_first.lerp(to_first, 0.5),
-            from_second.lerp(to_second, 0.5),
-        ];
-        refine_contact(
-            self.surfaces(),
-            guess,
-            Constraint::Plane {
-                point: middle,
-                normal: direction,
-            },
-        )
-        .is_some_and(|found| found.point.distance(middle) <= MAX_SAGITTA * step)
+        CHORD_CHECKS.iter().all(|fraction| {
+            let along = from.point.lerp(to.point, *fraction);
+            let guess = [
+                from_first.lerp(to_first, *fraction),
+                from_second.lerp(to_second, *fraction),
+            ];
+            refine_contact(
+                self.surfaces(),
+                guess,
+                Constraint::Plane {
+                    point: along,
+                    normal: direction,
+                },
+            )
+            .is_some_and(|found| found.point.distance(along) <= MAX_SAGITTA * step)
+        })
     }
 
     fn exit(&self, inside: &Contact, outside: &Contact) -> Option<Contact> {
@@ -685,9 +688,18 @@ impl<'a> Tracer<'a> {
                 }
             };
             if !self.inside(&next.contact) {
-                if let Some(boundary) = self.exit(&current, &next.contact)
-                    && boundary.point.distance(current.point) > TOLERANCE
+                let boundary = self
+                    .exit(&current, &next.contact)
+                    .filter(|boundary| boundary.point.distance(current.point) > TOLERANCE);
+                let jumped = next.contact.point.distance(current.point);
+                if boundary
+                    .is_some_and(|boundary| (boundary.point - current.point).dot(tangent) <= 0.0)
+                    && jumped > MIN_STEP
                 {
+                    step = 0.5 * jumped;
+                    continue;
+                }
+                if let Some(boundary) = boundary {
                     contacts.push(boundary);
                 }
                 return Ok(Marched {

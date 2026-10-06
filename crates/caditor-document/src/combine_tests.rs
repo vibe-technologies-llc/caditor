@@ -259,7 +259,7 @@ fn the_bodies_before_a_combine_leave_out_those_an_earlier_combine_consumed() {
 }
 
 #[test]
-fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
+fn a_peg_a_few_micrometres_past_the_edge_of_a_plate_joins_it() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Build");
     let plate = block(&mut transaction, "Plate", (0.0, 0.0), (20.0, 10.0), "4 mm");
@@ -283,6 +283,55 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
 
     let evaluation = evaluate(&document, &mut engine);
 
+    assert_eq!(
+        evaluation.feature(combined).unwrap().state,
+        FeatureState::UpToDate
+    );
+}
+
+#[test]
+fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let mut holed = rectangle((0.0, 0.0), (20.0, 10.0));
+    holed.add_circle(Point2::new(10.0, 5.0), 2.5);
+    let outline = transaction.add_feature("Plate outline", FeatureKind::from(holed));
+    let plate = transaction.add_feature(
+        "Plate",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+        })),
+    );
+    let mut round = Sketch::new(Plane::XY);
+    round.add_circle(Point2::new(10.0000015, 5.0), 2.5);
+    let outline = transaction.add_feature("Peg outline", FeatureKind::from(round));
+    let peg = transaction.add_feature(
+        "Peg",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+        })),
+    );
+    let combined = transaction.add_feature(
+        "Combine 1",
+        FeatureKind::Combine(Combine {
+            body: plate,
+            tool: peg,
+            operation: CombineOperation::Join,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&document, &mut engine);
+
     let FeatureState::Failed(error) = &evaluation.feature(combined).unwrap().state else {
         panic!("the near contact should not combine");
     };
@@ -290,7 +339,7 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
     assert_eq!(
         error.reason,
         "The bodies of Plate and Peg could not be combined. The faces of the result would not \
-         close up at Plate start face."
+         close up at Plate side from Circle 13, Plate start face and Peg start face."
     );
     assert!(
         error
@@ -300,9 +349,7 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
         error.remedy
     );
     assert!(!error.remedy.contains("exactly touch"), "{}", error.remedy);
-    assert!((place.x - 20.0).abs() < 1e-4, "{place:?}");
-    assert!(
-        (2.0..=8.0).contains(&place.y) && (0.0..=4.0).contains(&place.z),
-        "{place:?}"
-    );
+    let from_axis = (place.x - 10.0).hypot(place.y - 5.0);
+    assert!((from_axis - 2.5).abs() < 1e-4, "{place:?}");
+    assert!(place.z.abs() < 1e-6, "{place:?}");
 }

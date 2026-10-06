@@ -6436,12 +6436,12 @@ fn two_bodies_are_combined_from_the_selection_and_the_panel_changes_how() {
 fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
     let mut transaction = harness.document().transaction("Nearly touching blocks");
     let mut bodies = Vec::new();
-    for (name, min, max) in [
-        ("Plate", Point2::new(0.0, 0.0), Point2::new(20.0, 10.0)),
-        ("Peg", Point2::new(10.0, 2.0), Point2::new(20.000005, 8.0)),
-    ] {
-        let mut outline = Sketch::new(Plane::XY);
-        rectangle(&mut outline, min, max);
+    let mut plate = Sketch::new(Plane::XY);
+    rectangle(&mut plate, Point2::new(0.0, 0.0), Point2::new(20.0, 10.0));
+    plate.add_circle(Point2::new(10.0, 5.0), 2.5);
+    let mut peg = Sketch::new(Plane::XY);
+    peg.add_circle(Point2::new(10.0000015, 5.0), 2.5);
+    for (name, outline) in [("Plate", plate), ("Peg", peg)] {
         let sketch = transaction.add_feature(format!("{name} sketch"), FeatureKind::from(outline));
         bodies.push(transaction.add_feature(
             name,

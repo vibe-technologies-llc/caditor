@@ -17,7 +17,7 @@ use crate::{
     topology::{EdgeId, FaceContainment, FaceId, Solid},
 };
 
-const SAME_EDGE: f64 = 10.0 * TOLERANCE;
+const SAME_EDGE: f64 = TOLERANCE;
 const EDGE_SAMPLES: [f64; 3] = [0.25, 0.5, 0.75];
 const INSIDE_SAMPLES: [f64; 5] = [0.5, 0.25, 0.75, 0.05, 0.95];
 const RANGE_SLACK: f64 = 1e-9;
@@ -25,6 +25,7 @@ const CELLS_ACROSS: f64 = 256.0;
 const CELL_TOLERANCES: f64 = 4.0;
 const CELLS_PER_PIECE: f64 = 2.0;
 const MAX_CURVE_PIECES: f64 = 256.0;
+const UNJUDGED_PIECE: f64 = 2.0 * TOLERANCE;
 
 type Mark = (f64, Option<usize>);
 
@@ -659,7 +660,7 @@ fn face_uvs(
     Some(located)
 }
 
-fn inside_both(input: &Input, branch: &Branch, interval: Interval) -> bool {
+fn inside_both(input: &Input, branch: &Branch, interval: Interval, length: f64) -> bool {
     let mut inside = [false; 2];
     for fraction in INSIDE_SAMPLES {
         let parameter = interval.at(fraction);
@@ -678,7 +679,7 @@ fn inside_both(input: &Input, branch: &Branch, interval: Interval) -> bool {
             return true;
         }
     }
-    false
+    length <= UNJUDGED_PIECE
 }
 
 fn branch_stops(curve: &Curve, range: Interval, closed: bool, pool: &Pool) -> Vec<(f64, usize)> {
@@ -759,7 +760,8 @@ fn clip_branch(input: &Input, branch: &Branch, pool: &mut Pool, arrangement: &mu
         let Some(interval) = Interval::new(from, to) else {
             continue;
         };
-        if curve.length(interval) <= TOLERANCE || !inside_both(input, branch, interval) {
+        let length = curve.length(interval);
+        if length <= TOLERANCE || !inside_both(input, branch, interval, length) {
             continue;
         }
         let start = start.unwrap_or_else(|| pool.insert(curve.point(from), None));

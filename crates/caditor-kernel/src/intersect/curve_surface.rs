@@ -728,6 +728,25 @@ fn distinct(probe: &Probe, cluster: &[Candidate]) -> usize {
     count
 }
 
+fn single_crossing(probe: &Probe, cluster: &[Candidate]) -> Option<f64> {
+    let mut roots: Vec<(f64, Point3)> = Vec::new();
+    for candidate in cluster {
+        if let Candidate::Root(at) = candidate {
+            let point = probe.curve.point(*at);
+            if !roots
+                .iter()
+                .any(|(_, known)| known.distance(point) <= TOLERANCE)
+            {
+                roots.push((*at, point));
+            }
+        }
+    }
+    match roots.as_slice() {
+        [(at, _)] => Some(*at),
+        _ => None,
+    }
+}
+
 enum Outcome {
     Point(f64, bool),
     Overlap(Interval),
@@ -810,9 +829,10 @@ fn finish(
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map_or(low, |(at, _)| at);
-        let parameter = at_end.or(touch).unwrap_or(nearest);
-        let tangent =
-            genuine >= 2 || touch.is_some() || along || probe.sine(parameter) <= TANGENT_SINE;
+        let crossing = single_crossing(probe, cluster);
+        let parameter = at_end.or(crossing).or(touch).unwrap_or(nearest);
+        let tangent = probe.sine(parameter) <= TANGENT_SINE
+            || (crossing.is_none() && (genuine >= 2 || touch.is_some() || along));
         outcomes.push(Outcome::Point(parameter, tangent));
     }
     let locate = |point: Point3| match patch {

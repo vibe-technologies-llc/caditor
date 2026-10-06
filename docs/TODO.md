@@ -25,23 +25,27 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Kernel correctness
 
-- [high · hard] About 0.13% of booleans between the fixture solids in random placements still fail
-  (`boolean::tests::random_placements_of_every_fixture`, ignored, 6 of 4,500): one pair of tori
-  whose intersection is too intricate (`TooComplex`) and a frustum whose bottom circle a plane
-  barely cuts (a sliver 2e-4 deep and 0.08 long), where the cone's intersection with the plane is
-  a tiny arc the marcher does not seed. Intersection curves crossing at a tangent point (tori
-  touching along their equators, a face touching a torus's inner equator) cannot be split
+- [high · hard] Booleans between the fixture solids in random placements all succeed on the
+  survey's seed (`boolean::tests::random_placements_of_every_fixture`, ignored), but another seed
+  still fails an extruded spline against a torus with `Invalid(EdgeOffSurface)` (an edge 1.3e-6 off
+  its face). Tori that nearly coincide still fail when turned rather than shifted: a torus and its
+  copy turned by 1e-5 to 1e-3 radians are `Ambiguous` or `Split`, each after about 0.7 s of
+  seeding. Intersection curves crossing at a tangent point (tori touching along their equators, a
+  face touching a torus's inner equator) cannot be split
   (`tori_touching_along_their_equators_cannot_be_split`), and a lump too thin for the validation
-  mesh is refused as invalid, with no test pinning it.
-- [high · hard] Faces or axes apart by more than `LINEAR_RESOLUTION` but by less than a few
-  micrometres are neither coincident nor separate. Blocks a micrometre or so off an aligned contact
-  now combine (thin strips are classified by the side of the faces they touch, and branches as
-  short as the resolution cut), but 27 of 900 booleans in
-  `boolean::tests::aligned_contacts_a_micrometre_or_so_apart` (ignored) still fail, almost all
-  cylinders standing a few micrometres off a plate's edge: `Invalid(EdgeOffSurface)`, `Split` and
-  `Open`. `SAME_EDGE`, `NEAR_BOUNDARY`, `PCURVE_TOLERANCE` and the coaxial offset are still
-  unrelated absolute values; derive them from one tolerance model and snap or refuse within a
-  documented band.
+  mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along each axis
+  is `Invalid(VoidOutside)`, with no test pinning it.
+- [medium · hard] Offsets within `LINEAR_RESOLUTION` compound past it: a block whose back and
+  bottom are each within the resolution of a plate's faces (8.3e-7 and 6.2e-7) has its corner
+  1.03e-6 off the plate's edge, so the corner is neither pooled with the edge nor apart from it,
+  and about 0.4% of aligned contacts with offsets between 1e-7 and 1e-4 fail as `Open`, `Split` or
+  `Invalid(VertexOffCurve)` (offsets of 1e-6 to 1e-4 alone, as in
+  `boolean::tests::aligned_contacts_a_micrometre_or_so_apart`, all combine), and an extruded plug
+  flush with a plate 1.1e-6 to 2e-6 off its bore's axis is `Open` (the UI test of a failing
+  combine's place uses it), though 3e-6 and more combine. Pooling points within the resolution of each other
+  transitively, or snapping faces within the resolution onto each other before imprinting, would
+  close it; whichever is chosen, the band where offsets are snapped or refused is still to be
+  documented.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps

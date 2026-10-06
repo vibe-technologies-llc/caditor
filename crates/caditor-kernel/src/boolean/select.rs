@@ -14,7 +14,7 @@ use crate::{
     naming::{FaceName, FaceOrigin},
     sense::Sense,
     surface::Surface,
-    topology::{BoundaryClass, PointClass, SolidClassifier},
+    topology::{BoundaryClass, FaceId, PointClass, SolidClassifier},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,9 +62,11 @@ pub(super) fn classify(
     sense: Sense,
     fragment: &Fragment,
 ) -> Result<Class, BooleanError> {
-    let classifier = input.classifier(key.operand.other());
+    let other = key.operand.other();
+    let classifier = input.classifier(other);
     let mut solid_side = None;
     let mut coincident: Option<Class> = None;
+    let mut along_boundary: Option<Class> = None;
     let mut mixed_at = None;
     let mut first_sample = None;
     for uv in interior_points(fragment, surface) {
@@ -87,8 +89,12 @@ pub(super) fn classify(
                 }
                 solid_side = Some(class);
             }
-            BoundaryClass::Coincident { sense, .. } => {
+            BoundaryClass::Coincident { face, sense } => {
                 let class = Class::Coincident(sense);
+                if !exactly_inside(input, other, face, point) {
+                    along_boundary.get_or_insert(class);
+                    continue;
+                }
                 if coincident.is_some_and(|known| known != class) {
                     mixed_at.get_or_insert(point);
                 }
@@ -108,7 +114,19 @@ pub(super) fn classify(
     solid_side
         .or(coincident)
         .or_else(|| classify_thin(classifier, surface, fragment))
+        .or(along_boundary)
         .ok_or_else(|| ambiguous(first_sample))
+}
+
+fn exactly_inside(input: &Input, operand: Operand, face: FaceId, point: Point3) -> bool {
+    let Some(surface) = input.solid(operand).face(face).map(|face| face.surface()) else {
+        return false;
+    };
+    let hint = input
+        .bounds(FaceKey { operand, face })
+        .map(|bounds| bounds.uv.center());
+    let uv = surface.project(point, hint);
+    input.classifier(operand).exactly_inside_face(face, uv) == Some(true)
 }
 
 fn classify_thin(

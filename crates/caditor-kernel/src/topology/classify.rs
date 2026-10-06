@@ -276,9 +276,29 @@ impl<'a> SolidClassifier<'a> {
     }
 
     pub fn point_in_face(&self, face: FaceId, uv: Point2) -> Option<FaceContainment> {
+        let nearest = self.nearest_boundary(face, uv)?;
+        if nearest.is_some_and(|(distance, _, _)| distance <= TOLERANCE) {
+            return Some(FaceContainment::OnBoundary);
+        }
+        Some(if self.side_in_face(face, uv, nearest)? {
+            FaceContainment::Inside
+        } else {
+            FaceContainment::Outside
+        })
+    }
+
+    pub(crate) fn exactly_inside_face(&self, face: FaceId, uv: Point2) -> Option<bool> {
+        let nearest = self.nearest_boundary(face, uv)?;
+        self.side_in_face(face, uv, nearest)
+    }
+
+    fn nearest_boundary(
+        &self,
+        face: FaceId,
+        uv: Point2,
+    ) -> Option<Option<(f64, &BoundaryCoedge, f64)>> {
         let data = self.data(face)?;
-        let surface = self.solid.face(face)?.surface();
-        let point = surface.point_at(uv);
+        let point = self.solid.face(face)?.surface().point_at(uv);
         let mut nearest: Option<(f64, &BoundaryCoedge, f64)> = None;
         for coedge in data.boundary_near(point) {
             let edge = self.solid.edge(coedge.edge)?;
@@ -288,21 +308,21 @@ impl<'a> SolidClassifier<'a> {
                 nearest = Some((distance, coedge, parameter));
             }
         }
+        Some(nearest)
+    }
+
+    fn side_in_face(
+        &self,
+        face: FaceId,
+        uv: Point2,
+        nearest: Option<(f64, &BoundaryCoedge, f64)>,
+    ) -> Option<bool> {
+        let surface = self.solid.face(face)?.surface();
         match nearest {
-            Some((distance, _, _)) if distance <= TOLERANCE => Some(FaceContainment::OnBoundary),
             Some((distance, coedge, parameter)) if distance <= NEAR_BOUNDARY => {
-                let inside = self.side_of(face, uv, point, coedge, parameter)?;
-                Some(if inside {
-                    FaceContainment::Inside
-                } else {
-                    FaceContainment::Outside
-                })
+                self.side_of(face, uv, surface.point_at(uv), coedge, parameter)
             }
-            _ => Some(if self.inside_polygons(data, surface, uv) {
-                FaceContainment::Inside
-            } else {
-                FaceContainment::Outside
-            }),
+            _ => Some(self.inside_polygons(self.data(face)?, surface, uv)),
         }
     }
 

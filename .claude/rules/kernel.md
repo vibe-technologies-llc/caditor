@@ -62,7 +62,10 @@ paths:
 
 - A `Solid` is an arena of typed ids built by `SolidBuilder::build`, which validates.
 - A coedge's pcurve is a uv polyline carrying each sample's edge parameter, exact ends, chords
-  within `PCURVE_TOLERANCE` in space, continuous across seams.
+  within its tolerance in space, continuous across seams. A fitted pcurve's tolerance is
+  `PCURVE_TOLERANCE`, or half of how far the edge bows from the chord between its ends when that is
+  less (never below `LINEAR_RESOLUTION`), so a short arc that is nearly straight keeps an interior
+  sample and never collapses onto a straight edge between the same vertices.
 - A face's first loop is its outer one; loops run counter-clockwise about the face normal. A face
   wrapping a periodic surface has a seam edge used twice in its loop, opposite senses, one period
   apart in uv.

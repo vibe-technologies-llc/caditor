@@ -275,3 +275,21 @@ fn a_circle_overlapping_an_arc_leaves_out_a_gap_far_shorter_than_the_samples() {
     assert!((found.overlaps[0].first.end() - gap.0).abs() < 1e-9);
     assert!((found.overlaps[1].first.start() - gap.1).abs() < 1e-9);
 }
+
+#[test]
+fn circles_crossing_at_a_grazing_angle_meet_where_they_cross() {
+    let offset = 1e-3;
+    let bore: Curve = Circle::new(Plane::XY, 2.5).unwrap().into();
+    let plug: Curve = Circle::new(
+        Plane::new(Point3::new(offset, 0.0, 0.0), Vector3::Z).unwrap(),
+        2.5,
+    )
+    .unwrap()
+    .into();
+    let found = intersect_curves(&plug, Interval::FULL_TURN, &bore, Interval::FULL_TURN).unwrap();
+
+    assert_eq!(found.points.len(), 2, "{found:?}");
+    for point in &found.points {
+        assert!((point.point.x - 0.5 * offset).abs() < 1e-9, "{point:?}");
+    }
+}

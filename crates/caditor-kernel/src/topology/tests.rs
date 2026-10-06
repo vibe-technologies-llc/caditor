@@ -534,6 +534,20 @@ fn pcurves_check_their_samples_and_interpolate_by_edge_parameter() {
 }
 
 #[test]
+fn a_pcurve_keeps_an_arc_bowing_less_than_its_tolerance_apart_from_its_chord() {
+    let surface = PlaneSurface::new(Plane::XY).unwrap().into();
+    let arc: crate::curve::Curve = Circle::new(Plane::XY, 0.3).unwrap().into();
+    let sweep = Interval::new(0.0, 0.02).unwrap();
+
+    let pcurve = fit_pcurve(&surface, &arc, sweep, crate::sense::Sense::Same, None).unwrap();
+    let bow = 0.3 * (1.0 - 0.01f64.cos());
+
+    assert!(bow < crate::tolerance::PCURVE_TOLERANCE);
+    assert!(pcurve.tolerance() <= 0.5 * bow, "{}", pcurve.tolerance());
+    assert!(pcurve.samples().len() > 2, "{pcurve:?}");
+}
+
+#[test]
 fn pcurves_on_curved_faces_stay_close_to_their_edges() {
     for (name, solid) in fixtures::every_solid() {
         for (_, coedge) in solid.coedges() {

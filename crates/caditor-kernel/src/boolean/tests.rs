@@ -21,7 +21,7 @@ use crate::{
     surface::{PlaneSurface, Surface},
     test_support::{Random, assert_cancelled_anywhere, assert_watertight, circle, rectangle},
     tolerance::SamplingTolerance,
-    topology::{BuildError, FaceId, Pcurve, PcurveSample, PointClass},
+    topology::{BuildError, FaceId, Pcurve, PcurveSample},
 };
 
 fn moved(solid: Solid, offset: (f64, f64, f64)) -> Solid {
@@ -741,25 +741,18 @@ fn a_plane_crossing_a_bore_exactly_at_its_seam_splits_it_there() {
 }
 
 #[test]
-fn nearly_coincident_tori_are_too_intricate_to_intersect() {
+fn nearly_coincident_tori_combine() {
     let ring = crate::fixtures::torus(6.0, 2.0);
     let shifted = moved(ring.clone(), (1e-4, 1e-4, 1e-4));
 
-    let error = boolean(&ring, &shifted, BooleanOperation::Union).unwrap_err();
-    let BooleanError::Intersection {
-        error: IntersectionError::TooComplex(_),
-        site,
-    } = &error
-    else {
-        panic!("{error:?}");
-    };
-    let point = site.point.unwrap();
-
-    assert_eq!((site.first.len(), site.second.len()), (1, 1));
-    assert!(
-        matches!(ring.classify_point(point), PointClass::OnBoundary(_)),
-        "{point:?}"
-    );
+    for operation in [
+        BooleanOperation::Union,
+        BooleanOperation::Difference,
+        BooleanOperation::Intersection,
+    ] {
+        let result = run(&ring, &shifted, operation);
+        assert_eq!(result.validate(), Ok(()), "{operation:?}");
+    }
 }
 
 #[test]
@@ -994,8 +987,6 @@ fn outcome(result: &Result<Solid, BooleanError>) -> &'static str {
     }
 }
 
-const RANDOM_PLACEMENT_FAILURES_ALLOWED: usize = 30;
-
 #[test]
 #[ignore = "a survey of the failures left, best run in release"]
 fn random_placements_of_every_fixture() {
@@ -1037,10 +1028,7 @@ fn random_placements_of_every_fixture() {
         .filter(|(label, _)| !matches!(**label, "ok" | "empty"))
         .map(|(_, count)| count)
         .sum();
-    assert!(
-        failures <= RANDOM_PLACEMENT_FAILURES_ALLOWED,
-        "{failures} booleans failed, more than the {RANDOM_PLACEMENT_FAILURES_ALLOWED} allowed"
-    );
+    assert_eq!(failures, 0, "{failures} booleans failed");
 }
 
 #[test]
@@ -1099,7 +1087,7 @@ fn aligned_contact(random: &mut Random, offset: impl Fn(&mut Random) -> f64) -> 
         let common_min = (min.0.max(0.0), min.1.max(0.0), min.2.max(0.0));
         let common_max = (max.0.min(length), max.1.min(width), max.2.min(height));
         AlignedContact {
-            name: name(shape),
+            name: format!("{} from {min:?} to {max:?}", name(shape)),
             plate: plate.clone(),
             tool: block(min, max),
             plate_volume,
@@ -1134,7 +1122,9 @@ fn aligned_contact(random: &mut Random, offset: impl Fn(&mut Random) -> f64) -> 
             };
             let bottom = height + offset(random);
             AlignedContact {
-                name: name(&format!("a cylinder of radius {radius} at y {y}")),
+                name: name(&format!(
+                    "a cylinder of radius {radius} at y {y} from z {bottom}"
+                )),
                 plate: plate.clone(),
                 tool: moved(cylinder(radius, size), (x, y, bottom)),
                 plate_volume,
@@ -1182,8 +1172,6 @@ fn aligned_contacts_with_long_plates_combine() {
     }
 }
 
-const NEAR_CONTACT_FAILURES_ALLOWED: usize = 30;
-
 #[test]
 #[ignore = "a survey of the near-coincidence failures left, best run in release"]
 fn aligned_contacts_a_micrometre_or_so_apart() {
@@ -1207,7 +1195,7 @@ fn aligned_contacts_a_micrometre_or_so_apart() {
             };
             *outcomes.entry(label).or_default() += 1;
             if !matches!(label, "ok" | "empty") {
-                eprintln!("{label}: {} {operation:?}", contact.name);
+                eprintln!("{label}: {} {operation:?} {result:?}", contact.name);
             }
         }
     }
@@ -1219,10 +1207,7 @@ fn aligned_contacts_a_micrometre_or_so_apart() {
         .filter(|(label, _)| !matches!(**label, "ok" | "empty"))
         .map(|(_, count)| count)
         .sum();
-    assert!(
-        failures <= NEAR_CONTACT_FAILURES_ALLOWED,
-        "{failures} booleans failed, more than the {NEAR_CONTACT_FAILURES_ALLOWED} allowed"
-    );
+    assert_eq!(failures, 0, "{failures} booleans failed");
 }
 
 fn holed_plate(holes: usize, pitch: f64) -> Solid {
@@ -1379,6 +1364,61 @@ fn placements_the_survey_once_failed_on_combine_in_every_operation() {
             angle: 4.6073768483698485,
             offset: [1.0004898132962912, -0.7992528907110321, -0.4802310468800446],
         },
+        Placement {
+            first: "frustum",
+            second: "extruded spline",
+            axis: [
+                -0.9979412406831332,
+                0.2350140628931785,
+                -0.23007868369218953,
+            ],
+            angle: 4.601919364019222,
+            offset: [1.2394530985791894, 1.1673365286446558, -2.5968584972879416],
+        },
+        Placement {
+            first: "torus",
+            second: "torus",
+            axis: [
+                0.4025102058868899,
+                -0.5511270610042562,
+                -0.28672391816099263,
+            ],
+            angle: 6.022613048652546,
+            offset: [
+                0.08720959495953662,
+                0.023481371349541758,
+                -0.13366233091771978,
+            ],
+        },
+        Placement {
+            first: "torus",
+            second: "frustum",
+            axis: [-0.8223834717088285, -0.7188484337356527, 0.7779200741261496],
+            angle: 2.7640461977621835,
+            offset: [0.4872699900246382, 0.9084463330917374, 0.46553166035373206],
+        },
+        Placement {
+            first: "cone",
+            second: "cylinder",
+            axis: [0.566855316995726, -0.7613584743619854, 0.7787600551497069],
+            angle: 2.7279323709218013,
+            offset: [
+                -0.011151811160462502,
+                0.034948588001195116,
+                0.029074892292851817,
+            ],
+        },
+        Placement {
+            first: "cone",
+            second: "cone",
+            axis: [
+                0.0355066357005871,
+                -0.06417571081066953,
+                -0.6934678885135719,
+            ],
+            angle: 2.0696260328226126,
+            offset: [-0.340296207405607, 0.1527109561952419, 0.011528878092099681],
+        },
     ];
     for placement in placements {
         let [x, y, z] = placement.axis;
@@ -1393,5 +1433,89 @@ fn placements_the_survey_once_failed_on_combine_in_every_operation() {
         );
         let name = format!("{} and {}", placement.first, placement.second);
         combine_consistently(&name, &fixture(placement.first), &second, false);
+    }
+}
+
+type Placed = (f64, f64, f64);
+
+#[test]
+fn posts_standing_micrometres_past_the_edge_of_a_plate_combine() {
+    let posts: [(f64, Placed, f64, Placed); 3] = [
+        (
+            0.301795535261445,
+            (100.10736807848954, 0.3017806264393804, 18.70953792186892),
+            7.134839440111021,
+            (102.4348331728695, 2.9983010618123647, 18.70954373498908),
+        ),
+        (
+            1.875474674335778,
+            (5.689523194621929, 1.8754680499022225, 5.303027025413838),
+            4.509166629891049,
+            (56.669938963976705, 4.285054151514048, 5.303072773030539),
+        ),
+        (
+            3.8108196250307875,
+            (144.13714894242065, 3.810817218086383, 4.24402704452294),
+            16.158314186928447,
+            (179.27305042695477, 9.958608546623925, 4.244028055358543),
+        ),
+    ];
+    for (radius, at, height, corner) in posts {
+        let plate = block((0.0, 0.0, 0.0), corner);
+        let post = moved(cylinder(radius, height), at);
+        consistent(
+            &format!("a post of radius {radius} at {at:?}"),
+            &plate,
+            &post,
+        );
+    }
+}
+
+#[test]
+fn blocks_flush_with_a_plate_within_the_resolution_on_one_side_combine() {
+    let pairs = [
+        (
+            (21.577385398116583, 2.7871177222464207, 8.628709088688616),
+            (
+                (7.045640741510388, 0.5320287802994551, 6.468574908506884),
+                (11.090825064102656, 2.7871187732490412, 8.628709592958165),
+            ),
+        ),
+        (
+            (196.27209027372274, 65.13573816213557, 4.446991304197638),
+            (
+                (92.22037674319041, 52.76757160888735, 4.446989397642464),
+                (121.34607305978274, 65.13573832174976, 33.572687620789964),
+            ),
+        ),
+    ];
+    for (corner, (min, max)) in pairs {
+        consistent(
+            &format!("a block from {min:?} to {max:?}"),
+            &block((0.0, 0.0, 0.0), corner),
+            &block(min, max),
+        );
+    }
+}
+
+#[test]
+fn coaxial_cylinders_micrometres_apart_in_radius_combine() {
+    for gap in [2e-6, 1e-5, 1e-4] {
+        let outer = cylinder(5.0, 10.0);
+        let wider = moved(cylinder(5.0 + gap, 5.0), (0.0, 0.0, 2.5));
+        let lower = moved(cylinder(5.0 + gap, 5.0), (0.0, 0.0, -2.5));
+        consistent(&format!("a band {gap} wider"), &outer, &wider);
+        consistent(&format!("a foot {gap} wider"), &outer, &lower);
+    }
+}
+
+#[test]
+fn plugs_micrometres_off_the_axis_of_their_bore_combine() {
+    let holed = crate::fixtures::holed_block(10.0, 4.0, 2.5);
+    for gap in [1e-5, 1e-4, 1e-3] {
+        let flush = moved(cylinder(2.5, 4.0), (5.0 + gap, 5.0, 0.0));
+        let through = moved(cylinder(2.5, 6.0), (5.0 + gap, 5.0, -1.0));
+        consistent(&format!("a flush plug {gap} off"), &holed, &flush);
+        consistent(&format!("a plug {gap} off through"), &holed, &through);
     }
 }

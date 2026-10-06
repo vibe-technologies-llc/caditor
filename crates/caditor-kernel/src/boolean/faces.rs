@@ -5,6 +5,7 @@ use crate::{
         BooleanError, FaceKey, Input, Operand,
         imprint::Arrangement,
         trace::{Chart, Coedge, Fragment, HalfEdge, TracedLoop, fit_loop, group, snap_ends, trace},
+        untangle::{sharpen, untangle},
     },
     interrupt,
     sense::Sense,
@@ -65,13 +66,16 @@ fn split_face(
             untouched: true,
         });
     }
-    let loops = trace(arrangement, &chart, &half_edges)?
+    let mut loops = trace(arrangement, &chart, &half_edges)?
         .into_iter()
         .map(|members| fit_loop(arrangement, &chart, members))
         .collect::<Result<Vec<_>, _>>()?;
+    untangle(arrangement, &chart, &mut loops)?;
+    let mut fragments = group(&chart, loops)?;
+    sharpen(arrangement, &chart, &mut fragments)?;
     Ok(SplitFace {
         key,
-        fragments: group(&chart, loops)?,
+        fragments,
         untouched: false,
     })
 }

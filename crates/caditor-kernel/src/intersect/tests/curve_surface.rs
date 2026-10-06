@@ -484,3 +484,20 @@ fn a_rim_overlaps_a_narrow_strip_of_its_cylinder() {
     assert!((found.overlaps[0].range.start() - 1.0).abs() < 1e-7);
     assert!((found.overlaps[0].range.end() - 1.02).abs() < 1e-7);
 }
+
+#[test]
+fn a_circle_crossing_a_cylinder_at_a_grazing_angle_is_met_at_its_roots() {
+    let offset = 1e-3;
+    let bore: Curve = Circle::new(Plane::XY, 2.5).unwrap().into();
+    let plug: Surface = Cylinder::new(frame(Point3::new(offset, 0.0, 0.0), Vector3::Z), 2.5)
+        .unwrap()
+        .into();
+    let found =
+        intersect_curve_surface(&bore, crate::interval::Interval::FULL_TURN, &plug, None).unwrap();
+
+    assert_eq!(found.points.len(), 2, "{found:?}");
+    for point in &found.points {
+        assert!(!point.tangent, "{point:?}");
+        assert!((point.point.x - 0.5 * offset).abs() < 1e-9, "{point:?}");
+    }
+}

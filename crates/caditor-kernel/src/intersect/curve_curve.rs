@@ -335,6 +335,12 @@ impl<C: Traceable> Pair<'_, C> {
         point.distance_to(projected)
     }
 
+    fn apart(&self, (first, second): (f64, f64)) -> f64 {
+        let [a, _, _] = self.first.evaluate(first);
+        let [b, _, _] = self.second.evaluate(second);
+        a.distance_to(b)
+    }
+
     fn sine(&self, first: f64, second: f64) -> f64 {
         let [_, a, _] = self.first.evaluate(first);
         let [_, b, _] = self.second.evaluate(second);
@@ -771,18 +777,21 @@ fn finish<C: Traceable>(
             } => Some((*first, *second)),
             _ => None,
         });
-        let any = cluster.iter().next().map(|candidate| match candidate {
-            Candidate::Pair { first, second, .. } | Candidate::End { first, second } => {
-                (*first, *second)
-            }
-            Candidate::Along(range) => {
-                let [point, _, _] = pair.first.evaluate(range.middle());
-                (
-                    range.middle(),
-                    pair.second.nearest(point, pair.second_range),
-                )
-            }
-        });
+        let any = cluster
+            .iter()
+            .map(|candidate| match candidate {
+                Candidate::Pair { first, second, .. } | Candidate::End { first, second } => {
+                    (*first, *second)
+                }
+                Candidate::Along(range) => {
+                    let [point, _, _] = pair.first.evaluate(range.middle());
+                    (
+                        range.middle(),
+                        pair.second.nearest(point, pair.second_range),
+                    )
+                }
+            })
+            .min_by(|a, b| pair.apart(*a).total_cmp(&pair.apart(*b)));
         let Some((first, second)) = end.or(touch).or(any) else {
             continue;
         };

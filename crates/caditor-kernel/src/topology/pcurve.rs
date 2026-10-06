@@ -2,18 +2,21 @@ use caditor_geometry::{Point2, Vector2};
 use thiserror::Error;
 
 use crate::{
+    coordinates::distance_to_segment,
     curve::Curve,
     interrupt::{self, Interrupted},
     interval::Interval,
     parametric::Parametric,
     sense::Sense,
     surface::Surface,
-    tolerance::PCURVE_TOLERANCE,
+    tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE},
 };
 
 const MAX_PCURVE_SAMPLES: usize = 1 << 16;
 const MAX_PCURVE_DEPTH: usize = 30;
 const MAX_PERIOD_FRACTION_PER_STEP: f64 = 0.25;
+const BOW_SHARE: f64 = 0.5;
+const BOW_SAMPLES: [f64; 5] = [0.1, 0.3, 0.5, 0.7, 0.9];
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum PcurveError {
@@ -143,7 +146,19 @@ impl Pcurve {
     }
 
     pub(crate) fn refined(&self, surface: &Surface, curve: &Curve) -> Result<Self, PcurveError> {
-        Self::new(refine(surface, curve, &self.samples)?, self.tolerance)
+        Self::new(
+            refine(surface, curve, &self.samples, self.tolerance)?,
+            self.tolerance,
+        )
+    }
+
+    pub(crate) fn refined_within(
+        &self,
+        surface: &Surface,
+        curve: &Curve,
+        tolerance: f64,
+    ) -> Result<Self, PcurveError> {
+        Self::new(refine(surface, curve, &self.samples, tolerance)?, tolerance)
     }
 
     #[must_use]
@@ -188,8 +203,18 @@ pub(crate) fn fit(
         follow(surface, curve, from, parameter, &mut samples)?;
     }
     settle_pole_ends(surface, &mut samples);
-    let refined = refine(surface, curve, &samples)?;
-    Pcurve::new(refined, PCURVE_TOLERANCE)
+    let tolerance = shape_tolerance(curve, interval);
+    let refined = refine(surface, curve, &samples, tolerance)?;
+    Pcurve::new(refined, tolerance)
+}
+
+pub(crate) fn shape_tolerance(curve: &Curve, interval: Interval) -> f64 {
+    let (start, end) = (curve.point(interval.start()), curve.point(interval.end()));
+    let bow = BOW_SAMPLES
+        .iter()
+        .map(|fraction| distance_to_segment(curve.point(interval.at(*fraction)), start, end))
+        .fold(0.0, f64::max);
+    (BOW_SHARE * bow).clamp(LINEAR_RESOLUTION, PCURVE_TOLERANCE)
 }
 
 fn follow(
@@ -248,6 +273,7 @@ fn refine(
     surface: &Surface,
     curve: &Curve,
     samples: &[PcurveSample],
+    tolerance: f64,
 ) -> Result<Vec<PcurveSample>, PcurveError> {
     let Some(first) = samples.first() else {
         return Err(PcurveError::TooFewSamples);
@@ -270,7 +296,7 @@ fn refine(
             let splittable = depth < MAX_PCURVE_DEPTH
                 && parameter != low.parameter
                 && parameter != high.parameter;
-            if splittable && (deviation.is_nan() || deviation > PCURVE_TOLERANCE) {
+            if splittable && (deviation.is_nan() || deviation > tolerance) {
                 let middle = PcurveSample { parameter, uv };
                 pending.push((middle, high, depth + 1));
                 pending.push((low, middle, depth + 1));

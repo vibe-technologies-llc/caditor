@@ -6,6 +6,7 @@ mod select;
 #[cfg(test)]
 mod tests;
 mod trace;
+mod untangle;
 
 use caditor_geometry::{Aabb, Aabb2, Point2, Point3};
 use thiserror::Error;

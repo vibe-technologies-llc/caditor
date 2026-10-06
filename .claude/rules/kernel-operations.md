@@ -58,16 +58,31 @@ paths:
 - Imprint: vertices within `LINEAR_RESOLUTION` are pooled; every edge and face–face branch is split
   at the pooled vertices on it. A branch piece is kept when no sample along it lies outside either
   face and some sample lies strictly inside each, so a piece a micrometre or two long, whose middle
-  is within the resolution of a face boundary, still cuts. Pieces with the same end vertices and geometry are one edge, so an
-  intersection along an existing edge and coincident faces need no special case.
+  is within the resolution of a face boundary, still cuts; a piece no longer than twice the
+  resolution, which can have no sample that far inside a face it starts on the boundary of, is kept
+  when no sample lies outside either face. Pieces with the same end vertices and geometry within
+  `LINEAR_RESOLUTION` (the bound validation holds edges to) are one edge, so an intersection along
+  an existing edge and coincident faces need no special case, and pieces a few micrometres apart
+  stay two edges bounding a sliver.
 - Face tracing: a face with no cuts and no split edges passes through with its own loops and
   pcurves. Otherwise it is traced into loops from its boundary pieces and cuts; at each vertex the
   next edge is the first clockwise from the arriving one about the outward normal (at a pole, the
   mean normal of a ring around it); ties and cusps (`ANGLE_TIE`, the noise of intersection
   tangents) are decided by chords at a common distance.
+- Traced pcurves are sharpened until they hold the face's shape (`untangle.rs`): coedges whose uv
+  polygons cross (compared only where two coedges' boxes overlap) are refined to half their
+  tolerance, and a fragment whose depth (`trace::depth`, the deepest point's reach to the boundary
+  along both uv directions) is under twice the tolerance of some coedge gets those coedges halved,
+  round after round down to a tenth of the resolution, so a sliver or a coaxial annulus narrower
+  than `PCURVE_TOLERANCE` is sampled inside itself. A fragment whose area over perimeter is
+  `DEEP_GATE` times its coarsest tolerance skips the depth scan.
 - Selection: each fragment is classified against the other solid at up to `INTERIOR_POINTS`
   interior points (`classify_fragment_point`; inside or outside wins over coincident or touching; inside and outside
-  together, or coincident samples of opposite senses, are `Ambiguous`). A fragment whose samples
+  together, or coincident samples of opposite senses, are `Ambiguous`). A sample counts as
+  coincident only when it lies exactly inside the coincident face
+  (`SolidClassifier::exactly_inside_face`: the side of the nearest edge, without the resolution
+  band); one within the resolution of that face's boundary, as on a strip a micrometre wide beside
+  it, is decided by the thin-strip test below and only failing that taken as coincident. A fragment whose samples
   only touch the other solid (a strip narrower than twice the resolution) is decided at its deepest
   points (`trace::deepest_points`) by `SolidClassifier::side_of_touched_faces`: the sign of the
   offset along the outward normal of every face it touches, which must agree. Faces that passed through
