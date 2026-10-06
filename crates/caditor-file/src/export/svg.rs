@@ -1,121 +1,45 @@
-use std::{f64::consts::PI, fmt::Write};
+use std::{
+    f64::consts::{PI, TAU},
+    fmt::Write,
+};
 
 use caditor_geometry::Point2;
-use caditor_sketch::{Entity, Sketch};
 
-use super::{ExportError, SketchExported};
+use super::{
+    ExportError,
+    figure::{Ellipse, Figure, Layer, Shape},
+};
 
 const MARGIN: f64 = 1.0;
 const STROKE_WIDTH: f64 = 0.1;
 const POINT_RADIUS: f64 = 0.25;
-const SEGMENT_ANGLE: f64 = 5.0 * PI / 180.0;
 const DECIMALS: usize = 6;
 
-pub(super) fn encode(sketch: &Sketch) -> Result<(String, SketchExported), ExportError> {
-    let anchors: std::collections::BTreeSet<_> = sketch
-        .entities()
-        .flat_map(|(_, entity)| entity.points())
-        .collect();
-    let mut shapes = Vec::new();
-    let mut extent = Extent::default();
-    let mut exported = SketchExported {
-        curves: 0,
-        points: 0,
-        construction_left_out: 0,
-    };
-    for (id, entity) in sketch.entities() {
-        if sketch.is_construction(id) {
-            exported.construction_left_out += 1;
-            continue;
-        }
-        let shape = match entity {
-            Entity::Point(_) if anchors.contains(&id) => None,
-            Entity::Point(position) => {
-                exported.points += 1;
-                extent.include(*position);
-                Some(Shape::Point(*position))
-            }
-            Entity::Line { .. } => sketch.line_endpoints(id).map(|(start, end)| {
-                extent.include(start);
-                extent.include(end);
-                Shape::Line(start, end)
-            }),
-            Entity::Circle { .. } => sketch.circle(id).map(|(center, radius)| {
-                extent.include(center - Point2::splat(radius));
-                extent.include(center + Point2::splat(radius));
-                Shape::Circle(center, radius)
-            }),
-            Entity::Arc { .. } => sketch.arc(id).map(|arc| {
-                for point in arc.polyline(SEGMENT_ANGLE) {
-                    extent.include(point);
-                }
-                if arc.sweep >= 2.0 * PI {
-                    Shape::Circle(arc.center, arc.radius)
-                } else {
-                    Shape::Arc {
-                        radius: arc.radius,
-                        start: arc.point_at(arc.start_angle),
-                        end: arc.point_at(arc.end_angle()),
-                        large: arc.sweep > PI,
-                    }
-                }
-            }),
-            Entity::Spline { .. } => sketch.spline(id).map(|spline| {
-                let points = spline.polyline(SEGMENT_ANGLE);
-                for point in &points {
-                    extent.include(*point);
-                }
-                Shape::Polyline(points)
-            }),
-        };
-        if let Some(shape) = shape {
-            if !matches!(shape, Shape::Point(_)) {
-                exported.curves += 1;
-            }
-            shapes.push(shape);
-        }
-    }
-    let Some((low, high)) = extent.corners() else {
+pub(super) fn encode(figure: &Figure) -> Result<String, ExportError> {
+    let Some((low, high)) = extent(figure) else {
         return Err(ExportError::NoCurves);
     };
     let mut text = String::new();
-    write_document(&mut text, &shapes, low, high).map_err(|_| ExportError::Encoding)?;
-    Ok((text, exported))
+    write_document(&mut text, figure, low, high).map_err(|_| ExportError::Encoding)?;
+    Ok(text)
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum Shape {
-    Point(Point2),
-    Line(Point2, Point2),
-    Circle(Point2, f64),
-    Arc {
-        radius: f64,
-        start: Point2,
-        end: Point2,
-        large: bool,
-    },
-    Polyline(Vec<Point2>),
-}
-
-#[derive(Default)]
-struct Extent(Option<(Point2, Point2)>);
-
-impl Extent {
-    fn include(&mut self, point: Point2) {
-        self.0 = Some(match self.0 {
-            Some((low, high)) => (low.min(point), high.max(point)),
-            None => (point, point),
-        });
-    }
-
-    fn corners(&self) -> Option<(Point2, Point2)> {
-        self.0
-    }
+fn extent(figure: &Figure) -> Option<(Point2, Point2)> {
+    figure
+        .shapes
+        .iter()
+        .flat_map(|(_, shape)| shape.outline_points())
+        .fold(None, |extent, point| {
+            Some(match extent {
+                Some((low, high)) => (Point2::min(low, point), Point2::max(high, point)),
+                None => (point, point),
+            })
+        })
 }
 
 fn write_document(
     text: &mut String,
-    shapes: &[Shape],
+    figure: &Figure,
     low: Point2,
     high: Point2,
 ) -> std::fmt::Result {
@@ -136,58 +60,111 @@ fn write_document(
         r##"<g fill="none" stroke="#000000" stroke-width="{}" stroke-linecap="round" stroke-linejoin="round">"##,
         Real(STROKE_WIDTH)
     )?;
-    for shape in shapes {
-        match shape {
-            Shape::Point(point) => writeln!(
-                text,
-                r##"<circle cx="{}" cy="{}" r="{}" fill="#000000" stroke="none"/>"##,
-                Real(point.x),
-                Real(-point.y),
-                Real(POINT_RADIUS)
-            )?,
-            Shape::Line(start, end) => writeln!(
-                text,
-                r#"<line x1="{}" y1="{}" x2="{}" y2="{}"/>"#,
-                Real(start.x),
-                Real(-start.y),
-                Real(end.x),
-                Real(-end.y)
-            )?,
-            Shape::Circle(center, radius) => writeln!(
-                text,
-                r#"<circle cx="{}" cy="{}" r="{}"/>"#,
-                Real(center.x),
-                Real(-center.y),
-                Real(*radius)
-            )?,
-            Shape::Arc {
-                radius,
-                start,
-                end,
-                large,
-            } => writeln!(
-                text,
-                r#"<path d="M {} {} A {} {} 0 {} 0 {} {}"/>"#,
-                Real(start.x),
-                Real(-start.y),
-                Real(*radius),
-                Real(*radius),
-                u8::from(*large),
-                Real(end.x),
-                Real(-end.y)
-            )?,
-            Shape::Polyline(points) => {
-                write!(text, r#"<polyline points=""#)?;
-                for (index, point) in points.iter().enumerate() {
-                    let separator = if index == 0 { "" } else { " " };
-                    write!(text, "{separator}{},{}", Real(point.x), Real(-point.y))?;
-                }
-                writeln!(text, r#""/>"#)?;
-            }
+    for layer in figure.layers() {
+        let grouped = layer != Layer::Sketch;
+        if grouped {
+            writeln!(text, r#"<g id="{}">"#, layer.name())?;
+        }
+        for (_, shape) in figure.shapes.iter().filter(|(on, _)| *on == layer) {
+            write_shape(text, shape)?;
+        }
+        if grouped {
+            writeln!(text, "</g>")?;
         }
     }
     writeln!(text, "</g>")?;
     writeln!(text, "</svg>")
+}
+
+fn write_shape(text: &mut String, shape: &Shape) -> std::fmt::Result {
+    match shape {
+        Shape::Point(point) => writeln!(
+            text,
+            r##"<circle cx="{}" cy="{}" r="{}" fill="#000000" stroke="none"/>"##,
+            Real(point.x),
+            Real(-point.y),
+            Real(POINT_RADIUS)
+        ),
+        Shape::Line(start, end) => writeln!(
+            text,
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}"/>"#,
+            Real(start.x),
+            Real(-start.y),
+            Real(end.x),
+            Real(-end.y)
+        ),
+        Shape::Circle { center, radius } => writeln!(
+            text,
+            r#"<circle cx="{}" cy="{}" r="{}"/>"#,
+            Real(center.x),
+            Real(-center.y),
+            Real(*radius)
+        ),
+        Shape::Arc {
+            center,
+            radius,
+            start,
+            end,
+        } => {
+            let from = Shape::arc_point(*center, *radius, *start);
+            let to = Shape::arc_point(*center, *radius, *end);
+            writeln!(
+                text,
+                r#"<path d="M {} {} A {} {} 0 {} 0 {} {}"/>"#,
+                Real(from.x),
+                Real(-from.y),
+                Real(*radius),
+                Real(*radius),
+                u8::from(end - start > PI),
+                Real(to.x),
+                Real(-to.y)
+            )
+        }
+        Shape::Ellipse(ellipse) => write_ellipse(text, ellipse),
+        Shape::Spline(spline) => write_polyline(text, &spline.polyline),
+        Shape::Polyline(points) => write_polyline(text, points),
+    }
+}
+
+fn write_ellipse(text: &mut String, ellipse: &Ellipse) -> std::fmt::Result {
+    let major = ellipse.major.length();
+    let minor = major * ellipse.ratio;
+    let rotation = -ellipse.rotation().to_degrees();
+    let (start, end) = if ellipse.is_full() {
+        (0.0, TAU)
+    } else {
+        (ellipse.start, ellipse.end)
+    };
+    let pieces: &[(f64, f64)] = if ellipse.is_full() {
+        &[(start, start + PI), (start + PI, end)]
+    } else {
+        &[(start, end)]
+    };
+    let from = ellipse.point_at(start);
+    write!(text, r#"<path d="M {} {}"#, Real(from.x), Real(-from.y))?;
+    for (piece_start, piece_end) in pieces {
+        let to = ellipse.point_at(*piece_end);
+        write!(
+            text,
+            " A {} {} {} {} 0 {} {}",
+            Real(major),
+            Real(minor),
+            Real(rotation),
+            u8::from(piece_end - piece_start > PI),
+            Real(to.x),
+            Real(-to.y)
+        )?;
+    }
+    writeln!(text, r#""/>"#)
+}
+
+fn write_polyline(text: &mut String, points: &[Point2]) -> std::fmt::Result {
+    write!(text, r#"<polyline points=""#)?;
+    for (index, point) in points.iter().enumerate() {
+        let separator = if index == 0 { "" } else { " " };
+        write!(text, "{separator}{},{}", Real(point.x), Real(-point.y))?;
+    }
+    writeln!(text, r#""/>"#)
 }
 
 struct Real(f64);

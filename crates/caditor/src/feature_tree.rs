@@ -16,6 +16,7 @@ use crate::{
     blend_panel, bodies_tree, combine_panel,
     commands::{Command, CommandFrame},
     datum_panel,
+    drawing_export::{self, DrawingSource},
     editing::{EditingCommand, SketchEditing},
     field::{self, DimensionTarget},
     files::FileCommand,
@@ -28,7 +29,7 @@ use crate::{
     preferences::PreferencesCommand,
     principal_tree, scale_panel,
     selection::{Pickable, Selection},
-    shell_panel, sketch_export,
+    shell_panel,
     sketch_placement::{self, PlacementTarget},
     sketch_status::{self, SketchSummary},
     sketch_tools, solid_panel,
@@ -1622,10 +1623,10 @@ pub fn commands(
     }
     let exportable = current
         .filter(|feature| feature.kind.sketch().is_some())
-        .ok_or(sketch_export::NOT_A_SKETCH)
+        .ok_or(drawing_export::NOT_A_SKETCH)
         .and_then(|feature| match model.displayed_sketch(feature) {
             Some(_) => Ok(feature),
-            None => Err(sketch_export::NOT_SOLVED),
+            None => Err(drawing_export::NOT_SOLVED),
         });
     if commands.invoke_detailed(
         Command::ExportSketch,
@@ -1633,7 +1634,9 @@ pub fn commands(
         &exportable,
     ) && let Ok(feature) = exportable
     {
-        actions.push(Action::File(FileCommand::ExportSketch(feature.id())));
+        actions.push(Action::File(FileCommand::ExportDrawing(
+            DrawingSource::Sketch(feature.id()),
+        )));
     }
     if let Some(transaction) = invoke_on(commands, Command::RollToHere, current, |feature| {
         roll_to_here(document, feature)

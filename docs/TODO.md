@@ -281,9 +281,11 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Drawing import and export
 
-- [medium · medium] A sketch exports to DXF and SVG, but a flat face of a body cannot be exported
-  at all, though laser and CNC work need it; construction geometry is left out, with no option to
-  keep it on a layer, and the files hold no layers, text or dimensions.
+- [medium · medium] Drawing export takes one sketch or one flat face at a time: several faces (the
+  parts of a nest) cannot go into one file, construction geometry is left out with no option to keep
+  it on a layer, and the files hold no text or dimensions. A face's intersection edges are written
+  as polylines, which some CAM software joins poorly; fitting them as splines within the chord would
+  keep each one a single curve.
 - [low · medium] Curves past the first 20,000 are left out in drawing order rather than by any
   choice of the user: the import options' layer choice is made after that cut, so leaving layers
   out cannot bring the curves of the others back in.
@@ -459,10 +461,9 @@ decision recorded in `docs/` before work starts.
 - [medium · hard · blocked by: a scope decision recorded in `docs/`] Surface modelling: no surface
   bodies, so no thicken, offset surface, trim, extend, patch or knit to a solid, which shaped
   consumer parts and repairing open STEP imports need.
-- [low · hard · blocked by: a scope decision recorded in `docs/`, and DXF output of a flat face
-  ("A sketch exports to DXF and SVG")] Sheet metal: no flanges, bends with a bend allowance, or flat
-  patterns, though laser-cut and bent parts are a common use; flat patterns would go out through the
-  DXF export of a flat face, which does not exist yet either (Drawing import and export).
+- [low · hard · blocked by: a scope decision recorded in `docs/`] Sheet metal: no flanges, bends
+  with a bend allowance, or flat patterns, though laser-cut and bent parts are a common use; flat
+  patterns would go out through the DXF export of a flat face.
 
 ## Platforms
 

@@ -45,6 +45,8 @@ paths:
   a point no seed reaches within the resolution is sought from the nearest of a few samples in each
   span whose hull holds it (at most `MAX_SPAN_SEARCHES`), so a point on a dense, rough net always
   finds its foot.
+- `BSpline::restricted` is the exact piece of a spline over a range, by knot insertion in
+  homogeneous coordinates; drawing export writes a trimmed spline edge with it.
 - Lengths are compared through `is_longer_than` (the chord, then a polyline through the seeds, and
   only then the integral) and capped with `length_up_to`, which stops once past the cap; building,
   validation, imprinting and profile arrangement never measure a whole spline to compare it with a

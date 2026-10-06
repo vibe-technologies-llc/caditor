@@ -15,10 +15,10 @@ use std::{
 use caditor_document::{CancelToken, Document, FeatureId};
 use caditor_file::{
     Closing, DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported, FILE_EXTENSION,
-    FileJournal, History, ImportError, LoadError, Loaded, ModelImport, PNG_EXTENSION, RecentChange,
-    RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings,
-    SketchExported, SketchFormat, describe_set_aside, journal_for, load, load_version, read_dxf,
-    read_step_file, scan,
+    FaceExported, FileJournal, History, ImportError, LoadError, Loaded, ModelImport, PNG_EXTENSION,
+    RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState,
+    Settings, SketchExported, SketchFormat, describe_set_aside, journal_for, load, load_version,
+    read_dxf, read_step_file, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -27,8 +27,10 @@ use parking_lot::Mutex;
 
 use crate::{
     appearance::{self, SPACE_S},
+    bodies,
     commands::{Command, CommandFrame, Offer, RecentSlot},
     dialog_parts,
+    drawing_export::{self, DrawingSource, FACE_HINT, NOT_A_FACE, NOT_A_SKETCH, SKETCH_HINT},
     editing::{self, SketchEditing},
     export::{self, ExportCommand, Exporter},
     history::{self, HistoryCommand, VersionHistory},
@@ -43,7 +45,7 @@ use crate::{
     portal::{self, DialogError, FileRequest, Filter, Mode},
     preferences::PreferencesCommand,
     samples::Sample,
-    sketch_export::{self, NOT_A_SKETCH, SKETCH_HINT},
+    sketch_placement::FaceChoice,
     widgets::{self, DialogWidth, Tone},
 };
 
@@ -100,7 +102,7 @@ pub enum FileCommand {
     QuitAnyway,
     Export(ExportCommand),
     ExportImage(ImageCommand),
-    ExportSketch(FeatureId),
+    ExportDrawing(DrawingSource),
     History(HistoryCommand),
     Import {
         into: Option<FeatureId>,
@@ -142,7 +144,13 @@ pub trait Dialogs {
     );
     fn pick_import(&self, directory: Option<PathBuf>, respond: Respond);
     fn pick_image_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond);
-    fn pick_sketch_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond);
+    fn pick_drawing_path(
+        &self,
+        title: &str,
+        directory: Option<PathBuf>,
+        file_name: String,
+        respond: Respond,
+    );
 }
 
 pub struct NativeDialogs;
@@ -235,17 +243,17 @@ impl Dialogs for NativeDialogs {
         Self::spawn(respond, request);
     }
 
-    fn pick_sketch_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
+    fn pick_drawing_path(
+        &self,
+        title: &str,
+        directory: Option<PathBuf>,
+        file_name: String,
+        respond: Respond,
+    ) {
         let filters = SketchFormat::ALL
             .map(|format| Filter::new(format.name(), &[format.extension()]))
             .to_vec();
-        let request = Self::request(
-            Mode::Save,
-            "Export sketch",
-            directory,
-            Some(file_name),
-            filters,
-        );
+        let request = Self::request(Mode::Save, title, directory, Some(file_name), filters);
         Self::spawn(respond, request);
     }
 
@@ -275,7 +283,7 @@ enum Purpose {
     SaveAs,
     Export(ExportFormat),
     Image,
-    Sketch,
+    Drawing,
     Import,
 }
 
@@ -311,13 +319,13 @@ enum SaveTarget {
 enum Output {
     Export { path: PathBuf, format: ExportFormat },
     Image { path: PathBuf },
-    Sketch { path: PathBuf },
+    Drawing { path: PathBuf },
 }
 
 impl Output {
     fn path(&self) -> &Path {
         match self {
-            Self::Export { path, .. } | Self::Image { path } | Self::Sketch { path } => path,
+            Self::Export { path, .. } | Self::Image { path } | Self::Drawing { path } => path,
         }
     }
 
@@ -330,8 +338,8 @@ impl Output {
             Self::Image { path } => Self::Image {
                 path: image_export::with_png_extension(path),
             },
-            Self::Sketch { path } => Self::Sketch {
-                path: sketch_export::with_format_extension(path),
+            Self::Drawing { path } => Self::Drawing {
+                path: drawing_export::with_format_extension(path),
             },
         }
     }
@@ -400,6 +408,11 @@ enum Event {
         path: PathBuf,
         sketch: String,
         result: Result<SketchExported, ExportError>,
+    },
+    FaceExported {
+        path: PathBuf,
+        face: String,
+        result: Result<FaceExported, ExportError>,
     },
     HistoryListed {
         path: PathBuf,
@@ -483,7 +496,7 @@ pub struct Files {
     queued_imports: VecDeque<Queued>,
     exporter: Exporter,
     image: ImageExporter,
-    sketch_export: Option<FeatureId>,
+    drawing_export: Option<DrawingSource>,
     history: VersionHistory,
     picking: bool,
     confirm_replace: Option<Replacement>,
@@ -517,7 +530,7 @@ impl Files {
             queued_imports: VecDeque::new(),
             exporter: Exporter::default(),
             image: ImageExporter::default(),
-            sketch_export: None,
+            drawing_export: None,
             history: VersionHistory::default(),
             picking: false,
             confirm_replace: None,
@@ -678,8 +691,8 @@ impl Files {
                         self.image.pick_cancelled()
                     }
                     (Replacement::Output(Output::Export { .. }), false) => {}
-                    (Replacement::Output(Output::Sketch { .. }), false) => {
-                        self.sketch_export = None;
+                    (Replacement::Output(Output::Drawing { .. }), false) => {
+                        self.drawing_export = None;
                     }
                 }
             }
@@ -701,12 +714,12 @@ impl Files {
                     self.pick(Purpose::Image, model);
                 }
             }
-            FileCommand::ExportSketch(feature) => {
+            FileCommand::ExportDrawing(source) => {
                 if self.picking {
                     return;
                 }
-                self.sketch_export = Some(feature);
-                self.pick(Purpose::Sketch, model);
+                self.drawing_export = Some(source);
+                self.pick(Purpose::Drawing, model);
             }
             FileCommand::History(command) => self.history_command(command, model),
             FileCommand::Import { into } => {
@@ -988,13 +1001,13 @@ impl Files {
                         self.check_output(Output::Export { path, format });
                     }
                     (Purpose::Image, Some(path)) => self.check_output(Output::Image { path }),
-                    (Purpose::Sketch, Some(path)) => self.check_output(Output::Sketch { path }),
+                    (Purpose::Drawing, Some(path)) => self.check_output(Output::Drawing { path }),
                     (Purpose::Import, Some(path)) => {
                         let into = self.importing.as_ref().and_then(|importing| importing.into);
                         self.import(path, into, model);
                     }
                     (Purpose::Image, None) => self.image.pick_cancelled(),
-                    (Purpose::Sketch, None) => self.sketch_export = None,
+                    (Purpose::Drawing, None) => self.drawing_export = None,
                     (Purpose::Export(_), None) => {}
                     (Purpose::Import, None) => self.importing = None,
                     (_, None) => self.after_save = None,
@@ -1050,7 +1063,10 @@ impl Files {
                 path,
                 sketch,
                 result,
-            } => model.set_notice(sketch_export::finished(&path, &sketch, result)),
+            } => model.set_notice(drawing_export::finished(&path, &sketch, result)),
+            Event::FaceExported { path, face, result } => {
+                model.set_notice(drawing_export::face_finished(&path, &face, result));
+            }
             Event::HistoryListed { path, result } => self.history.listed(&path, result),
             Event::VersionLoaded {
                 path,
@@ -1211,14 +1227,55 @@ impl Files {
         match output {
             Output::Export { path, format } => self.export(path, format, model),
             Output::Image { path } => self.image.picked(path),
-            Output::Sketch { path } => self.export_sketch(path, model),
+            Output::Drawing { path } => self.export_drawing(path, model),
         }
     }
 
-    fn export_sketch(&mut self, path: PathBuf, model: &mut Model) {
-        let Some(feature) = self.sketch_export.take() else {
+    fn export_drawing(&mut self, path: PathBuf, model: &mut Model) {
+        match self.drawing_export.take() {
+            Some(DrawingSource::Sketch(feature)) => self.export_sketch(path, feature, model),
+            Some(DrawingSource::Face(choice)) => self.export_face(path, choice, model),
+            None => {}
+        }
+    }
+
+    fn export_face(&mut self, path: PathBuf, choice: FaceChoice, model: &mut Model) {
+        let evaluation = model.evaluation();
+        let shown = evaluation.body_result(choice.body).map(Arc::clone);
+        let (Some(result), Some(face)) = (shown, drawing_export::face_name(model, choice)) else {
+            model.set_notice(Notice::failure(
+                "The face is no longer part of the model, so it was not exported.",
+            ));
             return;
         };
+        let failed = (path.clone(), face.clone());
+        self.spawn(
+            move || {
+                let format = SketchFormat::of(&path).unwrap_or_default();
+                let result = match result.solid() {
+                    Some(body) => match bodies::find_face(body, choice.face) {
+                        Some(id) => caditor_file::export_face(
+                            &path,
+                            &body.solid,
+                            id,
+                            format,
+                            &CancelToken::never(),
+                        ),
+                        None => Err(ExportError::FaceMissing),
+                    },
+                    None => Err(ExportError::FaceMissing),
+                };
+                Event::FaceExported { path, face, result }
+            },
+            move || Event::FaceExported {
+                path: failed.0,
+                face: failed.1,
+                result: Err(ExportError::Encoding),
+            },
+        );
+    }
+
+    fn export_sketch(&mut self, path: PathBuf, feature: FeatureId, model: &mut Model) {
         let document = model.document();
         let Some(feature) = document.feature(feature) else {
             model.set_notice(Notice::failure("The sketch no longer exists."));
@@ -1423,13 +1480,28 @@ impl Files {
                 self.dialogs
                     .pick_image_path(directory, ImageExporter::file_name(model), respond);
             }
-            Purpose::Sketch => {
-                let name = self
-                    .sketch_export
-                    .and_then(|feature| model.document().feature(feature))
-                    .map_or_else(|| model.display_name(), |feature| feature.name.clone());
+            Purpose::Drawing => {
+                let (title, file_name) = match self.drawing_export {
+                    Some(DrawingSource::Face(choice)) => (
+                        "Export face",
+                        drawing_export::face_file_name(&drawing_export::body_name(model, choice)),
+                    ),
+                    Some(DrawingSource::Sketch(feature)) => (
+                        "Export sketch",
+                        drawing_export::file_name(
+                            &model.document().feature(feature).map_or_else(
+                                || model.display_name(),
+                                |feature| feature.name.clone(),
+                            ),
+                        ),
+                    ),
+                    None => (
+                        "Export drawing",
+                        drawing_export::file_name(&model.display_name()),
+                    ),
+                };
                 self.dialogs
-                    .pick_sketch_path(directory, sketch_export::file_name(&name), respond);
+                    .pick_drawing_path(title, directory, file_name, respond);
             }
             Purpose::Import => self.dialogs.pick_import(directory, respond),
         }
@@ -1799,18 +1871,23 @@ pub fn menu(
             (Command::Export, None),
             (Command::ExportImage, Some(IMAGE_HINT)),
             (Command::ExportSketch, Some(SKETCH_HINT)),
+            (Command::ExportFace, Some(FACE_HINT)),
         ];
         for (command, hint) in hints {
-            let availability = if command == Command::ExportSketch {
-                offers
+            let unavailable = match command {
+                Command::ExportSketch => Some(NOT_A_SKETCH),
+                Command::ExportFace => Some(NOT_A_FACE),
+                _ => None,
+            };
+            let availability = match unavailable {
+                Some(reason) => offers
                     .iter()
                     .find(|offer| offer.command == command)
                     .map_or_else(
-                        || Err(NOT_A_SKETCH.to_owned()),
+                        || Err(reason.to_owned()),
                         |offer| offer.availability.clone(),
-                    )
-            } else {
-                Ok(())
+                    ),
+                None => Ok(()),
             };
             let response = ui
                 .add_enabled_ui(availability.is_ok(), |ui| menu_item(ui, commands, command))
@@ -1902,7 +1979,11 @@ pub fn menu(
         };
         actions.push(action);
     }
-    for command in [Command::KeyboardShortcuts, Command::ExportSketch] {
+    for command in [
+        Command::KeyboardShortcuts,
+        Command::ExportSketch,
+        Command::ExportFace,
+    ] {
         if chosen.contains(&command) {
             commands.trigger(command);
         }

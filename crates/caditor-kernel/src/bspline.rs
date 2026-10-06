@@ -200,6 +200,69 @@ impl<P: Coordinates> BSpline<P> {
         })
     }
 
+    pub fn restricted(&self, range: Interval) -> Option<Self> {
+        let low = self.domain.clamp(range.start());
+        let high = self.domain.clamp(range.end());
+        if low >= high {
+            return None;
+        }
+        if low == self.domain.start() && high == self.domain.end() {
+            return Some(self.clone());
+        }
+        let degree = self.degree;
+        let mut knots = self.knots.clone();
+        let mut points: Vec<Homogeneous<P>> = self
+            .control_points
+            .iter()
+            .enumerate()
+            .map(|(index, point)| {
+                let weight = self.weight(index);
+                Homogeneous {
+                    point: *point * weight,
+                    weight,
+                }
+            })
+            .collect();
+        for parameter in [low, high] {
+            let present = knots.iter().filter(|knot| **knot == parameter).count();
+            for _ in present..degree {
+                insert_knot(&mut knots, &mut points, degree, parameter)?;
+            }
+        }
+        let starts = knots.partition_point(|knot| *knot < low);
+        let multiplicity = knots.iter().filter(|knot| **knot == low).count();
+        let first = (starts + multiplicity).checked_sub(degree + 1)?;
+        let last = knots.partition_point(|knot| *knot < high).checked_sub(1)?;
+        let kept = points.get(first..=last)?;
+        let interior = knots.iter().filter(|knot| **knot > low && **knot < high);
+        let knots: Vec<f64> = std::iter::repeat_n(low, degree + 1)
+            .chain(interior.copied())
+            .chain(std::iter::repeat_n(high, degree + 1))
+            .collect();
+        let control_points = kept
+            .iter()
+            .map(|homogeneous| homogeneous.point * (1.0 / homogeneous.weight))
+            .collect();
+        let restricted = match self.weights {
+            Some(_) => Self::rational(
+                degree,
+                knots,
+                control_points,
+                kept.iter().map(|homogeneous| homogeneous.weight).collect(),
+            ),
+            None => Self::new(degree, knots, control_points),
+        };
+        restricted.ok()
+    }
+
+    fn weight(&self, index: usize) -> f64 {
+        self.weights
+            .as_ref()
+            .and_then(|weights| weights.get(index))
+            .copied()
+            .unwrap_or(1.0)
+    }
+
     pub(crate) fn control_points_over(&self, range: Interval) -> &[P] {
         let first = self.span(self.domain.clamp(range.start())) - self.degree;
         let last = self.span(self.domain.clamp(range.end()));
@@ -388,6 +451,49 @@ impl<P: Coordinates> BSpline<P> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Homogeneous<P> {
+    point: P,
+    weight: f64,
+}
+
+fn insert_knot<P: Coordinates>(
+    knots: &mut Vec<f64>,
+    points: &mut Vec<Homogeneous<P>>,
+    degree: usize,
+    parameter: f64,
+) -> Option<()> {
+    let count = points.len();
+    let span = knots
+        .partition_point(|knot| *knot <= parameter)
+        .checked_sub(1)?
+        .clamp(degree, count.checked_sub(1)?);
+    let mut inserted = Vec::with_capacity(count + 1);
+    for index in 0..=count {
+        let point = if index + degree <= span {
+            *points.get(index)?
+        } else if index > span {
+            *points.get(index - 1)?
+        } else {
+            let (start, end) = (*knots.get(index)?, *knots.get(index + degree)?);
+            let along = if end > start {
+                (parameter - start) / (end - start)
+            } else {
+                0.0
+            };
+            let (before, after) = (points.get(index - 1)?, points.get(index)?);
+            Homogeneous {
+                point: before.point + (after.point - before.point) * along,
+                weight: before.weight + (after.weight - before.weight) * along,
+            }
+        };
+        inserted.push(point);
+    }
+    knots.insert(span + 1, parameter);
+    *points = inserted;
+    Some(())
+}
+
 const ROW_WIDTH: usize = MAX_SPLINE_DEGREE + 1;
 type BasisRow = [f64; ROW_WIDTH];
 const ZERO_ROW: BasisRow = [0.0; ROW_WIDTH];
@@ -487,6 +593,49 @@ mod tests {
                 assert!((numeric_second - second).length() < 1e-4 * (1.0 + second.length()));
             }
         }
+    }
+
+    #[test]
+    fn a_restricted_spline_traces_exactly_the_part_of_the_original_in_its_range() {
+        let spline = BSpline::rational(
+            3,
+            vec![0.0, 0.0, 0.0, 0.0, 0.3, 0.3, 0.7, 1.0, 1.0, 1.0, 1.0],
+            vec![
+                Point3::ZERO,
+                Point3::new(1.0, 2.0, 0.0),
+                Point3::new(2.0, -1.0, 1.0),
+                Point3::new(4.0, 0.0, 3.0),
+                Point3::new(5.0, 2.0, -1.0),
+                Point3::new(7.0, 1.0, 0.0),
+                Point3::new(8.0, 0.0, 2.0),
+            ],
+            vec![1.0, 2.0, 0.5, 1.0, 3.0, 1.0, 0.7],
+        )
+        .unwrap();
+        let ranges = [(0.1, 0.9), (0.0, 0.5), (0.3, 1.0), (0.31, 0.32), (0.0, 1.0)];
+
+        for (start, end) in ranges {
+            let range = Interval::new(start, end).unwrap();
+            let restricted = spline.restricted(range).unwrap();
+
+            assert_eq!(restricted.domain(), range);
+            assert!(restricted.is_rational());
+            for index in 0..=20 {
+                let parameter = range.at(index as f64 / 20.0);
+                assert!(
+                    restricted
+                        .point(parameter)
+                        .distance(spline.point(parameter))
+                        < 1e-12
+                );
+            }
+        }
+
+        assert!(
+            spline
+                .restricted(Interval::new(1.0, 2.0).unwrap())
+                .is_none()
+        );
     }
 
     #[test]

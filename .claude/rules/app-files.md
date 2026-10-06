@@ -66,14 +66,18 @@ paths:
   file; when the appended name exists, `files.rs` asks "Replace …?" as Save As does, and Cancel
   returns to the export dialog.
 
-## Sketch export
+## Drawing export
 
-- Export sketch (File menu, palette; `Command::ExportSketch`, `sketch_export.rs`) is offered
-  by `feature_tree::commands` for the sketch the tree has current or that is edited, and only once
-  it has solved geometry. `FileCommand::ExportSketch` picks a `.dxf` or `.svg` path (`Purpose::Sketch`,
-  `.dxf` appended to any other and replacing asked as for the other outputs), then writes a clone of the
-  displayed sketch on the files worker; the notice counts what was written and the construction
-  curves left out.
+- Export sketch (File menu, palette; `Command::ExportSketch`) is offered by
+  `feature_tree::commands` for the sketch the tree has current or that is edited, and only once it
+  has solved geometry. Export face (`Command::ExportFace`, `drawing_export::face_commands`) is
+  offered while exactly one flat face is selected, curved faces refused in words.
+- Both send `FileCommand::ExportDrawing` with a `DrawingSource`, pick a `.dxf` or `.svg` path
+  (`Purpose::Drawing`, titled for the source, `.dxf` appended to any other and replacing asked as
+  for the other outputs) and write on the files worker: a clone of the displayed sketch, or the face
+  found again by its key in the shown body's result (an `Arc`, not a copy). The sketch notice counts
+  what was written and the construction curves left out; the face notice counts curves and loops
+  and says how many became polylines (`drawing_export.rs`).
 
 ## Image export
 

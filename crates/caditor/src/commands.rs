@@ -68,6 +68,7 @@ pub enum Command {
     Export,
     ExportImage,
     ExportSketch,
+    ExportFace,
     Preferences,
     KeyboardShortcuts,
     Quit,
@@ -414,6 +415,7 @@ plain_commands! {
     Export,
     ExportImage,
     ExportSketch,
+    ExportFace,
     Preferences,
     KeyboardShortcuts,
     Welcome,
@@ -529,6 +531,7 @@ impl Command {
             Self::Export => "file.export",
             Self::ExportImage => "file.export_image",
             Self::ExportSketch => "file.export_sketch",
+            Self::ExportFace => "file.export_face",
             Self::Preferences => "file.preferences",
             Self::KeyboardShortcuts => "file.shortcuts",
             Self::Quit => "file.quit",
@@ -686,6 +689,7 @@ impl Command {
             Self::Export => "Export…",
             Self::ExportImage => "Export image…",
             Self::ExportSketch => "Export sketch…",
+            Self::ExportFace => "Export face…",
             Self::Preferences => "Preferences…",
             Self::KeyboardShortcuts => "Keyboard shortcuts…",
             Self::Quit => "Quit",
@@ -802,6 +806,7 @@ impl Command {
             | Self::Export
             | Self::ExportImage
             | Self::ExportSketch
+            | Self::ExportFace
             | Self::Preferences
             | Self::KeyboardShortcuts
             | Self::Quit
@@ -984,6 +989,7 @@ impl Command {
             Self::VersionHistory
             | Self::KeyboardShortcuts
             | Self::ExportSketch
+            | Self::ExportFace
             | Self::BodyAppearance
             | Self::FinishSketch
             | Self::ShapeMode(_)

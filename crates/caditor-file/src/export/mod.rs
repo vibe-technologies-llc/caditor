@@ -1,7 +1,9 @@
 mod dxf;
+mod figure;
 mod gltf;
 mod image;
 mod obj;
+mod outline;
 mod stl;
 mod svg;
 #[cfg(test)]
@@ -17,10 +19,11 @@ use std::{
 
 use caditor_document::CancelToken;
 use caditor_geometry::{Aabb, Point3};
-use caditor_kernel::{Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
+use caditor_kernel::{FaceId, Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_sketch::Sketch;
 use caditor_step::{StepBody, StepWritten, WriteError, write_step_keeping_what_can_be};
 
+use self::figure::Figure;
 pub use self::image::{ImageExportError, PNG_EXTENSION, RgbaImage, export_png};
 use crate::{reason::WriteFailure, save::write_atomically};
 
@@ -125,16 +128,52 @@ pub fn export_sketch(
     format: SketchFormat,
     cancel: &CancelToken,
 ) -> Result<SketchExported, ExportError> {
-    let (text, exported) = match format {
-        SketchFormat::Dxf => dxf::encode(sketch)?,
-        SketchFormat::Svg => svg::encode(sketch)?,
+    let (figure, exported) = Figure::of_sketch(sketch);
+    if exported.curves + exported.points == 0 {
+        return Err(ExportError::NoCurves);
+    }
+    write_figure(path, &figure, format, cancel)?;
+    Ok(exported)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FaceExported {
+    pub loops: usize,
+    pub curves: usize,
+    pub approximated: usize,
+}
+
+pub fn export_face(
+    path: &Path,
+    solid: &Solid,
+    face: FaceId,
+    format: SketchFormat,
+    cancel: &CancelToken,
+) -> Result<FaceExported, ExportError> {
+    let outlined = panic::catch_unwind(AssertUnwindSafe(|| outline::face_figure(solid, face)));
+    let (figure, exported) = outlined.unwrap_or_else(|_| {
+        log::error!("outlining a face for export panicked");
+        Err(ExportError::Encoding)
+    })?;
+    write_figure(path, &figure, format, cancel)?;
+    Ok(exported)
+}
+
+fn write_figure(
+    path: &Path,
+    figure: &Figure,
+    format: SketchFormat,
+    cancel: &CancelToken,
+) -> Result<(), ExportError> {
+    let text = match format {
+        SketchFormat::Dxf => dxf::encode(figure),
+        SketchFormat::Svg => svg::encode(figure)?,
     };
     if cancel.is_cancelled() {
         return Err(ExportError::Cancelled);
     }
     write_atomically(path, text.as_bytes())
-        .map_err(|error| ExportError::Writing(WriteFailure::of(&error)))?;
-    Ok(exported)
+        .map_err(|error| ExportError::Writing(WriteFailure::of(&error)))
 }
 
 pub const STEP_EXTENSION: &str = "step";
@@ -218,6 +257,10 @@ pub enum ExportError {
     Cancelled,
     #[error("the sketch has no curves or points to export")]
     NoCurves,
+    #[error("the face is curved; only flat faces export as drawings")]
+    FaceNotFlat,
+    #[error("the face is no longer part of the body")]
+    FaceMissing,
     #[error(
         "the body of “{0}” could not be turned into triangles at this resolution; try another \
          resolution"

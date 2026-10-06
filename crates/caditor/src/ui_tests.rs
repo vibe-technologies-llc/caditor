@@ -121,7 +121,13 @@ impl Dialogs for ScriptedDialogs {
         respond(self.reply());
     }
 
-    fn pick_sketch_path(&self, _directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+    fn pick_drawing_path(
+        &self,
+        _title: &str,
+        _directory: Option<PathBuf>,
+        _file_name: String,
+        respond: Respond,
+    ) {
         respond(self.reply());
     }
 
@@ -1632,6 +1638,49 @@ fn a_chosen_sketch_exports_to_a_dxf_of_its_curves_and_replacing_asks_first() {
     harness.click("Cancel");
     harness.settle();
     assert_eq!(std::fs::read(&written).unwrap(), b"precious");
+}
+
+#[test]
+fn a_selected_flat_face_exports_to_a_dxf_of_its_outline() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let (_, top) = extruded_plate(&mut harness);
+    let availability = |harness: &Harness| {
+        harness
+            .workspace
+            .last_offers
+            .iter()
+            .find(|offer| offer.command == Command::ExportFace)
+            .map(|offer| offer.availability.clone())
+    };
+
+    harness.select([]);
+    harness.frame();
+
+    assert_eq!(
+        availability(&harness),
+        Some(Err(
+            "Select one flat face of a body to export its outline".to_owned()
+        ))
+    );
+
+    harness.select([top]);
+    harness.frame();
+
+    assert_eq!(availability(&harness), Some(Ok(())));
+
+    harness.answer_dialog(Some(dir.path().join("plate")));
+    run_from_palette(&mut harness, "export face");
+    let written = dir.path().join("plate.dxf");
+    harness.wait_until("the drawing is written", |_| written.exists());
+    harness.wait_until("the export is announced", |harness| {
+        harness.shows("Exported 4 curves of “Extrude 1 end face” to “plate.dxf”, in 1 loop.")
+    });
+
+    let drawing = caditor_file::read_dxf(&written).unwrap();
+
+    assert_eq!(drawing.curve_count(), 4);
+    assert_eq!(drawing.layers, vec!["Outline".to_owned()]);
 }
 
 fn png_size(path: &Path) -> (u32, u32, u8) {

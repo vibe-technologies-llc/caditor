@@ -24,7 +24,7 @@ use crate::{
     about,
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     commands::{self, Command, CommandFrame, Offer, Situation},
-    drop_target,
+    drawing_export, drop_target,
     editing::SketchEditing,
     feature_tree,
     files::{self, FileCommand, Files},
@@ -410,6 +410,7 @@ pub fn show(
         editing,
     };
     panels::commands(&context, panels, &mut commands, actions);
+    drawing_export::face_commands(model, viewport.selection(), &mut commands, actions);
     route_dimension_focus(panels, editing, viewport);
     reference_picking::publish(ui.ctx(), editing.picking());
     panels::show(ui, model, viewport.selection(), editing, panels, actions);

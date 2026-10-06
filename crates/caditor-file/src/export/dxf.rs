@@ -1,73 +1,24 @@
-use std::{collections::BTreeSet, f64::consts::TAU, fmt::Write};
+use std::{f64::consts::TAU, fmt::Write};
 
 use caditor_geometry::Point2;
-use caditor_sketch::{Entity, Sketch};
 
-use super::{ExportError, SketchExported};
+use super::figure::{Ellipse, Figure, Layer, Shape, Spline};
 
 const VERSION: &str = "AC1015";
 const MILLIMETRES: u32 = 4;
 const METRIC: u32 = 1;
 const PLANAR_SPLINE: u32 = 8;
+const RATIONAL_SPLINE: u32 = 4;
+const OPEN_POLYLINE: u32 = 0;
 
-pub(super) fn encode(sketch: &Sketch) -> Result<(String, SketchExported), ExportError> {
+pub(super) fn encode(figure: &Figure) -> String {
     let mut writer = Writer::default();
-    let mut exported = SketchExported {
-        curves: 0,
-        points: 0,
-        construction_left_out: 0,
-    };
     writer.header();
-    let anchors: BTreeSet<_> = sketch
-        .entities()
-        .flat_map(|(_, entity)| entity.points())
-        .collect();
-    for (id, entity) in sketch.entities() {
-        if sketch.is_construction(id) {
-            exported.construction_left_out += 1;
-            continue;
-        }
-        let written = match entity {
-            Entity::Point(_) if anchors.contains(&id) => false,
-            Entity::Point(position) => {
-                writer.point(*position);
-                exported.points += 1;
-                true
-            }
-            Entity::Line { .. } => sketch
-                .line_endpoints(id)
-                .map(|(start, end)| writer.line(start, end))
-                .is_some(),
-            Entity::Circle { .. } => sketch
-                .circle(id)
-                .map(|(center, radius)| writer.circle(center, radius))
-                .is_some(),
-            Entity::Arc { .. } => sketch
-                .arc(id)
-                .map(|arc| {
-                    if arc.sweep >= TAU {
-                        writer.circle(arc.center, arc.radius);
-                    } else {
-                        writer.arc(arc.center, arc.radius, arc.start_angle, arc.end_angle());
-                    }
-                })
-                .is_some(),
-            Entity::Spline { .. } => sketch
-                .spline(id)
-                .map(|spline| {
-                    writer.spline(spline.degree(), spline.knots(), spline.control_points());
-                })
-                .is_some(),
-        };
-        if written && !matches!(entity, Entity::Point(_)) {
-            exported.curves += 1;
-        }
-    }
-    if exported.curves + exported.points == 0 {
-        return Err(ExportError::NoCurves);
+    for (layer, shape) in &figure.shapes {
+        writer.shape(*layer, shape);
     }
     writer.finish();
-    Ok((writer.text, exported))
+    writer.text
 }
 
 #[derive(Default)]
@@ -104,48 +55,88 @@ impl Writer {
         self.pair(2, "ENTITIES");
     }
 
-    fn entity(&mut self, kind: &str) {
+    fn entity(&mut self, kind: &str, layer: Layer) {
         self.pair(0, kind);
-        self.pair(8, "0");
+        self.pair(8, layer.name());
     }
 
-    fn point(&mut self, position: Point2) {
-        self.entity("POINT");
-        self.location(10, position);
+    fn shape(&mut self, layer: Layer, shape: &Shape) {
+        match shape {
+            Shape::Point(position) => {
+                self.entity("POINT", layer);
+                self.location(10, *position);
+            }
+            Shape::Line(start, end) => {
+                self.entity("LINE", layer);
+                self.location(10, *start);
+                self.location(11, *end);
+            }
+            Shape::Circle { center, radius } => {
+                self.entity("CIRCLE", layer);
+                self.location(10, *center);
+                self.real(40, *radius);
+            }
+            Shape::Arc {
+                center,
+                radius,
+                start,
+                end,
+            } => {
+                self.entity("ARC", layer);
+                self.location(10, *center);
+                self.real(40, *radius);
+                self.real(50, start.to_degrees().rem_euclid(360.0));
+                self.real(51, end.to_degrees().rem_euclid(360.0));
+            }
+            Shape::Ellipse(ellipse) => self.ellipse(layer, ellipse),
+            Shape::Spline(spline) => self.spline(layer, spline),
+            Shape::Polyline(points) => self.polyline(layer, points),
+        }
     }
 
-    fn line(&mut self, start: Point2, end: Point2) {
-        self.entity("LINE");
-        self.location(10, start);
-        self.location(11, end);
+    fn ellipse(&mut self, layer: Layer, ellipse: &Ellipse) {
+        let (start, end) = if ellipse.is_full() {
+            (0.0, TAU)
+        } else {
+            (ellipse.start.rem_euclid(TAU), ellipse.end.rem_euclid(TAU))
+        };
+        self.entity("ELLIPSE", layer);
+        self.location(10, ellipse.center);
+        self.location(11, ellipse.major);
+        self.real(40, ellipse.ratio);
+        self.real(41, start);
+        self.real(42, end);
     }
 
-    fn circle(&mut self, center: Point2, radius: f64) {
-        self.entity("CIRCLE");
-        self.location(10, center);
-        self.real(40, radius);
-    }
-
-    fn arc(&mut self, center: Point2, radius: f64, start: f64, end: f64) {
-        self.entity("ARC");
-        self.location(10, center);
-        self.real(40, radius);
-        self.real(50, start.to_degrees().rem_euclid(360.0));
-        self.real(51, end.to_degrees().rem_euclid(360.0));
-    }
-
-    fn spline(&mut self, degree: usize, knots: &[f64], control_points: &[Point2]) {
-        self.entity("SPLINE");
-        self.pair(70, PLANAR_SPLINE);
-        self.pair(71, degree);
-        self.pair(72, knots.len());
-        self.pair(73, control_points.len());
+    fn spline(&mut self, layer: Layer, spline: &Spline) {
+        let flags = match spline.weights {
+            Some(_) => PLANAR_SPLINE | RATIONAL_SPLINE,
+            None => PLANAR_SPLINE,
+        };
+        self.entity("SPLINE", layer);
+        self.pair(70, flags);
+        self.pair(71, spline.degree);
+        self.pair(72, spline.knots.len());
+        self.pair(73, spline.control_points.len());
         self.pair(74, 0);
-        for knot in knots {
+        for knot in &spline.knots {
             self.real(40, *knot);
         }
-        for point in control_points {
+        for weight in spline.weights.iter().flatten() {
+            self.real(41, *weight);
+        }
+        for point in &spline.control_points {
             self.location(10, *point);
+        }
+    }
+
+    fn polyline(&mut self, layer: Layer, points: &[Point2]) {
+        self.entity("LWPOLYLINE", layer);
+        self.pair(90, points.len());
+        self.pair(70, OPEN_POLYLINE);
+        for point in points {
+            self.real(10, point.x);
+            self.real(20, point.y);
         }
     }
 

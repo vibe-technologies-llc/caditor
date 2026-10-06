@@ -9,8 +9,8 @@ use std::{
 };
 
 use caditor_document::CancelToken;
-use caditor_geometry::{Plane, Point2, Point3};
-use caditor_kernel::{LinearExtent, Profile, ProfileCurve, Selection, Solid, extrude};
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_kernel::{FaceId, LinearExtent, Profile, ProfileCurve, Selection, Solid, extrude};
 use caditor_sketch::Sketch;
 use tempfile::TempDir;
 
@@ -720,7 +720,8 @@ fn drawn_sketch() -> Sketch {
 fn a_sketch_exports_to_a_dxf_that_reads_back_as_the_same_curves() {
     let sketch = drawn_sketch();
 
-    let (text, exported) = dxf::encode(&sketch).unwrap();
+    let (figure, exported) = Figure::of_sketch(&sketch);
+    let text = dxf::encode(&figure);
     let drawing = crate::parse_dxf(text.as_bytes()).unwrap();
 
     assert_eq!(
@@ -764,7 +765,7 @@ fn a_sketch_exports_to_a_dxf_that_reads_back_as_the_same_curves() {
 
 #[test]
 fn a_dxf_names_its_unit_so_importing_it_needs_no_conversion() {
-    let (text, _) = dxf::encode(&drawn_sketch()).unwrap();
+    let text = dxf::encode(&Figure::of_sketch(&drawn_sketch()).0);
 
     assert!(text.contains("$INSUNITS\n 70\n4\n"));
     assert!(text.ends_with("  0\nEOF\n"));
@@ -814,7 +815,8 @@ fn exporting_a_sketch_writes_the_file_and_a_cancelled_one_writes_nothing() {
 fn a_sketch_exports_to_an_svg_in_millimetres_with_y_pointing_down() {
     let sketch = drawn_sketch();
 
-    let (text, exported) = svg::encode(&sketch).unwrap();
+    let (figure, exported) = Figure::of_sketch(&sketch);
+    let text = svg::encode(&figure).unwrap();
 
     assert_eq!(
         exported,
@@ -838,7 +840,7 @@ fn an_svg_frames_the_drawing_with_a_margin_in_its_viewbox() {
     let mut sketch = Sketch::new(Plane::XY);
     sketch.add_line(Point2::new(0.0, 0.0), Point2::new(40.0, 20.0));
 
-    let (text, _) = svg::encode(&sketch).unwrap();
+    let text = svg::encode(&Figure::of_sketch(&sketch).0).unwrap();
 
     assert!(
         text.contains(r#"width="42mm" height="22mm" viewBox="-1 -21 42 22""#),
@@ -858,4 +860,235 @@ fn a_sketch_format_is_found_from_the_extension_in_any_case() {
     );
     assert_eq!(SketchFormat::of(Path::new("a.png")), None);
     assert_eq!(SketchFormat::of(Path::new("dxf")), None);
+}
+
+fn rounded_plate() -> Solid {
+    let spline_back = ProfileCurve::spline(
+        4,
+        3,
+        vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+        vec![
+            Point2::new(0.0, 20.0),
+            Point2::new(-10.0, 15.0),
+            Point2::new(-10.0, 5.0),
+            Point2::new(0.0, 0.0),
+        ],
+    );
+    extruded(
+        &[
+            ProfileCurve::line(1, Point2::new(0.0, 0.0), Point2::new(40.0, 0.0)),
+            ProfileCurve::arc(
+                2,
+                Point2::new(40.0, 10.0),
+                Point2::new(40.0, 0.0),
+                Point2::new(40.0, 20.0),
+            ),
+            ProfileCurve::line(3, Point2::new(40.0, 20.0), Point2::new(0.0, 20.0)),
+            spline_back,
+            ProfileCurve::circle(5, Point2::new(20.0, 10.0), 4.0),
+        ],
+        10.0,
+    )
+}
+
+fn face_facing(solid: &Solid, normal: Vector3) -> FaceId {
+    solid
+        .faces()
+        .map(|(id, _)| id)
+        .find(|id| {
+            caditor_document::face_plane(solid, *id)
+                .is_some_and(|plane| plane.normal().distance(normal) < 1e-9)
+        })
+        .unwrap()
+}
+
+fn layer_of(drawing: &crate::Drawing, index: usize) -> &str {
+    &drawing.layers[drawing.curve_layers[index]]
+}
+
+fn exported_drawing(solid: &Solid, face: FaceId) -> (crate::Drawing, FaceExported) {
+    let (figure, exported) = outline::face_figure(solid, face).unwrap();
+    let drawing = crate::parse_dxf(dxf::encode(&figure).as_bytes()).unwrap();
+    (drawing, exported)
+}
+
+#[test]
+fn a_flat_face_exports_its_outline_and_holes_exactly_on_layers_of_their_own() {
+    let solid = rounded_plate();
+    let near = |a: Point2, b: Point2| a.distance(b) < 1e-9;
+
+    let (drawing, exported) = exported_drawing(&solid, face_facing(&solid, Vector3::Z));
+
+    assert_eq!(
+        exported,
+        FaceExported {
+            loops: 2,
+            curves: 5,
+            approximated: 0,
+        }
+    );
+    assert!(
+        drawing.notes.iter().all(|note| !note.contains("unit")),
+        "{:?}",
+        drawing.notes
+    );
+    assert_eq!(drawing.curves.len(), 5);
+    for (index, curve) in drawing.curves.iter().enumerate() {
+        let expected = match curve {
+            crate::DrawingCurve::Circle { .. } => "Holes",
+            _ => "Outline",
+        };
+        assert_eq!(layer_of(&drawing, index), expected);
+    }
+    assert!(drawing.curves.iter().any(|curve| matches!(
+        curve,
+        crate::DrawingCurve::Circle { center, radius }
+            if near(*center, Point2::new(20.0, 10.0)) && (radius - 4.0).abs() < 1e-9
+    )));
+    assert!(drawing.curves.iter().any(|curve| matches!(
+        curve,
+        crate::DrawingCurve::Arc { center, start, end }
+            if near(*center, Point2::new(40.0, 10.0))
+                && near(*start, Point2::new(40.0, 0.0))
+                && near(*end, Point2::new(40.0, 20.0))
+    )));
+    assert!(drawing.curves.iter().any(|curve| matches!(
+        curve,
+        crate::DrawingCurve::Line { start, end }
+            if [*start, *end].iter().any(|point| near(*point, Point2::new(40.0, 0.0)))
+                && [*start, *end].iter().any(|point| near(*point, Point2::ZERO))
+    )));
+    let spline = drawing
+        .curves
+        .iter()
+        .find_map(|curve| match curve {
+            crate::DrawingCurve::Spline { control_points } => Some(control_points),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(spline.len(), 4);
+    assert!(
+        spline
+            .iter()
+            .any(|point| near(*point, Point2::new(-10.0, 15.0)))
+    );
+}
+
+#[test]
+fn faces_are_drawn_as_seen_from_outside_with_z_or_y_up() {
+    let solid = rounded_plate();
+    let near = |a: Point2, b: Point2| a.distance(b) < 1e-9;
+    let arc_center = |drawing: &crate::Drawing| {
+        drawing.curves.iter().find_map(|curve| match curve {
+            crate::DrawingCurve::Arc { center, .. } => Some(*center),
+            _ => None,
+        })
+    };
+
+    let (bottom, _) = exported_drawing(&solid, face_facing(&solid, Vector3::NEG_Z));
+    let (front, front_exported) = exported_drawing(&solid, face_facing(&solid, Vector3::NEG_Y));
+
+    assert!(near(arc_center(&bottom).unwrap(), Point2::new(-40.0, 10.0)));
+    assert_eq!(front_exported.loops, 1);
+    let corners: Vec<Point2> = front
+        .curves
+        .iter()
+        .filter_map(|curve| match curve {
+            crate::DrawingCurve::Line { start, end } => Some([*start, *end]),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    for corner in [
+        Point2::new(0.0, 0.0),
+        Point2::new(40.0, 0.0),
+        Point2::new(40.0, 10.0),
+        Point2::new(0.0, 10.0),
+    ] {
+        assert!(
+            corners.iter().any(|point| near(*point, corner)),
+            "{corners:?}"
+        );
+    }
+}
+
+#[test]
+fn a_face_exports_to_an_svg_grouping_its_outline_and_holes() {
+    let solid = rounded_plate();
+    let (figure, _) = outline::face_figure(&solid, face_facing(&solid, Vector3::Z)).unwrap();
+
+    let text = svg::encode(&figure).unwrap();
+
+    let outline = text.find(r#"<g id="Outline">"#).unwrap();
+    let holes = text.find(r#"<g id="Holes">"#).unwrap();
+    let circle = text.find(r#"<circle cx="20" cy="-10" r="4"/>"#).unwrap();
+    assert!(outline < holes && holes < circle);
+    assert!(text.contains(r#"<path d="M 40 0 A 10 10 0 "#), "{text}");
+    assert!(text.contains(r#" 0 40 -20"/>"#), "{text}");
+    assert_eq!(text.matches("<polyline ").count(), 1);
+}
+
+#[test]
+fn a_curved_or_missing_face_writes_nothing() {
+    let solid = rounded_plate();
+    let curved = solid
+        .faces()
+        .map(|(id, _)| id)
+        .find(|id| caditor_document::face_plane(&solid, *id).is_none())
+        .unwrap();
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("curved.dxf");
+
+    let result = export_face(
+        &path,
+        &solid,
+        curved,
+        SketchFormat::Dxf,
+        &CancelToken::never(),
+    );
+
+    assert_eq!(result, Err(ExportError::FaceNotFlat));
+    assert!(!path.exists());
+    let top = face_facing(&solid, Vector3::Z);
+    let cancelled = export_face(
+        &path,
+        &solid,
+        top,
+        SketchFormat::Svg,
+        &CancelToken::new(|| true),
+    );
+    assert_eq!(cancelled, Err(ExportError::Cancelled));
+    assert!(!path.exists());
+    let written = export_face(&path, &solid, top, SketchFormat::Dxf, &CancelToken::never());
+    assert_eq!(written.map(|exported| exported.curves), Ok(5));
+    assert!(std::fs::read_to_string(&path).unwrap().contains("Holes"));
+}
+
+#[test]
+fn an_elliptical_edge_keeps_its_arc_whichever_way_its_frame_faces() {
+    let drawing = Plane::XY;
+    let tilted = Vector3::new(1.0, 2.0, 0.0);
+    let range = caditor_kernel::Interval::new(0.4, 2.5).unwrap();
+    let near = |a: Point2, b: Point2| a.distance(b) < 1e-9;
+
+    for normal in [Vector3::Z, Vector3::NEG_Z] {
+        for (along_x, along_y) in [(8.0, 3.0), (3.0, 8.0)] {
+            let frame = Plane::with_x_axis(Point3::new(5.0, -2.0, 0.0), normal, tilted).unwrap();
+            let ellipse = caditor_kernel::Ellipse::new(frame, along_x, along_y).unwrap();
+            let curve = caditor_kernel::Curve::Ellipse(ellipse);
+            let on_drawing = |parameter: f64| drawing.to_local(curve.point(parameter));
+
+            let arc =
+                outline::ellipse_arc(&drawing, &frame, along_x, along_y, range, false).unwrap();
+
+            assert!(arc.ratio <= 1.0);
+            assert!((arc.major.length() - 8.0).abs() < 1e-12);
+            let ends = [arc.point_at(arc.start), arc.point_at(arc.end)];
+            for parameter in [range.start(), range.end()] {
+                assert!(ends.iter().any(|end| near(*end, on_drawing(parameter))));
+            }
+            let middle = arc.point_at((arc.start + arc.end) / 2.0);
+            assert!(near(middle, on_drawing(range.middle())));
+        }
+    }
 }

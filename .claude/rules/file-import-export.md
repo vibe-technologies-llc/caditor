@@ -71,15 +71,32 @@ paths:
   included) is left out and returned in `Exported::left_out` (the app says so in a notice that
   outlasts edits); the export fails only when no body could be written. STEP does this through
   `write_step_keeping_what_can_be`.
-- `export_sketch` (`export/dxf.rs`) writes the solved curves of one sketch as an ASCII DXF of version
-  AC1015: millimetres in the sketch's own 2D coordinates on layer 0, `LINE`, `CIRCLE`, `ARC` (a
-  full sweep is a circle), clamped `SPLINE` (planar, with its knots and control points) and `POINT`
-  for a point no curve uses. Construction curves are counted and left out; a sketch with nothing
-  else is `ExportError::NoCurves`. The result reads back through `parse_dxf` as the same curves.
-  `SketchFormat::of` picks DXF or SVG from the path; `export/svg.rs` writes SVG in millimetres with
-  y flipped (`-y`), a 1 mm margin in the viewBox, a 0.1 mm black hairline, `line`, `circle`,
-  elliptical-arc `path` (sweep flag 0, since the flip keeps the drawn direction), splines as
-  `polyline`s and points as small filled circles.
+- Drawings: `export_sketch` and `export_face` turn their source into a `Figure` of 2D `Shape`s,
+  each on a `Layer` (`export/figure.rs`), which `export/dxf.rs` and `export/svg.rs` write;
+  `SketchFormat::of` picks DXF or SVG from the path. Both are written atomically, cancellation
+  checked before writing.
+- `export_sketch` writes the solved curves of one sketch in its own 2D coordinates on layer 0, and a
+  `POINT` for a point no curve uses. Construction curves are counted and left out; a sketch with
+  nothing else is `ExportError::NoCurves`. The DXF reads back through `parse_dxf` as the same
+  curves.
+- `export_face` (`export/outline.rs`) writes a flat face's outer loop on layer `Outline` and its
+  inner loops on `Holes`, as seen from outside the body: the face's plane with its origin where the
+  model origin projects onto it, up along Z for a face more upright than 45° and along Y otherwise,
+  so a top face keeps the model's X and Y and a bottom one is mirrored. Lines, circles and arcs stay
+  exact, an ellipse becomes an elliptical arc (major axis the longer one, parameters negated when
+  its frame faces away), a spline edge is the exact piece of its curve (`BSpline::restricted`,
+  rational weights kept), and anything else (intersection curves) a polyline within 1 µm or a
+  millionth of the body's diagonal, counted in `FaceExported::approximated`. A curved face is
+  `ExportError::FaceNotFlat`; outlining runs under `catch_unwind`.
+- DXF is ASCII, version AC1015, millimetres (`$INSUNITS` 4), header and entities only (layers are
+  named by the entities, without a table): `LINE`, `CIRCLE`, `ARC` (a full sweep is a circle),
+  `ELLIPSE` (a full one from 0 to 2π), clamped planar `SPLINE` with knots, weights when rational
+  (flag 12) and control points, open `LWPOLYLINE` and `POINT`.
+- SVG is in millimetres with y flipped (`-y`), a 1 mm margin in the viewBox, a 0.1 mm black
+  hairline, `line`, `circle`, elliptical-arc `path`s (sweep flag 0, since the flip keeps the drawn
+  direction; a rotation for an ellipse, a full one in two halves), splines and polylines as
+  `polyline`s and points as small filled circles. Shapes off layer 0 are grouped in a `g` whose `id`
+  is the layer's name.
 - `export_png` writes 8-bit RGBA, straight alpha, sRGB chunk, through the pure-Rust `png` crate,
   atomically, checking the pixel count and cancellation; errors are `ImageExportError` variants.
 - 3MF is a ZIP from a small writer (`zip.rs`; deflate through `miniz_oxide` unless storing is
