@@ -50,7 +50,7 @@ pub fn plan_drawing(
     into: Option<FeatureId>,
     drawing: Drawing,
     arrangement: Arrangement,
-) -> DrawingPlan {
+) -> Box<DrawingPlan> {
     let SessionBase { base, session } = base;
     let document = base.document();
     let target = match into.filter(|feature| editing::edited_sketch(document, *feature).is_some()) {
@@ -63,7 +63,7 @@ pub fn plan_drawing(
     let label = format!("Import {}", display_name(Some(path)));
     let arranged = drawing.arranged(&arrangement.options);
     let import = drawing_transaction(document, &arranged, target, label);
-    DrawingPlan {
+    Box::new(DrawingPlan {
         drawing,
         arrangement,
         notes: arranged.notes,
@@ -71,14 +71,14 @@ pub fn plan_drawing(
         curves: import.curves,
         session,
         prepared: base.prepare(import.transaction),
-    }
+    })
 }
 
 pub fn place_drawing(
     model: &mut Model,
     editing: &mut SketchEditing,
     path: &Path,
-    result: Result<DrawingPlan, ImportError>,
+    result: Result<Box<DrawingPlan>, ImportError>,
 ) -> Placement {
     let file = display_name(Some(path));
     let plan = match result {
@@ -105,7 +105,7 @@ pub fn place_drawing(
         curves,
         session,
         prepared,
-    } = plan;
+    } = *plan;
     if curves == 0 {
         return Placement::Done(nothing_imported(model, &file, TOO_SHORT, notes));
     }

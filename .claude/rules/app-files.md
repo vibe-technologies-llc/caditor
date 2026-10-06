@@ -98,7 +98,8 @@ paths:
 - A drawing that was read opens the import options dialog (`import_options.rs`, `Files::arranging`)
   before anything is planned: the unit to read its numbers in (`DrawingUnit`, as the file says
   by default, SI only), a scale, centring the outline on the origin and, for a new sketch, the
-  plane (`Arrangement`). It shows the size the drawing will have; Cancel adds nothing, and a
+  plane (`Arrangement`), and, for a drawing of several layers, which layers to import (all by
+  default, Import disabled while none is chosen). It shows the size the drawing will have; Cancel adds nothing, and a
   queue of dropped files waits behind it. A drawing that fails to read skips it and reports as
   before.
 - The worker plans the change on the model as it was at the start (`import::plan_drawing` with

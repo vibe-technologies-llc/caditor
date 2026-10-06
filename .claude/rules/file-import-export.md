@@ -26,8 +26,11 @@ paths:
 - `Drawing::arranged` applies `DrawingOptions` to a parsed drawing: a unit that replaces the one
   the file names (`Drawing::unit_scale` is what the header applied, so the choice converts from
   the file's own numbers), a scale within `MIN_SCALE..=MAX_SCALE`, and centring the outline's
-  bounding box (arcs by their sweep) on the origin. It adds a note per change it makes and leaves
-  the original untouched.
+  bounding box (arcs by their sweep) on the origin, and layers left out. Each curve keeps the index
+  of its layer (`Drawing::curve_layers` into `Drawing::layers`, in order of first use, names
+  compared without case; an entity on layer 0 inside a block takes the layer of its INSERT); only
+  layers that kept a curve are listed. It adds a note per change it makes and leaves the original
+  untouched.
 - Dashed linetypes make a curve construction geometry (`Drawing::construction`, added by
   `drawing_transaction` with ordinary end points), with a note.
 - Blocks and INSERTs nest with cycle and depth limits; a block's content is decoded once and shared

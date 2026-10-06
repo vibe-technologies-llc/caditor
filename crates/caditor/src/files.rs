@@ -414,13 +414,13 @@ enum Event {
         path: PathBuf,
         session: u64,
         into: Option<FeatureId>,
-        result: Result<DrawingPlan, ImportError>,
+        result: Result<Box<DrawingPlan>, ImportError>,
     },
     DrawingRead {
         path: PathBuf,
         session: u64,
         into: Option<FeatureId>,
-        drawing: Drawing,
+        drawing: Box<Drawing>,
     },
     ImportedModel {
         path: PathBuf,
@@ -1089,7 +1089,7 @@ impl Files {
             } => {
                 self.importing = None;
                 if session == model.session() {
-                    self.arranging = Some(Arranging::new(path, into, drawing));
+                    self.arranging = Some(Arranging::new(path, into, *drawing));
                 }
             }
             Event::ImportedModel {
@@ -1133,7 +1133,7 @@ impl Files {
                             path,
                             session,
                             into,
-                            drawing,
+                            drawing: Box::new(drawing),
                         },
                         Err(error) => Event::Imported {
                             path,

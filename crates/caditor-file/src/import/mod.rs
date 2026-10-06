@@ -88,6 +88,8 @@ pub struct Drawing {
     pub construction: BTreeSet<usize>,
     pub notes: Vec<String>,
     pub unit_scale: f64,
+    pub layers: Vec<String>,
+    pub curve_layers: Vec<usize>,
 }
 
 impl Default for Drawing {
@@ -97,6 +99,8 @@ impl Default for Drawing {
             construction: BTreeSet::new(),
             notes: Vec::new(),
             unit_scale: 1.0,
+            layers: Vec::new(),
+            curve_layers: Vec::new(),
         }
     }
 }

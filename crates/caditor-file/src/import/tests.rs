@@ -1655,7 +1655,7 @@ fn a_scale_multiplies_every_length_and_composes_with_the_unit() {
     let options = DrawingOptions {
         unit: DrawingUnit::Centimetres,
         scale: 2.0,
-        recentre: false,
+        ..DrawingOptions::default()
     };
 
     let arranged = drawing.arranged(&options);
@@ -1724,4 +1724,67 @@ fn only_a_finite_scale_within_the_limits_is_valid() {
     assert!(!valid(-1.0).is_valid());
     assert!(!valid(f64::NAN).is_valid());
     assert!(!valid(MAX_SCALE * 2.0).is_valid());
+}
+
+fn line_on(layer: &str, start: (f64, f64), end: (f64, f64)) -> Pairs {
+    let mut pairs = line(start, end);
+    pairs[1] = pair(8, layer);
+    pairs
+}
+
+fn layered_drawing() -> Drawing {
+    let bytes = text(vec![
+        header(Some(4)),
+        section(
+            "BLOCKS",
+            vec![block(
+                "Tick",
+                (0.0, 0.0),
+                vec![line((0.0, 0.0), (1.0, 0.0))],
+            )],
+        ),
+        section(
+            "ENTITIES",
+            vec![
+                line_on("Walls", (0.0, 0.0), (10.0, 0.0)),
+                line_on("Notes", (0.0, 1.0), (10.0, 1.0)),
+                insert("Tick", "Doors", &[(10, 5.0), (20, 5.0), (30, 0.0)]),
+                line_on("WALLS", (0.0, 2.0), (10.0, 2.0)),
+            ],
+        ),
+    ]);
+    parse_dxf(&bytes).unwrap()
+}
+
+#[test]
+fn curves_remember_their_layer_and_a_block_takes_the_layer_it_is_inserted_on() {
+    let drawing = layered_drawing();
+
+    assert_eq!(drawing.layers, ["Walls", "Notes", "Doors"]);
+    assert_eq!(drawing.curve_layers, [0, 1, 2, 0]);
+    assert_eq!(drawing.layer_curve_count(0), 2);
+    assert_eq!(drawing.layer_curve_count(2), 1);
+}
+
+#[test]
+fn leaving_layers_out_drops_their_curves_and_keeps_the_rest_in_order() {
+    let mut drawing = layered_drawing();
+    drawing.construction.insert(3);
+    let options = DrawingOptions {
+        left_out_layers: [1].into(),
+        ..DrawingOptions::default()
+    };
+
+    let arranged = drawing.arranged(&options);
+
+    assert_eq!(arranged.curves.len(), 3);
+    assert_eq!(arranged.curve_layers, [0, 2, 0]);
+    assert_eq!(arranged.construction, [2].into());
+    assert_eq!(arranged.layers, drawing.layers);
+    assert!(
+        arranged
+            .notes
+            .iter()
+            .any(|note| note == "1 curve on a layer you left out was not imported.")
+    );
 }

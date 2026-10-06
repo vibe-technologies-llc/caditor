@@ -1938,6 +1938,66 @@ fn cancelling_the_import_options_adds_nothing_and_a_sketch_being_edited_has_no_p
 }
 
 #[test]
+fn the_import_options_list_the_layers_and_leave_out_the_ones_unticked() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let plan = dir.path().join("plan.dxf");
+    write_drawing(
+        &plan,
+        Some(4),
+        "0\nLINE\n8\nWalls\n10\n0\n20\n0\n11\n40\n21\n0\n\
+         0\nLINE\n8\nWalls\n10\n0\n20\n5\n11\n40\n21\n5\n\
+         0\nCIRCLE\n8\nNotes\n10\n20\n20\n20\n40\n3\n",
+    );
+    let features = harness.document().features().len();
+
+    harness.answer_dialog(Some(plan));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_for_import_options("plan.dxf");
+    assert!(harness.shows("Layers"));
+    assert!(harness.shows("Walls (2 curves)"));
+    assert!(harness.shows("Notes (1 curve)"));
+    assert!(harness.shows("3 curves drawn, 40.000 mm wide and 23.000 mm high."));
+
+    harness.command(FileCommand::ImportOptions(ImportOptionsCommand::Layer {
+        layer: 1,
+        included: false,
+    }));
+    harness.frame();
+    assert!(harness.shows("2 curves drawn, 40.000 mm wide and 5.000 mm high."));
+
+    harness.command(FileCommand::ImportOptions(ImportOptionsCommand::AllLayers(
+        false,
+    )));
+    harness.frame();
+    assert!(harness.shows("The drawing is empty."));
+    assert!(harness.files.is_blocking());
+
+    harness.command(FileCommand::ImportOptions(ImportOptionsCommand::Layer {
+        layer: 0,
+        included: true,
+    }));
+    harness.frame();
+    harness.click("Import");
+    harness.wait_until("the drawing is imported", |harness| {
+        harness.document().features().len() == features + 1
+    });
+    let sketch = harness.document().features().last().unwrap().id();
+    let circles = harness
+        .sketch(sketch)
+        .entities()
+        .filter(|(_, entity)| matches!(entity, Entity::Circle { .. }))
+        .count();
+    let lines = harness
+        .sketch(sketch)
+        .entities()
+        .filter(|(_, entity)| matches!(entity, Entity::Line { .. }))
+        .count();
+    assert_eq!((lines, circles), (2, 0));
+    assert!(harness.shows("1 curve on a layer you left out was not imported."));
+}
+
+#[test]
 fn a_drawing_read_while_the_model_changes_is_placed_on_the_changed_model() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));

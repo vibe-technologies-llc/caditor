@@ -287,8 +287,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] A sketch exports to DXF and SVG, but a flat face of a body cannot be exported
   at all, though laser and CNC work need it; construction geometry is left out, with no option to
   keep it on a layer, and the files hold no layers, text or dimensions.
-- [low · medium] Curves carry no layer, so the import cannot offer a layer choice, and curves past
-  the first 20,000 are left out in drawing order rather than by any choice of the user.
+- [low · medium] Curves past the first 20,000 are left out in drawing order rather than by any
+  choice of the user: the import options' layer choice is made after that cut, so leaving layers
+  out cannot bring the curves of the others back in.
 
 ## Mesh import and export
 

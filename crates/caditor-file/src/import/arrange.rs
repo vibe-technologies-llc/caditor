@@ -1,4 +1,7 @@
-use std::f64::consts::{FRAC_PI_2, TAU};
+use std::{
+    collections::BTreeSet,
+    f64::consts::{FRAC_PI_2, TAU},
+};
 
 use caditor_geometry::Point2;
 use caditor_sketch::ArcGeometry;
@@ -48,11 +51,12 @@ impl DrawingUnit {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DrawingOptions {
     pub unit: DrawingUnit,
     pub scale: f64,
     pub recentre: bool,
+    pub left_out_layers: BTreeSet<usize>,
 }
 
 impl Default for DrawingOptions {
@@ -61,6 +65,7 @@ impl Default for DrawingOptions {
             unit: DrawingUnit::AsInFile,
             scale: 1.0,
             recentre: false,
+            left_out_layers: BTreeSet::new(),
         }
     }
 }
@@ -92,10 +97,64 @@ impl Drawing {
             })
     }
 
+    pub fn layer_curve_count(&self, layer: usize) -> usize {
+        self.curves
+            .iter()
+            .zip(&self.curve_layers)
+            .filter(|(curve, curve_layer)| {
+                **curve_layer == layer && !matches!(curve, DrawingCurve::Point(_))
+            })
+            .count()
+    }
+
+    fn on_chosen_layers(&self, left_out: &BTreeSet<usize>) -> (Self, usize) {
+        if left_out.is_empty() {
+            return (self.clone(), 0);
+        }
+        let kept: Vec<bool> = (0..self.curves.len())
+            .map(|index| {
+                !self
+                    .curve_layers
+                    .get(index)
+                    .is_some_and(|layer| left_out.contains(layer))
+            })
+            .collect();
+        let mut chosen = Self {
+            curves: Vec::new(),
+            construction: BTreeSet::new(),
+            notes: self.notes.clone(),
+            unit_scale: self.unit_scale,
+            layers: self.layers.clone(),
+            curve_layers: Vec::new(),
+        };
+        let mut dropped = 0;
+        for (index, curve) in self.curves.iter().enumerate() {
+            if !kept.get(index).copied().unwrap_or(true) {
+                dropped += usize::from(!matches!(curve, DrawingCurve::Point(_)));
+                continue;
+            }
+            if self.construction.contains(&index) {
+                chosen.construction.insert(chosen.curves.len());
+            }
+            chosen.curves.push(curve.clone());
+            if let Some(layer) = self.curve_layers.get(index) {
+                chosen.curve_layers.push(*layer);
+            }
+        }
+        (chosen, dropped)
+    }
+
     pub fn arranged(&self, options: &DrawingOptions) -> Self {
         let factor = self.factor(options);
-        let mut arranged = self.clone();
+        let (mut arranged, dropped) = self.on_chosen_layers(&options.left_out_layers);
         let mut notes = Vec::new();
+        match dropped {
+            0 => {}
+            1 => notes.push("1 curve on a layer you left out was not imported.".to_owned()),
+            many => notes.push(format!(
+                "{many} curves on layers you left out were not imported."
+            )),
+        }
         if let Some(unit) = options.unit.millimetres().map(|_| options.unit.name()) {
             notes.push(format!(
                 "You chose to read the drawing's numbers as {unit}, so its lengths were \

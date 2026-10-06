@@ -33,6 +33,7 @@ struct Tally {
 
 pub(super) fn flatten(
     shapes: &[Shape],
+    layers: &[usize],
     dashed: &BTreeSet<usize>,
     mut notes: Vec<String>,
 ) -> Drawing {
@@ -48,6 +49,7 @@ pub(super) fn flatten(
     let tolerance = (extent * RELATIVE_FIT_TOLERANCE).max(MIN_FIT_TOLERANCE);
     let mut tally = Tally::default();
     let mut curves = Vec::new();
+    let mut curve_layers = Vec::new();
     let mut construction = BTreeSet::new();
     for (index, shape) in shapes.iter().enumerate() {
         if let Some(curve) = flatten_shape(shape, tolerance, &mut tally) {
@@ -55,6 +57,7 @@ pub(super) fn flatten(
                 construction.insert(curves.len());
             }
             curves.push(curve);
+            curve_layers.push(layers.get(index).copied().unwrap_or_default());
         }
     }
     tally.report(tolerance, &mut notes);
@@ -71,6 +74,8 @@ pub(super) fn flatten(
         construction,
         notes,
         unit_scale: 1.0,
+        layers: Vec::new(),
+        curve_layers,
     }
 }
 

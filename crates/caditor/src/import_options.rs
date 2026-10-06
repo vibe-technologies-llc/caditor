@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use caditor_document::FeatureId;
 use caditor_file::{Drawing, DrawingOptions, DrawingUnit, MAX_SCALE, MIN_SCALE};
 use caditor_geometry::Plane;
-use egui::Id;
+use egui::{Id, ScrollArea, Ui};
 
 use crate::{
     appearance::SPACE_M,
@@ -13,6 +13,8 @@ use crate::{
     widgets::{self, DialogWidth},
 };
 
+const LAYER_LIST_HEIGHT: f32 = 140.0;
+const NO_LAYERS: &str = "Choose at least one layer to import";
 const NOT_A_SCALE: &str = "Enter a number from 0.000001 to 1000000";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -51,7 +53,7 @@ impl PlaneChoice {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Arrangement {
     pub options: DrawingOptions,
     pub plane: PlaneChoice,
@@ -63,6 +65,8 @@ pub enum ImportOptionsCommand {
     Scale(f64),
     Recentre(bool),
     Plane(PlaneChoice),
+    Layer { layer: usize, included: bool },
+    AllLayers(bool),
     Confirm,
     Cancel,
 }
@@ -86,12 +90,29 @@ impl Arranging {
     }
 
     pub fn perform(&mut self, command: ImportOptionsCommand) {
+        let layers = self.drawing.layers.len();
         let Arrangement { options, plane } = &mut self.arrangement;
         match command {
             ImportOptionsCommand::Unit(unit) => options.unit = unit,
             ImportOptionsCommand::Scale(scale) => options.scale = scale,
             ImportOptionsCommand::Recentre(recentre) => options.recentre = recentre,
             ImportOptionsCommand::Plane(chosen) => *plane = chosen,
+            ImportOptionsCommand::Layer {
+                layer,
+                included: true,
+            } => {
+                options.left_out_layers.remove(&layer);
+            }
+            ImportOptionsCommand::Layer {
+                layer,
+                included: false,
+            } => {
+                options.left_out_layers.insert(layer);
+            }
+            ImportOptionsCommand::AllLayers(true) => options.left_out_layers.clear(),
+            ImportOptionsCommand::AllLayers(false) => {
+                options.left_out_layers = (0..layers).collect()
+            }
             ImportOptionsCommand::Confirm | ImportOptionsCommand::Cancel => {}
         }
     }
@@ -132,8 +153,8 @@ pub fn dialog(
     let title = format!("Import “{}”", display_name(Some(&arranging.path)));
     let response = widgets::dialog(ctx, "import-drawing", &title, DialogWidth::Medium, |ui| {
         let mut command = None;
-        let Arrangement { options, plane } = arranging.arrangement;
-        let arranged = arranging.drawing.arranged(&options);
+        let Arrangement { options, plane } = &arranging.arrangement;
+        let arranged = arranging.drawing.arranged(options);
 
         export::heading(ui, "Units");
         let units: Vec<(DrawingUnit, &str, String)> = DrawingUnit::ALL
@@ -180,9 +201,13 @@ pub fn dialog(
                 .iter()
                 .map(|choice| (*choice, choice.label(), choice.hover()))
                 .collect();
-            if let Some(choice) = preferences::choice(ui, &planes, plane) {
+            if let Some(choice) = preferences::choice(ui, &planes, *plane) {
                 command = Some(ImportOptionsCommand::Plane(choice));
             }
+        }
+
+        if arranging.drawing.layers.len() > 1 {
+            layers(ui, arranging, &mut command);
         }
 
         ui.add_space(SPACE_M);
@@ -198,9 +223,19 @@ pub fn dialog(
         };
         ui.label(widgets::muted(summary, ui));
 
-        let valid = options.is_valid();
+        let blocker = if !options.is_valid() {
+            Some(NOT_A_SCALE)
+        } else if arranged.curves.is_empty() {
+            Some(NO_LAYERS)
+        } else {
+            None
+        };
         widgets::footer(ui, |ui| {
-            let import = ui.add_enabled(valid, widgets::primary_button(ui, "Import"));
+            let import = ui.add_enabled(blocker.is_none(), widgets::primary_button(ui, "Import"));
+            let import = match blocker {
+                Some(reason) => import.on_disabled_hover_text(reason),
+                None => import,
+            };
             if import.clicked() {
                 command = Some(ImportOptionsCommand::Confirm);
             }
@@ -214,4 +249,33 @@ pub fn dialog(
         .should_close()
         .then_some(ImportOptionsCommand::Cancel);
     response.inner.or(closed)
+}
+
+fn layers(ui: &mut Ui, arranging: &Arranging, command: &mut Option<ImportOptionsCommand>) {
+    export::heading(ui, "Layers");
+    let left_out = &arranging.arrangement.options.left_out_layers;
+    ui.horizontal(|ui| {
+        if ui.add(widgets::button("Select all")).clicked() {
+            *command = Some(ImportOptionsCommand::AllLayers(true));
+        }
+        if ui.add(widgets::button("Select none")).clicked() {
+            *command = Some(ImportOptionsCommand::AllLayers(false));
+        }
+    });
+    let height = widgets::list_height(ui.ctx(), LAYER_LIST_HEIGHT);
+    widgets::card(ui, |ui| {
+        ScrollArea::vertical().max_height(height).show(ui, |ui| {
+            for (layer, name) in arranging.drawing.layers.iter().enumerate() {
+                let curves = arranging.drawing.layer_curve_count(layer);
+                let label = format!(
+                    "{name} ({})",
+                    feature_tree::count(curves, "curve", "curves")
+                );
+                let mut included = !left_out.contains(&layer);
+                if ui.checkbox(&mut included, label).changed() {
+                    *command = Some(ImportOptionsCommand::Layer { layer, included });
+                }
+            }
+        });
+    });
 }

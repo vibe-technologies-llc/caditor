@@ -58,6 +58,7 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
         &Affine::IDENTITY,
         file.hides(DEFAULT_LAYER),
         false,
+        DEFAULT_LAYER,
         &mut Vec::new(),
     )?;
     let mut notes = Vec::new();
@@ -67,7 +68,13 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
         .iter()
         .map(|shape| shape.transformed(&Affine::scale(Vector3::splat(scale))))
         .collect();
-    let mut drawing = flatten(&shapes, &interpreter.construction, notes);
+    let mut drawing = flatten(
+        &shapes,
+        &interpreter.shape_layers,
+        &interpreter.construction,
+        notes,
+    );
+    drawing.layers = interpreter.layer_names.clone();
     drawing.unit_scale = scale;
     match (interpreter.report(drawing), file.damage) {
         (Ok(mut drawing), Some(damage)) => {
@@ -499,6 +506,7 @@ fn items<'a>(records: &'a [Record<'a>]) -> Vec<Item<'a>> {
 }
 
 struct Prepared {
+    layer: String,
     placement: Placement,
     linetype: Linetype,
     decoded: Decoded,
@@ -544,6 +552,7 @@ fn prepare(file: &DxfFile, items: &[Item<'_>]) -> Vec<Prepared> {
     items
         .iter()
         .map(|item| Prepared {
+            layer: item.record.layer().to_owned(),
             placement: Placement::of(file, item.record),
             linetype: file.linetype(item.record),
             decoded: match item.record.kind.as_str() {
@@ -651,6 +660,9 @@ impl Tally {
 struct Interpreter<'a> {
     file: &'a DxfFile<'a>,
     shapes: Vec<Shape>,
+    shape_layers: Vec<usize>,
+    layer_names: Vec<String>,
+    layer_indices: BTreeMap<String, usize>,
     construction: BTreeSet<usize>,
     beyond_the_limit: usize,
     points: usize,
@@ -667,6 +679,9 @@ impl<'a> Interpreter<'a> {
         Self {
             file,
             shapes: Vec::new(),
+            shape_layers: Vec::new(),
+            layer_names: Vec::new(),
+            layer_indices: BTreeMap::new(),
             construction: BTreeSet::new(),
             beyond_the_limit: 0,
             points: 0,
@@ -727,6 +742,7 @@ impl<'a> Interpreter<'a> {
         transform: &Affine,
         inherited_hidden: bool,
         inserted_dashed: bool,
+        inherited_layer: &str,
         blocks: &mut Vec<String>,
     ) -> Result<(), ImportError> {
         for item in items {
@@ -740,15 +756,21 @@ impl<'a> Interpreter<'a> {
                 Visibility::Shown => {}
             }
             let dashed = item.linetype.is_dashed(inserted_dashed);
+            let layer = match item.layer.as_str() {
+                DEFAULT_LAYER => inherited_layer,
+                own => own,
+            };
             match &item.decoded {
-                Decoded::Insert(insertion) => self.insert(insertion, transform, dashed, blocks)?,
-                Decoded::Shapes(shapes) => self.push(shapes, transform, dashed)?,
+                Decoded::Insert(insertion) => {
+                    self.insert(insertion, transform, dashed, layer, blocks)?;
+                }
+                Decoded::Shapes(shapes) => self.push(shapes, transform, dashed, layer)?,
                 Decoded::Hatch(boundaries) => {
                     let mut drawn = false;
                     for boundary in boundaries {
                         if !Self::traced(items, &boundary.traced_by, inherited_hidden) {
                             drawn |= !boundary.shapes.is_empty();
-                            self.push(&boundary.shapes, transform, dashed)?;
+                            self.push(&boundary.shapes, transform, dashed, layer)?;
                         }
                     }
                     if drawn {
@@ -783,7 +805,9 @@ impl<'a> Interpreter<'a> {
         shapes: &[Shape],
         transform: &Affine,
         dashed: bool,
+        layer: &str,
     ) -> Result<(), ImportError> {
+        let layer = self.layer_index(layer);
         for shape in shapes {
             if self.shapes.len() >= MAX_DRAWING_CURVES {
                 self.beyond_the_limit += 1;
@@ -797,8 +821,20 @@ impl<'a> Interpreter<'a> {
                 self.construction.insert(self.shapes.len());
             }
             self.shapes.push(shape.transformed(transform));
+            self.shape_layers.push(layer);
         }
         Ok(())
+    }
+
+    fn layer_index(&mut self, name: &str) -> usize {
+        let key = name.to_ascii_uppercase();
+        if let Some(known) = self.layer_indices.get(&key) {
+            return *known;
+        }
+        let index = self.layer_names.len();
+        self.layer_names.push(name.to_owned());
+        self.layer_indices.insert(key, index);
+        index
     }
 
     fn visit(&mut self) -> Result<(), ImportError> {
@@ -814,6 +850,7 @@ impl<'a> Interpreter<'a> {
         insertion: &Insertion,
         transform: &Affine,
         dashed: bool,
+        layer: &str,
         blocks: &mut Vec<String>,
     ) -> Result<(), ImportError> {
         let file = self.file;
@@ -844,7 +881,14 @@ impl<'a> Interpreter<'a> {
         if !draws {
             let before = self.tally.clone();
             self.visit()?;
-            self.add(&contents, &local.then(&placement), SHOWN, dashed, blocks)?;
+            self.add(
+                &contents,
+                &local.then(&placement),
+                SHOWN,
+                dashed,
+                layer,
+                blocks,
+            )?;
             let cells = usize::try_from(insertion.columns.saturating_mul(insertion.rows))
                 .unwrap_or(usize::MAX);
             self.tally.add_repeated(&before, cells.saturating_sub(1));
@@ -860,7 +904,7 @@ impl<'a> Interpreter<'a> {
                     self.tally.unreadable += 1;
                     continue;
                 }
-                self.add(&contents, &cell, SHOWN, dashed, blocks)?;
+                self.add(&contents, &cell, SHOWN, dashed, layer, blocks)?;
             }
         }
         blocks.pop();
