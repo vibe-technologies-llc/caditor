@@ -129,8 +129,11 @@ pub(crate) fn within(
             let joint = source.point(first.end());
             hits.extend(found.into_iter().filter(|hit| {
                 let at_joint = hit.point.distance(joint) <= LEAF_TOLERANCES * scale.tolerance
-                    && source.length_between(hit.first, hit.second)
-                        <= LEAF_TOLERANCES * scale.tolerance;
+                    && !source.longer_between(
+                        hit.first,
+                        hit.second,
+                        LEAF_TOLERANCES * scale.tolerance,
+                    );
                 !(adjacent && at_joint)
             }));
         }
@@ -138,7 +141,7 @@ pub(crate) fn within(
     let hits = consolidate(source, source, hits, scale, true)?;
     Ok(hits
         .into_iter()
-        .filter(|hit| source.length_between(hit.first, hit.second) > scale.tolerance)
+        .filter(|hit| source.longer_between(hit.first, hit.second, scale.tolerance))
         .collect())
 }
 
@@ -374,7 +377,7 @@ fn subdivide(
         let point = (first.point(s) + second.point(t)) * 0.5;
         let repeated = hits.iter().any(|hit| {
             hit.point.distance(point) <= scale.tolerance
-                && first.length_between(hit.first, s) <= LEAF_TOLERANCES * scale.tolerance
+                && !first.longer_between(hit.first, s, LEAF_TOLERANCES * scale.tolerance)
         });
         if distance <= scale.tolerance && !repeated {
             hits.push(Hit {
@@ -469,7 +472,7 @@ fn consolidate(
     for hit in hits {
         let repeated = distinct.iter().any(|kept| {
             kept.point.distance(hit.point) <= scale.tolerance
-                && first.length_between(kept.first, hit.first) <= LEAF_TOLERANCES * scale.tolerance
+                && !first.longer_between(kept.first, hit.first, LEAF_TOLERANCES * scale.tolerance)
         });
         if !repeated {
             distinct.push(hit);
@@ -499,7 +502,7 @@ fn consolidate(
         let (Some(start), Some(end)) = (chain.first(), chain.last()) else {
             continue;
         };
-        if first.length_between(start.first, end.first) > TANGENT_SPAN * scale.size {
+        if first.longer_between(start.first, end.first, TANGENT_SPAN * scale.size) {
             return Err(Unresolved::Overlapping);
         }
         if let Some(middle) = chain.get(chain.len() / 2) {

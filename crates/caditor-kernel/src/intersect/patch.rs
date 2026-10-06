@@ -96,7 +96,11 @@ impl<'a> SurfacePatch<'a> {
     }
 
     pub(crate) fn place(&self, point: Point3) -> Point2 {
-        self.wrap(self.surface.project(point, Some(self.bounds.center())))
+        self.place_near(point, self.bounds.center())
+    }
+
+    pub(crate) fn place_near(&self, point: Point3, hint: Point2) -> Point2 {
+        self.wrap(self.surface.project(point, Some(hint)))
     }
 
     pub(crate) fn path_misses(&self, path: [Point2; 3]) -> bool {

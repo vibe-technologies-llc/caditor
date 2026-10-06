@@ -124,6 +124,20 @@ impl Curve2 {
         }
     }
 
+    pub fn length_up_to(&self, range: Interval, cap: f64) -> f64 {
+        match self {
+            Self::Line(_) | Self::Circle(_) => self.length(range).min(cap),
+            Self::BSpline(_) => parametric::length_up_to(self, range, cap),
+        }
+    }
+
+    pub fn is_longer_than(&self, range: Interval, bound: f64) -> bool {
+        match self {
+            Self::Line(_) | Self::Circle(_) => self.length(range) > bound,
+            Self::BSpline(_) => parametric::longer_than(self, range, bound),
+        }
+    }
+
     pub fn reversal_pivot(&self) -> f64 {
         match self {
             Self::Line(_) | Self::Circle(_) => 0.0,
@@ -203,6 +217,13 @@ impl Parametric for Curve2 {
             Self::Line(_) => vec![range.start(), range.end()],
             Self::Circle(_) => crate::curve::conic_seeds(range),
             Self::BSpline(spline) => spline.seeds(range),
+        }
+    }
+
+    fn nearby_runs(&self, point: Point2, range: Interval) -> Vec<Interval> {
+        match self {
+            Self::BSpline(spline) => spline.nearby_runs(point, range),
+            _ => vec![range],
         }
     }
 }

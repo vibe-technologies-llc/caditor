@@ -257,7 +257,7 @@ pub fn intersect_curve_surface(
             None => general(&probe, range, patch.as_ref())?,
         }
     };
-    Ok(finish(&probe, range, patch.as_ref(), candidates))
+    finish(&probe, range, patch.as_ref(), candidates)
 }
 
 fn lies_on_own_surface(curve: &Curve, surface: &Surface) -> bool {
@@ -757,7 +757,7 @@ fn finish(
     range: Interval,
     patch: Option<&SurfacePatch>,
     mut candidates: Vec<Candidate>,
-) -> CurveSurfaceIntersection {
+) -> Result<CurveSurfaceIntersection, IntersectionError> {
     for end in [range.start(), range.end()] {
         if probe.distance(end) <= TOLERANCE {
             candidates.push(Candidate::End(end));
@@ -863,7 +863,7 @@ fn finish(
                             (patch.contains(uv), uv)
                         },
                         |path| patch.path_misses(path),
-                    ),
+                    )?,
                     None => vec![extent],
                 };
                 for piece in pieces {
@@ -877,7 +877,7 @@ fn finish(
                     ) else {
                         continue;
                     };
-                    if probe.curve.length(piece) <= MIN_OVERLAP {
+                    if !probe.curve.is_longer_than(piece, MIN_OVERLAP) {
                         result.points.push(CurveSurfacePoint {
                             parameter: piece.start(),
                             point: start,
@@ -916,5 +916,5 @@ fn finish(
     {
         result.points.pop();
     }
-    result
+    Ok(result)
 }

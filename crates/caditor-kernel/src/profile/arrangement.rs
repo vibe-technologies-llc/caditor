@@ -78,8 +78,12 @@ impl GraphPiece {
         if forward { area } else { -area }
     }
 
-    fn length(&self) -> f64 {
-        self.curve.length(self.range)
+    fn length_up_to(&self, cap: f64) -> f64 {
+        self.curve.length_up_to(self.range, cap)
+    }
+
+    fn chord(&self) -> f64 {
+        self.point_at(0.0).distance(self.point_at(1.0))
     }
 
     fn point_at(&self, fraction: f64) -> Point2 {
@@ -290,12 +294,20 @@ impl Arrangement {
             .sum()
     }
 
-    fn cycle_perimeter(&self, cycle: &[usize]) -> f64 {
-        cycle
+    fn perimeter_reaches(&self, cycle: &[usize], bound: f64) -> bool {
+        let mut travelled = 0.0;
+        for piece in cycle
             .iter()
             .filter_map(|half_edge| self.pieces.get(piece_of(*half_edge).0))
-            .map(GraphPiece::length)
-            .sum()
+        {
+            let remaining = bound - travelled;
+            let length = piece.length_up_to(remaining);
+            if length >= remaining {
+                return true;
+            }
+            travelled += length;
+        }
+        false
     }
 
     fn find_faces(&mut self, cycles: &[Vec<usize>]) -> Found<()> {
@@ -312,8 +324,7 @@ impl Arrangement {
         for (index, cycle) in cycles.iter().enumerate() {
             let area = self.cycle_area(cycle);
             let component = component_of(cycle)?;
-            let width = 2.0 * area / self.cycle_perimeter(cycle);
-            if area > threshold && width <= thinnest {
+            if area > threshold && self.perimeter_reaches(cycle, 2.0 * area / thinnest) {
                 continue;
             }
             if area > threshold {
@@ -472,8 +483,7 @@ fn sources(curves: &[ProfileCurve]) -> Found<(Vec<Source>, Scale)> {
         .map_or(0.0, |bounds| bounds.size().length());
     let tolerance = (size * RELATIVE_TOLERANCE).max(LINEAR_RESOLUTION);
     for source in &sources {
-        let length = source.curve.length(source.range);
-        if length.is_nan() || length <= tolerance {
+        if !source.curve.is_longer_than(source.range, tolerance) {
             return Err(ProfileError::Degenerate {
                 entity: source.entity,
             });
@@ -857,8 +867,11 @@ fn split(
                     let previous = lookup(events, *last)?;
                     lookup(vertex_of, *last)? == vertex
                         && !(previous.kind == EventKind::Start && current.kind == EventKind::End)
-                        && source.length_between(previous.parameter, current.parameter)
-                            <= merge_length
+                        && !source.longer_between(
+                            previous.parameter,
+                            current.parameter,
+                            merge_length,
+                        )
                 }
                 None => false,
             };
@@ -876,8 +889,13 @@ fn split(
         {
             let (first_event, last_event) = (lookup(events, *first)?, lookup(events, *last)?);
             let same_vertex = lookup(vertex_of, *first)? == lookup(vertex_of, *last)?;
-            let gap = source.length_between(last_event.parameter, first_event.parameter + period);
-            if same_vertex && gap <= merge_length {
+            if same_vertex
+                && !source.longer_between(
+                    last_event.parameter,
+                    first_event.parameter + period,
+                    merge_length,
+                )
+            {
                 kept.pop();
             }
         }
@@ -914,7 +932,8 @@ fn split(
             let Some(range) = Interval::new(low, high) else {
                 continue;
             };
-            if range.length() <= 0.0 || (start == end && source.curve.length(range) <= merge_length)
+            if range.length() <= 0.0
+                || (start == end && !source.curve.is_longer_than(range, merge_length))
             {
                 continue;
             }
@@ -1297,7 +1316,6 @@ struct Leaving {
     angle: f64,
     start: Point2,
     probe_speed: f64,
-    length: f64,
 }
 
 fn leaving(piece: &GraphPiece, half_edge: usize, forward: bool) -> Leaving {
@@ -1318,8 +1336,24 @@ fn leaving(piece: &GraphPiece, half_edge: usize, forward: bool) -> Leaving {
         angle: tangent.y.atan2(tangent.x).rem_euclid(TAU),
         start: derivatives.point,
         probe_speed: derivatives.first.length(),
-        length: piece.length(),
     }
+}
+
+fn shortest_piece(pieces: &[GraphPiece], half_edges: impl Iterator<Item = usize>) -> f64 {
+    let mut by_chord: Vec<(f64, &GraphPiece)> = half_edges
+        .filter_map(|half_edge| pieces.get(piece_of(half_edge).0))
+        .map(|piece| (piece.chord(), piece))
+        .collect();
+    by_chord.sort_by(|a, b| a.0.total_cmp(&b.0));
+    by_chord
+        .into_iter()
+        .fold(f64::INFINITY, |shortest, (chord, piece)| {
+            if chord >= shortest {
+                shortest
+            } else {
+                piece.length_up_to(shortest).min(shortest)
+            }
+        })
 }
 
 fn probe_angle(
@@ -1401,10 +1435,11 @@ fn angular_order_positions(
             }
             let run = unwrapped.get(run_start..run_end).unwrap_or_default();
             let base_angle = run.first().map_or(0.0, |entry| entry.1);
-            let shortest = run
-                .iter()
-                .map(|(entry, _)| entry.length)
-                .fold(f64::INFINITY, f64::min);
+            let shortest = if run.len() > 1 {
+                shortest_piece(pieces, run.iter().map(|(entry, _)| entry.half_edge))
+            } else {
+                f64::INFINITY
+            };
             for (entry, _) in run {
                 let (piece, forward) = piece_of(entry.half_edge);
                 let deviation = if run.len() > 1 {

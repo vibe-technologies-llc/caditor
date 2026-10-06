@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     f64::consts::PI,
+    time::{Duration, Instant},
 };
 
 use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
@@ -19,10 +20,15 @@ use crate::{
     profile::{Profile, Selection},
     sense::Sense,
     surface::{PlaneSurface, Surface},
-    test_support::{Random, assert_cancelled_anywhere, assert_watertight, circle, rectangle},
+    test_support::{
+        Random, assert_cancelled_anywhere, assert_watertight, cancelled_after, circle, rectangle,
+        spline,
+    },
     tolerance::SamplingTolerance,
     topology::{BuildError, FaceId, Pcurve, PcurveSample},
 };
+
+const DENSE_SPLINE_TIME_LIMIT: Duration = Duration::from_secs(60);
 
 fn moved(solid: Solid, offset: (f64, f64, f64)) -> Solid {
     let transform =
@@ -1517,5 +1523,84 @@ fn plugs_micrometres_off_the_axis_of_their_bore_combine() {
         let through = moved(cylinder(2.5, 6.0), (5.0 + gap, 5.0, -1.0));
         consistent(&format!("a flush plug {gap} off"), &holed, &flush);
         consistent(&format!("a plug {gap} off through"), &holed, &through);
+    }
+}
+
+fn wavy_extrusion(control_points: usize) -> Solid {
+    let points: Vec<(f64, f64)> = (0..=control_points)
+        .map(|index| {
+            let angle = 2.0 * PI * (index % control_points) as f64 / control_points as f64;
+            let radius = 20.0 + 2.0 * (7.0 * angle).sin();
+            (radius * angle.cos(), radius * angle.sin())
+        })
+        .collect();
+    let regions = Profile::new(&[spline(1, &points)])
+        .unwrap()
+        .select(&Selection::EvenDepth)
+        .unwrap();
+    extrude(
+        &Plane::XY,
+        &regions,
+        LinearExtent::one_side(5.0).unwrap(),
+        7,
+    )
+    .unwrap()
+}
+
+#[test]
+fn an_extruded_spline_of_hundreds_of_control_points_combines_in_bounded_time() {
+    let wavy = wavy_extrusion(500);
+    let drill = moved(cylinder(3.0, 10.0), (20.0, 0.0, -2.0));
+    let lid = block((0.0, -30.0, 2.5), (30.0, 30.0, 8.0));
+    let coarse_volume = |solid: &Solid| {
+        solid
+            .tessellate(&solid.default_tolerance())
+            .unwrap()
+            .mass_properties()
+            .volume
+    };
+    let clock = Instant::now();
+
+    let whole = coarse_volume(&wavy);
+    for (name, tool) in [
+        ("a hole through the wall", &drill),
+        ("a cut across the cap", &lid),
+    ] {
+        let outside = run(&wavy, tool, BooleanOperation::Difference);
+        let inside = run(&wavy, tool, BooleanOperation::Intersection);
+        let parts = coarse_volume(&outside) + coarse_volume(&inside);
+
+        assert_eq!(outside.validate(), Ok(()), "{name}");
+        assert_eq!(inside.validate(), Ok(()), "{name}");
+        assert!(
+            (parts - whole).abs() <= 1e-3 * whole,
+            "{name}: {parts} vs {whole}"
+        );
+    }
+
+    assert!(
+        clock.elapsed() < DENSE_SPLINE_TIME_LIMIT,
+        "{:?}",
+        clock.elapsed()
+    );
+}
+
+#[test]
+fn a_boolean_of_a_dense_spline_extrusion_is_cancelled_wherever_it_is_stopped() {
+    let wavy = wavy_extrusion(400);
+    let lid = block((0.0, -30.0, 2.5), (30.0, 30.0, 8.0));
+    let difference = || boolean(&wavy, &lid, BooleanOperation::Difference);
+
+    let (finished, polls) = cancelled_after(usize::MAX, difference);
+
+    assert!(finished.is_ok(), "{finished:?}");
+    for fraction in [0.1, 0.3, 0.5, 0.7, 0.9, 0.99] {
+        let allowed = (fraction * polls as f64) as usize;
+        let (stopped, _) = cancelled_after(allowed, difference);
+
+        assert!(
+            matches!(stopped, Err(BooleanError::Cancelled(_))),
+            "stopped after {allowed} of {polls} polls: {stopped:?}"
+        );
     }
 }

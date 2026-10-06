@@ -1,6 +1,7 @@
 mod coincidence;
 mod elementary;
 mod nurbs;
+mod profile_spans;
 mod projection;
 mod swept;
 #[cfg(test)]
@@ -72,8 +73,8 @@ impl Surface {
             | Self::Cone(_)
             | Self::Sphere(_)
             | Self::Torus(_) => 0,
-            Self::Extrusion(extrusion) => extrusion.profile().heap_size(),
-            Self::Revolution(revolution) => revolution.profile().heap_size(),
+            Self::Extrusion(extrusion) => extrusion.heap_size(),
+            Self::Revolution(revolution) => revolution.heap_size(),
             Self::BSpline(spline) => spline.heap_size(),
         }
     }

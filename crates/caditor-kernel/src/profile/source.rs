@@ -110,8 +110,9 @@ impl Source {
         matches!(self.curve, Curve2::BSpline(_))
     }
 
-    pub fn length_between(&self, from: f64, to: f64) -> f64 {
-        Interval::new(from.min(to), from.max(to)).map_or(0.0, |range| self.curve.length(range))
+    pub fn longer_between(&self, from: f64, to: f64, bound: f64) -> bool {
+        Interval::new(from.min(to), from.max(to))
+            .is_some_and(|range| self.curve.is_longer_than(range, bound))
     }
 
     pub fn period(&self) -> Option<f64> {

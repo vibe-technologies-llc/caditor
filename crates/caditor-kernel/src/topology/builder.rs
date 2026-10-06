@@ -120,8 +120,7 @@ impl SolidBuilder {
                 return Err(BuildError::VertexOffCurve { vertex, distance });
             }
         }
-        let length = curve.length(interval);
-        if length.is_nan() || length <= LINEAR_RESOLUTION {
+        if !curve.is_longer_than(interval, LINEAR_RESOLUTION) {
             return Err(BuildError::ZeroLengthEdge);
         }
         let id = EdgeId::from_index(self.solid.edges.len()).ok_or(BuildError::TooManyEntities)?;

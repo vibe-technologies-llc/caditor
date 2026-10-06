@@ -18,6 +18,10 @@ pub(crate) trait Parametric {
     fn evaluate(&self, parameter: f64) -> [Self::Point; 3];
 
     fn seeds(&self, range: Interval) -> Vec<f64>;
+
+    fn nearby_runs(&self, _point: Self::Point, range: Interval) -> Vec<Interval> {
+        vec![range]
+    }
 }
 
 pub(crate) fn refined_seeds(curve: &impl Parametric, range: Interval, factor: usize) -> Vec<f64> {
@@ -34,6 +38,16 @@ pub(crate) fn refined_seeds(curve: &impl Parametric, range: Interval, factor: us
     refined
 }
 
+pub(crate) fn seed_runs(
+    curve: &impl Parametric,
+    runs: Vec<Interval>,
+    factor: usize,
+) -> Vec<Vec<f64>> {
+    runs.into_iter()
+        .map(|run| refined_seeds(curve, run, factor))
+        .collect()
+}
+
 pub(crate) fn closest_parameter<C: Parametric>(curve: &C, point: C::Point, range: Interval) -> f64 {
     closest_parameter_near(curve, point, range, None)
 }
@@ -44,7 +58,19 @@ pub(crate) fn closest_parameter_near<C: Parametric>(
     range: Interval,
     hint: Option<f64>,
 ) -> f64 {
-    let samples = || refined_seeds(curve, range, CLOSEST_SEED_REFINEMENT);
+    closest_parameter_among(curve, point, range, hint, || {
+        curve.nearby_runs(point, range)
+    })
+}
+
+pub(crate) fn closest_parameter_among<C: Parametric>(
+    curve: &C,
+    point: C::Point,
+    range: Interval,
+    hint: Option<f64>,
+    runs: impl FnOnce() -> Vec<Interval>,
+) -> f64 {
+    let samples = || seed_runs(curve, runs(), CLOSEST_SEED_REFINEMENT);
     let objective = |parameter: f64| {
         let parameter = range.clamp(parameter);
         let [position, first, second] = curve.evaluate(parameter);
@@ -64,6 +90,43 @@ pub(crate) fn length<C: Parametric>(curve: &C, range: Interval) -> f64 {
         let [_, first, _] = curve.evaluate(parameter);
         first.norm()
     })
+}
+
+pub(crate) fn length_up_to<C: Parametric>(curve: &C, range: Interval, cap: f64) -> f64 {
+    let breaks = refined_seeds(curve, range, LENGTH_SEED_REFINEMENT);
+    let mut travelled = 0.0;
+    for piece in breaks.windows(2) {
+        travelled += integrate(piece, |parameter| {
+            let [_, first, _] = curve.evaluate(parameter);
+            first.norm()
+        });
+        if travelled >= cap {
+            return cap;
+        }
+    }
+    travelled
+}
+
+pub(crate) fn longer_than<C: Parametric>(curve: &C, range: Interval, bound: f64) -> bool {
+    let point = |parameter: f64| {
+        let [point, _, _] = curve.evaluate(parameter);
+        point
+    };
+    let start = point(range.start());
+    if start.distance_to(point(range.end())) > bound {
+        return true;
+    }
+    let mut travelled = 0.0;
+    let mut previous = start;
+    for parameter in curve.seeds(range).into_iter().skip(1) {
+        let next = point(parameter);
+        travelled += previous.distance_to(next);
+        if travelled > bound {
+            return true;
+        }
+        previous = next;
+    }
+    length(curve, range) > bound
 }
 
 pub(crate) fn adaptive_parameters<C: Parametric>(

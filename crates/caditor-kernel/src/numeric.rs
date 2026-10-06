@@ -72,14 +72,22 @@ pub(crate) fn minimize(samples: &[f64], objective: impl Fn(f64) -> Taylor) -> Op
     Some(best.0)
 }
 
+pub(crate) fn minimize_runs(runs: &[Vec<f64>], objective: impl Fn(f64) -> Taylor) -> Option<f64> {
+    runs.iter()
+        .filter_map(|samples| minimize(samples, &objective))
+        .map(|found| (found, objective(found).value))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(found, _)| found)
+}
+
 pub(crate) fn minimize_near(
-    samples: impl FnOnce() -> Vec<f64>,
+    runs: impl FnOnce() -> Vec<Vec<f64>>,
     objective: impl Fn(f64) -> Taylor,
     range: Interval,
     hint: Option<f64>,
 ) -> Option<f64> {
     let Some(hint) = hint.filter(|hint| hint.is_finite()) else {
-        return minimize(&samples(), &objective);
+        return minimize_runs(&runs(), &objective);
     };
     let reach = range.length() / HINT_BRACKETS;
     let around = [
@@ -92,7 +100,7 @@ pub(crate) fn minimize_near(
     if local_value.is_some_and(|value| value <= SQUARED_RESOLUTION) {
         return local;
     }
-    let global = minimize(&samples(), &objective);
+    let global = minimize_runs(&runs(), &objective);
     match (global, local, local_value) {
         (Some(global), Some(local), Some(value)) => {
             let as_good = value <= objective(global).value + SQUARED_RESOLUTION;
@@ -196,7 +204,7 @@ mod tests {
         let built = Cell::new(0);
         let samples = || {
             built.set(built.get() + 1);
-            (0..=100).map(f64::from).collect()
+            vec![(0..=100).map(f64::from).collect()]
         };
 
         let found = minimize_near(samples, objective, range, Some(3.2)).unwrap();

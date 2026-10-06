@@ -54,6 +54,33 @@ fn dome_profile() -> Curve {
     Circle::new(frame, 3.0).unwrap().into()
 }
 
+fn wavy_profile(lift: impl Fn(f64, f64) -> Point3) -> Curve {
+    let points = (0..60)
+        .map(|index| {
+            let along = f64::from(index) * 0.3;
+            lift(along, 0.4 * (f64::from(index) * 0.9).sin())
+        })
+        .collect();
+    BSpline::clamped_uniform(3, points).unwrap().into()
+}
+
+fn dense_extrusion() -> Extrusion {
+    Extrusion::new(
+        wavy_profile(|along, across| Point3::new(along, across, 0.0)),
+        Vector3::new(0.3, -0.2, 1.0),
+    )
+    .unwrap()
+}
+
+fn dense_revolution() -> Revolution {
+    Revolution::new(
+        wavy_profile(|along, across| Point3::new(3.0 + across, 0.0, along)),
+        Point3::ZERO,
+        Vector3::Z,
+    )
+    .unwrap()
+}
+
 fn surfaces() -> Vec<Surface> {
     vec![
         PlaneSurface::new(tilted()).unwrap().into(),
@@ -68,6 +95,8 @@ fn surfaces() -> Vec<Surface> {
         Revolution::new(profile_spline(), Point3::new(0.0, 0.0, 1.0), Vector3::Z)
             .unwrap()
             .into(),
+        dense_extrusion().into(),
+        dense_revolution().into(),
     ]
 }
 
@@ -566,4 +595,39 @@ fn a_spline_patch_with_a_bump_narrower_than_the_sampling_grid_is_not_a_plane() {
     assert_eq!(plane.same_surface(&flat), Some(Sense::Same));
     assert_eq!(bumped.same_surface(&plane), None);
     assert_eq!(plane.same_surface(&bumped), None);
+}
+
+#[test]
+fn projection_onto_a_profile_of_many_spans_finds_the_nearest_foot() {
+    let mut random = Random::new(23);
+    for surface in [
+        Surface::from(dense_extrusion()),
+        Surface::from(dense_revolution()),
+    ] {
+        let (u_range, v_range) = (
+            surface.u_domain().clipped(3.0),
+            surface.v_domain().clipped(3.0),
+        );
+        let samples: Vec<Point3> = v_range
+            .split(120)
+            .flat_map(|v| u_range.split(2400).map(move |u| Point2::new(u, v)))
+            .map(|uv| surface.point_at(uv))
+            .collect();
+        for _ in 0..60 {
+            let uv = interior_uv(&surface, &mut random);
+            let point = surface.point_at(uv) + random.point(1.5);
+
+            let found = surface.point_at(surface.project(point, None));
+            let sampled = samples
+                .iter()
+                .map(|sample| sample.distance(point))
+                .fold(f64::INFINITY, f64::min);
+
+            assert!(
+                found.distance(point) <= sampled + 1e-9,
+                "{point}: {} against {sampled}",
+                found.distance(point)
+            );
+        }
+    }
 }

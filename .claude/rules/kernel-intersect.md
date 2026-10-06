@@ -17,7 +17,9 @@ paths:
   only part of their extent (`surface_surface/overlap.rs`).
 - Clipping to a patch or range (`clip.rs`) does not depend on the sample spacing: a piece between
   two outside samples is refined unless a bound on its path misses the patch, so one far shorter
-  than the spacing is still found; ends are then bisected exactly.
+  than the spacing is still found; ends are then bisected exactly. Guided clipping polls
+  `interrupt::check` before every sample and refinement probe, and a branch's probes project from
+  the previous probe's foot.
 - Points within `LINEAR_RESOLUTION` are one point; one at a range end takes the exact end
   parameter; a closed curve's wrap point is reported once. `tangent` flags touches (no sign change,
   or parallel tangent); clusters of roots closer than the resolution collapse to one tangent

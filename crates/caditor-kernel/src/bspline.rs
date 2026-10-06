@@ -1,6 +1,10 @@
-use crate::{coordinates::Coordinates, error::GeometryError, interval::Interval};
+use crate::{
+    coordinates::Coordinates, error::GeometryError, interval::Interval,
+    tolerance::LINEAR_RESOLUTION,
+};
 
 pub const MAX_SPLINE_DEGREE: usize = 9;
+const MIN_PRUNED_SPANS: usize = 8;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BSpline<P> {
@@ -227,6 +231,74 @@ impl<P: Coordinates> BSpline<P> {
         }
         seeds.dedup();
         seeds
+    }
+
+    pub(crate) fn spans_within(&self, range: Interval) -> Vec<Interval> {
+        let mut ends: Vec<f64> = vec![range.start()];
+        ends.extend(
+            self.breakpoints()
+                .into_iter()
+                .filter(|knot| *knot > range.start() && *knot < range.end()),
+        );
+        ends.push(range.end());
+        ends.windows(2)
+            .filter_map(|pair| match pair {
+                [start, end] => Interval::new(*start, *end),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub(crate) fn nearby_runs(&self, point: P, range: Interval) -> Vec<Interval> {
+        let spans = self.spans_within(range);
+        if spans.len() < MIN_PRUNED_SPANS {
+            return vec![range];
+        }
+        let reaches: Vec<(Interval, f64, f64)> = spans
+            .into_iter()
+            .map(|span| {
+                let hull = self.control_points_over(span);
+                let low = hull
+                    .iter()
+                    .copied()
+                    .reduce(P::component_min)
+                    .unwrap_or(point);
+                let high = hull
+                    .iter()
+                    .copied()
+                    .reduce(P::component_max)
+                    .unwrap_or(point);
+                let outside = (low - point)
+                    .component_max(point - high)
+                    .component_max(P::ORIGIN);
+                let corner = (point - low)
+                    .component_max(low - point)
+                    .component_max((high - point).component_max(point - high));
+                (span, outside.dot(outside), corner.dot(corner))
+            })
+            .collect();
+        let farthest = reaches
+            .iter()
+            .map(|(_, _, farthest)| *farthest)
+            .fold(f64::INFINITY, f64::min);
+        let reach = farthest.max(0.0).sqrt() + LINEAR_RESOLUTION;
+        let reach = reach * reach;
+        let mut runs: Vec<Interval> = Vec::new();
+        for (span, _, _) in reaches
+            .into_iter()
+            .filter(|(_, nearest, _)| *nearest <= reach)
+        {
+            match runs.last_mut() {
+                Some(last) if last.end() == span.start() => {
+                    *last = Interval::new(last.start(), span.end()).unwrap_or(*last);
+                }
+                _ => runs.push(span),
+            }
+        }
+        if runs.is_empty() {
+            return vec![range];
+        }
+        runs
     }
 
     fn knot(&self, index: usize) -> f64 {

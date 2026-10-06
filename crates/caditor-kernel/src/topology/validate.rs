@@ -213,8 +213,10 @@ fn vertices_used(solid: &Solid) -> Checked<()> {
 fn edges(solid: &Solid) -> Checked<()> {
     for (id, edge) in solid.edges() {
         interrupt::check()?;
-        let length = edge.curve().length(edge.interval());
-        if length.is_nan() || length <= LINEAR_RESOLUTION {
+        if !edge
+            .curve()
+            .is_longer_than(edge.interval(), LINEAR_RESOLUTION)
+        {
             return Err(ValidationError::ZeroLengthEdge(id));
         }
         for (vertex, parameter) in [

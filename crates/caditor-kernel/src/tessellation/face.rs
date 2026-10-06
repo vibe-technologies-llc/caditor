@@ -15,6 +15,7 @@ use crate::{
     tessellation::{
         EdgeSampling, Mesh, MeshVertex, POLL_EVERY, TessellationError,
         density::{Density, density},
+        insertion::insertion_order,
     },
     tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
     topology::{EdgeId, Face, FaceId, Solid},
@@ -560,12 +561,32 @@ impl<'a> FacePoints<'a> {
     }
 
     fn triangulate(self) -> Result<FaceTriangulation, TessellationError> {
-        let count = self.points.len();
-        let mut cdt = Cdt::try_bulk_load_cdt(self.mapped, Vec::new(), |_| {})
-            .map_err(|_| TessellationError::Triangulation(self.face))?;
-        if cdt.num_vertices() != count {
-            return Err(TessellationError::Triangulation(self.face));
+        let order = insertion_order(&self.mapped);
+        let mut cdt = Cdt::new();
+        let mut handles: Vec<Option<FixedVertexHandle>> = vec![None; self.points.len()];
+        for (inserted, index) in order.iter().enumerate() {
+            if inserted.is_multiple_of(POLL_EVERY) {
+                interrupt::check()?;
+            }
+            let (Some(point), Some(slot)) = (self.mapped.get(*index), handles.get_mut(*index))
+            else {
+                return Err(TessellationError::Triangulation(self.face));
+            };
+            let handle = cdt
+                .insert(*point)
+                .map_err(|_| TessellationError::Triangulation(self.face))?;
+            if handle.index() != inserted {
+                return Err(TessellationError::Triangulation(self.face));
+            }
+            *slot = Some(handle);
         }
+        let handle = |index: &usize| {
+            handles
+                .get(*index)
+                .copied()
+                .flatten()
+                .ok_or(TessellationError::Triangulation(self.face))
+        };
         for indices in &self.loops {
             let corners = indices.len();
             for (index, from) in indices.iter().enumerate() {
@@ -575,10 +596,7 @@ impl<'a> FacePoints<'a> {
                 let Some(to) = indices.get((index + 1) % corners) else {
                     continue;
                 };
-                let (from, to) = (
-                    FixedVertexHandle::from_index(*from),
-                    FixedVertexHandle::from_index(*to),
-                );
+                let (from, to) = (handle(from)?, handle(to)?);
                 if from == to || cdt.exists_constraint(from, to) {
                     continue;
                 }
@@ -587,10 +605,19 @@ impl<'a> FacePoints<'a> {
                 }
             }
         }
+        let mut points = Vec::with_capacity(order.len());
+        for index in &order {
+            points.push(
+                *self
+                    .points
+                    .get(*index)
+                    .ok_or(TessellationError::Triangulation(self.face))?,
+            );
+        }
         Ok(FaceTriangulation {
             face: self.face,
             cdt,
-            points: self.points,
+            points,
         })
     }
 }

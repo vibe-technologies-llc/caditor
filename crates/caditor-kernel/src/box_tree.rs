@@ -1,4 +1,4 @@
-use caditor_geometry::{Aabb, Point3};
+use caditor_geometry::{Aabb, Point3, Vector3};
 
 use crate::intersect::boxes_overlap;
 
@@ -114,13 +114,67 @@ impl BoxTree {
         found.sort_unstable();
         found
     }
+
+    pub fn possibly_nearest(&self, point: Point3, slack: f64) -> Vec<usize> {
+        let mut reach = f64::INFINITY;
+        let mut pending = Vec::new();
+        if !self.nodes.is_empty() {
+            pending.push(0);
+        }
+        while let Some(index) = pending.pop() {
+            let Some(node) = self.nodes.get(index) else {
+                continue;
+            };
+            if nearest_squared(&node.bounds, point) > reach {
+                continue;
+            }
+            if let Some([left, right]) = node.children {
+                let distance = |child: usize| {
+                    self.nodes
+                        .get(child)
+                        .map_or(f64::INFINITY, |node| nearest_squared(&node.bounds, point))
+                };
+                let (near, far) = if distance(left) <= distance(right) {
+                    (left, right)
+                } else {
+                    (right, left)
+                };
+                pending.extend([far, near]);
+                continue;
+            }
+            let members = self
+                .items
+                .get(node.first..node.first + node.count)
+                .unwrap_or_default();
+            for (_, bounds) in members {
+                reach = reach.min(farthest_squared(bounds, point));
+            }
+        }
+        let reach = reach.sqrt() + slack;
+        let reach = reach * reach;
+        self.matching(|bounds| nearest_squared(bounds, point) <= reach)
+    }
+}
+
+fn nearest_squared(bounds: &Aabb, point: Point3) -> f64 {
+    let outside = (bounds.min() - point)
+        .max(point - bounds.max())
+        .max(Vector3::ZERO);
+    outside.length_squared()
+}
+
+fn farthest_squared(bounds: &Aabb, point: Point3) -> f64 {
+    let reach = (point - bounds.min())
+        .abs()
+        .max((bounds.max() - point).abs());
+    reach.length_squared()
 }
 
 #[cfg(test)]
 mod tests {
     use caditor_geometry::{Aabb, Point3, Vector3};
 
-    use super::BoxTree;
+    use super::{BoxTree, farthest_squared, nearest_squared};
     use crate::intersect::{boxes_overlap, line_window};
 
     fn cube(x: f64, y: f64, z: f64, size: f64) -> Aabb {
@@ -184,6 +238,46 @@ mod tests {
                 .map(|(index, _)| index)
                 .collect();
             assert_eq!(tree.matching(passes), expected);
+        }
+    }
+
+    #[test]
+    fn the_boxes_possibly_nearest_a_point_are_those_no_farther_than_some_box_reaches() {
+        let boxes: Vec<Aabb> = (0..400)
+            .map(|index| {
+                let i = f64::from(index);
+                cube(
+                    (i * 7.3) % 50.0,
+                    (i * 3.1) % 40.0,
+                    (i * 1.7) % 30.0,
+                    0.5 + (i % 3.0),
+                )
+            })
+            .collect();
+        let tree = BoxTree::new(boxes.iter().copied());
+        for point in [
+            Point3::new(10.0, 10.0, 10.0),
+            Point3::new(-20.0, 5.0, 3.0),
+            Point3::new(49.0, 39.0, 29.0),
+            Point3::new(25.0, 100.0, -40.0),
+        ] {
+            let reach = boxes
+                .iter()
+                .map(|bounds| farthest_squared(bounds, point))
+                .fold(f64::INFINITY, f64::min)
+                .sqrt()
+                + 1e-6;
+            let expected: Vec<usize> = boxes
+                .iter()
+                .enumerate()
+                .filter(|(_, bounds)| nearest_squared(bounds, point) <= reach * reach)
+                .map(|(index, _)| index)
+                .collect();
+
+            let found = tree.possibly_nearest(point, 1e-6);
+
+            assert!(!found.is_empty());
+            assert_eq!(found, expected, "{point}");
         }
     }
 

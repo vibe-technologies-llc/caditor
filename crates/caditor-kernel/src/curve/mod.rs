@@ -153,6 +153,24 @@ impl Curve {
         }
     }
 
+    pub fn length_up_to(&self, range: Interval, cap: f64) -> f64 {
+        match self {
+            Self::Line(_) | Self::Circle(_) => self.length(range).min(cap),
+            Self::Ellipse(_) | Self::BSpline(_) | Self::Intersection(_) => {
+                parametric::length_up_to(self, range, cap)
+            }
+        }
+    }
+
+    pub fn is_longer_than(&self, range: Interval, bound: f64) -> bool {
+        match self {
+            Self::Line(_) | Self::Circle(_) => self.length(range) > bound,
+            Self::Ellipse(_) | Self::BSpline(_) | Self::Intersection(_) => {
+                parametric::longer_than(self, range, bound)
+            }
+        }
+    }
+
     pub fn reversal_pivot(&self) -> f64 {
         match self {
             Self::Line(_) | Self::Circle(_) | Self::Ellipse(_) => 0.0,
@@ -248,6 +266,13 @@ impl Parametric for Curve {
             Self::Circle(_) | Self::Ellipse(_) => conic::conic_seeds(range),
             Self::BSpline(spline) => spline.seeds(range),
             Self::Intersection(curve) => curve.seeds(range),
+        }
+    }
+
+    fn nearby_runs(&self, point: Point3, range: Interval) -> Vec<Interval> {
+        match self {
+            Self::BSpline(spline) => spline.nearby_runs(point, range),
+            _ => vec![range],
         }
     }
 }

@@ -31,6 +31,16 @@ fn spline() -> BSplineCurve {
     .unwrap()
 }
 
+fn wavy_spline() -> Curve {
+    let points = (0..80)
+        .map(|index| {
+            let along = f64::from(index);
+            Point3::new(along * 0.5, 2.0 * (along * 0.7).sin(), (along * 0.3).cos())
+        })
+        .collect();
+    BSpline::clamped_uniform(3, points).unwrap().into()
+}
+
 fn curves() -> Vec<(Curve, Interval)> {
     vec![
         (
@@ -48,6 +58,7 @@ fn curves() -> Vec<(Curve, Interval)> {
             Interval::new(-1.0, 5.0).unwrap(),
         ),
         (spline().into(), Interval::new(0.0, 4.0).unwrap()),
+        (wavy_spline(), Interval::new(0.1, 0.85).unwrap()),
     ]
 }
 
@@ -323,4 +334,59 @@ fn an_intersection_curve_rebuilt_through_rough_points_lies_on_both_surfaces() {
         IntersectionCurve::through([upright, across], &rough, true)
     });
     assert!(stopped.is_none());
+}
+
+#[test]
+fn lengths_up_to_a_cap_and_comparisons_agree_with_the_length() {
+    for (curve, range) in curves() {
+        let length = curve.length(range);
+
+        assert!((curve.length_up_to(range, f64::INFINITY) - length).abs() <= 1e-12 * length);
+        assert_eq!(curve.length_up_to(range, 0.5 * length), 0.5 * length);
+        assert!(curve.is_longer_than(range, 0.999 * length), "{curve:?}");
+        assert!(!curve.is_longer_than(range, 1.001 * length), "{curve:?}");
+    }
+}
+
+#[test]
+fn a_closed_curve_is_longer_than_the_chord_between_its_ends() {
+    let circle = Curve::from(Circle::new(Plane::XY, 1e-3).unwrap());
+    let loop_spline = Curve::from(
+        BSpline::clamped_uniform(
+            2,
+            vec![
+                Point3::ZERO,
+                Point3::new(1e-3, 0.0, 0.0),
+                Point3::new(1e-3, 1e-3, 0.0),
+                Point3::ZERO,
+            ],
+        )
+        .unwrap(),
+    );
+
+    assert!(circle.is_longer_than(Interval::FULL_TURN, 6e-3));
+    assert!(loop_spline.is_longer_than(Interval::UNIT, 1e-3));
+    assert!(!loop_spline.is_longer_than(Interval::UNIT, 1e-2));
+}
+
+#[test]
+fn closest_parameter_on_a_spline_of_many_spans_finds_the_nearest_point() {
+    let mut random = Random::new(29);
+    let curve = wavy_spline();
+    let range = Interval::UNIT;
+    let samples = dense(&curve, range, 40_000);
+    for _ in 0..200 {
+        let point = curve.point(random.unit()) + random.point(1.5);
+
+        let found = curve.closest_parameter(point, range);
+        let sampled = samples
+            .iter()
+            .map(|(_, sample)| sample.distance(point))
+            .fold(f64::INFINITY, f64::min);
+
+        assert!(
+            curve.point(found).distance(point) <= sampled + 1e-9,
+            "{point}"
+        );
+    }
 }

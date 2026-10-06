@@ -5,7 +5,7 @@ use caditor_geometry::{Aabb, Point2, Point3};
 use crate::{
     boolean::{BooleanError, FaceBounds, FaceKey, Input, Operand, TOLERANCE},
     curve::Curve,
-    interrupt,
+    interrupt::{self, Interrupted},
     intersect::{
         IntersectionBranch, IntersectionError, SurfaceIntersection, SurfacePatch,
         intersect_curve_surface, intersect_curves, intersect_surfaces_through,
@@ -323,14 +323,14 @@ pub(super) fn imprint(input: &Input) -> Result<Arrangement, BooleanError> {
     }
     for branch in &branches {
         interrupt::check()?;
-        clip_branch(input, branch, &mut pool, &mut arrangement);
+        clip_branch(input, branch, &mut pool, &mut arrangement)?;
     }
     for piece in &mut arrangement.pieces {
         piece.start = merged.find(piece.start);
         piece.end = merged.find(piece.end);
     }
     arrangement.points = pool.points;
-    arrangement.representatives = deduplicate(&arrangement);
+    arrangement.representatives = deduplicate(&arrangement)?;
     Ok(arrangement)
 }
 
@@ -588,7 +588,7 @@ fn split_edges(
                 merged.join(*start, *end);
                 continue;
             };
-            if curve.length(range) <= TOLERANCE {
+            if !curve.is_longer_than(range, TOLERANCE) {
                 merged.join(*start, *end);
                 continue;
             }
@@ -660,7 +660,7 @@ fn face_uvs(
     Some(located)
 }
 
-fn inside_both(input: &Input, branch: &Branch, interval: Interval, length: f64) -> bool {
+fn inside_both(input: &Input, branch: &Branch, interval: Interval) -> bool {
     let mut inside = [false; 2];
     for fraction in INSIDE_SAMPLES {
         let parameter = interval.at(fraction);
@@ -679,12 +679,18 @@ fn inside_both(input: &Input, branch: &Branch, interval: Interval, length: f64) 
             return true;
         }
     }
-    length <= UNJUDGED_PIECE
+    !branch.branch.curve.is_longer_than(interval, UNJUDGED_PIECE)
 }
 
-fn branch_stops(curve: &Curve, range: Interval, closed: bool, pool: &Pool) -> Vec<(f64, usize)> {
+fn branch_stops(
+    curve: &Curve,
+    range: Interval,
+    closed: bool,
+    pool: &Pool,
+) -> Result<Vec<(f64, usize)>, Interrupted> {
     let mut stops: Vec<(f64, usize)> = Vec::new();
     for (vertex, point) in pool.near(curve, range) {
+        interrupt::check()?;
         let parameter = curve.closest_parameter(point, range);
         if curve.point(parameter).distance(point) > TOLERANCE {
             continue;
@@ -698,14 +704,19 @@ fn branch_stops(curve: &Curve, range: Interval, closed: bool, pool: &Pool) -> Ve
     }
     stops.sort_by(|a, b| a.0.total_cmp(&b.0));
     stops.dedup_by_key(|stop| stop.1);
-    stops
+    Ok(stops)
 }
 
-fn clip_branch(input: &Input, branch: &Branch, pool: &mut Pool, arrangement: &mut Arrangement) {
+fn clip_branch(
+    input: &Input,
+    branch: &Branch,
+    pool: &mut Pool,
+    arrangement: &mut Arrangement,
+) -> Result<(), Interrupted> {
     let curve = &branch.branch.curve;
     let range = branch.branch.range;
     let closed = branch.branch.closed;
-    let mut stops = branch_stops(curve, range, closed, pool);
+    let mut stops = branch_stops(curve, range, closed, pool)?;
     let segments: Vec<(Mark, Mark)> = if closed {
         if stops.is_empty() {
             let vertex = pool.insert(curve.point(range.start()), None);
@@ -757,11 +768,11 @@ fn clip_branch(input: &Input, branch: &Branch, pool: &mut Pool, arrangement: &mu
     };
     let mut source = None;
     for ((from, start), (to, end)) in segments {
+        interrupt::check()?;
         let Some(interval) = Interval::new(from, to) else {
             continue;
         };
-        let length = curve.length(interval);
-        if length <= TOLERANCE || !inside_both(input, branch, interval, length) {
+        if !curve.is_longer_than(interval, TOLERANCE) || !inside_both(input, branch, interval) {
             continue;
         }
         let start = start.unwrap_or_else(|| pool.insert(curve.point(from), None));
@@ -785,6 +796,7 @@ fn clip_branch(input: &Input, branch: &Branch, pool: &mut Pool, arrangement: &mu
             arrangement.cuts.entry(key).or_default().push(piece);
         }
     }
+    Ok(())
 }
 
 fn same_piece(arrangement: &Arrangement, first: usize, second: usize) -> Option<Sense> {
@@ -818,7 +830,7 @@ fn same_piece(arrangement: &Arrangement, first: usize, second: usize) -> Option<
     (expected == (first_piece.start, first_piece.end)).then_some(relation)
 }
 
-fn deduplicate(arrangement: &Arrangement) -> Vec<(usize, Sense)> {
+fn deduplicate(arrangement: &Arrangement) -> Result<Vec<(usize, Sense)>, Interrupted> {
     let count = arrangement.pieces.len();
     let mut representatives: Vec<(usize, Sense)> =
         (0..count).map(|index| (index, Sense::Same)).collect();
@@ -836,6 +848,7 @@ fn deduplicate(arrangement: &Arrangement) -> Vec<(usize, Sense)> {
                 continue;
             }
             for second in members.iter().skip(position + 1) {
+                interrupt::check()?;
                 if representatives
                     .get(*second)
                     .is_none_or(|(rep, _)| rep != second)
@@ -850,5 +863,5 @@ fn deduplicate(arrangement: &Arrangement) -> Vec<(usize, Sense)> {
             }
         }
     }
-    representatives
+    Ok(representatives)
 }

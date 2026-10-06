@@ -26,9 +26,13 @@ paths:
   neighbours and never fans across a dense row of grid points, which on a torus much thinner than
   its ring spanned the tube; a face without a grid is scaled by the mean surface speeds. Gaps along
   a pole line or seam joint are filled in cell space, one point per cell they cross.
-- Points are deduplicated by exact scaled coordinates (`DuplicateBoundaryPoint`), bulk-loaded, and
-  only then joined by the loops' constraint edges (inserting boundary points one by one flipped
-  edges quadratically). Triangles are kept by the parity of constraint crossings from outside.
+- Points are deduplicated by exact scaled coordinates (`DuplicateBoundaryPoint`), inserted in a
+  biased randomised order (`insertion.rs`: rounds doubling in size from a fixed-seed shuffle, each
+  sorted along a Z-order curve), and only then joined by the loops' constraint edges. Inserting
+  boundary points in loop order flipped edges quadratically, and spade's bulk load walks its hull
+  quadratically when the points lie along one curve (a cap cut in half: 18,000 boundary points took
+  2 s, against 5 ms in this order). Triangles are kept by the parity of constraint crossings from
+  outside.
 - Boundary points at one vertex whose parameters differ by a spatially negligible gap are merged,
   and a pinched vertex takes the uv of its first pass, so joints do not become spikes.
 - Where two boundary polylines leave one point along the same chord (tangent curves sampled at the

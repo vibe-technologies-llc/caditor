@@ -1,4 +1,7 @@
-use std::f64::consts::{PI, TAU};
+use std::{
+    f64::consts::{PI, TAU},
+    sync::Arc,
+};
 
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 
@@ -8,9 +11,10 @@ use crate::{
     error::GeometryError,
     interval::Interval,
     numeric::{Taylor, minimize_near},
-    parametric::{closest_parameter_near, refined_seeds},
+    parametric::{closest_parameter_among, seed_runs},
     surface::{
         SurfaceDerivatives,
+        profile_spans::ProfileSpans,
         projection::{AXIS_EPSILON, periodic_near},
     },
     tolerance::{LINEAR_RESOLUTION, parallel},
@@ -26,6 +30,7 @@ const MIN_LINE_SWEEP_SINE: f64 = 1e-6;
 pub struct Extrusion {
     profile: Curve,
     direction: Vector3,
+    spans: Option<Arc<ProfileSpans>>,
 }
 
 impl Extrusion {
@@ -44,11 +49,20 @@ impl Extrusion {
         if !sweeps {
             return Err(GeometryError::DegenerateSurface);
         }
-        Ok(Self { profile, direction })
+        let spans = ProfileSpans::of(&profile, Some(direction)).map(Arc::new);
+        Ok(Self {
+            profile,
+            direction,
+            spans,
+        })
     }
 
     pub fn profile(&self) -> &Curve {
         &self.profile
+    }
+
+    pub(crate) fn heap_size(&self) -> usize {
+        self.profile.heap_size() + self.spans.as_ref().map_or(0, |spans| spans.heap_size())
     }
 
     pub fn direction(&self) -> Vector3 {
@@ -76,7 +90,13 @@ impl Extrusion {
             }
             profile => {
                 let range = profile_search_range(profile, hint.map(|hint| hint.x));
-                let samples = || refined_seeds(profile, range, PROFILE_SEED_REFINEMENT);
+                let samples = || {
+                    let runs = match &self.spans {
+                        Some(spans) => spans.runs(point),
+                        None => vec![range],
+                    };
+                    seed_runs(profile, runs, PROFILE_SEED_REFINEMENT)
+                };
                 let objective = |parameter: f64| {
                     let curve = profile.evaluate(range.clamp(parameter));
                     let offset = across(curve.point - point);
@@ -108,6 +128,7 @@ pub struct Revolution {
     profile: Curve,
     axis: Plane,
     meridian_angle: f64,
+    spans: Option<Arc<ProfileSpans>>,
 }
 
 impl Revolution {
@@ -139,15 +160,21 @@ impl Revolution {
         if skew {
             return Err(GeometryError::ProfileOutsideMeridian);
         }
+        let spans = ProfileSpans::of(&profile, None).map(Arc::new);
         Ok(Self {
             profile,
             axis,
             meridian_angle,
+            spans,
         })
     }
 
     pub fn profile(&self) -> &Curve {
         &self.profile
+    }
+
+    pub(crate) fn heap_size(&self) -> usize {
+        self.profile.heap_size() + self.spans.as_ref().map_or(0, |spans| spans.heap_size())
     }
 
     pub fn axis_origin(&self) -> Point3 {
@@ -204,7 +231,12 @@ impl Revolution {
             .into_iter()
             .map(|angle| {
                 let unrotated = self.axis.origin() + self.rotate(offset, -angle);
-                let v = closest_on_profile(&self.profile, unrotated, hint.map(|hint| hint.y));
+                let v = closest_on_profile(
+                    &self.profile,
+                    self.spans.as_deref(),
+                    unrotated,
+                    hint.map(|hint| hint.y),
+                );
                 let distance = self.profile.point(v).distance_squared(unrotated);
                 (Point2::new(angle.rem_euclid(TAU), v), distance)
             })
@@ -222,7 +254,12 @@ pub(crate) fn profile_search_range(profile: &Curve, hint: Option<f64>) -> Interv
     }
 }
 
-pub(crate) fn closest_on_profile(profile: &Curve, point: Point3, hint: Option<f64>) -> f64 {
+fn closest_on_profile(
+    profile: &Curve,
+    spans: Option<&ProfileSpans>,
+    point: Point3,
+    hint: Option<f64>,
+) -> f64 {
     match profile {
         Curve::Line(line) => line.parameter_of(point),
         Curve::Circle(_) => {
@@ -232,7 +269,10 @@ pub(crate) fn closest_on_profile(profile: &Curve, point: Point3, hint: Option<f6
         }
         profile => {
             let range = profile_search_range(profile, hint);
-            let found = closest_parameter_near(profile, point, range, hint);
+            let found = closest_parameter_among(profile, point, range, hint, || match spans {
+                Some(spans) => spans.runs(point),
+                None => vec![range],
+            });
             match profile.period() {
                 Some(period) => periodic_near(found, period, hint),
                 None => found,

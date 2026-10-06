@@ -33,12 +33,23 @@ paths:
 - Closest points and `project` take a hint: the search refines near it first and samples the whole
   range only when that foot is not within the resolution, so chained projections stay cheap, and
   the hint's foot is kept unless another is closer by more than the resolution, so self-crossing
-  profiles project consistently. Surface `project` returns the periodic representative nearest the
-  hint, else the principal one in [0, period). A spline surface seeds from a grid of three samples
-  per knot span, capped at 48 a direction; a net with more spans than that also keeps a box tree of
-  each span's control hull, and a point no seed reaches within the resolution is sought from the
-  nearest of a few samples in each span whose hull holds it (at most `MAX_SPAN_SEARCHES`), so a
-  point on a dense, rough net always finds its foot.
+  profiles project consistently. The whole-range search on a spline of at least `MIN_PRUNED_SPANS`
+  spans samples only the runs of spans whose control hull comes no farther than the nearest any
+  hull reaches (`BSpline::nearby_runs`), and an extrusion or revolution whose profile has at least
+  `MIN_INDEXED_SPANS` spans keeps a box tree of its span hulls (flattened across an extrusion's
+  direction, `surface/profile_spans.rs`), so projecting onto a profile of thousands of control
+  points visits a handful of spans.
+  Surface `project` returns the periodic representative nearest the hint, else the principal one in
+  [0, period). A spline surface seeds from a grid of three samples per knot span, capped at 48 a
+  direction; a net with more spans than that also keeps a box tree of each span's control hull, and
+  a point no seed reaches within the resolution is sought from the nearest of a few samples in each
+  span whose hull holds it (at most `MAX_SPAN_SEARCHES`), so a point on a dense, rough net always
+  finds its foot.
+- Lengths are compared through `is_longer_than` (the chord, then a polyline through the seeds, and
+  only then the integral) and capped with `length_up_to`, which stops once past the cap; building,
+  validation, imprinting and profile arrangement never measure a whole spline to compare it with a
+  tolerance, and tracing measures the candidates at a vertex shortest chord first, each capped by
+  the shortest so far.
 - `Curve::Intersection(IntersectionCurve)` lies on two surfaces it carries, within
   `INTERSECTION_TOLERANCE`. `IntersectionCurve::through` rebuilds one from rough points (an
   imported edge off its faces) and is the only path that follows surfaces that merely touch (a

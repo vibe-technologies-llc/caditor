@@ -4,6 +4,8 @@ mod march;
 mod overlap;
 mod recognize;
 
+use std::cell::Cell;
+
 use caditor_geometry::{Aabb, Point2, Point3};
 
 pub(crate) use self::analytic::line_window;
@@ -119,7 +121,7 @@ pub fn intersect_surfaces_through(
         Some(raw) => raw,
         None => march::intersect(first, second, hints)?,
     };
-    Ok(finish(first, second, &window, raw))
+    finish(first, second, &window, raw)
 }
 
 pub(crate) fn shared_window(first: &Aabb, second: &Aabb) -> Aabb {
@@ -139,11 +141,17 @@ fn clip(
     second: &SurfacePatch,
     window: &Aabb,
     raw: &RawCurve,
-) -> Vec<Interval> {
+) -> Result<Vec<Interval>, IntersectionError> {
     let reach = window.expanded(WINDOW_REACH * window.diagonal().max(TOLERANCE));
+    let previous = Cell::new([first.bounds().center(), second.bounds().center()]);
     let probe = |parameter: f64| {
         let point = raw.curve.point(parameter);
-        let uv = [first.place(point), second.place(point)];
+        let [first_hint, second_hint] = previous.get();
+        let uv = [
+            first.place_near(point, first_hint),
+            second.place_near(point, second_hint),
+        ];
+        previous.set(uv);
         let [first_uv, second_uv] = uv;
         (first.contains(first_uv) && second.contains(second_uv), uv)
     };
@@ -154,10 +162,10 @@ fn clip(
         first.path_misses([first_start, first_middle, first_end])
             || second.path_misses([second_start, second_middle, second_end])
     };
-    let mut pieces: Vec<Interval> = spans_within(&raw.curve, raw.range, &reach)
-        .into_iter()
-        .flat_map(|span| guided_intervals(span, CLIP_SAMPLES, probe, misses))
-        .collect();
+    let mut pieces: Vec<Interval> = Vec::new();
+    for span in spans_within(&raw.curve, raw.range, &reach) {
+        pieces.extend(guided_intervals(span, CLIP_SAMPLES, probe, misses)?);
+    }
     let whole_period = raw
         .curve
         .period()
@@ -174,7 +182,7 @@ fn clip(
         pieces.retain(|piece| *piece != first_piece && *piece != last_piece);
         pieces.push(joined);
     }
-    pieces
+    Ok(pieces)
 }
 
 fn spans_within(curve: &Curve, range: Interval, reach: &Aabb) -> Vec<Interval> {
@@ -220,11 +228,11 @@ fn finish(
     second: &SurfacePatch,
     window: &Aabb,
     raw: Raw,
-) -> SurfaceIntersection {
+) -> Result<SurfaceIntersection, IntersectionError> {
     let mut branches = Vec::new();
     for curve in &raw.curves {
-        for range in clip(first, second, window, curve) {
-            if curve.curve.length(range) <= MIN_BRANCH_LENGTH {
+        for range in clip(first, second, window, curve)? {
+            if !curve.curve.is_longer_than(range, MIN_BRANCH_LENGTH) {
                 continue;
             }
             let (start, end) = (
@@ -268,5 +276,5 @@ fn finish(
             tangent: point.tangent,
         });
     }
-    SurfaceIntersection::Branches { branches, points }
+    Ok(SurfaceIntersection::Branches { branches, points })
 }

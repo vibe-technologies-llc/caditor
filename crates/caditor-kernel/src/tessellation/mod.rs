@@ -1,5 +1,6 @@
 mod density;
 mod face;
+mod insertion;
 mod mass;
 #[cfg(test)]
 mod tests;

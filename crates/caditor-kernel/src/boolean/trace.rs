@@ -136,7 +136,6 @@ struct Travel {
     end: usize,
     leaving: Vector3,
     arriving: Vector3,
-    length: f64,
     piece: usize,
     sense: Sense,
 }
@@ -154,10 +153,35 @@ fn travel(arrangement: &Arrangement, half_edge: &HalfEdge) -> Option<Travel> {
         end: piece.end_of(half_edge.sense),
         leaving: curve.evaluate(from).first * sign,
         arriving: curve.evaluate(to).first * sign,
-        length: curve.length(piece.interval),
         piece: half_edge.piece,
         sense: half_edge.sense,
     })
+}
+
+fn shortest_travel<'a>(
+    arrangement: &Arrangement,
+    travels: impl Iterator<Item = &'a Travel>,
+) -> f64 {
+    let chord = |travel: &Travel| {
+        arrangement
+            .point(travel.start)
+            .zip(arrangement.point(travel.end))
+            .map_or(0.0, |(start, end)| start.distance(end))
+    };
+    let mut by_chord: Vec<(f64, &Travel)> = travels.map(|travel| (chord(travel), travel)).collect();
+    by_chord.sort_by(|a, b| a.0.total_cmp(&b.0));
+    by_chord
+        .into_iter()
+        .fold(f64::INFINITY, |shortest, (chord, travel)| {
+            if chord >= shortest {
+                return shortest;
+            }
+            arrangement
+                .curve(travel.piece)
+                .map_or(shortest, |(curve, piece)| {
+                    curve.length_up_to(piece.interval, shortest).min(shortest)
+                })
+        })
 }
 
 fn point_along(
@@ -326,11 +350,13 @@ pub(super) fn trace(
         let frame = Frame::new(*normal, -travel.arriving)?;
         let point = arrangement.point(travel.end)?;
         let reach = CHORD_FRACTION
-            * forward
-                .iter()
-                .filter_map(|index| travels.get(*index))
-                .map(|candidate| candidate.length)
-                .fold(travel.length, f64::min);
+            * shortest_travel(
+                arrangement,
+                forward
+                    .iter()
+                    .filter_map(|index| travels.get(*index))
+                    .chain([travel]),
+            );
         let back = point_along(arrangement, travel, false, reach)? - point;
         let reference = frame.signed_angle(back);
         let turns: Vec<(usize, Turn)> = forward

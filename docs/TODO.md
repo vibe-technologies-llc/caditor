@@ -74,12 +74,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Kernel performance
 
-- [medium · medium] A boolean with an extruded spline of thousands of control points runs for
-  seconds (600 control points) to many minutes (6,000) without polling `interrupt::check`: clipping
-  the branch along its cap (`surface_surface::clip`) projects each probe onto the extrusion from the
-  patch centre, a search over the whole profile, where the previous probe's foot would do. Each
-  `Curve::length` of a 6,000-point spline also takes about 70 ms unpolled, and the builder,
-  validation and boolean tracing each measure it again.
 - [medium · hard] Every boolean rebuilds and revalidates every face of the body through `assemble`
   and `Plan::build` even when the tool touches two (an untouched face only skips tracing and
   classification), so a sequence of hole features is quadratic: in release the 144th hole of a block
@@ -90,6 +84,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
   disjoint.
 - [low · medium] Marched curves' `closest_parameter` and `length` reseed over all nodes on every
   call, from loops over nearby vertices in `imprint.rs`.
+- [low · medium] Tracing a boolean measures the shortest piece leaving a vertex in full, unpolled:
+  half the profile of an extruded spline of 6,000 control points takes about 0.1 s in release, the
+  longest stretch without a poll in that boolean. `Curve::length` integrates 96 points per cubic
+  span; a bound good enough for the chord probes, or fewer points per span, would do.
 - [low · hard] The face grid is graded per direction but still a tensor product, so a bump divides
   the whole rows and columns through it, and curvature is sampled only on the lattice, so a feature
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where

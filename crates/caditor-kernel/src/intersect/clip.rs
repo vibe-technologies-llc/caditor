@@ -1,4 +1,7 @@
-use crate::interval::Interval;
+use crate::{
+    interrupt::{self, Interrupted},
+    interval::Interval,
+};
 
 const BISECTIONS: usize = 60;
 const MAX_REFINEMENT_DEPTH: usize = 24;
@@ -69,14 +72,13 @@ pub(crate) fn guided_intervals<S: Copy>(
     samples: usize,
     probe: impl Fn(f64) -> (bool, S),
     apart: impl Fn([S; 3]) -> bool,
-) -> Vec<Interval> {
-    let probed: Vec<(f64, bool, S)> = range
-        .split(samples.max(1))
-        .map(|parameter| {
-            let (inside, sample) = probe(parameter);
-            (parameter, inside, sample)
-        })
-        .collect();
+) -> Result<Vec<Interval>, Interrupted> {
+    let mut probed: Vec<(f64, bool, S)> = Vec::with_capacity(samples.max(1) + 1);
+    for parameter in range.split(samples.max(1)) {
+        interrupt::check()?;
+        let (inside, sample) = probe(parameter);
+        probed.push((parameter, inside, sample));
+    }
     let mut flags: Vec<(f64, bool)> = Vec::with_capacity(probed.len());
     for (index, &(parameter, inside, sample)) in probed.iter().enumerate() {
         if let Some(&(before, false, earlier)) = index.checked_sub(1).and_then(|at| probed.get(at))
@@ -89,11 +91,12 @@ pub(crate) fn guided_intervals<S: Copy>(
                 &probe,
                 &apart,
                 &mut flags,
-            );
+            )?;
         }
         flags.push((parameter, inside));
     }
-    runs(range, &flags, |parameter| probe(parameter).0)
+    interrupt::check()?;
+    Ok(runs(range, &flags, |parameter| probe(parameter).0))
 }
 
 fn refine<S: Copy>(
@@ -103,25 +106,26 @@ fn refine<S: Copy>(
     probe: &impl Fn(f64) -> (bool, S),
     apart: &impl Fn([S; 3]) -> bool,
     flags: &mut Vec<(f64, bool)>,
-) {
+) -> Result<(), Interrupted> {
     if depth >= MAX_REFINEMENT_DEPTH {
-        return;
+        return Ok(());
     }
     let middle = 0.5 * (low.0 + high.0);
     if middle <= low.0 || middle >= high.0 {
-        return;
+        return Ok(());
     }
+    interrupt::check()?;
     let (inside, sample) = probe(middle);
     if inside {
         flags.push((middle, true));
-        return;
+        return Ok(());
     }
     if apart([low.1, sample, high.1]) {
-        return;
+        return Ok(());
     }
-    refine(low, (middle, sample), depth + 1, probe, apart, flags);
+    refine(low, (middle, sample), depth + 1, probe, apart, flags)?;
     flags.push((middle, false));
-    refine((middle, sample), high, depth + 1, probe, apart, flags);
+    refine((middle, sample), high, depth + 1, probe, apart, flags)
 }
 
 #[cfg(test)]
@@ -161,7 +165,7 @@ mod tests {
         let probe = |t: f64| (within(t), t);
         let apart = |[low, _, high]: [f64; 3]| high < 33.0 || low > 34.0;
 
-        let found = guided_intervals(range, 32, probe, apart);
+        let found = guided_intervals(range, 32, probe, apart).unwrap();
 
         assert_eq!(found.len(), 1);
         assert!((found[0].start() - 33.0).abs() < 1e-9);
@@ -177,7 +181,7 @@ mod tests {
             (false, t)
         };
 
-        let found = guided_intervals(range, 8, probe, |_| true);
+        let found = guided_intervals(range, 8, probe, |_| true).unwrap();
 
         assert!(found.is_empty());
         assert_eq!(probes.get(), 9 + 8);
