@@ -85,6 +85,14 @@ paths:
 - Poles have no degenerate edges: the pole is a vertex, the uv loop closes along the pole line
   between the two coedges meeting there, and a pcurve end at a pole takes its v exactly.
 
+- `Solid::bounding_box` is a bound, not an estimate: the box of the edges and vertices, widened by
+  each doubly curved face's interior extremes. A sphere's and a torus's extremes along each axis
+  are closed-form (`torus_extremes`: centre ± major radius along the axis's part across the torus
+  ± minor radius along the axis) and count when inside the face; every other extreme of those
+  faces lies on an edge. A torus whose axis is the box axis has a ring of extremes, sampled
+  (`RING_SAMPLES`). Revolution and spline faces add `patch_bounds` of their uv box, which may be
+  loose but never short. `interference` answers `Apart` from this box, so it must never fall short.
+
 ## Transforms (`mapping.rs`, `topology/mapping.rs`)
 
 - `RigidTransform` moves geometry and leaves every parameter alone (`transformed`); a

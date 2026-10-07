@@ -36,7 +36,8 @@ use crate::{
     interval::Interval,
     naming::{EdgeName, FaceName, FaceOrigin, VertexName, occurrence_order},
     sense::Sense,
-    surface::Surface,
+    intersect::patch_bounds,
+    surface::{Surface, Torus},
     tessellation::{self, Mesh, TessellationError},
     tolerance::{MeshQuality, SamplingTolerance},
 };
@@ -368,22 +369,12 @@ impl Solid {
         }
         let classifier = self.classifier();
         let mut inside = Vec::new();
+        let mut hulls = Vec::new();
         for id in curved {
             let (Some(face), Some(uv_box)) = (self.face(id), classifier.face_uv_box(id)) else {
                 continue;
             };
             let surface = face.surface();
-            let step = |low: f64, high: f64, index: usize| {
-                low + (high - low) * index as f64 / BOUNDS_GRID as f64
-            };
-            let grid = (0..=BOUNDS_GRID).flat_map(|row| {
-                (0..=BOUNDS_GRID).map(move |column| {
-                    Point2::new(
-                        step(uv_box.min().x, uv_box.max().x, column),
-                        step(uv_box.min().y, uv_box.max().y, row),
-                    )
-                })
-            });
             let extremes: Vec<Point2> = match surface {
                 Surface::Sphere(sphere) => [Vector3::X, Vector3::Y, Vector3::Z]
                     .into_iter()
@@ -392,9 +383,20 @@ impl Solid {
                         surface.project(sphere.center() + direction * sphere.radius(), None)
                     })
                     .collect(),
-                _ => Vec::new(),
+                Surface::Torus(torus) => torus_extremes(torus)
+                    .into_iter()
+                    .map(|point| surface.project(point, None))
+                    .collect(),
+                Surface::Revolution(_) | Surface::BSpline(_) => {
+                    hulls.push(patch_bounds(surface, uv_box));
+                    Vec::new()
+                }
+                Surface::Plane(_)
+                | Surface::Cylinder(_)
+                | Surface::Cone(_)
+                | Surface::Extrusion(_) => Vec::new(),
             };
-            for uv in grid.chain(extremes) {
+            for uv in extremes {
                 if matches!(
                     classifier.point_in_face(id, uv),
                     Some(FaceContainment::Inside | FaceContainment::OnBoundary)
@@ -403,10 +405,11 @@ impl Solid {
                 }
             }
         }
-        Some(match Aabb::from_points(inside) {
+        let reached = match Aabb::from_points(inside) {
             Some(faces) => outline.union(faces),
             None => outline,
-        })
+        };
+        Some(hulls.into_iter().fold(reached, Aabb::union))
     }
 
     pub fn transformed(&self, transform: &RigidTransform) -> Result<Self, GeometryError> {
@@ -685,7 +688,32 @@ impl Solid {
     }
 }
 
-const BOUNDS_GRID: usize = 12;
+const RING_SAMPLES: usize = 12;
+
+fn torus_extremes(torus: &Torus) -> Vec<Point3> {
+    let frame = torus.frame();
+    let (center, normal) = (frame.origin(), frame.normal());
+    let (major, minor) = (torus.major_radius(), torus.minor_radius());
+    let mut extremes = Vec::new();
+    for direction in [Vector3::X, Vector3::Y, Vector3::Z] {
+        let across = direction - normal * direction.dot(normal);
+        let rings: Vec<Vector3> = match across.try_normalize() {
+            Some(radial) => vec![radial, -radial],
+            None => (0..RING_SAMPLES)
+                .map(|step| {
+                    let angle = std::f64::consts::TAU * step as f64 / RING_SAMPLES as f64;
+                    frame.x_axis() * angle.cos() + frame.y_axis() * angle.sin()
+                })
+                .collect(),
+        };
+        for radial in rings {
+            for side in [direction, -direction] {
+                extremes.push(center + radial * major + side * minor);
+            }
+        }
+    }
+    extremes
+}
 
 fn doubly_curved(surface: &Surface) -> bool {
     matches!(

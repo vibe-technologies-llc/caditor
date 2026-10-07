@@ -35,14 +35,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   (`tori_touching_along_their_equators_cannot_be_split`), and a lump too thin for the validation
   mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along each axis
   is `Invalid(VoidOutside)`, with no test pinning it.
-- [medium · easy] `Solid::bounding_box` is not a bound: only spheres add their axis extremes, and
-  other doubly curved faces (tori, revolutions, splines) add a 12×12 uv grid (`BOUNDS_GRID`) that
-  falls short wherever the extreme lies between samples (a torus of radii 20 and 5 tilted 45° is
-  0.17 mm short in two axes). `interference` and the Interference panel's `check` answer `Apart`
-  from that box, so a body pressed into such a face by less than the shortfall is reported apart
-  without reaching the boolean. Add the torus's closed-form extremes and bound spline and
-  revolution faces by their control hulls (or the boolean's own `patch_bounds`), with a test of a
-  tilted torus against a block.
 - [medium · hard] Offsets within `LINEAR_RESOLUTION` compound past it: a block whose back and
   bottom are each within the resolution of a plate's faces (8.3e-7 and 6.2e-7) has its corner
   1.03e-6 off the plate's edge, so the corner is neither pooled with the edge nor apart from it,

@@ -616,6 +616,24 @@ fn a_sphere_is_bounded_where_no_edge_reaches() {
 }
 
 #[test]
+fn a_tilted_torus_is_bounded_by_its_extremes_between_samples() {
+    let turn =
+        RigidTransform::rotation_about(Point3::ZERO, Vector3::X, std::f64::consts::FRAC_PI_4)
+            .unwrap();
+    let ring = crate::fixtures::torus(20.0, 5.0)
+        .transformed(&turn)
+        .unwrap();
+
+    let bounds = ring.bounding_box().unwrap();
+
+    let slanted = 20.0 * std::f64::consts::FRAC_1_SQRT_2 + 5.0;
+    for (axis, reach) in [(0, 25.0), (1, slanted), (2, slanted)] {
+        assert!((bounds.min()[axis] + reach).abs() < 1e-6, "{bounds:?}");
+        assert!((bounds.max()[axis] - reach).abs() < 1e-6, "{bounds:?}");
+    }
+}
+
+#[test]
 fn overlapping_lumps_cross_and_valid_solids_do_not() {
     let mut fixture = crate::fixtures::Fixture::new();
     crate::fixtures::add_cuboid(

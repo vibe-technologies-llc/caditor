@@ -2,7 +2,7 @@ use caditor_geometry::{RigidTransform, Vector3};
 
 use super::{BooleanError, Interference, interference};
 use crate::{
-    fixtures::{cuboid, cylinder, sphere},
+    fixtures::{cuboid, cylinder, sphere, torus},
     test_support::assert_cancelled_anywhere,
     tolerance::SamplingTolerance,
     topology::Solid,
@@ -135,4 +135,22 @@ fn checking_interference_cancelled_at_any_poll_stops_with_cancelled() {
             |error| matches!(error, BooleanError::Cancelled(_)),
         );
     }
+}
+
+#[test]
+fn a_block_pressed_into_a_tilted_torus_between_bound_samples_overlaps_it() {
+    let turn = RigidTransform::rotation_about(
+        caditor_geometry::Point3::ZERO,
+        Vector3::X,
+        std::f64::consts::FRAC_PI_4,
+    )
+    .unwrap();
+    let ring = torus(20.0, 5.0).transformed(&turn).unwrap();
+    let top = 20.0 * std::f64::consts::FRAC_1_SQRT_2 + 5.0;
+    let pressed = block((-1.0, -25.0, top - 0.1), (1.0, 25.0, top + 5.0));
+
+    assert!(matches!(
+        found(&ring, &pressed),
+        Interference::Overlapping(_)
+    ));
 }
