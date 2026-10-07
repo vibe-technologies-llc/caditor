@@ -515,10 +515,6 @@ Linux is the primary platform and Windows the only other one; macOS is not a goa
   monitors), the rfd dialogs owned by the window, sign-out flushing the journal, the MSI from
   SmartScreen to uninstall, and a model and its journal on a USB stick (FAT32/exFAT, no POSIX
   rename) and on a network share.
-- [low · easy] A failed install over an existing one removes the old version as well: `install.sh`
-  lists each path before copying it and `roll_back` deletes every listed path, including files the
-  previous install had there. Copy to temporary names beside the targets and rename them into place
-  once every copy succeeded, and add an upgrade that fails midway to `check-install.sh`.
 - [low · medium] On Windows, hovering caditor's own maximize button does not offer Snap Layouts:
   that needs the button to answer `WM_NCHITTEST` with `HTMAXBUTTON`, which winit does not expose,
   so it would be another `caditor-windows` subclass hook.

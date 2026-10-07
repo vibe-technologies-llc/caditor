@@ -74,7 +74,9 @@ fresh checksums; commit its diff once CI passes on it.
    `packaging/check-install.sh target/dist/caditor-<version>-snapshot-linux-x86_64.tar.zst`,
    which installs it into a temporary prefix whose name holds a space, `&` and `%`, checks every
    file, the menu entry and the program, uninstalls it, and checks that a failed install leaves
-   nothing behind. CI runs both on every push.
+   nothing behind and that an upgrade failing midway leaves the earlier install as it was
+   (`install.sh` copies every file to a `.caditor-new` name beside its target and renames them
+   into place only once every copy succeeded). CI runs both on every push.
    On Windows, `packaging/windows/build-release.ps1 -Snapshot` (it needs the
    WiX 5 .NET tool, `dotnet tool install --global wix --version 5.0.2`) builds
    `target/dist/caditor-<version>-snapshot-windows-x86_64.msi`, and

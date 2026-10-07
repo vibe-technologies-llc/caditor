@@ -76,4 +76,21 @@ fi
 left=$(find "$blocked_prefix" -mindepth 1 ! -path "$blocked_prefix/share" ! -type d)
 [ -z "$left" ] || fail "a failed install left files behind: $left"
 
+upgraded_prefix="$work/upgraded"
+"$package/install.sh" --prefix "$upgraded_prefix" >/dev/null
+before=$(cd "$upgraded_prefix" && find . -type f -exec cksum {} + | LC_ALL=C sort)
+newer="$work/newer"
+cp -R "$package" "$newer"
+mkdir -p "$newer/share/doc/caditor/added"
+echo "a file only the newer release has" >"$newer/share/doc/caditor/added/NOTES"
+: >"$upgraded_prefix/share/doc/caditor/added"
+if "$newer/install.sh" --prefix "$upgraded_prefix" >/dev/null 2>&1; then
+    fail "an upgrade that could not copy every file succeeded"
+fi
+after=$(cd "$upgraded_prefix" && find . -type f ! -path ./share/doc/caditor/added -exec cksum {} + \
+    | LC_ALL=C sort)
+[ "$before" = "$after" ] || fail "an upgrade that failed midway changed the earlier install"
+"$upgraded_prefix/bin/caditor" --version >/dev/null \
+    || fail "the earlier install no longer runs after a failed upgrade"
+
 echo "Installed and uninstalled $(basename "$archive") cleanly."

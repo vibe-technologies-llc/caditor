@@ -58,6 +58,7 @@ esac
 prefix=${prefix%/}
 
 desktop_entry="share/applications/caditor.desktop"
+staged=".caditor-new"
 
 if [ ! -x "$here/bin/caditor" ] || [ ! -f "$here/$desktop_entry" ]; then
     fail "$here is not an unpacked caditor release: bin/caditor and share/ are missing.
@@ -83,16 +84,17 @@ menu_entry() {
 }
 
 roll_back() {
-    [ -s "$work/installed" ] || return 0
+    [ -s "$work/staged" ] || return 0
     while IFS= read -r file; do
-        rm -f "$prefix/$file"
-    done <"$work/installed"
-    echo "install.sh: the install failed, so the files it had copied were removed again." >&2
+        rm -f "$prefix/$file$staged"
+    done <"$work/staged"
+    echo "install.sh: the install failed, so the files it had copied were removed again and any" >&2
+    echo "earlier install was left as it was." >&2
 }
 
 install_files() {
     packaged_files >"$work/packaged"
-    : >"$work/installed"
+    : >"$work/staged"
     while IFS= read -r file; do
         case "$file" in
             bin/*) mode=755 ;;
@@ -103,9 +105,12 @@ install_files() {
             source="$work/caditor.desktop"
             menu_entry >"$source"
         fi
-        printf '%s\n' "$file" >>"$work/installed"
-        install -D -m "$mode" "$source" "$prefix/$file"
+        printf '%s\n' "$file" >>"$work/staged"
+        install -D -m "$mode" "$source" "$prefix/$file$staged"
     done <"$work/packaged"
+    while IFS= read -r file; do
+        mv -f "$prefix/$file$staged" "$prefix/$file"
+    done <"$work/staged"
 }
 
 uninstall_files() {
