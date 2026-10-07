@@ -170,29 +170,35 @@ fn items_of(model: &Model, selection: &Selection) -> Vec<Item> {
 }
 
 fn read(items: &[Item]) -> Readout {
+    if items.len() > 2 {
+        return too_many();
+    }
     let mut readout = Readout {
         groups: items.iter().map(describe).collect(),
         ..Readout::default()
     };
-    match items {
-        [first, second] => {
-            if let (Some(first), Some(second)) = (first.element(), second.element()) {
-                match between(first, second) {
-                    Ok((group, line)) => {
-                        readout.groups.push(group);
-                        readout.line = line;
-                    }
-                    Err(error) => {
-                        log::warn!("measuring between two items failed: {error}");
-                        readout.problem = Some(FAILED);
-                    }
-                }
+    if let [first, second] = items
+        && let (Some(first), Some(second)) = (first.element(), second.element())
+    {
+        match between(first, second) {
+            Ok((group, line)) => {
+                readout.groups.push(group);
+                readout.line = line;
+            }
+            Err(error) => {
+                log::warn!("measuring between two items failed: {error}");
+                readout.problem = Some(FAILED);
             }
         }
-        [] | [_] => {}
-        _ => readout.problem = Some(TOO_MANY),
     }
     readout
+}
+
+fn too_many() -> Readout {
+    Readout {
+        problem: Some(TOO_MANY),
+        ..Readout::default()
+    }
 }
 
 fn describe(item: &Item) -> Group {
@@ -412,7 +418,7 @@ fn measure(items: &[Item]) -> Readout {
 
 #[derive(Debug, Clone, PartialEq)]
 struct Basis {
-    selection: Selection,
+    selection: u64,
     revision: u64,
     evaluation: u64,
 }
@@ -472,18 +478,17 @@ pub struct Measurements {
 impl Measurements {
     pub fn refresh(&mut self, model: &Model, selection: &Selection) {
         let basis = Basis {
-            selection: selection.clone(),
+            selection: selection.generation(),
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
         };
         if self.basis.as_ref() != Some(&basis) {
             self.basis = Some(basis);
             self.restart();
-            let items = items_of(model, selection);
-            if items.is_empty() {
-                self.arrive(self.ticket, Readout::default());
-            } else {
-                self.submit(model, items);
+            match selection.len() {
+                0 => self.arrive(self.ticket, Readout::default()),
+                1 | 2 => self.submit(model, items_of(model, selection)),
+                _ => self.arrive(self.ticket, too_many()),
             }
         }
         self.poll();
@@ -614,14 +619,14 @@ mod tests {
     }
 
     #[test]
-    fn three_items_are_read_one_by_one_and_asked_to_be_fewer() {
+    fn three_items_are_not_read_but_asked_to_be_fewer() {
         let readout = measure(&[
             point(0.0, 0.0, 0.0),
             point(1.0, 0.0, 0.0),
             point(2.0, 0.0, 0.0),
         ]);
 
-        assert_eq!(readout.groups.len(), 3);
+        assert!(readout.groups.is_empty());
         assert_eq!(readout.problem, Some(TOO_MANY));
         assert_eq!(readout.line, None);
     }

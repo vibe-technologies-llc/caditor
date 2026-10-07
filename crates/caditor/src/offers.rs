@@ -14,9 +14,11 @@ use crate::{
     units::LengthUnit,
 };
 
+pub const MAX_DESCRIBED: usize = 12;
+
 #[derive(Debug, Clone, PartialEq)]
 struct Basis {
-    selection: Selection,
+    selection: u64,
     revision: u64,
     evaluation: u64,
     unit: LengthUnit,
@@ -35,6 +37,7 @@ pub struct Offers {
     pub scale: Result<FeatureId, &'static str>,
     pub pattern: Result<PatternSource, &'static str>,
     pub described: Vec<String>,
+    pub selected: usize,
 }
 
 impl Offers {
@@ -59,8 +62,10 @@ impl Offers {
             scale: scale_tools::selected_body(model, selection),
             described: selection
                 .iter()
+                .take(MAX_DESCRIBED)
                 .map(|pickable| pickable.describe(document, evaluation))
                 .collect(),
+            selected: selection.len(),
         }
     }
 }
@@ -75,7 +80,7 @@ pub struct SelectionOffers {
 impl SelectionOffers {
     pub fn refresh(&mut self, model: &Model, selection: &Selection) -> &Offers {
         let basis = Basis {
-            selection: selection.clone(),
+            selection: selection.generation(),
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
             unit: model.length_unit(),

@@ -148,7 +148,13 @@ paths:
 ## Offers
 
 - `offers.rs` works out what the selection offers the toolbar and status bar only when the
-  selection, the model revision, its evaluation or the length unit changes, not every frame.
+  selection, the model revision, its evaluation or the length unit changes, not every frame. It
+  describes only the first `MAX_DESCRIBED` items and counts the rest (the status bar's tooltip
+  ends "and N more"), since describing an item can scan its body.
+- `Selection::generation` is globally unique per content change, so caches key on it rather than
+  cloning and comparing the set: the offers, Measure, and the viewport's check that the selection
+  is still available (`retain_available`, rerun only when the selection, revision, evaluation or
+  editing context changed).
 
 ## Measure
 
@@ -160,7 +166,7 @@ paths:
   arrives the previous readout stays, dimmed (`Freshness::Stale`) under a Measuring header, so
   nothing jumps; the measured line in the view comes only from the current readout.
 - A `Readout` is a card per item and, for two items, a "Between them" card; more than two asks for
-  fewer. Approximate values are marked with a note, a callout under its card. Mass properties are
+  fewer, without describing or measuring any. Approximate values are marked with a note, a callout under its card. Mass properties are
   read each frame from `BodyMass` for the selected items' bodies, else every shown body, with the
   body's material and its mass from the density (No density set without one, a warning note when
   the density cannot be evaluated).

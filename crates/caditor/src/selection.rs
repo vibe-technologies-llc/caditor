@@ -1,4 +1,7 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 pub use caditor_document::PrincipalPlane;
 use caditor_document::{
@@ -404,12 +407,35 @@ impl Pickable {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Debug, Clone, Default)]
 pub struct Selection {
     items: BTreeSet<Pickable>,
+    generation: u64,
 }
 
+impl PartialEq for Selection {
+    fn eq(&self, other: &Self) -> bool {
+        self.items == other.items
+    }
+}
+
+impl Eq for Selection {}
+
 impl Selection {
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    fn changed(&mut self) {
+        self.generation = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn contains(&self, pickable: Pickable) -> bool {
         self.items.contains(&pickable)
     }
@@ -424,26 +450,31 @@ impl Selection {
 
     pub fn clear(&mut self) {
         self.items.clear();
+        self.changed();
     }
 
     pub fn replace_with(&mut self, pickable: Pickable) {
         self.items.clear();
         self.items.insert(pickable);
+        self.changed();
     }
 
     pub fn replace_with_all(&mut self, pickables: impl IntoIterator<Item = Pickable>) {
         self.items.clear();
         self.items.extend(pickables);
+        self.changed();
     }
 
     pub fn extend(&mut self, pickables: impl IntoIterator<Item = Pickable>) {
         self.items.extend(pickables);
+        self.changed();
     }
 
     pub fn toggle(&mut self, pickable: Pickable) {
         if !self.items.remove(&pickable) {
             self.items.insert(pickable);
         }
+        self.changed();
     }
 
     pub fn retain_available(
@@ -452,8 +483,12 @@ impl Selection {
         evaluation: &Evaluation,
         context: Context,
     ) {
+        let before = self.items.len();
         self.items
             .retain(|pickable| pickable.is_available(document, evaluation, context));
+        if self.items.len() != before {
+            self.changed();
+        }
     }
 }
 

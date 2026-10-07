@@ -131,7 +131,12 @@ fn trailing(
             divider(ui);
         }
         widgets::remember_width(ui, id, ui.min_rect().width());
-        selection(ui, &context.offers.described, selection_room);
+        selection(
+            ui,
+            &context.offers.described,
+            context.offers.selected,
+            selection_room,
+        );
         if with_notice {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 divider(ui);
@@ -358,12 +363,12 @@ fn notice(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, wrap: bool) {
     }
 }
 
-fn selection(ui: &mut Ui, described: &[String], room: f32) {
+fn selection(ui: &mut Ui, described: &[String], selected: usize, room: f32) {
     let tokens = appearance::tokens(ui);
-    let text = match described {
-        [] => RichText::new("Nothing selected").color(tokens.text_muted),
-        [only] => RichText::new(only).color(tokens.text),
-        many => RichText::new(format!("{} selected", count(many.len(), "item", "items")))
+    let text = match (described, selected) {
+        (_, 0) => RichText::new("Nothing selected").color(tokens.text_muted),
+        ([only], 1) => RichText::new(only).color(tokens.text),
+        _ => RichText::new(format!("{} selected", count(selected, "item", "items")))
             .color(tokens.text),
     };
     let icon_room = selection_icon_room(ui);
@@ -373,13 +378,17 @@ fn selection(ui: &mut Ui, described: &[String], room: f32) {
             ui.add(Label::new(text).truncate())
         })
         .inner;
-    match described {
-        [] => {}
-        [only] => {
+    let more = selected.saturating_sub(described.len());
+    match (described, more) {
+        ([], _) => {}
+        ([only], 0) => {
             response.on_hover_text(only);
         }
-        many => {
-            response.on_hover_text(many.join("\n"));
+        (listed, 0) => {
+            response.on_hover_text(listed.join("\n"));
+        }
+        (listed, more) => {
+            response.on_hover_text(format!("{}\nand {more} more", listed.join("\n")));
         }
     }
     widgets::icon_label(ui, icons::SELECTION, appearance::tokens(ui).text_muted);

@@ -6094,6 +6094,35 @@ fn what_the_selection_offers_is_worked_out_when_it_or_the_model_changes_not_ever
 }
 
 #[test]
+fn a_large_selection_is_counted_whole_but_described_and_measured_only_in_part() {
+    let mut harness = Harness::new();
+    let mut lines = Sketch::new(Plane::XY);
+    let entities: Vec<EntityId> = (0..20)
+        .map(|index| {
+            let y = f64::from(index) * 5.0;
+            lines.add_line(Point2::new(0.0, y), Point2::new(10.0, y))
+        })
+        .collect();
+    let feature = harness.add_sketch(lines);
+    harness.frame();
+
+    harness.select(entities.iter().map(|entity| Pickable::SketchEntity {
+        feature,
+        entity: *entity,
+    }));
+    harness.frame();
+    let offers = harness
+        .workspace
+        .selection_offers
+        .refresh(&harness.model, harness.workspace.viewport.selection())
+        .clone();
+
+    assert_eq!(offers.selected, 20);
+    assert_eq!(offers.described.len(), crate::offers::MAX_DESCRIBED);
+    assert!(harness.shows("20 items selected"));
+}
+
+#[test]
 fn a_sketch_started_on_a_selected_face_follows_it_when_the_body_changes() {
     let mut harness = Harness::new();
     let (extrude, top) = extruded_plate(&mut harness);

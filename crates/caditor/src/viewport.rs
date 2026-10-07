@@ -112,6 +112,14 @@ impl Screen for SketchScreen {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Availability {
+    selection: u64,
+    revision: u64,
+    evaluation: u64,
+    context: editing::Context,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct PointerHit {
     cursor: Vector2,
@@ -184,6 +192,7 @@ pub struct ViewportState {
     requested_viewpoint: Option<Viewpoint>,
     edited: Option<FeatureId>,
     face_edited_sketch: bool,
+    checked_availability: Option<Availability>,
     sketch_cursor: Option<Point2>,
     drawing: Drawing,
     trimming: Trimming,
@@ -266,6 +275,7 @@ impl ViewportState {
             requested_viewpoint: None,
             edited: None,
             face_edited_sketch: false,
+            checked_availability: None,
             sketch_cursor: None,
             drawing: Drawing::default(),
             trimming: Trimming::default(),
@@ -499,8 +509,20 @@ impl ViewportState {
         self.bodies.update(evaluation, &display.meshing);
         self.bodies
             .update_open(document, evaluation, &display.meshing, context.solid);
-        self.selection
-            .retain_available(document, evaluation, context);
+        let availability = Availability {
+            selection: self.selection.generation(),
+            revision: model.revision(),
+            evaluation: model.evaluation_generation(),
+            context,
+        };
+        if self.checked_availability != Some(availability) {
+            self.selection
+                .retain_available(document, evaluation, context);
+            self.checked_availability = Some(Availability {
+                selection: self.selection.generation(),
+                ..availability
+            });
+        }
         self.hovered = self
             .hovered
             .filter(|hovered| hovered.is_available(document, evaluation, context));

@@ -356,13 +356,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Interface performance
 
-- [medium · easy] A large selection is handled item by item on the UI thread: after Select all on
-  an imported body of tens of thousands of faces, edges or vertices, `Offers::of` describes and
-  captures every one (`describe_vertex` scans every edge per vertex, so all vertices cost V×E), the
-  status bar's tooltip joins every description, Measure builds and draws a card per item each frame
-  though more than two only ever say to select fewer, and `retain_available` and the panels' Use
-  selected re-check the whole selection each frame. Describe and list the first few with "and N
-  more", and measure only one or two items.
+- [medium · easy] The feature panels' Use selected buttons rebuild their transaction from the whole
+  selection each frame (a fillet's edges, a shell's faces), so after Select all on an imported
+  body of tens of thousands of edges an open panel pays for every edge every frame. Build the
+  offer once per `Selection::generation`, as the offers and Measure do.
 - [medium · medium] Every frame `Marks::collect` formats every constraint's description, evaluates
   every dimension and registers an `interact` per glyph, and an expanded sketch in the tree does the
   same per constraint row, searching the list of involved constraints linearly for each; the
