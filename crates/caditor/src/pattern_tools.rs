@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use caditor_document::{
     AxisReference, CircularPattern, Document, Edit, FeatureId, FeatureKind, LinearDirection,
-    Pattern, PatternKind, PrincipalAxis, Transaction, displayed_axis,
+    LinearSpacing, Pattern, PatternKind, PrincipalAxis, Transaction, displayed_axis,
 };
 use caditor_expression::Expression;
 
@@ -139,6 +139,7 @@ fn direction(
         axis,
         count: Expression::Number(count),
         spacing: unit.default_length(spacing),
+        measured: LinearSpacing::BetweenCopies,
         reversed: false,
     }
 }
@@ -169,10 +170,10 @@ pub fn create(
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(
         name,
-        FeatureKind::from(Pattern {
-            body: source.body,
-            kind: kind_for(model, shape, source.body, axis),
-        }),
+        FeatureKind::from(Pattern::new(
+            source.body,
+            kind_for(model, shape, source.body, axis),
+        )),
     );
     field::checked(document, transaction.finish()).map(|transaction| (transaction, feature))
 }
@@ -210,7 +211,7 @@ pub fn change(model: &Model, feature: FeatureId, pattern: Pattern) -> Result<Tra
 pub fn reshaped(model: &Model, pattern: &Pattern, shape: Shape) -> Pattern {
     let kind = match (&pattern.kind, shape) {
         (PatternKind::Linear { .. }, Shape::Linear)
-        | (PatternKind::Circular(_), Shape::Circular) => pattern.kind.clone(),
+        | (PatternKind::Circular(_), Shape::Circular) => return pattern.clone(),
         (PatternKind::Linear { first, .. }, Shape::Circular) => {
             PatternKind::Circular(CircularPattern {
                 axis: first.axis.clone(),
@@ -235,10 +236,7 @@ pub fn reshaped(model: &Model, pattern: &Pattern, shape: Shape) -> Pattern {
             }
         }
     };
-    Pattern {
-        body: pattern.body,
-        kind,
-    }
+    Pattern::new(pattern.body, kind)
 }
 
 fn selected_axis(
@@ -306,8 +304,8 @@ fn with_selected(
         (PatternKind::Circular(_), Reference::Second) => return Err(NOT_LINEAR),
     };
     Ok(Pattern {
-        body: pattern.body,
         kind,
+        ..pattern.clone()
     })
 }
 

@@ -65,7 +65,10 @@ pub use crate::{
     mirror::{MIRROR_IMAGE, Mirror},
     movement::{Move, MoveAxis},
     origins::complete_origins,
-    pattern::{CircularPattern, LinearDirection, MAX_PATTERN_INSTANCES, Pattern, PatternKind},
+    pattern::{
+        CircularPattern, Instance, LinearDirection, LinearSpacing, MAX_PATTERN_INSTANCES,
+        ORIGINAL_INSTANCE, Pattern, PatternKind, instance_name,
+    },
     pieces::{Resolution, Unresolved},
     projection::{
         Outline, PROJECTED_SPLINE_POINTS, ProjectionSource, edge_outline, sketch_outline,

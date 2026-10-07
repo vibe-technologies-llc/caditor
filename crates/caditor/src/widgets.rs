@@ -218,6 +218,17 @@ pub fn swatch(ui: &mut Ui, fill: Color32, name: &str, chosen: bool) -> Response 
     name_button(response, name, Some(chosen)).on_hover_text(name)
 }
 
+pub fn instance_toggle(ui: &mut Ui, kept: bool, name: &str, hover: &str) -> Response {
+    let side = ui.spacing().interact_size.y;
+    let glyph = if kept { icons::DONE } else { "" };
+    let button = Button::new(icon(glyph))
+        .selected(kept)
+        .min_size(Vec2::splat(side));
+    ui.add(Named::new(button, name).selected(kept))
+        .on_hover_text(hover)
+        .on_disabled_hover_text(hover)
+}
+
 pub fn removable_row(ui: &mut Ui, text: RichText, hover: &str) -> bool {
     let button_side = ui.spacing().interact_size.y;
     let gap = ui.spacing().item_spacing.x;

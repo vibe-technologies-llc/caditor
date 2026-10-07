@@ -147,6 +147,14 @@ paths:
   else the last body standing, and the first selected axis, straight edge or round face as direction or
   axis, else a principal axis. While open the patterned body is shown with its directions or axis
   drawn like a revolve's axis.
+- Each linear direction has a Measured switch (Each, Overall) above its length, captioned Spacing
+  or Total length. Switching keeps the copies in place when the count is a plain number
+  (`pattern_panel::respaced`: a literal multiplied or divided, else the expression times or over
+  the steps), otherwise it keeps the expression.
+- Instances is a grid of `widgets::instance_toggle`s, one per instance at its step along each
+  direction (rows for the second), checked when made; clicking one leaves it out or brings it back
+  as one undoable change, the original disabled. A muted line under it counts what is left out.
+  Switching between linear and circular clears the instances left out.
 
 ## Visibility
 

@@ -188,7 +188,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
 - [high · hard] Patterns repeat a whole body: no pattern of chosen features (a row of holes cut into
-  a plate), no instances left out, and no linear "total length" mode.
+  a plate), and instances are left out only from the panel's grid, not by clicking them in the view.
 - [medium · medium] Split a body by a plane or a face (`RigidTransform` and booleans exist; a
   feature's result holds one body, so one side would have to come from a copy); a body can be moved
   or copied but only by typed distances and turns about the origin's axes, not dragged, turned

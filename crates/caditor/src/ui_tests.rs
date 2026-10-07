@@ -7470,6 +7470,63 @@ fn a_linear_pattern_repeats_the_body_and_takes_its_count_and_directions_from_the
     assert!(volume_about(&harness, plate, 8.0 * 16000.0));
 }
 
+#[test]
+fn a_pattern_measures_first_to_last_and_leaves_out_the_copies_clicked_in_its_panel() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+
+    harness.select([]);
+    harness.click("Linear pattern");
+    harness.settle();
+    let pattern = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the pattern is open");
+    let spacing = |harness: &Harness| {
+        let caditor_document::PatternKind::Linear { first, .. } =
+            &pattern_of(harness, pattern).kind
+        else {
+            panic!("the pattern stays linear");
+        };
+        (first.measured, first.spacing.to_stored_text())
+    };
+
+    assert!(harness.shows(crate::pattern_panel::INSTANCES));
+    assert!(harness.shows("Spacing"));
+    assert_eq!(
+        spacing(&harness),
+        (
+            caditor_document::LinearSpacing::BetweenCopies,
+            "48 mm".to_owned()
+        )
+    );
+
+    harness.click(crate::pattern_panel::MEASURED_OVERALL);
+    harness.settle();
+
+    assert!(harness.shows("Total length"));
+    assert_eq!(
+        spacing(&harness),
+        (caditor_document::LinearSpacing::Total, "96 mm".to_owned())
+    );
+    assert!(volume_about(&harness, plate, 3.0 * 16000.0));
+
+    harness.click_button("Copy 2");
+    harness.settle();
+
+    assert!(pattern_of(&harness, pattern).is_skipped([2, 0]));
+    assert!(harness.shows("1 copy is left out."));
+    assert!(volume_about(&harness, plate, 2.0 * 16000.0));
+    assert_eq!(harness.model.undo_label(), Some("Edit Linear pattern 1"));
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert!(pattern_of(&harness, pattern).skipped.is_empty());
+    assert!(volume_about(&harness, plate, 3.0 * 16000.0));
+}
+
 fn datum_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Datum {
     harness
         .document()

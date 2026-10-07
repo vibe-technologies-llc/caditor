@@ -4,13 +4,13 @@ use caditor_document::{
     AxisReference, Blend, BlendKind, BodyAppearance, BodyOperation, CircularPattern, Combine,
     CombineOperation, Datum, DatumAxis, DatumPlane, DatumPoint, Document, Edit, Extrude,
     ExtrudeEnd, ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Hole, HoleDepth,
-    HoleFit, HoleShape, HoleStandard, HoleStyle, Import, LinearDirection, MAX_BODY_NAME_CHARS,
-    MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties,
-    ModelProperty, Move, OPAQUE_PERCENT, Parameter, Pattern, PatternKind, PlaneReference,
-    PlaneRotation, PlaneThrough, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar,
-    Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Transaction,
-    material_name,
+    HoleFit, HoleShape, HoleStandard, HoleStyle, Import, LinearDirection, LinearSpacing,
+    MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MIN_OPACITY_PERCENT,
+    MetricSize, Mirror, ModelProperties, ModelProperty, Move, OPAQUE_PERCENT, ORIGINAL_INSTANCE,
+    Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointReference,
+    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Remove,
+    Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell, SketchAttachment,
+    SketchFeature, SolidFeature, SolidStart, Transaction, material_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -130,6 +130,7 @@ pub(crate) enum FeatureKindRecord {
     Hole(HoleRecord),
     LinearPattern(Box<LinearPatternRecord>),
     CircularPattern(Box<CircularPatternRecord>),
+    Pattern(Box<PatternRecord>),
     Plane(Box<DatumPlaneRecord>),
     Axis(Box<DatumAxisRecord>),
     Point(Box<DatumPointRecord>),
@@ -141,7 +142,7 @@ pub(crate) enum FeatureKindRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 2] = ["hidden", "appearance"];
 
-pub(crate) const FEATURE_KINDS: [&str; 25] = [
+pub(crate) const FEATURE_KINDS: [&str; 26] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -160,6 +161,7 @@ pub(crate) const FEATURE_KINDS: [&str; 25] = [
     "hole",
     "linear_pattern",
     "circular_pattern",
+    "pattern",
     "plane",
     "axis",
     "point",
@@ -387,6 +389,8 @@ pub(crate) struct DirectionRecord {
     pub count: String,
     pub spacing: String,
     pub reversed: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub total: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -395,6 +399,20 @@ pub(crate) struct LinearPatternRecord {
     pub first: DirectionRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub second: Option<DirectionRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PatternShapeRecord {
+    Linear(Box<LinearPatternRecord>),
+    Circular(Box<CircularPatternRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PatternRecord {
+    pub shape: PatternShapeRecord,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<[u32; 2]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1420,16 +1438,16 @@ fn revolve_record(revolve: &Revolve) -> FeatureKindRecord {
 
 fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
     let body = pattern.body.raw();
-    match &pattern.kind {
+    let shape = match &pattern.kind {
         PatternKind::Linear { first, second } => {
-            FeatureKindRecord::LinearPattern(Box::new(LinearPatternRecord {
+            PatternShapeRecord::Linear(Box::new(LinearPatternRecord {
                 body,
                 first: direction_record(first),
                 second: second.as_ref().map(direction_record),
             }))
         }
         PatternKind::Circular(circular) => {
-            FeatureKindRecord::CircularPattern(Box::new(CircularPatternRecord {
+            PatternShapeRecord::Circular(Box::new(CircularPatternRecord {
                 body,
                 axis: axis_record(&circular.axis),
                 count: circular.count.to_stored_text(),
@@ -1437,6 +1455,20 @@ fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
                 reversed: circular.reversed,
             }))
         }
+    };
+    let skipped: Vec<[u32; 2]> = pattern.skipped.iter().copied().collect();
+    let total = match &shape {
+        PatternShapeRecord::Linear(linear) => std::iter::once(&linear.first)
+            .chain(&linear.second)
+            .any(|direction| direction.total),
+        PatternShapeRecord::Circular(_) => false,
+    };
+    match (shape, skipped.is_empty() && !total) {
+        (PatternShapeRecord::Linear(linear), true) => FeatureKindRecord::LinearPattern(linear),
+        (PatternShapeRecord::Circular(circular), true) => {
+            FeatureKindRecord::CircularPattern(circular)
+        }
+        (shape, false) => FeatureKindRecord::Pattern(Box::new(PatternRecord { shape, skipped })),
     }
 }
 
@@ -1446,6 +1478,7 @@ fn direction_record(direction: &LinearDirection) -> DirectionRecord {
         count: direction.count.to_stored_text(),
         spacing: direction.spacing.to_stored_text(),
         reversed: direction.reversed,
+        total: direction.measured == LinearSpacing::Total,
     }
 }
 
@@ -2635,6 +2668,9 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
         FeatureKindRecord::CircularPattern(record) => {
             FeatureKind::from(restore_circular_pattern(record, name, issues))
         }
+        FeatureKindRecord::Pattern(record) => {
+            FeatureKind::from(restore_pattern(record, name, issues))
+        }
         FeatureKindRecord::Plane(record) => {
             FeatureKind::Datum(Datum::Plane(restore_datum_plane(record, name, issues)))
         }
@@ -2937,6 +2973,33 @@ fn restore_axis_through(
     })
 }
 
+fn restore_pattern(record: &PatternRecord, feature: &str, issues: &mut Vec<String>) -> Pattern {
+    let mut pattern = match &record.shape {
+        PatternShapeRecord::Linear(linear) => restore_linear_pattern(linear, feature, issues),
+        PatternShapeRecord::Circular(circular) => {
+            restore_circular_pattern(circular, feature, issues)
+        }
+    };
+    pattern.skipped = record
+        .skipped
+        .iter()
+        .copied()
+        .filter(|instance| {
+            *instance != ORIGINAL_INSTANCE
+                && instance.iter().all(|step| *step < MAX_PATTERN_INSTANCES)
+        })
+        .collect();
+    pattern
+}
+
+fn measured(record: &DirectionRecord) -> LinearSpacing {
+    if record.total {
+        LinearSpacing::Total
+    } else {
+        LinearSpacing::BetweenCopies
+    }
+}
+
 fn restore_direction(
     record: &DirectionRecord,
     which: &str,
@@ -2945,6 +3008,7 @@ fn restore_direction(
 ) -> Option<LinearDirection> {
     let axis = restore_axis(&record.axis)?;
     Some(LinearDirection {
+        measured: measured(record),
         axis,
         count: restore_value(
             &record.count,
@@ -2977,6 +3041,7 @@ fn restore_linear_pattern(
             axis: AxisReference::Principal(PrincipalAxis::X),
             count: restore_value(&record.first.count, "count", "1", feature, issues),
             spacing: restore_value(&record.first.spacing, "spacing", "10 mm", feature, issues),
+            measured: measured(&record.first),
             reversed: record.first.reversed,
         }
     });
@@ -2989,10 +3054,10 @@ fn restore_linear_pattern(
         }
         restored
     });
-    Pattern {
-        body: FeatureId::from_raw(record.body),
-        kind: PatternKind::Linear { first, second },
-    }
+    Pattern::new(
+        FeatureId::from_raw(record.body),
+        PatternKind::Linear { first, second },
+    )
 }
 
 fn restore_circular_pattern(
@@ -3006,15 +3071,15 @@ fn restore_circular_pattern(
         ));
         AxisReference::Principal(PrincipalAxis::Z)
     });
-    Pattern {
-        body: FeatureId::from_raw(record.body),
-        kind: PatternKind::Circular(CircularPattern {
+    Pattern::new(
+        FeatureId::from_raw(record.body),
+        PatternKind::Circular(CircularPattern {
             axis,
             count: restore_value(&record.count, "count", "1", feature, issues),
             angle: restore_value(&record.angle, "angle", "360 deg", feature, issues),
             reversed: record.reversed,
         }),
-    }
+    )
 }
 
 fn restore_hole(record: &HoleRecord, feature: &str, issues: &mut Vec<String>) -> Hole {

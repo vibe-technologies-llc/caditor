@@ -55,6 +55,7 @@ fn along(axis: PrincipalAxis, count: Expression, spacing: &str) -> LinearDirecti
         axis: AxisReference::Principal(axis),
         count,
         spacing: Expression::parse(spacing, &|_| None).unwrap(),
+        measured: LinearSpacing::BetweenCopies,
         reversed: false,
     }
 }
@@ -89,10 +90,7 @@ fn model(kind: impl FnOnce(ParameterId) -> PatternKind) -> Model {
     );
     let pattern = transaction.add_feature(
         "Pattern 1",
-        FeatureKind::from(Pattern {
-            body: base,
-            kind: kind(count),
-        }),
+        FeatureKind::from(Pattern::new(base, kind(count))),
     );
     document.apply(transaction.finish()).unwrap();
     Model {
@@ -128,13 +126,17 @@ fn set(model: &mut Model, parameter: ParameterId, text: &str) {
 
 fn set_kind(model: &mut Model, kind: PatternKind) -> Result<(), EditError> {
     let body = model.base;
+    set_pattern(model, Pattern::new(body, kind))
+}
+
+fn set_pattern(model: &mut Model, pattern: Pattern) -> Result<(), EditError> {
     model
         .document
         .apply(Transaction::single(
             "Edit",
             Edit::SetFeatureKind {
                 id: model.pattern,
-                kind: FeatureKind::from(Pattern { body, kind }),
+                kind: FeatureKind::from(pattern),
             },
         ))
         .map(|_| ())
@@ -488,4 +490,100 @@ fn a_pattern_keeps_its_body_and_datum_axis_in_use_and_undoes_as_one_step() {
     assert!(editor.document().same_content(&before));
     editor.redo().unwrap();
     assert!(editor.document().feature(model.pattern).is_none());
+}
+
+#[test]
+fn a_total_length_spreads_the_copies_from_the_first_to_the_last() {
+    let mut model = model(linear);
+    let count = Expression::Parameter(model.count);
+    let mut first = along(PrincipalAxis::X, count, "60 mm");
+    first.measured = LinearSpacing::Total;
+    set_kind(
+        &mut model,
+        PatternKind::Linear {
+            first,
+            second: None,
+        },
+    )
+    .unwrap();
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let solid = evaluation.body(model.base).unwrap();
+    let last = top_of_copy(&model, solid, [2, 0]).unwrap();
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_volume(&evaluation, model.base, 3.0 * 320.0);
+    assert!((plane_origin(solid, &last).x - 60.0).abs() < 1e-9);
+
+    let id = model.count;
+    set(&mut model, id, "4");
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let solid = evaluation.body(model.base).unwrap();
+    let last = top_of_copy(&model, solid, [3, 0]).unwrap();
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_volume(&evaluation, model.base, 4.0 * 320.0);
+    assert!((plane_origin(solid, &last).x - 60.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_zero_total_length_is_refused_in_its_own_words() {
+    let mut model = model(linear);
+    let mut first = along(PrincipalAxis::X, Expression::Number(3.0), "0 mm");
+    first.measured = LinearSpacing::Total;
+    set_kind(
+        &mut model,
+        PatternKind::Linear {
+            first,
+            second: None,
+        },
+    )
+    .unwrap();
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(
+        failure(&evaluation, model.pattern).reason,
+        "The total length must be more than zero."
+    );
+}
+
+#[test]
+fn instances_left_out_are_not_made_and_the_others_keep_their_names() {
+    let mut model = model(linear);
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let reference = top_of_copy(&model, evaluation.body(model.base).unwrap(), [2, 0]).unwrap();
+
+    let skipping = Pattern::new(model.base, linear(model.count))
+        .toggled([1, 0])
+        .unwrap();
+    set_pattern(&mut model, skipping.clone()).unwrap();
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let solid = evaluation.body(model.base).unwrap();
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_volume(&evaluation, model.base, 2.0 * 320.0);
+    assert_eq!(solid.shells().count(), 2);
+    assert!(top_of_copy(&model, solid, [1, 0]).is_none());
+    assert!((plane_origin(solid, &reference).x - 40.0).abs() < 1e-9);
+    assert!(skipping.is_skipped([1, 0]));
+    assert!(skipping.toggled(ORIGINAL_INSTANCE).is_none());
+
+    let restored = skipping.toggled([1, 0]).unwrap();
+
+    assert!(restored.skipped.is_empty());
+}
+
+#[test]
+fn leaving_out_an_instance_past_the_count_changes_nothing() {
+    let mut model = model(linear);
+    let skipping = Pattern::new(model.base, linear(model.count))
+        .toggled([7, 0])
+        .unwrap();
+    set_pattern(&mut model, skipping).unwrap();
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_volume(&evaluation, model.base, 3.0 * 320.0);
 }

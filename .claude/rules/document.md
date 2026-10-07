@@ -275,6 +275,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Counts are whole and from 1, at most `MAX_PATTERN_INSTANCES` instances in all (directions
   multiplied), since each copy costs a boolean. The reach may not pass `MAX_SIZE`; parallel
   directions are refused.
+- A linear direction's length is `measured` between neighbouring copies or, as
+  `LinearSpacing::Total`, from the body to the last copy, shared evenly by the steps.
+- `skipped` holds the `Instance`s (steps along each direction, as in copy names) left out. The
+  original (`ORIGINAL_INSTANCE`) can never be; one past the current counts is kept but changes
+  nothing, so lowering and raising a count brings the same copies back. The copies made keep their
+  indices and names, so references to them survive leaving others out.
 - It changes its body but is not `modifies_body`: nothing is chosen on the state before it, so the
   app shows the patterned body while it is open.
 

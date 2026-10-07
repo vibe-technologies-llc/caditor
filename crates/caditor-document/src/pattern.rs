@@ -10,6 +10,7 @@ use crate::{
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
     tolerance, trouble,
+    values::ParameterValues,
 };
 
 pub const MAX_PATTERN_INSTANCES: u32 = 100;
@@ -17,12 +18,21 @@ const WHOLE_TOLERANCE: f64 = 1e-9;
 const FULL_TURN: f64 = 360.0;
 const ANGLE_TOLERANCE: f64 = 1e-9;
 const MAX_NAMED_COPIES: usize = 3;
+pub const ORIGINAL_INSTANCE: Instance = [0, 0];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LinearSpacing {
+    #[default]
+    BetweenCopies,
+    Total,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinearDirection {
     pub axis: AxisReference,
     pub count: Expression,
     pub spacing: Expression,
+    pub measured: LinearSpacing,
     pub reversed: bool,
 }
 
@@ -43,10 +53,13 @@ pub enum PatternKind {
     Circular(CircularPattern),
 }
 
+pub type Instance = [u32; 2];
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pattern {
     pub body: FeatureId,
     pub kind: PatternKind,
+    pub skipped: BTreeSet<Instance>,
 }
 
 impl PatternKind {
@@ -73,6 +86,15 @@ impl PatternKind {
     }
 }
 
+impl LinearSpacing {
+    pub fn what(self) -> &'static str {
+        match self {
+            Self::BetweenCopies => "spacing",
+            Self::Total => "total length",
+        }
+    }
+}
+
 impl LinearDirection {
     pub fn heap_size(&self) -> usize {
         self.axis.heap_size() + self.count.heap_size() + self.spacing.heap_size()
@@ -80,8 +102,57 @@ impl LinearDirection {
 }
 
 impl Pattern {
+    pub fn new(body: FeatureId, kind: PatternKind) -> Self {
+        Self {
+            body,
+            kind,
+            skipped: BTreeSet::new(),
+        }
+    }
+
     pub fn heap_size(&self) -> usize {
-        self.kind.heap_size()
+        self.kind.heap_size() + self.skipped.len() * size_of::<Instance>()
+    }
+
+    pub fn instances(&self, values: &ParameterValues) -> Option<[u32; 2]> {
+        let count = |expression: &Expression| {
+            let value = values.evaluate_expression(expression).ok()?.value.round();
+            (1.0..=f64::from(MAX_PATTERN_INSTANCES))
+                .contains(&value)
+                .then_some(value as u32)
+        };
+        match &self.kind {
+            PatternKind::Linear { first, second } => {
+                let across = match second {
+                    Some(second) => count(&second.count)?,
+                    None => 1,
+                };
+                Some([count(&first.count)?, across])
+            }
+            PatternKind::Circular(circular) => Some([count(&circular.count)?, 1]),
+        }
+    }
+
+    pub fn skipped_within(&self, [columns, rows]: [u32; 2]) -> usize {
+        self.skipped
+            .iter()
+            .filter(|[column, row]| *column < columns && *row < rows)
+            .count()
+    }
+
+    pub fn is_skipped(&self, instance: Instance) -> bool {
+        instance != ORIGINAL_INSTANCE && self.skipped.contains(&instance)
+    }
+
+    pub fn toggled(&self, instance: Instance) -> Option<Self> {
+        if instance == ORIGINAL_INSTANCE {
+            return None;
+        }
+        let mut toggled = self.clone();
+        if !toggled.skipped.remove(&instance) {
+            toggled.skipped.insert(instance);
+        }
+        Some(toggled)
     }
 
     pub fn title(&self) -> &'static str {
@@ -219,15 +290,22 @@ impl Context<'_> {
         let count = self.count(&direction.count, &format!("{which}count"))?;
         let spacing = self.resolver.value(
             &direction.spacing,
-            &format!("{which}spacing"),
+            &format!("{which}{}", direction.measured.what()),
             Dimension::LENGTH,
         )?;
         if spacing <= 0.0 {
             return Err(self.error(
-                format!("The {which}spacing must be more than zero."),
-                "Enter a spacing above zero, and tick Reversed to go the other way.",
+                format!(
+                    "The {which}{} must be more than zero.",
+                    direction.measured.what()
+                ),
+                "Enter a length above zero, and tick Reversed to go the other way.",
             ));
         }
+        let spacing = match (direction.measured, count) {
+            (LinearSpacing::BetweenCopies, _) | (LinearSpacing::Total, 1) => spacing,
+            (LinearSpacing::Total, count) => spacing / f64::from(count - 1),
+        };
         if spacing * f64::from(count.saturating_sub(1)) > MAX_SIZE {
             return Err(self.error(
                 "The copies would reach farther than a kilometre, the largest size caditor \
@@ -378,15 +456,19 @@ impl Context<'_> {
     }
 }
 
+pub fn instance_name(instance: Instance) -> String {
+    match instance {
+        [0, 0] => "the original".to_owned(),
+        [index, 0] => format!("copy {index}"),
+        [first, second] => format!("copy ({first}, {second})"),
+    }
+}
+
 fn describe_copies(copies: &[[u32; 2]]) -> String {
     let named: Vec<String> = copies
         .iter()
         .take(MAX_NAMED_COPIES)
-        .map(|copy| match copy {
-            [0, 0] => "the original".to_owned(),
-            [index, 0] => format!("copy {index}"),
-            [first, second] => format!("copy ({first}, {second})"),
-        })
+        .map(|copy| instance_name(*copy))
         .collect();
     let more = copies.len().saturating_sub(MAX_NAMED_COPIES);
     let text = match more {
@@ -415,10 +497,11 @@ pub(crate) fn evaluate(
         resolver: Resolver { feature, inputs },
         body_name,
     };
-    let copies = match &definition.kind {
+    let mut copies = match &definition.kind {
         PatternKind::Linear { first, second } => context.linear(first, second.as_ref())?,
         PatternKind::Circular(circular) => context.circular(circular)?,
     };
+    copies.retain(|copy| !definition.is_skipped(copy.index));
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };

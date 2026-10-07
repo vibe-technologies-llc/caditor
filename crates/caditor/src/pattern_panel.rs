@@ -1,8 +1,9 @@
 use caditor_document::{
-    AxisReference, CircularPattern, Feature, FeatureId, LinearDirection, Pattern, PatternKind,
-    Transaction, capitalized, describe_axis,
+    AxisReference, CircularPattern, Feature, FeatureId, Instance, LinearDirection, LinearSpacing,
+    ORIGINAL_INSTANCE, Pattern, PatternKind, Transaction, capitalized, describe_axis,
+    instance_name,
 };
-use caditor_expression::{Dimension, Expression};
+use caditor_expression::{BinaryOperator, Dimension, Expression};
 use egui::{Id, Ui};
 
 use crate::{
@@ -19,26 +20,93 @@ pub const CIRCULAR_HINT: &str = "A total angle of 360° spaces the copies evenly
 
 const COUNT: (Dimension, Rule) = (Dimension::NONE, Rule::Count);
 
+pub const INSTANCES: &str = "Instances";
+pub const MEASURED_EACH: &str = "Each";
+pub const MEASURED_OVERALL: &str = "Overall";
+const INSTANCES_HINT: &str = "Click a copy to leave it out of the pattern, and again to bring it \
+                              back.";
+
 struct DirectionCaptions {
     salt: &'static str,
     count: &'static str,
+    measure: &'static str,
     spacing: &'static str,
+    total: &'static str,
     reverse: &'static str,
 }
 
 const FIRST: DirectionCaptions = DirectionCaptions {
     salt: "",
     count: "Count",
+    measure: "Measured",
     spacing: "Spacing",
+    total: "Total length",
     reverse: REVERSE_DIRECTION,
 };
 
 const SECOND: DirectionCaptions = DirectionCaptions {
     salt: "second-",
     count: "Second count",
+    measure: "Second measured",
     spacing: "Second spacing",
+    total: "Second total length",
     reverse: "Reverse second direction",
 };
+
+fn measured_label(measured: LinearSpacing) -> &'static str {
+    match measured {
+        LinearSpacing::BetweenCopies => MEASURED_EACH,
+        LinearSpacing::Total => MEASURED_OVERALL,
+    }
+}
+
+fn measured_hover(measured: LinearSpacing) -> &'static str {
+    match measured {
+        LinearSpacing::BetweenCopies => "The length is the distance from one copy to the next",
+        LinearSpacing::Total => {
+            "The length runs from the body to the last copy, and the copies share it evenly"
+        }
+    }
+}
+
+pub fn respaced(direction: &LinearDirection, measured: LinearSpacing) -> Expression {
+    let Expression::Number(count) = direction.count else {
+        return direction.spacing.clone();
+    };
+    let steps = count - 1.0;
+    if steps < 1.0 || steps.fract() != 0.0 {
+        return direction.spacing.clone();
+    }
+    match (measured, &direction.spacing) {
+        (LinearSpacing::Total, Expression::Measure(value, unit)) => {
+            Expression::measure(value * steps, *unit)
+        }
+        (LinearSpacing::BetweenCopies, Expression::Measure(value, unit))
+            if (value / steps).fract() == 0.0 =>
+        {
+            Expression::measure(value / steps, *unit)
+        }
+        (LinearSpacing::Total, spacing) => Expression::binary(
+            BinaryOperator::Multiply,
+            spacing.clone(),
+            Expression::number(steps),
+        ),
+        (LinearSpacing::BetweenCopies, spacing) => Expression::binary(
+            BinaryOperator::Divide,
+            spacing.clone(),
+            Expression::number(steps),
+        ),
+    }
+}
+
+fn instance_hover(instance: Instance, kept: bool) -> String {
+    let name = capitalized(&instance_name(instance));
+    match (instance == ORIGINAL_INSTANCE, kept) {
+        (true, _) => format!("{name} body is always kept"),
+        (false, true) => format!("{name} is made; click to leave it out"),
+        (false, false) => format!("{name} is left out; click to make it again"),
+    }
+}
 
 fn shape_label(shape: Shape) -> &'static str {
     match shape {
@@ -65,10 +133,81 @@ impl Panel<'_> {
             self.model,
             self.id(),
             Pattern {
-                body: self.pattern.body,
                 kind,
+                ..self.pattern.clone()
             },
         )
+    }
+
+    fn measure_row(
+        &mut self,
+        ui: &mut Ui,
+        direction: &LinearDirection,
+        captions: &DirectionCaptions,
+        rebuild: &dyn Fn(LinearDirection) -> PatternKind,
+    ) {
+        let segments = [LinearSpacing::BetweenCopies, LinearSpacing::Total]
+            .into_iter()
+            .map(|measured| Segment {
+                label: measured_label(measured),
+                hover: measured_hover(measured),
+                change: (measured != direction.measured).then(|| {
+                    self.change(rebuild(LinearDirection {
+                        spacing: respaced(direction, measured),
+                        measured,
+                        ..direction.clone()
+                    }))
+                }),
+            })
+            .collect();
+        let chosen =
+            feature_fields::segmented_row(ui, captions.measure, &self.feature.name, segments);
+        self.actions.extend(chosen);
+    }
+
+    fn instances_row(&mut self, ui: &mut Ui) {
+        let Some([columns, rows]) = self.pattern.instances(self.model.parameters()) else {
+            return;
+        };
+        if columns * rows < 2 {
+            return;
+        }
+        widgets::caption(ui, INSTANCES);
+        let mut toggled = None;
+        ui.vertical(|ui| {
+            for row in 0..rows {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = ui.spacing().item_spacing.y;
+                    for column in 0..columns {
+                        let instance = [column, row];
+                        let kept = !self.pattern.is_skipped(instance);
+                        let name = capitalized(&instance_name(instance));
+                        let hover = instance_hover(instance, kept);
+                        let original = instance == ORIGINAL_INSTANCE;
+                        let response = ui
+                            .add_enabled_ui(!original, |ui| {
+                                widgets::instance_toggle(ui, kept, &name, &hover)
+                            })
+                            .inner;
+                        if response.clicked() {
+                            toggled = Some(instance);
+                        }
+                    }
+                });
+            }
+            let left_out = self.pattern.skipped_within([columns, rows]);
+            let summary = match left_out {
+                0 => INSTANCES_HINT.to_owned(),
+                1 => "1 copy is left out.".to_owned(),
+                count => format!("{count} copies are left out."),
+            };
+            ui.label(widgets::muted(summary, ui));
+        });
+        ui.end_row();
+        if let Some(pattern) = toggled.and_then(|instance| self.pattern.toggled(instance)) {
+            let change = pattern_tools::change(self.model, self.id(), pattern);
+            self.apply(change);
+        }
     }
 
     fn apply(&mut self, change: Result<Transaction, String>) {
@@ -190,10 +329,15 @@ impl Panel<'_> {
                 })
             },
         );
+        self.measure_row(ui, direction, captions, rebuild);
         let salt = format!("{}spacing", captions.salt);
+        let caption = match direction.measured {
+            LinearSpacing::BetweenCopies => captions.spacing,
+            LinearSpacing::Total => captions.total,
+        };
         self.expression(
             ui,
-            captions.spacing,
+            caption,
             &salt,
             &direction.spacing,
             (Dimension::LENGTH, Rule::AboveZeroOrReverse),
@@ -336,6 +480,7 @@ pub fn show(
             PatternKind::Linear { first, second } => panel.linear_rows(ui, first, second.as_ref()),
             PatternKind::Circular(circular) => panel.circular_rows(ui, circular),
         }
+        panel.instances_row(ui);
         feature_fields::feature_row(ui, model.document(), "Body", pattern.body);
     });
     if !pattern.kind.is_linear() {

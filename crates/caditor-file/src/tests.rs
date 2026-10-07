@@ -2551,7 +2551,8 @@ fn an_unreadable_opened_face_is_left_closed_and_reported() {
 
 fn patterned_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{
-        AxisReference, CircularPattern, LinearDirection, Pattern, PatternKind, PrincipalAxis,
+        AxisReference, CircularPattern, LinearDirection, LinearSpacing, Pattern, PatternKind,
+        PrincipalAxis,
     };
     use caditor_kernel::{
         EdgeName, EdgeReference, FaceName, FaceOrigin, FaceReference, VertexName,
@@ -2560,9 +2561,9 @@ fn patterned_model() -> (Document, FeatureId, FeatureId) {
     let mut transaction = document.transaction("Patterns");
     let linear = transaction.add_feature(
         "Linear pattern 1",
-        FeatureKind::from(Pattern {
-            body: base,
-            kind: PatternKind::Linear {
+        FeatureKind::from(Pattern::new(
+            base,
+            PatternKind::Linear {
                 first: LinearDirection {
                     axis: AxisReference::Edge {
                         body: base,
@@ -2574,22 +2575,24 @@ fn patterned_model() -> (Document, FeatureId, FeatureId) {
                     },
                     count: transaction.parse("3").unwrap(),
                     spacing: transaction.parse("depth * 4").unwrap(),
+                    measured: LinearSpacing::BetweenCopies,
                     reversed: false,
                 },
                 second: Some(LinearDirection {
                     axis: AxisReference::Principal(PrincipalAxis::Y),
                     count: transaction.parse("2").unwrap(),
                     spacing: transaction.parse("12 mm").unwrap(),
+                    measured: LinearSpacing::BetweenCopies,
                     reversed: true,
                 }),
             },
-        }),
+        )),
     );
     let circular = transaction.add_feature(
         "Circular pattern 1",
-        FeatureKind::from(Pattern {
-            body: base,
-            kind: PatternKind::Circular(CircularPattern {
+        FeatureKind::from(Pattern::new(
+            base,
+            PatternKind::Circular(CircularPattern {
                 axis: AxisReference::Face {
                     body: base,
                     face: FaceReference::new(
@@ -2605,10 +2608,97 @@ fn patterned_model() -> (Document, FeatureId, FeatureId) {
                 angle: transaction.parse("180 deg").unwrap(),
                 reversed: false,
             }),
-        }),
+        )),
     );
     document.apply(transaction.finish()).unwrap();
     (document, linear, circular)
+}
+
+fn spread_and_skipping(document: &mut Document, linear: FeatureId, circular: FeatureId) {
+    use caditor_document::{LinearSpacing, PatternKind};
+    let mut spread = document
+        .feature(linear)
+        .unwrap()
+        .kind
+        .pattern()
+        .unwrap()
+        .clone();
+    if let PatternKind::Linear { first, .. } = &mut spread.kind {
+        first.measured = LinearSpacing::Total;
+    }
+    spread.skipped.insert([1, 1]);
+    let skipping = document
+        .feature(circular)
+        .unwrap()
+        .kind
+        .pattern()
+        .unwrap()
+        .toggled([2, 0])
+        .unwrap();
+    let transaction = Transaction::new(
+        "Edit",
+        vec![
+            Edit::SetFeatureKind {
+                id: linear,
+                kind: FeatureKind::from(spread),
+            },
+            Edit::SetFeatureKind {
+                id: circular,
+                kind: FeatureKind::from(skipping),
+            },
+        ],
+    );
+    document.apply(transaction).unwrap();
+}
+
+#[test]
+fn a_pattern_with_a_total_length_or_instances_left_out_is_a_record_kind_of_its_own() {
+    let (mut document, linear, circular) = patterned_model();
+    spread_and_skipping(&mut document, linear, circular);
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(!text.contains("\"linear_pattern\""));
+    assert!(!text.contains("\"circular_pattern\""));
+    assert!(text.contains("\"pattern\":{\"shape\":{\"linear\":{\"body\":1,"));
+    assert!(text.contains("\"skipped\":[[1,1]]"));
+    assert!(text.contains("\"skipped\":[[2,0]]"));
+    assert!(text.contains("\"total\":true"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    for pattern in [linear, circular] {
+        let kind = document.feature(pattern).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: pattern, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+}
+
+#[test]
+fn instances_left_out_that_no_pattern_can_make_are_dropped_on_loading() {
+    let (mut document, linear, circular) = patterned_model();
+    spread_and_skipping(&mut document, linear, circular);
+    let text = encode(&document).unwrap().replacen(
+        "\"skipped\":[[2,0]]",
+        "\"skipped\":[[0,0],[2,0],[4000,0]]",
+        1,
+    );
+
+    let loaded = decode_text(&text);
+    let restored = loaded
+        .document
+        .feature(circular)
+        .unwrap()
+        .kind
+        .pattern()
+        .unwrap();
+
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(restored.skipped.iter().collect::<Vec<_>>(), [&[2, 0]]);
 }
 
 #[test]

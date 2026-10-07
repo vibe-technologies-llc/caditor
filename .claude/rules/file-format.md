@@ -173,6 +173,11 @@ paths:
   it is a field, not a record kind; an unreadable part is left out and reported, the rest kept.
   The journal's `set_body_appearance` holds the same record. `describe_unreadable_record` skips
   the feature fields (`FEATURE_FIELDS`) when naming an unknown kind.
+- A pattern with a total length or instances left out is a `pattern` record (`shape`: `linear` or
+  `circular`, each the older record's fields, a direction's `total: true` when measured overall;
+  `skipped`, a list of `[step, step]`), since an older reader would make the wrong copies; any
+  other pattern is still written as `linear_pattern` or `circular_pattern`. Loading drops skipped
+  entries that no pattern can make (the original, a step past `MAX_PATTERN_INSTANCES`).
 - A `combine` feature record holds `body`, `tool` and `operation` (`join`, `cut`, `intersect`).
   A `remove` record holds `body`.
 - A sketch's constraint record carries `inactive: true` only for a disabled constraint (absent
