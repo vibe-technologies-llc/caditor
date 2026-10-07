@@ -301,7 +301,13 @@ impl Panel<'_> {
         let picker = Picker {
             feature: self.id(),
             slot,
-            selected: target_change(self.model, self.selection, self.id(), extrude, rows.side),
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (self.id(), slot),
+                || target_change(self.model, self.selection, self.id(), extrude, rows.side),
+            ),
             hover: "Run up to the selected flat face or plane instead",
         };
         match end {
@@ -542,7 +548,13 @@ impl Panel<'_> {
         let picker = Picker {
             feature: self.id(),
             slot: Slot::StartPlane,
-            selected: start_change(self.model, self.selection, self.id(), solid),
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (self.id(), Slot::StartPlane),
+                || start_change(self.model, self.selection, self.id(), solid),
+            ),
             hover: "Start from the selected flat face or plane instead",
         };
         if let Some(target) = on_face {
@@ -631,7 +643,13 @@ impl Panel<'_> {
             let picker = Picker {
                 feature: self.id(),
                 slot: Slot::RevolveAxis,
-                selected: selected_axis_change(model, self.selection, self.id(), revolve),
+                selected: feature_fields::offered_change(
+                    ui.ctx(),
+                    model,
+                    self.selection,
+                    (self.id(), Slot::RevolveAxis),
+                    || selected_axis_change(model, self.selection, self.id(), revolve),
+                ),
                 hover: "Turn about the selected axis, edge or round face",
             };
             feature_fields::reference_picker(ui, model, picker, self.actions);

@@ -93,16 +93,30 @@ impl Panel<'_> {
         self.actions.extend(chosen);
     }
 
-    fn picker(&self, slot: Slot, reference: Reference, hover: &'static str) -> Picker<'static> {
+    fn picker(
+        &self,
+        ctx: &egui::Context,
+        slot: Slot,
+        reference: Reference,
+        hover: &'static str,
+    ) -> Picker<'static> {
         Picker {
             feature: self.id(),
             slot,
-            selected: pattern_tools::selected_change(
+            selected: feature_fields::offered_change(
+                ctx,
                 self.model,
                 self.selection,
-                self.id(),
-                self.pattern,
-                reference,
+                (self.id(), slot),
+                || {
+                    pattern_tools::selected_change(
+                        self.model,
+                        self.selection,
+                        self.id(),
+                        self.pattern,
+                        reference,
+                    )
+                },
             ),
             hover,
         }
@@ -116,7 +130,7 @@ impl Panel<'_> {
         hover: &'static str,
     ) {
         let shown = Shown::Named(capitalized(&describe_axis(self.model.document(), axis)));
-        let picker = self.picker(Slot::PatternDirection, Reference::First, hover);
+        let picker = self.picker(ui.ctx(), Slot::PatternDirection, Reference::First, hover);
         feature_fields::reference_row(ui, self.model, caption, shown, picker, None, self.actions);
     }
 
@@ -212,6 +226,7 @@ impl Panel<'_> {
             None => Shown::NoneChosen,
         };
         let picker = self.picker(
+            ui.ctx(),
             Slot::PatternSecond,
             Reference::Second,
             "Also repeat the rows along the selected edge, round face or axis",

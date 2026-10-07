@@ -15,14 +15,14 @@ pub const STOP_HINT: &str = "Esc: stop choosing";
 const GONE: &str = "The feature no longer exists";
 const AXIS: &str = "an axis, straight edge or round face";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Side {
     One,
     Forward,
     Backward,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Slot {
     RevolveAxis,
     ExtrudeTarget(Side),

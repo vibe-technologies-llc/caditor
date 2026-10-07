@@ -6123,6 +6123,32 @@ fn a_large_selection_is_counted_whole_but_described_and_measured_only_in_part() 
 }
 
 #[test]
+fn a_use_selected_offer_is_worked_out_once_per_selection_and_model_change() {
+    let harness = Harness::new();
+    let ctx = egui::Context::default();
+    let feature = feature_named(&harness, "Base sketch");
+    let reference = (feature, crate::reference_picking::Slot::MirrorPlane);
+    let mut computed = 0;
+    let mut offer = |selection: &crate::selection::Selection| {
+        crate::feature_fields::offered_change(&ctx, &harness.model, selection, reference, || {
+            computed += 1;
+            Err("nothing usable".to_owned())
+        })
+    };
+    let mut selection = crate::selection::Selection::default();
+    selection.replace_with(Pickable::Origin);
+
+    let first = offer(&selection);
+    let again = offer(&selection);
+    selection.clear();
+    offer(&selection);
+
+    assert_eq!(first, Err("nothing usable".to_owned()));
+    assert_eq!(again, first);
+    assert_eq!(computed, 2);
+}
+
+#[test]
 fn a_sketch_started_on_a_selected_face_follows_it_when_the_body_changes() {
     let mut harness = Harness::new();
     let (extrude, top) = extruded_plate(&mut harness);

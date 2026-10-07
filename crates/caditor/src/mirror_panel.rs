@@ -61,11 +61,12 @@ impl Panel<'_> {
         let picker = Picker {
             feature: self.id(),
             slot: Slot::MirrorPlane,
-            selected: mirror_tools::plane_change(
+            selected: feature_fields::offered_change(
+                ui.ctx(),
                 self.model,
                 self.selection,
-                self.id(),
-                self.mirror,
+                (self.id(), Slot::MirrorPlane),
+                || mirror_tools::plane_change(self.model, self.selection, self.id(), self.mirror),
             ),
             hover: PICK_HOVER,
         };

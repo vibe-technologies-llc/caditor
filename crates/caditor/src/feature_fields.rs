@@ -11,6 +11,7 @@ use crate::{
     icons,
     model::{Action, Model, Notice},
     reference_picking::{self, Picking, Slot},
+    selection::Selection,
     widgets::{self, FIELD_WIDTH, Named, Tone},
 };
 
@@ -273,6 +274,44 @@ pub struct Picker<'a> {
     pub slot: Slot,
     pub selected: Result<Transaction, String>,
     pub hover: &'a str,
+}
+
+#[derive(Clone)]
+struct OfferedChange {
+    basis: (u64, u64, u64),
+    change: Result<Transaction, String>,
+}
+
+pub fn offered_change(
+    ctx: &egui::Context,
+    model: &Model,
+    selection: &Selection,
+    reference: (FeatureId, Slot),
+    compute: impl FnOnce() -> Result<Transaction, String>,
+) -> Result<Transaction, String> {
+    let id = Id::new(("offered-change", reference.0, reference.1));
+    let basis = (
+        selection.generation(),
+        model.revision(),
+        model.evaluation_generation(),
+    );
+    let known = ctx
+        .data(|data| data.get_temp::<OfferedChange>(id))
+        .filter(|known| known.basis == basis);
+    if let Some(known) = known {
+        return known.change;
+    }
+    let change = compute();
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            id,
+            OfferedChange {
+                basis,
+                change: change.clone(),
+            },
+        );
+    });
+    change
 }
 
 pub fn reference_picker(ui: &mut Ui, model: &Model, picker: Picker<'_>, actions: &mut Vec<Action>) {

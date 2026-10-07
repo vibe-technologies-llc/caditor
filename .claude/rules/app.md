@@ -152,9 +152,10 @@ paths:
   describes only the first `MAX_DESCRIBED` items and counts the rest (the status bar's tooltip
   ends "and N more"), since describing an item can scan its body.
 - `Selection::generation` is globally unique per content change, so caches key on it rather than
-  cloning and comparing the set: the offers, Measure, and the viewport's check that the selection
-  is still available (`retain_available`, rerun only when the selection, revision, evaluation or
-  editing context changed).
+  cloning and comparing the set: the offers, Measure, the panels' Use selected offers
+  (`feature_fields::offered_change`, kept per feature and slot in egui's memory), and the
+  viewport's check that the selection is still available (`retain_available`, rerun only when the
+  selection, revision, evaluation or editing context changed).
 
 ## Measure
 

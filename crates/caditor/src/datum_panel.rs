@@ -193,7 +193,13 @@ impl Panel<'_> {
     fn base_row(&mut self, ui: &mut Ui, plane: &DatumPlane) {
         let document = self.model.document();
         let chooser = self.chooser();
-        let based = chooser.checked(chooser.base(&Datum::Plane(plane.clone())));
+        let based = feature_fields::offered_change(
+            ui.ctx(),
+            self.model,
+            self.selection,
+            (self.id(), Slot::DatumBase),
+            || chooser.checked(chooser.base(&Datum::Plane(plane.clone()))),
+        );
         let shown = Shown::Named(capitalized(&describe_plane(document, &plane.base)));
         let picker = self.picker(
             Slot::DatumBase,
@@ -218,7 +224,13 @@ impl Panel<'_> {
             None => Shown::NoneChosen,
         };
         let chooser = self.chooser();
-        let turned = chooser.checked(chooser.rotation(&Datum::Plane(plane.clone())));
+        let turned = feature_fields::offered_change(
+            ui.ctx(),
+            self.model,
+            self.selection,
+            (self.id(), Slot::DatumRotation),
+            || chooser.checked(chooser.rotation(&Datum::Plane(plane.clone()))),
+        );
         let picker = self.picker(
             Slot::DatumRotation,
             turned,
@@ -298,7 +310,13 @@ impl Panel<'_> {
             ),
         };
         let chooser = self.chooser();
-        let chosen = chooser.checked(chooser.base(&Datum::Axis(axis.clone())));
+        let chosen = feature_fields::offered_change(
+            ui.ctx(),
+            self.model,
+            self.selection,
+            (self.id(), Slot::DatumBase),
+            || chooser.checked(chooser.base(&Datum::Axis(axis.clone()))),
+        );
         let picker = self.picker(
             Slot::DatumBase,
             chosen,
