@@ -295,9 +295,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 ## Accessibility
 
 - [medium · medium] Constraints and dimensions are not scene pickables, so N never reaches them and
-  a dimension can be re-edited only by double-click or from the tree; with a drawing tool active,
-  Space toggles the selection instead of placing at the highlight, so keyboard drawing cannot start
-  from existing geometry.
+  a dimension can be re-edited only by double-click or from the tree. While drawing, Space places
+  only at a highlighted point, not on a highlighted curve.
 - [medium · medium] High contrast reaches neither the scene colours nor the colour-only sketch
   states.
 - [low · medium] The 3D view's description names the bodies, sketches and datums it shows and

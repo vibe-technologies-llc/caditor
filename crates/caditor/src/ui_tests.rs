@@ -8041,6 +8041,46 @@ fn type_point(harness: &mut Harness, text: &str) {
 }
 
 #[test]
+fn space_while_drawing_starts_a_line_at_the_highlighted_point() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let corner = sketch.add_point(Point2::new(10.0, 10.0));
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.use_tool(Key::L);
+    let point = Pickable::SketchEntity {
+        feature,
+        entity: corner,
+    };
+
+    for _ in 0..20 {
+        if harness.workspace.viewport.keyboard_highlight() == Some(point) {
+            break;
+        }
+        harness.key(Key::N, Modifiers::NONE);
+        harness.frame();
+    }
+    assert_eq!(harness.workspace.viewport.keyboard_highlight(), Some(point));
+
+    harness.key(Key::Space, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    type_point(&mut harness, "@20 mm, 0");
+
+    let lines = entities_of_kind(harness.sketch(feature), "Line");
+    assert_eq!(lines.len(), 1);
+    assert!(
+        constraints_of_kind(harness.sketch(feature), "Coincident")
+            .iter()
+            .any(|constraint| matches!(
+                constraint,
+                Constraint::Coincident(a, b) if *a == corner || *b == corner
+            ))
+    );
+    assert!(!harness.workspace.viewport.selection().contains(point));
+}
+
+#[test]
 fn a_part_can_be_modelled_from_the_keyboard_alone() {
     let mut harness = Harness::new();
     run_from_palette(&mut harness, "new sketch");

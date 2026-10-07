@@ -5,7 +5,7 @@ use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3}
 use caditor_render::{
     Camera, PickResult, Scene, SurfaceSize, View, Viewpoint, ViewportRect, grid_minor_spacing,
 };
-use caditor_sketch::{ConstraintId, EntityId, MAX_LENGTH};
+use caditor_sketch::{ConstraintId, Entity, EntityId, MAX_LENGTH};
 use egui::{
     Align, Align2, Key, PointerButton, Rect, Response, Sense, Shape, Stroke, WidgetInfo,
     WidgetType, accesskit::Live, pos2, vec2,
@@ -55,6 +55,8 @@ const PROMPT_MAX_WIDTH: f32 = 720.0;
 const READOUT_ROOM: f32 = 200.0;
 const DRAG_DRAWS_FROM_PRESS: f64 = 12.0;
 const SIZE_READOUT_OFFSET: egui::Vec2 = vec2(14.0, 26.0);
+pub const PLACE_AT_A_POINT: &str = "While drawing, Space places at the highlighted point: highlight \
+                                    one of the sketch's points or the origin.";
 const VIEWPORT_NAME: &str = "3D view";
 const NOT_IN_A_SKETCH: &str = "Edit a sketch to look straight at it";
 pub const DRAG_BLOCKED: &str = "The constraints do not allow it there";
@@ -1472,11 +1474,43 @@ impl ViewportState {
         if commands.invoke(Command::ActivateHighlighted, &activation)
             && let Some(highlight) = self.keyboard_highlight
         {
+            if let Some(placed) = self.place_at_highlight(model, editing, highlight) {
+                actions.extend(placed);
+                return;
+            }
             match pick_action(Some(highlight), model, editing) {
                 Some(action) => actions.extend(action),
                 None => self.selection.toggle(highlight),
             }
         }
+    }
+
+    fn place_at_highlight(
+        &mut self,
+        model: &Model,
+        editing: &SketchEditing,
+        highlight: Pickable,
+    ) -> Option<Option<Action>> {
+        let active = editing.active().filter(|active| active.tool.draws())?;
+        let sketch = edited_sketch(model, editing)?;
+        let position = match highlight {
+            Pickable::Origin => Some(Point2::ZERO),
+            Pickable::SketchEntity { feature, entity } if feature == active.feature => {
+                match sketch.entity(entity) {
+                    Some(Entity::Point(position)) => Some(*position),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        let Some(position) = position else {
+            return Some(Some(Action::Inform(Notice::info(PLACE_AT_A_POINT))));
+        };
+        self.drawing.type_point(&sketch, position);
+        Some(match self.drawing.click(model) {
+            Ok(transaction) => transaction.map(Action::Apply),
+            Err(refusal) => Some(Action::Inform(Notice::info(refusal.reason()))),
+        })
     }
 
     fn selection_commands(
