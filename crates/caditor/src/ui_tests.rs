@@ -4220,6 +4220,62 @@ fn snapping_can_be_turned_off_for_good_and_back_on() {
 }
 
 #[test]
+fn a_point_placed_at_the_centre_of_a_rectangle_is_held_there_by_symmetry() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::R);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(50.0, 30.0));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    harness.use_tool(Key::P);
+    harness.point_at(Point2::new(30.4, 20.3));
+    assert!(harness.shows_containing("Centre of the outline of Line"));
+    harness.click_at(Point2::new(30.4, 20.3));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let symmetric = constraints_of_kind(sketch, "Symmetric");
+    let [Constraint::Symmetric { about, .. }] = symmetric[..] else {
+        panic!("one symmetry about the centre is expected");
+    };
+    assert!(near(sketch.point(about).unwrap(), Point2::new(30.0, 20.0)));
+}
+
+#[test]
+fn a_point_placed_at_the_middle_of_an_arc_is_held_at_its_midpoint() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::A);
+    let center = Point2::new(20.0, 20.0);
+    harness.click_at(center);
+    harness.click_at(center + Vector2::new(10.0, 0.0));
+    harness.point_at(center + Vector2::new(7.0, 7.0));
+    harness.click_at(center + Vector2::new(0.0, 10.0));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    let arc = entities_of_kind(harness.sketch(feature), "Arc")[0];
+    let middle = center + Vector2::from_angle(std::f64::consts::FRAC_PI_4) * 10.0;
+
+    harness.use_tool(Key::P);
+    harness.point_at(middle + Vector2::new(0.3, -0.2));
+    assert!(harness.shows(&format!("Midpoint of Arc {arc}")));
+    harness.click_at(middle + Vector2::new(0.3, -0.2));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let midpoints = constraints_of_kind(sketch, "Midpoint");
+    let [Constraint::Midpoint { point, curve }] = midpoints[..] else {
+        panic!("one midpoint constraint is expected");
+    };
+    assert_eq!(curve, arc);
+    assert!(near(sketch.point(point).unwrap(), middle));
+}
+
+#[test]
 fn a_line_started_at_the_middle_of_another_is_held_at_its_midpoint() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
@@ -4240,10 +4296,10 @@ fn a_line_started_at_the_middle_of_another_is_held_at_its_midpoint() {
 
     let sketch = harness.sketch(feature);
     let midpoints = constraints_of_kind(sketch, "Midpoint");
-    let [Constraint::Midpoint { point, line }] = midpoints[..] else {
+    let [Constraint::Midpoint { point, curve }] = midpoints[..] else {
         panic!("one midpoint constraint is expected");
     };
-    assert_eq!(line, base);
+    assert_eq!(curve, base);
     assert!(near(sketch.point(point).unwrap(), Point2::new(30.0, 10.0)));
 }
 

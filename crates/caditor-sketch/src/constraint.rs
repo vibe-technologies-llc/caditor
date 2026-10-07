@@ -18,7 +18,7 @@ pub enum Constraint {
     Equal(EntityId, EntityId),
     Midpoint {
         point: EntityId,
-        line: EntityId,
+        curve: EntityId,
     },
     Concentric(EntityId, EntityId),
     Collinear(EntityId, EntityId),
@@ -104,7 +104,7 @@ impl Constraint {
             | Self::Perpendicular(a, b)
             | Self::Tangent(a, b)
             | Self::Equal(a, b)
-            | Self::Midpoint { point: a, line: b }
+            | Self::Midpoint { point: a, curve: b }
             | Self::Concentric(a, b)
             | Self::Collinear(a, b)
             | Self::Distance { from: a, to: b, .. }
@@ -215,7 +215,7 @@ impl Constraint {
             | Self::Perpendicular(a, b)
             | Self::Tangent(a, b)
             | Self::Equal(a, b)
-            | Self::Midpoint { point: a, line: b }
+            | Self::Midpoint { point: a, curve: b }
             | Self::Concentric(a, b)
             | Self::Collinear(a, b)
             | Self::Distance { from: a, to: b, .. }

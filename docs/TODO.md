@@ -147,13 +147,14 @@ the unblocked ones; the entry that does the unblocking comes before it.
   other constraints) is still accepted and reported afterwards; trial-solve it off the UI thread
   before committing.
 - [medium · medium] Constraint kinds missing: distance between circles, line and circle, or to a
-  spline; arc length and sweep; angle or perpendicular to an arc; arc midpoint; equal splines;
+  spline; arc length and sweep; angle or perpendicular to an arc; equal splines;
   spline–spline tangency; curvature continuity; symmetric curves.
 - [medium · medium] No size readout while drawing splines, tangent arcs or arc slots; no
   closed-region or open-end feedback while sketching (only a failed extrusion names a sketch's open
   ends); and no smart-dimension tool that takes the entities after the command.
-- [medium · medium] Snapping has no midpoints of arcs, spline targets or crossings with splines,
-  grid or inference lines to other points, and dragged geometry does not snap at all.
+- [medium · medium] Snapping has no spline targets or crossings with splines, no centre of an
+  outline with odd sides or arcs in it, no grid or inference lines to other points, and dragged
+  geometry does not snap at all.
 - [medium · hard] Tools missing: ellipse (a new entity kind across the solver, the kernel's 2D
   profile curves, which have no ellipse although its 3D curves do, and the file format), sketch
   chamfer, rectangular and circular patterns, rotate, scale and copy of a selection, split at a

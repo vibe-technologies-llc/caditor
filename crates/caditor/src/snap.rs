@@ -19,6 +19,10 @@ pub enum Target {
     Curve(EntityId),
     Midpoint(EntityId),
     Intersection(EntityId, EntityId),
+    Centre {
+        outline: EntityId,
+        corners: (EntityId, EntityId),
+    },
 }
 
 impl Target {
@@ -33,7 +37,11 @@ impl Target {
     pub fn second_entity(self) -> Option<EntityId> {
         match self {
             Self::Intersection(_, second) => Some(second),
-            Self::Pending(_) | Self::Point(_) | Self::Curve(_) | Self::Midpoint(_) => None,
+            Self::Pending(_)
+            | Self::Point(_)
+            | Self::Curve(_)
+            | Self::Midpoint(_)
+            | Self::Centre { .. } => None,
         }
     }
 
@@ -43,7 +51,10 @@ impl Target {
             Self::Point(entity)
             | Self::Curve(entity)
             | Self::Midpoint(entity)
-            | Self::Intersection(entity, _) => Some(entity),
+            | Self::Intersection(entity, _)
+            | Self::Centre {
+                outline: entity, ..
+            } => Some(entity),
         }
     }
 }
@@ -104,6 +115,7 @@ pub fn resolve(
         .or_else(|| nearest(points, POINT_TOLERANCE))
         .or_else(|| match accept {
             Accept::Anything => nearest(midpoints(sketch), POINT_TOLERANCE)
+                .or_else(|| nearest(centres(sketch), POINT_TOLERANCE))
                 .or_else(|| nearest(intersections(sketch, screen, pointer), POINT_TOLERANCE)),
             Accept::Points | Accept::OnCircle { .. } => None,
         })
@@ -265,16 +277,181 @@ fn midpoints(sketch: &Sketch) -> Vec<Snapped> {
     sketch
         .entities()
         .filter_map(|(id, entity)| {
-            let Entity::Line { .. } = entity else {
-                return None;
+            let position = match entity {
+                Entity::Line { .. } => {
+                    let (start, end) = sketch.line_endpoints(id)?;
+                    start.midpoint(end)
+                }
+                Entity::Arc { .. } => {
+                    let arc = sketch.arc(id)?;
+                    arc.point_at(arc.start_angle + arc.sweep / 2.0)
+                }
+                Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. } => return None,
             };
-            let (start, end) = sketch.line_endpoints(id)?;
             Some(Snapped {
-                position: start.midpoint(end),
+                position,
                 target: Target::Midpoint(id),
             })
         })
         .collect()
+}
+
+struct Corner {
+    position: Point2,
+    line: usize,
+    at_end: bool,
+}
+
+struct OutlineLine {
+    id: EntityId,
+    start: (EntityId, Point2),
+    end: (EntityId, Point2),
+}
+
+fn centres(sketch: &Sketch) -> Vec<Snapped> {
+    let lines: Vec<OutlineLine> = sketch
+        .entities()
+        .filter_map(|(id, entity)| {
+            let Entity::Line { start, end } = *entity else {
+                return None;
+            };
+            let (from, to) = sketch.line_endpoints(id)?;
+            Some(OutlineLine {
+                id,
+                start: (start, from),
+                end: (end, to),
+            })
+        })
+        .collect();
+    let extent = lines
+        .iter()
+        .flat_map(|line| [line.start.1, line.end.1])
+        .fold(1.0_f64, |most, point| most.max(point.abs().max_element()));
+    let tolerance = JOINED_CORNER_TOLERANCE * extent;
+    let partners = corner_partners(&lines, tolerance);
+    let mut visited = vec![false; lines.len()];
+    let mut found = Vec::new();
+    for first in 0..lines.len() {
+        if visited.get(first).copied().unwrap_or(true) {
+            continue;
+        }
+        let Some(outline) = closed_outline(&lines, &partners, first, &mut visited) else {
+            continue;
+        };
+        let Some(id) = lines.get(first).map(|line| line.id) else {
+            continue;
+        };
+        found.extend(
+            symmetric_centre(&outline, tolerance).map(|(position, corners)| Snapped {
+                position,
+                target: Target::Centre {
+                    outline: id,
+                    corners,
+                },
+            }),
+        );
+    }
+    found
+}
+
+const JOINED_CORNER_TOLERANCE: f64 = 1e-7;
+const MAX_OUTLINE_LINES: usize = 64;
+
+fn corner_partners(lines: &[OutlineLine], tolerance: f64) -> Vec<Option<(usize, bool)>> {
+    let mut corners: Vec<Corner> = lines
+        .iter()
+        .enumerate()
+        .flat_map(|(index, line)| {
+            [(line.start.1, false), (line.end.1, true)].map(|(position, at_end)| Corner {
+                position,
+                line: index,
+                at_end,
+            })
+        })
+        .collect();
+    corners.sort_by(|a, b| a.position.x.total_cmp(&b.position.x));
+    let mut meeting: Vec<Vec<usize>> = vec![Vec::new(); corners.len()];
+    for (index, corner) in corners.iter().enumerate() {
+        for (offset, other) in corners.iter().enumerate().skip(index + 1) {
+            if other.position.x - corner.position.x > tolerance {
+                break;
+            }
+            if other.position.distance(corner.position) <= tolerance {
+                if let Some(list) = meeting.get_mut(index) {
+                    list.push(offset);
+                }
+                if let Some(list) = meeting.get_mut(offset) {
+                    list.push(index);
+                }
+            }
+        }
+    }
+    let mut partners = vec![None; 2 * lines.len()];
+    for (corner, others) in corners.iter().zip(&meeting) {
+        let [other] = others.as_slice() else {
+            continue;
+        };
+        let Some(other) = corners.get(*other) else {
+            continue;
+        };
+        if other.line != corner.line
+            && let Some(partner) = partners.get_mut(2 * corner.line + usize::from(corner.at_end))
+        {
+            *partner = Some((other.line, other.at_end));
+        }
+    }
+    partners
+}
+
+fn closed_outline(
+    lines: &[OutlineLine],
+    partners: &[Option<(usize, bool)>],
+    first: usize,
+    visited: &mut [bool],
+) -> Option<Vec<(EntityId, Point2)>> {
+    let mut corners = Vec::new();
+    let (mut line, mut leaving_end) = (first, true);
+    loop {
+        if let Some(seen) = visited.get_mut(line) {
+            *seen = true;
+        }
+        let current = lines.get(line)?;
+        corners.push(if leaving_end {
+            current.end
+        } else {
+            current.start
+        });
+        if corners.len() > MAX_OUTLINE_LINES {
+            return None;
+        }
+        let (next, arriving_end) = (*partners.get(2 * line + usize::from(leaving_end))?)?;
+        if next == first {
+            return (!arriving_end).then_some(corners);
+        }
+        if visited.get(next).copied().unwrap_or(true) {
+            return None;
+        }
+        (line, leaving_end) = (next, !arriving_end);
+    }
+}
+
+fn symmetric_centre(
+    corners: &[(EntityId, Point2)],
+    tolerance: f64,
+) -> Option<(Point2, (EntityId, EntityId))> {
+    let count = corners.len();
+    if count < 4 || !count.is_multiple_of(2) {
+        return None;
+    }
+    let half = count / 2;
+    let (first, opposite) = (corners.first()?, corners.get(half)?);
+    let centre = first.1.midpoint(opposite.1);
+    let symmetric = corners
+        .iter()
+        .zip(corners.iter().skip(half))
+        .all(|(corner, across)| corner.1.midpoint(across.1).distance(centre) <= tolerance);
+    let spread = first.1.distance(opposite.1) > tolerance;
+    (symmetric && spread).then_some((centre, (first.0, opposite.0)))
 }
 
 fn curves(sketch: &Sketch, at: Point2) -> Vec<Snapped> {
@@ -582,6 +759,110 @@ pub mod tests {
     }
 
     #[test]
+    fn the_middle_of_an_arc_is_a_snap_target_however_far_it_sweeps() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let quarter = sketch.add_arc(
+            Point2::new(0.0, 0.0),
+            Point2::new(10.0, 0.0),
+            Point2::new(0.0, 10.0),
+        );
+        let most = sketch.add_arc(
+            Point2::new(50.0, 0.0),
+            Point2::new(60.0, 0.0),
+            Point2::new(50.0, -10.0),
+        );
+        let diagonal = 10.0 / 2f64.sqrt();
+
+        let middle = resolve_at(&sketch, Point2::new(diagonal + 0.3, diagonal - 0.2)).unwrap();
+        let far_middle = resolve_at(&sketch, Point2::new(50.0 - diagonal, diagonal + 0.4)).unwrap();
+
+        assert_eq!(middle.target, Target::Midpoint(quarter));
+        assert!(middle.position.distance(Point2::new(diagonal, diagonal)) < 1e-9);
+        assert_eq!(far_middle.target, Target::Midpoint(most));
+        assert!(
+            far_middle
+                .position
+                .distance(Point2::new(50.0 - diagonal, diagonal))
+                < 1e-9
+        );
+    }
+
+    fn outline(sketch: &mut Sketch, corners: &[Point2]) -> Vec<EntityId> {
+        corners
+            .iter()
+            .zip(corners.iter().cycle().skip(1))
+            .map(|(from, to)| sketch.add_line(*from, *to))
+            .collect()
+    }
+
+    #[test]
+    fn the_centre_of_a_closed_outline_symmetric_about_it_is_a_snap_target() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let square = outline(
+            &mut sketch,
+            &[
+                Point2::new(10.0, 10.0),
+                Point2::new(30.0, 10.0),
+                Point2::new(30.0, 30.0),
+                Point2::new(10.0, 30.0),
+            ],
+        );
+        let hexagon: Vec<Point2> = (0..6)
+            .map(|step| {
+                Point2::new(80.0, 20.0) + Vector2::from_angle(f64::from(step) * TAU / 6.0) * 10.0
+            })
+            .collect();
+        outline(&mut sketch, &hexagon);
+        outline(
+            &mut sketch,
+            &[
+                Point2::new(10.0, -40.0),
+                Point2::new(40.0, -40.0),
+                Point2::new(30.0, -20.0),
+                Point2::new(20.0, -20.0),
+            ],
+        );
+        let corner = |line: EntityId, index: usize| sketch.entity(line).unwrap().points()[index];
+
+        let centre = resolve_at(&sketch, Point2::new(20.4, 19.7)).unwrap();
+        let hexagon_centre = resolve_at(&sketch, Point2::new(80.3, 20.2)).unwrap();
+        let trapezoid_middle = resolve_at(&sketch, Point2::new(25.0, -30.0));
+
+        assert_eq!(
+            centre.target,
+            Target::Centre {
+                outline: square[0],
+                corners: (corner(square[0], 1), corner(square[2], 1)),
+            }
+        );
+        assert!(centre.position.distance(Point2::new(20.0, 20.0)) < 1e-9);
+        assert!(matches!(hexagon_centre.target, Target::Centre { .. }));
+        assert!(hexagon_centre.position.distance(Point2::new(80.0, 20.0)) < 1e-9);
+        assert_eq!(trapezoid_middle, None);
+    }
+
+    #[test]
+    fn an_open_chain_or_a_branching_corner_has_no_centre() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let corners = [
+            Point2::new(10.0, 10.0),
+            Point2::new(30.0, 10.0),
+            Point2::new(30.0, 30.0),
+            Point2::new(10.0, 30.0),
+        ];
+        let open: Vec<EntityId> = corners
+            .windows(2)
+            .map(|pair| sketch.add_line(pair[0], pair[1]))
+            .collect();
+        assert_eq!(open.len(), 3);
+        assert_eq!(resolve_at(&sketch, Point2::new(20.0, 20.0)), None);
+
+        sketch.add_line(corners[3], corners[0]);
+        sketch.add_line(corners[0], Point2::new(0.0, 0.0));
+        assert_eq!(resolve_at(&sketch, Point2::new(20.0, 20.0)), None);
+    }
+
+    #[test]
     fn where_two_curves_cross_is_a_snap_target_ahead_of_either_curve() {
         let mut sketch = Sketch::new(Plane::XY);
         let across = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(40.0, 40.0));
@@ -658,8 +939,8 @@ pub mod tests {
         assert_eq!(on_circle.target, Target::Curve(circle));
         assert!(on_circle.position.distance(Point2::new(40.0, 30.0)) < 1e-12);
 
-        let diagonal = Point2::new(-40.0, 40.0) + Vector2::splat(10.3 / 2f64.sqrt());
-        let on_arc = resolve_at(&sketch, diagonal).unwrap();
+        let off_middle = Point2::new(-40.0, 40.0) + Vector2::from_angle(0.2) * 10.3;
+        let on_arc = resolve_at(&sketch, off_middle).unwrap();
         assert_eq!(on_arc.target, Target::Curve(arc));
         assert!((on_arc.position.distance(Point2::new(-40.0, 40.0)) - 10.0).abs() < 1e-12);
 

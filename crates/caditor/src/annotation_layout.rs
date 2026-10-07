@@ -1252,7 +1252,13 @@ mod tests {
             vec![(lone, GlyphKind::Horizontal)]
         );
         assert_eq!(
-            glyphs_of(&sketch, &Constraint::Midpoint { point: lone, line }),
+            glyphs_of(
+                &sketch,
+                &Constraint::Midpoint {
+                    point: lone,
+                    curve: line
+                }
+            ),
             vec![(lone, GlyphKind::Midpoint)]
         );
         assert_eq!(

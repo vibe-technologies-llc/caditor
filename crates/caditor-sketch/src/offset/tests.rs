@@ -309,7 +309,7 @@ fn half_disc(sketch: &mut Sketch) -> (EntityId, EntityId, ConstraintId) {
     sketch
         .add_constraint(Constraint::Midpoint {
             point: center,
-            line: diameter,
+            curve: diameter,
         })
         .unwrap();
     sketch

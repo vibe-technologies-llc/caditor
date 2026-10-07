@@ -311,7 +311,7 @@ impl Sketch {
                     let other = if a == point { b } else { a };
                     other == about || ends.contains(&other) || (axis && other == EntityId::ORIGIN)
                 }
-                Constraint::Midpoint { line, .. } => line == about,
+                Constraint::Midpoint { curve, .. } => curve == about,
                 _ => false,
             })
     }

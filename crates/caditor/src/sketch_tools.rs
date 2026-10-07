@@ -81,7 +81,7 @@ impl ConstraintTool {
     pub fn description(self) -> &'static str {
         match self {
             Self::Coincident => "Join two points, or put a point on a curve",
-            Self::Midpoint => "Put a point at the middle of a line",
+            Self::Midpoint => "Put a point at the middle of a line or arc",
             Self::Concentric => "Give circles and arcs one centre, or put a point at their centre",
             Self::Collinear => "Put lines on one straight line",
             Self::Fix => "Lock points where they are; a curve is locked by its points",
@@ -113,7 +113,7 @@ impl ConstraintTool {
             Self::Coincident => {
                 "Select two or more points, or points and one line, circle, arc or spline"
             }
-            Self::Midpoint => "Select a point and a line",
+            Self::Midpoint => "Select a point and a line or arc",
             Self::Concentric => {
                 "Select two or more circles or arcs, or a point and a circle or arc"
             }
@@ -180,9 +180,11 @@ impl ConstraintTool {
         match (self, items) {
             (Self::Coincident, _) => chained(items, Point, Constraint::Coincident)
                 .or_else(|| onto_one_curve(items, Constraint::Coincident)),
-            (Self::Midpoint, &[(point, Point), (line, Line)] | &[(line, Line), (point, Point)]) => {
-                Some(vec![Constraint::Midpoint { point, line }])
-            }
+            (
+                Self::Midpoint,
+                &[(point, Point), (curve, Line | Circular)]
+                | &[(curve, Line | Circular), (point, Point)],
+            ) => Some(vec![Constraint::Midpoint { point, curve }]),
             (
                 Self::Concentric,
                 &[(point, Point), (curve, Circular)] | &[(curve, Circular), (point, Point)],
@@ -1166,7 +1168,7 @@ mod tests {
             candidates(&f, ConstraintTool::Midpoint, &[f.horizontal, f.lone]),
             Ok(vec![Constraint::Midpoint {
                 point: f.lone,
-                line: f.horizontal
+                curve: f.horizontal
             }])
         );
         assert_eq!(

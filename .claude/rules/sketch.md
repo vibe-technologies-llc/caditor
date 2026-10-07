@@ -53,6 +53,10 @@ paths:
   dimension at solve with its own message.
 - `Sketch::measured` gives a dimension's drawn value: new dimensions start from it and unreadable
   stored ones fall back to it.
+- `Midpoint { point, curve }` takes a line or an arc, never a circle. On an arc it is two
+  single-branch equations (`Form::OnBisector`, the point on the chord's perpendicular bisector, and
+  `Form::ArcBulge`, its signed distance from the centre across the chord equal to the radius on the
+  side a counter-clockwise arc bulges), so a solve never lands on the opposite side of the circle.
 
 ## Editing operations
 
@@ -63,7 +67,8 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
 - Trim and extend (`trim.rs`): cutters and targets are every other curve, construction curves and
   splines included; reference axes and lone points are not. A crossing at a curve's own end is a
   joint, not a cut. Splines cannot themselves be trimmed or extended.
-  - `Midpoint` and `Equal` on a shortened line are dropped, as is any distance dimension between
+  - `Midpoint` and `Equal` on a shortened line, and `Midpoint` on a shortened or extended arc
+    (`keeps_sweep`; the sketch fillet does the same), are dropped, as is any distance dimension between
     its two old ends or points joined to them by `Coincident` (one end often outlives the trim,
     shared with another curve, and would keep measuring to the far end).
   - A split-off piece gets fresh IDs and the construction flag. A line piece is `Collinear` with

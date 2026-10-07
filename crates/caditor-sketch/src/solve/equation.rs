@@ -289,6 +289,15 @@ pub(crate) enum Form {
         second: PointHandle,
         line: LineHandle,
     },
+    OnBisector {
+        point: PointHandle,
+        chord: LineHandle,
+    },
+    ArcBulge {
+        point: PointHandle,
+        chord: LineHandle,
+        arc: CircleHandle,
+    },
     MirrorAcross {
         first: PointHandle,
         second: PointHandle,
@@ -388,6 +397,8 @@ impl Form {
             | Self::Angle { .. }
             | Self::Middle { .. }
             | Self::MirrorMiddle { .. }
+            | Self::OnBisector { .. }
+            | Self::ArcBulge { .. }
             | Self::MirrorAcross { .. }
             | Self::OnSpline { .. }
             | Self::SplineOnLine { .. }
@@ -478,6 +489,26 @@ impl Form {
                 spline.push_tangent(&at, gradient, turning);
                 gradient.push((parameter, across.dot(at.tangent) + turning.dot(at.bend)));
                 radial.unit.dot(tangent.unit) * scale
+            }
+            Self::OnBisector { point, chord } => {
+                let direction = chord.direction(values, context);
+                let middle = chord.start.at(values).midpoint(chord.end.at(values));
+                let offset = point.at(values) - middle;
+                point.push(gradient, direction.unit);
+                chord.start.push(gradient, -direction.unit * 0.5);
+                chord.end.push(gradient, -direction.unit * 0.5);
+                chord.push_vector(gradient, direction.back_from_unit(offset));
+                direction.unit.dot(offset)
+            }
+            Self::ArcBulge { point, chord, arc } => {
+                let direction = chord.direction(values, context);
+                let offset = point.at(values) - arc.center.at(values);
+                let outward = direction.unit.perp();
+                point.push(gradient, outward);
+                arc.center.push(gradient, -outward);
+                chord.push_vector(gradient, direction.back_from_unit(-offset.perp()));
+                arc.push_radius(values, context, gradient, 1.0);
+                direction.unit.perp_dot(offset) + arc.radius(values)
             }
             Self::SameX(a, b) => {
                 a.push(gradient, Vector2::X);
@@ -880,6 +911,15 @@ mod tests {
                 first: point(0),
                 second: point(12),
                 line: line(4, 6),
+            },
+            Form::OnBisector {
+                point: point(12),
+                chord: line(0, 4),
+            },
+            Form::ArcBulge {
+                point: point(12),
+                chord: line(2, 4),
+                arc: arc(6, 2),
             },
             Form::Offset {
                 from: point(2),

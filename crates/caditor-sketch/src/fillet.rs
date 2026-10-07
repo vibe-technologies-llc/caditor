@@ -10,7 +10,7 @@ use crate::{
     id::EntityId,
     intersect::{self, Carrier, Shape},
     sketch::{Sketch, SketchError},
-    trim::keeps_length,
+    trim::{keeps_length, keeps_sweep},
 };
 
 const TOLERANCE: f64 = 1e-7;
@@ -520,7 +520,11 @@ impl Sketch {
                 other => other,
             };
             self.restructure(*curve, reshaped, &[], |constraint| {
-                !is_line || keeps_length(constraint)
+                if is_line {
+                    keeps_length(constraint)
+                } else {
+                    keeps_sweep(constraint)
+                }
             })?;
             shortened.push(moved);
         }

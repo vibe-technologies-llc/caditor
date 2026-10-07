@@ -1344,7 +1344,7 @@ fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
     add(Constraint::VerticalPoints(start, EntityId::ORIGIN));
     add(Constraint::Midpoint {
         point: middle,
-        line,
+        curve: line,
     });
     add(Constraint::Concentric(arc, circle));
     add(Constraint::Collinear(line, EntityId::HORIZONTAL_AXIS));

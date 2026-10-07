@@ -178,13 +178,19 @@ paths:
 ## Snapping
 
 - `snap.rs` runs on the UI thread against the displayed sketch in screen space. Priority: the
-  shape's pending point; points and the origin within `POINT_TOLERANCE`; the middle of a line
-  (`Target::Midpoint`) and the crossing of two of the up to `MAX_CROSSING_CURVES` curves nearest the
-  pointer, axes included (`Target::Intersection`; lines, circles and arcs, not splines), both only
-  where any snap is accepted, within the same tolerance; lines, circles,
-  arcs and axes within `CURVE_TOLERANCE`, projecting onto the curve. A snapped point gets a
-  `Coincident` with its target (with both curves at a crossing), or a `Midpoint` constraint for a
-  middle.
+  shape's pending point; points and the origin within `POINT_TOLERANCE`; then, only where any snap
+  is accepted and within the same tolerance, the middle of a line or arc (`Target::Midpoint`), the
+  centre of a closed outline (`Target::Centre`) and the crossing of two of the up to
+  `MAX_CROSSING_CURVES` curves nearest the pointer, axes included (`Target::Intersection`; lines,
+  circles and arcs, not splines); lines, circles, arcs and axes within `CURVE_TOLERANCE`,
+  projecting onto the curve. A snapped point gets a `Coincident` with its target (with both curves
+  at a crossing), a `Midpoint` constraint for a middle, or a `Symmetric` about it of two opposite
+  corners for a centre.
+- An outline has a centre when its lines join end to end into one closed loop (ends within
+  `JOINED_CORNER_TOLERANCE` of the sketch's extent, each corner meeting exactly one other line, at
+  most `MAX_OUTLINE_LINES` lines) of an even count whose opposite corners all share one midpoint: a
+  rectangle, a parallelogram, an even regular polygon. A corner where a third line meets breaks the
+  loop (a rectangle with its diagonals snaps to their crossing instead).
 - `Accept` keeps every shown snap a constraint that already holds: a circle's rim takes points
   only (a rim on a curve would add no constraint); an arc's end takes points on its circle and
   where it crosses other curves and the axes.

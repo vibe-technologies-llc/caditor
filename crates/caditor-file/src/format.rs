@@ -2007,9 +2007,9 @@ fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
         },
         Constraint::HorizontalPoints(a, b) => ConstraintKindRecord::HorizontalPoints(pair(a, b)),
         Constraint::VerticalPoints(a, b) => ConstraintKindRecord::VerticalPoints(pair(a, b)),
-        Constraint::Midpoint { point, line } => ConstraintKindRecord::Midpoint {
+        Constraint::Midpoint { point, curve } => ConstraintKindRecord::Midpoint {
             point: point.raw(),
-            line: line.raw(),
+            line: curve.raw(),
         },
         Constraint::Concentric(a, b) => ConstraintKindRecord::Concentric(pair(a, b)),
         Constraint::Collinear(a, b) => ConstraintKindRecord::Collinear(pair(a, b)),
@@ -3594,7 +3594,7 @@ fn constraint_from_record(
         }
         ConstraintKindRecord::Midpoint { point, line } => Constraint::Midpoint {
             point: entity(*point),
-            line: entity(*line),
+            curve: entity(*line),
         },
         ConstraintKindRecord::Concentric(ids) => {
             let (a, b) = pair(*ids);

@@ -294,8 +294,8 @@ impl Sketch {
             | Constraint::Equal(a, b)
             | Constraint::Concentric(a, b)
             | Constraint::Collinear(a, b) => format!("{kind} {} and {}", label(a), label(b)),
-            Constraint::Midpoint { point, line } => {
-                format!("{kind} of {} at {}", label(line), label(point))
+            Constraint::Midpoint { point, curve } => {
+                format!("{kind} of {} at {}", label(curve), label(point))
             }
             Constraint::Symmetric {
                 first,
@@ -646,13 +646,21 @@ impl Sketch {
                 }
                 Ok(())
             }
-            Constraint::Midpoint { point, line } => {
+            Constraint::Midpoint { point, curve } => {
+                let needed = "a line or an arc";
                 self.expect(point, &[Role::Point], "a point")?;
-                self.expect(line, &[Role::Line], "a line")?;
-                if line.is_reference() {
-                    return Err(self.not_applicable(constraint, point, line));
+                self.expect(curve, &[Role::Line, Role::Circular], needed)?;
+                if let Some(Entity::Circle { .. }) = self.entity(curve) {
+                    return Err(SketchError::WrongKind {
+                        entity: curve,
+                        found: self.entity_label(curve),
+                        needed,
+                    });
                 }
-                self.check_not_own_point(point, line)
+                if curve.is_reference() {
+                    return Err(self.not_applicable(constraint, point, curve));
+                }
+                self.check_not_own_point(point, curve)
             }
             Constraint::Concentric(a, b) => self.check_concentric(constraint, a, b),
             Constraint::Symmetric {
@@ -1470,13 +1478,16 @@ mod tests {
         };
 
         assert_eq!(
-            refused(Constraint::Midpoint { point: start, line }),
+            refused(Constraint::Midpoint {
+                point: start,
+                curve: line
+            }),
             "Point 0 is part of Line 2"
         );
         assert_eq!(
             refused(Constraint::Midpoint {
                 point: lone,
-                line: EntityId::HORIZONTAL_AXIS
+                curve: EntityId::HORIZONTAL_AXIS
             }),
             "Midpoint does not apply to Point 12 and Horizontal axis"
         );
@@ -1562,7 +1573,10 @@ mod tests {
 
         let labels = [
             (
-                Constraint::Midpoint { point: lone, line },
+                Constraint::Midpoint {
+                    point: lone,
+                    curve: line,
+                },
                 "Midpoint of Line 2 at Point 12",
             ),
             (

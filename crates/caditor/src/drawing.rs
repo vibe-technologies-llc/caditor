@@ -429,9 +429,11 @@ fn shortest_turn(from: f64, to: f64) -> f64 {
 fn point_target(snap: Snap) -> Option<EntityId> {
     match snap.target()? {
         Target::Point(point) => Some(point),
-        Target::Pending(_) | Target::Curve(_) | Target::Midpoint(_) | Target::Intersection(..) => {
-            None
-        }
+        Target::Pending(_)
+        | Target::Curve(_)
+        | Target::Midpoint(_)
+        | Target::Intersection(..)
+        | Target::Centre { .. } => None,
     }
 }
 
@@ -1438,6 +1440,9 @@ impl Drawing {
             }
             Target::Point(EntityId::ORIGIN) => "Origin".to_owned(),
             Target::Midpoint(line) => format!("Midpoint of {}", sketch.entity_label(line)),
+            Target::Centre { outline, .. } => {
+                format!("Centre of the outline of {}", sketch.entity_label(outline))
+            }
             Target::Intersection(first, second) => format!(
                 "Crossing of {} and {}",
                 sketch.entity_label(first),
@@ -1766,7 +1771,10 @@ fn aligned_on(
     };
     match snapped.target {
         Target::Pending(_) => None,
-        Target::Point(_) | Target::Midpoint(_) | Target::Intersection(..) => {
+        Target::Point(_)
+        | Target::Midpoint(_)
+        | Target::Intersection(..)
+        | Target::Centre { .. } => {
             held(start, snapped.position, guides).map(|direction| on(snapped.position, direction))
         }
         Target::Curve(curve) => alignments(start, screen, pointer, guides)
@@ -1943,7 +1951,15 @@ impl<'a> Draft<'a> {
     fn point(&mut self, placement: Placement) -> EntityId {
         let point = self.entity(Entity::Point(placement.position));
         match placement.snap.target() {
-            Some(Target::Midpoint(line)) => self.constrain(Constraint::Midpoint { point, line }),
+            Some(Target::Midpoint(curve)) => self.constrain(Constraint::Midpoint { point, curve }),
+            Some(Target::Centre {
+                corners: (first, second),
+                ..
+            }) => self.constrain(Constraint::Symmetric {
+                first,
+                second,
+                about: point,
+            }),
             Some(Target::Intersection(first, second)) => {
                 self.constrain(Constraint::Coincident(point, first));
                 self.constrain(Constraint::Coincident(point, second));
@@ -2280,7 +2296,7 @@ impl<'a> Draft<'a> {
         if let Some(point) = point_target(middle.snap) {
             self.constrain(Constraint::Midpoint {
                 point,
-                line: polygon.first.curve,
+                curve: polygon.first.curve,
             });
         }
     }

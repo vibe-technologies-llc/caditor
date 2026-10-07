@@ -138,11 +138,73 @@ fn a_fix_away_from_where_a_coincidence_puts_the_point_is_a_conflict() {
 }
 
 #[test]
+fn a_midpoint_holds_a_point_halfway_round_an_arc_on_the_arc_itself() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let quarter = sketch.add_arc(
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 0.0),
+        Point2::new(0.0, 10.0),
+    );
+    let most = sketch.add_arc(
+        Point2::new(40.0, 0.0),
+        Point2::new(50.0, 0.0),
+        Point2::new(40.0, -10.0),
+    );
+    let beyond = sketch.add_point(Point2::new(-6.0, -5.0));
+    let inside = sketch.add_point(Point2::new(44.0, -3.0));
+    add(
+        &mut sketch,
+        Constraint::Midpoint {
+            point: beyond,
+            curve: quarter,
+        },
+    );
+    add(
+        &mut sketch,
+        Constraint::Midpoint {
+            point: inside,
+            curve: most,
+        },
+    );
+    for arc in [quarter, most] {
+        let points = sketch.entity(arc).unwrap().points();
+        for point in points {
+            fix(&mut sketch, point);
+        }
+    }
+
+    let solved = solve(&sketch).unwrap();
+
+    let diagonal = 10.0 / 2f64.sqrt();
+    assert_near(at(&solved, beyond), Point2::new(diagonal, diagonal));
+    assert_near(at(&solved, inside), Point2::new(40.0 - diagonal, diagonal));
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    assert_eq!(
+        solved.solution.entity_state(beyond),
+        Some(EntityState::FullyConstrained)
+    );
+}
+
+#[test]
+fn a_midpoint_on_a_circle_is_refused_as_it_has_no_middle() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let circle = sketch.add_circle(Point2::new(0.0, 0.0), 5.0);
+    let point = sketch.add_point(Point2::new(5.0, 0.0));
+
+    let refused = sketch.check_constraint(&Constraint::Midpoint {
+        point,
+        curve: circle,
+    });
+
+    assert!(refused.is_err());
+}
+
+#[test]
 fn a_midpoint_holds_a_point_halfway_along_a_line() {
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 2.0));
     let point = sketch.add_point(Point2::new(3.0, 4.0));
-    add(&mut sketch, Constraint::Midpoint { point, line });
+    add(&mut sketch, Constraint::Midpoint { point, curve: line });
     let loose = solve(&sketch).unwrap();
     assert_eq!(loose.solution.degrees_of_freedom(), 4);
 
@@ -528,7 +590,7 @@ fn new_kinds_survive_degenerate_starts_without_nan() {
     let point = sketch.add_point(Point2::new(3.0, 3.0));
     let other = sketch.add_point(Point2::new(3.0, 3.0));
     let circle = sketch.add_circle(Point2::new(3.0, 3.0), 1.0);
-    add(&mut sketch, Constraint::Midpoint { point, line });
+    add(&mut sketch, Constraint::Midpoint { point, curve: line });
     add(
         &mut sketch,
         Constraint::Symmetric {

@@ -111,7 +111,7 @@ fn a_split_line_without_a_direction_keeps_its_halves_collinear() {
     sketch
         .add_constraint(Constraint::Midpoint {
             point: middle,
-            line,
+            curve: line,
         })
         .unwrap();
     vertical(&mut sketch, 10.0);
@@ -480,6 +480,55 @@ fn extending_an_arc_follows_its_circle_to_a_line() {
     assert_near(at(&sketch, end), Point2::new(-6.0, 8.0));
     assert!(has(&sketch, &Constraint::Coincident(end, wall)));
     assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn an_arc_trimmed_or_extended_loses_its_midpoint_but_keeps_its_radius() {
+    let midpoints = |sketch: &Sketch| {
+        sketch
+            .constraints()
+            .filter(|(_, constraint)| matches!(constraint, Constraint::Midpoint { .. }))
+            .count()
+    };
+    let held_middle = |sketch: &mut Sketch, arc: EntityId| {
+        let middle = sketch.add_point(Point2::new(50f64.sqrt(), 50f64.sqrt()));
+        sketch
+            .add_constraint(Constraint::Midpoint {
+                point: middle,
+                curve: arc,
+            })
+            .unwrap();
+        sketch
+            .add_constraint(Constraint::Radius {
+                entity: arc,
+                value: mm(10.0),
+            })
+            .unwrap();
+    };
+    let mut trimmed = Sketch::new(Plane::XY);
+    let arc = trimmed.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
+    held_middle(&mut trimmed, arc);
+    vertical(&mut trimmed, 3.0);
+    let mut extended = Sketch::new(Plane::XY);
+    let reaching = extended.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
+    held_middle(&mut extended, reaching);
+    vertical(&mut extended, -6.0);
+
+    assert_eq!(
+        trimmed.trim(arc, Point2::new(1.0, 9.9)),
+        Ok(Trimmed::Shortened)
+    );
+    extended.extend(reaching, Point2::new(1.0, 10.0)).unwrap();
+
+    for sketch in [&trimmed, &extended] {
+        assert_eq!(midpoints(sketch), 0);
+        assert!(
+            sketch
+                .constraints()
+                .any(|(_, constraint)| matches!(constraint, Constraint::Radius { .. }))
+        );
+        assert_solves_in_place(sketch);
+    }
 }
 
 #[test]

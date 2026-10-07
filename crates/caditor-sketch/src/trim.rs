@@ -630,7 +630,7 @@ impl Sketch {
                     start: kept,
                     end,
                 };
-                self.restructure(curve, arc, &[], |_| true)?;
+                self.restructure(curve, arc, &[], keeps_sweep)?;
                 self.join(kept, &cut, curve)?;
                 self.drop_if_unused(start)?;
                 Trimmed::Shortened
@@ -642,7 +642,7 @@ impl Sketch {
                     start,
                     end: kept,
                 };
-                self.restructure(curve, arc, &[], |_| true)?;
+                self.restructure(curve, arc, &[], keeps_sweep)?;
                 self.join(kept, &cut, curve)?;
                 self.drop_if_unused(end)?;
                 Trimmed::Shortened
@@ -658,7 +658,7 @@ impl Sketch {
                     start,
                     end: near_end,
                 };
-                self.restructure(curve, arc, &moved_ids, |_| true)?;
+                self.restructure(curve, arc, &moved_ids, keeps_sweep)?;
                 let split_center = self.add_point(center_at);
                 let split = self.add_piece(
                     curve,
@@ -1015,15 +1015,17 @@ impl Sketch {
         for id in self.constraints_using(extension.end) {
             self.remove_constraint(id)?;
         }
-        if matches!(self.entity(curve), Some(Entity::Line { .. })) {
-            let changed: Vec<ConstraintId> = self
-                .constraints_using(curve)
-                .into_iter()
-                .filter(|id| self.constraint(*id).is_some_and(|c| !keeps_length(c)))
-                .collect();
-            for id in changed {
-                self.remove_constraint(id)?;
-            }
+        let keeps: fn(&Constraint) -> bool = match self.entity(curve) {
+            Some(Entity::Line { .. }) => keeps_length,
+            _ => keeps_sweep,
+        };
+        let changed: Vec<ConstraintId> = self
+            .constraints_using(curve)
+            .into_iter()
+            .filter(|id| self.constraint(*id).is_some_and(|c| !keeps(c)))
+            .collect();
+        for id in changed {
+            self.remove_constraint(id)?;
         }
         self.replace_entity(extension.end, Entity::Point(extension.to))?;
         let joint = match extension.target_point {
@@ -1039,6 +1041,10 @@ pub(crate) fn keeps_length(constraint: &Constraint) -> bool {
         constraint,
         Constraint::Midpoint { .. } | Constraint::Equal(..)
     )
+}
+
+pub(crate) fn keeps_sweep(constraint: &Constraint) -> bool {
+    !matches!(constraint, Constraint::Midpoint { .. })
 }
 
 fn end_point_near(

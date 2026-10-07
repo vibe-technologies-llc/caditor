@@ -56,7 +56,7 @@ impl Sketch {
             | Constraint::HorizontalDistance { from: a, to: b, .. }
             | Constraint::VerticalDistance { from: a, to: b, .. }
             | Constraint::Angle { from: a, to: b, .. } => Subject::Pair(kind, ordered(a, b)),
-            Constraint::Midpoint { point, line } => Subject::Pair(kind, [point, line]),
+            Constraint::Midpoint { point, curve } => Subject::Pair(kind, [point, curve]),
             Constraint::Symmetric {
                 first,
                 second,

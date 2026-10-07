@@ -313,17 +313,32 @@ impl System {
             Constraint::Vertical(line) => vec![Form::Vertical(self.line(sketch, line)?)],
             Constraint::HorizontalPoints(a, b) => vec![Form::SameY(self.point(a)?, self.point(b)?)],
             Constraint::VerticalPoints(a, b) => vec![Form::SameX(self.point(a)?, self.point(b)?)],
-            Constraint::Midpoint { point, line } => {
-                let (point, line) = (self.point(point)?, self.line(sketch, line)?);
-                [Vector2::X, Vector2::Y]
-                    .into_iter()
-                    .map(|along| Form::Middle {
-                        point,
-                        ends: (line.start, line.end),
-                        along,
-                    })
-                    .collect()
-            }
+            Constraint::Midpoint { point, curve } => match sketch.entity(curve) {
+                Some(&Entity::Arc { start, end, .. }) => {
+                    let (point, arc) = (self.point(point)?, self.circle(sketch, curve)?);
+                    let (start, end) = (self.point(start)?, self.point(end)?);
+                    let chord = LineHandle {
+                        start,
+                        end,
+                        fallback: self.initial_direction(start, end),
+                    };
+                    vec![
+                        Form::OnBisector { point, chord },
+                        Form::ArcBulge { point, chord, arc },
+                    ]
+                }
+                _ => {
+                    let (point, line) = (self.point(point)?, self.line(sketch, curve)?);
+                    [Vector2::X, Vector2::Y]
+                        .into_iter()
+                        .map(|along| Form::Middle {
+                            point,
+                            ends: (line.start, line.end),
+                            along,
+                        })
+                        .collect()
+                }
+            },
             Constraint::Concentric(a, b) => {
                 let centre = |entity: EntityId| match role(entity)? {
                     Role::Point => self.point(entity),
