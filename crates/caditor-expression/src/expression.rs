@@ -893,7 +893,7 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
                         dimension,
                     ))
                 }
-                None => keep_dimension(round(first.value)),
+                None => keep_dimension(round(snapped(first.value))),
             }
         }
         Function::Mod => {
@@ -904,7 +904,13 @@ fn call(function: Function, arguments: &[Quantity]) -> Result<Quantity, EvalErro
             if divisor.value == 0.0 {
                 return Err(EvalError::DivisionByZero);
             }
-            let remainder = first.value - divisor.value * (first.value / divisor.value).floor();
+            let quotient = first.value / divisor.value;
+            let whole = snapped(quotient);
+            let remainder = if whole == quotient {
+                first.value - divisor.value * quotient.floor()
+            } else {
+                0.0
+            };
             Ok(Quantity::new(remainder, dimension))
         }
         Function::Hypot => {

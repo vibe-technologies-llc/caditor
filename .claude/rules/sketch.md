@@ -15,7 +15,7 @@ paths:
   `solid::profile_curves` leaves it out, so a centreline neither splits regions nor changes their
   keys. It can be a revolve axis.
 - Any constraint can be inactive (`Sketch::set_active`): a set of `ConstraintId`s beside the
-  constraints, part of `same_content`. The solver, the joint classes and `restating` and
+  constraints, part of `same_content`. The solver, `Sketch::evaluate`, the joint classes and `restating` and
   `contradicting` read `active_constraints()` only, so an inactive constraint no longer holds, never
   conflicts or counts as redundant, and a new one is not refused for restating it. A dimension
   left inactive is a reference: its displayed value is `Sketch::measured` of the solved geometry.

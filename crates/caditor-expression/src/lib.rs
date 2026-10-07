@@ -700,6 +700,18 @@ mod tests {
     }
 
     #[test]
+    fn rounding_and_mod_snap_a_quotient_within_the_equality_tolerance() {
+        assert_eq!(evaluate("floor(2.8 mm / 0.4 mm)"), Ok(Quantity::plain(7.0)));
+        assert_eq!(evaluate("ceil(0.7 / 0.1)"), Ok(Quantity::plain(7.0)));
+        assert_eq!(evaluate("trunc(0.3 / 0.1)"), Ok(Quantity::plain(3.0)));
+        assert_eq!(evaluate("round(2.5)"), Ok(Quantity::plain(3.0)));
+        assert_eq!(evaluate("floor(2.9)"), Ok(Quantity::plain(2.0)));
+        assert_eq!(evaluate("mod(0.3, 0.1)"), Ok(Quantity::plain(0.0)));
+        assert_eq!(evaluate("mod(2.8 mm, 0.4 mm)"), Ok(Quantity::length(0.0)));
+        assert_eq!(evaluate("mod(-1, 360)"), Ok(Quantity::plain(359.0)));
+    }
+
+    #[test]
     fn intermediate_values_must_stay_real() {
         assert_eq!(evaluate("(-4)^0.5"), Err(EvalError::NegativeBase));
         assert_eq!(

@@ -783,21 +783,21 @@ impl Sketch {
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
         let mut values = BTreeMap::new();
-        for (id, constraint) in &self.constraints {
+        for (id, constraint) in self.active_constraints() {
             let (Some(expression), Some(kind)) =
                 (constraint.dimension(), constraint.dimension_kind())
             else {
                 continue;
             };
             let failed = |reason| SketchError::Dimension {
-                constraint: *id,
+                constraint: id,
                 reason,
             };
             let value = expression
                 .evaluate_as(kind, value_of)
                 .map_err(|error| failed(DimensionError::Evaluation(error)))?;
             constraint.check_dimension_value(value).map_err(failed)?;
-            values.insert(*id, value);
+            values.insert(id, value);
         }
         Ok(DimensionValues { values })
     }
@@ -1632,6 +1632,16 @@ mod tests {
 
         let solution = sketch.evaluate(&width_is(Quantity::length(40.0))).unwrap();
         assert_eq!(solution.dimension(constraint), Some(40.0));
+    }
+
+    #[test]
+    fn a_disabled_dimension_that_cannot_evaluate_does_not_fail_the_sketch() {
+        let (mut sketch, constraint) = distance(Expression::Parameter(WIDTH));
+        sketch.set_active(constraint, false).unwrap();
+
+        let values = sketch.evaluate(&width_is(Quantity::angle(10.0))).unwrap();
+
+        assert_eq!(values.dimension(constraint), None);
     }
 
     #[test]

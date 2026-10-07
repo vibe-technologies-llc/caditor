@@ -1676,7 +1676,7 @@ fn an_inactive_dimension_no_longer_moves_the_geometry_and_active_again_it_does()
     assert_eq!(sketch.set_active(distance, false), Ok(true));
     let loose = solve(&sketch).unwrap();
     assert_near(at(&loose, end), Point2::new(40.0, 0.0));
-    assert_eq!(loose.solution.dimension(distance), Some(80.0));
+    assert_eq!(loose.solution.dimension(distance), None);
     assert_eq!(
         loose
             .geometry

@@ -26,8 +26,9 @@ paths:
 ## Evaluation
 
 - Comparisons give plain 1 or 0, equal within `EQUALITY_TOLERANCE`; `if`, `and`, `or` are lazy.
-- `round`, `floor`, `ceil` and `trunc` take an optional step; the quotient is snapped to a whole
-  number within the tolerance, so `floor(0.3, 0.1)` is 0.3.
+- `round`, `floor`, `ceil` and `trunc` take an optional step; the quotient, or the value itself
+  without a step, is snapped to a whole number within the tolerance, so `floor(0.3, 0.1)` is 0.3
+  and `floor(2.8 mm / 0.4 mm)` is 7. `mod` snaps its quotient the same way, so `mod(0.3, 0.1)` is 0.
 - Error messages name the problem in the user's terms: a function given mixed kinds names itself
   (only comparison operators speak of comparing); a length field given `1 / 2 mm` is told that a
   unit binds to the number before it and `(1 / 2) mm` gives the quotient its unit.

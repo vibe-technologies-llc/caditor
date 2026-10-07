@@ -135,14 +135,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Sketch solver and expressions
 
-- [medium · easy] `Sketch::evaluate` evaluates every dimension, inactive ones included, and fails
-  the solve on the first error, so a disabled (reference) dimension of `width - 5 mm` fails the
-  whole sketch once `width` drops to 3 mm, though `sketch.md` says an inactive constraint no longer
-  holds and never conflicts. Evaluate only `active_constraints()`, as `System::build` does.
-- [medium · easy] The one-argument `floor`, `ceil`, `round` and `trunc` and the quotient in `mod`
-  are not snapped within `EQUALITY_TOLERANCE` as the step forms and comparisons are, so
-  `floor(2.8 mm / 0.4 mm)` is 6 while `2.8 mm / 0.4 mm == 7` holds, and `mod(0.3, 0.1)` is not 0; a
-  pattern count written `floor(length / pitch)` loses an instance. Apply `snapped` there too.
 - [medium · medium] When conflict diagnosis finds that a part which failed from its drawn shape
   holds after all (a chain whose line must fold back, reached from a solution of all but one
   constraint), the solve still fails; the solution found could be offered instead.
