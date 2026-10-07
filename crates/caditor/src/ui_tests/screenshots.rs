@@ -28,6 +28,7 @@ use crate::{
     image_export::ImageCommand,
     mirror_tools,
     model::Action,
+    move_tools,
     panels::{Painting, Renaming},
     pattern_tools::{self, Shape},
     preferences::{Preferences, PreferencesCommand, PreferencesTab, Theme},
@@ -606,6 +607,10 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
             model.model.length_unit(),
         );
         perform_all(model, actions);
+        if let Some(fillet) = model.workspace.editing.solid() {
+            model.settle();
+            model.type_into_field(egui::Id::new(("blend-size", fillet)), "4 mm");
+        }
         shoot_open(model, gpu, out, "panel-fillet", look);
     }
 
@@ -642,6 +647,16 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         let actions = scale_tools::create_actions(&model.model, source.body);
         perform_all(model, actions);
         shoot_open(model, gpu, out, "panel-scale", look);
+        let actions = move_tools::create_actions(&model.model, source.body, false);
+        perform_all(model, actions);
+        if let Some(movement) = model.workspace.editing.solid() {
+            model.settle();
+            model.type_into_field(
+                egui::Id::new(("move-field", "offset", 0usize, movement)),
+                "30 mm",
+            );
+        }
+        shoot_open(model, gpu, out, "panel-move", look);
     }
 
     for (shape, scene) in [

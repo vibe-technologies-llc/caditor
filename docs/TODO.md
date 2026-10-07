@@ -209,8 +209,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
   planes (other corners mitre).
 - [medium · hard] Shell: no spline, extrusion or revolution faces, only flat faces open, one
   thickness for the whole body.
-- [medium · hard] No live preview of a fillet, chamfer or shell while its panel is open, and no
-  viewport handles for extents.
+- [medium · hard] No live preview of a shell while its panel is open (it shows the body before it
+  for choosing faces), and no viewport handles for extents.
 - [medium · hard] No configurations: a model holds one set of parameter values, so sizes of one part
   (a bracket in M4, M6 and M8) are separate copies of the file. Named parameter sets, chosen as a
   whole and kept in the model like versions, with export of each.

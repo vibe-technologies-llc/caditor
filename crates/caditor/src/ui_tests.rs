@@ -7245,7 +7245,13 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
 
     let built = harness.built_with_meshes(1);
     assert_eq!(built.scene.meshes.len(), 1);
-    assert_eq!(built.scene.meshes[0].mesh.face_count(), 6);
+    assert_eq!(built.scene.meshes[0].mesh.face_count(), 7);
+    assert!(
+        built.scene.meshes[0]
+            .faces
+            .iter()
+            .all(|face| face.pick.is_none())
+    );
     let blend_edges = built
         .picks
         .pickables()
@@ -7627,6 +7633,15 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
         .unwrap();
     assert!((bounds.min().x - 5.0).abs() < 1e-6, "{:?}", bounds.min());
     assert_eq!(harness.model.undo_label(), Some("Edit Move body 1"));
+    let built = harness.built_with_meshes(2);
+    let [moved] = &built.scene.meshes[..] else {
+        panic!("the moved body is drawn solid");
+    };
+    let [ghost] = &built.scene.translucent_meshes[..] else {
+        panic!("the body before the move is drawn see-through");
+    };
+    assert!(moved.faces.iter().all(|face| face.pick.is_some()));
+    assert!(ghost.faces.iter().all(|face| face.pick.is_none()));
 
     harness.type_into_field(Id::new(("move-field", "turn", 2usize, movement)), "90 deg");
     harness.settle();

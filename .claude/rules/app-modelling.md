@@ -35,9 +35,17 @@ paths:
 
 - While a feature that makes or changes a body is open (its result is a solid), that body is drawn
   see-through at `PREVIEW_ALPHA` in its colour (`scene::previewed_body`), faces still picked, and
-  turns solid when the feature closes, so a pattern, hole, extrusion or move reads as a preview
-  until confirmed. It is drawn solid while choosing in the view, and blends and shells keep
-  showing the body before them for choosing.
+  turns solid when the feature closes, so a pattern, hole or extrusion reads as a preview
+  until confirmed. It is drawn solid while choosing in the view.
+- A feature choosing nothing on the state before it (a move, a combine) draws its result solid
+  and the body before it see-through at `GHOST_ALPHA`, never picked (`scene::OpenView::Ghost`), so
+  the body is seen where it goes and where it came from.
+- An open fillet or chamfer that computed (`FeatureState::UpToDate`, not pending) draws its result
+  with unpicked faces and edges, and over it the edges of the body before it, still
+  `Pickable::BlendEdge` (`OpenView::Result`, `Builder::open_result`): the chosen ones stand just
+  outside the rounded surface, and hidden ones stay hidden since unpicked faces still write depth
+  in the pick pass. A failed or pending blend and a shell show the body before them instead
+  (`OpenView::Before`).
 - A feature that removes material (an extrusion or revolve removing from a body, a hole) shows
   instead the body solid as cut and only its tools (`Evaluation::cuts`, the swept profile or each
   drill) in `CUT_PREVIEW` over everything (`Scene::overlay_meshes`, edges on the front layer),
@@ -103,8 +111,9 @@ paths:
 ## Fillets, chamfers and shells
 
 - Fillet, Chamfer and Shell take the selected edges (or flat faces) of one body and create a
-  feature that opens. The body is drawn as before the feature (`BodyMeshes::body_before`), edges
-  and flat faces are `Pickable::BlendEdge` and `Pickable::ShellFace`, and a click toggles one. The
+  feature that opens. The edges and flat faces of the body before the feature
+  (`BodyMeshes::body_before`) are `Pickable::BlendEdge` and `Pickable::ShellFace`, drawn as in
+  Preview while open, and a click toggles one. The
   panel lists the edges or faces in words (a split edge as its pieces).
 - Choose in the view on a fillet or chamfer first adds the edges selected in the view of its
   body (`blend_tools::with_selected_edges`, one undoable change, edges already in a chosen chain

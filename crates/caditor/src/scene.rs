@@ -111,6 +111,7 @@ const CURVE_WIDTH: f32 = 2.0;
 const GUIDE_WIDTH: f32 = 1.0;
 const XRAY_FACE_ALPHA: f32 = 0.18;
 const PREVIEW_ALPHA: f32 = 0.45;
+const GHOST_ALPHA: f32 = 0.2;
 const CUT_PREVIEW_ALPHA: f32 = 0.35;
 const BODY_EDGE_WIDTH: f32 = 1.5;
 const REVOLVE_AXIS_WIDTH: f32 = 2.5;
@@ -381,6 +382,27 @@ fn previewed_bodies(evaluation: &Evaluation, context: Context) -> Vec<FeatureId>
         .collect()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenView {
+    Before,
+    Result,
+    Ghost,
+}
+
+impl OpenView {
+    fn of(evaluation: &Evaluation, open: &BodyBefore) -> Self {
+        let computed = !evaluation.is_pending(open.feature)
+            && evaluation
+                .feature(open.feature)
+                .is_some_and(|status| matches!(status.state, FeatureState::UpToDate));
+        match open.choice {
+            OpenChoice::Nothing => Self::Ghost,
+            OpenChoice::Edges { .. } if computed => Self::Result,
+            OpenChoice::Edges { .. } | OpenChoice::Faces { .. } => Self::Before,
+        }
+    }
+}
+
 fn cutting_feature(evaluation: &Evaluation, context: Context) -> Option<FeatureId> {
     if context.choosing_in_view || context.sketch.is_some() {
         return None;
@@ -499,9 +521,18 @@ pub fn build(
         Some(_) => Vec::new(),
         None => previewed_bodies(evaluation, context),
     };
+    let open_view = open.map(|open| (open, OpenView::of(evaluation, open)));
     for (body, mesh) in bodies.iter() {
-        if open.is_some_and(|open| open.body == body) || !visibility::is_shown(document, body) {
+        if !visibility::is_shown(document, body) {
             continue;
+        }
+        match open_view {
+            Some((open, OpenView::Before)) if open.body == body => continue,
+            Some((open, OpenView::Result)) if open.body == body => {
+                builder.open_result(document, evaluation, open, mesh);
+                continue;
+            }
+            Some(_) | None => {}
         }
         let color = match editing {
             Some(_) => None,
@@ -511,7 +542,8 @@ pub fn build(
             .feature(body)
             .and_then(|feature| feature.appearance.opacity)
             .map(|percent| f32::from(percent) / 100.0);
-        let opacity = match previewed.contains(&body) {
+        let ghosted = matches!(open_view, Some((open, OpenView::Ghost)) if open.body == body);
+        let opacity = match previewed.contains(&body) && !ghosted {
             true => Some(opacity.map_or(PREVIEW_ALPHA, |opacity| opacity.min(PREVIEW_ALPHA))),
             false => opacity,
         };
@@ -529,8 +561,10 @@ pub fn build(
             editing.is_none() || context.projecting,
         );
     }
-    if let Some(open) = open {
-        builder.open_before(document, evaluation, open);
+    match open_view {
+        Some((open, OpenView::Before)) => builder.open_before(document, evaluation, open, true),
+        Some((open, OpenView::Ghost)) => builder.ghost(document, evaluation, open),
+        Some((_, OpenView::Result)) | None => {}
     }
     if cutting.is_some() {
         for cut in bodies.cuts() {
@@ -1021,7 +1055,61 @@ impl Builder<'_> {
         }
     }
 
-    fn open_before(&mut self, document: &Document, evaluation: &Evaluation, open: &BodyBefore) {
+    fn open_result(
+        &mut self,
+        document: &Document,
+        evaluation: &Evaluation,
+        open: &BodyBefore,
+        mesh: &BodyMesh,
+    ) {
+        let color = body_color(document, evaluation, open.body);
+        self.meshes.push(MeshInstance {
+            mesh: Arc::clone(&mesh.mesh),
+            faces: mesh
+                .faces
+                .iter()
+                .map(|_| FaceStyle { color, pick: None })
+                .collect(),
+        });
+        for edge in &mesh.edges {
+            self.scene
+                .lines
+                .extend(edge.points.windows(2).filter_map(|pair| match pair {
+                    [start, end] => Some(Line {
+                        start: *start,
+                        end: *end,
+                        color: BODY_EDGE,
+                        width: BODY_EDGE_WIDTH,
+                        layer: Layer::Model,
+                        pick: None,
+                        stroke: Stroke::Solid,
+                    }),
+                    _ => None,
+                }));
+        }
+        self.open_before(document, evaluation, open, false);
+    }
+
+    fn ghost(&mut self, document: &Document, evaluation: &Evaluation, open: &BodyBefore) {
+        let color = body_color(document, evaluation, open.body).with_alpha(GHOST_ALPHA);
+        self.translucent_meshes.push(MeshInstance {
+            mesh: Arc::clone(&open.before.mesh),
+            faces: open
+                .before
+                .faces
+                .iter()
+                .map(|_| FaceStyle { color, pick: None })
+                .collect(),
+        });
+    }
+
+    fn open_before(
+        &mut self,
+        document: &Document,
+        evaluation: &Evaluation,
+        open: &BodyBefore,
+        with_faces: bool,
+    ) {
         let (chosen, opened) = match &open.choice {
             OpenChoice::Edges { chosen, .. } => (Some(chosen), None),
             OpenChoice::Faces { opened, .. } => (None, Some(opened)),
@@ -1056,10 +1144,12 @@ impl Builder<'_> {
                 Some(_) | None => FaceStyle { color, pick: None },
             })
             .collect();
-        self.meshes.push(MeshInstance {
-            mesh: Arc::clone(&open.before.mesh),
-            faces,
-        });
+        if with_faces {
+            self.meshes.push(MeshInstance {
+                mesh: Arc::clone(&open.before.mesh),
+                faces,
+            });
+        }
         for edge in &open.before.edges {
             let (color, width, pick) = match &chosen {
                 Some(chosen) => {
