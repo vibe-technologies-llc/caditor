@@ -44,6 +44,7 @@ pub enum Focus {
         feature: FeatureId,
         constraint: ConstraintId,
     },
+    TreeFilter,
 }
 
 impl Focus {
@@ -60,6 +61,7 @@ impl Focus {
                 feature,
                 constraint,
             } => Id::new(("constraint", feature, constraint)),
+            Self::TreeFilter => Id::new("feature-tree-filter"),
         }
     }
 }
@@ -110,6 +112,7 @@ pub struct PanelState {
     pub reference_rows: RowCache,
     pub constraint_offers: ConstraintOffers,
     pub parameter_uses: ParameterUses,
+    pub tree_filter: String,
     revealing: Option<PendingReveal>,
     layout: PanelLayout,
     layout_restored: bool,
@@ -268,7 +271,12 @@ impl PanelState {
             || self.painting.is_some_and(|painting| painting.focus_pending)
             || matches!(
                 self.focus.map(|pending| pending.target),
-                Some(Focus::Feature(_) | Focus::Dimension { .. } | Focus::Constraint { .. })
+                Some(
+                    Focus::Feature(_)
+                        | Focus::Dimension { .. }
+                        | Focus::Constraint { .. }
+                        | Focus::TreeFilter
+                )
             )
     }
 

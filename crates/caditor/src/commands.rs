@@ -161,6 +161,7 @@ pub enum Command {
     DatumTurnAboutSelected,
     PatternUseSelected,
     PatternSecondUseSelected,
+    FilterFeatures,
     AddParameter,
     DeleteParameter,
     ShowFirstFailed,
@@ -510,6 +511,7 @@ plain_commands! {
     DatumTurnAboutSelected,
     PatternUseSelected,
     PatternSecondUseSelected,
+    FilterFeatures,
     AddParameter,
     DeleteParameter,
     ShowFirstFailed,
@@ -688,6 +690,7 @@ impl Command {
             Self::DatumTurnAboutSelected => "model.datum_turn_about_selected",
             Self::PatternUseSelected => "model.pattern_use_selected",
             Self::PatternSecondUseSelected => "model.pattern_second_direction",
+            Self::FilterFeatures => "model.filter_features",
             Self::AddParameter => "model.add_parameter",
             Self::DeleteParameter => "model.delete_parameter",
             Self::ShowFirstFailed => "model.first_failed",
@@ -813,6 +816,7 @@ impl Command {
             Self::DatumTurnAboutSelected => "Turn datum plane about selected axis",
             Self::PatternUseSelected => "Pattern along or about selected axis",
             Self::PatternSecondUseSelected => "Pattern also along selected direction",
+            Self::FilterFeatures => "Filter the feature tree",
             Self::AddParameter => "Add parameter",
             Self::DeleteParameter => "Delete parameter",
             Self::ShowFirstFailed => "Go to the first failed feature",
@@ -925,6 +929,7 @@ impl Command {
             | Self::DatumTurnAboutSelected
             | Self::PatternUseSelected
             | Self::PatternSecondUseSelected
+            | Self::FilterFeatures
             | Self::AddParameter
             | Self::DeleteParameter
             | Self::ShowFirstFailed
@@ -1015,6 +1020,7 @@ impl Command {
             Self::Recompute => vec![plain(Key::F5)],
             Self::EditFeature => vec![plain(Key::E)],
             Self::ShowFirstFailed => vec![plain(Key::F8)],
+            Self::FilterFeatures => vec![command(Key::F)],
             Self::RollbackUp => vec![KeyboardShortcut::new(Modifiers::ALT, Key::ArrowUp)],
             Self::RollbackDown => vec![KeyboardShortcut::new(Modifiers::ALT, Key::ArrowDown)],
             Self::FullScreen => vec![plain(Key::F11)],

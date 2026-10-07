@@ -8764,6 +8764,29 @@ fn a_parameter_that_cannot_be_deleted_names_what_uses_it() {
 }
 
 #[test]
+fn the_feature_tree_is_filtered_by_name_from_the_keyboard() {
+    let mut harness = Harness::new();
+    let hidden_at_first = !harness.shows(crate::feature_tree::FILTER_HINT);
+
+    harness.key(Key::F, Modifiers::COMMAND);
+    harness.frame();
+    let focused = harness.focused() == Some(Focus::TreeFilter.field_id());
+    harness.type_text("SIDE");
+    let side_only = harness.shows("Side sketch") && !harness.shows("Base sketch");
+    harness.replace_text("bracket");
+    let none_named = harness.shows("No feature is named like “bracket”.");
+    harness.click(crate::feature_tree::CLEAR_FILTER_LABEL);
+    harness.frame();
+
+    assert!(hidden_at_first);
+    assert!(focused);
+    assert!(side_only);
+    assert!(none_named);
+    assert!(harness.shows("Side sketch") && harness.shows("Base sketch"));
+    assert!(harness.workspace.panels.tree_filter.is_empty());
+}
+
+#[test]
 fn tips_are_dismissed_and_hidden_from_the_palette() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::first_run(dir.path());

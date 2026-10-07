@@ -182,6 +182,7 @@ pub fn command(command: Command) -> &'static str {
         | Command::DatumTurnAboutSelected
         | Command::PatternUseSelected
         | Command::PatternSecondUseSelected => USE_SELECTED,
+        Command::FilterFeatures => SEARCH,
         Command::AddParameter => ADD,
         Command::DeleteParameter => DELETE,
         Command::ShowFirstFailed => FAILED,

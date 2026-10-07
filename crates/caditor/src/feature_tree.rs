@@ -7,8 +7,8 @@ use caditor_expression::Expression;
 use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch};
 use egui::{
     Align, Align2, Area, Color32, CursorIcon, FontId, Frame, Id, Key, Label, Modifiers, Order,
-    Popup, Pos2, Rect, Response, RichText, Sense, Sides, Stroke, TextStyle, Ui, WidgetInfo,
-    WidgetType, collapsing_header::CollapsingState, pos2, vec2,
+    Popup, Pos2, Rect, Response, RichText, Sense, Sides, Stroke, TextEdit, TextStyle, Ui,
+    WidgetInfo, WidgetType, collapsing_header::CollapsingState, pos2, vec2,
 };
 
 use crate::{
@@ -78,6 +78,10 @@ const DROP_REASON_WIDTH: f32 = 280.0;
 const DEPENDENTS_HEIGHT: f32 = 220.0;
 const AUTOSCROLL_EDGE: f32 = 24.0;
 const AUTOSCROLL_RATE: f32 = 0.5;
+const FILTER_FROM_FEATURES: usize = 6;
+pub const FILTER_HINT: &str = "Filter features by name";
+const NOTHING_TO_FILTER: &str = "The model has no features to filter yet";
+pub const CLEAR_FILTER_LABEL: &str = "Clear the filter";
 
 pub fn show(
     ui: &mut Ui,
@@ -112,14 +116,19 @@ fn rows(
         state.dragging = None;
         return;
     }
+    let query = filter_field(ui, state, count);
+    let filtering = !query.is_empty();
     let bar = document.bar_index();
     let chosen = state.chosen();
     let mut placed = Vec::with_capacity(count + 1);
     for (index, feature) in document.features().enumerate() {
-        if index == bar {
+        if index == bar && !filtering {
             placed.push((TreeRow::Bar, rollback_bar(ui, document, state)));
         }
         let id = feature.id();
+        if filtering && !kept_by_filter(state, editing, feature, &query) {
+            continue;
+        }
         let row = Row {
             feature,
             selection,
@@ -134,10 +143,74 @@ fn rows(
             .inner;
         placed.push((TreeRow::Feature(id), rect));
     }
+    if filtering {
+        if placed.is_empty() {
+            no_match(ui, state);
+        }
+        return;
+    }
     if bar >= count {
         placed.push((TreeRow::Bar, rollback_bar(ui, document, state)));
     }
     drag_and_drop(ui, document, state, actions, &placed);
+}
+
+fn filter_field(ui: &mut Ui, state: &mut PanelState, count: usize) -> String {
+    let wanted = state.take_focus(Focus::TreeFilter);
+    let focused = ui.memory(|memory| memory.has_focus(Focus::TreeFilter.field_id()));
+    if count < FILTER_FROM_FEATURES && state.tree_filter.is_empty() && !wanted && !focused {
+        return String::new();
+    }
+    tree_row::content(ui, |ui| {
+        ui.horizontal(|ui| {
+            let muted = appearance::tokens(ui).text_muted;
+            widgets::icon_label(ui, icons::SEARCH, muted);
+            let field = widgets::text_field(ui, |ui| {
+                ui.add(
+                    TextEdit::singleline(&mut state.tree_filter)
+                        .id(Focus::TreeFilter.field_id())
+                        .hint_text(FILTER_HINT)
+                        .desired_width(f32::INFINITY),
+                )
+            });
+            if wanted {
+                field.request_focus();
+            }
+        });
+    });
+    state.tree_filter.trim().to_lowercase()
+}
+
+fn kept_by_filter(
+    state: &PanelState,
+    editing: &SketchEditing,
+    feature: &Feature,
+    query: &str,
+) -> bool {
+    let id = feature.id();
+    feature.name.to_lowercase().contains(query)
+        || editing.feature() == Some(id)
+        || editing.solid() == Some(id)
+        || state.revealing(id)
+        || state.wants_focus(Focus::Feature(id))
+        || state.focus_inside(id)
+        || state
+            .renaming
+            .is_some_and(|renaming| renaming.feature == id)
+}
+
+fn no_match(ui: &mut Ui, state: &mut PanelState) {
+    let text = format!("No feature is named like “{}”.", state.tree_filter.trim());
+    let clear = tree_row::content(ui, |ui| {
+        widgets::empty_state(ui, icons::SEARCH, &text, |ui| {
+            let button = widgets::small_button(ui, icons::CLOSE, CLEAR_FILTER_LABEL);
+            ui.add(button).clicked()
+        })
+    });
+    if clear {
+        state.tree_filter.clear();
+        state.request_focus(Focus::TreeFilter);
+    }
 }
 
 fn empty_tree(ui: &mut Ui, actions: &mut Vec<Action>) {
@@ -1601,6 +1674,14 @@ pub fn commands(
     let document = model.document();
     let current = current_feature(document, editing, state);
     feature_commands(context, current, commands, actions);
+    let filterable = document
+        .features()
+        .next()
+        .map(|_| ())
+        .ok_or(NOTHING_TO_FILTER);
+    if commands.invoke(Command::FilterFeatures, &filterable) {
+        state.request_focus(Focus::TreeFilter);
+    }
     let chosen = current.ok_or(NO_FEATURE_CHOSEN);
     if commands.invoke(Command::RenameFeature, &chosen)
         && let Some(feature) = current

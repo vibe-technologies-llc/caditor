@@ -417,7 +417,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
   notes, so exports carry only the output file's name (the STEP description and its author and
   organisation fields stay empty, and the 3MF metadata holds only the application) and nothing
   identifies a part beyond its path. Empty unless the user fills them in.
-- [low · medium] The feature tree has no filter or groups.
+- [low · medium] The feature tree has no groups (folders) and its filter matches names only, not kinds.
 - [low · hard] Themes are four fixed `Tokens` sets in `appearance.rs` (dark, light and their
   high-contrast variants) and the 3D view is dark in all of them. Add themes as data: a few shipped
   ones beyond dark and light, a choice of accent colour, a light 3D view (background, grid, edges
