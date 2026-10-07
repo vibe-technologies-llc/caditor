@@ -2181,7 +2181,7 @@ fn files_dragged_over_the_window_say_what_dropping_them_does() {
     harness.hovered_files = hovering(&[Path::new("/tmp/notes.txt")]);
     harness.frame();
     harness.frame();
-    assert!(harness.shows("notes.txt is not a drawing or a STEP file"));
+    assert!(harness.shows("notes.txt may not be a drawing or a STEP file"));
 
     harness.hovered_files = vec![egui::HoveredFile::default()];
     harness.frame();

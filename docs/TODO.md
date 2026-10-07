@@ -424,11 +424,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [low · easy] The parameter table calls `Document::can_remove_parameter` for every row each
   frame, which scans every feature through `parameter_users`, though `app-look.md` says that scan
   runs only for the hovered row; check once per revision.
-- [low · easy] Files hovered over the window whose extension is not a model, DXF or STEP one have
-  their content sniffed on the UI thread every frame (`drop_target::verdict` through
-  `import::starts_like_step`: stat, open and read), as `Files::start` does for the command-line
-  path, so a file on a stalled network mount freezes the window while it is dragged. Judge hovered
-  files by extension and leave the content check to the files worker on drop.
 - [low · medium] A pick or image readback in flight redraws full frames until polled complete;
   vertex records repeat per-layer data and both ends of shared segments; invisible vertex markers go
   through the colour pass; each mesh's placement uniform is written every frame; resizing recreates

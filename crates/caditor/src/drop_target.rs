@@ -7,7 +7,7 @@ use egui::{
 
 use crate::{
     appearance::{self, CARD_RADIUS, SPACE_M},
-    files::{is_drawing_file, is_importable_file, is_model_file},
+    files::{has_importable_extension, is_drawing_file, is_model_file},
     icons,
     model::display_name,
     widgets::{self, Tone},
@@ -81,13 +81,13 @@ pub fn verdict(paths: &[PathBuf], situation: Situation) -> Verdict {
 }
 
 fn importing(paths: &[PathBuf], situation: Situation) -> Verdict {
-    if let Some(unreadable) = paths.iter().find(|path| !is_importable_file(path)) {
+    if let Some(unknown) = paths.iter().find(|path| !has_importable_extension(path)) {
         return Verdict::warning(
             format!(
-                "{} is not a drawing or a STEP file",
-                display_name(Some(unreadable))
+                "{} may not be a drawing or a STEP file",
+                display_name(Some(unknown))
             ),
-            "Dropping it says why it cannot be imported.",
+            "Dropping it reads it, then imports it or says why it cannot be imported.",
         );
     }
     let [path] = paths else {
@@ -147,4 +147,30 @@ pub fn show(ctx: &Context, area: Rect, hovered: &[HoveredFile], situation: Situa
                 ui.add(Label::new(RichText::new(&verdict.detail).color(tokens.text_muted)).wrap());
             });
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn a_hovered_file_is_judged_by_its_extension_without_reading_it() {
+        let dir = TempDir::new().unwrap();
+        let disguised = dir.path().join("part.txt");
+        std::fs::write(&disguised, "ISO-10303-21;\nHEADER;\n").unwrap();
+        let situation = Situation {
+            blocked: false,
+            importing: false,
+            into_sketch: false,
+        };
+
+        let judged = verdict(&[disguised], situation);
+        let step = verdict(&[dir.path().join("PART.STP")], situation);
+
+        assert_eq!(judged.tone, Tone::Warning);
+        assert_eq!(judged.title, "part.txt may not be a drawing or a STEP file");
+        assert_eq!(step.title, "Drop to import PART.STP");
+    }
 }

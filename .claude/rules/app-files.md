@@ -45,7 +45,10 @@ paths:
 - Files dragged over the window (`drop_target.rs`, from egui's `hovered_files`, so only where the
   platform reports them: X11 and Windows) outline the view and say in a card what dropping them
   does, mirroring `Files::dropped`: open one model, import drawings and STEP files (into the sketch
-  being edited for a DXF), or a warning naming why the drop would be refused.
+  being edited for a DXF), or a warning naming why the drop would be refused. Hovered files are
+  judged by extension only (`has_importable_extension`), never read on the UI thread, since a
+  stalled mount would freeze the window; an unknown extension warns that dropping reads it, and the
+  import worker decides by content.
 
 ## Onboarding
 

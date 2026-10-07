@@ -2023,6 +2023,15 @@ pub fn is_importable_file(path: &Path) -> bool {
     !is_model_file(path) && (is_drawing_file(path) || import::is_model(path))
 }
 
+pub fn has_importable_extension(path: &Path) -> bool {
+    is_drawing_file(path)
+        || path.extension().is_some_and(|extension| {
+            STEP_IMPORT_EXTENSIONS
+                .iter()
+                .any(|known| extension.eq_ignore_ascii_case(known))
+        })
+}
+
 pub fn is_drawing_file(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case(DXF_EXTENSION))
