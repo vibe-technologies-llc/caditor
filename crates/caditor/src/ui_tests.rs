@@ -2873,6 +2873,9 @@ fn clicking_a_constraint_in_the_tree_edits_its_sketch_and_selects_it() {
     harness.perform(Action::Editing(EditingCommand::Finish));
     harness.settle();
     let finished = harness.editing();
+    let name = harness.document().feature(base).unwrap().name.clone();
+    harness.click_button(&format!("Show details of {name}"));
+    harness.settle();
 
     harness.click_leftmost(&description);
     harness.settle();
@@ -6031,8 +6034,6 @@ fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
     let before = harness.solid(extrude).clone();
     harness.type_into_field(Id::new(("solid-field", "forward", extrude)), "0 mm");
     let refused_forward = harness.shows(crate::feature_fields::ABOVE_ZERO);
-    harness.key(Key::Escape, Modifiers::NONE);
-    harness.frame();
     harness.type_into_field(Id::new(("solid-field", "backward", extrude)), "-3 mm");
     let refused_backward = harness.shows(crate::feature_fields::ABOVE_ZERO);
 
@@ -6939,6 +6940,57 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
         })
         .expect("the chamfer face is pickable and named after its feature");
     assert!(matches!(chamfer_face, Pickable::Face { .. }));
+}
+
+#[test]
+fn enter_confirms_a_fillet_whose_row_then_closes_and_choosing_in_the_view_keeps_the_selection() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    let back = top_edge_along_x(&harness, plate, 40.0);
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click("Fillet");
+    harness.settle();
+    let fillet = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the fillet is open");
+
+    assert!(harness.shows("Radius"));
+
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(harness.workspace.editing.solid(), None);
+    assert!(!harness.shows("Radius"));
+    assert_eq!(blend_of(&harness, fillet).edges.len(), 1);
+
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: back,
+    }]);
+    harness.click_button("Show details of Fillet 1");
+    harness.frame();
+    harness.click("Choose in the view");
+    harness.settle();
+
+    assert_eq!(harness.workspace.editing.solid(), Some(fillet));
+    assert_eq!(blend_of(&harness, fillet).edges.len(), 2);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Add the selected edges to Fillet 1")
+    );
+    assert!(removed_about(
+        &harness,
+        plate,
+        80.0 * (1.0 - std::f64::consts::PI / 4.0)
+    ));
 }
 
 #[test]
@@ -8661,6 +8713,34 @@ fn adding_a_feature_then_undoing_it_leaves_the_model_saved() {
     harness.frame();
     assert!(!harness.model.is_dirty());
     assert_eq!(app::window_title(&harness.model), "Untitled — caditor");
+}
+
+#[test]
+fn p_hides_the_principal_geometry_outside_a_sketch_and_places_points_inside_one() {
+    let mut harness = Harness::new();
+    let base = harness.document().features().next().unwrap().id();
+
+    harness.key(Key::P, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.document().hidden_principal().next().is_some());
+
+    harness.key(Key::P, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let shown_again = harness.document().hidden_principal().next().is_none();
+    harness.edit(base);
+    harness.key(Key::P, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(shown_again);
+    assert_eq!(
+        harness.workspace.editing.active().map(|active| active.tool),
+        Some(Tool::Point)
+    );
+    assert!(harness.document().hidden_principal().next().is_none());
 }
 
 #[test]
@@ -12395,6 +12475,7 @@ fn dragging_one_of_several_chosen_features_moves_them_all_together() {
 fn dragging_the_rollback_bar_shows_the_model_as_of_where_it_is_dropped() {
     let mut harness = Harness::new();
     let (extrude, _) = extruded_plate(&mut harness);
+    harness.let_animations_finish();
 
     let bar = harness
         .button_rect(crate::feature_tree::ROLLBACK_BAR_NAME)

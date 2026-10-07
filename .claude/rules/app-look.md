@@ -206,6 +206,9 @@ paths:
 - A feature computed with a healed reference (`FeatureStatus::healing`) shows the warning icon and
   a callout with the reason, the remedy and an Update references button, offered only while the
   evaluation was checked against the feature as it now stands (`Healing::update`).
+- A row opened for editing (a sketch entered, a feature opened) collapses again when editing it
+  ends, by the checkmark, Enter, Escape or Finish (`PanelState::opened_for_editing`,
+  `finished_editing`), so the tree goes back to one line per feature.
 - A click on a row's name only selects it (`PanelState::selected`, cleared when the view selection
   changes); Ctrl+click toggles and Shift+click extends (`PanelState::chosen`, primary first); the
   chevron alone shows the details. A double-click, Enter, the edit button or the menu's Edit opens

@@ -390,6 +390,7 @@ impl Category {
 pub enum Scope {
     Anywhere,
     Sketch,
+    OutsideSketch,
 }
 
 impl Scope {
@@ -401,6 +402,7 @@ impl Scope {
         match self {
             Self::Anywhere => "anywhere",
             Self::Sketch => "while editing a sketch",
+            Self::OutsideSketch => "outside sketch editing",
         }
     }
 }
@@ -1018,6 +1020,7 @@ impl Command {
             | Self::SketchTool(_)
             | Self::ShapeMode(_)
             | Self::Constraint(_) => Scope::Sketch,
+            Self::TogglePrincipal => Scope::OutsideSketch,
             _ => Scope::Anywhere,
         }
     }
@@ -1099,6 +1102,7 @@ impl Command {
             Self::DatumPlane => vec![alt(Key::D)],
             Self::DatumAxis => vec![alt_shift(Key::D)],
             Self::DatumPoint => vec![alt_shift(Key::P)],
+            Self::TogglePrincipal => vec![plain(Key::P)],
             Self::VersionHistory
             | Self::ModelProperties
             | Self::KeyboardShortcuts
@@ -1128,7 +1132,6 @@ impl Command {
             | Self::RollToHere
             | Self::RollToEnd
             | Self::ToggleVisibility
-            | Self::TogglePrincipal
             | Self::ToggleSnapping
             | Self::MinimizeWindow
             | Self::MaximizeWindow
@@ -1500,7 +1503,11 @@ pub struct Situation {
 
 impl Situation {
     fn allows(&self, command: Command) -> bool {
-        command.scope() == Scope::Anywhere || self.editing_sketch
+        match command.scope() {
+            Scope::Anywhere => true,
+            Scope::Sketch => self.editing_sketch,
+            Scope::OutsideSketch => !self.editing_sketch,
+        }
     }
 
     fn accepts(&self, shortcut: &KeyboardShortcut) -> bool {
@@ -1833,7 +1840,7 @@ mod tests {
         );
         assert_eq!(
             found(press(Key::P, Modifiers::NONE), &Situation::default()),
-            None
+            Some(Command::TogglePrincipal)
         );
         assert_eq!(
             found(

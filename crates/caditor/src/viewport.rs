@@ -1871,6 +1871,11 @@ impl ViewportState {
                 && let Some(command) = open_command(self.keyboard_highlight, model)
             {
                 actions.push(Action::Editing(command));
+            } else if editing.feature().is_none()
+                && editing.picking().is_none()
+                && editing.solid().is_some()
+            {
+                actions.push(Action::Editing(EditingCommand::CloseSolid));
             }
         }
         if back && self.drawing.in_progress() && self.drawing.remove_last(model.undo_label()) {

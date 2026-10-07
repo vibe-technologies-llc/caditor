@@ -95,8 +95,13 @@ pub fn show(
     state: &mut PanelState,
     actions: &mut Vec<Action>,
 ) {
-    if editing.feature().is_none() {
+    let edited = editing.feature().or(editing.solid());
+    if let Some(finished) = state
+        .opened_for_editing
+        .filter(|opened| Some(*opened) != edited)
+    {
         state.opened_for_editing = None;
+        state.finished_editing = Some(finished);
     }
     tree_row::rows(ui, |ui| {
         rows(ui, model, selection, editing, state, actions);
@@ -502,6 +507,9 @@ fn feature_row(
     }
     if state.focus_inside(id) || editing_started {
         collapsing.set_open(true);
+    } else if state.finished_editing == Some(id) {
+        state.finished_editing = None;
+        collapsing.set_open(false);
     }
 
     let tokens = appearance::tokens(ui);
@@ -737,6 +745,7 @@ fn body(
             blend_panel::show(
                 ui,
                 model,
+                row.selection,
                 &mut state.reference_rows,
                 actions,
                 feature,

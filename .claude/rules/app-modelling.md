@@ -91,6 +91,9 @@ paths:
   feature that opens. The body is drawn as before the feature (`BodyMeshes::body_before`), edges
   and flat faces are `Pickable::BlendEdge` and `Pickable::ShellFace`, and a click toggles one. The
   panel lists the edges or faces in words (a split edge as its pieces).
+- Choose in the view on a fillet or chamfer first adds the edges selected in the view of its
+  body (`blend_tools::with_selected_edges`, one undoable change, edges already in a chosen chain
+  skipped), then opens it, so those and the edges it held show chosen and a click leaves one out.
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's
   list stays in `PanelState::reference_rows` (`reference_rows.rs`) until the state before it or
   the revision changes.

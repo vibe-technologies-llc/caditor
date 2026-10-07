@@ -100,6 +100,7 @@ pub struct PanelState {
     focus: Option<PendingFocus>,
     pub renaming: Option<Renaming>,
     pub opened_for_editing: Option<FeatureId>,
+    pub finished_editing: Option<FeatureId>,
     pub selected: Option<FeatureId>,
     also_selected: Vec<FeatureId>,
     pub dragging: Option<TreeRow>,

@@ -164,6 +164,49 @@ pub fn toggle_edge(model: &Model, feature: FeatureId, edge: EdgeName) -> Option<
     ))
 }
 
+pub fn with_selected_edges(
+    model: &Model,
+    feature: FeatureId,
+    selection: &Selection,
+) -> Option<Transaction> {
+    let owner = model.document().feature(feature)?;
+    let blend = owner.kind.blend()?;
+    let input = bodies::input(model.evaluation(), feature)?;
+    let solid = &input.solid;
+    let naming = EdgeNaming::new(solid);
+    let mut taken: BTreeSet<EdgeId> = blend
+        .resolutions(solid)
+        .iter()
+        .flat_map(|resolution| blend_chain(solid, resolution.found()))
+        .collect();
+    let mut changed = blend.clone();
+    for pickable in selection.iter() {
+        let Pickable::Edge { body, edge } = pickable else {
+            continue;
+        };
+        let Some(found) = (body == blend.body)
+            .then(|| bodies::find_edge(input, edge))
+            .flatten()
+            .filter(|found| !taken.contains(found))
+        else {
+            continue;
+        };
+        changed
+            .edges
+            .push(EdgeReference::capture_in(&naming, found)?);
+        taken.extend(blend_chain(solid, &[found]));
+    }
+    (changed.edges.len() > blend.edges.len()).then(|| {
+        Transaction::single(
+            format!("Add the selected edges to {}", owner.name),
+            Edit::SetFeatureKind {
+                id: feature,
+                kind: FeatureKind::Blend(changed),
+            },
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use caditor_document::{CancelToken, ModelEvaluator, Recompute};

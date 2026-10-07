@@ -31,7 +31,9 @@ paths:
 ## Commands and keymap
 
 - Every toolbar, menu and sketch action is a `Command` with a stable id, title, `Category`,
-  `Scope` (anywhere, or only in a sketch) and default shortcuts. `Command::all()` is built from
+  `Scope` (anywhere, only in a sketch, or only outside one, which lets P hide the principal
+  geometry outside sketches while it stays the Point tool inside) and default shortcuts. Scope
+  only decides where a key reaches the command; the palette and menus offer it as usual. `Command::all()` is built from
   `plain_commands!`, which matches `Command` exhaustively so a missing variant fails to compile,
   and from the `ALL` of each payload type declared by `all_variants!` (`variants.rs`; a test checks
   `ShapeMode::ALL` against its mode enums). Defaults are in `Command::default_shortcuts`; docs do
@@ -91,7 +93,8 @@ paths:
 - Highlight next and previous step a keyboard highlight through the scene's pickables in
   pick-table order (drawn and described like hover; a pointer move or Escape clears it). Activate
   acts as a click would (selection toggle, or the region, blend edge, shell face or sketch plane
-  action through `pick_action`); Enter opens what the item belongs to as a double-click would.
+  action through `pick_action`); Enter opens what the item belongs to as a double-click would,
+  and with nothing highlighted Enter confirms the open feature like its checkmark.
   With Trim, Extend, Mirror or Sketch fillet active they step through that tool's targets instead
   (`app-sketching.md`). With a drawing tool active, Activate on a highlighted point of the edited
   sketch or the origin places the shape's next point there, snapped to it as a click would

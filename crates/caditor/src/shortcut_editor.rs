@@ -298,7 +298,7 @@ fn list(
             continue;
         };
         let heading = match first.scope() {
-            Scope::Anywhere => category.label().to_owned(),
+            Scope::Anywhere | Scope::OutsideSketch => category.label().to_owned(),
             Scope::Sketch => format!("{} ({})", category.label(), Scope::Sketch.describe()),
         };
         if shown_any {

@@ -14,6 +14,7 @@ use crate::{
     field,
     model::{Action, Model},
     reference_rows::{ReferenceRows, RowCache},
+    selection::Selection,
     widgets,
 };
 
@@ -140,6 +141,7 @@ fn edge_rows(document: &Document, input: Option<&SolidResult>, blend: &Blend) ->
 
 struct EdgesRow<'a> {
     model: &'a Model,
+    selection: &'a Selection,
     feature: &'a Feature,
     blend: &'a Blend,
     opened: bool,
@@ -148,6 +150,7 @@ struct EdgesRow<'a> {
 fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mut Vec<Action>) {
     let EdgesRow {
         model,
+        selection,
         feature,
         blend,
         opened,
@@ -175,8 +178,12 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
             ui,
             feature_fields::choosing_list(ui, opened),
             "Click edges in the view to add them or leave them out.",
-            "Show the body as it was before this feature so you can click edges",
+            "Show the body as it was before this feature, with its edges and those selected now \
+             highlighted, so you can click edges to add or leave out",
         ) {
+            if let Some(transaction) = blend_tools::with_selected_edges(model, id, selection) {
+                actions.push(Action::Apply(transaction));
+            }
             actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
         }
     });
@@ -186,6 +193,7 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
 pub fn show(
     ui: &mut Ui,
     model: &Model,
+    selection: &Selection,
     cache: &mut RowCache,
     actions: &mut Vec<Action>,
     feature: &Feature,
@@ -195,6 +203,7 @@ pub fn show(
     let id = feature.id();
     let row = EdgesRow {
         model,
+        selection,
         feature,
         blend,
         opened,
