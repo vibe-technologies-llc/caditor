@@ -781,6 +781,12 @@ impl Model {
         self.display.dragging.cancel();
         self.display.sketches.stop_showing_dragged();
         self.shown_before = None;
+        if let Some(recomputer) = &mut self.recomputer
+            && let Err(error) = recomputer.forget()
+        {
+            log::error!("{error}");
+            self.recomputer = None;
+        }
         self.mesh_bodies();
         self.start_storage(replaces, predecessor);
         self.recompute(Retry::Nothing);

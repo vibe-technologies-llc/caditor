@@ -118,11 +118,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   parallel over the dependency data the document already has. A body is meshed beside the feature
   loop once no later feature changes it, but one at a time, and those settling only at the last
   features are meshed one after another once the loop ends.
-- [low · easy] `Recomputer` keeps the last evaluation it reported, and the worker its own copy,
-  across documents, though feature ids restart per document. When a cancelled submission replaces
-  a worker that ignores the cancel past `STOP_GRACE`, or a run panics twice, that evaluation is
-  reported for the new document's revision, and the view and tree show the previous model's bodies
-  and statuses under the new ids. Clear both when `Model::switch_to` starts a new document.
 - [low · medium] `SetFeatureKind` refuses an `Import` (`set_feature_kind` pairs no import with an
   import), so an imported body keeps its source solid for good; allowing it would also give
   re-import.

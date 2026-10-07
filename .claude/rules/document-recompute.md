@@ -100,6 +100,10 @@ paths:
   for `STOP_GRACE`, `poll` or the next submission starts a fresh worker (same evaluator, wake and
   mesh quality, empty cache) and leaves the old one to finish on its own. The newest submission is
   then reported as `Outcome::Cancelled` (when a cancel followed it) or sent again to the new worker.
+- `Recomputer::forget`, called by `Model::switch_to` before a new document's first submission,
+  drops the last reported evaluation on both sides along with the worker's cache and queued
+  meshes, since feature ids restart per document: a cancel answered by a replaced worker, or a run
+  that panics twice, then reports nothing of the previous model under the new ids.
 - `Recomputer::submit_retrying_failures` (the Recompute command, F5) reruns every failed feature
   though its key is unchanged, which a plain submission reuses, as it does a caught panic's error;
   a retrying submission superseded by a plain one still retries.

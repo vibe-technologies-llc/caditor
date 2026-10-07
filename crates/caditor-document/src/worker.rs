@@ -68,6 +68,7 @@ enum Message {
         name: String,
     },
     MeshQuality(MeshQuality),
+    Forget,
 }
 
 struct Shared {
@@ -211,6 +212,15 @@ impl Recomputer {
                 retry_failures,
                 document,
             }))
+            .map_err(|_| WorkerStopped)
+    }
+
+    pub fn forget(&mut self) -> Result<(), WorkerStopped> {
+        self.reported = Evaluation::default();
+        self.newest = None;
+        self.handle
+            .jobs
+            .send(Message::Forget)
             .map_err(|_| WorkerStopped)
     }
 
@@ -388,6 +398,11 @@ fn work(
                     meshes.push(PendingMesh { result, name });
                 }
                 Message::MeshQuality(quality) => recompute.set_mesh_quality(quality),
+                Message::Forget => {
+                    recompute.clear_cache();
+                    reported = Evaluation::default();
+                    meshes.clear();
+                }
             }
         }
         if let Some(job) = latest {
@@ -671,6 +686,50 @@ mod tests {
                 thread::yield_now();
             }
             ModelEvaluator.evaluate(feature, inputs, cancel)
+        }
+    }
+
+    #[test]
+    fn a_forgotten_evaluation_is_never_reported_for_the_next_document() {
+        let (evaluator, started, release) = stuck();
+        release.store(true, Ordering::SeqCst);
+        let mut worker = Recomputer::spawn(evaluator, || {})
+            .unwrap()
+            .with_stop_grace(Duration::from_millis(50));
+        let (document, ids) = sample();
+        worker.submit(document.clone(), 1).unwrap();
+        let first = poll_until_finished(&mut worker);
+        release.store(false, Ordering::SeqCst);
+        let evaluated = started.load(Ordering::SeqCst);
+
+        worker.forget().unwrap();
+        worker.submit(document, 2).unwrap();
+        while started.load(Ordering::SeqCst) == evaluated {
+            thread::yield_now();
+        }
+        worker.cancel();
+        let cancelled = poll_until_update(&mut worker);
+        release.store(true, Ordering::SeqCst);
+
+        assert!(first.evaluation.feature(ids.base).is_some());
+        assert_eq!(
+            (cancelled.revision, cancelled.outcome),
+            (2, Outcome::Cancelled)
+        );
+        assert!(
+            cancelled
+                .evaluation
+                .feature(ids.base)
+                .is_none_or(|status| status.state != FeatureState::UpToDate)
+        );
+    }
+
+    fn poll_until_finished(worker: &mut Recomputer) -> Update {
+        loop {
+            let update = poll_until_update(worker);
+            if update.outcome != Outcome::FeaturesDone {
+                return update;
+            }
         }
     }
 
