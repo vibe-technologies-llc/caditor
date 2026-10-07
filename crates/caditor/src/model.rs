@@ -15,12 +15,12 @@ use caditor_file::{
     Start, Storage, StorageConfig,
 };
 use caditor_kernel::MeshQuality;
-use caditor_sketch::{Sketch, SketchSolution};
+use caditor_sketch::{Constraint, Sketch, SketchSolution};
 use parking_lot::Mutex;
 
 use crate::{
     display::{Display, Displayed},
-    drag_solver::{self, DragCommand, Finished, Polled},
+    drag_solver::{self, DragCommand, Finished, Join, Polled},
     editing::EditingCommand,
     files::FileCommand,
     preferences::PreferencesCommand,
@@ -72,6 +72,7 @@ pub struct RecordedNotice {
 
 const NAMED_CONFLICTS: usize = 2;
 const MAX_RECORDED_NOTICES: usize = 100;
+const JOIN_TOLERANCE: f64 = 1e-6;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
@@ -617,6 +618,7 @@ impl Model {
             feature,
             label,
             sketch,
+            join,
         } = finished;
         let Some(sketch) = sketch else {
             self.display.sketches.stop_showing_dragged();
@@ -634,6 +636,9 @@ impl Model {
         };
         let mut transaction = self.editor.document().transaction(label);
         transaction.settle_sketch(feature, &sketch);
+        for constraint in join.map(|join| reached(&sketch, join)).unwrap_or_default() {
+            transaction.add_sketch_constraint(feature, constraint);
+        }
         let transaction = transaction.finish();
         if transaction.is_empty() {
             self.display.sketches.stop_showing_dragged();
@@ -1062,4 +1067,22 @@ fn saved_notice(backup: Option<&Path>, dropped_for_size: usize) -> Option<Notice
     };
     let sentences: Vec<String> = backup.into_iter().chain(dropped).collect();
     (!sentences.is_empty()).then(|| Notice::info(format!("Saved. {}", sentences.join(" "))))
+}
+
+fn reached(sketch: &Sketch, join: Join) -> Vec<Constraint> {
+    let tolerance = JOIN_TOLERANCE * join.at.abs().max_element().max(1.0);
+    let landed = sketch
+        .point(join.point)
+        .is_some_and(|at| at.distance(join.at) <= tolerance);
+    if !landed {
+        return Vec::new();
+    }
+    join.constraints
+        .into_iter()
+        .filter(|constraint| {
+            sketch.check_constraint(constraint).is_ok()
+                && sketch.restating(constraint).is_none()
+                && sketch.contradicting(constraint).is_none()
+        })
+        .collect()
 }

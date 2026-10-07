@@ -1512,26 +1512,7 @@ impl Drawing {
             {
                 format!("Continue {}", sketch.entity_label(tangent.curve))
             }
-            Target::Point(EntityId::ORIGIN) => "Origin".to_owned(),
-            Target::Midpoint(line) => format!("Midpoint of {}", sketch.entity_label(line)),
-            Target::Quadrant { curve, side, .. } => {
-                format!("{} of {}", side.name(), sketch.entity_label(curve))
-            }
-            Target::Tangent(curve) => format!("Tangent to {}", sketch.entity_label(curve)),
-            Target::Centre { outline, .. } => {
-                format!("Centre of the outline of {}", sketch.entity_label(outline))
-            }
-            Target::Intersection(first, second) => format!(
-                "Crossing of {} and {}",
-                sketch.entity_label(first),
-                sketch.entity_label(second)
-            ),
-            Target::Point(entity) | Target::Curve(entity) => {
-                format!("On {}", sketch.entity_label(entity))
-            }
-            Target::Extension(line) => {
-                format!("On the extension of {}", sketch.entity_label(line))
-            }
+            target => target.label(sketch),
         }
     }
 
@@ -1684,6 +1665,7 @@ impl Drawing {
             &pending,
             accept,
             self.acquired.lines(),
+            &[],
         );
         let touching = match (shape, self.placed.as_slice()) {
             (Shape::Line, &[start]) => snap::tangents_from(sketch, screen, pointer, start.position),
@@ -2156,37 +2138,13 @@ impl<'a> Draft<'a> {
 
     fn point(&mut self, placement: Placement) -> EntityId {
         let point = self.entity(Entity::Point(placement.position));
-        match placement.snap.target() {
-            Some(Target::Midpoint(curve)) => self.constrain(Constraint::Midpoint { point, curve }),
-            Some(Target::Quadrant {
-                curve,
-                centre,
-                side,
-            }) => {
-                self.constrain(Constraint::Coincident(point, curve));
-                self.constrain(if side.is_level() {
-                    Constraint::HorizontalPoints(point, centre)
-                } else {
-                    Constraint::VerticalPoints(point, centre)
-                });
-            }
-            Some(Target::Centre {
-                corners: (first, second),
-                ..
-            }) => self.constrain(Constraint::Symmetric {
-                first,
-                second,
-                about: point,
-            }),
-            Some(Target::Intersection(first, second)) => {
-                self.constrain(Constraint::Coincident(point, first));
-                self.constrain(Constraint::Coincident(point, second));
-            }
-            _ => {
-                if let Some(target) = placement.snap.entity() {
-                    self.constrain(Constraint::Coincident(point, target));
-                }
-            }
+        for constraint in placement
+            .snap
+            .target()
+            .map(|target| target.joins(point))
+            .unwrap_or_default()
+        {
+            self.constrain(constraint);
         }
         for constraint in placement.tracks.constraints(point) {
             self.constrain(constraint);

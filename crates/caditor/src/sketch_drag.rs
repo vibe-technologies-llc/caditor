@@ -4,7 +4,11 @@ use caditor_document::FeatureId;
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{Drag, Entity, EntityId, Faceting, Sketch};
 
-use crate::{drag_solver::DragCommand, feature_tree::count, snap::Screen};
+use crate::{
+    drag_solver::{DragCommand, Join},
+    feature_tree::count,
+    snap::{Screen, Snapped},
+};
 
 const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
 const MOVE_WHILE_DRAWING: &str = "Switch to the Select tool to move geometry";
@@ -27,6 +31,7 @@ pub struct Grab {
     from: Point2,
     handles: Handles,
     sent: Option<Vec<Drag>>,
+    snapped: Option<Snapped>,
 }
 
 impl Grab {
@@ -63,7 +68,61 @@ impl Grab {
             from,
             handles,
             sent: None,
+            snapped: None,
         })
+    }
+
+    pub fn lone_point(&self) -> Option<EntityId> {
+        match &self.handles {
+            Handles::Points(points) => match points.as_slice() {
+                [(point, _)] => Some(*point),
+                _ => None,
+            },
+            Handles::Radius { .. } => None,
+        }
+    }
+
+    pub fn moving_with(&self, sketch: &Sketch) -> Vec<EntityId> {
+        let Some(point) = self.lone_point() else {
+            return Vec::new();
+        };
+        std::iter::once(point)
+            .chain(
+                sketch
+                    .entities()
+                    .filter(|(_, entity)| entity.points().contains(&point))
+                    .map(|(id, _)| id),
+            )
+            .collect()
+    }
+
+    pub fn snapped(&self) -> Option<Snapped> {
+        self.snapped
+    }
+
+    pub fn snap_to(&mut self, cursor: Point2, snapped: Option<Snapped>) -> Option<DragCommand> {
+        let snapped = snapped.filter(|_| self.lone_point().is_some());
+        self.snapped = snapped;
+        let target = match (snapped, &self.handles) {
+            (Some(snapped), Handles::Points(points)) => match points.as_slice() {
+                [(_, original)] => self.from + (snapped.position - *original),
+                _ => cursor,
+            },
+            _ => cursor,
+        };
+        self.to(target)
+    }
+
+    pub fn finish(&self) -> DragCommand {
+        let join = self
+            .lone_point()
+            .zip(self.snapped)
+            .map(|(point, snapped)| Join {
+                point,
+                at: snapped.position,
+                constraints: snapped.target.joins(point),
+            });
+        DragCommand::Finish { join }
     }
 
     pub fn feature(&self) -> FeatureId {
@@ -148,7 +207,7 @@ impl Moving {
                 label: self.label.clone(),
                 drags: translated(&self.points, target - self.anchor),
             },
-            DragCommand::Finish,
+            DragCommand::Finish { join: None },
         ]
     }
 }
@@ -324,8 +383,10 @@ fn selectable(sketch: &Sketch, caught: impl Iterator<Item = EntityId>) -> Vec<En
 mod tests {
     use caditor_document::{Document, FeatureKind};
     use caditor_geometry::Plane;
+    use caditor_sketch::Constraint;
 
     use super::*;
+    use crate::snap::Target;
 
     struct Flat;
 
@@ -479,8 +540,49 @@ mod tests {
                         },
                     ],
                 },
-                DragCommand::Finish,
+                DragCommand::Finish { join: None },
             ]
         );
+    }
+
+    #[test]
+    fn a_lone_grabbed_point_lands_on_its_snap_and_joins_it_when_released() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::ZERO, Point2::new(4.0, 0.0));
+        let (_, end) = ends(&sketch, line);
+        let lone = sketch.add_point(Point2::new(10.0, 10.0));
+        let mut grab = Grab::of(&sketch, feature(), end, &[], Point2::new(4.1, 0.1)).unwrap();
+
+        assert_eq!(grab.moving_with(&sketch), vec![end, line]);
+        let snapped = Snapped {
+            position: Point2::new(10.0, 10.0),
+            target: Target::Point(lone),
+        };
+        let command = grab.snap_to(Point2::new(10.3, 9.8), Some(snapped));
+
+        assert_eq!(
+            command,
+            Some(DragCommand::Move {
+                feature: feature(),
+                label: format!("Drag {}", sketch.entity_label(end)),
+                drags: vec![Drag::Point {
+                    point: end,
+                    to: Point2::new(10.0, 10.0),
+                }],
+            })
+        );
+        assert_eq!(
+            grab.finish(),
+            DragCommand::Finish {
+                join: Some(Join {
+                    point: end,
+                    at: Point2::new(10.0, 10.0),
+                    constraints: vec![Constraint::Coincident(end, lone)],
+                }),
+            }
+        );
+
+        let whole = Grab::of(&sketch, feature(), line, &[], Point2::new(2.0, 0.0)).unwrap();
+        assert_eq!(whole.lone_point(), None);
     }
 }

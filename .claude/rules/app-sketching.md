@@ -50,6 +50,12 @@ paths:
   its own worker thread, which drops older unstarted ones and solves each from the previous
   solution of the same drag with `solve_from`. Results are shown through
   `DisplayedSketches::show_dragged`, which every consumer of a displayed sketch sees.
+- A grab of one point snaps it while snapping is on and Ctrl is not held (`ViewportState::grab_snap`):
+  `snap::resolve` on the displayed sketch, ignoring the point and every curve using it, puts the
+  point exactly on the target, shown with the snap marker and label. Release sends the target's
+  constraints (`Target::joins`) with `DragCommand::Finish`, and `Model::commit_drag` adds them to
+  the settle transaction when the solved point reached the target, leaving out any the sketch
+  refuses, already has or contradicts.
 - Release commits one `settle_sketch` transaction and the dragged shape stays until an evaluation
   of that revision reaches the sketch, so it never jumps back. Escape, another edit or document,
   or a drag begun on an older revision drops it.

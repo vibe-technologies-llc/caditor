@@ -9,7 +9,8 @@ use std::{
 };
 
 use caditor_document::{FeatureId, ParameterValues};
-use caditor_sketch::{Drag, Sketch, SolveMemo};
+use caditor_geometry::Point2;
+use caditor_sketch::{Constraint, Drag, EntityId, Sketch, SolveMemo};
 use parking_lot::{Condvar, Mutex};
 
 use crate::model::Waker;
@@ -21,8 +22,17 @@ pub enum DragCommand {
         label: String,
         drags: Vec<Drag>,
     },
-    Finish,
+    Finish {
+        join: Option<Join>,
+    },
     Cancel,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Join {
+    pub point: EntityId,
+    pub at: Point2,
+    pub constraints: Vec<Constraint>,
 }
 
 #[derive(Debug, Clone)]
@@ -30,6 +40,7 @@ pub struct Finished {
     pub feature: FeatureId,
     pub label: String,
     pub sketch: Option<Arc<Sketch>>,
+    pub join: Option<Join>,
 }
 
 #[derive(Debug, Default)]
@@ -197,6 +208,7 @@ struct Active {
     sent: u64,
     received: u64,
     finishing: bool,
+    join: Option<Join>,
     latest: Option<Arc<Sketch>>,
     previous: Option<Previous>,
 }
@@ -228,10 +240,11 @@ impl SketchDragging {
                 label,
                 drags,
             } => self.drag(feature, label, drags, start),
-            DragCommand::Finish => {
+            DragCommand::Finish { join } => {
                 let Some(active) = &mut self.active else {
                     return Polled::default();
                 };
+                active.join = join;
                 if active.revision != start.revision {
                     self.cancel();
                     return Polled::abandoned();
@@ -314,6 +327,7 @@ impl SketchDragging {
                 sent: 0,
                 received: 0,
                 finishing: false,
+                join: None,
                 latest: None,
                 previous: None,
             });
@@ -370,6 +384,7 @@ impl Active {
             feature: self.feature,
             label: self.label,
             sketch: self.latest,
+            join: self.join,
         }
     }
 }
@@ -458,7 +473,9 @@ mod tests {
                 &start,
             );
         }
-        let immediately = dragging.perform(DragCommand::Finish, &start).finished;
+        let immediately = dragging
+            .perform(DragCommand::Finish { join: None }, &start)
+            .finished;
         let finished = immediately.unwrap_or_else(|| until_finished(&mut dragging));
 
         let solved = finished.sketch.unwrap();
@@ -485,7 +502,10 @@ mod tests {
         };
 
         dragging.perform(moved.clone(), &start(1, &parameters, &shown));
-        let stale = dragging.perform(DragCommand::Finish, &start(2, &parameters, &shown));
+        let stale = dragging.perform(
+            DragCommand::Finish { join: None },
+            &start(2, &parameters, &shown),
+        );
         assert!(stale.finished.is_none());
         assert!(stale.abandoned);
         assert!(!dragging.is_dragging());

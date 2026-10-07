@@ -1,7 +1,7 @@
 use std::f64::consts::TAU;
 
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{ArcGeometry, Entity, EntityId, Sketch};
+use caditor_sketch::{ArcGeometry, Constraint, Entity, EntityId, Sketch};
 
 pub const POINT_TOLERANCE: f64 = 8.0;
 pub const CURVE_TOLERANCE: f64 = 6.0;
@@ -75,6 +75,85 @@ impl Target {
         }
     }
 
+    pub fn label(self, sketch: &Sketch) -> String {
+        match self {
+            Self::Pending(_) => "Stop here".to_owned(),
+            Self::Point(EntityId::ORIGIN) => "Origin".to_owned(),
+            Self::Midpoint(line) => format!("Midpoint of {}", sketch.entity_label(line)),
+            Self::Quadrant { curve, side, .. } => {
+                format!("{} of {}", side.name(), sketch.entity_label(curve))
+            }
+            Self::Tangent(curve) => format!("Tangent to {}", sketch.entity_label(curve)),
+            Self::Centre { outline, .. } => {
+                format!("Centre of the outline of {}", sketch.entity_label(outline))
+            }
+            Self::Intersection(first, second) => format!(
+                "Crossing of {} and {}",
+                sketch.entity_label(first),
+                sketch.entity_label(second)
+            ),
+            Self::Point(entity) | Self::Curve(entity) => {
+                format!("On {}", sketch.entity_label(entity))
+            }
+            Self::Extension(line) => {
+                format!("On the extension of {}", sketch.entity_label(line))
+            }
+        }
+    }
+
+    pub fn joins(self, point: EntityId) -> Vec<Constraint> {
+        match self {
+            Self::Pending(_) => Vec::new(),
+            Self::Midpoint(curve) => vec![Constraint::Midpoint { point, curve }],
+            Self::Quadrant {
+                curve,
+                centre,
+                side,
+            } => vec![
+                Constraint::Coincident(point, curve),
+                if side.is_level() {
+                    Constraint::HorizontalPoints(point, centre)
+                } else {
+                    Constraint::VerticalPoints(point, centre)
+                },
+            ],
+            Self::Centre {
+                corners: (first, second),
+                ..
+            } => vec![Constraint::Symmetric {
+                first,
+                second,
+                about: point,
+            }],
+            Self::Intersection(first, second) => vec![
+                Constraint::Coincident(point, first),
+                Constraint::Coincident(point, second),
+            ],
+            Self::Point(entity)
+            | Self::Curve(entity)
+            | Self::Extension(entity)
+            | Self::Tangent(entity) => vec![Constraint::Coincident(point, entity)],
+        }
+    }
+
+    fn touches(self, ignored: &[EntityId]) -> bool {
+        let involved = match self {
+            Self::Pending(_) => Vec::new(),
+            Self::Quadrant { curve, centre, .. } => vec![curve, centre],
+            Self::Centre {
+                outline,
+                corners: (first, second),
+            } => vec![outline, first, second],
+            Self::Intersection(first, second) => vec![first, second],
+            Self::Point(entity)
+            | Self::Curve(entity)
+            | Self::Extension(entity)
+            | Self::Midpoint(entity)
+            | Self::Tangent(entity) => vec![entity],
+        };
+        involved.iter().any(|entity| ignored.contains(entity))
+    }
+
     pub fn is_point_like(self) -> bool {
         match self {
             Self::Curve(_) | Self::Extension(_) => false,
@@ -145,6 +224,7 @@ pub fn resolve(
     pending: &[(usize, Point2)],
     accept: Accept,
     extended: &[EntityId],
+    ignored: &[EntityId],
 ) -> Option<Snapped> {
     let pending = pending
         .iter()
@@ -156,6 +236,7 @@ pub fn resolve(
     let nearest = |candidates: Vec<Snapped>, tolerance: f64| {
         candidates
             .into_iter()
+            .filter(|candidate| !candidate.target.touches(ignored))
             .filter_map(|candidate| {
                 let offset = screen
                     .to_screen(candidate.position)?
@@ -960,6 +1041,7 @@ pub mod tests {
             &[],
             Accept::Anything,
             &[],
+            &[],
         )
     }
 
@@ -1002,6 +1084,7 @@ pub mod tests {
             &[],
             Accept::Points,
             &[],
+            &[],
         );
         assert_eq!(only_points, None);
         let on_circle = resolve(
@@ -1013,6 +1096,7 @@ pub mod tests {
                 center: Point2::new(20.0, 10.0),
                 radius: 50.0,
             },
+            &[],
             &[],
         );
         assert_eq!(on_circle, None);
@@ -1228,6 +1312,7 @@ pub mod tests {
             &[(3, Point2::new(20.5, 0.5))],
             Accept::Anything,
             &[],
+            &[],
         );
         assert_eq!(
             pending.map(|snapped| snapped.target),
@@ -1249,7 +1334,17 @@ pub mod tests {
             center: Point2::new(40.0, 40.0),
             radius: 10.0,
         };
-        let at = |point| resolve(&sketch, &Scaled(10.0), pointer_at(point), &[], circle, &[]);
+        let at = |point| {
+            resolve(
+                &sketch,
+                &Scaled(10.0),
+                pointer_at(point),
+                &[],
+                circle,
+                &[],
+                &[],
+            )
+        };
         let upper = Point2::new(46.875, 40.0 + (100.0f64 - 6.875 * 6.875).sqrt());
         let lower = Point2::new(upper.x, 80.0 - upper.y);
 
@@ -1265,6 +1360,7 @@ pub mod tests {
             pointer_at(Point2::new(9.2, 0.3)),
             &[],
             around,
+            &[],
             &[],
         )
         .unwrap();
@@ -1298,6 +1394,7 @@ pub mod tests {
                 pointer_at(at),
                 &[],
                 Accept::Points,
+                &[],
                 &[],
             )
         };
@@ -1368,6 +1465,7 @@ pub mod tests {
             &[],
             Accept::Anything,
             &[line],
+            &[],
         )
         .unwrap();
         assert_eq!(extended.target, Target::Extension(line));
@@ -1384,6 +1482,7 @@ pub mod tests {
             &[],
             Accept::Anything,
             &[line],
+            &[],
         )
         .unwrap();
         assert_eq!(on_it.target, Target::Curve(line));
@@ -1457,6 +1556,7 @@ pub mod tests {
                 pointer_at(Point2::new(50.4, 10.3)),
                 &[],
                 Accept::Points,
+                &[],
                 &[],
             ),
             None

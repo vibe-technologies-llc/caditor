@@ -23,7 +23,7 @@ use crate::{
     display::Displayed,
     display_style::DisplayStyle,
     drag_solver::DragCommand,
-    drawing::Drawing,
+    drawing::{Drawing, Preview},
     editing::{self, EditingCommand, SketchEditing, Tool},
     faceting::FacetLevel,
     interference_panel::{Mark, MarkKind},
@@ -41,7 +41,7 @@ use crate::{
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenBox},
     sketch_placement::{self, FaceChoice},
     sketch_tools,
-    snap::{Pointer, Screen},
+    snap::{self, Accept, Pointer, Screen, Snapped},
     solid_tools,
     trimming::Trimming,
     typed_point::{self, TypedPoint},
@@ -628,6 +628,7 @@ impl ViewportState {
                 self.drawing.preview(faceting),
                 self.trimming.preview(faceting),
                 self.modifying.preview(faceting),
+                self.grab_preview(),
             ],
             measured: self.measured.as_ref().map(|(line, _)| [line.from, line.to]),
             problems: self.problems.iter().map(|problem| problem.place).collect(),
@@ -1042,6 +1043,10 @@ impl ViewportState {
             .map(|active| active.feature);
         let cursor = self.cursor;
         let sketch_cursor = self.sketch_cursor;
+        let grab_snap = match &self.primary {
+            Some(PrimaryDrag::Grab(grab)) => self.grab_snap(model, grab),
+            _ => None,
+        };
         match &mut self.primary {
             Some(PrimaryDrag::Grab(grab)) if Some(grab.feature()) != edited => {
                 self.primary = None;
@@ -1058,7 +1063,7 @@ impl ViewportState {
                 self.primary = None;
             }
             Some(PrimaryDrag::Grab(grab)) => {
-                if let Some(command) = sketch_cursor.and_then(|at| grab.to(at)) {
+                if let Some(command) = sketch_cursor.and_then(|at| grab.snap_to(at, grab_snap)) {
                     actions.push(Action::Drag(command));
                 }
             }
@@ -1073,7 +1078,7 @@ impl ViewportState {
             self.press = None;
             match self.primary.take() {
                 Some(PrimaryDrag::Grab(grab)) if grab.has_moved() => {
-                    actions.push(Action::Drag(DragCommand::Finish));
+                    actions.push(Action::Drag(grab.finish()));
                 }
                 Some(PrimaryDrag::Box { feature, area }) => {
                     self.select_within(model, feature, area, toggle);
@@ -1094,6 +1099,40 @@ impl ViewportState {
                 Some(PrimaryDrag::Grab(_)) | None => {}
             }
         }
+    }
+
+    fn grab_preview(&self) -> Preview {
+        match &self.primary {
+            Some(PrimaryDrag::Grab(grab)) => Preview {
+                snap: grab.snapped().map(|snapped| snapped.position),
+                ..Preview::default()
+            },
+            _ => Preview::default(),
+        }
+    }
+
+    fn grab_snap(&self, model: &Model, grab: &Grab) -> Option<Snapped> {
+        if self.placing_freely || !self.snapping {
+            return None;
+        }
+        grab.lone_point()?;
+        let owner = model.document().feature(grab.feature())?;
+        let sketch = model.displayed_sketch(owner)?;
+        let screen = self.sketch_screen(sketch.plane())?;
+        let pointer = Pointer {
+            screen: self.cursor? / f64::from(self.pixels_per_point),
+            sketch: self.sketch_cursor?,
+        };
+        let ignored = grab.moving_with(&sketch);
+        snap::resolve(
+            &sketch,
+            &screen,
+            pointer,
+            &[],
+            Accept::Anything,
+            &[],
+            &ignored,
+        )
     }
 
     fn begin_primary(
@@ -2136,7 +2175,16 @@ impl ViewportState {
         let snap_label = editing
             .feature()
             .and_then(|feature| editing::edited_sketch(document, feature))
-            .and_then(|sketch| self.drawing.snap_label(sketch));
+            .and_then(|sketch| {
+                self.drawing
+                    .snap_label(sketch)
+                    .or_else(|| match &self.primary {
+                        Some(PrimaryDrag::Grab(grab)) => {
+                            grab.snapped().map(|snapped| snapped.target.label(sketch))
+                        }
+                        _ => None,
+                    })
+            });
         if let (Some(label), Some(cursor)) = (snap_label, self.cursor) {
             let position = rect.min
                 + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;

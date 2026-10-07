@@ -11403,6 +11403,46 @@ fn dragging_a_sketch_point_moves_it_as_its_constraints_allow_in_one_undoable_cha
 }
 
 #[test]
+fn a_point_dragged_onto_another_snaps_and_joins_it_in_the_same_change() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let (start, end) = line_ends(&sketch, line);
+    sketch
+        .add_constraint(Constraint::Coincident(start, EntityId::ORIGIN))
+        .unwrap();
+    let lone = sketch.add_point(Point2::new(30.0, 12.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+
+    let grabbed = harness.hover_pickable(
+        Plane::XY,
+        Point2::new(40.0, 0.0),
+        Pickable::SketchEntity {
+            feature,
+            entity: end,
+        },
+    );
+    drag_in_sketch(&mut harness, grabbed, Point2::new(30.02, 12.02));
+    harness.wait_until("the drag is committed", |harness| {
+        harness.sketch(feature).point(end) != before.point(end)
+    });
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    assert!(
+        sketch
+            .constraints()
+            .any(|(_, constraint)| *constraint == Constraint::Coincident(end, lone))
+    );
+    assert!(sketch.point(end).unwrap().distance(Point2::new(30.0, 12.0)) < 1e-6);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(format!("Drag {}", before.entity_label(end)).as_str())
+    );
+}
+
+#[test]
 fn a_crowded_entity_shows_a_few_glyphs_and_counts_the_rest() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
