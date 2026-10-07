@@ -236,6 +236,50 @@ impl Inputs<'_> {
         let (_, result) = self.bodies.get(&body)?;
         result.solid().map(|result| &result.solid)
     }
+
+    pub fn missing_body(&self, body: FeatureId) -> Failure {
+        let document = self.document;
+        let name = |id: FeatureId| {
+            document
+                .feature(id)
+                .map(|feature| feature.name.clone())
+                .unwrap_or_default()
+        };
+        let body_name = name(body);
+        let consumer = document.features().find(|feature| {
+            self.features.contains_key(&feature.id())
+                && feature.kind.consumed_bodies().contains(&body)
+        });
+        let error = match consumer {
+            Some(consumer) => {
+                let kept = consumer
+                    .kind
+                    .combine()
+                    .map_or_else(String::new, |combine| name(combine.body));
+                FeatureError {
+                    reason: format!(
+                        "{} combined the body made by {body_name} into the body of {kept}, so it no longer stands on its own.",
+                        consumer.name
+                    ),
+                    remedy: format!(
+                        "Use the body of {kept} instead, or move this feature above {}.",
+                        consumer.name
+                    ),
+                    fix: Some(FixTarget::Feature(consumer.id())),
+                    constraints: Vec::new(),
+                    place: None,
+                }
+            }
+            None => FeatureError {
+                reason: format!("The body made by {body_name} has no shape."),
+                remedy: format!("Fix {body_name} first."),
+                fix: Some(FixTarget::Feature(body)),
+                constraints: Vec::new(),
+                place: None,
+            },
+        };
+        Failure::Error(Box::new(error))
+    }
 }
 
 pub trait Evaluator: Send + Sync + 'static {

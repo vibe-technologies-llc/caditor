@@ -218,6 +218,22 @@ pub enum EditError {
     AboveDependency { name: String, other: String },
     #[error("{name} cannot move below {other}, which uses it")]
     BelowDependent { name: String, other: String },
+    #[error(
+        "{name} cannot move below {other}, which combines the body of {body} it uses into another"
+    )]
+    BelowConsumer {
+        name: String,
+        other: String,
+        body: String,
+    },
+    #[error(
+        "{name} cannot move above {other}, which uses the body of {body} that {name} combines into another"
+    )]
+    AboveConsumedUse {
+        name: String,
+        other: String,
+        body: String,
+    },
     #[error("{name}: {error}")]
     Sketch { name: String, error: SketchError },
     #[error("{0} is not a sketch")]
@@ -876,6 +892,44 @@ impl Document {
             return Err(EditError::BelowDependent {
                 name,
                 other: user.name.clone(),
+            });
+        }
+        let consumed = moving.kind.consumed_bodies();
+        let used: Vec<FeatureId> = moving
+            .kind
+            .bodies_used()
+            .into_iter()
+            .filter(|body| !consumed.contains(body))
+            .collect();
+        let consuming_one_of = |other: &Feature, bodies: &[FeatureId]| {
+            other
+                .kind
+                .consumed_bodies()
+                .into_iter()
+                .find(|body| bodies.contains(body))
+        };
+        if let Some((consumer, body)) = above
+            .iter()
+            .find_map(|other| Some((other, consuming_one_of(other, &used)?)))
+        {
+            return Err(EditError::BelowConsumer {
+                name,
+                other: consumer.name.clone(),
+                body: self.feature_name(body),
+            });
+        }
+        if let Some((user, body)) = below.iter().find_map(|other| {
+            let body = other
+                .kind
+                .bodies_used()
+                .into_iter()
+                .find(|body| consumed.contains(body))?;
+            Some((other, body))
+        }) {
+            return Err(EditError::AboveConsumedUse {
+                name,
+                other: user.name.clone(),
+                body: self.feature_name(body),
             });
         }
         let feature = self.features.remove(from);

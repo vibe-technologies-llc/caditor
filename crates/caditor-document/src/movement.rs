@@ -189,13 +189,7 @@ pub(crate) fn evaluate(
         .map(|body| body.name.clone())
         .unwrap_or_default();
     let Some(solid) = inputs.body(definition.body) else {
-        return Err(Failure::Error(Box::new(FeatureError {
-            reason: format!("The body made by {body_name} has no shape."),
-            remedy: format!("Fix {body_name} first."),
-            fix: Some(FixTarget::Feature(definition.body)),
-            constraints: Vec::new(),
-            place: None,
-        })));
+        return Err(inputs.missing_body(definition.body));
     };
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);

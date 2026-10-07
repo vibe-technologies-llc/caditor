@@ -353,3 +353,84 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
     assert!((from_axis - 2.5).abs() < 1e-4, "{place:?}");
     assert!(place.z.abs() < 1e-6, "{place:?}");
 }
+
+fn boss_on_peg(pair: &mut Pair) -> FeatureId {
+    let mut transaction = pair.document.transaction("Boss");
+    let outline = transaction.add_feature(
+        "Boss outline",
+        FeatureKind::from(rectangle((20.0, 3.0), (22.0, 5.0))),
+    );
+    let boss = transaction.add_feature(
+        "Boss",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("9 mm").unwrap(), false),
+            operation: BodyOperation::Add(pair.peg),
+            start: None,
+        })),
+    );
+    pair.document.apply(transaction.finish()).unwrap();
+    boss
+}
+
+fn moved(document: &Document, id: FeatureId, index: usize) -> Result<(), EditError> {
+    let mut document = document.clone();
+    let mut transaction = document.transaction("Move");
+    transaction.edit(Edit::MoveFeature { id, index });
+    document.apply(transaction.finish()).map(|_| ())
+}
+
+#[test]
+fn nothing_using_the_tool_body_moves_below_the_combine_that_consumes_it() {
+    let mut pair = pair();
+    let boss = boss_on_peg(&mut pair);
+    let combined = combine(&mut pair, CombineOperation::Join);
+    let boss_index = pair.document.feature_index(boss).unwrap();
+    let combine_index = pair.document.feature_index(combined).unwrap();
+
+    let boss_below = moved(&pair.document, boss, combine_index);
+    let combine_above = moved(&pair.document, combined, boss_index);
+    let combine_still_below = moved(&pair.document, combined, combine_index);
+
+    assert_eq!(
+        boss_below,
+        Err(EditError::BelowConsumer {
+            name: "Boss".to_owned(),
+            other: "Combine 1".to_owned(),
+            body: "Peg".to_owned(),
+        })
+    );
+    assert_eq!(
+        combine_above,
+        Err(EditError::AboveConsumedUse {
+            name: "Combine 1".to_owned(),
+            other: "Boss".to_owned(),
+            body: "Peg".to_owned(),
+        })
+    );
+    assert_eq!(combine_still_below, Ok(()));
+}
+
+#[test]
+fn a_feature_using_a_consumed_body_blames_the_combine_that_took_it() {
+    let mut pair = pair();
+    let combined = combine(&mut pair, CombineOperation::Join);
+    let boss = boss_on_peg(&mut pair);
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    let FeatureState::Failed(error) = &evaluation.feature(boss).unwrap().state else {
+        panic!("the boss should fail");
+    };
+    assert_eq!(
+        error.reason,
+        "Combine 1 combined the body made by Peg into the body of Plate, so it no longer stands on its own."
+    );
+    assert_eq!(
+        error.remedy,
+        "Use the body of Plate instead, or move this feature above Combine 1."
+    );
+    assert_eq!(error.fix, Some(FixTarget::Feature(combined)));
+}

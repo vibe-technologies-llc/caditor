@@ -172,13 +172,7 @@ fn face_attached_plane(
         .map(|body| body.name.clone())
         .unwrap_or_default();
     let Some(solid) = inputs.body(attachment.body) else {
-        return Err(Failure::Error(Box::new(FeatureError {
-            reason: format!("The body of {body_name}, which this sketch lies on, has no shape."),
-            remedy: format!("Fix {body_name} first."),
-            fix: Some(FixTarget::Feature(attachment.body)),
-            constraints: Vec::new(),
-            place: None,
-        })));
+        return Err(inputs.missing_body(attachment.body));
     };
     attachment.resolve(solid).map_err(|error| {
         let reason = match error {

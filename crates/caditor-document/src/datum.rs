@@ -484,14 +484,9 @@ impl Resolver<'_> {
     }
 
     fn body(&self, body: FeatureId) -> Result<&Solid, Failure> {
-        self.inputs.body(body).ok_or_else(|| {
-            let name = feature_name(self.inputs.document, body);
-            self.error(
-                format!("The body made by {name} has no shape."),
-                format!("Fix {name} first."),
-                body,
-            )
-        })
+        self.inputs
+            .body(body)
+            .ok_or_else(|| self.inputs.missing_body(body))
     }
 
     pub fn plane(&self, reference: &PlaneReference) -> Result<Plane, Failure> {

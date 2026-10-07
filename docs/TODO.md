@@ -111,13 +111,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Document and recompute
 
-- [medium · easy] A Combine consumes its tool body, yet the tree lets a feature using that body (an
-  extrusion added to it, a fillet, a second Combine) be dragged below the Combine, or the Combine
-  above it, since `move_feature` checks only `dependencies()`. That feature then fails with "The
-  body made by P has no shape. Fix P first.", blaming the healthy body rather than the Combine that
-  took it, which is what every evaluator says of a consumed body. Refuse such moves as
-  `AboveDependency` and `BelowDependent` do, and name the consuming Combine in the missing-body
-  error, with the fix target on it.
 - [medium · easy] A hole's face names follow its outline's segments, so changing its style renames
   its faces: the wall is side 1 of a plain hole, 3 of a counterbored one and 2 of a countersunk one
   (`Hole::part_name`), and a reference to a plain hole's wall resolves to the counterbore's wall

@@ -412,13 +412,7 @@ pub(crate) fn evaluate(
     let body_name = context.name(definition.body);
     let mut body = inputs
         .body(definition.body)
-        .ok_or_else(|| {
-            context.fix(
-                format!("The body made by {body_name} has no shape."),
-                format!("Fix {body_name} first."),
-                definition.body,
-            )
-        })?
+        .ok_or_else(|| inputs.missing_body(definition.body))?
         .clone();
     let frame = sketch.geometry.plane();
     let up = frame.normal() * if definition.reversed { -1.0 } else { 1.0 };

@@ -79,7 +79,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `tree_rows` lists the features with the bar as a row between them; `move_row` moves a feature or
   the bar as one `MoveFeature` plus, when the bar's place changes, one `SetRollbackBar`, so a
   feature crossing the bar is rolled back or forward and a refused place returns `AboveDependency`
-  or `BelowDependent` naming the feature in the way.
+  or `BelowDependent` naming the feature in the way, or `BelowConsumer` or `AboveConsumedUse` when a
+  feature using a body (`bodies_used`) would come below the Combine consuming it.
 
 ## Sketch edits (`edit/sketch.rs`)
 
@@ -208,6 +209,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   so features below cannot use it and suppressing or rolling back the combine brings it back.
   Both bodies count as used (`bodies_used`), so deleting either asks first and neither moves below
   the combine. `bodies_before` lists the bodies standing before a feature, for the panel.
+- Every evaluator reports an absent input body through `Inputs::missing_body`: when a Combine already
+  evaluated consumed it, the error names that Combine and the body it kept, with the fix target on
+  the Combine, never blaming the healthy body.
 - A body combined with itself, a missing shape and kernel failures fail the combine alone with the
   bodies named; both inputs keep their results.
 

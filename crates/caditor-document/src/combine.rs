@@ -72,17 +72,6 @@ impl Context<'_> {
             place: None,
         }))
     }
-
-    fn missing(&self, body: FeatureId) -> Failure {
-        let name = self.name(body);
-        Failure::Error(Box::new(FeatureError {
-            reason: format!("The body made by {name} has no shape."),
-            remedy: format!("Fix {name} first."),
-            fix: Some(FixTarget::Feature(body)),
-            constraints: Vec::new(),
-            place: None,
-        }))
-    }
 }
 
 pub(crate) fn evaluate(
@@ -100,10 +89,10 @@ pub(crate) fn evaluate(
     }
     let target = inputs
         .body(definition.body)
-        .ok_or_else(|| context.missing(definition.body))?;
+        .ok_or_else(|| inputs.missing_body(definition.body))?;
     let tool = inputs
         .body(definition.tool)
-        .ok_or_else(|| context.missing(definition.tool))?;
+        .ok_or_else(|| inputs.missing_body(definition.tool))?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }

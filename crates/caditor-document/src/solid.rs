@@ -712,9 +712,7 @@ pub(crate) fn evaluate(
         operation @ (BodyOperation::Add(body)
         | BodyOperation::Remove(body)
         | BodyOperation::Intersect(body)) => {
-            let current = inputs
-                .body(body)
-                .ok_or_else(|| missing_body(inputs, body))?;
+            let current = inputs.body(body).ok_or_else(|| inputs.missing_body(body))?;
             let kernel_operation = match operation {
                 BodyOperation::Remove(_) => BooleanOperation::Difference,
                 BodyOperation::Intersect(_) => BooleanOperation::Intersection,
@@ -746,7 +744,7 @@ fn resolve_target(
     let body = feature_name(inputs, attachment.body);
     let solid = inputs
         .body(attachment.body)
-        .ok_or_else(|| missing_body(inputs, attachment.body))?;
+        .ok_or_else(|| inputs.missing_body(attachment.body))?;
     attachment.resolve(solid).map_err(|error| {
         let reason = match error {
             AttachmentError::Missing => {
@@ -836,21 +834,6 @@ fn offset_plane(
             context.own(),
         )
     })
-}
-
-fn missing_body(inputs: &Inputs<'_>, body: FeatureId) -> Failure {
-    let name = inputs
-        .document
-        .feature(body)
-        .map(|feature| feature.name.clone())
-        .unwrap_or_default();
-    Failure::Error(Box::new(FeatureError {
-        reason: format!("The body made by {name} has no shape."),
-        remedy: format!("Fix {name} first."),
-        fix: Some(FixTarget::Feature(body)),
-        constraints: Vec::new(),
-        place: None,
-    }))
 }
 
 fn chosen_regions(
@@ -1328,7 +1311,7 @@ impl Ends<'_> {
     fn body(&self, body: FeatureId) -> Result<&Solid, Failure> {
         self.inputs
             .body(body)
-            .ok_or_else(|| missing_body(self.inputs, body))
+            .ok_or_else(|| self.inputs.missing_body(body))
     }
 
     fn through_all(&self, side: Side) -> Result<LinearBound, Failure> {

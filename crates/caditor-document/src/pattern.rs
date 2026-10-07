@@ -412,13 +412,7 @@ pub(crate) fn evaluate(
         PatternKind::Circular(circular) => context.circular(circular)?,
     };
     let Some(solid) = inputs.body(definition.body) else {
-        return Err(Failure::Error(Box::new(FeatureError {
-            reason: format!("The body made by {} has no shape.", context.body_name),
-            remedy: format!("Fix {} first.", context.body_name),
-            fix: Some(FixTarget::Feature(definition.body)),
-            constraints: Vec::new(),
-            place: None,
-        })));
+        return Err(inputs.missing_body(definition.body));
     };
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
