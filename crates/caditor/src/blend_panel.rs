@@ -139,12 +139,12 @@ fn edge_rows(document: &Document, input: Option<&SolidResult>, blend: &Blend) ->
     ReferenceRows { summary, rows }
 }
 
-struct EdgesRow<'a> {
-    model: &'a Model,
-    selection: &'a Selection,
-    feature: &'a Feature,
-    blend: &'a Blend,
-    opened: bool,
+pub struct EdgesRow<'a> {
+    pub model: &'a Model,
+    pub selection: &'a Selection,
+    pub feature: &'a Feature,
+    pub blend: &'a Blend,
+    pub opened: bool,
 }
 
 fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mut Vec<Action>) {
@@ -190,27 +190,17 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
     ui.end_row();
 }
 
-pub fn show(
-    ui: &mut Ui,
-    model: &Model,
-    selection: &Selection,
-    cache: &mut RowCache,
-    actions: &mut Vec<Action>,
-    feature: &Feature,
-    blend: &Blend,
-    opened: bool,
-) {
-    let id = feature.id();
-    let row = EdgesRow {
+pub fn show(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mut Vec<Action>) {
+    let EdgesRow {
         model,
-        selection,
         feature,
         blend,
-        opened,
-    };
+        ..
+    } = *row;
+    let id = feature.id();
     widgets::properties(ui, ("blend-properties", id), |ui| {
         kind_row(ui, model, feature, blend, actions);
-        edges_row(ui, &row, cache, actions);
+        edges_row(ui, row, cache, actions);
         size_row(ui, model, id, blend, actions);
         feature_fields::feature_row(ui, model.document(), "Body", blend.body);
     });

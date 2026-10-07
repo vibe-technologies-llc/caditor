@@ -744,13 +744,15 @@ fn body(
         FeatureKind::Blend(blend) => {
             blend_panel::show(
                 ui,
-                model,
-                row.selection,
+                &blend_panel::EdgesRow {
+                    model,
+                    selection: row.selection,
+                    feature,
+                    blend,
+                    opened: row.edited,
+                },
                 &mut state.reference_rows,
                 actions,
-                feature,
-                blend,
-                row.edited,
             );
             body_display(ui, model, feature);
         }
