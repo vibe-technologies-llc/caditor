@@ -641,7 +641,9 @@ fn respond(
     if name.double_clicked() || (name.has_focus() && enter) {
         open_feature(ui, document, actions, row, collapsing);
     }
-    name.context_menu(|ui| context_menu(ui, document, state, actions, row));
+    name.context_menu(|ui| {
+        widgets::fitted_menu(ui, |ui| context_menu(ui, document, state, actions, row));
+    });
 }
 
 fn open_feature(
@@ -874,7 +876,7 @@ fn more_menu(
         &format!("More actions for {}", row.feature.name),
     );
     Popup::menu(&response).show(|ui| {
-        context_menu(ui, document, state, actions, row);
+        widgets::fitted_menu(ui, |ui| context_menu(ui, document, state, actions, row));
     });
 }
 

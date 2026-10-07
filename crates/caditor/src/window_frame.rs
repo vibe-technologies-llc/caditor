@@ -128,7 +128,9 @@ pub fn drags_window(
     } else if response.drag_started_by(PointerButton::Primary) {
         response.ctx.send_viewport_cmd(ViewportCommand::StartDrag);
     }
-    response.context_menu(|ui| window_menu(ui, chrome, commands, actions));
+    response.context_menu(|ui| {
+        widgets::fitted_menu(ui, |ui| window_menu(ui, chrome, commands, actions));
+    });
 }
 
 fn window_menu(

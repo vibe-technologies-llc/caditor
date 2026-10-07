@@ -8061,6 +8061,61 @@ fn a_first_run_welcomes_opens_a_sample_and_offers_tips_until_they_are_hidden() {
     assert!(!harness.model.is_dirty());
 }
 
+fn open_menus(harness: &Harness) -> Vec<Rect> {
+    harness.context.memory(|memory| {
+        memory
+            .areas()
+            .visible_layer_ids()
+            .into_iter()
+            .filter(|layer| layer.order == egui::Order::Foreground)
+            .filter_map(|layer| memory.area_rect(layer.id))
+            .collect()
+    })
+}
+
+#[test]
+fn every_menu_stays_on_screen_at_the_largest_interface_size() {
+    let mut harness = Harness::new();
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Scale(2.0),
+    )));
+    harness.frame();
+    harness.frame();
+    let visible = Rect::from_min_size(Pos2::ZERO, SCREEN.size() / 2.0);
+
+    for menu in ["File", "Edit", "View", "Model", "Sketch", "Help"] {
+        harness.click(menu);
+        harness.frame();
+        harness.frame();
+        let menus = open_menus(&harness);
+
+        assert!(!menus.is_empty(), "{menu} did not open");
+        for rect in menus {
+            assert!(
+                visible.expand(0.5).contains_rect(rect),
+                "{menu} reaches {rect:?}, past {visible:?}"
+            );
+        }
+
+        harness.key(Key::Escape, Modifiers::NONE);
+        harness.frame();
+    }
+
+    harness.click("Model");
+    harness.frame();
+
+    assert!(harness.shows("Bodies"));
+
+    harness.click("Bodies");
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows("Move body"));
+    for rect in open_menus(&harness) {
+        assert!(visible.expand(0.5).contains_rect(rect), "{rect:?}");
+    }
+}
+
 #[test]
 fn the_welcome_lists_recent_files_opens_one_and_clears_them() {
     let dir = TempDir::new().unwrap();

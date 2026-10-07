@@ -21,6 +21,7 @@ const DIALOG_EDGE: f32 = 8.0;
 const MIN_DIALOG_WIDTH: f32 = 240.0;
 const LIST_SCREEN_SHARE: f32 = 0.4;
 const MIN_LIST_HEIGHT: f32 = 96.0;
+const MIN_MENU_SHARE: f32 = 0.5;
 pub const FIELD_WIDTH: f32 = 120.0;
 const PROPERTY_SPACING: [f32; 2] = [12.0, 8.0];
 const CAPTION_WIDTH: f32 = 84.0;
@@ -930,6 +931,23 @@ fn section_with(
     });
     state.store(ui.ctx());
     acted
+}
+
+pub fn menu_room(ui: &Ui) -> f32 {
+    let screen = ui.ctx().content_rect();
+    let margin = ui.spacing().menu_margin;
+    let below = screen.bottom() - ui.max_rect().top() - f32::from(margin.bottom) - DIALOG_EDGE;
+    let least = (screen.height() - margin.sum().y - 2.0 * DIALOG_EDGE) * MIN_MENU_SHARE;
+    below.max(least).max(MIN_LIST_HEIGHT)
+}
+
+pub fn fitted_menu<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let room = menu_room(ui);
+    ui.set_max_height(room);
+    egui::ScrollArea::vertical()
+        .max_height(room)
+        .show(ui, add)
+        .inner
 }
 
 pub fn menu_item(ui: &mut Ui, glyph: &str, title: &str, keys: Option<String>) -> Response {

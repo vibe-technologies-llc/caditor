@@ -378,6 +378,20 @@ fn screenshots() {
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
 
+        model.click("Model");
+        shoot(&mut model, &gpu, &out, "menu-model", look);
+        model.click("Bodies");
+        shoot(&mut model, &gpu, &out, "menu-model-bodies", look);
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+
+        model.click("View");
+        shoot(&mut model, &gpu, &out, "menu-view", look);
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+
         model.perform(Action::Preferences(PreferencesCommand::Show));
         shoot(&mut model, &gpu, &out, "preferences", look);
         model.key(Key::Escape, Modifiers::NONE);

@@ -150,7 +150,9 @@ fn item(
     if row_name.clicked() || row_name.gained_focus() {
         state.choose_only(body);
     }
-    row_name.context_menu(|ui| row_menu(ui, model, state, actions, body));
+    row_name.context_menu(|ui| {
+        widgets::fitted_menu(ui, |ui| row_menu(ui, model, state, actions, body));
+    });
     if eye && let Ok(transaction) = toggle {
         actions.push(Action::Apply(transaction));
     }

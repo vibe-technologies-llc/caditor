@@ -113,7 +113,13 @@ paths:
 - The menu bar (File, Edit, View, Model, Sketch, Help) is built from the commands with their
   icons and shortcuts; items enable from the previous frame's offers (`Workspace::last_offers`)
   with the reason on hover. Then come the model title, the Search commands field and, with
-  caditor's title bar, the logo (leading) and the window buttons.
+  caditor's title bar, the logo (leading) and the window buttons. Model keeps its creation tools
+  at the top level and groups the rest in submenus (Patterns, Datums, Bodies, Features, Rollback,
+  Parameters, Recompute).
+- Every menu, submenu, context menu and corner menu runs its contents through
+  `widgets::fitted_menu`: as tall as the room below its top (at least half the window, which egui
+  then moves up), scrolling past that, so no menu runs off the screen at any interface size
+  (`every_menu_stays_on_screen_at_the_largest_interface_size`).
 - The model title (file icon, name, Unsaved pill, "› sketch" while one is edited) sits centred on
   the window when it fits between menus and search, else as near as it can; clicking it opens the
   model details (path, saved state, Save, Save as…, Version history…, Model properties…, Copy

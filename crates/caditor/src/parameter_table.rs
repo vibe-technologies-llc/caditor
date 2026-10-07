@@ -174,7 +174,11 @@ fn row(
 
     let used = state.parameter_uses.of(model).contains(&id);
     for field in [&name.response, &expression.response] {
-        field.context_menu(|ui| row_menu(ui, document, state, actions, parameter, used));
+        field.context_menu(|ui| {
+            widgets::fitted_menu(ui, |ui| {
+                row_menu(ui, document, state, actions, parameter, used);
+            });
+        });
     }
     ui.scope(|ui| {
         ui.set_width(widths.value);

@@ -1864,91 +1864,97 @@ pub fn menu(
         .ok_or("Save the model to start keeping its versions");
     let mut chosen = Vec::new();
     ui.menu_button("File", |ui| {
-        let item = |ui: &mut Ui, chosen: &mut Vec<Command>, command: Command| {
-            if menu_item(ui, commands, command).clicked() {
-                chosen.push(command);
-            }
-        };
-        item(ui, &mut chosen, Command::New);
-        item(ui, &mut chosen, Command::Open);
-        ui.add_enabled_ui(!files.recent().is_empty(), |ui| {
-            let recent = ui.menu_button(submenu_label(ui, icons::RECENT, OPEN_RECENT), |ui| {
-                for path in files.recent() {
-                    if recent_item(ui, path).clicked() {
-                        actions.push(Action::File(FileCommand::OpenPath(path.clone())));
+        widgets::fitted_menu(ui, |ui| {
+            let item = |ui: &mut Ui, chosen: &mut Vec<Command>, command: Command| {
+                if menu_item(ui, commands, command).clicked() {
+                    chosen.push(command);
+                }
+            };
+            item(ui, &mut chosen, Command::New);
+            item(ui, &mut chosen, Command::Open);
+            ui.add_enabled_ui(!files.recent().is_empty(), |ui| {
+                let recent = ui.menu_button(submenu_label(ui, icons::RECENT, OPEN_RECENT), |ui| {
+                    widgets::fitted_menu(ui, |ui| {
+                        for path in files.recent() {
+                            if recent_item(ui, path).clicked() {
+                                actions.push(Action::File(FileCommand::OpenPath(path.clone())));
+                            }
+                        }
+                        ui.separator();
+                        item(ui, &mut chosen, Command::ClearRecent);
+                    });
+                });
+                widgets::named(recent.response, OPEN_RECENT);
+            })
+            .response
+            .on_disabled_hover_text(NO_RECENT);
+            let samples = ui.menu_button(submenu_label(ui, icons::SAMPLE, OPEN_SAMPLE), |ui| {
+                widgets::fitted_menu(ui, |ui| {
+                    for sample in Sample::ALL {
+                        let response = ui
+                            .button(sample.title())
+                            .on_hover_text(sample.description());
+                        if response.clicked() {
+                            chosen.push(Command::OpenSample(sample));
+                        }
                     }
-                }
-                ui.separator();
-                item(ui, &mut chosen, Command::ClearRecent);
+                });
             });
-            widgets::named(recent.response, OPEN_RECENT);
-        })
-        .response
-        .on_disabled_hover_text(NO_RECENT);
-        let samples = ui.menu_button(submenu_label(ui, icons::SAMPLE, OPEN_SAMPLE), |ui| {
-            for sample in Sample::ALL {
+            widgets::named(samples.response, OPEN_SAMPLE);
+            ui.separator();
+            item(ui, &mut chosen, Command::Save);
+            item(ui, &mut chosen, Command::SaveAs);
+            ui.add_enabled_ui(history.is_ok(), |ui| {
+                item(ui, &mut chosen, Command::VersionHistory);
+            })
+            .response
+            .on_disabled_hover_text("Save the model to start keeping its versions.");
+            item(ui, &mut chosen, Command::ModelProperties);
+            ui.separator();
+            let hints = [
+                (Command::Import, Some(IMPORT_HINT)),
+                (Command::Export, None),
+                (Command::ExportImage, Some(IMAGE_HINT)),
+                (Command::ExportSketch, Some(SKETCH_HINT)),
+                (Command::ExportFace, Some(FACE_HINT)),
+            ];
+            for (command, hint) in hints {
+                let unavailable = match command {
+                    Command::ExportSketch => Some(NOT_A_SKETCH),
+                    Command::ExportFace => Some(NOT_A_FACE),
+                    _ => None,
+                };
+                let availability = match unavailable {
+                    Some(reason) => offers
+                        .iter()
+                        .find(|offer| offer.command == command)
+                        .map_or_else(
+                            || Err(reason.to_owned()),
+                            |offer| offer.availability.clone(),
+                        ),
+                    None => Ok(()),
+                };
                 let response = ui
-                    .button(sample.title())
-                    .on_hover_text(sample.description());
+                    .add_enabled_ui(availability.is_ok(), |ui| menu_item(ui, commands, command))
+                    .inner;
+                let response = match hint {
+                    Some(hint) => response.on_hover_text(hint),
+                    None => response,
+                };
                 if response.clicked() {
-                    chosen.push(Command::OpenSample(sample));
+                    chosen.push(command);
                 }
             }
-        });
-        widgets::named(samples.response, OPEN_SAMPLE);
-        ui.separator();
-        item(ui, &mut chosen, Command::Save);
-        item(ui, &mut chosen, Command::SaveAs);
-        ui.add_enabled_ui(history.is_ok(), |ui| {
-            item(ui, &mut chosen, Command::VersionHistory);
-        })
-        .response
-        .on_disabled_hover_text("Save the model to start keeping its versions.");
-        item(ui, &mut chosen, Command::ModelProperties);
-        ui.separator();
-        let hints = [
-            (Command::Import, Some(IMPORT_HINT)),
-            (Command::Export, None),
-            (Command::ExportImage, Some(IMAGE_HINT)),
-            (Command::ExportSketch, Some(SKETCH_HINT)),
-            (Command::ExportFace, Some(FACE_HINT)),
-        ];
-        for (command, hint) in hints {
-            let unavailable = match command {
-                Command::ExportSketch => Some(NOT_A_SKETCH),
-                Command::ExportFace => Some(NOT_A_FACE),
-                _ => None,
-            };
-            let availability = match unavailable {
-                Some(reason) => offers
-                    .iter()
-                    .find(|offer| offer.command == command)
-                    .map_or_else(
-                        || Err(reason.to_owned()),
-                        |offer| offer.availability.clone(),
-                    ),
-                None => Ok(()),
-            };
-            let response = ui
-                .add_enabled_ui(availability.is_ok(), |ui| menu_item(ui, commands, command))
-                .inner;
-            let response = match hint {
-                Some(hint) => response.on_hover_text(hint),
-                None => response,
-            };
-            if response.clicked() {
-                chosen.push(command);
+            if files.has_recoverable() {
+                ui.separator();
+                item(ui, &mut chosen, Command::RecoverUnsaved);
             }
-        }
-        if files.has_recoverable() {
             ui.separator();
-            item(ui, &mut chosen, Command::RecoverUnsaved);
-        }
-        ui.separator();
-        item(ui, &mut chosen, Command::Preferences);
-        item(ui, &mut chosen, Command::KeyboardShortcuts);
-        ui.separator();
-        item(ui, &mut chosen, Command::Quit);
+            item(ui, &mut chosen, Command::Preferences);
+            item(ui, &mut chosen, Command::KeyboardShortcuts);
+            ui.separator();
+            item(ui, &mut chosen, Command::Quit);
+        });
     });
     let recoverable = if files.has_recoverable() {
         Ok(())

@@ -516,15 +516,19 @@ impl Bar<'_, '_> {
         let response = widgets::corner_menu_button(ui, id, button, &name, selected);
         let commands = &*self.commands;
         let shown = Popup::menu(&response).show(|ui| {
-            let mut chosen = None;
-            for mode in ShapeMode::of_tool(tool) {
-                let keys = commands.keys(Command::ShapeMode(mode));
-                let glyph = icons::shape_mode(mode);
-                if widgets::menu_choice(ui, glyph, mode.label(), keys, mode == current).clicked() {
-                    chosen = Some(mode);
+            widgets::fitted_menu(ui, |ui| {
+                let mut chosen = None;
+                for mode in ShapeMode::of_tool(tool) {
+                    let keys = commands.keys(Command::ShapeMode(mode));
+                    let glyph = icons::shape_mode(mode);
+                    if widgets::menu_choice(ui, glyph, mode.label(), keys, mode == current)
+                        .clicked()
+                    {
+                        chosen = Some(mode);
+                    }
                 }
-            }
-            chosen
+                chosen
+            })
         });
         if let Some(mode) = shown.and_then(|shown| shown.inner) {
             self.request.mode = Some(mode);
@@ -585,15 +589,19 @@ impl Bar<'_, '_> {
         let response = widgets::corner_menu_button(ui, id, button, ARC_WAYS_LABEL, selected);
         let commands = &*self.commands;
         let shown = Popup::menu(&response).show(|ui| {
-            let mut chosen = None;
-            for tool in ARC_TOOLS {
-                let keys = commands.keys(Command::SketchTool(tool));
-                let glyph = icons::tool(tool);
-                if widgets::menu_choice(ui, glyph, tool.label(), keys, tool == current).clicked() {
-                    chosen = Some(tool);
+            widgets::fitted_menu(ui, |ui| {
+                let mut chosen = None;
+                for tool in ARC_TOOLS {
+                    let keys = commands.keys(Command::SketchTool(tool));
+                    let glyph = icons::tool(tool);
+                    if widgets::menu_choice(ui, glyph, tool.label(), keys, tool == current)
+                        .clicked()
+                    {
+                        chosen = Some(tool);
+                    }
                 }
-            }
-            chosen
+                chosen
+            })
         });
         if let Some(tool) = shown.and_then(|shown| shown.inner) {
             ui.data_mut(|data| data.insert_temp(remembered, tool));

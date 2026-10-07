@@ -31,6 +31,53 @@ const WAYS_TO_DRAW: &str = "Ways to draw shapes";
 const SKETCH_ONLY: &str = "Only while a sketch is being edited";
 const NOT_HERE: &str = "Not available right now";
 const NOT_SAVED: &str = "Save the model to start keeping its versions";
+const MODEL_PATTERNS: [&[Command]; 1] = [&[Command::LinearPattern, Command::CircularPattern]];
+const MODEL_DATUMS: [&[Command]; 1] =
+    [&[Command::DatumPlane, Command::DatumAxis, Command::DatumPoint]];
+const MODEL_BODIES: [&[Command]; 2] = [
+    &[
+        Command::Move,
+        Command::CopyBody,
+        Command::Mirror,
+        Command::Scale,
+    ],
+    &[
+        Command::BodyAppearance,
+        Command::RenameBody,
+        Command::RemoveBody,
+    ],
+];
+const MODEL_FEATURES: [&[Command]; 2] = [
+    &[
+        Command::EditFeature,
+        Command::CloseFeature,
+        Command::RenameFeature,
+        Command::MoveFeatureUp,
+        Command::MoveFeatureDown,
+        Command::SuppressFeature,
+        Command::DeleteFeature,
+    ],
+    &[Command::FilterFeatures],
+];
+const MODEL_ROLLBACK: [&[Command]; 1] = [&[
+    Command::RollToHere,
+    Command::RollbackUp,
+    Command::RollbackDown,
+    Command::RollToEnd,
+]];
+const MODEL_PARAMETERS: [&[Command]; 1] = [&[
+    Command::AddParameter,
+    Command::MoveParameterUp,
+    Command::MoveParameterDown,
+    Command::ParameterNote,
+    Command::DeleteParameter,
+]];
+const MODEL_RECOMPUTE: [&[Command]; 1] = [&[
+    Command::Recompute,
+    Command::CancelRecompute,
+    Command::ShowFirstFailed,
+    Command::UpdateReferences,
+]];
 
 pub struct MenuContext<'a> {
     pub files: &'a Files,
@@ -354,7 +401,7 @@ impl Menus<'_, '_> {
     }
 
     fn edit(&mut self, ui: &mut Ui) {
-        ui.menu_button("Edit", |ui| {
+        top_menu(ui, "Edit", |ui| {
             self.items(ui, [Command::Undo, Command::Redo, Command::UndoHistory]);
             ui.separator();
             self.item(ui, Command::DeleteSelection);
@@ -375,7 +422,7 @@ impl Menus<'_, '_> {
     }
 
     fn view(&mut self, ui: &mut Ui) {
-        ui.menu_button("View", |ui| {
+        top_menu(ui, "View", |ui| {
             self.item(ui, Command::FitView);
             submenu(
                 ui,
@@ -455,7 +502,7 @@ impl Menus<'_, '_> {
     }
 
     fn model(&mut self, ui: &mut Ui) {
-        ui.menu_button("Model", |ui| {
+        top_menu(ui, "Model", |ui| {
             self.items(
                 ui,
                 [
@@ -473,73 +520,32 @@ impl Menus<'_, '_> {
                     Command::Chamfer,
                     Command::Shell,
                     Command::Combine,
-                    Command::Move,
-                    Command::CopyBody,
-                    Command::Mirror,
-                    Command::Scale,
-                    Command::BodyAppearance,
-                    Command::RenameBody,
-                    Command::RemoveBody,
                 ],
             );
+            self.group(ui, Command::LinearPattern, "Patterns", &MODEL_PATTERNS);
+            self.group(ui, Command::DatumPlane, "Datums", &MODEL_DATUMS);
             ui.separator();
-            self.items(ui, [Command::LinearPattern, Command::CircularPattern]);
-            ui.separator();
-            self.items(
-                ui,
-                [Command::DatumPlane, Command::DatumAxis, Command::DatumPoint],
-            );
-            ui.separator();
-            self.items(
-                ui,
-                [
-                    Command::EditFeature,
-                    Command::CloseFeature,
-                    Command::RenameFeature,
-                    Command::MoveFeatureUp,
-                    Command::MoveFeatureDown,
-                    Command::SuppressFeature,
-                    Command::DeleteFeature,
-                ],
-            );
-            ui.separator();
-            self.items(
-                ui,
-                [
-                    Command::RollToHere,
-                    Command::RollbackUp,
-                    Command::RollbackDown,
-                    Command::RollToEnd,
-                ],
-            );
-            ui.separator();
-            self.item(ui, Command::FilterFeatures);
-            ui.separator();
-            self.items(
-                ui,
-                [
-                    Command::AddParameter,
-                    Command::MoveParameterUp,
-                    Command::MoveParameterDown,
-                    Command::ParameterNote,
-                    Command::DeleteParameter,
-                ],
-            );
-            ui.separator();
-            self.items(
-                ui,
-                [
-                    Command::Recompute,
-                    Command::CancelRecompute,
-                    Command::ShowFirstFailed,
-                    Command::UpdateReferences,
-                ],
-            );
+            self.group(ui, Command::Move, "Bodies", &MODEL_BODIES);
+            self.group(ui, Command::EditFeature, "Features", &MODEL_FEATURES);
+            self.group(ui, Command::RollToHere, "Rollback", &MODEL_ROLLBACK);
+            self.group(ui, Command::AddParameter, "Parameters", &MODEL_PARAMETERS);
+            self.group(ui, Command::Recompute, "Recompute", &MODEL_RECOMPUTE);
+        });
+    }
+
+    fn group(&mut self, ui: &mut Ui, shown: Command, title: &str, sections: &[&[Command]]) {
+        submenu(ui, icons::command(shown), title, |ui| {
+            for (index, section) in sections.iter().enumerate() {
+                if index > 0 {
+                    ui.separator();
+                }
+                self.items(ui, section.iter().copied());
+            }
         });
     }
 
     fn sketch(&mut self, ui: &mut Ui) {
-        ui.menu_button("Sketch", |ui| {
+        top_menu(ui, "Sketch", |ui| {
             self.item(ui, Command::FinishSketch);
             ui.separator();
             let (drawing, modifying): (Vec<Tool>, Vec<Tool>) = Tool::ALL
@@ -584,7 +590,7 @@ impl Menus<'_, '_> {
     }
 
     fn help(&mut self, ui: &mut Ui) {
-        ui.menu_button("Help", |ui| {
+        top_menu(ui, "Help", |ui| {
             self.items(
                 ui,
                 [
@@ -599,9 +605,16 @@ impl Menus<'_, '_> {
     }
 }
 
+fn top_menu(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
+    ui.menu_button(title, |ui| widgets::fitted_menu(ui, add));
+}
+
 fn submenu(ui: &mut Ui, glyph: &str, title: &str, add: impl FnOnce(&mut Ui)) {
     let muted = appearance::tokens(ui).text_muted;
-    let submenu = ui.menu_button((widgets::icon(glyph).color(muted), title.to_owned()), add);
+    let submenu = ui.menu_button(
+        (widgets::icon(glyph).color(muted), title.to_owned()),
+        |ui| widgets::fitted_menu(ui, add),
+    );
     widgets::named(submenu.response, title);
 }
 
