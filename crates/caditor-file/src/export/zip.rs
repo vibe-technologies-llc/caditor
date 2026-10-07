@@ -11,7 +11,7 @@ const JANUARY_1980: u16 = (1 << 5) | 1;
 const MIDNIGHT: u16 = 0;
 const COMPRESSION_LEVEL: u8 = 6;
 
-pub(super) struct ZipEntry<'a> {
+pub(crate) struct ZipEntry<'a> {
     pub name: &'a str,
     pub contents: &'a [u8],
 }
@@ -25,7 +25,7 @@ struct Written {
     offset: u32,
 }
 
-pub(super) fn archive(entries: &[ZipEntry<'_>]) -> Result<Vec<u8>, ExportError> {
+pub(crate) fn archive(entries: &[ZipEntry<'_>]) -> Result<Vec<u8>, ExportError> {
     let count = u16::try_from(entries.len()).map_err(|_| ExportError::TooLarge)?;
     let mut bytes = Vec::new();
     let mut written = Vec::with_capacity(entries.len());

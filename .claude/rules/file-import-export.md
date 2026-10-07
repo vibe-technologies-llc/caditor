@@ -62,6 +62,19 @@ paths:
   STEP text with the model's existing imports (`FeatureKind::stored_text_len`) would exceed
   `MAX_MODEL_RECORDS`, since that model could be neither saved nor journaled.
 
+## Mesh import (`import/mesh.rs`)
+
+- `read_mesh_file` picks the format by extension (`MeshFormat`): STL (binary when its size matches
+  the triangle count, else text), OBJ (`v` and `f`, polygons fanned, `/` parts and negative indices
+  read) and 3MF (`zip_read.rs`, a small reader of stored and deflated entries, no ZIP64; the model
+  part from `_rels/.rels`, its `unit` converted to millimetres, build items and nested components
+  placed by their transforms). STL and OBJ have no units, so they read as millimetres with a note.
+- The triangles become solids through the kernel's `faceted_solids` (`kernel.md`), each
+  canonicalised like a STEP body and imported as an `Import` named after the file; what the
+  kernel repaired or left out becomes notes in the import report. Its failures are
+  `ImportError` variants of their own (`DamagedMesh`, `MeshNotClosed`, `MeshTooDetailed`,
+  `MeshNotSolid`).
+
 ## Export (`export/`)
 
 - `export_bodies` writes STEP (a body with a look styled with its colour), or tessellates at a `MeshResolution` (a chord fraction of the

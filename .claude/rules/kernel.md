@@ -140,6 +140,22 @@ paths:
   (`box_tree.rs`) are intersected, a branch point strictly inside both faces being a `Crossing`
   (neighbours share the known branch, so their other edges are tested against the other face).
 
+## Faceted solids (`faceted/`)
+
+- `faceted_solids` turns a triangle mesh into one solid per closed shell. It welds vertices on a
+  grid of a billionth of the diagonal, drops degenerate and repeated triangles, closes holes of up
+  to `MAX_FILLED_HOLE_EDGES` edges by a fan, turns triangles to agree with their neighbours and
+  shells inside out the right way, and leaves out open, self-folding and empty shells and a shell
+  inside out within a larger one (a sealed hollow), counting each in `MeshRepairs`.
+- Edge-joined triangles whose normals agree and whose corners lie within the noise of the
+  coordinates' magnitude of the first one's plane become one planar face; each corner shared by
+  such faces is moved to the least-squares point on their fitted planes, so every edge lies within
+  `LINEAR_RESOLUTION` of its faces. A face whose corners cannot be placed, whose boundary pinches
+  or has no single outer loop is split back into triangles; after `MERGE_ATTEMPTS`, or when the
+  build fails, the shell keeps all its triangles. A corner on a straight edge between two such
+  faces is left out, so a box imports with 12 edges. More than `MAX_FACETED_FACES` faces in all is
+  refused.
+
 ## Measuring (`measure/`)
 
 - `distance` returns a `Separation` (closest points and an `Accuracy`): `Exact` only when every

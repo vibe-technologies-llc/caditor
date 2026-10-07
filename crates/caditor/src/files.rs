@@ -15,10 +15,10 @@ use std::{
 use caditor_document::{CancelToken, Document, FeatureId};
 use caditor_file::{
     Closing, DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported, FILE_EXTENSION,
-    FaceExported, FileJournal, History, ImportError, LoadError, Loaded, ModelImport, PNG_EXTENSION,
-    RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState,
-    Settings, SketchExported, SketchFormat, describe_set_aside, journal_for, load, load_version,
-    read_dxf, read_step_file, scan,
+    FaceExported, FileJournal, History, ImportError, LoadError, Loaded, MESH_IMPORT_EXTENSIONS,
+    ModelImport, PNG_EXTENSION, RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS,
+    STEP_IMPORT_EXTENSIONS, SavedState, Settings, SketchExported, SketchFormat, describe_set_aside,
+    journal_for, load, load_version, read_dxf, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -64,6 +64,7 @@ const RESTORED_SUPPRESSED: &str = "Restored with every feature suppressed. Unsup
 const MODEL_KIND: &str = "caditor model";
 const DRAWING_KIND: &str = "DXF drawing";
 const MODEL_EXCHANGE_KIND: &str = "STEP model";
+const MESH_KIND: &str = "STL, OBJ or 3MF mesh";
 const IMPORTABLE_KIND: &str = "Drawings and models";
 const IMAGE_KIND: &str = "PNG image";
 const FILE_COMMANDS: [Command; 10] = [
@@ -234,11 +235,13 @@ impl Dialogs for NativeDialogs {
     fn pick_import(&self, directory: Option<PathBuf>, respond: Respond) {
         let every: Vec<&str> = std::iter::once(DXF_EXTENSION)
             .chain(STEP_IMPORT_EXTENSIONS)
+            .chain(MESH_IMPORT_EXTENSIONS)
             .collect();
         let filters = vec![
             Filter::new(IMPORTABLE_KIND, &every),
             Filter::new(DRAWING_KIND, &[DXF_EXTENSION]),
             Filter::new(MODEL_EXCHANGE_KIND, &STEP_IMPORT_EXTENSIONS),
+            Filter::new(MESH_KIND, &MESH_IMPORT_EXTENSIONS),
             Filter::any(),
         ];
         let request = Self::request(Mode::Open, "Import", directory, None, filters);
@@ -1136,7 +1139,7 @@ impl Files {
             move || {
                 if import::is_model(&path) {
                     Event::ImportedModel {
-                        result: read_step_file(&path),
+                        result: import::read_model(&path),
                         path,
                         session,
                     }
@@ -2073,6 +2076,7 @@ pub fn has_importable_extension(path: &Path) -> bool {
         || path.extension().is_some_and(|extension| {
             STEP_IMPORT_EXTENSIONS
                 .iter()
+                .chain(&MESH_IMPORT_EXTENSIONS)
                 .any(|known| extension.eq_ignore_ascii_case(known))
         })
 }

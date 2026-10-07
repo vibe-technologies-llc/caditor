@@ -2,10 +2,14 @@ mod arrange;
 mod dxf;
 #[cfg(test)]
 mod entity_tests;
+mod mesh;
+#[cfg(test)]
+mod mesh_tests;
 mod model;
 mod sketch;
 #[cfg(test)]
 mod tests;
+mod zip_read;
 
 use std::{collections::BTreeSet, path::Path};
 
@@ -15,6 +19,7 @@ use caditor_step::ReadError;
 pub use crate::import::{
     arrange::{DrawingOptions, DrawingUnit, MAX_SCALE, MIN_SCALE},
     dxf::parse_dxf,
+    mesh::{MESH_IMPORT_EXTENSIONS, MeshFormat, parse_mesh, read_mesh_file},
     model::{
         ImportedBody, ModelImport, STEP_IMPORT_EXTENSIONS, bodies_transaction, parse_step,
         read_step_file,
@@ -139,6 +144,25 @@ pub enum ImportError {
     Step(ReadError),
     #[error("none of its bodies could be stored in the model")]
     NothingStorable,
+    #[error("it is not an STL, OBJ or 3MF mesh")]
+    NotMesh,
+    #[error("it is not a readable {0} mesh")]
+    DamagedMesh(&'static str),
+    #[error("the 3MF package holds no 3D model")]
+    NoModelInPackage,
+    #[error(
+        "no part of it is a closed surface ({open_edges} of its edges border only one triangle), \
+         so it does not enclose a solid"
+    )]
+    MeshNotClosed { open_edges: usize },
+    #[error(
+        "it has {faces} faces even after its flat areas are joined, more than the {} caditor \
+         takes from one mesh; reduce its triangles in a mesh editor first",
+        caditor_kernel::MAX_FACETED_FACES
+    )]
+    MeshTooDetailed { faces: usize },
+    #[error("its surface could not be made into a valid solid")]
+    MeshNotSolid,
     #[error("the compressed file is damaged, so it cannot be unpacked")]
     DamagedArchive,
     #[error(

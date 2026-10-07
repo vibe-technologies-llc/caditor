@@ -282,17 +282,11 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Mesh import and export
 
-- [medium · hard] No mesh import (STL, 3MF, OBJ), though the STEP reader already builds
-  `FACETED_BREP`s from
-  polygons. An imported solid is stored as STEP text like any import (see the STEP storage item
-  above), which suits thousands of faceted faces but not a scan of millions of triangles, and
-  keeping the source mesh in the model takes a storage of its own. Importing a mesh should give a
-  solid that edits like one drawn in caditor, where Fusion and FreeCAD leave thousands of triangle
-  faces that fillets, sketches, holes and booleans choke on. The aim, to be researched before
-  design:
-  - Repair on import without asking: weld duplicate vertices, close small holes, fix flipped and
-    inconsistent normals, split or drop non-manifold and degenerate pieces, and separate shells
-    into bodies, saying in the import report what was fixed and what could not be.
+- [medium · hard] Mesh import (STL, OBJ, 3MF) repairs simple defects and joins flat areas into
+  planar faces, but curved areas stay faceted, a sealed hollow is filled, non-manifold edges and
+  gaps of more than `MAX_FILLED_HOLE_EDGES` edges lose their whole shell, and a mesh of more than
+  `MAX_FACETED_FACES` faces after joining (most scans and organic prints) is refused. An imported
+  solid is stored as STEP text like any import, and the source mesh is not kept. What remains:
   - Rebuild real faces: group triangles into regions and recognise planes, cylinders, cones,
     spheres and tori within a tolerance the import chooses from the mesh's own noise (adjustable
     with a live preview), fit splines to what remains, and join them into a B-rep whose faces and

@@ -2,8 +2,8 @@ use std::path::Path;
 
 use caditor_document::{Document, Edit, EditError, FeatureId, Prepared, Transaction};
 use caditor_file::{
-    Drawing, ImportError, MAX_MODEL_RECORDS, ModelImport, STEP_IMPORT_EXTENSIONS, SketchTarget,
-    bodies_transaction, drawing_transaction,
+    Drawing, ImportError, MAX_MODEL_RECORDS, MeshFormat, ModelImport, STEP_IMPORT_EXTENSIONS,
+    SketchTarget, bodies_transaction, drawing_transaction, read_mesh_file, read_step_file,
 };
 
 use crate::{
@@ -14,7 +14,8 @@ use crate::{
 };
 
 pub const IMPORT_HINT: &str = "Add a DXF drawing to the sketch you are editing or to a new sketch, \
-                               or the bodies of a STEP model to the model";
+                               or the bodies of a STEP model or an STL, OBJ or 3MF mesh to the \
+                               model";
 const STEP_SIGNATURE: &[u8] = b"ISO-10303-21";
 const SNIFFED_BYTES: usize = 256;
 const MAX_NAME_CHARACTERS: usize = 60;
@@ -142,7 +143,14 @@ pub fn is_model(path: &Path) -> bool {
             .iter()
             .any(|known| extension.eq_ignore_ascii_case(known))
     });
-    by_extension || starts_like_step(path)
+    by_extension || MeshFormat::of(path).is_some() || starts_like_step(path)
+}
+
+pub fn read_model(path: &Path) -> Result<ModelImport, ImportError> {
+    match MeshFormat::of(path) {
+        Some(_) => read_mesh_file(path),
+        None => read_step_file(path),
+    }
 }
 
 fn starts_like_step(path: &Path) -> bool {

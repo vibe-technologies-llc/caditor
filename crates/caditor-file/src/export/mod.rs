@@ -9,7 +9,7 @@ mod svg;
 #[cfg(test)]
 mod tests;
 mod three_mf;
-mod zip;
+pub(crate) mod zip;
 
 use std::{
     panic::{self, AssertUnwindSafe},

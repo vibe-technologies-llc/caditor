@@ -8,6 +8,7 @@ mod coordinates;
 mod curve;
 mod curve2;
 mod error;
+mod faceted;
 #[cfg(test)]
 mod fixtures;
 mod interrupt;
@@ -44,6 +45,10 @@ pub use crate::{
     },
     curve2::{BSplineCurve2, Circle2, Curve2, Curve2Derivatives, Curve2Sample, Line2},
     error::GeometryError,
+    faceted::{
+        FacetedError, FacetedSolids, MAX_FACETED_FACES, MAX_FILLED_HOLE_EDGES, MeshRepairs,
+        TriangleMesh, faceted_solids,
+    },
     interrupt::{Interrupt, Interrupted, interruptible},
     intersect::{
         CurveCurveIntersection, CurveCurveOverlap, CurveCurvePoint, CurveSurfaceIntersection,

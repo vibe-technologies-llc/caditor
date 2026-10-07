@@ -151,7 +151,7 @@ pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> 
     Ok(imported)
 }
 
-fn canonical(name: &str, solid: &Solid) -> Option<Vec<(Solid, String)>> {
+pub(crate) fn canonical(name: &str, solid: &Solid) -> Option<Vec<(Solid, String)>> {
     let (step, mut again) = written_and_read(name, solid)?;
     match again.len() {
         0 => return None,
