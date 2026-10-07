@@ -102,9 +102,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   parallel over the dependency data the document already has. A body is meshed beside the feature
   loop once no later feature changes it, but one at a time, and those settling only at the last
   features are meshed one after another once the loop ends.
-- [low · medium] `SetFeatureKind` refuses an `Import` (`set_feature_kind` pairs no import with an
-  import), so an imported body keeps its source solid for good; allowing it would also give
-  re-import.
 
 ## Sketch solver and expressions
 
@@ -250,9 +247,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] Import canonicalises each placement by writing and re-reading it, and stores
   every placement of a product as its own STEP text. Build each representation once and store each
   product once with placements.
-- [medium · medium] Imports cannot be positioned (`Import` has no placement) or refreshed from their
-  source file: the path is not kept, so a changed STEP file means deleting the feature and breaking
-  what references it.
+- [medium · medium] Imports cannot be positioned (`Import` has no placement), and Replace from file
+  asks for the file every time, since the source path is not kept.
 - [medium · hard] One unsupported surface or curve loses the whole body: an `OFFSET_SURFACE` of a
   spline, extrusion or revolution (it would need a surface fitted within tolerance), `PARABOLA`,
   `HYPERBOLA` and the `*_REPLICA` forms. Fit a spline within the declared precision, or keep the

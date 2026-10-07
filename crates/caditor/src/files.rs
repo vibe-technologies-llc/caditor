@@ -109,6 +109,7 @@ pub enum FileCommand {
     Import {
         into: Option<FeatureId>,
     },
+    ReplaceImport(FeatureId),
     Drop {
         paths: Vec<PathBuf>,
         into: Option<FeatureId>,
@@ -445,6 +446,7 @@ enum Event {
     ImportedModel {
         path: PathBuf,
         session: u64,
+        replacing: Option<FeatureId>,
         result: Result<ModelImport, ImportError>,
     },
 }
@@ -472,6 +474,7 @@ struct Report {
 struct Importing {
     path: Option<PathBuf>,
     into: Option<FeatureId>,
+    replacing: Option<FeatureId>,
 }
 
 struct Queued {
@@ -739,7 +742,26 @@ impl Files {
                 if self.picking.is_some() {
                     return;
                 }
-                self.importing = Some(Importing { path: None, into });
+                self.importing = Some(Importing {
+                    path: None,
+                    into,
+                    replacing: None,
+                });
+                self.pick(Purpose::Import, model);
+            }
+            FileCommand::ReplaceImport(feature) => {
+                if self.importing.is_some() {
+                    model.set_notice(Notice::info("An import is already running."));
+                    return;
+                }
+                if self.picking.is_some() {
+                    return;
+                }
+                self.importing = Some(Importing {
+                    path: None,
+                    into: None,
+                    replacing: Some(feature),
+                });
                 self.pick(Purpose::Import, model);
             }
             FileCommand::Drop { paths, into } => self.dropped(paths, into, model),
@@ -1112,13 +1134,18 @@ impl Files {
             Event::ImportedModel {
                 path,
                 session,
+                replacing,
                 result,
             } => {
                 self.importing = None;
                 if session != model.session() {
                     return;
                 }
-                if let Some(report) = import::place_bodies(model, &path, result) {
+                let report = match replacing {
+                    Some(feature) => import::replace_body(model, feature, &path, result),
+                    None => import::place_bodies(model, &path, result),
+                };
+                if let Some(report) = report {
                     self.report = Some(Report {
                         heading: report.heading,
                         intro: None,
@@ -1133,6 +1160,7 @@ impl Files {
         self.importing = Some(Importing {
             path: Some(path.clone()),
             into,
+            replacing: None,
         });
         let session = model.session();
         let failed = path.clone();
@@ -1143,6 +1171,7 @@ impl Files {
                         result: import::read_model(&path),
                         path,
                         session,
+                        replacing: None,
                     }
                 } else {
                     match read_dxf(&path) {
@@ -1170,6 +1199,39 @@ impl Files {
         );
     }
 
+    fn replace_import(&mut self, path: PathBuf, feature: FeatureId, model: &mut Model) {
+        if !import::is_model(&path) {
+            self.importing = None;
+            model.set_notice(Notice::info(format!(
+                "“{}” is not a STEP, STL, OBJ or 3MF file, so it cannot replace an imported \
+                 body.",
+                display_name(Some(&path))
+            )));
+            return;
+        }
+        self.importing = Some(Importing {
+            path: Some(path.clone()),
+            into: None,
+            replacing: Some(feature),
+        });
+        let session = model.session();
+        let failed = path.clone();
+        self.spawn(
+            move || Event::ImportedModel {
+                result: import::read_model(&path),
+                path,
+                session,
+                replacing: Some(feature),
+            },
+            move || Event::ImportedModel {
+                path: failed,
+                session,
+                replacing: Some(feature),
+                result: Err(ImportError::Crashed),
+            },
+        );
+    }
+
     fn plan_again(
         &mut self,
         path: PathBuf,
@@ -1181,6 +1243,7 @@ impl Files {
         self.importing = Some(Importing {
             path: Some(path.clone()),
             into,
+            replacing: None,
         });
         let session = model.session();
         let base = model.base();
@@ -1451,7 +1514,14 @@ impl Files {
             (Purpose::Drawing, Some(path)) => self.check_output(Output::Drawing { path }),
             (Purpose::Import, Some(path)) => {
                 let into = self.importing.as_ref().and_then(|importing| importing.into);
-                self.import(path, into, model);
+                match self
+                    .importing
+                    .as_ref()
+                    .and_then(|importing| importing.replacing)
+                {
+                    Some(feature) => self.replace_import(path, feature, model),
+                    None => self.import(path, into, model),
+                }
             }
             (Purpose::Image, None) => self.image.pick_cancelled(),
             (Purpose::Drawing, None) => self.drawing_export = None,

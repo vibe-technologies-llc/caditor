@@ -2354,6 +2354,114 @@ fn a_step_export_imports_back_as_a_body_that_later_features_can_use() {
     assert_eq!(harness.document().features().len(), before);
 }
 
+fn cube_stl(side: f64) -> String {
+    let corners = [
+        [0.0, 0.0, 0.0],
+        [side, 0.0, 0.0],
+        [side, side, 0.0],
+        [0.0, side, 0.0],
+        [0.0, 0.0, side],
+        [side, 0.0, side],
+        [side, side, side],
+        [0.0, side, side],
+    ];
+    let triangles: [[usize; 3]; 12] = [
+        [0, 3, 2],
+        [0, 2, 1],
+        [4, 5, 6],
+        [4, 6, 7],
+        [0, 1, 5],
+        [0, 5, 4],
+        [1, 2, 6],
+        [1, 6, 5],
+        [2, 3, 7],
+        [2, 7, 6],
+        [3, 0, 4],
+        [3, 4, 7],
+    ];
+    let mut text = "solid cube\n".to_owned();
+    for triangle in triangles {
+        text.push_str("facet normal 0 0 0\nouter loop\n");
+        for corner in triangle {
+            let [x, y, z] = corners[corner];
+            text.push_str(&format!("vertex {x} {y} {z}\n"));
+        }
+        text.push_str("endloop\nendfacet\n");
+    }
+    text.push_str("endsolid cube\n");
+    text
+}
+
+#[test]
+fn an_imported_body_is_replaced_from_a_file_in_place_and_undone_as_one_step() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let small = dir.path().join("cube.stl");
+    let large = dir.path().join("cube-v2.stl");
+    std::fs::write(&small, cube_stl(10.0)).unwrap();
+    std::fs::write(&large, cube_stl(20.0)).unwrap();
+    let before = harness.document().features().len();
+    harness.answer_dialog(Some(small));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_until("the cube is imported", |harness| {
+        harness.document().features().len() == before + 1
+    });
+    harness.settle();
+    let body = harness.document().features().last().unwrap().id();
+    let name = harness.document().feature(body).unwrap().name.clone();
+
+    assert!(volume_about(&harness, body, 1000.0));
+
+    harness.answer_dialog(Some(large));
+    harness.command(FileCommand::ReplaceImport(body));
+    harness.wait_until("the cube is replaced", |harness| {
+        harness
+            .model
+            .undo_label()
+            .is_some_and(|label| label.starts_with("Replace"))
+    });
+    harness.settle();
+
+    assert_eq!(harness.document().features().len(), before + 1);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(format!("Replace {name} from cube-v2.stl").as_str())
+    );
+    assert!(volume_about(&harness, body, 8000.0));
+    assert_eq!(
+        harness
+            .document()
+            .feature(body)
+            .unwrap()
+            .kind
+            .import()
+            .unwrap()
+            .source,
+        "cube-v2.stl"
+    );
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert!(volume_about(&harness, body, 1000.0));
+
+    let drawing = dir.path().join("plan.dxf");
+    write_drawing(
+        &drawing,
+        Some(4),
+        "0\nLINE\n8\n0\n10\n0\n20\n0\n11\n40\n21\n0\n",
+    );
+    harness.answer_dialog(Some(drawing));
+    harness.command(FileCommand::ReplaceImport(body));
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(
+        harness.model.notice().unwrap().text,
+        "“plan.dxf” is not a STEP, STL, OBJ or 3MF file, so it cannot replace an imported body."
+    );
+}
+
 fn damage_chunk(bytes: &[u8], chunk: usize) -> Vec<u8> {
     let starts: Vec<usize> = bytes
         .windows(4)

@@ -802,6 +802,49 @@ fn an_import_makes_a_body_named_by_its_own_feature() {
 }
 
 #[test]
+fn an_import_used_by_later_features_can_be_replaced_by_another_import_but_not_another_kind() {
+    let base = model();
+    let evaluation = evaluate(&base.document, &mut Recompute::default());
+    let solid = evaluation.body(base.base).unwrap().clone();
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Import");
+    let imported = transaction.add_feature(
+        "Bracket",
+        FeatureKind::Import(Import::new("bracket.step", solid.clone(), "first")),
+    );
+    transaction.add_feature("Gone", FeatureKind::Remove(Remove { body: imported }));
+    document.apply(transaction.finish()).unwrap();
+
+    let replaced = document.apply(Transaction::single(
+        "Replace",
+        Edit::SetFeatureKind {
+            id: imported,
+            kind: FeatureKind::Import(Import::new("bracket-v2.step", solid, "second")),
+        },
+    ));
+    let into_a_sketch = document.apply(Transaction::single(
+        "Change",
+        Edit::SetFeatureKind {
+            id: imported,
+            kind: FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (1.0, 1.0))),
+        },
+    ));
+
+    assert!(replaced.is_ok());
+    assert_eq!(
+        document
+            .feature(imported)
+            .and_then(|feature| feature.kind.import())
+            .map(|import| import.source.as_str()),
+        Some("bracket-v2.step")
+    );
+    assert_eq!(
+        into_a_sketch,
+        Err(EditError::KindChange("Bracket".to_owned()))
+    );
+}
+
+#[test]
 fn a_revolve_with_regions_on_both_sides_names_the_curves_apart_from_the_rest() {
     let mut section = rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0));
     let stray = section.add_circle(Point2::new(-3.0, 1.0), 0.5);

@@ -201,6 +201,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ParameterNote => EDIT_NOTE,
         Command::ShowFirstFailed => FAILED,
         Command::UpdateReferences => UPDATE_REFERENCES,
+        Command::ReplaceImport => phosphor::FILE_ARROW_UP,
         Command::DismissNotice | Command::DismissTip => CLOSE,
         Command::HideTips => phosphor::EYE_SLASH,
         Command::Welcome => phosphor::HAND_WAVING,

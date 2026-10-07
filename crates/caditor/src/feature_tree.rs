@@ -38,6 +38,10 @@ use crate::{
     widgets::{self, DialogWidth, Tone},
 };
 
+pub const REPLACE_FROM_FILE: &str = "Replace from file…";
+const REPLACE_HINT: &str = "Read a STEP or mesh file again, or a newer one, in place of this body; \
+                            features using it keep it";
+const NOT_AN_IMPORT: &str = "Choose an imported body in the feature tree";
 const NO_FEATURE_CHOSEN: &str = "Select a feature in the tree, or open one, first";
 const NOTHING_SELECTED: &str =
     "Select geometry in an edited sketch, or a feature in the tree, to delete it";
@@ -786,6 +790,14 @@ fn body(
                 widgets::icon_label(ui, icons::FILE, muted);
                 ui.label(format!("Imported from “{}”", import.source));
             });
+            let replace = widgets::small_button(
+                ui,
+                icons::command(Command::ReplaceImport),
+                REPLACE_FROM_FILE,
+            );
+            if ui.add(replace).on_hover_text(REPLACE_HINT).clicked() {
+                actions.push(Action::File(FileCommand::ReplaceImport(feature.id())));
+            }
             body_display(ui, model, feature);
         }
         FeatureKind::Remove(remove) => removal::show(ui, model, actions, feature, remove),
@@ -1080,6 +1092,19 @@ fn context_menu(
         {
             actions.push(Action::Apply(transaction));
         }
+    }
+    if matches!(feature.kind, FeatureKind::Import(_))
+        && widgets::menu_item(
+            ui,
+            icons::command(Command::ReplaceImport),
+            &Command::ReplaceImport.title(),
+            None,
+        )
+        .on_hover_text(REPLACE_HINT)
+        .clicked()
+    {
+        actions.push(Action::File(FileCommand::ReplaceImport(feature.id())));
+        ui.close();
     }
     ui.separator();
     let here = roll_to_here(document, feature);
@@ -1782,6 +1807,17 @@ pub fn commands(
         actions.push(Action::File(FileCommand::ExportDrawing(
             DrawingSource::Sketch(feature.id()),
         )));
+    }
+    let replaceable = current
+        .filter(|feature| matches!(feature.kind, FeatureKind::Import(_)))
+        .ok_or(NOT_AN_IMPORT);
+    if commands.invoke_detailed(
+        Command::ReplaceImport,
+        replaceable.ok().map(|feature| feature.name.clone()),
+        &replaceable,
+    ) && let Ok(feature) = replaceable
+    {
+        actions.push(Action::File(FileCommand::ReplaceImport(feature.id())));
     }
     if let Some(transaction) = invoke_on(commands, Command::RollToHere, current, |feature| {
         roll_to_here(document, feature)

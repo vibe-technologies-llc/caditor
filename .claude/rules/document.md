@@ -132,7 +132,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - `SetFeatureKind` replaces settings but never the kind (`EditError::KindChange`): extrude stays
   extrude, a plane a plane, an import an import; a blend may switch fillet/chamfer and a pattern
-  linear/circular. Sketches change through sketch edits.
+  linear/circular. An import may take another file's solid and keeps its body for the features
+  using it, like an extrusion making a new body. Sketches change through sketch edits.
 - `bodies_used`, `planes_used` and `axes_used` extend `features()`, so dependents, moves and
   deletions account for them. `origin_features` (the features that made the faces and edges a
   feature holds, from the references' `FaceOrigin`s) join them in `dependencies()`, which

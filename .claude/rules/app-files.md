@@ -118,6 +118,11 @@ paths:
   (`Drawing::chosen_curve_count`); Cancel adds nothing, and a queue of dropped files waits behind
   it. A drawing that fails to read skips it and reports as
   before.
+- Replace from file (`Command::ReplaceImport`, an import's details, its right-click menu, the
+  palette on the tree's current import) picks a STEP or mesh file, reads it on the files worker and
+  applies one `SetFeatureKind` putting its body in place of the import, so features using the body
+  keep it and find its faces again by name. A file of several bodies gives the one named like the
+  feature (or like it before a " 2" suffix), else nothing with the reason; a drawing is refused.
 - The worker plans the change on the model as it was at the start (`import::plan_drawing` with
   the `Arrangement`, `Model::base`); the UI thread only commits it (`Model::commit`) and replans
   on `Placement::Stale`. Results arriving after another document opened are dropped.

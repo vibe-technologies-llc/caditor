@@ -753,6 +753,7 @@ impl Document {
             | (FeatureKind::Scale(_), FeatureKind::Scale(_))
             | (FeatureKind::Hole(_), FeatureKind::Hole(_))
             | (FeatureKind::Pattern(_), FeatureKind::Pattern(_))
+            | (FeatureKind::Import(_), FeatureKind::Import(_))
             | (FeatureKind::Remove(_), FeatureKind::Remove(_)) => true,
             _ => false,
         };
@@ -761,9 +762,10 @@ impl Document {
         }
         self.check_feature_references(&kind, index)?;
         self.reserve_past_references(&kind);
-        let keeps_body = kind
-            .solid()
-            .is_some_and(|solid| solid.operation() == BodyOperation::NewBody);
+        let keeps_body = matches!(kind, FeatureKind::Import(_))
+            || kind
+                .solid()
+                .is_some_and(|solid| solid.operation() == BodyOperation::NewBody);
         if !keeps_body {
             let users: Vec<String> = self
                 .features()

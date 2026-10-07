@@ -176,6 +176,7 @@ pub enum Command {
     ParameterNote,
     ShowFirstFailed,
     UpdateReferences,
+    ReplaceImport,
     DismissNotice,
     DismissTip,
     HideTips,
@@ -536,6 +537,7 @@ plain_commands! {
     ParameterNote,
     ShowFirstFailed,
     UpdateReferences,
+    ReplaceImport,
     DismissNotice,
     DismissTip,
     HideTips,
@@ -726,6 +728,7 @@ impl Command {
             Self::ParameterNote => "model.parameter_note",
             Self::ShowFirstFailed => "model.first_failed",
             Self::UpdateReferences => "model.update_references",
+            Self::ReplaceImport => "file.replace_import",
             Self::DismissNotice => "edit.dismiss_notice",
             Self::DismissTip => "help.dismiss_tip",
             Self::HideTips => "help.hide_tips",
@@ -863,6 +866,7 @@ impl Command {
             Self::ParameterNote => "Add or edit the parameter's note",
             Self::ShowFirstFailed => "Go to the first failed feature",
             Self::UpdateReferences => "Update references",
+            Self::ReplaceImport => "Replace import from file…",
             Self::DismissNotice => "Dismiss the notice",
             Self::DismissTip => "Dismiss the tip",
             Self::HideTips => "Hide tips",
@@ -985,7 +989,8 @@ impl Command {
             | Self::MoveParameterDown
             | Self::ParameterNote
             | Self::ShowFirstFailed
-            | Self::UpdateReferences => Category::Model,
+            | Self::UpdateReferences
+            | Self::ReplaceImport => Category::Model,
             Self::FinishSketch
             | Self::ReverseArc
             | Self::MoreSides
@@ -1144,6 +1149,7 @@ impl Command {
             | Self::MoveParameterDown
             | Self::ParameterNote
             | Self::UpdateReferences
+            | Self::ReplaceImport
             | Self::DismissNotice
             | Self::DismissTip
             | Self::HideTips

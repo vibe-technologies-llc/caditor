@@ -1,9 +1,10 @@
 use std::path::Path;
 
-use caditor_document::{Document, Edit, EditError, FeatureId, Prepared, Transaction};
+use caditor_document::{Document, Edit, EditError, FeatureId, FeatureKind, Prepared, Transaction};
 use caditor_file::{
-    Drawing, ImportError, MAX_MODEL_RECORDS, MeshFormat, ModelImport, STEP_IMPORT_EXTENSIONS,
-    SketchTarget, bodies_transaction, drawing_transaction, read_mesh_file, read_step_file,
+    Drawing, ImportError, ImportedBody, MAX_MODEL_RECORDS, MeshFormat, ModelImport,
+    STEP_IMPORT_EXTENSIONS, SketchTarget, bodies_transaction, drawing_transaction, read_mesh_file,
+    read_step_file,
 };
 
 use crate::{
@@ -213,6 +214,103 @@ pub fn place_bodies(
         heading: format!("Imported “{file}”"),
         notes: imported.notes,
     })
+}
+
+pub fn replace_body(
+    model: &mut Model,
+    feature: FeatureId,
+    path: &Path,
+    result: Result<ModelImport, ImportError>,
+) -> Option<ImportReport> {
+    let file = display_name(Some(path));
+    let Some(existing) = model.document().feature(feature) else {
+        model.set_notice(Notice::info(format!(
+            "The imported body was deleted before “{file}” was read, so nothing was replaced."
+        )));
+        return None;
+    };
+    let name = existing.name.clone();
+    let held_before = existing.kind.stored_text_len();
+    let imported = match result {
+        Ok(imported) => imported,
+        Err(error) => {
+            model.set_notice(Notice::failure(format!(
+                "Could not replace {name} from “{file}”: {error}."
+            )));
+            return None;
+        }
+    };
+    let body = match replacement(&imported.bodies, &name) {
+        Ok(body) => body,
+        Err(reason) => {
+            model.set_notice(Notice::failure(format!(
+                "{name} was not replaced from “{file}”: {reason}."
+            )));
+            return None;
+        }
+    };
+    let transaction = Transaction::single(
+        format!("Replace {name} from {file}"),
+        Edit::SetFeatureKind {
+            id: feature,
+            kind: FeatureKind::Import(body.import.clone()),
+        },
+    );
+    let held: usize = model
+        .document()
+        .features()
+        .map(|feature| feature.kind.stored_text_len())
+        .sum();
+    let after = held
+        .saturating_sub(held_before)
+        .saturating_add(FeatureKind::Import(body.import.clone()).stored_text_len());
+    if after > MAX_MODEL_RECORDS {
+        model.set_notice(Notice::failure(format!(
+            "{name} was not replaced from “{file}”: with it the model would hold more than the \
+             {} GiB a model file can.",
+            MAX_MODEL_RECORDS >> 30
+        )));
+        return None;
+    }
+    let revision = model.revision();
+    model.perform(Action::Apply(transaction));
+    if model.revision() == revision {
+        return None;
+    }
+    model.set_notice(Notice::info(format!(
+        "Replaced {name} with the body in “{file}”. Features using its faces and edges find them \
+         again, and any that cannot say so in the tree."
+    )));
+    (!imported.notes.is_empty()).then(|| ImportReport {
+        heading: format!("Replaced {name} from “{file}”"),
+        notes: imported.notes,
+    })
+}
+
+fn replacement<'a>(bodies: &'a [ImportedBody], name: &str) -> Result<&'a ImportedBody, String> {
+    let named_after = |body: &ImportedBody| {
+        let base = body.name.trim();
+        name == base
+            || name
+                .strip_prefix(base)
+                .and_then(|rest| rest.strip_prefix(' '))
+                .is_some_and(|number| number.parse::<u32>().is_ok())
+    };
+    match bodies {
+        [] => Err(NO_BODIES.to_owned()),
+        [only] => Ok(only),
+        several => several
+            .iter()
+            .find(|body| body.name.trim() == name)
+            .or_else(|| several.iter().find(|body| named_after(body)))
+            .ok_or_else(|| {
+                format!(
+                    "it holds {} and none is named {name}; rename the body in the file or the \
+                     feature to match",
+                    count(several.len(), "body", "bodies")
+                )
+            }),
+    }
 }
 
 fn outgrows(document: &Document, transaction: &Transaction, limit: usize) -> bool {
