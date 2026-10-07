@@ -344,7 +344,7 @@ fn a_hole_that_misses_the_body_or_a_sketch_without_points_fails_in_words() {
     assert!(
         failure(&evaluation, blank)
             .reason
-            .contains("no points to drill at")
+            .contains("no points or circles to drill at")
     );
 }
 
@@ -485,4 +485,36 @@ fn a_reference_to_the_wall_keeps_the_wall_when_the_style_changes() {
         .map(str::to_owned)
         .into()
     );
+}
+
+#[test]
+fn a_circle_drawn_where_a_hole_goes_drills_at_its_centre() {
+    let mut pair = pair();
+    let mut sketch = Sketch::new(top());
+    sketch.add_circle(Point2::new(5.0, 5.0), 2.0);
+    let construction = sketch.add_circle(Point2::new(12.0, 5.0), 2.0);
+    sketch.set_construction(construction, true).unwrap();
+    let centres = hole_centres(&sketch);
+    let hole = Hole {
+        sketch: FeatureId::from_raw(0),
+        body: pair.plate,
+        diameter: expression(&pair.document, "4 mm"),
+        depth: HoleDepth::Blind(expression(&pair.document, "2 mm")),
+        style: HoleStyle::Plain,
+        reversed: false,
+    };
+    let mut transaction = pair.document.transaction("Drill");
+    let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
+    transaction.add_feature("Hole 1", FeatureKind::Hole(Hole { sketch, ..hole }));
+    pair.document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(centres.len(), 1);
+    assert_eq!(centres[0].1, Point2::new(5.0, 5.0));
+    assert_eq!(evaluation.failed_count(), 0);
+    let removed = PI * 4.0 * 2.0;
+    let found = volume(&evaluation, pair.plate);
+    assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
 }

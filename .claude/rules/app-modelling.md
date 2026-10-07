@@ -97,7 +97,7 @@ paths:
 ## Hole
 
 - Hole (Alt+O, in the Solid group) takes the sketch the way Extrude does (edited, selected, opened
-  or last) and needs at least one free point in it (`hole_centres`); its body is the one the sketch
+  or last) and needs at least one free point or circle in it (`hole_centres`); its body is the one the sketch
   is attached to, else the last body standing. It creates a plain blind hole of 6 mm by 10 mm,
   hides the sketch and opens the panel: Style (Plain, Counterbore, Countersink; switching takes the
   defaults of the new style), Diameter, the style's sizes, Depth (Blind with its field, or Through

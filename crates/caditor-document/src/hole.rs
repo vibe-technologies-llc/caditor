@@ -6,7 +6,7 @@ use caditor_kernel::{
     AngularExtent, Axis2, BooleanOperation, LINEAR_RESOLUTION, MAX_SIZE, Profile, ProfileCurve,
     Solid, boolean, revolve,
 };
-use caditor_sketch::{EntityId, Sketch};
+use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::{
     document::{Feature, FeatureId},
@@ -137,8 +137,12 @@ impl HolePart {
 }
 
 pub fn centres(sketch: &Sketch) -> Vec<(EntityId, Point2)> {
-    sketch
-        .free_points()
+    let circled = sketch.entities().filter_map(|(id, entity)| match entity {
+        Entity::Circle { center, .. } if !sketch.is_construction(id) => Some(*center),
+        _ => None,
+    });
+    let points: BTreeSet<EntityId> = sketch.free_points().into_iter().chain(circled).collect();
+    points
         .into_iter()
         .filter_map(|id| Some((id, sketch.point(id)?)))
         .collect()
@@ -429,15 +433,17 @@ pub(crate) fn evaluate(
     let centres = centres(&sketch.geometry);
     if centres.is_empty() {
         return Err(context.fix(
-            format!("{sketch_name} has no points to drill at."),
-            "Place points in the sketch where the holes go, or choose another sketch.".to_owned(),
+            format!("{sketch_name} has no points or circles to drill at."),
+            "Place points or circles in the sketch where the holes go, or choose another sketch."
+                .to_owned(),
             definition.sketch,
         ));
     }
     if centres.len() > MAX_HOLES {
         return Err(context.fix(
             format!(
-                "{sketch_name} has {} points, more than the {MAX_HOLES} holes a feature can drill.",
+                "{sketch_name} has {} points and circles, more than the {MAX_HOLES} holes a \
+                 feature can drill.",
                 centres.len()
             ),
             "Use fewer points, or split them between several holes.".to_owned(),

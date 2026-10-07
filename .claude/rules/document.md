@@ -166,7 +166,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - `Hole { sketch, body, diameter, depth, style, reversed }` drills at every free point of its sketch
   (`Sketch::free_points`: no curve uses it, not construction; a point only a constraint uses still
-  counts) down into the sketch plane's normal, or up when reversed. `HoleDepth` is blind or
+  counts) and at the centre of every circle that is not construction (`hole::centres`), down into
+  the sketch plane's normal, or up when reversed. `HoleDepth` is blind or
   through all (the farthest corner of the body past the point plus a margin, as the extrusion's
   through all); `HoleStyle` is plain, counterbore (diameter, depth) or countersink (diameter,
   angle).

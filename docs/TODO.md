@@ -182,10 +182,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 - [medium · medium] A cut affects only one body: no extrusion or revolve cut removes material from
   several bodies at once, only a Combine of two.
-- [medium · medium] Holes are drilled only at the free points of a sketch the user draws first, with
-  no standard sizes, no tapped or threaded holes, no hole on a face by clicking it, none at circle
-  centres, no slot and no hole of several diameters (stepped); each hole of a feature shares the
-  feature's sizes.
+- [medium · medium] Holes are drilled only at the free points and circle centres of a sketch the user
+  draws first, with no standard sizes, no tapped or threaded holes, no hole on a face by clicking
+  it, no slot and no hole of several diameters (stepped); each hole of a feature shares the
+  feature's sizes, whatever the circle's.
 - [high · hard] Bodies cannot be edited directly: no moving, offsetting, deleting or replacing a
   face (push and pull) and no deleting a fillet or chamfer by its faces. An imported STEP body has
   no feature history, so today it can only be cut, joined, filleted or shelled; a wall too thick, a

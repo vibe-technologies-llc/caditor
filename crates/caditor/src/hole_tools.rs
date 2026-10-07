@@ -22,7 +22,7 @@ pub const DEFAULT_COUNTERBORE_DEPTH: f64 = 3.0;
 pub const DEFAULT_COUNTERSINK_DIAMETER: f64 = 10.0;
 pub const DEFAULT_COUNTERSINK_ANGLE: f64 = 90.0;
 const NO_SKETCH: &str = "Draw a sketch on a face of a body and place points where the holes go";
-const NO_POINTS: &str = "Place points in the sketch where the holes go";
+const NO_POINTS: &str = "Place points or circles in the sketch where the holes go";
 const NO_BODY: &str = "Make a body to drill into first";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
