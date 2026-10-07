@@ -106,6 +106,7 @@ mod split_panel;
 mod split_tools;
 mod status_bar;
 mod toolbar;
+mod tracking;
 mod tree_row;
 mod trimming;
 mod typed_point;

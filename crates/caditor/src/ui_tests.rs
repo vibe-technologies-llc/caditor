@@ -3691,6 +3691,68 @@ fn a_press_dragged_or_held_with_a_drawing_tool_still_places_the_point_where_it_i
     assert!(near(end, Point2::new(40.0, 25.0)), "{end}");
 }
 
+fn aligned_point_pairs(sketch: &Sketch) -> Vec<Constraint> {
+    sketch
+        .constraints()
+        .map(|(_, constraint)| constraint.clone())
+        .filter(|constraint| {
+            matches!(
+                constraint,
+                Constraint::HorizontalPoints(..) | Constraint::VerticalPoints(..)
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_point_hovered_while_drawing_guides_later_points_into_line_with_it() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::P);
+    harness.click_at(Point2::new(40.0, 30.0));
+    let [guide] = entities_of_kind(harness.sketch(feature), "Point")[..] else {
+        panic!("one point should be drawn");
+    };
+    harness.use_tool(Key::R);
+
+    harness.point_at(Point2::new(40.0, 30.0));
+    harness.click_at(Point2::new(10.0, 5.0));
+    harness.point_at(Point2::new(25.0, 30.02));
+    assert!(harness.shows(&format!("Horizontal from Point {guide}")));
+    harness.click_at(Point2::new(25.0, 30.02));
+
+    let sketch = harness.sketch(feature);
+    let guided = sketch.point(guide).unwrap();
+    let [Constraint::HorizontalPoints(corner, reference)] = aligned_point_pairs(sketch)[..] else {
+        panic!("the far corner should line up beside the hovered point");
+    };
+    assert_eq!(reference, guide);
+    assert_eq!(sketch.point(corner).map(|at| at.y), Some(guided.y));
+
+    harness.use_tool(Key::L);
+    harness.click_at(Point2::new(70.0, 10.0));
+    harness.point_at(Point2::new(40.0, 30.0));
+    harness.point_at(Point2::new(40.02, 10.02));
+    assert!(harness.shows(&format!("Horizontal, vertical from Point {guide}")));
+    harness.click_at(Point2::new(40.02, 10.02));
+    harness.key(Key::Escape, Modifiers::NONE);
+
+    let sketch = harness.sketch(feature);
+    let pairs = aligned_point_pairs(sketch);
+    let [_, Constraint::VerticalPoints(end, reference)] = pairs[..] else {
+        panic!("the line's end should line up under the hovered point: {pairs:?}");
+    };
+    let [.., line] = entities_of_kind(sketch, "Line")[..] else {
+        panic!("a line should be drawn");
+    };
+    let (start, _) = line_ends(sketch, line);
+    assert_eq!(reference, guide);
+    assert_eq!(
+        sketch.point(end),
+        Some(Point2::new(guided.x, sketch.point(start).unwrap().y))
+    );
+}
+
 #[test]
 fn one_press_drag_release_draws_a_whole_line_rectangle_or_circle() {
     let mut harness = Harness::new();

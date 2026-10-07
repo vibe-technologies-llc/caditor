@@ -9,6 +9,7 @@ use caditor_document::{
     SolidFeature,
 };
 use caditor_file::{JournalEntry, Start, Storage, StorageConfig};
+use caditor_geometry::Point2;
 use caditor_render::{SurfaceTarget, ViewportFrame, ViewportRenderer};
 use egui::{Event, Key, Modifiers};
 use tempfile::TempDir;
@@ -324,6 +325,11 @@ fn screenshots() {
         drop(bodies);
 
         let dir = TempDir::new().expect("a temporary directory");
+        let mut sketching = Harness::styled(look, dir.path(), false);
+        inference_scenes(&mut sketching, &gpu, &out, look);
+        drop(sketching);
+
+        let dir = TempDir::new().expect("a temporary directory");
         let mut model = Harness::styled(look, dir.path(), false);
         model.open_sample(Sample::Bracket);
         shoot(&mut model, &gpu, &out, "model", look);
@@ -512,6 +518,17 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         model.key(Key::I, Modifiers::NONE);
         model.frame();
     }
+}
+
+fn inference_scenes(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    harness.draw_on_new_sketch();
+    harness.use_tool(Key::P);
+    harness.click_at(Point2::new(40.0, 30.0));
+    harness.use_tool(Key::R);
+    harness.point_at(Point2::new(40.0, 30.0));
+    harness.click_at(Point2::new(10.0, 5.0));
+    harness.point_at(Point2::new(25.0, 30.02));
+    shoot(harness, gpu, out, "tracking", look);
 }
 
 fn interference(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {

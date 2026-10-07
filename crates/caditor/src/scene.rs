@@ -108,6 +108,7 @@ const DATUM_PLANE_SCALE: f64 = 0.75;
 const OPENED_DATUM_EXTRA_WIDTH: f32 = 1.0;
 
 const CURVE_WIDTH: f32 = 2.0;
+const GUIDE_WIDTH: f32 = 1.0;
 const XRAY_FACE_ALPHA: f32 = 0.18;
 const PREVIEW_ALPHA: f32 = 0.45;
 const CUT_PREVIEW_ALPHA: f32 = 0.35;
@@ -1406,6 +1407,16 @@ pub fn add_preview(scene: &mut Batch, plane: Plane, preview: &Preview) {
         };
         scene.lines.extend(curve_lines(plane, curve, style));
     }
+    for guide in &preview.guides {
+        let style = CurveStyle {
+            color: SNAP_MARKER,
+            width: GUIDE_WIDTH,
+            layer: Layer::Front,
+            pick: None,
+            dashed: true,
+        };
+        scene.lines.extend(curve_lines(plane, guide, style));
+    }
     let snap = preview.snap.map(|position| Marker {
         position: plane.to_world(position),
         color: SNAP_MARKER,
@@ -2026,10 +2037,15 @@ mod tests {
                 removed: vec![vec![Point2::new(5.0, 5.0), Point2::new(9.0, 5.0)]],
                 points: vec![Point2::new(5.0, 5.0)],
                 snap: Some(Point2::ZERO),
+                guides: vec![[Point2::ZERO, Point2::new(0.0, 9.0)]],
                 construction: false,
             },
         );
-        assert_eq!((preview.lines.len(), preview.markers.len()), (2, 2));
+        assert_eq!((preview.lines.len(), preview.markers.len()), (3, 2));
+        assert!(matches!(
+            preview.lines.last().map(|drawn| drawn.stroke),
+            Some(Stroke::Dashed { .. })
+        ));
         assert!(preview.lines.iter().all(|drawn| in_front(drawn.layer)));
         assert!(preview.markers.iter().all(|drawn| in_front(drawn.layer)));
     }

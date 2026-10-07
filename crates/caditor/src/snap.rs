@@ -17,6 +17,7 @@ pub enum Target {
     Pending(usize),
     Point(EntityId),
     Curve(EntityId),
+    Extension(EntityId),
     Midpoint(EntityId),
     Intersection(EntityId, EntityId),
     Centre {
@@ -40,6 +41,7 @@ impl Target {
             Self::Pending(_)
             | Self::Point(_)
             | Self::Curve(_)
+            | Self::Extension(_)
             | Self::Midpoint(_)
             | Self::Centre { .. } => None,
         }
@@ -50,6 +52,7 @@ impl Target {
             Self::Pending(_) => None,
             Self::Point(entity)
             | Self::Curve(entity)
+            | Self::Extension(entity)
             | Self::Midpoint(entity)
             | Self::Intersection(entity, _)
             | Self::Centre {
@@ -84,6 +87,7 @@ pub fn resolve(
     pointer: Pointer,
     pending: &[(usize, Point2)],
     accept: Accept,
+    extended: &[EntityId],
 ) -> Option<Snapped> {
     let pending = pending
         .iter()
@@ -120,7 +124,14 @@ pub fn resolve(
             Accept::Points | Accept::OnCircle { .. } => None,
         })
         .or_else(|| match accept {
-            Accept::Anything => nearest(curves(sketch, pointer.sketch), CURVE_TOLERANCE),
+            Accept::Anything => {
+                nearest(curves(sketch, pointer.sketch), CURVE_TOLERANCE).or_else(|| {
+                    nearest(
+                        extensions(sketch, extended, pointer.sketch),
+                        CURVE_TOLERANCE,
+                    )
+                })
+            }
             Accept::Points => None,
             Accept::OnCircle { center, radius } => {
                 nearest(crossings(sketch, center, radius), CURVE_TOLERANCE)
@@ -474,6 +485,35 @@ fn curves(sketch: &Sketch, at: Point2) -> Vec<Snapped> {
     axes.into_iter().chain(drawn).collect()
 }
 
+fn extensions(sketch: &Sketch, lines: &[EntityId], at: Point2) -> Vec<Snapped> {
+    lines
+        .iter()
+        .filter_map(|line| {
+            let (start, end) = sketch.line_endpoints(*line)?;
+            let along = end - start;
+            let length_squared = along.length_squared();
+            if length_squared == 0.0 {
+                return None;
+            }
+            let fraction = (at - start).dot(along) / length_squared;
+            (!(0.0..=1.0).contains(&fraction)).then(|| Snapped {
+                position: start + along * fraction,
+                target: Target::Extension(*line),
+            })
+        })
+        .collect()
+}
+
+pub fn extension_guide(sketch: &Sketch, line: EntityId, to: Point2) -> Option<[Point2; 2]> {
+    let (start, end) = sketch.line_endpoints(line)?;
+    let nearer = if start.distance_squared(to) <= end.distance_squared(to) {
+        start
+    } else {
+        end
+    };
+    Some([nearer, to])
+}
+
 fn closest_on(sketch: &Sketch, id: EntityId, entity: &Entity, at: Point2) -> Option<Point2> {
     match entity {
         Entity::Line { .. } => {
@@ -596,11 +636,21 @@ fn circle_crossings(center: Point2, radius: f64, other: Point2, other_radius: f6
 
 pub fn crossing_along(
     sketch: &Sketch,
-    curve: EntityId,
+    target: Target,
     through: Point2,
     along: Vector2,
     near: Point2,
 ) -> Option<Point2> {
+    let (curve, extended) = match target {
+        Target::Curve(curve) => (curve, false),
+        Target::Extension(line) => (line, true),
+        Target::Pending(_)
+        | Target::Point(_)
+        | Target::Midpoint(_)
+        | Target::Intersection(..)
+        | Target::Centre { .. } => return None,
+    };
+    let on_part = |fraction: f64| (0.0..=1.0).contains(&fraction) != extended;
     let crossings: Vec<Point2> = if curve == EntityId::HORIZONTAL_AXIS {
         straight_crossing(through, along, Point2::ZERO, Vector2::X)
             .map(|(_, position)| position)
@@ -616,7 +666,7 @@ pub fn crossing_along(
             Entity::Line { .. } => {
                 let (start, end) = sketch.line_endpoints(curve)?;
                 straight_crossing(through, along, start, end - start)
-                    .filter(|(fraction, _)| (0.0..=1.0).contains(fraction))
+                    .filter(|(fraction, _)| on_part(*fraction))
                     .map(|(_, position)| position)
                     .into_iter()
                     .collect()
@@ -702,7 +752,14 @@ pub mod tests {
     }
 
     fn resolve_at(sketch: &Sketch, at: Point2) -> Option<Snapped> {
-        resolve(sketch, &Scaled(10.0), pointer_at(at), &[], Accept::Anything)
+        resolve(
+            sketch,
+            &Scaled(10.0),
+            pointer_at(at),
+            &[],
+            Accept::Anything,
+            &[],
+        )
     }
 
     fn point_of(sketch: &Sketch, curve: EntityId, index: usize) -> EntityId {
@@ -743,6 +800,7 @@ pub mod tests {
             pointer_at(Point2::new(20.4, 10.6)),
             &[],
             Accept::Points,
+            &[],
         );
         assert_eq!(only_points, None);
         let on_circle = resolve(
@@ -754,6 +812,7 @@ pub mod tests {
                 center: Point2::new(20.0, 10.0),
                 radius: 50.0,
             },
+            &[],
         );
         assert_eq!(on_circle, None);
     }
@@ -962,6 +1021,7 @@ pub mod tests {
             pointer_at(Point2::new(20.0, 0.2)),
             &[(3, Point2::new(20.5, 0.5))],
             Accept::Anything,
+            &[],
         );
         assert_eq!(
             pending.map(|snapped| snapped.target),
@@ -983,7 +1043,7 @@ pub mod tests {
             center: Point2::new(40.0, 40.0),
             radius: 10.0,
         };
-        let at = |point| resolve(&sketch, &Scaled(10.0), pointer_at(point), &[], circle);
+        let at = |point| resolve(&sketch, &Scaled(10.0), pointer_at(point), &[], circle, &[]);
         let upper = Point2::new(46.875, 40.0 + (100.0f64 - 6.875 * 6.875).sqrt());
         let lower = Point2::new(upper.x, 80.0 - upper.y);
 
@@ -999,6 +1059,7 @@ pub mod tests {
             pointer_at(Point2::new(9.2, 0.3)),
             &[],
             around,
+            &[],
         )
         .unwrap();
 
@@ -1024,7 +1085,16 @@ pub mod tests {
         let mut sketch = Sketch::new(Plane::XY);
         let point = sketch.add_point(Point2::new(30.0, 30.0));
         sketch.add_line(Point2::new(10.0, 10.0), Point2::new(10.0, 50.0));
-        let rim = |at| resolve(&sketch, &Scaled(10.0), pointer_at(at), &[], Accept::Points);
+        let rim = |at| {
+            resolve(
+                &sketch,
+                &Scaled(10.0),
+                pointer_at(at),
+                &[],
+                Accept::Points,
+                &[],
+            )
+        };
 
         assert_eq!(
             rim(Point2::new(30.2, 30.1)).map(|snapped| snapped.target),
@@ -1044,7 +1114,13 @@ pub mod tests {
             Point2::new(-60.0, 0.0),
         );
         let upward = |x: f64, curve, near| {
-            crossing_along(&sketch, curve, Point2::new(x, -30.0), Vector2::Y, near)
+            crossing_along(
+                &sketch,
+                Target::Curve(curve),
+                Point2::new(x, -30.0),
+                Vector2::Y,
+                near,
+            )
         };
 
         assert_eq!(
@@ -1069,5 +1145,58 @@ pub mod tests {
             Some(Point2::new(7.0, 0.0))
         );
         assert_eq!(upward(7.0, EntityId::VERTICAL_AXIS, Point2::ZERO), None);
+    }
+
+    #[test]
+    fn an_acquired_line_extends_past_its_ends_for_snapping() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
+        let beyond = Point2::new(30.2, 29.8);
+
+        assert_eq!(resolve_at(&sketch, beyond), None);
+
+        let extended = resolve(
+            &sketch,
+            &Scaled(10.0),
+            pointer_at(beyond),
+            &[],
+            Accept::Anything,
+            &[line],
+        )
+        .unwrap();
+        assert_eq!(extended.target, Target::Extension(line));
+        assert!(extended.position.distance(Point2::new(30.0, 30.0)) < 1e-12);
+        assert_eq!(
+            extension_guide(&sketch, line, extended.position),
+            Some([Point2::new(10.0, 10.0), extended.position])
+        );
+
+        let on_it = resolve(
+            &sketch,
+            &Scaled(10.0),
+            pointer_at(Point2::new(3.2, 2.8)),
+            &[],
+            Accept::Anything,
+            &[line],
+        )
+        .unwrap();
+        assert_eq!(on_it.target, Target::Curve(line));
+
+        let across = crossing_along(
+            &sketch,
+            Target::Extension(line),
+            Point2::new(20.0, 0.0),
+            Vector2::Y,
+            beyond,
+        );
+        assert_eq!(across, Some(Point2::new(20.0, 20.0)));
+        let inside = crossing_along(
+            &sketch,
+            Target::Extension(line),
+            Point2::new(5.0, 0.0),
+            Vector2::Y,
+            beyond,
+        );
+        assert_eq!(inside, None);
     }
 }

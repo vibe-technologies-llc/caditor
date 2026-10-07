@@ -153,8 +153,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
   closed-region or open-end feedback while sketching (only a failed extrusion names a sketch's open
   ends); and no smart-dimension tool that takes the entities after the command.
 - [medium · medium] Snapping has no spline targets or crossings with splines, no centre of an
-  outline with odd sides or arcs in it, no grid or inference lines to other points, and dragged
-  geometry does not snap at all.
+  outline with odd sides or arcs in it, no grid, and dragged geometry does not snap at all.
+  Tracks run only horizontal and vertical from acquired points, not along other angles.
 - [medium · hard] Tools missing: ellipse (a new entity kind across the solver, the kernel's 2D
   profile curves, which have no ellipse although its 3D curves do, and the file format), sketch
   chamfer, rectangular and circular patterns, rotate, scale and copy of a selection, split at a

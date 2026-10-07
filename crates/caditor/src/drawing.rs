@@ -11,6 +11,7 @@ use crate::{
     shapes::{self, ArcSlot, Circular, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot},
     sketch_tools,
     snap::{self, Accept, Pointer, Screen, Snapped, Target},
+    tracking::{self, Acquired, Tracked, Tracks},
     units::Units,
 };
 
@@ -278,6 +279,13 @@ impl Direction {
     }
 }
 
+fn capitalized(words: &str) -> String {
+    let mut letters = words.chars();
+    letters.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(letters).collect()
+    })
+}
+
 fn with_reference(words: String, reference: Option<EntityId>, sketch: &Sketch) -> String {
     match reference {
         Some(line) => format!("{words} {}", sketch.entity_label(line)),
@@ -348,20 +356,31 @@ impl Snap {
 pub struct Placement {
     pub position: Point2,
     pub snap: Snap,
+    pub tracks: Tracks,
 }
 
 impl Placement {
-    fn free(position: Point2) -> Self {
+    fn at(position: Point2, snap: Snap) -> Self {
         Self {
             position,
-            snap: Snap::Free,
+            snap,
+            tracks: Tracks::default(),
         }
     }
 
+    fn free(position: Point2) -> Self {
+        Self::at(position, Snap::Free)
+    }
+
     fn snapped(snapped: Snapped) -> Self {
+        Self::at(snapped.position, Snap::Target(snapped.target))
+    }
+
+    fn tracked(tracked: Tracked, snap: Snap) -> Self {
         Self {
-            position: snapped.position,
-            snap: Snap::Target(snapped.target),
+            position: tracked.position,
+            snap,
+            tracks: tracked.tracks,
         }
     }
 }
@@ -431,6 +450,7 @@ fn point_target(snap: Snap) -> Option<EntityId> {
         Target::Point(point) => Some(point),
         Target::Pending(_)
         | Target::Curve(_)
+        | Target::Extension(_)
         | Target::Midpoint(_)
         | Target::Intersection(..)
         | Target::Centre { .. } => None,
@@ -455,6 +475,7 @@ pub struct Preview {
     pub removed: Vec<Vec<Point2>>,
     pub points: Vec<Point2>,
     pub snap: Option<Point2>,
+    pub guides: Vec<[Point2; 2]>,
     pub construction: bool,
 }
 
@@ -477,6 +498,8 @@ pub struct Drawing {
     sides: Sides,
     scrub: Option<Scrub>,
     free: bool,
+    acquired: Acquired,
+    extension_guide: Option<[Point2; 2]>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -517,6 +540,7 @@ impl Drawing {
             .into_iter()
             .chain(hover.snap.target().and_then(Target::second_entity))
             .chain(hover.snap.direction().and_then(Direction::reference))
+            .chain(hover.tracks.points())
             .collect()
     }
 
@@ -530,9 +554,17 @@ impl Drawing {
             active.and_then(|active| Some((active.feature, Shape::of(active.tool, modes)?)));
         if context != self.context {
             let carried = self.continued_in(context, sketch);
+            let same_sketch =
+                self.context.map(|(feature, _)| feature) == context.map(|(feature, _)| feature);
+            let acquired = if same_sketch {
+                std::mem::take(&mut self.acquired)
+            } else {
+                Acquired::default()
+            };
             *self = Self {
                 context,
                 sides: self.sides,
+                acquired,
                 ..Self::default()
             };
             if let Some(carried) = carried {
@@ -543,6 +575,9 @@ impl Drawing {
             }
         }
         self.construction = active.is_some_and(|active| active.construction);
+        if let Some(sketch) = sketch {
+            self.acquired.retain(sketch);
+        }
         let lost_anchor = sketch.is_some_and(|sketch| {
             let lost_point = self.placed.iter().any(|placement| {
                 placement
@@ -635,6 +670,13 @@ impl Drawing {
             return;
         }
         self.hover = pointer.map(|pointer| self.place(shape, sketch, screen, pointer));
+        self.extension_guide = self.hover.and_then(|hover| match hover.snap.target()? {
+            Target::Extension(line) => snap::extension_guide(sketch, line, hover.position),
+            _ => None,
+        });
+        if let Some(target) = self.hover.and_then(|hover| hover.snap.target()) {
+            self.acquired.note(sketch, target);
+        }
         if self.choosing_arc_end()
             && let (Some(sweep), Some(hover)) = (&mut self.sweep, self.hover)
         {
@@ -763,13 +805,11 @@ impl Drawing {
             .find(|candidate| same(candidate.position))
             .map(|candidate| (candidate.position, candidate.target));
         let placement = match pending.or(existing) {
-            Some((position, target)) => Placement {
-                position,
-                snap: Snap::Target(target),
-            },
+            Some((position, target)) => Placement::at(position, Snap::Target(target)),
             None => Placement::free(position),
         };
         self.hover = Some(placement);
+        self.extension_guide = None;
         if self.choosing_arc_end()
             && let Some(sweep) = &mut self.sweep
         {
@@ -962,10 +1002,10 @@ impl Drawing {
                         tangent: self.tangent,
                         label: self.segment_label(shape),
                     });
-                    self.placed = vec![Placement {
-                        position: placement.position,
-                        snap: Snap::Target(Target::Point(end)),
-                    }];
+                    self.placed = vec![Placement::at(
+                        placement.position,
+                        Snap::Target(Target::Point(end)),
+                    )];
                 }
                 return Ok(Some(draft.finish()));
             }
@@ -1091,10 +1131,10 @@ impl Drawing {
                             tangent: Some(tangent),
                             label: self.segment_label(shape),
                         });
-                        self.placed = vec![Placement {
-                            position: placement.position,
-                            snap: Snap::Target(Target::Point(drawn.end)),
-                        }];
+                        self.placed = vec![Placement::at(
+                            placement.position,
+                            Snap::Target(Target::Point(drawn.end)),
+                        )];
                         self.tangent = Some(Tangent {
                             curve: drawn.curve,
                             direction,
@@ -1250,6 +1290,12 @@ impl Drawing {
                 .hover
                 .filter(|hover| hover.snap.target().is_some())
                 .map(|hover| hover.position),
+            guides: self
+                .hover
+                .into_iter()
+                .flat_map(|hover| hover.tracks.guides(hover.position))
+                .chain(self.extension_guide)
+                .collect(),
             construction: self.construction,
             ..Preview::default()
         };
@@ -1414,8 +1460,9 @@ impl Drawing {
 
     pub fn snap_label(&self, sketch: &Sketch) -> Option<String> {
         let (_, shape) = self.context?;
-        let snap = self.hover?.snap;
-        match (snap.target(), snap.direction()) {
+        let hover = self.hover?;
+        let snap = hover.snap;
+        let label = match (snap.target(), snap.direction()) {
             (None, None) => None,
             (None, Some(direction)) => Some(direction.label(sketch)),
             (Some(target), None) => Some(self.target_label(shape, sketch, target)),
@@ -1424,6 +1471,11 @@ impl Drawing {
                 self.target_label(shape, sketch, target),
                 direction.joined_label(sketch)
             )),
+        };
+        match (label, hover.tracks.label(sketch)) {
+            (label, None) => label,
+            (Some(label), Some(tracked)) => Some(format!("{label}, {tracked}")),
+            (None, Some(tracked)) => Some(capitalized(&tracked)),
         }
     }
 
@@ -1450,6 +1502,9 @@ impl Drawing {
             ),
             Target::Point(entity) | Target::Curve(entity) => {
                 format!("On {}", sketch.entity_label(entity))
+            }
+            Target::Extension(line) => {
+                format!("On the extension of {}", sketch.entity_label(line))
             }
         }
     }
@@ -1596,9 +1651,46 @@ impl Drawing {
         }
         let pending = self.pending(shape);
         let accept = self.accept(shape);
-        let snapped = snap::resolve(sketch, screen, pointer, &pending, accept);
+        let snapped = snap::resolve(
+            sketch,
+            screen,
+            pointer,
+            &pending,
+            accept,
+            self.acquired.lines(),
+        );
+        let tracks = match accept {
+            Accept::Anything => {
+                let placed: Vec<EntityId> = self
+                    .placed
+                    .iter()
+                    .filter_map(|placement| point_target(placement.snap))
+                    .collect();
+                tracking::nearby(sketch, screen, pointer, &self.acquired, &placed)
+            }
+            Accept::Points | Accept::OnCircle { .. } => Tracks::default(),
+        };
+        let tracked_on = |snapped: Snapped| {
+            tracking::on_curve(
+                sketch,
+                snapped.target,
+                tracks,
+                screen,
+                pointer,
+                ALIGNED_CROSSING_TOLERANCE,
+            )
+            .map(|tracked| Placement::tracked(tracked, Snap::Target(snapped.target)))
+        };
+        let tracked_alone = || {
+            tracking::alone(tracks, screen, pointer)
+                .map(|tracked| Placement::tracked(tracked, Snap::Free))
+                .unwrap_or(Placement::free(pointer.sketch))
+        };
         let Some(start) = self.aligned_from(shape) else {
-            return snapped.map_or(Placement::free(pointer.sketch), Placement::snapped);
+            return match snapped {
+                Some(snapped) => tracked_on(snapped).unwrap_or(Placement::snapped(snapped)),
+                None => tracked_alone(),
+            };
         };
         let continued = match shape {
             Shape::Line => point_target(start.snap),
@@ -1607,9 +1699,30 @@ impl Drawing {
         let guides = guides(sketch, screen, pointer, start.position, continued);
         match snapped {
             Some(snapped) => aligned_on(sketch, screen, pointer, start.position, snapped, &guides)
+                .or_else(|| tracked_on(snapped))
                 .unwrap_or(Placement::snapped(snapped)),
-            None => align(start.position, screen, pointer, &guides)
-                .unwrap_or(Placement::free(pointer.sketch)),
+            None => match align(start.position, screen, pointer, &guides) {
+                Some(aligned) => aligned
+                    .snap
+                    .direction()
+                    .and_then(|direction| {
+                        let along = aligned.position - start.position;
+                        tracking::on_ray(
+                            tracks,
+                            start.position,
+                            along,
+                            screen,
+                            pointer,
+                            ALIGNED_CROSSING_TOLERANCE,
+                        )
+                        .filter(|tracked| {
+                            tracked.position.distance(start.position) >= DEGENERATE_LENGTH
+                        })
+                        .map(|tracked| Placement::tracked(tracked, Snap::Aligned(direction)))
+                    })
+                    .unwrap_or(aligned),
+                None => tracked_alone(),
+            },
         }
     }
 
@@ -1751,10 +1864,7 @@ fn align(
 ) -> Option<Placement> {
     alignments(start, screen, pointer, guides)
         .first()
-        .map(|aligned| Placement {
-            position: aligned.position,
-            snap: Snap::Aligned(aligned.guide.direction),
-        })
+        .map(|aligned| Placement::at(aligned.position, Snap::Aligned(aligned.guide.direction)))
 }
 
 fn aligned_on(
@@ -1765,9 +1875,8 @@ fn aligned_on(
     snapped: Snapped,
     guides: &[Guide],
 ) -> Option<Placement> {
-    let on = |position: Point2, direction: Direction| Placement {
-        position,
-        snap: Snap::AlignedOn(snapped.target, direction),
+    let on = |position: Point2, direction: Direction| {
+        Placement::at(position, Snap::AlignedOn(snapped.target, direction))
     };
     match snapped.target {
         Target::Pending(_) => None,
@@ -1777,12 +1886,12 @@ fn aligned_on(
         | Target::Centre { .. } => {
             held(start, snapped.position, guides).map(|direction| on(snapped.position, direction))
         }
-        Target::Curve(curve) => alignments(start, screen, pointer, guides)
+        Target::Curve(_) | Target::Extension(_) => alignments(start, screen, pointer, guides)
             .into_iter()
             .find_map(|aligned| {
                 let crossing = snap::crossing_along(
                     sketch,
-                    curve,
+                    snapped.target,
                     start,
                     aligned.guide.along,
                     pointer.sketch,
@@ -1969,6 +2078,9 @@ impl<'a> Draft<'a> {
                     self.constrain(Constraint::Coincident(point, target));
                 }
             }
+        }
+        for constraint in placement.tracks.constraints(point) {
+            self.constrain(constraint);
         }
         point
     }
@@ -2230,11 +2342,11 @@ impl<'a> Draft<'a> {
         let [first_position, last_position] = slot.ends;
         let first_center = self.point(Placement {
             position: first_position,
-            snap: first.snap,
+            ..first
         });
         let last_center = self.point(Placement {
             position: last_position,
-            snap: last.snap,
+            ..last
         });
         let [outer_first, outer_last, inner_first, inner_last] = slot.corners();
         let outer = self.arc_through(center, outer_first, outer_last);
@@ -2552,10 +2664,7 @@ mod tests {
         let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
         let last = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(40.0, 30.0));
         let end = sketch.entity(last).unwrap().points()[1];
-        let joined = Placement {
-            position: Point2::new(40.0, 30.0),
-            snap: Snap::Target(Target::Point(end)),
-        };
+        let joined = Placement::at(Point2::new(40.0, 30.0), Snap::Target(Target::Point(end)));
         let mut drawing = drawing_a_line(&sketch, joined);
 
         let straight_on = hovered_at(&mut drawing, &sketch, Point2::new(70.0, 50.3)).unwrap();
@@ -2609,5 +2718,31 @@ mod tests {
         let not_held = hovered_at(&mut drawing, &sketch, Point2::new(10.4, 40.2)).unwrap();
         assert_eq!(not_held.snap, Snap::Target(Target::Point(off)));
         assert_eq!(not_held.position, Point2::new(10.5, 40.0));
+    }
+
+    #[test]
+    fn a_rectangle_corner_tracks_a_point_hovered_before() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let guide = sketch.add_point(Point2::new(40.0, 30.0));
+        let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::new(10.0, 5.0)));
+        drawing.context = drawing
+            .context
+            .map(|(feature, _)| (feature, Shape::Rectangle(RectangleMode::Corners)));
+        drawing.placed.clear();
+
+        hovered_at(&mut drawing, &sketch, Point2::new(40.0, 30.0));
+        drawing.placed = vec![Placement::free(Point2::new(10.0, 5.0))];
+        let corner = hovered_at(&mut drawing, &sketch, Point2::new(40.2, 60.0)).unwrap();
+
+        assert_eq!(corner.position, Point2::new(40.0, 60.0));
+        assert_eq!(corner.tracks.points().collect::<Vec<_>>(), vec![guide]);
+        assert_eq!(
+            drawing.snap_label(&sketch),
+            Some(format!("Vertical from Point {guide}"))
+        );
+        assert_eq!(
+            drawing.preview(Faceting::within(0.01)).guides,
+            vec![[Point2::new(40.0, 30.0), Point2::new(40.0, 60.0)]]
+        );
     }
 }

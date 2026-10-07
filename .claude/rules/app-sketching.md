@@ -12,6 +12,7 @@ paths:
   - "crates/caditor/src/shapes.rs"
   - "crates/caditor/src/shape_modes.rs"
   - "crates/caditor/src/snap.rs"
+  - "crates/caditor/src/tracking.rs"
   - "crates/caditor/src/sketch_tools.rs"
   - "crates/caditor/src/sketch_toolbar.rs"
   - "crates/caditor/src/sketch_status.rs"
@@ -205,6 +206,21 @@ paths:
   (`Snap::AlignedOn`): a point snap keeps a direction that already holds (`HELD_TOLERANCE`) and
   never moves the point; a curve snap moves to where the direction's ray crosses the curve, within
   `ALIGNED_CROSSING_TOLERANCE` of the pointer. Typed points never align.
+- Points the hover snapped to are acquired (`tracking::Acquired`, newest first, at most
+  `MAX_ACQUIRED_POINTS`), as are the centre of a circle or arc whose rim, middle or centre was
+  hovered and the lines ending at a hovered point (`MAX_ACQUIRED_LINES`); they are kept across
+  tools within one sketch and dropped when gone. Where any snap is accepted, a placed point within
+  `TRACK_TOLERANCE` of the horizontal or vertical through an acquired point (other than the
+  shape's own placed points, at least `MIN_TRACK_LENGTH` from it) lands on it with a
+  `HorizontalPoints`/`VerticalPoints` constraint (`Tracks`), on both at once where a horizontal
+  and a vertical from two points cross. A track joins a curve snap where it crosses the curve
+  (never along a line it runs on) and a line's direction where they cross, within
+  `ALIGNED_CROSSING_TOLERANCE`; point snaps never take one. The preview draws each track as a
+  dashed guide from its point (`Preview::guides`) and highlights the point.
+- An acquired line extends past its ends: after curves, the pointer within `CURVE_TOLERANCE` of its
+  infinite carrier snaps to it (`Target::Extension`, a `Coincident` on the line, which the solver
+  treats as the infinite line), with a dashed guide from the nearer end; directions and tracks
+  join it as they do a curve.
 - Preview curves are faceted like the sketch's (`Drawing::preview` and `Trimming::preview` take
   the scene's `Faceting`); the snap target and a direction's reference line
   (`Drawing::snap_entities`) replace the GPU hover while a drawing tool is active.
