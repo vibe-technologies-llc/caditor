@@ -1,7 +1,7 @@
 use std::{collections::BTreeSet, fmt};
 
 use crate::{
-    ParameterId,
+    ParameterId, ParseError,
     quantity::{Dimension, Quantity, Unit},
 };
 
@@ -421,6 +421,31 @@ impl Expression {
             Self::Binary(_, left, right) => left.uses(parameter) || right.uses(parameter),
             Self::Call(_, arguments) => arguments.iter().any(|argument| argument.uses(parameter)),
             Self::Number(_) | Self::Measure(..) | Self::Constant(_) => false,
+        }
+    }
+
+    pub fn inlining(&self, parameter: ParameterId, replacement: &Self) -> Result<Self, ParseError> {
+        let mut inlined = self.clone();
+        inlined.replace_parameter(parameter, replacement);
+        Self::parse_stored(&inlined.to_stored_text())
+    }
+
+    fn replace_parameter(&mut self, parameter: ParameterId, replacement: &Self) {
+        match self {
+            Self::Parameter(id) if *id == parameter => *self = replacement.clone(),
+            Self::Negate(inner) | Self::WithUnit(inner, ..) => {
+                inner.replace_parameter(parameter, replacement);
+            }
+            Self::Binary(_, left, right) => {
+                left.replace_parameter(parameter, replacement);
+                right.replace_parameter(parameter, replacement);
+            }
+            Self::Call(_, arguments) => {
+                for argument in arguments {
+                    argument.replace_parameter(parameter, replacement);
+                }
+            }
+            Self::Number(_) | Self::Measure(..) | Self::Constant(_) | Self::Parameter(_) => {}
         }
     }
 

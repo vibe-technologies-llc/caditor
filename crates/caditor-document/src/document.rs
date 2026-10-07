@@ -52,6 +52,7 @@ pub struct Parameter {
     id: ParameterId,
     pub name: String,
     pub expression: Expression,
+    pub note: String,
 }
 
 impl Parameter {
@@ -60,7 +61,14 @@ impl Parameter {
             id,
             name,
             expression,
+            note: String::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_note(mut self, note: String) -> Self {
+        self.note = note;
+        self
     }
 
     pub fn id(&self) -> ParameterId {

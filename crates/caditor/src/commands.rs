@@ -165,6 +165,9 @@ pub enum Command {
     FilterFeatures,
     AddParameter,
     DeleteParameter,
+    MoveParameterUp,
+    MoveParameterDown,
+    ParameterNote,
     ShowFirstFailed,
     UpdateReferences,
     DismissNotice,
@@ -516,6 +519,9 @@ plain_commands! {
     FilterFeatures,
     AddParameter,
     DeleteParameter,
+    MoveParameterUp,
+    MoveParameterDown,
+    ParameterNote,
     ShowFirstFailed,
     UpdateReferences,
     DismissNotice,
@@ -696,6 +702,9 @@ impl Command {
             Self::FilterFeatures => "model.filter_features",
             Self::AddParameter => "model.add_parameter",
             Self::DeleteParameter => "model.delete_parameter",
+            Self::MoveParameterUp => "model.move_parameter_up",
+            Self::MoveParameterDown => "model.move_parameter_down",
+            Self::ParameterNote => "model.parameter_note",
             Self::ShowFirstFailed => "model.first_failed",
             Self::UpdateReferences => "model.update_references",
             Self::DismissNotice => "edit.dismiss_notice",
@@ -823,6 +832,9 @@ impl Command {
             Self::FilterFeatures => "Filter the feature tree",
             Self::AddParameter => "Add parameter",
             Self::DeleteParameter => "Delete parameter",
+            Self::MoveParameterUp => "Move parameter up",
+            Self::MoveParameterDown => "Move parameter down",
+            Self::ParameterNote => "Add or edit the parameter's note",
             Self::ShowFirstFailed => "Go to the first failed feature",
             Self::UpdateReferences => "Update references",
             Self::DismissNotice => "Dismiss the notice",
@@ -937,6 +949,9 @@ impl Command {
             | Self::FilterFeatures
             | Self::AddParameter
             | Self::DeleteParameter
+            | Self::MoveParameterUp
+            | Self::MoveParameterDown
+            | Self::ParameterNote
             | Self::ShowFirstFailed
             | Self::UpdateReferences => Category::Model,
             Self::FinishSketch
@@ -1087,6 +1102,9 @@ impl Command {
             | Self::PatternSecondUseSelected
             | Self::AddParameter
             | Self::DeleteParameter
+            | Self::MoveParameterUp
+            | Self::MoveParameterDown
+            | Self::ParameterNote
             | Self::UpdateReferences
             | Self::DismissNotice
             | Self::DismissTip

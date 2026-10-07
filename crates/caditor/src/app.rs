@@ -47,6 +47,7 @@ use crate::{
     overlay::Overlay,
     palette::Palette,
     panels::{self, PanelState},
+    parameter_table,
     preferences::{
         self, Appearance, PreferenceChange, Preferences, PreferencesCommand, PreferencesTab,
         PreferencesView, Restored, TitleBar,
@@ -319,7 +320,8 @@ pub fn show(
         || workspace.about_open
         || workspace.messages_open
         || workspace.undo_history_open
-        || workspace.panels.deleting.is_some();
+        || workspace.panels.deleting.is_some()
+        || workspace.panels.noting.is_some();
     let dialog_open = modal_open || palette_open;
     let blocked = files.is_blocking() || dialog_open;
     let keys_free = !keyboard_taken && !blocked;
@@ -583,6 +585,7 @@ pub fn show(
             actions.push(Action::Preferences(PreferencesCommand::CloseMessages));
         }
         feature_tree::delete_dialog(ui.ctx(), model.document(), panels, actions);
+        parameter_table::note_dialog(ui.ctx(), model.document(), panels, actions);
         if let Some((hint, rect)) = hint.filter(|_| !palette_open)
             && let Some(choice) = onboarding::show_hint(
                 ui.ctx(),

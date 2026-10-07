@@ -11,6 +11,7 @@ mod editor;
 mod healing;
 mod hole;
 mod import;
+mod inlining;
 mod mirror;
 mod movement;
 mod origins;
@@ -47,7 +48,7 @@ pub use crate::{
         Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, RollbackBar,
         TreeRow,
     },
-    edit::{Edit, EditError, Touched, Transaction, TransactionBuilder},
+    edit::{Edit, EditError, MAX_PARAMETER_NOTE_CHARS, Touched, Transaction, TransactionBuilder},
     editor::{Base, Editor, Prepared, Stale},
     healing::Healing,
     hole::{Hole, HoleDepth, HoleStyle, MAX_COUNTERSINK_ANGLE, MAX_HOLES, centres as hole_centres},
@@ -90,6 +91,8 @@ mod hole_tests;
 mod mirror_tests;
 #[cfg(test)]
 mod movement_tests;
+#[cfg(test)]
+mod parameter_tests;
 #[cfg(test)]
 mod pattern_tests;
 #[cfg(test)]

@@ -121,6 +121,35 @@ mod tests {
     }
 
     #[test]
+    fn inlining_a_parameter_keeps_the_meaning_of_the_expression() {
+        let gap = parse("width - height").unwrap();
+        let cases = [
+            ("gap * 3", "(width - height) * 3"),
+            ("-gap", "-(width - height)"),
+            (
+                "max(gap, 1 mm) + gap / 2",
+                "max(width - height, 1 mm) + (width - height) / 2",
+            ),
+            ("height", "height"),
+        ];
+
+        for (text, expected) in cases {
+            let inlined = parse(text).unwrap().inlining(GAP, &gap).unwrap();
+            let before = parse(text)
+                .unwrap()
+                .evaluate(&|id| match id {
+                    GAP => Ok(Quantity::length(20.0)),
+                    _ => value_of(id),
+                })
+                .unwrap();
+
+            assert_eq!(inlined.to_text(&name_of), expected);
+            assert_eq!(inlined.evaluate(&value_of).unwrap(), before);
+            assert!(!inlined.uses(GAP));
+        }
+    }
+
+    #[test]
     fn literals_built_in_code_survive_storing_as_text() {
         let built = [
             Expression::number(-2.5),

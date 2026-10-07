@@ -504,7 +504,16 @@ impl Menus<'_, '_> {
             ui.separator();
             self.item(ui, Command::FilterFeatures);
             ui.separator();
-            self.items(ui, [Command::AddParameter, Command::DeleteParameter]);
+            self.items(
+                ui,
+                [
+                    Command::AddParameter,
+                    Command::MoveParameterUp,
+                    Command::MoveParameterDown,
+                    Command::ParameterNote,
+                    Command::DeleteParameter,
+                ],
+            );
             ui.separator();
             self.items(
                 ui,

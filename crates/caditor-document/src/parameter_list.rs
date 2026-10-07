@@ -67,6 +67,12 @@ impl ParameterList {
         Some(std::mem::replace(&mut parameter.expression, expression))
     }
 
+    pub fn set_note(&mut self, id: ParameterId, note: String) -> Option<String> {
+        let index = self.position(id)?;
+        let parameter = self.items.get_mut(index)?;
+        Some(std::mem::replace(&mut parameter.note, note))
+    }
+
     pub fn rename(&mut self, id: ParameterId, name: String) -> Option<String> {
         let index = self.position(id)?;
         let parameter = self.items.get_mut(index)?;

@@ -12,7 +12,7 @@ use crate::{
     feature_tree, icons,
     layout::{self, MIN_SIDE_WIDTH, PanelLayout},
     model::{Action, Model},
-    parameter_table::{self, ParameterUses},
+    parameter_table::{self, NoteDraft, ParameterUses},
     reference_rows::RowCache,
     selection::{Pickable, Selection},
     sketch_toolbar::ConstraintOffers,
@@ -23,8 +23,8 @@ pub const FEATURES_TITLE: &str = "Features";
 pub const PARAMETERS_TITLE: &str = "Parameters";
 pub const FEATURES_EXPLANATION: &str =
     "The steps that build the model, computed from top to bottom. Drag one to reorder it.";
-pub const PARAMETERS_EXPLANATION: &str =
-    "Named values that any size or dimension can use by name, such as width * 2.";
+pub const PARAMETERS_EXPLANATION: &str = "Named values that any size or dimension can use by name, such as width * 2. Right-click \
+     one to move it, note what it is for or delete it.";
 const FEATURES_SECTION: &str = "features";
 const PARAMETERS_SECTION: &str = "parameters";
 const FOCUS_ATTEMPT_FRAMES: u8 = 30;
@@ -104,6 +104,7 @@ pub struct PanelState {
     also_selected: Vec<FeatureId>,
     pub dragging: Option<TreeRow>,
     pub deleting: Option<Vec<FeatureId>>,
+    pub noting: Option<NoteDraft>,
     pub painting: Option<Painting>,
     pub parameter: Option<ParameterId>,
     pub hovered_in_tree: Option<Pickable>,

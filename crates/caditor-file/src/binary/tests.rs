@@ -388,7 +388,7 @@ fn an_unchanged_record_is_written_back_as_stored_with_fields_this_version_does_n
     let mut records = records_as_json(&bytes);
     records[0] = records[0].replace(
         "\"name\":\"width\"",
-        "\"name\":\"width\",\"note\":\"future\"",
+        "\"name\":\"width\",\"tolerance\":\"future\"",
     );
     let future = super::testing::current_model_from_json(&records);
     let loaded = decode(&future).unwrap();
@@ -400,7 +400,7 @@ fn an_unchanged_record_is_written_back_as_stored_with_fields_this_version_does_n
     grown.apply(transaction.finish()).unwrap();
     let resaved = save_bytes(&grown, Some(&future), at(2_000), None).unwrap();
     let kept = records_as_json(&resaved);
-    assert!(kept[0].contains("\"note\":\"future\""), "{kept:?}");
+    assert!(kept[0].contains("\"tolerance\":\"future\""), "{kept:?}");
     let stored = parse(&future, &MODEL_MAGIC).unwrap();
     let Piece::Chunk(first) = stored.pieces[1] else {
         panic!("the record is whole");
@@ -414,7 +414,7 @@ fn an_unchanged_record_is_written_back_as_stored_with_fields_this_version_does_n
 
     let edited = edited(&grown, 20);
     let rewritten = save_bytes(&edited, Some(&resaved), at(3_000), None).unwrap();
-    assert!(!records_as_json(&rewritten)[0].contains("note"));
+    assert!(!records_as_json(&rewritten)[0].contains("tolerance"));
     assert_eq!(decode(&rewritten).unwrap().document, edited);
     assert_eq!(load_version(&rewritten, 0).unwrap().document, grown);
 }

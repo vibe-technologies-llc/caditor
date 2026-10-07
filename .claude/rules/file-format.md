@@ -59,6 +59,9 @@ paths:
   old records are matched by the digest of their re-encoded understood content, not their bytes.
   Unknown chunk kinds are carried unless must-understand; loading reports those as left out, so the
   original is kept as `.damaged`.
+- A parameter record's `note` is written only when not empty, like a feature's `hidden`; an older
+  reader drops it. A note too long for this version is cut at `MAX_PARAMETER_NOTE_CHARS`,
+  reported.
 - Records carry stable IDs. Expressions are canonical text with parameters as `$<id>`
   (`to_stored_text`, `parse_stored`); region keys and topology names are 32-digit hex; numbers
   exact f64.

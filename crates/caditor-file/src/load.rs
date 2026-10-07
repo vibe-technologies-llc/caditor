@@ -7,7 +7,8 @@ use std::{
 
 use caditor_document::{
     CancelToken, DependencyGraph, Document, Edit, EditError, Feature, FeatureId, FeatureKind,
-    Parameter, Revolve, RevolveAxis, RollbackBar, SolidFeature, Transaction, complete_origins,
+    MAX_PARAMETER_NOTE_CHARS, Parameter, Revolve, RevolveAxis, RollbackBar, SolidFeature,
+    Transaction, complete_origins,
 };
 use caditor_expression::{Expression, ParameterId, check_name};
 use caditor_sketch::EntityId;
@@ -280,13 +281,15 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
             continue;
         }
         let name = usable_name(&mut parameter_names, &record.name, record.id, issues);
+        let note = usable_note(&record.note, &name, issues);
         read.push((
             record,
             Parameter::new(
                 ParameterId::from_raw(record.id),
                 name,
                 Expression::Number(0.0),
-            ),
+            )
+            .with_note(note),
         ));
     }
     let placeholders: Vec<Parameter> = read
@@ -570,6 +573,17 @@ fn repaired_kind(feature: &Feature) -> Option<(FeatureKind, String)> {
         }
         _ => None,
     }
+}
+
+fn usable_note(note: &str, name: &str, issues: &mut Vec<String>) -> String {
+    let note = note.trim();
+    if note.chars().count() <= MAX_PARAMETER_NOTE_CHARS {
+        return note.to_owned();
+    }
+    issues.push(format!(
+        "The note on “{name}” was longer than {MAX_PARAMETER_NOTE_CHARS} characters, so its end was cut off."
+    ));
+    note.chars().take(MAX_PARAMETER_NOTE_CHARS).collect()
 }
 
 fn usable_name(names: &mut TakenNames, name: &str, id: u64, issues: &mut Vec<String>) -> String {

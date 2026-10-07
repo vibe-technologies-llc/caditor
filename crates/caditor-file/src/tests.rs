@@ -1938,6 +1938,78 @@ fn a_hidden_feature_stays_hidden_through_saving_and_the_journal() {
     );
 }
 
+#[test]
+fn a_parameter_note_and_order_survive_saving_and_the_journal() {
+    let mut document = sample();
+    let plain = encode(&document).unwrap();
+    let height = document.parameter_named("height").unwrap().id();
+    let change = Transaction::new(
+        "Note and move height",
+        vec![
+            Edit::SetParameterNote {
+                id: height,
+                note: "Half the width, plus clearance".to_owned(),
+            },
+            Edit::MoveParameter {
+                id: height,
+                index: 0,
+            },
+        ],
+    );
+    let undo = document.apply(change.clone()).unwrap();
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+    let undone: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&undo)).unwrap());
+    let order: Vec<&str> = loaded
+        .document
+        .parameters()
+        .iter()
+        .map(|parameter| parameter.name.as_str())
+        .collect();
+
+    assert!(!plain.contains("note"));
+    assert!(
+        text.contains("\"note\":\"Half the width, plus clearance\""),
+        "{text}"
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(order, ["height", "width"]);
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+    assert_eq!(format::restore_transaction(undone), Some(undo));
+}
+
+#[test]
+fn an_overlong_parameter_note_is_cut_and_reported() {
+    let document = sample();
+    let long = "n".repeat(caditor_document::MAX_PARAMETER_NOTE_CHARS + 5);
+    let text = encode(&document).unwrap().replacen(
+        "\"expression\":\"40 mm\"",
+        &format!("\"expression\":\"40 mm\",\"note\":\"{long}\""),
+        1,
+    );
+
+    let loaded = decode_text(&text);
+
+    assert!(issues_mention(
+        &loaded,
+        "The note on “width” was longer than"
+    ));
+    assert_eq!(
+        loaded
+            .document
+            .parameter_named("width")
+            .unwrap()
+            .note
+            .chars()
+            .count(),
+        caditor_document::MAX_PARAMETER_NOTE_CHARS
+    );
+}
+
 fn steel_appearance(document: &Document) -> caditor_document::BodyAppearance {
     caditor_document::BodyAppearance {
         colour: Some(caditor_document::Rgb::new(70, 130, 180)),

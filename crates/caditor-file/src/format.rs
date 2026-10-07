@@ -56,6 +56,8 @@ pub(crate) struct ParameterRecord {
     pub id: u64,
     pub name: String,
     pub expression: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -699,6 +701,14 @@ pub(crate) enum EditRecord {
         id: u64,
         expression: String,
     },
+    MoveParameter {
+        id: u64,
+        index: usize,
+    },
+    SetParameterNote {
+        id: u64,
+        note: String,
+    },
     InsertFeature {
         index: usize,
         feature: FeatureRecord,
@@ -855,6 +865,7 @@ pub(crate) fn parameter_record(parameter: &Parameter) -> ParameterRecord {
         id: parameter.id().raw(),
         name: parameter.name.clone(),
         expression: parameter.expression.to_stored_text(),
+        note: parameter.note.clone(),
     }
 }
 
@@ -1653,6 +1664,14 @@ fn edit_record(edit: &Edit) -> EditRecord {
             id: id.raw(),
             expression: expression.to_stored_text(),
         },
+        Edit::MoveParameter { id, index } => EditRecord::MoveParameter {
+            id: id.raw(),
+            index: *index,
+        },
+        Edit::SetParameterNote { id, note } => EditRecord::SetParameterNote {
+            id: id.raw(),
+            note: note.clone(),
+        },
         Edit::InsertFeature { index, feature } => EditRecord::InsertFeature {
             index: *index,
             feature: feature_record(feature),
@@ -1796,7 +1815,8 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
                 ParameterId::from_raw(parameter.id),
                 parameter.name,
                 parse(&parameter.expression)?,
-            ),
+            )
+            .with_note(parameter.note),
         },
         EditRecord::RemoveParameter { id } => Edit::RemoveParameter {
             id: ParameterId::from_raw(id),
@@ -1808,6 +1828,14 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
         EditRecord::SetParameterExpression { id, expression } => Edit::SetParameterExpression {
             id: ParameterId::from_raw(id),
             expression: parse(&expression)?,
+        },
+        EditRecord::MoveParameter { id, index } => Edit::MoveParameter {
+            id: ParameterId::from_raw(id),
+            index,
+        },
+        EditRecord::SetParameterNote { id, note } => Edit::SetParameterNote {
+            id: ParameterId::from_raw(id),
+            note,
         },
         EditRecord::InsertFeature {
             index,

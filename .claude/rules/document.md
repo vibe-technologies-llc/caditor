@@ -37,7 +37,15 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `Document::check` runs a transaction on a clone so the UI can report an error before committing.
 - Parameters live in a `ParameterList` indexed by ID and name, and the `DependencyGraph` survives
   parameter inserts and removals within an `apply`, so restoring a version and cycle checks stay
-  near linear in the number of parameters.
+  near linear in the number of parameters. Their order is the user's (`MoveParameter`) and changes
+  nothing computed; a parameter's `note` (`SetParameterNote`, trimmed, at most
+  `MAX_PARAMETER_NOTE_CHARS`) is free text for the user only.
+- `Document::inline_parameter` builds the one transaction deleting a parameter in use: its
+  expression (not its value, so links to the parameters it uses survive) is substituted into every
+  parameter, sketch dimension, feature and body density using it (`Expression::inlining`, which
+  round-trips through stored text so precedence is kept), then the parameter is removed. The
+  model computes exactly as before. An expression that would grow past what the stored text reads
+  back refuses as `InliningTooLong`.
 - `Document::transaction_to` builds the transaction turning one document into another (bar to the
   end, everything removed, the target's inserted with IDs and flags, its bar restored), never
   lowering a sketch's ID counter; it restores an earlier version as one undoable change.

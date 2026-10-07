@@ -8724,9 +8724,9 @@ fn a_parameter_is_deleted_and_a_failed_feature_found_from_the_keyboard() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
-    let refused = offer(&harness, Command::DeleteParameter);
-    assert_eq!(refused.title(), "Delete parameter: width");
-    assert!(refused.availability.is_err());
+    let offered = offer(&harness, Command::DeleteParameter);
+    assert_eq!(offered.title(), "Delete parameter: width");
+    assert!(offered.availability.is_ok());
 
     run_from_palette(&mut harness, "add parameter");
     harness.key(Key::Escape, Modifiers::NONE);
@@ -8762,31 +8762,94 @@ fn a_parameter_is_deleted_and_a_failed_feature_found_from_the_keyboard() {
 }
 
 #[test]
-fn a_parameter_that_cannot_be_deleted_names_what_uses_it() {
+fn a_used_parameter_is_deleted_by_writing_its_expression_into_its_uses() {
     let mut harness = Harness::new();
     assert!(!harness.shows(crate::icons::DELETE));
     harness.hover_button("Delete width");
-
-    assert!(harness.shows("width is used by height and Base sketch. Remove those uses first."));
+    let explained = harness.shows_containing("Delete width and write 40 mm in its place")
+        && harness.shows_containing("Used by height and Base sketch.");
 
     let mut transaction = harness.document().transaction("Add spare");
     transaction.add_parameter("spare", transaction.parse("3 mm").unwrap());
     harness.perform(Action::Apply(transaction.finish()));
     harness.frame();
-    harness.hover_button("Delete spare");
-    let spare_free = !harness.shows_containing("spare is used by");
     let spare_marked = harness.describes("spare is unused: nothing refers to it yet.");
     let width_marked = harness.describes("width is unused: nothing refers to it yet.");
-    let height = harness.parameter("height");
-    harness.type_into(Focus::ParameterValue(height), "spare * 10");
-    harness.frame();
-    harness.hover_button("Delete spare");
+    harness.click_button("Delete width");
+    harness.settle();
+    let document = harness.document();
+    let height = document.parameter_named("height").unwrap();
+    let base = feature_named(&harness, "Base sketch");
+    let base_value = document
+        .feature(base)
+        .and_then(|feature| feature.kind.sketch())
+        .and_then(|sketch| sketch.constraints().find_map(|(_, held)| held.dimension()))
+        .map(|value| document.expression_text(value));
 
-    assert!(spare_free);
+    assert!(explained);
     assert!(spare_marked);
     assert!(!width_marked);
-    assert!(!harness.describes("spare is unused: nothing refers to it yet."));
-    assert!(harness.shows("spare is used by height. Remove those uses first."));
+    assert!(document.parameter_named("width").is_none());
+    assert_eq!(document.expression_text(&height.expression), "40 mm / 2");
+    assert_eq!(base_value.as_deref(), Some("40 mm"));
+    assert_eq!(harness.model.undo_label(), Some("Delete width"));
+    assert_eq!(
+        harness.model.notice().map(|notice| notice.text.as_str()),
+        Some("Deleted width and wrote 40 mm into its 2 uses. Undo brings it back.")
+    );
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(harness.document().parameter_named("width").is_some());
+}
+
+#[test]
+fn parameters_are_reordered_and_noted_from_the_keyboard() {
+    let mut harness = Harness::new();
+    let order = |harness: &Harness| -> Vec<String> {
+        harness
+            .document()
+            .parameters()
+            .iter()
+            .map(|parameter| parameter.name.clone())
+            .collect()
+    };
+    let height = harness.parameter("height");
+    harness.focus(Focus::ParameterName(height));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    let at_bottom = offer(&harness, Command::MoveParameterDown).availability;
+    run_from_palette(&mut harness, "move parameter up");
+    harness.frame();
+    let moved = order(&harness);
+    let at_top = offer(&harness, Command::MoveParameterUp).availability;
+    run_from_palette(&mut harness, "parameter's note");
+    harness.frame();
+    let focused = harness.focused() == Some(Id::new("parameter-note-field"));
+    harness.type_text("Half the width, for the side");
+    harness.click(crate::parameter_table::SAVE_NOTE_LABEL);
+    harness.context.enable_accesskit();
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(
+        at_bottom,
+        Err("height is already the last parameter".to_owned())
+    );
+    assert_eq!(moved, ["height", "width"]);
+    assert_eq!(
+        at_top,
+        Err("height is already the first parameter".to_owned())
+    );
+    assert!(focused);
+    assert_eq!(
+        harness.document().parameter(height).unwrap().note,
+        "Half the width, for the side"
+    );
+    assert!(harness.describes("Note on height: Half the width, for the side"));
+    assert_eq!(harness.model.undo_label(), Some("Note on height"));
 }
 
 #[test]

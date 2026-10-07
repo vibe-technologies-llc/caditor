@@ -172,10 +172,16 @@ paths:
 - The parameter table's name and expression fields share the panel's width beside a fixed value
   column (`VALUE_WIDTH`), since content wider than the panel widens it the next frame. Hovering a
   value shows it in full and what uses it (`used_by`, only for the hovered row, since
-  `Document::parameter_users` scans every feature). Whether a row can be deleted comes from
+  `Document::parameter_users` scans every feature). Whether a row is in use comes from
   `Document::used_parameters`, one scan cached per model revision (`ParameterUses`), which also
-  puts a muted `icons::UNUSED` before the value of a parameter nothing refers to, and the
-  refusal's wording is built only while its button is hovered. A value that cannot be evaluated is an error
+  puts a muted `icons::UNUSED` before the value of a parameter nothing refers to. Deleting an
+  unused parameter removes it; deleting a used one (the row's button, its menu, Delete parameter)
+  is `Document::inline_parameter`, built only on hover or click, followed by a notice saying how
+  many uses took its expression. A parameter with a note shows `icons::NOTE` before its value,
+  described with the note. Right-clicking a row's name or expression opens its menu (Move up,
+  Move down, Add or Edit the note…, Delete); the same act on the focused row from the palette and
+  the Model menu (`MoveParameterUp`, `MoveParameterDown`, `ParameterNote`, `DeleteParameter`). The
+  note is edited in a modal dialog (`parameter_table::note_dialog`, `PanelState::noting`). A value that cannot be evaluated is an error
   icon with the reason on hover, a refused edit an `error_row`. A row's delete button shows only
   while the row is hovered or the button has keyboard focus, and stays in the Tab order.
 - Tree rows (`tree_row.rs`, shared with `principal_tree.rs`) have fixed trailing slots that stay

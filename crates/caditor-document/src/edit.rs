@@ -21,6 +21,8 @@ use crate::{
     solid::BodyOperation,
 };
 
+pub const MAX_PARAMETER_NOTE_CHARS: usize = 2000;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Edit {
     InsertParameter {
@@ -37,6 +39,14 @@ pub enum Edit {
     SetParameterExpression {
         id: ParameterId,
         expression: Expression,
+    },
+    MoveParameter {
+        id: ParameterId,
+        index: usize,
+    },
+    SetParameterNote {
+        id: ParameterId,
+        note: String,
     },
     InsertFeature {
         index: usize,
@@ -165,7 +175,9 @@ impl Transaction {
                 }
                 Edit::RemoveParameter { id }
                 | Edit::RenameParameter { id, .. }
-                | Edit::SetParameterExpression { id, .. } => {
+                | Edit::SetParameterExpression { id, .. }
+                | Edit::MoveParameter { id, .. }
+                | Edit::SetParameterNote { id, .. } => {
                     touched.parameters.insert(*id);
                 }
                 Edit::InsertFeature { feature, .. } => {
@@ -220,9 +232,10 @@ impl Transaction {
                 Edit::SetBodyAppearance { appearance, .. } => appearance.heap_size(),
                 Edit::SetFeatureKind { kind, .. } => kind.approximate_size(),
                 Edit::InsertParameter { parameter, .. } => {
-                    parameter.name.len() + parameter.expression.heap_size()
+                    parameter.name.len() + parameter.note.len() + parameter.expression.heap_size()
                 }
                 Edit::RenameParameter { name, .. } | Edit::RenameFeature { name, .. } => name.len(),
+                Edit::SetParameterNote { note, .. } => note.len(),
                 Edit::SetParameterExpression { expression, .. }
                 | Edit::SetDimension {
                     value: expression, ..
@@ -232,6 +245,7 @@ impl Transaction {
                 }
                 Edit::AddSketchConstraint { constraint, .. } => constraint.heap_size(),
                 Edit::RemoveParameter { .. }
+                | Edit::MoveParameter { .. }
                 | Edit::RemoveFeature { .. }
                 | Edit::MoveFeature { .. }
                 | Edit::SetFeatureHidden { .. }
@@ -271,6 +285,14 @@ pub enum EditError {
     DuplicateFeatureName(String),
     #[error("{name} is used by {users}. Remove those uses first.")]
     ParameterInUse { name: String, users: String },
+    #[error(
+        "{name} cannot be written into {user}: the expression there would grow too long or too deeply nested"
+    )]
+    InliningTooLong { name: String, user: String },
+    #[error(
+        "A parameter's note may be at most {MAX_PARAMETER_NOTE_CHARS} characters long, and this one has {0}"
+    )]
+    NoteTooLong(usize),
     #[error("This would make {name} depend on itself ({path})")]
     Cycle { name: String, path: String },
     #[error("The rollback bar sits right above {0}; move the bar before deleting it")]
@@ -330,6 +352,14 @@ fn check_appearance(appearance: &BodyAppearance) -> Result<(), EditError> {
     let length = material.chars().count();
     if length > MAX_MATERIAL_NAME_CHARS {
         return Err(EditError::MaterialNameTooLong(length));
+    }
+    Ok(())
+}
+
+fn check_note(note: &str) -> Result<(), EditError> {
+    let length = note.chars().count();
+    if length > MAX_PARAMETER_NOTE_CHARS {
+        return Err(EditError::NoteTooLong(length));
     }
     Ok(())
 }
@@ -481,6 +511,8 @@ impl Document {
             Edit::SetParameterExpression { id, expression } => {
                 self.set_parameter_expression(id, expression, graph)
             }
+            Edit::MoveParameter { id, index } => self.move_parameter(id, index),
+            Edit::SetParameterNote { id, note } => self.set_parameter_note(id, note),
             Edit::InsertFeature { index, feature } => self.insert_feature(index, feature),
             Edit::RemoveFeature { id } => self.remove_feature(id),
             Edit::RenameFeature { id, name } => self.rename_feature(id, name),
@@ -727,6 +759,7 @@ impl Document {
             return Err(EditError::OutOfRange(index));
         }
         self.check_parameter_name(&parameter.name, None)?;
+        check_note(&parameter.note)?;
         self.check_references(&parameter.expression)?;
         let id = parameter.id();
         self.next_parameter_id = self.next_parameter_id.max(id.raw().saturating_add(1));
@@ -755,6 +788,29 @@ impl Document {
             .remove(index)
             .ok_or(EditError::MissingParameter)?;
         Ok(Edit::InsertParameter { index, parameter })
+    }
+
+    fn move_parameter(&mut self, id: ParameterId, index: usize) -> Result<Edit, EditError> {
+        let from = self.parameter_position(id)?;
+        if index >= self.parameters.len() {
+            return Err(EditError::OutOfRange(index));
+        }
+        let parameter = self
+            .parameters
+            .remove(from)
+            .ok_or(EditError::MissingParameter)?;
+        self.parameters.insert(index, parameter);
+        Ok(Edit::MoveParameter { id, index: from })
+    }
+
+    fn set_parameter_note(&mut self, id: ParameterId, note: String) -> Result<Edit, EditError> {
+        let note = note.trim().to_owned();
+        check_note(&note)?;
+        let previous = self
+            .parameters
+            .set_note(id, note)
+            .ok_or(EditError::MissingParameter)?;
+        Ok(Edit::SetParameterNote { id, note: previous })
     }
 
     fn rename_parameter(&mut self, id: ParameterId, name: String) -> Result<Edit, EditError> {
