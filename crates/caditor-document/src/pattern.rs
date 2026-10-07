@@ -142,10 +142,18 @@ impl Pattern {
             .collect()
     }
 
+    pub fn axis_sketches(&self) -> BTreeSet<FeatureId> {
+        self.axes()
+            .into_iter()
+            .filter_map(AxisReference::sketch)
+            .collect()
+    }
+
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
         used.extend(self.axis_datums());
         used.extend(self.axis_bodies());
+        used.extend(self.axis_sketches());
         used
     }
 }

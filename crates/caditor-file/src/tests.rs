@@ -2775,6 +2775,149 @@ fn datum_planes_and_axes_are_saved_and_loaded() {
 }
 
 #[test]
+fn datum_points_and_planes_and_axes_through_points_are_saved_loaded_and_journaled() {
+    use caditor_document::{
+        AxisReference, Datum, DatumAxis, DatumPoint, PlaneReference, PlaneThrough, PointReference,
+        PrincipalAxis, PrincipalPlane,
+    };
+    use caditor_kernel::{EdgeName, EdgeReference, FaceName, VertexName};
+    use caditor_sketch::EntityId;
+    let (mut document, base, _) = solid_model();
+    let corner = PointReference::Vertex {
+        body: base,
+        vertex: VertexName::from_digest(0xc0),
+    };
+    let centre = PointReference::Centre {
+        body: base,
+        edge: Box::new(EdgeReference::new(
+            EdgeName::from_digest(0xed),
+            [FaceName::from_digest(1), FaceName::from_digest(2)],
+            [VertexName::from_digest(3), VertexName::from_digest(4)],
+        )),
+    };
+    let mut transaction = document.transaction("Datums");
+    let point = transaction.add_feature(
+        "Point 1",
+        FeatureKind::Datum(Datum::Point(DatumPoint {
+            base: corner.clone(),
+            offset: [
+                transaction.parse("depth").unwrap(),
+                transaction.parse("0 mm").unwrap(),
+                transaction.parse("-1 mm").unwrap(),
+            ],
+        })),
+    );
+    let through = Datum::PlaneThrough(PlaneThrough::Points([
+        PointReference::Origin,
+        PointReference::Datum(point),
+        centre.clone(),
+    ]));
+    transaction.add_feature("Plane 1", FeatureKind::Datum(through));
+    transaction.add_feature(
+        "Plane 2",
+        FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::Midway(
+            PlaneReference::Principal(PrincipalPlane::Xy),
+            PlaneReference::Principal(PrincipalPlane::Xz),
+        ))),
+    );
+    transaction.add_feature(
+        "Plane 3",
+        FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::AxisAndPoint(
+            AxisReference::Principal(PrincipalAxis::Z),
+            corner.clone(),
+        ))),
+    );
+    transaction.add_feature(
+        "Plane 4",
+        FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::NormalTo(
+            AxisReference::Principal(PrincipalAxis::X),
+            PointReference::Sketch {
+                sketch: FeatureId::from_raw(0),
+                entity: EntityId::from_raw(1),
+            },
+        ))),
+    );
+    transaction.add_feature(
+        "Axis 1",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::Points(
+            PointReference::Datum(point),
+            centre,
+        ))),
+    );
+    transaction.add_feature(
+        "Axis 2",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::NormalTo(
+            PlaneReference::Principal(PrincipalPlane::Yz),
+            corner,
+        ))),
+    );
+    transaction.add_feature(
+        "Axis 3",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Sketch {
+            sketch: FeatureId::from_raw(0),
+            entity: EntityId::from_raw(2),
+        }))),
+    );
+    let add = transaction.finish();
+    document.apply(add.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&add)).unwrap());
+
+    assert!(
+        text.contains("\"point\":{\"base\":{\"vertex\":{\"body\":1,"),
+        "{text}"
+    );
+    assert!(text.contains("\"plane_through\":{\"points\":[\"origin\",{\"datum\":"));
+    assert!(text.contains("{\"centre\":{\"body\":1,\"edge\":"));
+    assert!(text.contains("\"plane_through\":{\"midway\":[{\"principal\":\"xy\"},"));
+    assert!(text.contains("\"plane_through\":{\"axis_and_point\":{\"axis\":{\"principal\":\"z\"}"));
+    assert!(text.contains("{\"sketch\":{\"entity\":1,\"sketch\":0}}"));
+    assert!(text.contains("\"axis_through\":{\"points\":[{\"datum\":"));
+    assert!(text.contains("\"axis_through\":{\"normal_to\":{\"plane\":{\"principal\":\"yz\"}"));
+    assert!(text.contains("\"axis\":{\"along\":{\"sketch_line\":{\"entity\":2,\"sketch\":0}}}"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(add));
+}
+
+#[test]
+fn an_unreadable_point_reference_falls_back_and_is_reported() {
+    use caditor_document::{Datum, PlaneThrough, PointReference};
+    let (mut document, _, _) = solid_model();
+    let mut transaction = document.transaction("Datums");
+    transaction.add_feature(
+        "Plane 1",
+        FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::Points([
+            PointReference::Origin,
+            PointReference::Origin,
+            PointReference::Origin,
+        ]))),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let text = encode(&document).unwrap().replacen(
+        "[\"origin\",\"origin\",\"origin\"]",
+        "[\"origin\",\"origin\",{\"vertex\":{\"body\":1,\"vertex\":\"zz\"}}]",
+        1,
+    );
+
+    let loaded = decode_text(&text);
+
+    assert!(issues_mention(
+        &loaded,
+        "What “Plane 1” passes through could not be read, so it is the XY plane."
+    ));
+    let plane = loaded
+        .document
+        .features()
+        .find(|feature| feature.name == "Plane 1")
+        .unwrap();
+    assert!(matches!(plane.kind, FeatureKind::Datum(Datum::Plane(_))));
+}
+
+#[test]
 fn a_sketch_on_a_plane_that_is_gone_stays_on_it_as_saved() {
     let (document, plane, sketch) = datum_model();
     let text = encode(&document).unwrap();

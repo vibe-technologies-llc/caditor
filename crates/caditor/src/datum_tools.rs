@@ -1,9 +1,9 @@
 use caditor_document::{
-    AxisReference, Datum, DatumAxis, DatumPlane, DatumResult, Document, Edit, Evaluation,
-    FeatureId, FeatureKind, FeatureResult, PlaneReference, PlaneRotation, PrincipalPlane,
-    Transaction,
+    AxisReference, Datum, DatumAxis, DatumKind, DatumPlane, DatumPoint, DatumResult, Document,
+    Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, PlaneReference, PlaneRotation,
+    PlaneThrough, PointReference, PrincipalPlane, Transaction,
 };
-use caditor_kernel::{EdgeReference, FaceReference};
+use caditor_kernel::{EdgeReference, FaceReference, vertex_names};
 
 use crate::{
     bodies,
@@ -27,14 +27,14 @@ pub fn result(evaluation: &Evaluation, feature: FeatureId) -> Option<DatumResult
 }
 
 pub fn is_plane(document: &Document, feature: FeatureId) -> bool {
-    is_datum(document, feature, true)
+    is_datum(document, feature, DatumKind::Plane)
 }
 
-fn is_datum(document: &Document, feature: FeatureId, plane: bool) -> bool {
+fn is_datum(document: &Document, feature: FeatureId, kind: DatumKind) -> bool {
     document
         .feature(feature)
         .and_then(|feature| feature.kind.datum())
-        .is_some_and(|datum| datum.is_plane() == plane)
+        .is_some_and(|datum| datum.kind() == kind)
 }
 
 fn comes_before(document: &Document, feature: FeatureId, index: usize) -> bool {
@@ -48,7 +48,8 @@ pub fn plane_reference(model: &Model, pickable: Pickable, index: usize) -> Optio
     match pickable {
         Pickable::Plane(plane) => Some(PlaneReference::Principal(plane)),
         Pickable::Datum(feature)
-            if is_datum(document, feature, true) && comes_before(document, feature, index) =>
+            if is_datum(document, feature, DatumKind::Plane)
+                && comes_before(document, feature, index) =>
         {
             Some(PlaneReference::Datum(feature))
         }
@@ -66,7 +67,8 @@ pub fn axis_reference(model: &Model, pickable: Pickable, index: usize) -> Option
     match pickable {
         Pickable::Axis(axis) => Some(AxisReference::Principal(axis.principal())),
         Pickable::Datum(feature)
-            if is_datum(document, feature, false) && comes_before(document, feature, index) =>
+            if is_datum(document, feature, DatumKind::Axis)
+                && comes_before(document, feature, index) =>
         {
             Some(AxisReference::Datum(feature))
         }
@@ -82,6 +84,53 @@ pub fn axis_reference(model: &Model, pickable: Pickable, index: usize) -> Option
             let state = sketch_placement::body_state_before(model, body, index).ok()?;
             AxisReference::capture_face(body, state, reference.resolve(state).ok()?)
         }
+        Pickable::SketchEntity { feature, entity } if comes_before(document, feature, index) => {
+            let sketch = document.feature(feature)?.kind.sketch()?;
+            sketch.line_endpoints(entity)?;
+            Some(AxisReference::Sketch {
+                sketch: feature,
+                entity,
+            })
+        }
+        _ => None,
+    }
+}
+
+pub fn point_reference(model: &Model, pickable: Pickable, index: usize) -> Option<PointReference> {
+    let document = model.document();
+    match pickable {
+        Pickable::Origin => Some(PointReference::Origin),
+        Pickable::Datum(feature)
+            if is_datum(document, feature, DatumKind::Point)
+                && comes_before(document, feature, index) =>
+        {
+            Some(PointReference::Datum(feature))
+        }
+        Pickable::Vertex { body, vertex } => {
+            let state = sketch_placement::body_state_before(model, body, index).ok()?;
+            let named = vertex_names(state)
+                .iter()
+                .filter(|(_, name)| **name == vertex.name)
+                .count();
+            (named == 1).then_some(PointReference::Vertex {
+                body,
+                vertex: vertex.name,
+            })
+        }
+        Pickable::Edge { body, edge } => {
+            let shown = bodies::shown(model.evaluation(), body)?;
+            let reference = EdgeReference::capture(&shown.solid, bodies::find_edge(shown, edge)?)?;
+            let state = sketch_placement::body_state_before(model, body, index).ok()?;
+            PointReference::capture_centre(body, state, reference.resolve(state).ok()?)
+        }
+        Pickable::SketchEntity { feature, entity } if comes_before(document, feature, index) => {
+            let sketch = document.feature(feature)?.kind.sketch()?;
+            sketch.point(entity)?;
+            Some(PointReference::Sketch {
+                sketch: feature,
+                entity,
+            })
+        }
         _ => None,
     }
 }
@@ -89,18 +138,22 @@ pub fn axis_reference(model: &Model, pickable: Pickable, index: usize) -> Option
 struct Chosen {
     planes: Vec<PlaneReference>,
     axes: Vec<AxisReference>,
+    points: Vec<PointReference>,
     unusable: Option<&'static str>,
 }
 
 fn chosen(model: &Model, selection: &Selection, index: usize) -> Chosen {
     let mut planes = Vec::new();
     let mut axes = Vec::new();
+    let mut points = Vec::new();
     let mut unusable = None;
     for pickable in selection.iter() {
         if let Some(plane) = plane_reference(model, pickable, index) {
             planes.push(plane);
         } else if let Some(axis) = axis_reference(model, pickable, index) {
             axes.push(axis);
+        } else if let Some(point) = point_reference(model, pickable, index) {
+            points.push(point);
         } else if let Some(reason) = why_unusable(model, pickable, index) {
             unusable.get_or_insert(reason);
         }
@@ -108,6 +161,7 @@ fn chosen(model: &Model, selection: &Selection, index: usize) -> Chosen {
     Chosen {
         planes,
         axes,
+        points,
         unusable,
     }
 }
@@ -126,25 +180,64 @@ fn why_unusable(model: &Model, pickable: Pickable, index: usize) -> Option<&'sta
         ),
         Pickable::Edge { body, .. } => Some(match state(body) {
             Some(error) => error.edge(),
-            None => "The selected edge is not straight, so it gives no axis",
+            None => {
+                "The selected edge is neither straight nor round, so it gives no axis or centre"
+            }
         }),
-        Pickable::Datum(_) => Some("The selected plane or axis comes after this point in the tree"),
+        Pickable::Vertex { body, .. } => Some(match state(body) {
+            Some(error) => error.corner(),
+            None => "The selected corner is not found where this datum sits in the tree",
+        }),
+        Pickable::SketchEntity { .. } => {
+            Some("Only sketch points made before this datum can place it")
+        }
+        Pickable::Datum(_) => {
+            Some("The selected plane, axis or point comes after this point in the tree")
+        }
         _ => None,
     }
 }
+
+pub const PLANE_CHOICES: &str = "Select a plane or flat face to offset (and an axis to turn about), \
+                             three points, two planes to lie midway between, or an axis and a \
+                             point";
 
 pub fn plane_from_selection(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<DatumPlane, &'static str> {
+) -> Result<Datum, &'static str> {
     let Chosen {
         planes,
         axes,
+        points,
         unusable,
     } = chosen(model, selection, index);
     if let Some(reason) = unusable {
         return Err(reason);
+    }
+    match (planes.as_slice(), axes.as_slice(), points.as_slice()) {
+        ([], [], [first, second, third]) => {
+            return Ok(Datum::PlaneThrough(PlaneThrough::Points([
+                first.clone(),
+                second.clone(),
+                third.clone(),
+            ])));
+        }
+        ([first, second], [], []) => {
+            return Ok(Datum::PlaneThrough(PlaneThrough::Midway(
+                first.clone(),
+                second.clone(),
+            )));
+        }
+        ([], [axis], [point]) => {
+            return Ok(Datum::PlaneThrough(PlaneThrough::AxisAndPoint(
+                axis.clone(),
+                point.clone(),
+            )));
+        }
+        (_, _, [_, ..]) => return Err(PLANE_CHOICES),
+        _ => {}
     }
     if planes.len() > 1 {
         return Err("Select only one plane or flat face to start from");
@@ -165,11 +258,11 @@ pub fn plane_from_selection(
     } else {
         DEFAULT_OFFSET
     };
-    Ok(DatumPlane {
+    Ok(Datum::Plane(DatumPlane {
         base,
         rotation,
         offset: model.length_unit().default_length(offset),
-    })
+    }))
 }
 
 pub fn axis_from_selection(
@@ -180,26 +273,46 @@ pub fn axis_from_selection(
     let Chosen {
         planes,
         axes,
+        points,
         unusable,
     } = chosen(model, selection, index);
     if let Some(reason) = unusable {
         return Err(reason);
     }
-    let mut planes = planes.into_iter();
-    let mut axes = axes.into_iter();
-    match (
-        planes.next(),
-        planes.next(),
-        planes.next(),
-        axes.next(),
-        axes.next(),
-    ) {
-        (None, None, None, Some(axis), None) => Ok(DatumAxis::Along(axis)),
-        (Some(first), Some(second), None, None, None) => Ok(DatumAxis::Intersection(first, second)),
+    match (planes.as_slice(), axes.as_slice(), points.as_slice()) {
+        ([], [axis], []) => Ok(DatumAxis::Along(axis.clone())),
+        ([first, second], [], []) => Ok(DatumAxis::Intersection(first.clone(), second.clone())),
+        ([], [], [first, second]) => Ok(DatumAxis::Points(first.clone(), second.clone())),
+        ([plane], [], [point]) => Ok(DatumAxis::NormalTo(plane.clone(), point.clone())),
         _ => Err(
-            "Select one axis, straight edge or round face, or two planes or flat faces that cross",
+            "Select one axis, straight edge or round face, two planes or flat faces that cross, \
+             two points, or a plane and a point to stand square on",
         ),
     }
+}
+
+pub fn point_from_selection(
+    model: &Model,
+    selection: &Selection,
+    index: usize,
+) -> Result<DatumPoint, &'static str> {
+    let Chosen {
+        planes,
+        axes,
+        points,
+        unusable,
+    } = chosen(model, selection, index);
+    if let Some(reason) = unusable {
+        return Err(reason);
+    }
+    if !planes.is_empty() || !axes.is_empty() || points.len() > 1 {
+        return Err("Select one corner, round edge, sketch point or datum point to place it at");
+    }
+    let unit = model.length_unit();
+    Ok(DatumPoint {
+        base: points.into_iter().next().unwrap_or(PointReference::Origin),
+        offset: [0.0; 3].map(|value| unit.default_length(value)),
+    })
 }
 
 pub fn create(document: &Document, datum: Datum) -> (Transaction, FeatureId) {

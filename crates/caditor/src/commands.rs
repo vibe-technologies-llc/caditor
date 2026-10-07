@@ -104,6 +104,7 @@ pub enum Command {
     CircularPattern,
     DatumPlane,
     DatumAxis,
+    DatumPoint,
     FitView,
     Measure,
     Interference,
@@ -482,6 +483,7 @@ plain_commands! {
     CircularPattern,
     DatumPlane,
     DatumAxis,
+    DatumPoint,
     FinishSketch,
     ReverseArc,
     MoreSides,
@@ -634,6 +636,7 @@ impl Command {
             Self::CircularPattern => "model.circular_pattern",
             Self::DatumPlane => "model.plane",
             Self::DatumAxis => "model.axis",
+            Self::DatumPoint => "model.point",
             Self::FitView => "view.fit",
             Self::Measure => "view.measure",
             Self::Interference => "view.interference",
@@ -775,6 +778,7 @@ impl Command {
             Self::CircularPattern => "Circular pattern",
             Self::DatumPlane => "Datum plane",
             Self::DatumAxis => "Datum axis",
+            Self::DatumPoint => "Datum point",
             Self::FitView => "Fit view",
             Self::Measure => "Measure",
             Self::Interference => "Check interference",
@@ -930,6 +934,7 @@ impl Command {
             | Self::CircularPattern
             | Self::DatumPlane
             | Self::DatumAxis
+            | Self::DatumPoint
             | Self::Recompute
             | Self::CancelRecompute
             | Self::RenameFeature
@@ -1067,6 +1072,7 @@ impl Command {
             Self::CircularPattern => vec![alt_shift(Key::L)],
             Self::DatumPlane => vec![alt(Key::D)],
             Self::DatumAxis => vec![alt_shift(Key::D)],
+            Self::DatumPoint => vec![alt_shift(Key::P)],
             Self::VersionHistory
             | Self::ModelProperties
             | Self::KeyboardShortcuts

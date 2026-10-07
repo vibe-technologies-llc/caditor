@@ -34,11 +34,13 @@ pub enum Slot {
     DatumRotation,
 }
 
+pub const MAX_HELD: usize = 2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Picking {
     pub feature: FeatureId,
     pub slot: Slot,
-    pub pending: Option<Pickable>,
+    pub pending: [Option<Pickable>; MAX_HELD],
 }
 
 impl Picking {
@@ -46,12 +48,30 @@ impl Picking {
         Self {
             feature,
             slot,
-            pending: None,
+            pending: [None; MAX_HELD],
         }
     }
 
     pub fn is_for(&self, feature: FeatureId, slot: Slot) -> bool {
         self.feature == feature && self.slot == slot
+    }
+
+    pub fn held(&self) -> impl Iterator<Item = Pickable> + '_ {
+        self.pending.iter().flatten().copied()
+    }
+
+    pub fn holds(&self, pickable: Pickable) -> bool {
+        self.held().any(|held| held == pickable)
+    }
+
+    pub fn hold(&mut self, pickable: Pickable) {
+        if let Some(slot) = self.pending.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(pickable);
+        }
+    }
+
+    fn held_count(&self) -> usize {
+        self.held().count()
     }
 }
 
@@ -79,11 +99,11 @@ fn kind(model: &Model, feature: FeatureId) -> Option<&FeatureKind> {
         .map(|feature| &feature.kind)
 }
 
-fn axis_datum(model: &Model, feature: FeatureId) -> bool {
-    matches!(
-        kind(model, feature),
-        Some(FeatureKind::Datum(Datum::Axis(_)))
-    )
+fn datum(model: &Model, feature: FeatureId) -> Option<&Datum> {
+    match kind(model, feature) {
+        Some(FeatureKind::Datum(datum)) => Some(datum),
+        _ => None,
+    }
 }
 
 pub fn prompt(model: &Model, picking: Picking) -> String {
@@ -101,13 +121,39 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         Slot::PatternDirection if circular => format!("Click {AXIS} to turn about"),
         Slot::PatternDirection => format!("Click {AXIS} to repeat along"),
         Slot::PatternSecond => format!("Click {AXIS} to also repeat along"),
-        Slot::DatumBase if picking.pending.is_some() => {
-            "Click a second plane or flat face that crosses the first".to_owned()
+        Slot::DatumBase if picking.held_count() > 0 => held_prompt(model, picking),
+        Slot::DatumBase => match datum(model, picking.feature) {
+            Some(Datum::Axis(_)) => format!(
+                "Click {AXIS} to run along, two planes that cross, two points, or a plane and a \
+                 point"
+            ),
+            Some(Datum::PlaneThrough(_)) => {
+                "Click three points, two planes to lie midway between, or an axis and a point"
+                    .to_owned()
+            }
+            Some(Datum::Point(_)) => {
+                "Click a corner, round edge, sketch point or datum point to place it at".to_owned()
+            }
+            Some(Datum::Plane(_)) | None => "Click a plane or flat face to start from".to_owned(),
+        },
+    }
+}
+
+fn held_prompt(model: &Model, picking: Picking) -> String {
+    let index = model.document().feature_index(picking.feature).unwrap_or(0);
+    let held_plane = picking
+        .held()
+        .any(|held| datum_tools::plane_reference(model, held, index).is_some());
+    match datum(model, picking.feature) {
+        Some(Datum::Axis(_)) if held_plane => {
+            "Click a second plane or flat face that crosses the first, or a point to stand \
+             square on it"
+                .to_owned()
         }
-        Slot::DatumBase if axis_datum(model, picking.feature) => {
-            format!("Click {AXIS} to run along, or two planes or flat faces that cross")
+        Some(Datum::Axis(_)) => {
+            "Click a second point, or a plane or flat face to stand square on".to_owned()
         }
-        Slot::DatumBase => "Click a plane or flat face to start from".to_owned(),
+        _ => "Click the next point, plane or axis to finish choosing".to_owned(),
     }
 }
 
@@ -150,32 +196,39 @@ pub fn change(
     }
 }
 
-fn holds(model: &Model, picking: Picking, pickable: Pickable) -> bool {
+fn may_hold(model: &Model, picking: Picking, pickable: Pickable) -> bool {
+    if picking.slot != Slot::DatumBase || picking.held_count() >= MAX_HELD {
+        return false;
+    }
     let index = model.document().feature_index(picking.feature).unwrap_or(0);
-    picking.slot == Slot::DatumBase
-        && picking.pending.is_none()
-        && axis_datum(model, picking.feature)
-        && datum_tools::plane_reference(model, pickable, index).is_some()
+    let plane = || datum_tools::plane_reference(model, pickable, index).is_some();
+    let axis = || datum_tools::axis_reference(model, pickable, index).is_some();
+    let point = || datum_tools::point_reference(model, pickable, index).is_some();
+    match datum(model, picking.feature) {
+        Some(Datum::Axis(_)) => picking.held_count() == 0 && (plane() || point()),
+        Some(Datum::PlaneThrough(_)) => plane() || axis() || point(),
+        Some(Datum::Plane(_) | Datum::Point(_)) | None => false,
+    }
 }
 
 pub fn click(model: &Model, picking: Picking, pickable: Pickable) -> Vec<Action> {
-    if picking.pending == Some(pickable) {
+    if picking.holds(pickable) {
         return vec![Action::Editing(EditingCommand::Pick(Picking::new(
             picking.feature,
             picking.slot,
         )))];
     }
     let mut selection = Selection::default();
-    selection.replace_with(pickable);
-    if let Some(pending) = picking.pending {
-        selection.toggle(pending);
+    for held in picking.held() {
+        selection.toggle(held);
     }
+    selection.toggle(pickable);
     match change(model, picking.feature, picking.slot, &selection) {
         Ok(transaction) => vec![
             Action::Apply(transaction),
             Action::Editing(EditingCommand::StopPicking),
         ],
-        Err(_) if holds(model, picking, pickable) => {
+        Err(_) if may_hold(model, picking, pickable) => {
             vec![Action::Editing(EditingCommand::HoldPicked(pickable))]
         }
         Err(reason) => vec![Action::Inform(Notice::info(reason))],

@@ -201,6 +201,7 @@ fn subject_of(model: &Model, pickable: Pickable) -> Option<Subject> {
                 origin: ray.origin(),
                 direction: ray.direction(),
             }),
+            DatumResult::Point(point) => Subject::Point(point),
         },
         Pickable::SketchConstraint { .. }
         | Pickable::Region { .. }

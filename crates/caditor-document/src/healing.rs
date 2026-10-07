@@ -4,7 +4,7 @@ use caditor_kernel::{EdgeNaming, EdgeReference, FaceReference, RegionReference, 
 
 use crate::{
     attachment::SketchAttachment,
-    datum::{AxisReference, Datum, DatumAxis, PlaneReference},
+    datum::{AxisReference, Datum, DatumAxis, PlaneReference, PlaneThrough, PointReference},
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     edit::{Edit, Transaction},
     pattern::PatternKind,
@@ -166,6 +166,34 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
             visit_plane(first, "the first face it is the intersection of", visitor);
             visit_plane(second, "the second face it is the intersection of", visitor);
         }
+        FeatureKind::Datum(Datum::Axis(DatumAxis::Points(first, second))) => {
+            visit_point(first, "first point", visitor);
+            visit_point(second, "second point", visitor);
+        }
+        FeatureKind::Datum(Datum::Axis(DatumAxis::NormalTo(plane, point))) => {
+            visit_plane(plane, "the face it stands square to", visitor);
+            visit_point(point, "point", visitor);
+        }
+        FeatureKind::Datum(Datum::Point(point)) => visit_point(&mut point.base, "place", visitor),
+        FeatureKind::Datum(Datum::PlaneThrough(through)) => match through {
+            PlaneThrough::Points(points) => {
+                for (point, role) in
+                    points
+                        .iter_mut()
+                        .zip(["first point", "second point", "third point"])
+                {
+                    visit_point(point, role, visitor);
+                }
+            }
+            PlaneThrough::Midway(first, second) => {
+                visit_plane(first, "the first face it lies midway between", visitor);
+                visit_plane(second, "the second face it lies midway between", visitor);
+            }
+            PlaneThrough::AxisAndPoint(axis, point) | PlaneThrough::NormalTo(axis, point) => {
+                visit_axis(axis, "axis", visitor);
+                visit_point(point, "point", visitor);
+            }
+        },
         FeatureKind::Import(_) => {}
     }
 }
@@ -181,7 +209,16 @@ fn visit_axis(axis: &mut AxisReference, role: &str, visitor: &mut impl Reference
         AxisReference::Face { body, face } => {
             visitor.face(*body, face, &format!("the face giving its {role}"));
         }
-        AxisReference::Principal(_) | AxisReference::Datum(_) => {}
+        AxisReference::Principal(_) | AxisReference::Datum(_) | AxisReference::Sketch { .. } => {}
+    }
+}
+
+fn visit_point(point: &mut PointReference, role: &str, visitor: &mut impl ReferenceVisitor) {
+    if let PointReference::Centre { body, edge } = point {
+        let what = format!("the round edge giving its {role}");
+        visitor.edges(*body, std::slice::from_mut(edge.as_mut()), &|_| {
+            what.clone()
+        });
     }
 }
 

@@ -111,6 +111,8 @@ const BODY_EDGE_WIDTH: f32 = 1.5;
 const REVOLVE_AXIS_WIDTH: f32 = 2.5;
 const CHOSEN_EDGE_EXTRA_WIDTH: f32 = 1.5;
 const AXIS_WIDTH: f32 = 2.0;
+const DATUM_POINT_DIAMETER: f32 = 9.0;
+const OPENED_DATUM_POINT_EXTRA: f32 = 3.0;
 const SKETCH_AXIS_WIDTH: f32 = 1.5;
 const PLANE_EDGE_WIDTH: f32 = 1.25;
 const HIGHLIGHT_EXTRA_WIDTH: f32 = 1.5;
@@ -755,6 +757,22 @@ impl Builder<'_> {
                 let [start, end] = axis_ends(ray, Point3::ZERO, size);
                 let axis = line(start, end, width + AXIS_WIDTH - PLANE_EDGE_WIDTH);
                 self.scene.lines.push(axis);
+            }
+            Some(DatumResult::Point(position)) => {
+                let extra = if opened {
+                    OPENED_DATUM_POINT_EXTRA
+                } else {
+                    0.0
+                };
+                self.scene.markers.push(Marker {
+                    position,
+                    color,
+                    diameter: DATUM_POINT_DIAMETER
+                        + extra
+                        + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
+                    layer: Layer::Reference,
+                    pick: self.picks.register(pickable, PickPriority::Point),
+                });
             }
             None => {}
         }
@@ -1578,6 +1596,7 @@ fn datum_points(evaluation: &Evaluation, feature: FeatureId, size: f64) -> Vec<P
     match datum_tools::result(evaluation, feature) {
         Some(DatumResult::Plane(plane)) => datum_plane_corners(plane, size).to_vec(),
         Some(DatumResult::Axis(ray)) => axis_ends(ray, Point3::ZERO, size).to_vec(),
+        Some(DatumResult::Point(point)) => vec![point],
         None => Vec::new(),
     }
 }

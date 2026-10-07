@@ -625,7 +625,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
 
     let end = model.document().features().len();
     if let Ok(plane) = datum_tools::plane_from_selection(&model.model, &Selection::default(), end) {
-        let actions = datum_tools::create_actions(model.document(), Datum::Plane(plane));
+        let actions = datum_tools::create_actions(model.document(), plane);
         perform_all(model, actions);
         shoot_open(model, gpu, out, "panel-datum-plane", look);
     }
@@ -641,6 +641,14 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         ))));
         shoot_open(model, gpu, out, "panel-picking", look);
     }
+    let point = Datum::Point(caditor_document::DatumPoint {
+        base: caditor_document::PointReference::Origin,
+        offset: [10.0, 20.0, 30.0].map(|value| model.model.length_unit().default_length(value)),
+    });
+    let actions = datum_tools::create_actions(model.document(), point);
+    perform_all(model, actions);
+    model.settle();
+    shoot(model, gpu, out, "panel-datum-point", look);
 
     let dir = TempDir::new().expect("a temporary directory");
     let mut spool = Harness::styled(look, dir.path(), false);

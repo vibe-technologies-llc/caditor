@@ -1,7 +1,6 @@
 use caditor_expression::{Expression, ParameterId};
 
 use crate::{
-    datum::Datum,
     document::{Document, FeatureKind},
     edit::{Edit, EditError, Transaction},
     pattern::PatternKind,
@@ -114,13 +113,10 @@ fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
                 .collect(),
             PatternKind::Circular(circular) => vec![&mut circular.count, &mut circular.angle],
         },
-        FeatureKind::Datum(Datum::Plane(plane)) => std::iter::once(&mut plane.offset)
-            .chain(plane.rotation.as_mut().map(|rotation| &mut rotation.angle))
-            .collect(),
+        FeatureKind::Datum(datum) => datum.expressions_mut(),
         FeatureKind::Sketch(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Mirror(_)
-        | FeatureKind::Datum(Datum::Axis(_))
         | FeatureKind::Import(_) => Vec::new(),
     }
 }

@@ -189,10 +189,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   undoable.
 - [high · hard] Patterns repeat a whole body: no pattern of chosen features (a row of holes cut into
   a plate), no instances left out, and no linear "total length" mode.
-- [medium · medium] Datums cannot be built from points: no datum point, plane through three points,
-  mid-plane, plane through an axis and a point, plane normal to an edge at a point, or axis through
-  two points. Model vertices are named and pickable but only the measure tool uses them, and datums
-  and pattern axes cannot take sketch geometry.
 - [medium · medium] Split a body by a plane or a face, and copy one body (`RigidTransform` and
   booleans exist); a body can be moved but only by typed distances and turns about the origin's axes,
   not dragged, turned about its own axis or centre, or placed by mating faces.
@@ -224,6 +220,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
   revolution, so both need new kernel operations first.
 - [medium · hard] Extrusions and revolves have no taper angle or thin wall (an open profile given a
   thickness), which needs a tapered sweep and a wall of an open profile in the kernel.
+- [medium · hard] No pattern along a curve or driven by sketch points: a pattern repeats along one
+  or two axes (sketch lines included) or about one, never along a spline or arc, nor at the points
+  of a sketch.
 - [low · medium] Revolve cannot keep the part of a region on one side of the axis.
 - [low · medium] Parameters show what uses them only in the value's tooltip, and expressions cannot
   refer to measured values or sketch dimensions.
@@ -235,8 +234,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   on existing faces.
 - [medium · hard · blocked by: thin-wall extrusion ("Extrusions and revolves have no taper angle or thin wall")]
   Rib from an open profile.
-- [medium · hard · blocked by: datums and pattern axes taking sketch geometry ("Datums cannot be
-  built from points")] No pattern along a curve or driven by sketch points.
 - [low · hard · blocked by: sketch text ("Tools missing" under Sketching)] Emboss or deboss sketch
   text onto a face.
 

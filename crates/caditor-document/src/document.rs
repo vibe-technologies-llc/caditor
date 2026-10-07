@@ -291,6 +291,44 @@ impl FeatureKind {
         }
     }
 
+    pub fn points_used(&self) -> BTreeSet<FeatureId> {
+        match self {
+            Self::Datum(datum) => datum.point_datums(),
+            Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::Combine(_)
+            | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
+            | Self::Hole(_)
+            | Self::Pattern(_)
+            | Self::Import(_) => BTreeSet::new(),
+        }
+    }
+
+    pub fn reference_sketches(&self) -> BTreeSet<FeatureId> {
+        match self {
+            Self::Datum(datum) => {
+                let mut sketches = datum.point_sketches();
+                sketches.extend(datum.axis_sketches());
+                sketches
+            }
+            Self::Solid(solid) => solid.axis_sketch().into_iter().collect(),
+            Self::Pattern(pattern) => pattern.axis_sketches(),
+            Self::Sketch(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::Combine(_)
+            | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Scale(_)
+            | Self::Hole(_)
+            | Self::Import(_) => BTreeSet::new(),
+        }
+    }
+
     pub fn consumed_bodies(&self) -> Vec<FeatureId> {
         match self {
             Self::Combine(combine) => vec![combine.tool],

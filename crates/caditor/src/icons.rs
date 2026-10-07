@@ -128,6 +128,7 @@ pub fn command(command: Command) -> &'static str {
         Command::CircularPattern => CIRCULAR_PATTERN,
         Command::DatumPlane => PLANE,
         Command::DatumAxis => AXIS,
+        Command::DatumPoint => POINT,
         Command::FitView => phosphor::FRAME_CORNERS,
         Command::Measure => MEASURE,
         Command::Interference => INTERFERENCE,
@@ -214,6 +215,7 @@ const LINEAR_PATTERN: &str = phosphor::SQUARES_FOUR;
 const CIRCULAR_PATTERN: &str = phosphor::SPINNER;
 const PLANE: &str = phosphor::PARALLELOGRAM;
 const AXIS: &str = phosphor::ARROW_LINE_UP_RIGHT;
+const POINT: &str = phosphor::CROSSHAIR_SIMPLE;
 pub const SKETCH: &str = phosphor::PENCIL_LINE;
 const IMPORTED: &str = phosphor::CUBE;
 
@@ -332,8 +334,9 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
             PatternKind::Linear { .. } => LINEAR_PATTERN,
             PatternKind::Circular(_) => CIRCULAR_PATTERN,
         },
-        FeatureKind::Datum(Datum::Plane(_)) => PLANE,
+        FeatureKind::Datum(Datum::Plane(_) | Datum::PlaneThrough(_)) => PLANE,
         FeatureKind::Datum(Datum::Axis(_)) => AXIS,
+        FeatureKind::Datum(Datum::Point(_)) => POINT,
         FeatureKind::Import(_) => IMPORTED,
     }
 }

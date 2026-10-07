@@ -23,6 +23,7 @@ use crate::{
 pub const NEW_SKETCH_LABEL: &str = "New sketch";
 pub const PLANE_LABEL: &str = "Plane";
 pub const AXIS_LABEL: &str = "Axis";
+pub const POINT_LABEL: &str = "Point";
 pub const MEASURE_LABEL: &str = "Measure";
 pub const INTERFERENCE_LABEL: &str = "Interference";
 const NO_SKETCH_TO_SWEEP: &str = "Draw a sketch with a closed outline first";
@@ -363,7 +364,8 @@ fn datum_buttons(
         Ok(_) => Ok(commands.with_keys(
             Command::DatumPlane,
             "Add a plane offset from the selected plane or flat face (the XY plane when none is \
-             selected), turned about the selected axis or straight edge if there is one",
+             selected) and turned about a selected axis, or through three selected points, \
+             midway between two planes, or through an axis and a point",
         )),
         Err(reason) => Err(format!("{reason}.")),
     };
@@ -371,7 +373,7 @@ fn datum_buttons(
     if (response.clicked() || invoked)
         && let Ok(plane) = plane
     {
-        actions.extend(datum_tools::create_actions(document, Datum::Plane(plane)));
+        actions.extend(datum_tools::create_actions(document, plane));
     }
 
     let axis = context.offers.datum_axis.clone();
@@ -379,8 +381,8 @@ fn datum_buttons(
     let help = match &axis {
         Ok(_) => Ok(commands.with_keys(
             Command::DatumAxis,
-            "Add an axis along the selected edge, round face or axis, or where the two selected \
-             planes meet",
+            "Add an axis along the selected edge, round face or axis, where the two selected \
+             planes meet, through two points, or square to a plane through a point",
         )),
         Err(reason) => Err(format!("Add an axis. {reason}, then click here.")),
     };
@@ -389,6 +391,23 @@ fn datum_buttons(
         && let Ok(axis) = axis
     {
         actions.extend(datum_tools::create_actions(document, Datum::Axis(axis)));
+    }
+
+    let point = context.offers.datum_point.clone();
+    let invoked = commands.invoke(Command::DatumPoint, &point);
+    let help = match &point {
+        Ok(_) => Ok(commands.with_keys(
+            Command::DatumPoint,
+            "Add a point at the selected corner, round edge's centre, sketch point or datum point \
+             (the origin when none is selected), moved by typed offsets",
+        )),
+        Err(reason) => Err(format!("Add a point. {reason}, then click here.")),
+    };
+    let response = tool(ui, Command::DatumPoint, POINT_LABEL, &help);
+    if (response.clicked() || invoked)
+        && let Ok(point) = point
+    {
+        actions.extend(datum_tools::create_actions(document, Datum::Point(point)));
     }
 }
 

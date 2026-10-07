@@ -153,6 +153,13 @@ paths:
   A slot adds `slot` (`length`, `angle` texts; 10 mm and 0 deg when unreadable) and a standard
   size `standard` (`size` as `M3`, `fit` as `close`, `normal`, `loose` or `tapped`); a standard
   this version does not know loads as none, keeping the typed sizes, reported.
+- A datum point is a `point` record (`base`, a point reference: `origin`, `datum`, `vertex` with
+  `body` and the vertex name's digest, `centre` with `body` and an edge record, or `sketch` with
+  `sketch` and `entity`; `offset`, three stored texts). Planes through references are
+  `plane_through` records (`points`, `midway`, `axis_and_point`, `normal_to`) and the new axis forms
+  `axis_through` records (`points`, `normal_to`), so an older reader reports them rather than
+  misreading them; an unreadable reference loads as the XY plane, the Z axis or the origin,
+  reported. An axis reference may be a `sketch_line` (`sketch`, `entity`).
 - A `move` feature record holds `body` and the stored text of its three distances (`offset`) and
   three turns (`turn`); an unreadable one loads as 0 mm or 0 deg, reported.
 - A `mirror` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as

@@ -358,6 +358,8 @@ pub enum EditError {
     NotAPlane(String),
     #[error("{0} is not an axis")]
     NotAnAxis(String),
+    #[error("{0} is not a point")]
+    NotAPoint(String),
     #[error("The revolution axis is not a line of {0}")]
     AxisNotALine(String),
     #[error("{0} cannot become a different kind of feature")]
@@ -678,8 +680,26 @@ impl Document {
             .into_iter()
             .filter_map(|id| self.feature(id))
         {
-            if !axis.kind.datum().is_some_and(|datum| !datum.is_plane()) {
+            if !axis.kind.datum().is_some_and(Datum::is_axis) {
                 return Err(EditError::NotAnAxis(axis.name.clone()));
+            }
+        }
+        for point in kind
+            .points_used()
+            .into_iter()
+            .filter_map(|id| self.feature(id))
+        {
+            if !point.kind.datum().is_some_and(Datum::is_point) {
+                return Err(EditError::NotAPoint(point.name.clone()));
+            }
+        }
+        for sketch in kind
+            .reference_sketches()
+            .into_iter()
+            .filter_map(|id| self.feature(id))
+        {
+            if sketch.kind.sketch().is_none() {
+                return Err(EditError::NotASketch(sketch.name.clone()));
             }
         }
         let Some(solid) = kind.solid() else {

@@ -1,5 +1,7 @@
-use caditor_document::{Datum, DatumAxis, Edit, PatternKind, Transaction};
-use caditor_geometry::{Plane, Point2};
+use caditor_document::{
+    Datum, DatumAxis, DatumResult, Edit, PatternKind, PlaneThrough, Transaction,
+};
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use egui::{Id, Key, Modifiers};
 
 use super::{CAMERA_SETTLE, Harness, datum_of, datum_plane_of, extruded_plate, pattern_of};
@@ -104,7 +106,7 @@ fn a_datum_takes_its_references_clicked_in_the_view_and_escape_stops_choosing() 
     harness.settle();
     click_in_view(&mut harness, Pickable::Plane(PrincipalPlane::Xy));
     let waits_for_a_second =
-        harness.shows("Click a second plane or flat face that crosses the first.");
+        harness.shows_containing("Click a second plane or flat face that crosses the first");
     click_in_view(&mut harness, Pickable::Plane(PrincipalPlane::Xz));
     let meeting = matches!(
         datum_of(&harness, axis),
@@ -182,4 +184,181 @@ fn a_missing_body_is_marked_and_a_refused_change_names_the_feature() {
         refused,
         Action::Inform(notice) if notice.text == "Linear pattern 1 was not changed: It is in use"
     ));
+}
+
+fn result_of(harness: &Harness, feature: caditor_document::FeatureId) -> DatumResult {
+    crate::datum_tools::result(harness.model.evaluation(), feature).expect("the datum computed")
+}
+
+#[test]
+fn datums_are_placed_through_selected_corners() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let corner = |harness: &Harness, x: f64, y: f64, z: f64| {
+        super::vertex_at(harness, plate, Point3::new(x, y, z))
+    };
+    let top = [
+        corner(&harness, 0.0, 0.0, 10.0),
+        corner(&harness, 40.0, 0.0, 10.0),
+        corner(&harness, 40.0, 40.0, 10.0),
+    ];
+    let diagonal = [
+        corner(&harness, 0.0, 0.0, 0.0),
+        corner(&harness, 40.0, 40.0, 10.0),
+    ];
+
+    harness.select(top);
+    harness.click("Plane");
+    harness.settle();
+    let plane = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the plane is open");
+    let through_points = matches!(
+        datum_of(&harness, plane),
+        Datum::PlaneThrough(PlaneThrough::Points(_))
+    );
+    let shows_corners = harness.shows("Through three corners of Extrude 1");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.select(diagonal);
+    harness.click("Axis");
+    harness.settle();
+    let axis = harness.workspace.editing.solid().expect("the axis is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.select([diagonal[0]]);
+    harness.click("Point");
+    harness.settle();
+    let point = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the point is open");
+    harness.type_into_field(Id::new(("datum-field", "offset-z", point)), "-5 mm");
+    harness.settle();
+
+    let plane_result = result_of(&harness, plane).plane().unwrap();
+    let axis_result = result_of(&harness, axis).axis().unwrap();
+    assert!(through_points);
+    assert!(shows_corners);
+    assert!(plane_result.normal().cross(Vector3::Z).length() < 1e-9);
+    assert!(
+        plane_result
+            .signed_distance(Point3::new(7.0, 3.0, 10.0))
+            .abs()
+            < 1e-9
+    );
+    assert!(
+        axis_result
+            .direction()
+            .cross(Vector3::new(40.0, 40.0, 10.0))
+            .length()
+            < 1e-6
+    );
+    assert_eq!(
+        result_of(&harness, point),
+        DatumResult::Point(Point3::new(0.0, 0.0, -5.0))
+    );
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn a_plane_through_points_takes_three_clicks_in_the_view() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let corner = |harness: &Harness, x: f64, y: f64| {
+        super::vertex_at(harness, plate, Point3::new(x, y, 0.0))
+    };
+    let bottom = [
+        corner(&harness, 0.0, 0.0),
+        corner(&harness, 40.0, 0.0),
+        corner(&harness, 0.0, 40.0),
+    ];
+    let side = [
+        super::vertex_at(&harness, plate, Point3::new(0.0, 0.0, 10.0)),
+        bottom[0],
+        bottom[1],
+    ];
+    harness.select(side);
+    harness.click("Plane");
+    harness.settle();
+    let plane = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the plane is open");
+    harness.select([]);
+    harness.frame();
+
+    harness.click_beside(CHOOSE_IN_VIEW, "Defined by");
+    harness.settle();
+    let asked = harness.shows_containing("Click three points");
+    click_in_view(&mut harness, bottom[0]);
+    let waiting = harness.shows_containing("Click the next point, plane or axis");
+    click_in_view(&mut harness, bottom[1]);
+    click_in_view(&mut harness, bottom[2]);
+
+    let result = result_of(&harness, plane).plane().unwrap();
+    assert!(asked);
+    assert!(waiting);
+    assert_eq!(picking_slot(&harness), None);
+    assert!(result.normal().cross(Vector3::Z).length() < 1e-9);
+    assert!(result.signed_distance(Point3::new(5.0, 5.0, 0.0)).abs() < 1e-9);
+}
+
+#[test]
+fn a_pattern_and_a_datum_axis_run_along_a_selected_sketch_line() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let mut guide = caditor_sketch::Sketch::new(Plane::XY);
+    let line = guide.add_line(Point2::new(0.0, 60.0), Point2::new(30.0, 90.0));
+    let guide = harness.add_sketch(guide);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let along = Pickable::SketchEntity {
+        feature: guide,
+        entity: line,
+    };
+
+    harness.select([along]);
+    harness.click("Axis");
+    harness.settle();
+    let axis = harness.workspace.editing.solid().expect("the axis is open");
+    let axis_along_line = matches!(
+        datum_of(&harness, axis),
+        Datum::Axis(DatumAxis::Along(
+            caditor_document::AxisReference::Sketch { .. }
+        ))
+    );
+    let guide_feature = harness.document().feature(guide).unwrap();
+    let label = format!(
+        "{} of {}",
+        guide_feature.kind.sketch().unwrap().entity_label(line),
+        guide_feature.name
+    );
+    let named = harness.shows(&label);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.select([along]);
+    harness.click("Linear pattern");
+    harness.settle();
+    let pattern = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the pattern is open");
+
+    let PatternKind::Linear { first, .. } = &pattern_of(&harness, pattern).kind else {
+        panic!("a linear pattern was made");
+    };
+    assert!(axis_along_line);
+    assert!(named);
+    assert!(matches!(
+        first.axis,
+        caditor_document::AxisReference::Sketch { sketch, .. } if sketch == guide
+    ));
+    assert_eq!(pattern_of(&harness, pattern).body, plate);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
 }

@@ -41,9 +41,10 @@ pub use crate::{
     },
     combine::{Combine, CombineOperation},
     datum::{
-        AxisReference, Datum, DatumAxis, DatumPlane, DatumResult, PlaneReference, PlaneRotation,
-        PrincipalAxis, PrincipalGeometry, PrincipalPlane, capitalized, describe_axis,
-        describe_plane, displayed_axis,
+        AxisReference, Datum, DatumAxis, DatumKind, DatumPlane, DatumPoint, DatumResult,
+        PlaneReference, PlaneRotation, PlaneThrough, PointReference, PrincipalAxis,
+        PrincipalGeometry, PrincipalPlane, capitalized, describe_axis, describe_plane,
+        describe_point, describe_points, displayed_axis,
     },
     dependencies::DependencyGraph,
     describe::{describe_edge, describe_origin, edge_faces, origin_feature},
@@ -96,6 +97,8 @@ mod blend_tests;
 mod body_appearance_tests;
 #[cfg(test)]
 mod combine_tests;
+#[cfg(test)]
+mod datum_point_tests;
 #[cfg(test)]
 mod datum_tests;
 #[cfg(test)]

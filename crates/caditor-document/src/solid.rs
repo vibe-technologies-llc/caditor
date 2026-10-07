@@ -413,9 +413,16 @@ impl SolidFeature {
             .any(|expression| expression.uses(parameter))
     }
 
+    pub fn axis_sketch(&self) -> Option<FeatureId> {
+        self.axis()
+            .and_then(RevolveAxis::model)
+            .and_then(AxisReference::sketch)
+    }
+
     pub fn features(&self) -> BTreeSet<FeatureId> {
         std::iter::once(self.sketch())
             .chain(self.operation().target())
+            .chain(self.axis_sketch())
             .collect()
     }
 }

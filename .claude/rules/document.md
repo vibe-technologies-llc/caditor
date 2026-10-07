@@ -288,9 +288,23 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   adds an `Outline` (`edge_outline`, `vertex_outline`, `sketch_outline`) as points, a curve and
   its source in one transaction. A sketch's evaluation records every body standing at it
   (`Evaluation::body_result_seen_by`), so the app projects from that state.
-- Datums are planes and axes with a `DatumResult`, referring to model geometry in each body's state
-  at the feature's place in the tree. Edits refuse a sketch or plane based on a non-datum-plane
-  (`NotAPlane`) or an axis reference to a non-datum-axis (`NotAnAxis`).
+- Datums are planes, axes and points with a `DatumResult`, referring to model geometry in each
+  body's state at the feature's place in the tree. Edits refuse a sketch or plane based on a
+  non-datum-plane (`NotAPlane`), an axis reference to a non-datum-axis (`NotAnAxis`), a point
+  reference to a non-datum-point (`NotAPoint`) and a sketch point or line of a feature that is not
+  a sketch (`NotASketch`, through `FeatureKind::reference_sketches`). `Datum::kind` (plane, axis,
+  point) is what `SetFeatureKind` keeps, so a plane may switch between offset and through forms.
+- A `PointReference` is the origin, a datum point, a body corner (`VertexName`, resolved when
+  exactly one vertex has it), the centre of a round edge (an `EdgeReference`, pieces of one circle
+  accepted) or a sketch point (in its solved plane). An `AxisReference::Sketch` is a line of an
+  earlier sketch. Sketches they use join `features()`, so recompute reuses the datum, pattern or
+  revolve only while the sketch is unchanged.
+- `Datum::Point` places a `DatumPoint` at a point reference moved by three length offsets.
+  `Datum::PlaneThrough` passes through three points (refused when they lie on one line), lies
+  `Midway` between two planes (halfway between parallel ones, else on the bisector of the acute
+  angle), contains an axis and a point (refused when the point is on the axis) or stands square to
+  an axis at a point. `DatumAxis` also runs through two points or stands square to a plane through
+  a point. Each refusal names the references and what to choose instead.
 - Whether geometry lies on a line or plane, runs along a plane or is parallel is decided in one
   place (`tolerance.rs`) for revolve axes, datums, attachments, patterns and blend pieces, so noisy
   imported geometry is accepted or refused the same way everywhere.

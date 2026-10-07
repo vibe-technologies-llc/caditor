@@ -271,7 +271,7 @@ impl SketchEditing {
             }
             EditingCommand::HoldPicked(pickable) => {
                 if let Some(picking) = &mut self.picking {
-                    picking.pending = Some(pickable);
+                    picking.hold(pickable);
                 }
             }
             EditingCommand::StopPicking => self.picking = None,

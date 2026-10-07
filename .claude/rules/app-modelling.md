@@ -158,11 +158,21 @@ paths:
 
 ## Datums
 
+- Points are taken from the selection by `datum_tools::point_reference`: the origin, a datum point,
+  a corner, the centre of a round edge or a sketch point made before the datum; a sketch line is an
+  axis (`axis_reference`).
 - Plane starts from the selected plane or flat face (XY otherwise), turned about the selected
-  axis, straight edge or round face if any, else offset. Axis runs along the selected axis,
-  straight edge or round face, or where two selected planes or flat faces meet. A selected face or
-  edge giving neither (curved, round rim, made later, not recomputed) refuses both with that
-  reason.
+  axis, straight edge or round face if any, else offset; three selected points make a plane
+  through them, two planes one midway between them, an axis and a point one through both. Axis
+  runs along the selected axis, straight edge, round face or sketch line, where two selected planes
+  or flat faces meet, through two points, or square to a plane through a point. Point (Alt+Shift+P)
+  sits at the one selected point, else the origin, with zero offsets. A selected face, edge or
+  corner giving nothing (curved, made later, not recomputed) refuses them with that reason.
+- A plane through references, a point and the new axis forms show a Defined by (or At) row
+  re-chosen from the selection, refused while nothing is selected; a plane through an axis and a
+  point switches between Contains it and Square to it; a point has Offset X, Y and Z fields.
+  Choosing them in the view holds up to two clicks (`Picking::pending`) until the selection makes
+  one, the prompt saying what is still wanted.
 - The new feature opens; its panel has reference pickers for base and rotation axis and fields for
   angle and offset. A datum cannot switch between plane and axis, nor an extrusion and a revolve,
   since `SetFeatureKind` refuses a kind change (`document.md`).

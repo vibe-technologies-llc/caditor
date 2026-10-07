@@ -77,6 +77,13 @@ impl StateError {
             Self::MadeAfter => "The selected edge is made after this point in the tree",
         }
     }
+
+    pub fn corner(self) -> &'static str {
+        match self {
+            Self::NotRecomputed => NOT_RECOMPUTED,
+            Self::MadeAfter => "The selected corner is made after this point in the tree",
+        }
+    }
 }
 
 const NOT_RECOMPUTED: &str =

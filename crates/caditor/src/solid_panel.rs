@@ -1,5 +1,5 @@
 use caditor_document::{
-    BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature, FeatureId,
+    AxisReference, BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature, FeatureId,
     PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature, SolidStart,
     Transaction, capitalized, describe_plane,
 };
@@ -895,7 +895,7 @@ fn not_a_target(model: &Model, pickable: Pickable, index: usize) -> Option<&'sta
         Pickable::Datum(datum) if datum_tools::is_plane(model.document(), datum) => {
             Some("The selected plane comes after this feature in the tree")
         }
-        Pickable::Datum(_) => Some("The selected datum is an axis, not a plane"),
+        Pickable::Datum(_) => Some("The selected datum is not a plane"),
         _ => None,
     }
 }
@@ -1016,16 +1016,22 @@ pub fn selected_axis_change(
     let index = model.document().feature_index(feature).unwrap_or(0);
     let chosen = selection
         .iter()
-        .find_map(|pickable| datum_tools::axis_reference(model, pickable, index));
+        .find_map(|pickable| datum_tools::axis_reference(model, pickable, index))
+        .map(|axis| match axis {
+            AxisReference::Sketch { sketch, entity } if sketch == revolve.sketch => {
+                RevolveAxis::Sketch(entity)
+            }
+            axis => RevolveAxis::Model(axis),
+        });
     match chosen {
-        Some(axis) if revolve.axis.model() == Some(&axis) => {
+        Some(axis) if revolve.axis == axis => {
             Err("The revolve already turns about the selected axis".to_owned())
         }
         Some(axis) => change(
             model,
             feature,
             SolidFeature::Revolve(Revolve {
-                axis: RevolveAxis::Model(axis),
+                axis,
                 ..revolve.clone()
             }),
         ),

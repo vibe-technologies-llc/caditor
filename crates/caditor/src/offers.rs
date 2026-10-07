@@ -1,4 +1,4 @@
-use caditor_document::{AxisReference, DatumAxis, DatumPlane, FeatureId};
+use caditor_document::{AxisReference, Datum, DatumAxis, DatumPoint, FeatureId};
 
 use crate::{
     combine_tools::{self, BodyPair},
@@ -28,8 +28,9 @@ struct Basis {
 pub struct Offers {
     pub sketch_face: Option<FaceChoice>,
     pub model_axis: Option<AxisReference>,
-    pub datum_plane: Result<DatumPlane, &'static str>,
+    pub datum_plane: Result<Datum, &'static str>,
     pub datum_axis: Result<DatumAxis, &'static str>,
+    pub datum_point: Result<DatumPoint, &'static str>,
     pub shell: Result<FaceSource, &'static str>,
     pub combine: Result<BodyPair, &'static str>,
     pub movement: Result<FeatureId, &'static str>,
@@ -55,6 +56,7 @@ impl Offers {
             model_axis,
             datum_plane: datum_tools::plane_from_selection(model, selection, end),
             datum_axis: datum_tools::axis_from_selection(model, selection, end),
+            datum_point: datum_tools::point_from_selection(model, selection, end),
             shell: shell_tools::selected_faces(model, selection),
             combine: combine_tools::selected_bodies(model, selection),
             movement: move_tools::selected_body(model, selection),

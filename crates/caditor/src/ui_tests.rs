@@ -8472,14 +8472,18 @@ fn a_curved_face_or_a_round_edge_says_why_it_cannot_be_used() {
 
     harness.select([rim]);
     let end = harness.document().features().len();
+    let selection = harness.workspace.viewport.selection();
     assert_eq!(
-        crate::datum_tools::plane_from_selection(
-            &harness.model,
-            harness.workspace.viewport.selection(),
-            end
-        ),
-        Err("The selected edge is not straight, so it gives no axis")
+        crate::datum_tools::plane_from_selection(&harness.model, selection, end),
+        Err(crate::datum_tools::PLANE_CHOICES)
     );
+    assert!(matches!(
+        crate::datum_tools::point_from_selection(&harness.model, selection, end),
+        Ok(caditor_document::DatumPoint {
+            base: caditor_document::PointReference::Centre { .. },
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -9716,7 +9720,7 @@ fn a_revolve_turns_by_two_angles_set_in_its_panel() {
 fn datum_plane_of(harness: &Harness, feature: FeatureId) -> caditor_document::DatumPlane {
     match datum_of(harness, feature) {
         caditor_document::Datum::Plane(plane) => plane.clone(),
-        caditor_document::Datum::Axis(_) => panic!("expected a datum plane"),
+        other => panic!("expected a datum plane offset from another, found {other:?}"),
     }
 }
 
