@@ -6,10 +6,11 @@ pub enum DisplayStyle {
     ShadedWithEdges,
     Shaded,
     Wireframe,
+    HiddenLine,
     XRay,
 }
 
-all_variants!(DisplayStyle: ShadedWithEdges, Shaded, Wireframe, XRay);
+all_variants!(DisplayStyle: ShadedWithEdges, Shaded, Wireframe, HiddenLine, XRay);
 
 impl DisplayStyle {
     pub fn id(self) -> &'static str {
@@ -17,6 +18,7 @@ impl DisplayStyle {
             Self::ShadedWithEdges => "view.style_shaded_with_edges",
             Self::Shaded => "view.style_shaded",
             Self::Wireframe => "view.style_wireframe",
+            Self::HiddenLine => "view.style_hidden_line",
             Self::XRay => "view.style_xray",
         }
     }
@@ -26,6 +28,7 @@ impl DisplayStyle {
             Self::ShadedWithEdges => "Shaded with edges",
             Self::Shaded => "Shaded without edges",
             Self::Wireframe => "Wireframe",
+            Self::HiddenLine => "Hidden lines removed",
             Self::XRay => "X-ray",
         }
     }
@@ -36,6 +39,10 @@ impl DisplayStyle {
 
     pub fn is_translucent(self) -> bool {
         matches!(self, Self::XRay)
+    }
+
+    pub fn is_drawing(self) -> bool {
+        matches!(self, Self::HiddenLine)
     }
 
     pub fn shows_edges(self) -> bool {

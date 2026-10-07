@@ -89,6 +89,7 @@ const FAILED_BODY: Color = Color::from_rgb8(200, 134, 124);
 const OUTDATED_BODY: Color = Color::from_rgb8(182, 170, 130);
 const BACKGROUND_BODY: Color = Color::from_rgb8(92, 96, 104);
 const BODY_EDGE: Color = Color::from_rgb8(30, 32, 38);
+const DRAWING_FACE: Color = Color::from_rgb8(236, 238, 242);
 const BACKGROUND_BODY_EDGE: Color = Color::from_rgb8(62, 64, 70);
 const CHOSEN_REGION: Color = translucent(canvas::SELECTED, CHOSEN_REGION_ALPHA);
 const OPEN_REGION: Color = Color::from_rgba8(210, 214, 224, 26);
@@ -416,6 +417,7 @@ pub fn build(
         scene: Batch::default(),
         meshes: Vec::new(),
         translucent_meshes: Vec::new(),
+        flat_meshes: Vec::new(),
         picks: PickTable::default(),
         highlight,
         style,
@@ -489,6 +491,7 @@ pub fn build(
         scene: Scene {
             meshes: builder.meshes,
             translucent_meshes: builder.translucent_meshes,
+            flat_meshes: builder.flat_meshes,
             batches: vec![Arc::new(builder.scene)],
             grid: Some(Grid {
                 plane: grid_plane,
@@ -667,6 +670,7 @@ struct Builder<'a> {
     scene: Batch,
     meshes: Vec<MeshInstance>,
     translucent_meshes: Vec<MeshInstance>,
+    flat_meshes: Vec<MeshInstance>,
     picks: PickTable,
     highlight: &'a Highlight<'a>,
     style: DisplayStyle,
@@ -775,11 +779,19 @@ impl Builder<'_> {
                 ],
             });
         } else if style.shows_faces() {
+            let face_base = |base: Color| {
+                if style.is_drawing() {
+                    DRAWING_FACE
+                } else {
+                    base
+                }
+            };
             let faces = mesh
                 .faces
                 .iter()
                 .map(|face| match color {
                     Some(base) => {
+                        let base = face_base(base);
                         let pickable = Pickable::Face {
                             body,
                             face: face.key,
@@ -805,10 +817,15 @@ impl Builder<'_> {
                     },
                 })
                 .collect();
-            self.meshes.push(MeshInstance {
+            let instance = MeshInstance {
                 mesh: Arc::clone(&mesh.mesh),
                 faces,
-            });
+            };
+            if style.is_drawing() {
+                self.flat_meshes.push(instance);
+            } else {
+                self.meshes.push(instance);
+            }
         }
         let edge_color = if style.shows_edges() {
             BODY_EDGE

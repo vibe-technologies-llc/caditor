@@ -87,6 +87,7 @@ impl Uniform {
 struct Pipelines {
     meshes: wgpu::RenderPipeline,
     translucent_meshes: wgpu::RenderPipeline,
+    flat_meshes: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
     markers: wgpu::RenderPipeline,
     fills: wgpu::RenderPipeline,
@@ -514,6 +515,7 @@ pub struct ViewportRenderer {
     work: Work,
     meshes: MeshCache,
     translucent: MeshCache,
+    flat: MeshCache,
     staging: Bytes,
     targets: Option<SceneTargets>,
     targets_refused: Option<(u32, u32)>,
@@ -564,6 +566,7 @@ impl ViewportRenderer {
             work: Work::default(),
             meshes,
             translucent: MeshCache::new(device),
+            flat: MeshCache::new(device),
             staging: Bytes::default(),
             targets: None,
             targets_refused: None,
@@ -778,6 +781,7 @@ impl ViewportRenderer {
     fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, grid: bool) {
         pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
         self.meshes.draw(pass, &self.pipelines.meshes);
+        self.flat.draw(pass, &self.pipelines.flat_meshes);
         self.translucent
             .draw(pass, &self.pipelines.translucent_meshes);
         for batch in &self.batches {
@@ -828,6 +832,7 @@ impl ViewportRenderer {
         let mut pass = begin_pick_pass(encoder, targets, "pick", false);
         pass.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
         self.meshes.draw(&mut pass, &self.pipelines.pick_meshes);
+        self.flat.draw(&mut pass, &self.pipelines.pick_meshes);
         for batch in &self.batches {
             batch.draw_pick_fills(
                 &mut pass,
@@ -930,7 +935,11 @@ impl ViewportRenderer {
                 queue,
                 &scene.translucent_meshes,
                 view.eye(),
-            ));
+            ))
+            .saturating_add(
+                self.flat
+                    .prepare(device, queue, &scene.flat_meshes, view.eye()),
+            );
         let (changed, refused_batches) =
             self.upload_batches(device, queue, &scene.batches, anchored.anchor);
         faults.batches = refused_batches;
@@ -1208,6 +1217,14 @@ impl Pipelines {
                 &meshes,
                 "fs_mesh",
                 false,
+            ),
+            flat_meshes: color(
+                "flat meshes",
+                &mesh_pipeline_layout,
+                "vs_mesh",
+                &meshes,
+                "fs_color",
+                true,
             ),
             lines: color("lines", &scene_layout, "vs_line", &lines, "fs_line", true),
             markers: color(

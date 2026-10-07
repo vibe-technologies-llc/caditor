@@ -6348,6 +6348,25 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
     );
     assert!(edge_alphas(&mut harness).iter().all(|alpha| *alpha > 0.0));
     assert!(!faces_pickable(&mut harness));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    run_from_palette(&mut harness, "hidden lines removed");
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.style(), DisplayStyle::HiddenLine);
+    let built = harness.built();
+    assert!(built.scene.meshes.is_empty());
+    assert!(built.scene.translucent_meshes.is_empty());
+    assert_eq!(built.scene.flat_meshes.len(), 1);
+    let first = built.scene.flat_meshes[0].faces[0].color;
+    assert!(
+        built.scene.flat_meshes[0]
+            .faces
+            .iter()
+            .all(|face| face.color == first && face.pick.is_some())
+    );
+    assert!(first.red > 0.9 && first.green > 0.9 && first.blue > 0.9);
+    assert!(edge_alphas(&mut harness).iter().all(|alpha| *alpha == 1.0));
+    assert!(faces_pickable(&mut harness));
 }
 
 #[test]

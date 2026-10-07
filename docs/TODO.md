@@ -318,8 +318,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Viewer
 
-- [medium · medium] Display styles stop at shaded with edges, without edges and wireframe: no hidden
-  line style.
 - [medium · medium] Transparency is all or nothing: the X-ray style draws every body translucent with
   unpickable faces, and no body can be translucent or hidden on its own except by hiding its
   feature. A body's colour is one for all its faces: no face can be coloured apart.
@@ -419,12 +417,15 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Technical drawings
 
-- [medium · hard · blocked by: hidden-line removal ("Display styles" under Viewer)] No 2D drawings
+- [medium · hard] Vector hidden-line removal: the hidden-lines-removed display style hides edges
+  by the depth buffer, which gives pixels, not curves. A drawing view needs each edge of a body
+  split where faces cover it, as 2D curves in the view's plane with their visible and hidden
+  pieces (silhouettes of curved faces included), computed off the UI thread and cancellable.
+- [medium · hard · blocked by: vector hidden-line removal (above)] No 2D drawings
   at all: no sheet with a title block, no projected front, top, side and isometric views of the
   bodies, no section or detail views, no dimensions or notes taken from the model, and no PDF, SVG
   or DXF output of a sheet, though parts made for a workshop need one. Views update with the model
-  and their dimensions refer to edges by name, so they survive edits as features do. Hidden-line
-  removal (also wanted for the Viewer's display styles) comes first.
+  and their dimensions refer to edges by name, so they survive edits as features do.
 
 ## Checks and CI
 

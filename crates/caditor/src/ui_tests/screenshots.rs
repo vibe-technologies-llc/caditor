@@ -327,6 +327,15 @@ fn screenshots() {
         let mut model = Harness::styled(look, dir.path(), false);
         model.open_sample(Sample::Bracket);
         shoot(&mut model, &gpu, &out, "model", look);
+        model
+            .workspace
+            .viewport
+            .set_style(crate::display_style::DisplayStyle::HiddenLine);
+        shoot(&mut model, &gpu, &out, "hidden-lines", look);
+        model
+            .workspace
+            .viewport
+            .set_style(crate::display_style::DisplayStyle::default());
 
         let extrusion = model
             .document()

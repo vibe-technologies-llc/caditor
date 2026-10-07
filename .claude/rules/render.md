@@ -89,6 +89,8 @@ paths:
   (an exact scaling) and moves front geometry into the near half, where biases stay wide enough
   for the coarser floats (fills under lines under markers).
 
+- `Scene::flat_meshes` draw right after the opaque meshes with the same depth writes and pick pass
+  but `fs_color`, so each face shows its style's colour exactly, unlit (the hidden-line style).
 - `Scene::translucent_meshes` draw after the opaque meshes and before lines with alpha blending and
   no depth write (`translucent_meshes` pipeline), so edges and what lies behind show through; they
   are not drawn in the pick pass, so they never occlude or take a pick.

@@ -59,6 +59,7 @@ fn scene() -> Scene {
     Scene {
         meshes: Vec::new(),
         translucent_meshes: Vec::new(),
+        flat_meshes: Vec::new(),
         grid: None,
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
@@ -687,6 +688,7 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
             ],
         }],
         translucent_meshes: Vec::new(),
+        flat_meshes: Vec::new(),
         grid: None,
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
@@ -1227,6 +1229,50 @@ fn a_translucent_mesh_blends_over_what_is_behind_it_and_is_never_picked() {
     );
     assert_eq!(through.pick.hits[0].id, solid_pick);
     assert_eq!(at_rim.pick.hits.len(), 0);
+}
+
+#[test]
+fn a_flat_mesh_shows_its_colour_unlit_hides_what_is_behind_it_and_is_picked() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(200.0, f64::from(SIZE), f64::from(SIZE));
+    let paper = Color::from_rgb8(236, 238, 242);
+    let face_pick = PickId::from_index(0).unwrap();
+    let flat = MeshInstance {
+        mesh: Arc::new(box_mesh(40.0)),
+        faces: vec![
+            FaceStyle {
+                color: paper,
+                pick: Some(face_pick),
+            };
+            6
+        ],
+    };
+    let scene = Scene {
+        flat_meshes: vec![flat],
+        batches: vec![Arc::new(Batch {
+            lines: vec![Line {
+                start: Point3::new(-60.0, 0.0, -30.0),
+                end: Point3::new(60.0, 0.0, -30.0),
+                color: Color::from_rgb8(255, 0, 0),
+                width: 3.0,
+                layer: Layer::Model,
+                pick: PickId::from_index(1),
+                stroke: Stroke::Solid,
+            }],
+            ..Batch::default()
+        })],
+        ..Scene::default()
+    };
+    let middle = view.project(Point3::new(0.0, 5.0, 0.0)).unwrap();
+    let behind = view.project(Point3::new(5.0, 0.0, 0.0)).unwrap();
+
+    let rendered = render(&device, &queue, &view, &scene, middle);
+
+    assert_eq!(pixel(&rendered, middle)[..3], [236, 238, 242]);
+    assert_eq!(pixel(&rendered, behind)[..3], [236, 238, 242]);
+    assert_eq!(rendered.pick.hits[0].id, face_pick);
 }
 
 #[test]
