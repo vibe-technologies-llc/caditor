@@ -865,6 +865,13 @@ impl Harness {
             .any(|(_, node)| node.role() == role && node.label() == Some(name))
     }
 
+    fn view_description(&self) -> Option<String> {
+        self.accessible
+            .iter()
+            .find(|(_, node)| node.label() == Some("3D view"))
+            .and_then(|(_, node)| node.description().map(str::to_owned))
+    }
+
     fn describes(&self, text: &str) -> bool {
         self.accessible
             .iter()
@@ -6448,6 +6455,30 @@ fn copy_body_makes_a_placed_copy_beside_the_original() {
         .bounding_box()
         .unwrap();
     assert!(original.min().y.abs() < 1e-6);
+}
+
+#[test]
+fn the_3d_view_tells_screen_readers_what_it_shows() {
+    let mut harness = Harness::new();
+    let (_, _) = extruded_plate(&mut harness);
+    harness.context.enable_accesskit();
+    harness.frame();
+    let shown = harness.view_description().unwrap_or_default();
+
+    let sketch = harness
+        .document()
+        .features()
+        .find(|feature| feature.name == "Base sketch")
+        .map(caditor_document::Feature::id)
+        .unwrap();
+    harness.edit(sketch);
+    harness.frame();
+    let editing = harness.view_description().unwrap_or_default();
+
+    assert!(shown.starts_with("1 body shown: Extrude 1"), "{shown}");
+    assert!(shown.contains("sketch"), "{shown}");
+    assert!(editing.starts_with("Editing Base sketch: "), "{editing}");
+    assert!(editing.contains("constraint"), "{editing}");
 }
 
 #[test]

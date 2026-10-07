@@ -85,6 +85,7 @@ mod scale_panel;
 mod scale_tools;
 mod scene;
 mod scene_cache;
+mod scene_description;
 mod selection;
 mod shape_modes;
 mod shapes;

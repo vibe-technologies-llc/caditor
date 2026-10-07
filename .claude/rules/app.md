@@ -221,7 +221,10 @@ paths:
 - AccessKit (`egui-winit`'s `accesskit` feature): the window is created hidden, the adapter
   attached, then shown. The status bar notice and the failed-features pill are live regions
   (`widgets::announced`: assertive for an error, polite otherwise). The viewport is named "3D
-  view", and text painted over it (prompt, hover description, snap and measure labels) is also a
+  view" and described in words (`scene_description.rs`, rebuilt only when the revision, the
+  evaluation or the edited sketch changes): the shown bodies, sketches and datums by name and
+  count and how many bodies are hidden, or while a sketch is edited its curves, points,
+  constraints and how constrained it is, and text painted over it (prompt, hover description, snap and measure labels) is also a
   `Label` node (`canvas::announce`), the prompt and keyboard-highlight description polite live
   regions.
 - Wayland app ID, X11 class and Windows window class are `about::APP_ID`, which must match the

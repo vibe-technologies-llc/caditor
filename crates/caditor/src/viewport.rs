@@ -32,6 +32,7 @@ use crate::{
     projecting, reference_picking,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
+    scene_description::SceneDescription,
     selection::{Pickable, Selection, SelectionFilter},
     shape_modes::ShapeMode,
     shell_tools,
@@ -221,6 +222,7 @@ pub struct ViewportState {
     framed_place: Option<Point3>,
     look_from: Option<Vector3>,
     scenes: SceneCache,
+    description: SceneDescription,
     filter: SelectionFilter,
     filter_applies: bool,
     style: DisplayStyle,
@@ -305,6 +307,7 @@ impl ViewportState {
             framed_place: None,
             look_from: None,
             scenes: SceneCache::default(),
+            description: SceneDescription::default(),
             filter: SelectionFilter::default(),
             filter_applies: true,
             style: DisplayStyle::default(),
@@ -393,6 +396,7 @@ impl ViewportState {
         self.last_pick = None;
         self.keyboard_highlight = None;
         self.scenes = SceneCache::default();
+        self.description.forget();
         self.drawing = Drawing::default();
         self.trimming = Trimming::default();
         self.modifying = Modifying::default();
@@ -490,6 +494,9 @@ impl ViewportState {
             self.pixels_per_point = ui.ctx().pixels_per_point();
             let response = ui.interact(rect, ui.id().with("viewport"), Sense::click_and_drag());
             response.widget_info(|| WidgetInfo::labeled(WidgetType::Other, true, VIEWPORT_NAME));
+            let described = self.description.of(model, editing.feature()).to_owned();
+            ui.ctx()
+                .accesskit_node_builder(response.id, |node| node.set_description(described));
 
             self.track_cursor(ui, &response, rect);
             self.track_sketch_cursor(model, editing);

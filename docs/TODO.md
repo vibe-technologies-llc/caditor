@@ -301,15 +301,15 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Accessibility
 
-- [medium · medium] The model drawn in the viewport is invisible to screen readers: only the text
-  painted over it has nodes, and nothing says what the view shows (bodies, sketch geometry, their
-  count or places).
 - [medium · medium] Constraints and dimensions are not scene pickables, so N never reaches them and
   a dimension can be re-edited only by double-click or from the tree; with a drawing tool active,
   Space toggles the selection instead of placing at the highlight, so keyboard drawing cannot start
   from existing geometry.
 - [medium · medium] High contrast reaches neither the scene colours nor the colour-only sketch
   states.
+- [low · medium] The 3D view's description names the bodies, sketches and datums it shows and
+  counts an edited sketch's geometry, but says nothing of where anything is, and single bodies,
+  faces or sketch curves have no nodes of their own to step through.
 
 ## Viewer
 
