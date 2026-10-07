@@ -119,6 +119,7 @@ pub enum Command {
     HideSelection,
     HideOthers,
     LookAtFace,
+    LookAtSketch,
     SelectAllShapes,
     SelectTangentEdges,
     SelectFaceEdges,
@@ -445,6 +446,7 @@ plain_commands! {
     HideSelection,
     HideOthers,
     LookAtFace,
+    LookAtSketch,
     SelectAllShapes,
     SelectTangentEdges,
     SelectFaceEdges,
@@ -638,6 +640,7 @@ impl Command {
             Self::HideSelection => "view.hide_selection",
             Self::HideOthers => "view.hide_others",
             Self::LookAtFace => "view.look_at_face",
+            Self::LookAtSketch => "view.look_at_sketch",
             Self::SelectAllShapes => "select.all",
             Self::SelectTangentEdges => "select.tangent_edges",
             Self::SelectFaceEdges => "select.face_edges",
@@ -765,6 +768,7 @@ impl Command {
             Self::HideSelection => "Hide selection",
             Self::HideOthers => "Hide everything but the selection",
             Self::LookAtFace => "Look straight at the selected face",
+            Self::LookAtSketch => "Look straight at the edited sketch",
             Self::SelectAllShapes => "Select all faces, edges or vertices",
             Self::SelectTangentEdges => "Select the edges tangent to the selected edges",
             Self::SelectFaceEdges => "Select the edges around the selected faces",
@@ -868,6 +872,7 @@ impl Command {
             | Self::HideSelection
             | Self::HideOthers
             | Self::LookAtFace
+            | Self::LookAtSketch
             | Self::ToggleVisibility
             | Self::ShowAll
             | Self::TogglePrincipal
@@ -983,6 +988,7 @@ impl Command {
             Self::HideSelection => vec![plain(Key::H)],
             Self::HideOthers => vec![alt_shift(Key::H)],
             Self::LookAtFace => vec![alt(Key::V)],
+            Self::LookAtSketch => vec![alt_shift(Key::V)],
             Self::SelectAllShapes => vec![command_shift(Key::A)],
             Self::SelectTangentEdges => vec![alt(Key::T)],
             Self::SelectFaceEdges => vec![alt_shift(Key::E)],

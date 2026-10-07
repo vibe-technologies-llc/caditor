@@ -9817,6 +9817,49 @@ fn a_suppressed_sketch_counts_toward_fitting_the_view_no_more() {
     assert!(harness.built().fit_all().max().x < 900.0);
 }
 
+#[test]
+fn look_at_sketch_turns_the_view_square_on_to_the_edited_sketch_again() {
+    let mut harness = Harness::new();
+    let mut slanted = Sketch::new(Plane::XZ);
+    slanted.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 10.0));
+    edit_free_sketch(&mut harness, slanted);
+    let facing = *harness
+        .workspace
+        .viewport
+        .current_view()
+        .unwrap()
+        .viewpoint();
+    let orbit = Command::Camera(crate::commands::CameraMove::OrbitLeft).default_shortcuts()[0];
+    for _ in 0..3 {
+        harness.key(orbit.logical_key, orbit.modifiers);
+    }
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let orbited = *harness
+        .workspace
+        .viewport
+        .current_view()
+        .unwrap()
+        .viewpoint();
+
+    harness.key(Key::V, Modifiers::ALT | Modifiers::SHIFT);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let back = *harness
+        .workspace
+        .viewport
+        .current_view()
+        .unwrap()
+        .viewpoint();
+
+    let turned = |viewpoint: caditor_render::Viewpoint| {
+        viewpoint.orientation.angle_between(facing.orientation)
+    };
+    assert!(turned(orbited) > 0.1);
+    assert!(turned(back) < 1e-6, "{}", turned(back));
+}
+
 fn edit_free_sketch(harness: &mut Harness, sketch: Sketch) -> FeatureId {
     let feature = harness.add_sketch(sketch);
     harness.edit(feature);

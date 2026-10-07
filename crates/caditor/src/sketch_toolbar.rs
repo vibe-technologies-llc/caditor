@@ -781,9 +781,16 @@ impl Bar<'_, '_> {
         let response = ui
             .add(widgets::Named::new(button, FINISH_LABEL))
             .on_hover_text(format!("Leave the sketch. Everything is kept. ({keys})"));
-        widgets::remember_width(ui, width_id, response.rect.width());
+        let look = Command::LookAtSketch;
+        let look_help = self.commands.with_keys(look, &look.title());
+        let looking = widgets::icon_button(ui, icons::command(look), &look_help);
+        let both = response.rect.union(looking.rect);
+        widgets::remember_width(ui, width_id, both.width());
         if response.clicked() || invoked {
             self.request.finish = true;
+        }
+        if looking.clicked() {
+            self.commands.trigger(look);
         }
     }
 }

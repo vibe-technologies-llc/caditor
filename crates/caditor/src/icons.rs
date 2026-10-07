@@ -145,6 +145,7 @@ pub fn command(command: Command) -> &'static str {
         Command::HideSelection | Command::ToggleVisibility => HIDE,
         Command::HideOthers => phosphor::EYE_CLOSED,
         Command::LookAtFace => phosphor::CUBE_FOCUS,
+        Command::LookAtSketch => phosphor::SCAN,
         Command::SelectAllShapes => phosphor::SELECTION_ALL,
         Command::SelectTangentEdges => phosphor::LINE_SEGMENTS,
         Command::SelectFaceEdges => phosphor::POLYGON,

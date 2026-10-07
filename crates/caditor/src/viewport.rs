@@ -55,6 +55,7 @@ const READOUT_ROOM: f32 = 200.0;
 const DRAG_DRAWS_FROM_PRESS: f64 = 12.0;
 const SIZE_READOUT_OFFSET: egui::Vec2 = vec2(14.0, 26.0);
 const VIEWPORT_NAME: &str = "3D view";
+const NOT_IN_A_SKETCH: &str = "Edit a sketch to look straight at it";
 pub const DRAG_BLOCKED: &str = "The constraints do not allow it there";
 const READOUT_GAP: f32 = 4.0;
 const NAVIGATION_HINT: &str =
@@ -1324,6 +1325,10 @@ impl ViewportState {
                     self.camera.animate_to(viewpoint);
                 }
             }
+        }
+        let facing = editing.feature().ok_or(NOT_IN_A_SKETCH);
+        if commands.invoke(Command::LookAtSketch, &facing) && facing.is_ok() {
+            self.face_edited_sketch = true;
         }
         let looking = sketch_placement::face_to_look_at(model, &self.selection);
         if commands.invoke(Command::LookAtFace, &looking)

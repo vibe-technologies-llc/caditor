@@ -145,11 +145,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 - [high · hard] No projection of model edges or other sketches into a sketch, and bodies and other
   sketches are unpickable while editing.
-- [medium · easy] Nothing turns the view square-on to the edited sketch again: the camera faces it
-  only on entering (`face_edited_sketch`), the standard views are axis-aligned, and Look at face
-  needs a selected face, which cannot be picked in a sketch, so a sketch on a datum or slanted face
-  is lost after one orbit until it is left and entered again. Add a command (palette, key and the
-  sketch bar) that animates to the sketch's facing view.
 - [medium · medium] Typed lengths and angles (`@40, 20`, `25 < 30`, `width / 2, 10`) are evaluated
   once and place free points, keeping neither a dimension nor the parameter link; offer to create
   the dimensions.
