@@ -239,7 +239,8 @@ paths:
   screen readers), at the end of the tree when nothing is rolled back. It and every row name drag
   (`PanelState::dragging`): the gap under the pointer shows an accent line, or an error one with a
   reason when `Document::move_row` refuses it; release applies, Escape or a release outside the
-  tree cancels.
+  tree cancels. Dragging one of several chosen rows moves them all (`Document::move_features`,
+  "Move N features").
 - A filter field (`PanelState::tree_filter`) heads the feature rows once there are
   `FILTER_FROM_FEATURES` of them, or while it holds text or focus; Filter the feature tree (Ctrl+F,
   Model menu, palette) shows and focuses it at any size. It keeps the features whose name, or one

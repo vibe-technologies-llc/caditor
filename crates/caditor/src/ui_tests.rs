@@ -12212,6 +12212,35 @@ fn dragging_a_feature_reorders_the_tree_and_a_refused_place_says_why_while_dragg
 }
 
 #[test]
+fn dragging_one_of_several_chosen_features_moves_them_all_together() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+
+    harness.click("Base sketch");
+    click_with(&mut harness, "Plate", Modifiers::COMMAND);
+    let from = harness.position_of("Plate");
+    let onto = upper_edge_of(&harness, "Base sketch");
+    hold_drag(&mut harness, from, onto);
+    let refused = harness.shows_containing("cannot move");
+    release_drag(&mut harness, onto);
+
+    assert!(!refused);
+    assert_eq!(
+        feature_names(&harness),
+        ["Base sketch", "Plate", "Side sketch", "Extrude 1"]
+    );
+    assert_eq!(harness.model.undo_label(), Some("Move 2 features"));
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(
+        feature_names(&harness),
+        ["Base sketch", "Side sketch", "Plate", "Extrude 1"]
+    );
+}
+
+#[test]
 fn dragging_the_rollback_bar_shows_the_model_as_of_where_it_is_dropped() {
     let mut harness = Harness::new();
     let (extrude, _) = extruded_plate(&mut harness);

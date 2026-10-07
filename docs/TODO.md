@@ -380,8 +380,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   itself. A guide shipped with the app (and readable offline) with a page per tool, opened by F1 for
   the current tool or panel.
 - [medium · hard] No clipboard for sketch geometry or features, no parameter import or export.
-- [low · medium] Several features chosen in the tree cannot be dragged together; each moves on its
-  own.
 - [low · medium] The modelling tools borrow Phosphor glyphs that mean something else (`icons.rs`):
   fillet is the full-screen corners, chamfer a generic polygon, revolve the refresh arrows, circular
   pattern a loading spinner, shell a see-through cube, and the sketch fillet shares the fillet's.

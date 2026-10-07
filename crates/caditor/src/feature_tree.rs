@@ -385,7 +385,21 @@ fn drag_and_drop(
         .iter()
         .position(|(_, rect)| pointer.y < rect.center().y)
         .unwrap_or(placed.len());
-    let outcome = document.move_row(dragged, gap, drag_label(document, dragged));
+    let together = match dragged {
+        TreeRow::Feature(id) => {
+            let chosen = state.chosen();
+            (chosen.len() > 1 && chosen.contains(&id)).then_some(chosen)
+        }
+        TreeRow::Bar => None,
+    };
+    let outcome = match &together {
+        Some(features) => document.move_features(
+            features,
+            gap,
+            format!("Move {}", count(features.len(), "feature", "features")),
+        ),
+        None => document.move_row(dragged, gap, drag_label(document, dragged)),
+    };
     if !held {
         state.dragging = None;
         if let Ok(transaction) = outcome

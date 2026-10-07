@@ -558,3 +558,141 @@ fn a_dependent_says_why_it_fails_when_what_it_uses_goes_from_failing_to_suppress
         "It uses Base, which is suppressed."
     );
 }
+
+#[test]
+fn several_features_move_together_keeping_their_order_and_undo_as_one_step() {
+    let model = model();
+    let document = model.document.clone();
+
+    let to_the_end = document
+        .move_features(&[model.pocket, model.hole], 7, "Move 2 features")
+        .unwrap();
+    let up_together = document
+        .move_features(&[model.note, model.lug], 2, "Move 2 features")
+        .unwrap();
+    let both_ways = document
+        .move_features(
+            &[model.hole, model.pocket, model.note],
+            5,
+            "Move 3 features",
+        )
+        .unwrap();
+    let past_its_user = document.move_features(&[model.hole, model.note], 4, "Move");
+    let in_place = document
+        .move_features(&[model.hole, model.pocket], 2, "Move")
+        .unwrap();
+
+    let mut moved = document.clone();
+    moved.apply(to_the_end).unwrap();
+
+    assert_eq!(
+        names(&moved),
+        [
+            "Outline",
+            "Base",
+            "Lug sketch",
+            "Boss",
+            "Note",
+            "Hole sketch",
+            "Pocket"
+        ]
+    );
+
+    let mut moved = document.clone();
+    moved.apply(up_together).unwrap();
+
+    assert_eq!(
+        names(&moved),
+        [
+            "Outline",
+            "Base",
+            "Lug sketch",
+            "Note",
+            "Hole sketch",
+            "Pocket",
+            "Boss"
+        ]
+    );
+
+    let mut moved = document.clone();
+    let undo = moved.apply(both_ways).unwrap();
+
+    assert_eq!(
+        names(&moved),
+        [
+            "Outline",
+            "Base",
+            "Lug sketch",
+            "Hole sketch",
+            "Pocket",
+            "Note",
+            "Boss"
+        ]
+    );
+
+    moved.apply(undo).unwrap();
+
+    assert_eq!(moved, document);
+    assert_eq!(
+        past_its_user,
+        Err(EditError::BelowDependent {
+            name: "Hole sketch".to_owned(),
+            other: "Pocket".to_owned()
+        })
+    );
+    assert!(in_place.is_empty());
+}
+
+#[test]
+fn features_moved_together_across_the_rollback_bar_roll_back_together() {
+    let model = model();
+    let mut document = model.document.clone();
+    document
+        .apply(document.roll_to(RollbackBar::Before(model.boss), "Roll back"))
+        .unwrap();
+
+    let below_the_bar = document
+        .move_features(&[model.hole, model.pocket], 8, "Move 2 features")
+        .unwrap();
+    document.apply(below_the_bar).unwrap();
+
+    assert_eq!(
+        names(&document),
+        [
+            "Outline",
+            "Base",
+            "Lug sketch",
+            "Boss",
+            "Note",
+            "Hole sketch",
+            "Pocket"
+        ]
+    );
+    assert_eq!(document.rollback_bar(), RollbackBar::Before(model.boss));
+    assert!(document.is_rolled_back(model.hole));
+    assert!(document.is_rolled_back(model.pocket));
+    assert!(document.is_active(model.lug));
+}
+
+#[test]
+fn a_feature_moved_up_with_what_it_uses_never_passes_it_on_the_way() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let profile = transaction.add_feature(
+        "Profile",
+        FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 8.0))),
+    );
+    transaction.add_feature(
+        "Spare",
+        FeatureKind::from(rectangle(Plane::XZ, (0.0, 0.0), (1.0, 1.0))),
+    );
+    let block = transaction.add_feature("Block", extrude(profile, "4 mm", BodyOperation::NewBody));
+    document.apply(transaction.finish()).unwrap();
+
+    let together = document
+        .move_features(&[profile, block], 1, "Move 2 features")
+        .unwrap();
+    document.apply(together).unwrap();
+
+    assert_eq!(names(&document), ["Profile", "Block", "Spare"]);
+}

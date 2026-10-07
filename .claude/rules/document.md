@@ -104,6 +104,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   feature crossing the bar is rolled back or forward and a refused place returns `AboveDependency`
   or `BelowDependent` naming the feature in the way, or `BelowConsumer` or `AboveConsumedUse` when a
   feature using a body (`bodies_used`) would come below the Combine consuming it.
+- `move_features` moves several features to one gap in their tree order, as one transaction of
+  `MoveFeature`s ordered so no step passes a feature over one it uses that is moving with it:
+  those below the gap rise first, each right under the gap, then those above sink in reverse
+  order. Each step is checked like a single move, so the refusals are the same.
 
 ## Sketch edits (`edit/sketch.rs`)
 
