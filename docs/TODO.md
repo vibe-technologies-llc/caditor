@@ -35,6 +35,22 @@ the unblocked ones; the entry that does the unblocking comes before it.
   (`tori_touching_along_their_equators_cannot_be_split`), and a lump too thin for the validation
   mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along each axis
   is `Invalid(VoidOutside)`, with no test pinning it.
+- [medium · easy] `plane_cone` (`intersect/surface_surface/analytic.rs`) takes the exact ellipse
+  when `|n·axis| > cos α`, but a plane cuts a cone in a closed ellipse only when
+  `|n·axis| > sin α`, and the two agree only at a half-angle of 45°. On a wider cone (a 118° drill
+  point) a plane tilted between the two, crossing the axis behind the apex, is a hyperbola cut, yet
+  the `crossing <= 0` guard returns no intersection and marching is never tried, so a boolean of
+  that plane face with the cone misses the cut; on a narrower cone true ellipses are marched
+  instead. Compare with the sine, with tests either side of 45° checked by `check_all` (the stress
+  test draws half-angles up to 1 rad but passes an empty result).
+- [medium · easy] `Solid::bounding_box` is not a bound: only spheres add their axis extremes, and
+  other doubly curved faces (tori, revolutions, splines) add a 12×12 uv grid (`BOUNDS_GRID`) that
+  falls short wherever the extreme lies between samples (a torus of radii 20 and 5 tilted 45° is
+  0.17 mm short in two axes). `interference` and the Interference panel's `check` answer `Apart`
+  from that box, so a body pressed into such a face by less than the shortfall is reported apart
+  without reaching the boolean. Add the torus's closed-form extremes and bound spline and
+  revolution faces by their control hulls (or the boolean's own `patch_bounds`), with a test of a
+  tilted torus against a block.
 - [medium · hard] Offsets within `LINEAR_RESOLUTION` compound past it: a block whose back and
   bottom are each within the resolution of a plate's faces (8.3e-7 and 6.2e-7) has its corner
   1.03e-6 off the plate's edge, so the corner is neither pooled with the edge nor apart from it,
@@ -95,6 +111,19 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Document and recompute
 
+- [medium · easy] A Combine consumes its tool body, yet the tree lets a feature using that body (an
+  extrusion added to it, a fillet, a second Combine) be dragged below the Combine, or the Combine
+  above it, since `move_feature` checks only `dependencies()`. That feature then fails with "The
+  body made by P has no shape. Fix P first.", blaming the healthy body rather than the Combine that
+  took it, which is what every evaluator says of a consumed body. Refuse such moves as
+  `AboveDependency` and `BelowDependent` do, and name the consuming Combine in the missing-body
+  error, with the fix target on it.
+- [medium · easy] A hole's face names follow its outline's segments, so changing its style renames
+  its faces: the wall is side 1 of a plain hole, 3 of a counterbored one and 2 of a countersunk one
+  (`Hole::part_name`), and a reference to a plain hole's wall resolves to the counterbore's wall
+  once the style changes, instead of keeping the wall or being reported missing. Name the parts by
+  role (wall, bottom, counterbore wall and floor, countersink) so a style change keeps the faces
+  that remain.
 - [medium · hard] The cache keeps one result per feature, so changing a depth and undoing recomputes
   everything after it; it also has no byte budget, holding every intermediate `Solid`. Keep a small,
   size-bounded history per feature.
@@ -102,12 +131,25 @@ the unblocked ones; the entry that does the unblocking comes before it.
   parallel over the dependency data the document already has. A body is meshed beside the feature
   loop once no later feature changes it, but one at a time, and those settling only at the last
   features are meshed one after another once the loop ends.
+- [low · easy] `Recomputer` keeps the last evaluation it reported, and the worker its own copy,
+  across documents, though feature ids restart per document. When a cancelled submission replaces
+  a worker that ignores the cancel past `STOP_GRACE`, or a run panics twice, that evaluation is
+  reported for the new document's revision, and the view and tree show the previous model's bodies
+  and statuses under the new ids. Clear both when `Model::switch_to` starts a new document.
 - [low · medium] `SetFeatureKind` refuses an `Import` (`set_feature_kind` pairs no import with an
   import), so an imported body keeps its source solid for good; allowing it would also give
   re-import.
 
 ## Sketch solver and expressions
 
+- [medium · easy] `Sketch::evaluate` evaluates every dimension, inactive ones included, and fails
+  the solve on the first error, so a disabled (reference) dimension of `width - 5 mm` fails the
+  whole sketch once `width` drops to 3 mm, though `sketch.md` says an inactive constraint no longer
+  holds and never conflicts. Evaluate only `active_constraints()`, as `System::build` does.
+- [medium · easy] The one-argument `floor`, `ceil`, `round` and `trunc` and the quotient in `mod`
+  are not snapped within `EQUALITY_TOLERANCE` as the step forms and comparisons are, so
+  `floor(2.8 mm / 0.4 mm)` is 6 while `2.8 mm / 0.4 mm == 7` holds, and `mod(0.3, 0.1)` is not 0; a
+  pattern count written `floor(length / pitch)` loses an instance. Apply `snapped` there too.
 - [medium · medium] When conflict diagnosis finds that a part which failed from its drawn shape
   holds after all (a chain whose line must fold back, reached from a solution of all but one
   constraint), the solve still fails; the solution found could be offered instead.
@@ -145,6 +187,11 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 - [high · hard] No projection of model edges or other sketches into a sketch, and bodies and other
   sketches are unpickable while editing.
+- [medium · easy] Nothing turns the view square-on to the edited sketch again: the camera faces it
+  only on entering (`face_edited_sketch`), the standard views are axis-aligned, and Look at face
+  needs a selected face, which cannot be picked in a sketch, so a sketch on a datum or slanted face
+  is lost after one orbit until it is left and entered again. Add a command (palette, key and the
+  sketch bar) that animates to the sketch's facing view.
 - [medium · medium] Typed lengths and angles (`@40, 20`, `25 < 30`, `width / 2, 10`) are evaluated
   once and place free points, keeping neither a dimension nor the parameter link; offer to create
   the dimensions.
@@ -155,9 +202,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
   spline; arc length and sweep; angle or perpendicular to an arc; arc midpoint; equal splines;
   spline–spline tangency; curvature continuity; symmetric curves. Coincident, perpendicular and
   tangent take exactly two items where parallel and equal chain.
-- [medium · medium] No size readout while drawing splines or arc slots; no closed-region or open-end
-  feedback while sketching (only a failed extrusion names a sketch's open ends); and no
-  smart-dimension tool that takes the entities after the command.
+- [medium · medium] No size readout while drawing splines, tangent arcs or arc slots; no
+  closed-region or open-end feedback while sketching (only a failed extrusion names a sketch's open
+  ends); and no smart-dimension tool that takes the entities after the command.
 - [medium · medium] Snapping has no midpoints of arcs, spline targets or crossings with splines,
   grid or inference lines to other points, and dragged geometry does not snap at all.
 - [medium · hard] Tools missing: ellipse (a new entity kind across the solver, the kernel's 2D
@@ -170,6 +217,11 @@ the unblocked ones; the entry that does the unblocking comes before it.
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.
+- [low · easy] Dimensions taken from drawn geometry round to three decimals of the shown unit
+  (`rounded_for_display` through `LengthUnit::measured` and `AngleUnit::measured`), so in radians a
+  right angle becomes 1.571 rad, 0.012° off, and in metres anything over a metre is rounded to the
+  millimetre; the dimension then moves the geometry it measured. Round to the model's precision (a
+  micrometre, a thousandth of a degree) written in the chosen unit; `units.rs` pins 1.745 rad today.
 - [low · medium] In a conflicting sketch every drag is blocked and finishes by blaming the move; the
   cue names no constraint of the conflict.
 - [low · medium] Spline intersections sample sign changes, so a near-tangent crossing between
@@ -182,6 +234,12 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Modelling features
 
+- [high · easy] New extrusions, revolves and patterns default to a body a Combine consumed:
+  `solid_tools::last_body` and `pattern_tools::last_body` take the last body-making feature, and
+  the Extrude panel's Body list (`solid_tools::bodies_before`) offers consumed bodies too. After a
+  Join, the next Extrude adds to the tool body and fails with "The body made by Extrude 2 has no
+  shape. Fix Extrude 2 first." Take them from `Document::bodies_standing` and `bodies_before`, as
+  Combine and Hole already do.
 - [medium · medium] A cut affects only one body: no extrusion or revolve cut removes material from
   several bodies at once, only a Combine of two.
 - [medium · medium] Holes are drilled only at the free points of a sketch the user draws first, with
@@ -231,6 +289,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
   revolution, so both need new kernel operations first.
 - [medium · hard] Extrusions and revolves have no taper angle or thin wall (an open profile given a
   thickness), which needs a tapered sweep and a wall of an open profile in the kernel.
+- [low · easy] The Hole panel's countersink angle takes any value (`Rule::Any`), so 0°, a negative
+  angle or one over 179° is committed and fails at recompute, where every other size is refused in
+  the field with the old value kept. Add a rule bounded by the document's limit, exported from the
+  document crate so the two cannot drift.
 - [low · medium] Revolve cannot keep the part of a region on one side of the axis.
 - [low · medium] Parameters cannot be reordered or given a note, show what uses them only in the
   value's tooltip and mark no unused one in the table, cannot be deleted by inlining their value,
@@ -260,6 +322,12 @@ the unblocked ones; the entry that does the unblocking comes before it.
   declares 0.01 mm. Project the vertices onto lines, circles and ellipses within the declared
   precision instead. Faces that meet only within a coarse declared precision are refused rather than
   refitted to each other.
+- [medium · easy] A STEP file cut off inside its `DATA` section (no `ENDSEC;`, or cut mid-entity,
+  as an interrupted download leaves it) is refused whole as damaged: at end of input
+  `Parser::recover` fails hard and every entity already read is dropped, though `step-read.md` says
+  damage is survived and reported. Return what was read with `trailer_missing` and a note that the
+  file is cut short, leaving the refusal to `NoSolids` or `NotRebuilt` when the solids themselves
+  are incomplete; `damage_is_located_and_other_files_are_refused` pins the refusal today.
 - [medium · medium] Import canonicalises each placement by writing and re-reading it, and stores
   every placement of a product as its own STEP text. Build each representation once and store each
   product once with placements.
@@ -279,6 +347,12 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Drawing import and export
 
+- [medium · easy] DXF block expansion counts objects (`MAX_EXPANDED_OBJECTS`) but not the shapes
+  they decode to, and once `MAX_DRAWING_CURVES` is reached `Interpreter::push` still walks every
+  shape of every further instance to count it as left out: a 3 MB file with a block of one
+  100,000-vertex polyline inserted as a 700 × 700 array keeps the files worker busy for minutes,
+  and an import cannot be cancelled. Count the rest of an item in one step once the limit is
+  reached, and charge the visit budget per shape so a hostile file ends in `TooManyObjects`.
 - [medium · medium] Drawing export takes one sketch or one flat face at a time: several faces (the
   parts of a nest) cannot go into one file, construction geometry is left out with no option to keep
   it on a layer, and the files hold no text or dimensions. A face's intersection edges are written
@@ -329,9 +403,18 @@ the unblocked ones; the entry that does the unblocking comes before it.
   from existing geometry.
 - [medium · medium] High contrast reaches neither the scene colours nor the colour-only sketch
   states.
+- [medium · medium] The side panels keep fixed minimum widths in points (the model panel 270,
+  Measure and Interference 220 each), so at 200% the 3D view is squeezed to a sliver: about 30
+  points with all three open on a 1920 px screen, about 50 with the model panel and Measure on a
+  1366 px one. Cap the panels' combined share, or dock the inspect panels together, so the view
+  keeps a usable width, with a UI test at 200%.
 
 ## Viewer
 
+- [medium · easy] An Orthographic projection kept in the preferences is lost at startup: the first
+  fit replaces the camera with `Camera::new`, which is always perspective, so the view and the
+  preference disagree and the first O changes only the preference. Keep the projection when
+  fitting, with a UI test starting from an Orthographic preference.
 - [medium · medium] Display styles stop at shaded with edges, without edges and wireframe: no hidden
   line style.
 - [medium · medium] Transparency is all or nothing: the X-ray style draws every body translucent with
@@ -345,12 +428,27 @@ the unblocked ones; the entry that does the unblocking comes before it.
   constant factor with no slope term, and the grid and reference fills share the mesh's bias, so a
   face on the XY plane can speckle with the grid. Neither has a test.
 - [medium · hard] Section planes.
+- [low · easy] Fit all, the first fit and the size of the principal planes and axes count every
+  unhidden sketch (`scene::model_bounds` walks `features()`), including suppressed ones and those
+  past the rollback bar, which are neither drawn nor picked; walk `active_features` instead.
 - [low · medium] Silhouette edges on curved bodies.
 - [low · medium] Line caps, joins and anti-aliasing without MSAA.
 - [low · medium] Lighting and the MSAA resolve happen in gamma space; the model keeps no saved view.
 
 ## Interface performance
 
+- [medium · easy] A large selection is handled item by item on the UI thread: after Select all on
+  an imported body of tens of thousands of faces, edges or vertices, `Offers::of` describes and
+  captures every one (`describe_vertex` scans every edge per vertex, so all vertices cost V×E), the
+  status bar's tooltip joins every description, Measure builds and draws a card per item each frame
+  though more than two only ever say to select fewer, and `retain_available` and the panels' Use
+  selected re-check the whole selection each frame. Describe and list the first few with "and N
+  more", and measure only one or two items.
+- [medium · easy] `annotation_layout::placements` builds every shift along a line's full on-screen
+  length before `place_glyphs` takes the first free one, for every constrained line each frame, on
+  screen or not, so zoomed in on a feature of tens of micrometres each line allocates tens of
+  megabytes a frame. Clip segment anchors to the view and generate placements lazily from the
+  middle, with a cap.
 - [medium · medium] Every frame `Marks::collect` formats every constraint's description, evaluates
   every dimension and registers an `interact` per glyph, and an expanded sketch in the tree does the
   same per constraint row, searching the list of involved constraints linearly for each; the
@@ -365,12 +463,31 @@ the unblocked ones; the entry that does the unblocking comes before it.
   to the encoder.
 - [medium · medium] The feature tree lays out every row each frame, which a STEP import of hundreds
   of bodies makes long.
+- [medium · medium] The constraint buttons' offers (`ConstraintOffers::refresh`) check every tool's
+  candidates against every constraint of the sketch (`new_relations`, through `contradicting` and
+  `restating`, which rebuilds each constraint's `Subject`), so a selection of a few hundred
+  constrained lines costs hundreds of milliseconds, and since the offers key on the displayed
+  sketch's generation, dragging that selection pays it every frame. Index the constraints by
+  subject once per revision and build a tool's candidates only when its selection shape can match.
+- [medium · medium] The Measure and Interference panels redo work per body or pair each frame while
+  open: `Interference::refresh` rebuilds and compares every pair and `report` looks each up again,
+  and both panels format and lay out a card per contact or shown body with no virtualisation, so a
+  STEP import of a thousand bodies means half a million pairs a frame. Cache the pairs and the
+  report per basis, and virtualise or cap the cards.
 - [medium · hard] The cached scene is one batch: any change to its content (each drag solution, an
   edit, an evaluation, a new faceting level) facets every drawn sketch again, and a hover or
   selection change restyles and uploads all of it, over a millisecond to rebuild and about half of
   that to upload for a sketch of 24,000 curves in a release build. A batch per feature, with pick
   ids of its own, would limit both to what changed. Face styles are likewise rewritten whole on
   every highlight change.
+- [low · easy] The parameter table calls `Document::can_remove_parameter` for every row each
+  frame, which scans every feature through `parameter_users`, though `app-look.md` says that scan
+  runs only for the hovered row; check once per revision.
+- [low · easy] Files hovered over the window whose extension is not a model, DXF or STEP one have
+  their content sniffed on the UI thread every frame (`drop_target::verdict` through
+  `import::starts_like_step`: stat, open and read), as `Files::start` does for the command-line
+  path, so a file on a stalled network mount freezes the window while it is dragged. Judge hovered
+  files by extension and leave the content check to the files worker on drop.
 - [low · medium] A pick or image readback in flight redraws full frames until polled complete;
   vertex records repeat per-layer data and both ends of shared segments; invisible vertex markers go
   through the colour pass; each mesh's placement uniform is written every frame; resizing recreates
@@ -383,6 +500,16 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Application
 
+- [medium · easy] Without a desktop portal the file dialogs fall back to zenity, started with
+  `--save` but not `--confirm-overwrite`, which zenity 3 leaves off, and `Files::check_output` and
+  `check_save_target` ask before replacing only a name caditor completed with an extension, so an
+  export, image or drawing saved there over an existing file of the same name replaces it without
+  a question. Pass the flag, or ask through the "Replace …?" dialog whatever the dialog did.
+- [medium · easy] The Linux file dialogs filter by lowercase globs (`*.step`, `*.dxf` from
+  `portal/xdg.rs` `patterns`) with no All files choice, so on portals that match globs
+  case-sensitively (GTK's) a `PART.STEP` or `PLAN.DXF` cannot be picked for Import, though
+  dropping it works. Emit case-insensitive patterns (`*.[sS][tT][eE][pP]`) and add All files to
+  Open and Import, leaving the decision to the content check.
 - [medium · medium] One files worker runs everything and Import cannot be cancelled (cancelling Open
   only drops its result while the worker reads on), so a slow STEP import blocks Open behind a
   modal, and the opening modal is drawn before the unsaved-changes prompt, so closing the window
@@ -390,6 +517,19 @@ the unblocked ones; the entry that does the unblocking comes before it.
   worker thread cannot be spawned the job runs on the UI thread.
 - [medium · medium] Bodies are listed (Bodies group) but cannot be renamed on their own, since a
   body is named by the feature that made it, nor deleted or selected as a whole in the view.
+- [medium · medium] While a native file dialog is open (`Files::picking`) every shortcut and the
+  palette are blocked, yet nothing in the window says a dialog is waiting and nothing cancels it;
+  the portal request passes an empty parent window, so the dialog is not tied to caditor's and can
+  open behind it, and neither the portal wait nor zenity times out. Say that the dialog is waiting,
+  with a Cancel that abandons the pick, and pass the window handle to the portal.
+- [medium · medium] A model whose records exceed 2 GiB uncompressed (`MAX_DECOMPRESSED`) can be
+  neither saved nor journaled: `encode_over` checks only the compressed size, so the read-back
+  runs out of its budget and every save fails as "did not read back intact", and the journal
+  snapshot exceeds `MAX_JOINED_CONTENT`, so `rewrite` reports `Unconvertible` and the session has
+  no crash protection. Importing an assembly with a few hundred placements of a part of a few MB of
+  STEP text reaches it, since each placement is stored as its own text (STEP import and export).
+  Measure the uncompressed snapshot and say before committing an import that it would make the
+  model too large; storing each product once removes the usual cause.
 - [medium · hard] Version history shows when a version was saved and after which change, but no
   preview of what it holds, and no way to keep a version from being thinned out.
 - [medium · hard] No user guide: Help has only the welcome, the command search, the keyboard
@@ -439,11 +579,27 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Checks and CI
 
+- [high · easy] `fuzz/Cargo.lock` is behind the root lock: it lacks `dunce` (now a dependency of
+  `caditor`) and pins `jiff` 0.2.37 against 0.2.38, so `cargo metadata --locked` and
+  `cargo deny --locked` fail in `fuzz/`. That fails the `check` job and every `fuzz` job of
+  `ci.yml`, and with them the `checks` job a release waits for. Update the fuzz lock with every
+  root dependency change, and check it locally (a command in `CLAUDE.md` or a hook) so it cannot
+  fall behind again.
+- [high · easy] A release cannot get through its checks: `release.yml` calls `ci.yml`, whose
+  concurrency group `${{ github.workflow }}-${{ github.ref }}` takes the caller's name inside a
+  called workflow and becomes `Release-refs/tags/v…`, which GitHub compares without case to the
+  release's own `release-refs/tags/v…` and cancels as a deadlock. No tag has been pushed, so it has
+  never run. Give the CI group a prefix of its own (`ci-…`) or skip it under `workflow_call`.
 - [medium · medium] `tests/crash_flush.rs` runs the crash protection with a real storage worker in a
   child process, not the app itself. `check-install.sh` only runs `--version`; start the packaged
   binary to a first frame under Xvfb and lavapipe, kill it there and recover its journal, check its
   linked libraries and highest glibc symbol against `docs/RELEASING.md`, and run the offscreen tests
   once more on the GL backend that `packaging/INSTALL.md` promises.
+- [low · easy] `ci.md` names a stress-test failure threshold, `RANDOM_PLACEMENT_FAILURES_ALLOWED`,
+  that no code reads (`random_placements_of_every_fixture` asserts no failures); the
+  `libfuzzer-sys` licence exception in `deny.toml` gives no reason though `ci.md` says every
+  exception has one; and step 1 of `docs/RELEASING.md` runs clippy without the
+  `--all-features --locked` CI uses, so it skips the `fuzzing` modules.
 - [low · medium] Slow tests to keep an eye on: about a third of the UI tests (75 of 219) take over a
   second each in a debug build, and the UI suite takes about 3.5 minutes on one thread.
 
@@ -474,6 +630,10 @@ Linux is the primary platform and Windows the only other one; macOS is not a goa
   monitors), the rfd dialogs owned by the window, sign-out flushing the journal, the MSI from
   SmartScreen to uninstall, and a model and its journal on a USB stick (FAT32/exFAT, no POSIX
   rename) and on a network share.
+- [low · easy] A failed install over an existing one removes the old version as well: `install.sh`
+  lists each path before copying it and `roll_back` deletes every listed path, including files the
+  previous install had there. Copy to temporary names beside the targets and rename them into place
+  once every copy succeeded, and add an upgrade that fails midway to `check-install.sh`.
 - [low · medium] On Windows, hovering caditor's own maximize button does not offer Snap Layouts:
   that needs the button to answer `WM_NCHITTEST` with `HTMAXBUTTON`, which winit does not expose,
   so it would be another `caditor-windows` subclass hook.
