@@ -814,10 +814,7 @@ impl Panel<'_> {
                 ui.label("");
             }
             let name = feature_fields::feature_name(self.document(), *other);
-            let hover = format!(
-                "Stop cutting {}",
-                name.unwrap_or("the missing body")
-            );
+            let hover = format!("Stop cutting {}", name.unwrap_or("the missing body"));
             let mut dropped = false;
             ui.horizontal(|ui| {
                 match &name {

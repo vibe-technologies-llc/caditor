@@ -11,7 +11,7 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, ParameterId, Unit};
 use caditor_file::{DrawingUnit, ExportFormat, JournalEntry, Start, Storage, StorageConfig};
-use caditor_geometry::{Plane, Point2, Vector2, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::MeshQuality;
 use caditor_render::{Background, GraphicsInfo, Image, ImageError, Msaa, Shading};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
@@ -6555,6 +6555,97 @@ fn an_open_cut_shows_the_body_solid_and_only_the_material_it_removes_see_through
     let closed = harness.built();
     assert!(closed.scene.overlay_meshes.is_empty());
     assert_eq!(closed.scene.meshes.len(), 1);
+}
+
+fn plate_on_screen(harness: &Harness) -> (Pos2, Pos2) {
+    let viewport = &harness.workspace.viewport;
+    let corners: Vec<Pos2> = [0.0, 10.0]
+        .into_iter()
+        .flat_map(|height| {
+            let plane =
+                Plane::from_frame(Point3::new(0.0, 0.0, height), Vector3::Z, Vector3::X).unwrap();
+            [(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)]
+                .map(|(x, y)| viewport.screen_position(plane, Point2::new(x, y)).unwrap())
+        })
+        .collect();
+    let low = corners
+        .iter()
+        .fold(Pos2::new(f32::MAX, f32::MAX), |low, corner| {
+            low.min(*corner)
+        });
+    let high = corners
+        .iter()
+        .fold(Pos2::new(f32::MIN, f32::MIN), |high, corner| {
+            high.max(*corner)
+        });
+    (low, high)
+}
+
+fn selected_kinds(harness: &Harness) -> (usize, usize, usize) {
+    let selection = harness.workspace.viewport.selection();
+    let count = |test: fn(&Pickable) -> bool| selection.iter().filter(&test).count();
+    (
+        count(|pickable| matches!(pickable, Pickable::Face { .. })),
+        count(|pickable| matches!(pickable, Pickable::Edge { .. })),
+        count(|pickable| matches!(pickable, Pickable::Vertex { .. })),
+    )
+}
+
+#[test]
+fn a_box_dragged_over_the_model_selects_what_it_holds_or_touches_by_the_filter() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([]);
+    run_from_palette(&mut harness, "fit view");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.frame();
+    let (low, high) = plate_on_screen(&harness);
+    let margin = egui::vec2(12.0, 12.0);
+
+    drag_screen(&mut harness, low - margin, high + margin);
+    assert_eq!(selected_kinds(&harness), (3, 0, 0));
+
+    harness
+        .workspace
+        .viewport
+        .set_filter(SelectionFilter::Edges);
+    drag_screen(&mut harness, low - margin, high + margin);
+    assert_eq!(selected_kinds(&harness), (0, 12, 0));
+
+    harness
+        .workspace
+        .viewport
+        .set_filter(SelectionFilter::Vertices);
+    drag_screen(&mut harness, low - margin, high + margin);
+    assert_eq!(selected_kinds(&harness), (0, 0, 8));
+
+    harness
+        .workspace
+        .viewport
+        .set_filter(SelectionFilter::Everything);
+    let middle = harness
+        .workspace
+        .viewport
+        .screen_position(
+            Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap(),
+            Point2::new(20.0, 20.0),
+        )
+        .unwrap();
+    drag_screen(
+        &mut harness,
+        middle + egui::vec2(5.0, 5.0),
+        middle - egui::vec2(5.0, 5.0),
+    );
+    assert_eq!(
+        harness
+            .workspace
+            .viewport
+            .selection()
+            .iter()
+            .collect::<Vec<_>>(),
+        vec![top]
+    );
 }
 
 #[test]

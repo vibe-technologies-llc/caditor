@@ -213,12 +213,12 @@ impl ScreenBox {
         self.from.max(self.to)
     }
 
-    fn contains(self, point: Vector2) -> bool {
+    pub fn contains(self, point: Vector2) -> bool {
         let (min, max) = (self.min(), self.max());
         point.x >= min.x && point.x <= max.x && point.y >= min.y && point.y <= max.y
     }
 
-    fn crosses(self, from: Vector2, to: Vector2) -> bool {
+    pub fn crosses(self, from: Vector2, to: Vector2) -> bool {
         if self.contains(from) || self.contains(to) {
             return true;
         }

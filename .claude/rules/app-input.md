@@ -107,6 +107,13 @@ paths:
   picking what they need; the status bar names an active filter and its button clears it. It is
   kept for the session, not saved.
 
+- Outside sketch editing (no sketch edited, feature open, plane or reference being chosen) a
+  primary drag in the 3D view draws a box (`PrimaryDrag::ModelBox`, `box_selection.rs`): left to
+  right a window taking what lies wholly inside, right to left a crossing box taking what it
+  touches, replacing the selection (Shift or Ctrl adds). It takes faces (Everything or Faces),
+  edges, vertices or the curves of shown sketches by the selection filter, of shown bodies only.
+  Faces count by their triangles facing the camera, so faces turned away are left out; edges and
+  vertices are taken through the body. A box under `SMALLEST_BOX` points takes nothing.
 - Select all (`select.all`), Select tangent edges and Select edges around faces
   (`body_selection.rs`) work on the shown bodies outside sketch editing and refuse inside one.
   Select all takes every face, edge or vertex by the selection filter, or by the kind already

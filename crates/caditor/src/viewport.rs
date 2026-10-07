@@ -15,7 +15,9 @@ use crate::{
     annotations::{Annotations, Surface},
     blend_tools,
     bodies::{self, BodyMeshes},
-    body_selection, canvas,
+    body_selection,
+    box_selection::{self, Catch},
+    canvas,
     commands::{CameraMove, Command, CommandFrame, StandardView},
     datum_tools,
     display::Displayed,
@@ -44,6 +46,7 @@ use crate::{
     trimming::Trimming,
     typed_point::{self, TypedPoint},
     view_cube::{self, CubeAction},
+    visibility,
 };
 
 const INITIAL_LOOK_FROM: Vector3 = Vector3::new(1.0, -1.0, 1.0);
@@ -158,6 +161,7 @@ struct Press {
 enum PrimaryDrag {
     Grab(Grab),
     Box { feature: FeatureId, area: ScreenBox },
+    ModelBox { area: ScreenBox },
     Trim { feature: FeatureId, from: Point2 },
     Pull { feature: FeatureId },
 }
@@ -1058,7 +1062,7 @@ impl ViewportState {
                     actions.push(Action::Drag(command));
                 }
             }
-            Some(PrimaryDrag::Box { area, .. }) => {
+            Some(PrimaryDrag::Box { area, .. } | PrimaryDrag::ModelBox { area }) => {
                 if let Some(cursor) = cursor {
                     area.to = cursor / f64::from(self.pixels_per_point);
                 }
@@ -1073,6 +1077,9 @@ impl ViewportState {
                 }
                 Some(PrimaryDrag::Box { feature, area }) => {
                     self.select_within(model, feature, area, toggle);
+                }
+                Some(PrimaryDrag::ModelBox { area }) => {
+                    self.select_in_model(model, editing, area, toggle);
                 }
                 Some(PrimaryDrag::Trim { .. }) => {
                     actions.extend(outcome_action(self.trimming.finish_path(model)));
@@ -1095,6 +1102,16 @@ impl ViewportState {
         model: &Model,
         editing: &SketchEditing,
     ) -> Option<PrimaryDrag> {
+        if editing.feature().is_none()
+            && editing.solid().is_none()
+            && editing.picking().is_none()
+            && !editing.is_choosing_plane()
+        {
+            let at = press.cursor / f64::from(self.pixels_per_point);
+            return Some(PrimaryDrag::ModelBox {
+                area: ScreenBox { from: at, to: at },
+            });
+        }
         let active = editing.active().filter(|active| !active.tool.draws())?;
         let feature = active.feature;
         match active.tool {
@@ -1142,6 +1159,60 @@ impl ViewportState {
         };
         let caught = sketch_drag::within(&sketch, &screen, area, self.scenes.faceting());
         self.add_to_selection(feature, caught, toggle);
+    }
+
+    fn select_in_model(
+        &mut self,
+        model: &Model,
+        editing: &SketchEditing,
+        area: ScreenBox,
+        keep: bool,
+    ) {
+        if !box_selection::is_a_box(area) {
+            return;
+        }
+        let Some(view) = self.view() else {
+            return;
+        };
+        let document = model.document();
+        let evaluation = model.evaluation();
+        let scale = f64::from(self.pixels_per_point);
+        let screen = |point: Point3| view.project(point).map(|pixel| pixel / scale);
+        let mut caught: Vec<Pickable> = match Catch::of(self.active_filter()) {
+            Catch::SketchGeometry => document
+                .active_features()
+                .filter(|feature| visibility::is_shown(document, feature.id()))
+                .filter_map(|feature| Some((feature.id(), model.displayed_sketch(feature)?)))
+                .flat_map(|(feature, sketch)| {
+                    let screen = SketchScreen {
+                        view,
+                        plane: sketch.plane(),
+                        pixels_per_point: scale,
+                    };
+                    sketch_drag::within(&sketch, &screen, area, self.scenes.faceting())
+                        .into_iter()
+                        .map(move |entity| Pickable::SketchEntity { feature, entity })
+                })
+                .collect(),
+            catch => self
+                .bodies
+                .iter()
+                .filter(|(body, _)| visibility::is_shown(document, *body))
+                .flat_map(|(body, mesh)| {
+                    box_selection::within_body(body, mesh, &screen, area, catch)
+                })
+                .collect(),
+        };
+        let context = editing.context();
+        caught.retain(|pickable| pickable.is_available(document, evaluation, context));
+        if !keep {
+            self.selection.clear();
+        }
+        for pickable in caught {
+            if !self.selection.contains(pickable) {
+                self.selection.toggle(pickable);
+            }
+        }
     }
 
     fn add_to_selection(&mut self, feature: FeatureId, entities: Vec<EntityId>, keep: bool) {
@@ -1907,7 +1978,9 @@ impl ViewportState {
             match primary {
                 PrimaryDrag::Grab(_) => actions.push(Action::Drag(DragCommand::Cancel)),
                 PrimaryDrag::Trim { .. } => self.trimming.cancel_path(),
-                PrimaryDrag::Box { .. } | PrimaryDrag::Pull { .. } => {}
+                PrimaryDrag::Box { .. }
+                | PrimaryDrag::ModelBox { .. }
+                | PrimaryDrag::Pull { .. } => {}
             }
         } else if editing.is_choosing_plane() {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
@@ -1998,7 +2071,8 @@ impl ViewportState {
         view_cube::show_axis_triad(ui, rect, orientation);
 
         let painter = ui.painter();
-        if let Some(PrimaryDrag::Box { area, .. }) = &self.primary {
+        if let Some(PrimaryDrag::Box { area, .. } | PrimaryDrag::ModelBox { area }) = &self.primary
+        {
             paint_box(painter, rect, *area);
         }
         if let Some((line, label)) = &self.measured

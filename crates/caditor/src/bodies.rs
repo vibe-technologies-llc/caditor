@@ -260,6 +260,10 @@ impl BodyMesh {
         }
     }
 
+    pub fn source(&self) -> &Arc<FeatureResult> {
+        &self.source
+    }
+
     pub fn vertex_position(&self, key: VertexKey) -> Option<Point3> {
         self.vertices
             .iter()

@@ -305,9 +305,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 ## Viewer
 
 - [medium · medium] A body's colour is one for all its faces: no face can be coloured apart.
-- [medium · medium] No box or lasso selection in the 3D view (only inside a sketch) and no
-  selecting a hole's wall, so choosing many faces for a pattern, shell or export still means
-  clicking most of them.
+- [medium · medium] No lasso selection, a box in the 3D view takes edges and vertices hidden behind
+  the body (faces only count where they face the camera) and no command selects a hole's wall.
 - [medium · medium] Edge lines can be eaten by faces at grazing angles, since depth bias is a
   constant factor with no slope term, and the grid and reference fills share the mesh's bias, so a
   face on the XY plane can speckle with the grid. Neither has a test.
