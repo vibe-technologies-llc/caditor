@@ -128,6 +128,7 @@ pub enum Command {
     TogglePrincipal,
     ToggleProjection,
     ToggleSnapping,
+    ToggleGlyphs,
     MinimizeWindow,
     MaximizeWindow,
     FullScreen,
@@ -435,6 +436,7 @@ plain_commands! {
     FitView,
     ToggleProjection,
     ToggleSnapping,
+    ToggleGlyphs,
     Measure,
     Interference,
     LargerInterface,
@@ -649,6 +651,7 @@ impl Command {
             Self::TogglePrincipal => "view.toggle_principal",
             Self::ToggleProjection => "view.toggle_projection",
             Self::ToggleSnapping => "view.toggle_snapping",
+            Self::ToggleGlyphs => "view.toggle_glyphs",
             Self::MinimizeWindow => "view.minimize_window",
             Self::MaximizeWindow => "view.maximize_window",
             Self::FullScreen => "view.full_screen",
@@ -777,6 +780,7 @@ impl Command {
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
             Self::ToggleProjection => "Switch between perspective and orthographic",
             Self::ToggleSnapping => "Turn snapping on or off",
+            Self::ToggleGlyphs => "Show or hide constraint glyphs",
             Self::MinimizeWindow => "Minimize the window",
             Self::MaximizeWindow => "Maximize or restore the window",
             Self::FullScreen => "Enter or leave full screen",
@@ -878,6 +882,7 @@ impl Command {
             | Self::TogglePrincipal
             | Self::ToggleProjection
             | Self::ToggleSnapping
+            | Self::ToggleGlyphs
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::FullScreen => Category::View,
@@ -988,6 +993,7 @@ impl Command {
             Self::HideSelection => vec![plain(Key::H)],
             Self::HideOthers => vec![alt_shift(Key::H)],
             Self::LookAtFace => vec![alt(Key::V)],
+            Self::ToggleGlyphs => vec![alt(Key::G)],
             Self::LookAtSketch => vec![alt_shift(Key::V)],
             Self::SelectAllShapes => vec![command_shift(Key::A)],
             Self::SelectTangentEdges => vec![alt(Key::T)],

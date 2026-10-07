@@ -244,6 +244,9 @@ paths:
   the view first (`within_view`; off-screen entities get no glyphs, a line is anchored at the middle
   of its visible part), and the places tried are generated lazily from the middle out, at most
   `MAX_GLYPH_SHIFTS` steps each way, so zooming in never makes a frame walk a line's full length.
+  An entity shows at most `MAX_STACKED` glyphs: past that the last slot is a "+N" mark whose
+  hover lists the rest and whose click selects the first of them. Show or hide constraint glyphs
+  (Alt+G, View menu, palette; `ViewportState::glyphs_shown`) hides them all, dimensions staying.
   Labels use `canvas::body` on
   the canvas backdrop, glyph letters `canvas::emphasis`.
 - Labels show the expression in the document's naming, followed by its value when not a literal;

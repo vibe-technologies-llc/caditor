@@ -39,6 +39,8 @@ const FIELD_WIDTH: f32 = 120.0;
 const FIELD_LIFT: f32 = 14.0;
 const FIELD_MARGIN: f32 = 4.0;
 const REQUEST_FRAMES: u8 = 30;
+const MAX_STACKED: usize = 4;
+const LISTED_BEYOND: usize = 6;
 const RADIUS_PREFIX: &str = "R ";
 const DIAMETER_PREFIX: &str = "Ø ";
 const MIDPOINT_DOT: f32 = 1.8;
@@ -79,6 +81,7 @@ struct GlyphMark {
     center: Vector2,
     standing: Standing,
     description: String,
+    beyond: Option<usize>,
 }
 
 struct GlyphItem {
@@ -166,9 +169,15 @@ impl Marks {
         let half = Vector2::splat(f64::from(GLYPH_SIZE / 2.0 + GLYPH_CLEARANCE));
         let mut glyphs = Vec::new();
         for group in &self.groups {
-            let positions = annotation_layout::place_glyphs(
+            let (shown, hidden) = if group.items.len() > MAX_STACKED {
+                group.items.split_at(MAX_STACKED - 1)
+            } else {
+                (group.items.as_slice(), &[][..])
+            };
+            let slots = shown.len() + usize::from(!hidden.is_empty());
+            let mut positions = annotation_layout::place_glyphs(
                 group.place,
-                group.items.len(),
+                slots,
                 self.screen_centre,
                 half,
                 &blocked,
@@ -179,20 +188,27 @@ impl Marks {
                     half,
                 });
             }
-            glyphs.extend(
-                group
-                    .items
-                    .iter()
-                    .zip(positions)
-                    .map(|(item, center)| GlyphMark {
-                        constraint: item.constraint,
-                        anchor: group.anchor,
-                        kind: item.kind,
-                        center,
-                        standing: item.standing,
-                        description: item.description.clone(),
-                    }),
-            );
+            let beyond_at = (!hidden.is_empty()).then(|| positions.pop()).flatten();
+            glyphs.extend(shown.iter().zip(positions).map(|(item, center)| GlyphMark {
+                constraint: item.constraint,
+                anchor: group.anchor,
+                kind: item.kind,
+                center,
+                standing: item.standing,
+                description: item.description.clone(),
+                beyond: None,
+            }));
+            if let (Some(center), Some(first)) = (beyond_at, hidden.first()) {
+                glyphs.push(GlyphMark {
+                    constraint: first.constraint,
+                    anchor: group.anchor,
+                    kind: first.kind,
+                    center,
+                    standing: first.standing,
+                    description: beyond_description(hidden),
+                    beyond: Some(hidden.len()),
+                });
+            }
         }
         glyphs
     }
@@ -307,6 +323,7 @@ pub struct Surface<'a, S> {
     pub screen: &'a S,
     pub feature: FeatureId,
     pub interactive: bool,
+    pub glyphs: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -400,7 +417,11 @@ impl Annotations {
         for (_, rect) in labels.iter().flatten() {
             blocked.add(footprint(surface.rect, rect.expand(GLYPH_CLEARANCE)));
         }
-        let glyphs = marks.glyphs(blocked);
+        let glyphs = if surface.glyphs {
+            marks.glyphs(blocked)
+        } else {
+            Vec::new()
+        };
         let pickable = |constraint| Pickable::SketchConstraint {
             feature: surface.feature,
             constraint,
@@ -459,12 +480,12 @@ impl Annotations {
             );
         }
         for mark in &glyphs {
-            paint_glyph(
-                &painter,
-                to_pos(surface.rect, mark.center),
-                mark.kind,
-                color(mark.constraint, mark.standing),
-            );
+            let center = to_pos(surface.rect, mark.center);
+            let tint = color(mark.constraint, mark.standing);
+            match mark.beyond {
+                Some(count) => paint_beyond(&painter, center, count, tint),
+                None => paint_glyph(&painter, center, mark.kind, tint),
+            }
         }
         self.show_field(ui, model, surface, &marks, actions);
     }
@@ -706,6 +727,38 @@ pub fn glyph_letter(kind: GlyphKind) -> Option<&'static str> {
         | GlyphKind::Symmetric
         | GlyphKind::Fix => None,
     }
+}
+
+fn beyond_description(hidden: &[GlyphItem]) -> String {
+    let listed: Vec<&str> = hidden
+        .iter()
+        .take(LISTED_BEYOND)
+        .map(|item| item.description.as_str())
+        .collect();
+    let unlisted = hidden.len().saturating_sub(LISTED_BEYOND);
+    let more = if unlisted > 0 {
+        format!("\nand {unlisted} more")
+    } else {
+        String::new()
+    };
+    format!(
+        "{} more constraints here:\n{}{more}",
+        hidden.len(),
+        listed.join("\n")
+    )
+}
+
+fn paint_beyond(painter: &egui::Painter, center: Pos2, count: usize, color: Color32) {
+    let galley = painter.layout_no_wrap(
+        format!("+{count}"),
+        canvas::emphasis(),
+        Color32::PLACEHOLDER,
+    );
+    canvas::paint_backdrop(
+        painter,
+        Rect::from_center_size(center, galley.size().max(egui::Vec2::splat(GLYPH_SIZE))),
+    );
+    painter.galley(center - galley.size() / 2.0, galley, color);
 }
 
 fn paint_glyph(painter: &egui::Painter, center: Pos2, kind: GlyphKind, color: Color32) {

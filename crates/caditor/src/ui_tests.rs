@@ -10082,6 +10082,36 @@ fn dragging_a_sketch_point_moves_it_as_its_constraints_allow_in_one_undoable_cha
 }
 
 #[test]
+fn a_crowded_entity_shows_a_few_glyphs_and_counts_the_rest() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let base = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(60.0, 0.0));
+    for index in 1..=7 {
+        let y = f64::from(index) * 12.0;
+        let other = sketch.add_line(Point2::new(0.0, y), Point2::new(60.0, y));
+        sketch
+            .add_constraint(Constraint::Equal(base, other))
+            .unwrap();
+    }
+    edit_free_sketch(&mut harness, sketch);
+    harness.settle();
+    harness.frame();
+
+    assert!(harness.shows("+4"));
+    assert!(!harness.shows("+7"));
+
+    harness.key(Key::G, Modifiers::ALT);
+    harness.frame();
+    harness.frame();
+    assert!(!harness.workspace.viewport.glyphs_shown());
+    assert!(!harness.shows("+4"));
+    harness.key(Key::G, Modifiers::ALT);
+    harness.frame();
+    harness.frame();
+    assert!(harness.shows("+4"));
+}
+
+#[test]
 fn a_drag_in_a_conflicting_sketch_names_the_conflict() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

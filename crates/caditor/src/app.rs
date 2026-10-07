@@ -379,6 +379,7 @@ pub fn show(
         filter: viewport.filter(),
         style: viewport.style(),
         snapping: viewport.snapping(),
+        glyphs: viewport.glyphs_shown(),
     };
     menu_bar::show(ui, model, &menu, &mut commands, actions);
     let toolbar = ToolbarContext {

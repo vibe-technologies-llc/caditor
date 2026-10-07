@@ -129,6 +129,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Interference => INTERFERENCE,
         Command::ToggleProjection => phosphor::PERSPECTIVE,
         Command::ToggleSnapping => phosphor::MAGNET,
+        Command::ToggleGlyphs => phosphor::SHAPES,
         Command::MinimizeWindow => MINIMIZE,
         Command::MaximizeWindow => MAXIMIZE,
         Command::FullScreen => FULL_SCREEN,

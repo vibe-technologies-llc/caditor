@@ -223,6 +223,7 @@ pub struct ViewportState {
     filter_applies: bool,
     style: DisplayStyle,
     snapping: bool,
+    glyphs_shown: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -306,11 +307,16 @@ impl ViewportState {
             filter_applies: true,
             style: DisplayStyle::default(),
             snapping: true,
+            glyphs_shown: true,
         }
     }
 
     pub fn snapping(&self) -> bool {
         self.snapping
+    }
+
+    pub fn glyphs_shown(&self) -> bool {
+        self.glyphs_shown
     }
 
     pub fn style(&self) -> DisplayStyle {
@@ -1365,6 +1371,9 @@ impl ViewportState {
                 self.nudge(step);
             }
         }
+        if commands.available(Command::ToggleGlyphs) {
+            self.glyphs_shown = !self.glyphs_shown;
+        }
         if commands.available(Command::ToggleSnapping) {
             self.snapping = !self.snapping;
         }
@@ -1848,6 +1857,7 @@ impl ViewportState {
             interactive: !self.drawing.is_active()
                 && !self.trimming.is_active()
                 && !self.modifying.is_active(),
+            glyphs: self.glyphs_shown,
         };
         self.annotations
             .show(ui, model, &surface, &mut self.selection, actions);
