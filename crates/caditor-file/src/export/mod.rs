@@ -17,7 +17,7 @@ use std::{
     time::SystemTime,
 };
 
-use caditor_document::CancelToken;
+use caditor_document::{CancelToken, Rgb};
 use caditor_geometry::{Aabb, Point3};
 use caditor_kernel::{FaceId, Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_sketch::Sketch;
@@ -240,6 +240,13 @@ fn extent(bounds: impl IntoIterator<Item = Aabb>) -> f64 {
 pub struct ExportBody<'a> {
     pub name: &'a str,
     pub solid: &'a Solid,
+    pub look: Option<Look<'a>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Look<'a> {
+    pub colour: Rgb,
+    pub material: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -397,6 +404,7 @@ fn encode(format: ExportFormat, bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, Expo
 #[derive(Debug, Clone, PartialEq)]
 struct MeshBody<'a> {
     name: &'a str,
+    look: Option<Look<'a>>,
     positions: Vec<Point3>,
     triangles: Vec<[u32; 3]>,
 }
@@ -412,7 +420,12 @@ impl<'a> MeshBody<'a> {
             interruptible(cancel.interrupt(), || body.solid.tessellate(tolerance))
         }));
         match tessellated {
-            Ok(Ok(mesh)) => Self::compact(body.name, &mesh).ok_or(meshing),
+            Ok(Ok(mesh)) => Self::compact(body.name, &mesh)
+                .map(|compacted| Self {
+                    look: body.look,
+                    ..compacted
+                })
+                .ok_or(meshing),
             Ok(Err(TessellationError::Cancelled(_))) => Err(ExportError::Cancelled),
             Ok(Err(TessellationError::TooLarge)) => Err(ExportError::TooFine(body.name.to_owned())),
             Ok(Err(error)) => {
@@ -452,6 +465,7 @@ impl<'a> MeshBody<'a> {
         }
         Some(Self {
             name,
+            look: None,
             positions,
             triangles,
         })

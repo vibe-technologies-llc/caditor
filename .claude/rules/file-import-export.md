@@ -66,7 +66,9 @@ paths:
 
 - `export_bodies` writes STEP, or tessellates at a `MeshResolution` (a chord fraction of the
   largest body's diagonal plus an angle between triangles) into binary STL (all bodies in one
-  surface), 3MF (one named object per body, millimetres), OBJ (one named object per body, global
+  surface), 3MF (one named object per body, millimetres; a body with a colour or material points
+  into one `basematerials` group, its `base` named after the material or else the body and coloured
+  with the body's colour or the app's default, via `ExportBody::look`), OBJ (one named object per body, global
   1-based indices, millimetres, Z up, no normals) or binary glTF (`.glb`: one node and mesh per
   body, f32 positions in metres with Y up, `x, z, -y` of the model's, so winding is kept, and the
   position bounds glTF requires; no normals, which the format defines as flat).

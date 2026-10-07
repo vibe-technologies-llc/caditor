@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use caditor_document::{
-    CancelToken, Document, Evaluation, FeatureResult, FeatureState, ModelEvaluator, Recompute,
+    CancelToken, Document, Evaluation, FeatureState, ModelEvaluator, Recompute,
 };
 use caditor_file::{
     DXF_EXTENSION, ExportBody, ExportFormat, MeshResolution, PNG_EXTENSION, RgbaImage,
@@ -14,7 +14,12 @@ use caditor_file::{
 };
 use caditor_render::{Background, GraphicsSettings, ImageRequest, OffscreenRenderer, SurfaceSize};
 
-use crate::{import, model::display_name, snapshot};
+use crate::{
+    export::{ExportSource, OwnedLook},
+    import,
+    model::display_name,
+    snapshot,
+};
 
 pub const PARTIAL_EXIT_STATUS: u8 = 2;
 pub const DEFAULT_IMAGE_SIZE: SurfaceSize = SurfaceSize {
@@ -115,10 +120,11 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
         Target::Mesh(format) => {
             let export_bodies: Vec<ExportBody<'_>> = bodies
                 .iter()
-                .filter_map(|(name, result)| {
+                .filter_map(|(name, result, look)| {
                     Some(ExportBody {
                         name,
                         solid: &result.solid()?.solid,
+                        look: look.as_ref().map(OwnedLook::borrowed),
                     })
                 })
                 .collect();
@@ -222,16 +228,16 @@ fn count(bodies: usize) -> String {
     }
 }
 
-fn bodies(document: &Document, evaluation: &Evaluation) -> Vec<(String, Arc<FeatureResult>)> {
+fn bodies(document: &Document, evaluation: &Evaluation) -> Vec<ExportSource> {
     evaluation
         .bodies()
         .filter_map(|(body, _)| {
             let result = evaluation.body_result(body)?;
             result.solid()?;
-            let name = document
-                .feature(body)
-                .map_or_else(|| "a body".to_owned(), |feature| feature.name.clone());
-            Some((name, Arc::clone(result)))
+            let feature = document.feature(body);
+            let name = feature.map_or_else(|| "a body".to_owned(), |feature| feature.name.clone());
+            let look = feature.and_then(|feature| OwnedLook::of(&feature.appearance));
+            Some((name, Arc::clone(result), look))
         })
         .collect()
 }

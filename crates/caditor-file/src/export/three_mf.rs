@@ -1,7 +1,7 @@
 use std::fmt::{self, Write};
 
 use super::{
-    APPLICATION, ExportError, MeshBody,
+    APPLICATION, ExportError, Look, MeshBody,
     zip::{self, ZipEntry},
 };
 
@@ -53,12 +53,35 @@ fn write_model(xml: &mut String, bodies: &[MeshBody<'_>]) -> fmt::Result {
         xml,
         r#"<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="{CORE_NAMESPACE}"><metadata name="Application">{APPLICATION}</metadata><resources>"#
     )?;
+    let materials = bodies.len() + 1;
+    let looks: Vec<(&MeshBody<'_>, Look<'_>)> = bodies
+        .iter()
+        .filter_map(|body| Some((body, body.look?)))
+        .collect();
+    if !looks.is_empty() {
+        write!(xml, r#"<basematerials id="{materials}">"#)?;
+        for (body, look) in &looks {
+            write!(
+                xml,
+                r#"<base name="{}" displaycolor="{}"/>"#,
+                Escaped(look.material.unwrap_or(body.name)),
+                look.colour.hex().to_uppercase()
+            )?;
+        }
+        xml.push_str("</basematerials>");
+    }
+    let mut next_look = 0;
     for (object, body) in object_ids(bodies) {
         write!(
             xml,
-            r#"<object id="{object}" type="model" name="{}"><mesh><vertices>"#,
+            r#"<object id="{object}" type="model" name="{}""#,
             Escaped(body.name)
         )?;
+        if body.look.is_some() {
+            write!(xml, r#" pid="{materials}" pindex="{next_look}""#)?;
+            next_look += 1;
+        }
+        xml.push_str("><mesh><vertices>");
         for position in &body.positions {
             write!(
                 xml,

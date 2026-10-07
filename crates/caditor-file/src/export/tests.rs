@@ -70,6 +70,7 @@ fn mesh_of(solid: &Solid, resolution: MeshResolution) -> MeshBody<'_> {
         &ExportBody {
             name: "body",
             solid,
+            look: None,
         },
         &resolution.tolerance([solid]),
         &CancelToken::never(),
@@ -274,6 +275,41 @@ fn a_3mf_coordinate_keeps_a_nanometre_and_drops_the_noise_beyond_it() {
     assert_eq!(printed(-1e-9), "0");
     assert_eq!(printed(0.0), "0");
     assert_eq!(printed(123456.1234567), "123456.123457");
+}
+
+#[test]
+fn a_3mf_gives_coloured_bodies_a_base_material_and_leaves_the_rest_plain() {
+    let block = block();
+    let pin = pin();
+    let mut meshes = [
+        mesh_of(&block, MeshResolution::Coarse),
+        mesh_of(&pin, MeshResolution::Coarse),
+        mesh_of(&pin, MeshResolution::Coarse),
+    ];
+    meshes[0].look = Some(Look {
+        colour: Rgb::new(200, 64, 52),
+        material: Some("Steel & co"),
+    });
+    meshes[2].name = "Tinted";
+    meshes[2].look = Some(Look {
+        colour: Rgb::new(76, 160, 90),
+        material: None,
+    });
+
+    let entries = unzip(&three_mf::encode(&meshes).unwrap());
+
+    let model = String::from_utf8(entries[MODEL_PATH].clone()).unwrap();
+    assert!(model.contains(
+        r##"<basematerials id="4"><base name="Steel &amp; co" displaycolor="#C84034"/><base name="Tinted" displaycolor="#4CA05A"/></basematerials>"##
+    ));
+    let headers: Vec<&str> = model
+        .split("<object ")
+        .skip(1)
+        .map(|object| &object[..object.find('>').unwrap()])
+        .collect();
+    assert!(headers[0].contains(r#"pid="4" pindex="0""#));
+    assert!(!headers[1].contains("pid="));
+    assert!(headers[2].contains(r#"pid="4" pindex="1""#));
 }
 
 #[test]
@@ -558,6 +594,7 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
     let bodies = [ExportBody {
         name: "Extrude 1",
         solid: &block,
+        look: None,
     }];
     for format in ExportFormat::ALL {
         let path = dir.path().join(format!("part.{}", format.extension()));
@@ -596,16 +633,19 @@ fn a_body_that_cannot_be_meshed_is_left_out_and_named_while_the_others_are_kept(
         ExportBody {
             name: "Good",
             solid: &block,
+            look: None,
         },
         ExportBody {
             name: "Bad",
             solid: &block,
+            look: None,
         },
     ];
     let mesher = |body: &ExportBody<'_>| match body.name {
         "Bad" => Err(ExportError::Meshing("Bad".to_owned())),
         _ => Ok(MeshBody {
             name: "Good",
+            look: None,
             positions: Vec::new(),
             triangles: Vec::new(),
         }),
@@ -632,6 +672,7 @@ fn a_cancelled_or_empty_export_writes_nothing() {
     let bodies = [ExportBody {
         name: "Extrude 1",
         solid: &block,
+        look: None,
     }];
     let cancelled = Arc::new(AtomicBool::new(true));
     let flag = Arc::clone(&cancelled);
@@ -677,6 +718,7 @@ fn cancelling_stops_the_meshing_of_a_body_already_started() {
     let bodies = [ExportBody {
         name: "Extrude 1",
         solid: &block,
+        look: None,
     }];
     for (format, name, allowed) in [
         (ExportFormat::Stl, "part.stl", 2),

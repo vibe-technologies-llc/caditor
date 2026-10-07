@@ -9,8 +9,8 @@ use std::{
     thread,
 };
 
-use caditor_document::{CancelToken, FeatureId, FeatureResult};
-use caditor_file::{ExportBody, ExportError, ExportFormat, Exported, MeshResolution};
+use caditor_document::{BodyAppearance, CancelToken, FeatureId, FeatureResult, Rgb};
+use caditor_file::{ExportBody, ExportError, ExportFormat, Exported, Look, MeshResolution};
 use egui::{ScrollArea, Sides, Ui};
 use parking_lot::Mutex;
 
@@ -67,7 +67,34 @@ struct Body {
     id: FeatureId,
     name: String,
     result: Arc<FeatureResult>,
+    look: Option<OwnedLook>,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OwnedLook {
+    pub colour: Rgb,
+    pub material: Option<String>,
+}
+
+impl OwnedLook {
+    pub fn of(appearance: &BodyAppearance) -> Option<Self> {
+        (appearance.colour.is_some() || appearance.material.is_some()).then(|| Self {
+            colour: appearance
+                .colour
+                .unwrap_or(crate::body_appearance::DEFAULT_COLOUR),
+            material: appearance.material.clone(),
+        })
+    }
+
+    pub fn borrowed(&self) -> Look<'_> {
+        Look {
+            colour: self.colour,
+            material: self.material.as_deref(),
+        }
+    }
+}
+
+pub type ExportSource = (String, Arc<FeatureResult>, Option<OwnedLook>);
 
 impl Exporter {
     pub fn is_open(&self) -> bool {
@@ -135,9 +162,9 @@ impl Exporter {
         model: &Model,
         finished: Finished,
     ) {
-        let bodies: Vec<(String, Arc<FeatureResult>)> = self
+        let bodies: Vec<ExportSource> = self
             .chosen(model)
-            .map(|body| (body.name, body.result))
+            .map(|body| (body.name, body.result, body.look))
             .collect();
         let cancelled = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&cancelled);
@@ -205,13 +232,12 @@ impl Exporter {
         evaluation.bodies().filter_map(move |(id, _)| {
             let result = evaluation.body_result(id)?;
             result.solid()?;
+            let feature = model.document().feature(id);
             Some(Body {
                 id,
-                name: model
-                    .document()
-                    .feature(id)
-                    .map_or_else(|| "a body".to_owned(), |feature| feature.name.clone()),
+                name: feature.map_or_else(|| "a body".to_owned(), |feature| feature.name.clone()),
                 result: Arc::clone(result),
+                look: feature.and_then(|feature| OwnedLook::of(&feature.appearance)),
             })
         })
     }
@@ -225,15 +251,16 @@ fn export_results(
     path: &Path,
     format: ExportFormat,
     resolution: MeshResolution,
-    bodies: &[(String, Arc<FeatureResult>)],
+    bodies: &[ExportSource],
     cancel: &CancelToken,
 ) -> Result<Exported, ExportError> {
     let bodies: Vec<ExportBody<'_>> = bodies
         .iter()
-        .filter_map(|(name, result)| {
+        .filter_map(|(name, result, look)| {
             Some(ExportBody {
                 name,
                 solid: &result.solid()?.solid,
+                look: look.as_ref().map(OwnedLook::borrowed),
             })
         })
         .collect();
@@ -477,6 +504,32 @@ fn body_choice(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_body_exports_a_look_only_when_it_has_a_colour_or_material() {
+        let plain = BodyAppearance::default();
+        let steel = BodyAppearance {
+            material: Some("Steel".to_owned()),
+            ..BodyAppearance::default()
+        };
+        let red = BodyAppearance {
+            colour: Some(Rgb::new(200, 64, 52)),
+            ..BodyAppearance::default()
+        };
+
+        assert_eq!(OwnedLook::of(&plain), None);
+        assert_eq!(
+            OwnedLook::of(&steel),
+            Some(OwnedLook {
+                colour: crate::body_appearance::DEFAULT_COLOUR,
+                material: Some("Steel".to_owned()),
+            })
+        );
+        assert_eq!(
+            OwnedLook::of(&red).map(|look| look.colour),
+            Some(Rgb::new(200, 64, 52))
+        );
+    }
 
     #[test]
     fn a_partial_export_names_every_body_left_out_and_stays_until_dismissed() {
