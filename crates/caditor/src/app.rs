@@ -528,6 +528,9 @@ pub fn show(
         actions.push(Action::Preferences(PreferencesCommand::ShowShortcuts));
     }
     files::show(ui, model, files, viewport.view_pixels(), actions);
+    if files.is_picking() && ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+        actions.push(Action::File(FileCommand::CancelPick));
+    }
     if !files.is_blocking() {
         let view = PreferencesView {
             tab: *preferences_tab,

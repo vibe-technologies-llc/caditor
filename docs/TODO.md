@@ -396,11 +396,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
   worker thread cannot be spawned the job runs on the UI thread.
 - [medium · medium] Bodies are listed (Bodies group) but cannot be renamed on their own, since a
   body is named by the feature that made it, nor deleted or selected as a whole in the view.
-- [medium · medium] While a native file dialog is open (`Files::picking`) every shortcut and the
-  palette are blocked, yet nothing in the window says a dialog is waiting and nothing cancels it;
-  the portal request passes an empty parent window, so the dialog is not tied to caditor's and can
-  open behind it, and neither the portal wait nor zenity times out. Say that the dialog is waiting,
-  with a Cancel that abandons the pick, and pass the window handle to the portal.
+- [medium · medium] The portal file dialog request passes an empty parent window, so the dialog is
+  not tied to caditor's and can open behind it (Stop waiting in the status bar recovers the
+  window); X11 needs the window's id and Wayland an exported xdg-foreign handle.
 - [medium · hard] Version history shows when a version was saved and after which change, but no
   preview of what it holds, and no way to keep a version from being thinned out.
 - [medium · hard] No user guide: Help has only the welcome, the command search, the keyboard

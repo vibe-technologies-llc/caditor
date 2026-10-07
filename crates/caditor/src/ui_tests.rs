@@ -84,6 +84,7 @@ struct ScriptedDialogs {
     answer: Arc<Mutex<Option<PathBuf>>>,
     #[cfg(unix)]
     no_portal: Arc<Mutex<bool>>,
+    held: Arc<Mutex<Option<Vec<Respond>>>>,
 }
 
 impl ScriptedDialogs {
@@ -118,6 +119,10 @@ impl Dialogs for ScriptedDialogs {
     }
 
     fn pick_import(&self, _directory: Option<PathBuf>, respond: Respond) {
+        if let Some(held) = self.held.lock().as_mut() {
+            held.push(respond);
+            return;
+        }
         respond(self.reply());
     }
 
@@ -6199,6 +6204,33 @@ fn the_interference_report_is_rebuilt_only_when_its_inputs_or_findings_change() 
             .refresh(&harness.model, &selection, None)
             .is_none()
     );
+}
+
+#[test]
+fn a_file_dialog_left_open_says_so_and_can_be_stopped_from_the_window() {
+    let mut harness = Harness::new();
+    *harness.dialogs.held.lock() = Some(Vec::new());
+
+    harness.perform(Action::File(FileCommand::Import { into: None }));
+    harness.frame();
+    let waiting = harness.shows("Waiting for the file dialog…");
+    let blocked = harness.files.is_blocking();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let freed = !harness.files.is_blocking() && !harness.files.is_importing();
+    let late = harness.dialogs.held.lock().take().unwrap_or_default();
+    for respond in late {
+        respond(Ok(Some(PathBuf::from("/tmp/late.step"))));
+    }
+    harness.frame();
+    harness.frame();
+
+    assert!(waiting);
+    assert!(blocked);
+    assert!(freed);
+    assert!(!harness.files.is_picking());
+    assert!(!harness.files.is_importing());
+    assert!(!harness.shows("Waiting for the file dialog…"));
 }
 
 #[test]

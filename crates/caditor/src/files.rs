@@ -114,6 +114,7 @@ pub enum FileCommand {
     OpenSample(Sample),
     ClearRecent,
     CancelOpen,
+    CancelPick,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -381,6 +382,7 @@ enum Event {
     },
     Picked {
         purpose: Purpose,
+        ticket: u64,
         path: Result<Option<PathBuf>, DialogError>,
     },
     Started {
@@ -499,7 +501,8 @@ pub struct Files {
     image: ImageExporter,
     drawing_export: Option<DrawingSource>,
     history: VersionHistory,
-    picking: bool,
+    picking: Option<(u64, Purpose)>,
+    pick_ticket: u64,
     confirm_replace: Option<Replacement>,
     changed_on_disk: Option<PathBuf>,
     closing: Option<(Closing, Instant)>,
@@ -533,7 +536,8 @@ impl Files {
             image: ImageExporter::default(),
             drawing_export: None,
             history: VersionHistory::default(),
-            picking: false,
+            picking: None,
+            pick_ticket: 0,
             confirm_replace: None,
             changed_on_disk: None,
             closing: None,
@@ -583,7 +587,7 @@ impl Files {
             || self.exporter.is_open()
             || self.image.is_open()
             || self.history.is_open()
-            || self.picking
+            || self.picking.is_some()
     }
 
     pub fn recent(&self) -> &[PathBuf] {
@@ -716,7 +720,7 @@ impl Files {
                 }
             }
             FileCommand::ExportDrawing(source) => {
-                if self.picking {
+                if self.picking.is_some() {
                     return;
                 }
                 self.drawing_export = Some(source);
@@ -728,7 +732,7 @@ impl Files {
                     model.set_notice(Notice::info("An import is already running."));
                     return;
                 }
-                if self.picking {
+                if self.picking.is_some() {
                     return;
                 }
                 self.importing = Some(Importing { path: None, into });
@@ -736,6 +740,7 @@ impl Files {
             }
             FileCommand::Drop { paths, into } => self.dropped(paths, into, model),
             FileCommand::ClearRecent => self.change_recent(RecentChange::Cleared),
+            FileCommand::CancelPick => self.stop_picking(model),
             FileCommand::CancelOpen => {
                 if self.opening.take().is_some() {
                     self.open_attempt += 1;
@@ -801,7 +806,7 @@ impl Files {
         if self.importing.is_some()
             || self.arranging.is_some()
             || self.report.is_some()
-            || self.picking
+            || self.picking.is_some()
         {
             return;
         }
@@ -988,31 +993,22 @@ impl Files {
                     self.start_output(output, model);
                 }
             }
-            Event::Picked { purpose, path } => {
-                self.picking = false;
+            Event::Picked {
+                purpose,
+                ticket,
+                path,
+            } => {
+                if self.picking.map(|(current, _)| current) != Some(ticket) {
+                    log::info!("a file dialog the user stopped waiting for closed");
+                    return;
+                }
+                self.picking = None;
                 let path = path.unwrap_or_else(|error| {
                     log::warn!("{error}");
                     model.set_notice(Notice::failure(error.notice()));
                     None
                 });
-                match (purpose, path) {
-                    (Purpose::Open, Some(path)) => self.open(path, model),
-                    (Purpose::SaveAs, Some(path)) => self.save_as(path, model),
-                    (Purpose::Export(format), Some(path)) => {
-                        self.check_output(Output::Export { path, format });
-                    }
-                    (Purpose::Image, Some(path)) => self.check_output(Output::Image { path }),
-                    (Purpose::Drawing, Some(path)) => self.check_output(Output::Drawing { path }),
-                    (Purpose::Import, Some(path)) => {
-                        let into = self.importing.as_ref().and_then(|importing| importing.into);
-                        self.import(path, into, model);
-                    }
-                    (Purpose::Image, None) => self.image.pick_cancelled(),
-                    (Purpose::Drawing, None) => self.drawing_export = None,
-                    (Purpose::Export(_), None) => {}
-                    (Purpose::Import, None) => self.importing = None,
-                    (_, None) => self.after_save = None,
-                }
+                self.picked(purpose, path, model);
             }
             Event::Started { recent, recovered } => {
                 let added_meanwhile = std::mem::replace(&mut self.recent, recent);
@@ -1440,15 +1436,53 @@ impl Files {
         }
     }
 
+    fn picked(&mut self, purpose: Purpose, path: Option<PathBuf>, model: &mut Model) {
+        match (purpose, path) {
+            (Purpose::Open, Some(path)) => self.open(path, model),
+            (Purpose::SaveAs, Some(path)) => self.save_as(path, model),
+            (Purpose::Export(format), Some(path)) => {
+                self.check_output(Output::Export { path, format });
+            }
+            (Purpose::Image, Some(path)) => self.check_output(Output::Image { path }),
+            (Purpose::Drawing, Some(path)) => self.check_output(Output::Drawing { path }),
+            (Purpose::Import, Some(path)) => {
+                let into = self.importing.as_ref().and_then(|importing| importing.into);
+                self.import(path, into, model);
+            }
+            (Purpose::Image, None) => self.image.pick_cancelled(),
+            (Purpose::Drawing, None) => self.drawing_export = None,
+            (Purpose::Export(_), None) => {}
+            (Purpose::Import, None) => self.importing = None,
+            (_, None) => self.after_save = None,
+        }
+    }
+
+    pub fn is_picking(&self) -> bool {
+        self.picking.is_some()
+    }
+
+    fn stop_picking(&mut self, model: &mut Model) {
+        if let Some((_, purpose)) = self.picking.take() {
+            self.picked(purpose, None, model);
+        }
+    }
+
     fn pick(&mut self, purpose: Purpose, model: &Model) {
-        if self.picking {
+        if self.picking.is_some() {
             return;
         }
-        self.picking = true;
+        self.pick_ticket = self.pick_ticket.wrapping_add(1);
+        let ticket = self.pick_ticket;
+        self.picking = Some((ticket, purpose));
         let events = self.events.clone();
         let wake = (self.make_waker)();
         let respond: Respond = Box::new(move |path| {
-            if events.send(Event::Picked { purpose, path }).is_ok() {
+            let picked = Event::Picked {
+                purpose,
+                ticket,
+                path,
+            };
+            if events.send(picked).is_ok() {
                 wake();
             }
         });
@@ -2007,6 +2041,17 @@ pub fn activity(
     if model.is_saving() {
         ui.spinner();
         ui.label("Saving…");
+    }
+    if files.is_picking() {
+        ui.spinner();
+        ui.label("Waiting for the file dialog…");
+        let stop = ui.add(widgets::button("Stop waiting")).on_hover_text(
+            "The file dialog may be behind this window. Stop waiting to use caditor again; what \
+             is chosen in that dialog afterwards is ignored. (Esc)",
+        );
+        if stop.clicked() {
+            actions.push(Action::File(FileCommand::CancelPick));
+        }
     }
     if let Some(Importing {
         path: Some(path), ..
