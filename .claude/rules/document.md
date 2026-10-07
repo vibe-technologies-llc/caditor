@@ -255,6 +255,21 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Both change their body but, like a pattern, are not `modifies_body`: nothing is chosen on the
   state before them, so the app shows the result while one is open.
 
+### Split (`split.rs`)
+
+- `Split { body, plane, flipped }` cuts its body along a `PlaneReference` resolved like a mirror's:
+  the part on the side the plane's normal faces (the other side when `flipped`) stays in the body,
+  and the rest becomes a body of the split's own (`makes_body`, named after it). Both come from
+  one half-space block (a rectangle on the plane past the body's box by `HALF_SPACE_REACH` of its
+  diagonal plus `HALF_SPACE_MARGIN`, extruded to past the far side), intersected and subtracted,
+  so the two pieces share the cut face's name. A plane that does not pass through the body fails
+  it in words.
+- It is the one feature whose result holds two bodies: the kept part is the result's own
+  `SolidResult` and the split-off part is in `SolidResult::others`. `Feature::bodies` lists both
+  (settling counts both), the walk stands each part under its own body (`body_parts`), and
+  `Evaluation::body_result` and `body_seen_by` find a body inside its state's result
+  (`body_part`), so later features, meshing, stale bodies and the app see two ordinary bodies.
+
 ### Remove (`removal.rs`)
 
 - `Remove { body }` takes a body out of the model from its place on: its result passes the body's

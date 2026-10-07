@@ -180,6 +180,8 @@ paths:
   `skipped`, a list of `[step, step]`), since an older reader would make the wrong copies; any
   other pattern is still written as `linear_pattern` or `circular_pattern`. Loading drops skipped
   entries that no pattern can make (the original, a step past `MAX_PATTERN_INSTANCES`).
+- A `split` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as the
+  YZ plane, reported) and `flipped` only when set.
 - A `combine` feature record holds `body`, `tool` and `operation` (`join`, `cut`, `intersect`).
   A `remove` record holds `body`.
 - A sketch's constraint record carries `inactive: true` only for a disabled constraint (absent

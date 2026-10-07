@@ -431,6 +431,7 @@ impl SolidFeature {
 pub struct SolidResult {
     pub body: FeatureId,
     pub solid: Solid,
+    others: Vec<Arc<FeatureResult>>,
     cuts: Vec<Arc<FeatureResult>>,
     mesh: OnceLock<Option<Mesh>>,
     bounds: OnceLock<Option<Aabb>>,
@@ -490,6 +491,7 @@ impl SolidResult {
         Self {
             body,
             solid,
+            others: Vec::new(),
             cuts: Vec::new(),
             mesh: OnceLock::new(),
             bounds: OnceLock::new(),
@@ -508,6 +510,32 @@ impl SolidResult {
 
     pub fn cuts(&self) -> &[Arc<FeatureResult>] {
         &self.cuts
+    }
+
+    pub fn with_others(mut self, others: impl IntoIterator<Item = SolidResult>) -> Self {
+        self.others = others
+            .into_iter()
+            .map(|other| Arc::new(FeatureResult::Solid(other)))
+            .collect();
+        self
+    }
+
+    pub fn others(&self) -> &[Arc<FeatureResult>] {
+        &self.others
+    }
+
+    pub(crate) fn same_shapes(&self, other: &Self) -> bool {
+        self.body == other.body
+            && self.solid == other.solid
+            && self.others.len() == other.others.len()
+            && self.others.iter().zip(&other.others).all(|(own, theirs)| {
+                match (own.solid(), theirs.solid()) {
+                    (Some(own), Some(theirs)) => {
+                        own.body == theirs.body && own.solid == theirs.solid
+                    }
+                    _ => false,
+                }
+            })
     }
 
     pub fn names(&self) -> &NameIndex {
@@ -552,6 +580,14 @@ impl SolidResult {
         };
         let _ = self.mesh.set(mesh);
     }
+}
+
+pub fn body_parts(result: &Arc<FeatureResult>) -> impl Iterator<Item = &Arc<FeatureResult>> {
+    std::iter::once(result).chain(result.solid().map_or(&[][..], SolidResult::others))
+}
+
+pub fn body_part(result: &Arc<FeatureResult>, body: FeatureId) -> Option<&Arc<FeatureResult>> {
+    body_parts(result).find(|part| part.solid().is_some_and(|solid| solid.body == body))
 }
 
 pub(crate) fn profile_curves(sketch: &Sketch) -> Vec<ProfileCurve> {

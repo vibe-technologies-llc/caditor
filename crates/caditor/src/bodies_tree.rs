@@ -12,6 +12,7 @@ use crate::{
     panels::{Painting, PanelState},
     removal,
     selection::Pickable,
+    split_tools,
     tree_row::{self, CHILD_INDENT, Look},
     visibility, widgets,
 };
@@ -230,6 +231,11 @@ fn row_menu(
     }
     if widgets::menu_item(ui, icons::command(Command::CopyBody), "Copy body", None).clicked() {
         actions.extend(move_tools::create_actions(model, body, true));
+        ui.close();
+    }
+    if widgets::menu_item(ui, icons::command(Command::Split), "Split body", None).clicked() {
+        let source = split_tools::SplitSource { body, plane: None };
+        actions.extend(split_tools::create_actions(model, &source));
         ui.close();
     }
     ui.separator();

@@ -56,7 +56,7 @@ use crate::{
     shape_modes::{CircleMode, RectangleMode, ShapeMode},
     sketch_toolbar,
     sketch_tools::{self, ConstraintTool},
-    status_bar, toolbar, trimming, typed_point,
+    split_panel, status_bar, toolbar, trimming, typed_point,
     units::LengthUnit,
     view_cube, widgets, window_frame,
 };
@@ -7560,6 +7560,77 @@ fn a_body_is_mirrored_across_a_plane_and_keeps_or_leaves_out_its_original_from_t
     }
     harness.settle();
     assert!(volume_about(&harness, plate, 2.0 * 16000.0));
+}
+
+#[test]
+fn a_body_is_split_along_a_plane_into_two_bodies_from_the_panel() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(
+        &mut sketch,
+        Point2::new(-20.0, -20.0),
+        Point2::new(20.0, 20.0),
+    );
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    let plate = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let top = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| matches!(pickable, Pickable::Face { body, .. } if *body == plate))
+        .expect("a face of the plate is pickable");
+
+    harness.select([top]);
+    harness.use_tool_with(Key::K, Modifiers::ALT);
+    harness.settle();
+    let split = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the split is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Split 1"));
+    assert!(harness.shows("Split along"));
+    assert!(harness.shows("Split-off body"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    let (low, high) = plate_bounds(&harness, plate);
+    assert!(low.x.abs() < 1e-6 && (high.x - 20.0).abs() < 1e-6);
+    let (low, high) = plate_bounds(&harness, split);
+    assert!((low.x + 20.0).abs() < 1e-6 && high.x.abs() < 1e-6);
+    assert!(volume_about(&harness, split, 8000.0));
+
+    harness.click(split_panel::KEEP_OTHER_SIDE);
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Edit Split 1"));
+    let (low, high) = plate_bounds(&harness, plate);
+    assert!((low.x + 20.0).abs() < 1e-6 && high.x.abs() < 1e-6);
+
+    choose(&mut harness, "The YZ plane", "The XZ plane");
+    let (low, high) = plate_bounds(&harness, plate);
+    assert!(
+        low.y.abs() < 1e-6 && (high.y - 20.0).abs() < 1e-6,
+        "{low:?} {high:?}"
+    );
+    let (low, high) = plate_bounds(&harness, split);
+    assert!(
+        (low.y + 20.0).abs() < 1e-6 && high.y.abs() < 1e-6,
+        "{low:?} {high:?}"
+    );
+
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    assert_eq!(harness.workspace.editing.solid(), None);
+    assert_eq!(harness.built_with_meshes(2).scene.meshes.len(), 2);
 }
 
 #[test]

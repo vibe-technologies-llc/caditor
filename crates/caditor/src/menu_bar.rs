@@ -39,6 +39,7 @@ const MODEL_BODIES: [&[Command]; 2] = [
         Command::Move,
         Command::CopyBody,
         Command::Mirror,
+        Command::Split,
         Command::Scale,
     ],
     &[

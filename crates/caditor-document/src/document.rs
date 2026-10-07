@@ -27,6 +27,7 @@ use crate::{
     scaling::Scale,
     shell::Shell,
     solid::{BodyOperation, SolidFeature},
+    split::Split,
 };
 
 pub const FIRST_UNSTORABLE_ID: u64 = 1 << 63;
@@ -88,6 +89,7 @@ pub enum FeatureKind {
     Combine(Combine),
     Move(Move),
     Mirror(Mirror),
+    Split(Split),
     Scale(Scale),
     Hole(Hole),
     Pattern(Box<Pattern>),
@@ -152,6 +154,7 @@ impl FeatureKind {
             Self::Combine(_) => 0,
             Self::Move(movement) => movement.heap_size(),
             Self::Mirror(mirror) => mirror.heap_size(),
+            Self::Split(split) => split.heap_size(),
             Self::Scale(scale) => scale.heap_size(),
             Self::Hole(hole) => hole.heap_size(),
             Self::Import(import) => {
@@ -173,6 +176,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -191,6 +195,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -209,6 +214,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -227,6 +233,7 @@ impl FeatureKind {
             Self::Combine(combine) => Some(combine.body),
             Self::Move(movement) => Some(movement.body),
             Self::Mirror(mirror) => Some(mirror.body),
+            Self::Split(split) => Some(split.body),
             Self::Scale(scale) => Some(scale.body),
             Self::Hole(hole) => Some(hole.body),
             Self::Pattern(pattern) => Some(pattern.body),
@@ -248,6 +255,7 @@ impl FeatureKind {
                 used.insert(combine.tool);
             }
             Self::Mirror(mirror) => used.extend(mirror.plane.body()),
+            Self::Split(split) => used.extend(split.plane.body()),
             Self::Sketch(sketch) => used.extend(sketch.projected_bodies()),
             Self::Blend(_)
             | Self::Shell(_)
@@ -271,6 +279,7 @@ impl FeatureKind {
             Self::Solid(solid) => solid.end_datums(),
             Self::Datum(datum) => datum.plane_datums(),
             Self::Mirror(mirror) => mirror.plane.datum().into_iter().collect(),
+            Self::Split(split) => split.plane.datum().into_iter().collect(),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::Combine(_)
@@ -294,6 +303,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Import(_)
@@ -311,6 +321,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -334,6 +345,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Import(_)
@@ -351,6 +363,7 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -375,6 +388,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -393,6 +407,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -411,6 +426,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -430,6 +446,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Pattern(_)
             | Self::Datum(_)
@@ -447,6 +464,7 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::Combine(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -459,12 +477,32 @@ impl FeatureKind {
     pub fn mirror(&self) -> Option<&Mirror> {
         match self {
             Self::Mirror(mirror) => Some(mirror),
+            Self::Split(_)
+            | Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::Combine(_)
+            | Self::Move(_)
+            | Self::Scale(_)
+            | Self::Hole(_)
+            | Self::Pattern(_)
+            | Self::Datum(_)
+            | Self::Import(_)
+            | Self::Remove(_) => None,
+        }
+    }
+
+    pub fn split(&self) -> Option<&Split> {
+        match self {
+            Self::Split(split) => Some(split),
             Self::Sketch(_)
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mirror(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -484,6 +522,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
@@ -501,6 +540,7 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -520,6 +560,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Datum(_)
@@ -538,6 +579,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -556,6 +598,7 @@ impl FeatureKind {
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
+            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -572,7 +615,7 @@ impl FeatureKind {
             Self::Shell(shell) => shell.parameters(),
             Self::Combine(_) => BTreeSet::new(),
             Self::Move(movement) => movement.parameters(),
-            Self::Mirror(_) => BTreeSet::new(),
+            Self::Mirror(_) | Self::Split(_) => BTreeSet::new(),
             Self::Scale(scale) => scale.parameters(),
             Self::Hole(hole) => hole.parameters(),
             Self::Pattern(pattern) => pattern.parameters(),
@@ -589,7 +632,7 @@ impl FeatureKind {
             Self::Shell(shell) => shell.uses_parameter(parameter),
             Self::Combine(_) => false,
             Self::Move(movement) => movement.uses_parameter(parameter),
-            Self::Mirror(_) => false,
+            Self::Mirror(_) | Self::Split(_) => false,
             Self::Scale(scale) => scale.uses_parameter(parameter),
             Self::Hole(hole) => hole.uses_parameter(parameter),
             Self::Pattern(pattern) => pattern.uses_parameter(parameter),
@@ -618,6 +661,7 @@ impl FeatureKind {
             Self::Combine(combine) => combine.features(),
             Self::Move(movement) => movement.features(),
             Self::Mirror(mirror) => mirror.features(),
+            Self::Split(split) => split.features(),
             Self::Scale(scale) => scale.features(),
             Self::Hole(hole) => hole.features(),
             Self::Pattern(pattern) => pattern.features(),
@@ -652,6 +696,7 @@ impl FeatureKind {
             Self::Shell(shell) => shell.origin_features(),
             Self::Combine(_) | Self::Move(_) | Self::Scale(_) | Self::Hole(_) => BTreeSet::new(),
             Self::Mirror(mirror) => mirror.plane.origin_features(),
+            Self::Split(split) => split.plane.origin_features(),
             Self::Pattern(pattern) => pattern.origin_features(),
             Self::Datum(datum) => datum.origin_features(),
             Self::Import(_) | Self::Remove(_) => BTreeSet::new(),
@@ -723,6 +768,7 @@ impl Feature {
             FeatureKind::Move(movement) if movement.copy => Some(self.id),
             FeatureKind::Move(movement) => Some(movement.body),
             FeatureKind::Mirror(mirror) => Some(mirror.body),
+            FeatureKind::Split(split) => Some(split.body),
             FeatureKind::Scale(scale) => Some(scale.body),
             FeatureKind::Hole(hole) => Some(hole.body),
             FeatureKind::Pattern(pattern) => Some(pattern.body),
@@ -732,10 +778,15 @@ impl Feature {
         }
     }
 
+    pub fn bodies(&self) -> Vec<FeatureId> {
+        let made_apart = matches!(self.kind, FeatureKind::Split(_)).then_some(self.id);
+        self.body().into_iter().chain(made_apart).collect()
+    }
+
     pub fn makes_body(&self) -> bool {
         match &self.kind {
             FeatureKind::Solid(solid) => solid.operation() == BodyOperation::NewBody,
-            FeatureKind::Import(_) => true,
+            FeatureKind::Import(_) | FeatureKind::Split(_) => true,
             FeatureKind::Move(movement) => movement.copy,
             FeatureKind::Sketch(_)
             | FeatureKind::Blend(_)

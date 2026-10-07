@@ -124,6 +124,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Move => MOVE,
         Command::CopyBody => COPY_BODY,
         Command::Mirror => MIRROR,
+        Command::Split => SPLIT,
         Command::Scale => SCALE,
         Command::RenameBody => EDIT,
         Command::RemoveBody => REMOVE_BODY,
@@ -189,6 +190,7 @@ pub fn command(command: Command) -> &'static str {
         | Command::ExtrudeUpToSelected
         | Command::StartAtSelected
         | Command::MirrorAcrossSelected
+        | Command::SplitAlongSelected
         | Command::DatumUseSelected
         | Command::DatumTurnAboutSelected
         | Command::PatternUseSelected
@@ -216,6 +218,7 @@ const SHELL: &str = phosphor::CUBE_TRANSPARENT;
 const COMBINE: &str = phosphor::UNITE;
 const MOVE: &str = phosphor::HAND_GRABBING;
 const MIRROR: &str = phosphor::FLIP_HORIZONTAL;
+const SPLIT: &str = phosphor::SQUARE_SPLIT_HORIZONTAL;
 const SCALE: &str = phosphor::RESIZE;
 const HOLE: &str = phosphor::CIRCLE_DASHED;
 const LINEAR_PATTERN: &str = phosphor::SQUARES_FOUR;
@@ -336,6 +339,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Move(movement) if movement.copy => COPY_BODY,
         FeatureKind::Move(_) => MOVE,
         FeatureKind::Mirror(_) => MIRROR,
+        FeatureKind::Split(_) => SPLIT,
         FeatureKind::Scale(_) => SCALE,
         FeatureKind::Hole(_) => HOLE,
         FeatureKind::Pattern(pattern) => match pattern.kind {

@@ -4725,6 +4725,71 @@ fn a_mirror_with_a_damaged_plane_loads_across_the_yz_plane_and_says_so() {
     assert!(restored.keep_original);
 }
 
+fn split_model(plane: PlaneReference, flipped: bool) -> (Document, FeatureId) {
+    use caditor_document::Split;
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Split");
+    let split = transaction.add_feature(
+        "Split 1",
+        FeatureKind::Split(Split {
+            body: base,
+            plane,
+            flipped,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, split)
+}
+
+#[test]
+fn splits_are_saved_and_loaded_with_their_side() {
+    for flipped in [false, true] {
+        let (document, split) = split_model(PlaneReference::Principal(PrincipalPlane::Xz), flipped);
+
+        let text = encode(&document).unwrap();
+        let loaded = decode_text(&text);
+
+        assert!(text.contains("\"split\":{\"body\":"));
+        assert_eq!(text.contains("\"flipped\":true"), flipped);
+        assert_eq!(loaded.issues, Vec::<String>::new());
+        assert_eq!(loaded.document, document);
+
+        let kind = document.feature(split).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: split, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+}
+
+#[test]
+fn a_split_with_a_damaged_plane_loads_along_the_yz_plane_and_says_so() {
+    let (document, split) = split_model(PlaneReference::Principal(PrincipalPlane::Xy), true);
+    let text = encode(&document).unwrap();
+
+    let loaded = decode_text(&text.replace(
+        "\"plane\":{\"principal\":\"xy\"}",
+        "\"plane\":{\"principal\":\"uv\"}",
+    ));
+
+    assert_eq!(
+        loaded.issues,
+        ["The plane “Split 1” splits along could not be read, so it splits along the YZ plane."]
+    );
+    let restored = loaded
+        .document
+        .feature(split)
+        .unwrap()
+        .kind
+        .split()
+        .unwrap();
+    assert_eq!(
+        restored.plane,
+        PlaneReference::Principal(PrincipalPlane::Yz)
+    );
+    assert!(restored.flipped);
+}
+
 fn scaled_model(factor: &str) -> (Document, FeatureId) {
     use caditor_document::Scale;
     let (mut document, base, _) = solid_model();

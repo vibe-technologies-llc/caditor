@@ -6,7 +6,7 @@ use std::{
 use caditor_document::{
     DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
     PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion, SolidFeature, SolidResult,
-    displayed_axis,
+    body_parts, displayed_axis,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray};
 use caditor_kernel::{RegionKey, RegionReference, resolve_regions};
@@ -365,15 +365,19 @@ impl SketchShapes {
     }
 }
 
-fn previewed_body(evaluation: &Evaluation, context: Context) -> Option<FeatureId> {
+fn previewed_bodies(evaluation: &Evaluation, context: Context) -> Vec<FeatureId> {
     if context.choosing_in_view || context.sketch.is_some() {
-        return None;
+        return Vec::new();
     }
-    let result = evaluation.feature(context.solid?)?.result.as_deref()?;
-    match result {
-        FeatureResult::Solid(solid) => Some(solid.body),
-        _ => None,
-    }
+    let Some(result) = context
+        .solid
+        .and_then(|feature| evaluation.feature(feature)?.result.as_ref())
+    else {
+        return Vec::new();
+    };
+    body_parts(result)
+        .filter_map(|part| part.solid().map(|solid| solid.body))
+        .collect()
 }
 
 fn cutting_feature(evaluation: &Evaluation, context: Context) -> Option<FeatureId> {
@@ -490,7 +494,10 @@ pub fn build(
     let open = bodies.body_before().filter(|open| {
         context.solid == Some(open.feature) && editing.is_none() && cutting.is_none()
     });
-    let previewed = previewed_body(evaluation, context).filter(|_| cutting.is_none());
+    let previewed = match cutting {
+        Some(_) => Vec::new(),
+        None => previewed_bodies(evaluation, context),
+    };
     for (body, mesh) in bodies.iter() {
         if open.is_some_and(|open| open.body == body) || !visibility::is_shown(document, body) {
             continue;
@@ -503,7 +510,7 @@ pub fn build(
             .feature(body)
             .and_then(|feature| feature.appearance.opacity)
             .map(|percent| f32::from(percent) / 100.0);
-        let opacity = match previewed == Some(body) {
+        let opacity = match previewed.contains(&body) {
             true => Some(opacity.map_or(PREVIEW_ALPHA, |opacity| opacity.min(PREVIEW_ALPHA))),
             false => opacity,
         };

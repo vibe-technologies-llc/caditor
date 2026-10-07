@@ -16,6 +16,7 @@ use crate::{
     selection::{Pickable, Selection},
     shell_tools,
     solid_tools::{self, Sweep},
+    split_tools,
     viewport::CHOOSE_PLANE_PROMPT,
     widgets::ToolButton,
 };
@@ -498,6 +499,13 @@ fn mirror_button(
         && let Ok(source) = source
     {
         actions.extend(mirror_tools::create_actions(model, source));
+    }
+
+    let split = &context.offers.split;
+    if commands.invoke(Command::Split, split)
+        && let Ok(split) = split
+    {
+        actions.extend(split_tools::create_actions(model, split));
     }
 }
 

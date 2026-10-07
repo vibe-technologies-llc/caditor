@@ -377,18 +377,22 @@ pub fn edited_sketch(document: &Document, feature: FeatureId) -> Option<&Sketch>
 }
 
 fn opened_solid(document: &Document, feature: FeatureId) -> bool {
-    document.feature(feature).is_some_and(|feature| {
-        feature.kind.solid().is_some()
-            || feature.kind.blend().is_some()
-            || feature.kind.shell().is_some()
-            || feature.kind.combine().is_some()
-            || feature.kind.movement().is_some()
-            || feature.kind.mirror().is_some()
-            || feature.kind.scale().is_some()
-            || feature.kind.hole().is_some()
-            || feature.kind.pattern().is_some()
-            || feature.kind.datum().is_some()
-    })
+    document
+        .feature(feature)
+        .is_some_and(|feature| match feature.kind {
+            FeatureKind::Solid(_)
+            | FeatureKind::Blend(_)
+            | FeatureKind::Shell(_)
+            | FeatureKind::Combine(_)
+            | FeatureKind::Move(_)
+            | FeatureKind::Mirror(_)
+            | FeatureKind::Split(_)
+            | FeatureKind::Scale(_)
+            | FeatureKind::Hole(_)
+            | FeatureKind::Pattern(_)
+            | FeatureKind::Datum(_) => true,
+            FeatureKind::Sketch(_) | FeatureKind::Import(_) | FeatureKind::Remove(_) => false,
+        })
 }
 
 pub fn next_sketch_name(document: &Document) -> String {

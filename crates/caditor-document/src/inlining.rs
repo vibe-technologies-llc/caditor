@@ -117,6 +117,7 @@ fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         FeatureKind::Sketch(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Mirror(_)
+        | FeatureKind::Split(_)
         | FeatureKind::Import(_)
         | FeatureKind::Remove(_) => Vec::new(),
     }

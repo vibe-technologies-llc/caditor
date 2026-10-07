@@ -101,6 +101,8 @@ mod snap;
 mod snapshot;
 mod solid_panel;
 mod solid_tools;
+mod split_panel;
+mod split_tools;
 mod status_bar;
 mod toolbar;
 mod tree_row;

@@ -155,6 +155,12 @@ paths:
   panel chooses a principal plane from a combo, or any plane or flat face made before it with Use
   selected, Choose in the view (slot `MirrorPlane`) or the palette's Mirror across selected, and
   has a Keep the original checkbox.
+- Split body (Alt+K, Model menu, palette, a body's right-click menu; not on the ribbon, which it
+  would widen past one row) takes the body the same way and creates a `Split` along a principal or datum
+  plane selected with it, else the YZ plane, and opens it; its panel mirrors Mirror's (combo, Use
+  selected, Choose in the view with slot `SplitPlane`, the palette's Split along selected), with
+  Keep the other side and rows naming the body and the split-off body. While open both bodies show
+  as previews.
 - Scale body (Alt+Shift+S) takes the body the same way and creates a `Scale` by 2 about the
   origin. The panel has the factor (a plain number above zero) and the centre's three coordinates,
   all expressions (key `scale-field`, `("factor", 0)` or `("center", axis index)`).

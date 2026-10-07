@@ -89,6 +89,7 @@ fn may_hold_references(kind: &FeatureKind) -> bool {
             matches!(sketch.attachment, Some(SketchAttachment::Face(_)))
         }
         FeatureKind::Mirror(mirror) => matches!(mirror.plane, PlaneReference::Face(_)),
+        FeatureKind::Split(split) => matches!(split.plane, PlaneReference::Face(_)),
         FeatureKind::Import(_)
         | FeatureKind::Remove(_)
         | FeatureKind::Combine(_)

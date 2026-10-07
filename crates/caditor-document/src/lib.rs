@@ -27,6 +27,7 @@ mod removal;
 mod scaling;
 mod shell;
 mod solid;
+mod split;
 mod tolerance;
 mod tree;
 mod trouble;
@@ -87,9 +88,10 @@ pub use crate::{
     shell::Shell,
     solid::{
         BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex, RegionChoice, Revolve,
-        RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult, SolidStart,
-        profile_curve, sketch_regions,
+        RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult, SolidStart, body_part,
+        body_parts, profile_curve, sketch_regions,
     },
+    split::Split,
     values::{ParameterError, ParameterValues},
     worker::{Outcome, Progress, Recomputer, Update, WorkerStopped},
 };
@@ -134,6 +136,8 @@ mod shell_tests;
 mod sketch_tests;
 #[cfg(test)]
 mod solid_tests;
+#[cfg(test)]
+mod split_tests;
 #[cfg(test)]
 mod start_tests;
 #[cfg(test)]

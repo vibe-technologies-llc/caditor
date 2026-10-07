@@ -99,6 +99,7 @@ pub enum Command {
     Move,
     CopyBody,
     Mirror,
+    Split,
     Scale,
     BodyAppearance,
     RenameBody,
@@ -164,6 +165,7 @@ pub enum Command {
     ExtrudeUpToSelected,
     StartAtSelected,
     MirrorAcrossSelected,
+    SplitAlongSelected,
     DatumUseSelected,
     DatumTurnAboutSelected,
     PatternUseSelected,
@@ -486,6 +488,7 @@ plain_commands! {
     Move,
     CopyBody,
     Mirror,
+    Split,
     Scale,
     BodyAppearance,
     RenameBody,
@@ -527,6 +530,7 @@ plain_commands! {
     ExtrudeUpToSelected,
     StartAtSelected,
     MirrorAcrossSelected,
+    SplitAlongSelected,
     DatumUseSelected,
     DatumTurnAboutSelected,
     PatternUseSelected,
@@ -643,6 +647,7 @@ impl Command {
             Self::Move => "model.move",
             Self::CopyBody => "model.copy_body",
             Self::Mirror => "model.mirror",
+            Self::Split => "model.split",
             Self::Scale => "model.scale",
             Self::BodyAppearance => "model.body_appearance",
             Self::RenameBody => "model.rename_body",
@@ -718,6 +723,7 @@ impl Command {
             Self::ExtrudeUpToSelected => "model.extrude_up_to_selected",
             Self::StartAtSelected => "model.start_at_selected",
             Self::MirrorAcrossSelected => "model.mirror_across_selected",
+            Self::SplitAlongSelected => "model.split_along_selected",
             Self::DatumUseSelected => "model.datum_use_selected",
             Self::DatumTurnAboutSelected => "model.datum_turn_about_selected",
             Self::PatternUseSelected => "model.pattern_use_selected",
@@ -790,6 +796,7 @@ impl Command {
             Self::Move => "Move body",
             Self::CopyBody => "Copy body",
             Self::Mirror => "Mirror body",
+            Self::Split => "Split body",
             Self::Scale => "Scale body",
             Self::BodyAppearance => "Body colour and material",
             Self::RenameBody => "Rename body",
@@ -856,6 +863,7 @@ impl Command {
             Self::ExtrudeUpToSelected => "Extrude up to selected face or plane",
             Self::StartAtSelected => "Start extrusion or revolution at selected face or plane",
             Self::MirrorAcrossSelected => "Mirror across selected face or plane",
+            Self::SplitAlongSelected => "Split along selected face or plane",
             Self::DatumUseSelected => "Base datum on selection",
             Self::DatumTurnAboutSelected => "Turn datum plane about selected axis",
             Self::PatternUseSelected => "Pattern along or about selected axis",
@@ -952,6 +960,7 @@ impl Command {
             | Self::Move
             | Self::CopyBody
             | Self::Mirror
+            | Self::Split
             | Self::Scale
             | Self::BodyAppearance
             | Self::RenameBody
@@ -980,6 +989,7 @@ impl Command {
             | Self::ExtrudeUpToSelected
             | Self::StartAtSelected
             | Self::MirrorAcrossSelected
+            | Self::SplitAlongSelected
             | Self::DatumUseSelected
             | Self::DatumTurnAboutSelected
             | Self::PatternUseSelected
@@ -1096,6 +1106,7 @@ impl Command {
             Self::Move => vec![alt(Key::M)],
             Self::CopyBody => vec![alt_shift(Key::C)],
             Self::Mirror => vec![alt_shift(Key::M)],
+            Self::Split => vec![alt(Key::K)],
             Self::Scale => vec![alt_shift(Key::S)],
             Self::LinearPattern => vec![alt(Key::L)],
             Self::CircularPattern => vec![alt_shift(Key::L)],
@@ -1142,6 +1153,7 @@ impl Command {
             | Self::ExtrudeUpToSelected
             | Self::StartAtSelected
             | Self::MirrorAcrossSelected
+            | Self::SplitAlongSelected
             | Self::DatumUseSelected
             | Self::DatumTurnAboutSelected
             | Self::PatternUseSelected

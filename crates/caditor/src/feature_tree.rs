@@ -32,7 +32,7 @@ use crate::{
     shell_panel,
     sketch_placement::{self, PlacementTarget},
     sketch_status::{self, SketchSummary},
-    sketch_tools, solid_panel,
+    sketch_tools, solid_panel, split_panel, split_tools,
     tree_row::{self, Look},
     visibility,
     widgets::{self, DialogWidth, Tone},
@@ -229,6 +229,7 @@ fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Move(movement) if movement.copy => &["copy", "body"],
         FeatureKind::Move(_) => &["move", "body"],
         FeatureKind::Mirror(_) => &["mirror", "body"],
+        FeatureKind::Split(_) => &["split", "body", "cut"],
         FeatureKind::Scale(_) => &["scale", "body"],
         FeatureKind::Hole(_) => &["hole", "drill"],
         FeatureKind::Pattern(pattern) => match pattern.kind {
@@ -784,6 +785,10 @@ fn body(
             mirror_panel::show(ui, model, row.selection, actions, feature, mirror);
             body_display(ui, model, feature);
         }
+        FeatureKind::Split(split) => {
+            split_panel::show(ui, model, row.selection, actions, feature, split);
+            body_display(ui, model, feature);
+        }
         FeatureKind::Scale(scale) => {
             scale_panel::show(ui, model, actions, feature, scale);
             body_display(ui, model, feature);
@@ -831,6 +836,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
         | FeatureKind::Mirror(_)
+        | FeatureKind::Split(_)
         | FeatureKind::Scale(_)
         | FeatureKind::Hole(_)
         | FeatureKind::Pattern(_)
@@ -941,6 +947,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mirror(_)
+            | FeatureKind::Split(_)
             | FeatureKind::Scale(_)
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
@@ -955,6 +962,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mirror(_)
+            | FeatureKind::Split(_)
             | FeatureKind::Scale(_)
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
@@ -1626,6 +1634,17 @@ fn mirror_change(
     }
 }
 
+fn split_change(
+    model: &Model,
+    selection: &Selection,
+    feature: &Feature,
+) -> Result<Transaction, String> {
+    match feature.kind.split() {
+        Some(split) => split_tools::plane_change(model, selection, feature.id(), split),
+        None => Err(format!("{} is not a split", feature.name)),
+    }
+}
+
 fn datum_change(
     feature: &Feature,
     change: impl FnOnce(&Datum) -> Result<Transaction, String>,
@@ -1715,7 +1734,7 @@ fn feature_commands(
     if commands.invoke(Command::TogglePrincipal, &Ok::<_, String>(())) {
         actions.push(Action::Apply(visibility::toggle_principal_group(document)));
     }
-    let changes: [(Command, FeatureChange<'_>); 10] = [
+    let changes: [(Command, FeatureChange<'_>); 11] = [
         (Command::DetachSketch, &|feature| {
             detach_change(model, feature)
         }),
@@ -1733,6 +1752,9 @@ fn feature_commands(
         }),
         (Command::MirrorAcrossSelected, &|feature| {
             mirror_change(model, selection, feature)
+        }),
+        (Command::SplitAlongSelected, &|feature| {
+            split_change(model, selection, feature)
         }),
         (Command::DatumUseSelected, &|feature| {
             datum_change(feature, |datum| {

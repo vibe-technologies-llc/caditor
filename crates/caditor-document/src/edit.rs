@@ -750,6 +750,7 @@ impl Document {
             | (FeatureKind::Combine(_), FeatureKind::Combine(_))
             | (FeatureKind::Move(_), FeatureKind::Move(_))
             | (FeatureKind::Mirror(_), FeatureKind::Mirror(_))
+            | (FeatureKind::Split(_), FeatureKind::Split(_))
             | (FeatureKind::Scale(_), FeatureKind::Scale(_))
             | (FeatureKind::Hole(_), FeatureKind::Hole(_))
             | (FeatureKind::Pattern(_), FeatureKind::Pattern(_))

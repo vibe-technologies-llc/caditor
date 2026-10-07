@@ -21,7 +21,8 @@ use crate::{
     hole, import, mirror, movement, pattern,
     presenting::{Glimpse, Presentation, SettledBody},
     projection, removal, scaling, shell,
-    solid::{self, SketchRegion, SolidFeature, SolidResult},
+    solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
+    split,
     values::ParameterValues,
 };
 
@@ -192,9 +193,7 @@ impl FeatureResult {
                 own.geometry.same_geometry(&theirs.geometry)
             }
             (Self::Datum(own), Self::Datum(theirs)) => own == theirs,
-            (Self::Solid(own), Self::Solid(theirs)) => {
-                own.body == theirs.body && own.solid == theirs.solid
-            }
+            (Self::Solid(own), Self::Solid(theirs)) => own.same_shapes(theirs),
             _ => false,
         }
     }
@@ -376,7 +375,7 @@ impl Evaluation {
 
     pub fn body_result_seen_by(&self, feature: FeatureId, body: FeatureId) -> Option<&SolidResult> {
         let state = self.seen_bodies.get(&feature)?.get(&body)?;
-        self.features.get(state)?.result.as_deref()?.solid()
+        body_part(self.features.get(state)?.result.as_ref()?, body)?.solid()
     }
 
     pub fn is_stale(&self, body: FeatureId) -> bool {
@@ -389,7 +388,7 @@ impl Evaluation {
 
     pub fn body_result(&self, body: FeatureId) -> Option<&Arc<FeatureResult>> {
         let state = self.bodies.get(&body)?;
-        self.features.get(state)?.result.as_ref()
+        body_part(self.features.get(state)?.result.as_ref()?, body)
     }
 
     pub fn feature(&self, id: FeatureId) -> Option<&FeatureStatus> {
@@ -916,15 +915,13 @@ impl Recompute {
                 interruptible(cancel.interrupt(), || result.find_regions());
             }
         }
-        for (body, state) in &evaluation.bodies {
+        for body in evaluation.bodies.keys() {
             if cancel.is_cancelled() {
                 break;
             }
             let Some(solid) = evaluation
-                .features
-                .get(state)
-                .and_then(|status| status.result.as_deref())
-                .and_then(FeatureResult::solid)
+                .body_result(*body)
+                .and_then(|result| result.solid())
             else {
                 continue;
             };
@@ -938,12 +935,10 @@ impl Recompute {
                 report(evaluation);
             }
         }
-        evaluation.meshed = evaluation.bodies.values().all(|state| {
+        evaluation.meshed = evaluation.bodies.keys().all(|body| {
             evaluation
-                .features
-                .get(state)
-                .and_then(|status| status.result.as_deref())
-                .and_then(FeatureResult::solid)
+                .body_result(*body)
+                .and_then(|result| result.solid())
                 .is_none_or(SolidResult::is_meshed)
         });
     }
@@ -972,8 +967,10 @@ impl Walk {
     fn stand(&mut self, feature: &Feature, result: &Arc<FeatureResult>) {
         let id = feature.id();
         self.current.insert(id, Arc::clone(result));
-        if let Some(solid) = result.solid() {
-            self.bodies.insert(solid.body, (id, Arc::clone(result)));
+        for part in body_parts(result) {
+            if let Some(solid) = part.solid() {
+                self.bodies.insert(solid.body, (id, Arc::clone(part)));
+            }
         }
         for body in feature.kind.consumed_bodies() {
             self.bodies.remove(&body);
@@ -1025,7 +1022,7 @@ fn settling(features: &[Arc<Feature>], bar: usize) -> Settling {
             continue;
         }
         for body in feature
-            .body()
+            .bodies()
             .into_iter()
             .chain(feature.kind.consumed_bodies())
         {
@@ -1074,16 +1071,19 @@ fn last_good_bodies(
         .collect();
     let mut stale = BTreeMap::new();
     for feature in document.features() {
-        let last_good = statuses
+        let Some(last_good) = statuses
             .get(&feature.id())
-            .and_then(|status| status.result.as_deref())
-            .and_then(FeatureResult::solid);
-        if let Some(solid) = last_good
-            && made.contains(&solid.body)
-            && !current.contains_key(&solid.body)
-            && !consumed.contains(&solid.body)
-        {
-            stale.insert(solid.body, feature.id());
+            .and_then(|status| status.result.as_ref())
+        else {
+            continue;
+        };
+        for solid in body_parts(last_good).filter_map(|part| part.solid()) {
+            if made.contains(&solid.body)
+                && !current.contains_key(&solid.body)
+                && !consumed.contains(&solid.body)
+            {
+                stale.insert(solid.body, feature.id());
+            }
         }
     }
     stale
@@ -1247,6 +1247,7 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::Mirror(definition) => {
                 mirror::evaluate(feature, definition, inputs, cancel)
             }
+            FeatureKind::Split(definition) => split::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Scale(definition) => {
                 scaling::evaluate(feature, definition, inputs, cancel)
             }

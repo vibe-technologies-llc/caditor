@@ -77,6 +77,8 @@ const CHOOSE_MOVE_PROMPT: &str = "Enter the turns and distances in the feature's
 const CHOOSE_SCALE_PROMPT: &str = "Enter the factor and the centre in the feature's panel";
 const CHOOSE_MIRROR_PROMPT: &str =
     "Choose the plane in the feature's panel, or select a plane or flat face and use it from there";
+const CHOOSE_SPLIT_PROMPT: &str =
+    "Choose the plane in the feature's panel, or select a plane or flat face and use it from there";
 const CHOOSE_HOLE_PROMPT: &str = "Choose the hole's style and sizes in the feature's panel";
 const CHOOSE_REFERENCES_PROMPT: &str = "Select planes, faces, axes or edges for the feature's panel, or choose them in the view from it";
 const SNAP_LABEL_OFFSET: egui::Vec2 = vec2(14.0, 10.0);
@@ -2195,6 +2197,7 @@ impl ViewportState {
                 Some(FeatureKind::Move(_)) => CHOOSE_MOVE_PROMPT,
                 Some(FeatureKind::Scale(_)) => CHOOSE_SCALE_PROMPT,
                 Some(FeatureKind::Mirror(_)) => CHOOSE_MIRROR_PROMPT,
+                Some(FeatureKind::Split(_)) => CHOOSE_SPLIT_PROMPT,
                 Some(FeatureKind::Hole(_)) => CHOOSE_HOLE_PROMPT,
                 Some(FeatureKind::Datum(_) | FeatureKind::Pattern(_)) => CHOOSE_REFERENCES_PROMPT,
                 _ => CHOOSE_REGIONS_PROMPT,

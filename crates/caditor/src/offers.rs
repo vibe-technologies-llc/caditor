@@ -11,6 +11,7 @@ use crate::{
     selection::Selection,
     shell_tools::{self, FaceSource},
     sketch_placement::{self, FaceChoice},
+    split_tools::{self, SplitSource},
     units::LengthUnit,
 };
 
@@ -35,6 +36,7 @@ pub struct Offers {
     pub combine: Result<BodyPair, &'static str>,
     pub movement: Result<FeatureId, &'static str>,
     pub mirror: Result<MirrorSource, &'static str>,
+    pub split: Result<SplitSource, &'static str>,
     pub scale: Result<FeatureId, &'static str>,
     pub pattern: Result<PatternSource, &'static str>,
     pub described: Vec<String>,
@@ -61,6 +63,7 @@ impl Offers {
             combine: combine_tools::selected_bodies(model, selection),
             movement: move_tools::selected_body(model, selection),
             mirror: mirror_tools::source(model, selection),
+            split: split_tools::source(model, selection),
             scale: scale_tools::selected_body(model, selection),
             described: selection
                 .iter()
