@@ -109,7 +109,8 @@ paths:
   screw), Fit when sized (Close, Normal, Loose, Tapped, Fine, with the thread named for the
   tapped ones), Style
   (Plain, Counterbore, Countersink; switching takes the size's head dimensions, else the
-  defaults), Diameter, the style's sizes, Shape (Round, or Slot with its length and angle), Depth
+  defaults), Sized by (Diameter, Circles; shown while the sketch has circles or the hole is sized
+  by them), Diameter, the style's sizes, Shape (Round, or Slot with its length and angle), Depth
   (Blind with its field, or Through all), Reverse direction, and the Sketch and Body rows (the body
   a list of `bodies_before`). A size sets exact millimetre values; typing any hole, counterbore or
   countersink size makes it Custom again.

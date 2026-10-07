@@ -57,8 +57,8 @@ pub use crate::{
     editor::{Base, Editor, Prepared, Stale},
     healing::Healing,
     hole::{
-        Hole, HoleDepth, HoleShape, HoleStyle, MAX_COUNTERSINK_ANGLE, MAX_HOLES,
-        centres as hole_centres,
+        CircleSize, Hole, HoleDepth, HoleShape, HoleSizing, HoleStyle, MAX_COUNTERSINK_ANGLE,
+        MAX_HOLES, centres as hole_centres, circle_sizes,
     },
     hole_standard::{HoleFit, HoleStandard, MetricSize},
     import::Import,

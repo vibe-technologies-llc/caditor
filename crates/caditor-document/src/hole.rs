@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
@@ -56,6 +56,13 @@ pub enum HoleShape {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HoleSizing {
+    #[default]
+    Typed,
+    Circles,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hole {
     pub sketch: FeatureId,
@@ -66,6 +73,7 @@ pub struct Hole {
     pub reversed: bool,
     pub shape: HoleShape,
     pub standard: Option<HoleStandard>,
+    pub sizing: HoleSizing,
 }
 
 impl Hole {
@@ -200,6 +208,42 @@ pub fn centres(sketch: &Sketch) -> Vec<(EntityId, Point2)> {
         .collect()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CircleSize {
+    pub circle: EntityId,
+    pub diameter: f64,
+}
+
+pub fn circle_sizes(sketch: &Sketch) -> BTreeMap<EntityId, CircleSize> {
+    let mut sizes: BTreeMap<EntityId, CircleSize> = BTreeMap::new();
+    for (circle, entity) in sketch.entities() {
+        let Entity::Circle { center, radius } = entity else {
+            continue;
+        };
+        if sketch.is_construction(circle) {
+            continue;
+        }
+        let size = CircleSize {
+            circle,
+            diameter: 2.0 * radius,
+        };
+        sizes
+            .entry(*center)
+            .and_modify(|smallest| {
+                if size.diameter < smallest.diameter {
+                    *smallest = size;
+                }
+            })
+            .or_insert(size);
+    }
+    sizes
+}
+
+struct Sized {
+    diameter: f64,
+    circle: String,
+}
+
 struct Values {
     diameter: f64,
     depth: Option<f64>,
@@ -307,8 +351,12 @@ impl Context<'_> {
         Ok(value)
     }
 
-    fn values(&self, definition: &Hole) -> Result<Values, Failure> {
-        let diameter = self.length(&definition.diameter, "diameter")?;
+    fn values(&self, definition: &Hole, sized: Option<&Sized>) -> Result<Values, Failure> {
+        let diameter = match sized {
+            Some(sized) => sized.diameter,
+            None => self.length(&definition.diameter, "diameter")?,
+        };
+        let hole = sized.map_or_else(|| "the hole".to_owned(), |sized| sized.circle.clone());
         let depth = match &definition.depth {
             HoleDepth::Blind(depth) => Some(self.length(depth, "depth")?),
             HoleDepth::ThroughAll => None,
@@ -323,7 +371,7 @@ impl Context<'_> {
                 let shallow = self.length(shallow, "counterbore depth")?;
                 if wide <= diameter {
                     return Err(self.error(
-                        "The counterbore is not wider than the hole.".to_owned(),
+                        format!("The counterbore is not wider than {hole}."),
                         "Enter a counterbore diameter above the hole diameter.".to_owned(),
                     ));
                 }
@@ -346,7 +394,7 @@ impl Context<'_> {
                 let angle = self.value(angle, Dimension::ANGLE, "countersink angle")?;
                 if wide <= diameter {
                     return Err(self.error(
-                        "The countersink is not wider than the hole.".to_owned(),
+                        format!("The countersink is not wider than {hole}."),
                         "Enter a countersink diameter above the hole diameter.".to_owned(),
                     ));
                 }
@@ -610,7 +658,7 @@ pub(crate) fn evaluate(
     cancel: &CancelToken,
 ) -> Result<FeatureResult, Failure> {
     let context = Context { feature, inputs };
-    let values = context.values(definition)?;
+    let values = context.values(definition, None)?;
     let sketch_name = context.name(definition.sketch);
     let Some(FeatureResult::Sketch(sketch)) =
         inputs.features.get(&definition.sketch).map(AsRef::as_ref)
@@ -648,7 +696,22 @@ pub(crate) fn evaluate(
         .clone();
     let frame = sketch.geometry.plane();
     let up = frame.normal() * if definition.reversed { -1.0 } else { 1.0 };
+    let circles = match definition.sizing {
+        HoleSizing::Circles => circle_sizes(&sketch.geometry),
+        HoleSizing::Typed => BTreeMap::new(),
+    };
     for (point, position) in centres {
+        let own = match circles.get(&point) {
+            Some(size) => Some(context.values(
+                definition,
+                Some(&Sized {
+                    diameter: size.diameter,
+                    circle: sketch.geometry.entity_label(size.circle),
+                }),
+            )?),
+            None => None,
+        };
+        let values = own.as_ref().unwrap_or(&values);
         if cancel.is_cancelled() {
             return Err(Failure::Cancelled);
         }
@@ -667,7 +730,7 @@ pub(crate) fn evaluate(
             })?,
         };
         let base = point.raw().wrapping_mul(PARTS);
-        for drill in drills(&context, &values, &frame, centre, up, depth, base)? {
+        for drill in drills(&context, values, &frame, centre, up, depth, base)? {
             let cut = boolean(&body, &drill, BooleanOperation::Difference).map_err(|error| {
                 use caditor_kernel::BooleanError;
                 match error {

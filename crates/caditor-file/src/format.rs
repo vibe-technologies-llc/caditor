@@ -4,13 +4,14 @@ use caditor_document::{
     AxisReference, Blend, BlendKind, BodyAppearance, BodyOperation, CircularPattern, Combine,
     CombineOperation, Datum, DatumAxis, DatumPlane, DatumPoint, Document, Edit, Extrude,
     ExtrudeEnd, ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Hole, HoleDepth,
-    HoleFit, HoleShape, HoleStandard, HoleStyle, Import, LinearDirection, LinearSpacing,
-    MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MIN_OPACITY_PERCENT,
-    MetricSize, Mirror, ModelProperties, ModelProperty, Move, OPAQUE_PERCENT, ORIGINAL_INSTANCE,
-    Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointReference,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Remove,
-    Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell, SketchAttachment,
-    SketchFeature, SolidFeature, SolidStart, Transaction, material_name,
+    HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStyle, Import, LinearDirection,
+    LinearSpacing, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES,
+    MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties, ModelProperty, Move, OPAQUE_PERCENT,
+    ORIGINAL_INSTANCE, Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation,
+    PlaneThrough, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar,
+    Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Transaction,
+    material_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -128,6 +129,7 @@ pub(crate) enum FeatureKindRecord {
     Mirror(MirrorRecord),
     Scale(ScaleRecord),
     Hole(HoleRecord),
+    HoleByCircles(HoleRecord),
     LinearPattern(Box<LinearPatternRecord>),
     CircularPattern(Box<CircularPatternRecord>),
     Pattern(Box<PatternRecord>),
@@ -142,7 +144,7 @@ pub(crate) enum FeatureKindRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 2] = ["hidden", "appearance"];
 
-pub(crate) const FEATURE_KINDS: [&str; 26] = [
+pub(crate) const FEATURE_KINDS: [&str; 27] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -159,6 +161,7 @@ pub(crate) const FEATURE_KINDS: [&str; 26] = [
     "mirror",
     "scale",
     "hole",
+    "hole_by_circles",
     "linear_pattern",
     "circular_pattern",
     "pattern",
@@ -1223,38 +1226,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             factor: scale.factor.to_stored_text(),
             center: scale.center.each_ref().map(Expression::to_stored_text),
         }),
-        FeatureKind::Hole(hole) => FeatureKindRecord::Hole(HoleRecord {
-            sketch: hole.sketch.raw(),
-            body: hole.body.raw(),
-            diameter: hole.diameter.to_stored_text(),
-            depth: match &hole.depth {
-                HoleDepth::ThroughAll => HoleDepthRecord::ThroughAll,
-                HoleDepth::Blind(depth) => HoleDepthRecord::Blind(depth.to_stored_text()),
-            },
-            style: match &hole.style {
-                HoleStyle::Plain => HoleStyleRecord::Plain,
-                HoleStyle::Counterbore { diameter, depth } => HoleStyleRecord::Counterbore {
-                    diameter: diameter.to_stored_text(),
-                    depth: depth.to_stored_text(),
-                },
-                HoleStyle::Countersink { diameter, angle } => HoleStyleRecord::Countersink {
-                    diameter: diameter.to_stored_text(),
-                    angle: angle.to_stored_text(),
-                },
-            },
-            reversed: hole.reversed,
-            slot: match &hole.shape {
-                HoleShape::Round => None,
-                HoleShape::Slot { length, angle } => Some(SlotRecord {
-                    length: length.to_stored_text(),
-                    angle: angle.to_stored_text(),
-                }),
-            },
-            standard: hole.standard.map(|standard| HoleStandardRecord {
-                size: standard.size.name().to_owned(),
-                fit: standard.fit.id().to_owned(),
-            }),
-        }),
+        FeatureKind::Hole(hole) => hole_record(hole),
         FeatureKind::Pattern(pattern) => pattern_record(pattern),
         FeatureKind::Import(import) => FeatureKindRecord::Import(ImportRecord {
             source: import.source.clone(),
@@ -1434,6 +1406,45 @@ fn revolve_record(revolve: &Revolve) -> FeatureKindRecord {
         extent,
         operation,
     })
+}
+
+fn hole_record(hole: &Hole) -> FeatureKindRecord {
+    let record = HoleRecord {
+        sketch: hole.sketch.raw(),
+        body: hole.body.raw(),
+        diameter: hole.diameter.to_stored_text(),
+        depth: match &hole.depth {
+            HoleDepth::ThroughAll => HoleDepthRecord::ThroughAll,
+            HoleDepth::Blind(depth) => HoleDepthRecord::Blind(depth.to_stored_text()),
+        },
+        style: match &hole.style {
+            HoleStyle::Plain => HoleStyleRecord::Plain,
+            HoleStyle::Counterbore { diameter, depth } => HoleStyleRecord::Counterbore {
+                diameter: diameter.to_stored_text(),
+                depth: depth.to_stored_text(),
+            },
+            HoleStyle::Countersink { diameter, angle } => HoleStyleRecord::Countersink {
+                diameter: diameter.to_stored_text(),
+                angle: angle.to_stored_text(),
+            },
+        },
+        reversed: hole.reversed,
+        slot: match &hole.shape {
+            HoleShape::Round => None,
+            HoleShape::Slot { length, angle } => Some(SlotRecord {
+                length: length.to_stored_text(),
+                angle: angle.to_stored_text(),
+            }),
+        },
+        standard: hole.standard.map(|standard| HoleStandardRecord {
+            size: standard.size.name().to_owned(),
+            fit: standard.fit.id().to_owned(),
+        }),
+    };
+    match hole.sizing {
+        HoleSizing::Typed => FeatureKindRecord::Hole(record),
+        HoleSizing::Circles => FeatureKindRecord::HoleByCircles(record),
+    }
 }
 
 fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
@@ -2661,7 +2672,12 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             FeatureKind::Mirror(restore_mirror(record, name, issues))
         }
         FeatureKindRecord::Scale(record) => FeatureKind::Scale(restore_scale(record, name, issues)),
-        FeatureKindRecord::Hole(record) => FeatureKind::Hole(restore_hole(record, name, issues)),
+        FeatureKindRecord::Hole(record) => {
+            FeatureKind::Hole(restore_hole(record, HoleSizing::Typed, name, issues))
+        }
+        FeatureKindRecord::HoleByCircles(record) => {
+            FeatureKind::Hole(restore_hole(record, HoleSizing::Circles, name, issues))
+        }
         FeatureKindRecord::LinearPattern(record) => {
             FeatureKind::from(restore_linear_pattern(record, name, issues))
         }
@@ -3082,7 +3098,12 @@ fn restore_circular_pattern(
     )
 }
 
-fn restore_hole(record: &HoleRecord, feature: &str, issues: &mut Vec<String>) -> Hole {
+fn restore_hole(
+    record: &HoleRecord,
+    sizing: HoleSizing,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Hole {
     let mut value = |text: &str, what: &str, fallback: &str| {
         restore_value(text, what, fallback, feature, issues)
     };
@@ -3131,6 +3152,7 @@ fn restore_hole(record: &HoleRecord, feature: &str, issues: &mut Vec<String>) ->
         reversed: record.reversed,
         shape,
         standard,
+        sizing,
     }
 }
 

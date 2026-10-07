@@ -4554,6 +4554,7 @@ fn holed_model(style: caditor_document::HoleStyle, through: bool) -> (Document, 
             reversed: through,
             shape: caditor_document::HoleShape::Round,
             standard: None,
+            sizing: caditor_document::HoleSizing::Typed,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -4596,6 +4597,36 @@ fn holes_of_every_style_are_saved_and_loaded() {
         let record = through_binary(&text);
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
+}
+
+#[test]
+fn a_hole_sized_by_its_circles_is_a_record_kind_of_its_own() {
+    let (mut document, hole) = holed_model(caditor_document::HoleStyle::Plain, false);
+    let mut sized = document.feature(hole).unwrap().kind.clone();
+    if let FeatureKind::Hole(definition) = &mut sized {
+        definition.sizing = caditor_document::HoleSizing::Circles;
+    }
+    let transaction = Transaction::single(
+        "Size by circles",
+        Edit::SetFeatureKind {
+            id: hole,
+            kind: sized,
+        },
+    );
+    document.apply(transaction.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
+    assert!(text.contains("\"hole_by_circles\":{\"body\":"));
+    assert!(!text.contains("\"hole\":{"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(transaction)
+    );
 }
 
 #[test]

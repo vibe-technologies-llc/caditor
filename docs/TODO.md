@@ -176,8 +176,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] A cut affects only one body: no extrusion or revolve cut removes material from
   several bodies at once, only a Combine of two.
 - [medium · medium] Holes have no several diameters (stepped), only one fine pitch per size and
-  no heat-set insert sizes, and each hole of a feature shares the feature's sizes, whatever the
-  circle's.
+  no heat-set insert sizes; sized by circles, a hole takes only its diameter from the circle, its
+  counterbore or countersink still the typed one.
 - [high · hard] Bodies cannot be edited directly: no moving, offsetting, deleting or replacing a
   face (push and pull) and no deleting a fillet or chamfer by its faces. An imported STEP body has
   no feature history, so today it can only be cut, joined, filleted or shelled; a wall too thick, a

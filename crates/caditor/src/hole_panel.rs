@@ -1,6 +1,6 @@
 use caditor_document::{
-    Feature, FeatureId, Hole, HoleDepth, HoleFit, HoleShape, HoleStandard, HoleStyle, MetricSize,
-    Transaction,
+    Feature, FeatureId, Hole, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStyle,
+    MetricSize, Transaction, circle_sizes,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
@@ -16,6 +16,23 @@ use crate::{
 pub const DESCRIPTION: &str = "Drills a hole at every point of the sketch";
 const NOT_A_BODY: &str = "A body that is no longer there";
 pub const CUSTOM_SIZE: &str = "Custom";
+pub const SIZED_BY_CIRCLES: &str = "Circles";
+const SIZED_BY_CIRCLES_NOTE: &str = "Holes at circles take each circle's diameter; holes at \
+                                     points take the diameter below";
+
+fn sizing_label(sizing: HoleSizing) -> &'static str {
+    match sizing {
+        HoleSizing::Typed => "Diameter",
+        HoleSizing::Circles => SIZED_BY_CIRCLES,
+    }
+}
+
+fn sizing_hover(sizing: HoleSizing) -> &'static str {
+    match sizing {
+        HoleSizing::Typed => "Every hole takes the typed diameter, whatever the circle drawn",
+        HoleSizing::Circles => "Each hole at a circle takes that circle's diameter",
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Field {
@@ -175,6 +192,38 @@ impl Panel<'_> {
                     ..hole.clone()
                 },
             );
+        }
+    }
+
+    fn has_circles(&self) -> bool {
+        self.model
+            .document()
+            .feature(self.hole.sketch)
+            .and_then(|feature| feature.kind.sketch())
+            .is_some_and(|sketch| !circle_sizes(sketch).is_empty())
+    }
+
+    fn sizing_row(&mut self, ui: &mut Ui) {
+        if self.hole.sizing == HoleSizing::Typed && !self.has_circles() {
+            return;
+        }
+        let segments = [HoleSizing::Typed, HoleSizing::Circles]
+            .into_iter()
+            .map(|sizing| Segment {
+                label: sizing_label(sizing),
+                hover: sizing_hover(sizing),
+                change: (sizing != self.hole.sizing).then(|| {
+                    self.change(Hole {
+                        sizing,
+                        ..self.hole.clone()
+                    })
+                }),
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, "Sized by", &self.feature.name, segments);
+        self.actions.extend(chosen);
+        if self.hole.sizing == HoleSizing::Circles {
+            feature_fields::description_row(ui, SIZED_BY_CIRCLES_NOTE);
         }
     }
 
@@ -386,6 +435,7 @@ pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, feature: &Fea
         if let Some(standard) = hole.standard {
             panel.fit_row(ui, standard);
         }
+        panel.sizing_row(ui);
         panel.style_row(ui);
         panel.length_row(
             ui,

@@ -39,6 +39,7 @@ fn drilled(
         reversed,
         shape: HoleShape::Round,
         standard: None,
+        sizing: HoleSizing::Typed,
     };
     let mut transaction = pair.document.transaction("Drill");
     let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
@@ -98,6 +99,7 @@ fn each_point_of_the_sketch_gets_a_hole_and_curve_ends_do_not() {
             reversed: false,
             shape: HoleShape::Round,
             standard: None,
+            sizing: HoleSizing::Typed,
         }),
     );
     pair.document.apply(transaction.finish()).unwrap();
@@ -335,6 +337,7 @@ fn a_hole_that_misses_the_body_or_a_sketch_without_points_fails_in_words() {
             reversed: false,
             shape: HoleShape::Round,
             standard: None,
+            sizing: HoleSizing::Typed,
         }),
     );
     pair.document.apply(transaction.finish()).unwrap();
@@ -510,6 +513,7 @@ fn a_circle_drawn_where_a_hole_goes_drills_at_its_centre() {
         reversed: false,
         shape: HoleShape::Round,
         standard: None,
+        sizing: HoleSizing::Typed,
     };
     let mut transaction = pair.document.transaction("Drill");
     let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
@@ -694,4 +698,92 @@ fn metric_sizes_give_clearance_and_tap_drill_diameters_and_name_the_thread() {
             .0 > loose
             && MetricSize::from_name(size.name()) == Some(*size)
     }));
+}
+
+fn circled(
+    pair: &mut Pair,
+    sizing: HoleSizing,
+    style: impl FnOnce(&Document) -> HoleStyle,
+) -> FeatureId {
+    let mut sketch = Sketch::new(top());
+    sketch.add_circle(Point2::new(4.0, 5.0), 1.0);
+    sketch.add_circle(Point2::new(10.0, 5.0), 2.5);
+    sketch.add_point(Point2::new(16.0, 5.0));
+    let mut transaction = pair.document.transaction("Drill");
+    let sketch_id = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
+    let hole = Hole {
+        sketch: sketch_id,
+        body: pair.plate,
+        diameter: expression(&pair.document, "2 mm"),
+        depth: HoleDepth::ThroughAll,
+        style: style(&pair.document),
+        reversed: false,
+        shape: HoleShape::Round,
+        standard: None,
+        sizing,
+    };
+    let feature = transaction.add_feature("Hole 1", FeatureKind::Hole(hole));
+    pair.document.apply(transaction.finish()).unwrap();
+    feature
+}
+
+#[test]
+fn holes_sized_by_circles_take_each_circle_s_diameter_and_points_the_typed_one() {
+    let mut typed = pair();
+    circled(&mut typed, HoleSizing::Typed, |_| HoleStyle::Plain);
+    let mut by_circles = pair();
+    circled(&mut by_circles, HoleSizing::Circles, |_| HoleStyle::Plain);
+
+    let typed_evaluation = evaluate(&typed.document, &mut Recompute::default());
+    let circled_evaluation = evaluate(&by_circles.document, &mut Recompute::default());
+
+    let all_typed = 3.0 * PI * 1.0 * 1.0 * 4.0;
+    let each_own = PI * (1.0 + 2.5 * 2.5 + 1.0) * 4.0;
+    let typed_found = PLATE - volume(&typed_evaluation, typed.plate);
+    let circled_found = PLATE - volume(&circled_evaluation, by_circles.plate);
+    assert_eq!(circled_evaluation.failed_count(), 0);
+    assert!(
+        (typed_found - all_typed).abs() < 0.01 * all_typed,
+        "{typed_found}"
+    );
+    assert!(
+        (circled_found - each_own).abs() < 0.01 * each_own,
+        "{circled_found}"
+    );
+}
+
+#[test]
+fn construction_circles_size_nothing() {
+    let mut sketch = Sketch::new(top());
+    let drawn = sketch.add_circle(Point2::new(10.0, 5.0), 2.0);
+    let guide = sketch.add_circle(Point2::new(3.0, 3.0), 1.0);
+    sketch.set_construction(guide, true).unwrap();
+
+    let sizes = circle_sizes(&sketch);
+
+    assert_eq!(
+        sizes.values().copied().collect::<Vec<_>>(),
+        [CircleSize {
+            circle: drawn,
+            diameter: 4.0
+        }]
+    );
+}
+
+#[test]
+fn a_counterbore_narrower_than_a_circle_names_the_circle() {
+    let mut pair = pair();
+    let hole = circled(&mut pair, HoleSizing::Circles, |document| {
+        HoleStyle::Counterbore {
+            diameter: expression(document, "4.5 mm"),
+            depth: expression(document, "1 mm"),
+        }
+    });
+
+    let evaluation = evaluate(&pair.document, &mut Recompute::default());
+
+    assert_eq!(
+        failure(&evaluation, hole).reason,
+        "The counterbore is not wider than Circle 3."
+    );
 }

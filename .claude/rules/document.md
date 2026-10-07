@@ -222,6 +222,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   drilled at the major diameter less the pitch), with counterbore and countersink sizes for socket and
   countersunk heads. It names the thread of a tapped hole for the user and changes nothing
   computed: the expressions alone drive the hole.
+- `sizing` is `Typed` (every hole the typed diameter) or `Circles`: a hole at a circle's centre
+  takes that circle's diameter (`circle_sizes`, the smallest of several on one centre point,
+  construction circles left out) and its style is checked against it, a refusal naming the
+  circle; holes at points keep the typed diameter.
 - It fails alone, naming the point, when a size is not positive, the counterbore or countersink is
   not wider than the hole or as deep as it, the angle is outside 0° to `MAX_COUNTERSINK_ANGLE`
   (179°, also the Hole panel's field rule), the sketch has no

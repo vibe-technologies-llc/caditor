@@ -13352,6 +13352,45 @@ fn the_project_tool_brings_a_face_outline_into_the_sketch_and_follows_the_keyboa
     assert!(harness.shows_containing("Project "));
 }
 
+#[test]
+fn a_hole_at_a_circle_can_take_the_circle_s_diameter_from_its_panel() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let top = Plane::from_frame(
+        caditor_geometry::Point3::new(0.0, 0.0, 10.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .unwrap();
+    let mut sketch = Sketch::new(top);
+    sketch.add_circle(Point2::new(20.0, 20.0), 4.0);
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+
+    assert!(removed_about(
+        &harness,
+        plate,
+        std::f64::consts::PI * 3.0 * 3.0 * 10.0
+    ));
+    assert!(harness.shows("Sized by"));
+
+    harness.click(crate::hole_panel::SIZED_BY_CIRCLES);
+    harness.settle();
+
+    assert_eq!(
+        open_hole(&harness, hole).sizing,
+        caditor_document::HoleSizing::Circles
+    );
+    assert!(removed_about(
+        &harness,
+        plate,
+        std::f64::consts::PI * 4.0 * 4.0 * 10.0
+    ));
+}
+
 fn open_hole(harness: &Harness, hole: FeatureId) -> caditor_document::Hole {
     harness
         .document()
