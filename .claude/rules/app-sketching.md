@@ -194,8 +194,11 @@ paths:
 - `sketch_tools.rs` turns the selection into candidates checked by `Sketch::check_constraint`;
   `sketch_toolbar.rs` offers them as buttons and commands, disabled with what to select
   (`app-look.md`).
-- Chaining constraints (parallel, equal, collinear, concentric, horizontal or vertical points)
-  relate every selected item to the first in one transaction. Symmetric takes the one axis
+- Chaining constraints (parallel, equal, collinear, concentric, perpendicular, coincident points,
+  horizontal or vertical points) relate every selected item to the first in one transaction.
+  Coincident also puts every selected point on the one curve selected with them, and Tangent
+  makes the one line selected (else the first item) touch each other curve; two items keep their
+  order. Symmetric takes the one axis
   selected, else whichever of the three items mirrors the other two best.
 - A candidate the sketch already has (`Sketch::restating`) is left out of a batch and, when
   nothing is left, refused as already in the sketch; one that contradicts a constraint

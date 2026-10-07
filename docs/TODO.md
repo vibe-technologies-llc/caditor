@@ -153,8 +153,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
   before committing.
 - [medium · medium] Constraint kinds missing: distance between circles, line and circle, or to a
   spline; arc length and sweep; angle or perpendicular to an arc; arc midpoint; equal splines;
-  spline–spline tangency; curvature continuity; symmetric curves. Coincident, perpendicular and
-  tangent take exactly two items where parallel and equal chain.
+  spline–spline tangency; curvature continuity; symmetric curves.
 - [medium · medium] No size readout while drawing splines, tangent arcs or arc slots; no
   closed-region or open-end feedback while sketching (only a failed extrusion names a sketch's open
   ends); and no smart-dimension tool that takes the entities after the command.
