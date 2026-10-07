@@ -67,6 +67,7 @@ pub struct Move {
     pub body: FeatureId,
     pub offset: [Expression; 3],
     pub turn: [Expression; 3],
+    pub copy: bool,
 }
 
 impl Move {
@@ -200,8 +201,10 @@ pub(crate) fn evaluate(
             "Enter smaller distances.".to_owned(),
         )
     })?;
-    Ok(FeatureResult::Solid(SolidResult::new(
-        definition.body,
-        moved,
-    )))
+    let placed = if definition.copy {
+        feature.id()
+    } else {
+        definition.body
+    };
+    Ok(FeatureResult::Solid(SolidResult::new(placed, moved)))
 }

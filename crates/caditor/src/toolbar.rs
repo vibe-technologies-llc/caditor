@@ -467,7 +467,13 @@ fn move_button(
     if (response.clicked() || invoked)
         && let Ok(body) = body
     {
-        actions.extend(move_tools::create_actions(model, *body));
+        actions.extend(move_tools::create_actions(model, *body, false));
+    }
+
+    if commands.invoke(Command::CopyBody, body)
+        && let Ok(body) = body
+    {
+        actions.extend(move_tools::create_actions(model, *body, true));
     }
 }
 

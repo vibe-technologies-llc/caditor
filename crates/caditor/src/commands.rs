@@ -97,6 +97,7 @@ pub enum Command {
     Shell,
     Combine,
     Move,
+    CopyBody,
     Mirror,
     Scale,
     BodyAppearance,
@@ -480,6 +481,7 @@ plain_commands! {
     Shell,
     Combine,
     Move,
+    CopyBody,
     Mirror,
     Scale,
     BodyAppearance,
@@ -635,6 +637,7 @@ impl Command {
             Self::Shell => "model.shell",
             Self::Combine => "model.combine",
             Self::Move => "model.move",
+            Self::CopyBody => "model.copy_body",
             Self::Mirror => "model.mirror",
             Self::Scale => "model.scale",
             Self::BodyAppearance => "model.body_appearance",
@@ -780,6 +783,7 @@ impl Command {
             Self::Shell => "Shell",
             Self::Combine => "Combine",
             Self::Move => "Move body",
+            Self::CopyBody => "Copy body",
             Self::Mirror => "Mirror body",
             Self::Scale => "Scale body",
             Self::BodyAppearance => "Body colour and material",
@@ -940,6 +944,7 @@ impl Command {
             | Self::Shell
             | Self::Combine
             | Self::Move
+            | Self::CopyBody
             | Self::Mirror
             | Self::Scale
             | Self::BodyAppearance
@@ -1081,6 +1086,7 @@ impl Command {
             Self::Shell => vec![alt(Key::S)],
             Self::Combine => vec![alt(Key::J)],
             Self::Move => vec![alt(Key::M)],
+            Self::CopyBody => vec![alt_shift(Key::C)],
             Self::Mirror => vec![alt_shift(Key::M)],
             Self::Scale => vec![alt_shift(Key::S)],
             Self::LinearPattern => vec![alt(Key::L)],

@@ -15,6 +15,7 @@ fn moved(pair: &mut Pair, offset: [&str; 3], turn: [&str; 3]) -> FeatureId {
         body: plate,
         offset: expressions(offset),
         turn: expressions(turn),
+        copy: false,
     };
     let feature = transaction.add_feature("Move 1", FeatureKind::Move(movement));
     pair.document.apply(transaction.finish()).unwrap();
@@ -154,4 +155,66 @@ fn a_move_modifies_its_body_and_is_dependent_on_it() {
     assert!(!feature.makes_body());
     assert_eq!(feature.body(), Some(pair.plate));
     assert_eq!(pair.document.dependents_of(&[pair.plate]), vec![movement]);
+}
+
+fn copied(pair: &mut Pair, offset: [&str; 3]) -> FeatureId {
+    let plate = pair.plate;
+    let mut transaction = pair.document.transaction("Copy");
+    let expressions = |texts: [&str; 3]| texts.map(|text| transaction.parse(text).unwrap());
+    let copy = Move {
+        body: plate,
+        offset: expressions(offset),
+        turn: expressions(["0 deg", "0 deg", "0 deg"]),
+        copy: true,
+    };
+    let feature = transaction.add_feature("Copy 1", FeatureKind::Move(copy));
+    pair.document.apply(transaction.finish()).unwrap();
+    feature
+}
+
+#[test]
+fn a_copy_makes_a_new_body_of_its_own_and_leaves_the_original_where_it_was() {
+    let mut pair = pair();
+    let mut engine = Recompute::default();
+
+    let copy = copied(&mut pair, ["0 mm", "30 mm", "0 mm"]);
+    let after = evaluate(&pair.document, &mut engine);
+
+    let feature = pair.document.feature(copy).unwrap();
+    assert!(feature.makes_body());
+    assert_eq!(feature.body(), Some(copy));
+    assert_eq!(after.failed_count(), 0);
+    let (low, _) = bounds(&after, pair.plate);
+    let (copy_low, copy_high) = bounds(&after, copy);
+    assert!(near(low, [0.0, 0.0, 0.0]), "{low:?}");
+    assert!(near(copy_low, [0.0, 30.0, 0.0]), "{copy_low:?}");
+    assert!(near(copy_high, [20.0, 40.0, 4.0]), "{copy_high:?}");
+    assert!((volume(&after, copy) - volume(&after, pair.plate)).abs() < 1e-6);
+    assert_eq!(
+        pair.document.bodies_standing(),
+        vec![pair.plate, pair.peg, copy]
+    );
+}
+
+#[test]
+fn a_copy_others_use_cannot_stop_being_a_copy() {
+    let mut pair = pair();
+    let copy = copied(&mut pair, ["0 mm", "30 mm", "0 mm"]);
+    let mut transaction = pair.document.transaction("Use");
+    transaction.add_feature("Remove 1", FeatureKind::Remove(Remove { body: copy }));
+    pair.document.apply(transaction.finish()).unwrap();
+    let FeatureKind::Move(mut movement) = pair.document.feature(copy).unwrap().kind.clone() else {
+        panic!("the copy is a move");
+    };
+    movement.copy = false;
+
+    let refused = pair.document.apply(Transaction::single(
+        "Stop copying",
+        Edit::SetFeatureKind {
+            id: copy,
+            kind: FeatureKind::Move(movement),
+        },
+    ));
+
+    assert!(refused.is_err());
 }

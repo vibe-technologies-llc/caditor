@@ -123,7 +123,10 @@ paths:
 ## Move
 
 - Move body (Alt+M) takes the one body whose faces, edges or vertices are selected and creates a `Move`
-  of zero turns and distances, then opens it. The panel has a field for the turn about each axis
+  of zero turns and distances, then opens it. Copy body (Alt+Shift+C, Model menu, palette, a body's
+  right-click menu; not on the ribbon, which it would widen past one row) does the same with
+  `copy` set, named Copy N, so the copy is placed from its panel; Make a copy in the panel switches
+  between the two. The panel has a field for the turn about each axis
   and the distance along each, all expressions (key `move-field`, `offset` or `turn`, axis index).
   Nothing is chosen in the view while it is open.
 

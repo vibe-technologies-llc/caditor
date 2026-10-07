@@ -6413,6 +6413,44 @@ fn a_body_is_renamed_selected_whole_and_removed_from_the_palette() {
 }
 
 #[test]
+fn copy_body_makes_a_placed_copy_beside_the_original() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let volume = harness.body_volume(plate);
+    harness.select([top]);
+    harness.frame();
+
+    run_from_palette(&mut harness, "copy body");
+    harness.settle();
+    let copy = harness.workspace.editing.solid().expect("the copy is open");
+    harness.type_into_field(Id::new(("move-field", "offset", 1usize, copy)), "60 mm");
+    harness.settle();
+
+    let feature = harness.document().feature(copy).unwrap();
+    assert_eq!(feature.name, "Copy 1");
+    assert!(feature.makes_body());
+    assert!(harness.shows(crate::move_panel::MAKE_A_COPY));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!((harness.body_volume(copy) - volume).abs() < 1e-6 * volume);
+    let bounds = harness
+        .model
+        .evaluation()
+        .body(copy)
+        .unwrap()
+        .bounding_box()
+        .unwrap();
+    assert!((bounds.min().y - 60.0).abs() < 1e-6);
+    let original = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .unwrap()
+        .bounding_box()
+        .unwrap();
+    assert!(original.min().y.abs() < 1e-6);
+}
+
+#[test]
 fn a_selection_filter_makes_clicks_skip_everything_but_one_kind() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);

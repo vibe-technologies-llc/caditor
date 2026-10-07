@@ -10,6 +10,7 @@ use crate::{
 };
 
 pub const TITLE: &str = "Move body";
+pub const COPY_NAME: &str = "Copy";
 pub const DESCRIPTION: &str =
     "Shift and turn a body, by distances and angles that can be parameters";
 const NO_BODY: &str = "Select a face or edge of the body to move";
@@ -44,8 +45,14 @@ pub fn chosen_body(
     }
 }
 
-pub fn create(document: &Document, body: FeatureId, unit: LengthUnit) -> (Transaction, FeatureId) {
-    let name = editing::next_feature_name(document, TITLE);
+pub fn create(
+    document: &Document,
+    body: FeatureId,
+    unit: LengthUnit,
+    copy: bool,
+) -> (Transaction, FeatureId) {
+    let title = if copy { COPY_NAME } else { TITLE };
+    let name = editing::next_feature_name(document, title);
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(
         name,
@@ -53,13 +60,14 @@ pub fn create(document: &Document, body: FeatureId, unit: LengthUnit) -> (Transa
             body,
             offset: std::array::from_fn(|_| unit.default_length(0.0)),
             turn: std::array::from_fn(|_| solid_tools::degrees(0.0)),
+            copy,
         }),
     );
     (transaction.finish(), feature)
 }
 
-pub fn create_actions(model: &Model, body: FeatureId) -> Vec<Action> {
-    let (transaction, feature) = create(model.document(), body, model.length_unit());
+pub fn create_actions(model: &Model, body: FeatureId, copy: bool) -> Vec<Action> {
+    let (transaction, feature) = create(model.document(), body, model.length_unit(), copy);
     vec![
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),

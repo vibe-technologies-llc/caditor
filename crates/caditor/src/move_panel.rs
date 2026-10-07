@@ -10,6 +10,9 @@ use crate::{
 };
 
 pub const DESCRIPTION: &str = "Turns the body about the axes through the origin, then shifts it";
+pub const COPY_DESCRIPTION: &str = "Makes a new body from a copy of the body, turned about the axes through the origin, then \
+     shifted; the original stays where it is";
+pub const MAKE_A_COPY: &str = "Make a copy";
 
 fn change(model: &Model, feature: FeatureId, movement: Move) -> Result<Transaction, String> {
     let document = model.document();
@@ -89,7 +92,12 @@ pub fn show(
         actions,
     };
     widgets::properties(ui, ("move-properties", feature.id()), |ui| {
-        feature_fields::description_row(ui, DESCRIPTION);
+        let description = if movement.copy {
+            COPY_DESCRIPTION
+        } else {
+            DESCRIPTION
+        };
+        feature_fields::description_row(ui, description);
         for axis in MoveAxis::ALL {
             panel.turn_row(ui, axis);
         }
@@ -97,5 +105,18 @@ pub fn show(
             panel.distance_row(ui, axis);
         }
         feature_fields::feature_row(ui, model.document(), "Body", movement.body);
+        if let Some(copy) = feature_fields::reverse_row(ui, MAKE_A_COPY, movement.copy) {
+            let change = change(
+                model,
+                feature.id(),
+                Move {
+                    copy,
+                    ..movement.clone()
+                },
+            );
+            panel
+                .actions
+                .push(feature_fields::applied(&feature.name, change));
+        }
     });
 }

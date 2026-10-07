@@ -70,6 +70,7 @@ fn a_feature_using_a_removed_body_fails_naming_the_removal() {
             turn: [0.0; 3].map(|value| {
                 caditor_expression::Expression::Measure(value, caditor_expression::Unit::Degree)
             }),
+            copy: false,
         }),
     );
 

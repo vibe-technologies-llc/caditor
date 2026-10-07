@@ -189,9 +189,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
   undoable.
 - [high · hard] Patterns repeat a whole body: no pattern of chosen features (a row of holes cut into
   a plate), no instances left out, and no linear "total length" mode.
-- [medium · medium] Split a body by a plane or a face, and copy one body (`RigidTransform` and
-  booleans exist); a body can be moved but only by typed distances and turns about the origin's axes,
-  not dragged, turned about its own axis or centre, or placed by mating faces.
+- [medium · medium] Split a body by a plane or a face (`RigidTransform` and booleans exist; a
+  feature's result holds one body, so one side would have to come from a copy); a body can be moved
+  or copied but only by typed distances and turns about the origin's axes, not dragged, turned
+  about its own axis or centre, or placed by mating faces.
 - [medium · hard] The whole model cannot be scaled: no command or feature resizes every body, sketch
   and datum by a factor (uniform, about the origin or a chosen point) as one undoable change.
   Scaling must keep references and names stable, and say what happens to dimensions and parameters

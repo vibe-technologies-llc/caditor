@@ -217,6 +217,7 @@ fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
             CombineOperation::Cut => &["combine", "cut", "subtract", "difference"],
             CombineOperation::Intersect => &["combine", "intersect", "intersection"],
         },
+        FeatureKind::Move(movement) if movement.copy => &["copy", "body"],
         FeatureKind::Move(_) => &["move", "body"],
         FeatureKind::Mirror(_) => &["mirror", "body"],
         FeatureKind::Scale(_) => &["scale", "body"],

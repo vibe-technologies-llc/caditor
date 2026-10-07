@@ -161,7 +161,9 @@ paths:
   misreading them; an unreadable reference loads as the XY plane, the Z axis or the origin,
   reported. An axis reference may be a `sketch_line` (`sketch`, `entity`).
 - A `move` feature record holds `body` and the stored text of its three distances (`offset`) and
-  three turns (`turn`); an unreadable one loads as 0 mm or 0 deg, reported.
+  three turns (`turn`); an unreadable one loads as 0 mm or 0 deg, reported. A copying move is a
+  `copy` record of the same fields, since an older reader taking it for a move would move the
+  original.
 - A `mirror` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as
   the YZ plane, reported) and `keep_original`. A `scale` record holds `body`, the stored text of
   `factor` (unreadable: 1) and of the three `center` lengths (unreadable: 0 mm).

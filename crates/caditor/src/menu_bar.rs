@@ -474,6 +474,7 @@ impl Menus<'_, '_> {
                     Command::Shell,
                     Command::Combine,
                     Command::Move,
+                    Command::CopyBody,
                     Command::Mirror,
                     Command::Scale,
                     Command::BodyAppearance,

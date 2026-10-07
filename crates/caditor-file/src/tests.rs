@@ -4367,6 +4367,24 @@ fn moves_are_saved_and_loaded() {
                 transaction.parse("15 deg").unwrap(),
                 transaction.parse("90 deg").unwrap(),
             ],
+            copy: false,
+        }),
+    );
+    let copy = transaction.add_feature(
+        "Copy 1",
+        FeatureKind::Move(Move {
+            body: base,
+            offset: [
+                transaction.parse("0 mm").unwrap(),
+                transaction.parse("20 mm").unwrap(),
+                transaction.parse("0 mm").unwrap(),
+            ],
+            turn: [
+                transaction.parse("0 deg").unwrap(),
+                transaction.parse("0 deg").unwrap(),
+                transaction.parse("0 deg").unwrap(),
+            ],
+            copy: true,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -4375,8 +4393,10 @@ fn moves_are_saved_and_loaded() {
     let loaded = decode_text(&text);
 
     assert!(text.contains("\"move\":{\"body\":"));
+    assert!(text.contains("\"copy\":{\"body\":"));
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
+    assert!(loaded.document.feature(copy).unwrap().makes_body());
 
     let kind = document.feature(movement).unwrap().kind.clone();
     let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: movement, kind });
@@ -4404,6 +4424,7 @@ fn a_move_with_a_damaged_distance_loads_with_zero_and_says_so() {
                 transaction.parse("0 deg").unwrap(),
                 transaction.parse("0 deg").unwrap(),
             ],
+            copy: false,
         }),
     );
     document.apply(transaction.finish()).unwrap();

@@ -121,6 +121,7 @@ pub(crate) enum FeatureKindRecord {
     Shell(ShellRecord),
     Combine(CombineRecord),
     Move(MoveRecord),
+    Copy(MoveRecord),
     Mirror(MirrorRecord),
     Scale(ScaleRecord),
     Hole(HoleRecord),
@@ -137,7 +138,7 @@ pub(crate) enum FeatureKindRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 2] = ["hidden", "appearance"];
 
-pub(crate) const FEATURE_KINDS: [&str; 24] = [
+pub(crate) const FEATURE_KINDS: [&str; 25] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -150,6 +151,7 @@ pub(crate) const FEATURE_KINDS: [&str; 24] = [
     "shell",
     "combine",
     "move",
+    "copy",
     "mirror",
     "scale",
     "hole",
@@ -1167,11 +1169,18 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 CombineOperation::Intersect => CombineOperationRecord::Intersect,
             },
         }),
-        FeatureKind::Move(movement) => FeatureKindRecord::Move(MoveRecord {
-            body: movement.body.raw(),
-            offset: movement.offset.each_ref().map(Expression::to_stored_text),
-            turn: movement.turn.each_ref().map(Expression::to_stored_text),
-        }),
+        FeatureKind::Move(movement) => {
+            let record = MoveRecord {
+                body: movement.body.raw(),
+                offset: movement.offset.each_ref().map(Expression::to_stored_text),
+                turn: movement.turn.each_ref().map(Expression::to_stored_text),
+            };
+            if movement.copy {
+                FeatureKindRecord::Copy(record)
+            } else {
+                FeatureKindRecord::Move(record)
+            }
+        }
         FeatureKind::Mirror(mirror) => FeatureKindRecord::Mirror(MirrorRecord {
             body: mirror.body.raw(),
             plane: Lenient::Read(plane_reference_record(&mirror.plane)),
@@ -2595,7 +2604,12 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
                 CombineOperationRecord::Intersect => CombineOperation::Intersect,
             },
         }),
-        FeatureKindRecord::Move(record) => FeatureKind::Move(restore_move(record, name, issues)),
+        FeatureKindRecord::Move(record) => {
+            FeatureKind::Move(restore_move(record, false, name, issues))
+        }
+        FeatureKindRecord::Copy(record) => {
+            FeatureKind::Move(restore_move(record, true, name, issues))
+        }
         FeatureKindRecord::Mirror(record) => {
             FeatureKind::Mirror(restore_mirror(record, name, issues))
         }
@@ -3041,7 +3055,7 @@ fn restore_hole(record: &HoleRecord, feature: &str, issues: &mut Vec<String>) ->
     }
 }
 
-fn restore_move(record: &MoveRecord, feature: &str, issues: &mut Vec<String>) -> Move {
+fn restore_move(record: &MoveRecord, copy: bool, feature: &str, issues: &mut Vec<String>) -> Move {
     let mut read = |texts: &[String; 3], what: &str, fallback: &str| {
         texts
             .each_ref()
@@ -3051,6 +3065,7 @@ fn restore_move(record: &MoveRecord, feature: &str, issues: &mut Vec<String>) ->
         body: FeatureId::from_raw(record.body),
         offset: read(&record.offset, "distance", "0 mm"),
         turn: read(&record.turn, "turn", "0 deg"),
+        copy,
     }
 }
 

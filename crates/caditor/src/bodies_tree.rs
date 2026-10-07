@@ -8,6 +8,7 @@ use crate::{
     feature_tree::{self, CommandContext},
     icons,
     model::{Action, Model},
+    move_tools,
     panels::{Painting, PanelState},
     removal,
     selection::Pickable,
@@ -223,6 +224,10 @@ fn row_menu(
             &[body],
             body_selection::Kind::Faces,
         ));
+        ui.close();
+    }
+    if widgets::menu_item(ui, icons::command(Command::CopyBody), "Copy body", None).clicked() {
+        actions.extend(move_tools::create_actions(model, body, true));
         ui.close();
     }
     ui.separator();

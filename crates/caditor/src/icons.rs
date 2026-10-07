@@ -16,6 +16,7 @@ pub const DONE: &str = phosphor::CHECK;
 pub const MORE: &str = phosphor::DOTS_THREE;
 pub const DELETE: &str = phosphor::TRASH;
 pub const REMOVE_BODY: &str = phosphor::CUBE_FOCUS;
+pub const COPY_BODY: &str = phosphor::COPY;
 pub const REMOVE: &str = phosphor::X;
 pub const CLOSE: &str = phosphor::X;
 pub const ADD: &str = phosphor::PLUS;
@@ -121,6 +122,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Shell => SHELL,
         Command::Combine => COMBINE,
         Command::Move => MOVE,
+        Command::CopyBody => COPY_BODY,
         Command::Mirror => MIRROR,
         Command::Scale => SCALE,
         Command::RenameBody => EDIT,
@@ -330,6 +332,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Blend(blend) => self::blend(blend.kind),
         FeatureKind::Shell(_) => SHELL,
         FeatureKind::Combine(combine) => self::combine(combine.operation),
+        FeatureKind::Move(movement) if movement.copy => COPY_BODY,
         FeatureKind::Move(_) => MOVE,
         FeatureKind::Mirror(_) => MIRROR,
         FeatureKind::Scale(_) => SCALE,

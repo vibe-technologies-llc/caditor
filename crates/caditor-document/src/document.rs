@@ -720,6 +720,7 @@ impl Feature {
             FeatureKind::Blend(blend) => Some(blend.body),
             FeatureKind::Shell(shell) => Some(shell.body),
             FeatureKind::Combine(combine) => Some(combine.body),
+            FeatureKind::Move(movement) if movement.copy => Some(self.id),
             FeatureKind::Move(movement) => Some(movement.body),
             FeatureKind::Mirror(mirror) => Some(mirror.body),
             FeatureKind::Scale(scale) => Some(scale.body),
@@ -735,11 +736,11 @@ impl Feature {
         match &self.kind {
             FeatureKind::Solid(solid) => solid.operation() == BodyOperation::NewBody,
             FeatureKind::Import(_) => true,
+            FeatureKind::Move(movement) => movement.copy,
             FeatureKind::Sketch(_)
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
             | FeatureKind::Combine(_)
-            | FeatureKind::Move(_)
             | FeatureKind::Mirror(_)
             | FeatureKind::Scale(_)
             | FeatureKind::Hole(_)
