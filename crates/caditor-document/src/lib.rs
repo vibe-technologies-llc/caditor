@@ -38,7 +38,7 @@ pub use crate::{
     blend::{Blend, BlendKind},
     body_appearance::{
         BodyAppearance, DensityError, MAX_BODY_NAME_CHARS, MAX_DENSITY, MAX_MATERIAL_NAME_CHARS,
-        Rgb, density_of, material_name,
+        MIN_OPACITY_PERCENT, OPAQUE_PERCENT, Rgb, density_of, material_name,
     },
     combine::{Combine, CombineOperation},
     datum::{

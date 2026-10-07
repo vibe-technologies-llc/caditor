@@ -12,7 +12,8 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
 use crate::{
     attachment::SketchAttachment,
     body_appearance::{
-        BodyAppearance, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, material_name,
+        BodyAppearance, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT,
+        OPAQUE_PERCENT, material_name,
     },
     datum::{Datum, PrincipalGeometry},
     dependencies::DependencyGraph,
@@ -360,6 +361,8 @@ pub enum EditError {
         "A body's name may be at most {MAX_BODY_NAME_CHARS} characters long, and this one has {0}"
     )]
     BodyNameTooLong(usize),
+    #[error("A body may be see-through down to {MIN_OPACITY_PERCENT}% opacity, and {0}% is less")]
+    OpacityTooLow(u8),
     #[error("{0} is not a plane")]
     NotAPlane(String),
     #[error("{0} is not an axis")]
@@ -392,6 +395,11 @@ fn check_appearance(appearance: &BodyAppearance) -> Result<(), EditError> {
         if length > MAX_BODY_NAME_CHARS {
             return Err(EditError::BodyNameTooLong(length));
         }
+    }
+    if let Some(opacity) = appearance.opacity
+        && opacity < MIN_OPACITY_PERCENT
+    {
+        return Err(EditError::OpacityTooLow(opacity));
     }
     Ok(())
 }
@@ -1029,6 +1037,9 @@ impl Document {
         mut appearance: BodyAppearance,
     ) -> Result<Edit, EditError> {
         appearance.material = appearance.material.as_deref().and_then(material_name);
+        appearance.opacity = appearance
+            .opacity
+            .filter(|opacity| *opacity < OPAQUE_PERCENT);
         appearance.name = appearance
             .name
             .as_deref()

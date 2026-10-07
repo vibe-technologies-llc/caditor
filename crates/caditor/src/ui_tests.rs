@@ -11429,6 +11429,40 @@ fn painted_faces(harness: &mut Harness, colour: caditor_render::Color) -> usize 
 }
 
 #[test]
+fn a_body_drawn_half_see_through_goes_to_the_translucent_pass() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    run_from_palette(&mut harness, "body colour and material");
+    harness.settle();
+    harness.select([]);
+
+    harness.click_lowest("Solid");
+    harness.frame();
+    harness.click("50%");
+    harness.settle();
+    let built = harness.built();
+
+    assert_eq!(
+        harness
+            .document()
+            .feature(plate)
+            .unwrap()
+            .appearance
+            .opacity,
+        Some(50)
+    );
+    assert!(built.scene.meshes.is_empty());
+    assert_eq!(built.scene.translucent_meshes.len(), 1);
+    assert!(
+        built.scene.translucent_meshes[0]
+            .faces
+            .iter()
+            .all(|face| (face.color.alpha - 0.5).abs() < 1e-6 && face.pick.is_none())
+    );
+}
+
+#[test]
 fn a_body_takes_a_colour_and_a_material_whose_density_gives_its_mass() {
     use crate::body_appearance::{DENSITY_CAPTION, NO_MATERIAL};
 
@@ -11446,6 +11480,10 @@ fn a_body_takes_a_colour_and_a_material_whose_density_gives_its_mass() {
         .map(|painting| painting.body);
     let listed = harness.shows(DENSITY_CAPTION) && harness.shows(NO_MATERIAL);
     harness.select([]);
+    harness
+        .events
+        .push(Event::PointerMoved(Pos2::new(150.0, 400.0)));
+    scroll_in_view(&mut harness, egui::vec2(0.0, 400.0));
     harness.click_button("Steel blue");
     harness.settle();
     let colour_label = harness.model.undo_label().map(str::to_owned);

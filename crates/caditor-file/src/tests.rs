@@ -2120,6 +2120,7 @@ fn steel_appearance(document: &Document) -> caditor_document::BodyAppearance {
         material: Some("Steel".to_owned()),
         density: Some(document.parse("depth / 1 mm * 2.5").unwrap()),
         name: Some("Base plate".to_owned()),
+        opacity: Some(40),
     }
 }
 

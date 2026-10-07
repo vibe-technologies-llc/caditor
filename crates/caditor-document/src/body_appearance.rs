@@ -6,6 +6,8 @@ use crate::values::ParameterValues;
 
 pub const MAX_MATERIAL_NAME_CHARS: usize = 80;
 pub const MAX_BODY_NAME_CHARS: usize = 120;
+pub const MIN_OPACITY_PERCENT: u8 = 10;
+pub const OPAQUE_PERCENT: u8 = 100;
 pub const MAX_DENSITY: f64 = 100.0;
 const GRAMS_PER_CUBIC_MILLIMETRE_AT_UNIT_DENSITY: f64 = 1e-3;
 
@@ -50,6 +52,7 @@ pub struct BodyAppearance {
     pub material: Option<String>,
     pub density: Option<Expression>,
     pub name: Option<String>,
+    pub opacity: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]

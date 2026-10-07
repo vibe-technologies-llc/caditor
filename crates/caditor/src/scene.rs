@@ -472,7 +472,17 @@ pub fn build(
             Some(_) => None,
             None => Some(body_color(document, evaluation, body)),
         };
-        builder.body(body, mesh, color, editing.is_none() || context.projecting);
+        let opacity = document
+            .feature(body)
+            .and_then(|feature| feature.appearance.opacity)
+            .map(|percent| f32::from(percent) / 100.0);
+        builder.body(
+            body,
+            mesh,
+            color,
+            opacity,
+            editing.is_none() || context.projecting,
+        );
     }
     if let Some(open) = open {
         builder.open_before(document, evaluation, open);
@@ -778,19 +788,30 @@ impl Builder<'_> {
         }
     }
 
-    fn body(&mut self, body: FeatureId, mesh: &BodyMesh, color: Option<Color>, pickable: bool) {
+    fn body(
+        &mut self,
+        body: FeatureId,
+        mesh: &BodyMesh,
+        color: Option<Color>,
+        opacity: Option<f32>,
+        pickable: bool,
+    ) {
         let style = match color {
             Some(_) => self.style,
             None => DisplayStyle::default(),
         };
-        if style.is_translucent()
-            && let Some(base) = color
-        {
+        let see_through = match (style.is_translucent(), opacity) {
+            (true, Some(opacity)) => Some(opacity.min(XRAY_FACE_ALPHA)),
+            (true, None) => Some(XRAY_FACE_ALPHA),
+            (false, opacity) if style.shows_faces() => opacity,
+            (false, _) => None,
+        };
+        if let (Some(alpha), Some(base)) = (see_through, color) {
             self.translucent_meshes.push(MeshInstance {
                 mesh: Arc::clone(&mesh.mesh),
                 faces: vec![
                     FaceStyle {
-                        color: base.with_alpha(XRAY_FACE_ALPHA),
+                        color: base.with_alpha(alpha),
                         pick: None,
                     };
                     mesh.faces.len()

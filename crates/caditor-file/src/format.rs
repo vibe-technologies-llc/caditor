@@ -5,11 +5,12 @@ use caditor_document::{
     CombineOperation, Datum, DatumAxis, DatumPlane, DatumPoint, Document, Edit, Extrude,
     ExtrudeEnd, ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Hole, HoleDepth,
     HoleFit, HoleShape, HoleStandard, HoleStyle, Import, LinearDirection, MAX_BODY_NAME_CHARS,
-    MAX_MATERIAL_NAME_CHARS, MetricSize, Mirror, ModelProperties, ModelProperty, Move, Parameter,
-    Pattern, PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointReference,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Remove,
-    Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell, SketchAttachment,
-    SketchFeature, SolidFeature, SolidStart, Transaction, material_name,
+    MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties,
+    ModelProperty, Move, OPAQUE_PERCENT, Parameter, Pattern, PatternKind, PlaneReference,
+    PlaneRotation, PlaneThrough, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar,
+    Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Transaction,
+    material_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -104,6 +105,8 @@ pub(crate) struct AppearanceRecord {
     pub density: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1008,6 +1011,7 @@ fn appearance_record(appearance: &BodyAppearance) -> AppearanceRecord {
         material: appearance.material.clone(),
         density: appearance.density.as_ref().map(Expression::to_stored_text),
         name: appearance.name.clone(),
+        opacity: appearance.opacity,
     }
 }
 
@@ -1062,11 +1066,21 @@ fn restore_appearance(
         }
         body_name
     });
+    let opacity = record.opacity.and_then(|opacity| {
+        let usable = (MIN_OPACITY_PERCENT..OPAQUE_PERCENT).contains(&opacity);
+        if !usable {
+            issues.push(format!(
+                "The opacity of “{name}” could not be used, so it is drawn solid."
+            ));
+        }
+        usable.then_some(opacity)
+    });
     BodyAppearance {
         colour,
         material,
         density,
         name: body_name,
+        opacity,
     }
 }
 

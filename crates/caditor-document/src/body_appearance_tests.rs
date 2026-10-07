@@ -13,6 +13,7 @@ fn steel(pair: &Pair, density: &str) -> BodyAppearance {
         material: Some("Steel".to_owned()),
         density: Some(pair.document.parse(density).unwrap()),
         name: None,
+        opacity: None,
     }
 }
 
@@ -215,4 +216,33 @@ fn a_density_follows_its_parameter() {
     let density = appearance.density_value(&values);
 
     assert_eq!(density, Some(Ok(5.4)));
+}
+
+#[test]
+fn a_body_may_be_see_through_down_to_a_tenth_and_full_opacity_is_stored_as_none() {
+    let mut pair = pair();
+    let faded = |opacity| BodyAppearance {
+        opacity: Some(opacity),
+        ..BodyAppearance::default()
+    };
+
+    pair.document.apply(set(&pair, faded(40))).unwrap();
+    let kept = pair
+        .document
+        .feature(pair.plate)
+        .unwrap()
+        .appearance
+        .opacity;
+    pair.document.apply(set(&pair, faded(100))).unwrap();
+    let solid = pair
+        .document
+        .feature(pair.plate)
+        .unwrap()
+        .appearance
+        .opacity;
+    let refused = pair.document.apply(set(&pair, faded(5)));
+
+    assert_eq!(kept, Some(40));
+    assert_eq!(solid, None);
+    assert_eq!(refused, Err(EditError::OpacityTooLow(5)));
 }

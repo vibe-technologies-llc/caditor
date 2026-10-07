@@ -22,6 +22,25 @@ pub const MATERIAL_CAPTION: &str = "Material";
 pub const MATERIAL_NAME_CAPTION: &str = "Name";
 pub const DENSITY_CAPTION: &str = "Density";
 pub const BODY_NAME_CAPTION: &str = "Body name";
+pub const OPACITY_CAPTION: &str = "Opacity";
+pub const OPACITIES: [(Option<u8>, &str, &str); 4] = [
+    (None, "Solid", "Draw the body solid"),
+    (
+        Some(75),
+        "75%",
+        "Let a little of what is behind the body show through; its faces are not picked",
+    ),
+    (
+        Some(50),
+        "50%",
+        "Draw the body half see-through; its faces are not picked",
+    ),
+    (
+        Some(25),
+        "25%",
+        "Draw the body faint, mostly see-through; its faces are not picked",
+    ),
+];
 const HEX_HINT: &str = "Enter a colour as # and six hexadecimal digits, such as #4682b4";
 const DENSITY_NOTE: &str =
     "A plain number in g/cm³; the Measure panel shows the body's mass from it.";
@@ -192,6 +211,7 @@ pub fn with_material(appearance: &BodyAppearance, material: Option<&Material>) -
             material: Some(material.name.to_owned()),
             density: Some(Expression::number(material.density)),
             name: appearance.name.clone(),
+            opacity: appearance.opacity,
         },
     }
 }
@@ -328,6 +348,42 @@ impl Panel<'_> {
         if let Some(colour) = field.committed {
             self.apply(with_colour(self.appearance, colour), "colour");
         }
+    }
+
+    fn opacity_row(&mut self, ui: &mut Ui) {
+        widgets::caption(ui, OPACITY_CAPTION);
+        let current = self.appearance.opacity;
+        let shown = OPACITIES
+            .iter()
+            .find(|(opacity, _, _)| *opacity == current)
+            .map_or_else(
+                || format!("{}%", current.unwrap_or(100)),
+                |(_, label, _)| (*label).to_owned(),
+            );
+        let model = self.model;
+        let body = self.body;
+        let appearance = self.appearance;
+        let chosen = feature_fields::combo(ui, Id::new(("body-opacity", body)), shown, || {
+            OPACITIES
+                .iter()
+                .map(|(opacity, label, _)| Choice {
+                    label: (*label).to_owned(),
+                    selected: *opacity == current,
+                    change: change(
+                        model.document(),
+                        body,
+                        BodyAppearance {
+                            opacity: *opacity,
+                            ..appearance.clone()
+                        },
+                        "opacity",
+                    )
+                    .map(Action::Apply),
+                })
+                .collect()
+        });
+        ui.end_row();
+        self.actions.extend(chosen);
     }
 
     fn material_rows(&mut self, ui: &mut Ui) {
@@ -469,6 +525,7 @@ pub fn show(
     let name_focused = widgets::properties(ui, ("body-appearance", feature.id()), |ui| {
         let landed = panel.name_row(ui, feature, focus && naming);
         panel.colour_row(ui);
+        panel.opacity_row(ui);
         panel.material_rows(ui);
         panel.density_row(ui);
         landed
