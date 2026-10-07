@@ -93,7 +93,9 @@ paths:
 - Size: a model file stays within the `MAX_FILE_SIZE` every reader enforces. When versions would
   take it past three quarters of that, the oldest are dropped (a tail, so nothing depends on them)
   and the save says how many (`Encoded::dropped_for_size`). A model too large on its own is refused
-  (`EncodeError::ModelTooLarge`), since it could not be opened again.
+  (`EncodeError::ModelTooLarge`), since it could not be opened again, and so are records whose
+  uncompressed snapshot exceeds `MAX_DECOMPRESSED` (exported as `MAX_MODEL_RECORDS`), checked
+  before anything is written rather than found when the read-back runs out of budget.
 - Versions copied unchanged are block-aligned (a zero-filled `Padding` chunk, skipped by readers)
   so `copy_file_range` (`os/unix.rs`) can clone them; what could not be cloned (everything on
   Windows), or the file having changed since it was read, is written from memory.

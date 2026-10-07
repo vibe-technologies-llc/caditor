@@ -721,6 +721,18 @@ fn a_model_larger_than_a_file_can_hold_is_refused() {
     ));
 }
 
+#[test]
+fn a_model_whose_records_cannot_be_read_back_is_refused_before_writing() {
+    let document = with_width(10);
+
+    let refused = decompressing_at_most(16, || encode_over(&document, None, at(1_000), None));
+
+    assert!(matches!(
+        refused,
+        Err(EncodeError::ModelTooLarge { largest: 16, .. })
+    ));
+}
+
 fn bulky() -> Document {
     let mut document = with_width(10);
     let mut transaction = document.transaction("Bulk");

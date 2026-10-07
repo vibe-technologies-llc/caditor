@@ -58,7 +58,9 @@ paths:
   when a multi-lump solid reads back as several; a body that cannot be stored is left out with a
   note.
 - `bodies_transaction` adds an `Import` feature per body under unique names; the model file stores
-  it as an `import` record (`file-format.md`).
+  it as an `import` record (`file-format.md`). The app refuses, before applying it, an import whose
+  STEP text with the model's existing imports (`FeatureKind::stored_text_len`) would exceed
+  `MAX_MODEL_RECORDS`, since that model could be neither saved nor journaled.
 
 ## Export (`export/`)
 

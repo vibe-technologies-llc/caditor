@@ -21,7 +21,7 @@ mod storage;
 mod untrusted;
 
 pub use crate::{
-    binary::{FileDigest, History, SavedState, Version},
+    binary::{FileDigest, History, MAX_MODEL_RECORDS, SavedState, Version},
     export::{
         ExportBody, ExportError, ExportFormat, Exported, FaceExported, ImageExportError,
         MeshResolution, PNG_EXTENSION, RgbaImage, STEP_EXTENSION, STEP_EXTENSIONS, SketchExported,

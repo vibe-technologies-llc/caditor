@@ -97,6 +97,13 @@ impl From<Sketch> for FeatureKind {
 }
 
 impl FeatureKind {
+    pub fn stored_text_len(&self) -> usize {
+        match self {
+            Self::Import(import) => import.source.len() + import.step.len(),
+            _ => 0,
+        }
+    }
+
     pub fn approximate_size(&self) -> usize {
         let owned = match self {
             Self::Sketch(sketch) => {

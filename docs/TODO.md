@@ -401,14 +401,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   the portal request passes an empty parent window, so the dialog is not tied to caditor's and can
   open behind it, and neither the portal wait nor zenity times out. Say that the dialog is waiting,
   with a Cancel that abandons the pick, and pass the window handle to the portal.
-- [medium · medium] A model whose records exceed 2 GiB uncompressed (`MAX_DECOMPRESSED`) can be
-  neither saved nor journaled: `encode_over` checks only the compressed size, so the read-back
-  runs out of its budget and every save fails as "did not read back intact", and the journal
-  snapshot exceeds `MAX_JOINED_CONTENT`, so `rewrite` reports `Unconvertible` and the session has
-  no crash protection. Importing an assembly with a few hundred placements of a part of a few MB of
-  STEP text reaches it, since each placement is stored as its own text (STEP import and export).
-  Measure the uncompressed snapshot and say before committing an import that it would make the
-  model too large; storing each product once removes the usual cause.
 - [medium · hard] Version history shows when a version was saved and after which change, but no
   preview of what it holds, and no way to keep a version from being thinned out.
 - [medium · hard] No user guide: Help has only the welcome, the command search, the keyboard

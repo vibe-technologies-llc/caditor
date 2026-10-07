@@ -15,7 +15,9 @@ pub(crate) use self::model::{
     EncodeError, Encoded, Shared, decode, encode, encode_over, head_digest, history, load_version,
     reads_back,
 };
-pub use self::model::{FileDigest, History, SavedState, Version};
+pub use self::model::{
+    FileDigest, History, MAX_DECOMPRESSED as MAX_MODEL_RECORDS, SavedState, Version,
+};
 
 pub(crate) type Magic = [u8; 8];
 

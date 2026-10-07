@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use caditor_document::{Document, EditError, FeatureId, Prepared};
+use caditor_document::{Document, Edit, EditError, FeatureId, Prepared, Transaction};
 use caditor_file::{
-    Drawing, ImportError, ModelImport, STEP_IMPORT_EXTENSIONS, SketchTarget, bodies_transaction,
-    drawing_transaction,
+    Drawing, ImportError, MAX_MODEL_RECORDS, ModelImport, STEP_IMPORT_EXTENSIONS, SketchTarget,
+    bodies_transaction, drawing_transaction,
 };
 
 use crate::{
@@ -183,6 +183,15 @@ pub fn place_bodies(
     }
     let transaction =
         bodies_transaction(model.document(), &imported.bodies, format!("Import {file}"));
+    if outgrows(model.document(), &transaction, MAX_MODEL_RECORDS) {
+        model.set_notice(Notice::failure(format!(
+            "“{file}” was not imported: with it the model would hold more than the {} GiB a model \
+             file can, so it could be neither saved nor protected against a crash. Import fewer \
+             parts at a time, or split the assembly between models.",
+            MAX_MODEL_RECORDS >> 30
+        )));
+        return None;
+    }
     let revision = model.revision();
     model.perform(Action::Apply(transaction));
     if model.revision() == revision {
@@ -196,6 +205,22 @@ pub fn place_bodies(
         heading: format!("Imported “{file}”"),
         notes: imported.notes,
     })
+}
+
+fn outgrows(document: &Document, transaction: &Transaction, limit: usize) -> bool {
+    let held: usize = document
+        .features()
+        .map(|feature| feature.kind.stored_text_len())
+        .sum();
+    let added: usize = transaction
+        .edits()
+        .iter()
+        .map(|edit| match edit {
+            Edit::InsertFeature { feature, .. } => feature.kind.stored_text_len(),
+            _ => 0,
+        })
+        .sum();
+    held.saturating_add(added) > limit
 }
 
 fn nothing_imported(
@@ -228,4 +253,37 @@ fn new_sketch_name(document: &Document, path: &Path) -> String {
         return stem;
     }
     editing::next_feature_name(document, &stem)
+}
+
+#[cfg(test)]
+mod tests {
+    use caditor_document::{FeatureKind, Import};
+    use caditor_kernel::Solid;
+
+    use super::*;
+
+    fn importing(document: &Document, name: &str, bytes: usize) -> Transaction {
+        let mut transaction = document.transaction("Import");
+        transaction.add_feature(
+            name,
+            FeatureKind::Import(Import::new(
+                "part.step",
+                Solid::default(),
+                "x".repeat(bytes),
+            )),
+        );
+        transaction.finish()
+    }
+
+    #[test]
+    fn an_import_that_would_outgrow_what_a_model_file_holds_is_caught_before_it_lands() {
+        let mut document = Document::default();
+        document.apply(importing(&document, "First", 600)).unwrap();
+
+        let fitting = importing(&document, "Second", 300);
+        let outgrowing = importing(&document, "Second", 500);
+
+        assert!(!outgrows(&document, &fitting, 1000));
+        assert!(outgrows(&document, &outgrowing, 1000));
+    }
 }

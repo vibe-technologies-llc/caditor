@@ -28,7 +28,7 @@ use crate::{
 };
 
 const KEYFRAME_SPACING: usize = 8;
-const MAX_DECOMPRESSED: usize = 1 << 31;
+pub const MAX_DECOMPRESSED: usize = 1 << 31;
 const LARGEST_FILE: usize = 2 << 30;
 const SHARED_BLOCK: usize = 4096;
 const WORTH_SHARING: usize = 256 << 10;
@@ -719,6 +719,12 @@ pub(crate) fn encode_over(
     };
     let prior_head = read_prior.and_then(|(prior, records)| records.head(prior));
     let new = NewRecords::of(document, prior_records.as_ref())?;
+    if new.snapshot.len() > max_decompressed() {
+        return Err(EncodeError::ModelTooLarge {
+            size: new.snapshot.len(),
+            largest: max_decompressed(),
+        });
+    }
     let snapshot = new.snapshot.as_slice();
     let unchanged = prior_head.is_some_and(|(info, _)| info.holds(snapshot));
     let head = match prior_head {
