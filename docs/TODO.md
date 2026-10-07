@@ -363,11 +363,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   though more than two only ever say to select fewer, and `retain_available` and the panels' Use
   selected re-check the whole selection each frame. Describe and list the first few with "and N
   more", and measure only one or two items.
-- [medium · easy] `annotation_layout::placements` builds every shift along a line's full on-screen
-  length before `place_glyphs` takes the first free one, for every constrained line each frame, on
-  screen or not, so zoomed in on a feature of tens of micrometres each line allocates tens of
-  megabytes a frame. Clip segment anchors to the view and generate placements lazily from the
-  middle, with a cap.
 - [medium · medium] Every frame `Marks::collect` formats every constraint's description, evaluates
   every dimension and registers an `interact` per glyph, and an expanded sketch in the tree does the
   same per constraint row, searching the list of involved constraints linearly for each; the

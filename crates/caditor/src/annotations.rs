@@ -101,7 +101,12 @@ struct Marks {
 }
 
 impl Marks {
-    fn collect(model: &Model, feature: FeatureId, screen: &impl Screen) -> Option<Self> {
+    fn collect(
+        model: &Model,
+        feature: FeatureId,
+        screen: &impl Screen,
+        view: Vector2,
+    ) -> Option<Self> {
         let owner = model.document().feature(feature)?;
         let definition = owner.kind.sketch()?;
         let shown = model.displayed_sketch(owner)?;
@@ -134,7 +139,10 @@ impl Marks {
             .filter_map(|(anchor, items)| {
                 Some(GlyphGroup {
                     anchor,
-                    place: annotation_layout::glyph_anchor(&shown, anchor, screen)?,
+                    place: annotation_layout::within_view(
+                        annotation_layout::glyph_anchor(&shown, anchor, screen)?,
+                        view,
+                    )?,
                     items: items
                         .into_iter()
                         .map(|(constraint, kind)| GlyphItem {
@@ -361,7 +369,11 @@ impl Annotations {
         self.request = self
             .request
             .filter(|request| request.feature == surface.feature);
-        let Some(marks) = Marks::collect(model, surface.feature, surface.screen) else {
+        let view = Vector2::new(
+            f64::from(surface.rect.width()),
+            f64::from(surface.rect.height()),
+        );
+        let Some(marks) = Marks::collect(model, surface.feature, surface.screen, view) else {
             self.field = None;
             return;
         };

@@ -235,7 +235,11 @@ paths:
   stored positions. Dimensions sit away from the sketch's centre; other constraints are glyphs
   stacked beside each constrained entity on the opposite side.
 - Glyphs keep clear of dimension labels and of each other (`annotation_layout::place_glyphs` over
-  `Obstacles`); when nothing is free the least covered place wins. Labels use `canvas::body` on
+  `Obstacles`); when nothing is free the least covered place wins. An entity's anchor is clipped to
+  the view first (`within_view`; off-screen entities get no glyphs, a line is anchored at the middle
+  of its visible part), and the places tried are generated lazily from the middle out, at most
+  `MAX_GLYPH_SHIFTS` steps each way, so zooming in never makes a frame walk a line's full length.
+  Labels use `canvas::body` on
   the canvas backdrop, glyph letters `canvas::emphasis`.
 - Labels show the expression in the document's naming, followed by its value when not a literal;
   conflicting and redundant constraints take the error and warning colours.

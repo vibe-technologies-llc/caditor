@@ -31,6 +31,8 @@ const SPLINE_GLYPH_ANGLE: f64 = PI / 18.0;
 const GLYPH_SHIFT_STEP: f64 = GLYPH_SPACING / 2.0;
 const MAX_CURVE_GLYPH_SHIFT: f64 = GLYPH_SPACING * 2.0;
 const GLYPH_STEPS_BEYOND: usize = 4;
+const MAX_GLYPH_SHIFTS: usize = 64;
+const GLYPH_VIEW_MARGIN: f64 = GLYPH_OFFSET + GLYPH_SPACING;
 const OBSTACLE_CELL: f64 = 32.0;
 const MAX_OBSTACLE_CELLS: i64 = 64;
 const POINT_GLYPH_QUADRANTS: [Vector2; 4] = [
@@ -808,41 +810,75 @@ impl Default for Placement {
     }
 }
 
-fn placements(anchor: GlyphAnchor, count: usize) -> Vec<Placement> {
+fn placements(anchor: GlyphAnchor, count: usize) -> impl Iterator<Item = Placement> {
     let extent = count.saturating_sub(1) as f64 * GLYPH_SPACING;
     let reach = match anchor {
-        GlyphAnchor::Segment(start, end) => ((start.distance(end) - extent) / 2.0).max(0.0),
-        GlyphAnchor::Curve { .. } => MAX_CURVE_GLYPH_SHIFT,
-        GlyphAnchor::Point(_) => {
-            return (0..POINT_GLYPH_QUADRANTS.len())
-                .map(|quadrant| Placement {
-                    quadrant,
-                    ..Placement::default()
-                })
-                .collect();
-        }
+        GlyphAnchor::Segment(start, end) => Some(((start.distance(end) - extent) / 2.0).max(0.0)),
+        GlyphAnchor::Curve { .. } => Some(MAX_CURVE_GLYPH_SHIFT),
+        GlyphAnchor::Point(_) => None,
     };
-    let within = (reach / GLYPH_SHIFT_STEP).floor() as usize;
-    let shifts = |steps: std::ops::RangeInclusive<usize>| {
-        steps
-            .flat_map(|step| {
+    let quadrants = reach
+        .is_none()
+        .then_some(0..POINT_GLYPH_QUADRANTS.len())
+        .into_iter()
+        .flatten()
+        .map(|quadrant| Placement {
+            quadrant,
+            ..Placement::default()
+        });
+    let shifted = reach.into_iter().flat_map(|reach| {
+        let within = ((reach / GLYPH_SHIFT_STEP).floor() as usize).min(MAX_GLYPH_SHIFTS);
+        let shifts = |first: usize, last: usize| {
+            (first..=last).flat_map(|step| {
                 let shift = step as f64 * GLYPH_SHIFT_STEP;
                 [shift, -shift]
             })
-            .collect::<Vec<f64>>()
-    };
-    let near: Vec<f64> = std::iter::once(0.0).chain(shifts(1..=within)).collect();
-    let beyond = shifts(within + 1..=within + GLYPH_STEPS_BEYOND);
-    let sides = |shifts: Vec<f64>| {
-        [false, true].into_iter().flat_map(move |flipped| {
-            shifts.clone().into_iter().map(move |shift| Placement {
-                flipped,
-                shift,
-                quadrant: 0,
+        };
+        let sides = move |centre: bool, first: usize, last: usize| {
+            [false, true].into_iter().flat_map(move |flipped| {
+                centre
+                    .then_some(0.0)
+                    .into_iter()
+                    .chain(shifts(first, last))
+                    .map(move |shift| Placement {
+                        flipped,
+                        shift,
+                        quadrant: 0,
+                    })
             })
-        })
-    };
-    sides(near).chain(sides(beyond)).collect()
+        };
+        sides(true, 1, within).chain(sides(false, within + 1, within + GLYPH_STEPS_BEYOND))
+    });
+    quadrants.chain(shifted)
+}
+
+pub fn within_view(anchor: GlyphAnchor, size: Vector2) -> Option<GlyphAnchor> {
+    let low = Vector2::splat(-GLYPH_VIEW_MARGIN);
+    let high = size + Vector2::splat(GLYPH_VIEW_MARGIN);
+    let inside = |point: Vector2| point.cmpge(low).all() && point.cmple(high).all();
+    match anchor {
+        GlyphAnchor::Point(at) | GlyphAnchor::Curve { at, .. } => inside(at).then_some(anchor),
+        GlyphAnchor::Segment(start, end) => {
+            let along = end - start;
+            let mut enter: f64 = 0.0;
+            let mut leave: f64 = 1.0;
+            for axis in 0..2 {
+                let (from, step) = (start[axis], along[axis]);
+                if step.abs() <= DEGENERATE {
+                    if from < low[axis] || from > high[axis] {
+                        return None;
+                    }
+                    continue;
+                }
+                let first = (low[axis] - from) / step;
+                let second = (high[axis] - from) / step;
+                enter = enter.max(first.min(second));
+                leave = leave.min(first.max(second));
+            }
+            (enter <= leave)
+                .then(|| GlyphAnchor::Segment(start + along * enter, start + along * leave))
+        }
+    }
 }
 
 fn stacked(
@@ -1229,5 +1265,33 @@ mod tests {
             ),
             vec![(lone, GlyphKind::Fix)]
         );
+    }
+
+    #[test]
+    fn a_line_far_longer_than_the_view_offers_few_placements_from_its_visible_middle() {
+        let huge = GlyphAnchor::Segment(Vector2::new(-1e7, 50.0), Vector2::new(1e7, 50.0));
+        let size = Vector2::new(800.0, 600.0);
+
+        let visible = within_view(huge, size);
+        let offered = placements(huge, 1).count();
+
+        let margin = GLYPH_VIEW_MARGIN;
+        assert_eq!(
+            visible,
+            Some(GlyphAnchor::Segment(
+                Vector2::new(-margin, 50.0),
+                Vector2::new(800.0 + margin, 50.0)
+            ))
+        );
+        assert_eq!(
+            offered,
+            2 * (1 + 2 * (MAX_GLYPH_SHIFTS + GLYPH_STEPS_BEYOND))
+        );
+        assert_eq!(placements(huge, 1).next(), Some(Placement::default()));
+        let outside =
+            GlyphAnchor::Segment(Vector2::new(-500.0, -500.0), Vector2::new(-400.0, -100.0));
+        assert_eq!(within_view(outside, size), None);
+        let off_screen_point = GlyphAnchor::Point(Vector2::new(2000.0, 10.0));
+        assert_eq!(within_view(off_screen_point, size), None);
     }
 }

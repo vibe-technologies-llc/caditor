@@ -351,8 +351,8 @@ mod tests {
             Expression::Measure(1.74533, Unit::Radian)
         );
         assert_eq!(
-            AngleUnit::Radian.measured(90.0),
-            Expression::Measure(1.5708, Unit::Radian)
+            AngleUnit::Radian.measured(10.0),
+            Expression::Measure(0.174533, Unit::Radian)
         );
         assert_eq!(
             AngleUnit::Degree.measured(37.5),
