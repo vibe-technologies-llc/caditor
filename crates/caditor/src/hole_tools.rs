@@ -30,7 +30,10 @@ pub const DEFAULT_COUNTERSINK_ANGLE: f64 = 90.0;
 pub const DEFAULT_SLOT_LENGTH: f64 = 10.0;
 const NO_SKETCH: &str =
     "Select a flat face of a body, or draw a sketch on one and place points where the holes go";
-const FACE_SAMPLES: u32 = 8;
+const FACE_SAMPLES: u32 = 16;
+const SEARCH_STEPS: u32 = 16;
+const REFINEMENTS: usize = 4;
+const TIE: f64 = 1e-3;
 const NO_POINTS: &str = "Place points or circles in the sketch where the holes go";
 const NO_BODY: &str = "Make a body to drill into first";
 
@@ -214,8 +217,8 @@ pub fn create_on_face(
         new_hole(placed, face.body, model.length_unit()),
     );
     let told = format!(
-        "{name} is drilled at the middle of the face. Edit {sketch_name} to move or dimension \
-         its point, or add more points for more holes."
+        "{name} is drilled in the middle of the face, as far from its edges as it can be. Edit \
+         {sketch_name} to move or dimension its point, or add more points for more holes."
     );
     Ok((transaction.finish(), feature, told))
 }
@@ -223,24 +226,96 @@ pub fn create_on_face(
 fn face_middle(model: &Model, face: FaceChoice, plane: &Plane) -> Option<Point2> {
     let body = bodies::shown(model.evaluation(), face.body)?;
     let id = bodies::find_face(body, face.face)?;
-    let samples: Vec<Point2> = face_boundary(&body.solid, id)
+    let segments: Vec<[Point2; 2]> = face_boundary(&body.solid, id)
         .into_iter()
         .filter_map(|edge| body.solid.edge(edge))
         .flat_map(|edge| {
             let interval = edge.interval();
-            (0..=FACE_SAMPLES).map(move |step| {
-                let t = f64::from(step) / f64::from(FACE_SAMPLES);
-                edge.curve()
-                    .point(interval.start() + (interval.end() - interval.start()) * t)
-            })
+            let points: Vec<Point2> = (0..=FACE_SAMPLES)
+                .map(|step| {
+                    let t = f64::from(step) / f64::from(FACE_SAMPLES);
+                    let at = interval.start() + (interval.end() - interval.start()) * t;
+                    plane.to_local(edge.curve().point(at))
+                })
+                .collect();
+            points
+                .windows(2)
+                .filter_map(|pair| match pair {
+                    [start, end] => Some([*start, *end]),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
         })
-        .map(|point| plane.to_local(point))
         .collect();
-    let first = *samples.first()?;
-    let (low, high) = samples.iter().fold((first, first), |(low, high), point| {
-        (low.min(*point), high.max(*point))
-    });
-    Some((low + high) / 2.0)
+    deepest_point(&segments)
+}
+
+fn deepest_point(boundary: &[[Point2; 2]]) -> Option<Point2> {
+    let first = boundary.first()?[0];
+    let (low, high) = boundary
+        .iter()
+        .flatten()
+        .fold((first, first), |(low, high), point| {
+            (low.min(*point), high.max(*point))
+        });
+    let middle = (low + high) / 2.0;
+    let mut best = inside(boundary, middle).then(|| (clearance(boundary, middle), middle));
+    let mut centre = middle;
+    let mut half = (high - low) / 2.0;
+    for _ in 0..REFINEMENTS {
+        for row in 0..=SEARCH_STEPS {
+            for column in 0..=SEARCH_STEPS {
+                let fraction =
+                    Point2::new(f64::from(column), f64::from(row)) / f64::from(SEARCH_STEPS) * 2.0
+                        - Point2::new(1.0, 1.0);
+                let candidate = centre + fraction * half;
+                if !inside(boundary, candidate) {
+                    continue;
+                }
+                let distance = clearance(boundary, candidate);
+                let better = best.is_none_or(|(deepest, chosen): (f64, Point2)| {
+                    distance > deepest * (1.0 + TIE)
+                        || (distance >= deepest * (1.0 - TIE)
+                            && candidate.distance(middle) < chosen.distance(middle))
+                });
+                if better {
+                    best = Some((distance, candidate));
+                }
+            }
+        }
+        let (_, chosen) = best?;
+        centre = chosen;
+        half *= 2.0 / f64::from(SEARCH_STEPS);
+    }
+    best.map(|(_, point)| point)
+}
+
+fn inside(boundary: &[[Point2; 2]], point: Point2) -> bool {
+    boundary
+        .iter()
+        .filter(|[start, end]| {
+            (start.y > point.y) != (end.y > point.y)
+                && point.x < start.x + (point.y - start.y) / (end.y - start.y) * (end.x - start.x)
+        })
+        .count()
+        % 2
+        == 1
+}
+
+fn clearance(boundary: &[[Point2; 2]], point: Point2) -> f64 {
+    boundary
+        .iter()
+        .map(|[start, end]| {
+            let along = *end - *start;
+            let length = along.length_squared();
+            let t = if length > 0.0 {
+                ((point - *start).dot(along) / length).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            point.distance(*start + along * t)
+        })
+        .fold(f64::INFINITY, f64::min)
 }
 
 pub fn create(
@@ -289,4 +364,84 @@ pub fn edit(document: &Document, feature: FeatureId, hole: Hole) -> Option<Trans
             kind: FeatureKind::Hole(hole),
         },
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use caditor_geometry::Point2;
+
+    use super::deepest_point;
+
+    fn outline(corners: &[(f64, f64)]) -> Vec<[Point2; 2]> {
+        let points: Vec<Point2> = corners.iter().map(|(x, y)| Point2::new(*x, *y)).collect();
+        points
+            .iter()
+            .zip(points.iter().cycle().skip(1))
+            .map(|(start, end)| [*start, *end])
+            .collect()
+    }
+
+    #[test]
+    fn a_rectangle_is_drilled_at_its_middle() {
+        let rectangle = outline(&[(0.0, 0.0), (100.0, 0.0), (100.0, 40.0), (0.0, 40.0)]);
+
+        let point = deepest_point(&rectangle).unwrap();
+
+        assert!(point.distance(Point2::new(50.0, 20.0)) < 1e-9);
+    }
+
+    #[test]
+    fn an_l_shaped_face_is_drilled_on_its_material() {
+        let l_shape = outline(&[
+            (0.0, 0.0),
+            (100.0, 0.0),
+            (100.0, 20.0),
+            (20.0, 20.0),
+            (20.0, 100.0),
+            (0.0, 100.0),
+        ]);
+
+        let point = deepest_point(&l_shape).unwrap();
+
+        let in_the_foot = point.y < 20.0 && point.x < 100.0;
+        let in_the_leg = point.x < 20.0 && point.y < 100.0;
+        assert!(in_the_foot || in_the_leg, "{point:?}");
+        assert!(point.x > 9.0 && point.y > 9.0, "{point:?}");
+    }
+
+    #[test]
+    fn a_face_with_a_hole_in_its_middle_is_drilled_beside_the_hole() {
+        let mut face = outline(&[(0.0, 0.0), (60.0, 0.0), (60.0, 60.0), (0.0, 60.0)]);
+        face.extend(outline(&[
+            (20.0, 20.0),
+            (40.0, 20.0),
+            (40.0, 40.0),
+            (20.0, 40.0),
+        ]));
+
+        let point = deepest_point(&face).unwrap();
+
+        let clear_of_the_hole =
+            !(20.0..=40.0).contains(&point.x) || !(20.0..=40.0).contains(&point.y);
+        assert!(clear_of_the_hole, "{point:?}");
+    }
+
+    #[test]
+    fn a_u_shaped_face_is_drilled_in_one_of_its_arms_or_its_base() {
+        let u_shape = outline(&[
+            (0.0, 0.0),
+            (60.0, 0.0),
+            (60.0, 60.0),
+            (40.0, 60.0),
+            (40.0, 20.0),
+            (20.0, 20.0),
+            (20.0, 60.0),
+            (0.0, 60.0),
+        ]);
+
+        let point = deepest_point(&u_shape).unwrap();
+
+        let in_the_gap = (20.0..=40.0).contains(&point.x) && point.y > 20.0;
+        assert!(!in_the_gap, "{point:?}");
+    }
 }

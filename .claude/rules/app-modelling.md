@@ -97,8 +97,10 @@ paths:
 ## Hole
 
 - Hole (Alt+O, in the Solid group) with one flat face selected (and no sketch edited or feature
-  open) creates in one transaction a hidden sketch on that face holding one point at the middle of
-  its outline's bounds and the hole, with a notice saying how to move the point
+  open) creates in one transaction a hidden sketch on that face holding one point and the hole: the
+  point inside the face farthest from its edges and holes (`deepest_point`, a refined grid search
+  over the sampled loops, ties going to the middle of its bounds), so an L- or U-shaped or holed face
+  is drilled on material, with a notice saying how to move the point
   (`hole_tools::create_on_face`). Otherwise it takes the sketch the way Extrude does (edited,
   selected, opened or last) and needs at least one free point or circle in it (`hole_centres`);
   its body is the one the sketch is attached to, else the last body standing. It creates a plain

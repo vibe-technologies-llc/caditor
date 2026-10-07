@@ -180,8 +180,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
   several bodies at once, only a Combine of two.
 - [medium · medium] Holes have no several diameters (stepped), no inch or fine-pitch sizes and
   no heat-set insert sizes, and each hole of a feature shares the feature's sizes, whatever the
-  circle's. A hole on a face lands at the middle of the face's bounds, which can lie outside an L-
-  or U-shaped face.
+  circle's.
 - [high · hard] Bodies cannot be edited directly: no moving, offsetting, deleting or replacing a
   face (push and pull) and no deleting a fillet or chamfer by its faces. An imported STEP body has
   no feature history, so today it can only be cut, joined, filleted or shelled; a wall too thick, a

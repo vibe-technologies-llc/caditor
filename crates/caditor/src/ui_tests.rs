@@ -12874,7 +12874,7 @@ fn a_hole_is_drilled_on_a_selected_face_and_takes_a_metric_size_fit_and_slot_fro
         vec![Entity::Point(Point2::new(20.0, 20.0))]
     );
     assert!(attached_body(&harness, definition.sketch) == Some(plate));
-    assert!(harness.shows_containing("Hole 1 is drilled at the middle of the face"));
+    assert!(harness.shows_containing("Hole 1 is drilled in the middle of the face"));
     assert!(removed_about(
         &harness,
         plate,
