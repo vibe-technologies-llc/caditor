@@ -606,14 +606,18 @@ fn millimetres(length: f64) -> Expression {
 }
 
 pub fn rounded_for_display(value: f64) -> f64 {
+    rounded_to_decimals(value, DISPLAY_DECIMALS)
+}
+
+pub fn rounded_to_decimals(value: f64, least_decimals: f64) -> f64 {
     if value == 0.0 || !value.is_finite() {
         return value;
     }
     let magnitude = value.abs().log10().floor();
     let decimals = if magnitude >= 0.0 {
-        DISPLAY_DECIMALS
+        least_decimals
     } else {
-        SIGNIFICANT_DIGITS - 1.0 - magnitude
+        least_decimals.max(SIGNIFICANT_DIGITS - 1.0 - magnitude)
     };
     let scale = 10f64.powf(decimals);
     let rounded = (value * scale).round() / scale;

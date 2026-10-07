@@ -170,11 +170,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.
-- [low · easy] Dimensions taken from drawn geometry round to three decimals of the shown unit
-  (`rounded_for_display` through `LengthUnit::measured` and `AngleUnit::measured`), so in radians a
-  right angle becomes 1.571 rad, 0.012° off, and in metres anything over a metre is rounded to the
-  millimetre; the dimension then moves the geometry it measured. Round to the model's precision (a
-  micrometre, a thousandth of a degree) written in the chosen unit; `units.rs` pins 1.745 rad today.
 - [low · medium] In a conflicting sketch every drag is blocked and finishes by blaming the move; the
   cue names no constraint of the conflict.
 - [low · medium] Spline intersections sample sign changes, so a near-tangent crossing between

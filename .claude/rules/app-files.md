@@ -169,5 +169,8 @@ paths:
   a length or an angle gets the chosen unit attached (`Units::attach_plain`; `Units::show` shows
   computed values in them), a plain value for an angle parameter gets the angle unit
   (`field::parameter_expression`), and a new angle dimension, the measure tool and the drawing
-  readout use it too. Defaults that are round numbers of degrees (a revolve's turn, a pattern's
+  readout use it too. A dimension measured from drawn geometry (`LengthUnit::measured`,
+  `AngleUnit::measured`) is rounded to the model's precision, a micrometre or a thousandth of a
+  degree, written in the chosen unit (six decimals in metres, five in radians), so creating it
+  never moves the geometry it measured. Defaults that are round numbers of degrees (a revolve's turn, a pattern's
   angle) and mesh angles stay in degrees.

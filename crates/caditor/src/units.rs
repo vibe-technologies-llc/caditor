@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use caditor_expression::{Dimension, Expression, Quantity, Unit, format_number};
 
-use crate::sketch_tools::rounded_for_display;
+use crate::sketch_tools::{rounded_for_display, rounded_to_decimals};
 
 const READOUT_DECIMALS_IN_MILLIMETRES: f64 = 2.0;
 const MEASURED_LENGTH_DECIMALS: f64 = 3.0;
@@ -11,6 +11,8 @@ const MEASURED_VOLUME_DECIMALS: f64 = 1.0;
 const MAX_MEASURED_DECIMALS: f64 = 9.0;
 const ANGLE_DECIMALS: usize = 2;
 const RADIAN_DECIMALS: usize = 4;
+const MODEL_LENGTH_STEP_IN_MILLIMETRES: f64 = 0.001;
+const MODEL_ANGLE_STEP_IN_DEGREES: f64 = 0.001;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LengthUnit {
@@ -145,8 +147,9 @@ impl LengthUnit {
     }
 
     pub fn measured(self, millimetres: f64) -> Expression {
+        let step = MODEL_LENGTH_STEP_IN_MILLIMETRES / self.millimetres();
         Expression::measure(
-            rounded_for_display(millimetres / self.millimetres()),
+            rounded_to_decimals(millimetres / self.millimetres(), decimals_for(step)),
             self.unit(),
         )
     }
@@ -220,16 +223,23 @@ impl AngleUnit {
     }
 
     pub fn measured(self, degrees: f64) -> Expression {
-        let value = match self {
-            Self::Degree => degrees,
-            Self::Radian => degrees.to_radians(),
+        let (value, step) = match self {
+            Self::Degree => (degrees, MODEL_ANGLE_STEP_IN_DEGREES),
+            Self::Radian => (
+                degrees.to_radians(),
+                MODEL_ANGLE_STEP_IN_DEGREES.to_radians(),
+            ),
         };
-        Expression::measure(rounded_for_display(value), self.unit())
+        Expression::measure(rounded_to_decimals(value, decimals_for(step)), self.unit())
     }
 
     pub fn attach(self, expression: Expression) -> Expression {
         attach_unit(expression, self.unit())
     }
+}
+
+fn decimals_for(step: f64) -> f64 {
+    (-step.log10()).ceil().max(0.0)
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -338,7 +348,11 @@ mod tests {
         );
         assert_eq!(
             AngleUnit::Radian.measured(100.0),
-            Expression::Measure(1.745, Unit::Radian)
+            Expression::Measure(1.74533, Unit::Radian)
+        );
+        assert_eq!(
+            AngleUnit::Radian.measured(90.0),
+            Expression::Measure(1.5708, Unit::Radian)
         );
         assert_eq!(
             AngleUnit::Degree.measured(37.5),
@@ -346,6 +360,30 @@ mod tests {
         );
         assert_eq!(AngleUnit::from_symbol("rad"), Some(AngleUnit::Radian));
         assert_eq!(AngleUnit::from_symbol("grad"), None);
+    }
+
+    #[test]
+    fn measured_dimensions_keep_the_model_precision_in_any_unit() {
+        assert_eq!(
+            LengthUnit::Metre.measured(1234.5678),
+            Expression::Measure(1.234568, Unit::Metre)
+        );
+        assert_eq!(
+            LengthUnit::Centimetre.measured(12.34567),
+            Expression::Measure(1.2346, Unit::Centimetre)
+        );
+        assert_eq!(
+            LengthUnit::Millimetre.measured(37.253_123),
+            Expression::Measure(37.253, Unit::Millimetre)
+        );
+        assert_eq!(
+            LengthUnit::Micrometre.measured(0.012_4),
+            Expression::Measure(12.0, Unit::Micrometre)
+        );
+        assert_eq!(
+            AngleUnit::Degree.measured(30.000_4),
+            Expression::Measure(30.0, Unit::Degree)
+        );
     }
 
     #[test]
