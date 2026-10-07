@@ -28,7 +28,7 @@ pub const PARAMETERS_EXPLANATION: &str =
 const FEATURES_SECTION: &str = "features";
 const PARAMETERS_SECTION: &str = "parameters";
 const FOCUS_ATTEMPT_FRAMES: u8 = 30;
-const REVEAL_FRAMES: u8 = 20;
+pub const REVEAL_FRAMES: u8 = 20;
 const CAPPED_SLACK: f32 = 1.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

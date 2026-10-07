@@ -1,7 +1,7 @@
 use caditor_document::{
-    Datum, Document, Edit, Feature, FeatureError, FeatureId, FeatureKind, FeatureState,
-    FeatureStatus, FixTarget, Healing, RollbackBar, SketchFeature, SolidFeature, SolidResult,
-    Transaction, TreeRow,
+    BlendKind, CombineOperation, Datum, Document, Edit, Feature, FeatureError, FeatureId,
+    FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, PatternKind, RollbackBar,
+    SketchFeature, SolidFeature, SolidResult, Transaction, TreeRow,
 };
 use caditor_expression::Expression;
 use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch};
@@ -79,7 +79,7 @@ const DEPENDENTS_HEIGHT: f32 = 220.0;
 const AUTOSCROLL_EDGE: f32 = 24.0;
 const AUTOSCROLL_RATE: f32 = 0.5;
 const FILTER_FROM_FEATURES: usize = 6;
-pub const FILTER_HINT: &str = "Filter features by name";
+pub const FILTER_HINT: &str = "Filter features by name or kind";
 const NOTHING_TO_FILTER: &str = "The model has no features to filter yet";
 pub const CLEAR_FILTER_LABEL: &str = "Clear the filter";
 
@@ -189,6 +189,9 @@ fn kept_by_filter(
 ) -> bool {
     let id = feature.id();
     feature.name.to_lowercase().contains(query)
+        || kind_words(&feature.kind)
+            .iter()
+            .any(|word| word.contains(query))
         || editing.feature() == Some(id)
         || editing.solid() == Some(id)
         || state.revealing(id)
@@ -199,8 +202,40 @@ fn kept_by_filter(
             .is_some_and(|renaming| renaming.feature == id)
 }
 
+fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
+    match kind {
+        FeatureKind::Sketch(_) => &["sketch"],
+        FeatureKind::Solid(SolidFeature::Extrude(_)) => &["extrude", "extrusion"],
+        FeatureKind::Solid(SolidFeature::Revolve(_)) => &["revolve", "revolution"],
+        FeatureKind::Blend(blend) => match blend.kind {
+            BlendKind::Fillet => &["fillet", "round"],
+            BlendKind::Chamfer => &["chamfer", "bevel"],
+        },
+        FeatureKind::Shell(_) => &["shell", "hollow"],
+        FeatureKind::Combine(combine) => match combine.operation {
+            CombineOperation::Join => &["combine", "join", "union"],
+            CombineOperation::Cut => &["combine", "cut", "subtract", "difference"],
+            CombineOperation::Intersect => &["combine", "intersect", "intersection"],
+        },
+        FeatureKind::Move(_) => &["move", "body"],
+        FeatureKind::Mirror(_) => &["mirror", "body"],
+        FeatureKind::Scale(_) => &["scale", "body"],
+        FeatureKind::Hole(_) => &["hole", "drill"],
+        FeatureKind::Pattern(pattern) => match pattern.kind {
+            PatternKind::Linear { .. } => &["linear pattern", "pattern"],
+            PatternKind::Circular(_) => &["circular pattern", "pattern"],
+        },
+        FeatureKind::Datum(Datum::Plane(_)) => &["datum plane", "plane"],
+        FeatureKind::Datum(Datum::Axis(_)) => &["datum axis", "axis"],
+        FeatureKind::Import(_) => &["import", "imported", "step"],
+    }
+}
+
 fn no_match(ui: &mut Ui, state: &mut PanelState) {
-    let text = format!("No feature is named like “{}”.", state.tree_filter.trim());
+    let text = format!(
+        "No feature is named like “{}” or is of that kind.",
+        state.tree_filter.trim()
+    );
     let clear = tree_row::content(ui, |ui| {
         widgets::empty_state(ui, icons::SEARCH, &text, |ui| {
             let button = widgets::small_button(ui, icons::CLOSE, CLEAR_FILTER_LABEL);

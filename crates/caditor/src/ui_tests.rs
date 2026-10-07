@@ -47,7 +47,7 @@ use crate::{
     offsetting,
     onboarding::Hint,
     palette::{Choice, State},
-    panels::Focus,
+    panels::{Focus, REVEAL_FRAMES},
     preferences::{
         InputMode, PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, TitleBar,
     },
@@ -8774,7 +8774,7 @@ fn the_feature_tree_is_filtered_by_name_from_the_keyboard() {
     harness.type_text("SIDE");
     let side_only = harness.shows("Side sketch") && !harness.shows("Base sketch");
     harness.replace_text("bracket");
-    let none_named = harness.shows("No feature is named like “bracket”.");
+    let none_named = harness.shows("No feature is named like “bracket” or is of that kind.");
     harness.click(crate::feature_tree::CLEAR_FILTER_LABEL);
     harness.frame();
 
@@ -8784,6 +8784,32 @@ fn the_feature_tree_is_filtered_by_name_from_the_keyboard() {
     assert!(none_named);
     assert!(harness.shows("Side sketch") && harness.shows("Base sketch"));
     assert!(harness.workspace.panels.tree_filter.is_empty());
+}
+
+#[test]
+fn the_feature_tree_filter_matches_kinds_as_well_as_names() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    for _ in 0..REVEAL_FRAMES {
+        harness.frame();
+    }
+    harness.context.enable_accesskit();
+    let row = |harness: &Harness, name: &str| {
+        harness.accessible_named(Role::Button, &format!("More actions for {name}"))
+    };
+
+    harness.key(Key::F, Modifiers::COMMAND);
+    harness.frame();
+    harness.type_text("extrusion");
+    harness.frame();
+    let extrusions_only = row(&harness, "Extrude 1") && !row(&harness, "Base sketch");
+    harness.replace_text("sketch");
+    harness.frame();
+    let sketches_only =
+        row(&harness, "Base sketch") && row(&harness, "Side sketch") && !row(&harness, "Extrude 1");
+
+    assert!(extrusions_only);
+    assert!(sketches_only);
 }
 
 #[test]

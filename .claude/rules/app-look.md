@@ -220,8 +220,9 @@ paths:
   tree cancels.
 - A filter field (`PanelState::tree_filter`) heads the feature rows once there are
   `FILTER_FROM_FEATURES` of them, or while it holds text or focus; Filter the feature tree (Ctrl+F,
-  Model menu, palette) shows and focuses it at any size. It keeps the features whose name contains
-  the text in any case, plus the edited, renamed, revealed or focused one, so going to a feature
+  Model menu, palette) shows and focuses it at any size. It keeps the features whose name, or one
+  of whose kind words (`feature_tree::kind_words`: "extrusion", "fillet", "cut", "datum plane"…),
+  contains the text in any case, plus the edited, renamed, revealed or focused one, so going to a feature
   never lands on a hidden row. While it filters, the rollback bar is hidden and rows do not drag,
   since gaps between the shown rows are not the model's; with no match an empty state offers
   Clear the filter.
