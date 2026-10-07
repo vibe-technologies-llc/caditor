@@ -356,9 +356,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Interface performance
 
-- [medium · easy] The feature panels' Use selected buttons rebuild their transaction from the whole
-  selection each frame (a fillet's edges, a shell's faces), so after Select all on an imported
-  body of tens of thousands of edges an open panel pays for every edge every frame. Build the
+- [medium · easy] The Use selected buttons of the pattern, mirror and datum panels search the whole
+  selection for a usable axis or plane each frame (`pattern_tools::selected_change`,
+  `mirror_tools::plane_change`, `find_map` over every item), so after Select all on an imported
+  body of tens of thousands of faces an open panel resolves each of them every frame. Build the
   offer once per `Selection::generation`, as the offers and Measure do.
 - [medium · medium] Every frame `Marks::collect` formats every constraint's description, evaluates
   every dimension and registers an `interact` per glyph, and an expanded sketch in the tree does the
