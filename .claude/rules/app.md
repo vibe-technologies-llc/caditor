@@ -162,7 +162,9 @@ paths:
 - The Measure command toggles `MeasureTool` in the `Workspace`; while open, `measure_panel.rs`
   draws a right-hand panel. Measuring never changes the document.
 - `Measurements` resolves the selection on the UI thread into points, edges and faces (with their
-  result's `Arc`), then measures on its own worker (newest job wins, a panic becomes a failed
+  result's `Arc`), sketch curves (`profile_curve` lifted onto the sketch's solved plane), and the
+  principal and datum planes and axes (a plane reads through a point with its normal, an axis
+  through a point with its direction, a circle or arc its radius, diameter, centre and sweep), then measures on its own worker (newest job wins, a panic becomes a failed
   reading) only when the selection, revision or evaluation changes. Until the current result
   arrives the previous readout stays, dimmed (`Freshness::Stale`) under a Measuring header, so
   nothing jumps; the measured line in the view comes only from the current readout.

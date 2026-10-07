@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{DensityError, FeatureId};
+use caditor_expression::format_number;
+use caditor_geometry::Vector3;
 use caditor_kernel::Accuracy;
 use egui::{Label, ScrollArea, TextWrapMode, Ui};
 
@@ -29,6 +31,7 @@ const MAX_MASS_CARDS: usize = 50;
 const MASS_SECTION: &str = "measure-mass";
 const STALE_OPACITY: f32 = 0.5;
 const APPROXIMATELY: &str = "≈ ";
+const DIRECTION_STEP: f64 = 1e-4;
 const MESHING: &str = "Waiting for the body's mesh.";
 const NO_DENSITY: &str = "No density set";
 const GRAMS_PER_KILOGRAM: f64 = 1000.0;
@@ -74,8 +77,23 @@ fn value_text(value: Value, accuracy: Accuracy, unit: Units) -> String {
         Value::Area(area) => unit.measured_area(area),
         Value::Angle(radians) => unit.angle.text_of_radians(radians),
         Value::Position(point) => unit.measured_position([point.x, point.y, point.z]),
+        Value::Direction(direction) => direction_text(direction),
     };
     approximately(text, accuracy == Accuracy::Approximate)
+}
+
+fn direction_text(direction: Vector3) -> String {
+    let unit = direction.normalize_or_zero();
+    let component = |value: f64| {
+        let rounded = (value / DIRECTION_STEP).round() * DIRECTION_STEP + 0.0;
+        format_number(rounded)
+    };
+    format!(
+        "({}, {}, {})",
+        component(unit.x),
+        component(unit.y),
+        component(unit.z)
+    )
 }
 
 fn approximately(text: String, approximate: bool) -> String {

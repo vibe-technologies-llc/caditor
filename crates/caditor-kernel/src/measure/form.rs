@@ -1,4 +1,4 @@
-use std::f64::consts::FRAC_PI_8;
+use std::{borrow::Cow, f64::consts::FRAC_PI_8};
 
 use caditor_geometry::{Point3, Vector3};
 
@@ -91,8 +91,13 @@ pub struct Angle {
 }
 
 pub fn edge_measure(solid: &Solid, edge: EdgeId) -> Result<EdgeMeasure, MeasureError> {
-    let shape = EdgeShape::of(solid, edge)?;
-    let form = match shape.curve {
+    let definition = solid.edge(edge).ok_or(MeasureError::MissingEdge(edge))?;
+    Ok(curve_measure(definition.curve(), definition.interval()))
+}
+
+pub fn curve_measure(curve: &Curve, interval: Interval) -> EdgeMeasure {
+    let shape = EdgeShape::of_curve(Cow::Borrowed(curve), interval);
+    let form = match curve {
         Curve::Line(_) => EdgeForm::Line {
             start: shape.start,
             end: shape.end,
@@ -110,11 +115,11 @@ pub fn edge_measure(solid: &Solid, edge: EdgeId) -> Result<EdgeMeasure, MeasureE
         },
         _ => EdgeForm::Curve,
     };
-    Ok(EdgeMeasure {
-        length: shape.curve.length(shape.interval),
-        length_accuracy: Accuracy::of(matches!(shape.curve, Curve::Line(_) | Curve::Circle(_))),
+    EdgeMeasure {
+        length: curve.length(interval),
+        length_accuracy: Accuracy::of(matches!(curve, Curve::Line(_) | Curve::Circle(_))),
         form,
-    })
+    }
 }
 
 pub fn face_form(solid: &Solid, face: FaceId) -> Result<FaceForm, MeasureError> {
@@ -194,16 +199,22 @@ fn swept_area(curve: &Curve, interval: Interval, origin: Point3, normal: Vector3
     })
 }
 
+fn circle_axis(measure: EdgeMeasure) -> Option<Axis> {
+    match measure.form {
+        EdgeForm::Circle { center, normal, .. } => Some(Axis {
+            origin: center,
+            direction: normal,
+        }),
+        _ => None,
+    }
+}
+
 pub fn axis_of(element: Element<'_>) -> Result<Option<Axis>, MeasureError> {
     match element {
-        Element::Point(_) => Ok(None),
-        Element::Edge { solid, edge } => Ok(match edge_measure(solid, edge)?.form {
-            EdgeForm::Circle { center, normal, .. } => Some(Axis {
-                origin: center,
-                direction: normal,
-            }),
-            _ => None,
-        }),
+        Element::Point(_) | Element::Plane { .. } => Ok(None),
+        Element::Axis(axis) => Ok(Some(axis)),
+        Element::Edge { solid, edge } => Ok(circle_axis(edge_measure(solid, edge)?)),
+        Element::Curve { curve, interval } => Ok(circle_axis(curve_measure(curve, interval))),
         Element::Face { solid, face } => Ok(match face_form(solid, face)? {
             FaceForm::Cylinder { axis, .. }
             | FaceForm::Cone { axis, .. }
@@ -236,16 +247,24 @@ pub fn axis_separation(first: Axis, second: Axis) -> Separation {
 
 enum Direction {
     Straight([Point3; 2]),
+    Unbounded(Vector3),
     Flat(Vector3),
+}
+
+fn straight(measure: EdgeMeasure) -> Option<Direction> {
+    match measure.form {
+        EdgeForm::Line { start, end } => Some(Direction::Straight([start, end])),
+        _ => None,
+    }
 }
 
 fn direction_of(element: Element<'_>) -> Result<Option<Direction>, MeasureError> {
     match element {
         Element::Point(_) => Ok(None),
-        Element::Edge { solid, edge } => Ok(match edge_measure(solid, edge)?.form {
-            EdgeForm::Line { start, end } => Some(Direction::Straight([start, end])),
-            _ => None,
-        }),
+        Element::Axis(axis) => Ok(Some(Direction::Unbounded(axis.direction))),
+        Element::Plane { normal, .. } => Ok(Some(Direction::Flat(normal))),
+        Element::Edge { solid, edge } => Ok(straight(edge_measure(solid, edge)?)),
+        Element::Curve { curve, interval } => Ok(straight(curve_measure(curve, interval))),
         Element::Face { solid, face } => Ok(match face_form(solid, face)? {
             FaceForm::Plane { normal, .. } => Some(Direction::Flat(normal)),
             _ => None,
@@ -274,13 +293,36 @@ pub fn angle(first: Element<'_>, second: Element<'_>) -> Result<Option<Angle>, M
             radians: acute(between(first, second)),
             kind: AngleKind::Planes,
         },
-        (Direction::Straight([start, end]), Direction::Flat(normal))
-        | (Direction::Flat(normal), Direction::Straight([start, end])) => Angle {
-            radians: std::f64::consts::FRAC_PI_2 - acute(between(end - start, normal)),
-            kind: AngleKind::LineAndPlane,
-        },
+        (Direction::Flat(normal), line) | (line, Direction::Flat(normal)) => {
+            let Some(along) = line.along() else {
+                return Ok(None);
+            };
+            Angle {
+                radians: std::f64::consts::FRAC_PI_2 - acute(between(along, normal)),
+                kind: AngleKind::LineAndPlane,
+            }
+        }
+        (first, second) => {
+            let (Some(first), Some(second)) = (first.along(), second.along()) else {
+                return Ok(None);
+            };
+            Angle {
+                radians: acute(between(first, second)),
+                kind: AngleKind::Lines,
+            }
+        }
     };
     Ok(Some(angle))
+}
+
+impl Direction {
+    fn along(&self) -> Option<Vector3> {
+        match self {
+            Self::Straight([start, end]) => Some(*end - *start),
+            Self::Unbounded(direction) => Some(*direction),
+            Self::Flat(_) => None,
+        }
+    }
 }
 
 fn shared_corner(first: [Point3; 2], second: [Point3; 2]) -> Option<[Point3; 3]> {

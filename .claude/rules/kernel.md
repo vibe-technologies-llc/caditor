@@ -162,3 +162,10 @@ paths:
   step was closed form, `Approximate` as soon as seeding and alternating projection found it.
   `angle` of straight edges sharing an end is the angle inside the corner (0 to 180°), otherwise
   the acute angle between the lines or planes.
+- Besides points, edges and faces of a solid, an `Element` is a free `Curve` over an interval
+  (sketch geometry, measured like an edge; `curve_measure` gives its length and circle form), an
+  unbounded `Axis` or an unbounded `Plane`. Axis–axis, axis–plane and plane–plane are closed form.
+  Against anything bounded, an axis is the segment over the projection of the other element's
+  bounds (where the closest point on the line must lie, so still exact for straight geometry), and
+  a plane is a face that contains every point and has no edges, kept second in a face pair so the
+  bounded face seeds the search.

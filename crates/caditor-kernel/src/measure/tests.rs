@@ -415,3 +415,120 @@ fn a_missing_edge_or_face_is_an_error() {
     );
     assert_eq!(face_form(&tube, face), Err(MeasureError::MissingFace(face)));
 }
+
+fn plane(origin: Point3, normal: Vector3) -> Element<'static> {
+    Element::Plane { origin, normal }
+}
+
+fn axis(origin: Point3, direction: Vector3) -> Element<'static> {
+    Element::Axis(Axis { origin, direction })
+}
+
+#[test]
+fn points_are_measured_square_to_planes_and_axes() {
+    let point = Point3::new(3.0, 4.0, 12.0);
+
+    let to_plane = distance(Element::Point(point), plane(Point3::ZERO, Vector3::Z * 2.0)).unwrap();
+    let to_axis = distance(Element::Point(point), axis(Point3::ZERO, Vector3::Z)).unwrap();
+
+    assert_separation(to_plane, 12.0, Accuracy::Exact, CLOSE);
+    assert!(to_plane.to.distance(Point3::new(3.0, 4.0, 0.0)) < CLOSE);
+    assert_separation(to_axis, 5.0, Accuracy::Exact, CLOSE);
+}
+
+#[test]
+fn planes_and_axes_meet_unless_parallel() {
+    let floor = plane(Point3::ZERO, Vector3::Z);
+    let shelf = plane(Point3::new(1.0, 2.0, 7.0), -Vector3::Z);
+    let wall = plane(Point3::new(4.0, 0.0, 0.0), Vector3::X);
+    let level = axis(Point3::new(0.0, 0.0, 3.0), Vector3::Y);
+    let upright = axis(Point3::new(2.0, 2.0, 9.0), Vector3::Z);
+    let skew = axis(Point3::new(0.0, 5.0, 0.0), Vector3::X);
+
+    let floor_to_shelf = distance(floor, shelf).unwrap();
+    let floor_to_wall = distance(floor, wall).unwrap();
+    let level_to_floor = distance(level, floor).unwrap();
+    let upright_to_floor = distance(upright, floor).unwrap();
+    let skew_to_upright = distance(skew, upright).unwrap();
+    let no_direction = distance(axis(Point3::ZERO, Vector3::ZERO), floor);
+
+    assert_separation(floor_to_shelf, 7.0, Accuracy::Exact, CLOSE);
+    assert_separation(floor_to_wall, 0.0, Accuracy::Exact, CLOSE);
+    assert!((floor_to_wall.from.x - 4.0).abs() < CLOSE && floor_to_wall.from.z.abs() < CLOSE);
+    assert_separation(level_to_floor, 3.0, Accuracy::Exact, CLOSE);
+    assert_separation(upright_to_floor, 0.0, Accuracy::Exact, CLOSE);
+    assert!(upright_to_floor.from.distance(Point3::new(2.0, 2.0, 0.0)) < CLOSE);
+    assert_separation(skew_to_upright, 3.0, Accuracy::Exact, CLOSE);
+    assert_eq!(no_direction, Err(MeasureError::NoDirection));
+}
+
+#[test]
+fn edges_and_faces_are_measured_to_planes_and_axes() {
+    let block = cuboid(Vector3::new(10.0, 20.0, 30.0));
+    let top = flat_face_at(&block, Point3::new(0.0, 0.0, 30.0), Vector3::Z);
+    let upright = edge_between(&block, Point3::ZERO, Point3::new(0.0, 0.0, 30.0));
+    let above = plane(Point3::new(0.0, 0.0, 50.0), Vector3::Z);
+    let across = plane(Point3::new(0.0, 0.0, 10.0), Vector3::Z);
+    let beside = axis(Point3::new(-6.0, 0.0, 0.0), Vector3::Z);
+    let tube = cylinder(5.0, 10.0);
+    let round = face_where(&tube, |surface| matches!(surface, Surface::Cylinder(_)));
+    let wall = plane(Point3::new(15.0, 0.0, 0.0), Vector3::X);
+
+    let top_to_above = distance(face(&block, top), above).unwrap();
+    let above_to_top = distance(above, face(&block, top)).unwrap();
+    let edge_across = distance(edge(&block, upright), across).unwrap();
+    let edge_beside = distance(edge(&block, upright), beside).unwrap();
+    let face_beside = distance(face(&block, top), beside).unwrap();
+    let round_to_wall = distance(face(&tube, round), wall).unwrap();
+
+    assert_separation(top_to_above, 20.0, Accuracy::Exact, CLOSE);
+    assert_separation(above_to_top, 20.0, Accuracy::Exact, CLOSE);
+    assert_separation(edge_across, 0.0, Accuracy::Exact, CLOSE);
+    assert_separation(edge_beside, 6.0, Accuracy::Exact, CLOSE);
+    assert_separation(face_beside, 6.0, Accuracy::Exact, CLOSE);
+    assert_separation(round_to_wall, 10.0, Accuracy::Approximate, NUMERICAL);
+}
+
+#[test]
+fn free_curves_are_measured_like_edges() {
+    let frame = caditor_geometry::Plane::new(Point3::new(0.0, 0.0, 4.0), Vector3::Z).unwrap();
+    let circle = Curve::Circle(crate::curve::Circle::new(frame, 3.0).unwrap());
+    let half = crate::interval::Interval::new(0.0, PI).unwrap();
+    let arc = Element::Curve {
+        curve: &circle,
+        interval: half,
+    };
+
+    let measured = curve_measure(&circle, half);
+    let to_centre = distance(Element::Point(Point3::new(0.0, 0.0, 4.0)), arc).unwrap();
+    let to_floor = distance(arc, plane(Point3::ZERO, Vector3::Z)).unwrap();
+    let centre_axis = axis_of(arc).unwrap().unwrap();
+
+    assert!((measured.length - 3.0 * PI).abs() < CLOSE);
+    assert!(matches!(
+        measured.form,
+        EdgeForm::Circle { radius, sweep, .. } if (radius - 3.0).abs() < CLOSE && (sweep - PI).abs() < CLOSE
+    ));
+    assert_separation(to_centre, 3.0, Accuracy::Exact, CLOSE);
+    assert_separation(to_floor, 4.0, Accuracy::Approximate, NUMERICAL);
+    assert!(centre_axis.origin.distance(Point3::new(0.0, 0.0, 4.0)) < CLOSE);
+}
+
+#[test]
+fn angles_are_measured_between_planes_axes_and_lines() {
+    let floor = plane(Point3::ZERO, Vector3::Z);
+    let ramp = plane(Point3::ZERO, Vector3::new(0.0, 1.0, 1.0));
+    let slanted = axis(Point3::ZERO, Vector3::new(1.0, 0.0, 1.0));
+    let along = axis(Point3::new(0.0, 3.0, 0.0), Vector3::X);
+
+    let planes = angle(floor, ramp).unwrap().unwrap();
+    let axis_to_plane = angle(slanted, floor).unwrap().unwrap();
+    let axes = angle(slanted, along).unwrap().unwrap();
+
+    assert!((planes.radians - PI / 4.0).abs() < CLOSE);
+    assert_eq!(planes.kind, AngleKind::Planes);
+    assert!((axis_to_plane.radians - PI / 4.0).abs() < CLOSE);
+    assert_eq!(axis_to_plane.kind, AngleKind::LineAndPlane);
+    assert!((axes.radians - PI / 4.0).abs() < CLOSE);
+    assert_eq!(axes.kind, AngleKind::Lines);
+}

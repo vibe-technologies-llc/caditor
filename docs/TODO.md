@@ -227,8 +227,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [low · medium] Revolve cannot keep the part of a region on one side of the axis.
 - [low · medium] Parameters show what uses them only in the value's tooltip, and expressions cannot
   refer to measured values or sketch dimensions.
-- [low · medium] The measure tool cannot take planes, axes, datums or sketch curves, so a hole axis
-  to a datum or a circle's radius cannot be measured.
 - [medium · hard · blocked by: the sweep feature] No helix or spiral curve and no threads: springs, coils and threaded holes and shafts
   cannot be modelled, and a tapped hole names its ISO thread only in its panel, with no cosmetic
   thread drawn in the view or carried into exports. The sweep feature (same list) needs the helix

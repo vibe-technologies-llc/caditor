@@ -11469,6 +11469,43 @@ fn the_interference_panel_finds_bodies_that_overlap_or_touch_and_shows_where() {
 }
 
 #[test]
+fn planes_axes_and_sketch_curves_are_measured() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    let mut sketch = Sketch::new(Plane::XY);
+    let circle = sketch.add_circle(Point2::new(10.0, 10.0), 5.0);
+    let circle_sketch = harness.add_sketch(sketch);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::I, Modifiers::NONE);
+    harness.frame();
+
+    harness.select([Pickable::Plane(PrincipalPlane::Xy), top]);
+    harness.wait_until("the gap between the planes is measured", |harness| {
+        harness.shows("Gap between the planes")
+    });
+    let normal_shown = harness.shows("(0, 0, 1)");
+    let gap_shown = harness.count_shown("10.000 mm") >= 1;
+    harness.select([Pickable::Axis(crate::selection::Axis::Z), top]);
+    harness.wait_until("the axis is measured against the face", |harness| {
+        harness.shows("Angle to the plane")
+    });
+    harness.select([Pickable::SketchEntity {
+        feature: circle_sketch,
+        entity: circle,
+    }]);
+    harness.wait_until("the circle is measured", |harness| {
+        harness.shows("Radius") && harness.shows("Diameter")
+    });
+    let radius_shown = harness.shows("5.000 mm") && harness.shows("10.000 mm");
+
+    assert!(normal_shown);
+    assert!(gap_shown);
+    assert!(radius_shown);
+    assert!(!harness.shows(crate::measure::UNMEASURABLE));
+}
+
+#[test]
 fn the_measure_panel_shows_the_mass_properties_of_a_body_and_the_area_of_a_face() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);

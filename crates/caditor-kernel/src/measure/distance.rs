@@ -1,6 +1,9 @@
-use caditor_geometry::{Aabb, Point2, Point3};
+use caditor_geometry::{Aabb, Point2, Point3, Vector3};
 
-use super::{Accuracy, EdgeShape, Element, FaceShape, MeasureError, Separation, Shape, box_gap};
+use super::{
+    Accuracy, Axis, EdgeShape, Element, FaceShape, MeasureError, Separation, Shape,
+    axis_separation, box_gap,
+};
 use crate::{surface::Surface, tolerance::LINEAR_RESOLUTION};
 
 const CURVE_SEEDS: usize = 48;
@@ -9,11 +12,15 @@ const REFINED_SEEDS: usize = 4;
 const MAX_REFINEMENT_STEPS: usize = 64;
 const SETTLED: f64 = 1e-3 * LINEAR_RESOLUTION;
 const DEGENERATE_SQUARED_LENGTH: f64 = 1e-24;
+const PARALLEL_SINE: f64 = 1e-12;
 
 pub fn distance(first: Element<'_>, second: Element<'_>) -> Result<Separation, MeasureError> {
-    let first = Shape::of(first)?;
-    let second = Shape::of(second)?;
-    let closest = match (&first, &second) {
+    if let Some(separation) = unbounded_pair(first, second)? {
+        return Ok(separation);
+    }
+    let first_shape = Shape::of(first, second.bounds())?;
+    let second_shape = Shape::of(second, first.bounds())?;
+    let closest = match (&first_shape, &second_shape) {
         (Shape::Point(from), Shape::Point(to)) => {
             let mut closest = Closest::default();
             closest.offer(*from, *to);
@@ -26,9 +33,88 @@ pub fn distance(first: Element<'_>, second: Element<'_>) -> Result<Separation, M
         (Shape::Edge(first), Shape::Edge(second)) => edge_edge(first, second),
         (Shape::Edge(edge), Shape::Face(face)) => edge_face(edge, face),
         (Shape::Face(face), Shape::Edge(edge)) => edge_face(edge, face).swapped(),
+        (Shape::Face(first), Shape::Face(second)) if first.is_unbounded() => {
+            face_face(second, first).swapped()
+        }
         (Shape::Face(first), Shape::Face(second)) => face_face(first, second),
     };
     closest.finish()
+}
+
+fn unbounded_pair(
+    first: Element<'_>,
+    second: Element<'_>,
+) -> Result<Option<Separation>, MeasureError> {
+    Ok(Some(match (first, second) {
+        (Element::Axis(first), Element::Axis(second)) => {
+            if first.direction.length_squared() <= DEGENERATE_SQUARED_LENGTH
+                || second.direction.length_squared() <= DEGENERATE_SQUARED_LENGTH
+            {
+                return Err(MeasureError::NoDirection);
+            }
+            axis_separation(first, second)
+        }
+        (Element::Axis(axis), Element::Plane { origin, normal }) => {
+            axis_plane(axis, origin, normal)?
+        }
+        (Element::Plane { origin, normal }, Element::Axis(axis)) => {
+            axis_plane(axis, origin, normal)?.swapped()
+        }
+        (
+            Element::Plane { origin, normal },
+            Element::Plane {
+                origin: other_origin,
+                normal: other_normal,
+            },
+        ) => plane_plane(origin, normal, other_origin, other_normal)?,
+        _ => return Ok(None),
+    }))
+}
+
+fn unit(direction: Vector3) -> Result<Vector3, MeasureError> {
+    let length = direction.length();
+    if !length.is_finite() || length * length <= DEGENERATE_SQUARED_LENGTH {
+        return Err(MeasureError::NoDirection);
+    }
+    Ok(direction / length)
+}
+
+fn axis_plane(axis: Axis, origin: Point3, normal: Vector3) -> Result<Separation, MeasureError> {
+    let direction = unit(axis.direction)?;
+    let normal = unit(normal)?;
+    let across = direction.dot(normal);
+    let above = (axis.origin - origin).dot(normal);
+    let (from, to) = if across.abs() <= PARALLEL_SINE {
+        (axis.origin, axis.origin - normal * above)
+    } else {
+        let crossing = axis.origin - direction * (above / across);
+        (crossing, crossing)
+    };
+    Ok(Separation::between(from, to, Accuracy::Exact))
+}
+
+fn plane_plane(
+    origin: Point3,
+    normal: Vector3,
+    other_origin: Point3,
+    other_normal: Vector3,
+) -> Result<Separation, MeasureError> {
+    let normal = unit(normal)?;
+    let other_normal = unit(other_normal)?;
+    let line = normal.cross(other_normal);
+    if line.length() <= PARALLEL_SINE {
+        let above = (origin - other_origin).dot(other_normal);
+        return Ok(Separation::between(
+            origin,
+            origin - other_normal * above,
+            Accuracy::Exact,
+        ));
+    }
+    let first = normal.dot(origin);
+    let second = other_normal.dot(other_origin);
+    let crossing =
+        (other_normal.cross(line) * first + line.cross(normal) * second) / line.length_squared();
+    Ok(Separation::between(crossing, crossing, Accuracy::Exact))
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -235,7 +321,7 @@ fn edge_across_face(edge: &EdgeShape<'_>, face: &FaceShape<'_>) -> Closest {
     for end in [edge.start, edge.end] {
         closest.merge(point_face(end, face));
     }
-    match (edge.segment(), face.surface) {
+    match (edge.segment(), &*face.surface) {
         (Some([start, end]), Surface::Plane(plane)) => {
             let frame = plane.frame();
             let above_start = (start - frame.origin()).dot(frame.normal());

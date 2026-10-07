@@ -83,6 +83,11 @@ impl ProfileCurve {
         Self::new(entity, ProfileShape::Arc { center, start, end })
     }
 
+    pub fn curve(&self) -> Result<(Curve2, Interval), ProfileError> {
+        let source = source::Source::from_curve(self)?;
+        Ok((source.curve, source.range))
+    }
+
     pub fn spline(
         entity: u64,
         degree: usize,

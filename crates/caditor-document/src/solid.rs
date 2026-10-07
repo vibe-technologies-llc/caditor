@@ -536,33 +536,35 @@ pub(crate) fn profile_curves(sketch: &Sketch) -> Vec<ProfileCurve> {
     sketch
         .entities()
         .filter(|(id, _)| !sketch.is_construction(*id))
-        .filter_map(|(id, entity)| {
-            let raw = id.raw();
-            match entity {
-                Entity::Point(_) => None,
-                Entity::Line { .. } => sketch
-                    .line_endpoints(id)
-                    .map(|(start, end)| ProfileCurve::line(raw, start, end)),
-                Entity::Circle { .. } => sketch
-                    .circle(id)
-                    .map(|(center, radius)| ProfileCurve::circle(raw, center, radius)),
-                Entity::Arc { center, start, end } => Some(ProfileCurve::arc(
-                    raw,
-                    sketch.point(*center)?,
-                    sketch.point(*start)?,
-                    sketch.point(*end)?,
-                )),
-                Entity::Spline { .. } => sketch.spline(id).map(|spline| {
-                    ProfileCurve::spline(
-                        raw,
-                        spline.degree(),
-                        spline.knots().to_vec(),
-                        spline.control_points().to_vec(),
-                    )
-                }),
-            }
-        })
+        .filter_map(|(id, _)| profile_curve(sketch, id))
         .collect()
+}
+
+pub fn profile_curve(sketch: &Sketch, id: EntityId) -> Option<ProfileCurve> {
+    let raw = id.raw();
+    match sketch.entity(id)? {
+        Entity::Point(_) => None,
+        Entity::Line { .. } => sketch
+            .line_endpoints(id)
+            .map(|(start, end)| ProfileCurve::line(raw, start, end)),
+        Entity::Circle { .. } => sketch
+            .circle(id)
+            .map(|(center, radius)| ProfileCurve::circle(raw, center, radius)),
+        Entity::Arc { center, start, end } => Some(ProfileCurve::arc(
+            raw,
+            sketch.point(*center)?,
+            sketch.point(*start)?,
+            sketch.point(*end)?,
+        )),
+        Entity::Spline { .. } => sketch.spline(id).map(|spline| {
+            ProfileCurve::spline(
+                raw,
+                spline.degree(),
+                spline.knots().to_vec(),
+                spline.control_points().to_vec(),
+            )
+        }),
+    }
 }
 
 pub fn sketch_regions(sketch: &Sketch) -> Result<Vec<Region>, ProfileError> {

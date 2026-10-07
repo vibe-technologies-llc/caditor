@@ -1,4 +1,5 @@
 use std::{
+    f64::consts::TAU,
     panic::{self, AssertUnwindSafe},
     sync::{
         Arc,
@@ -7,16 +8,16 @@ use std::{
     thread,
 };
 
-use caditor_document::{FeatureId, FeatureResult};
+use caditor_document::{DatumResult, FeatureId, FeatureResult, profile_curve};
 use caditor_geometry::{Point3, Vector3};
 use caditor_kernel::{
-    Accuracy, AngleKind, EdgeForm, EdgeId, Element, FaceForm, FaceId, LINEAR_RESOLUTION,
-    MeasureError, Separation, angle, axis_of, axis_separation, distance, edge_measure, face_form,
-    planar_area,
+    Accuracy, AngleKind, Axis, Curve, EdgeForm, EdgeId, EdgeMeasure, Element, FaceForm, FaceId,
+    Interval, LINEAR_RESOLUTION, MeasureError, Separation, angle, axis_of, axis_separation,
+    curve_measure, distance, edge_measure, face_form, planar_area,
 };
 
 use crate::{
-    bodies,
+    bodies, datum_tools,
     model::{Model, Waker},
     scene,
     selection::{Pickable, Selection},
@@ -24,6 +25,9 @@ use crate::{
 
 pub const TOO_MANY: &str = "Select one or two items to measure between them.";
 pub const FAILED: &str = "The measurement could not be worked out for this selection.";
+pub const UNMEASURABLE: &str =
+    "Only points, edges, faces, sketch curves, planes and axes can be measured.";
+const FULL_TURN_SLACK: f64 = 1e-9;
 const PARALLEL_SINE: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -32,6 +36,7 @@ pub enum Value {
     Area(f64),
     Angle(f64),
     Position(Point3),
+    Direction(Vector3),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -91,6 +96,15 @@ enum Subject {
         result: Arc<FeatureResult>,
         face: FaceId,
     },
+    Curve {
+        curve: Box<Curve>,
+        interval: Interval,
+    },
+    Axis(Axis),
+    Plane {
+        origin: Point3,
+        normal: Vector3,
+    },
     Unmeasurable,
 }
 
@@ -111,6 +125,15 @@ impl Item {
             Subject::Face { result, face } => Some(Element::Face {
                 solid: &result.solid()?.solid,
                 face: *face,
+            }),
+            Subject::Curve { curve, interval } => Some(Element::Curve {
+                curve,
+                interval: *interval,
+            }),
+            Subject::Axis(axis) => Some(Element::Axis(*axis)),
+            Subject::Plane { origin, normal } => Some(Element::Plane {
+                origin: *origin,
+                normal: *normal,
             }),
             Subject::Unmeasurable => None,
         }
@@ -146,16 +169,43 @@ fn subject_of(model: &Model, pickable: Pickable) -> Option<Subject> {
             let plane = scene::sketch_plane(model.document(), evaluation, feature)?;
             match sketch.point(entity) {
                 Some(point) => Subject::Point(plane.to_world(point)),
-                None => Subject::Unmeasurable,
+                None => {
+                    let (curve, interval) = profile_curve(&sketch, entity)?.curve().ok()?;
+                    Subject::Curve {
+                        curve: Box::new(curve.on_plane(&plane).ok()?),
+                        interval,
+                    }
+                }
             }
         }
-        Pickable::Axis(_)
-        | Pickable::Plane(_)
-        | Pickable::SketchConstraint { .. }
+        Pickable::Axis(axis) => {
+            let ray = axis.principal().ray()?;
+            Subject::Axis(Axis {
+                origin: ray.origin(),
+                direction: ray.direction(),
+            })
+        }
+        Pickable::Plane(plane) => {
+            let plane = plane.plane();
+            Subject::Plane {
+                origin: plane.origin(),
+                normal: plane.normal(),
+            }
+        }
+        Pickable::Datum(feature) => match datum_tools::result(evaluation, feature)? {
+            DatumResult::Plane(plane) => Subject::Plane {
+                origin: plane.origin(),
+                normal: plane.normal(),
+            },
+            DatumResult::Axis(ray) => Subject::Axis(Axis {
+                origin: ray.origin(),
+                direction: ray.direction(),
+            }),
+        },
+        Pickable::SketchConstraint { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
-        | Pickable::ShellFace { .. }
-        | Pickable::Datum(_) => Subject::Unmeasurable,
+        | Pickable::ShellFace { .. } => Subject::Unmeasurable,
     })
 }
 
@@ -203,10 +253,7 @@ fn too_many() -> Readout {
 
 fn describe(item: &Item) -> Group {
     let (readings, problem) = match (&item.subject, item.element()) {
-        (Subject::Unmeasurable, _) | (_, None) => (
-            Vec::new(),
-            Some("Only vertices, edges, faces and sketch points can be measured.".to_owned()),
-        ),
+        (Subject::Unmeasurable, _) | (_, None) => (Vec::new(), Some(UNMEASURABLE.to_owned())),
         (_, Some(element)) => match readings_of(item, element) {
             Ok(readings) => (readings, None),
             Err(error) => {
@@ -225,26 +272,16 @@ fn describe(item: &Item) -> Group {
 fn readings_of(item: &Item, element: Element<'_>) -> Result<Vec<Reading>, MeasureError> {
     Ok(match element {
         Element::Point(point) => vec![Reading::exact("Position", Value::Position(point))],
-        Element::Edge { solid, edge } => {
-            let measured = edge_measure(solid, edge)?;
-            let mut readings = vec![Reading::with(
-                "Length",
-                Value::Length(measured.length),
-                measured.length_accuracy,
-            )];
-            match measured.form {
-                EdgeForm::Circle { center, radius, .. } => readings.extend([
-                    Reading::exact("Radius", Value::Length(radius)),
-                    Reading::exact("Diameter", Value::Length(2.0 * radius)),
-                    Reading::exact("Centre", Value::Position(center)),
-                ]),
-                EdgeForm::Ellipse { center, .. } => {
-                    readings.push(Reading::exact("Centre", Value::Position(center)));
-                }
-                EdgeForm::Line { .. } | EdgeForm::Curve => {}
-            }
-            readings
-        }
+        Element::Edge { solid, edge } => curve_readings(edge_measure(solid, edge)?),
+        Element::Curve { curve, interval } => curve_readings(curve_measure(curve, interval)),
+        Element::Axis(axis) => vec![
+            Reading::exact("Through", Value::Position(axis.origin)),
+            Reading::exact("Direction", Value::Direction(axis.direction)),
+        ],
+        Element::Plane { origin, normal } => vec![
+            Reading::exact("Through", Value::Position(origin)),
+            Reading::exact("Normal", Value::Direction(normal)),
+        ],
         Element::Face { solid, face } => {
             let mut readings = Vec::new();
             match planar_area(solid, face)? {
@@ -289,6 +326,36 @@ fn readings_of(item: &Item, element: Element<'_>) -> Result<Vec<Reading>, Measur
             readings
         }
     })
+}
+
+fn curve_readings(measured: EdgeMeasure) -> Vec<Reading> {
+    let mut readings = vec![Reading::with(
+        "Length",
+        Value::Length(measured.length),
+        measured.length_accuracy,
+    )];
+    match measured.form {
+        EdgeForm::Circle {
+            center,
+            radius,
+            sweep,
+            ..
+        } => {
+            readings.extend([
+                Reading::exact("Radius", Value::Length(radius)),
+                Reading::exact("Diameter", Value::Length(2.0 * radius)),
+                Reading::exact("Centre", Value::Position(center)),
+            ]);
+            if sweep < TAU - FULL_TURN_SLACK {
+                readings.push(Reading::exact("Sweep", Value::Angle(sweep)));
+            }
+        }
+        EdgeForm::Ellipse { center, .. } => {
+            readings.push(Reading::exact("Centre", Value::Position(center)));
+        }
+        EdgeForm::Line { .. } | EdgeForm::Curve => {}
+    }
+    readings
 }
 
 fn mesh_area(item: &Item, face: FaceId) -> Option<f64> {
@@ -345,12 +412,16 @@ fn between(
 }
 
 fn circle_center(element: Element<'_>) -> Result<Option<Point3>, MeasureError> {
-    Ok(match element {
-        Element::Edge { solid, edge } => match edge_measure(solid, edge)?.form {
-            EdgeForm::Circle { center, .. } => Some(center),
-            _ => None,
-        },
-        Element::Point(_) | Element::Face { .. } => None,
+    let measured = match element {
+        Element::Edge { solid, edge } => edge_measure(solid, edge)?,
+        Element::Curve { curve, interval } => curve_measure(curve, interval),
+        Element::Point(_) | Element::Face { .. } | Element::Axis(_) | Element::Plane { .. } => {
+            return Ok(None);
+        }
+    };
+    Ok(match measured.form {
+        EdgeForm::Circle { center, .. } => Some(center),
+        _ => None,
     })
 }
 
@@ -386,7 +457,8 @@ fn plane_of(element: Element<'_>) -> Result<Option<(Point3, Vector3)>, MeasureEr
             FaceForm::Plane { origin, normal } => Some((origin, normal)),
             _ => None,
         },
-        Element::Point(_) | Element::Edge { .. } => None,
+        Element::Plane { origin, normal } => Some((origin, normal)),
+        Element::Point(_) | Element::Edge { .. } | Element::Curve { .. } | Element::Axis(_) => None,
     })
 }
 

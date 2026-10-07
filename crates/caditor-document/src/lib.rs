@@ -82,7 +82,7 @@ pub use crate::{
     solid::{
         BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex, RegionChoice, Revolve,
         RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult, SolidStart,
-        sketch_regions,
+        profile_curve, sketch_regions,
     },
     values::{ParameterError, ParameterValues},
     worker::{Outcome, Progress, Recomputer, Update, WorkerStopped},
