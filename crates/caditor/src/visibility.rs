@@ -26,7 +26,8 @@ pub fn can_hide(feature: &Feature) -> bool {
         | FeatureKind::Mirror(_)
         | FeatureKind::Scale(_)
         | FeatureKind::Hole(_)
-        | FeatureKind::Pattern(_) => feature.makes_body(),
+        | FeatureKind::Pattern(_)
+        | FeatureKind::Remove(_) => feature.makes_body(),
     }
 }
 

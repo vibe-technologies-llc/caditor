@@ -20,7 +20,7 @@ use crate::{
     healing::{self, Healing},
     hole, import, mirror, movement, pattern,
     presenting::{Glimpse, Presentation, SettledBody},
-    projection, scaling, shell,
+    projection, removal, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult},
     values::ParameterValues,
 };
@@ -251,6 +251,19 @@ impl Inputs<'_> {
                 && feature.kind.consumed_bodies().contains(&body)
         });
         let error = match consumer {
+            Some(consumer) if consumer.kind.combine().is_none() => FeatureError {
+                reason: format!(
+                    "{} removed the body made by {body_name}, so it no longer stands.",
+                    consumer.name
+                ),
+                remedy: format!(
+                    "Move this feature above {}, or suppress or delete {}.",
+                    consumer.name, consumer.name
+                ),
+                fix: Some(FixTarget::Feature(consumer.id())),
+                constraints: Vec::new(),
+                place: None,
+            },
             Some(consumer) => {
                 let kept = consumer
                     .kind
@@ -1237,6 +1250,7 @@ impl Evaluator for ModelEvaluator {
             }
             FeatureKind::Datum(definition) => datum::evaluate(feature, definition, inputs),
             FeatureKind::Import(definition) => import::evaluate(feature, definition),
+            FeatureKind::Remove(definition) => removal::evaluate(feature, definition, inputs),
         }
     }
 }

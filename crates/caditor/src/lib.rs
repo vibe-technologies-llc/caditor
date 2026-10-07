@@ -78,6 +78,7 @@ mod principal_tree;
 mod projecting;
 mod reference_picking;
 mod reference_rows;
+mod removal;
 mod ribbon;
 mod samples;
 mod scale_panel;

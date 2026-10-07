@@ -109,6 +109,7 @@ pub struct PanelState {
     pub parameter: Option<ParameterId>,
     pub hovered_in_tree: Option<Pickable>,
     pub chosen_in_tree: Option<Pickable>,
+    pub selected_in_tree: Option<Vec<Pickable>>,
     pub shown_place: Option<Point3>,
     pub reference_rows: RowCache,
     pub constraint_offers: ConstraintOffers,
@@ -129,6 +130,7 @@ struct PendingReveal {
 pub struct Painting {
     pub body: FeatureId,
     pub focus_pending: bool,
+    pub naming: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -393,6 +395,6 @@ pub fn commands(
     actions: &mut Vec<Action>,
 ) {
     feature_tree::commands(context, state, commands, actions);
-    bodies_tree::commands(context, state, commands);
+    bodies_tree::commands(context, state, commands, actions);
     parameter_table::commands(context.model, state, commands, actions);
 }

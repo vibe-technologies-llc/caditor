@@ -469,6 +469,7 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     };
     model.workspace.panels.painting = Some(Painting {
         body,
+        naming: false,
         focus_pending: true,
     });
     model.frame();

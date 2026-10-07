@@ -6370,6 +6370,49 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
 }
 
 #[test]
+fn a_body_is_renamed_selected_whole_and_removed_from_the_palette() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.frame();
+
+    run_from_palette(&mut harness, "rename body");
+    harness.frame();
+    let focused = harness.focused() == Some(crate::body_appearance::name_field_id(plate));
+    harness.type_text("Base plate");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.settle();
+    let named = harness.document().body_name(plate) == Some("Base plate");
+    let listed = harness.shows("Base plate");
+
+    harness.select([top]);
+    run_from_palette(&mut harness, "select the whole body");
+    harness.frame();
+    let faces = harness
+        .workspace
+        .viewport
+        .selection()
+        .iter()
+        .filter(|pickable| matches!(pickable, Pickable::Face { body, .. } if *body == plate))
+        .count();
+
+    run_from_palette(&mut harness, "remove body");
+    harness.settle();
+    let removed = harness.model.evaluation().body(plate).is_none();
+    let told = harness.shows_containing("Removed Base plate with Remove 1");
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert!(focused);
+    assert!(named);
+    assert!(listed);
+    assert_eq!(faces, 6);
+    assert!(removed);
+    assert!(told);
+    assert!(harness.model.evaluation().body(plate).is_some());
+}
+
+#[test]
 fn a_selection_filter_makes_clicks_skip_everything_but_one_kind() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);

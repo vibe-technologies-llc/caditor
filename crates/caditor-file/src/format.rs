@@ -4,12 +4,12 @@ use caditor_document::{
     AxisReference, Blend, BlendKind, BodyAppearance, BodyOperation, CircularPattern, Combine,
     CombineOperation, Datum, DatumAxis, DatumPlane, DatumPoint, Document, Edit, Extrude,
     ExtrudeEnd, ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Hole, HoleDepth,
-    HoleFit, HoleShape, HoleStandard, HoleStyle, Import, LinearDirection, MAX_MATERIAL_NAME_CHARS,
-    MetricSize, Mirror, ModelProperties, ModelProperty, Move, Parameter, Pattern, PatternKind,
-    PlaneReference, PlaneRotation, PlaneThrough, PointReference, PrincipalAxis, PrincipalGeometry,
-    PrincipalPlane, ProjectionSource, RegionChoice, Revolve, RevolveAxis, RevolveExtent, Rgb,
-    RollbackBar, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart,
-    Transaction, material_name,
+    HoleFit, HoleShape, HoleStandard, HoleStyle, Import, LinearDirection, MAX_BODY_NAME_CHARS,
+    MAX_MATERIAL_NAME_CHARS, MetricSize, Mirror, ModelProperties, ModelProperty, Move, Parameter,
+    Pattern, PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointReference,
+    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Remove,
+    Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell, SketchAttachment,
+    SketchFeature, SolidFeature, SolidStart, Transaction, material_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -102,6 +102,8 @@ pub(crate) struct AppearanceRecord {
     pub material: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub density: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -127,6 +129,7 @@ pub(crate) enum FeatureKindRecord {
     Plane(Box<DatumPlaneRecord>),
     Axis(Box<DatumAxisRecord>),
     Point(Box<DatumPointRecord>),
+    Remove(RemoveRecord),
     PlaneThrough(Box<PlaneThroughRecord>),
     AxisThrough(Box<AxisThroughRecord>),
     Import(ImportRecord),
@@ -134,7 +137,7 @@ pub(crate) enum FeatureKindRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 2] = ["hidden", "appearance"];
 
-pub(crate) const FEATURE_KINDS: [&str; 23] = [
+pub(crate) const FEATURE_KINDS: [&str; 24] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -155,6 +158,7 @@ pub(crate) const FEATURE_KINDS: [&str; 23] = [
     "plane",
     "axis",
     "point",
+    "remove",
     "plane_through",
     "axis_through",
     "import",
@@ -358,6 +362,11 @@ pub(crate) struct ScaleRecord {
     pub body: u64,
     pub factor: String,
     pub center: [String; 3],
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct RemoveRecord {
+    pub body: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -996,6 +1005,7 @@ fn appearance_record(appearance: &BodyAppearance) -> AppearanceRecord {
         colour: appearance.colour.map(Rgb::hex),
         material: appearance.material.clone(),
         density: appearance.density.as_ref().map(Expression::to_stored_text),
+        name: appearance.name.clone(),
     }
 }
 
@@ -1040,10 +1050,21 @@ fn restore_appearance(
         }
         density
     });
+    let body_name = record.name.as_deref().and_then(|text| {
+        let body_name = material_name(text)
+            .filter(|body_name| body_name.chars().count() <= MAX_BODY_NAME_CHARS);
+        if body_name.is_none() {
+            issues.push(format!(
+                "The body name of “{name}” could not be used, so the body is named after it."
+            ));
+        }
+        body_name
+    });
     BodyAppearance {
         colour,
         material,
         density,
+        name: body_name,
     }
 }
 
@@ -1133,6 +1154,9 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 .iter()
                 .map(|face| Lenient::Read(face_record(face)))
                 .collect(),
+        }),
+        FeatureKind::Remove(remove) => FeatureKindRecord::Remove(RemoveRecord {
+            body: remove.body.raw(),
         }),
         FeatureKind::Combine(combine) => FeatureKindRecord::Combine(CombineRecord {
             body: combine.body.raw(),
@@ -2559,6 +2583,9 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
             FeatureKind::Blend(restore_blend(record, BlendKind::Chamfer, name, issues))
         }
         FeatureKindRecord::Shell(record) => FeatureKind::Shell(restore_shell(record, name, issues)),
+        FeatureKindRecord::Remove(record) => FeatureKind::Remove(Remove {
+            body: FeatureId::from_raw(record.body),
+        }),
         FeatureKindRecord::Combine(record) => FeatureKind::Combine(Combine {
             body: FeatureId::from_raw(record.body),
             tool: FeatureId::from_raw(record.tool),

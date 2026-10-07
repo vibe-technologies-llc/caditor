@@ -23,6 +23,7 @@ use crate::{
     pattern::Pattern,
     projection::ProjectionSource,
     properties::ModelProperties,
+    removal::Remove,
     scaling::Scale,
     shell::Shell,
     solid::{BodyOperation, SolidFeature},
@@ -92,6 +93,7 @@ pub enum FeatureKind {
     Pattern(Box<Pattern>),
     Datum(Datum),
     Import(Import),
+    Remove(Remove),
 }
 
 impl From<Pattern> for FeatureKind {
@@ -157,6 +159,7 @@ impl FeatureKind {
             }
             Self::Pattern(pattern) => size_of::<Pattern>() + pattern.heap_size(),
             Self::Datum(datum) => datum.heap_size(),
+            Self::Remove(_) => 0,
         };
         size_of::<Self>() + owned
     }
@@ -174,7 +177,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
-            | Self::Import(_) => None,
+            | Self::Import(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -191,7 +195,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
-            | Self::Import(_) => None,
+            | Self::Import(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -208,7 +213,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
-            | Self::Import(_) => None,
+            | Self::Import(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -224,6 +230,7 @@ impl FeatureKind {
             Self::Scale(scale) => Some(scale.body),
             Self::Hole(hole) => Some(hole.body),
             Self::Pattern(pattern) => Some(pattern.body),
+            Self::Remove(remove) => Some(remove.body),
             Self::Datum(_) | Self::Import(_) => None,
         }
     }
@@ -247,7 +254,8 @@ impl FeatureKind {
             | Self::Move(_)
             | Self::Scale(_)
             | Self::Hole(_)
-            | Self::Import(_) => {}
+            | Self::Import(_)
+            | Self::Remove(_) => {}
         }
         used
     }
@@ -270,7 +278,8 @@ impl FeatureKind {
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
-            | Self::Import(_) => BTreeSet::new(),
+            | Self::Import(_)
+            | Self::Remove(_) => BTreeSet::new(),
         }
     }
 
@@ -287,7 +296,8 @@ impl FeatureKind {
             | Self::Mirror(_)
             | Self::Scale(_)
             | Self::Hole(_)
-            | Self::Import(_) => BTreeSet::new(),
+            | Self::Import(_)
+            | Self::Remove(_) => BTreeSet::new(),
         }
     }
 
@@ -304,7 +314,8 @@ impl FeatureKind {
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
-            | Self::Import(_) => BTreeSet::new(),
+            | Self::Import(_)
+            | Self::Remove(_) => BTreeSet::new(),
         }
     }
 
@@ -325,13 +336,15 @@ impl FeatureKind {
             | Self::Mirror(_)
             | Self::Scale(_)
             | Self::Hole(_)
-            | Self::Import(_) => BTreeSet::new(),
+            | Self::Import(_)
+            | Self::Remove(_) => BTreeSet::new(),
         }
     }
 
     pub fn consumed_bodies(&self) -> Vec<FeatureId> {
         match self {
             Self::Combine(combine) => vec![combine.tool],
+            Self::Remove(remove) => vec![remove.body],
             Self::Sketch(_)
             | Self::Solid(_)
             | Self::Blend(_)
@@ -366,7 +379,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
-            | Self::Import(_) => None,
+            | Self::Import(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -383,7 +397,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
-            | Self::Import(_) => None,
+            | Self::Import(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -400,7 +415,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
-            | Self::Import(_) => None,
+            | Self::Import(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -417,7 +433,8 @@ impl FeatureKind {
             | Self::Scale(_)
             | Self::Pattern(_)
             | Self::Datum(_)
-            | Self::Import(_) => None,
+            | Self::Import(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -434,7 +451,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
-            | Self::Import(_) => None,
+            | Self::Import(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -451,7 +469,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
-            | Self::Import(_) => None,
+            | Self::Import(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -468,7 +487,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
-            | Self::Import(_) => None,
+            | Self::Import(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -485,7 +505,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
-            | Self::Import(_) => None,
+            | Self::Import(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -502,7 +523,8 @@ impl FeatureKind {
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Datum(_)
-            | Self::Import(_) => None,
+            | Self::Import(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -519,7 +541,8 @@ impl FeatureKind {
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
-            | Self::Import(_) => None,
+            | Self::Import(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -536,7 +559,8 @@ impl FeatureKind {
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
-            | Self::Datum(_) => None,
+            | Self::Datum(_)
+            | Self::Remove(_) => None,
         }
     }
 
@@ -553,7 +577,7 @@ impl FeatureKind {
             Self::Hole(hole) => hole.parameters(),
             Self::Pattern(pattern) => pattern.parameters(),
             Self::Datum(datum) => datum.parameters(),
-            Self::Import(_) => BTreeSet::new(),
+            Self::Import(_) | Self::Remove(_) => BTreeSet::new(),
         }
     }
 
@@ -570,7 +594,7 @@ impl FeatureKind {
             Self::Hole(hole) => hole.uses_parameter(parameter),
             Self::Pattern(pattern) => pattern.uses_parameter(parameter),
             Self::Datum(datum) => datum.uses_parameter(parameter),
-            Self::Import(_) => false,
+            Self::Import(_) | Self::Remove(_) => false,
         }
     }
 
@@ -598,6 +622,7 @@ impl FeatureKind {
             Self::Hole(hole) => hole.features(),
             Self::Pattern(pattern) => pattern.features(),
             Self::Datum(datum) => datum.features(),
+            Self::Remove(remove) => remove.features(),
             Self::Import(_) => BTreeSet::new(),
         };
         used.extend(self.bodies_used());
@@ -629,7 +654,7 @@ impl FeatureKind {
             Self::Mirror(mirror) => mirror.plane.origin_features(),
             Self::Pattern(pattern) => pattern.origin_features(),
             Self::Datum(datum) => datum.origin_features(),
-            Self::Import(_) => BTreeSet::new(),
+            Self::Import(_) | Self::Remove(_) => BTreeSet::new(),
         }
     }
 
@@ -701,6 +726,7 @@ impl Feature {
             FeatureKind::Hole(hole) => Some(hole.body),
             FeatureKind::Pattern(pattern) => Some(pattern.body),
             FeatureKind::Import(_) => Some(self.id),
+            FeatureKind::Remove(remove) => Some(remove.body),
             FeatureKind::Sketch(_) | FeatureKind::Datum(_) => None,
         }
     }
@@ -718,7 +744,8 @@ impl Feature {
             | FeatureKind::Scale(_)
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
-            | FeatureKind::Datum(_) => false,
+            | FeatureKind::Datum(_)
+            | FeatureKind::Remove(_) => false,
         }
     }
 }
@@ -777,6 +804,11 @@ impl Document {
             .iter()
             .find(|feature| feature.id == id)
             .map(Arc::as_ref)
+    }
+
+    pub fn body_name(&self, body: FeatureId) -> Option<&str> {
+        let feature = self.feature(body)?;
+        Some(feature.appearance.name.as_deref().unwrap_or(&feature.name))
     }
 
     pub fn feature_index(&self, id: FeatureId) -> Option<usize> {

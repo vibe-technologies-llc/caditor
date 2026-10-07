@@ -101,18 +101,48 @@ pub fn offer_select_all(
 
 pub fn select_all(model: &Model, kind: Kind) -> Vec<Pickable> {
     shown_bodies(model)
-        .flat_map(|(body, result)| match kind {
-            Kind::Faces => bodies::face_keys(&result.solid)
-                .into_iter()
-                .map(|(_, face)| Pickable::Face { body, face })
-                .collect::<Vec<_>>(),
-            Kind::Edges => pickable_edges(body, result, result.solid.edges().map(|(id, _)| id)),
-            Kind::Vertices => bodies::vertex_keys(result)
-                .into_iter()
-                .map(|(_, vertex)| Pickable::Vertex { body, vertex })
-                .collect(),
-        })
+        .flat_map(|(body, result)| everything_of(body, result, kind))
         .collect()
+}
+
+pub const NO_BODY_SELECTED: &str = "Select a face, edge or vertex of each body to select whole";
+
+pub fn offer_whole_bodies(selection: &Selection) -> Result<Vec<FeatureId>, &'static str> {
+    let mut bodies: Vec<FeatureId> = Vec::new();
+    for pickable in selection.iter() {
+        if let Pickable::Face { body, .. }
+        | Pickable::Edge { body, .. }
+        | Pickable::Vertex { body, .. } = pickable
+            && !bodies.contains(&body)
+        {
+            bodies.push(body);
+        }
+    }
+    if bodies.is_empty() {
+        return Err(NO_BODY_SELECTED);
+    }
+    Ok(bodies)
+}
+
+pub fn whole_bodies(model: &Model, bodies: &[FeatureId], kind: Kind) -> Vec<Pickable> {
+    shown_bodies(model)
+        .filter(|(body, _)| bodies.contains(body))
+        .flat_map(|(body, result)| everything_of(body, result, kind))
+        .collect()
+}
+
+fn everything_of(body: FeatureId, result: &SolidResult, kind: Kind) -> Vec<Pickable> {
+    match kind {
+        Kind::Faces => bodies::face_keys(&result.solid)
+            .into_iter()
+            .map(|(_, face)| Pickable::Face { body, face })
+            .collect::<Vec<_>>(),
+        Kind::Edges => pickable_edges(body, result, result.solid.edges().map(|(id, _)| id)),
+        Kind::Vertices => bodies::vertex_keys(result)
+            .into_iter()
+            .map(|(_, vertex)| Pickable::Vertex { body, vertex })
+            .collect(),
+    }
 }
 
 fn selected_edges(model: &Model, selection: &Selection) -> Vec<(FeatureId, EdgeId)> {

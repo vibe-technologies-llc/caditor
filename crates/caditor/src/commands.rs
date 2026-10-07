@@ -100,6 +100,8 @@ pub enum Command {
     Mirror,
     Scale,
     BodyAppearance,
+    RenameBody,
+    RemoveBody,
     LinearPattern,
     CircularPattern,
     DatumPlane,
@@ -125,6 +127,7 @@ pub enum Command {
     SelectAllShapes,
     SelectTangentEdges,
     SelectTangentFaces,
+    SelectBody,
     SelectFaceEdges,
     ToggleVisibility,
     ShowAll,
@@ -460,6 +463,7 @@ plain_commands! {
     SelectAllShapes,
     SelectTangentEdges,
     SelectTangentFaces,
+    SelectBody,
     SelectFaceEdges,
     ToggleVisibility,
     ShowAll,
@@ -479,6 +483,8 @@ plain_commands! {
     Mirror,
     Scale,
     BodyAppearance,
+    RenameBody,
+    RemoveBody,
     LinearPattern,
     CircularPattern,
     DatumPlane,
@@ -632,6 +638,8 @@ impl Command {
             Self::Mirror => "model.mirror",
             Self::Scale => "model.scale",
             Self::BodyAppearance => "model.body_appearance",
+            Self::RenameBody => "model.rename_body",
+            Self::RemoveBody => "model.remove_body",
             Self::LinearPattern => "model.linear_pattern",
             Self::CircularPattern => "model.circular_pattern",
             Self::DatumPlane => "model.plane",
@@ -663,6 +671,7 @@ impl Command {
             Self::SelectAllShapes => "select.all",
             Self::SelectTangentEdges => "select.tangent_edges",
             Self::SelectTangentFaces => "select.tangent_faces",
+            Self::SelectBody => "select.body",
             Self::SelectFaceEdges => "select.face_edges",
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
@@ -774,6 +783,8 @@ impl Command {
             Self::Mirror => "Mirror body",
             Self::Scale => "Scale body",
             Self::BodyAppearance => "Body colour and material",
+            Self::RenameBody => "Rename body",
+            Self::RemoveBody => "Remove body",
             Self::LinearPattern => "Linear pattern",
             Self::CircularPattern => "Circular pattern",
             Self::DatumPlane => "Datum plane",
@@ -800,6 +811,7 @@ impl Command {
             Self::SelectAllShapes => "Select all faces, edges or vertices",
             Self::SelectTangentEdges => "Select the edges tangent to the selected edges",
             Self::SelectTangentFaces => "Select the faces tangent to the selected faces",
+            Self::SelectBody => "Select the whole body",
             Self::SelectFaceEdges => "Select the edges around the selected faces",
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
@@ -890,6 +902,7 @@ impl Command {
             | Self::SelectAllShapes
             | Self::SelectTangentEdges
             | Self::SelectTangentFaces
+            | Self::SelectBody
             | Self::SelectFaceEdges
             | Self::DismissNotice => Category::Edit,
             Self::FitView
@@ -930,6 +943,8 @@ impl Command {
             | Self::Mirror
             | Self::Scale
             | Self::BodyAppearance
+            | Self::RenameBody
+            | Self::RemoveBody
             | Self::LinearPattern
             | Self::CircularPattern
             | Self::DatumPlane
@@ -1080,6 +1095,9 @@ impl Command {
             | Self::ExportFace
             | Self::Interference
             | Self::BodyAppearance
+            | Self::RenameBody
+            | Self::RemoveBody
+            | Self::SelectBody
             | Self::FinishSketch
             | Self::ShapeMode(_)
             | Self::ToggleConstraintActive

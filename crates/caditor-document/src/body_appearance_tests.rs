@@ -12,6 +12,7 @@ fn steel(pair: &Pair, density: &str) -> BodyAppearance {
         colour: Some(STEEL_BLUE),
         material: Some("Steel".to_owned()),
         density: Some(pair.document.parse(density).unwrap()),
+        name: None,
     }
 }
 

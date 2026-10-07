@@ -23,6 +23,7 @@ mod presenting;
 mod projection;
 mod properties;
 mod recompute;
+mod removal;
 mod scaling;
 mod shell;
 mod solid;
@@ -36,8 +37,8 @@ pub use crate::{
     attachment::{AttachmentError, FaceAttachment, SketchAttachment, SketchFeature, face_plane},
     blend::{Blend, BlendKind},
     body_appearance::{
-        BodyAppearance, DensityError, MAX_DENSITY, MAX_MATERIAL_NAME_CHARS, Rgb, density_of,
-        material_name,
+        BodyAppearance, DensityError, MAX_BODY_NAME_CHARS, MAX_DENSITY, MAX_MATERIAL_NAME_CHARS,
+        Rgb, density_of, material_name,
     },
     combine::{Combine, CombineOperation},
     datum::{
@@ -78,6 +79,7 @@ pub use crate::{
         CancelToken, Evaluation, Evaluator, Failure, FeatureError, FeatureResult, FeatureState,
         FeatureStatus, FixTarget, Inputs, ModelEvaluator, Recompute, SketchResult,
     },
+    removal::Remove,
     scaling::{MAX_SCALE_FACTOR, MIN_SCALE_FACTOR, Scale},
     shell::Shell,
     solid::{
@@ -119,6 +121,8 @@ mod presenting_tests;
 mod projection_tests;
 #[cfg(test)]
 mod properties_tests;
+#[cfg(test)]
+mod removal_tests;
 #[cfg(test)]
 mod scaling_tests;
 #[cfg(test)]

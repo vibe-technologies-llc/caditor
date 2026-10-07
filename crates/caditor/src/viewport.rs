@@ -376,6 +376,10 @@ impl ViewportState {
         self.selection.toggle(pickable);
     }
 
+    pub fn select_exactly(&mut self, pickables: Vec<Pickable>) {
+        self.selection.replace_with_all(pickables);
+    }
+
     pub fn hover_from_tree(&mut self, pickable: Option<Pickable>) {
         self.hovered_in_tree = pickable;
     }
@@ -1523,6 +1527,18 @@ impl ViewportState {
             } else {
                 self.selection.replace_with_all(around);
             }
+        }
+        let whole = body_selection::outside_sketch(
+            in_sketch,
+            body_selection::offer_whole_bodies(&self.selection),
+        );
+        if commands.invoke(Command::SelectBody, &whole)
+            && let Ok(bodies) = whole
+        {
+            let kind = body_selection::Kind::chosen(self.filter, &self.selection)
+                .unwrap_or(body_selection::Kind::Faces);
+            self.selection
+                .replace_with_all(body_selection::whole_bodies(model, &bodies, kind));
         }
     }
 

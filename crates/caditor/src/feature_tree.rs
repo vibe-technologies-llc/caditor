@@ -27,7 +27,7 @@ use crate::{
     pattern_panel,
     pattern_tools::{self, Reference},
     preferences::PreferencesCommand,
-    principal_tree, scale_panel,
+    principal_tree, removal, scale_panel,
     selection::{Pickable, Selection},
     shell_panel,
     sketch_placement::{self, PlacementTarget},
@@ -229,6 +229,7 @@ fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Datum(Datum::Axis(_)) => &["datum axis", "axis"],
         FeatureKind::Datum(Datum::Point(_)) => &["datum point", "point"],
         FeatureKind::Import(_) => &["import", "imported", "step"],
+        FeatureKind::Remove(_) => &["remove", "body"],
     }
 }
 
@@ -770,6 +771,7 @@ fn body(
             });
             body_display(ui, model, feature);
         }
+        FeatureKind::Remove(remove) => removal::show(ui, model, actions, feature, remove),
     }
 }
 
@@ -792,7 +794,8 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::Scale(_)
         | FeatureKind::Hole(_)
         | FeatureKind::Pattern(_)
-        | FeatureKind::Import(_) => tokens.text,
+        | FeatureKind::Import(_)
+        | FeatureKind::Remove(_) => tokens.text,
     }
 }
 
@@ -901,7 +904,8 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Scale(_)
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
-            | FeatureKind::Datum(_),
+            | FeatureKind::Datum(_)
+            | FeatureKind::Remove(_),
             true,
         ) => EditingCommand::CloseSolid,
         (
@@ -914,7 +918,8 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Scale(_)
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
-            | FeatureKind::Datum(_),
+            | FeatureKind::Datum(_)
+            | FeatureKind::Remove(_),
             false,
         ) => EditingCommand::OpenSolid(id),
         (FeatureKind::Import(_), _) => return None,

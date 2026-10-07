@@ -2089,11 +2089,37 @@ fn an_overlong_model_property_is_cut_and_reported() {
     assert_eq!(loaded.document.properties().revision, "B");
 }
 
+#[test]
+fn a_removal_is_saved_loaded_and_journaled() {
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Remove");
+    transaction.add_feature(
+        "Remove 1",
+        FeatureKind::Remove(caditor_document::Remove { body: base }),
+    );
+    let add = transaction.finish();
+    document.apply(add.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&add)).unwrap());
+
+    assert!(
+        text.contains(&format!("\"remove\":{{\"body\":{}}}", base.raw())),
+        "{text}"
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(add));
+}
+
 fn steel_appearance(document: &Document) -> caditor_document::BodyAppearance {
     caditor_document::BodyAppearance {
         colour: Some(caditor_document::Rgb::new(70, 130, 180)),
         material: Some("Steel".to_owned()),
         density: Some(document.parse("depth / 1 mm * 2.5").unwrap()),
+        name: Some("Base plate".to_owned()),
     }
 }
 

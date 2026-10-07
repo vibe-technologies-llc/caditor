@@ -129,7 +129,8 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
         FeatureKind::Combine(_)
         | FeatureKind::Move(_)
         | FeatureKind::Scale(_)
-        | FeatureKind::Hole(_) => {}
+        | FeatureKind::Hole(_)
+        | FeatureKind::Remove(_) => {}
         FeatureKind::Mirror(mirror) => {
             visit_plane(&mut mirror.plane, "the face it mirrors across", visitor);
         }

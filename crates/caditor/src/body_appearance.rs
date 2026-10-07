@@ -1,6 +1,6 @@
 use caditor_document::{
-    BodyAppearance, Document, Edit, Feature, FeatureId, MAX_MATERIAL_NAME_CHARS, Rgb, Transaction,
-    density_of, material_name,
+    BodyAppearance, Document, Edit, Feature, FeatureId, MAX_BODY_NAME_CHARS,
+    MAX_MATERIAL_NAME_CHARS, Rgb, Transaction, density_of, material_name,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Color32, Id, Ui};
@@ -21,6 +21,7 @@ pub const COLOUR_CAPTION: &str = "Colour";
 pub const MATERIAL_CAPTION: &str = "Material";
 pub const MATERIAL_NAME_CAPTION: &str = "Name";
 pub const DENSITY_CAPTION: &str = "Density";
+pub const BODY_NAME_CAPTION: &str = "Body name";
 const HEX_HINT: &str = "Enter a colour as # and six hexadecimal digits, such as #4682b4";
 const DENSITY_NOTE: &str =
     "A plain number in g/cm³; the Measure panel shows the body's mass from it.";
@@ -190,6 +191,7 @@ pub fn with_material(appearance: &BodyAppearance, material: Option<&Material>) -
             colour: appearance.colour.or(material.colour),
             material: Some(material.name.to_owned()),
             density: Some(Expression::number(material.density)),
+            name: appearance.name.clone(),
         },
     }
 }
@@ -258,6 +260,46 @@ impl Panel<'_> {
             self.apply(with_colour(self.appearance, colour), "colour");
         }
         focused
+    }
+
+    fn name_row(&mut self, ui: &mut Ui, feature: &Feature, focus: bool) -> bool {
+        widgets::caption(ui, BODY_NAME_CAPTION);
+        let stored = self.appearance.name.clone().unwrap_or_default();
+        let field = field::commit_field(
+            ui,
+            name_field_id(self.body),
+            &stored,
+            FIELD_WIDTH,
+            focus,
+            |text| {
+                let length = text.trim().chars().count();
+                if length > MAX_BODY_NAME_CHARS {
+                    return Err(format!(
+                        "Enter a name of at most {MAX_BODY_NAME_CHARS} characters; this one has \
+                         {length}"
+                    ));
+                }
+                Ok(material_name(text))
+            },
+        );
+        let landed = field.response.has_focus();
+        field.response.on_hover_text(format!(
+            "The body's own name, used in the Bodies list and in exports; empty, it is named \
+             after {}",
+            feature.name
+        ));
+        ui.end_row();
+        if let Some(error) = field.error {
+            widgets::error_row(ui, &error);
+        }
+        if let Some(name) = field.committed {
+            let named = BodyAppearance {
+                name,
+                ..self.appearance.clone()
+            };
+            self.apply(named, "name");
+        }
+        landed
     }
 
     fn colour_row(&mut self, ui: &mut Ui) {
@@ -414,6 +456,7 @@ pub fn show(
     actions: &mut Vec<Action>,
     feature: &Feature,
     focus: bool,
+    naming: bool,
 ) -> bool {
     let mut panel = Panel {
         model,
@@ -421,12 +464,18 @@ pub fn show(
         appearance: &feature.appearance,
         actions,
     };
-    let focused = panel.swatches(ui, focus);
+    let swatch_focused = panel.swatches(ui, focus && !naming);
     ui.add_space(SPACE_S);
-    widgets::properties(ui, ("body-appearance", feature.id()), |ui| {
+    let name_focused = widgets::properties(ui, ("body-appearance", feature.id()), |ui| {
+        let landed = panel.name_row(ui, feature, focus && naming);
         panel.colour_row(ui);
         panel.material_rows(ui);
         panel.density_row(ui);
+        landed
     });
-    focused
+    if naming { name_focused } else { swatch_focused }
+}
+
+pub fn name_field_id(body: FeatureId) -> Id {
+    Id::new(("body-name", body))
 }

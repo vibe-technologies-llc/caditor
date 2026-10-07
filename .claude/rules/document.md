@@ -76,6 +76,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   deleting and restoring a body keeps it, and counted by `heap_size`. Recompute ignores it.
 - `Edit::SetBodyAppearance` sets it whole on a feature that `makes_body` (else `NotABody`); a
   material name is trimmed, blank means none, longer than `MAX_MATERIAL_NAME_CHARS` is refused.
+  Its `name` is the body's own name, kept on one line the same way (`MAX_BODY_NAME_CHARS`,
+  `BodyNameTooLong`); `Document::body_name` gives it, else the making feature's name, and the app
+  lists and exports bodies by it.
   A feature that later stops making a body keeps it, unused.
 - The density is a plain number in g/cm³ that may use parameters, so `Feature::parameters` and
   `Feature::uses_parameter` (which parameter deletion, `parameter_users` and loading's stand-ins
@@ -238,6 +241,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   saying which.
 - Both change their body but, like a pattern, are not `modifies_body`: nothing is chosen on the
   state before them, so the app shows the result while one is open.
+
+### Remove (`removal.rs`)
+
+- `Remove { body }` takes a body out of the model from its place on: its result passes the body's
+  state through and `consumed_bodies` drops it, as a Combine drops its tool, so suppressing,
+  rolling back or deleting the removal brings the body back. A feature still using the body fails
+  naming the removal (`Inputs::missing_body`).
 
 ### Combine (`combine.rs`)
 

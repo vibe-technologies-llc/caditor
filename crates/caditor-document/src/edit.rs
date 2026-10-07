@@ -11,7 +11,9 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
 
 use crate::{
     attachment::SketchAttachment,
-    body_appearance::{BodyAppearance, MAX_MATERIAL_NAME_CHARS, material_name},
+    body_appearance::{
+        BodyAppearance, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, material_name,
+    },
     datum::{Datum, PrincipalGeometry},
     dependencies::DependencyGraph,
     document::{
@@ -354,6 +356,10 @@ pub enum EditError {
         "A material name may be at most {MAX_MATERIAL_NAME_CHARS} characters long, and this one has {0}"
     )]
     MaterialNameTooLong(usize),
+    #[error(
+        "A body's name may be at most {MAX_BODY_NAME_CHARS} characters long, and this one has {0}"
+    )]
+    BodyNameTooLong(usize),
     #[error("{0} is not a plane")]
     NotAPlane(String),
     #[error("{0} is not an axis")]
@@ -375,12 +381,17 @@ pub enum EditError {
 }
 
 fn check_appearance(appearance: &BodyAppearance) -> Result<(), EditError> {
-    let Some(material) = &appearance.material else {
-        return Ok(());
-    };
-    let length = material.chars().count();
-    if length > MAX_MATERIAL_NAME_CHARS {
-        return Err(EditError::MaterialNameTooLong(length));
+    if let Some(material) = &appearance.material {
+        let length = material.chars().count();
+        if length > MAX_MATERIAL_NAME_CHARS {
+            return Err(EditError::MaterialNameTooLong(length));
+        }
+    }
+    if let Some(name) = &appearance.name {
+        let length = name.chars().count();
+        if length > MAX_BODY_NAME_CHARS {
+            return Err(EditError::BodyNameTooLong(length));
+        }
     }
     Ok(())
 }
@@ -733,7 +744,8 @@ impl Document {
             | (FeatureKind::Mirror(_), FeatureKind::Mirror(_))
             | (FeatureKind::Scale(_), FeatureKind::Scale(_))
             | (FeatureKind::Hole(_), FeatureKind::Hole(_))
-            | (FeatureKind::Pattern(_), FeatureKind::Pattern(_)) => true,
+            | (FeatureKind::Pattern(_), FeatureKind::Pattern(_))
+            | (FeatureKind::Remove(_), FeatureKind::Remove(_)) => true,
             _ => false,
         };
         if !same_kind {
@@ -1017,6 +1029,12 @@ impl Document {
         mut appearance: BodyAppearance,
     ) -> Result<Edit, EditError> {
         appearance.material = appearance.material.as_deref().and_then(material_name);
+        appearance.name = appearance
+            .name
+            .as_deref()
+            .map(|name| name.split(['\r', '\n']).collect::<Vec<_>>().join(" "))
+            .as_deref()
+            .and_then(material_name);
         let existing = self.feature(id).ok_or(EditError::MissingFeature)?;
         if !existing.makes_body() {
             return Err(EditError::NotABody(existing.name.clone()));

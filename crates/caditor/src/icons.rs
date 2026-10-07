@@ -15,6 +15,7 @@ pub const EDIT: &str = phosphor::PENCIL_SIMPLE;
 pub const DONE: &str = phosphor::CHECK;
 pub const MORE: &str = phosphor::DOTS_THREE;
 pub const DELETE: &str = phosphor::TRASH;
+pub const REMOVE_BODY: &str = phosphor::CUBE_FOCUS;
 pub const REMOVE: &str = phosphor::X;
 pub const CLOSE: &str = phosphor::X;
 pub const ADD: &str = phosphor::PLUS;
@@ -122,6 +123,9 @@ pub fn command(command: Command) -> &'static str {
         Command::Move => MOVE,
         Command::Mirror => MIRROR,
         Command::Scale => SCALE,
+        Command::RenameBody => EDIT,
+        Command::RemoveBody => REMOVE_BODY,
+        Command::SelectBody => BODIES,
         Command::BodyAppearance => BODY_APPEARANCE,
         Command::Hole => HOLE,
         Command::LinearPattern => LINEAR_PATTERN,
@@ -338,5 +342,6 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Datum(Datum::Axis(_)) => AXIS,
         FeatureKind::Datum(Datum::Point(_)) => POINT,
         FeatureKind::Import(_) => IMPORTED,
+        FeatureKind::Remove(_) => REMOVE_BODY,
     }
 }

@@ -236,7 +236,9 @@ fn bodies(document: &Document, evaluation: &Evaluation) -> Vec<ExportSource> {
             let result = evaluation.body_result(body)?;
             result.solid()?;
             let feature = document.feature(body);
-            let name = feature.map_or_else(|| "a body".to_owned(), |feature| feature.name.clone());
+            let name = document
+                .body_name(body)
+                .map_or_else(|| "a body".to_owned(), str::to_owned);
             let look = feature.and_then(|feature| OwnedLook::of(&feature.appearance));
             Some((name, Arc::clone(result), look))
         })

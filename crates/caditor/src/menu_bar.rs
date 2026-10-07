@@ -366,6 +366,7 @@ impl Menus<'_, '_> {
                     Command::SelectTangentEdges,
                     Command::SelectTangentFaces,
                     Command::SelectFaceEdges,
+                    Command::SelectBody,
                 ],
             );
             ui.separator();
@@ -476,12 +477,17 @@ impl Menus<'_, '_> {
                     Command::Mirror,
                     Command::Scale,
                     Command::BodyAppearance,
+                    Command::RenameBody,
+                    Command::RemoveBody,
                 ],
             );
             ui.separator();
             self.items(ui, [Command::LinearPattern, Command::CircularPattern]);
             ui.separator();
-            self.items(ui, [Command::DatumPlane, Command::DatumAxis]);
+            self.items(
+                ui,
+                [Command::DatumPlane, Command::DatumAxis, Command::DatumPoint],
+            );
             ui.separator();
             self.items(
                 ui,

@@ -5,6 +5,7 @@ use caditor_expression::{Dimension, EvalError, Expression, ParameterId, format_n
 use crate::values::ParameterValues;
 
 pub const MAX_MATERIAL_NAME_CHARS: usize = 80;
+pub const MAX_BODY_NAME_CHARS: usize = 120;
 pub const MAX_DENSITY: f64 = 100.0;
 const GRAMS_PER_CUBIC_MILLIMETRE_AT_UNIT_DENSITY: f64 = 1e-3;
 
@@ -48,6 +49,7 @@ pub struct BodyAppearance {
     pub colour: Option<Rgb>,
     pub material: Option<String>,
     pub density: Option<Expression>,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -81,6 +83,7 @@ impl BodyAppearance {
     pub fn heap_size(&self) -> usize {
         self.material.as_ref().map_or(0, String::len)
             + self.density.as_ref().map_or(0, Expression::heap_size)
+            + self.name.as_ref().map_or(0, String::len)
     }
 
     pub fn density_value(&self, values: &ParameterValues) -> Option<Result<f64, DensityError>> {

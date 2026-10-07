@@ -3,12 +3,13 @@ use egui::{Id, Label, RichText, Ui, collapsing_header::CollapsingState};
 
 use crate::{
     appearance::{self, SPACE_S},
-    body_appearance,
+    body_appearance, body_selection,
     commands::{Command, CommandFrame},
     feature_tree::{self, CommandContext},
     icons,
     model::{Action, Model},
     panels::{Painting, PanelState},
+    removal,
     selection::Pickable,
     tree_row::{self, CHILD_INDENT, Look},
     visibility, widgets,
@@ -103,6 +104,7 @@ fn item(
     let Some(feature) = model.document().feature(body) else {
         return;
     };
+    let name = model.document().body_name(body).unwrap_or(&feature.name);
     let painting = state.painting.filter(|painting| painting.body == body);
     let shown = !feature.hidden;
     let muted = appearance::tokens(ui).text_muted;
@@ -118,7 +120,7 @@ fn item(
             ui.add_space(CHILD_INDENT);
             widgets::icon_label(ui, icons::feature(&feature.kind), muted);
             ui.add(
-                Label::new(label(ui, &feature.name, shown))
+                Label::new(label(ui, name, shown))
                     .selectable(false)
                     .truncate(),
             );
@@ -126,13 +128,12 @@ fn item(
                 ui,
                 Id::new(("body-row", body)),
                 ui.min_rect().left(),
-                &feature.name,
+                name,
                 look.selected,
             )
         },
         |ui| {
-            let paint =
-                tree_row::slot(ui, |ui| paint_button(ui, &feature.name, painting.is_some()));
+            let paint = tree_row::slot(ui, |ui| paint_button(ui, name, painting.is_some()));
             let eye = tree_row::slot(ui, |ui| match &toggle {
                 Ok(transaction) => eye(ui, shown, transaction.label()),
                 Err(_) => false,
@@ -141,13 +142,14 @@ fn item(
         },
     );
     let (paint, eye) = row.trailing;
-    let name = row.leading;
-    if name.has_focus() {
+    let row_name = row.leading;
+    if row_name.has_focus() {
         tree_row::focus_outline(ui, row.rect);
     }
-    if name.clicked() || name.gained_focus() {
+    if row_name.clicked() || row_name.gained_focus() {
         state.choose_only(body);
     }
+    row_name.context_menu(|ui| row_menu(ui, model, state, actions, body));
     if eye && let Ok(transaction) = toggle {
         actions.push(Action::Apply(transaction));
     }
@@ -157,6 +159,7 @@ fn item(
             None => Some(Painting {
                 body,
                 focus_pending: false,
+                naming: false,
             }),
         };
     }
@@ -166,7 +169,14 @@ fn item(
     let focused = tree_row::indented(ui, |ui| {
         ui.add_space(SPACE_S);
         widgets::card(ui, |ui| {
-            body_appearance::show(ui, model, actions, feature, painting.focus_pending)
+            body_appearance::show(
+                ui,
+                model,
+                actions,
+                feature,
+                painting.focus_pending,
+                painting.naming,
+            )
         })
     });
     if painting.focus_pending && focused {
@@ -176,6 +186,50 @@ fn item(
         });
     }
     ui.add_space(SPACE_S);
+}
+
+fn row_menu(
+    ui: &mut Ui,
+    model: &Model,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    body: FeatureId,
+) {
+    if widgets::menu_item(
+        ui,
+        icons::command(Command::RenameBody),
+        "Rename body…",
+        None,
+    )
+    .clicked()
+    {
+        state.painting = Some(Painting {
+            body,
+            focus_pending: true,
+            naming: true,
+        });
+        ui.close();
+    }
+    if widgets::menu_item(
+        ui,
+        icons::command(Command::SelectBody),
+        "Select the whole body",
+        None,
+    )
+    .clicked()
+    {
+        state.selected_in_tree = Some(body_selection::whole_bodies(
+            model,
+            &[body],
+            body_selection::Kind::Faces,
+        ));
+        ui.close();
+    }
+    ui.separator();
+    if widgets::menu_item(ui, icons::command(Command::RemoveBody), "Remove body", None).clicked() {
+        actions.extend(removal::create_actions(model.document(), body));
+        ui.close();
+    }
 }
 
 fn paint_button(ui: &mut Ui, name: &str, open: bool) -> bool {
@@ -218,19 +272,35 @@ pub fn commands(
     context: &CommandContext<'_>,
     state: &mut PanelState,
     commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
 ) {
     let body = chosen_body(context, state);
     let detail = body
         .ok()
-        .and_then(|body| context.model.document().feature(body))
-        .map(|feature| feature.name.clone());
-    if commands.invoke_detailed(Command::BodyAppearance, detail, &body)
+        .and_then(|body| context.model.document().body_name(body))
+        .map(str::to_owned);
+    if commands.invoke_detailed(Command::BodyAppearance, detail.clone(), &body)
         && let Ok(body) = body
     {
         state.painting = Some(Painting {
             body,
             focus_pending: true,
+            naming: false,
         });
+    }
+    if commands.invoke_detailed(Command::RenameBody, detail.clone(), &body)
+        && let Ok(body) = body
+    {
+        state.painting = Some(Painting {
+            body,
+            focus_pending: true,
+            naming: true,
+        });
+    }
+    if commands.invoke_detailed(Command::RemoveBody, detail, &body)
+        && let Ok(body) = body
+    {
+        actions.extend(removal::create_actions(context.model.document(), body));
     }
 }
 

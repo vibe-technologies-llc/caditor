@@ -166,11 +166,12 @@ paths:
   the YZ plane, reported) and `keep_original`. A `scale` record holds `body`, the stored text of
   `factor` (unreadable: 1) and of the three `center` lengths (unreadable: 0 mm).
 - A feature record carries `appearance` only when a body has one: `colour` as `#rrggbb`,
-  `material`, and `density` as stored text, each optional. Losing it changes nothing computed, so
+  `material`, `density` as stored text and the body's own `name`, each optional. Losing it changes nothing computed, so
   it is a field, not a record kind; an unreadable part is left out and reported, the rest kept.
   The journal's `set_body_appearance` holds the same record. `describe_unreadable_record` skips
   the feature fields (`FEATURE_FIELDS`) when naming an unknown kind.
 - A `combine` feature record holds `body`, `tool` and `operation` (`join`, `cut`, `intersect`).
+  A `remove` record holds `body`.
 - A sketch's constraint record carries `inactive: true` only for a disabled constraint (absent
   means active, so older files read unchanged); the journal's `add_sketch_constraint` carries the
   same flag and `set_sketch_constraint_active` is its own record.

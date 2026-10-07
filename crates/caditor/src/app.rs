@@ -454,6 +454,9 @@ pub fn show(
     if let Some(chosen) = panels.chosen_in_tree.take() {
         viewport.select_only(chosen);
     }
+    if let Some(chosen) = panels.selected_in_tree.take() {
+        viewport.select_exactly(chosen);
+    }
     viewport.hover_from_tree(panels.hovered_in_tree.take());
     if let Some(place) = panels.shown_place.take() {
         viewport.show_place(place);

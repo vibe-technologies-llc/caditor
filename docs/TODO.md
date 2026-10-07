@@ -315,10 +315,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] Transparency is all or nothing: the X-ray style draws every body translucent with
   unpickable faces, and no body can be translucent or hidden on its own except by hiding its
   feature. A body's colour is one for all its faces: no face can be coloured apart.
-- [medium · medium] No box or lasso selection in the 3D view (only inside a sketch), no select
-  all of a body's faces or edges (Select all takes every shown body's), and no selecting a hole's
-  wall, so choosing many faces for a pattern, shell or export
-  still means clicking most of them.
+- [medium · medium] No box or lasso selection in the 3D view (only inside a sketch) and no
+  selecting a hole's wall, so choosing many faces for a pattern, shell or export still means
+  clicking most of them.
 - [medium · medium] Edge lines can be eaten by faces at grazing angles, since depth bias is a
   constant factor with no slope term, and the grid and reference fills share the mesh's bias, so a
   face on the XY plane can speckle with the grid. Neither has a test.
@@ -372,8 +371,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   modal, and the opening modal is drawn before the unsaved-changes prompt, so closing the window
   during a load hides the prompt until the load ends. Give imports their own cancellable job. When a
   worker thread cannot be spawned the job runs on the UI thread.
-- [medium · medium] Bodies are listed (Bodies group) but cannot be renamed on their own, since a
-  body is named by the feature that made it, nor deleted or selected as a whole in the view.
 - [medium · medium] The portal file dialog request passes an empty parent window, so the dialog is
   not tied to caditor's and can open behind it (Stop waiting in the status bar recovers the
   window); X11 needs the window's id and Wayland an exported xdg-foreign handle.

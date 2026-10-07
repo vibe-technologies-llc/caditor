@@ -108,7 +108,10 @@ paths:
   edges, which cannot be picked, are never taken. Tangent edges add what `tangent_chain` reaches
   from the selected edges (smooth or sharp alike, unlike a blend's `blend_chain`); tangent faces
   (Alt+Shift+T) add what `tangent_faces` reaches from the selected faces; the edges around
-  faces replace the faces with every loop's edges. An empty result is an info notice. Their
+  faces replace the faces with every loop's edges. Select the whole body (`select.body`, Edit menu,
+  palette) replaces the selection with every face, edge or vertex (by the filter or the kind
+  selected, faces otherwise) of the bodies the selection touches. An empty result is an info
+  notice. Their
   availability is a cheap check on the selection, and the work runs only when triggered.
 
 - The display style (`DisplayStyle`, commands `view.style_*`, View › Display style) is shaded with

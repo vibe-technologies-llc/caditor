@@ -239,7 +239,10 @@ impl Exporter {
             let feature = model.document().feature(id);
             Some(Body {
                 id,
-                name: feature.map_or_else(|| "a body".to_owned(), |feature| feature.name.clone()),
+                name: model
+                    .document()
+                    .body_name(id)
+                    .map_or_else(|| "a body".to_owned(), str::to_owned),
                 result: Arc::clone(result),
                 look: feature.and_then(|feature| OwnedLook::of(&feature.appearance)),
             })
