@@ -172,7 +172,8 @@ paths:
   column (`VALUE_WIDTH`), since content wider than the panel widens it the next frame. Hovering a
   value shows it in full and what uses it (`used_by`, only for the hovered row, since
   `Document::parameter_users` scans every feature). Whether a row can be deleted comes from
-  `Document::used_parameters`, one scan cached per model revision (`ParameterUses`), and the
+  `Document::used_parameters`, one scan cached per model revision (`ParameterUses`), which also
+  puts a muted `icons::UNUSED` before the value of a parameter nothing refers to, and the
   refusal's wording is built only while its button is hovered. A value that cannot be evaluated is an error
   icon with the reason on hover, a refused edit an `error_row`. A row's delete button shows only
   while the row is hovered or the button has keyboard focus, and stays in the Tab order.

@@ -5,7 +5,7 @@ use caditor_expression::ParameterId;
 use egui::{Grid, Id, Label, Rect, Ui, Vec2, vec2};
 
 use crate::{
-    appearance::{CONTROL_HEIGHT, SPACE_M, SPACE_S, SPACE_XS},
+    appearance::{self, CONTROL_HEIGHT, SPACE_M, SPACE_S, SPACE_XS},
     commands::{Command, CommandFrame},
     field, icons,
     model::{Action, Model},
@@ -162,10 +162,15 @@ fn row(
         actions.push(Action::Apply(transaction));
     }
 
+    let used = state.parameter_uses.of(model).contains(&id);
     ui.scope(|ui| {
         ui.set_width(widths.value);
         ui.horizontal(|ui| match model.parameters().get(id) {
             Some(Ok(value)) => {
+                if !used {
+                    let color = appearance::tokens(ui).text_muted;
+                    widgets::described_icon(ui, icons::UNUSED, color, &unused(&parameter.name));
+                }
                 let shown = model.units().show(*value);
                 ui.add(Label::new(widgets::muted(&shown, ui)).truncate())
                     .on_hover_ui(|ui| {
@@ -193,9 +198,12 @@ fn row(
         name.response.rect.expand(SPACING.y / 2.0).y_range(),
     );
     let hovered = ui.rect_contains_pointer(band);
-    let used = state.parameter_uses.of(model).contains(&id);
     delete_button(ui, document, actions, parameter, hovered, used);
     name.error.or(expression.error)
+}
+
+fn unused(name: &str) -> String {
+    format!("{name} is unused: nothing refers to it yet.")
 }
 
 pub fn used_by(users: &[String]) -> String {

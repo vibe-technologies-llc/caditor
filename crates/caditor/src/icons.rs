@@ -75,6 +75,7 @@ pub const PARAMETERS: &str = phosphor::FUNCTION;
 pub const GO_TO: &str = phosphor::ARROW_RIGHT;
 pub const SHOW_PLACE: &str = phosphor::MAP_PIN;
 pub const DETACH: &str = phosphor::LINK_BREAK;
+pub const UNUSED: &str = phosphor::LINK_SIMPLE_BREAK;
 const ORIGIN: &str = phosphor::CROSSHAIR;
 
 pub fn command(command: Command) -> &'static str {

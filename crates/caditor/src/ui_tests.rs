@@ -865,6 +865,12 @@ impl Harness {
             .any(|(_, node)| node.role() == role && node.label() == Some(name))
     }
 
+    fn describes(&self, text: &str) -> bool {
+        self.accessible
+            .iter()
+            .any(|(_, node)| node.role() == Role::Label && node.value() == Some(text))
+    }
+
     fn unreadable_nodes(&self) -> Vec<String> {
         let private_use = |text: &str| {
             text.chars()
@@ -8743,12 +8749,17 @@ fn a_parameter_that_cannot_be_deleted_names_what_uses_it() {
     harness.frame();
     harness.hover_button("Delete spare");
     let spare_free = !harness.shows_containing("spare is used by");
+    let spare_marked = harness.describes("spare is unused: nothing refers to it yet.");
+    let width_marked = harness.describes("width is unused: nothing refers to it yet.");
     let height = harness.parameter("height");
     harness.type_into(Focus::ParameterValue(height), "spare * 10");
     harness.frame();
     harness.hover_button("Delete spare");
 
     assert!(spare_free);
+    assert!(spare_marked);
+    assert!(!width_marked);
+    assert!(!harness.describes("spare is unused: nothing refers to it yet."));
     assert!(harness.shows("spare is used by height. Remove those uses first."));
 }
 

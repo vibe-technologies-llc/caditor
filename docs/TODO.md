@@ -229,7 +229,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
   thickness), which needs a tapered sweep and a wall of an open profile in the kernel.
 - [low · medium] Revolve cannot keep the part of a region on one side of the axis.
 - [low · medium] Parameters cannot be reordered or given a note, show what uses them only in the
-  value's tooltip and mark no unused one in the table, cannot be deleted by inlining their value,
+  value's tooltip, cannot be deleted by inlining their value,
   and expressions cannot refer to measured values or sketch dimensions.
 - [low · medium] The measure tool cannot take planes, axes, datums or sketch curves, so a hole axis
   to a datum or a circle's radius cannot be measured.
