@@ -1,8 +1,9 @@
 use caditor_document::{
-    AxisReference, BodyOperation, CancelToken, Datum, DatumAxis, DatumPlane, Document, Edit,
-    Editor, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, Feature, FeatureId, FeatureKind,
-    ModelEvaluator, PlaneReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane, Recompute,
-    RegionChoice, Revolve, RevolveAxis, RevolveExtent, RollbackBar, SolidFeature, Transaction,
+    AxisReference, BodyOperation, CancelToken, Datum, DatumAxis, DatumPlane, DatumPoint, Document,
+    Edit, Editor, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, Feature, FeatureId, FeatureKind,
+    ModelEvaluator, PlaneReference, PlaneThrough, PointReference, PrincipalAxis, PrincipalGeometry,
+    PrincipalPlane, Recompute, RegionChoice, Revolve, RevolveAxis, RevolveExtent, RollbackBar,
+    SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::Plane;
@@ -78,6 +79,17 @@ fn axis_reference(input: &mut Unstructured, document: &Document) -> Result<AxisR
         AxisReference::Principal(*input.choose(&PrincipalAxis::ALL)?)
     } else {
         AxisReference::Datum(feature(input, document)?)
+    })
+}
+
+fn point_reference(input: &mut Unstructured, document: &Document) -> Result<PointReference> {
+    Ok(match input.int_in_range(0u8..=2)? {
+        0 => PointReference::Origin,
+        1 => PointReference::Datum(feature(input, document)?),
+        _ => PointReference::Sketch {
+            sketch: feature(input, document)?,
+            entity: EntityId::from_raw(input.int_in_range(0u64..=16)?),
+        },
     })
 }
 
@@ -160,6 +172,7 @@ fn solid_feature(input: &mut Unstructured, document: &Document) -> Result<Option
             regions,
             extent,
             operation,
+            start: None,
         })
     } else {
         let lines = sketch_lines(document, sketch);
@@ -190,22 +203,52 @@ fn solid_feature(input: &mut Unstructured, document: &Document) -> Result<Option
             axis,
             extent,
             operation,
+            start: None,
         })
     };
     Ok(Some(FeatureKind::Solid(solid)))
 }
 
 fn datum(input: &mut Unstructured, document: &Document) -> Result<FeatureKind> {
-    Ok(FeatureKind::Datum(match input.int_in_range(0u8..=2)? {
+    Ok(FeatureKind::Datum(match input.int_in_range(0u8..=8)? {
         0 => Datum::Plane(DatumPlane {
             base: plane_reference(input, document)?,
             rotation: None,
             offset: distance(input, document)?,
         }),
         1 => Datum::Axis(DatumAxis::Along(axis_reference(input, document)?)),
-        _ => Datum::Axis(DatumAxis::Intersection(
+        2 => Datum::Axis(DatumAxis::Intersection(
             plane_reference(input, document)?,
             plane_reference(input, document)?,
+        )),
+        3 => Datum::Axis(DatumAxis::Points(
+            point_reference(input, document)?,
+            point_reference(input, document)?,
+        )),
+        4 => Datum::Axis(DatumAxis::NormalTo(
+            plane_reference(input, document)?,
+            point_reference(input, document)?,
+        )),
+        5 => Datum::Point(DatumPoint {
+            base: point_reference(input, document)?,
+            offset: [
+                distance(input, document)?,
+                distance(input, document)?,
+                distance(input, document)?,
+            ],
+        }),
+        6 => Datum::PlaneThrough(PlaneThrough::Points([
+            point_reference(input, document)?,
+            point_reference(input, document)?,
+            point_reference(input, document)?,
+        ])),
+        7 => Datum::PlaneThrough(PlaneThrough::Midway(
+            plane_reference(input, document)?,
+            plane_reference(input, document)?,
+        )),
+        _ => Datum::PlaneThrough(PlaneThrough::AxisAndPoint(
+            axis_reference(input, document)?,
+            point_reference(input, document)?,
         )),
     }))
 }
@@ -262,6 +305,7 @@ fn sketch_edit(input: &mut Unstructured, document: &Document) -> Result<Option<E
             feature,
             id: ConstraintId::from_raw(sketch.next_id()),
             constraint: constraint(input, sketch)?,
+            inactive: input.arbitrary()?,
         },
         5 => Edit::RemoveSketchConstraint {
             feature,
