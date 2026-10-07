@@ -38,6 +38,7 @@ pub(crate) fn block(
             extent: ExtrudeExtent::one_side(Expression::parse_stored(height).unwrap(), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     )
 }
@@ -304,6 +305,7 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
             extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     let mut round = Sketch::new(Plane::XY);
@@ -317,6 +319,7 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
             extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     let combined = transaction.add_feature(
@@ -368,6 +371,7 @@ fn boss_on_peg(pair: &mut Pair) -> FeatureId {
             extent: ExtrudeExtent::one_side(Expression::parse_stored("9 mm").unwrap(), false),
             operation: BodyOperation::Add(pair.peg),
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     pair.document.apply(transaction.finish()).unwrap();

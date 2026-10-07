@@ -1751,6 +1751,7 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
             ),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     let turned = transaction.add_feature(
@@ -1765,6 +1766,7 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
             },
             operation: BodyOperation::Remove(base),
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -1780,6 +1782,47 @@ fn solid_features_are_saved_and_loaded() {
     let loaded = decode_text(&text);
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
+}
+
+#[test]
+fn a_cut_through_several_bodies_is_saved_as_its_own_record_kind_and_loaded() {
+    use caditor_document::{BodyOperation, Extrude, ExtrudeExtent, RegionChoice, SolidFeature};
+    let (mut document, base, _) = solid_model();
+    let sketch = document
+        .features()
+        .find(|feature| feature.name == "Outline")
+        .map(caditor_document::Feature::id)
+        .unwrap();
+    let mut transaction = document.transaction("Cut both");
+    let extrusion = |operation, other_bodies| {
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), false),
+            operation,
+            start: None,
+            other_bodies,
+        }))
+    };
+    let second = transaction.add_feature("Second", extrusion(BodyOperation::NewBody, Vec::new()));
+    let cut = transaction.add_feature("Cut", extrusion(BodyOperation::Remove(base), vec![second]));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains(&format!(
+        "\"cut_several\":{{\"bodies\":[{}],\"feature\":{{\"extrude\":",
+        second.raw()
+    )));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(cut).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: cut, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
 fn without_region_references(value: &mut serde_json::Value) {
@@ -2851,6 +2894,7 @@ fn datum_model() -> (Document, FeatureId, FeatureId) {
             extent: RevolveExtent::Full,
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -3354,6 +3398,7 @@ fn a_revolve_whose_axis_line_is_gone_loads_turning_about_the_vertical_axis() {
                 extent: caditor_document::RevolveExtent::Full,
                 operation: caditor_document::BodyOperation::NewBody,
                 start: None,
+                other_bodies: Vec::new(),
             },
         )),
     );
@@ -3831,6 +3876,7 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
             extent,
             operation: BodyOperation::Remove(base),
             start: None,
+            other_bodies: Vec::new(),
         }))
     };
     let through = transaction.add_feature(
@@ -3875,6 +3921,7 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
             },
             operation: BodyOperation::Remove(base),
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -3933,6 +3980,7 @@ fn starts_model() -> (Document, [FeatureId; 3]) {
             },
             operation: BodyOperation::NewBody,
             start: Some(SolidStart::Plane(PlaneReference::Datum(level))),
+            other_bodies: Vec::new(),
         })),
     );
     let lifted = transaction.add_feature(
@@ -3944,6 +3992,7 @@ fn starts_model() -> (Document, [FeatureId; 3]) {
             extent: RevolveExtent::Full,
             operation: BodyOperation::NewBody,
             start: Some(SolidStart::Distance(transaction.parse("3 mm").unwrap())),
+            other_bodies: Vec::new(),
         })),
     );
     let placed = transaction.add_feature(
@@ -3958,6 +4007,7 @@ fn starts_model() -> (Document, [FeatureId; 3]) {
             },
             operation: BodyOperation::NewBody,
             start: Some(SolidStart::Plane(PlaneReference::Datum(level))),
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -4179,6 +4229,7 @@ fn fillet_saved_before_origins() -> (Document, FeatureId) {
             extent: ExtrudeExtent::one_side(transaction.parse("4 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -4333,6 +4384,7 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                 start: Some(caditor_document::SolidStart::Distance(
                     Expression::Parameter(lift),
                 )),
+                other_bodies: Vec::new(),
             },
         )),
     );
@@ -4350,6 +4402,7 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                 start: Some(caditor_document::SolidStart::Distance(
                     transaction.parse("-1.5 mm").unwrap(),
                 )),
+                other_bodies: Vec::new(),
             },
         )),
     );
@@ -4365,6 +4418,7 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                 ),
                 operation: caditor_document::BodyOperation::NewBody,
                 start: None,
+                other_bodies: Vec::new(),
             },
         )),
     );
@@ -4412,6 +4466,7 @@ fn combines_are_saved_and_loaded() {
             extent: ExtrudeExtent::one_side(transaction.parse("2 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     let combine = transaction.add_feature(

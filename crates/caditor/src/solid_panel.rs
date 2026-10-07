@@ -15,7 +15,7 @@ use crate::{
         Segment, Shown,
     },
     feature_tree::count,
-    field,
+    field, icons,
     model::{Action, Model},
     reference_picking::{self, Picking, Side, Slot},
     scene,
@@ -26,6 +26,8 @@ use crate::{
 };
 
 const FULL_TURN_DEGREES: f64 = 360.0;
+pub const ALSO_CUTS: &str = "Also cuts";
+pub const ADD_CUT_BODY: &str = "Add another body";
 const START_OFFSET: &str = "Start offset";
 const START_BY_OFFSET: &str = "Sketch plane, offset";
 const START_ON_FACE: &str = "Face or plane";
@@ -796,6 +798,75 @@ impl Panel<'_> {
                     })
                     .collect()
             });
+        });
+        ui.end_row();
+        if let BodyOperation::Remove(_) = operation {
+            self.other_body_rows(ui, &bodies, target);
+        }
+    }
+
+    fn other_body_rows(&mut self, ui: &mut Ui, bodies: &[FeatureId], target: FeatureId) {
+        let others = self.solid.other_bodies().to_vec();
+        for (index, other) in others.iter().enumerate() {
+            if index == 0 {
+                widgets::caption(ui, ALSO_CUTS);
+            } else {
+                ui.label("");
+            }
+            let name = feature_fields::feature_name(self.document(), *other);
+            let hover = format!(
+                "Stop cutting {}",
+                name.unwrap_or("the missing body")
+            );
+            let mut dropped = false;
+            ui.horizontal(|ui| {
+                match &name {
+                    Some(name) => {
+                        ui.label(*name);
+                    }
+                    None => feature_fields::missing(ui, MISSING_BODY),
+                }
+                dropped = widgets::icon_button(ui, icons::REMOVE, &hover).clicked();
+            });
+            ui.end_row();
+            if dropped {
+                let kept = others
+                    .iter()
+                    .copied()
+                    .filter(|kept| kept != other)
+                    .collect();
+                self.apply(solid_tools::with_other_bodies(self.solid, kept));
+            }
+        }
+        let candidates: Vec<FeatureId> = bodies
+            .iter()
+            .copied()
+            .filter(|body| *body != target && !others.contains(body))
+            .collect();
+        if candidates.is_empty() {
+            return;
+        }
+        if others.is_empty() {
+            widgets::caption(ui, ALSO_CUTS);
+        } else {
+            ui.label("");
+        }
+        self.combo(ui, "also-cut", ADD_CUT_BODY, |panel| {
+            candidates
+                .iter()
+                .filter_map(|body| {
+                    let label = panel.document().feature(*body)?.name.clone();
+                    let mut chosen = others.clone();
+                    chosen.push(*body);
+                    Some(Choice {
+                        label,
+                        selected: false,
+                        change: panel
+                            .change(solid_tools::with_other_bodies(panel.solid, chosen))
+                            .map(Action::Apply),
+                    })
+                })
+                .collect()
         });
         ui.end_row();
     }

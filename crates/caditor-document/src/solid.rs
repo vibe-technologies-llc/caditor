@@ -210,6 +210,7 @@ pub struct Extrude {
     pub extent: ExtrudeExtent,
     pub operation: BodyOperation,
     pub start: Option<SolidStart>,
+    pub other_bodies: Vec<FeatureId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -242,6 +243,7 @@ pub struct Revolve {
     pub extent: RevolveExtent,
     pub operation: BodyOperation,
     pub start: Option<SolidStart>,
+    pub other_bodies: Vec<FeatureId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -270,6 +272,28 @@ impl SolidFeature {
             Self::Extrude(extrude) => extrude.operation,
             Self::Revolve(revolve) => revolve.operation,
         }
+    }
+
+    pub fn other_bodies(&self) -> &[FeatureId] {
+        match self {
+            Self::Extrude(extrude) => &extrude.other_bodies,
+            Self::Revolve(revolve) => &revolve.other_bodies,
+        }
+    }
+
+    pub fn other_bodies_mut(&mut self) -> &mut Vec<FeatureId> {
+        match self {
+            Self::Extrude(extrude) => &mut extrude.other_bodies,
+            Self::Revolve(revolve) => &mut revolve.other_bodies,
+        }
+    }
+
+    pub fn target_bodies(&self) -> Vec<FeatureId> {
+        self.operation()
+            .target()
+            .into_iter()
+            .chain(self.other_bodies().iter().copied())
+            .collect()
     }
 
     pub fn axis(&self) -> Option<&RevolveAxis> {
@@ -397,7 +421,7 @@ impl SolidFeature {
             },
         };
         let references = planes + axis;
-        chosen + expressions + references
+        chosen + expressions + references + size_of_val(self.other_bodies())
     }
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
@@ -421,7 +445,7 @@ impl SolidFeature {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         std::iter::once(self.sketch())
-            .chain(self.operation().target())
+            .chain(self.target_bodies())
             .chain(self.axis_sketch())
             .collect()
     }
@@ -746,6 +770,7 @@ pub(crate) fn evaluate(
                 context: &context,
                 inputs,
                 operation: definition.operation,
+                other_bodies: &definition.other_bodies,
                 plane,
                 regions: &regions,
             };
@@ -767,6 +792,7 @@ pub(crate) fn evaluate(
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+    let other_bodies = solid.other_bodies();
     let (body, solid, cut) = match solid.operation() {
         BodyOperation::NewBody => (feature.id(), tool, None),
         operation @ (BodyOperation::Add(body)
@@ -785,9 +811,60 @@ pub(crate) fn evaluate(
             (body, combined, cut)
         }
     };
+    let mut distinct = Vec::new();
+    for other in other_bodies {
+        if *other != body && !distinct.contains(other) {
+            distinct.push(*other);
+        }
+    }
+    let others = match (&cut, distinct.as_slice()) {
+        (Some(tool), others) => cut_others(&context, inputs, tool, others, cancel)?,
+        (None, []) => Vec::new(),
+        (None, [_, ..]) => {
+            return Err(context.error(
+                "Only a removal cuts several bodies at once.".to_owned(),
+                "Choose Remove from body, or leave out the other bodies.".to_owned(),
+                context.own(),
+            ));
+        }
+    };
     Ok(FeatureResult::Solid(
-        SolidResult::new(body, solid).cutting(cut),
+        SolidResult::new(body, solid)
+            .with_others(others)
+            .cutting(cut),
     ))
+}
+
+fn cut_others(
+    context: &Context<'_>,
+    inputs: &Inputs<'_>,
+    tool: &Solid,
+    others: &[FeatureId],
+    cancel: &CancelToken,
+) -> Result<Vec<SolidResult>, Failure> {
+    let operation = BodyOperation::Remove(context.feature.id());
+    others
+        .iter()
+        .map(|other| {
+            if cancel.is_cancelled() {
+                return Err(Failure::Cancelled);
+            }
+            let current = inputs
+                .body(*other)
+                .ok_or_else(|| inputs.missing_body(*other))?;
+            let cut = boolean(current, tool, BooleanOperation::Difference).map_err(|error| {
+                boolean_failure(
+                    context,
+                    inputs,
+                    [current, tool],
+                    *other,
+                    operation.with_target(*other),
+                    &error,
+                )
+            })?;
+            Ok(SolidResult::new(*other, cut))
+        })
+        .collect()
 }
 
 fn resolve_target(
@@ -1311,6 +1388,7 @@ struct Ends<'a> {
     context: &'a Context<'a>,
     inputs: &'a Inputs<'a>,
     operation: BodyOperation,
+    other_bodies: &'a [FeatureId],
     plane: Plane,
     regions: &'a [Region],
 }
@@ -1391,7 +1469,12 @@ impl Ends<'_> {
                 ));
             }
         };
-        let bounds = self.body(body)?.bounding_box();
+        let mut bounds = self.body(body)?.bounding_box();
+        for other in self.other_bodies {
+            if let Some(other) = self.body(*other)?.bounding_box() {
+                bounds = Some(bounds.map_or(other, |bounds| bounds.union(other)));
+            }
+        }
         let direction = self.plane.normal() * side.sign();
         let farthest = bounds.map_or(f64::NEG_INFINITY, |bounds| {
             bounds

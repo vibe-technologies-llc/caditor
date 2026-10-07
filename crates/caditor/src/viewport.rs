@@ -3073,6 +3073,7 @@ mod timing {
                 extent: ExtrudeExtent::one_side(distance, false),
                 operation: BodyOperation::NewBody,
                 start: None,
+                other_bodies: Vec::new(),
             })),
         );
         document.apply(transaction.finish()).unwrap();

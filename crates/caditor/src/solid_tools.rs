@@ -170,6 +170,7 @@ pub fn create(
                 ),
                 operation,
                 start: None,
+                other_bodies: Vec::new(),
             })
         }
         Sweep::Revolve => SolidFeature::Revolve(Revolve {
@@ -181,6 +182,7 @@ pub fn create(
             extent: RevolveExtent::Full,
             operation,
             start: None,
+            other_bodies: Vec::new(),
         }),
     };
     let mut transaction = document.transaction(format!("Create {name}"));
@@ -242,6 +244,20 @@ pub fn with_operation(solid: &SolidFeature, operation: BodyOperation) -> SolidFe
         SolidFeature::Extrude(extrude) => extrude.operation = operation,
         SolidFeature::Revolve(revolve) => revolve.operation = operation,
     }
+    let target = operation.target();
+    let others = changed.other_bodies_mut();
+    match operation {
+        BodyOperation::Remove(_) => others.retain(|other| Some(*other) != target),
+        BodyOperation::NewBody | BodyOperation::Add(_) | BodyOperation::Intersect(_) => {
+            others.clear();
+        }
+    }
+    changed
+}
+
+pub fn with_other_bodies(solid: &SolidFeature, other_bodies: Vec<FeatureId>) -> SolidFeature {
+    let mut changed = solid.clone();
+    *changed.other_bodies_mut() = other_bodies;
     changed
 }
 
@@ -370,6 +386,7 @@ mod tests {
                     ),
                     operation: BodyOperation::NewBody,
                     start: None,
+                    other_bodies: Vec::new(),
                 })),
             )
         };

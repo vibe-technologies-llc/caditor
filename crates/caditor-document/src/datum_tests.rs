@@ -115,6 +115,7 @@ fn block() -> Block {
             extent: ExtrudeExtent::one_side(Expression::Parameter(height), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -339,6 +340,7 @@ fn a_revolve_turns_about_a_datum_axis_in_its_sketch_plane() {
             extent: RevolveExtent::Full,
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         }))
     };
     let ring = add(
@@ -457,6 +459,7 @@ fn a_revolve_axis_is_shown_where_the_revolve_found_it() {
             extent: RevolveExtent::Full,
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     let strip = add(
@@ -473,6 +476,7 @@ fn a_revolve_axis_is_shown_where_the_revolve_found_it() {
             extent: ExtrudeExtent::one_side(millimetres(1.0), false),
             operation: BodyOperation::Remove(base),
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     let evaluation = evaluate(&document, &mut Recompute::default());

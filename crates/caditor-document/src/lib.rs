@@ -105,6 +105,8 @@ mod body_appearance_tests;
 #[cfg(test)]
 mod combine_tests;
 #[cfg(test)]
+mod cut_several_tests;
+#[cfg(test)]
 mod datum_point_tests;
 #[cfg(test)]
 mod datum_tests;

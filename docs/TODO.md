@@ -174,8 +174,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Modelling features
 
-- [medium · medium] A cut affects only one body: no extrusion or revolve cut removes material from
-  several bodies at once, only a Combine of two.
 - [medium · medium] Holes have no several diameters (stepped), only one fine pitch per size and
   no heat-set insert sizes; sized by circles, a hole takes only its diameter from the circle, its
   counterbore or countersink still the typed one.

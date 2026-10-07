@@ -246,6 +246,7 @@ fn an_imported_outline_is_joined_and_extrudes_into_a_solid() {
             extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();

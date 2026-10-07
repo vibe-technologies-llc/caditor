@@ -56,7 +56,7 @@ use crate::{
     shape_modes::{CircleMode, RectangleMode, ShapeMode},
     sketch_toolbar,
     sketch_tools::{self, ConstraintTool},
-    split_panel, status_bar, toolbar, trimming, typed_point,
+    solid_panel, split_panel, status_bar, toolbar, trimming, typed_point,
     units::LengthUnit,
     view_cube, widgets, window_frame,
 };
@@ -7164,6 +7164,7 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
             extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), true),
             operation: BodyOperation::Remove(plate),
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     transaction.edit(Edit::MoveFeature {
@@ -7211,6 +7212,7 @@ fn add_peg(harness: &mut Harness) -> FeatureId {
             extent: ExtrudeExtent::one_side(Expression::parse_stored("5 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     harness.perform(Action::Apply(transaction.finish()));
@@ -7291,6 +7293,7 @@ fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
                 extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
                 operation: BodyOperation::NewBody,
                 start: None,
+                other_bodies: Vec::new(),
             })),
         ));
     }
@@ -7631,6 +7634,66 @@ fn a_body_is_split_along_a_plane_into_two_bodies_from_the_panel() {
     harness.frame();
     assert_eq!(harness.workspace.editing.solid(), None);
     assert_eq!(harness.built_with_meshes(2).scene.meshes.len(), 2);
+}
+
+fn extruded(harness: &mut Harness, min: Point2, max: Point2) -> FeatureId {
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, min, max);
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open")
+}
+
+#[test]
+fn one_cut_removes_material_from_every_body_chosen_in_its_panel() {
+    let mut harness = Harness::new();
+    let first = extruded(&mut harness, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let second = extruded(
+        &mut harness,
+        Point2::new(50.0, 0.0),
+        Point2::new(90.0, 40.0),
+    );
+    choose(&mut harness, "Add to body", "New body");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    assert!(volume_about(&harness, second, 16000.0));
+
+    let cut = extruded(
+        &mut harness,
+        Point2::new(30.0, 10.0),
+        Point2::new(60.0, 20.0),
+    );
+    choose(&mut harness, "Add to body", "Remove from body");
+    assert_eq!(
+        harness.solid(cut).operation(),
+        BodyOperation::Remove(second)
+    );
+    assert!(harness.shows(solid_panel::ALSO_CUTS));
+    assert!(volume_about(&harness, second, 15000.0));
+    assert!(volume_about(&harness, first, 16000.0));
+
+    choose(&mut harness, solid_panel::ADD_CUT_BODY, "Extrude 1");
+    assert_eq!(harness.solid(cut).other_bodies(), [first]);
+    assert!(volume_about(&harness, first, 15000.0));
+    assert!(volume_about(&harness, second, 15000.0));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    harness.click_button("Stop cutting Extrude 1");
+    harness.settle();
+    assert!(harness.solid(cut).other_bodies().is_empty());
+    assert!(volume_about(&harness, first, 16000.0));
+
+    choose(&mut harness, solid_panel::ADD_CUT_BODY, "Extrude 1");
+    choose(&mut harness, "Remove from body", "Add to body");
+    assert!(harness.solid(cut).other_bodies().is_empty());
 }
 
 #[test]
@@ -12176,6 +12239,7 @@ fn add_block(harness: &mut Harness, name: &str, corners: [Point2; 2], height: &s
             extent: ExtrudeExtent::one_side(Expression::parse_stored(height).unwrap(), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     harness.perform(Action::Apply(transaction.finish()));
@@ -13443,6 +13507,7 @@ fn chosen_plate() -> (Document, FeatureId, FeatureId) {
             extent: ExtrudeExtent::one_side(Expression::Measure(5.0, Unit::Millimetre), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();

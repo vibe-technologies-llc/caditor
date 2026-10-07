@@ -83,6 +83,7 @@ fn model() -> Model {
             extent: ExtrudeExtent::one_side(Expression::Parameter(height), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -408,6 +409,7 @@ fn ambiguous_edges_and_faces_count_only_when_their_pieces_are_one_edge_or_face()
             extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -431,6 +433,7 @@ fn ambiguous_edges_and_faces_count_only_when_their_pieces_are_one_edge_or_face()
             extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), true),
             operation: BodyOperation::Remove(base),
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -523,6 +526,7 @@ fn a_failure_message_follows_the_renaming_of_a_feature_that_made_a_face() {
             extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     let mut hole = rectangle((3.0, 3.0), (7.0, 5.0));
@@ -543,6 +547,7 @@ fn a_failure_message_follows_the_renaming_of_a_feature_that_made_a_face() {
             extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), true),
             operation: BodyOperation::Remove(base),
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -590,6 +595,7 @@ fn extruded(sketch: FeatureId, height: &str, operation: BodyOperation) -> Featur
         extent: ExtrudeExtent::one_side(mm(height), false),
         operation,
         start: None,
+        other_bodies: Vec::new(),
     }))
 }
 

@@ -246,6 +246,7 @@ impl FeatureKind {
         let mut used: BTreeSet<FeatureId> = self.body_input().into_iter().collect();
         match self {
             Self::Solid(solid) => {
+                used.extend(solid.other_bodies());
                 used.extend(solid.axis_body());
                 used.extend(solid.end_bodies());
             }
@@ -780,7 +781,17 @@ impl Feature {
 
     pub fn bodies(&self) -> Vec<FeatureId> {
         let made_apart = matches!(self.kind, FeatureKind::Split(_)).then_some(self.id);
-        self.body().into_iter().chain(made_apart).collect()
+        let cut_too = self
+            .kind
+            .solid()
+            .map_or(&[][..], SolidFeature::other_bodies);
+        let mut bodies: Vec<FeatureId> = self.body().into_iter().chain(made_apart).collect();
+        for body in cut_too {
+            if !bodies.contains(body) {
+                bodies.push(*body);
+            }
+        }
+        bodies
     }
 
     pub fn makes_body(&self) -> bool {

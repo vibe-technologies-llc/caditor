@@ -78,6 +78,7 @@ fn model() -> Model {
             extent: ExtrudeExtent::one_side(Expression::Parameter(height), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     let mut marks = Sketch::new(Plane::XZ);
@@ -318,6 +319,7 @@ fn a_datum_point_takes_the_centre_of_a_round_edge() {
             extent: ExtrudeExtent::one_side(millimetres(6.0), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();

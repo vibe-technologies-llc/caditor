@@ -180,6 +180,10 @@ paths:
   `skipped`, a list of `[step, step]`), since an older reader would make the wrong copies; any
   other pattern is still written as `linear_pattern` or `circular_pattern`. Loading drops skipped
   entries that no pattern can make (the original, a step past `MAX_PATTERN_INSTANCES`).
+- An extrusion or revolve cutting other bodies too is a `cut_several` record: `feature`, the
+  record it would be without them, and `bodies`, the ids of the others, so an older reader
+  reports it rather than cutting one body; an inner record that is no extrusion or revolve loads
+  without the bodies, reported.
 - A `split` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as the
   YZ plane, reported) and `flipped` only when set.
 - A `combine` feature record holds `body`, `tool` and `operation` (`join`, `cut`, `intersect`).

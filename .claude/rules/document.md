@@ -182,6 +182,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   - Up to face ends on the face's plane extended past the face, which must lie beyond the whole
     profile on its side.
   - Every failure names the face or plane and the side, with what to do.
+- A removal also cuts each body of `other_bodies` (an extrusion's or revolve's, any other
+  operation with some fails in words), every body with the same tool, so one feature changes them
+  all: they are in `bodies_used` and `Feature::bodies`, their results are `SolidResult::others`
+  (like a split's), Through all reaches past all of them, the target and repeats are skipped, and
+  a body the tool removes entirely fails the feature naming it.
 - A `RevolveAxis` is a line or axis of its own sketch (a sketch line used as axis cannot be
   deleted; `AxisNotALine`) or an `AxisReference` to a model axis lying in the sketch plane.
 - A feature whose body others change keeps making a new body.

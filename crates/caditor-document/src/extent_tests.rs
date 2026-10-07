@@ -78,6 +78,7 @@ fn extrusion(sketch: FeatureId, extent: ExtrudeExtent, operation: BodyOperation)
         extent,
         operation,
         start: None,
+        other_bodies: Vec::new(),
     }))
 }
 
@@ -488,6 +489,7 @@ fn up_to_a_face_that_an_upstream_edit_removes_fails_alone_and_keeps_its_last_sha
             extent: ExtrudeExtent::one_side(millimetres(5.0), false),
             operation: BodyOperation::Add(model.plate),
             start: None,
+            other_bodies: Vec::new(),
         }))
     };
     let lug = add(&mut model.document, "Lug", lug_kind(first));
@@ -884,6 +886,7 @@ fn a_revolve_turns_by_two_angles_that_together_stay_within_a_turn() {
             },
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         }))
     };
     let turned = add(&mut document, "Turned", revolve(90.0, 30.0));
@@ -913,6 +916,7 @@ fn a_hole_drawn_inside_a_chosen_region_cuts_through_the_extrusion() {
             extent: ExtrudeExtent::one_side(millimetres(2.0), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     let mut engine = Recompute::default();
@@ -968,6 +972,7 @@ fn a_chosen_region_whose_curve_is_deleted_is_left_out_and_said_so() {
             extent: ExtrudeExtent::one_side(millimetres(2.0), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     let mut engine = Recompute::default();

@@ -33,6 +33,7 @@ pub(crate) fn extrude(
         extent: ExtrudeExtent::one_side(Expression::parse_stored(distance).unwrap(), reversed),
         operation,
         start: None,
+        other_bodies: Vec::new(),
     }))
 }
 
@@ -82,6 +83,7 @@ fn model() -> Model {
             extent: ExtrudeExtent::one_side(Expression::Parameter(depth), true),
             operation: BodyOperation::Remove(base),
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     let lug = transaction.add_feature(
@@ -280,6 +282,7 @@ fn a_revolve_uses_a_sketch_axis_and_keeps_it() {
             extent: RevolveExtent::Full,
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -308,6 +311,7 @@ fn a_revolve_axis_must_be_a_line_of_its_own_sketch() {
             extent: RevolveExtent::Full,
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         }))
     };
     let mut transaction = document.transaction("Revolve");
@@ -562,6 +566,7 @@ fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
             ),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -602,6 +607,7 @@ fn extruded(extent: ExtrudeExtent) -> FeatureKind {
         extent,
         operation: BodyOperation::NewBody,
         start: None,
+        other_bodies: Vec::new(),
     }))
 }
 
@@ -613,6 +619,7 @@ fn revolved(extent: RevolveExtent) -> FeatureKind {
         extent,
         operation: BodyOperation::NewBody,
         start: None,
+        other_bodies: Vec::new(),
     }))
 }
 
@@ -988,6 +995,7 @@ fn a_revolve_turns_about_a_construction_centreline_and_undoing_its_deletion_keep
             extent: RevolveExtent::Full,
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
         section,
     );
@@ -1088,6 +1096,7 @@ fn extrusion_with_start(start: Option<&str>) -> (Document, FeatureId) {
             extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
             start: start.map(|text| SolidStart::Distance(Expression::parse_stored(text).unwrap())),
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -1158,6 +1167,7 @@ fn a_start_offset_follows_the_parameter_it_uses() {
             extent: ExtrudeExtent::one_side(Expression::parse_stored("4 mm").unwrap(), false),
             operation: BodyOperation::NewBody,
             start: Some(SolidStart::Distance(Expression::Parameter(lift))),
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();

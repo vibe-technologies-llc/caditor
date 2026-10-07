@@ -86,6 +86,7 @@ fn model(kind: impl FnOnce(ParameterId) -> PatternKind) -> Model {
             extent: ExtrudeExtent::one_side(Expression::Parameter(height), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     let pattern = transaction.add_feature(

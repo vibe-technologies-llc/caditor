@@ -26,6 +26,7 @@ fn extrude(sketch: FeatureId, distance: Expression, operation: BodyOperation) ->
         extent: ExtrudeExtent::one_side(distance, false),
         operation,
         start: None,
+        other_bodies: Vec::new(),
     }))
 }
 

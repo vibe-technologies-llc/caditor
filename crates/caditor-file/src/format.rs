@@ -141,11 +141,18 @@ pub(crate) enum FeatureKindRecord {
     PlaneThrough(Box<PlaneThroughRecord>),
     AxisThrough(Box<AxisThroughRecord>),
     Import(ImportRecord),
+    CutSeveral(Box<CutSeveralRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CutSeveralRecord {
+    pub feature: FeatureKindRecord,
+    pub bodies: Vec<u64>,
 }
 
 pub(crate) const FEATURE_FIELDS: [&str; 2] = ["hidden", "appearance"];
 
-pub(crate) const FEATURE_KINDS: [&str; 28] = [
+pub(crate) const FEATURE_KINDS: [&str; 29] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -174,6 +181,7 @@ pub(crate) const FEATURE_KINDS: [&str; 28] = [
     "plane_through",
     "axis_through",
     "import",
+    "cut_several",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1116,6 +1124,16 @@ fn restore_appearance(
 }
 
 fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
+    if let FeatureKind::Solid(solid) = kind
+        && !solid.other_bodies().is_empty()
+    {
+        let mut alone = solid.clone();
+        alone.other_bodies_mut().clear();
+        return FeatureKindRecord::CutSeveral(Box::new(CutSeveralRecord {
+            feature: feature_kind_record(&FeatureKind::Solid(alone)),
+            bodies: solid.other_bodies().iter().map(|body| body.raw()).collect(),
+        }));
+    }
     match kind {
         FeatureKind::Sketch(sketch) => FeatureKindRecord::Sketch(sketch_record(sketch)),
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude_record(extrude),
@@ -2448,6 +2466,24 @@ pub(crate) fn restore_feature(record: &FeatureRecord, issues: &mut Vec<String>) 
 
 fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>) -> FeatureKind {
     match record {
+        FeatureKindRecord::CutSeveral(several) => {
+            let mut kind = restore_kind(&several.feature, name, issues);
+            match &mut kind {
+                FeatureKind::Solid(solid) => {
+                    *solid.other_bodies_mut() = several
+                        .bodies
+                        .iter()
+                        .copied()
+                        .map(FeatureId::from_raw)
+                        .collect();
+                }
+                _ => issues.push(format!(
+                    "“{name}” listed other bodies to cut, but it is not an extrusion or a \
+                     revolution, so they were left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::Sketch(sketch) => {
             let attachment = match &sketch.attachment {
                 None => None,
@@ -2501,6 +2537,7 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
                 start: extrude.start.as_deref().map(|text| {
                     SolidStart::Distance(restore_value(text, "start offset", "0 mm", name, issues))
                 }),
+                other_bodies: Vec::new(),
             }))
         }
         FeatureKindRecord::ExtrudeTo(extrude) => {
@@ -2537,6 +2574,7 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
                 start: extrude.start.as_deref().map(|text| {
                     SolidStart::Distance(restore_value(text, "start offset", "0 mm", name, issues))
                 }),
+                other_bodies: Vec::new(),
             }))
         }
         FeatureKindRecord::ExtrudeFrom(extrude) => {
@@ -2576,6 +2614,7 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
                 extent,
                 operation: restore_operation(extrude.operation),
                 start: restore_start(&extrude.start, name, issues),
+                other_bodies: Vec::new(),
             }))
         }
         FeatureKindRecord::RevolveFrom(revolve) => {
@@ -2609,6 +2648,7 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
                 extent,
                 operation: restore_operation(revolve.operation),
                 start: restore_start(&revolve.start, name, issues),
+                other_bodies: Vec::new(),
             }))
         }
         FeatureKindRecord::Revolve(revolve) => {
@@ -2635,6 +2675,7 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
                 extent,
                 operation: restore_operation(revolve.operation),
                 start: None,
+                other_bodies: Vec::new(),
             }))
         }
         FeatureKindRecord::RevolveTwoAngles(revolve) => {
@@ -2656,6 +2697,7 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
                 extent,
                 operation: restore_operation(revolve.operation),
                 start: None,
+                other_bodies: Vec::new(),
             }))
         }
         FeatureKindRecord::Fillet(record) => {

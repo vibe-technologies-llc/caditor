@@ -26,6 +26,7 @@ fn extrude(sketch: FeatureId, distance: &str, operation: BodyOperation) -> Featu
         extent: ExtrudeExtent::one_side(Expression::parse_stored(distance).unwrap(), false),
         operation,
         start: None,
+        other_bodies: Vec::new(),
     }))
 }
 
@@ -95,6 +96,7 @@ fn model() -> Model {
             extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), true),
             operation: BodyOperation::Remove(base),
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     let lug = transaction.add_feature(

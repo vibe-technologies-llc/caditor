@@ -49,6 +49,7 @@ fn extrusion(sketch: FeatureId, start: Option<SolidStart>) -> FeatureKind {
         extent: ExtrudeExtent::one_side(millimetres(4.0), false),
         operation: BodyOperation::NewBody,
         start,
+        other_bodies: Vec::new(),
     }))
 }
 
@@ -60,6 +61,7 @@ fn revolution(sketch: FeatureId, start: Option<SolidStart>) -> FeatureKind {
         extent: RevolveExtent::Full,
         operation: BodyOperation::NewBody,
         start,
+        other_bodies: Vec::new(),
     }))
 }
 
@@ -139,6 +141,7 @@ fn an_extrusion_starting_from_a_face_follows_the_face_when_its_body_changes() {
             extent: ExtrudeExtent::one_side(Expression::Parameter(thickness), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -273,6 +276,7 @@ fn a_start_plane_is_reported_by_the_parameters_and_references_it_uses() {
         extent: RevolveExtent::Full,
         operation: BodyOperation::NewBody,
         start: Some(SolidStart::Distance(Expression::Parameter(lift))),
+        other_bodies: Vec::new(),
     });
 
     assert!(solid.uses_parameter(lift));

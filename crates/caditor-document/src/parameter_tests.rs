@@ -114,6 +114,7 @@ fn deleting_a_used_parameter_writes_its_expression_into_every_use() {
             extent: ExtrudeExtent::one_side(transaction.parse("width / 4").unwrap(), false),
             operation: BodyOperation::NewBody,
             start: None,
+            other_bodies: Vec::new(),
         })),
     );
     document.apply(transaction.finish()).unwrap();
