@@ -1,3 +1,4 @@
+use caditor_document::Rgb;
 use serde_json::{Value, json};
 
 use super::{APPLICATION, ExportError, MeshBody};
@@ -22,6 +23,7 @@ struct Parts {
     accessors: Vec<Value>,
     meshes: Vec<Value>,
     nodes: Vec<Value>,
+    materials: Vec<Value>,
 }
 
 pub(super) fn encode(bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, ExportError> {
@@ -31,6 +33,7 @@ pub(super) fn encode(bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, ExportError> {
         accessors: Vec::new(),
         meshes: Vec::new(),
         nodes: Vec::new(),
+        materials: Vec::new(),
     };
     for body in bodies.iter().filter(|body| !body.triangles.is_empty()) {
         add_body(&mut parts, body);
@@ -40,7 +43,7 @@ pub(super) fn encode(bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, ExportError> {
     }
     let binary_length = u32::try_from(parts.binary.len()).map_err(|_| ExportError::TooLarge)?;
     let node_indices: Vec<usize> = (0..parts.nodes.len()).collect();
-    let document = json!({
+    let mut document = json!({
         "asset": { "version": "2.0", "generator": APPLICATION },
         "scene": 0,
         "scenes": [{ "nodes": node_indices }],
@@ -50,6 +53,11 @@ pub(super) fn encode(bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, ExportError> {
         "bufferViews": parts.views,
         "buffers": [{ "byteLength": binary_length }],
     });
+    if !parts.materials.is_empty()
+        && let Some(fields) = document.as_object_mut()
+    {
+        fields.insert("materials".to_owned(), Value::from(parts.materials));
+    }
     let text = serde_json::to_vec(&document).map_err(|_| ExportError::Encoding)?;
     container(text, parts.binary)
 }
@@ -102,16 +110,46 @@ fn add_body(parts: &mut Parts, body: &MeshBody<'_>) {
         "type": "SCALAR",
     }));
 
+    let mut primitive = json!({
+        "attributes": { "POSITION": position_accessor },
+        "indices": index_accessor,
+        "mode": TRIANGLES,
+    });
+    if let Some(look) = body.look
+        && let Some(fields) = primitive.as_object_mut()
+    {
+        fields.insert("material".to_owned(), Value::from(parts.materials.len()));
+        parts.materials.push(json!({
+            "name": look.material.unwrap_or(body.name),
+            "pbrMetallicRoughness": {
+                "baseColorFactor": linear(look.colour),
+                "metallicFactor": 0.0,
+            },
+        }));
+    }
     let mesh = parts.meshes.len();
     parts.meshes.push(json!({
         "name": body.name,
-        "primitives": [{
-            "attributes": { "POSITION": position_accessor },
-            "indices": index_accessor,
-            "mode": TRIANGLES,
-        }],
+        "primitives": [primitive],
     }));
     parts.nodes.push(json!({ "name": body.name, "mesh": mesh }));
+}
+
+fn linear(colour: Rgb) -> [f64; 4] {
+    let channel = |value: u8| {
+        let encoded = f64::from(value) / 255.0;
+        if encoded <= 0.04045 {
+            encoded / 12.92
+        } else {
+            ((encoded + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    [
+        channel(colour.red),
+        channel(colour.green),
+        channel(colour.blue),
+        1.0,
+    ]
 }
 
 fn bounds(points: &[[f32; 3]]) -> ([f32; 3], [f32; 3]) {

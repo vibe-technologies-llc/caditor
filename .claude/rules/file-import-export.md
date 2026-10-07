@@ -71,7 +71,8 @@ paths:
   with the body's colour or the app's default, via `ExportBody::look`), OBJ (one named object per body, global
   1-based indices, millimetres, Z up, no normals) or binary glTF (`.glb`: one node and mesh per
   body, f32 positions in metres with Y up, `x, z, -y` of the model's, so winding is kept, and the
-  position bounds glTF requires; no normals, which the format defines as flat).
+  position bounds glTF requires; no normals, which the format defines as flat; a body with a look
+  gets a material named like its 3MF base, its colour as a linear `baseColorFactor`).
 - Saved atomically like a model. Cancellation is checked between bodies and before writing;
   failures are sentences naming the body. A body that cannot be meshed or written (a panic
   included) is left out and returned in `Exported::left_out` (the app says so in a notice that

@@ -312,7 +312,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [low · medium] STL uses absolute f32 coordinates, which resolve only about 0.06 mm at 10^6 mm, and
   merges all bodies into one surface.
 - [low · medium] 3MF has no thumbnail, builds everything in memory and cannot exceed 4 GiB without
-  ZIP64; glTF and OBJ leave out the bodies' colours (OBJ would need a `.mtl` beside it).
+  ZIP64; OBJ leaves out the bodies' colours, which would need a `.mtl` beside it.
 
 ## Accessibility
 

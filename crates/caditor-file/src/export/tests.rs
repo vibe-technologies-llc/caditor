@@ -499,6 +499,46 @@ fn glb_triangles(glb: &Glb, accessor: usize) -> Vec<[u32; 3]> {
 }
 
 #[test]
+fn a_glb_gives_a_coloured_body_a_material_in_linear_colour() {
+    let block = block();
+    let pin = pin();
+    let mut meshes = [
+        mesh_of(&block, MeshResolution::Coarse),
+        mesh_of(&pin, MeshResolution::Coarse),
+    ];
+    meshes[1].look = Some(Look {
+        colour: Rgb::new(255, 0, 128),
+        material: Some("Brass"),
+    });
+
+    let glb = glb(&gltf::encode(&meshes).unwrap());
+
+    assert!(
+        glb.json["meshes"][0]["primitives"][0]
+            .get("material")
+            .is_none()
+    );
+    assert_eq!(glb.json["meshes"][1]["primitives"][0]["material"], 0);
+    let material = &glb.json["materials"][0];
+    assert_eq!(material["name"], "Brass");
+    let factor = &material["pbrMetallicRoughness"]["baseColorFactor"];
+    assert_eq!(factor[0], 1.0);
+    assert_eq!(factor[1], 0.0);
+    assert!((factor[2].as_f64().unwrap() - 0.2158605).abs() < 1e-6);
+    assert_eq!(factor[3], 1.0);
+}
+
+#[test]
+fn a_glb_of_plain_bodies_has_no_materials() {
+    let block = block();
+    let meshes = [mesh_of(&block, MeshResolution::Coarse)];
+
+    let glb = glb(&gltf::encode(&meshes).unwrap());
+
+    assert!(glb.json.get("materials").is_none());
+}
+
+#[test]
 fn a_glb_is_a_valid_binary_gltf_with_one_named_node_per_body_in_metres_with_y_up() {
     let block = block();
     let pin = pin();
